@@ -1,0 +1,167 @@
+@import "tailwindcss";
+
+/* Enterprise-dark design system theme tokens for Tailwind v4 */
+@theme inline {
+  --color-navy: #001f3f;
+  --color-white: #FFFFFF;
+  --color-grey: #AAAAAA;
+  --color-black: #000000;
+
+  --color-background: var(--color-black);
+  --color-foreground: var(--color-white);
+  --color-surface: var(--color-navy);
+  --color-muted: var(--color-grey);
+  --color-border: var(--color-grey);
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  /* Animation durations */
+  --animate-typing: typing 1.4s steps(3, end) infinite;
+  --animate-fade-in: fade-in 0.3s ease-out forwards;
+  --animate-fade-in-up: fade-in-up 0.3s ease-out forwards;
+}
+
+/* Typing animation keyframes */
+@keyframes typing {
+  0% {
+    opacity: 0.2;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.2;
+  }
+}
+
+/* Fade-in transition keyframes */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Fade-in-up transition keyframes */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Base dark theme styles */
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Typing indicator dots */
+.typing-dot {
+  animation: typing 1.4s infinite ease-in-out;
+}
+
+.typing-dot:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+/* Fade-in transition utility classes */
+.fade-in {
+  animation: fade-in 0.3s ease-out forwards;
+}
+
+.fade-in-up {
+  animation: fade-in-up 0.3s ease-out forwards;
+}
+
+/* Hover effect utilities for interactive elements */
+.hover-lift {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 31, 63, 0.3);
+}
+
+.hover-glow {
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.hover-glow:hover {
+  background-color: rgba(0, 31, 63, 0.6);
+  border-color: var(--color-grey);
+}
+
+.hover-brighten {
+  transition: opacity 0.2s ease;
+}
+
+.hover-brighten:hover {
+  opacity: 0.85;
+}
+
+/* Smooth tab transition classes */
+.tab-transition {
+  transition: all 0.2s ease-in-out;
+}
+
+.tab-active {
+  border-bottom: 2px solid var(--color-white);
+  color: var(--color-white);
+}
+
+.tab-inactive {
+  border-bottom: 2px solid transparent;
+  color: var(--color-grey);
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.tab-inactive:hover {
+  color: var(--color-white);
+  border-bottom-color: var(--color-grey);
+}
+
+/* Tab content panel transitions */
+.tab-panel {
+  animation: fade-in 0.2s ease-out;
+}
+
+/* Scrollbar styling for dark theme */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-black);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-grey);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-white);
+}

@@ -1,0 +1,15 @@
+[project]
+name = "ai-saas-platform-backend"
+version = "0.1.0"
+description = "Enterprise-grade AI SaaS platform backend"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.hypothesis]
+max_examples = 100
