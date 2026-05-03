@@ -22,6 +22,7 @@ export interface UseWebSocketReturn {
   connectionStatus: ConnectionStatus;
   reconnect: () => void;
   lastMessage: StreamMessage | null;
+  lastError: string | null;
 }
 
 const DEFAULT_WS_URL = "ws://localhost:8000/ws/chat";
@@ -35,6 +36,7 @@ export function useWebSocket(config: UseWebSocketConfig): UseWebSocketReturn {
   const [connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("disconnected");
   const [lastMessage, setLastMessage] = useState<StreamMessage | null>(null);
+  const [lastError, setLastError] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const retryCountRef = useRef(0);
@@ -83,6 +85,7 @@ export function useWebSocket(config: UseWebSocketConfig): UseWebSocketReturn {
     ws.onopen = () => {
       retryCountRef.current = 0;
       setConnectionStatus("connected");
+      setLastError(null);
     };
 
     ws.onmessage = (event: MessageEvent) => {
@@ -110,6 +113,7 @@ export function useWebSocket(config: UseWebSocketConfig): UseWebSocketReturn {
         // JWT expired — clear token and redirect to login
         clearToken();
         setConnectionStatus("disconnected");
+        setLastError("Your session has expired. Please log in again.");
         if (typeof window !== "undefined") {
           window.location.href = "/login";
         }
@@ -126,11 +130,15 @@ export function useWebSocket(config: UseWebSocketConfig): UseWebSocketReturn {
         const delay = BASE_DELAY_MS * Math.pow(2, retryCountRef.current);
         retryCountRef.current += 1;
         setConnectionStatus("reconnecting");
+        setLastError("Connection lost. Attempting to reconnect...");
         retryTimeoutRef.current = setTimeout(() => {
           connect();
         }, delay);
       } else {
         setConnectionStatus("failed");
+        setLastError(
+          "Unable to establish a connection to the server. Please check your internet connection and try again."
+        );
       }
     };
   }, [token, url, cleanup]);
@@ -161,5 +169,5 @@ export function useWebSocket(config: UseWebSocketConfig): UseWebSocketReturn {
     };
   }, [token, connect, cleanup]);
 
-  return { send, connectionStatus, reconnect, lastMessage };
+  return { send, connectionStatus, reconnect, lastMessage, lastError };
 }

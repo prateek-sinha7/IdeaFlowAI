@@ -107,6 +107,33 @@ export async function getMe(token: string): Promise<User> {
 
 // --- Chat API ---
 
+/** Raw chat session shape from the backend (snake_case fields) */
+interface RawChatSession {
+  id: string;
+  title: string;
+  last_activity: string;
+  created_at: string;
+}
+
+/** Ensure a timestamp string is treated as UTC (append Z if missing) */
+function ensureUTC(timestamp: string): string {
+  if (!timestamp) return timestamp;
+  // If it already has timezone info (Z or +/-offset), leave it
+  if (/Z$|[+-]\d{2}:\d{2}$/.test(timestamp)) return timestamp;
+  // Otherwise append Z to indicate UTC
+  return timestamp + "Z";
+}
+
+/** Normalize a backend chat session (snake_case) to frontend format (camelCase) */
+function normalizeChatSession(raw: RawChatSession): ChatSession {
+  return {
+    id: raw.id,
+    title: raw.title,
+    lastActivity: ensureUTC(raw.last_activity),
+    createdAt: ensureUTC(raw.created_at),
+  };
+}
+
 /** Raw message shape from the backend (snake_case fields) */
 export interface RawMessageResponse {
   id: string;
@@ -129,18 +156,20 @@ export async function createChat(
   token: string,
   title?: string
 ): Promise<ChatSession> {
-  return request<ChatSession>("/api/chats", {
+  const raw = await request<RawChatSession>("/api/chats", {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({ title: title ?? null }),
   });
+  return normalizeChatSession(raw);
 }
 
 export async function getChats(token: string): Promise<ChatSession[]> {
-  return request<ChatSession[]>("/api/chats", {
+  const raw = await request<RawChatSession[]>("/api/chats", {
     method: "GET",
     headers: authHeaders(token),
   });
+  return raw.map(normalizeChatSession);
 }
 
 export async function getChat(
@@ -164,6 +193,24 @@ export async function addMessage(
     headers: authHeaders(token),
     body: JSON.stringify({ content, role }),
   });
+}
+
+export async function deleteChat(
+  token: string,
+  chatId: string
+): Promise<void> {
+  const url = `${BASE_URL}/api/chats/${chatId}`;
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: authHeaders(token),
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({
+      detail: response.statusText,
+    }));
+    throw new ApiError(response.status, body.detail ?? body);
+  }
 }
 
 export { ApiError };

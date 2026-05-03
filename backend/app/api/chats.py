@@ -129,6 +129,36 @@ def get_chat(
     )
 
 
+@router.delete("/{chat_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_chat(
+    chat_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete a chat session and all its messages.
+
+    Returns 204 No Content on success.
+    Returns 404 if the chat session does not exist or does not belong to the user.
+    """
+    chat_session = (
+        db.query(ChatSession)
+        .filter(ChatSession.id == chat_id, ChatSession.user_id == current_user.id)
+        .first()
+    )
+    if not chat_session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chat session not found",
+        )
+
+    # Delete all messages first, then the chat session
+    db.query(Message).filter(Message.chat_session_id == chat_id).delete()
+    db.delete(chat_session)
+    db.commit()
+
+    return None
+
+
 @router.put("/{chat_id}/messages", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
 def add_message(
     chat_id: str,

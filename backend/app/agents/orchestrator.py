@@ -284,7 +284,8 @@ class AgentOrchestrator:
         return final_output
 
     async def astream_execute(
-        self, user_message: str, chat_session_id: str | None = None
+        self, user_message: str, chat_session_id: str | None = None,
+        mode: str = "default", mode_prompt: str = "",
     ) -> AsyncGenerator[dict, None]:
         """Run the full pipeline, yielding StreamMessage-like dicts for WebSocket streaming.
 
@@ -293,12 +294,19 @@ class AgentOrchestrator:
         Args:
             user_message: The user's input message.
             chat_session_id: Optional chat session ID for tracking.
+            mode: The chat mode selected by the user.
+            mode_prompt: The mode-specific system prompt enhancement.
 
         Yields:
             Dicts conforming to StreamMessageModel structure.
         """
         context: dict = {}
         output_selection: list[str] = []
+
+        # Inject mode context so agents are aware of the mode
+        if mode_prompt:
+            context["mode"] = mode
+            context["mode_prompt"] = mode_prompt
 
         # Phase 0: Discovery
         yield {"type": "phase_start", "section": "discovery", "chunk": None, "data": {"phase": 0, "name": "Discovery"}}

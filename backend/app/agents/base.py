@@ -57,17 +57,28 @@ class BaseAgent:
         Returns:
             A list of LangChain message objects.
         """
-        messages = [SystemMessage(content=self.system_prompt)]
+        # If a mode_prompt is present in context, prepend it to the system prompt
+        system_prompt = self.system_prompt
+        if context and context.get("mode_prompt"):
+            system_prompt = context["mode_prompt"] + "\n\n" + system_prompt
+
+        messages = [SystemMessage(content=system_prompt)]
 
         if context:
-            context_str = "\n".join(
-                f"{key}: {value}" for key, value in context.items()
-            )
-            messages.append(
-                HumanMessage(
-                    content=f"Here is the context from previous phases:\n{context_str}"
+            # Filter out mode-related keys from context display
+            filtered_context = {
+                k: v for k, v in context.items()
+                if k not in ("mode", "mode_prompt")
+            }
+            if filtered_context:
+                context_str = "\n".join(
+                    f"{key}: {value}" for key, value in filtered_context.items()
                 )
-            )
+                messages.append(
+                    HumanMessage(
+                        content=f"Here is the context from previous phases:\n{context_str}"
+                    )
+                )
 
         messages.append(HumanMessage(content=user_message))
         return messages

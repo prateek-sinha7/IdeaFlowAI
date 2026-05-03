@@ -11,7 +11,7 @@ export interface AuthResponse {
 export interface ChatSession {
   id: string;
   title: string;
-  lastActivity: string; // ISO 8601
+  lastActivity: string;
   createdAt: string;
 }
 
@@ -21,13 +21,23 @@ export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   createdAt: string;
+  steps?: ProcessStep[];
 }
 
 export interface StreamMessage {
-  type: "stream" | "complete" | "error" | "phase_start" | "phase_end";
+  type: "stream" | "complete" | "error" | "phase_start" | "phase_end" | "title_update" | "step";
   chunk?: string;
   section?: string;
-  data?: FinalOutput | ErrorDetail;
+  data?: FinalOutput | ErrorDetail | ProcessStep;
+}
+
+export interface ProcessStep {
+  id: string;
+  label: string;
+  detail?: string;
+  status: "running" | "done" | "error";
+  icon?: string;
+  timestamp?: string;
 }
 
 export interface ErrorDetail {
