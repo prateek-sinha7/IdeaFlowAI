@@ -495,8 +495,8 @@ export function PPTPreview({ content, isStreaming }: PPTPreviewProps) {
         </span>
       </div>
 
-      {/* Slide card with 16:9 aspect ratio feel */}
-      <div className="relative flex-1 min-h-0">
+      {/* Slide card — 16:9 landscape format */}
+      <div className="relative flex-1 min-h-0 flex items-center justify-center p-2">
         <AnimatePresence mode="wait">
           <motion.div
             key={safeIndex}
@@ -504,26 +504,30 @@ export function PPTPreview({ content, isStreaming }: PPTPreviewProps) {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
             transition={{ duration: 0.25, ease: "easeInOut" }}
-            className="absolute inset-0 flex flex-col rounded-xl border border-grey/20 overflow-hidden shadow-lg"
+            className="relative w-full rounded-lg border border-grey/20 overflow-hidden shadow-2xl shadow-black/40"
             style={{
               backgroundColor: slide.colorScheme?.background || "#001f3f",
               color: slide.colorScheme?.text || "#FFFFFF",
+              paddingBottom: "56.25%",
             }}
           >
-            {/* Slide content — routed by type */}
-            <SlideContent slide={slide} />
+            {/* Content positioned absolutely inside the 16:9 container */}
+            <div className="absolute inset-0 flex flex-col overflow-y-auto">
+              {/* Slide content — routed by type */}
+              <SlideContent slide={slide} />
 
-            {/* Slide type badge footer */}
-            <div className="px-6 pb-4 pt-2 border-t border-white/10 flex items-center justify-between">
-              <span
-                className="text-[10px] uppercase tracking-widest font-medium opacity-50"
-                style={{ color: slide.colorScheme?.accent || "#AAAAAA" }}
-              >
-                {slide.type}
-              </span>
-              <span className="text-[10px] opacity-40">
-                {safeIndex + 1} / {slides.length}
-              </span>
+              {/* Slide type badge footer */}
+              <div className="px-4 pb-3 pt-2 border-t border-white/10 flex items-center justify-between mt-auto">
+                <span
+                  className="text-[9px] uppercase tracking-widest font-medium opacity-50"
+                  style={{ color: slide.colorScheme?.accent || "#AAAAAA" }}
+                >
+                  {slide.type}
+                </span>
+                <span className="text-[9px] opacity-40">
+                  {safeIndex + 1} / {slides.length}
+                </span>
+              </div>
             </div>
           </motion.div>
         </AnimatePresence>
