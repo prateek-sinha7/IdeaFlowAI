@@ -62,9 +62,10 @@ export function DashboardLayout({
   processSteps,
 }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [previewOpen, setPreviewOpen] = useState(false); // Hidden by default — like Claude
-  const [previewManualClose, setPreviewManualClose] = useState(false); // Track if user manually closed
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewManualClose, setPreviewManualClose] = useState(false);
   const [previewInitialTab, setPreviewInitialTab] = useState<string | undefined>(undefined);
+  const [previewWidth, setPreviewWidth] = useState(420);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const prevContentRef = useRef({ userStory: "", ppt: "", prototype: "" });
 
@@ -132,6 +133,31 @@ export function DashboardLayout({
     },
     [onSendMessage]
   );
+
+  // Resize preview panel via drag
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = previewWidth;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const delta = startX - moveEvent.clientX;
+      const newWidth = Math.min(700, Math.max(320, startWidth + delta));
+      setPreviewWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, [previewWidth]);
 
   return (
     <div className="flex h-screen w-full overflow-hidden" style={{ backgroundColor: 'var(--theme-bg)' }}>
@@ -328,18 +354,28 @@ export function DashboardLayout({
         </div>
       </main>
 
-      {/* Preview Panel — hidden by default, auto-opens when content arrives (like Claude artifacts) */}
+      {/* Preview Panel — resizable, scrollable, hidden by default */}
       <AnimatePresence>
         {previewOpen && (
           <motion.aside
             initial={{ width: 0, opacity: 0 }}
-            animate={{ width: 420, opacity: 1 }}
+            animate={{ width: previewWidth, opacity: 1 }}
             exit={{ width: 0, opacity: 0 }}
             transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
-            className="hidden lg:block h-full overflow-hidden border-l flex-shrink-0"
+            className="hidden lg:flex h-full overflow-hidden flex-shrink-0 relative"
             style={{ borderColor: 'var(--theme-border)' }}
           >
-            <div className="w-[420px] h-full">
+            {/* Resize handle */}
+            <div
+              onMouseDown={handleResizeStart}
+              className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 group flex items-center justify-center hover:bg-white/10 transition-colors"
+              style={{ borderLeft: '1px solid var(--theme-border)' }}
+              aria-label="Resize preview panel"
+            >
+              <div className="w-0.5 h-8 rounded-full bg-grey/30 group-hover:bg-grey/60 transition-colors" />
+            </div>
+
+            <div className="flex-1 h-full overflow-hidden pl-1.5" style={{ width: previewWidth }}>
               <ErrorBoundary fallbackLabel="PreviewPanel">
                 <PreviewPanel
                   userStoryContent={userStoryContent || undefined}
