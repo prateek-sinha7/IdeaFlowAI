@@ -2,10 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { FileText, Presentation, Layout, PanelRightClose, Eye } from "lucide-react";
+import { FileText, Presentation, Layout, PanelRightClose, Eye, Download } from "lucide-react";
 import { UserStoryPreview } from "./UserStoryPreview";
 import { PPTPreview } from "./PPTPreview";
 import { PrototypePreview } from "./PrototypePreview";
+import { exportUserStories } from "@/lib/exporters/storyExporter";
+import { exportToPptx } from "@/lib/exporters/pptExporter";
+import { exportPrototype } from "@/lib/exporters/prototypeExporter";
+import { parsePPTSlideData } from "@/lib/parsers/pptParser";
 
 type TabId = "user-stories" | "ppt" | "prototype";
 
@@ -25,6 +29,7 @@ interface PreviewPanelProps {
   userStoryContent?: string;
   pptContent?: string;
   prototypeContent?: string;
+  isStreaming?: boolean;
   onCollapse?: () => void;
   initialTab?: string;
   onTabSelect?: (tab: string) => void;
@@ -34,12 +39,13 @@ interface PreviewPanelProps {
  * Tabbed preview container with animated tab switching.
  * Three tabs: User Stories, PPT, Prototype with Lucide icons.
  * Uses AnimatePresence for smooth content transitions.
- * Features pill-style tabs and a premium header.
+ * Features pill-style tabs, a premium header, and download buttons.
  */
 export function PreviewPanel({
   userStoryContent,
   pptContent,
   prototypeContent,
+  isStreaming,
   onCollapse,
   initialTab,
   onTabSelect,
@@ -58,6 +64,35 @@ export function PreviewPanel({
     onTabSelect?.(tabId);
   };
 
+  const handleDownload = () => {
+    if (activeTab === "user-stories" && userStoryContent) {
+      exportUserStories(userStoryContent);
+    } else if (activeTab === "ppt" && pptContent) {
+      try {
+        const slideData = parsePPTSlideData(pptContent);
+        exportToPptx(slideData);
+      } catch {
+        // Fallback: download as JSON text
+        const blob = new Blob([pptContent], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "presentation.json";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
+    } else if (activeTab === "prototype" && prototypeContent) {
+      exportPrototype(prototypeContent);
+    }
+  };
+
+  const hasContent =
+    (activeTab === "user-stories" && userStoryContent) ||
+    (activeTab === "ppt" && pptContent) ||
+    (activeTab === "prototype" && prototypeContent);
+
   return (
     <div className="flex h-full flex-col backdrop-blur-sm" style={{ backgroundColor: 'var(--theme-surface)' }}>
       {/* Header section */}
@@ -68,15 +103,27 @@ export function PreviewPanel({
           </div>
           <h2 className="text-sm font-semibold text-white tracking-tight">Preview</h2>
         </div>
-        {onCollapse && (
-          <button
-            onClick={onCollapse}
-            className="flex items-center justify-center rounded-md p-1.5 text-grey/60 hover:text-white hover:bg-white/5 transition-all duration-200"
-            aria-label="Close preview"
-          >
-            <PanelRightClose className="h-4 w-4" />
-          </button>
-        )}
+        <div className="flex items-center gap-1">
+          {hasContent && (
+            <button
+              onClick={handleDownload}
+              className="flex items-center justify-center rounded-md p-1.5 text-grey/60 hover:text-white hover:bg-white/5 transition-all duration-200"
+              aria-label="Download content"
+              title="Download"
+            >
+              <Download className="h-4 w-4" />
+            </button>
+          )}
+          {onCollapse && (
+            <button
+              onClick={onCollapse}
+              className="flex items-center justify-center rounded-md p-1.5 text-grey/60 hover:text-white hover:bg-white/5 transition-all duration-200"
+              aria-label="Close preview"
+            >
+              <PanelRightClose className="h-4 w-4" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Pill-style tab bar */}
@@ -132,9 +179,9 @@ export function PreviewPanel({
             {activeTab === "user-stories" && (
               <UserStoryPreview content={userStoryContent} />
             )}
-            {activeTab === "ppt" && <PPTPreview content={pptContent} />}
+            {activeTab === "ppt" && <PPTPreview content={pptContent} isStreaming={isStreaming} />}
             {activeTab === "prototype" && (
-              <PrototypePreview content={prototypeContent} />
+              <PrototypePreview content={prototypeContent} isStreaming={isStreaming} />
             )}
           </motion.div>
         </AnimatePresence>

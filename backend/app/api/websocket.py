@@ -314,6 +314,15 @@ async def websocket_chat(websocket: WebSocket):
             db = _get_db()
             try:
                 assistant_content = "".join(assistant_chunks)
+
+                # For PPT/Prototype, the raw content is JSON — persist a summary instead
+                if use_mock:
+                    lower_msg = content.lower()
+                    if any(kw in lower_msg for kw in ["ppt", "presentation", "slide", "deck"]):
+                        assistant_content = "✅ **Presentation generated!** Check the Preview panel → PPT tab to see your slides."
+                    elif any(kw in lower_msg for kw in ["prototype", "wireframe", "mockup"]):
+                        assistant_content = "✅ **Prototype generated!** Check the Preview panel → Prototype tab to see the UI definition."
+
                 if assistant_content:
                     # Embed steps as a hidden marker at the start of content
                     persisted_content = assistant_content

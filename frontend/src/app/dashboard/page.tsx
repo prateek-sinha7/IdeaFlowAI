@@ -34,6 +34,9 @@ export default function DashboardPage() {
   const [processSteps, setProcessSteps] = useState<ProcessStep[]>([]);
   const processStepsRef = useRef<ProcessStep[]>([]);
   const activePreviewSectionRef = useRef<string | null>(null);
+  const pptContentRef = useRef("");
+  const prototypeContentRef = useRef("");
+  const userStoryContentRef = useRef("");
 
   // Auth check on mount
   useEffect(() => {
@@ -57,12 +60,15 @@ export default function DashboardPage() {
         if (msg.section === "user_stories") {
           setUserStoryContent((prev) => prev + chunk);
           setStreamingContent((prev) => prev + chunk);
+          userStoryContentRef.current += chunk;
           activePreviewSectionRef.current = "user_stories";
         } else if (msg.section === "ppt") {
           setPptContent((prev) => prev + chunk);
+          pptContentRef.current += chunk;
           activePreviewSectionRef.current = "ppt";
         } else if (msg.section === "prototype") {
           setPrototypeContent((prev) => prev + chunk);
+          prototypeContentRef.current += chunk;
           activePreviewSectionRef.current = "prototype";
         } else {
           setStreamingContent((prev) => prev + chunk);
@@ -100,6 +106,32 @@ export default function DashboardPage() {
           }
 
           if (chatContent) {
+            // Determine artifact based on the active preview section
+            let artifact: { type: "user-stories" | "ppt" | "prototype"; filename: string; content: string; summary: string } | undefined;
+
+            if (previewSection === "ppt" && pptContentRef.current) {
+              artifact = {
+                type: "ppt",
+                filename: "presentation.pptx",
+                content: pptContentRef.current,
+                summary: "Slide deck with charts, tables, and comparisons",
+              };
+            } else if (previewSection === "prototype" && prototypeContentRef.current) {
+              artifact = {
+                type: "prototype",
+                filename: "prototype.json",
+                content: prototypeContentRef.current,
+                summary: "Interactive prototype with component hierarchy and navigation",
+              };
+            } else if (previewSection === "user_stories" && userStoryContentRef.current) {
+              artifact = {
+                type: "user-stories",
+                filename: "user-stories.md",
+                content: userStoryContentRef.current,
+                summary: "Structured backlog with epics, stories, and acceptance criteria",
+              };
+            }
+
             setMessages((msgs) => {
               const lastMsg = msgs[msgs.length - 1];
               if (lastMsg && lastMsg.role === "assistant") {
@@ -112,6 +144,7 @@ export default function DashboardPage() {
                 content: chatContent,
                 createdAt: new Date().toISOString(),
                 steps: stepsSnapshot.length > 0 ? stepsSnapshot : undefined,
+                artifact,
               }];
             });
           }
@@ -212,49 +245,67 @@ export default function DashboardPage() {
   });
 
   // Send a message via WebSocket
+  const sendingRef = useRef(false);
+
   const handleSendMessage = useCallback(
     async (content: string) => {
-      let chatId = activeChatId;
+      if (sendingRef.current) return;
+      sendingRef.current = true;
 
-      // Auto-create a chat session if none is selected (like ChatGPT/Claude)
-      if (!chatId) {
-        const currentToken = getToken();
-        if (!currentToken) return;
-        try {
-          const newSession = await createChat(currentToken, content.slice(0, 50));
-          chatId = newSession.id;
-          setActiveChatId(chatId);
-        } catch (err) {
-          console.error("Failed to auto-create chat:", err);
-          return;
+      try {
+        let chatId = activeChatId;
+
+        // Auto-create a chat session if none is selected
+        if (!chatId) {
+          const currentToken = getToken();
+          if (!currentToken) { sendingRef.current = false; return; }
+          try {
+            const newSession = await createChat(currentToken, content.slice(0, 50));
+            chatId = newSession.id;
+            setActiveChatId(chatId);
+          } catch (err) {
+            console.error("Failed to auto-create chat:", err);
+            sendingRef.current = false;
+            return;
+          }
         }
-      }
 
-      // Add user message to local state
-      const userMessage: ChatMessage = {
-        id: crypto.randomUUID(),
-        chatSessionId: chatId,
-        role: "user",
-        content,
-        createdAt: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, userMessage]);
-
-      // Reset streaming state for new response
-      setIsStreaming(true);
-      setStreamingContent("");
-      setCurrentMode("default");
-      setProcessSteps([]);
-      activePreviewSectionRef.current = null;
-
-      // Send via WebSocket (backend persists the message)
-      send(
-        JSON.stringify({
-          type: "user_message",
+        // Add user message to local state
+        const userMessage: ChatMessage = {
+          id: crypto.randomUUID(),
+          chatSessionId: chatId,
+          role: "user",
           content,
-          chat_session_id: chatId,
-        })
-      );
+          createdAt: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, userMessage]);
+
+        // Reset streaming state
+        setIsStreaming(true);
+        setStreamingContent("");
+        setCurrentMode("default");
+        setProcessSteps([]);
+        activePreviewSectionRef.current = null;
+        pptContentRef.current = "";
+        prototypeContentRef.current = "";
+        userStoryContentRef.current = "";
+        // Clear preview content for fresh generation
+        setUserStoryContent("");
+        setPptContent("");
+        setPrototypeContent("");
+
+        // Send via WebSocket
+        send(
+          JSON.stringify({
+            type: "user_message",
+            content,
+            chat_session_id: chatId,
+          })
+        );
+      } finally {
+        // Allow next send after a short delay
+        setTimeout(() => { sendingRef.current = false; }, 500);
+      }
     },
     [activeChatId, send]
   );
@@ -293,6 +344,13 @@ export default function DashboardPage() {
       setStreamingContent("");
       setCurrentMode(mode);
       setProcessSteps([]);
+      pptContentRef.current = "";
+      prototypeContentRef.current = "";
+      userStoryContentRef.current = "";
+      // Clear preview content for fresh generation
+      setUserStoryContent("");
+      setPptContent("");
+      setPrototypeContent("");
 
       // Send via WebSocket with mode (backend persists the message)
       send(

@@ -601,6 +601,13 @@ body {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
 }
 
+/* Artifact card for light theme */
+[data-theme="light"] .artifact-card {
+  background: linear-gradient(135deg, rgba(241, 245, 249, 0.9) 0%, rgba(255, 255, 255, 0.95) 100%) !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
 /* Input glow for light theme */
 [data-theme="light"] .input-glow:focus-within {
   box-shadow: 0 0 0 1px rgba(0, 31, 63, 0.2), 0 0 24px -4px rgba(0, 31, 63, 0.15);

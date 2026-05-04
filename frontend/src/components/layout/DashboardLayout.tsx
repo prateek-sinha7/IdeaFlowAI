@@ -345,6 +345,7 @@ export function DashboardLayout({
                   userStoryContent={userStoryContent || undefined}
                   pptContent={pptContent || undefined}
                   prototypeContent={prototypeContent || undefined}
+                  isStreaming={isStreaming}
                   onCollapse={handlePreviewClose}
                   initialTab={previewInitialTab}
                   onTabSelect={(tab) => setPreviewInitialTab(tab)}

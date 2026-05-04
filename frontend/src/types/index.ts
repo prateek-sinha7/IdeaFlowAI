@@ -15,6 +15,13 @@ export interface ChatSession {
   createdAt: string;
 }
 
+export interface ChatMessageArtifact {
+  type: "user-stories" | "ppt" | "prototype";
+  filename: string;
+  content: string;
+  summary: string;
+}
+
 export interface ChatMessage {
   id: string;
   chatSessionId: string;
@@ -22,6 +29,7 @@ export interface ChatMessage {
   content: string;
   createdAt: string;
   steps?: ProcessStep[];
+  artifact?: ChatMessageArtifact;
 }
 
 export interface StreamMessage {
@@ -64,13 +72,39 @@ export interface SlideData {
 
 export interface Slide {
   title: string;
+  subtitle?: string;
   content: BulletPoint[];
-  type: "text" | "chart" | "table" | "comparison" | "icon";
+  type: "text" | "chart" | "table" | "comparison" | "icon" | "title" | "two-column" | "quote" | "timeline";
   colorScheme: {
     background: string;
     text: string;
     accent: string;
   };
+  speakerNotes?: string;
+  layout?: string;
+  chartData?: ChartData;
+  tableData?: TableData;
+  comparisonData?: ComparisonData;
+  icons?: string[];
+  quote?: { text: string; author: string };
+  columns?: [string[], string[]] | [BulletPoint[], BulletPoint[]];
+}
+
+export interface ChartData {
+  type: "bar" | "pie" | "line";
+  labels: string[];
+  values: number[];
+  title?: string;
+}
+
+export interface TableData {
+  headers: string[];
+  rows: string[][];
+}
+
+export interface ComparisonData {
+  left: { title: string; items: string[] };
+  right: { title: string; items: string[] };
 }
 
 export interface BulletPoint {
@@ -88,36 +122,59 @@ export interface PrototypePage {
   name: string;
   route: string;
   components: PrototypeComponent[];
+  states?: Record<string, string>;
 }
 
 export interface PrototypeComponent {
   type: string;
   props: Record<string, unknown>;
   children?: PrototypeComponent[];
+  dataFlow?: string;
 }
 
 export interface NavigationConfig {
-  routes: Record<string, string>;
+  routes?: Record<string, string>;
+  type?: string;
+  items?: NavigationItem[];
   defaultRoute?: string;
+}
+
+export interface NavigationItem {
+  label: string;
+  route: string;
+  icon?: string;
 }
 
 export interface BehaviorConfig {
   interactions: Record<string, string>;
   animations?: Record<string, string>;
+  responsive?: Record<string, unknown>;
 }
 
 export interface UserStoryDocument {
   epics: Epic[];
+  personas?: Persona[];
+}
+
+export interface Persona {
+  name: string;
+  role: string;
+  goals: string;
+  painPoints: string;
 }
 
 export interface Epic {
   title: string;
   description: string;
   stories: Story[];
+  priority?: string;
+  businessValue?: string;
 }
 
 export interface Story {
   title: string;
   description: string;
   acceptanceCriteria: string[];
+  storyPoints?: number;
+  dependencies?: string;
 }

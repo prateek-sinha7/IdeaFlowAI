@@ -18,6 +18,7 @@ import ReactMarkdown from "react-markdown";
 import type { ChatMessage } from "@/types/index";
 import { useTextToSpeech } from "@/hooks/useTextToSpeech";
 import { ProcessSteps } from "./ProcessSteps";
+import { ArtifactCard } from "./ArtifactCard";
 import type { ChatMode } from "./ChatInput";
 
 interface MessageBubbleProps {
@@ -320,6 +321,18 @@ export function MessageBubble({
         <div className={`markdown-content ${isStreaming ? "streaming-cursor" : ""}`}>
           <ReactMarkdown>{mainContent}</ReactMarkdown>
         </div>
+
+        {/* Artifact card — inline card for generated content */}
+        {message.artifact && (
+          <div className="mt-3">
+            <ArtifactCard
+              type={message.artifact.type}
+              filename={message.artifact.filename}
+              content={message.artifact.content}
+              summary={message.artifact.summary}
+            />
+          </div>
+        )}
 
         {/* Floating action bar — glass morphism pill below message on hover */}
         {!isStreaming && (
