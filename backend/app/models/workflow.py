@@ -21,6 +21,7 @@ class WorkflowRun(Base):
     status = Column(String, nullable=False, default="running")  # "running" | "completed" | "failed"
     input = Column(Text, nullable=False)  # The user's idea/prompt
     output = Column(Text, nullable=True)  # JSON string of final output
+    agent_outputs = Column(Text, nullable=True)  # JSON array of per-agent thinking/output
     agent_count = Column(Integer, nullable=False, default=0)
     duration = Column(Float, nullable=True)  # Total execution time in seconds
     error = Column(Text, nullable=True)  # Error message if failed

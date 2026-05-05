@@ -25,7 +25,7 @@ const INITIAL_STATE: PipelineRunState = {
  * Sends `run_pipeline` messages and handles incoming pipeline status updates.
  * Now includes `handleMessage` so the parent can route pipeline WebSocket messages here.
  */
-export function useWorkflow(websocketSend: (msg: string) => void): UseWorkflowReturn {
+export function useWorkflow(websocketSend: (msg: string) => boolean | void): UseWorkflowReturn {
   const [pipelineState, setPipelineState] = useState<PipelineRunState>(INITIAL_STATE);
   const startTimeRef = useRef<number | null>(null);
   const agentStartTimesRef = useRef<Record<string, number>>({});

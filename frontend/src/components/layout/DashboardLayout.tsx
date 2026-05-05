@@ -16,7 +16,6 @@ import { Sidebar } from "@/components/sidebar/Sidebar";
 import { PreviewPanel } from "@/components/preview/PreviewPanel";
 import { WorkflowView } from "@/components/workflow/WorkflowView";
 import { CreationHub } from "@/components/home/CreationHub";
-import { ResultsView } from "@/components/results/ResultsView";
 import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WorkflowRun, WorkflowType } from "@/types/index";
 import type { ConnectionStatus } from "@/hooks/useWebSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
@@ -48,7 +47,7 @@ export interface DashboardLayoutProps {
   onSelectWorkflowRun?: (run: WorkflowRun) => void;
 }
 
-type MainView = "home" | "workflow" | "results";
+type MainView = "home" | "workflow";
 
 export function DashboardLayout({
   activeChatId,
@@ -85,6 +84,7 @@ export function DashboardLayout({
   const [mainView, setMainView] = useState<MainView>("home");
   const [workflowType, setWorkflowType] = useState<WorkflowType>("user_stories");
   const [workflowInput, setWorkflowInput] = useState("");
+  const [currentAgentOutputs, setCurrentAgentOutputs] = useState<import("@/types/index").AgentThinkingEntry[] | undefined>(undefined);
   const prevContentRef = useRef({ userStory: "", ppt: "", prototype: "" });
 
   // Merge external runs with any locally-tracked in-flight run
@@ -141,10 +141,11 @@ export function DashboardLayout({
   // Handle selecting a past run
   const handleSelectRun = useCallback((run: WorkflowRun) => {
     if (run.status === "completed") {
-      // Set the workflow type so ResultsView knows which content to show
       setWorkflowType(run.type);
-      setPreviewOpen(false); // ResultsView shows content inline
-      setMainView("results");
+      setPreviewOpen(true);
+      setPreviewManualClose(false);
+      setPreviewInitialTab("preview");
+      setCurrentAgentOutputs(run.agentOutputs);
     }
     // Notify parent to load the run's output
     onSelectWorkflowRun?.(run);
@@ -404,8 +405,6 @@ export function DashboardLayout({
               >
                 <CreationHub
                   onSelectFeature={handleSelectFeature}
-                  recentRuns={recentRuns}
-                  onSelectRun={handleSelectRun}
                 />
               </motion.div>
             )}
@@ -448,71 +447,24 @@ export function DashboardLayout({
                   }}
                   onResetPipeline={onResetPipeline}
                   onViewResults={(pipelineType) => {
-                    setPreviewOpen(false);
                     if (pipelineType === "user_stories") setWorkflowType("user_stories");
                     else if (pipelineType === "ppt") setWorkflowType("ppt");
                     else if (pipelineType === "prototype") setWorkflowType("prototype");
-                    setMainView("results");
+                    // Open the preview panel with results
+                    setPreviewOpen(true);
+                    setPreviewManualClose(false);
+                    setPreviewInitialTab("preview");
                   }}
                 />
-              </motion.div>
-            )}
-
-            {mainView === "results" && (
-              <motion.div
-                key="results"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="h-full"
-              >
-                <ErrorBoundary fallbackLabel="ResultsView">
-                  <ResultsView
-                    workflowType={workflowType}
-                    userStoryContent={userStoryContent}
-                    pptContent={pptContent}
-                    prototypeContent={prototypeContent}
-                    isStreaming={isStreaming}
-                    originalInput={workflowInput}
-                    onRefine={(message) => {
-                      // Re-run the pipeline with the refinement instruction
-                      const refinedInput = `${workflowInput}\n\n---\nRefinement: ${message}`;
-                      setWorkflowInput(refinedInput);
-                      setMainView("workflow");
-
-                      const newRun: WorkflowRun = {
-                        id: crypto.randomUUID(),
-                        title: `Refine: ${message.slice(0, 40)}`,
-                        type: workflowType,
-                        status: "running",
-                        input: refinedInput,
-                        createdAt: new Date().toISOString(),
-                        agentCount: workflowType === "ppt" ? 10 : 12,
-                      };
-                      setLocalRunningRun(newRun);
-
-                      if (onStartPipeline) {
-                        onStartPipeline(workflowType, refinedInput);
-                      }
-                    }}
-                    onRunAnother={() => {
-                      if (onResetPipeline) onResetPipeline();
-                      setWorkflowInput("");
-                      setMainView("home");
-                    }}
-                    onGoHome={handleGoHome}
-                  />
-                </ErrorBoundary>
               </motion.div>
             )}
           </AnimatePresence>
         </div>
       </main>
 
-      {/* Preview Panel — resizable, shows workflow output (hidden in results view since ResultsView shows it inline) */}
+      {/* Preview Panel — resizable, auto-opens when content is generated */}
       <AnimatePresence>
-        {previewOpen && mainView !== "results" && (
+        {previewOpen && (
           <motion.aside
             initial={{ width: 0, opacity: 0 }}
             animate={{ width: previewWidth, opacity: 1 }}
@@ -541,6 +493,15 @@ export function DashboardLayout({
                   onCollapse={handlePreviewClose}
                   initialTab={previewInitialTab}
                   onTabSelect={(tab) => setPreviewInitialTab(tab)}
+                  workflowType={workflowType}
+                  agentOutputs={currentAgentOutputs}
+                  liveAgents={pipelineState?.agents}
+                  isPipelineRunning={pipelineState?.isRunning}
+                  onFollowUp={(message) => {
+                    const refinedInput = `${workflowInput}\n\n---\nRefinement: ${message}`;
+                    setWorkflowInput(refinedInput);
+                    if (onStartPipeline) onStartPipeline(workflowType, refinedInput);
+                  }}
                 />
               </ErrorBoundary>
             </div>

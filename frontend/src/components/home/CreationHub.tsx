@@ -8,17 +8,11 @@ import {
   Layout,
   Zap,
   Sparkles,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  Loader2,
 } from "lucide-react";
-import type { WorkflowRun, WorkflowType } from "@/types/index";
+import type { WorkflowType } from "@/types/index";
 
 interface CreationHubProps {
   onSelectFeature: (type: WorkflowType) => void;
-  recentRuns: WorkflowRun[];
-  onSelectRun: (run: WorkflowRun) => void;
 }
 
 const WORKFLOW_CARDS = [
@@ -69,24 +63,12 @@ const WORKFLOW_CARDS = [
   },
 ];
 
-const STATUS_CONFIG = {
-  running: { icon: Loader2, color: "text-blue-400", bg: "bg-blue-500/10", label: "Running" },
-  completed: { icon: CheckCircle2, color: "text-green-400", bg: "bg-green-500/10", label: "Done" },
-  failed: { icon: XCircle, color: "text-red-400", bg: "bg-red-500/10", label: "Failed" },
-};
-
-const TYPE_CONFIG = {
-  user_stories: { icon: FileText, color: "text-blue-400", label: "User Stories" },
-  ppt: { icon: Presentation, color: "text-amber-400", label: "Presentation" },
-  prototype: { icon: Layout, color: "text-emerald-400", label: "Prototype" },
-};
-
 /**
  * CreationHub — Step 1 of the workflow.
- * Shows only the feature cards and recent project history.
+ * Shows only the feature cards.
  * Clicking a card navigates to Step 2 (WorkflowView build step).
  */
-export function CreationHub({ onSelectFeature, recentRuns, onSelectRun }: CreationHubProps) {
+export function CreationHub({ onSelectFeature }: CreationHubProps) {
   return (
     <div className="flex h-full flex-col overflow-y-auto" style={{ backgroundColor: "var(--theme-bg)" }}>
       {/* Ambient background */}
@@ -159,67 +141,8 @@ export function CreationHub({ onSelectFeature, recentRuns, onSelectRun }: Creati
             );
           })}
         </div>
-
-        {/* Recent Runs */}
-        {recentRuns.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.5 }}
-            className="w-full max-w-2xl"
-          >
-            <div className="flex items-center gap-2 mb-3">
-              <Clock className="h-3.5 w-3.5 text-grey/50" />
-              <h3 className="text-xs font-medium text-grey/60">Recent Projects</h3>
-            </div>
-            <div className="space-y-2">
-              {recentRuns.slice(0, 5).map((run) => {
-                const typeConf = TYPE_CONFIG[run.type];
-                const statusConf = STATUS_CONFIG[run.status];
-                const TypeIcon = typeConf.icon;
-                const StatusIcon = statusConf.icon;
-                return (
-                  <motion.button
-                    key={run.id}
-                    whileHover={{ x: 4 }}
-                    onClick={() => onSelectRun(run)}
-                    className="w-full flex items-center gap-3 rounded-xl border border-grey/10 bg-white/[0.01] hover:bg-white/[0.03] hover:border-grey/20 px-4 py-3 text-left transition-all"
-                  >
-                    <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${statusConf.bg}`}>
-                      <TypeIcon className={`h-4 w-4 ${typeConf.color}`} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-white/90 truncate">{run.title || run.input.slice(0, 60)}</p>
-                      <p className="text-[10px] text-grey/50 mt-0.5">
-                        {typeConf.label} • {run.duration ? `${run.duration}s` : "—"} • {formatTimeAgo(run.createdAt)}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <StatusIcon className={`h-3.5 w-3.5 ${statusConf.color} ${run.status === "running" ? "animate-spin" : ""}`} />
-                      <span className={`text-[10px] ${statusConf.color}`}>{statusConf.label}</span>
-                    </div>
-                  </motion.button>
-                );
-              })}
-            </div>
-          </motion.div>
-        )}
       </div>
     </div>
   );
 }
 
-function formatTimeAgo(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMin = Math.floor(diffMs / 60000);
-  const diffHr = Math.floor(diffMin / 60);
-  const diffDay = Math.floor(diffHr / 24);
-
-  if (diffMin < 1) return "just now";
-  if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffHr < 24) return `${diffHr}h ago`;
-  if (diffDay < 7) return `${diffDay}d ago`;
-  return date.toLocaleDateString();
-}

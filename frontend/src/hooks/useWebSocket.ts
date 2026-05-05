@@ -65,7 +65,8 @@ export function useWebSocket(config: UseWebSocketConfig): UseWebSocketReturn {
   }, []);
 
   const connect = useCallback(() => {
-    const currentToken = token ?? getToken();
+    const currentToken = getToken();
+    console.log("[useWebSocket] connect() called, token from localStorage:", currentToken ? "present" : "null");
     if (!currentToken) {
       setConnectionStatus("disconnected");
       return;
@@ -141,12 +142,15 @@ export function useWebSocket(config: UseWebSocketConfig): UseWebSocketReturn {
         );
       }
     };
-  }, [token, url, cleanup]);
+  }, [url, cleanup]);
 
-  const send = useCallback((message: string) => {
+  const send = useCallback((message: string): boolean => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(message);
+      return true;
     }
+    console.warn("[useWebSocket] Cannot send — WebSocket not connected");
+    return false;
   }, []);
 
   const reconnect = useCallback(() => {
@@ -156,6 +160,7 @@ export function useWebSocket(config: UseWebSocketConfig): UseWebSocketReturn {
 
   // Connect on mount when token is available, disconnect on unmount
   useEffect(() => {
+    console.log("[useWebSocket] Effect triggered, token:", token ? "present" : "null", "localStorage token:", typeof window !== "undefined" ? (localStorage.getItem("auth_token") ? "present" : "null") : "ssr");
     if (token) {
       connect();
     } else {

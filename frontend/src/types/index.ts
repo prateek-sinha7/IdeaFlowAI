@@ -194,11 +194,22 @@ export interface WorkflowRun {
   status: WorkflowStatus;
   input: string;
   output?: string;
+  agentOutputs?: AgentThinkingEntry[];
   createdAt: string;
   completedAt?: string;
   duration?: number;
   agentCount: number;
   error?: string;
+}
+
+export interface AgentThinkingEntry {
+  agent_id: string;
+  name: string;
+  role: string;
+  icon: string;
+  thinking: string;
+  output: string;
+  duration: number | null;
 }
 
 export interface AgentDef {

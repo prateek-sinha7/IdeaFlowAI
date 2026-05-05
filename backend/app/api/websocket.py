@@ -67,10 +67,12 @@ async def websocket_chat(websocket: WebSocket):
     - 4001: JWT expired or invalid during session
     """
     await websocket.accept()
+    print(f"[WS] Connection accepted, checking token...")
 
     # Extract JWT from query parameters
     token = websocket.query_params.get("token")
     if not token:
+        print("[WS] No token provided, closing")
         await websocket.close(code=4001, reason="Missing authentication token")
         return
 
@@ -88,6 +90,7 @@ async def websocket_chat(websocket: WebSocket):
         db.close()
 
     logger.info(f"WebSocket connected: user={user.id}")
+    print(f"[WS] Authenticated user={user.id}, entering message loop")
 
     # Message loop
     try:
@@ -114,6 +117,7 @@ async def websocket_chat(websocket: WebSocket):
 
             # Handle pipeline execution requests
             if msg_type == "run_pipeline":
+                print(f"[WS] Received run_pipeline: type={message_data.get('pipeline_type')}")
                 pipeline_type = message_data.get("pipeline_type", "user_stories")
                 pipeline_content = message_data.get("message") or message_data.get("content") or ""
                 agent_ids = message_data.get("agent_ids")  # Optional custom agent list
@@ -442,6 +446,7 @@ async def _handle_pipeline_execution(
     use_mock = not settings.ANTHROPIC_API_KEY
     final_output = ""
     execution_start = datetime.now(timezone.utc)
+    agent_outputs_collector: list[dict] = []  # Collect per-agent thinking/output
 
     if use_mock:
         # === MOCK PIPELINE MODE ===
@@ -449,6 +454,7 @@ async def _handle_pipeline_execution(
 
         logger.info(f"Mock pipeline mode: type={pipeline_type}")
         try:
+            current_agent_output: dict = {}
             async for update in mock_pipeline_execute(
                 content or "Build an AI-powered SaaS platform",
                 pipeline_type,
@@ -460,7 +466,26 @@ async def _handle_pipeline_execution(
                     "section": pipeline_type,
                     "data": update["data"],
                 })
-                if update["type"] == "pipeline_complete":
+                # Collect agent outputs for persistence
+                if update["type"] == "agent_start":
+                    current_agent_output = {
+                        "agent_id": update["data"].get("agent_id"),
+                        "name": update["data"].get("name"),
+                        "role": update["data"].get("role"),
+                        "icon": update["data"].get("icon"),
+                        "thinking": "",
+                        "output": "",
+                        "duration": None,
+                    }
+                elif update["type"] == "agent_thinking":
+                    current_agent_output["thinking"] = update["data"].get("thinking", "")
+                elif update["type"] == "agent_chunk":
+                    current_agent_output["output"] += update["data"].get("chunk", "")
+                elif update["type"] == "agent_complete":
+                    current_agent_output["duration"] = update["data"].get("duration")
+                    agent_outputs_collector.append(current_agent_output)
+                    current_agent_output = {}
+                elif update["type"] == "pipeline_complete":
                     final_output = update["data"].get("final_output", "")
         except Exception as e:
             logger.error(f"Mock pipeline error: {e}")
@@ -508,17 +533,37 @@ async def _handle_pipeline_execution(
                 skills[agent_def.id] = skill_content
 
         # Execute the pipeline
-        executor = PipelineExecutor(pipeline_type)
+        executor = PipelineExecutor(pipeline_type, custom_agents=agents if agent_ids else None)
 
         try:
-            async for update in executor.execute(content, skills=skills, custom_agents=agents if agent_ids else None):
+            current_agent_output_live: dict = {}
+            async for update in executor.execute(content, skills=skills):
                 await websocket.send_json({
                     "type": update["type"],
                     "chunk": None,
                     "section": pipeline_type,
                     "data": update["data"],
                 })
-                if update["type"] == "pipeline_complete":
+                # Collect agent outputs for persistence
+                if update["type"] == "agent_start":
+                    current_agent_output_live = {
+                        "agent_id": update["data"].get("agent_id"),
+                        "name": update["data"].get("name"),
+                        "role": update["data"].get("role"),
+                        "icon": update["data"].get("icon"),
+                        "thinking": "",
+                        "output": "",
+                        "duration": None,
+                    }
+                elif update["type"] == "agent_thinking":
+                    current_agent_output_live["thinking"] = update["data"].get("thinking", "")
+                elif update["type"] == "agent_chunk":
+                    current_agent_output_live["output"] += update["data"].get("chunk", "")
+                elif update["type"] == "agent_complete":
+                    current_agent_output_live["duration"] = update["data"].get("duration")
+                    agent_outputs_collector.append(current_agent_output_live)
+                    current_agent_output_live = {}
+                elif update["type"] == "pipeline_complete":
                     final_output = update["data"].get("final_output", "")
         except Exception as e:
             logger.error(f"Pipeline execution error: {e}")
@@ -556,6 +601,7 @@ async def _handle_pipeline_execution(
             if wr:
                 wr.status = "completed"
                 wr.output = final_output if final_output else None
+                wr.agent_outputs = json.dumps(agent_outputs_collector) if agent_outputs_collector else None
                 wr.completed_at = datetime.now(timezone.utc)
                 duration = (datetime.now(timezone.utc) - execution_start).total_seconds()
                 wr.duration = round(duration, 1)

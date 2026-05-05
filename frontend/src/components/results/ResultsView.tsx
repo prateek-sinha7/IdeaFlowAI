@@ -13,15 +13,18 @@ import {
   Copy,
   Check,
   RotateCcw,
+  Eye,
+  Brain,
+  FolderDown,
 } from "lucide-react";
 import { UserStoryPreview } from "@/components/preview/UserStoryPreview";
 import { PPTPreview } from "@/components/preview/PPTPreview";
 import { PrototypePreview } from "@/components/preview/PrototypePreview";
-import { exportUserStories } from "@/lib/exporters/storyExporter";
-import { exportToPptx } from "@/lib/exporters/pptExporter";
-import { exportPrototype } from "@/lib/exporters/prototypeExporter";
-import { parsePPTSlideData } from "@/lib/parsers/pptParser";
-import type { WorkflowType } from "@/types/index";
+import { AgentThinkingTab } from "./AgentThinkingTab";
+import { FilesTab } from "./FilesTab";
+import type { WorkflowType, AgentThinkingEntry, AgentRunState } from "@/types/index";
+
+type ResultsTab = "preview" | "thinking" | "files";
 
 interface ResultsViewProps {
   workflowType: WorkflowType;
@@ -30,6 +33,11 @@ interface ResultsViewProps {
   prototypeContent?: string;
   isStreaming?: boolean;
   originalInput?: string;
+  /** Persisted agent outputs from a completed run */
+  agentOutputs?: AgentThinkingEntry[];
+  /** Live agent states from a running pipeline */
+  liveAgents?: AgentRunState[];
+  isPipelineRunning?: boolean;
   onRefine?: (message: string) => void;
   onRunAnother?: () => void;
   onGoHome?: () => void;
@@ -41,29 +49,32 @@ const TYPE_CONFIG: Record<WorkflowType, { icon: typeof FileText; label: string; 
   prototype: { icon: Layout, label: "Prototype", color: "text-emerald-400" },
 };
 
-const REFINEMENT_SUGGESTIONS: Record<WorkflowType, string[]> = {
+const FOLLOW_UP_SUGGESTIONS: Record<WorkflowType, string[]> = {
   user_stories: [
-    "Add more acceptance criteria to each story",
+    "Add more acceptance criteria",
     "Break the largest epic into smaller stories",
-    "Add technical stories for infrastructure",
-    "Increase story point estimates",
     "Add a security-focused epic",
+    "Increase story point estimates",
   ],
   ppt: [
-    "Make the opening slide more impactful",
+    "Make the opening more impactful",
     "Add a competitive analysis slide",
-    "Simplify the text — max 4 bullets per slide",
+    "Simplify — max 4 bullets per slide",
     "Add more data visualizations",
-    "Change the tone to be more casual",
   ],
   prototype: [
     "Add a dark mode variant",
-    "Include error states for all forms",
-    "Add loading skeletons to each page",
-    "Make the navigation more prominent",
-    "Add a settings page with profile editing",
+    "Include error states for forms",
+    "Add loading skeletons",
+    "Make navigation more prominent",
   ],
 };
+
+const TAB_CONFIG: { id: ResultsTab; label: string; icon: typeof Eye }[] = [
+  { id: "preview", label: "Preview", icon: Eye },
+  { id: "thinking", label: "Agent Thinking", icon: Brain },
+  { id: "files", label: "Files", icon: FolderDown },
+];
 
 export function ResultsView({
   workflowType,
@@ -72,49 +83,28 @@ export function ResultsView({
   prototypeContent,
   isStreaming,
   originalInput,
+  agentOutputs,
+  liveAgents,
+  isPipelineRunning,
   onRefine,
   onRunAnother,
   onGoHome,
 }: ResultsViewProps) {
-  const [chatOpen, setChatOpen] = useState(false);
-  const [chatInput, setChatInput] = useState("");
+  const [activeTab, setActiveTab] = useState<ResultsTab>("preview");
+  const [followUpInput, setFollowUpInput] = useState("");
   const [copied, setCopied] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const typeConfig = TYPE_CONFIG[workflowType];
   const TypeIcon = typeConfig.icon;
-  const suggestions = REFINEMENT_SUGGESTIONS[workflowType];
+  const suggestions = FOLLOW_UP_SUGGESTIONS[workflowType];
 
-  // Get the active content based on workflow type
   const activeContent =
     workflowType === "user_stories" ? userStoryContent :
     workflowType === "ppt" ? pptContent :
     prototypeContent;
 
   const hasContent = !!activeContent;
-
-  const handleDownload = useCallback(() => {
-    if (workflowType === "user_stories" && userStoryContent) {
-      exportUserStories(userStoryContent);
-    } else if (workflowType === "ppt" && pptContent) {
-      try {
-        const slideData = parsePPTSlideData(pptContent);
-        exportToPptx(slideData);
-      } catch {
-        const blob = new Blob([pptContent], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = "presentation.json";
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-      }
-    } else if (workflowType === "prototype" && prototypeContent) {
-      exportPrototype(prototypeContent);
-    }
-  }, [workflowType, userStoryContent, pptContent, prototypeContent]);
 
   const handleCopy = useCallback(() => {
     if (activeContent) {
@@ -124,20 +114,16 @@ export function ResultsView({
     }
   }, [activeContent]);
 
-  const handleSendRefinement = useCallback(() => {
-    if (!chatInput.trim()) return;
-    onRefine?.(chatInput.trim());
-    setChatInput("");
-  }, [chatInput, onRefine]);
-
-  const handleSuggestionClick = useCallback((suggestion: string) => {
-    onRefine?.(suggestion);
-  }, [onRefine]);
+  const handleSendFollowUp = useCallback(() => {
+    if (!followUpInput.trim()) return;
+    onRefine?.(followUpInput.trim());
+    setFollowUpInput("");
+  }, [followUpInput, onRefine]);
 
   return (
     <div className="flex h-full flex-col" style={{ backgroundColor: "var(--theme-bg)" }}>
-      {/* Results Toolbar */}
-      <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: "var(--theme-border)" }}>
+      {/* Top Toolbar */}
+      <div className="flex items-center justify-between px-5 py-2.5 border-b" style={{ borderColor: "var(--theme-border)" }}>
         <div className="flex items-center gap-3">
           <button
             onClick={onGoHome}
@@ -147,54 +133,28 @@ export function ResultsView({
             <Home className="h-4 w-4" />
           </button>
           <div className="flex items-center gap-2">
-            <div className={`flex h-7 w-7 items-center justify-center rounded-lg bg-white/5 border border-white/10`}>
-              <TypeIcon className={`h-3.5 w-3.5 ${typeConfig.color}`} />
+            <div className={`flex h-6 w-6 items-center justify-center rounded-lg bg-white/5 border border-white/10`}>
+              <TypeIcon className={`h-3 w-3 ${typeConfig.color}`} />
             </div>
-            <div>
-              <h2 className="text-sm font-semibold text-white">{typeConfig.label}</h2>
-              <p className="text-[10px] text-grey/50">
-                {isStreaming ? "Generating..." : "Complete"}
-              </p>
-            </div>
+            <span className="text-xs font-medium text-white">{typeConfig.label}</span>
+            <span className="text-[10px] text-grey/40">
+              {isStreaming ? "• Generating..." : "• Complete"}
+            </span>
           </div>
         </div>
 
-        {/* Action buttons */}
         <div className="flex items-center gap-1.5">
           <button
             onClick={handleCopy}
             disabled={!hasContent}
-            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-grey/60 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Copy to clipboard"
+            className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-[10px] font-medium text-grey/60 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 transition-all disabled:opacity-30"
           >
             {copied ? <Check className="h-3 w-3 text-green-400" /> : <Copy className="h-3 w-3" />}
             {copied ? "Copied" : "Copy"}
           </button>
           <button
-            onClick={handleDownload}
-            disabled={!hasContent}
-            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-grey/60 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Download"
-          >
-            <Download className="h-3 w-3" />
-            Export
-          </button>
-          <button
-            onClick={() => { setChatOpen(!chatOpen); setTimeout(() => inputRef.current?.focus(), 100); }}
-            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-all border ${
-              chatOpen
-                ? "text-blue-300 bg-blue-500/10 border-blue-500/30"
-                : "text-grey/60 hover:text-white bg-white/5 hover:bg-white/10 border-white/10"
-            }`}
-            title="Refine with AI"
-          >
-            <Sparkles className="h-3 w-3" />
-            Refine
-          </button>
-          <button
             onClick={onRunAnother}
-            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-grey/60 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 transition-all"
-            title="Start a new workflow"
+            className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-[10px] font-medium text-grey/60 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 transition-all"
           >
             <RotateCcw className="h-3 w-3" />
             New
@@ -202,96 +162,139 @@ export function ResultsView({
         </div>
       </div>
 
-      {/* Main content area — artifact preview */}
-      <div className="flex-1 min-h-0 overflow-y-auto relative">
-        {!hasContent && !isStreaming ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/5 border border-white/10 mx-auto mb-3">
-                <TypeIcon className={`h-6 w-6 ${typeConfig.color}`} />
-              </div>
-              <p className="text-sm text-grey/50">No results yet</p>
-              <p className="text-[11px] text-grey/35 mt-1">Run a workflow to see output here</p>
-            </div>
-          </div>
-        ) : (
-          <div className="h-full">
-            {workflowType === "user_stories" && (
-              <UserStoryPreview content={userStoryContent} />
-            )}
-            {workflowType === "ppt" && (
-              <PPTPreview content={pptContent} isStreaming={isStreaming} />
-            )}
-            {workflowType === "prototype" && (
-              <PrototypePreview content={prototypeContent} isStreaming={isStreaming} />
-            )}
-          </div>
-        )}
+      {/* Tab Bar */}
+      <div className="px-5 py-2 border-b" style={{ borderColor: "var(--theme-border)" }}>
+        <div className="flex gap-1">
+          {TAB_CONFIG.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`relative flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-medium transition-all ${
+                  isActive
+                    ? "text-white bg-white/10 border border-white/15"
+                    : "text-grey/50 hover:text-white hover:bg-white/5 border border-transparent"
+                }`}
+              >
+                <Icon className="h-3 w-3" />
+                {tab.label}
+                {tab.id === "thinking" && isPipelineRunning && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />
+                )}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Refinement Chat — collapsible bottom drawer */}
-      <AnimatePresence>
-        {chatOpen && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.25, ease: "easeInOut" }}
-            className="border-t overflow-hidden"
-            style={{ borderColor: "var(--theme-border)" }}
-          >
-            <div className="px-5 py-3">
-              {/* Context indicator */}
-              {originalInput && (
-                <div className="flex items-start gap-2 mb-3 rounded-lg bg-white/[0.02] border border-grey/10 px-3 py-2">
-                  <TypeIcon className={`h-3 w-3 ${typeConfig.color} mt-0.5 flex-shrink-0`} />
-                  <p className="text-[10px] text-grey/50 line-clamp-2 leading-relaxed">
-                    Original: &quot;{originalInput.split("\n---\n")[0].slice(0, 100)}&quot;
-                  </p>
+      {/* Tab Content */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <AnimatePresence mode="wait">
+          {activeTab === "preview" && (
+            <motion.div
+              key="preview"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="h-full overflow-y-auto"
+            >
+              {!hasContent && !isStreaming ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <TypeIcon className={`h-8 w-8 ${typeConfig.color} mx-auto mb-3 opacity-50`} />
+                    <p className="text-sm text-grey/50">No results yet</p>
+                  </div>
                 </div>
+              ) : (
+                <>
+                  {workflowType === "user_stories" && <UserStoryPreview content={userStoryContent} />}
+                  {workflowType === "ppt" && <PPTPreview content={pptContent} isStreaming={isStreaming} />}
+                  {workflowType === "prototype" && <PrototypePreview content={prototypeContent} isStreaming={isStreaming} />}
+                </>
               )}
+            </motion.div>
+          )}
 
-              {/* Suggestion chips */}
-              <div className="flex flex-wrap gap-1.5 mb-3">
-                {suggestions.slice(0, 3).map((suggestion) => (
-                  <button
-                    key={suggestion}
-                    onClick={() => handleSuggestionClick(suggestion)}
-                    className="rounded-full px-3 py-1 text-[10px] text-grey/60 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all truncate max-w-[200px]"
-                  >
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
+          {activeTab === "thinking" && (
+            <motion.div
+              key="thinking"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="h-full"
+            >
+              <AgentThinkingTab
+                agentOutputs={agentOutputs}
+                liveAgents={liveAgents}
+                isRunning={isPipelineRunning}
+              />
+            </motion.div>
+          )}
 
-              {/* Input */}
-              <div className="flex items-center gap-2">
-                <div className="flex-1 flex items-center gap-2 rounded-xl border border-grey/15 bg-white/[0.02] px-3 py-2 focus-within:border-grey/30 transition-colors">
-                  <Sparkles className="h-3.5 w-3.5 text-grey/40 flex-shrink-0" />
-                  <input
-                    ref={inputRef}
-                    type="text"
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") handleSendRefinement(); }}
-                    placeholder="Tell the agents how to improve this..."
-                    className="flex-1 bg-transparent text-xs text-white placeholder-grey/40 focus:outline-none"
-                  />
-                </div>
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={handleSendRefinement}
-                  disabled={!chatInput.trim()}
-                  className="flex items-center justify-center rounded-xl bg-white text-black p-2.5 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <Send className="h-3.5 w-3.5" />
-                </motion.button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          {activeTab === "files" && (
+            <motion.div
+              key="files"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="h-full"
+            >
+              <FilesTab
+                workflowType={workflowType}
+                userStoryContent={userStoryContent}
+                pptContent={pptContent}
+                prototypeContent={prototypeContent}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Persistent Follow-up Input */}
+      <div className="border-t px-5 py-3" style={{ borderColor: "var(--theme-border)" }}>
+        {/* Suggestion chips */}
+        <div className="flex flex-wrap gap-1.5 mb-2.5">
+          {suggestions.slice(0, 3).map((suggestion) => (
+            <button
+              key={suggestion}
+              onClick={() => { onRefine?.(suggestion); }}
+              className="rounded-full px-2.5 py-1 text-[9px] text-grey/55 hover:text-white bg-white/5 hover:bg-white/10 border border-white/8 hover:border-white/20 transition-all"
+            >
+              {suggestion}
+            </button>
+          ))}
+        </div>
+
+        {/* Input */}
+        <div className="flex items-center gap-2">
+          <div className="flex-1 flex items-center gap-2 rounded-xl border border-grey/15 bg-white/[0.02] px-3 py-2.5 focus-within:border-grey/30 transition-colors">
+            <Sparkles className="h-3.5 w-3.5 text-grey/40 flex-shrink-0" />
+            <input
+              ref={inputRef}
+              type="text"
+              value={followUpInput}
+              onChange={(e) => setFollowUpInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleSendFollowUp(); }}
+              placeholder="Ask a follow-up or steer the agents..."
+              className="flex-1 bg-transparent text-xs text-white placeholder-grey/40 focus:outline-none"
+            />
+          </div>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={handleSendFollowUp}
+            disabled={!followUpInput.trim()}
+            className="flex items-center justify-center rounded-xl bg-white text-black p-2.5 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <Send className="h-3.5 w-3.5" />
+          </motion.button>
+        </div>
+      </div>
     </div>
   );
 }

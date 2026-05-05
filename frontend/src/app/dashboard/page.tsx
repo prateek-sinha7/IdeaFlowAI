@@ -62,7 +62,10 @@ export default function DashboardPage() {
 
     getWorkflows(currentToken, { limit: 50 })
       .then((runs) => setRecentRuns(runs))
-      .catch((err) => console.error("Failed to fetch workflow runs:", err));
+      .catch(() => {
+        // Silently fail — workflows will load when backend is available
+        // This prevents the error from showing on the UI
+      });
   }, [isAuthenticated]);
 
   // Handle incoming WebSocket messages

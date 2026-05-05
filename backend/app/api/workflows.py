@@ -45,6 +45,7 @@ class WorkflowRunResponse(BaseModel):
     status: str
     input: str
     output: Optional[str] = None
+    agent_outputs: Optional[str] = None
     agent_count: int
     duration: Optional[float] = None
     error: Optional[str] = None

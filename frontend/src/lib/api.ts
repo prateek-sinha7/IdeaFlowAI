@@ -228,6 +228,7 @@ interface RawWorkflowRun {
   status: string;
   input: string;
   output: string | null;
+  agent_outputs: string | null;
   agent_count: number;
   duration: number | null;
   error: string | null;
@@ -237,6 +238,13 @@ interface RawWorkflowRun {
 
 /** Normalize a backend workflow run (snake_case) to frontend format (camelCase) */
 function normalizeWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
+  let agentOutputs: WorkflowRun["agentOutputs"] = undefined;
+  if (raw.agent_outputs) {
+    try {
+      agentOutputs = JSON.parse(raw.agent_outputs);
+    } catch { /* ignore parse errors */ }
+  }
+
   return {
     id: raw.id,
     title: raw.title,
@@ -244,6 +252,7 @@ function normalizeWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
     status: raw.status as WorkflowRun["status"],
     input: raw.input,
     output: raw.output ?? undefined,
+    agentOutputs,
     agentCount: raw.agent_count,
     duration: raw.duration ?? undefined,
     error: raw.error ?? undefined,
