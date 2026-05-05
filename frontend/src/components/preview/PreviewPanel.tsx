@@ -93,6 +93,21 @@ export function PreviewPanel({
     (activeTab === "ppt" && pptContent) ||
     (activeTab === "prototype" && prototypeContent);
 
+  // Only show tabs that have content
+  const visibleTabs = TABS.filter((tab) => {
+    if (tab.id === "user-stories") return !!userStoryContent;
+    if (tab.id === "ppt") return !!pptContent;
+    if (tab.id === "prototype") return !!prototypeContent;
+    return false;
+  });
+
+  // Auto-select the only visible tab if there's just one
+  useEffect(() => {
+    if (visibleTabs.length === 1 && activeTab !== visibleTabs[0].id) {
+      setActiveTab(visibleTabs[0].id);
+    }
+  }, [visibleTabs.length]);
+
   return (
     <div className="flex h-full flex-col backdrop-blur-sm" style={{ backgroundColor: 'var(--theme-surface)' }}>
       {/* Header section */}
@@ -126,41 +141,43 @@ export function PreviewPanel({
         </div>
       </div>
 
-      {/* Pill-style tab bar */}
-      <div className="px-4 pb-3" role="tablist">
-        <div className="flex gap-1 rounded-xl bg-black/40 p-1 border border-grey/10">
-          {TABS.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                role="tab"
-                aria-selected={isActive}
-                aria-controls={`panel-${tab.id}`}
-                className={`relative flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-all duration-200 ${
-                  isActive
-                    ? "text-white"
-                    : "text-grey/60 hover:text-white/80"
-                }`}
-                onClick={() => handleTabChange(tab.id)}
-              >
-                {isActive && (
-                  <motion.div
-                    layoutId="preview-pill-indicator"
-                    className="absolute inset-0 rounded-lg bg-navy/80 border border-grey/15"
-                    transition={{ duration: 0.25, ease: "easeInOut" }}
-                  />
-                )}
-                <span className="relative z-10 flex items-center gap-1.5">
-                  <Icon className="h-3.5 w-3.5" />
-                  {tab.label}
-                </span>
-              </button>
-            );
-          })}
+      {/* Pill-style tab bar — only show when multiple content types exist */}
+      {visibleTabs.length > 1 && (
+        <div className="px-4 pb-3" role="tablist">
+          <div className="flex gap-1 rounded-xl bg-black/40 p-1 border border-grey/10">
+            {visibleTabs.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  role="tab"
+                  aria-selected={isActive}
+                  aria-controls={`panel-${tab.id}`}
+                  className={`relative flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-all duration-200 ${
+                    isActive
+                      ? "text-white"
+                      : "text-grey/60 hover:text-white/80"
+                  }`}
+                  onClick={() => handleTabChange(tab.id)}
+                >
+                  {isActive && (
+                    <motion.div
+                      layoutId="preview-pill-indicator"
+                      className="absolute inset-0 rounded-lg bg-navy/80 border border-grey/15"
+                      transition={{ duration: 0.25, ease: "easeInOut" }}
+                    />
+                  )}
+                  <span className="relative z-10 flex items-center gap-1.5">
+                    <Icon className="h-3.5 w-3.5" />
+                    {tab.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Divider */}
       <div className="mx-4 border-t border-grey/10" />

@@ -18,6 +18,7 @@ from app.core.security import decode_access_token
 from app.models.chat import ChatSession, Message
 from app.models.database import SessionLocal
 from app.models.user import User
+from app.models.workflow import WorkflowRun
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +111,14 @@ async def websocket_chat(websocket: WebSocket):
             content = message_data.get("content")
             chat_session_id = message_data.get("chat_session_id")
             mode = message_data.get("mode", "default")
+
+            # Handle pipeline execution requests
+            if msg_type == "run_pipeline":
+                pipeline_type = message_data.get("pipeline_type", "user_stories")
+                pipeline_content = message_data.get("message") or message_data.get("content") or ""
+                agent_ids = message_data.get("agent_ids")  # Optional custom agent list
+                await _handle_pipeline_execution(websocket, pipeline_content, pipeline_type, chat_session_id, token, user, agent_ids=agent_ids)
+                continue
 
             if msg_type != "user_message" or not content or not chat_session_id:
                 await websocket.send_json({
@@ -359,3 +368,226 @@ async def websocket_chat(websocket: WebSocket):
             await websocket.close(code=1011, reason="Internal server error")
         except Exception:
             pass
+
+
+async def _handle_pipeline_execution(
+    websocket: WebSocket,
+    content: str,
+    pipeline_type: str,
+    chat_session_id: str,
+    token: str,
+    user: User,
+    agent_ids: list[str] | None = None,
+):
+    """Handle a pipeline execution request via WebSocket.
+
+    Runs the full agent pipeline and streams per-agent status updates.
+    Creates a WorkflowRun record to track the execution.
+    Uses mock mode when no API key is configured.
+    If agent_ids is provided, uses that custom agent list instead of defaults.
+    """
+    from app.agents.pipeline import PipelineExecutor
+    from app.agents.skills import get_skill_content
+
+    logger.info(f"Pipeline execution: type={pipeline_type}, user={user.id}, custom_agents={len(agent_ids) if agent_ids else 'default'}")
+
+    # Determine agent count
+    if agent_ids:
+        agent_count = len(agent_ids)
+    else:
+        agent_counts = {"user_stories": 12, "ppt": 10, "prototype": 12}
+        agent_count = agent_counts.get(pipeline_type, 12)
+
+    # Create a WorkflowRun record
+    workflow_run_id = None
+    db = _get_db()
+    try:
+        workflow_run = WorkflowRun(
+            user_id=user.id,
+            title=(content or "Untitled")[:60].strip(),
+            type=pipeline_type,
+            status="running",
+            input=content or f"Run {pipeline_type} pipeline",
+            agent_count=agent_count,
+        )
+        db.add(workflow_run)
+        db.commit()
+        db.refresh(workflow_run)
+        workflow_run_id = workflow_run.id
+    finally:
+        db.close()
+
+    # Persist user message if chat_session_id provided
+    if chat_session_id:
+        db = _get_db()
+        try:
+            chat_session = (
+                db.query(ChatSession)
+                .filter(ChatSession.id == chat_session_id, ChatSession.user_id == user.id)
+                .first()
+            )
+            if chat_session:
+                user_msg = Message(
+                    chat_session_id=chat_session_id,
+                    role="user",
+                    content=content or f"Run {pipeline_type} pipeline",
+                )
+                db.add(user_msg)
+                chat_session.last_activity = datetime.now(timezone.utc)
+                db.commit()
+        finally:
+            db.close()
+
+    # Check if we're in mock mode
+    use_mock = not settings.ANTHROPIC_API_KEY
+    final_output = ""
+    execution_start = datetime.now(timezone.utc)
+
+    if use_mock:
+        # === MOCK PIPELINE MODE ===
+        from app.agents.mock_pipeline import mock_pipeline_execute
+
+        logger.info(f"Mock pipeline mode: type={pipeline_type}")
+        try:
+            async for update in mock_pipeline_execute(
+                content or "Build an AI-powered SaaS platform",
+                pipeline_type,
+                agent_ids=agent_ids,
+            ):
+                await websocket.send_json({
+                    "type": update["type"],
+                    "chunk": None,
+                    "section": pipeline_type,
+                    "data": update["data"],
+                })
+                if update["type"] == "pipeline_complete":
+                    final_output = update["data"].get("final_output", "")
+        except Exception as e:
+            logger.error(f"Mock pipeline error: {e}")
+            await websocket.send_json({
+                "type": "error",
+                "chunk": None,
+                "section": None,
+                "data": {
+                    "error": f"Pipeline execution failed: {str(e)}",
+                    "code": "pipeline_error",
+                    "recoverable": True,
+                },
+            })
+            # Mark workflow as failed
+            if workflow_run_id:
+                db = _get_db()
+                try:
+                    wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+                    if wr:
+                        wr.status = "failed"
+                        wr.error = str(e)
+                        wr.completed_at = datetime.now(timezone.utc)
+                        duration = (datetime.now(timezone.utc) - execution_start).total_seconds()
+                        wr.duration = round(duration, 1)
+                        db.commit()
+                finally:
+                    db.close()
+            return
+    else:
+        # === LIVE PIPELINE MODE ===
+        # Load skills for agents that have them
+        from app.agents.registry import get_pipeline_agents, get_all_agents
+        agents = get_pipeline_agents(pipeline_type)
+
+        # If custom agent_ids provided, filter and reorder agents accordingly
+        if agent_ids:
+            all_agents = get_all_agents()
+            agent_map = {a.id: a for a in all_agents}
+            agents = [agent_map[aid] for aid in agent_ids if aid in agent_map]
+
+        skills: dict[str, str] = {}
+        for agent_def in agents:
+            skill_content = get_skill_content(agent_def.id)
+            if skill_content:
+                skills[agent_def.id] = skill_content
+
+        # Execute the pipeline
+        executor = PipelineExecutor(pipeline_type)
+
+        try:
+            async for update in executor.execute(content, skills=skills, custom_agents=agents if agent_ids else None):
+                await websocket.send_json({
+                    "type": update["type"],
+                    "chunk": None,
+                    "section": pipeline_type,
+                    "data": update["data"],
+                })
+                if update["type"] == "pipeline_complete":
+                    final_output = update["data"].get("final_output", "")
+        except Exception as e:
+            logger.error(f"Pipeline execution error: {e}")
+            await websocket.send_json({
+                "type": "error",
+                "chunk": None,
+                "section": None,
+                "data": {
+                    "error": f"Pipeline execution failed: {str(e)}",
+                    "code": "pipeline_error",
+                    "recoverable": True,
+                },
+            })
+            # Mark workflow as failed
+            if workflow_run_id:
+                db = _get_db()
+                try:
+                    wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+                    if wr:
+                        wr.status = "failed"
+                        wr.error = str(e)
+                        wr.completed_at = datetime.now(timezone.utc)
+                        duration = (datetime.now(timezone.utc) - execution_start).total_seconds()
+                        wr.duration = round(duration, 1)
+                        db.commit()
+                finally:
+                    db.close()
+            return
+
+    # Mark workflow as completed
+    if workflow_run_id:
+        db = _get_db()
+        try:
+            wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+            if wr:
+                wr.status = "completed"
+                wr.output = final_output if final_output else None
+                wr.completed_at = datetime.now(timezone.utc)
+                duration = (datetime.now(timezone.utc) - execution_start).total_seconds()
+                wr.duration = round(duration, 1)
+                db.commit()
+        finally:
+            db.close()
+
+    # Persist the final output as assistant message
+    if final_output and chat_session_id:
+        db = _get_db()
+        try:
+            if pipeline_type == "ppt":
+                summary = "\u2705 **Presentation generated!** Check the Preview panel \u2192 PPT tab."
+            elif pipeline_type == "prototype":
+                summary = "\u2705 **Prototype generated!** Check the Preview panel \u2192 Prototype tab."
+            else:
+                summary = final_output[:500]
+
+            assistant_msg = Message(
+                chat_session_id=chat_session_id,
+                role="assistant",
+                content=summary,
+            )
+            db.add(assistant_msg)
+
+            chat_session = (
+                db.query(ChatSession)
+                .filter(ChatSession.id == chat_session_id)
+                .first()
+            )
+            if chat_session:
+                chat_session.last_activity = datetime.now(timezone.utc)
+                db.commit()
+        finally:
+            db.close()

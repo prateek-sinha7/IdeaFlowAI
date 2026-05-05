@@ -28,3 +28,4 @@ class User(Base):
     )
 
     chat_sessions = relationship("ChatSession", back_populates="user")
+    workflow_runs = relationship("WorkflowRun", back_populates="user")

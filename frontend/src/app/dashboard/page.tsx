@@ -2,24 +2,25 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getToken, getChat, addMessage, clearToken, deleteChat, createChat } from "@/lib/api";
+import { getToken, getChat, addMessage, clearToken, deleteChat, createChat, getWorkflows, getWorkflow } from "@/lib/api";
 import { ENV } from "@/lib/env";
 import { useWebSocket } from "@/hooks/useWebSocket";
+import { useWorkflow } from "@/hooks/useWorkflow";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import type { ChatMessage, ChatSession, StreamMessage, ProcessStep } from "@/types/index";
+import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun } from "@/types/index";
 import type { ChatMode } from "@/components/chat/ChatInput";
 
 /**
  * Dashboard page - the main authenticated view.
- * Manages WebSocket connection, active chat state, and streaming content.
- * Passes all handlers and state down to DashboardLayout.
+ * Manages WebSocket connection, workflow runs, and streaming content.
+ * Workflow-first: the primary experience is running agent pipelines.
  */
 export default function DashboardPage() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  // Chat state
+  // Chat state (secondary — used for refinement)
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -37,6 +38,10 @@ export default function DashboardPage() {
   const pptContentRef = useRef("");
   const prototypeContentRef = useRef("");
   const userStoryContentRef = useRef("");
+  const handlePipelineMsgRef = useRef<((msg: { type: string; [key: string]: unknown }) => boolean) | null>(null);
+
+  // Workflow runs state (primary)
+  const [recentRuns, setRecentRuns] = useState<WorkflowRun[]>([]);
 
   // Auth check on mount
   useEffect(() => {
@@ -49,8 +54,54 @@ export default function DashboardPage() {
     setIsAuthenticated(true);
   }, [router]);
 
+  // Fetch workflow runs on auth
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const currentToken = getToken();
+    if (!currentToken) return;
+
+    getWorkflows(currentToken, { limit: 50 })
+      .then((runs) => setRecentRuns(runs))
+      .catch((err) => console.error("Failed to fetch workflow runs:", err));
+  }, [isAuthenticated]);
+
   // Handle incoming WebSocket messages
   const handleWebSocketMessage = useCallback((msg: StreamMessage) => {
+    // Route pipeline messages to the workflow handler
+    const pipelineTypes = ["pipeline_start", "agent_start", "agent_thinking", "agent_chunk", "agent_complete", "agent_error", "pipeline_complete"];
+    if (pipelineTypes.includes(msg.type)) {
+      handlePipelineMsgRef.current?.({
+        type: msg.type,
+        ...(msg.data as Record<string, unknown> || {}),
+      });
+
+      // When pipeline completes, route final output to preview panel
+      if (msg.type === "pipeline_complete" && msg.data) {
+        const data = msg.data as Record<string, unknown>;
+        const finalOutput = data.final_output as string;
+        const pipelineType = data.pipeline_type as string;
+
+        if (finalOutput && pipelineType) {
+          if (pipelineType === "user_stories") {
+            setUserStoryContent(finalOutput);
+          } else if (pipelineType === "ppt") {
+            setPptContent(finalOutput);
+          } else if (pipelineType === "prototype") {
+            setPrototypeContent(finalOutput);
+          }
+        }
+
+        // Refresh workflow runs from backend after pipeline completes
+        const currentToken = getToken();
+        if (currentToken) {
+          getWorkflows(currentToken, { limit: 50 })
+            .then((runs) => setRecentRuns(runs))
+            .catch(() => {});
+        }
+      }
+      return;
+    }
+
     switch (msg.type) {
       case "stream": {
         setIsStreaming(true);
@@ -77,12 +128,10 @@ export default function DashboardPage() {
       }
 
       case "phase_start": {
-        // A new phase is starting — could reset section content if needed
         break;
       }
 
       case "phase_end": {
-        // Phase completed — content for this phase is finalized
         break;
       }
 
@@ -96,7 +145,6 @@ export default function DashboardPage() {
         setStreamingContent((prev) => {
           let chatContent = prev;
 
-          // If no chat content (went to preview only), add a summary
           if (!chatContent && previewSection) {
             if (previewSection === "ppt") {
               chatContent = "✅ **Presentation generated!** Check the Preview panel → PPT tab to see your slides.";
@@ -106,7 +154,6 @@ export default function DashboardPage() {
           }
 
           if (chatContent) {
-            // Determine artifact based on the active preview section
             let artifact: { type: "user-stories" | "ppt" | "prototype"; filename: string; content: string; summary: string } | undefined;
 
             if (previewSection === "ppt" && pptContentRef.current) {
@@ -151,10 +198,8 @@ export default function DashboardPage() {
           return "";
         });
 
-        // Clear live steps display
         setProcessSteps([]);
 
-        // If complete message has final output data, update preview sections
         if (msg.data && "user_stories" in msg.data) {
           const finalOutput = msg.data;
           if (finalOutput.user_stories) {
@@ -173,7 +218,6 @@ export default function DashboardPage() {
       case "error": {
         setIsStreaming(false);
 
-        // Parse structured error data
         let errorMessage = "An error occurred during processing.";
         let errorCode: string | undefined;
         let recoverable = true;
@@ -187,7 +231,6 @@ export default function DashboardPage() {
           errorMessage = msg.chunk;
         }
 
-        // Build content string with metadata for the ErrorMessage component
         let content = `Error: ${errorMessage}`;
         if (errorCode) {
           content += ` [code:${errorCode}]`;
@@ -207,7 +250,6 @@ export default function DashboardPage() {
       }
 
       case "title_update": {
-        // Backend generated a title for the chat — update sidebar
         if (msg.data && "title" in msg.data && "chat_session_id" in msg.data) {
           const titleData = msg.data as { chat_session_id: string; title: string };
           setChatTitleUpdate(titleData);
@@ -216,7 +258,6 @@ export default function DashboardPage() {
       }
 
       case "step": {
-        // Process step indicator from backend
         if (msg.data && "id" in msg.data && "status" in msg.data) {
           const stepData = msg.data as ProcessStep;
           setProcessSteps((prev) => {
@@ -244,7 +285,15 @@ export default function DashboardPage() {
     onMessage: handleWebSocketMessage,
   });
 
-  // Send a message via WebSocket
+  // Workflow pipeline state
+  const { pipelineState, startPipeline, resetPipeline, isRunning: isPipelineRunning, handleMessage: handlePipelineMsg } = useWorkflow(send);
+
+  // Keep pipeline handler ref in sync
+  useEffect(() => {
+    handlePipelineMsgRef.current = handlePipelineMsg;
+  }, [handlePipelineMsg]);
+
+  // Send a message via WebSocket (for refinement chat)
   const sendingRef = useRef(false);
 
   const handleSendMessage = useCallback(
@@ -255,7 +304,6 @@ export default function DashboardPage() {
       try {
         let chatId = activeChatId;
 
-        // Auto-create a chat session if none is selected
         if (!chatId) {
           const currentToken = getToken();
           if (!currentToken) { sendingRef.current = false; return; }
@@ -270,7 +318,6 @@ export default function DashboardPage() {
           }
         }
 
-        // Add user message to local state
         const userMessage: ChatMessage = {
           id: crypto.randomUUID(),
           chatSessionId: chatId,
@@ -280,7 +327,6 @@ export default function DashboardPage() {
         };
         setMessages((prev) => [...prev, userMessage]);
 
-        // Reset streaming state
         setIsStreaming(true);
         setStreamingContent("");
         setCurrentMode("default");
@@ -289,12 +335,10 @@ export default function DashboardPage() {
         pptContentRef.current = "";
         prototypeContentRef.current = "";
         userStoryContentRef.current = "";
-        // Clear preview content for fresh generation
         setUserStoryContent("");
         setPptContent("");
         setPrototypeContent("");
 
-        // Send via WebSocket
         send(
           JSON.stringify({
             type: "user_message",
@@ -303,7 +347,6 @@ export default function DashboardPage() {
           })
         );
       } finally {
-        // Allow next send after a short delay
         setTimeout(() => { sendingRef.current = false; }, 500);
       }
     },
@@ -315,7 +358,6 @@ export default function DashboardPage() {
     async (content: string, mode: ChatMode) => {
       let chatId = activeChatId;
 
-      // Auto-create a chat session if none is selected
       if (!chatId) {
         const currentToken = getToken();
         if (!currentToken) return;
@@ -329,7 +371,6 @@ export default function DashboardPage() {
         }
       }
 
-      // Add user message to local state
       const userMessage: ChatMessage = {
         id: crypto.randomUUID(),
         chatSessionId: chatId,
@@ -339,7 +380,6 @@ export default function DashboardPage() {
       };
       setMessages((prev) => [...prev, userMessage]);
 
-      // Reset streaming state for new response
       setIsStreaming(true);
       setStreamingContent("");
       setCurrentMode(mode);
@@ -347,12 +387,10 @@ export default function DashboardPage() {
       pptContentRef.current = "";
       prototypeContentRef.current = "";
       userStoryContentRef.current = "";
-      // Clear preview content for fresh generation
       setUserStoryContent("");
       setPptContent("");
       setPrototypeContent("");
 
-      // Send via WebSocket with mode (backend persists the message)
       send(
         JSON.stringify({
           type: "user_message",
@@ -378,12 +416,10 @@ export default function DashboardPage() {
 
       try {
         const chatDetail = await getChat(currentToken, chatId);
-        // Map backend messages and parse embedded steps
         const loadedMessages: ChatMessage[] = chatDetail.messages.map((m) => {
           let content = m.content;
           let steps: ProcessStep[] | undefined;
 
-          // Parse embedded steps marker: <!--steps:JSON-->
           const stepsMatch = content.match(/^<!--steps:(.*?)-->/);
           if (stepsMatch) {
             try {
@@ -403,7 +439,6 @@ export default function DashboardPage() {
         });
         setMessages(loadedMessages);
 
-        // Load final output into preview panels if available
         if (chatDetail.final_output) {
           try {
             const finalOutput = JSON.parse(chatDetail.final_output);
@@ -417,7 +452,7 @@ export default function DashboardPage() {
               setPrototypeContent(JSON.stringify(finalOutput.prototype));
             }
           } catch {
-            // Ignore parse errors for final_output
+            // Ignore parse errors
           }
         } else {
           setUserStoryContent("");
@@ -426,6 +461,37 @@ export default function DashboardPage() {
         }
       } catch (err) {
         console.error("Failed to load chat:", err);
+      }
+    },
+    []
+  );
+
+  // Handle selecting a workflow run from sidebar/hub
+  const handleSelectWorkflowRun = useCallback(
+    async (run: WorkflowRun) => {
+      // Clear existing content
+      setUserStoryContent("");
+      setPptContent("");
+      setPrototypeContent("");
+
+      // Load the workflow output from backend
+      const currentToken = getToken();
+      if (!currentToken) return;
+
+      try {
+        const fullRun = await getWorkflow(currentToken, run.id);
+
+        if (fullRun.output && fullRun.status === "completed") {
+          if (fullRun.type === "user_stories") {
+            setUserStoryContent(fullRun.output);
+          } else if (fullRun.type === "ppt") {
+            setPptContent(fullRun.output);
+          } else if (fullRun.type === "prototype") {
+            setPrototypeContent(fullRun.output);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load workflow output:", err);
       }
     },
     []
@@ -454,7 +520,6 @@ export default function DashboardPage() {
         console.error("Failed to delete chat:", err);
       }
 
-      // If the deleted chat was the active chat, clear state
       if (chatId === activeChatId) {
         setActiveChatId(null);
         setMessages([]);
@@ -502,6 +567,12 @@ export default function DashboardPage() {
       messageMode={currentMode}
       chatTitleUpdate={chatTitleUpdate}
       processSteps={processSteps}
+      websocketSend={send}
+      pipelineState={pipelineState}
+      onStartPipeline={startPipeline}
+      onResetPipeline={resetPipeline}
+      recentRuns={recentRuns}
+      onSelectWorkflowRun={handleSelectWorkflowRun}
     />
   );
 }

@@ -21,7 +21,7 @@ class BaseAgent:
     methods for subclasses to use.
     """
 
-    def __init__(self, system_prompt: str, model: str = "claude-sonnet-4-20250514"):
+    def __init__(self, system_prompt: str, model: str = "claude-haiku-4-20250514"):
         """Initialize the base agent with a system prompt and LLM configuration.
 
         Args:

@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   PanelLeftOpen,
-  PanelRightOpen,
   Plus,
   Search,
   LogOut,
@@ -14,9 +13,11 @@ import {
 } from "lucide-react";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { Sidebar } from "@/components/sidebar/Sidebar";
-import { ChatPanel } from "@/components/chat/ChatPanel";
 import { PreviewPanel } from "@/components/preview/PreviewPanel";
-import type { ChatMessage, ChatSession, ProcessStep } from "@/types/index";
+import { WorkflowView } from "@/components/workflow/WorkflowView";
+import { CreationHub } from "@/components/home/CreationHub";
+import { ResultsView } from "@/components/results/ResultsView";
+import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WorkflowRun, WorkflowType } from "@/types/index";
 import type { ConnectionStatus } from "@/hooks/useWebSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
 
@@ -39,7 +40,15 @@ export interface DashboardLayoutProps {
   messageMode?: ChatMode;
   chatTitleUpdate?: { chat_session_id: string; title: string } | null;
   processSteps?: ProcessStep[];
+  websocketSend?: (msg: string) => void;
+  pipelineState?: PipelineRunState;
+  onStartPipeline?: (type: string, message: string, agentIds?: string[]) => void;
+  onResetPipeline?: () => void;
+  recentRuns?: WorkflowRun[];
+  onSelectWorkflowRun?: (run: WorkflowRun) => void;
 }
+
+type MainView = "home" | "workflow" | "results";
 
 export function DashboardLayout({
   activeChatId,
@@ -60,30 +69,44 @@ export function DashboardLayout({
   messageMode,
   chatTitleUpdate,
   processSteps,
+  websocketSend,
+  pipelineState,
+  onStartPipeline,
+  onResetPipeline,
+  recentRuns: externalRecentRuns,
+  onSelectWorkflowRun,
 }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewManualClose, setPreviewManualClose] = useState(false);
   const [previewInitialTab, setPreviewInitialTab] = useState<string | undefined>(undefined);
-  const [previewWidth, setPreviewWidth] = useState(420);
+  const [previewWidth, setPreviewWidth] = useState(480);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [mainView, setMainView] = useState<MainView>("home");
+  const [workflowType, setWorkflowType] = useState<WorkflowType>("user_stories");
+  const [workflowInput, setWorkflowInput] = useState("");
   const prevContentRef = useRef({ userStory: "", ppt: "", prototype: "" });
+
+  // Merge external runs with any locally-tracked in-flight run
+  const [localRunningRun, setLocalRunningRun] = useState<WorkflowRun | null>(null);
+  const recentRuns: WorkflowRun[] = localRunningRun
+    ? [localRunningRun, ...(externalRecentRuns || []).filter((r) => r.id !== localRunningRun.id)]
+    : externalRecentRuns || [];
 
   // Check if any preview content exists
   const hasPreviewContent = !!(userStoryContent || pptContent || prototypeContent);
 
-  // Auto-open preview when NEW content arrives (like Claude artifacts)
+  // Auto-open preview when NEW content arrives
   useEffect(() => {
     const prev = prevContentRef.current;
     const hasNewUserStory = userStoryContent && !prev.userStory;
     const hasNewPpt = pptContent && !prev.ppt;
     const hasNewPrototype = prototypeContent && !prev.prototype;
 
-    // Auto-open if new content appeared and user hasn't manually closed
-    if ((hasNewUserStory || hasNewPpt || hasNewPrototype) && !previewManualClose) {
+    if (hasNewUserStory || hasNewPpt || hasNewPrototype) {
       setPreviewOpen(true);
+      setPreviewManualClose(false);
 
-      // Auto-select the tab that has new content
       if (hasNewUserStory) setPreviewInitialTab("user-stories");
       else if (hasNewPpt) setPreviewInitialTab("ppt");
       else if (hasNewPrototype) setPreviewInitialTab("prototype");
@@ -94,12 +117,7 @@ export function DashboardLayout({
       ppt: pptContent,
       prototype: prototypeContent,
     };
-  }, [userStoryContent, pptContent, prototypeContent, previewManualClose]);
-
-  // Reset manual close flag when a new chat is selected or created
-  useEffect(() => {
-    setPreviewManualClose(false);
-  }, [activeChatId]);
+  }, [userStoryContent, pptContent, prototypeContent]);
 
   // When user manually closes preview
   const handlePreviewClose = useCallback(() => {
@@ -113,26 +131,55 @@ export function DashboardLayout({
     setPreviewManualClose(false);
   }, []);
 
-  const handleRegenerateMessage = useCallback(
-    (messageId: string) => {
-      const msgIndex = messages.findIndex((m) => m.id === messageId);
-      if (msgIndex === -1) return;
-      for (let i = msgIndex - 1; i >= 0; i--) {
-        if (messages[i].role === "user") {
-          onSendMessage(messages[i].content);
-          break;
-        }
-      }
-    },
-    [messages, onSendMessage]
-  );
+  // Navigate from Home (cards) to WorkflowView (build step) — Step 1 → Step 2
+  const handleSelectFeature = useCallback((type: WorkflowType) => {
+    setWorkflowType(type);
+    setWorkflowInput(""); // No input yet — user will type in WorkflowView
+    setMainView("workflow");
+  }, []);
 
-  const handleEditMessage = useCallback(
-    (_messageId: string, newContent: string) => {
-      onSendMessage(newContent);
-    },
-    [onSendMessage]
-  );
+  // Handle selecting a past run
+  const handleSelectRun = useCallback((run: WorkflowRun) => {
+    if (run.status === "completed") {
+      // Set the workflow type so ResultsView knows which content to show
+      setWorkflowType(run.type);
+      setPreviewOpen(false); // ResultsView shows content inline
+      setMainView("results");
+    }
+    // Notify parent to load the run's output
+    onSelectWorkflowRun?.(run);
+  }, [onSelectWorkflowRun]);
+
+  // Go back to home
+  const handleGoHome = useCallback(() => {
+    setMainView("home");
+    setPreviewOpen(false);
+  }, []);
+
+  // Track pipeline completion to update local running run status
+  useEffect(() => {
+    if (pipelineState && !pipelineState.isRunning && pipelineState.agents.length > 0 && pipelineState.completedCount === pipelineState.agents.length) {
+      setLocalRunningRun((prev) =>
+        prev && prev.status === "running"
+          ? { ...prev, status: "completed" as const, duration: pipelineState.totalDuration ?? undefined, completedAt: new Date().toISOString() }
+          : prev
+      );
+    }
+  }, [pipelineState]);
+
+  // Clear local running run once the external list includes it (backend refreshed)
+  useEffect(() => {
+    if (localRunningRun && localRunningRun.status === "completed" && externalRecentRuns && externalRecentRuns.length > 0) {
+      // If the external list has a completed run with matching type and recent timestamp, clear local
+      const hasMatchingRun = externalRecentRuns.some(
+        (r) => r.status === "completed" && r.type === localRunningRun.type &&
+          new Date(r.createdAt).getTime() > new Date(localRunningRun.createdAt).getTime() - 5000
+      );
+      if (hasMatchingRun) {
+        setLocalRunningRun(null);
+      }
+    }
+  }, [externalRecentRuns, localRunningRun]);
 
   // Resize preview panel via drag
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
@@ -142,7 +189,7 @@ export function DashboardLayout({
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
       const delta = startX - moveEvent.clientX;
-      const newWidth = Math.min(700, Math.max(320, startWidth + delta));
+      const newWidth = Math.min(800, Math.max(360, startWidth + delta));
       setPreviewWidth(newWidth);
     };
 
@@ -160,7 +207,7 @@ export function DashboardLayout({
   }, [previewWidth]);
 
   return (
-    <div className="flex h-screen w-full overflow-hidden" style={{ backgroundColor: 'var(--theme-bg)' }}>
+    <div className="flex h-screen w-full overflow-hidden" style={{ backgroundColor: "var(--theme-bg)" }}>
       {/* Connection status indicator */}
       <AnimatePresence>
         {connectionStatus === "reconnecting" && (
@@ -192,29 +239,32 @@ export function DashboardLayout({
         )}
       </AnimatePresence>
 
-      {/* Desktop Sidebar — toggles between full (280px) and mini rail (56px) */}
+      {/* Desktop Sidebar */}
       <motion.aside
         animate={{ width: sidebarOpen ? 280 : 56 }}
         transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
         className="hidden lg:block h-full overflow-hidden border-r flex-shrink-0"
-        style={{ borderColor: 'var(--theme-border)' }}
+        style={{ borderColor: "var(--theme-border)" }}
       >
         {sidebarOpen ? (
           <div className="w-[280px] h-full">
             <ErrorBoundary fallbackLabel="Sidebar">
               <Sidebar
                 activeChatId={activeChatId ?? undefined}
-                onSelectChat={onSelectChat}
-                onNewChat={onNewChat}
+                onSelectChat={(chatId) => { onSelectChat(chatId); }}
+                onNewChat={(session) => { onNewChat(session); }}
                 onDeleteChat={onDeleteChat}
                 onLogout={onLogout}
                 onCollapse={() => setSidebarOpen(false)}
                 chatTitleUpdate={chatTitleUpdate}
+                onOpenWorkflow={() => setMainView("home")}
+                recentRuns={recentRuns}
+                onSelectRun={handleSelectRun}
               />
             </ErrorBoundary>
           </div>
         ) : (
-          <div className="w-[56px] h-full flex flex-col items-center backdrop-blur-sm py-3" style={{ backgroundColor: 'var(--theme-sidebar-bg)' }}>
+          <div className="w-[56px] h-full flex flex-col items-center backdrop-blur-sm py-3" style={{ backgroundColor: "var(--theme-sidebar-bg)" }}>
             <button
               onClick={() => setSidebarOpen(true)}
               className="flex items-center justify-center rounded-lg p-2.5 text-grey/60 hover:text-white hover:bg-white/10 transition-all duration-200 mb-2"
@@ -226,16 +276,16 @@ export function DashboardLayout({
             <button
               onClick={() => setSidebarOpen(true)}
               className="flex items-center justify-center rounded-lg p-2.5 text-grey/60 hover:text-white hover:bg-white/10 transition-all duration-200 mb-1"
-              aria-label="New chat"
-              title="New chat"
+              aria-label="New project"
+              title="New project"
             >
               <Plus className="h-4.5 w-4.5" />
             </button>
             <button
               onClick={() => setSidebarOpen(true)}
               className="flex items-center justify-center rounded-lg p-2.5 text-grey/60 hover:text-white hover:bg-white/10 transition-all duration-200"
-              aria-label="Search chats"
-              title="Search chats"
+              aria-label="Search projects"
+              title="Search projects"
             >
               <Search className="h-4.5 w-4.5" />
             </button>
@@ -282,6 +332,9 @@ export function DashboardLayout({
                   onLogout={onLogout}
                   onCollapse={() => setMobileSidebarOpen(false)}
                   chatTitleUpdate={chatTitleUpdate}
+                  onOpenWorkflow={() => { setMainView("home"); setMobileSidebarOpen(false); }}
+                  recentRuns={recentRuns}
+                  onSelectRun={(run) => { handleSelectRun(run); setMobileSidebarOpen(false); }}
                 />
               </ErrorBoundary>
             </motion.aside>
@@ -289,10 +342,10 @@ export function DashboardLayout({
         )}
       </AnimatePresence>
 
-      {/* Chat Panel */}
+      {/* Main Content Area */}
       <main className="flex-1 min-w-0 h-full flex flex-col relative">
         {/* Top bar */}
-        <div className="flex items-center justify-between border-b px-3 py-2 backdrop-blur-sm" style={{ backgroundColor: 'var(--theme-bg)', opacity: 0.9, borderColor: 'var(--theme-border)' }}>
+        <div className="flex items-center justify-between border-b px-3 py-2 backdrop-blur-sm" style={{ backgroundColor: "var(--theme-bg)", opacity: 0.9, borderColor: "var(--theme-border)" }}>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setMobileSidebarOpen(true)}
@@ -321,7 +374,7 @@ export function DashboardLayout({
             </div>
           </div>
 
-          {/* Preview toggle — only show when there's content and panel is closed */}
+          {/* Preview toggle */}
           {hasPreviewContent && !previewOpen && (
             <motion.button
               initial={{ opacity: 0, scale: 0.9 }}
@@ -332,44 +385,147 @@ export function DashboardLayout({
               aria-label="Open preview"
             >
               <Eye className="h-3.5 w-3.5" />
-              Preview
+              View Results
             </motion.button>
           )}
         </div>
 
+        {/* Main content — switches between Home, Workflow, and Results */}
         <div className="flex-1 min-h-0">
-          <ErrorBoundary fallbackLabel="ChatPanel">
-            <ChatPanel
-              messages={messages}
-              isStreaming={isStreaming}
-              streamingContent={streamingContent}
-              onSendMessage={onSendMessage}
-              onSendMessageWithMode={onSendMessageWithMode}
-              onRegenerateMessage={handleRegenerateMessage}
-              onEditMessage={handleEditMessage}
-              messageMode={messageMode}
-              processSteps={processSteps}
-            />
-          </ErrorBoundary>
+          <AnimatePresence mode="wait">
+            {mainView === "home" && (
+              <motion.div
+                key="home"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="h-full"
+              >
+                <CreationHub
+                  onSelectFeature={handleSelectFeature}
+                  recentRuns={recentRuns}
+                  onSelectRun={handleSelectRun}
+                />
+              </motion.div>
+            )}
+
+            {mainView === "workflow" && (
+              <motion.div
+                key="workflow"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.25 }}
+                className="h-full"
+              >
+                <WorkflowView
+                  pipelineType={workflowType}
+                  userMessage={workflowInput}
+                  onClose={() => {
+                    setMainView("home");
+                    if (userStoryContent || pptContent || prototypeContent) {
+                      setPreviewOpen(true);
+                      setPreviewManualClose(false);
+                    }
+                  }}
+                  websocketSend={websocketSend || (() => {})}
+                  pipelineState={pipelineState}
+                  onStartPipeline={(type, message, agentIds) => {
+                    // Create local run tracking + trigger pipeline
+                    const newRun: WorkflowRun = {
+                      id: crypto.randomUUID(),
+                      title: message.slice(0, 60),
+                      type: type as WorkflowType,
+                      status: "running",
+                      input: message,
+                      createdAt: new Date().toISOString(),
+                      agentCount: agentIds?.length || (type === "ppt" ? 10 : 12),
+                    };
+                    setLocalRunningRun(newRun);
+                    setWorkflowInput(message);
+                    if (onStartPipeline) onStartPipeline(type, message, agentIds);
+                  }}
+                  onResetPipeline={onResetPipeline}
+                  onViewResults={(pipelineType) => {
+                    setPreviewOpen(false);
+                    if (pipelineType === "user_stories") setWorkflowType("user_stories");
+                    else if (pipelineType === "ppt") setWorkflowType("ppt");
+                    else if (pipelineType === "prototype") setWorkflowType("prototype");
+                    setMainView("results");
+                  }}
+                />
+              </motion.div>
+            )}
+
+            {mainView === "results" && (
+              <motion.div
+                key="results"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="h-full"
+              >
+                <ErrorBoundary fallbackLabel="ResultsView">
+                  <ResultsView
+                    workflowType={workflowType}
+                    userStoryContent={userStoryContent}
+                    pptContent={pptContent}
+                    prototypeContent={prototypeContent}
+                    isStreaming={isStreaming}
+                    originalInput={workflowInput}
+                    onRefine={(message) => {
+                      // Re-run the pipeline with the refinement instruction
+                      const refinedInput = `${workflowInput}\n\n---\nRefinement: ${message}`;
+                      setWorkflowInput(refinedInput);
+                      setMainView("workflow");
+
+                      const newRun: WorkflowRun = {
+                        id: crypto.randomUUID(),
+                        title: `Refine: ${message.slice(0, 40)}`,
+                        type: workflowType,
+                        status: "running",
+                        input: refinedInput,
+                        createdAt: new Date().toISOString(),
+                        agentCount: workflowType === "ppt" ? 10 : 12,
+                      };
+                      setLocalRunningRun(newRun);
+
+                      if (onStartPipeline) {
+                        onStartPipeline(workflowType, refinedInput);
+                      }
+                    }}
+                    onRunAnother={() => {
+                      if (onResetPipeline) onResetPipeline();
+                      setWorkflowInput("");
+                      setMainView("home");
+                    }}
+                    onGoHome={handleGoHome}
+                  />
+                </ErrorBoundary>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </main>
 
-      {/* Preview Panel — resizable, scrollable, hidden by default */}
+      {/* Preview Panel — resizable, shows workflow output (hidden in results view since ResultsView shows it inline) */}
       <AnimatePresence>
-        {previewOpen && (
+        {previewOpen && mainView !== "results" && (
           <motion.aside
             initial={{ width: 0, opacity: 0 }}
             animate={{ width: previewWidth, opacity: 1 }}
             exit={{ width: 0, opacity: 0 }}
             transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
             className="hidden lg:flex h-full overflow-hidden flex-shrink-0 relative"
-            style={{ borderColor: 'var(--theme-border)' }}
+            style={{ borderColor: "var(--theme-border)" }}
           >
             {/* Resize handle */}
             <div
               onMouseDown={handleResizeStart}
               className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 group flex items-center justify-center hover:bg-white/10 transition-colors"
-              style={{ borderLeft: '1px solid var(--theme-border)' }}
+              style={{ borderLeft: "1px solid var(--theme-border)" }}
               aria-label="Resize preview panel"
             >
               <div className="w-0.5 h-8 rounded-full bg-grey/30 group-hover:bg-grey/60 transition-colors" />

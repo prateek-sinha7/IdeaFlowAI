@@ -33,10 +33,10 @@ export interface ChatMessage {
 }
 
 export interface StreamMessage {
-  type: "stream" | "complete" | "error" | "phase_start" | "phase_end" | "title_update" | "step";
+  type: "stream" | "complete" | "error" | "phase_start" | "phase_end" | "title_update" | "step" | "pipeline_start" | "agent_start" | "agent_thinking" | "agent_chunk" | "agent_complete" | "agent_error" | "pipeline_complete";
   chunk?: string;
   section?: string;
-  data?: FinalOutput | ErrorDetail | ProcessStep;
+  data?: FinalOutput | ErrorDetail | ProcessStep | Record<string, unknown>;
 }
 
 export interface ProcessStep {
@@ -178,3 +178,76 @@ export interface Story {
   storyPoints?: number;
   dependencies?: string;
 }
+
+// ============================================================
+// WORKFLOW / PIPELINE TYPES
+// ============================================================
+
+export type WorkflowType = "user_stories" | "ppt" | "prototype";
+
+export type WorkflowStatus = "running" | "completed" | "failed";
+
+export interface WorkflowRun {
+  id: string;
+  title: string;
+  type: WorkflowType;
+  status: WorkflowStatus;
+  input: string;
+  output?: string;
+  createdAt: string;
+  completedAt?: string;
+  duration?: number;
+  agentCount: number;
+  error?: string;
+}
+
+export interface AgentDef {
+  id: string;
+  name: string;
+  role: string;
+  description: string;
+  pipeline_type: string;
+  order: number;
+  icon: string;
+  estimated_duration: number;
+  has_skill: boolean;
+}
+
+export interface PipelineConfig {
+  pipeline_type: string;
+  agents: AgentDef[];
+  total_estimated_duration: number;
+}
+
+export type AgentStatusType = "idle" | "thinking" | "running" | "done" | "error";
+
+export interface AgentRunState {
+  id: string;
+  name: string;
+  role: string;
+  icon: string;
+  status: AgentStatusType;
+  output: string;
+  thinking: string;
+  duration: number | null;
+  error: string | null;
+  index: number;
+}
+
+export interface PipelineRunState {
+  isRunning: boolean;
+  pipeline_type: string;
+  agents: AgentRunState[];
+  currentAgentIndex: number;
+  totalDuration: number | null;
+  completedCount: number;
+}
+
+export type PipelineMessageType =
+  | "pipeline_start"
+  | "agent_start"
+  | "agent_thinking"
+  | "agent_chunk"
+  | "agent_complete"
+  | "agent_error"
+  | "pipeline_complete";

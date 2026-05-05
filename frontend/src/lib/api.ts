@@ -8,6 +8,8 @@ import type {
   ChatMessage,
   ChatSession,
   User,
+  WorkflowRun,
+  WorkflowType,
 } from "@/types/index";
 
 const BASE_URL =
@@ -214,3 +216,99 @@ export async function deleteChat(
 }
 
 export { ApiError };
+
+
+// --- Workflow API ---
+
+/** Raw workflow run shape from the backend (snake_case fields) */
+interface RawWorkflowRun {
+  id: string;
+  title: string;
+  type: string;
+  status: string;
+  input: string;
+  output: string | null;
+  agent_count: number;
+  duration: number | null;
+  error: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+/** Normalize a backend workflow run (snake_case) to frontend format (camelCase) */
+function normalizeWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
+  return {
+    id: raw.id,
+    title: raw.title,
+    type: raw.type as WorkflowType,
+    status: raw.status as WorkflowRun["status"],
+    input: raw.input,
+    output: raw.output ?? undefined,
+    agentCount: raw.agent_count,
+    duration: raw.duration ?? undefined,
+    error: raw.error ?? undefined,
+    createdAt: ensureUTC(raw.created_at),
+    completedAt: raw.completed_at ? ensureUTC(raw.completed_at) : undefined,
+  };
+}
+
+export async function createWorkflow(
+  token: string,
+  type: WorkflowType,
+  input: string,
+  title?: string
+): Promise<WorkflowRun> {
+  const raw = await request<RawWorkflowRun>("/api/workflows", {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ type, input, title: title ?? null }),
+  });
+  return normalizeWorkflowRun(raw);
+}
+
+export async function getWorkflows(
+  token: string,
+  options?: { type?: WorkflowType; limit?: number }
+): Promise<WorkflowRun[]> {
+  let path = "/api/workflows";
+  const params = new URLSearchParams();
+  if (options?.type) params.set("type", options.type);
+  if (options?.limit) params.set("limit", String(options.limit));
+  const qs = params.toString();
+  if (qs) path += `?${qs}`;
+
+  const raw = await request<RawWorkflowRun[]>(path, {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+  return raw.map(normalizeWorkflowRun);
+}
+
+export async function getWorkflow(
+  token: string,
+  workflowId: string
+): Promise<WorkflowRun> {
+  const raw = await request<RawWorkflowRun>(`/api/workflows/${workflowId}`, {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+  return normalizeWorkflowRun(raw);
+}
+
+export async function deleteWorkflow(
+  token: string,
+  workflowId: string
+): Promise<void> {
+  const url = `${BASE_URL}/api/workflows/${workflowId}`;
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: authHeaders(token),
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({
+      detail: response.statusText,
+    }));
+    throw new ApiError(response.status, body.detail ?? body);
+  }
+}
