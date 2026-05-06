@@ -36,7 +36,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4 gradient-radial" style={{ backgroundColor: 'var(--theme-bg)' }}>
+    <div className="flex min-h-screen items-center justify-center px-4 bg-[#f5f4ed]">
       <motion.div
         initial={{ opacity: 0, y: 20, scale: 0.97 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -50,17 +50,17 @@ export default function LoginPage() {
           transition={{ duration: 0.5, delay: 0.1 }}
           className="flex items-center justify-center gap-2.5 mb-8"
         >
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-navy border border-grey/20">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#c96442] to-[#d97757]">
             <Sparkles className="h-5 w-5 text-white" />
           </div>
-          <h2 className="text-xl font-semibold text-white tracking-tight">
+          <h2 className="text-xl font-semibold text-[#141413] tracking-tight">
             IdeaFlow AI
           </h2>
         </motion.div>
 
         {/* Card */}
-        <div className="rounded-2xl border border-grey/20 backdrop-blur-md p-8 shadow-2xl shadow-navy/20" style={{ backgroundColor: 'var(--theme-surface)', opacity: 0.85 }}>
-          <h1 className="mb-6 text-center text-2xl font-semibold text-white">
+        <div className="rounded-2xl border border-[#e8e6dc] bg-white p-8 shadow-lg shadow-black/5">
+          <h1 className="mb-6 text-center text-2xl font-semibold text-[#141413]">
             Welcome back
           </h1>
 
@@ -68,7 +68,7 @@ export default function LoginPage() {
             <motion.div
               initial={{ opacity: 0, y: -5 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400"
+              className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600"
             >
               {error}
             </motion.div>
@@ -76,68 +76,34 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label
-                htmlFor="email"
-                className="mb-1.5 block text-sm font-medium text-grey"
-              >
-                Email
-              </label>
+              <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-[#5e5d59]">Email</label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-grey/50" />
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  autoComplete="email"
-                  className="w-full rounded-xl border border-grey/20 bg-black/50 pl-10 pr-3 py-2.5 text-white text-sm placeholder-grey/40 focus:border-grey/50 focus:outline-none focus:ring-1 focus:ring-grey/30 transition-colors"
-                  placeholder="you@example.com"
-                />
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#87867f]" />
+                <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email"
+                  className="w-full rounded-xl border border-[#e8e6dc] bg-[#faf9f5] pl-10 pr-3 py-2.5 text-[#141413] text-sm placeholder-[#87867f] focus:border-[#c96442]/50 focus:outline-none focus:ring-2 focus:ring-[#c96442]/10 transition-colors"
+                  placeholder="you@example.com" />
               </div>
             </div>
 
             <div>
-              <label
-                htmlFor="password"
-                className="mb-1.5 block text-sm font-medium text-grey"
-              >
-                Password
-              </label>
+              <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-[#5e5d59]">Password</label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-grey/50" />
-                <input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  autoComplete="current-password"
-                  className="w-full rounded-xl border border-grey/20 bg-black/50 pl-10 pr-3 py-2.5 text-white text-sm placeholder-grey/40 focus:border-grey/50 focus:outline-none focus:ring-1 focus:ring-grey/30 transition-colors"
-                  placeholder="••••••••"
-                />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#87867f]" />
+                <input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password"
+                  className="w-full rounded-xl border border-[#e8e6dc] bg-[#faf9f5] pl-10 pr-3 py-2.5 text-[#141413] text-sm placeholder-[#87867f] focus:border-[#c96442]/50 focus:outline-none focus:ring-2 focus:ring-[#c96442]/10 transition-colors"
+                  placeholder="••••••••" />
               </div>
             </div>
 
-            <motion.button
-              whileHover={{ scale: 1.01 }}
-              whileTap={{ scale: 0.99 }}
-              type="submit"
-              disabled={isLoading}
-              className="w-full rounded-xl bg-white px-4 py-2.5 text-sm font-medium text-black transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-            >
+            <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }} type="submit" disabled={isLoading}
+              className="w-full rounded-xl bg-[#c96442] px-4 py-2.5 text-sm font-medium text-white transition-all hover:bg-[#b5573a] disabled:cursor-not-allowed disabled:opacity-50 shadow-md shadow-[#c96442]/20">
               {isLoading ? "Signing in..." : "Sign In"}
             </motion.button>
           </form>
 
-          <p className="mt-6 text-center text-sm text-grey">
+          <p className="mt-6 text-center text-sm text-[#5e5d59]">
             Don&apos;t have an account?{" "}
-            <Link
-              href="/register"
-              className="text-white underline underline-offset-2 hover:opacity-80 transition-opacity"
-            >
-              Create one
-            </Link>
+            <Link href="/register" className="text-[#c96442] font-medium hover:underline transition-all">Create one</Link>
           </p>
         </div>
       </motion.div>

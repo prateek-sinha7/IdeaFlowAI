@@ -121,7 +121,7 @@ export function DashboardLayout({
     mainView === "execution" ? "execution" : "home";
 
   return (
-    <div className="flex flex-col h-screen w-full overflow-hidden" style={{ backgroundColor: "var(--theme-bg)" }}>
+    <div className="flex flex-col h-screen w-full overflow-hidden bg-[#f5f4ed]">
       {/* Connection status banner */}
       <AnimatePresence>
         {connectionStatus === "reconnecting" && (
@@ -216,7 +216,7 @@ export function DashboardLayout({
               className="h-full flex"
             >
               {/* Left Panel — Agent Progress */}
-              <div className="w-[360px] flex-shrink-0 h-full border-r border-white/8">
+              <div className="w-[360px] flex-shrink-0 h-full border-r border-[#e8e6dc]">
                 <ErrorBoundary fallbackLabel="AgentProgress">
                   <AgentProgressPanel
                     pipelineState={pipelineState || { isRunning: false, pipeline_type: "", agents: [], currentAgentIndex: -1, totalDuration: null, completedCount: 0 }}

@@ -21,7 +21,7 @@ function getLayoutBadgeColor(layout?: string): string {
     case "chart": return "bg-rose-400/20 text-rose-400";
     case "timeline": return "bg-indigo-400/20 text-indigo-400";
     case "comparison": return "bg-orange-400/20 text-orange-400";
-    default: return "bg-grey/20 text-grey/70";
+    default: return "bg-[#f0eee6] text-[#5e5d59]";
   }
 }
 
@@ -248,7 +248,7 @@ function TitleSlideContent({ slide }: { slide: Slide }) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
       <h2 className="text-xl font-bold leading-tight mb-3">{slide.title}</h2>
-      <div className="w-12 h-0.5 rounded-full mb-3" style={{ backgroundColor: slide.colorScheme?.accent || "#AAAAAA" }} />
+      <div className="w-12 h-0.5 rounded-full mb-3" style={{ backgroundColor: slide.colorScheme?.accent || "#c96442" }} />
       {slide.subtitle && (
         <p className="text-sm opacity-70">{slide.subtitle}</p>
       )}
@@ -280,8 +280,8 @@ function QuoteSlideContent({ slide }: { slide: Slide }) {
 /* ─── Slide Content Router ─── */
 
 function SlideContent({ slide }: { slide: Slide }) {
-  const accent = slide.colorScheme?.accent || "#AAAAAA";
-  const textColor = slide.colorScheme?.text || "#FFFFFF";
+  const accent = slide.colorScheme?.accent || "#c96442";
+  const textColor = slide.colorScheme?.text || "#141413";
 
   switch (slide.type) {
     case "title":
@@ -414,11 +414,11 @@ export function PPTPreview({ content, isStreaming }: PPTPreviewProps) {
   if (!content) {
     return (
       <div className="flex h-full flex-col items-center justify-center px-6">
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-navy/50 border border-grey/10 mb-4">
-          <Presentation className="h-7 w-7 text-grey/40" />
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#f0eee6] border border-[#e8e6dc] mb-4">
+          <Presentation className="h-7 w-7 text-[#87867f]" />
         </div>
-        <p className="text-sm font-medium text-grey/60 mb-1">No Slides Yet</p>
-        <p className="text-xs text-grey/40 text-center max-w-[200px]">
+        <p className="text-sm font-medium text-[#5e5d59] mb-1">No Slides Yet</p>
+        <p className="text-xs text-[#87867f] text-center max-w-[200px]">
           PPT slide content will appear here once generation begins.
         </p>
       </div>
@@ -436,10 +436,10 @@ export function PPTPreview({ content, isStreaming }: PPTPreviewProps) {
     if (isStreaming) {
       return (
         <div className="flex h-full flex-col items-center justify-center px-6">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-navy/50 border border-grey/10 mb-3 animate-pulse">
-            <Presentation className="h-5 w-5 text-grey/50" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f0eee6] border border-[#e8e6dc] mb-3 animate-pulse">
+            <Presentation className="h-5 w-5 text-[#87867f]" />
           </div>
-          <p className="text-xs text-grey/50">Generating slides...</p>
+          <p className="text-xs text-[#87867f]">Generating slides...</p>
         </div>
       );
     }
@@ -450,8 +450,8 @@ export function PPTPreview({ content, isStreaming }: PPTPreviewProps) {
   if (parseError) {
     return (
       <div className="flex h-full items-center justify-center p-4">
-        <div className="rounded-xl border border-grey/20 bg-navy/30 p-4 text-center">
-          <p className="text-sm text-grey">{parseError}</p>
+        <div className="rounded-xl border border-[#e8e6dc] bg-[#faf9f5] p-4 text-center">
+          <p className="text-sm text-[#5e5d59]">{parseError}</p>
         </div>
       </div>
     );
@@ -460,7 +460,7 @@ export function PPTPreview({ content, isStreaming }: PPTPreviewProps) {
   if (slides.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-grey">No slides to display.</p>
+        <p className="text-sm text-[#5e5d59]">No slides to display.</p>
       </div>
     );
   }
@@ -485,19 +485,19 @@ export function PPTPreview({ content, isStreaming }: PPTPreviewProps) {
             <button
               onClick={goToPrev}
               disabled={safeIndex === 0}
-              className="flex h-7 w-7 items-center justify-center rounded-md bg-white/5 border border-white/10 text-white/60 hover:text-white hover:bg-white/10 transition-all disabled:opacity-30"
+              className="flex h-7 w-7 items-center justify-center rounded-md bg-[#f0eee6] border border-[#e8e6dc] text-[#5e5d59] hover:text-[#141413] hover:bg-[#e8e6dc] transition-all disabled:opacity-30"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
           )}
-          <span className="text-[11px] text-white/50 font-medium">
+          <span className="text-[11px] text-[#5e5d59] font-medium">
             Slide {safeIndex + 1} of {slides.length}
           </span>
           {slides.length > 1 && (
             <button
               onClick={goToNext}
               disabled={safeIndex === slides.length - 1}
-              className="flex h-7 w-7 items-center justify-center rounded-md bg-white/5 border border-white/10 text-white/60 hover:text-white hover:bg-white/10 transition-all disabled:opacity-30"
+              className="flex h-7 w-7 items-center justify-center rounded-md bg-[#f0eee6] border border-[#e8e6dc] text-[#5e5d59] hover:text-[#141413] hover:bg-[#e8e6dc] transition-all disabled:opacity-30"
             >
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
@@ -509,7 +509,7 @@ export function PPTPreview({ content, isStreaming }: PPTPreviewProps) {
               {slide.layout}
             </span>
           )}
-          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-medium bg-grey/10 text-grey/60`}>
+          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-medium bg-[#f0eee6] text-[#5e5d59]`}>
             {slide.type}
           </span>
         </div>
@@ -523,17 +523,17 @@ export function PPTPreview({ content, isStreaming }: PPTPreviewProps) {
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: -20 }}
           transition={{ duration: 0.25, ease: "easeInOut" }}
-          className="w-full max-w-[420px] mx-auto rounded-lg border border-grey/20 overflow-hidden shadow-xl shadow-black/30"
+          className="w-full max-w-[420px] mx-auto rounded-lg border border-[#e8e6dc] overflow-hidden shadow-md"
           style={{
-            backgroundColor: slide.colorScheme?.background || "#001f3f",
-            color: slide.colorScheme?.text || "#FFFFFF",
+            backgroundColor: slide.colorScheme?.background || "#ffffff",
+            color: slide.colorScheme?.text || "#141413",
             aspectRatio: "16 / 9",
           }}
         >
           <div className="h-full flex flex-col overflow-y-auto">
             <SlideContent slide={slide} />
-            <div className="px-4 pb-2 pt-1 border-t border-white/10 flex items-center justify-between mt-auto">
-              <span className="text-[8px] uppercase tracking-widest font-medium opacity-40" style={{ color: slide.colorScheme?.accent || "#AAAAAA" }}>
+            <div className="px-4 pb-2 pt-1 border-t border-black/5 flex items-center justify-between mt-auto">
+              <span className="text-[8px] uppercase tracking-widest font-medium opacity-40" style={{ color: slide.colorScheme?.accent || "#c96442" }}>
                 {slide.type}
               </span>
               <span className="text-[8px] opacity-30">{safeIndex + 1} / {slides.length}</span>
@@ -544,10 +544,10 @@ export function PPTPreview({ content, isStreaming }: PPTPreviewProps) {
 
       {/* Speaker Notes */}
       {slide.speakerNotes && (
-        <div className="rounded-lg border border-grey/15 bg-black/30 overflow-hidden">
+        <div className="rounded-lg border border-[#e8e6dc] bg-black/30 overflow-hidden">
           <button
             onClick={() => setShowNotes(!showNotes)}
-            className="flex items-center justify-between w-full px-3 py-2 text-[11px] font-medium text-grey/60 hover:text-white transition-colors"
+            className="flex items-center justify-between w-full px-3 py-2 text-[11px] font-medium text-[#5e5d59] hover:text-white transition-colors"
           >
             <div className="flex items-center gap-1.5">
               <StickyNote className="h-3 w-3" />
@@ -564,7 +564,7 @@ export function PPTPreview({ content, isStreaming }: PPTPreviewProps) {
                 transition={{ duration: 0.2 }}
                 className="overflow-hidden"
               >
-                <div className="px-3 pb-3 text-[11px] text-grey/70 leading-relaxed border-t border-grey/10 pt-2">
+                <div className="px-3 pb-3 text-[11px] text-[#5e5d59] leading-relaxed border-t border-[#e8e6dc] pt-2">
                   {slide.speakerNotes}
                 </div>
               </motion.div>
@@ -582,15 +582,15 @@ export function PPTPreview({ content, isStreaming }: PPTPreviewProps) {
               onClick={() => setCurrentSlide(idx)}
               className={`flex-shrink-0 rounded-md border p-1.5 transition-all duration-200 min-w-[72px] ${
                 idx === safeIndex
-                  ? "border-white/40 bg-navy/50"
-                  : "border-grey/15 bg-black/30 hover:border-grey/30"
+                  ? "border-[#c96442]/40 bg-[#faf9f5]"
+                  : "border-[#e8e6dc] bg-black/30 hover:border-[#c96442]/30"
               }`}
             >
               <div
                 className="rounded-sm h-9 flex items-center justify-center"
-                style={{ backgroundColor: s.colorScheme?.background || "#001f3f" }}
+                style={{ backgroundColor: s.colorScheme?.background || "#ffffff" }}
               >
-                <span className="text-[8px] font-medium text-white/70 truncate px-1">
+                <span className="text-[8px] font-medium text-[#141413]/70 truncate px-1">
                   {s.title}
                 </span>
               </div>

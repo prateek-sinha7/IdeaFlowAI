@@ -26,12 +26,12 @@ const COMPONENT_TYPE_COLORS: Record<string, string> = {
   text: "text-slate-400 bg-slate-400/10",
   link: "text-blue-300 bg-blue-300/10",
   logo: "text-amber-300 bg-amber-300/10",
-  default: "text-grey/70 bg-grey/10",
+  default: "text-[#5e5d59] bg-grey/10",
 };
 
 const STATE_COLORS: Record<string, string> = {
   loading: "text-blue-400 bg-blue-400/10 border-blue-400/20",
-  empty: "text-grey/60 bg-grey/10 border-grey/20",
+  empty: "text-[#5e5d59] bg-grey/10 border-[#e8e6dc]",
   error: "text-rose-400 bg-rose-400/10 border-rose-400/20",
   success: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20",
 };
@@ -55,11 +55,11 @@ export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps
   if (!content) {
     return (
       <div className="flex h-full flex-col items-center justify-center px-6">
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-navy/50 border border-grey/10 mb-4">
-          <Layout className="h-7 w-7 text-grey/40" />
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#f0eee6] border border-[#e8e6dc] mb-4">
+          <Layout className="h-7 w-7 text-[#87867f]" />
         </div>
-        <p className="text-sm font-medium text-grey/60 mb-1">No Prototype Yet</p>
-        <p className="text-xs text-grey/40 text-center max-w-[200px]">
+        <p className="text-sm font-medium text-[#5e5d59] mb-1">No Prototype Yet</p>
+        <p className="text-xs text-[#87867f] text-center max-w-[200px]">
           Prototype content will appear here once generation begins.
         </p>
       </div>
@@ -76,10 +76,10 @@ export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps
     if (isStreaming) {
       return (
         <div className="flex h-full flex-col items-center justify-center px-6">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-navy/50 border border-grey/10 mb-3 animate-pulse">
-            <Layout className="h-5 w-5 text-grey/50" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f0eee6] border border-[#e8e6dc] mb-3 animate-pulse">
+            <Layout className="h-5 w-5 text-[#87867f]" />
           </div>
-          <p className="text-xs text-grey/50">Generating prototype...</p>
+          <p className="text-xs text-[#87867f]">Generating prototype...</p>
         </div>
       );
     }
@@ -91,8 +91,8 @@ export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps
   if (parseError) {
     return (
       <div className="flex h-full items-center justify-center p-4">
-        <div className="rounded-xl border border-grey/20 bg-navy/30 p-4 text-center">
-          <p className="text-sm text-grey">{parseError}</p>
+        <div className="rounded-xl border border-[#e8e6dc] bg-[#faf9f5] p-4 text-center">
+          <p className="text-sm text-[#5e5d59]">{parseError}</p>
         </div>
       </div>
     );
@@ -110,22 +110,22 @@ export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps
           <div className="flex h-5 w-5 items-center justify-center rounded-md bg-blue-400/10">
             <Layers className="h-3 w-3 text-blue-400" />
           </div>
-          <h2 className="text-xs font-bold uppercase tracking-wider text-grey/80">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-[#4d4c48]">
             Pages
           </h2>
-          <span className="text-[10px] text-grey/40 ml-auto">{prototype.pages.length} pages</span>
+          <span className="text-[10px] text-[#87867f] ml-auto">{prototype.pages.length} pages</span>
         </div>
         <div className="space-y-3">
           {prototype.pages.map((page, pageIdx) => (
             <div
               key={pageIdx}
-              className="rounded-xl border border-grey/15 bg-gradient-to-br from-navy/30 to-black/40 p-3"
+              className="rounded-xl border border-[#e8e6dc] bg-gradient-to-br from-navy/30 to-black/40 p-3"
             >
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-semibold text-white">
+                <span className="text-sm font-semibold text-[#141413]">
                   {page.name}
                 </span>
-                <span className="rounded-md bg-black/50 px-2 py-0.5 text-[10px] font-mono text-grey/70 border border-grey/10">
+                <span className="rounded-md bg-[#f0eee6] px-2 py-0.5 text-[10px] font-mono text-[#5e5d59] border border-[#e8e6dc]">
                   {page.route}
                 </span>
               </div>
@@ -134,8 +134,8 @@ export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps
               {page.states && Object.keys(page.states).length > 0 && (
                 <div className="mb-3">
                   <div className="flex items-center gap-1 mb-1.5">
-                    <Monitor className="h-2.5 w-2.5 text-grey/40" />
-                    <span className="text-[9px] font-semibold uppercase tracking-wider text-grey/40">States</span>
+                    <Monitor className="h-2.5 w-2.5 text-[#87867f]" />
+                    <span className="text-[9px] font-semibold uppercase tracking-wider text-[#87867f]">States</span>
                   </div>
                   <div className="flex gap-1 flex-wrap">
                     {Object.entries(page.states).map(([state, description]) => {
@@ -148,7 +148,7 @@ export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps
                           className={`rounded-md px-2 py-0.5 text-[9px] font-medium border transition-all duration-150 ${
                             isActive
                               ? colorClass
-                              : "text-grey/40 bg-black/20 border-grey/10 hover:border-grey/20"
+                              : "text-[#87867f] bg-[#faf9f5] border-[#e8e6dc] hover:border-[#e8e6dc]"
                           }`}
                           title={description}
                         >
@@ -159,7 +159,7 @@ export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps
                   </div>
                   {/* Show active state description */}
                   {page.states[activeStates[pageIdx] || "success"] && (
-                    <p className="mt-1.5 text-[10px] text-grey/50 italic pl-1">
+                    <p className="mt-1.5 text-[10px] text-[#87867f] italic pl-1">
                       {page.states[activeStates[pageIdx] || "success"]}
                     </p>
                   )}
@@ -175,7 +175,7 @@ export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps
             </div>
           ))}
           {prototype.pages.length === 0 && (
-            <p className="text-xs text-grey/50 italic">No pages defined.</p>
+            <p className="text-xs text-[#87867f] italic">No pages defined.</p>
           )}
         </div>
       </section>
@@ -186,22 +186,22 @@ export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps
           <div className="flex h-5 w-5 items-center justify-center rounded-md bg-cyan-400/10">
             <Navigation className="h-3 w-3 text-cyan-400" />
           </div>
-          <h2 className="text-xs font-bold uppercase tracking-wider text-grey/80">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-[#4d4c48]">
             Navigation
           </h2>
         </div>
-        <div className="rounded-xl border border-grey/15 bg-gradient-to-br from-navy/30 to-black/40 p-3">
+        <div className="rounded-xl border border-[#e8e6dc] bg-gradient-to-br from-navy/30 to-black/40 p-3">
           {/* New-style navigation with items array */}
           {prototype.navigation.items && prototype.navigation.items.length > 0 ? (
             <ul className="space-y-1.5">
               {prototype.navigation.items.map((item) => (
                 <li key={item.label} className="flex items-center gap-2 text-xs">
                   {item.icon && (
-                    <span className="text-[10px] text-grey/40 font-mono">{item.icon}</span>
+                    <span className="text-[10px] text-[#87867f] font-mono">{item.icon}</span>
                   )}
-                  <span className="font-medium text-white">{item.label}</span>
-                  <span className="flex-1 border-b border-dashed border-grey/15" />
-                  <span className="font-mono text-[10px] text-grey/60">{item.route}</span>
+                  <span className="font-medium text-[#141413]">{item.label}</span>
+                  <span className="flex-1 border-b border-dashed border-[#e8e6dc]" />
+                  <span className="font-mono text-[10px] text-[#5e5d59]">{item.route}</span>
                 </li>
               ))}
             </ul>
@@ -210,24 +210,24 @@ export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps
               {Object.entries(prototype.navigation.routes).map(
                 ([name, route]) => (
                   <li key={name} className="flex items-center gap-2 text-xs">
-                    <span className="font-medium text-white">{name}</span>
-                    <span className="flex-1 border-b border-dashed border-grey/15" />
-                    <span className="font-mono text-[10px] text-grey/60">{route}</span>
+                    <span className="font-medium text-[#141413]">{name}</span>
+                    <span className="flex-1 border-b border-dashed border-[#e8e6dc]" />
+                    <span className="font-mono text-[10px] text-[#5e5d59]">{route}</span>
                   </li>
                 )
               )}
             </ul>
           ) : (
-            <p className="text-xs text-grey/50 italic">No routes defined.</p>
+            <p className="text-xs text-[#87867f] italic">No routes defined.</p>
           )}
           {prototype.navigation.defaultRoute && (
-            <p className="mt-2 text-[10px] text-grey/50">
-              Default: <span className="font-mono text-grey/70">{prototype.navigation.defaultRoute}</span>
+            <p className="mt-2 text-[10px] text-[#87867f]">
+              Default: <span className="font-mono text-[#5e5d59]">{prototype.navigation.defaultRoute}</span>
             </p>
           )}
           {prototype.navigation.type && (
-            <p className="mt-1 text-[10px] text-grey/50">
-              Type: <span className="font-mono text-grey/70">{prototype.navigation.type}</span>
+            <p className="mt-1 text-[10px] text-[#87867f]">
+              Type: <span className="font-mono text-[#5e5d59]">{prototype.navigation.type}</span>
             </p>
           )}
         </div>
@@ -239,33 +239,33 @@ export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps
           <div className="flex h-5 w-5 items-center justify-center rounded-md bg-amber-400/10">
             <Zap className="h-3 w-3 text-amber-400" />
           </div>
-          <h2 className="text-xs font-bold uppercase tracking-wider text-grey/80">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-[#4d4c48]">
             Behavior
           </h2>
         </div>
-        <div className="rounded-xl border border-grey/15 bg-gradient-to-br from-navy/30 to-black/40 p-3">
+        <div className="rounded-xl border border-[#e8e6dc] bg-gradient-to-br from-navy/30 to-black/40 p-3">
           {Object.keys(prototype.behavior.interactions).length > 0 ? (
             <div className="space-y-1.5">
-              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-grey/50 mb-2">Interactions</h3>
+              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-[#87867f] mb-2">Interactions</h3>
               <ul className="space-y-1.5">
                 {Object.entries(prototype.behavior.interactions).map(
                   ([trigger, action]) => (
                     <li key={trigger} className="flex items-start gap-2 text-xs">
-                      <span className="font-medium text-white flex-shrink-0">{trigger}</span>
-                      <span className="text-grey/40 flex-shrink-0">&rarr;</span>
-                      <span className="text-grey/70">{action}</span>
+                      <span className="font-medium text-[#141413] flex-shrink-0">{trigger}</span>
+                      <span className="text-[#87867f] flex-shrink-0">&rarr;</span>
+                      <span className="text-[#5e5d59]">{action}</span>
                     </li>
                   )
                 )}
               </ul>
             </div>
           ) : (
-            <p className="text-xs text-grey/50 italic">No interactions defined.</p>
+            <p className="text-xs text-[#87867f] italic">No interactions defined.</p>
           )}
           {prototype.behavior.animations &&
             Object.keys(prototype.behavior.animations).length > 0 && (
-              <div className="mt-3 pt-3 border-t border-grey/10 space-y-1.5">
-                <h3 className="text-[10px] font-semibold uppercase tracking-wider text-grey/50 mb-2">Animations</h3>
+              <div className="mt-3 pt-3 border-t border-[#e8e6dc] space-y-1.5">
+                <h3 className="text-[10px] font-semibold uppercase tracking-wider text-[#87867f] mb-2">Animations</h3>
                 <ul className="space-y-1.5">
                   {Object.entries(prototype.behavior.animations).map(
                     ([element, animation]) => (
@@ -273,9 +273,9 @@ export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps
                         key={element}
                         className="flex items-start gap-2 text-xs"
                       >
-                        <span className="font-medium text-white flex-shrink-0">{element}</span>
-                        <span className="text-grey/40 flex-shrink-0">&rarr;</span>
-                        <span className="text-grey/70">{animation}</span>
+                        <span className="font-medium text-[#141413] flex-shrink-0">{element}</span>
+                        <span className="text-[#87867f] flex-shrink-0">&rarr;</span>
+                        <span className="text-[#5e5d59]">{animation}</span>
                       </li>
                     )
                   )}
@@ -322,7 +322,7 @@ function ComponentTree({
                 {comp.type}
               </span>
               {Object.keys(comp.props).length > 0 && (
-                <span className="text-[10px] text-grey/40 font-mono truncate max-w-[120px]">
+                <span className="text-[10px] text-[#87867f] font-mono truncate max-w-[120px]">
                   {Object.entries(comp.props)
                     .filter(([key]) => key !== "responsive" && key !== "ariaLabel" && typeof comp.props[key] === "string")
                     .map(([key, val]) => `${key}=${JSON.stringify(val)}`)
@@ -334,8 +334,8 @@ function ComponentTree({
             {/* Data flow description */}
             {comp.dataFlow && (
               <div className="flex items-start gap-1 mt-0.5" style={{ paddingLeft: `${depth * 16 + (depth > 0 ? 20 : 0)}px` }}>
-                <Database className="h-2.5 w-2.5 text-grey/30 flex-shrink-0 mt-0.5" />
-                <span className="text-[9px] text-grey/40 italic leading-tight">{comp.dataFlow}</span>
+                <Database className="h-2.5 w-2.5 text-[#87867f] flex-shrink-0 mt-0.5" />
+                <span className="text-[9px] text-[#87867f] italic leading-tight">{comp.dataFlow}</span>
               </div>
             )}
             {comp.children && comp.children.length > 0 && (

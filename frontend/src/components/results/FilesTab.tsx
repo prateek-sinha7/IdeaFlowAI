@@ -146,8 +146,8 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
     return (
       <div className="flex items-center justify-center h-full px-6">
         <div className="text-center">
-          <p className="text-sm text-grey/50">No files available</p>
-          <p className="text-[11px] text-grey/35 mt-1">Run a workflow to generate downloadable files</p>
+          <p className="text-sm text-[#87867f]">No files available</p>
+          <p className="text-[11px] text-[#87867f] mt-1">Run a workflow to generate downloadable files</p>
         </div>
       </div>
     );
@@ -156,12 +156,12 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
   return (
     <div className="px-5 py-4 h-full overflow-y-auto">
       <div className="flex items-center justify-between mb-4">
-        <span className="text-[11px] text-grey/50 font-medium">{files.length} files available</span>
+        <span className="text-[11px] text-[#87867f] font-medium">{files.length} files available</span>
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.97 }}
           onClick={handleDownloadAll}
-          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[10px] font-medium text-white bg-white/10 hover:bg-white/15 border border-white/10 transition-all"
+          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[10px] font-medium text-[#141413] bg-[#f0eee6] hover:bg-[#e8e6dc] border border-[#e8e6dc] transition-all"
         >
           <Download className="h-3 w-3" />
           Download All
@@ -177,20 +177,20 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: idx * 0.05 }}
-              className="flex items-center gap-3 rounded-xl border border-grey/10 bg-white/[0.01] hover:bg-white/[0.03] hover:border-grey/20 px-4 py-3 transition-all"
+              className="flex items-center gap-3 rounded-xl border border-[#e8e6dc] bg-white hover:bg-[#faf9f5] hover:border-[#c96442]/20 px-4 py-3 transition-all"
             >
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/5 border border-white/10 flex-shrink-0">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#faf9f5] border border-[#e8e6dc] flex-shrink-0">
                 <Icon className={`h-5 w-5 ${file.iconColor}`} />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-white/90">{file.name}</p>
-                <p className="text-[10px] text-grey/50 mt-0.5">{file.format} • {file.size}</p>
+                <p className="text-xs font-medium text-[#141413]">{file.name}</p>
+                <p className="text-[10px] text-[#87867f] mt-0.5">{file.format} • {file.size}</p>
               </div>
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => handleDownload(file.id)}
-                className="flex items-center justify-center rounded-lg p-2 text-grey/50 hover:text-white hover:bg-white/10 border border-grey/15 transition-all"
+                className="flex items-center justify-center rounded-lg p-2 text-[#87867f] hover:text-[#141413] hover:bg-[#f0eee6] border border-[#e8e6dc] transition-all"
                 title={`Download ${file.name}`}
               >
                 <Download className="h-4 w-4" />

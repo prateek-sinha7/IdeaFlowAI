@@ -18,7 +18,6 @@ import {
 } from "lucide-react";
 import type { ChatSession, WorkflowRun, WorkflowType } from "@/types/index";
 import { getToken, getChats } from "@/lib/api";
-import { ThemePicker } from "@/components/ui/ThemePicker";
 
 interface SidebarProps {
   activeChatId?: string;
@@ -190,11 +189,6 @@ export function Sidebar({
             </div>
           </div>
         ))}
-      </div>
-
-      {/* Theme picker */}
-      <div className="border-t border-grey/15 px-5 pt-2 pb-1.5">
-        <ThemePicker />
       </div>
 
       {/* User section with logout */}

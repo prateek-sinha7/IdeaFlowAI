@@ -99,20 +99,7 @@ const FEATURE_CARDS = [
  */
 export function CreationHub({ onSelectFeature }: CreationHubProps) {
   return (
-    <div className="flex h-full flex-col overflow-y-auto" style={{ backgroundColor: "var(--theme-bg)" }}>
-      {/* Ambient background effects */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div
-          className="absolute top-[20%] left-[20%] w-[600px] h-[600px] rounded-full opacity-[0.03]"
-          style={{ background: "radial-gradient(circle, #3b82f6, transparent 70%)", filter: "blur(100px)" }}
-        />
-        <div
-          className="absolute bottom-[20%] right-[20%] w-[500px] h-[500px] rounded-full opacity-[0.025]"
-          style={{ background: "radial-gradient(circle, #8b5cf6, transparent 70%)", filter: "blur(90px)" }}
-        />
-      </div>
-
-      {/* Content */}
+    <div className="flex h-full flex-col overflow-y-auto bg-[#f5f4ed]">
       <div className="relative flex-1 flex flex-col items-center justify-center px-8 py-12 max-w-6xl mx-auto w-full">
         {/* Header */}
         <motion.div
@@ -122,15 +109,15 @@ export function CreationHub({ onSelectFeature }: CreationHubProps) {
           className="text-center mb-12"
         >
           <div className="flex items-center justify-center gap-2.5 mb-5">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-white/10 to-white/5 border border-white/10 shadow-lg shadow-black/20">
-              <Sparkles className="h-5 w-5 text-white/90" />
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-[#c96442] to-[#d97757] shadow-md">
+              <Sparkles className="h-5 w-5 text-white" />
             </div>
-            <span className="text-[13px] font-semibold text-white/60 tracking-wide uppercase">AI Delivery Studio</span>
+            <span className="text-[13px] font-semibold text-[#87867f] tracking-wide uppercase">AI Delivery Studio</span>
           </div>
-          <h1 className="text-3xl md:text-4xl font-bold text-white tracking-tight mb-4">
+          <h1 className="text-3xl md:text-4xl font-bold text-[#141413] tracking-tight mb-4">
             What would you like to make?
           </h1>
-          <p className="text-sm md:text-base text-white/40 max-w-lg mx-auto leading-relaxed">
+          <p className="text-sm md:text-base text-[#5e5d59] max-w-lg mx-auto leading-relaxed">
             Pick an outcome to begin. We&apos;ll compose the right specialist agents and let you tune them before running.
           </p>
         </motion.div>
@@ -159,16 +146,16 @@ export function CreationHub({ onSelectFeature }: CreationHubProps) {
                     onSelectFeature(card.pipelineType);
                   }
                 }}
-                className={`relative flex flex-col rounded-2xl border p-5 transition-all duration-300 ${
+                className={`relative flex flex-col rounded-2xl border p-6 text-left transition-all duration-300 ${
                   card.enabled
-                    ? `${card.borderColor} bg-gradient-to-br ${card.color} cursor-pointer hover:shadow-xl hover:shadow-black/30 hover:border-white/20`
-                    : "border-grey/10 bg-white/[0.015] opacity-50 cursor-not-allowed"
+                    ? `border-[#e8e6dc] bg-white cursor-pointer hover:shadow-lg hover:shadow-black/5 hover:border-[#c96442]/30`
+                    : "border-[#e8e6dc] bg-[#faf9f5] opacity-50 cursor-not-allowed"
                 }`}
               >
                 {/* Badge */}
                 {card.badge && (
                   <div className="absolute top-3 right-3">
-                    <span className="text-[9px] font-semibold uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-full px-2 py-0.5">
+                    <span className="text-[9px] font-semibold uppercase tracking-wider bg-[#c96442]/10 text-[#c96442] border border-[#c96442]/20 rounded-full px-2 py-0.5">
                       {card.badge}
                     </span>
                   </div>
@@ -177,7 +164,7 @@ export function CreationHub({ onSelectFeature }: CreationHubProps) {
                 {/* Disabled lock */}
                 {!card.enabled && (
                   <div className="absolute top-3 right-3">
-                    <span className="text-[9px] font-medium text-grey/40 bg-white/5 border border-grey/15 rounded-full px-2 py-0.5 flex items-center gap-1">
+                    <span className="text-[9px] font-medium text-[#87867f] bg-[#f0eee6] border border-[#e8e6dc] rounded-full px-2 py-0.5 flex items-center gap-1">
                       <Lock className="h-2.5 w-2.5" />
                       Coming Soon
                     </span>
@@ -185,21 +172,21 @@ export function CreationHub({ onSelectFeature }: CreationHubProps) {
                 )}
 
                 {/* Icon */}
-                <div className={`flex h-10 w-10 items-center justify-center rounded-xl bg-black/20 border border-white/10 mb-4 ${!card.enabled ? "opacity-40" : ""}`}>
-                  <Icon className={`h-5 w-5 ${card.enabled ? card.iconColor : "text-grey/40"}`} />
+                <div className={`flex h-10 w-10 items-center justify-center rounded-xl border border-[#e8e6dc] mb-4 ${card.enabled ? "bg-[#faf9f5]" : "bg-[#f0eee6] opacity-40"}`}>
+                  <Icon className={`h-5 w-5 ${card.enabled ? card.iconColor : "text-[#87867f]"}`} />
                 </div>
 
                 {/* Text */}
-                <h3 className={`text-[13px] font-semibold mb-2 leading-snug ${card.enabled ? "text-white" : "text-white/40"}`}>
+                <h3 className={`text-[13px] font-semibold mb-2 leading-snug ${card.enabled ? "text-[#141413]" : "text-[#87867f]"}`}>
                   {card.label}
                 </h3>
-                <p className={`text-[11px] leading-relaxed flex-1 ${card.enabled ? "text-white/50" : "text-white/25"}`}>
+                <p className={`text-[11px] leading-relaxed flex-1 ${card.enabled ? "text-[#5e5d59]" : "text-[#87867f]"}`}>
                   {card.description}
                 </p>
 
                 {/* Arrow indicator for enabled cards */}
                 {card.enabled && (
-                  <div className="flex items-center gap-1 mt-4 text-[11px] font-medium text-white/40 group-hover:text-white/70 transition-colors">
+                  <div className="flex items-center gap-1 mt-4 text-[11px] font-medium text-[#c96442]">
                     <ArrowRight className="h-3.5 w-3.5" />
                   </div>
                 )}

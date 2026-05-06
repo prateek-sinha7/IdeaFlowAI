@@ -18,14 +18,14 @@ const EPIC_ACCENT_COLORS = [
 ];
 
 function getStoryPointColor(points?: number): string {
-  if (!points) return "bg-grey/20 text-grey/70";
+  if (!points) return "bg-grey/20 text-[#5e5d59]";
   if (points <= 3) return "bg-emerald-400/20 text-emerald-400";
   if (points <= 5) return "bg-amber-400/20 text-amber-400";
   return "bg-rose-400/20 text-rose-400";
 }
 
 function getPriorityColor(priority?: string): string {
-  if (!priority) return "bg-grey/20 text-grey/70";
+  if (!priority) return "bg-grey/20 text-[#5e5d59]";
   if (priority.includes("P0")) return "bg-rose-400/20 text-rose-400";
   if (priority.includes("P1")) return "bg-amber-400/20 text-amber-400";
   return "bg-blue-400/20 text-blue-400";
@@ -42,11 +42,11 @@ export function UserStoryPreview({ content }: UserStoryPreviewProps) {
   if (!content) {
     return (
       <div className="flex h-full flex-col items-center justify-center px-6">
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-navy/50 border border-grey/10 mb-4">
-          <FileText className="h-7 w-7 text-grey/40" />
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#f0eee6] border border-[#e8e6dc] mb-4">
+          <FileText className="h-7 w-7 text-[#87867f]" />
         </div>
-        <p className="text-sm font-medium text-grey/60 mb-1">No User Stories Yet</p>
-        <p className="text-xs text-grey/40 text-center max-w-[200px]">
+        <p className="text-sm font-medium text-[#5e5d59] mb-1">No User Stories Yet</p>
+        <p className="text-xs text-[#87867f] text-center max-w-[200px]">
           User story content will appear here once generation begins.
         </p>
       </div>
@@ -74,7 +74,7 @@ export function UserStoryPreview({ content }: UserStoryPreviewProps) {
       <div className="flex justify-end">
         <button
           onClick={handleCopyMarkdown}
-          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-grey/60 hover:text-white hover:bg-white/5 border border-grey/15 transition-all duration-200"
+          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-[#5e5d59] hover:text-[#141413] hover:bg-[#faf9f5] border border-[#e8e6dc] transition-all duration-200"
           aria-label="Copy as Markdown"
         >
           {copied ? (
@@ -93,10 +93,10 @@ export function UserStoryPreview({ content }: UserStoryPreviewProps) {
 
       {/* Persona badges */}
       {personas.length > 0 && (
-        <div className="rounded-xl border border-grey/15 bg-gradient-to-br from-navy/30 to-black/40 p-3">
+        <div className="rounded-xl border border-[#e8e6dc] bg-gradient-to-br from-navy/30 to-black/40 p-3">
           <div className="flex items-center gap-2 mb-2">
             <Users className="h-3.5 w-3.5 text-cyan-400" />
-            <span className="text-[10px] font-bold uppercase tracking-wider text-grey/60">Personas</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#5e5d59]">Personas</span>
           </div>
           <div className="flex flex-wrap gap-1.5">
             {personas.map((persona, idx) => (
@@ -115,17 +115,17 @@ export function UserStoryPreview({ content }: UserStoryPreviewProps) {
       {doc.epics.map((epic, epicIdx) => (
         <div
           key={epicIdx}
-          className={`rounded-xl border border-grey/15 bg-gradient-to-br from-navy/40 to-navy/20 overflow-hidden border-l-[3px] ${EPIC_ACCENT_COLORS[epicIdx % EPIC_ACCENT_COLORS.length]}`}
+          className={`rounded-xl border border-[#e8e6dc] bg-gradient-to-br from-navy/40 to-navy/20 overflow-hidden border-l-[3px] ${EPIC_ACCENT_COLORS[epicIdx % EPIC_ACCENT_COLORS.length]}`}
         >
           {/* Epic header */}
           <div className="px-4 pt-4 pb-3">
             <div className="flex items-start gap-3">
-              <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-white/10 text-xs font-bold text-white/80">
+              <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-[#f0eee6] text-xs font-bold text-white/80">
                 {epicIdx + 1}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-sm font-bold text-white leading-tight">{epic.title}</h2>
+                  <h2 className="text-sm font-bold text-[#141413] leading-tight">{epic.title}</h2>
                   {epic.priority && (
                     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${getPriorityColor(epic.priority)}`}>
                       {epic.priority}
@@ -133,10 +133,10 @@ export function UserStoryPreview({ content }: UserStoryPreviewProps) {
                   )}
                 </div>
                 {epic.description && (
-                  <p className="mt-1 text-xs text-grey/70 leading-relaxed">{epic.description}</p>
+                  <p className="mt-1 text-xs text-[#5e5d59] leading-relaxed">{epic.description}</p>
                 )}
                 {epic.businessValue && (
-                  <p className="mt-1 text-[10px] text-grey/50 italic">{epic.businessValue}</p>
+                  <p className="mt-1 text-[10px] text-[#87867f] italic">{epic.businessValue}</p>
                 )}
               </div>
             </div>
@@ -147,16 +147,16 @@ export function UserStoryPreview({ content }: UserStoryPreviewProps) {
             {epic.stories.map((story, storyIdx) => (
               <div
                 key={storyIdx}
-                className="rounded-lg border border-grey/10 bg-black/30 p-3"
+                className="rounded-lg border border-[#e8e6dc] bg-white p-3"
               >
                 <div className="flex items-start gap-2.5">
                   <div className="flex items-center gap-1.5">
-                    <BookOpen className="h-3.5 w-3.5 text-grey/50 flex-shrink-0 mt-0.5" />
+                    <BookOpen className="h-3.5 w-3.5 text-[#87867f] flex-shrink-0 mt-0.5" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="text-xs font-semibold text-white leading-tight">
-                        <span className="text-grey/50 mr-1.5">{epicIdx + 1}.{storyIdx + 1}</span>
+                      <h3 className="text-xs font-semibold text-[#141413] leading-tight">
+                        <span className="text-[#87867f] mr-1.5">{epicIdx + 1}.{storyIdx + 1}</span>
                         {story.title}
                       </h3>
                       {story.storyPoints && (
@@ -166,14 +166,14 @@ export function UserStoryPreview({ content }: UserStoryPreviewProps) {
                       )}
                     </div>
                     {story.description && (
-                      <p className="mt-1 text-[11px] text-grey/60 leading-relaxed">{story.description}</p>
+                      <p className="mt-1 text-[11px] text-[#5e5d59] leading-relaxed">{story.description}</p>
                     )}
 
                     {/* Dependencies */}
                     {story.dependencies && story.dependencies !== "None" && (
                       <div className="mt-1.5 flex items-center gap-1">
-                        <Link2 className="h-2.5 w-2.5 text-grey/40" />
-                        <span className="text-[10px] text-grey/50">Depends on: </span>
+                        <Link2 className="h-2.5 w-2.5 text-[#87867f]" />
+                        <span className="text-[10px] text-[#87867f]">Depends on: </span>
                         <span className="text-[10px] text-amber-400/80 font-medium">{story.dependencies}</span>
                       </div>
                     )}
@@ -187,9 +187,9 @@ export function UserStoryPreview({ content }: UserStoryPreviewProps) {
                           return (
                             <li
                               key={critIdx}
-                              className="flex items-start gap-1.5 text-[11px] text-grey/70"
+                              className="flex items-start gap-1.5 text-[11px] text-[#5e5d59]"
                             >
-                              <CheckCircle2 className="h-3 w-3 flex-shrink-0 mt-0.5 text-grey/40" />
+                              <CheckCircle2 className="h-3 w-3 flex-shrink-0 mt-0.5 text-[#87867f]" />
                               {hasGWT ? (
                                 <span
                                   dangerouslySetInnerHTML={{
