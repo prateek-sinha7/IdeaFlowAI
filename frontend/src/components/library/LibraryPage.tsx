@@ -42,11 +42,11 @@ export function LibraryPage() {
   };
 
   return (
-    <div className="flex h-full bg-[#f5f4ed]">
-      {/* Left Sidebar */}
-      <div className="w-[220px] flex-shrink-0 border-r border-[#e8e6dc] flex flex-col py-5 px-4 bg-white">
-        <h2 className="text-xs font-semibold text-[#87867f] uppercase tracking-wider mb-4 px-2">Categories</h2>
-        <div className="space-y-1">
+    <div className="flex flex-col sm:flex-row h-full bg-[#f5f4ed]">
+      {/* Left Sidebar — hidden on mobile, shown as horizontal scroll */}
+      <div className="w-full sm:w-[200px] lg:w-[220px] flex-shrink-0 border-b sm:border-b-0 sm:border-r border-[#e8e6dc] flex sm:flex-col py-3 sm:py-5 px-3 sm:px-4 bg-white overflow-x-auto sm:overflow-x-visible">
+        <h2 className="text-xs font-semibold text-[#87867f] uppercase tracking-wider mb-2 sm:mb-4 px-2 hidden sm:block">Categories</h2>
+        <div className="flex sm:flex-col gap-1 sm:space-y-1 min-w-max sm:min-w-0">
           {CATEGORIES.map((cat) => {
             const Icon = cat.icon;
             const isActive = activeCategory === cat.id;
@@ -74,8 +74,8 @@ export function LibraryPage() {
           <p className="text-[11px] text-[#87867f] mt-2">{filteredAgents.length} agents available</p>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-5">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 sm:py-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2 sm:gap-3">
             {filteredAgents.map((agent, idx) => (
               <motion.div key={`${agent.pipeline_type}-${agent.id}`} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(idx * 0.02, 0.5) }}
                 className="flex flex-col rounded-xl border border-[#e8e6dc] bg-white hover:shadow-md hover:border-[#c96442]/20 p-4 transition-all">

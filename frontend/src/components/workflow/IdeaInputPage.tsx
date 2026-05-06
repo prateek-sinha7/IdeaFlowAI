@@ -62,7 +62,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
 
   return (
     <div className="flex h-full flex-col overflow-y-auto bg-[#f5f4ed]">
-      <div className="relative flex-1 flex flex-col items-center px-8 py-10 max-w-3xl mx-auto w-full">
+      <div className="relative flex-1 flex flex-col items-center px-4 sm:px-6 md:px-8 py-6 sm:py-10 max-w-3xl mx-auto w-full">
         {/* Back */}
         <div className="w-full mb-8">
           <motion.button initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} onClick={onBack} className="flex items-center gap-2 text-xs text-[#5e5d59] hover:text-[#141413] transition-colors">

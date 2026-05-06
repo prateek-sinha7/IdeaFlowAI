@@ -213,10 +213,10 @@ export function DashboardLayout({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="h-full flex"
+              className="h-full flex flex-col md:flex-row"
             >
               {/* Left Panel — Agent Progress */}
-              <div className="w-[360px] flex-shrink-0 h-full border-r border-[#e8e6dc]">
+              <div className="w-full md:w-[340px] lg:w-[360px] flex-shrink-0 h-[45vh] md:h-full border-b md:border-b-0 md:border-r border-[#e8e6dc] overflow-y-auto">
                 <ErrorBoundary fallbackLabel="AgentProgress">
                   <AgentProgressPanel
                     pipelineState={pipelineState || { isRunning: false, pipeline_type: "", agents: [], currentAgentIndex: -1, totalDuration: null, completedCount: 0 }}
@@ -229,7 +229,7 @@ export function DashboardLayout({
               </div>
 
               {/* Right Panel — Preview */}
-              <div className="flex-1 h-full min-w-0">
+              <div className="flex-1 h-[55vh] md:h-full min-w-0">
                 <ErrorBoundary fallbackLabel="Preview">
                   <PreviewPanel
                     userStoryContent={userStoryContent || undefined}

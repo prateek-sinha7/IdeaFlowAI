@@ -100,7 +100,7 @@ const FEATURE_CARDS = [
 export function CreationHub({ onSelectFeature }: CreationHubProps) {
   return (
     <div className="flex h-full flex-col overflow-y-auto bg-[#f5f4ed]">
-      <div className="relative flex-1 flex flex-col items-center justify-center px-8 py-12 max-w-6xl mx-auto w-full">
+      <div className="relative flex-1 flex flex-col items-center justify-center px-4 sm:px-6 md:px-8 py-8 sm:py-12 max-w-6xl mx-auto w-full">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 24 }}
@@ -123,7 +123,7 @@ export function CreationHub({ onSelectFeature }: CreationHubProps) {
         </motion.div>
 
         {/* Cards Grid */}
-        <div className="w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-w-4xl">
+        <div className="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 max-w-4xl">
           {FEATURE_CARDS.map((card, index) => {
             const Icon = card.icon;
             return (
@@ -146,7 +146,7 @@ export function CreationHub({ onSelectFeature }: CreationHubProps) {
                     onSelectFeature(card.pipelineType);
                   }
                 }}
-                className={`relative flex flex-col rounded-2xl border p-6 text-left transition-all duration-300 ${
+                className={`relative flex flex-col rounded-2xl border p-4 sm:p-6 text-left transition-all duration-300 ${
                   card.enabled
                     ? `border-[#e8e6dc] bg-white cursor-pointer hover:shadow-lg hover:shadow-black/5 hover:border-[#c96442]/30`
                     : "border-[#e8e6dc] bg-[#faf9f5] opacity-50 cursor-not-allowed"

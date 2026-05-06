@@ -523,7 +523,7 @@ export function PPTPreview({ content, isStreaming }: PPTPreviewProps) {
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: -20 }}
           transition={{ duration: 0.25, ease: "easeInOut" }}
-          className="w-full max-w-[420px] mx-auto rounded-lg border border-[#e8e6dc] overflow-hidden shadow-md"
+          className="w-full max-w-[320px] sm:max-w-[420px] lg:max-w-[480px] mx-auto rounded-lg border border-[#e8e6dc] overflow-hidden shadow-md"
           style={{
             backgroundColor: slide.colorScheme?.background || "#ffffff",
             color: slide.colorScheme?.text || "#141413",
