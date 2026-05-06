@@ -22,117 +22,29 @@
 }
 
 :root {
-  --theme-bg: #000000;
-  --theme-fg: #FFFFFF;
-  --theme-surface: #001f3f;
-  --theme-muted: #AAAAAA;
-  --theme-border: rgba(170, 170, 170, 0.2);
-  --theme-accent: #001f3f;
-  --theme-input-bg: #0d1117;
-  --theme-sidebar-bg: rgba(0, 31, 63, 0.5);
+  /* Claude-inspired warm light theme */
+  --theme-bg: #f5f4ed;
+  --theme-fg: #141413;
+  --theme-surface: #faf9f5;
+  --theme-muted: #5e5d59;
+  --theme-border: #e8e6dc;
+  --theme-accent: #c96442;
+  --theme-input-bg: #ffffff;
+  --theme-sidebar-bg: #faf9f5;
 }
 
-/* Theme-aware utility classes */
-.theme-bg { background-color: var(--theme-bg); }
-.theme-fg { color: var(--theme-fg); }
-.theme-surface { background-color: var(--theme-surface); }
-.theme-muted { color: var(--theme-muted); }
-.theme-border { border-color: var(--theme-border); }
-.theme-accent { background-color: var(--theme-accent); }
-.theme-input-bg { background-color: var(--theme-input-bg); }
-.theme-sidebar-bg { background-color: var(--theme-sidebar-bg); }
-
-/* Typing animation keyframes */
-@keyframes typing {
-  0% {
-    opacity: 0.2;
-  }
-  20% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0.2;
-  }
-}
-
-/* Fade-in transition keyframes */
-@keyframes fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-/* Fade-in-up transition keyframes */
-@keyframes fade-in-up {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* Streaming cursor blink animation */
-@keyframes blink {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0;
-  }
-}
-
-/* Animated gradient text */
-@keyframes gradient-shift {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
-}
-
-/* Shimmer wave animation for typing indicator */
-@keyframes shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
-  }
-}
-
-/* Subtle pulse glow for input focus */
-@keyframes pulse-glow {
-  0%, 100% {
-    box-shadow: 0 0 0 0 rgba(0, 31, 63, 0);
-  }
-  50% {
-    box-shadow: 0 0 20px 2px rgba(0, 31, 63, 0.4);
-  }
-}
-
-/* Base dark theme styles */
+/* Base light theme styles */
 html {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 body {
   background-color: var(--theme-bg);
   color: var(--theme-fg);
-  transition: background-color 0.3s ease, color 0.3s ease;
-  font-family: var(--font-sans);
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  transition: background-color 0.3s ease, color 0.3s ease;
+  line-height: 1.6;
 }
 
 /* Streaming cursor */

@@ -183,7 +183,7 @@ export interface Story {
 // WORKFLOW / PIPELINE TYPES
 // ============================================================
 
-export type WorkflowType = "user_stories" | "ppt" | "prototype";
+export type WorkflowType = "user_stories" | "ppt" | "prototype" | "validate_pitch" | "app_builder" | "reverse_engineer" | "custom";
 
 export type WorkflowStatus = "running" | "completed" | "failed";
 

@@ -477,9 +477,32 @@ export function PPTPreview({ content, isStreaming }: PPTPreviewProps) {
   };
 
   return (
-    <div className="flex h-full flex-col p-4 gap-3">
-      {/* Slide counter and layout badge */}
+    <div className="p-5 space-y-4">
+      {/* Navigation header */}
       <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {slides.length > 1 && (
+            <button
+              onClick={goToPrev}
+              disabled={safeIndex === 0}
+              className="flex h-7 w-7 items-center justify-center rounded-md bg-white/5 border border-white/10 text-white/60 hover:text-white hover:bg-white/10 transition-all disabled:opacity-30"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <span className="text-[11px] text-white/50 font-medium">
+            Slide {safeIndex + 1} of {slides.length}
+          </span>
+          {slides.length > 1 && (
+            <button
+              onClick={goToNext}
+              disabled={safeIndex === slides.length - 1}
+              className="flex h-7 w-7 items-center justify-center rounded-md bg-white/5 border border-white/10 text-white/60 hover:text-white hover:bg-white/10 transition-all disabled:opacity-30"
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           {slide.layout && (
             <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${getLayoutBadgeColor(slide.layout)}`}>
@@ -490,78 +513,41 @@ export function PPTPreview({ content, isStreaming }: PPTPreviewProps) {
             {slide.type}
           </span>
         </div>
-        <span className="text-[11px] text-grey/50 font-medium">
-          Slide {safeIndex + 1} of {slides.length}
-        </span>
       </div>
 
-      {/* Slide card — 16:9 landscape format */}
-      <div className="relative flex-1 min-h-0 flex items-center justify-center p-2">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={safeIndex}
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.25, ease: "easeInOut" }}
-            className="relative w-full rounded-lg border border-grey/20 overflow-hidden shadow-2xl shadow-black/40"
-            style={{
-              backgroundColor: slide.colorScheme?.background || "#001f3f",
-              color: slide.colorScheme?.text || "#FFFFFF",
-              paddingBottom: "56.25%",
-            }}
-          >
-            {/* Content positioned absolutely inside the 16:9 container */}
-            <div className="absolute inset-0 flex flex-col overflow-y-auto">
-              {/* Slide content — routed by type */}
-              <SlideContent slide={slide} />
-
-              {/* Slide type badge footer */}
-              <div className="px-4 pb-3 pt-2 border-t border-white/10 flex items-center justify-between mt-auto">
-                <span
-                  className="text-[9px] uppercase tracking-widest font-medium opacity-50"
-                  style={{ color: slide.colorScheme?.accent || "#AAAAAA" }}
-                >
-                  {slide.type}
-                </span>
-                <span className="text-[9px] opacity-40">
-                  {safeIndex + 1} / {slides.length}
-                </span>
-              </div>
+      {/* Slide card */}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={safeIndex}
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -20 }}
+          transition={{ duration: 0.25, ease: "easeInOut" }}
+          className="w-full max-w-[420px] mx-auto rounded-lg border border-grey/20 overflow-hidden shadow-xl shadow-black/30"
+          style={{
+            backgroundColor: slide.colorScheme?.background || "#001f3f",
+            color: slide.colorScheme?.text || "#FFFFFF",
+            aspectRatio: "16 / 9",
+          }}
+        >
+          <div className="h-full flex flex-col overflow-y-auto">
+            <SlideContent slide={slide} />
+            <div className="px-4 pb-2 pt-1 border-t border-white/10 flex items-center justify-between mt-auto">
+              <span className="text-[8px] uppercase tracking-widest font-medium opacity-40" style={{ color: slide.colorScheme?.accent || "#AAAAAA" }}>
+                {slide.type}
+              </span>
+              <span className="text-[8px] opacity-30">{safeIndex + 1} / {slides.length}</span>
             </div>
-          </motion.div>
-        </AnimatePresence>
+          </div>
+        </motion.div>
+      </AnimatePresence>
 
-        {/* Circular navigation buttons overlaid on slide */}
-        {slides.length > 1 && (
-          <>
-            <button
-              onClick={goToPrev}
-              disabled={safeIndex === 0}
-              className="absolute left-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-full bg-black/50 border border-grey/20 text-white/80 hover:bg-black/70 hover:text-white transition-all duration-200 disabled:opacity-0 disabled:pointer-events-none backdrop-blur-sm"
-              aria-label="Previous slide"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <button
-              onClick={goToNext}
-              disabled={safeIndex === slides.length - 1}
-              className="absolute right-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-full bg-black/50 border border-grey/20 text-white/80 hover:bg-black/70 hover:text-white transition-all duration-200 disabled:opacity-0 disabled:pointer-events-none backdrop-blur-sm"
-              aria-label="Next slide"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </>
-        )}
-      </div>
-
-      {/* Speaker Notes (collapsible) */}
+      {/* Speaker Notes */}
       {slide.speakerNotes && (
         <div className="rounded-lg border border-grey/15 bg-black/30 overflow-hidden">
           <button
             onClick={() => setShowNotes(!showNotes)}
             className="flex items-center justify-between w-full px-3 py-2 text-[11px] font-medium text-grey/60 hover:text-white transition-colors"
-            aria-label={showNotes ? "Hide speaker notes" : "Show speaker notes"}
           >
             <div className="flex items-center gap-1.5">
               <StickyNote className="h-3 w-3" />
@@ -584,24 +570,6 @@ export function PPTPreview({ content, isStreaming }: PPTPreviewProps) {
               </motion.div>
             )}
           </AnimatePresence>
-        </div>
-      )}
-
-      {/* Dot indicators */}
-      {slides.length > 1 && (
-        <div className="flex items-center justify-center gap-1.5">
-          {slides.map((_, idx) => (
-            <button
-              key={idx}
-              onClick={() => setCurrentSlide(idx)}
-              className={`rounded-full transition-all duration-200 ${
-                idx === safeIndex
-                  ? "h-2 w-5 bg-white"
-                  : "h-2 w-2 bg-grey/30 hover:bg-grey/50"
-              }`}
-              aria-label={`Go to slide ${idx + 1}`}
-            />
-          ))}
         </div>
       )}
 

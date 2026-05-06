@@ -4,10 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Eye,
-  Brain,
   FolderDown,
   PanelRightClose,
-  Download,
   Send,
   Sparkles,
   Copy,
@@ -16,11 +14,10 @@ import {
 import { UserStoryPreview } from "./UserStoryPreview";
 import { PPTPreview } from "./PPTPreview";
 import { PrototypePreview } from "./PrototypePreview";
-import { AgentThinkingTab } from "@/components/results/AgentThinkingTab";
 import { FilesTab } from "@/components/results/FilesTab";
-import type { AgentThinkingEntry, AgentRunState, WorkflowType } from "@/types/index";
+import type { WorkflowType } from "@/types/index";
 
-type PanelTab = "preview" | "thinking" | "files";
+type PanelTab = "preview" | "files";
 
 interface PreviewPanelProps {
   userStoryContent?: string;
@@ -30,21 +27,12 @@ interface PreviewPanelProps {
   onCollapse?: () => void;
   initialTab?: string;
   onTabSelect?: (tab: string) => void;
-  /** The workflow type that generated this content */
   workflowType?: WorkflowType;
-  /** Persisted agent outputs from a completed run */
-  agentOutputs?: AgentThinkingEntry[];
-  /** Live agent states from a running pipeline */
-  liveAgents?: AgentRunState[];
-  /** Whether the pipeline is currently running */
-  isPipelineRunning?: boolean;
-  /** Callback for follow-up / steering input */
   onFollowUp?: (message: string) => void;
 }
 
 const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
   { id: "preview", label: "Preview", icon: Eye },
-  { id: "thinking", label: "Thinking", icon: Brain },
   { id: "files", label: "Files", icon: FolderDown },
 ];
 
@@ -56,7 +44,7 @@ const SUGGESTIONS: Record<string, string[]> = {
 
 /**
  * Preview Panel — auto-opens when content is generated.
- * 3 tabs: Preview (rendered output), Agent Thinking (reasoning timeline), Files (downloads).
+ * 2 tabs: Preview (rendered output), Files (downloads).
  * Includes a persistent follow-up input at the bottom for steering agents.
  */
 export function PreviewPanel({
@@ -68,9 +56,6 @@ export function PreviewPanel({
   initialTab,
   onTabSelect,
   workflowType,
-  agentOutputs,
-  liveAgents,
-  isPipelineRunning,
   onFollowUp,
 }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>("preview");
@@ -80,7 +65,7 @@ export function PreviewPanel({
 
   // Sync with initialTab prop
   useEffect(() => {
-    if (initialTab === "preview" || initialTab === "thinking" || initialTab === "files") {
+    if (initialTab === "preview" || initialTab === "files") {
       setActiveTab(initialTab);
     }
   }, [initialTab]);
@@ -176,9 +161,6 @@ export function PreviewPanel({
                 <span className="relative z-10 flex items-center gap-1">
                   <Icon className="h-3 w-3" />
                   {tab.label}
-                  {tab.id === "thinking" && isPipelineRunning && (
-                    <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />
-                  )}
                 </span>
               </button>
             );
@@ -213,28 +195,23 @@ export function PreviewPanel({
                   {detectedType === "ppt" && pptContent && (
                     <PPTPreview content={pptContent} isStreaming={isStreaming} />
                   )}
+                  {detectedType === "validate_pitch" && pptContent && (
+                    <PPTPreview content={pptContent} isStreaming={isStreaming} />
+                  )}
                   {detectedType === "prototype" && prototypeContent && (
                     <PrototypePreview content={prototypeContent} isStreaming={isStreaming} />
                   )}
+                  {detectedType === "app_builder" && userStoryContent && (
+                    <UserStoryPreview content={userStoryContent} />
+                  )}
+                  {detectedType === "reverse_engineer" && userStoryContent && (
+                    <UserStoryPreview content={userStoryContent} />
+                  )}
+                  {detectedType === "custom" && userStoryContent && (
+                    <UserStoryPreview content={userStoryContent} />
+                  )}
                 </>
               )}
-            </motion.div>
-          )}
-
-          {activeTab === "thinking" && (
-            <motion.div
-              key="thinking"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              className="absolute inset-0"
-            >
-              <AgentThinkingTab
-                agentOutputs={agentOutputs}
-                liveAgents={liveAgents}
-                isRunning={isPipelineRunning}
-              />
             </motion.div>
           )}
 
@@ -259,10 +236,10 @@ export function PreviewPanel({
       </div>
 
       {/* Follow-up Input — always visible when there's content */}
-      {(hasContent || isPipelineRunning) && onFollowUp && (
+      {hasContent && onFollowUp && (
         <div className="border-t px-3 py-2.5" style={{ borderColor: "var(--theme-border)" }}>
           {/* Suggestion chips */}
-          {suggestions.length > 0 && !isPipelineRunning && (
+          {suggestions.length > 0 && (
             <div className="flex flex-wrap gap-1 mb-2">
               {suggestions.map((s) => (
                 <button

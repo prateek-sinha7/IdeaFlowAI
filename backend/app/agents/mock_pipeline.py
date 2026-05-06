@@ -851,8 +851,17 @@ def _get_mock_outputs(pipeline_type: str) -> dict[str, str]:
         return MOCK_USER_STORY_OUTPUTS
     elif pipeline_type == "ppt":
         return MOCK_PPT_OUTPUTS
+    elif pipeline_type == "validate_pitch":
+        from app.agents.mock_outputs_new import MOCK_VALIDATE_PITCH_OUTPUTS
+        return MOCK_VALIDATE_PITCH_OUTPUTS
     elif pipeline_type == "prototype":
         return MOCK_PROTOTYPE_OUTPUTS
+    elif pipeline_type == "app_builder":
+        from app.agents.mock_outputs_new import MOCK_APP_BUILDER_OUTPUTS
+        return MOCK_APP_BUILDER_OUTPUTS
+    elif pipeline_type == "reverse_engineer":
+        from app.agents.mock_outputs_new import MOCK_REVERSE_ENGINEER_OUTPUTS
+        return MOCK_REVERSE_ENGINEER_OUTPUTS
     elif pipeline_type == "custom":
         return MOCK_CUSTOM_OUTPUTS
     return {}
@@ -969,9 +978,18 @@ async def mock_pipeline_execute(
     elif pipeline_type == "ppt":
         # Use the export-formatter's JSON output for PPT preview
         final_output = mock_outputs.get("export-formatter", results[-1]["output"] if results else "")
+    elif pipeline_type == "validate_pitch":
+        # Use the pitch-compiler's JSON output for PPT preview
+        final_output = mock_outputs.get("pitch-compiler", results[-1]["output"] if results else "")
     elif pipeline_type == "prototype":
         # Use the prototype-assembler's JSON output for prototype preview
         final_output = mock_outputs.get("prototype-assembler", results[-1]["output"] if results else "")
+    elif pipeline_type == "app_builder":
+        # Use the app-assembler's markdown output
+        final_output = mock_outputs.get("app-assembler", results[-1]["output"] if results else "")
+    elif pipeline_type == "reverse_engineer":
+        # Use the documentation-generator's markdown output
+        final_output = mock_outputs.get("documentation-generator", results[-1]["output"] if results else "")
     else:
         final_output = results[-1]["output"] if results else ""
 
