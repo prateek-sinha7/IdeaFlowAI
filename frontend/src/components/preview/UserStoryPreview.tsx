@@ -93,7 +93,7 @@ export function UserStoryPreview({ content }: UserStoryPreviewProps) {
 
       {/* Persona badges */}
       {personas.length > 0 && (
-        <div className="rounded-xl border border-[#e8e6dc] bg-gradient-to-br from-navy/30 to-black/40 p-3">
+        <div className="rounded-xl border border-[#e8e6dc] bg-[#faf9f5] p-3">
           <div className="flex items-center gap-2 mb-2">
             <Users className="h-3.5 w-3.5 text-cyan-400" />
             <span className="text-[10px] font-bold uppercase tracking-wider text-[#5e5d59]">Personas</span>
@@ -112,10 +112,15 @@ export function UserStoryPreview({ content }: UserStoryPreviewProps) {
       )}
 
       {/* Epics and Stories */}
-      {doc.epics.map((epic, epicIdx) => (
+      {doc.epics.length === 0 ? (
+        /* Fallback: render raw markdown if parser found no epics */
+        <div className="rounded-xl border border-[#e8e6dc] bg-white p-5">
+          <div className="markdown-content prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: content.replace(/\n/g, "<br/>").replace(/#{1,4}\s(.+)/g, "<strong>$1</strong>").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>") }} />
+        </div>
+      ) : doc.epics.map((epic, epicIdx) => (
         <div
           key={epicIdx}
-          className={`rounded-xl border border-[#e8e6dc] bg-gradient-to-br from-navy/40 to-navy/20 overflow-hidden border-l-[3px] ${EPIC_ACCENT_COLORS[epicIdx % EPIC_ACCENT_COLORS.length]}`}
+          className={`rounded-xl border border-[#e8e6dc] bg-white overflow-hidden border-l-[3px] ${EPIC_ACCENT_COLORS[epicIdx % EPIC_ACCENT_COLORS.length]}`}
         >
           {/* Epic header */}
           <div className="px-4 pt-4 pb-3">

@@ -24,7 +24,7 @@ const FEATURE_CARDS = [
     label: "Validate an idea, then pitch it",
     description: "Stress-test the concept, size the market, and turn it into an investor-ready deck.",
     icon: Lightbulb,
-    pipelineType: "validate_pitch" as WorkflowType | null,
+    pipelineType: "ppt" as WorkflowType | null,
     enabled: true,
     color: "from-violet-500/15 to-purple-500/15",
     borderColor: "border-violet-500/25",

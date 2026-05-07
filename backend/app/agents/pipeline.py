@@ -1,6 +1,5 @@
 """Pipeline Executor — Runs a chain of agents sequentially with streaming status updates."""
 
-import asyncio
 import logging
 import time
 from typing import AsyncGenerator
@@ -8,7 +7,7 @@ from typing import AsyncGenerator
 from app.agents.base import BaseAgent, AgentConfigurationError
 from app.agents.registry import AgentDefinition, get_pipeline_agents
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("app.agents.pipeline")
 
 
 class PipelineExecutor:
@@ -19,38 +18,23 @@ class PipelineExecutor:
     """
 
     def __init__(self, pipeline_type: str, custom_agents: list[AgentDefinition] | None = None):
-        """Initialize the pipeline executor.
-
-        Args:
-            pipeline_type: "user_stories", "ppt", or "prototype"
-            custom_agents: Optional list of custom agents to use instead of defaults
-        """
         self.pipeline_type = pipeline_type
         self.agents = custom_agents or get_pipeline_agents(pipeline_type)
         self.context: dict[str, str] = {}
         self.results: list[dict] = []
+        logger.info("Pipeline initialized — type=%s, agents=%d", pipeline_type, len(self.agents))
 
     async def execute(
         self, user_message: str, skills: dict[str, str] | None = None
     ) -> AsyncGenerator[dict, None]:
-        """Execute the full pipeline, yielding status updates for each agent.
-
-        Args:
-            user_message: The user's original request/idea
-            skills: Optional dict of agent_id -> skill content to inject
-
-        Yields:
-            Status update dicts with types:
-            - pipeline_start: Pipeline execution begins
-            - agent_start: An agent begins processing
-            - agent_thinking: Agent's intermediate thinking
-            - agent_chunk: Streaming output chunk from agent
-            - agent_complete: Agent finished with output and duration
-            - agent_error: Agent encountered an error
-            - pipeline_complete: All agents finished
-        """
+        """Execute the full pipeline, yielding status updates for each agent."""
         skills = skills or {}
         total_start = time.time()
+
+        logger.info("═══════════════════════════════════════════════════════")
+        logger.info("PIPELINE START — type=%s, agents=%d", self.pipeline_type, len(self.agents))
+        logger.info("User message: %s", user_message[:100] + ("..." if len(user_message) > 100 else ""))
+        logger.info("═══════════════════════════════════════════════════════")
 
         yield {
             "type": "pipeline_start",
@@ -66,6 +50,10 @@ class PipelineExecutor:
 
         for i, agent_def in enumerate(self.agents):
             agent_start = time.time()
+
+            logger.info("───────────────────────────────────────────────────")
+            logger.info("AGENT [%d/%d] START — %s (%s)", i + 1, len(self.agents), agent_def.name, agent_def.role)
+            logger.info("   ID: %s | Pipeline: %s | Est: %.1fs", agent_def.id, agent_def.pipeline_type, agent_def.estimated_duration)
 
             yield {
                 "type": "agent_start",
@@ -84,11 +72,13 @@ class PipelineExecutor:
                 system_prompt = agent_def.system_prompt
                 if agent_def.id in skills:
                     system_prompt = f"{skills[agent_def.id]}\n\n{system_prompt}"
+                    logger.debug("   Skill injected for agent %s", agent_def.id)
 
                 agent = BaseAgent(system_prompt=system_prompt)
 
                 # Build context message for this agent
                 context_message = self._build_context_message(user_message, i)
+                logger.debug("   Context message length: %d chars (from %d previous agents)", len(context_message), i)
 
                 # Stream the agent's response
                 output_chunks: list[str] = []
@@ -123,6 +113,9 @@ class PipelineExecutor:
                     "duration": duration,
                 })
 
+                logger.info("AGENT [%d/%d] COMPLETE — %s | %.2fs | %d chars output",
+                           i + 1, len(self.agents), agent_def.name, duration, len(output))
+
                 yield {
                     "type": "agent_complete",
                     "data": {
@@ -136,6 +129,7 @@ class PipelineExecutor:
                 }
 
             except AgentConfigurationError as e:
+                logger.error("AGENT [%d/%d] CONFIG ERROR — %s: %s", i + 1, len(self.agents), agent_def.name, e)
                 yield {
                     "type": "agent_error",
                     "data": {
@@ -147,7 +141,7 @@ class PipelineExecutor:
                 break  # Stop pipeline on config error
 
             except Exception as e:
-                logger.error(f"Agent {agent_def.id} failed: {e}")
+                logger.error("AGENT [%d/%d] FAILED — %s: %s", i + 1, len(self.agents), agent_def.name, e, exc_info=True)
                 duration = time.time() - agent_start
 
                 yield {
@@ -166,6 +160,11 @@ class PipelineExecutor:
         # Pipeline complete
         total_duration = time.time() - total_start
 
+        logger.info("═══════════════════════════════════════════════════════")
+        logger.info("PIPELINE COMPLETE — type=%s | %.2fs total | %d/%d agents succeeded",
+                   self.pipeline_type, total_duration, len(self.results), len(self.agents))
+        logger.info("═══════════════════════════════════════════════════════")
+
         yield {
             "type": "pipeline_complete",
             "data": {
@@ -178,17 +177,12 @@ class PipelineExecutor:
         }
 
     def _build_context_message(self, user_message: str, current_index: int) -> str:
-        """Build the context message for the current agent.
-
-        Includes the original user message plus outputs from all previous agents.
-        """
+        """Build the context message for the current agent."""
         parts = [f"Original request: {user_message}"]
 
-        # Add outputs from previous agents
         for prev_agent in self.agents[:current_index]:
             if prev_agent.id in self.context:
                 prev_output = self.context[prev_agent.id]
-                # Truncate very long outputs to keep context manageable
                 if len(prev_output) > 2000:
                     prev_output = prev_output[:2000] + "\n...[truncated]"
                 parts.append(f"\n--- Output from {prev_agent.name} ({prev_agent.role}) ---\n{prev_output}")

@@ -496,9 +496,17 @@ Provide a brief quality score (1-10) and top 3 improvements.""",
 
 Compile all the slide content, layouts, charts, and speaker notes into a single valid JSON object matching this exact schema:
 
-{"slides":[{"title":"...","subtitle":"...","content":[{"text":"...","subPoints":["..."]}],"type":"text|chart|table|comparison|title|two-column|quote|timeline","layout":"...","colorScheme":{"background":"#001f3f","text":"#FFFFFF","accent":"#AAAAAA"},"speakerNotes":"...","chartData":{"type":"bar|pie|line","labels":[],"values":[],"title":"..."},"tableData":{"headers":[],"rows":[[]]},"comparisonData":{"left":{"title":"...","items":[]},"right":{"title":"...","items":[]}},"columns":[["..."],["..."]]}]}
+{"slides":[{"title":"...","subtitle":"...","content":[{"text":"...","subPoints":["..."]}],"type":"text|chart|table|comparison|title|two-column|quote|timeline","layout":"...","colorScheme":{"background":"#ffffff","text":"#141413","accent":"#c96442"},"speakerNotes":"...","chartData":{"type":"bar|pie|line","labels":[],"values":[],"title":"..."},"tableData":{"headers":[],"rows":[[]]},"comparisonData":{"left":{"title":"...","items":[]},"right":{"title":"...","items":[]}},"columns":[["..."],["..."]]}]}
 
-IMPORTANT: Output ONLY valid JSON. No markdown, no explanation, just the JSON object.""",
+CRITICAL RULES:
+- Output ONLY valid JSON. No markdown, no explanation, no code fences.
+- Generate exactly 5-7 slides (not more — keep it concise)
+- Keep speakerNotes short (1-2 sentences max)
+- Keep content bullets to 3-4 per slide max
+- Use white (#ffffff) or light (#f8fafc) backgrounds
+- Use dark text (#141413)
+- Use terracotta (#c96442) or navy (#1e3a5f) as accent
+- The JSON must be complete and valid — do not truncate""",
     ),
 ]
 
@@ -713,39 +721,50 @@ Output each page as a separate code block with the filename.""",
         id="page-renderer",
         name="Page Renderer",
         role="Build Engineer",
-        description="Compiles React code into renderable HTML for the preview iframe.",
+        description="Generates a complete, self-contained HTML prototype with navigation.",
         icon="🖥️",
         order=11,
         pipeline_type="prototype",
-        estimated_duration=4.0,
-        system_prompt="""You are a Build Engineer who creates standalone HTML previews.
+        estimated_duration=8.0,
+        system_prompt="""You are a Senior Frontend Developer who builds complete HTML prototypes.
 
-Take the React components and create self-contained HTML files that:
-1. Include Tailwind CSS via CDN
-2. Include Lucide icons via CDN
-3. Render the component as static HTML with inline styles
-4. Are fully responsive
-5. Include realistic placeholder content
+Using all the design specifications, components, and layouts from previous agents, generate a SINGLE self-contained HTML file that is a fully clickable, navigable prototype.
 
-Output as complete HTML that can be rendered in an iframe.
-Each page should be a separate HTML block.""",
+Requirements:
+1. Single HTML file with embedded CSS and JavaScript
+2. Include Tailwind CSS via CDN: <script src="https://cdn.tailwindcss.com"></script>
+3. Include Lucide icons via CDN
+4. Multiple pages/views using JavaScript to show/hide sections (SPA-style navigation)
+5. Clickable navigation that switches between pages
+6. Responsive design (works on mobile and desktop)
+7. Realistic placeholder content (names, dates, numbers)
+8. Hover states, transitions, and micro-interactions
+9. Professional enterprise design with clean typography
+10. Use a light theme: white backgrounds, dark text, subtle borders
+
+The HTML should be complete and renderable directly in a browser or iframe.
+
+IMPORTANT: Output ONLY the complete HTML code starting with <!DOCTYPE html>. No markdown code fences, no explanation, just the raw HTML.""",
     ),
     AgentDefinition(
         id="prototype-assembler",
         name="Prototype Assembler",
         role="Tech Lead",
-        description="Assembles all pages into the final prototype JSON with navigation.",
+        description="Reviews and polishes the final HTML prototype.",
         icon="🔧",
         order=12,
         pipeline_type="prototype",
         estimated_duration=5.0,
-        system_prompt="""You are a Tech Lead who assembles the final prototype.
+        system_prompt="""You are a Tech Lead who reviews and outputs the final prototype.
 
-Compile everything into a single valid JSON object matching this schema:
+Take the HTML prototype from the previous agent and output it as-is if it's valid, or fix any issues:
+1. Ensure it starts with <!DOCTYPE html>
+2. Ensure all navigation links work (onclick handlers)
+3. Ensure Tailwind CDN is included
+4. Ensure it's responsive
+5. Fix any broken HTML tags
 
-{"pages":[{"name":"...","route":"...","components":[{"type":"...","props":{},"children":[],"dataFlow":"..."}],"states":{"loading":"...","empty":"...","error":"...","success":"..."}}],"navigation":{"type":"sidebar","items":[{"label":"...","route":"...","icon":"..."}],"defaultRoute":"..."},"behavior":{"interactions":{"...":"..."},"animations":{"...":"..."}}}
-
-IMPORTANT: Output ONLY valid JSON. No markdown, no explanation.""",
+IMPORTANT: Output ONLY the complete HTML code starting with <!DOCTYPE html>. No markdown, no explanation, no code fences. Just the raw HTML that can be rendered in an iframe.""",
     ),
 ]
 
@@ -933,7 +952,13 @@ Keep it professional and investor-appropriate. Dark backgrounds work well.""",
 
 Compile all slide content, charts, and design into a single valid JSON object:
 
-{"slides":[{"title":"...","subtitle":"...","content":[{"text":"...","subPoints":["..."]}],"type":"text|chart|table|comparison|title|two-column|quote|timeline","layout":"...","colorScheme":{"background":"#0f172a","text":"#FFFFFF","accent":"#3b82f6"},"speakerNotes":"...","chartData":{"type":"bar|pie|line","labels":[],"values":[],"title":"..."}}]}
+{"slides":[{"title":"...","subtitle":"...","content":[{"text":"...","subPoints":["..."]}],"type":"text|chart|table|comparison|title|two-column|quote|timeline","layout":"...","colorScheme":{"background":"#ffffff","text":"#141413","accent":"#c96442"},"speakerNotes":"...","chartData":{"type":"bar|pie|line","labels":[],"values":[],"title":"..."}}]}
+
+Color scheme rules:
+- Use white (#ffffff) or light gray (#f8fafc) backgrounds
+- Use dark text (#141413 or #1e293b)
+- Use terracotta (#c96442) or navy (#1e3a5f) as accent colors
+- Enterprise-grade, professional look
 
 IMPORTANT: Output ONLY valid JSON. No markdown, no explanation.""",
     ),

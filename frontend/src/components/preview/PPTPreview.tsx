@@ -449,9 +449,17 @@ export function PPTPreview({ content, isStreaming }: PPTPreviewProps) {
 
   if (parseError) {
     return (
-      <div className="flex h-full items-center justify-center p-4">
-        <div className="rounded-xl border border-[#e8e6dc] bg-[#faf9f5] p-4 text-center">
-          <p className="text-sm text-[#5e5d59]">{parseError}</p>
+      <div className="flex h-full items-center justify-center p-6">
+        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center max-w-md">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100 mx-auto mb-3">
+            <Presentation className="h-5 w-5 text-red-500" />
+          </div>
+          <p className="text-sm font-medium text-red-800 mb-2">Failed to parse presentation data</p>
+          <p className="text-xs text-red-600 leading-relaxed mb-3">{parseError}</p>
+          <details className="text-left">
+            <summary className="text-[10px] text-red-500 cursor-pointer hover:text-red-700">Show raw output</summary>
+            <pre className="mt-2 text-[9px] text-red-700 bg-red-100 rounded-lg p-3 overflow-auto max-h-[200px] whitespace-pre-wrap">{content?.slice(0, 500)}</pre>
+          </details>
         </div>
       </div>
     );

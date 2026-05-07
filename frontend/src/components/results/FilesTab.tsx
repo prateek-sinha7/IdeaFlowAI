@@ -89,23 +89,23 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
 
   if (workflowType === "prototype" && prototypeContent) {
     files.push({
-      id: "prototype-json",
-      name: "prototype.json",
-      type: "JSON",
+      id: "prototype-html",
+      name: "prototype.html",
+      type: "HTML",
       icon: Layout,
       iconColor: "text-emerald-400",
       size: formatSize(prototypeContent.length),
-      format: "JSON (.json)",
+      format: "HTML (.html)",
       available: true,
     });
     files.push({
-      id: "prototype-html",
-      name: "prototype.html",
-      type: "HTML Preview",
+      id: "prototype-source",
+      name: "prototype-source.txt",
+      type: "Source",
       icon: File,
       iconColor: "text-purple-400",
-      size: formatSize(prototypeContent.length * 3),
-      format: "HTML (.html)",
+      size: formatSize(prototypeContent.length),
+      format: "Text (.txt)",
       available: true,
     });
   }
@@ -124,12 +124,10 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
       }
     } else if (fileId === "presentation-json" && pptContent) {
       downloadBlob(pptContent, "presentation.json", "application/json");
-    } else if (fileId === "prototype-json" && prototypeContent) {
-      exportPrototype(prototypeContent);
     } else if (fileId === "prototype-html" && prototypeContent) {
-      // Generate a simple HTML wrapper
-      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Prototype</title></head><body><pre>${prototypeContent}</pre></body></html>`;
-      downloadBlob(html, "prototype.html", "text/html");
+      downloadBlob(prototypeContent, "prototype.html", "text/html");
+    } else if (fileId === "prototype-source" && prototypeContent) {
+      downloadBlob(prototypeContent, "prototype-source.txt", "text/plain");
     }
   }, [userStoryContent, pptContent, prototypeContent]);
 

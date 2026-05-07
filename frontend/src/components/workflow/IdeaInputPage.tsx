@@ -49,6 +49,11 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
     LIBRARY_AGENTS.filter((a) => a.pipeline_type === workflowType).sort((a, b) => a.order - b.order)
   );
 
+  // Update agents when workflowType changes
+  useEffect(() => {
+    setPipelineAgents(LIBRARY_AGENTS.filter((a) => a.pipeline_type === workflowType).sort((a, b) => a.order - b.order));
+  }, [workflowType]);
+
   const config = TYPE_CONFIG[workflowType];
   const Icon = config.icon;
 
