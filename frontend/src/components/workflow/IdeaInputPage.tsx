@@ -30,8 +30,8 @@ interface IdeaInputPageProps {
 const TYPE_CONFIG: Record<WorkflowType, { label: string; subtitle: string; icon: typeof FileText; color: string }> = {
   user_stories: { label: "Turn an idea into product requirements", subtitle: "Shape a fuzzy idea into a PRD with epics, user stories, and Gherkin criteria.", icon: FileText, color: "text-blue-600" },
   prototype: { label: "Build a clickable prototype", subtitle: "Go from stories or sketches to a high-fidelity, navigable prototype in minutes.", icon: Layout, color: "text-emerald-600" },
-  ppt: { label: "Create a Powerpoint Presentation", subtitle: "Hand us a brief and we'll deliver a polished slide deck with charts, data, and speaker notes.", icon: Presentation, color: "text-amber-600" },
-  validate_pitch: { label: "Validate an idea, then pitch it", subtitle: "Stress-test the concept, size the market, and turn it into an investor-ready deck.", icon: FileText, color: "text-violet-600" },
+  ppt: { label: "Craft a stunning presentation", subtitle: "Generate an enterprise-grade slide deck with charts, data tables, and compelling visuals — ready to present.", icon: Presentation, color: "text-amber-600" },
+  validate_pitch: { label: "Validate & Pitch", subtitle: "Stress-test the concept, size the market, and compile an investor-ready pitch deck.", icon: FileText, color: "text-violet-600" },
   app_builder: { label: "Build an app from existing material", subtitle: "Hand us a deck, a repo, or a brief — we'll deliver a working app, end to end.", icon: Layout, color: "text-orange-600" },
   reverse_engineer: { label: "Reverse-engineer a codebase", subtitle: "Map architecture, dependencies, risks, and hidden user journeys from any repo.", icon: FileText, color: "text-rose-600" },
   custom: { label: "Design your own workflow", subtitle: "Compose specialist agents and skills into a bespoke pipeline for anything else.", icon: Layout, color: "text-slate-600" },

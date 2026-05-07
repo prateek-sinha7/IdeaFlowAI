@@ -237,7 +237,6 @@ export function DashboardLayout({
                     prototypeContent={prototypeContent || undefined}
                     isStreaming={isStreaming}
                     workflowType={workflowType}
-                    onFollowUp={handleFollowUp}
                   />
                 </ErrorBoundary>
               </div>

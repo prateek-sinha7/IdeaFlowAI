@@ -48,20 +48,20 @@ requires_api_key = pytest.mark.skipif(
 class TestAgentRegistry:
     """Test that all pipeline types have correct agent definitions."""
 
-    def test_user_stories_pipeline_has_12_agents(self):
-        """User Stories pipeline should have 12 agents."""
+    def test_user_stories_pipeline_has_6_agents(self):
+        """User Stories pipeline should have 6 agents."""
         agents = get_pipeline_agents("user_stories")
-        assert len(agents) == 12, f"Expected 12 agents, got {len(agents)}"
+        assert len(agents) == 6, f"Expected 6 agents, got {len(agents)}"
 
-    def test_ppt_pipeline_has_10_agents(self):
-        """PPT pipeline should have 10 agents."""
+    def test_ppt_pipeline_has_6_agents(self):
+        """PPT pipeline should have 6 agents."""
         agents = get_pipeline_agents("ppt")
-        assert len(agents) == 10, f"Expected 10 agents, got {len(agents)}"
+        assert len(agents) == 6, f"Expected 6 agents, got {len(agents)}"
 
-    def test_prototype_pipeline_has_12_agents(self):
-        """Prototype pipeline should have 12 agents."""
+    def test_prototype_pipeline_has_4_agents(self):
+        """Prototype pipeline should have 4 agents."""
         agents = get_pipeline_agents("prototype")
-        assert len(agents) == 12, f"Expected 12 agents, got {len(agents)}"
+        assert len(agents) == 4, f"Expected 4 agents, got {len(agents)}"
 
     def test_validate_pitch_pipeline_has_10_agents(self):
         """Validate & Pitch pipeline should have 10 agents."""
@@ -103,15 +103,15 @@ class TestAgentRegistry:
         """User Stories pipeline should follow the correct agent sequence."""
         agents = get_pipeline_agents("user_stories")
         expected_roles = [
-            "Business Analyst",      # domain-analyst
-            "UX Researcher",         # persona-researcher
-            "Product Manager",       # epic-architect
-            "Agile Coach",           # story-writer
-            "QA Lead",               # acceptance-criteria-gen
-            "Scrum Master",          # story-point-estimator
+            "Product Strategist",       # domain-analyst
+            "Principal Product Manager", # epic-architect
+            "Technical Lead",           # story-estimator
+            "Solution Architect",       # nfr-specialist
+            "Agile Coach",             # backlog-reviewer
+            "Principal PM",            # backlog-compiler
         ]
-        actual_roles = [a.role for a in agents[:6]]
-        assert actual_roles == expected_roles, f"First 6 agents have wrong roles: {actual_roles}"
+        actual_roles = [a.role for a in agents]
+        assert actual_roles == expected_roles, f"Agents have wrong roles: {actual_roles}"
 
     def test_ppt_agent_sequence(self):
         """PPT pipeline should start with audience analysis and end with export."""
@@ -120,9 +120,9 @@ class TestAgentRegistry:
         assert agents[-1].id == "export-formatter", f"Last agent should be export-formatter, got {agents[-1].id}"
 
     def test_prototype_agent_sequence(self):
-        """Prototype pipeline should end with assembler that outputs HTML."""
+        """Prototype pipeline should end with finalizer that outputs HTML."""
         agents = get_pipeline_agents("prototype")
-        assert agents[-1].id == "prototype-assembler", f"Last agent should be prototype-assembler, got {agents[-1].id}"
+        assert agents[-1].id == "prototype-finalizer", f"Last agent should be prototype-finalizer, got {agents[-1].id}"
         assert "HTML" in agents[-1].system_prompt, "Last agent should mention HTML in its prompt"
 
     def test_ppt_export_formatter_requests_json(self):

@@ -177,14 +177,23 @@ class PipelineExecutor:
         }
 
     def _build_context_message(self, user_message: str, current_index: int) -> str:
-        """Build the context message for the current agent."""
-        parts = [f"Original request: {user_message}"]
+        """Build the context message for the current agent.
+        
+        Strategy: Keep original request prominent, give full context to all agents.
+        """
+        parts = [f"=== ORIGINAL USER REQUEST ===\n{user_message}\n=== END REQUEST ==="]
 
-        for prev_agent in self.agents[:current_index]:
+        for i, prev_agent in enumerate(self.agents[:current_index]):
             if prev_agent.id in self.context:
                 prev_output = self.context[prev_agent.id]
-                if len(prev_output) > 2000:
-                    prev_output = prev_output[:2000] + "\n...[truncated]"
+                # For prototype pipeline, the HTML output is large — allow more context
+                # For other pipelines, 8000 chars per agent is sufficient
+                if self.pipeline_type == "prototype":
+                    max_len = 30000  # HTML prototypes can be 20-30K chars
+                else:
+                    max_len = 8000
+                if len(prev_output) > max_len:
+                    prev_output = prev_output[:max_len] + "\n...[truncated]"
                 parts.append(f"\n--- Output from {prev_agent.name} ({prev_agent.role}) ---\n{prev_output}")
 
         return "\n".join(parts)

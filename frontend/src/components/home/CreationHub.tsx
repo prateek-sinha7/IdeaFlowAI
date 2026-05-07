@@ -2,7 +2,7 @@
 
 import { motion } from "motion/react";
 import {
-  Lightbulb,
+  Sparkles,
   FileText,
   Layout,
   Presentation,
@@ -10,7 +10,7 @@ import {
   Workflow,
   ArrowRight,
   Lock,
-  Sparkles,
+  Wand2,
 } from "lucide-react";
 import type { WorkflowType } from "@/types/index";
 
@@ -21,9 +21,9 @@ interface CreationHubProps {
 const FEATURE_CARDS = [
   {
     id: "validate_pitch",
-    label: "Validate an idea, then pitch it",
-    description: "Stress-test the concept, size the market, and turn it into an investor-ready deck.",
-    icon: Lightbulb,
+    label: "Craft a stunning presentation",
+    description: "Generate an enterprise-grade slide deck with charts, data tables, and compelling visuals — ready to present.",
+    icon: Presentation,
     pipelineType: "ppt" as WorkflowType | null,
     enabled: true,
     color: "from-violet-500/15 to-purple-500/15",
@@ -83,7 +83,7 @@ const FEATURE_CARDS = [
     id: "custom_workflow",
     label: "Design your own workflow",
     description: "Compose specialist agents and skills into a bespoke pipeline for anything else.",
-    icon: Presentation,
+    icon: Wand2,
     pipelineType: "custom" as WorkflowType | null,
     enabled: true,
     color: "from-slate-500/15 to-gray-500/15",

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Eye, FolderDown, PanelRightClose, Send, Sparkles, Copy, Check } from "lucide-react";
+import { Eye, FolderDown, PanelRightClose, Copy, Check } from "lucide-react";
 import { UserStoryPreview } from "./UserStoryPreview";
 import { PPTPreview } from "./PPTPreview";
 import { PrototypePreview } from "./PrototypePreview";
@@ -20,7 +20,6 @@ interface PreviewPanelProps {
   initialTab?: string;
   onTabSelect?: (tab: string) => void;
   workflowType?: WorkflowType;
-  onFollowUp?: (message: string) => void;
 }
 
 const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
@@ -28,32 +27,18 @@ const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
   { id: "files", label: "Files", icon: FolderDown },
 ];
 
-const SUGGESTIONS: Record<string, string[]> = {
-  user_stories: ["Add more acceptance criteria", "Add a security epic", "Break largest epic into smaller stories"],
-  ppt: ["Make opening more impactful", "Add data visualizations", "Simplify bullet points"],
-  prototype: ["Add dark mode", "Include error states", "Add loading skeletons"],
-  validate_pitch: ["Strengthen the market sizing", "Add more competitor analysis", "Make the ask more specific"],
-  app_builder: ["Add authentication flow", "Include error handling", "Add API rate limiting"],
-  reverse_engineer: ["Focus on security risks", "Add migration timeline", "Include cost estimates"],
-  custom: ["Add more detail", "Focus on key areas", "Simplify the output"],
-};
-
-export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, onFollowUp }: PreviewPanelProps) {
+export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, isStreaming, onCollapse, initialTab, onTabSelect, workflowType }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>("preview");
-  const [followUpInput, setFollowUpInput] = useState("");
   const [copied, setCopied] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { if (initialTab === "preview" || initialTab === "files") setActiveTab(initialTab); }, [initialTab]);
 
   const detectedType: WorkflowType = workflowType || (userStoryContent ? "user_stories" : pptContent ? "ppt" : prototypeContent ? "prototype" : "user_stories");
   const activeContent = detectedType === "user_stories" || detectedType === "app_builder" || detectedType === "reverse_engineer" || detectedType === "custom" ? userStoryContent : detectedType === "ppt" || detectedType === "validate_pitch" ? pptContent : prototypeContent;
   const hasContent = !!(userStoryContent || pptContent || prototypeContent);
-  const suggestions = SUGGESTIONS[detectedType] || [];
 
   const handleTabChange = (tabId: PanelTab) => { setActiveTab(tabId); onTabSelect?.(tabId); };
   const handleCopy = () => { if (activeContent) { navigator.clipboard.writeText(activeContent); setCopied(true); setTimeout(() => setCopied(false), 2000); } };
-  const handleSendFollowUp = () => { if (!followUpInput.trim()) return; onFollowUp?.(followUpInput.trim()); setFollowUpInput(""); };
 
   return (
     <div className="flex h-full flex-col bg-[#faf9f5]">
@@ -123,29 +108,6 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, i
           )}
         </AnimatePresence>
       </div>
-
-      {/* Follow-up */}
-      {hasContent && onFollowUp && (
-        <div className="border-t border-[#e8e6dc] px-3 py-2.5">
-          {suggestions.length > 0 && (
-            <div className="flex flex-wrap gap-1 mb-2">
-              {suggestions.map((s) => (
-                <button key={s} onClick={() => onFollowUp(s)} className="rounded-full px-2 py-0.5 text-[9px] text-[#5e5d59] hover:text-[#141413] bg-[#f0eee6] hover:bg-[#e8e6dc] border border-[#e8e6dc] transition-all truncate max-w-[160px]">{s}</button>
-              ))}
-            </div>
-          )}
-          <div className="flex items-center gap-1.5">
-            <div className="flex-1 flex items-center gap-1.5 rounded-lg border border-[#e8e6dc] bg-white px-2.5 py-2 focus-within:border-[#c96442]/40 transition-colors">
-              <Sparkles className="h-3 w-3 text-[#87867f] flex-shrink-0" />
-              <input ref={inputRef} type="text" value={followUpInput} onChange={(e) => setFollowUpInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleSendFollowUp(); }}
-                placeholder="Steer agents or ask follow-up..." className="flex-1 bg-transparent text-[11px] text-[#141413] placeholder-[#87867f] focus:outline-none" />
-            </div>
-            <button onClick={handleSendFollowUp} disabled={!followUpInput.trim()} className="flex items-center justify-center rounded-lg bg-[#c96442] text-white p-2 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
-              <Send className="h-3 w-3" />
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

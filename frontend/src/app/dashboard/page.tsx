@@ -117,11 +117,12 @@ export default function DashboardPage() {
           userStoryContentRef.current += chunk;
           activePreviewSectionRef.current = "user_stories";
         } else if (msg.section === "ppt") {
-          setPptContent((prev) => prev + chunk);
+          // PPT content comes from pipeline_complete, not streaming
+          // Only accumulate in ref for legacy chat mode
           pptContentRef.current += chunk;
           activePreviewSectionRef.current = "ppt";
         } else if (msg.section === "prototype") {
-          setPrototypeContent((prev) => prev + chunk);
+          // Prototype content comes from pipeline_complete, not streaming
           prototypeContentRef.current += chunk;
           activePreviewSectionRef.current = "prototype";
         } else {
@@ -572,7 +573,16 @@ export default function DashboardPage() {
       processSteps={processSteps}
       websocketSend={send}
       pipelineState={pipelineState}
-      onStartPipeline={startPipeline}
+      onStartPipeline={(type, message, agentIds) => {
+        // Clear previous preview content before starting new pipeline
+        setUserStoryContent("");
+        setPptContent("");
+        setPrototypeContent("");
+        pptContentRef.current = "";
+        prototypeContentRef.current = "";
+        userStoryContentRef.current = "";
+        startPipeline(type, message, agentIds);
+      }}
       onResetPipeline={resetPipeline}
       recentRuns={recentRuns}
       onSelectWorkflowRun={handleSelectWorkflowRun}

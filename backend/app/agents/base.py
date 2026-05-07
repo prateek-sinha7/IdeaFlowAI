@@ -46,7 +46,7 @@ class BaseAgent:
             model=self.model,
             anthropic_api_key=settings.ANTHROPIC_API_KEY,
             streaming=True,
-            max_tokens=8192,
+            max_tokens=32000,
         )
         logger.debug("Agent initialized with model=%s, prompt_length=%d", model, len(system_prompt))
 

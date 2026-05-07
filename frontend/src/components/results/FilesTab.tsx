@@ -7,8 +7,6 @@ import {
   FileText,
   Presentation,
   Layout,
-  FileJson,
-  File,
 } from "lucide-react";
 import { exportUserStories } from "@/lib/exporters/storyExporter";
 import { exportToPptx } from "@/lib/exporters/pptExporter";
@@ -42,9 +40,16 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
 
   // Primary output file
   if (workflowType === "user_stories" && userStoryContent) {
+    // Derive filename from first heading or first line
+    let storyName = "user-stories";
+    const firstHeading = userStoryContent.match(/^#\s+(.+)/m);
+    if (firstHeading) {
+      storyName = firstHeading[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
+    }
+
     files.push({
       id: "user-stories-md",
-      name: "user-stories.md",
+      name: `${storyName}.md`,
       type: "Markdown",
       icon: FileText,
       iconColor: "text-blue-400",
@@ -52,45 +57,41 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
       format: "Markdown (.md)",
       available: true,
     });
-    files.push({
-      id: "user-stories-json",
-      name: "user-stories.json",
-      type: "JSON",
-      icon: FileJson,
-      iconColor: "text-yellow-400",
-      size: formatSize(userStoryContent.length),
-      format: "JSON (.json)",
-      available: true,
-    });
   }
 
-  if (workflowType === "ppt" && pptContent) {
+  if ((workflowType === "ppt" || workflowType === "validate_pitch") && pptContent) {
+    // Derive filename from first slide title
+    let pptName = "presentation";
+    try {
+      const parsed = JSON.parse(pptContent.trim().startsWith("{") ? pptContent : pptContent.slice(pptContent.indexOf("{")));
+      if (parsed?.slides?.[0]?.title) {
+        pptName = parsed.slides[0].title.replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
+      }
+    } catch { /* use default */ }
+
     files.push({
       id: "presentation-pptx",
-      name: "presentation.pptx",
+      name: `${pptName}.pptx`,
       type: "PowerPoint",
       icon: Presentation,
       iconColor: "text-amber-400",
-      size: formatSize(pptContent.length * 2), // Approximate PPTX size
+      size: formatSize(pptContent.length * 2),
       format: "PowerPoint (.pptx)",
-      available: true,
-    });
-    files.push({
-      id: "presentation-json",
-      name: "presentation.json",
-      type: "JSON",
-      icon: FileJson,
-      iconColor: "text-yellow-400",
-      size: formatSize(pptContent.length),
-      format: "JSON (.json)",
       available: true,
     });
   }
 
   if (workflowType === "prototype" && prototypeContent) {
+    // Derive filename from content
+    let protoName = "prototype";
+    const titleMatch = prototypeContent.match(/<title>(.+?)<\/title>/i);
+    if (titleMatch) {
+      protoName = titleMatch[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
+    }
+
     files.push({
       id: "prototype-html",
-      name: "prototype.html",
+      name: `${protoName}.html`,
       type: "HTML",
       icon: Layout,
       iconColor: "text-emerald-400",
@@ -98,36 +99,36 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
       format: "HTML (.html)",
       available: true,
     });
-    files.push({
-      id: "prototype-source",
-      name: "prototype-source.txt",
-      type: "Source",
-      icon: File,
-      iconColor: "text-purple-400",
-      size: formatSize(prototypeContent.length),
-      format: "Text (.txt)",
-      available: true,
-    });
   }
 
   const handleDownload = useCallback((fileId: string) => {
     if (fileId === "user-stories-md" && userStoryContent) {
-      exportUserStories(userStoryContent);
-    } else if (fileId === "user-stories-json" && userStoryContent) {
-      downloadBlob(userStoryContent, "user-stories.json", "application/json");
+      // Derive filename from first heading
+      let storyName = "user-stories";
+      const firstHeading = userStoryContent.match(/^#\s+(.+)/m);
+      if (firstHeading) {
+        storyName = firstHeading[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
+      }
+      exportUserStories(userStoryContent, storyName);
     } else if (fileId === "presentation-pptx" && pptContent) {
       try {
         const slideData = parsePPTSlideData(pptContent);
-        exportToPptx(slideData);
-      } catch {
-        downloadBlob(pptContent, "presentation.json", "application/json");
+        // Derive filename from first slide title
+        let pptName = "presentation";
+        if (slideData.slides?.[0]?.title) {
+          pptName = slideData.slides[0].title.replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
+        }
+        exportToPptx(slideData, pptName);
+      } catch (e) {
+        alert("Failed to generate PPTX: " + (e instanceof Error ? e.message : "Unknown error"));
       }
-    } else if (fileId === "presentation-json" && pptContent) {
-      downloadBlob(pptContent, "presentation.json", "application/json");
     } else if (fileId === "prototype-html" && prototypeContent) {
-      downloadBlob(prototypeContent, "prototype.html", "text/html");
-    } else if (fileId === "prototype-source" && prototypeContent) {
-      downloadBlob(prototypeContent, "prototype-source.txt", "text/plain");
+      let protoName = "prototype";
+      const titleMatch = prototypeContent.match(/<title>(.+?)<\/title>/i);
+      if (titleMatch) {
+        protoName = titleMatch[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
+      }
+      downloadBlob(prototypeContent, `${protoName}.html`, "text/html");
     }
   }, [userStoryContent, pptContent, prototypeContent]);
 

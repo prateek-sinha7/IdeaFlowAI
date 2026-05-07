@@ -147,6 +147,20 @@ export function parseUserStoryMarkdown(markdown: string): UserStoryDocument {
       continue;
     }
 
+    // Skip "Acceptance Criteria:" label line
+    if (/^\*\*Acceptance Criteria:?\*\*/i.test(trimmed)) {
+      collectingStoryDesc = false;
+      collectingEpicDesc = false;
+      continue;
+    }
+
+    // Skip "Definition of Done" or similar section headers
+    if (/^\*\*(Definition of Done|DoD|Notes|Technical Notes):?\*\*/i.test(trimmed)) {
+      collectingStoryDesc = false;
+      collectingEpicDesc = false;
+      continue;
+    }
+
     // Acceptance criteria bullet: - text or - [ ] text
     if (/^- /.test(trimmed) && currentStory) {
       const criterionText = trimmed.slice(2).trim().replace(/^\[ \]\s*/, "");
