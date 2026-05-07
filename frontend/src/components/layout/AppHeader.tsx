@@ -14,13 +14,14 @@ import {
 } from "lucide-react";
 
 interface AppHeaderProps {
-  currentPage: "home" | "library" | "workflow" | "execution";
-  onNavigate: (page: "home" | "library") => void;
+  currentPage: "home" | "library" | "workflow" | "execution" | "history";
+  onNavigate: (page: "home" | "library" | "history" | "settings") => void;
   onLogout: () => void;
   userEmail?: string;
+  disabled?: boolean;
 }
 
-export function AppHeader({ currentPage, onNavigate, onLogout, userEmail }: AppHeaderProps) {
+export function AppHeader({ currentPage, onNavigate, onLogout, userEmail, disabled }: AppHeaderProps) {
   const [profileOpen, setProfileOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -50,7 +51,9 @@ export function AppHeader({ currentPage, onNavigate, onLogout, userEmail }: AppH
       <nav className="flex items-center gap-0.5 sm:gap-1 rounded-lg sm:rounded-xl bg-[#f0eee6] border border-[#e8e6dc] p-0.5 sm:p-1">
         <button
           onClick={() => onNavigate("home")}
+          disabled={disabled}
           className={`flex items-center gap-1 sm:gap-2 rounded-md sm:rounded-lg px-2.5 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-xs font-medium transition-all ${
+            disabled ? "opacity-40 cursor-not-allowed" :
             currentPage === "home"
               ? "bg-white text-[#141413] shadow-sm border border-[#e8e6dc]"
               : "text-[#5e5d59] hover:text-[#141413] hover:bg-white/50 border border-transparent"
@@ -61,7 +64,9 @@ export function AppHeader({ currentPage, onNavigate, onLogout, userEmail }: AppH
         </button>
         <button
           onClick={() => onNavigate("library")}
+          disabled={disabled}
           className={`flex items-center gap-1 sm:gap-2 rounded-md sm:rounded-lg px-2.5 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-xs font-medium transition-all ${
+            disabled ? "opacity-40 cursor-not-allowed" :
             currentPage === "library"
               ? "bg-white text-[#141413] shadow-sm border border-[#e8e6dc]"
               : "text-[#5e5d59] hover:text-[#141413] hover:bg-white/50 border border-transparent"
@@ -75,8 +80,11 @@ export function AppHeader({ currentPage, onNavigate, onLogout, userEmail }: AppH
       {/* Right — Profile */}
       <div className="relative" ref={dropdownRef}>
         <button
-          onClick={() => setProfileOpen(!profileOpen)}
-          className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs text-[#5e5d59] hover:text-[#141413] hover:bg-[#f0eee6] border border-transparent hover:border-[#e8e6dc] transition-all"
+          onClick={() => !disabled && setProfileOpen(!profileOpen)}
+          disabled={disabled}
+          className={`flex items-center gap-2 rounded-xl px-3 py-2 text-xs transition-all ${
+            disabled ? "opacity-40 cursor-not-allowed" : "text-[#5e5d59] hover:text-[#141413] hover:bg-[#f0eee6] border border-transparent hover:border-[#e8e6dc]"
+          }`}
         >
           <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-[#c96442] to-[#d97757]">
             <User className="h-3.5 w-3.5 text-white" />
@@ -100,11 +108,17 @@ export function AppHeader({ currentPage, onNavigate, onLogout, userEmail }: AppH
                 </div>
               )}
               <div className="py-1.5">
-                <button className="w-full flex items-center gap-3 px-4 py-2.5 text-[11px] text-[#5e5d59] hover:text-[#141413] hover:bg-[#f5f4ed] transition-all">
+                <button
+                  onClick={() => { setProfileOpen(false); onNavigate("settings"); }}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-[11px] text-[#5e5d59] hover:text-[#141413] hover:bg-[#f5f4ed] transition-all"
+                >
                   <Settings className="h-3.5 w-3.5" />
                   Account Settings
                 </button>
-                <button className="w-full flex items-center gap-3 px-4 py-2.5 text-[11px] text-[#5e5d59] hover:text-[#141413] hover:bg-[#f5f4ed] transition-all">
+                <button
+                  onClick={() => { setProfileOpen(false); onNavigate("history"); }}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-[11px] text-[#5e5d59] hover:text-[#141413] hover:bg-[#f5f4ed] transition-all"
+                >
                   <History className="h-3.5 w-3.5" />
                   Workflow History
                 </button>

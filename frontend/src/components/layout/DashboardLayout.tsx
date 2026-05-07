@@ -7,6 +7,8 @@ import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { AppHeader } from "./AppHeader";
 import { CreationHub } from "@/components/home/CreationHub";
 import { LibraryPage } from "@/components/library/LibraryPage";
+import { WorkflowHistory } from "@/components/history/WorkflowHistory";
+import { AccountSettings } from "@/components/settings/AccountSettings";
 import { IdeaInputPage } from "@/components/workflow/IdeaInputPage";
 import { AgentProgressPanel } from "@/components/workflow/AgentProgressPanel";
 import { PreviewPanel } from "@/components/preview/PreviewPanel";
@@ -41,7 +43,7 @@ export interface DashboardLayoutProps {
   onSelectWorkflowRun?: (run: WorkflowRun) => void;
 }
 
-type MainView = "home" | "library" | "input" | "execution";
+type MainView = "home" | "library" | "history" | "settings" | "input" | "execution";
 
 export function DashboardLayout({
   activeChatId,
@@ -80,11 +82,15 @@ export function DashboardLayout({
     }
   }, [pipelineState?.isRunning, mainView]);
 
+  // Check if pipeline is running (blocks navigation)
+  const isPipelineRunning = pipelineState?.isRunning || false;
+
   // Navigate from Home to Input page
   const handleSelectFeature = useCallback((type: WorkflowType) => {
+    if (isPipelineRunning) return;
     setWorkflowType(type);
     setMainView("input");
-  }, []);
+  }, [isPipelineRunning]);
 
   // Run the pipeline from Input page
   const handleRunPipeline = useCallback((message: string, agentIds: string[]) => {
@@ -97,14 +103,16 @@ export function DashboardLayout({
 
   // Go back to home
   const handleGoHome = useCallback(() => {
+    if (isPipelineRunning) return;
     setMainView("home");
     if (onResetPipeline) onResetPipeline();
-  }, [onResetPipeline]);
+  }, [onResetPipeline, isPipelineRunning]);
 
   // Header navigation
-  const handleNavigate = useCallback((page: "home" | "library") => {
+  const handleNavigate = useCallback((page: "home" | "library" | "history" | "settings") => {
+    if (isPipelineRunning) return;
     setMainView(page);
-  }, []);
+  }, [isPipelineRunning]);
 
   // Follow-up / steer agents
   const handleFollowUp = useCallback((message: string) => {
@@ -117,6 +125,8 @@ export function DashboardLayout({
 
   // Map mainView to header page type
   const headerPage = mainView === "library" ? "library" :
+    mainView === "history" ? "history" :
+    mainView === "settings" ? "history" :
     mainView === "input" ? "workflow" :
     mainView === "execution" ? "execution" : "home";
 
@@ -154,6 +164,7 @@ export function DashboardLayout({
         currentPage={headerPage}
         onNavigate={handleNavigate}
         onLogout={onLogout}
+        disabled={isPipelineRunning}
       />
 
       {/* Main Content */}
@@ -184,6 +195,34 @@ export function DashboardLayout({
               className="h-full"
             >
               <LibraryPage />
+            </motion.div>
+          )}
+
+          {/* HISTORY — Workflow history */}
+          {mainView === "history" && (
+            <motion.div
+              key="history"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="h-full"
+            >
+              <WorkflowHistory onBack={handleGoHome} />
+            </motion.div>
+          )}
+
+          {/* SETTINGS — Account settings */}
+          {mainView === "settings" && (
+            <motion.div
+              key="settings"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="h-full"
+            >
+              <AccountSettings onBack={handleGoHome} />
             </motion.div>
           )}
 

@@ -321,3 +321,23 @@ export async function deleteWorkflow(
     throw new ApiError(response.status, body.detail ?? body);
   }
 }
+
+export async function changePassword(
+  token: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<{ message: string }> {
+  const url = `${BASE_URL}/api/auth/change-password`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new ApiError(response.status, body.detail ?? body);
+  }
+
+  return response.json();
+}
