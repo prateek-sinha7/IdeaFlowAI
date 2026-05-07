@@ -18,6 +18,7 @@ class AgentDefinition:
     skills: list[str] = field(default_factory=list)
     icon: str = "🤖"
     estimated_duration: float = 3.0  # seconds
+    max_tokens: int = 16000  # per-agent output limit (default 16K)
 
 
 # ============================================================
@@ -34,6 +35,7 @@ USER_STORY_AGENTS: list[AgentDefinition] = [
         order=1,
         pipeline_type="user_stories",
         estimated_duration=5.0,
+        max_tokens=4000,
         system_prompt="""You are a Senior Product Strategist. Analyze the user's product idea thoroughly.
 
 Output a structured analysis:
@@ -68,7 +70,7 @@ RULES:
         estimated_duration=10.0,
         system_prompt="""You are a Principal Product Manager who creates comprehensive product backlogs.
 
-Based on the domain analysis and personas, create 4-5 epics. For each epic, write 3-4 user stories with full acceptance criteria.
+Based on the domain analysis and personas, create 3-4 epics. For each epic, write 3-4 user stories with acceptance criteria.
 
 OUTPUT FORMAT (follow EXACTLY):
 
@@ -93,7 +95,7 @@ RULES:
 - P0 = Must-have for launch, P1 = Should-have, P2 = Nice-to-have
 - Each story references a SPECIFIC persona by name
 - Acceptance criteria must be testable — use specific values, states, behaviors
-- Include happy path + at least one error/edge case per story
+- Include happy path + one error/edge case per story
 - Stories must be small enough for one sprint (1-5 days of work)
 - Cover: core functionality, authentication, error handling, and key user flows
 - ALL content must relate to the user's ORIGINAL topic — do not invent unrelated features""",
@@ -141,12 +143,11 @@ Add ONE new epic at the end:
 # Epic: Non-Functional Requirements [P0]
 **Business Value:** Ensures the product is secure, performant, and accessible for all users.
 
-Include 4-5 NFR stories covering:
+Include 4 NFR stories covering:
 1. **Performance**: Response times, load handling
 2. **Security**: Auth, data protection, input validation
 3. **Accessibility**: WCAG 2.1 AA, keyboard nav, screen readers
 4. **Reliability**: Error handling, graceful degradation, uptime
-5. **Observability**: Logging, monitoring, alerting
 
 Each NFR story must have:
 - As a / I want / So that format
@@ -165,6 +166,7 @@ Use the same format: # Epic / ## Story / As a / Acceptance Criteria / Story Poin
         order=5,
         pipeline_type="user_stories",
         estimated_duration=4.0,
+        max_tokens=4000,
         system_prompt="""You are a Certified Agile Coach reviewing the product backlog.
 
 Review ALL stories and check:
@@ -189,6 +191,7 @@ Keep your review concise — max 300 words. Focus on actionable improvements."""
         order=6,
         pipeline_type="user_stories",
         estimated_duration=6.0,
+        max_tokens=32000,
         system_prompt="""You are a Principal Product Manager compiling the final product backlog.
 
 Take ALL the work from previous agents and compile it into ONE complete, polished Markdown document.
@@ -248,6 +251,7 @@ PPT_AGENTS: list[AgentDefinition] = [
         order=1,
         pipeline_type="ppt",
         estimated_duration=4.0,
+        max_tokens=3000,
         system_prompt="""You are a Communications Strategist. Analyze the user's presentation topic.
 
 Output a structured brief:
@@ -371,6 +375,7 @@ Rules:
         order=4,
         pipeline_type="ppt",
         estimated_duration=4.0,
+        max_tokens=3000,
         system_prompt="""You are a Presentation Coach. Write brief speaker notes for each slide.
 
 For each slide, write 1-2 sentences that:
@@ -388,6 +393,7 @@ Keep notes SHORT. Max 2 sentences per slide. The presenter should glance at thes
         order=5,
         pipeline_type="ppt",
         estimated_duration=3.0,
+        max_tokens=3000,
         system_prompt="""You are a Design QA specialist. Review the presentation content and enforce quality.
 
 ENFORCE THESE RULES:
@@ -465,6 +471,7 @@ PROTOTYPE_AGENTS: list[AgentDefinition] = [
         order=1,
         pipeline_type="prototype",
         estimated_duration=6.0,
+        max_tokens=4000,
         system_prompt="""You are a Senior Product Designer who plans interactive prototypes.
 
 From the user's idea, create a complete prototype plan:
@@ -506,6 +513,7 @@ RULES:
         order=2,
         pipeline_type="prototype",
         estimated_duration=15.0,
+        max_tokens=32000,
         system_prompt="""You are an elite Frontend Engineer who builds stunning HTML prototypes.
 
 Using the requirements plan, generate a SINGLE self-contained HTML file that is a fully interactive, multi-page prototype.
@@ -574,6 +582,7 @@ OUTPUT RULES:
         order=3,
         pipeline_type="prototype",
         estimated_duration=8.0,
+        max_tokens=32000,
         system_prompt="""You are a UI/UX Engineer who polishes prototypes to production quality.
 
 Take the HTML prototype from the previous agent and ENHANCE it:
@@ -606,6 +615,7 @@ OUTPUT: ONLY the complete HTML starting with <!DOCTYPE html>. No markdown, no ex
         order=4,
         pipeline_type="prototype",
         estimated_duration=5.0,
+        max_tokens=32000,
         system_prompt="""You are a Tech Lead doing final QA on the prototype.
 
 Take the HTML from the previous agent and output it EXACTLY as-is, with only these fixes if needed:
@@ -1323,3 +1333,42 @@ def get_all_agents_flat() -> list[AgentDefinition]:
 
 # Alias for convenience
 get_all_agents = get_all_agents_flat
+
+
+# ============================================================
+# QUESTIONNAIRE AGENT — Generates clarifying MCQ questions
+# ============================================================
+
+QUESTIONNAIRE_AGENT = AgentDefinition(
+    id="questionnaire",
+    name="Questionnaire Agent",
+    role="Requirements Analyst",
+    description="Generates clarifying MCQ questions to better understand user needs before running the pipeline.",
+    icon="❓",
+    order=0,
+    pipeline_type="questionnaire",
+    estimated_duration=3.0,
+    max_tokens=2000,
+    system_prompt="""You are a Requirements Analyst who asks smart clarifying questions.
+
+Given the user's idea and the pipeline type they want to run, generate exactly 4 multiple-choice questions that will help the pipeline agents produce better output.
+
+OUTPUT FORMAT (strict JSON, no markdown):
+{"questions":[
+  {"id":"q1","question":"Who is the primary audience?","options":["Executives/Investors","Technical team","End users/Customers","Internal stakeholders"]},
+  {"id":"q2","question":"What level of detail do you need?","options":["High-level overview","Moderate detail","Very detailed/comprehensive","Executive summary only"]},
+  {"id":"q3","question":"...","options":["...","...","...","..."]},
+  {"id":"q4","question":"...","options":["...","...","...","..."]}
+]}
+
+RULES:
+- Output ONLY valid JSON. No markdown, no explanation.
+- Exactly 4 questions.
+- Each question has exactly 4 options.
+- Questions should be SPECIFIC to the user's topic and pipeline type.
+- For PPT: ask about audience, tone, visual style, key message
+- For User Stories: ask about team size, methodology, priority focus, technical depth
+- For Prototype: ask about design style, target device, complexity level, key features
+- Options should be concrete choices, not vague (e.g., "Mobile-first" not "Some devices")
+- Questions should help agents produce more targeted, relevant output.""",
+)

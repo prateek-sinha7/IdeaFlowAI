@@ -12,8 +12,6 @@ import {
   XCircle,
   Loader2,
   ArrowLeft,
-  Download,
-  Eye,
   Trash2,
   Filter,
 } from "lucide-react";
@@ -56,7 +54,7 @@ export function WorkflowHistory({ onBack }: WorkflowHistoryProps) {
   const [selectedOutput, setSelectedOutput] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [filterType, setFilterType] = useState<string>("all");
-  const [detailTab, setDetailTab] = useState<"preview" | "files">("preview");
+  const [detailTab, setDetailTab] = useState<"preview" | "agents" | "files">("preview");
 
   // Load workflow runs
   useEffect(() => {
@@ -145,72 +143,99 @@ export function WorkflowHistory({ onBack }: WorkflowHistoryProps) {
     const isPpt = workflowType === "ppt" || workflowType === "validate_pitch";
     const isPrototype = workflowType === "prototype";
 
+    // Parse agent outputs if available
+    let agentOutputs: { agent_id: string; name: string; role: string; icon: string; output: string; duration: number | null }[] = [];
+    if (selectedRun.agentOutputs) {
+      try {
+        agentOutputs = typeof selectedRun.agentOutputs === "string" ? JSON.parse(selectedRun.agentOutputs) : selectedRun.agentOutputs;
+      } catch { /* ignore */ }
+    }
+
     return (
       <div className="h-full flex flex-col bg-[#f5f4ed]">
-        {/* Header */}
-        <div className="flex items-center gap-3 px-6 py-4 border-b border-[#e8e6dc] bg-white">
-          <button onClick={handleBack} className="flex items-center justify-center h-8 w-8 rounded-lg hover:bg-[#f0eee6] transition-colors">
-            <ArrowLeft className="h-4 w-4 text-[#5e5d59]" />
+        {/* Compact Header */}
+        <div className="flex items-center gap-2 px-4 py-2 border-b border-[#e8e6dc] bg-white flex-shrink-0">
+          <button onClick={handleBack} className="flex items-center justify-center h-7 w-7 rounded-lg hover:bg-[#f0eee6] transition-colors flex-shrink-0">
+            <ArrowLeft className="h-3.5 w-3.5 text-[#5e5d59]" />
           </button>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-semibold ${meta.color}`}>
-                <Icon className="h-3 w-3" />
-                {meta.label}
-              </span>
-              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-semibold ${selectedRun.status === "completed" ? "bg-emerald-50 text-emerald-700" : selectedRun.status === "failed" ? "bg-red-50 text-red-700" : "bg-yellow-50 text-yellow-700"}`}>
-                {selectedRun.status === "completed" ? <CheckCircle2 className="h-2.5 w-2.5" /> : selectedRun.status === "failed" ? <XCircle className="h-2.5 w-2.5" /> : <Loader2 className="h-2.5 w-2.5 animate-spin" />}
-                {selectedRun.status}
-              </span>
-            </div>
-            <h1 className="text-sm font-bold text-[#141413] mt-1 truncate">{selectedRun.title}</h1>
-            <p className="text-[10px] text-[#87867f] mt-0.5">
-              {formatDate(selectedRun.createdAt)} • {formatDuration(selectedRun.duration)} • {selectedRun.agentCount} agents
-            </p>
+          <div className="flex-1 min-w-0 flex items-center gap-2">
+            <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[8px] font-semibold flex-shrink-0 ${meta.color}`}>
+              <Icon className="h-2.5 w-2.5" />
+              {meta.label}
+            </span>
+            <h1 className="text-[12px] font-semibold text-[#141413] truncate">{selectedRun.title}</h1>
+            <span className="text-[9px] text-[#87867f] flex-shrink-0">{formatDuration(selectedRun.duration)}</span>
+          </div>
+          {/* Tabs inline */}
+          <div className="flex gap-0.5 rounded-lg bg-[#f0eee6] p-0.5 border border-[#e8e6dc] flex-shrink-0">
+            <button onClick={() => setDetailTab("preview")} className={`rounded-md px-2.5 py-1 text-[10px] font-medium transition-all ${detailTab === "preview" ? "bg-white text-[#141413] shadow-sm" : "text-[#87867f]"}`}>
+              Preview
+            </button>
+            {agentOutputs.length > 0 && (
+              <button onClick={() => setDetailTab("agents")} className={`rounded-md px-2.5 py-1 text-[10px] font-medium transition-all ${detailTab === "agents" ? "bg-white text-[#141413] shadow-sm" : "text-[#87867f]"}`}>
+                Agents
+              </button>
+            )}
+            <button onClick={() => setDetailTab("files")} className={`rounded-md px-2.5 py-1 text-[10px] font-medium transition-all ${detailTab === "files" ? "bg-white text-[#141413] shadow-sm" : "text-[#87867f]"}`}>
+              Files
+            </button>
           </div>
           <button
             onClick={() => handleDeleteClick(selectedRun.id)}
-            className="flex items-center justify-center h-8 w-8 rounded-lg text-[#87867f] hover:text-red-600 hover:bg-red-50 transition-colors"
-            title="Delete this run"
+            className="flex items-center justify-center h-7 w-7 rounded-lg text-[#c9c8c3] hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+            title="Delete"
           >
-            <Trash2 className="h-4 w-4" />
+            <Trash2 className="h-3.5 w-3.5" />
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="px-6 py-2 border-b border-[#e8e6dc] bg-white">
-          <div className="flex gap-1 rounded-lg bg-[#f0eee6] p-0.5 w-fit border border-[#e8e6dc]">
-            <button onClick={() => setDetailTab("preview")} className={`rounded-md px-4 py-1.5 text-[11px] font-medium transition-all ${detailTab === "preview" ? "bg-white text-[#141413] shadow-sm" : "text-[#87867f] hover:text-[#5e5d59]"}`}>
-              <Eye className="h-3 w-3 inline mr-1" />Preview
-            </button>
-            <button onClick={() => setDetailTab("files")} className={`rounded-md px-4 py-1.5 text-[11px] font-medium transition-all ${detailTab === "files" ? "bg-white text-[#141413] shadow-sm" : "text-[#87867f] hover:text-[#5e5d59]"}`}>
-              <Download className="h-3 w-3 inline mr-1" />Files
-            </button>
-          </div>
-        </div>
-
-        {/* Content */}
+        {/* Content — maximized space */}
         <div className="flex-1 min-h-0 overflow-auto">
           {loadingDetail ? (
             <div className="flex items-center justify-center h-full">
               <Loader2 className="h-6 w-6 animate-spin text-[#87867f]" />
             </div>
-          ) : !selectedOutput ? (
+          ) : !selectedOutput && detailTab !== "agents" ? (
             <div className="flex items-center justify-center h-full">
               <p className="text-sm text-[#87867f]">No output available for this run.</p>
             </div>
+          ) : detailTab === "agents" ? (
+            /* Agent Pipeline View */
+            <div className="p-4 space-y-2">
+              {agentOutputs.map((agent, idx) => (
+                <details key={idx} className="rounded-lg border border-[#e8e6dc] bg-white overflow-hidden group">
+                  <summary className="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-[#faf9f5] transition-colors">
+                    <span className="text-[14px]">{agent.icon || "🤖"}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11px] font-semibold text-[#141413]">{agent.name}</p>
+                      <p className="text-[9px] text-[#87867f]">{agent.role}</p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {agent.duration && <span className="text-[9px] text-[#87867f]">{agent.duration.toFixed(1)}s</span>}
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                    </div>
+                  </summary>
+                  <div className="px-4 pb-3 border-t border-[#e8e6dc]">
+                    <pre className="text-[10px] text-[#5e5d59] whitespace-pre-wrap leading-relaxed mt-2 max-h-[200px] overflow-y-auto font-mono bg-[#faf9f5] rounded-md p-3">
+                      {agent.output?.slice(0, 2000) || "No output"}
+                      {agent.output && agent.output.length > 2000 && "\n...[truncated]"}
+                    </pre>
+                  </div>
+                </details>
+              ))}
+            </div>
           ) : detailTab === "preview" ? (
             <div className="h-full">
-              {isUserStory && <UserStoryPreview content={selectedOutput} />}
-              {isPpt && <PPTPreview content={selectedOutput} />}
-              {isPrototype && <PrototypePreview content={selectedOutput} />}
+              {isUserStory && <UserStoryPreview content={selectedOutput!} />}
+              {isPpt && <PPTPreview content={selectedOutput!} />}
+              {isPrototype && <PrototypePreview content={selectedOutput!} />}
             </div>
           ) : (
             <FilesTab
               workflowType={workflowType}
-              userStoryContent={isUserStory ? selectedOutput : undefined}
-              pptContent={isPpt ? selectedOutput : undefined}
-              prototypeContent={isPrototype ? selectedOutput : undefined}
+              userStoryContent={isUserStory ? selectedOutput || undefined : undefined}
+              pptContent={isPpt ? selectedOutput || undefined : undefined}
+              prototypeContent={isPrototype ? selectedOutput || undefined : undefined}
             />
           )}
         </div>

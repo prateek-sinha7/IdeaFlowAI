@@ -124,6 +124,13 @@ async def websocket_chat(websocket: WebSocket):
                 await _handle_pipeline_execution(websocket, pipeline_content, pipeline_type, chat_session_id, token, user, agent_ids=agent_ids)
                 continue
 
+            # Handle questionnaire generation requests
+            if msg_type == "generate_questions":
+                pipeline_type = message_data.get("pipeline_type", "user_stories")
+                prompt = message_data.get("message") or message_data.get("content") or ""
+                await _handle_questionnaire(websocket, prompt, pipeline_type)
+                continue
+
             if msg_type != "user_message" or not content or not chat_session_id:
                 await websocket.send_json({
                     "type": "error",
@@ -583,3 +590,61 @@ async def _handle_pipeline_execution(
                 db.commit()
         finally:
             db.close()
+
+
+async def _handle_questionnaire(websocket: WebSocket, prompt: str, pipeline_type: str):
+    """Generate clarifying MCQ questions based on the user's prompt and pipeline type.
+    
+    Uses the questionnaire agent to produce 4 targeted questions.
+    Sends the questions back as a 'questionnaire' WebSocket message.
+    """
+    from app.agents.base import BaseAgent, AgentConfigurationError
+    from app.agents.registry import QUESTIONNAIRE_AGENT
+
+    logger.info(f"Generating questionnaire: pipeline_type={pipeline_type}, prompt={prompt[:50]}")
+
+    try:
+        agent = BaseAgent(
+            system_prompt=QUESTIONNAIRE_AGENT.system_prompt,
+            max_tokens=QUESTIONNAIRE_AGENT.max_tokens,
+        )
+
+        context_message = f"Pipeline type: {pipeline_type}\nUser's idea: {prompt}"
+        response = await agent.run(context_message)
+
+        # Try to parse JSON from response
+        import re
+        json_match = re.search(r'\{[\s\S]*\}', response)
+        if json_match:
+            questions_data = json.loads(json_match.group())
+            await websocket.send_json({
+                "type": "questionnaire",
+                "chunk": None,
+                "section": None,
+                "data": questions_data,
+            })
+        else:
+            # Fallback — couldn't parse questions, skip questionnaire
+            await websocket.send_json({
+                "type": "questionnaire",
+                "chunk": None,
+                "section": None,
+                "data": {"questions": []},
+            })
+
+    except AgentConfigurationError:
+        # No API key — skip questionnaire
+        await websocket.send_json({
+            "type": "questionnaire",
+            "chunk": None,
+            "section": None,
+            "data": {"questions": []},
+        })
+    except Exception as e:
+        logger.error(f"Questionnaire generation error: {e}")
+        await websocket.send_json({
+            "type": "questionnaire",
+            "chunk": None,
+            "section": None,
+            "data": {"questions": []},
+        })

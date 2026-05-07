@@ -10,6 +10,9 @@ interface AgentLibraryProps {
   isOpen: boolean;
   onClose: () => void;
   onAddAgent?: (agent: AgentDef) => void;
+  currentPipelineType?: string;
+  canAddMore?: boolean;
+  existingAgentIds?: string[];
 }
 
 const ALL_AGENTS = [...LIBRARY_AGENTS, ...CUSTOM_AGENTS];
@@ -25,10 +28,13 @@ const CATEGORIES = [
   { id: "custom", label: "Custom" },
 ];
 
-export function AgentLibrary({ isOpen, onClose, onAddAgent }: AgentLibraryProps) {
+export function AgentLibrary({ isOpen, onClose, onAddAgent, currentPipelineType, canAddMore = true, existingAgentIds = [] }: AgentLibraryProps) {
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState("all");
+  const [activeCategory, setActiveCategory] = useState(currentPipelineType || "all");
   const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
+
+  // Combine existing pipeline agents + newly added ones
+  const allExistingIds = new Set([...existingAgentIds, ...Array.from(addedIds)]);
 
   const filteredAgents = ALL_AGENTS.filter((agent) => {
     const matchesCategory = activeCategory === "all" || agent.pipeline_type === activeCategory;
@@ -36,7 +42,9 @@ export function AgentLibrary({ isOpen, onClose, onAddAgent }: AgentLibraryProps)
       agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       agent.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
       agent.role.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
+    // Hide agents already in the pipeline
+    const notAlreadyAdded = !allExistingIds.has(agent.id);
+    return matchesCategory && matchesSearch && notAlreadyAdded;
   });
 
   const handleAdd = (agent: AgentDef) => {
@@ -134,6 +142,10 @@ export function AgentLibrary({ isOpen, onClose, onAddAgent }: AgentLibraryProps)
                         isAdded ? (
                           <span className="flex items-center justify-center h-6 px-2 rounded-md bg-green-100 text-green-700 text-[9px] font-medium">
                             ✓ Added
+                          </span>
+                        ) : !canAddMore ? (
+                          <span className="flex items-center justify-center h-6 px-2 rounded-md bg-[#f0eee6] text-[#87867f] text-[8px] font-medium">
+                            Max reached
                           </span>
                         ) : (
                           <button

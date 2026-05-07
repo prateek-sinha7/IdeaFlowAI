@@ -42,6 +42,7 @@ export default function DashboardPage() {
 
   // Workflow runs state (primary)
   const [recentRuns, setRecentRuns] = useState<WorkflowRun[]>([]);
+  const [questionnaireData, setQuestionnaireData] = useState<{ questions: { id: string; question: string; options: string[] }[] } | null>(null);
 
   // Auth check on mount
   useEffect(() => {
@@ -257,6 +258,13 @@ export default function DashboardPage() {
         if (msg.data && "title" in msg.data && "chat_session_id" in msg.data) {
           const titleData = msg.data as { chat_session_id: string; title: string };
           setChatTitleUpdate(titleData);
+        }
+        break;
+      }
+
+      case "questionnaire": {
+        if (msg.data && "questions" in msg.data) {
+          setQuestionnaireData(msg.data as { questions: { id: string; question: string; options: string[] }[] });
         }
         break;
       }
@@ -586,6 +594,7 @@ export default function DashboardPage() {
       onResetPipeline={resetPipeline}
       recentRuns={recentRuns}
       onSelectWorkflowRun={handleSelectWorkflowRun}
+      questionnaireData={questionnaireData}
     />
   );
 }

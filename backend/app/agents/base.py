@@ -24,12 +24,13 @@ class BaseAgent:
     methods for subclasses to use.
     """
 
-    def __init__(self, system_prompt: str, model: str = "claude-haiku-4-5-20251001"):
+    def __init__(self, system_prompt: str, model: str = "claude-haiku-4-5-20251001", max_tokens: int = 32000):
         """Initialize the base agent with a system prompt and LLM configuration.
 
         Args:
             system_prompt: The system prompt defining the agent's role.
             model: The Anthropic model name to use.
+            max_tokens: Maximum output tokens for this agent.
 
         Raises:
             AgentConfigurationError: If ANTHROPIC_API_KEY is missing or empty.
@@ -46,9 +47,9 @@ class BaseAgent:
             model=self.model,
             anthropic_api_key=settings.ANTHROPIC_API_KEY,
             streaming=True,
-            max_tokens=32000,
+            max_tokens=max_tokens,
         )
-        logger.debug("Agent initialized with model=%s, prompt_length=%d", model, len(system_prompt))
+        logger.debug("Agent initialized with model=%s, max_tokens=%d, prompt_length=%d", model, max_tokens, len(system_prompt))
 
     def _build_messages(
         self, user_message: str, context: dict | None = None

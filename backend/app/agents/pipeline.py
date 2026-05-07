@@ -74,7 +74,7 @@ class PipelineExecutor:
                     system_prompt = f"{skills[agent_def.id]}\n\n{system_prompt}"
                     logger.debug("   Skill injected for agent %s", agent_def.id)
 
-                agent = BaseAgent(system_prompt=system_prompt)
+                agent = BaseAgent(system_prompt=system_prompt, max_tokens=agent_def.max_tokens)
 
                 # Build context message for this agent
                 context_message = self._build_context_message(user_message, i)
@@ -179,22 +179,31 @@ class PipelineExecutor:
     def _build_context_message(self, user_message: str, current_index: int) -> str:
         """Build the context message for the current agent.
         
-        Strategy: Keep original request prominent, give full context to all agents.
+        Strategy: 
+        - Keep original request prominent
+        - For prototype pipeline: only pass the LAST agent's output (HTML) to avoid bloat
+        - For other pipelines: pass all previous outputs with reasonable limits
         """
         parts = [f"=== ORIGINAL USER REQUEST ===\n{user_message}\n=== END REQUEST ==="]
 
-        for i, prev_agent in enumerate(self.agents[:current_index]):
+        if self.pipeline_type == "prototype" and current_index >= 2:
+            # For prototype agents 3+, only pass the immediately previous agent's output
+            # (the HTML) — they don't need the requirements plan
+            prev_agent = self.agents[current_index - 1]
             if prev_agent.id in self.context:
                 prev_output = self.context[prev_agent.id]
-                # For prototype pipeline, the HTML output is large — allow more context
-                # For other pipelines, 8000 chars per agent is sufficient
-                if self.pipeline_type == "prototype":
-                    max_len = 30000  # HTML prototypes can be 20-30K chars
-                else:
-                    max_len = 8000
+                max_len = 30000
                 if len(prev_output) > max_len:
                     prev_output = prev_output[:max_len] + "\n...[truncated]"
                 parts.append(f"\n--- Output from {prev_agent.name} ({prev_agent.role}) ---\n{prev_output}")
+        else:
+            for i, prev_agent in enumerate(self.agents[:current_index]):
+                if prev_agent.id in self.context:
+                    prev_output = self.context[prev_agent.id]
+                    max_len = 8000
+                    if len(prev_output) > max_len:
+                        prev_output = prev_output[:max_len] + "\n...[truncated]"
+                    parts.append(f"\n--- Output from {prev_agent.name} ({prev_agent.role}) ---\n{prev_output}")
 
         return "\n".join(parts)
 

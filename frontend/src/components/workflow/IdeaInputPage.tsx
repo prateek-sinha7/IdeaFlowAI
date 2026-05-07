@@ -61,7 +61,26 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 200); }, []);
 
   const handleRun = () => { if (!ideaInput.trim()) return; onRun(ideaInput.trim(), pipelineAgents.map((a) => a.id)); };
-  const handleAddAgent = useCallback((agent: AgentDef) => { setPipelineAgents((prev) => prev.find((a) => a.id === agent.id) ? prev : [...prev, { ...agent, order: prev.length + 1 }]); }, []);
+
+  // Count optional (user-added) agents — max 2 allowed
+  const defaultAgentIds = new Set(LIBRARY_AGENTS.filter((a) => a.pipeline_type === workflowType).map((a) => a.id));
+  const optionalAgentCount = pipelineAgents.filter((a) => !defaultAgentIds.has(a.id)).length;
+  const canAddMore = optionalAgentCount < 2;
+
+  const handleAddAgent = useCallback((agent: AgentDef) => {
+    setPipelineAgents((prev) => {
+      if (prev.find((a) => a.id === agent.id)) return prev;
+      // Check limit
+      const currentDefaults = new Set(LIBRARY_AGENTS.filter((a) => a.pipeline_type === workflowType).map((a) => a.id));
+      const currentOptional = prev.filter((a) => !currentDefaults.has(a.id)).length;
+      if (currentOptional >= 2) return prev;
+      // Insert BEFORE the last agent (which is the locked compiler/formatter)
+      const insertIdx = prev.length > 0 ? prev.length - 1 : 0;
+      const updated = [...prev];
+      updated.splice(insertIdx, 0, { ...agent, order: insertIdx + 1 });
+      return updated;
+    });
+  }, [workflowType]);
   const handleRemoveAgent = useCallback((agentId: string) => { setPipelineAgents((prev) => prev.filter((a) => a.id !== agentId)); }, []);
   const handleReorderAgents = useCallback((reordered: AgentDef[]) => { setPipelineAgents(reordered); }, []);
 
@@ -138,7 +157,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
         <p className="mt-4 text-[10px] text-[#87867f]">Ctrl+Enter to run • Attach files for context</p>
       </div>
 
-      <AgentsPopup isOpen={showAgents} onClose={() => setShowAgents(false)} agents={pipelineAgents} pipelineType={workflowType} onAddAgent={handleAddAgent} onRemoveAgent={handleRemoveAgent} onReorder={handleReorderAgents} />
+      <AgentsPopup isOpen={showAgents} onClose={() => setShowAgents(false)} agents={pipelineAgents} pipelineType={workflowType} onAddAgent={handleAddAgent} onRemoveAgent={handleRemoveAgent} onReorder={handleReorderAgents} canAddMore={canAddMore} />
     </div>
   );
 }

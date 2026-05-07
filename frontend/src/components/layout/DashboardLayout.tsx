@@ -12,6 +12,7 @@ import { AccountSettings } from "@/components/settings/AccountSettings";
 import { IdeaInputPage } from "@/components/workflow/IdeaInputPage";
 import { AgentProgressPanel } from "@/components/workflow/AgentProgressPanel";
 import { PreviewPanel } from "@/components/preview/PreviewPanel";
+import { QuestionnairePanel } from "@/components/preview/QuestionnairePanel";
 import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WorkflowRun, WorkflowType } from "@/types/index";
 import type { ConnectionStatus } from "@/hooks/useWebSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
@@ -41,6 +42,7 @@ export interface DashboardLayoutProps {
   onResetPipeline?: () => void;
   recentRuns?: WorkflowRun[];
   onSelectWorkflowRun?: (run: WorkflowRun) => void;
+  questionnaireData?: { questions: { id: string; question: string; options: string[] }[] } | null;
 }
 
 type MainView = "home" | "library" | "history" | "settings" | "input" | "execution";
@@ -70,10 +72,16 @@ export function DashboardLayout({
   onResetPipeline,
   recentRuns,
   onSelectWorkflowRun,
+  questionnaireData,
 }: DashboardLayoutProps) {
   const [mainView, setMainView] = useState<MainView>("home");
   const [workflowType, setWorkflowType] = useState<WorkflowType>("user_stories");
   const [workflowInput, setWorkflowInput] = useState("");
+  const [completedPipelineTypes, setCompletedPipelineTypes] = useState<WorkflowType[]>([]);
+  const [lastPipelineOutput, setLastPipelineOutput] = useState<string>("");
+  const [questionnaireQuestions, setQuestionnaireQuestions] = useState<{ id: string; question: string; options: string[] }[]>([]);
+  const [questionnaireLoading, setQuestionnaireLoading] = useState(false);
+  const [pendingPipelineRun, setPendingPipelineRun] = useState<{ type: WorkflowType; message: string; agentIds?: string[] } | null>(null);
 
   // Detect when pipeline starts running → switch to execution view
   useEffect(() => {
@@ -82,8 +90,33 @@ export function DashboardLayout({
     }
   }, [pipelineState?.isRunning, mainView]);
 
+  // Capture output when pipeline completes (for chaining)
+  useEffect(() => {
+    if (pipelineState && !pipelineState.isRunning && pipelineState.agents.length > 0) {
+      const allDone = pipelineState.agents.every((a) => a.status === "done" || a.status === "error");
+      if (allDone && pipelineState.agents.some((a) => a.status === "done")) {
+        // Pipeline just completed — track it
+        setCompletedPipelineTypes((prev) => {
+          if (prev.includes(workflowType)) return prev;
+          return [...prev, workflowType];
+        });
+        // Capture the latest output for chaining
+        const output = pptContent || userStoryContent || prototypeContent;
+        if (output) setLastPipelineOutput(output);
+      }
+    }
+  }, [pipelineState, workflowType, pptContent, userStoryContent, prototypeContent]);
+
   // Check if pipeline is running (blocks navigation)
   const isPipelineRunning = pipelineState?.isRunning || false;
+
+  // Handle incoming questionnaire data from WebSocket
+  useEffect(() => {
+    if (questionnaireData && questionnaireData.questions) {
+      setQuestionnaireQuestions(questionnaireData.questions);
+      setQuestionnaireLoading(false);
+    }
+  }, [questionnaireData]);
 
   // Navigate from Home to Input page
   const handleSelectFeature = useCallback((type: WorkflowType) => {
@@ -92,21 +125,98 @@ export function DashboardLayout({
     setMainView("input");
   }, [isPipelineRunning]);
 
-  // Run the pipeline from Input page
+  // Run the pipeline from Input page — triggers questionnaire first
   const handleRunPipeline = useCallback((message: string, agentIds: string[]) => {
     setWorkflowInput(message);
     setMainView("execution");
-    if (onStartPipeline) {
-      onStartPipeline(workflowType, message, agentIds);
+    setPendingPipelineRun({ type: workflowType, message, agentIds });
+    setQuestionnaireQuestions([]);
+    setQuestionnaireLoading(true);
+
+    // Request questionnaire from backend
+    if (websocketSend) {
+      websocketSend(JSON.stringify({
+        type: "generate_questions",
+        pipeline_type: workflowType,
+        message,
+      }));
     }
-  }, [workflowType, onStartPipeline]);
+  }, [workflowType, websocketSend]);
 
   // Go back to home
   const handleGoHome = useCallback(() => {
     if (isPipelineRunning) return;
     setMainView("home");
+    // Clear any pending questionnaire state
+    setQuestionnaireQuestions([]);
+    setQuestionnaireLoading(false);
+    setPendingPipelineRun(null);
     if (onResetPipeline) onResetPipeline();
   }, [onResetPipeline, isPipelineRunning]);
+
+  // Chain to another pipeline using previous output as context
+  const handleChainPipeline = useCallback((nextType: WorkflowType) => {
+    setWorkflowType(nextType);
+
+    // Build enriched input: original prompt + summary of previous output
+    const prevSummary = lastPipelineOutput.slice(0, 4000);
+    const enrichedInput = `${workflowInput}\n\n=== CONTEXT FROM PREVIOUS PIPELINE (${workflowType}) ===\n${prevSummary}\n=== END PREVIOUS CONTEXT ===`;
+
+    // Trigger questionnaire first (same as handleRunPipeline)
+    setWorkflowInput(enrichedInput);
+    setPendingPipelineRun({ type: nextType, message: enrichedInput });
+    setQuestionnaireQuestions([]);
+    setQuestionnaireLoading(true);
+
+    // Request questionnaire from backend
+    if (websocketSend) {
+      websocketSend(JSON.stringify({
+        type: "generate_questions",
+        pipeline_type: nextType,
+        message: enrichedInput,
+      }));
+    }
+  }, [workflowType, workflowInput, lastPipelineOutput, websocketSend]);
+
+  // Handle questionnaire answers — run pipeline with enriched input
+  const handleQuestionnaireSubmit = useCallback((answers: Record<string, string[]>, freeformInput: string) => {
+    if (!pendingPipelineRun) return;
+
+    // Build enriched message with user's answers
+    let enrichedMessage = pendingPipelineRun.message;
+    const answerLines: string[] = [];
+    questionnaireQuestions.forEach((q) => {
+      const selected = answers[q.id];
+      if (selected && selected.length > 0) {
+        answerLines.push(`- ${q.question}: ${selected.join(", ")}`);
+      }
+    });
+    if (freeformInput) {
+      answerLines.push(`- Additional notes: ${freeformInput}`);
+    }
+    if (answerLines.length > 0) {
+      enrichedMessage = `${pendingPipelineRun.message}\n\n=== USER PREFERENCES ===\n${answerLines.join("\n")}\n=== END PREFERENCES ===`;
+    }
+
+    // Clear questionnaire state and run pipeline
+    setQuestionnaireQuestions([]);
+    setQuestionnaireLoading(false);
+    setPendingPipelineRun(null);
+    if (onStartPipeline) {
+      onStartPipeline(pendingPipelineRun.type, enrichedMessage, pendingPipelineRun.agentIds);
+    }
+  }, [pendingPipelineRun, questionnaireQuestions, onStartPipeline]);
+
+  // Skip questionnaire — run pipeline directly
+  const handleQuestionnaireSkip = useCallback(() => {
+    if (!pendingPipelineRun) return;
+    setQuestionnaireQuestions([]);
+    setQuestionnaireLoading(false);
+    setPendingPipelineRun(null);
+    if (onStartPipeline) {
+      onStartPipeline(pendingPipelineRun.type, pendingPipelineRun.message, pendingPipelineRun.agentIds);
+    }
+  }, [pendingPipelineRun, onStartPipeline]);
 
   // Header navigation
   const handleNavigate = useCallback((page: "home" | "library" | "history" | "settings") => {
@@ -263,20 +373,32 @@ export function DashboardLayout({
                     onViewResults={() => {}}
                     onRunAnother={handleGoHome}
                     onFollowUp={handleFollowUp}
+                    onChainPipeline={handleChainPipeline}
+                    completedPipelineTypes={completedPipelineTypes}
                   />
                 </ErrorBoundary>
               </div>
 
-              {/* Right Panel — Preview */}
+              {/* Right Panel — Questionnaire or Preview */}
               <div className="flex-1 h-[55vh] md:h-full min-w-0">
                 <ErrorBoundary fallbackLabel="Preview">
-                  <PreviewPanel
-                    userStoryContent={userStoryContent || undefined}
-                    pptContent={pptContent || undefined}
-                    prototypeContent={prototypeContent || undefined}
-                    isStreaming={isStreaming}
-                    workflowType={workflowType}
-                  />
+                  {(questionnaireLoading || questionnaireQuestions.length > 0) && pendingPipelineRun ? (
+                    <QuestionnairePanel
+                      questions={questionnaireQuestions}
+                      isLoading={questionnaireLoading}
+                      onSubmitAnswers={handleQuestionnaireSubmit}
+                      onSkip={handleQuestionnaireSkip}
+                      workflowType={workflowType}
+                    />
+                  ) : (
+                    <PreviewPanel
+                      userStoryContent={userStoryContent || undefined}
+                      pptContent={pptContent || undefined}
+                      prototypeContent={prototypeContent || undefined}
+                      isStreaming={isStreaming}
+                      workflowType={workflowType}
+                    />
+                  )}
                 </ErrorBoundary>
               </div>
             </motion.div>

@@ -33,7 +33,7 @@ export interface ChatMessage {
 }
 
 export interface StreamMessage {
-  type: "stream" | "complete" | "error" | "phase_start" | "phase_end" | "title_update" | "step" | "pipeline_start" | "agent_start" | "agent_thinking" | "agent_chunk" | "agent_complete" | "agent_error" | "pipeline_complete";
+  type: "stream" | "complete" | "error" | "phase_start" | "phase_end" | "title_update" | "step" | "pipeline_start" | "agent_start" | "agent_thinking" | "agent_chunk" | "agent_complete" | "agent_error" | "pipeline_complete" | "questionnaire";
   chunk?: string;
   section?: string;
   data?: FinalOutput | ErrorDetail | ProcessStep | Record<string, unknown>;

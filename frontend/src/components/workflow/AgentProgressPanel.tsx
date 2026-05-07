@@ -1,8 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { motion } from "motion/react";
-import { CheckCircle2, Loader2, Circle, AlertCircle, RotateCcw, Send, Sparkles, Clock } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import { CheckCircle2, Loader2, Circle, AlertCircle, RotateCcw, Clock, FileText, Presentation, Layout, ArrowRight } from "lucide-react";
 import type { AgentRunState, PipelineRunState, WorkflowType } from "@/types/index";
 
 interface AgentProgressPanelProps {
@@ -11,20 +11,29 @@ interface AgentProgressPanelProps {
   onViewResults?: () => void;
   onRunAnother?: () => void;
   onFollowUp?: (message: string) => void;
+  onChainPipeline?: (type: WorkflowType) => void;
+  completedPipelineTypes?: WorkflowType[];
 }
 
 const STATUS_ICON = { idle: Circle, thinking: Loader2, running: Loader2, done: CheckCircle2, error: AlertCircle };
 const STATUS_COLOR = { idle: "text-[#87867f]", thinking: "text-blue-500", running: "text-blue-500", done: "text-green-600", error: "text-red-500" };
 
-export function AgentProgressPanel({ pipelineState, workflowType, onViewResults, onRunAnother, onFollowUp }: AgentProgressPanelProps) {
-  const [followUpInput, setFollowUpInput] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
+const PIPELINE_OPTIONS: { type: WorkflowType; label: string; icon: typeof FileText; color: string }[] = [
+  { type: "ppt", label: "Presentation", icon: Presentation, color: "text-amber-600 bg-amber-50 border-amber-200" },
+  { type: "user_stories", label: "User Stories", icon: FileText, color: "text-blue-600 bg-blue-50 border-blue-200" },
+  { type: "prototype", label: "Prototype", icon: Layout, color: "text-emerald-600 bg-emerald-50 border-emerald-200" },
+];
+
+export function AgentProgressPanel({ pipelineState, workflowType, onViewResults, onRunAnother, onFollowUp, onChainPipeline, completedPipelineTypes = [] }: AgentProgressPanelProps) {
+  const [showChainSelector, setShowChainSelector] = useState(false);
   const { agents, isRunning, completedCount, totalDuration } = pipelineState;
   const isComplete = !isRunning && agents.length > 0 && completedCount === agents.length;
   const hasErrors = agents.some((a) => a.status === "error");
   const errorAgents = agents.filter((a) => a.status === "error");
 
-  const handleSendFollowUp = () => { if (!followUpInput.trim()) return; onFollowUp?.(followUpInput.trim()); setFollowUpInput(""); };
+  // Available pipelines = all 3 minus already completed ones (including current)
+  const allCompleted = [...completedPipelineTypes, workflowType];
+  const availablePipelines = PIPELINE_OPTIONS.filter((p) => !allCompleted.includes(p.type));
 
   return (
     <div className="flex h-full flex-col bg-white">
@@ -51,15 +60,10 @@ export function AgentProgressPanel({ pipelineState, workflowType, onViewResults,
               <CheckCircle2 className="h-3 w-3" /> Done
             </div>
           )}
-          {hasErrors && !isRunning && (
-            <div className="flex items-center gap-1.5 text-[10px] text-red-600 bg-red-50 rounded-full px-2.5 py-1 border border-red-100">
-              <AlertCircle className="h-3 w-3" /> Error
-            </div>
-          )}
         </div>
       </div>
 
-      {/* Error Banner — shown when pipeline has errors */}
+      {/* Error Banner */}
       {hasErrors && !isRunning && (
         <div className="mx-5 mt-4 rounded-xl border border-red-200 bg-red-50 p-4">
           <div className="flex items-start gap-3">
@@ -69,11 +73,9 @@ export function AgentProgressPanel({ pipelineState, workflowType, onViewResults,
               <p className="text-xs text-red-600 mt-1 leading-relaxed">
                 {errorAgents.map((a) => a.error || `${a.name} failed`).join(". ")}
               </p>
-              <div className="flex gap-2 mt-3">
-                <button onClick={onRunAnother} className="text-[11px] font-medium text-red-700 bg-white border border-red-200 rounded-lg px-3 py-1.5 hover:bg-red-50 transition-all">
-                  Try Again
-                </button>
-              </div>
+              <button onClick={onRunAnother} className="mt-3 text-[11px] font-medium text-red-700 bg-white border border-red-200 rounded-lg px-3 py-1.5 hover:bg-red-50 transition-all">
+                Try Again
+              </button>
             </div>
           </div>
         </div>
@@ -115,31 +117,56 @@ export function AgentProgressPanel({ pipelineState, workflowType, onViewResults,
         </div>
       </div>
 
-      {/* Actions */}
+      {/* Actions — shown when pipeline completes */}
       {isComplete && (
         <div className="px-5 py-3 border-t border-[#e8e6dc] space-y-2">
-          <button onClick={onViewResults} className="w-full flex items-center justify-center gap-2 rounded-xl bg-green-50 border border-green-200 text-green-700 px-4 py-2.5 text-xs font-medium hover:bg-green-100 transition-all">
-            <CheckCircle2 className="h-3.5 w-3.5" /> View Results
-          </button>
+          {/* Chain Pipeline Selector */}
+          {availablePipelines.length > 0 && onChainPipeline && (
+            <div>
+              <button
+                onClick={() => setShowChainSelector(!showChainSelector)}
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#c96442]/10 border border-[#c96442]/20 text-[#c96442] px-4 py-2.5 text-xs font-medium hover:bg-[#c96442]/15 transition-all"
+              >
+                <ArrowRight className="h-3.5 w-3.5" /> Continue with Another Pipeline
+              </button>
+              <AnimatePresence>
+                {showChainSelector && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="mt-2 space-y-1.5 overflow-hidden"
+                  >
+                    <p className="text-[9px] text-[#87867f] px-1">Uses output from this pipeline as context:</p>
+                    {availablePipelines.map((pipeline) => {
+                      const Icon = pipeline.icon;
+                      return (
+                        <button
+                          key={pipeline.type}
+                          onClick={() => { onChainPipeline(pipeline.type); setShowChainSelector(false); }}
+                          className={`w-full flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left hover:shadow-sm transition-all ${pipeline.color}`}
+                        >
+                          <Icon className="h-4 w-4 flex-shrink-0" />
+                          <div className="flex-1">
+                            <p className="text-[11px] font-semibold">{pipeline.label}</p>
+                            <p className="text-[9px] opacity-70">Build on previous results</p>
+                          </div>
+                          <ArrowRight className="h-3 w-3 opacity-50" />
+                        </button>
+                      );
+                    })}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+
+          {/* Go Home */}
           <button onClick={onRunAnother} className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#faf9f5] border border-[#e8e6dc] text-[#5e5d59] px-4 py-2 text-xs font-medium hover:bg-[#f0eee6] transition-all">
-            <RotateCcw className="h-3.5 w-3.5" /> Run Another Pipeline
+            <RotateCcw className="h-3.5 w-3.5" /> Start Fresh
           </button>
         </div>
       )}
-
-      {/* Follow-up */}
-      <div className="px-4 py-3 border-t border-[#e8e6dc]">
-        <div className="flex items-center gap-2">
-          <div className="flex-1 flex items-center gap-2 rounded-xl border border-[#e8e6dc] bg-[#faf9f5] px-3 py-2.5 focus-within:border-[#c96442]/40 transition-colors">
-            <Sparkles className="h-3 w-3 text-[#87867f] flex-shrink-0" />
-            <input ref={inputRef} type="text" value={followUpInput} onChange={(e) => setFollowUpInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleSendFollowUp(); }}
-              placeholder="Steer agents or ask follow-up..." className="flex-1 bg-transparent text-[11px] text-[#141413] placeholder-[#87867f] focus:outline-none" />
-          </div>
-          <button onClick={handleSendFollowUp} disabled={!followUpInput.trim()} className="flex items-center justify-center rounded-xl bg-[#c96442] text-white p-2.5 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
-            <Send className="h-3 w-3" />
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
