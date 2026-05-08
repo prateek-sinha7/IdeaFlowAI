@@ -88,7 +88,7 @@ export default function DashboardPage() {
         if (finalOutput && pipelineType) {
           if (pipelineType === "user_stories" || pipelineType === "app_builder" || pipelineType === "reverse_engineer" || pipelineType === "custom") {
             setUserStoryContent(finalOutput);
-          } else if (pipelineType === "ppt" || pipelineType === "validate_pitch") {
+          } else if (pipelineType === "ppt") {
             setPptContent(finalOutput);
           } else if (pipelineType === "prototype") {
             setPrototypeContent(finalOutput);

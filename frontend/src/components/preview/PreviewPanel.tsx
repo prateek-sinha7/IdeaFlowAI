@@ -6,6 +6,7 @@ import { Eye, FolderDown, PanelRightClose, Copy, Check } from "lucide-react";
 import { UserStoryPreview } from "./UserStoryPreview";
 import { PPTPreview } from "./PPTPreview";
 import { PrototypePreview } from "./PrototypePreview";
+import { MarkdownPreview } from "./MarkdownPreview";
 import { FilesTab } from "@/components/results/FilesTab";
 import type { WorkflowType } from "@/types/index";
 
@@ -34,7 +35,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, i
   useEffect(() => { if (initialTab === "preview" || initialTab === "files") setActiveTab(initialTab); }, [initialTab]);
 
   const detectedType: WorkflowType = workflowType || (userStoryContent ? "user_stories" : pptContent ? "ppt" : prototypeContent ? "prototype" : "user_stories");
-  const activeContent = detectedType === "user_stories" || detectedType === "app_builder" || detectedType === "reverse_engineer" || detectedType === "custom" ? userStoryContent : detectedType === "ppt" || detectedType === "validate_pitch" ? pptContent : prototypeContent;
+  const activeContent = detectedType === "user_stories" || detectedType === "app_builder" || detectedType === "reverse_engineer" || detectedType === "custom" ? userStoryContent : detectedType === "ppt" ? pptContent : prototypeContent;
   const hasContent = !!(userStoryContent || pptContent || prototypeContent);
 
   const handleTabChange = (tabId: PanelTab) => { setActiveTab(tabId); onTabSelect?.(tabId); };
@@ -94,8 +95,9 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, i
                 <div className="flex items-center justify-center h-full"><p className="text-xs text-[#87867f]">Output will appear here</p></div>
               ) : (
                 <>
-                  {(detectedType === "user_stories" || detectedType === "app_builder" || detectedType === "reverse_engineer" || detectedType === "custom") && userStoryContent && <UserStoryPreview content={userStoryContent} />}
-                  {(detectedType === "ppt" || detectedType === "validate_pitch") && pptContent && <PPTPreview content={pptContent} isStreaming={isStreaming} />}
+                  {detectedType === "user_stories" && userStoryContent && <UserStoryPreview content={userStoryContent} />}
+                  {(detectedType === "app_builder" || detectedType === "reverse_engineer" || detectedType === "custom") && userStoryContent && <MarkdownPreview content={userStoryContent} />}
+                  {detectedType === "ppt" && pptContent && <PPTPreview content={pptContent} isStreaming={isStreaming} />}
                   {detectedType === "prototype" && prototypeContent && <PrototypePreview content={prototypeContent} isStreaming={isStreaming} />}
                 </>
               )}

@@ -19,6 +19,7 @@ import { getToken, getWorkflows, getWorkflow, deleteWorkflow } from "@/lib/api";
 import { PPTPreview } from "@/components/preview/PPTPreview";
 import { UserStoryPreview } from "@/components/preview/UserStoryPreview";
 import { PrototypePreview } from "@/components/preview/PrototypePreview";
+import { MarkdownPreview } from "@/components/preview/MarkdownPreview";
 import { FilesTab } from "@/components/results/FilesTab";
 import type { WorkflowRun, WorkflowType } from "@/types/index";
 
@@ -30,7 +31,6 @@ const TYPE_META: Record<string, { icon: typeof FileText; label: string; color: s
   user_stories: { icon: FileText, label: "User Stories", color: "text-blue-600 bg-blue-50" },
   ppt: { icon: Presentation, label: "Presentation", color: "text-amber-600 bg-amber-50" },
   prototype: { icon: Layout, label: "Prototype", color: "text-emerald-600 bg-emerald-50" },
-  validate_pitch: { icon: Presentation, label: "Pitch Deck", color: "text-violet-600 bg-violet-50" },
   app_builder: { icon: Layout, label: "App Builder", color: "text-orange-600 bg-orange-50" },
   reverse_engineer: { icon: FileText, label: "Reverse Engineer", color: "text-rose-600 bg-rose-50" },
   custom: { icon: FileText, label: "Custom", color: "text-slate-600 bg-slate-50" },
@@ -54,7 +54,7 @@ export function WorkflowHistory({ onBack }: WorkflowHistoryProps) {
   const [selectedOutput, setSelectedOutput] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [filterType, setFilterType] = useState<string>("all");
-  const [detailTab, setDetailTab] = useState<"preview" | "agents" | "files">("preview");
+  const [detailTab, setDetailTab] = useState<"preview" | "files">("preview");
 
   // Load workflow runs
   useEffect(() => {
@@ -73,11 +73,13 @@ export function WorkflowHistory({ onBack }: WorkflowHistoryProps) {
     setSelectedOutput(null);
     setDetailTab("preview");
 
-    if (run.output) {
+    // If output already available from list, use it
+    if (run.output && run.output.length > 0) {
       setSelectedOutput(run.output);
       return;
     }
 
+    // Otherwise fetch full detail from API
     const token = getToken();
     if (!token) return;
     setLoadingDetail(true);
@@ -139,8 +141,9 @@ export function WorkflowHistory({ onBack }: WorkflowHistoryProps) {
     const workflowType = selectedRun.type as WorkflowType;
 
     // Determine content for preview
-    const isUserStory = workflowType === "user_stories" || workflowType === "app_builder" || workflowType === "reverse_engineer" || workflowType === "custom";
-    const isPpt = workflowType === "ppt" || workflowType === "validate_pitch";
+    const isUserStory = workflowType === "user_stories";
+    const isMarkdown = workflowType === "app_builder" || workflowType === "reverse_engineer" || workflowType === "custom";
+    const isPpt = workflowType === "ppt";
     const isPrototype = workflowType === "prototype";
 
     // Parse agent outputs if available
@@ -152,92 +155,96 @@ export function WorkflowHistory({ onBack }: WorkflowHistoryProps) {
     }
 
     return (
-      <div className="h-full flex flex-col bg-[#f5f4ed]">
-        {/* Compact Header */}
-        <div className="flex items-center gap-2 px-4 py-2 border-b border-[#e8e6dc] bg-white flex-shrink-0">
-          <button onClick={handleBack} className="flex items-center justify-center h-7 w-7 rounded-lg hover:bg-[#f0eee6] transition-colors flex-shrink-0">
-            <ArrowLeft className="h-3.5 w-3.5 text-[#5e5d59]" />
-          </button>
-          <div className="flex-1 min-w-0 flex items-center gap-2">
-            <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[8px] font-semibold flex-shrink-0 ${meta.color}`}>
-              <Icon className="h-2.5 w-2.5" />
-              {meta.label}
-            </span>
-            <h1 className="text-[12px] font-semibold text-[#141413] truncate">{selectedRun.title}</h1>
-            <span className="text-[9px] text-[#87867f] flex-shrink-0">{formatDuration(selectedRun.duration)}</span>
-          </div>
-          {/* Tabs inline */}
-          <div className="flex gap-0.5 rounded-lg bg-[#f0eee6] p-0.5 border border-[#e8e6dc] flex-shrink-0">
-            <button onClick={() => setDetailTab("preview")} className={`rounded-md px-2.5 py-1 text-[10px] font-medium transition-all ${detailTab === "preview" ? "bg-white text-[#141413] shadow-sm" : "text-[#87867f]"}`}>
-              Preview
-            </button>
-            {agentOutputs.length > 0 && (
-              <button onClick={() => setDetailTab("agents")} className={`rounded-md px-2.5 py-1 text-[10px] font-medium transition-all ${detailTab === "agents" ? "bg-white text-[#141413] shadow-sm" : "text-[#87867f]"}`}>
-                Agents
+      <div className="h-full flex bg-[#f5f4ed]">
+        {/* Left Panel — Back button + Agents */}
+        <div className="w-full md:w-[280px] lg:w-[300px] flex-shrink-0 h-full border-r border-[#e8e6dc] overflow-y-auto bg-white flex flex-col">
+          {/* Header with back + title */}
+          <div className="px-3 py-2.5 border-b border-[#e8e6dc] flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <button onClick={handleBack} className="flex items-center justify-center h-6 w-6 rounded-lg hover:bg-[#f0eee6] transition-colors flex-shrink-0">
+                <ArrowLeft className="h-3 w-3 text-[#5e5d59]" />
               </button>
-            )}
-            <button onClick={() => setDetailTab("files")} className={`rounded-md px-2.5 py-1 text-[10px] font-medium transition-all ${detailTab === "files" ? "bg-white text-[#141413] shadow-sm" : "text-[#87867f]"}`}>
-              Files
-            </button>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[7px] font-semibold ${meta.color}`}>
+                    <Icon className="h-2 w-2" />{meta.label}
+                  </span>
+                  <span className="text-[8px] text-[#87867f]">{formatDuration(selectedRun.duration)}</span>
+                </div>
+                <p className="text-[10px] font-semibold text-[#141413] truncate mt-0.5">{selectedRun.title}</p>
+              </div>
+            </div>
           </div>
-          <button
-            onClick={() => handleDeleteClick(selectedRun.id)}
-            className="flex items-center justify-center h-7 w-7 rounded-lg text-[#c9c8c3] hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
-            title="Delete"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+
+          {/* Agent list */}
+          <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
+            {agentOutputs.length > 0 ? agentOutputs.map((agent, idx) => (
+              <details key={idx} className="rounded-lg border border-[#e8e6dc] bg-[#faf9f5] overflow-hidden">
+                <summary className="flex items-center gap-2 px-2.5 py-2 cursor-pointer hover:bg-[#f0eee6] transition-colors">
+                  <span className="text-[12px]">{agent.icon || "🤖"}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-medium text-[#141413] truncate">{agent.name}</p>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {agent.duration && <span className="text-[8px] text-[#87867f]">{agent.duration.toFixed(1)}s</span>}
+                    <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                  </div>
+                </summary>
+                <div className="px-2.5 pb-2 border-t border-[#e8e6dc]">
+                  <pre className="text-[9px] text-[#5e5d59] whitespace-pre-wrap leading-relaxed mt-1.5 max-h-[120px] overflow-y-auto font-mono bg-white rounded p-2 border border-[#e8e6dc]">
+                    {agent.output?.slice(0, 1500) || "No output"}
+                    {agent.output && agent.output.length > 1500 && "\n...[truncated]"}
+                  </pre>
+                </div>
+              </details>
+            )) : (
+              <p className="text-[10px] text-[#87867f] text-center py-4">No agent data available</p>
+            )}
+          </div>
         </div>
 
-        {/* Content — maximized space */}
-        <div className="flex-1 min-h-0 overflow-auto">
-          {loadingDetail ? (
-            <div className="flex items-center justify-center h-full">
-              <Loader2 className="h-6 w-6 animate-spin text-[#87867f]" />
+        {/* Right Panel — Preview + Files (full height, no top header) */}
+        <div className="flex-1 min-w-0 h-full flex flex-col">
+          {/* Tabs */}
+          <div className="px-4 py-1.5 border-b border-[#e8e6dc] bg-white flex-shrink-0">
+            <div className="flex gap-0.5 rounded-lg bg-[#f0eee6] p-0.5 w-fit border border-[#e8e6dc]">
+              <button onClick={() => setDetailTab("preview")} className={`rounded-md px-3 py-1 text-[10px] font-medium transition-all ${detailTab === "preview" ? "bg-white text-[#141413] shadow-sm" : "text-[#87867f]"}`}>
+                Preview
+              </button>
+              <button onClick={() => setDetailTab("files")} className={`rounded-md px-3 py-1 text-[10px] font-medium transition-all ${detailTab === "files" ? "bg-white text-[#141413] shadow-sm" : "text-[#87867f]"}`}>
+                Files
+              </button>
             </div>
-          ) : !selectedOutput && detailTab !== "agents" ? (
-            <div className="flex items-center justify-center h-full">
-              <p className="text-sm text-[#87867f]">No output available for this run.</p>
-            </div>
-          ) : detailTab === "agents" ? (
-            /* Agent Pipeline View */
-            <div className="p-4 space-y-2">
-              {agentOutputs.map((agent, idx) => (
-                <details key={idx} className="rounded-lg border border-[#e8e6dc] bg-white overflow-hidden group">
-                  <summary className="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-[#faf9f5] transition-colors">
-                    <span className="text-[14px]">{agent.icon || "🤖"}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[11px] font-semibold text-[#141413]">{agent.name}</p>
-                      <p className="text-[9px] text-[#87867f]">{agent.role}</p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {agent.duration && <span className="text-[9px] text-[#87867f]">{agent.duration.toFixed(1)}s</span>}
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                    </div>
-                  </summary>
-                  <div className="px-4 pb-3 border-t border-[#e8e6dc]">
-                    <pre className="text-[10px] text-[#5e5d59] whitespace-pre-wrap leading-relaxed mt-2 max-h-[200px] overflow-y-auto font-mono bg-[#faf9f5] rounded-md p-3">
-                      {agent.output?.slice(0, 2000) || "No output"}
-                      {agent.output && agent.output.length > 2000 && "\n...[truncated]"}
-                    </pre>
-                  </div>
-                </details>
-              ))}
-            </div>
-          ) : detailTab === "preview" ? (
-            <div className="h-full">
-              {isUserStory && <UserStoryPreview content={selectedOutput!} />}
-              {isPpt && <PPTPreview content={selectedOutput!} />}
-              {isPrototype && <PrototypePreview content={selectedOutput!} />}
-            </div>
-          ) : (
-            <FilesTab
-              workflowType={workflowType}
-              userStoryContent={isUserStory ? selectedOutput || undefined : undefined}
-              pptContent={isPpt ? selectedOutput || undefined : undefined}
-              prototypeContent={isPrototype ? selectedOutput || undefined : undefined}
-            />
-          )}
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 min-h-0 overflow-auto">
+            {loadingDetail ? (
+              <div className="flex items-center justify-center h-full">
+                <Loader2 className="h-6 w-6 animate-spin text-[#87867f]" />
+              </div>
+            ) : !selectedOutput ? (
+              <div className="flex flex-col items-center justify-center h-full gap-2">
+                <FileText className="h-8 w-8 text-[#c9c8c3]" />
+                <p className="text-sm text-[#87867f]">No preview available</p>
+                <p className="text-[10px] text-[#c9c8c3] text-center max-w-[200px]">Check agent outputs on the left panel.</p>
+              </div>
+            ) : detailTab === "preview" ? (
+              <div className="h-full">
+                {isUserStory && <UserStoryPreview content={selectedOutput} />}
+                {isMarkdown && <MarkdownPreview content={selectedOutput} />}
+                {isPpt && <PPTPreview content={selectedOutput} />}
+                {isPrototype && <PrototypePreview content={selectedOutput} />}
+              </div>
+            ) : (
+              <FilesTab
+                workflowType={workflowType}
+                userStoryContent={(isUserStory || isMarkdown) ? selectedOutput || undefined : undefined}
+                pptContent={isPpt ? selectedOutput || undefined : undefined}
+                prototypeContent={isPrototype ? selectedOutput || undefined : undefined}
+              />
+            )}
+          </div>
         </div>
 
         {/* Delete Confirmation Modal */}
@@ -321,7 +328,6 @@ export function WorkflowHistory({ onBack }: WorkflowHistoryProps) {
             <option value="user_stories">User Stories</option>
             <option value="ppt">Presentation</option>
             <option value="prototype">Prototype</option>
-            <option value="validate_pitch">Pitch Deck</option>
             <option value="app_builder">App Builder</option>
             <option value="reverse_engineer">Reverse Engineer</option>
           </select>

@@ -25,8 +25,6 @@ const LOCKED_AGENT_IDS = new Set([
   "audience-analyst", "export-formatter",
   // Prototype
   "requirements-analyst", "prototype-finalizer",
-  // Validate Pitch
-  "idea-validator", "pitch-quality-reviewer",
   // App Builder
   "material-analyzer", "app-assembler",
   // Reverse Engineer
@@ -41,8 +39,10 @@ const REQUIRED_AGENT_IDS = new Set([
   "slide-architect", "data-enricher", "speaker-notes-writer", "slide-polisher",
   // Prototype
   "html-prototype-builder", "prototype-polisher",
-  // Validate Pitch
-  "market-researcher", "pitch-compiler",
+  // App Builder
+  "app-code-generator", "app-infra-generator",
+  // Reverse Engineer
+  "deep-analyzer", "modernization-planner",
 ]);
 
 type AgentRole = "locked" | "required" | "optional";

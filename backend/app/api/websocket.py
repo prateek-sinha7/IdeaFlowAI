@@ -10,7 +10,6 @@ from jose import JWTError
 from sqlalchemy.orm import Session
 
 from app.agents.base import AgentConfigurationError
-from app.agents.mock import mock_stream_response, mock_stream_with_steps, mock_generate_title
 from app.agents.modes import get_mode_prompt
 from app.agents.orchestrator import AgentOrchestrator
 from app.core.config import settings
@@ -182,24 +181,18 @@ async def websocket_chat(websocket: WebSocket):
             finally:
                 db.close()
 
-            # Check if we're in mock mode (no API key configured)
-            use_mock = not settings.ANTHROPIC_API_KEY
-
             # Auto-generate chat title from first message (like ChatGPT)
             if needs_title:
                 try:
-                    if use_mock:
-                        generated_title = await mock_generate_title(content)
-                    else:
-                        from app.agents.base import BaseAgent
-                        title_agent = BaseAgent(
-                            system_prompt=(
-                                "Generate a very short title (3-5 words max) for a chat conversation "
-                                "based on the user's first message. Return ONLY the title text, nothing else. "
-                                "No quotes, no punctuation at the end, no explanation. Just the title."
-                            )
+                    from app.agents.base import BaseAgent
+                    title_agent = BaseAgent(
+                        system_prompt=(
+                            "Generate a very short title (3-5 words max) for a chat conversation "
+                            "based on the user's first message. Return ONLY the title text, nothing else. "
+                            "No quotes, no punctuation at the end, no explanation. Just the title."
                         )
-                        generated_title = await title_agent.run(content)
+                    )
+                    generated_title = await title_agent.run(content)
                     # Clean up the title
                     generated_title = generated_title.strip().strip('"').strip("'").strip(".")[:60]
                     if generated_title:
@@ -221,127 +214,67 @@ async def websocket_chat(websocket: WebSocket):
                 except Exception as e:
                     logger.warning(f"Failed to generate chat title: {e}")
 
-            # Route to Agent Orchestrator (or mock) and stream responses
+            # Route to Agent Orchestrator and stream responses
             assistant_chunks: list[str] = []
             collected_steps: list[dict] = []
             stream_msg: dict | None = None
 
-            if use_mock:
-                # === MOCK MODE — simulate streaming without API key ===
-                logger.info(f"Mock mode: streaming response for '{content[:50]}' (mode={mode})")
-                try:
-                    async for item in mock_stream_with_steps(content, mode):
-                        if item["type"] == "step":
-                            # Collect steps for persistence
-                            step_data = item["step"]
-                            # Only keep the final status of each step
-                            existing = next((i for i, s in enumerate(collected_steps) if s["id"] == step_data["id"]), None)
-                            if existing is not None:
-                                collected_steps[existing] = step_data
-                            else:
-                                collected_steps.append(step_data)
-                            await websocket.send_json({
-                                "type": "step",
-                                "chunk": None,
-                                "section": None,
-                                "data": step_data,
-                            })
-                        elif item["type"] == "chunk":
-                            assistant_chunks.append(item["chunk"])
-                            stream_msg = {
-                                "type": "stream",
-                                "chunk": item["chunk"],
-                                "section": item.get("section", "discovery"),
-                                "data": None,
-                            }
-                            await websocket.send_json(stream_msg)
+            # Get mode-specific system prompt enhancement
+            mode_prompt = get_mode_prompt(mode)
 
-                    # Send complete message
-                    stream_msg = {
-                        "type": "complete",
-                        "chunk": None,
-                        "section": None,
-                        "data": {},
-                    }
+            try:
+                orchestrator = AgentOrchestrator()
+                async for stream_msg in orchestrator.astream_execute(
+                    user_message=content,
+                    chat_session_id=chat_session_id,
+                    mode=mode,
+                    mode_prompt=mode_prompt,
+                ):
+                    if stream_msg.get("type") == "stream" and stream_msg.get("chunk"):
+                        assistant_chunks.append(stream_msg["chunk"])
                     await websocket.send_json(stream_msg)
-                except Exception as e:
-                    logger.error(f"Mock streaming error: {e}")
-                    await websocket.send_json({
-                        "type": "error",
-                        "chunk": None,
-                        "section": None,
-                        "data": {
-                            "error": "Something went wrong in demo mode.",
-                            "code": "mock_error",
-                            "recoverable": True,
-                        },
-                    })
-            else:
-                # === LIVE MODE — use real Claude API ===
-                # Get mode-specific system prompt enhancement
-                mode_prompt = get_mode_prompt(mode)
 
-                try:
-                    orchestrator = AgentOrchestrator()
-                    async for stream_msg in orchestrator.astream_execute(
-                        user_message=content,
-                        chat_session_id=chat_session_id,
-                        mode=mode,
-                        mode_prompt=mode_prompt,
-                    ):
-                        if stream_msg.get("type") == "stream" and stream_msg.get("chunk"):
-                            assistant_chunks.append(stream_msg["chunk"])
-                        await websocket.send_json(stream_msg)
-
-                except AgentConfigurationError:
-                    logger.error("Agent configuration error: missing API key")
-                    await websocket.send_json({
-                        "type": "error", "chunk": None, "section": None,
-                        "data": {"error": "AI service is not configured. Please contact the administrator.", "code": "api_key_missing", "recoverable": False},
-                    })
-                except anthropic.APITimeoutError:
-                    logger.error("Anthropic API timeout")
-                    await websocket.send_json({
-                        "type": "error", "chunk": None, "section": None,
-                        "data": {"error": "The AI service took too long to respond. Please try again.", "code": "timeout", "recoverable": True},
-                    })
-                except anthropic.RateLimitError:
-                    logger.error("Anthropic rate limit exceeded")
-                    await websocket.send_json({
-                        "type": "error", "chunk": None, "section": None,
-                        "data": {"error": "Too many requests. Please wait a moment and try again.", "code": "rate_limit", "recoverable": True},
-                    })
-                except anthropic.APIConnectionError:
-                    logger.error("Anthropic API connection error")
-                    await websocket.send_json({
-                        "type": "error", "chunk": None, "section": None,
-                        "data": {"error": "Unable to reach the AI service. Please check your connection and try again.", "code": "connection_error", "recoverable": True},
-                    })
-                except anthropic.AuthenticationError:
-                    logger.error("Anthropic API authentication error")
-                    await websocket.send_json({
-                        "type": "error", "chunk": None, "section": None,
-                        "data": {"error": "AI service authentication failed. Please contact the administrator.", "code": "auth_error", "recoverable": False},
-                    })
-                except Exception as e:
-                    logger.error(f"Agent execution error: {e}")
-                    await websocket.send_json({
-                        "type": "error", "chunk": None, "section": None,
-                        "data": {"error": "Something went wrong. Please try again.", "code": "internal_error", "recoverable": True},
-                    })
+            except AgentConfigurationError:
+                logger.error("Agent configuration error: missing API key")
+                await websocket.send_json({
+                    "type": "error", "chunk": None, "section": None,
+                    "data": {"error": "AI service is not configured. Please contact the administrator.", "code": "api_key_missing", "recoverable": False},
+                })
+            except anthropic.APITimeoutError:
+                logger.error("Anthropic API timeout")
+                await websocket.send_json({
+                    "type": "error", "chunk": None, "section": None,
+                    "data": {"error": "The AI service took too long to respond. Please try again.", "code": "timeout", "recoverable": True},
+                })
+            except anthropic.RateLimitError:
+                logger.error("Anthropic rate limit exceeded")
+                await websocket.send_json({
+                    "type": "error", "chunk": None, "section": None,
+                    "data": {"error": "Too many requests. Please wait a moment and try again.", "code": "rate_limit", "recoverable": True},
+                })
+            except anthropic.APIConnectionError:
+                logger.error("Anthropic API connection error")
+                await websocket.send_json({
+                    "type": "error", "chunk": None, "section": None,
+                    "data": {"error": "Unable to reach the AI service. Please check your connection and try again.", "code": "connection_error", "recoverable": True},
+                })
+            except anthropic.AuthenticationError:
+                logger.error("Anthropic API authentication error")
+                await websocket.send_json({
+                    "type": "error", "chunk": None, "section": None,
+                    "data": {"error": "AI service authentication failed. Please contact the administrator.", "code": "auth_error", "recoverable": False},
+                })
+            except Exception as e:
+                logger.error(f"Agent execution error: {e}")
+                await websocket.send_json({
+                    "type": "error", "chunk": None, "section": None,
+                    "data": {"error": "Something went wrong. Please try again.", "code": "internal_error", "recoverable": True},
+                })
 
             # Persist assistant response and final output
             db = _get_db()
             try:
                 assistant_content = "".join(assistant_chunks)
-
-                # For PPT/Prototype, the raw content is JSON — persist a summary instead
-                if use_mock:
-                    lower_msg = content.lower()
-                    if any(kw in lower_msg for kw in ["ppt", "presentation", "slide", "deck"]):
-                        assistant_content = "✅ **Presentation generated!** Check the Preview panel → PPT tab to see your slides."
-                    elif any(kw in lower_msg for kw in ["prototype", "wireframe", "mockup"]):
-                        assistant_content = "✅ **Prototype generated!** Check the Preview panel → Prototype tab to see the UI definition."
 
                 if assistant_content:
                     # Embed steps as a hidden marker at the start of content
@@ -394,7 +327,6 @@ async def _handle_pipeline_execution(
 
     Runs the full agent pipeline and streams per-agent status updates.
     Creates a WorkflowRun record to track the execution.
-    Uses mock mode when no API key is configured.
     If agent_ids is provided, uses that custom agent list instead of defaults.
     """
     from app.agents.pipeline import PipelineExecutor
@@ -450,8 +382,7 @@ async def _handle_pipeline_execution(
             db.close()
 
     # Check if API key is configured
-    use_mock = not settings.ANTHROPIC_API_KEY
-    if use_mock:
+    if not settings.ANTHROPIC_API_KEY:
         await websocket.send_json({
             "type": "error",
             "chunk": None,

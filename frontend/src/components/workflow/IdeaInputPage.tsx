@@ -31,7 +31,6 @@ const TYPE_CONFIG: Record<WorkflowType, { label: string; subtitle: string; icon:
   user_stories: { label: "Turn an idea into product requirements", subtitle: "Shape a fuzzy idea into a PRD with epics, user stories, and Gherkin criteria.", icon: FileText, color: "text-blue-600" },
   prototype: { label: "Build a clickable prototype", subtitle: "Go from stories or sketches to a high-fidelity, navigable prototype in minutes.", icon: Layout, color: "text-emerald-600" },
   ppt: { label: "Craft a stunning presentation", subtitle: "Generate an enterprise-grade slide deck with charts, data tables, and compelling visuals — ready to present.", icon: Presentation, color: "text-amber-600" },
-  validate_pitch: { label: "Validate & Pitch", subtitle: "Stress-test the concept, size the market, and compile an investor-ready pitch deck.", icon: FileText, color: "text-violet-600" },
   app_builder: { label: "Build an app from existing material", subtitle: "Hand us a deck, a repo, or a brief — we'll deliver a working app, end to end.", icon: Layout, color: "text-orange-600" },
   reverse_engineer: { label: "Reverse-engineer a codebase", subtitle: "Map architecture, dependencies, risks, and hidden user journeys from any repo.", icon: FileText, color: "text-rose-600" },
   custom: { label: "Design your own workflow", subtitle: "Compose specialist agents and skills into a bespoke pipeline for anything else.", icon: Layout, color: "text-slate-600" },
@@ -60,12 +59,17 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
   useEffect(() => { if (isListening && transcript) setIdeaInput(preSpeechTextRef.current ? `${preSpeechTextRef.current} ${transcript}` : transcript); }, [transcript, isListening]);
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 200); }, []);
 
-  const handleRun = () => { if (!ideaInput.trim()) return; onRun(ideaInput.trim(), pipelineAgents.map((a) => a.id)); };
+  const handleRun = () => {
+    if (!ideaInput.trim()) return;
+    if (pipelineAgents.length === 0) return; // Can't run with no agents
+    onRun(ideaInput.trim(), pipelineAgents.map((a) => a.id));
+  };
 
-  // Count optional (user-added) agents — max 2 allowed
+  // Count optional (user-added) agents — max 2 for pre-built pipelines, unlimited for custom
   const defaultAgentIds = new Set(LIBRARY_AGENTS.filter((a) => a.pipeline_type === workflowType).map((a) => a.id));
   const optionalAgentCount = pipelineAgents.filter((a) => !defaultAgentIds.has(a.id)).length;
-  const canAddMore = optionalAgentCount < 2;
+  const maxOptional = workflowType === "custom" ? 8 : 2;
+  const canAddMore = optionalAgentCount < maxOptional;
 
   const handleAddAgent = useCallback((agent: AgentDef) => {
     setPipelineAgents((prev) => {
@@ -73,9 +77,10 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
       // Check limit
       const currentDefaults = new Set(LIBRARY_AGENTS.filter((a) => a.pipeline_type === workflowType).map((a) => a.id));
       const currentOptional = prev.filter((a) => !currentDefaults.has(a.id)).length;
-      if (currentOptional >= 2) return prev;
-      // Insert BEFORE the last agent (which is the locked compiler/formatter)
-      const insertIdx = prev.length > 0 ? prev.length - 1 : 0;
+      const limit = workflowType === "custom" ? 8 : 2;
+      if (currentOptional >= limit) return prev;
+      // Insert position: before last agent for pre-built pipelines, at end for custom
+      const insertIdx = workflowType === "custom" ? prev.length : (prev.length > 0 ? prev.length - 1 : 0);
       const updated = [...prev];
       updated.splice(insertIdx, 0, { ...agent, order: insertIdx + 1 });
       return updated;
@@ -128,8 +133,8 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
                   {isListening ? "Stop" : "Voice"}
                 </button>
               </div>
-              <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }} onClick={handleRun} disabled={!ideaInput.trim()} className="flex items-center gap-2 rounded-xl bg-[#c96442] text-white px-5 py-2.5 text-sm font-semibold transition-all hover:bg-[#b5573a] shadow-md shadow-[#c96442]/20 disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none">
-                <Play className="h-4 w-4" /> Run Workflow
+              <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }} onClick={handleRun} disabled={!ideaInput.trim() || pipelineAgents.length === 0} className="flex items-center gap-2 rounded-xl bg-[#c96442] text-white px-5 py-2.5 text-sm font-semibold transition-all hover:bg-[#b5573a] shadow-md shadow-[#c96442]/20 disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none">
+                <Play className="h-4 w-4" /> {pipelineAgents.length === 0 ? "Add Agents First" : "Run Workflow"}
               </motion.button>
             </div>
           </div>

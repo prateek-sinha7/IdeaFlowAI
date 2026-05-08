@@ -22,7 +22,6 @@ const CATEGORIES = [
   { id: "user_stories", label: "User Stories" },
   { id: "ppt", label: "Presentation" },
   { id: "prototype", label: "Prototype" },
-  { id: "validate_pitch", label: "Validate & Pitch" },
   { id: "app_builder", label: "App Builder" },
   { id: "reverse_engineer", label: "Reverse Engineer" },
   { id: "custom", label: "Custom" },
@@ -36,6 +35,13 @@ export function AgentLibrary({ isOpen, onClose, onAddAgent, currentPipelineType,
   // Combine existing pipeline agents + newly added ones
   const allExistingIds = new Set([...existingAgentIds, ...Array.from(addedIds)]);
 
+  // Agents that should NOT appear in the library for custom workflows
+  // (they're pipeline-specific compilers/formatters that break if used out of context)
+  const HIDDEN_FROM_CUSTOM = new Set([
+    "export-formatter", "backlog-compiler", "prototype-finalizer", "app-assembler", "documentation-generator",
+    "audience-analyst", "domain-analyst", "requirements-analyst", "material-analyzer", "repo-scanner",
+  ]);
+
   const filteredAgents = ALL_AGENTS.filter((agent) => {
     const matchesCategory = activeCategory === "all" || agent.pipeline_type === activeCategory;
     const matchesSearch = !searchQuery ||
@@ -44,7 +50,9 @@ export function AgentLibrary({ isOpen, onClose, onAddAgent, currentPipelineType,
       agent.role.toLowerCase().includes(searchQuery.toLowerCase());
     // Hide agents already in the pipeline
     const notAlreadyAdded = !allExistingIds.has(agent.id);
-    return matchesCategory && matchesSearch && notAlreadyAdded;
+    // Hide locked pipeline-specific agents when browsing for custom workflows
+    const notHidden = currentPipelineType !== "custom" || !HIDDEN_FROM_CUSTOM.has(agent.id);
+    return matchesCategory && matchesSearch && notAlreadyAdded && notHidden;
   });
 
   const handleAdd = (agent: AgentDef) => {

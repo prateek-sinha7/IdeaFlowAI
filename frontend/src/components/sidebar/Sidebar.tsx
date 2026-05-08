@@ -36,7 +36,6 @@ const TYPE_CONFIG: Record<WorkflowType, { icon: typeof FileText; color: string; 
   user_stories: { icon: FileText, color: "text-blue-400", label: "User Stories" },
   ppt: { icon: Presentation, color: "text-amber-400", label: "Presentation" },
   prototype: { icon: Layout, color: "text-emerald-400", label: "Prototype" },
-  validate_pitch: { icon: FileText, color: "text-violet-400", label: "Validate & Pitch" },
   app_builder: { icon: Layout, color: "text-orange-400", label: "App Builder" },
   reverse_engineer: { icon: FileText, color: "text-rose-400", label: "Reverse Engineer" },
   custom: { icon: Layout, color: "text-slate-400", label: "Custom" },

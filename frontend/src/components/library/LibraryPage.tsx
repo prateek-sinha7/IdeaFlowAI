@@ -12,7 +12,6 @@ const CATEGORIES = [
   { id: "user_stories", label: "User Stories", icon: FileText },
   { id: "ppt", label: "Presentation", icon: Presentation },
   { id: "prototype", label: "Prototype", icon: Layout },
-  { id: "validate_pitch", label: "Validate & Pitch", icon: FileText },
   { id: "app_builder", label: "App Builder", icon: Layout },
   { id: "reverse_engineer", label: "Reverse Engineer", icon: FileText },
   { id: "custom", label: "Custom", icon: Layers },
@@ -33,7 +32,6 @@ export function LibraryPage() {
       case "user_stories": return "text-blue-600 bg-blue-50 border-blue-200";
       case "ppt": return "text-amber-600 bg-amber-50 border-amber-200";
       case "prototype": return "text-emerald-600 bg-emerald-50 border-emerald-200";
-      case "validate_pitch": return "text-violet-600 bg-violet-50 border-violet-200";
       case "app_builder": return "text-orange-600 bg-orange-50 border-orange-200";
       case "reverse_engineer": return "text-rose-600 bg-rose-50 border-rose-200";
       case "custom": return "text-purple-600 bg-purple-50 border-purple-200";
@@ -89,7 +87,7 @@ export function LibraryPage() {
                 <p className="text-[10px] text-[#5e5d59] leading-relaxed flex-1 mb-3">{agent.description}</p>
                 <div className="flex items-center justify-between">
                   <span className={`text-[9px] font-medium rounded-full px-2 py-0.5 border ${getCategoryColor(agent.pipeline_type)}`}>
-                    {agent.pipeline_type === "user_stories" ? "Stories" : agent.pipeline_type === "ppt" ? "PPT" : agent.pipeline_type === "prototype" ? "Prototype" : agent.pipeline_type === "validate_pitch" ? "Pitch" : agent.pipeline_type === "app_builder" ? "App" : agent.pipeline_type === "reverse_engineer" ? "Reverse" : "Custom"}
+                    {agent.pipeline_type === "user_stories" ? "Stories" : agent.pipeline_type === "ppt" ? "PPT" : agent.pipeline_type === "prototype" ? "Prototype" : agent.pipeline_type === "app_builder" ? "App" : agent.pipeline_type === "reverse_engineer" ? "Reverse" : "Custom"}
                   </span>
                   <span className="text-[9px] text-[#87867f] flex items-center gap-0.5"><Zap className="h-2.5 w-2.5" />~{agent.estimated_duration}s</span>
                 </div>

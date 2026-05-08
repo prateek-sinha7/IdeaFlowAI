@@ -40,7 +40,15 @@ export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps
   }
 
   // Check if content is HTML (starts with <!DOCTYPE or <html)
-  const isHtml = content.trim().startsWith("<!DOCTYPE") || content.trim().startsWith("<html") || content.trim().startsWith("<!");
+  // Also handle case where HTML is wrapped in markdown code fences
+  let htmlContent = content.trim();
+  
+  // Strip markdown code fences if present
+  if (htmlContent.startsWith("```")) {
+    htmlContent = htmlContent.replace(/^```(?:html)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+  }
+  
+  const isHtml = htmlContent.startsWith("<!DOCTYPE") || htmlContent.startsWith("<html") || htmlContent.startsWith("<!");
   
   if (!isHtml) {
     // Fallback: render as markdown/text if not HTML
@@ -57,7 +65,7 @@ export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps
   }
 
   // Render HTML in a sandboxed iframe
-  const iframeSrcDoc = content;
+  const iframeSrcDoc = htmlContent;
 
   return (
     <div className="flex flex-col h-full">
@@ -69,7 +77,7 @@ export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps
         </div>
         <button
           onClick={() => {
-            const blob = new Blob([content], { type: "text/html" });
+            const blob = new Blob([htmlContent], { type: "text/html" });
             const url = URL.createObjectURL(blob);
             window.open(url, "_blank");
             setTimeout(() => URL.revokeObjectURL(url), 1000);

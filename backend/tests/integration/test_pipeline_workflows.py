@@ -26,7 +26,6 @@ from app.agents.registry import (
     USER_STORY_AGENTS,
     PPT_AGENTS,
     PROTOTYPE_AGENTS,
-    VALIDATE_PITCH_AGENTS,
     APP_BUILDER_AGENTS,
     REVERSE_ENGINEER_AGENTS,
 )
@@ -63,24 +62,19 @@ class TestAgentRegistry:
         agents = get_pipeline_agents("prototype")
         assert len(agents) == 4, f"Expected 4 agents, got {len(agents)}"
 
-    def test_validate_pitch_pipeline_has_10_agents(self):
-        """Validate & Pitch pipeline should have 10 agents."""
-        agents = get_pipeline_agents("validate_pitch")
-        assert len(agents) == 10, f"Expected 10 agents, got {len(agents)}"
-
-    def test_app_builder_pipeline_has_10_agents(self):
-        """App Builder pipeline should have 10 agents."""
+    def test_app_builder_pipeline_has_4_agents(self):
+        """App Builder pipeline should have 4 agents."""
         agents = get_pipeline_agents("app_builder")
-        assert len(agents) == 10, f"Expected 10 agents, got {len(agents)}"
+        assert len(agents) == 4, f"Expected 4 agents, got {len(agents)}"
 
-    def test_reverse_engineer_pipeline_has_10_agents(self):
-        """Reverse Engineer pipeline should have 10 agents."""
+    def test_reverse_engineer_pipeline_has_4_agents(self):
+        """Reverse Engineer pipeline should have 4 agents."""
         agents = get_pipeline_agents("reverse_engineer")
-        assert len(agents) == 10, f"Expected 10 agents, got {len(agents)}"
+        assert len(agents) == 4, f"Expected 4 agents, got {len(agents)}"
 
     def test_agents_are_ordered_correctly(self):
         """All agents in each pipeline should be ordered by their 'order' field."""
-        for pipeline_type in ["user_stories", "ppt", "prototype", "validate_pitch", "app_builder", "reverse_engineer"]:
+        for pipeline_type in ["user_stories", "ppt", "prototype", "app_builder", "reverse_engineer"]:
             agents = get_pipeline_agents(pipeline_type)
             orders = [a.order for a in agents]
             assert orders == sorted(orders), f"Agents in {pipeline_type} are not in order: {orders}"
@@ -94,7 +88,7 @@ class TestAgentRegistry:
 
     def test_all_agents_have_unique_ids_within_pipeline(self):
         """Agent IDs must be unique within each pipeline."""
-        for pipeline_type in ["user_stories", "ppt", "prototype", "validate_pitch", "app_builder", "reverse_engineer"]:
+        for pipeline_type in ["user_stories", "ppt", "prototype", "app_builder", "reverse_engineer"]:
             agents = get_pipeline_agents(pipeline_type)
             ids = [a.id for a in agents]
             assert len(ids) == len(set(ids)), f"Duplicate agent IDs in {pipeline_type}: {[x for x in ids if ids.count(x) > 1]}"

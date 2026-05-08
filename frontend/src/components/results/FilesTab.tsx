@@ -59,7 +59,26 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
     });
   }
 
-  if ((workflowType === "ppt" || workflowType === "validate_pitch") && pptContent) {
+  if ((workflowType === "app_builder" || workflowType === "reverse_engineer" || workflowType === "custom") && userStoryContent) {
+    let docName = workflowType === "app_builder" ? "app-blueprint" : "codebase-analysis";
+    const firstHeading = userStoryContent.match(/^#\s+(.+)/m);
+    if (firstHeading) {
+      docName = firstHeading[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
+    }
+
+    files.push({
+      id: "project-md",
+      name: `${docName}.md`,
+      type: "Markdown",
+      icon: FileText,
+      iconColor: workflowType === "app_builder" ? "text-orange-400" : "text-rose-400",
+      size: formatSize(userStoryContent.length),
+      format: "Markdown (.md)",
+      available: true,
+    });
+  }
+
+  if (workflowType === "ppt" && pptContent) {
     // Derive filename from first slide title
     let pptName = "presentation";
     try {
@@ -110,6 +129,13 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
         storyName = firstHeading[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
       }
       exportUserStories(userStoryContent, storyName);
+    } else if (fileId === "project-md" && userStoryContent) {
+      let docName = workflowType === "app_builder" ? "app-blueprint" : "codebase-analysis";
+      const firstHeading = userStoryContent.match(/^#\s+(.+)/m);
+      if (firstHeading) {
+        docName = firstHeading[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
+      }
+      exportUserStories(userStoryContent, docName);
     } else if (fileId === "presentation-pptx" && pptContent) {
       try {
         const slideData = parsePPTSlideData(pptContent);

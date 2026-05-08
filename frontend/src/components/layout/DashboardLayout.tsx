@@ -133,6 +133,20 @@ export function DashboardLayout({
     setQuestionnaireQuestions([]);
     setQuestionnaireLoading(true);
 
+    // Reset previous pipeline state so left panel clears
+    if (onResetPipeline) onResetPipeline();
+
+    // Timeout: if questionnaire doesn't respond in 15s, skip it
+    setTimeout(() => {
+      setQuestionnaireLoading((loading) => {
+        if (loading) {
+          setQuestionnaireQuestions([]);
+          return false;
+        }
+        return loading;
+      });
+    }, 15000);
+
     // Request questionnaire from backend
     if (websocketSend) {
       websocketSend(JSON.stringify({
@@ -141,7 +155,7 @@ export function DashboardLayout({
         message,
       }));
     }
-  }, [workflowType, websocketSend]);
+  }, [workflowType, websocketSend, onResetPipeline]);
 
   // Go back to home
   const handleGoHome = useCallback(() => {
@@ -162,6 +176,9 @@ export function DashboardLayout({
     const prevSummary = lastPipelineOutput.slice(0, 4000);
     const enrichedInput = `${workflowInput}\n\n=== CONTEXT FROM PREVIOUS PIPELINE (${workflowType}) ===\n${prevSummary}\n=== END PREVIOUS CONTEXT ===`;
 
+    // Reset previous pipeline state so left panel clears
+    if (onResetPipeline) onResetPipeline();
+
     // Trigger questionnaire first (same as handleRunPipeline)
     setWorkflowInput(enrichedInput);
     setPendingPipelineRun({ type: nextType, message: enrichedInput });
@@ -176,7 +193,7 @@ export function DashboardLayout({
         message: enrichedInput,
       }));
     }
-  }, [workflowType, workflowInput, lastPipelineOutput, websocketSend]);
+  }, [workflowType, workflowInput, lastPipelineOutput, websocketSend, onResetPipeline]);
 
   // Handle questionnaire answers — run pipeline with enriched input
   const handleQuestionnaireSubmit = useCallback((answers: Record<string, string[]>, freeformInput: string) => {
@@ -373,7 +390,7 @@ export function DashboardLayout({
                     onViewResults={() => {}}
                     onRunAnother={handleGoHome}
                     onFollowUp={handleFollowUp}
-                    onChainPipeline={handleChainPipeline}
+                    onChainPipeline={["ppt", "user_stories", "prototype"].includes(workflowType) ? handleChainPipeline : undefined}
                     completedPipelineTypes={completedPipelineTypes}
                   />
                 </ErrorBoundary>

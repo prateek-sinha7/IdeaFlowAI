@@ -20,7 +20,7 @@ interface CreationHubProps {
 
 const FEATURE_CARDS = [
   {
-    id: "validate_pitch",
+    id: "presentation",
     label: "Craft a stunning presentation",
     description: "Generate an enterprise-grade slide deck with charts, data tables, and compelling visuals — ready to present.",
     icon: Presentation,

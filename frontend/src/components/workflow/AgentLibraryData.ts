@@ -2,7 +2,7 @@ import type { AgentDef } from "@/types/index";
 
 /**
  * Static agent library data matching the backend registry.
- * 6 User Story agents + 6 PPT agents + 12 Prototype agents + others.
+ * 6 User Story agents + 6 PPT agents + 4 Prototype agents + others.
  */
 export const LIBRARY_AGENTS: AgentDef[] = [
   // ============================================================
@@ -136,278 +136,35 @@ export const LIBRARY_AGENTS: AgentDef[] = [
     has_skill: true,
   },
 
-  // === VALIDATE & PITCH PIPELINE ===
-  { id: "idea-validator", name: "Idea Validator", role: "Innovation Analyst", description: "Stress-tests the idea for feasibility, uniqueness, and market fit.", pipeline_type: "validate_pitch", order: 1, icon: "🧪", estimated_duration: 4, has_skill: false },
-  { id: "market-researcher", name: "Market Researcher", role: "Market Analyst", description: "Sizes the market (TAM/SAM/SOM) and identifies competitors.", pipeline_type: "validate_pitch", order: 2, icon: "📊", estimated_duration: 5, has_skill: false },
-  { id: "value-prop-designer", name: "Value Proposition Designer", role: "Product Strategist", description: "Crafts the core value proposition and positioning statement.", pipeline_type: "validate_pitch", order: 3, icon: "💎", estimated_duration: 3, has_skill: false },
-  { id: "business-model-architect", name: "Business Model Architect", role: "Strategy Consultant", description: "Designs the revenue model, pricing, and go-to-market strategy.", pipeline_type: "validate_pitch", order: 4, icon: "🏗️", estimated_duration: 4, has_skill: false },
-  { id: "pitch-narrative-writer", name: "Pitch Narrative Writer", role: "Storytelling Expert", description: "Writes the narrative arc for the investor pitch.", pipeline_type: "validate_pitch", order: 5, icon: "📖", estimated_duration: 4, has_skill: false },
-  { id: "pitch-slide-writer", name: "Pitch Slide Writer", role: "Content Strategist", description: "Writes detailed content for each pitch deck slide.", pipeline_type: "validate_pitch", order: 6, icon: "✍️", estimated_duration: 6, has_skill: false },
-  { id: "pitch-data-viz", name: "Data Visualization Designer", role: "Data Analyst", description: "Creates chart data for market size, projections, and comparisons.", pipeline_type: "validate_pitch", order: 7, icon: "📈", estimated_duration: 4, has_skill: false },
-  { id: "pitch-design-advisor", name: "Design Advisor", role: "Creative Director", description: "Recommends visual style, colors, and layout for the deck.", pipeline_type: "validate_pitch", order: 8, icon: "🎨", estimated_duration: 3, has_skill: false },
-  { id: "pitch-compiler", name: "Pitch Deck Compiler", role: "Technical Writer", description: "Compiles all content into the final slide deck JSON format.", pipeline_type: "validate_pitch", order: 9, icon: "📦", estimated_duration: 5, has_skill: false },
-  { id: "pitch-quality-reviewer", name: "Pitch Quality Reviewer", role: "VC Partner", description: "Reviews the deck from an investor's perspective.", pipeline_type: "validate_pitch", order: 10, icon: "🏆", estimated_duration: 3, has_skill: false },
+  // === APP BUILDER PIPELINE (4 agents) ===
+  { id: "material-analyzer", name: "Material Analyzer & Architect", role: "Solutions Architect", description: "Analyzes input materials and designs the complete app architecture.", pipeline_type: "app_builder", order: 1, icon: "📋", estimated_duration: 6, has_skill: false },
+  { id: "app-code-generator", name: "Full-Stack Code Generator", role: "Senior Full-Stack Developer", description: "Generates complete frontend and backend code for the app.", pipeline_type: "app_builder", order: 2, icon: "💻", estimated_duration: 15, has_skill: false },
+  { id: "app-infra-generator", name: "Infrastructure & Tests Generator", role: "DevOps Engineer", description: "Generates Docker, CI/CD, tests, and deployment configuration.", pipeline_type: "app_builder", order: 3, icon: "🚀", estimated_duration: 8, has_skill: false },
+  { id: "app-assembler", name: "Project Assembler", role: "Tech Lead", description: "Compiles everything into a final structured project document.", pipeline_type: "app_builder", order: 4, icon: "📦", estimated_duration: 6, has_skill: false },
 
-  // === APP BUILDER PIPELINE ===
-  { id: "material-analyzer", name: "Material Analyzer", role: "Requirements Engineer", description: "Analyzes uploaded materials to extract requirements.", pipeline_type: "app_builder", order: 1, icon: "📋", estimated_duration: 5, has_skill: false },
-  { id: "tech-stack-advisor", name: "Tech Stack Advisor", role: "Solutions Architect", description: "Recommends the optimal technology stack.", pipeline_type: "app_builder", order: 2, icon: "⚙️", estimated_duration: 4, has_skill: false },
-  { id: "database-designer", name: "Database Designer", role: "Data Architect", description: "Designs the database schema with tables and relationships.", pipeline_type: "app_builder", order: 3, icon: "🗄️", estimated_duration: 5, has_skill: false },
-  { id: "api-designer", name: "API Designer", role: "API Architect", description: "Designs REST/GraphQL API endpoints with schemas.", pipeline_type: "app_builder", order: 4, icon: "🔌", estimated_duration: 5, has_skill: false },
-  { id: "component-architect", name: "Component Architect", role: "Frontend Architect", description: "Designs the component hierarchy and routing.", pipeline_type: "app_builder", order: 5, icon: "🧩", estimated_duration: 4, has_skill: false },
-  { id: "ui-generator", name: "UI Code Generator", role: "Frontend Developer", description: "Generates React/Next.js component code for key pages.", pipeline_type: "app_builder", order: 6, icon: "💻", estimated_duration: 8, has_skill: false },
-  { id: "backend-generator", name: "Backend Code Generator", role: "Backend Developer", description: "Generates API route handlers and database models.", pipeline_type: "app_builder", order: 7, icon: "🖥️", estimated_duration: 8, has_skill: false },
-  { id: "test-writer", name: "Test Writer", role: "QA Engineer", description: "Writes unit and integration tests for critical paths.", pipeline_type: "app_builder", order: 8, icon: "🧪", estimated_duration: 5, has_skill: false },
-  { id: "deployment-planner", name: "Deployment Planner", role: "DevOps Engineer", description: "Creates Docker, CI/CD, and cloud deployment configs.", pipeline_type: "app_builder", order: 9, icon: "🚀", estimated_duration: 4, has_skill: false },
-  { id: "app-assembler", name: "App Assembler", role: "Tech Lead", description: "Compiles everything into a structured project with file tree.", pipeline_type: "app_builder", order: 10, icon: "📦", estimated_duration: 5, has_skill: false },
-
-  // === REVERSE ENGINEER PIPELINE ===
-  { id: "repo-scanner", name: "Repository Scanner", role: "Code Analyst", description: "Scans repository structure, file types, and entry points.", pipeline_type: "reverse_engineer", order: 1, icon: "🔍", estimated_duration: 4, has_skill: false },
-  { id: "dependency-mapper", name: "Dependency Mapper", role: "Security Analyst", description: "Maps all dependencies and identifies vulnerabilities.", pipeline_type: "reverse_engineer", order: 2, icon: "🕸️", estimated_duration: 4, has_skill: false },
-  { id: "architecture-analyst", name: "Architecture Analyst", role: "Solutions Architect", description: "Identifies architectural patterns, layers, and boundaries.", pipeline_type: "reverse_engineer", order: 3, icon: "🏛️", estimated_duration: 5, has_skill: false },
-  { id: "data-model-extractor", name: "Data Model Extractor", role: "Data Engineer", description: "Extracts database schema, relationships, and data flows.", pipeline_type: "reverse_engineer", order: 4, icon: "🗃️", estimated_duration: 4, has_skill: false },
-  { id: "api-surface-mapper", name: "API Surface Mapper", role: "API Analyst", description: "Documents all API endpoints and their contracts.", pipeline_type: "reverse_engineer", order: 5, icon: "🔌", estimated_duration: 4, has_skill: false },
-  { id: "user-journey-tracer", name: "User Journey Tracer", role: "UX Researcher", description: "Traces key user journeys through the codebase.", pipeline_type: "reverse_engineer", order: 6, icon: "🗺️", estimated_duration: 5, has_skill: false },
-  { id: "tech-debt-auditor", name: "Tech Debt Auditor", role: "Staff Engineer", description: "Identifies technical debt, code smells, and maintenance risks.", pipeline_type: "reverse_engineer", order: 7, icon: "⚠️", estimated_duration: 4, has_skill: false },
-  { id: "risk-assessor", name: "Risk Assessor", role: "Risk Analyst", description: "Assesses security, scalability, and operational risks.", pipeline_type: "reverse_engineer", order: 8, icon: "🛡️", estimated_duration: 4, has_skill: false },
-  { id: "modernization-planner", name: "Modernization Planner", role: "Engineering Manager", description: "Creates a prioritized roadmap for modernizing the codebase.", pipeline_type: "reverse_engineer", order: 9, icon: "📋", estimated_duration: 5, has_skill: false },
-  { id: "documentation-generator", name: "Documentation Generator", role: "Technical Writer", description: "Generates comprehensive documentation for the codebase.", pipeline_type: "reverse_engineer", order: 10, icon: "📝", estimated_duration: 5, has_skill: false },
+  // === REVERSE ENGINEER PIPELINE (4 agents) ===
+  { id: "repo-scanner", name: "Codebase Scanner & Architect", role: "Solutions Architect", description: "Scans the codebase and maps architecture, tech stack, and structure.", pipeline_type: "reverse_engineer", order: 1, icon: "🔍", estimated_duration: 6, has_skill: false },
+  { id: "deep-analyzer", name: "Deep Analysis & Risk Auditor", role: "Staff Engineer", description: "Analyzes dependencies, data models, APIs, technical debt, and security risks.", pipeline_type: "reverse_engineer", order: 2, icon: "🛡️", estimated_duration: 10, has_skill: false },
+  { id: "modernization-planner", name: "Modernization & Roadmap Planner", role: "Engineering Manager", description: "Creates a prioritized modernization roadmap with actionable phases.", pipeline_type: "reverse_engineer", order: 3, icon: "📋", estimated_duration: 6, has_skill: false },
+  { id: "documentation-generator", name: "Documentation Compiler", role: "Technical Writer", description: "Compiles the final comprehensive codebase documentation.", pipeline_type: "reverse_engineer", order: 4, icon: "📝", estimated_duration: 8, has_skill: false },
 ];
 
 
 // ============================================================
 // CUSTOM / UTILITY AGENTS — Can be added to any pipeline
 // ============================================================
+// CUSTOM UTILITY AGENTS — Can be added to any pipeline
+// ============================================================
 
 export const CUSTOM_AGENTS: AgentDef[] = [
-  // --- Strategy & Planning ---
-  {
-    id: "market-research-agent",
-    name: "Market Research Agent",
-    role: "Market Analyst",
-    description: "Analyzes competitors, market size, TAM/SAM/SOM, industry trends, and positioning opportunities. Outputs a structured market landscape report.",
-    pipeline_type: "custom",
-    order: 1,
-    icon: "📈",
-    estimated_duration: 6,
-    has_skill: true,
-  },
-  {
-    id: "swot-analyst",
-    name: "SWOT Analyst",
-    role: "Strategy Consultant",
-    description: "Generates a comprehensive SWOT analysis (Strengths, Weaknesses, Opportunities, Threats) with actionable recommendations for each quadrant.",
-    pipeline_type: "custom",
-    order: 2,
-    icon: "🎯",
-    estimated_duration: 5,
-    has_skill: true,
-  },
-  {
-    id: "okr-generator",
-    name: "OKR Generator",
-    role: "Strategy Lead",
-    description: "Creates Objectives and Key Results from product goals. Generates measurable KRs with targets, timelines, and ownership suggestions.",
-    pipeline_type: "custom",
-    order: 3,
-    icon: "🏁",
-    estimated_duration: 4,
-    has_skill: true,
-  },
-  {
-    id: "roadmap-planner",
-    name: "Roadmap Planner",
-    role: "Product Director",
-    description: "Builds quarterly and yearly product roadmaps with milestones, dependencies, resource allocation, and release timelines.",
-    pipeline_type: "custom",
-    order: 4,
-    icon: "🗓️",
-    estimated_duration: 6,
-    has_skill: true,
-  },
-  {
-    id: "prioritization-agent",
-    name: "Prioritization Agent",
-    role: "Product Strategist",
-    description: "Applies RICE (Reach, Impact, Confidence, Effort) and MoSCoW scoring frameworks to rank features by business value and feasibility.",
-    pipeline_type: "custom",
-    order: 5,
-    icon: "⚖️",
-    estimated_duration: 4,
-    has_skill: true,
-  },
-
-  // --- Technical Agents ---
-  {
-    id: "api-designer",
-    name: "API Designer",
-    role: "API Architect",
-    description: "Generates RESTful API endpoint specifications with routes, methods, request/response schemas, authentication, pagination, and error codes in OpenAPI format.",
-    pipeline_type: "custom",
-    order: 6,
-    icon: "🔌",
-    estimated_duration: 7,
-    has_skill: true,
-  },
-  {
-    id: "database-schema-agent",
-    name: "Database Schema Agent",
-    role: "Data Architect",
-    description: "Designs entity-relationship diagrams, SQL table schemas with indexes, foreign keys, constraints, and migration scripts for PostgreSQL/MySQL.",
-    pipeline_type: "custom",
-    order: 7,
-    icon: "🗄️",
-    estimated_duration: 6,
-    has_skill: true,
-  },
-  {
-    id: "security-auditor",
-    name: "Security Auditor",
-    role: "Security Engineer",
-    description: "Reviews architecture for OWASP Top 10 vulnerabilities, identifies attack vectors, recommends security controls, and generates a threat model.",
-    pipeline_type: "custom",
-    order: 8,
-    icon: "🛡️",
-    estimated_duration: 5,
-    has_skill: true,
-  },
-  {
-    id: "performance-optimizer",
-    name: "Performance Optimizer",
-    role: "Performance Engineer",
-    description: "Identifies performance bottlenecks, suggests caching strategies, database query optimizations, CDN usage, and lazy loading patterns.",
-    pipeline_type: "custom",
-    order: 9,
-    icon: "⚡",
-    estimated_duration: 5,
-    has_skill: true,
-  },
-  {
-    id: "test-case-generator",
-    name: "Test Case Generator",
-    role: "QA Automation Engineer",
-    description: "Creates comprehensive test scenarios including unit tests, integration tests, E2E flows, edge cases, and boundary conditions with expected results.",
-    pipeline_type: "custom",
-    order: 10,
-    icon: "🧪",
-    estimated_duration: 6,
-    has_skill: true,
-  },
-
-  // --- Content & Communication ---
-  {
-    id: "email-copywriter",
-    name: "Email Copywriter",
-    role: "Marketing Writer",
-    description: "Drafts marketing emails, onboarding sequences, product announcements, and transactional emails with subject lines, CTAs, and A/B variants.",
-    pipeline_type: "custom",
-    order: 11,
-    icon: "✉️",
-    estimated_duration: 4,
-    has_skill: true,
-  },
-  {
-    id: "release-notes-writer",
-    name: "Release Notes Writer",
-    role: "Technical Writer",
-    description: "Generates user-friendly changelogs and release notes from feature descriptions, categorized by New Features, Improvements, and Bug Fixes.",
-    pipeline_type: "custom",
-    order: 12,
-    icon: "📰",
-    estimated_duration: 3,
-    has_skill: true,
-  },
-  {
-    id: "documentation-agent",
-    name: "Documentation Agent",
-    role: "Documentation Lead",
-    description: "Creates comprehensive API documentation, developer guides, README files, setup instructions, and architecture decision records (ADRs).",
-    pipeline_type: "custom",
-    order: 13,
-    icon: "📚",
-    estimated_duration: 7,
-    has_skill: true,
-  },
-  {
-    id: "localization-agent",
-    name: "Localization Agent",
-    role: "i18n Specialist",
-    description: "Adapts UI copy, marketing content, and documentation for different locales. Generates translation keys, handles pluralization, and cultural adaptation.",
-    pipeline_type: "custom",
-    order: 14,
-    icon: "🌍",
-    estimated_duration: 5,
-    has_skill: true,
-  },
-
-  // --- Design & UX ---
-  {
-    id: "color-palette-generator",
-    name: "Color Palette Generator",
-    role: "Visual Designer",
-    description: "Creates brand-consistent color systems with primary, secondary, accent, semantic (success/error/warning), and neutral scales with WCAG contrast ratios.",
-    pipeline_type: "custom",
-    order: 15,
-    icon: "🎨",
-    estimated_duration: 3,
-    has_skill: true,
-  },
-  {
-    id: "microcopy-writer",
-    name: "Microcopy Writer",
-    role: "UX Writer",
-    description: "Writes button labels, form placeholders, tooltips, error messages, empty states, loading text, and confirmation dialogs with consistent voice and tone.",
-    pipeline_type: "custom",
-    order: 16,
-    icon: "💬",
-    estimated_duration: 4,
-    has_skill: true,
-  },
-  {
-    id: "competitive-ui-analyst",
-    name: "Competitive UI Analyst",
-    role: "UX Researcher",
-    description: "Analyzes competitor UIs for design patterns, interaction models, information architecture, and identifies opportunities for differentiation.",
-    pipeline_type: "custom",
-    order: 17,
-    icon: "🔬",
-    estimated_duration: 5,
-    has_skill: true,
-  },
-
-  // --- Data & Analytics ---
-  {
-    id: "kpi-dashboard-designer",
-    name: "KPI Dashboard Designer",
-    role: "Analytics Lead",
-    description: "Defines key performance indicators, designs dashboard layouts with chart types, data sources, refresh intervals, and alert thresholds.",
-    pipeline_type: "custom",
-    order: 18,
-    icon: "📊",
-    estimated_duration: 5,
-    has_skill: true,
-  },
-  {
-    id: "data-flow-mapper",
-    name: "Data Flow Mapper",
-    role: "Data Engineer",
-    description: "Maps data pipelines between systems, defines ETL processes, identifies data sources/sinks, transformation rules, and data quality checks.",
-    pipeline_type: "custom",
-    order: 19,
-    icon: "🔀",
-    estimated_duration: 5,
-    has_skill: true,
-  },
-  {
-    id: "report-generator",
-    name: "Report Generator",
-    role: "Business Intelligence Analyst",
-    description: "Creates executive summary reports with key metrics, trend analysis, insights, recommendations, and data visualizations for stakeholder presentations.",
-    pipeline_type: "custom",
-    order: 20,
-    icon: "📋",
-    estimated_duration: 5,
-    has_skill: true,
-  },
+  { id: "market-research-agent", name: "Market Research Agent", role: "Market Analyst", description: "Analyzes competitors, market size (TAM/SAM/SOM), and industry trends.", pipeline_type: "custom", order: 1, icon: "📈", estimated_duration: 6, has_skill: true },
+  { id: "swot-analyst", name: "SWOT Analyst", role: "Strategy Consultant", description: "Generates SWOT analysis with actionable recommendations.", pipeline_type: "custom", order: 2, icon: "🎯", estimated_duration: 5, has_skill: true },
+  { id: "roadmap-planner", name: "Roadmap Planner", role: "Product Director", description: "Builds phased product roadmaps with milestones and priorities.", pipeline_type: "custom", order: 3, icon: "🗓️", estimated_duration: 6, has_skill: true },
+  { id: "security-auditor", name: "Security Auditor", role: "Security Engineer", description: "Reviews for OWASP vulnerabilities and generates a threat model.", pipeline_type: "custom", order: 4, icon: "🛡️", estimated_duration: 5, has_skill: true },
+  { id: "test-case-generator", name: "Test Case Generator", role: "QA Engineer", description: "Creates comprehensive test scenarios with edge cases.", pipeline_type: "custom", order: 5, icon: "🧪", estimated_duration: 6, has_skill: true },
+  { id: "performance-optimizer", name: "Performance Optimizer", role: "Performance Engineer", description: "Identifies bottlenecks and suggests optimization strategies.", pipeline_type: "custom", order: 6, icon: "⚡", estimated_duration: 5, has_skill: true },
+  { id: "documentation-agent", name: "Documentation Writer", role: "Technical Writer", description: "Creates README, API docs, setup guides, and ADRs.", pipeline_type: "custom", order: 7, icon: "📚", estimated_duration: 7, has_skill: true },
+  { id: "report-generator", name: "Executive Report Generator", role: "Business Analyst", description: "Creates executive reports with metrics, trends, and recommendations.", pipeline_type: "custom", order: 8, icon: "📋", estimated_duration: 5, has_skill: true },
 ];
 
 /** Combined library — all agents including custom */
@@ -415,14 +172,13 @@ export const ALL_LIBRARY_AGENTS: AgentDef[] = [...LIBRARY_AGENTS, ...CUSTOM_AGEN
 
 /** Pipeline category labels */
 export const PIPELINE_CATEGORIES = [
-  { key: "all", label: "All", count: 54 },
+  { key: "all", label: "All", count: 26 },
   { key: "user_stories", label: "User Stories", count: 6 },
   { key: "ppt", label: "PPT", count: 6 },
   { key: "prototype", label: "Prototype", count: 4 },
-  { key: "validate_pitch", label: "Validate & Pitch", count: 10 },
-  { key: "app_builder", label: "App Builder", count: 10 },
-  { key: "reverse_engineer", label: "Reverse Engineer", count: 10 },
-  { key: "custom", label: "Custom", count: 20 },
+  { key: "app_builder", label: "App Builder", count: 4 },
+  { key: "reverse_engineer", label: "Reverse Engineer", count: 4 },
+  { key: "custom", label: "Custom", count: 8 },
 ] as const;
 
 /** Pipeline badge colors */
@@ -430,7 +186,6 @@ export const PIPELINE_COLORS: Record<string, { bg: string; text: string }> = {
   user_stories: { bg: "rgba(79, 195, 247, 0.15)", text: "#4FC3F7" },
   ppt: { bg: "rgba(255, 167, 38, 0.15)", text: "#FFA726" },
   prototype: { bg: "rgba(129, 199, 132, 0.15)", text: "#81C784" },
-  validate_pitch: { bg: "rgba(149, 117, 205, 0.15)", text: "#9575CD" },
   app_builder: { bg: "rgba(255, 183, 77, 0.15)", text: "#FFB74D" },
   reverse_engineer: { bg: "rgba(240, 98, 146, 0.15)", text: "#F06292" },
   custom: { bg: "rgba(186, 104, 200, 0.15)", text: "#BA68C8" },
