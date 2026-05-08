@@ -1,32 +1,45 @@
 @import "tailwindcss";
 
 /* ============================================
-   IdeaFlow AI — Claude-inspired Light Theme
-   Warm parchment palette with terracotta accent
+   IdeaFlow AI — Enterprise Light Theme
+   Clean white/gray palette with blue accent
    ============================================ */
 
 @theme inline {
-  --color-parchment: #f5f4ed;
-  --color-ivory: #faf9f5;
-  --color-sand: #e8e6dc;
-  --color-warm-gray: #87867f;
-  --color-dark: #141413;
-  --color-terracotta: #c96442;
-  --color-coral: #d97757;
-
   --font-sans: "Inter", system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", "Fira Code", monospace;
 }
 
 :root {
-  --theme-bg: #f5f4ed;
-  --theme-fg: #141413;
-  --theme-surface: #faf9f5;
-  --theme-muted: #5e5d59;
-  --theme-border: #e8e6dc;
-  --theme-accent: #c96442;
+  --background: #ffffff;
+  --foreground: #111827;
+  --surface: #f9fafb;
+  --border: #e5e7eb;
+  --muted: #6b7280;
+  --accent: #2563eb;
+  --accent-foreground: #ffffff;
+  --accent-light: #eff6ff;
+  --sidebar-bg: #111827;
+  --sidebar-text: #d1d5db;
+  --sidebar-active: #ffffff;
+  --sidebar-hover: #1f2937;
+  --card: #ffffff;
+  --card-border: #e5e7eb;
+  --input-bg: #ffffff;
+  --input-border: #d1d5db;
+  --success: #059669;
+  --error: #dc2626;
+  --warning: #d97706;
+
+  /* Legacy aliases for gradual migration */
+  --theme-bg: #f9fafb;
+  --theme-fg: #111827;
+  --theme-surface: #ffffff;
+  --theme-muted: #6b7280;
+  --theme-border: #e5e7eb;
+  --theme-accent: #2563eb;
   --theme-input-bg: #ffffff;
-  --theme-sidebar-bg: #faf9f5;
+  --theme-sidebar-bg: #111827;
   --theme-hover: rgba(0, 0, 0, 0.04);
   --theme-card: #ffffff;
 }
@@ -36,8 +49,8 @@ html {
 }
 
 body {
-  background-color: var(--theme-bg);
-  color: var(--theme-fg);
+  background-color: var(--background);
+  color: var(--foreground);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -87,7 +100,7 @@ body {
   content: "▊";
   display: inline-block;
   animation: blink 1s step-end infinite;
-  color: var(--theme-accent);
+  color: var(--accent);
   margin-left: 2px;
   font-size: 0.9em;
 }
@@ -104,12 +117,12 @@ body {
 
 /* Input focus ring */
 .input-focus:focus-within {
-  box-shadow: 0 0 0 2px rgba(201, 100, 66, 0.15);
-  border-color: var(--theme-accent);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  border-color: var(--accent);
 }
 
 /* ============================================
-   SCROLLBAR (subtle, warm)
+   SCROLLBAR (subtle, clean)
    ============================================ */
 
 ::-webkit-scrollbar {
@@ -136,20 +149,20 @@ body {
 }
 
 /* ============================================
-   MARKDOWN CONTENT (light theme)
+   MARKDOWN CONTENT (clean enterprise theme)
    ============================================ */
 
 .markdown-content {
   font-size: 15px;
   line-height: 1.75;
-  color: #2d2d2a;
+  color: #374151;
 }
 
 .markdown-content h1,
 .markdown-content h2,
 .markdown-content h3,
 .markdown-content h4 {
-  color: #141413;
+  color: #111827;
   font-weight: 600;
   margin-top: 1.5em;
   margin-bottom: 0.6em;
@@ -173,22 +186,22 @@ body {
 .markdown-content ul { list-style-type: disc; }
 .markdown-content ol { list-style-type: decimal; }
 .markdown-content li { margin-bottom: 0.4em; line-height: 1.7; padding-left: 0.25em; }
-.markdown-content li::marker { color: #87867f; }
+.markdown-content li::marker { color: #9ca3af; }
 
 .markdown-content code {
-  background: rgba(0, 0, 0, 0.05);
+  background: rgba(37, 99, 235, 0.06);
   padding: 0.2em 0.45em;
   border-radius: 5px;
   font-size: 0.85em;
   font-family: var(--font-mono);
-  color: #c96442;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  color: #2563eb;
+  border: 1px solid rgba(37, 99, 235, 0.12);
 }
 
 .markdown-content pre {
   background: #1e293b;
   border: 1px solid #334155;
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 1.1em 1.25em;
   overflow-x: auto;
   margin-bottom: 1.25em;
@@ -206,23 +219,23 @@ body {
 }
 
 .markdown-content blockquote {
-  border-left: 3px solid var(--theme-accent);
+  border-left: 3px solid var(--accent);
   padding-left: 1em;
-  color: #5e5d59;
+  color: #6b7280;
   margin-bottom: 1em;
   font-style: italic;
 }
 
-.markdown-content a { color: var(--theme-accent); text-decoration: underline; text-underline-offset: 2px; }
-.markdown-content a:hover { color: var(--color-coral); }
+.markdown-content a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.markdown-content a:hover { color: #1d4ed8; }
 
 .markdown-content hr {
   border: none;
-  border-top: 1px solid var(--theme-border);
+  border-top: 1px solid var(--border);
   margin: 1.5em 0;
 }
 
-.markdown-content strong { color: #141413; font-weight: 600; }
+.markdown-content strong { color: #111827; font-weight: 600; }
 
 .markdown-content table {
   width: 100%;
@@ -232,15 +245,15 @@ body {
 }
 
 .markdown-content th, .markdown-content td {
-  border: 1px solid var(--theme-border);
+  border: 1px solid var(--border);
   padding: 0.6em 0.8em;
   text-align: left;
 }
 
 .markdown-content th {
-  background: #f0eee6;
+  background: #f9fafb;
   font-weight: 600;
-  color: #141413;
+  color: #111827;
 }
 
-.markdown-content td { color: #4d4c48; }
+.markdown-content td { color: #374151; }

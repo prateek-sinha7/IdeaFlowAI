@@ -123,6 +123,17 @@ async def websocket_chat(websocket: WebSocket):
                 await _handle_pipeline_execution(websocket, pipeline_content, pipeline_type, chat_session_id, token, user, agent_ids=agent_ids)
                 continue
 
+            # Handle pipeline cancellation
+            if msg_type == "cancel_pipeline":
+                logger.info(f"Pipeline cancellation requested by user={user.id}")
+                await websocket.send_json({
+                    "type": "pipeline_cancelled",
+                    "chunk": None,
+                    "section": None,
+                    "data": {"message": "Pipeline execution cancelled by user"},
+                })
+                continue
+
             # Handle questionnaire generation requests
             if msg_type == "generate_questions":
                 pipeline_type = message_data.get("pipeline_type", "user_stories")

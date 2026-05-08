@@ -2,7 +2,6 @@
 
 import { motion } from "motion/react";
 import {
-  Sparkles,
   FileText,
   Layout,
   Presentation,
@@ -21,104 +20,76 @@ interface CreationHubProps {
 const FEATURE_CARDS = [
   {
     id: "presentation",
-    label: "Craft a stunning presentation",
+    label: "Craft a Presentation",
     description: "Generate an enterprise-grade slide deck with charts, data tables, and compelling visuals — ready to present.",
     icon: Presentation,
     pipelineType: "ppt" as WorkflowType | null,
     enabled: true,
-    color: "from-violet-500/15 to-purple-500/15",
-    borderColor: "border-violet-500/25",
-    iconColor: "text-violet-400",
     badge: null,
   },
   {
     id: "product_requirements",
-    label: "Turn an idea into product requirements",
-    description: "Shape a fuzzy idea into a PRD with epics, user stories, and Gherkin criteria.",
+    label: "Product Requirements",
+    description: "Shape a fuzzy idea into a PRD with epics, user stories, and Gherkin acceptance criteria.",
     icon: FileText,
     pipelineType: "user_stories" as WorkflowType | null,
     enabled: true,
-    color: "from-blue-500/15 to-cyan-500/15",
-    borderColor: "border-blue-500/25",
-    iconColor: "text-blue-400",
     badge: null,
   },
   {
     id: "clickable_prototype",
-    label: "Build a clickable prototype",
+    label: "Clickable Prototype",
     description: "Go from stories or sketches to a high-fidelity, navigable prototype in minutes.",
     icon: Layout,
     pipelineType: "prototype" as WorkflowType | null,
     enabled: true,
-    color: "from-emerald-500/15 to-green-500/15",
-    borderColor: "border-emerald-500/25",
-    iconColor: "text-emerald-400",
     badge: null,
   },
   {
     id: "app_builder",
-    label: "Build an app from existing material",
+    label: "Build an App",
     description: "Hand us a deck, a repo, or a brief — we'll deliver a working app, end to end.",
     icon: Workflow,
     pipelineType: "app_builder" as WorkflowType | null,
     enabled: true,
-    color: "from-amber-500/15 to-orange-500/15",
-    borderColor: "border-amber-500/25",
-    iconColor: "text-amber-400",
     badge: null,
   },
   {
     id: "reverse_engineer",
-    label: "Reverse-engineer a codebase",
+    label: "Reverse-Engineer a Codebase",
     description: "Map architecture, dependencies, risks, and hidden user journeys from any repo.",
     icon: GitBranch,
     pipelineType: "reverse_engineer" as WorkflowType | null,
     enabled: true,
-    color: "from-rose-500/15 to-pink-500/15",
-    borderColor: "border-rose-500/25",
-    iconColor: "text-rose-400",
     badge: "Featured",
   },
   {
     id: "custom_workflow",
-    label: "Design your own workflow",
+    label: "Custom Workflow",
     description: "Compose specialist agents and skills into a bespoke pipeline for anything else.",
     icon: Wand2,
     pipelineType: "custom" as WorkflowType | null,
     enabled: true,
-    color: "from-slate-500/15 to-gray-500/15",
-    borderColor: "border-slate-500/25",
-    iconColor: "text-slate-400",
     badge: null,
   },
 ];
 
-/**
- * CreationHub — Full-width home page with 6 feature cards.
- * No sidebar. Enterprise-grade design.
- */
 export function CreationHub({ onSelectFeature }: CreationHubProps) {
   return (
-    <div className="flex h-full flex-col overflow-y-auto bg-[#f5f4ed]">
+    <div className="flex h-full flex-col overflow-y-auto bg-gray-50">
       <div className="relative flex-1 flex flex-col items-center justify-center px-4 sm:px-6 md:px-8 py-8 sm:py-12 max-w-6xl mx-auto w-full">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease: "easeOut" }}
-          className="text-center mb-12"
+          transition={{ duration: 0.5, ease: "easeOut" }}
+          className="text-center mb-10"
         >
-          <div className="flex items-center justify-center gap-2.5 mb-5">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-[#c96442] to-[#d97757] shadow-md">
-              <Sparkles className="h-5 w-5 text-white" />
-            </div>
-            <span className="text-[13px] font-semibold text-[#87867f] tracking-wide uppercase">AI Delivery Studio</span>
-          </div>
-          <h1 className="text-3xl md:text-4xl font-bold text-[#141413] tracking-tight mb-4">
-            What would you like to make?
+          <h1 className="text-2xl font-semibold text-gray-900 tracking-tight mb-2">
+            What would you like to build?
           </h1>
-          <p className="text-sm md:text-base text-[#5e5d59] max-w-lg mx-auto leading-relaxed">
-            Pick an outcome to begin. We&apos;ll compose the right specialist agents and let you tune them before running.
+          <p className="text-sm text-gray-500">
+            Choose a workflow to get started with AI-powered delivery
           </p>
         </motion.div>
 
@@ -129,11 +100,11 @@ export function CreationHub({ onSelectFeature }: CreationHubProps) {
             return (
               <motion.div
                 key={card.id}
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4, delay: 0.08 + index * 0.06 }}
-                whileHover={card.enabled ? { y: -3, scale: 1.01 } : {}}
-                whileTap={card.enabled ? { scale: 0.98 } : {}}
+                transition={{ duration: 0.35, delay: 0.06 + index * 0.05 }}
+                whileHover={card.enabled ? { y: -2 } : {}}
+                whileTap={card.enabled ? { scale: 0.99 } : {}}
                 onClick={() => {
                   if (card.enabled && card.pipelineType) {
                     onSelectFeature(card.pipelineType);
@@ -146,16 +117,16 @@ export function CreationHub({ onSelectFeature }: CreationHubProps) {
                     onSelectFeature(card.pipelineType);
                   }
                 }}
-                className={`relative flex flex-col rounded-2xl border p-4 sm:p-6 text-left transition-all duration-300 ${
+                className={`relative flex flex-col rounded-lg border bg-white p-5 text-left transition-all duration-200 shadow-sm ${
                   card.enabled
-                    ? `border-[#e8e6dc] bg-white cursor-pointer hover:shadow-lg hover:shadow-black/5 hover:border-[#c96442]/30`
-                    : "border-[#e8e6dc] bg-[#faf9f5] opacity-50 cursor-not-allowed"
+                    ? "border-gray-200 cursor-pointer hover:border-blue-300 hover:shadow-md"
+                    : "border-gray-200 opacity-50 cursor-not-allowed"
                 }`}
               >
                 {/* Badge */}
                 {card.badge && (
                   <div className="absolute top-3 right-3">
-                    <span className="text-[9px] font-semibold uppercase tracking-wider bg-[#c96442]/10 text-[#c96442] border border-[#c96442]/20 rounded-full px-2 py-0.5">
+                    <span className="text-[9px] font-semibold uppercase tracking-wider bg-blue-50 text-blue-600 border border-blue-200 rounded-full px-2 py-0.5">
                       {card.badge}
                     </span>
                   </div>
@@ -164,7 +135,7 @@ export function CreationHub({ onSelectFeature }: CreationHubProps) {
                 {/* Disabled lock */}
                 {!card.enabled && (
                   <div className="absolute top-3 right-3">
-                    <span className="text-[9px] font-medium text-[#87867f] bg-[#f0eee6] border border-[#e8e6dc] rounded-full px-2 py-0.5 flex items-center gap-1">
+                    <span className="text-[9px] font-medium text-gray-500 bg-gray-100 border border-gray-200 rounded-full px-2 py-0.5 flex items-center gap-1">
                       <Lock className="h-2.5 w-2.5" />
                       Coming Soon
                     </span>
@@ -172,22 +143,22 @@ export function CreationHub({ onSelectFeature }: CreationHubProps) {
                 )}
 
                 {/* Icon */}
-                <div className={`flex h-10 w-10 items-center justify-center rounded-xl border border-[#e8e6dc] mb-4 ${card.enabled ? "bg-[#faf9f5]" : "bg-[#f0eee6] opacity-40"}`}>
-                  <Icon className={`h-5 w-5 ${card.enabled ? card.iconColor : "text-[#87867f]"}`} />
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-100 mb-3">
+                  <Icon className="h-5 w-5 text-gray-600" />
                 </div>
 
                 {/* Text */}
-                <h3 className={`text-[13px] font-semibold mb-2 leading-snug ${card.enabled ? "text-[#141413]" : "text-[#87867f]"}`}>
+                <h3 className="text-sm font-semibold text-gray-900 mb-1 leading-snug">
                   {card.label}
                 </h3>
-                <p className={`text-[11px] leading-relaxed flex-1 ${card.enabled ? "text-[#5e5d59]" : "text-[#87867f]"}`}>
+                <p className="text-xs text-gray-500 leading-relaxed flex-1">
                   {card.description}
                 </p>
 
-                {/* Arrow indicator for enabled cards */}
+                {/* CTA */}
                 {card.enabled && (
-                  <div className="flex items-center gap-1 mt-4 text-[11px] font-medium text-[#c96442]">
-                    <ArrowRight className="h-3.5 w-3.5" />
+                  <div className="flex items-center gap-1 mt-3 text-xs font-medium text-blue-600">
+                    Get started <ArrowRight className="h-3.5 w-3.5" />
                   </div>
                 )}
               </motion.div>

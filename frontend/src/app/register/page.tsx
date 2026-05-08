@@ -4,7 +4,7 @@ import { useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "motion/react";
-import { Mail, Lock, Sparkles } from "lucide-react";
+import { Mail, Lock, Zap } from "lucide-react";
 import { register, ApiError } from "@/lib/api";
 
 export default function RegisterPage() {
@@ -25,10 +25,7 @@ export default function RegisterPage() {
   function handlePasswordChange(value: string) {
     setPassword(value);
     const passwordError = validatePassword(value);
-    setFieldErrors((prev) => ({
-      ...prev,
-      password: passwordError,
-    }));
+    setFieldErrors((prev) => ({ ...prev, password: passwordError }));
   }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
@@ -36,7 +33,6 @@ export default function RegisterPage() {
     setError("");
     setFieldErrors({});
 
-    // Client-side validation
     if (password.length < 8) {
       setFieldErrors({ password: "Password must be at least 8 characters." });
       return;
@@ -65,11 +61,7 @@ export default function RegisterPage() {
           setError("Validation failed. Please check your input.");
         }
       } else if (err instanceof ApiError) {
-        setError(
-          typeof err.detail === "string"
-            ? err.detail
-            : "An error occurred. Please try again."
-        );
+        setError(typeof err.detail === "string" ? err.detail : "An error occurred. Please try again.");
       } else {
         setError("An unexpected error occurred. Please try again.");
       }
@@ -79,7 +71,7 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4 bg-[#f5f4ed]">
+    <div className="flex min-h-screen items-center justify-center px-4 bg-gray-50">
       <motion.div
         initial={{ opacity: 0, y: 20, scale: 0.97 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -93,17 +85,17 @@ export default function RegisterPage() {
           transition={{ duration: 0.5, delay: 0.1 }}
           className="flex items-center justify-center gap-2.5 mb-8"
         >
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#c96442] to-[#d97757]">
-            <Sparkles className="h-5 w-5 text-white" />
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600">
+            <Zap className="h-4.5 w-4.5 text-white" />
           </div>
-          <h2 className="text-xl font-semibold text-[#141413] tracking-tight">
+          <h2 className="text-xl font-semibold text-gray-900 tracking-tight">
             IdeaFlow AI
           </h2>
         </motion.div>
 
         {/* Card */}
-        <div className="rounded-2xl border border-[#e8e6dc] bg-white p-8 shadow-lg shadow-black/5">
-          <h1 className="mb-6 text-center text-2xl font-semibold text-[#141413]">
+        <div className="rounded-xl border border-gray-200 bg-white p-8 shadow-sm">
+          <h1 className="mb-6 text-center text-2xl font-semibold text-gray-900">
             Create Account
           </h1>
 
@@ -119,14 +111,11 @@ export default function RegisterPage() {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label
-                htmlFor="email"
-                className="mb-1.5 block text-sm font-medium text-[#5e5d59]"
-              >
+              <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-gray-600">
                 Email
               </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#87867f]" />
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <input
                   id="email"
                   type="email"
@@ -134,24 +123,21 @@ export default function RegisterPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   autoComplete="email"
-                  className="w-full rounded-xl border border-[#e8e6dc] bg-[#faf9f5] pl-10 pr-3 py-2.5 text-[#141413] text-sm placeholder-[#87867f] focus:border-[#c96442]/50 focus:outline-none focus:ring-2 focus:ring-[#c96442]/10 transition-colors"
+                  className="w-full rounded-lg border border-gray-200 bg-white pl-10 pr-3 py-2.5 text-gray-900 text-sm placeholder-gray-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 transition-colors"
                   placeholder="you@example.com"
                 />
               </div>
               {fieldErrors.email && (
-                <p className="mt-1.5 text-sm text-red-400">{fieldErrors.email}</p>
+                <p className="mt-1.5 text-sm text-red-500">{fieldErrors.email}</p>
               )}
             </div>
 
             <div>
-              <label
-                htmlFor="password"
-                className="mb-1.5 block text-sm font-medium text-[#5e5d59]"
-              >
+              <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-gray-600">
                 Password
               </label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#87867f]" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <input
                   id="password"
                   type="password"
@@ -159,14 +145,12 @@ export default function RegisterPage() {
                   onChange={(e) => handlePasswordChange(e.target.value)}
                   required
                   autoComplete="new-password"
-                  className="w-full rounded-xl border border-[#e8e6dc] bg-[#faf9f5] pl-10 pr-3 py-2.5 text-[#141413] text-sm placeholder-[#87867f] focus:border-[#c96442]/50 focus:outline-none focus:ring-2 focus:ring-[#c96442]/10 transition-colors"
+                  className="w-full rounded-lg border border-gray-200 bg-white pl-10 pr-3 py-2.5 text-gray-900 text-sm placeholder-gray-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 transition-colors"
                   placeholder="••••••••"
                 />
               </div>
               {fieldErrors.password && (
-                <p className="mt-1.5 text-sm text-red-400">
-                  {fieldErrors.password}
-                </p>
+                <p className="mt-1.5 text-sm text-red-500">{fieldErrors.password}</p>
               )}
             </div>
 
@@ -175,18 +159,15 @@ export default function RegisterPage() {
               whileTap={{ scale: 0.99 }}
               type="submit"
               disabled={isLoading}
-              className="w-full rounded-xl bg-[#c96442] px-4 py-2.5 text-sm font-medium text-white transition-all hover:bg-[#b5573a] disabled:cursor-not-allowed disabled:opacity-50 shadow-md shadow-[#c96442]/20"
+              className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-all hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isLoading ? "Creating account..." : "Create Account"}
             </motion.button>
           </form>
 
-          <p className="mt-6 text-center text-sm text-[#5e5d59]">
+          <p className="mt-6 text-center text-sm text-gray-500">
             Already have an account?{" "}
-            <Link
-              href="/login"
-              className="text-[#c96442] font-medium hover:underline transition-all"
-            >
+            <Link href="/login" className="text-blue-600 font-medium hover:underline transition-all">
               Sign in
             </Link>
           </p>

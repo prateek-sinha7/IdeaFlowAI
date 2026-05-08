@@ -258,7 +258,7 @@ export function DashboardLayout({
     mainView === "execution" ? "execution" : "home";
 
   return (
-    <div className="flex flex-col h-screen w-full overflow-hidden bg-[#f5f4ed]">
+    <div className="flex flex-col h-screen w-full overflow-hidden bg-white">
       {/* Connection status banner */}
       <AnimatePresence>
         {connectionStatus === "reconnecting" && (
@@ -382,7 +382,7 @@ export function DashboardLayout({
               className="h-full flex flex-col md:flex-row"
             >
               {/* Left Panel — Agent Progress */}
-              <div className="w-full md:w-[340px] lg:w-[360px] flex-shrink-0 h-[45vh] md:h-full border-b md:border-b-0 md:border-r border-[#e8e6dc] overflow-y-auto">
+              <div className="w-full md:w-[340px] lg:w-[360px] flex-shrink-0 h-[45vh] md:h-full border-b md:border-b-0 md:border-r border-gray-200 overflow-y-auto">
                 <ErrorBoundary fallbackLabel="AgentProgress">
                   <AgentProgressPanel
                     pipelineState={pipelineState || { isRunning: false, pipeline_type: "", agents: [], currentAgentIndex: -1, totalDuration: null, completedCount: 0 }}
@@ -392,6 +392,12 @@ export function DashboardLayout({
                     onFollowUp={handleFollowUp}
                     onChainPipeline={["ppt", "user_stories", "prototype"].includes(workflowType) ? handleChainPipeline : undefined}
                     completedPipelineTypes={completedPipelineTypes}
+                    onCancelPipeline={() => {
+                      if (websocketSend) {
+                        websocketSend(JSON.stringify({ type: "cancel_pipeline" }));
+                      }
+                      if (onResetPipeline) onResetPipeline();
+                    }}
                   />
                 </ErrorBoundary>
               </div>

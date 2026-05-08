@@ -15,11 +15,11 @@ export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps
   if (!content) {
     return (
       <div className="flex h-full flex-col items-center justify-center px-6">
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#f0eee6] border border-[#e8e6dc] mb-4">
-          <Layout className="h-7 w-7 text-[#87867f]" />
+        <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-gray-100 border border-gray-200 mb-4">
+          <Layout className="h-7 w-7 text-gray-400" />
         </div>
-        <p className="text-sm font-medium text-[#5e5d59] mb-1">No Preview Yet</p>
-        <p className="text-xs text-[#87867f] text-center max-w-[200px]">
+        <p className="text-sm font-medium text-gray-600 mb-1">No Preview Yet</p>
+        <p className="text-xs text-gray-400 text-center max-w-[200px]">
           Run the pipeline to generate output.
         </p>
       </div>
@@ -29,10 +29,10 @@ export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps
   if (isStreaming) {
     return (
       <div className="flex h-full flex-col items-center justify-center px-6">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f0eee6] border border-[#e8e6dc] mb-3 animate-pulse">
-          <Layout className="h-5 w-5 text-[#87867f]" />
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100 border border-gray-200 mb-3 animate-pulse">
+          <Layout className="h-5 w-5 text-gray-400" />
         </div>
-        <p className="text-xs text-[#87867f]">Generating...</p>
+        <p className="text-xs text-gray-400">Generating...</p>
       </div>
     );
   }
@@ -49,9 +49,9 @@ export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps
   if (!isHtml) {
     return (
       <div className="p-4 h-full overflow-auto">
-        <div className="rounded-xl border border-[#e8e6dc] bg-white p-4">
-          <p className="text-xs text-[#87867f] mb-2">Output (text format):</p>
-          <pre className="text-[11px] text-[#141413] whitespace-pre-wrap leading-relaxed overflow-auto max-h-[500px]">
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <p className="text-xs text-gray-400 mb-2">Output (text format):</p>
+          <pre className="text-[11px] text-gray-900 whitespace-pre-wrap leading-relaxed overflow-auto max-h-[500px]">
             {content}
           </pre>
         </div>

@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  Sparkles,
+  Zap,
   Home,
   BookOpen,
   User,
@@ -36,27 +36,27 @@ export function AppHeader({ currentPage, onNavigate, onLogout, userEmail, disabl
   }, [profileOpen]);
 
   return (
-    <header className="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-3 border-b border-[#e8e6dc] bg-white/80 backdrop-blur-md z-40 relative">
+    <header className="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-3 bg-[#111827] border-b border-[#1f2937] z-40 relative">
       {/* Left — Logo */}
-      <div className="flex items-center gap-2 sm:gap-3">
-        <div className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-xl bg-gradient-to-br from-[#c96442] to-[#d97757] shadow-sm">
-          <Sparkles className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-white" />
+      <div className="flex items-center gap-2 sm:gap-2.5">
+        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600">
+          <Zap className="h-3.5 w-3.5 text-white" />
         </div>
-        <span className="text-xs sm:text-sm font-bold text-[#141413] tracking-tight">
-          IdeaFlow <span className="text-[#87867f] font-medium hidden sm:inline">AI</span>
+        <span className="text-xs sm:text-sm font-semibold text-white tracking-tight">
+          IdeaFlow <span className="text-gray-400 font-normal hidden sm:inline">AI</span>
         </span>
       </div>
 
       {/* Center — Navigation */}
-      <nav className="flex items-center gap-0.5 sm:gap-1 rounded-lg sm:rounded-xl bg-[#f0eee6] border border-[#e8e6dc] p-0.5 sm:p-1">
+      <nav className="flex items-center gap-0.5 sm:gap-1 bg-[#1f2937] rounded-lg p-0.5 sm:p-1">
         <button
           onClick={() => onNavigate("home")}
           disabled={disabled}
-          className={`flex items-center gap-1 sm:gap-2 rounded-md sm:rounded-lg px-2.5 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-xs font-medium transition-all ${
+          className={`flex items-center gap-1 sm:gap-1.5 rounded-md px-2.5 sm:px-3 py-1.5 text-[10px] sm:text-xs font-medium transition-all ${
             disabled ? "opacity-40 cursor-not-allowed" :
             currentPage === "home"
-              ? "bg-white text-[#141413] shadow-sm border border-[#e8e6dc]"
-              : "text-[#5e5d59] hover:text-[#141413] hover:bg-white/50 border border-transparent"
+              ? "bg-white text-gray-900"
+              : "text-gray-400 hover:text-white border border-transparent"
           }`}
         >
           <Home className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
@@ -65,11 +65,11 @@ export function AppHeader({ currentPage, onNavigate, onLogout, userEmail, disabl
         <button
           onClick={() => onNavigate("library")}
           disabled={disabled}
-          className={`flex items-center gap-1 sm:gap-2 rounded-md sm:rounded-lg px-2.5 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-xs font-medium transition-all ${
+          className={`flex items-center gap-1 sm:gap-1.5 rounded-md px-2.5 sm:px-3 py-1.5 text-[10px] sm:text-xs font-medium transition-all ${
             disabled ? "opacity-40 cursor-not-allowed" :
             currentPage === "library"
-              ? "bg-white text-[#141413] shadow-sm border border-[#e8e6dc]"
-              : "text-[#5e5d59] hover:text-[#141413] hover:bg-white/50 border border-transparent"
+              ? "bg-white text-gray-900"
+              : "text-gray-400 hover:text-white border border-transparent"
           }`}
         >
           <BookOpen className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
@@ -82,14 +82,14 @@ export function AppHeader({ currentPage, onNavigate, onLogout, userEmail, disabl
         <button
           onClick={() => !disabled && setProfileOpen(!profileOpen)}
           disabled={disabled}
-          className={`flex items-center gap-2 rounded-xl px-3 py-2 text-xs transition-all ${
-            disabled ? "opacity-40 cursor-not-allowed" : "text-[#5e5d59] hover:text-[#141413] hover:bg-[#f0eee6] border border-transparent hover:border-[#e8e6dc]"
+          className={`flex items-center gap-2 rounded-lg px-2 sm:px-2.5 py-1.5 transition-all ${
+            disabled ? "opacity-40 cursor-not-allowed" : "text-gray-400 hover:text-white hover:bg-[#1f2937]"
           }`}
         >
-          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-[#c96442] to-[#d97757]">
+          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600">
             <User className="h-3.5 w-3.5 text-white" />
           </div>
-          <ChevronDown className={`h-3 w-3 transition-transform ${profileOpen ? "rotate-180" : ""}`} />
+          <ChevronDown className={`h-3 w-3 transition-transform hidden sm:block ${profileOpen ? "rotate-180" : ""}`} />
         </button>
 
         <AnimatePresence>
@@ -99,31 +99,31 @@ export function AppHeader({ currentPage, onNavigate, onLogout, userEmail, disabl
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 8, scale: 0.95 }}
               transition={{ duration: 0.15 }}
-              className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-[#e8e6dc] bg-white shadow-lg shadow-black/8 overflow-hidden z-50"
+              className="absolute right-0 top-full mt-2 w-56 rounded-lg border border-gray-200 bg-white shadow-lg shadow-black/8 overflow-hidden z-50"
             >
               {userEmail && (
-                <div className="px-4 py-3 border-b border-[#e8e6dc]">
-                  <p className="text-[11px] text-[#141413] font-medium truncate">{userEmail}</p>
-                  <p className="text-[10px] text-[#87867f] mt-0.5">Free Plan</p>
+                <div className="px-4 py-3 border-b border-gray-100">
+                  <p className="text-[11px] text-gray-900 font-medium truncate">{userEmail}</p>
+                  <p className="text-[10px] text-gray-500 mt-0.5">Free Plan</p>
                 </div>
               )}
               <div className="py-1.5">
                 <button
                   onClick={() => { setProfileOpen(false); onNavigate("settings"); }}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-[11px] text-[#5e5d59] hover:text-[#141413] hover:bg-[#f5f4ed] transition-all"
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-[11px] text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-all"
                 >
                   <Settings className="h-3.5 w-3.5" />
                   Account Settings
                 </button>
                 <button
                   onClick={() => { setProfileOpen(false); onNavigate("history"); }}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-[11px] text-[#5e5d59] hover:text-[#141413] hover:bg-[#f5f4ed] transition-all"
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-[11px] text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-all"
                 >
                   <History className="h-3.5 w-3.5" />
                   Workflow History
                 </button>
               </div>
-              <div className="border-t border-[#e8e6dc] py-1.5">
+              <div className="border-t border-gray-100 py-1.5">
                 <button
                   onClick={() => { setProfileOpen(false); onLogout(); }}
                   className="w-full flex items-center gap-3 px-4 py-2.5 text-[11px] text-red-600 hover:bg-red-50 transition-all"

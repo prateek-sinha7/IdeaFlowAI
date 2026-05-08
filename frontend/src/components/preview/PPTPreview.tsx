@@ -19,11 +19,11 @@ export function PPTPreview({ content, isStreaming }: PPTPreviewProps) {
   if (!content) {
     return (
       <div className="flex h-full flex-col items-center justify-center px-6">
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#f0eee6] to-[#e8e6dc] border border-[#e8e6dc] mb-4">
-          <Presentation className="h-7 w-7 text-[#87867f]" />
+        <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-gray-100 border border-gray-200 mb-4">
+          <Presentation className="h-7 w-7 text-gray-400" />
         </div>
-        <p className="text-sm font-medium text-[#5e5d59] mb-1">No Slides Yet</p>
-        <p className="text-xs text-[#87867f] text-center max-w-[200px]">
+        <p className="text-sm font-medium text-gray-600 mb-1">No Slides Yet</p>
+        <p className="text-xs text-gray-400 text-center max-w-[200px]">
           Run the pipeline to generate your presentation.
         </p>
       </div>
@@ -33,10 +33,10 @@ export function PPTPreview({ content, isStreaming }: PPTPreviewProps) {
   if (isStreaming) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#f0eee6] border border-[#e8e6dc] animate-pulse">
-          <Presentation className="h-6 w-6 text-[#87867f]" />
+        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-gray-100 border border-gray-200 animate-pulse">
+          <Presentation className="h-6 w-6 text-gray-400" />
         </div>
-        <p className="text-[11px] text-[#5e5d59] font-medium">Generating slides...</p>
+        <p className="text-[11px] text-gray-500 font-medium">Generating slides...</p>
       </div>
     );
   }
@@ -81,18 +81,18 @@ export function PPTPreview({ content, isStreaming }: PPTPreviewProps) {
   return (
     <div className="h-full flex flex-col">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-[#e8e6dc] bg-white flex-shrink-0">
-        <span className="text-[10px] text-[#87867f]">Use navigation inside the slide viewer • Click PPTX button to download</span>
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-200 bg-white flex-shrink-0">
+        <span className="text-[10px] text-gray-400">Use navigation inside the slide viewer · Click PPTX button to download</span>
         <div className="flex items-center gap-2">
           <button
             onClick={handleDownloadHtml}
-            className="flex items-center gap-1 text-[10px] text-[#5e5d59] hover:text-[#141413] bg-[#f0eee6] hover:bg-[#e8e6dc] rounded-md px-2 py-1 transition-colors"
+            className="flex items-center gap-1 text-[10px] text-gray-500 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-md px-2 py-1 transition-colors"
           >
             <Download className="h-3 w-3" /> HTML
           </button>
           <button
             onClick={handleOpenInNewTab}
-            className="flex items-center gap-1 text-[10px] text-[#5e5d59] hover:text-[#141413] bg-[#f0eee6] hover:bg-[#e8e6dc] rounded-md px-2 py-1 transition-colors"
+            className="flex items-center gap-1 text-[10px] text-gray-500 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-md px-2 py-1 transition-colors"
           >
             <ExternalLink className="h-3 w-3" /> Full Screen
           </button>

@@ -65,55 +65,55 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
   }, [currentPassword, newPassword, confirmPassword]);
 
   return (
-    <div className="h-full flex flex-col bg-[#f5f4ed]">
+    <div className="h-full flex flex-col bg-gray-50">
       {/* Header */}
-      <div className="flex items-center gap-3 px-6 py-4 border-b border-[#e8e6dc] bg-white">
-        <button onClick={onBack} className="flex items-center justify-center h-8 w-8 rounded-lg hover:bg-[#f0eee6] transition-colors">
-          <ArrowLeft className="h-4 w-4 text-[#5e5d59]" />
+      <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-200 bg-white">
+        <button onClick={onBack} className="flex items-center justify-center h-8 w-8 rounded-lg hover:bg-gray-100 transition-colors">
+          <ArrowLeft className="h-4 w-4 text-gray-500" />
         </button>
-        <h1 className="text-base font-bold text-[#141413]">Account Settings</h1>
+        <h1 className="text-base font-semibold text-gray-900">Account Settings</h1>
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-6 py-6 max-w-lg mx-auto w-full">
         {/* Email Section */}
-        <div className="rounded-xl border border-[#e8e6dc] bg-white p-5 mb-4">
+        <div className="rounded-lg border border-gray-200 bg-white p-5 mb-4 shadow-sm">
           <div className="flex items-center gap-2 mb-3">
-            <Mail className="h-4 w-4 text-[#c96442]" />
-            <h2 className="text-[13px] font-semibold text-[#141413]">Email Address</h2>
+            <Mail className="h-4 w-4 text-blue-600" />
+            <h2 className="text-[13px] font-semibold text-gray-900">Email Address</h2>
           </div>
           {loading ? (
-            <div className="h-10 rounded-lg bg-[#f0eee6] animate-pulse" />
+            <div className="h-10 rounded-lg bg-gray-100 animate-pulse" />
           ) : (
-            <div className="flex items-center gap-3 rounded-lg border border-[#e8e6dc] bg-[#faf9f5] px-4 py-3">
-              <span className="text-[12px] text-[#141413] font-medium">{email}</span>
+            <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+              <span className="text-[12px] text-gray-900 font-medium">{email}</span>
             </div>
           )}
         </div>
 
         {/* Change Password Section */}
-        <div className="rounded-xl border border-[#e8e6dc] bg-white p-5">
+        <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-2 mb-4">
-            <Lock className="h-4 w-4 text-[#c96442]" />
-            <h2 className="text-[13px] font-semibold text-[#141413]">Change Password</h2>
+            <Lock className="h-4 w-4 text-blue-600" />
+            <h2 className="text-[13px] font-semibold text-gray-900">Change Password</h2>
           </div>
 
           <div className="space-y-3">
             {/* Current Password */}
             <div>
-              <label className="text-[11px] font-medium text-[#5e5d59] mb-1 block">Current Password</label>
+              <label className="text-[11px] font-medium text-gray-600 mb-1 block">Current Password</label>
               <div className="relative">
                 <input
                   type={showCurrent ? "text" : "password"}
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
-                  className="w-full rounded-lg border border-[#e8e6dc] bg-white px-4 py-2.5 text-[12px] text-[#141413] focus:outline-none focus:border-[#c96442]/50 transition-colors pr-10"
+                  className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-[12px] text-gray-900 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 transition-colors pr-10"
                   placeholder="Enter current password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowCurrent(!showCurrent)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#87867f] hover:text-[#141413]"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
                 >
                   {showCurrent ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                 </button>
@@ -122,19 +122,19 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
 
             {/* New Password */}
             <div>
-              <label className="text-[11px] font-medium text-[#5e5d59] mb-1 block">New Password</label>
+              <label className="text-[11px] font-medium text-gray-600 mb-1 block">New Password</label>
               <div className="relative">
                 <input
                   type={showNew ? "text" : "password"}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full rounded-lg border border-[#e8e6dc] bg-white px-4 py-2.5 text-[12px] text-[#141413] focus:outline-none focus:border-[#c96442]/50 transition-colors pr-10"
+                  className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-[12px] text-gray-900 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 transition-colors pr-10"
                   placeholder="At least 8 characters"
                 />
                 <button
                   type="button"
                   onClick={() => setShowNew(!showNew)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#87867f] hover:text-[#141413]"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
                 >
                   {showNew ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                 </button>
@@ -143,12 +143,12 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
 
             {/* Confirm Password */}
             <div>
-              <label className="text-[11px] font-medium text-[#5e5d59] mb-1 block">Confirm New Password</label>
+              <label className="text-[11px] font-medium text-gray-600 mb-1 block">Confirm New Password</label>
               <input
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full rounded-lg border border-[#e8e6dc] bg-white px-4 py-2.5 text-[12px] text-[#141413] focus:outline-none focus:border-[#c96442]/50 transition-colors"
+                className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-[12px] text-gray-900 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 transition-colors"
                 placeholder="Re-enter new password"
               />
             </div>
@@ -165,7 +165,7 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
             <button
               onClick={handleChangePassword}
               disabled={changing || !currentPassword || !newPassword || !confirmPassword}
-              className="w-full rounded-lg bg-[#c96442] text-white py-2.5 text-[12px] font-medium hover:bg-[#b5573a] disabled:opacity-40 disabled:cursor-not-allowed transition-colors mt-2"
+              className="w-full rounded-lg bg-blue-600 text-white py-2.5 text-[12px] font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors mt-2"
             >
               {changing ? "Changing..." : "Change Password"}
             </button>
