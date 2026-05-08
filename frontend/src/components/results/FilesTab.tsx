@@ -9,9 +9,6 @@ import {
   Layout,
 } from "lucide-react";
 import { exportUserStories } from "@/lib/exporters/storyExporter";
-import { exportToPptx } from "@/lib/exporters/pptExporter";
-import { exportPrototype } from "@/lib/exporters/prototypeExporter";
-import { parsePPTSlideData } from "@/lib/parsers/pptParser";
 import type { WorkflowType } from "@/types/index";
 
 interface FilesTabProps {
@@ -79,23 +76,22 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
   }
 
   if (workflowType === "ppt" && pptContent) {
-    // Derive filename from first slide title
+    // PPT is now an HTML slide deck — offer as HTML download
+    // The PPTX download is built into the HTML itself (Download button in the presentation)
     let pptName = "presentation";
-    try {
-      const parsed = JSON.parse(pptContent.trim().startsWith("{") ? pptContent : pptContent.slice(pptContent.indexOf("{")));
-      if (parsed?.slides?.[0]?.title) {
-        pptName = parsed.slides[0].title.replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
-      }
-    } catch { /* use default */ }
+    const titleMatch = pptContent.match(/<title>(.+?)<\/title>/i);
+    if (titleMatch) {
+      pptName = titleMatch[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
+    }
 
     files.push({
-      id: "presentation-pptx",
-      name: `${pptName}.pptx`,
-      type: "PowerPoint",
+      id: "presentation-html",
+      name: `${pptName}.html`,
+      type: "HTML Presentation",
       icon: Presentation,
       iconColor: "text-amber-400",
-      size: formatSize(pptContent.length * 2),
-      format: "PowerPoint (.pptx)",
+      size: formatSize(pptContent.length),
+      format: "HTML (.html) — Open in browser to view slides & download PPTX",
       available: true,
     });
   }
@@ -136,18 +132,13 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
         docName = firstHeading[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
       }
       exportUserStories(userStoryContent, docName);
-    } else if (fileId === "presentation-pptx" && pptContent) {
-      try {
-        const slideData = parsePPTSlideData(pptContent);
-        // Derive filename from first slide title
-        let pptName = "presentation";
-        if (slideData.slides?.[0]?.title) {
-          pptName = slideData.slides[0].title.replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
-        }
-        exportToPptx(slideData, pptName);
-      } catch (e) {
-        alert("Failed to generate PPTX: " + (e instanceof Error ? e.message : "Unknown error"));
+    } else if (fileId === "presentation-html" && pptContent) {
+      let pptName = "presentation";
+      const titleMatch = pptContent.match(/<title>(.+?)<\/title>/i);
+      if (titleMatch) {
+        pptName = titleMatch[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
       }
+      downloadBlob(pptContent, `${pptName}.html`, "text/html");
     } else if (fileId === "prototype-html" && prototypeContent) {
       let protoName = "prototype";
       const titleMatch = prototypeContent.match(/<title>(.+?)<\/title>/i);

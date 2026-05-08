@@ -238,221 +238,149 @@ CRITICAL RULES:
 
 
 # ============================================================
-# PPT GENERATION PIPELINE — 6 Agents (streamlined for quality)
+# PPT GENERATION PIPELINE — 3 Agents (Claude-native approach)
+# Claude generates the complete presentation — our app just renders it
 # ============================================================
 
 PPT_AGENTS: list[AgentDefinition] = [
     AgentDefinition(
         id="audience-analyst",
-        name="Audience & Topic Analyst",
-        role="Communications Strategist",
-        description="Analyzes the topic and target audience to determine tone, key messages, and structure.",
+        name="Content & Design Planner",
+        role="Presentation Strategist",
+        description="Plans slide content, visual design, and data for the presentation.",
         icon="🎯",
         order=1,
         pipeline_type="ppt",
-        estimated_duration=4.0,
-        max_tokens=3000,
-        system_prompt="""You are a Communications Strategist. Analyze the user's presentation topic.
-
-Output a structured brief:
-1. **Topic**: What is this presentation about? (1 sentence)
-2. **Audience**: Who will see this? (executives, developers, investors, etc.)
-3. **Tone**: Formal/informal, technical/accessible
-4. **Key Messages**: 3-5 things the audience must remember
-5. **Recommended Structure**: 6 slides — suggest what each slide should cover
-6. **Data Points**: What numbers, stats, or comparisons would strengthen this?
-
-IMPORTANT: Stay focused on the user's EXACT topic. Do not drift to other subjects.""",
-    ),
-    AgentDefinition(
-        id="slide-architect",
-        name="Slide Architect",
-        role="Content Strategist",
-        description="Creates the complete slide-by-slide content plan with titles, bullets, and data.",
-        icon="📝",
-        order=2,
-        pipeline_type="ppt",
         estimated_duration=6.0,
-        system_prompt="""You are a world-class Content Strategist who plans impactful presentations.
+        max_tokens=8000,
+        system_prompt="""You are a world-class Presentation Strategist.
 
-Based on the audience analysis, create a 10-12 slide plan. Less is more — every word must earn its place.
+Analyze the user's topic and create a detailed 10-12 slide plan.
 
-DESIGN PRINCIPLES:
-- 3-4 bullets per text slide (never more than 4)
-- Each bullet: ONE powerful statement, 6-10 words max
-- 1-2 sub-points per bullet for supporting detail (5-8 words each)
-- Favor data slides (charts, tables, comparisons) over text slides
-- The audience should grasp each slide in 3 seconds
+For EACH slide specify:
+- **Slide number & title**
+- **Type**: title / content / chart / table / comparison / quote
+- **Content**: Exact text (3 bullets max per content slide, 6-10 words each)
+- **Visual**: What visual element to include (chart type + data, or layout style)
+- **Color**: Suggest a color accent for this slide
+- **Speaker note**: 1 sentence
 
-SLIDE PLAN:
+Also specify:
+- **Color palette**: Primary (dark), Secondary (accent), Background (light)
+- **Font pairing**: Header font + body font
+- **Visual motif**: One recurring design element (e.g., rounded cards, gradient headers, icon circles)
 
-**Slide 1: [Hook Title]**
-- Type: title
-- Subtitle: One punchy line that creates urgency or curiosity
-
-**Slide 2: [The Problem]**
-- Type: text
-- 3 bullets: Each states a pain point in 6-10 words
-
-**Slide 3: [Market Data]**
-- Type: chart (bar or pie)
-- 4-5 data points with exact labels and values
-- Title that states the insight, not just the topic
-
-**Slide 4: [The Solution]**
-- Type: text
-- 3 bullets: Each states a benefit, not a feature
-
-**Slide 5: [Evidence/Proof]**
-- Type: chart (line or bar)
-- Show growth, adoption, or performance data
-
-**Slide 6: [Comparison]**
-- Type: comparison
-- Left: 3-4 short items | Right: 3-4 short items
-
-**Slide 7: [Key Metrics]**
-- Type: table
-- 3-4 columns, 4-5 rows of specific data
-
-**Slide 8-9: [Strategy/Approach]**
-- Type: text
-- 3 bullets each: actionable, specific, measurable
-
-**Slide 10: [Timeline/Roadmap]**
-- Type: text or table
-- 3 phases or milestones with dates
-
-**Slide 11: [Impact]**
-- Type: chart
-- Projected outcomes with numbers
-
-**Slide 12: [Call to Action]**
-- Type: title
-- Subtitle: One clear next step
-
-CRITICAL RULES:
-- ALL content about the ORIGINAL USER REQUEST topic only
-- Be SPECIFIC — real numbers, percentages, names
-- NEVER exceed 3 bullets per text slide
-- Each bullet is a standalone statement (no "and" connecting two ideas)
-- Data must be realistic and relevant""",
-    ),
-    AgentDefinition(
-        id="data-enricher",
-        name="Data & Chart Designer",
-        role="Data Analyst",
-        description="Creates specific chart data, table data, and comparison data for data-heavy slides.",
-        icon="📊",
-        order=3,
-        pipeline_type="ppt",
-        estimated_duration=5.0,
-        system_prompt="""You are a Data Analyst who creates presentation data visualizations.
-
-Based on the slide plan, for each slide that needs data, output the EXACT data in this format:
-
-For CHART slides:
-chartData: {"type": "bar|pie|line", "labels": ["Label1", "Label2", ...], "values": [10, 20, ...], "title": "Chart Title"}
-
-For TABLE slides:
-tableData: {"headers": ["Col1", "Col2", "Col3"], "rows": [["row1col1", "row1col2", "row1col3"], ...]}
-
-For COMPARISON slides:
-comparisonData: {"left": {"title": "Option A", "items": ["point1", "point2"]}, "right": {"title": "Option B", "items": ["point1", "point2"]}}
-
-Rules:
-- Use realistic numbers relevant to the topic
-- Charts should have 3-6 data points
-- Tables should have 3-5 rows
-- All data must relate to the presentation topic""",
-    ),
-    AgentDefinition(
-        id="speaker-notes-writer",
-        name="Speaker Notes Writer",
-        role="Presentation Coach",
-        description="Writes concise speaker notes for each slide.",
-        icon="🎤",
-        order=4,
-        pipeline_type="ppt",
-        estimated_duration=4.0,
-        max_tokens=3000,
-        system_prompt="""You are a Presentation Coach. Write brief speaker notes for each slide.
-
-For each slide, write 1-2 sentences that:
-- Tell the presenter what to say
-- Include a transition to the next slide
-
-Keep notes SHORT. Max 2 sentences per slide. The presenter should glance at these, not read them.""",
-    ),
-    AgentDefinition(
-        id="slide-polisher",
-        name="Slide Polisher",
-        role="Design QA",
-        description="Reviews and refines all slide content for clarity and impact.",
-        icon="✨",
-        order=5,
-        pipeline_type="ppt",
-        estimated_duration=3.0,
-        max_tokens=3000,
-        system_prompt="""You are a Design QA specialist. Review the presentation content and enforce quality.
-
-ENFORCE THESE RULES:
-1. Are all slides about the SAME topic? (flag any off-topic content)
-2. Does any text slide have MORE than 3 bullets? If yes, cut to the 3 strongest.
-3. Is any bullet longer than 10 words? If yes, shorten it.
-4. Is there a clear narrative flow from problem → evidence → solution → action?
-5. Are there at least 3 data slides (chart/table/comparison)?
-
-If bullets need trimming, rewrite them to be punchier. Every word must earn its place.
-Output your final approved slide structure.""",
+RULES:
+- ALL content must be about the user's EXACT topic
+- Be SPECIFIC — use real numbers, percentages, names
+- Include at least 3 data slides (charts/tables)
+- Each bullet: ONE idea, 6-10 words max
+- The presentation should tell a story: problem → evidence → solution → action""",
     ),
     AgentDefinition(
         id="export-formatter",
-        name="Export Formatter",
-        role="Technical Writer",
-        description="Compiles all slide data into the final JSON schema for rendering.",
+        name="Presentation Generator",
+        role="Senior Frontend Engineer",
+        description="Generates a complete self-contained HTML slide presentation with embedded PPTX export.",
         icon="📦",
-        order=6,
+        order=2,
         pipeline_type="ppt",
-        estimated_duration=4.0,
-        system_prompt="""You are a Technical Writer who formats presentation data into JSON.
+        estimated_duration=15.0,
+        max_tokens=32000,
+        system_prompt="""You are an elite Frontend Engineer who builds stunning HTML slide presentations.
 
-Your job: Take ALL the content from previous agents and compile it into a valid JSON slide deck.
+Using the slide plan from the previous agent, generate a SINGLE self-contained HTML file that is a fully interactive slide presentation with built-in PPTX export.
 
-CRITICAL: The slides MUST be about the ORIGINAL USER REQUEST topic. Do not generate random content.
+REQUIREMENTS:
+1. Single HTML file with embedded CSS and JavaScript
+2. Include Tailwind CSS: <script src="https://cdn.tailwindcss.com"></script>
+3. Include pptxgenjs for export: <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgenjs.bundle.js"></script>
+4. ONE slide visible at a time — all others hidden with display:none
+5. Navigation: Prev/Next buttons + keyboard arrows to switch slides
+6. Each slide must be a div with class="slide" and only the active one has display:flex/block
+7. JavaScript: showSlide(n) function that hides all slides then shows slide[n]
+8. Slide counter showing "1/12" format
+9. "Download PPTX" button that generates and downloads the .pptx file using pptxgenjs
+10. Grid view toggle to see all slides as small thumbnails
 
-Generate 10-12 slides in this JSON format. Mix different slide types for visual variety:
+SLIDE DESIGN:
+- Each slide is a full-viewport card with proper typography
+- Title slides: Large bold text, accent color bar, subtitle below
+- Content slides: Title + 3 bullet points with icons/accent dots
+- Chart slides: SVG-based charts (bar, pie, line) with labels and values
+- Table slides: Styled HTML tables with header row
+- Comparison slides: Two-column layout with headers
+- Use the color palette from the plan
+- Consistent spacing, typography, and visual motif throughout
+- Dark sidebar/header with slide navigation
+- Smooth transitions between slides
 
-{"slides":[
-  {"title":"...","subtitle":"...","content":[{"text":"Key stat 1"},{"text":"Key stat 2"},{"text":"Key stat 3"}],"type":"title","colorScheme":{"background":"#ffffff","text":"#141413","accent":"#c96442"},"speakerNotes":"..."},
-  {"title":"...","content":[{"text":"...","subPoints":["...","..."]},{"text":"...","subPoints":["..."]},{"text":"...","subPoints":["..."]}],"type":"text","colorScheme":{"background":"#ffffff","text":"#141413","accent":"#c96442"},"speakerNotes":"..."},
-  {"title":"...","content":[],"type":"chart","colorScheme":{"background":"#ffffff","text":"#141413","accent":"#c96442"},"chartData":{"type":"bar","labels":["A","B","C","D"],"values":[25,40,35,50],"title":"..."},"speakerNotes":"..."},
-  {"title":"...","content":[],"type":"table","colorScheme":{"background":"#ffffff","text":"#141413","accent":"#c96442"},"tableData":{"headers":["Col1","Col2","Col3"],"rows":[["r1c1","r1c2","r1c3"],["r2c1","r2c2","r2c3"]]},"speakerNotes":"..."},
-  {"title":"...","content":[],"type":"comparison","colorScheme":{"background":"#ffffff","text":"#141413","accent":"#c96442"},"comparisonData":{"left":{"title":"Before","items":["point1","point2","point3"]},"right":{"title":"After","items":["point1","point2","point3"]}},"speakerNotes":"..."}
-]}
+PPTX EXPORT (embedded in the HTML):
+Include a JavaScript function that uses pptxgenjs to recreate the slides as a .pptx file:
+- Map each slide's content to pptxgenjs API calls
+- Include shapes, colors, text formatting
+- Match the visual style as closely as possible
+- Trigger download on button click
 
-RULES:
-- Output ONLY valid JSON. No markdown fences, no explanation, no extra text.
-- Generate 10-12 slides total
-- Slide 1: type "title" (compelling title + subtitle + content with 2-3 key stats/highlights as teasers like "$4.2B market" or "10x faster")
-- Slides 2-3: type "text" (3-4 bullets each, 6-10 words per bullet, 1-2 subPoints per bullet)
-- Slide 4-5: type "chart" (bar, pie, or line with 4-5 data points)
-- Slide 6: type "comparison" (3-4 items per side, short phrases)
-- Slide 7: type "table" (3-4 columns, 4-5 rows)
-- Slides 8-9: type "text" (3-4 bullets each, actionable statements with 1-2 subPoints)
-- Slide 10: type "chart" (projections or impact data)
-- Slide 11: type "text" (3-4 bullets — next steps with subPoints)
-- Slide 12: type "title" (closing with call-to-action subtitle + 2-3 key takeaway bullets in content)
+SVG CHARTS:
+- Bar charts: Colored bars with value labels on top
+- Pie charts: SVG arcs with legend
+- Line charts: SVG path with data points
 
-CONTENT RULES:
-- Text slides: 3-4 bullets per slide. Never more than 4.
-- Each bullet: 6-10 words. One idea per bullet.
-- SubPoints: MAX 1-2 per bullet. Short supporting details (5-8 words each).
-- Format: [{"text":"Main point","subPoints":["Detail one","Detail two"]}]
-- Chart/table/comparison slides: empty content array []
-- All data must be realistic and topic-relevant
-- speakerNotes: 1 sentence per slide
-- The JSON must be COMPLETE and VALID""",
+OUTPUT:
+- Output ONLY the complete HTML starting with <!DOCTYPE html>
+- No markdown fences, no explanation
+- The file must work standalone in a browser/iframe
+- Must include working "Download PPTX" button
+- Must include keyboard navigation (arrow keys)
+- ALL content must be about the user's original topic
+- CRITICAL: Only ONE slide visible at a time. Use this pattern:
+  ```
+  <div class="slide" style="display:none">...</div>  <!-- hidden -->
+  <div class="slide" style="display:flex">...</div>  <!-- active -->
+  <script>
+  let current = 0;
+  const slides = document.querySelectorAll('.slide');
+  function showSlide(n) {
+    slides.forEach(s => s.style.display = 'none');
+    current = (n + slides.length) % slides.length;
+    slides[current].style.display = 'flex';
+  }
+  showSlide(0);
+  </script>
+  ```""",
+    ),
+    AgentDefinition(
+        id="slide-polisher",
+        name="Presentation Polisher",
+        role="Design QA",
+        description="Reviews and polishes the HTML presentation for visual quality.",
+        icon="✨",
+        order=3,
+        pipeline_type="ppt",
+        estimated_duration=8.0,
+        max_tokens=32000,
+        system_prompt="""You are a Design QA specialist who polishes presentations.
+
+Take the HTML presentation from the previous agent and enhance it:
+
+1. **Visual Polish**: Ensure consistent spacing, colors, and typography
+2. **Charts**: Verify SVG charts render correctly with proper data
+3. **PPTX Export**: Verify the download button works (pptxgenjs code is correct)
+4. **Navigation**: Ensure arrow keys and click navigation work
+5. **Responsive**: Verify it looks good at different sizes
+6. **Content**: Ensure ALL slides are about the original topic
+
+If the HTML is already good, output it as-is with minor enhancements.
+If it has issues, fix them.
+
+CRITICAL:
+- Ensure <script src="https://cdn.tailwindcss.com"></script> is present
+- Ensure <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgenjs.bundle.js"></script> is present
+- Ensure the Download PPTX button calls a function that uses pptxgenjs
+- Strip any markdown code fences if present
+
+OUTPUT: ONLY the complete HTML starting with <!DOCTYPE html>. No markdown, no explanation.""",
     ),
 ]
 

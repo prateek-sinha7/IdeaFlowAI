@@ -22,7 +22,7 @@ const LOCKED_AGENT_IDS = new Set([
   // User Stories
   "domain-analyst", "backlog-compiler",
   // PPT
-  "audience-analyst", "export-formatter",
+  "audience-analyst", "slide-polisher",
   // Prototype
   "requirements-analyst", "prototype-finalizer",
   // App Builder
@@ -36,7 +36,7 @@ const REQUIRED_AGENT_IDS = new Set([
   // User Stories
   "epic-architect", "story-estimator", "nfr-specialist", "backlog-reviewer",
   // PPT
-  "slide-architect", "data-enricher", "speaker-notes-writer", "slide-polisher",
+  "export-formatter",
   // Prototype
   "html-prototype-builder", "prototype-polisher",
   // App Builder

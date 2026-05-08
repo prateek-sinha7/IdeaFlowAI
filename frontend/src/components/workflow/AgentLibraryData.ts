@@ -76,17 +76,11 @@ export const LIBRARY_AGENTS: AgentDef[] = [
   },
 
   // ============================================================
-  // PPT GENERATION PIPELINE — 6 Agents
+  // PPT GENERATION PIPELINE — 3 Agents (Claude-native HTML + pptxgenjs)
   // ============================================================
-  // ============================================================
-  // PPT GENERATION PIPELINE — 6 Agents (streamlined)
-  // ============================================================
-  { id: "audience-analyst", name: "Audience & Topic Analyst", role: "Communications Strategist", description: "Analyzes the topic and target audience to determine tone, key messages, and structure.", pipeline_type: "ppt", order: 1, icon: "🎯", estimated_duration: 4, has_skill: true },
-  { id: "slide-architect", name: "Slide Architect", role: "Content Strategist", description: "Creates the complete slide-by-slide content plan with titles, bullets, and data.", pipeline_type: "ppt", order: 2, icon: "📝", estimated_duration: 6, has_skill: true },
-  { id: "data-enricher", name: "Data & Chart Designer", role: "Data Analyst", description: "Creates specific chart data, table data, and comparison data for data-heavy slides.", pipeline_type: "ppt", order: 3, icon: "📊", estimated_duration: 5, has_skill: true },
-  { id: "speaker-notes-writer", name: "Speaker Notes Writer", role: "Presentation Coach", description: "Writes concise speaker notes for each slide.", pipeline_type: "ppt", order: 4, icon: "🎤", estimated_duration: 4, has_skill: true },
-  { id: "slide-polisher", name: "Slide Polisher", role: "Design QA", description: "Reviews and refines all slide content for clarity and impact.", pipeline_type: "ppt", order: 5, icon: "✨", estimated_duration: 3, has_skill: true },
-  { id: "export-formatter", name: "Export Formatter", role: "Technical Writer", description: "Compiles all slide data into the final JSON schema for rendering.", pipeline_type: "ppt", order: 6, icon: "📦", estimated_duration: 4, has_skill: true },
+  { id: "audience-analyst", name: "Content & Design Planner", role: "Presentation Strategist", description: "Plans slide content, visual design, and data for the presentation.", pipeline_type: "ppt", order: 1, icon: "🎯", estimated_duration: 6, has_skill: true },
+  { id: "export-formatter", name: "Presentation Generator", role: "Senior Frontend Engineer", description: "Generates a complete HTML slide presentation with embedded PPTX export.", pipeline_type: "ppt", order: 2, icon: "📦", estimated_duration: 15, has_skill: true },
+  { id: "slide-polisher", name: "Presentation Polisher", role: "Design QA", description: "Reviews and polishes the HTML presentation for visual quality.", pipeline_type: "ppt", order: 3, icon: "✨", estimated_duration: 8, has_skill: true },
 
   // ============================================================
   // PROTOTYPE GENERATION PIPELINE — 4 Agents (focused on HTML output)
@@ -172,9 +166,9 @@ export const ALL_LIBRARY_AGENTS: AgentDef[] = [...LIBRARY_AGENTS, ...CUSTOM_AGEN
 
 /** Pipeline category labels */
 export const PIPELINE_CATEGORIES = [
-  { key: "all", label: "All", count: 26 },
+  { key: "all", label: "All", count: 23 },
   { key: "user_stories", label: "User Stories", count: 6 },
-  { key: "ppt", label: "PPT", count: 6 },
+  { key: "ppt", label: "PPT", count: 3 },
   { key: "prototype", label: "Prototype", count: 4 },
   { key: "app_builder", label: "App Builder", count: 4 },
   { key: "reverse_engineer", label: "Reverse Engineer", count: 4 },

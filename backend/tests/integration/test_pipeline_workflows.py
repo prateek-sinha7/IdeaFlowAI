@@ -52,10 +52,10 @@ class TestAgentRegistry:
         agents = get_pipeline_agents("user_stories")
         assert len(agents) == 6, f"Expected 6 agents, got {len(agents)}"
 
-    def test_ppt_pipeline_has_6_agents(self):
-        """PPT pipeline should have 6 agents."""
+    def test_ppt_pipeline_has_3_agents(self):
+        """PPT pipeline should have 3 agents."""
         agents = get_pipeline_agents("ppt")
-        assert len(agents) == 6, f"Expected 6 agents, got {len(agents)}"
+        assert len(agents) == 3, f"Expected 3 agents, got {len(agents)}"
 
     def test_prototype_pipeline_has_4_agents(self):
         """Prototype pipeline should have 4 agents."""

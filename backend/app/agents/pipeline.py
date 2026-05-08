@@ -186,9 +186,9 @@ class PipelineExecutor:
         """
         parts = [f"=== ORIGINAL USER REQUEST ===\n{user_message}\n=== END REQUEST ==="]
 
-        if self.pipeline_type == "prototype" and current_index >= 2:
-            # For prototype agents 3+, only pass the immediately previous agent's output
-            # (the HTML) — they don't need the requirements plan
+        if (self.pipeline_type == "prototype" and current_index >= 2) or (self.pipeline_type == "ppt" and current_index >= 2):
+            # For prototype/PPT polisher agents, only pass the immediately previous agent's output
+            # (the HTML) — they don't need the content plan
             prev_agent = self.agents[current_index - 1]
             if prev_agent.id in self.context:
                 prev_output = self.context[prev_agent.id]
