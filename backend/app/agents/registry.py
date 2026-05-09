@@ -238,149 +238,68 @@ CRITICAL RULES:
 
 
 # ============================================================
-# PPT GENERATION PIPELINE — 3 Agents (Claude-native approach)
-# Claude generates the complete presentation — our app just renders it
+# PPT GENERATION PIPELINE — 4 Agents (skill-driven approach)
+# Uses pptx/ folder skills (skill.md, pptxgenjs.md) for proper PPTX generation
+# Design: White background, black fonts, navy blue accent, 10-12 slides
 # ============================================================
+
+from app.agents.ppt_pipeline import (
+    CONTENT_STRATEGIST_PROMPT,
+    SLIDE_ARCHITECT_PROMPT,
+    PPTXGENJS_CODE_GENERATOR_PROMPT,
+    PRESENTATION_ASSEMBLER_PROMPT,
+    get_pptx_skills_combined,
+)
 
 PPT_AGENTS: list[AgentDefinition] = [
     AgentDefinition(
-        id="audience-analyst",
-        name="Content & Design Planner",
+        id="ppt-content-strategist",
+        name="Content Strategist",
         role="Presentation Strategist",
-        description="Plans slide content, visual design, and data for the presentation.",
+        description="Plans the narrative arc and content for 10-12 slides with specific data and messaging.",
         icon="🎯",
         order=1,
         pipeline_type="ppt",
-        estimated_duration=6.0,
+        estimated_duration=8.0,
         max_tokens=8000,
-        system_prompt="""You are a world-class Presentation Strategist.
-
-Analyze the user's topic and create a detailed 10-12 slide plan.
-
-For EACH slide specify:
-- **Slide number & title**
-- **Type**: title / content / chart / table / comparison / quote
-- **Content**: Exact text (3 bullets max per content slide, 6-10 words each)
-- **Visual**: What visual element to include (chart type + data, or layout style)
-- **Color**: Suggest a color accent for this slide
-- **Speaker note**: 1 sentence
-
-Also specify:
-- **Color palette**: Primary (dark), Secondary (accent), Background (light)
-- **Font pairing**: Header font + body font
-- **Visual motif**: One recurring design element (e.g., rounded cards, gradient headers, icon circles)
-
-RULES:
-- ALL content must be about the user's EXACT topic
-- Be SPECIFIC — use real numbers, percentages, names
-- Include at least 3 data slides (charts/tables)
-- Each bullet: ONE idea, 6-10 words max
-- The presentation should tell a story: problem → evidence → solution → action""",
+        system_prompt=CONTENT_STRATEGIST_PROMPT,
     ),
     AgentDefinition(
-        id="export-formatter",
-        name="Presentation Generator",
-        role="Senior Frontend Engineer",
-        description="Generates a complete self-contained HTML slide presentation with embedded PPTX export.",
-        icon="📦",
+        id="ppt-slide-architect",
+        name="Slide Architect",
+        role="Visual Layout Designer",
+        description="Designs precise visual layouts, element positions, and visual motifs for each slide.",
+        icon="🏗️",
         order=2,
+        pipeline_type="ppt",
+        estimated_duration=10.0,
+        max_tokens=12000,
+        system_prompt=SLIDE_ARCHITECT_PROMPT,
+    ),
+    AgentDefinition(
+        id="ppt-code-generator",
+        name="PptxGenJS Code Generator",
+        role="PptxGenJS Expert Developer",
+        description="Generates complete PptxGenJS JavaScript code using the pptx skills reference.",
+        icon="💻",
+        order=3,
         pipeline_type="ppt",
         estimated_duration=15.0,
         max_tokens=32000,
-        system_prompt="""You are an elite Frontend Engineer who builds stunning HTML slide presentations.
-
-Using the slide plan from the previous agent, generate a SINGLE self-contained HTML file that is a fully interactive slide presentation with built-in PPTX export.
-
-REQUIREMENTS:
-1. Single HTML file with embedded CSS and JavaScript
-2. Include Tailwind CSS: <script src="https://cdn.tailwindcss.com"></script>
-3. Include pptxgenjs for export: <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgenjs.bundle.js"></script>
-4. ONE slide visible at a time — all others hidden with display:none
-5. Navigation: Prev/Next buttons + keyboard arrows to switch slides
-6. Each slide must be a div with class="slide" and only the active one has display:flex/block
-7. JavaScript: showSlide(n) function that hides all slides then shows slide[n]
-8. Slide counter showing "1/12" format
-9. "Download PPTX" button that generates and downloads the .pptx file using pptxgenjs
-10. Grid view toggle to see all slides as small thumbnails
-
-SLIDE DESIGN:
-- Each slide is a full-viewport card with proper typography
-- Title slides: Large bold text, accent color bar, subtitle below
-- Content slides: Title + 3 bullet points with icons/accent dots
-- Chart slides: SVG-based charts (bar, pie, line) with labels and values
-- Table slides: Styled HTML tables with header row
-- Comparison slides: Two-column layout with headers
-- Use the color palette from the plan
-- Consistent spacing, typography, and visual motif throughout
-- Dark sidebar/header with slide navigation
-- Smooth transitions between slides
-
-PPTX EXPORT (embedded in the HTML):
-Include a JavaScript function that uses pptxgenjs to recreate the slides as a .pptx file:
-- Map each slide's content to pptxgenjs API calls
-- Include shapes, colors, text formatting
-- Match the visual style as closely as possible
-- Trigger download on button click
-
-SVG CHARTS:
-- Bar charts: Colored bars with value labels on top
-- Pie charts: SVG arcs with legend
-- Line charts: SVG path with data points
-
-OUTPUT:
-- Output ONLY the complete HTML starting with <!DOCTYPE html>
-- No markdown fences, no explanation
-- The file must work standalone in a browser/iframe
-- Must include working "Download PPTX" button
-- Must include keyboard navigation (arrow keys)
-- ALL content must be about the user's original topic
-- CRITICAL: Only ONE slide visible at a time. Use this pattern:
-  ```
-  <div class="slide" style="display:none">...</div>  <!-- hidden -->
-  <div class="slide" style="display:flex">...</div>  <!-- active -->
-  <script>
-  let current = 0;
-  const slides = document.querySelectorAll('.slide');
-  function showSlide(n) {
-    slides.forEach(s => s.style.display = 'none');
-    current = (n + slides.length) % slides.length;
-    slides[current].style.display = 'flex';
-  }
-  showSlide(0);
-  </script>
-  ```""",
+        skills=["pptxgenjs"],
+        system_prompt=PPTXGENJS_CODE_GENERATOR_PROMPT,
     ),
     AgentDefinition(
-        id="slide-polisher",
-        name="Presentation Polisher",
-        role="Design QA",
-        description="Reviews and polishes the HTML presentation for visual quality.",
-        icon="✨",
-        order=3,
+        id="ppt-assembler",
+        name="Presentation Assembler",
+        role="Frontend Engineer",
+        description="Assembles final HTML with slide previews, navigation, and PPTX download button.",
+        icon="📦",
+        order=4,
         pipeline_type="ppt",
-        estimated_duration=8.0,
+        estimated_duration=12.0,
         max_tokens=32000,
-        system_prompt="""You are a Design QA specialist who polishes presentations.
-
-Take the HTML presentation from the previous agent and enhance it:
-
-1. **Visual Polish**: Ensure consistent spacing, colors, and typography
-2. **Charts**: Verify SVG charts render correctly with proper data
-3. **PPTX Export**: Verify the download button works (pptxgenjs code is correct)
-4. **Navigation**: Ensure arrow keys and click navigation work
-5. **Responsive**: Verify it looks good at different sizes
-6. **Content**: Ensure ALL slides are about the original topic
-
-If the HTML is already good, output it as-is with minor enhancements.
-If it has issues, fix them.
-
-CRITICAL:
-- Ensure <script src="https://cdn.tailwindcss.com"></script> is present
-- Ensure <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgenjs.bundle.js"></script> is present
-- Ensure the Download PPTX button calls a function that uses pptxgenjs
-- Strip any markdown code fences if present
-
-OUTPUT: ONLY the complete HTML starting with <!DOCTYPE html>. No markdown, no explanation.""",
+        system_prompt=PRESENTATION_ASSEMBLER_PROMPT,
     ),
 ]
 

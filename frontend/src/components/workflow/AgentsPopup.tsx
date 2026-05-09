@@ -19,7 +19,7 @@ interface AgentsPopupProps {
 
 const LOCKED_AGENT_IDS = new Set([
   "domain-analyst", "backlog-compiler",
-  "audience-analyst", "slide-polisher",
+  "ppt-content-strategist", "ppt-assembler",
   "requirements-analyst", "prototype-finalizer",
   "material-analyzer", "app-assembler",
   "repo-scanner", "documentation-generator",
@@ -27,7 +27,7 @@ const LOCKED_AGENT_IDS = new Set([
 
 const REQUIRED_AGENT_IDS = new Set([
   "epic-architect", "story-estimator", "nfr-specialist", "backlog-reviewer",
-  "export-formatter",
+  "ppt-slide-architect", "ppt-code-generator",
   "html-prototype-builder", "prototype-polisher",
   "app-code-generator", "app-infra-generator",
   "deep-analyzer", "modernization-planner",

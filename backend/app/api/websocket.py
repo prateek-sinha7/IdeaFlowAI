@@ -349,7 +349,7 @@ async def _handle_pipeline_execution(
     if agent_ids:
         agent_count = len(agent_ids)
     else:
-        agent_counts = {"user_stories": 12, "ppt": 10, "prototype": 12}
+        agent_counts = {"user_stories": 12, "ppt": 4, "prototype": 12}
         agent_count = agent_counts.get(pipeline_type, 12)
 
     # Create a WorkflowRun record

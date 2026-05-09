@@ -1,10 +1,15 @@
-"""Skill Manager — Manages skill files (SKILL.md) that enhance agent capabilities."""
+"""Skill Manager — Manages skill files (SKILL.md) that enhance agent capabilities.
+
+For PPT pipeline agents, skills are loaded from the backend/pptx/ folder
+which contains comprehensive PptxGenJS API reference and design guidelines.
+"""
 
 import os
 from pathlib import Path
 from typing import Optional
 
 SKILLS_DIR = Path(__file__).parent.parent.parent / "skills"
+PPTX_SKILLS_DIR = Path(__file__).parent.parent.parent / "pptx"
 
 
 # ============================================================
@@ -111,22 +116,26 @@ Generate production-quality React components:
 - Headers: flex items-center justify-between border-b border-gray-700/30 px-6 py-4
 """,
 
-    "export-formatter": """# Skill: JSON Schema Compliance
+    "export-formatter": """# Skill: PptxGenJS Code Generation
 
 ## Instructions
-The output MUST be a single valid JSON object.
-- No markdown code fences
-- No explanatory text before or after
-- All strings properly escaped
-- All required fields present
-- Arrays can be empty but must exist
+Generate correct PptxGenJS JavaScript code following these rules:
+1. NEVER use "#" prefix in hex colors — use "1B2A4A" not "#1B2A4A"
+2. NEVER encode opacity in hex strings — use the opacity property
+3. Use `bullet: true` for bullets, NEVER unicode "•"
+4. Use `breakLine: true` between text array items
+5. NEVER reuse option objects — create fresh objects for each call
+6. Use `charSpacing` not `letterSpacing`
+7. Set `margin: 0` when aligning text with shapes
+8. Shadow offset must be non-negative
+9. Use RECTANGLE not ROUNDED_RECTANGLE when pairing with accent bars
+10. Each presentation needs a fresh pptxgen() instance
 
-## Validation Rules
-- slides array: 1-10 items
-- content array per slide: 1-5 items
-- colorScheme: must have background, text, accent
-- type: must be one of the allowed values
-- speakerNotes: required for every slide
+## Color Scheme
+- Background: FFFFFF (white)
+- Primary Text: 1A1A1A (near-black)
+- Accent: 1B2A4A (navy blue)
+- Accent Light: E8EDF5 (light navy tint)
 """,
 }
 
@@ -135,6 +144,7 @@ def get_skill_content(agent_id: str) -> Optional[str]:
     """Get the skill content for an agent.
 
     Checks custom skills directory first, then falls back to defaults.
+    For PPT pipeline agents, loads skills from the pptx/ folder.
 
     Args:
         agent_id: The agent's ID
@@ -146,6 +156,44 @@ def get_skill_content(agent_id: str) -> Optional[str]:
     custom_skill_path = SKILLS_DIR / agent_id / "SKILL.md"
     if custom_skill_path.exists():
         return custom_skill_path.read_text(encoding="utf-8")
+
+    # PPT pipeline agents get pptx/ folder skills injected
+    if agent_id == "ppt-code-generator":
+        # The code generator gets the full PptxGenJS API reference
+        pptxgenjs_path = PPTX_SKILLS_DIR / "pptxgenjs.md"
+        skill_path = PPTX_SKILLS_DIR / "skill.md"
+        parts = []
+        if skill_path.exists():
+            parts.append(f"=== PPTX DESIGN SKILL (skill.md) ===\n{skill_path.read_text(encoding='utf-8')}")
+        if pptxgenjs_path.exists():
+            parts.append(f"=== PPTXGENJS API REFERENCE (pptxgenjs.md) ===\n{pptxgenjs_path.read_text(encoding='utf-8')}")
+        if parts:
+            return "\n\n".join(parts)
+
+    if agent_id == "ppt-slide-architect":
+        # The slide architect gets the design guidelines from skill.md
+        skill_path = PPTX_SKILLS_DIR / "skill.md"
+        if skill_path.exists():
+            return f"=== PPTX DESIGN REFERENCE (skill.md) ===\n{skill_path.read_text(encoding='utf-8')}"
+
+    if agent_id == "ppt-content-strategist":
+        # Content strategist only needs a brief color/design reminder, not the full skill
+        return """=== DESIGN BRIEF ===
+Color Scheme: White background (#FFFFFF), black text (#1A1A1A), navy blue accent (#1B2A4A).
+Slides: Exactly 10-12 slides. Title slide uses navy background with white text.
+Typography: Arial/Calibri, titles 36-44pt, body 14-16pt.
+Structure: Tell a story — problem → evidence → solution → action.
+Include at least 2 data/chart slides with specific numbers."""
+
+    if agent_id == "ppt-assembler":
+        # The assembler gets the PptxGenJS reference for verifying the code
+        pptxgenjs_path = PPTX_SKILLS_DIR / "pptxgenjs.md"
+        if pptxgenjs_path.exists():
+            # Only include Common Pitfalls section for validation
+            content = pptxgenjs_path.read_text(encoding="utf-8")
+            pitfalls_start = content.find("## Common Pitfalls")
+            if pitfalls_start != -1:
+                return f"=== PPTXGENJS COMMON PITFALLS (for validation) ===\n{content[pitfalls_start:]}"
 
     # Fall back to default skills
     return DEFAULT_SKILLS.get(agent_id)

@@ -35,8 +35,8 @@ export function AgentLibrary({ isOpen, onClose, onAddAgent, currentPipelineType,
   const allExistingIds = new Set([...existingAgentIds, ...Array.from(addedIds)]);
 
   const HIDDEN_FROM_CUSTOM = new Set([
-    "export-formatter", "backlog-compiler", "prototype-finalizer", "app-assembler", "documentation-generator",
-    "audience-analyst", "domain-analyst", "requirements-analyst", "material-analyzer", "repo-scanner",
+    "ppt-assembler", "backlog-compiler", "prototype-finalizer", "app-assembler", "documentation-generator",
+    "ppt-content-strategist", "domain-analyst", "requirements-analyst", "material-analyzer", "repo-scanner",
   ]);
 
   const filteredAgents = ALL_AGENTS.filter((agent) => {

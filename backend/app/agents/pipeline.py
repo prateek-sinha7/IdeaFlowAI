@@ -80,8 +80,9 @@ class PipelineExecutor:
                 context_message = self._build_context_message(user_message, i)
                 logger.debug("   Context message length: %d chars (from %d previous agents)", len(context_message), i)
 
-                # Stream the agent's response
+                # Stream the agent's response (with retry on transient errors)
                 output_chunks: list[str] = []
+                max_retries = 2
 
                 yield {
                     "type": "agent_thinking",
@@ -91,15 +92,34 @@ class PipelineExecutor:
                     },
                 }
 
-                async for chunk in agent.astream(context_message):
-                    output_chunks.append(chunk)
-                    yield {
-                        "type": "agent_chunk",
-                        "data": {
-                            "agent_id": agent_def.id,
-                            "chunk": chunk,
-                        },
-                    }
+                for attempt in range(max_retries + 1):
+                    try:
+                        output_chunks = []
+                        async for chunk in agent.astream(context_message):
+                            output_chunks.append(chunk)
+                            yield {
+                                "type": "agent_chunk",
+                                "data": {
+                                    "agent_id": agent_def.id,
+                                    "chunk": chunk,
+                                },
+                            }
+                        break  # Success — exit retry loop
+                    except Exception as stream_err:
+                        err_name = type(stream_err).__name__
+                        if attempt < max_retries and ("RemoteProtocolError" in err_name or "ReadTimeout" in err_name or "chunked" in str(stream_err).lower()):
+                            logger.warning("   RETRY %d/%d for %s — %s: %s", attempt + 1, max_retries, agent_def.name, err_name, str(stream_err)[:100])
+                            yield {
+                                "type": "agent_thinking",
+                                "data": {
+                                    "agent_id": agent_def.id,
+                                    "thinking": f"Connection interrupted, retrying ({attempt + 1}/{max_retries})...",
+                                },
+                            }
+                            import asyncio
+                            await asyncio.sleep(2)
+                            continue
+                        raise  # Non-retryable or max retries exceeded
 
                 # Store the result
                 output = "".join(output_chunks)
@@ -182,13 +202,44 @@ class PipelineExecutor:
         Strategy: 
         - Keep original request prominent
         - For prototype pipeline: only pass the LAST agent's output (HTML) to avoid bloat
+        - For PPT pipeline: 
+          - Agent 2 (index 1): gets Agent 1 output (content plan)
+          - Agent 3 (index 2): gets Agent 1 + Agent 2 output (needs content + layout)
+          - Agent 4 (index 3): gets only Agent 3 output (just needs the JS code)
         - For other pipelines: pass all previous outputs with reasonable limits
         """
         parts = [f"=== ORIGINAL USER REQUEST ===\n{user_message}\n=== END REQUEST ==="]
 
-        if (self.pipeline_type == "prototype" and current_index >= 2) or (self.pipeline_type == "ppt" and current_index >= 2):
-            # For prototype/PPT polisher agents, only pass the immediately previous agent's output
-            # (the HTML) — they don't need the content plan
+        if self.pipeline_type == "ppt":
+            if current_index == 3:
+                # Assembler only needs the PptxGenJS code from Agent 3
+                prev_agent = self.agents[current_index - 1]
+                if prev_agent.id in self.context:
+                    prev_output = self.context[prev_agent.id]
+                    max_len = 30000
+                    if len(prev_output) > max_len:
+                        prev_output = prev_output[:max_len] + "\n...[truncated]"
+                    parts.append(f"\n--- PptxGenJS Code from {prev_agent.name} ---\n{prev_output}")
+            elif current_index == 2:
+                # Code generator needs both content plan (Agent 1) and layout (Agent 2)
+                for prev_agent in self.agents[:current_index]:
+                    if prev_agent.id in self.context:
+                        prev_output = self.context[prev_agent.id]
+                        max_len = 12000
+                        if len(prev_output) > max_len:
+                            prev_output = prev_output[:max_len] + "\n...[truncated]"
+                        parts.append(f"\n--- Output from {prev_agent.name} ({prev_agent.role}) ---\n{prev_output}")
+            else:
+                # Agent 2 gets Agent 1's output normally
+                for prev_agent in self.agents[:current_index]:
+                    if prev_agent.id in self.context:
+                        prev_output = self.context[prev_agent.id]
+                        max_len = 8000
+                        if len(prev_output) > max_len:
+                            prev_output = prev_output[:max_len] + "\n...[truncated]"
+                        parts.append(f"\n--- Output from {prev_agent.name} ({prev_agent.role}) ---\n{prev_output}")
+        elif self.pipeline_type == "prototype" and current_index >= 2:
+            # For prototype polisher agents, only pass the immediately previous agent's output
             prev_agent = self.agents[current_index - 1]
             if prev_agent.id in self.context:
                 prev_output = self.context[prev_agent.id]

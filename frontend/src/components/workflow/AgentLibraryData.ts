@@ -76,11 +76,53 @@ export const LIBRARY_AGENTS: AgentDef[] = [
   },
 
   // ============================================================
-  // PPT GENERATION PIPELINE — 3 Agents (Claude-native HTML + pptxgenjs)
+  // PPT GENERATION PIPELINE — 4 Agents (skill-driven PptxGenJS approach)
+  // Uses pptx/ folder skills for proper PPTX generation
   // ============================================================
-  { id: "audience-analyst", name: "Content & Design Planner", role: "Presentation Strategist", description: "Plans slide content, visual design, and data for the presentation.", pipeline_type: "ppt", order: 1, icon: "🎯", estimated_duration: 6, has_skill: true },
-  { id: "export-formatter", name: "Presentation Generator", role: "Senior Frontend Engineer", description: "Generates a complete HTML slide presentation with embedded PPTX export.", pipeline_type: "ppt", order: 2, icon: "📦", estimated_duration: 15, has_skill: true },
-  { id: "slide-polisher", name: "Presentation Polisher", role: "Design QA", description: "Reviews and polishes the HTML presentation for visual quality.", pipeline_type: "ppt", order: 3, icon: "✨", estimated_duration: 8, has_skill: true },
+  {
+    id: "ppt-content-strategist",
+    name: "Content Strategist",
+    role: "Presentation Strategist",
+    description: "Plans the narrative arc and content for 10-12 slides with specific data and messaging.",
+    pipeline_type: "ppt",
+    order: 1,
+    icon: "🎯",
+    estimated_duration: 8,
+    has_skill: true,
+  },
+  {
+    id: "ppt-slide-architect",
+    name: "Slide Architect",
+    role: "Visual Layout Designer",
+    description: "Designs precise visual layouts, element positions, and visual motifs for each slide.",
+    pipeline_type: "ppt",
+    order: 2,
+    icon: "🏗️",
+    estimated_duration: 10,
+    has_skill: true,
+  },
+  {
+    id: "ppt-code-generator",
+    name: "PptxGenJS Code Generator",
+    role: "PptxGenJS Expert Developer",
+    description: "Generates complete PptxGenJS JavaScript code using the pptx skills reference.",
+    pipeline_type: "ppt",
+    order: 3,
+    icon: "💻",
+    estimated_duration: 15,
+    has_skill: true,
+  },
+  {
+    id: "ppt-assembler",
+    name: "Presentation Assembler",
+    role: "Frontend Engineer",
+    description: "Assembles final HTML with slide previews, navigation, and PPTX download button.",
+    pipeline_type: "ppt",
+    order: 4,
+    icon: "📦",
+    estimated_duration: 12,
+    has_skill: true,
+  },
 
   // ============================================================
   // PROTOTYPE GENERATION PIPELINE — 4 Agents (focused on HTML output)
@@ -166,9 +208,9 @@ export const ALL_LIBRARY_AGENTS: AgentDef[] = [...LIBRARY_AGENTS, ...CUSTOM_AGEN
 
 /** Pipeline category labels */
 export const PIPELINE_CATEGORIES = [
-  { key: "all", label: "All", count: 23 },
+  { key: "all", label: "All", count: 24 },
   { key: "user_stories", label: "User Stories", count: 6 },
-  { key: "ppt", label: "PPT", count: 3 },
+  { key: "ppt", label: "PPT", count: 4 },
   { key: "prototype", label: "Prototype", count: 4 },
   { key: "app_builder", label: "App Builder", count: 4 },
   { key: "reverse_engineer", label: "Reverse Engineer", count: 4 },

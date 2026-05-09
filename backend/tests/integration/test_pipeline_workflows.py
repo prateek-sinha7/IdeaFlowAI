@@ -108,10 +108,10 @@ class TestAgentRegistry:
         assert actual_roles == expected_roles, f"Agents have wrong roles: {actual_roles}"
 
     def test_ppt_agent_sequence(self):
-        """PPT pipeline should start with audience analysis and end with export."""
+        """PPT pipeline should start with content strategist and end with assembler."""
         agents = get_pipeline_agents("ppt")
-        assert agents[0].id == "audience-analyst", f"First agent should be audience-analyst, got {agents[0].id}"
-        assert agents[-1].id == "export-formatter", f"Last agent should be export-formatter, got {agents[-1].id}"
+        assert agents[0].id == "ppt-content-strategist", f"First agent should be ppt-content-strategist, got {agents[0].id}"
+        assert agents[-1].id == "ppt-assembler", f"Last agent should be ppt-assembler, got {agents[-1].id}"
 
     def test_prototype_agent_sequence(self):
         """Prototype pipeline should end with finalizer that outputs HTML."""
@@ -119,19 +119,19 @@ class TestAgentRegistry:
         assert agents[-1].id == "prototype-finalizer", f"Last agent should be prototype-finalizer, got {agents[-1].id}"
         assert "HTML" in agents[-1].system_prompt, "Last agent should mention HTML in its prompt"
 
-    def test_ppt_export_formatter_requests_json(self):
-        """PPT export-formatter should request JSON output."""
-        agent = get_agent_by_id("export-formatter")
-        assert agent is not None
-        assert "JSON" in agent.system_prompt
-        assert "ONLY valid JSON" in agent.system_prompt
+    def test_ppt_code_generator_has_pptxgenjs_skill(self):
+        """PPT code generator should have PptxGenJS skills injected."""
+        from app.agents.skills import get_skill_content
+        skill = get_skill_content("ppt-code-generator")
+        assert skill is not None
+        assert "pptxgenjs" in skill.lower() or "PptxGenJS" in skill
 
-    def test_ppt_uses_light_color_scheme(self):
-        """PPT export-formatter should use light theme colors."""
-        agent = get_agent_by_id("export-formatter")
+    def test_ppt_uses_correct_color_scheme(self):
+        """PPT pipeline should use white background with navy accent."""
+        agent = get_agent_by_id("ppt-code-generator")
         assert agent is not None
-        assert "#ffffff" in agent.system_prompt, "Should use white background"
-        assert "#141413" in agent.system_prompt, "Should use dark text"
+        assert "FFFFFF" in agent.system_prompt, "Should use white background"
+        assert "1B2A4A" in agent.system_prompt, "Should use navy blue accent"
 
     def test_prototype_assembler_requests_html(self):
         """Prototype assembler should request HTML output."""
@@ -292,34 +292,28 @@ class TestSingleAgentExecution:
             "Output should contain analysis keywords"
 
     @pytest.mark.asyncio
-    async def test_export_formatter_produces_json(self):
-        """Export Formatter should produce valid JSON."""
-        agent_def = get_agent_by_id("export-formatter")
+    async def test_ppt_code_generator_produces_javascript(self):
+        """PPT Code Generator should produce PptxGenJS JavaScript code."""
+        agent_def = get_agent_by_id("ppt-code-generator")
         assert agent_def is not None
 
         agent = BaseAgent(system_prompt=agent_def.system_prompt)
         context = """Original request: Create a pitch deck for a food delivery app.
 
---- Output from Audience Analyst ---
-Target: Investors, Series A
-
---- Output from Slide Content Writer ---
+--- Output from Content Strategist ---
 Slide 1: Title - "FoodFast: Delivering Joy"
 Slide 2: Problem - "30% of orders arrive cold"
 Slide 3: Solution - "AI-optimized routing"
+
+--- Output from Slide Architect ---
+Slide 1: Layout type: title, navy background, white text centered
+Slide 2: Layout type: content, white background, navy accent bar left
+Slide 3: Layout type: two-column, comparison layout
 """
         output = await agent.run(context)
 
-        # Should be parseable JSON
-        json_str = output.strip()
-        if json_str.startswith("```"):
-            lines = json_str.split("\n")
-            json_str = "\n".join(lines[1:-1])
-        if "{" in json_str:
-            json_str = json_str[json_str.index("{"):json_str.rindex("}") + 1]
-
-        parsed = json.loads(json_str)
-        assert "slides" in parsed, "Should have slides key"
+        # Should contain PptxGenJS code
+        assert "pptxgen" in output.lower() or "pres.addSlide" in output or "generatePresentation" in output
 
 
 # ============================================================

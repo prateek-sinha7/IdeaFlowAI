@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Presentation, ExternalLink, Download } from "lucide-react";
+import { Presentation } from "lucide-react";
 
 interface PPTPreviewProps {
   content?: string;
@@ -9,9 +9,15 @@ interface PPTPreviewProps {
 }
 
 /**
- * PPT Preview — renders Claude's generated HTML slide deck.
- * Claude controls all presentation content, styling, and PPTX export.
- * Our app just renders it in an iframe.
+ * PPT Preview — renders the generated HTML slide deck.
+ * 
+ * The pipeline generates a self-contained HTML file that includes:
+ * - Slide previews (white bg, black text, navy blue accents)
+ * - Built-in navigation (arrows in top bar)
+ * - PptxGenJS-powered "Download PPTX" button (inside the HTML)
+ * 
+ * We render it full-bleed in an iframe — the HTML handles everything.
+ * We only add a minimal floating action bar for external actions (open in new tab).
  */
 export function PPTPreview({ content, isStreaming }: PPTPreviewProps) {
   const [iframeKey] = useState(0);
@@ -61,51 +67,16 @@ export function PPTPreview({ content, isStreaming }: PPTPreviewProps) {
     );
   }
 
-  const handleOpenInNewTab = () => {
-    const blob = new Blob([htmlContent], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-    window.open(url, "_blank");
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
-  };
-
-  const handleDownloadHtml = () => {
-    const blob = new Blob([htmlContent], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "presentation.html";
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <div className="h-full flex flex-col">
-      {/* Toolbar */}
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-200 bg-white flex-shrink-0">
-        <span className="text-[10px] text-gray-400">Use navigation inside the slide viewer · Click PPTX button to download</span>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleDownloadHtml}
-            className="flex items-center gap-1 text-[10px] text-gray-500 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-md px-2 py-1 transition-colors"
-          >
-            <Download className="h-3 w-3" /> HTML
-          </button>
-          <button
-            onClick={handleOpenInNewTab}
-            className="flex items-center gap-1 text-[10px] text-gray-500 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-md px-2 py-1 transition-colors"
-          >
-            <ExternalLink className="h-3 w-3" /> Full Screen
-          </button>
-        </div>
-      </div>
-
-      {/* Iframe — Claude's HTML rendered as-is */}
+      {/* Full-bleed iframe — the HTML handles navigation, download, and full screen */}
       <div className="flex-1 min-h-0">
         <iframe
           key={iframeKey}
           srcDoc={htmlContent}
           className="w-full h-full border-0"
           title="Slide Deck Preview"
+          sandbox="allow-scripts allow-same-origin allow-downloads allow-popups allow-popups-to-escape-sandbox"
         />
       </div>
     </div>
