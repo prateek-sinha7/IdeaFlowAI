@@ -1,4 +1,25 @@
-"""Application configuration settings."""
+"""Application configuration settings.
+
+LLM provider notes
+------------------
+The backend supports two LLM providers, selectable via ``LLM_PROVIDER``:
+
+* ``"bedrock"`` (default) — AWS Bedrock via ``langchain_aws.ChatBedrockConverse``.
+  Auth comes from the boto3 default credential chain (instance profile in prod,
+  ``~/.aws/credentials`` / ``AWS_PROFILE`` locally). Requires
+  ``BEDROCK_MODEL_ID`` and ``AWS_REGION``.
+
+  IMPORTANT — operator action: the ``BEDROCK_MODEL_ID`` default below is a
+  cross-region inference profile for ``eu-west-2``. Verify availability with::
+
+      aws bedrock list-foundation-models --region eu-west-2
+
+  If a model ID isn't returned, request access in the Bedrock console and/or
+  pick the inference-profile ID that maps to your region.
+
+* ``"anthropic"`` — Direct Anthropic API via ``langchain_anthropic.ChatAnthropic``.
+  Kept as an emergency-continuity fallback. Requires ``ANTHROPIC_API_KEY``.
+"""
 
 import os
 from pathlib import Path
@@ -12,7 +33,21 @@ ENV_FILE = BACKEND_DIR / ".env"
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
+    # ---- LLM provider selection ----
+    # "bedrock" (default) → AWS Bedrock; "anthropic" → direct Anthropic API.
+    LLM_PROVIDER: str = "bedrock"
+
+    # ---- AWS Bedrock (used when LLM_PROVIDER=bedrock) ----
+    # Cross-region inference profile is the safest default for eu-west-2.
+    # See module docstring for verification command.
+    BEDROCK_MODEL_ID: str = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+    AWS_REGION: str = "eu-west-2"
+
+    # ---- Anthropic direct API (used when LLM_PROVIDER=anthropic) ----
+    # Optional now: only required when LLM_PROVIDER=anthropic.
     ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_MODEL: str = "claude-haiku-4-5-20251001"
+
     SECRET_KEY: str = "dev-secret-key-change-in-production"
     DATABASE_URL: str = "sqlite:///./dev.db"
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]

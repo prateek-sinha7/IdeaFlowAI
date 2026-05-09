@@ -1,0 +1,43 @@
+# Terraform state — never commit. The remote backend lives in S3.
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Plan files
+*.tfplan
+*.tfplan.*
+plan.out
+
+# Provider/cache directory
+.terraform/
+.terraform.tfstate.lock.info
+
+# Variable files (.tfvars). Real values are operator-supplied and may
+# contain secrets. Only the .example template is committed.
+*.tfvars
+*.auto.tfvars
+*.auto.tfvars.json
+!*.tfvars.example
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Override files (used to test local changes)
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# CLI configuration files (may have credentials)
+.terraformrc
+terraform.rc
+
+# Editor scratch
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

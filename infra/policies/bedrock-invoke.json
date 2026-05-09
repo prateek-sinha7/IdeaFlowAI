@@ -1,0 +1,20 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowBedrockClaudeHaiku45",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream",
+        "bedrock:Converse",
+        "bedrock:ConverseStream"
+      ],
+      "Resource": [
+        "arn:aws:bedrock:${region}::foundation-model/${model_id}",
+        "arn:aws:bedrock:*::foundation-model/${model_id}",
+        "arn:aws:bedrock:${region}:${account_id}:inference-profile/${inference_profile_id}"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+# Flowin prod environment — example variable values.
+#
+# Copy this to `terraform.tfvars` (which is git-ignored) and edit. Values that
+# carry secrets should ideally come from environment variables (TF_VAR_<name>)
+# rather than this file.
+
+# ---- Identity guard --------------------------------------------------------
+
+# 12-digit AWS account ID this stack must run against. Mismatch aborts.
+expected_account_id = "123456789012"
+
+# Region. The guard rejects anything else.
+aws_region        = "eu-west-2"
+availability_zone = "eu-west-2a"
+
+# Friendly name; used in name_prefix (= flowin-${environment}) and in the
+# /flowin/${environment}/... parameter paths.
+environment = "prod"
+
+# ---- Tagging ---------------------------------------------------------------
+
+owner       = "flowin-platform-team@hexaware.com"
+cost_center = "UKI-FLOWIN-PROD"
+
+# ---- Optional cross-account assume-role ------------------------------------
+
+# Leave empty unless your CI assumes a role in the Flowin account.
+# assume_role_arn         = "arn:aws:iam::123456789012:role/FlowinTerraformAdmin"
+# assume_role_external_id = ""
+
+# ---- Network ---------------------------------------------------------------
+
+vpc_cidr           = "10.20.0.0/16"
+public_subnet_cidr = "10.20.1.0/24"
+
+# CIDRs allowed to reach 22/tcp on the instance. Empty list = no SSH ingress
+# at all (use SSM Session Manager instead — recommended). Putting 0.0.0.0/0
+# here is rejected by a validation block.
+ssh_allowed_cidrs = [
+  # "203.0.113.10/32",   # corporate egress
+]
+
+# ---- Compute ---------------------------------------------------------------
+
+instance_type       = "m6i.xlarge"
+root_volume_size_gb = 100
+data_volume_size_gb = 50
+
+# Existing EC2 keypair name for emergency SSH. Empty = no keypair attached.
+ssh_key_name = ""
+
+# ---- DNS -------------------------------------------------------------------
+
+# The hosted zone MUST already exist in this account; this Terraform looks it
+# up but never creates it.
+route53_zone_name = "example.com"
+app_subdomain     = "flowin"
+dns_ttl_seconds   = 60
+
+# ---- Bedrock / LLM ---------------------------------------------------------
+
+bedrock_model_id              = "anthropic.claude-haiku-4-5-20251001-v1:0"
+bedrock_inference_profile_id  = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+use_inference_profile_for_app = true
+
+# ---- Secrets — DO NOT commit real values -----------------------------------
+
+# Generate via: openssl rand -hex 64
+# Prefer: export TF_VAR_app_secret_key="$(openssl rand -hex 64)"
+app_secret_key = "REPLACE_ME_WITH_64_HEX_BYTES_FROM_OPENSSL_RAND_HEX_64_CALL_____________________"
+
+# Generate via: openssl rand -hex 32
+db_password = "REPLACE_ME_WITH_HEX_BYTES_FROM_OPENSSL_RAND_HEX_32_CALL"
+
+# Optional fallback. Empty = no parameter created.
+anthropic_api_key = ""
+
+cors_origins              = "[\"https://flowin.example.com\"]"
+access_token_expire_hours = 12
+
+# ---- Backups ---------------------------------------------------------------
+
+backup_bucket_name          = "flowin-prod-pg-dumps-123456789012"
+daily_backup_retention_days = 35
+
+# ---- Monitoring ------------------------------------------------------------
+
+alert_email                 = "flowin-oncall@hexaware.com"
+log_retention_days          = 30
+billing_alarm_threshold_usd = 500

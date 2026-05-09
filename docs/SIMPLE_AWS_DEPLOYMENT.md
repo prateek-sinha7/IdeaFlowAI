@@ -20,27 +20,35 @@ The customer asked for "as little AWS as possible, but no security shortcuts". T
 | WebSocket timeout | nginx `proxy_read_timeout 5400s; proxy_send_timeout 5400s` (90 min) | Long PPT/prototype runs in B7 stream tokens for tens of minutes; idle close on 90 min cap | §8.2, W21/W33/B5 |
 | Database | PostgreSQL 16 on the same instance, on a *separate* encrypted gp3 EBS volume (50 GB) mounted at `/var/lib/postgresql` | Customer accepts; isolating the data volume gives clean snapshot/restore | §8.4, §11 |
 | Secrets store | AWS Systems Manager Parameter Store (SecureString, KMS-encrypted) | Free tier; meets "encrypted at rest, not in git, IAM-gated"; cheaper than Secrets Manager and adequate for this footprint | §9 |
-| LLM provider | **Keep `api.anthropic.com` direct (egress-only) for now**; migrate to AWS Bedrock as a Phase-2 task | Code today reads `ANTHROPIC_API_KEY` exclusively (B7). Bedrock requires a `langchain-aws` swap. Bedrock saves IAM-style auth + keeps traffic inside AWS, but introduces region affinity (Anthropic Claude availability by region) and a code change. Defer until first painful Anthropic outage or compliance review. | §0.1, §6, B7 |
-| Outbound ACL | NAT-less: instance has a public IP in a public subnet. Egress security-group rule restricted to TCP/443 to the wider internet (CIDR `0.0.0.0/0`) — required for `api.anthropic.com` and apt repos. | NAT Gateway is $35/mo per AZ for no real benefit on a single box | §6 |
+| LLM provider | **AWS Bedrock — Claude Haiku 4.5 via cross-region inference profile (`eu.anthropic.claude-haiku-4-5-20251001-v1:0`).** Auth via instance-profile IAM role; no API key. | IAM-only auth removes the highest-risk long-lived secret; LLM traffic stays inside AWS via VPC interface endpoints; spend and audit consolidate onto the AWS bill. | §0.1, §5.3, §6.4, §9 |
+| Outbound ACL | NAT-less: instance has a public IP in a public subnet. Security-group egress rule keeps TCP/443 to `0.0.0.0/0` open for apt, GitHub releases, and the Bedrock public endpoint as a fallback path; the **preferred** Bedrock path is the VPC interface endpoint provisioned in §6.4, which keeps LLM traffic private. | NAT Gateway is $35/mo per AZ for no real benefit on a single box; the Bedrock interface endpoint covers the data-residency story instead. | §6, §6.4 |
 | TLS termination | nginx terminates; backend listens on `127.0.0.1:8000`; frontend listens on `127.0.0.1:3000` | All inter-service traffic stays on loopback; only 80/443/22 reach the network | §8.2 |
 | Logging | CloudWatch Agent ships nginx, journald (systemd units), and Postgres logs | The customer named CloudWatch as the AWS-mandated service; alarms fire from there | §10 |
 | Backups | (a) EBS snapshot of the data volume nightly via AWS Backup; (b) `pg_dump` → S3 (SSE-S3) hourly via systemd timer. RPO 1 hour, RTO 30 min. | Belt-and-braces. Snapshot is fast, dump is portable. | §11 |
 | Disaster recovery | Bootstrap script (Appendix D) + latest snapshot + Parameter Store puts a fresh instance back in service in <30 min | §11 |
 | Concurrency ceiling | ~150 concurrent live pipeline sessions on `m6i.xlarge`, ~50 concurrent if all running PPT/prototype (the 32K-token agents) | B7 / B8: each running pipeline holds ~100 MB Python heap | §15 |
 | Migration path | Vertical scale → split frontend onto static-host EC2 → move to ECS/ALB/RDS per `PRODUCTION_DEPLOYMENT_GUIDE.md` | §16 |
-| Monthly cost band | Low ~$185, typical ~$240, high ~$400 (excluding Anthropic spend) | §14 |
+| Monthly cost band | Infra-only: low ~$200, typical ~$240–285, high ~$415 (includes the new ~$15/mo Bedrock VPC interface endpoint pair). LLM token spend is **separate and traffic-dependent**: ~$50–$200/mo typical, $1k+ at high volume. | §14 |
 
 ### 0.1 The Bedrock vs Anthropic question, settled
 
-The repo today is Anthropic-only (B7). The multi-service guide proposes Bedrock; this single-EC2 guide does not, for three reasons:
+We use AWS Bedrock for all Claude calls. The original analysis (preserved in commit history) recommended deferring this; the customer overrode that decision. Note that `WORKFLOWS.md` B7 still says "no Bedrock integration" — that section is now stale and points to the migration commit (`[infra]` — backend code migration).
 
-1. **Code change cost.** `agents/base.py` constructs `ChatAnthropic` directly. Switching to Bedrock requires `langchain-aws`, dual-provider config, and re-validating every per-agent prompt against Bedrock's Claude variants (model IDs differ, tokenizer is identical but the available models lag direct Anthropic by weeks).
-2. **Region affinity.** Bedrock's Claude model availability varies by region. London (`eu-west-2`) where Hexaware UKI customers want data residency does not list every Claude variant. A direct call to `api.anthropic.com` is region-agnostic.
-3. **Cost parity, no win.** Bedrock and Anthropic list-price Claude Haiku within 5% of each other. The savings argument only emerges with PrivateLink, which adds an extra service we are explicitly avoiding.
+The three concrete benefits we now realise:
 
-The recommendation is:
-- **Phase 1 (this guide):** keep `ANTHROPIC_API_KEY`, store it in Parameter Store, allow only TCP/443 egress, monitor spend via Anthropic dashboard *and* a CloudWatch billing alarm.
-- **Phase 2 (defer):** migrate to Bedrock when (a) compliance demands "no AI traffic leaves AWS" or (b) a multi-region active-active topology is on the roadmap. At that point you are also migrating off the single-EC2 model.
+1. **No long-lived API key.** Auth is the EC2 instance-profile IAM role; rotation is handled by STS. This removes the highest-risk secret from the system — there is no `ANTHROPIC_API_KEY` to leak from Parameter Store, from a `.env` file on disk, from a journald log line, or from a developer's shell history.
+2. **Traffic stays inside AWS.** Combined with a Bedrock VPC interface endpoint (see §6.4), the entire LLM data path is private — request and response never traverse the public internet. Important for the shared org account / data-residency story Hexaware UKI tells regulated customers.
+3. **Single audit pane.** All LLM invocations are visible in CloudTrail (`bedrock:InvokeModel*` events). Spend lands on the same AWS bill as everything else; one PO, one invoice line, one finance owner.
+
+Honest trade-offs:
+
+| Trade-off | Mitigation |
+|---|---|
+| **(a) Region availability.** Haiku 4.5 may not be directly available in `eu-west-2`. Confirm with `aws bedrock list-foundation-models --region eu-west-2 --query 'modelSummaries[?contains(modelId, \`claude-haiku-4-5\`)].modelId' --output table`. If the model is not available directly, use the EU cross-region inference profile `eu.anthropic.claude-haiku-4-5-20251001-v1:0` which routes invocations between EU regions transparently. | The deployment defaults to the inference profile; data-residency is preserved across the EU geography. |
+| **(b) Model-version lag.** Anthropic ships new Claude variants on direct API a few weeks before Bedrock. Acceptable for production. | We don't auto-track the bleeding edge anyway; model upgrades are a release-gated change (§9). |
+| **(c) Throughput tier.** Bedrock has its own per-account / per-model TPM and RPM quotas. The default tier is conservative (e.g. ~100 RPM for Haiku 4.5 in some regions). | Open a quota-increase request **before** load testing — see §10.4 and the new pre-launch item in §3. |
+
+**Emergency continuity.** If Bedrock has a regional outage and direct Anthropic is needed for emergency continuity, the migration is one config change (`LLM_PROVIDER=anthropic`, set `ANTHROPIC_API_KEY` in Parameter Store) — the codebase keeps both backends behind a feature flag (see commit `[infra]` — backend code migration). The optional fallback Parameter Store entry exists precisely for this case (§9).
 
 ---
 
@@ -66,9 +74,11 @@ The recommendation is:
    |   |  10.20.1.0/24               |<-->|                               |    |
    |   |                             |    +------------------------------+    |
    |   |  +-----------------------+  |                                        |
-   |   |  | EC2 m6i.xlarge        |  |    Egress: 443/tcp 0.0.0.0/0 (LLM,    |
-   |   |  | Ubuntu 24.04 LTS      |  |    apt, github), 80/tcp 0.0.0.0/0     |
-   |   |  | EIP attached          |  |    (ACME). Ingress: 22/tcp restricted |
+   |   |  | EC2 m6i.xlarge        |  |    Egress: 443/tcp 0.0.0.0/0 (apt,    |
+   |   |  | Ubuntu 24.04 LTS      |  |    github, Bedrock fallback only),    |
+   |   |  | EIP attached          |  |    80/tcp 0.0.0.0/0 (ACME).           |
+   |   |  |                       |  |    LLM via Bedrock VPC endpoint (§6.4).|
+   |   |  |                       |  |    Ingress: 22/tcp restricted         |
    |   |  |                       |  |    /32 bastion CIDR; 80/tcp world;     |
    |   |  | nginx :80, :443       |  |    443/tcp world.                     |
    |   |  |   |                   |  |                                        |
@@ -104,10 +114,12 @@ The recommendation is:
         |             |   | (KMS)       |   |                  |  | snaps)   |
         +-------------+   +-------------+   +-----------------+  +----------+
 
-External: api.anthropic.com (HTTPS) — pinned in egress security-group as 0.0.0.0/0:443
+LLM:      AWS Bedrock (Claude Haiku 4.5) via VPC interface endpoint
+          (com.amazonaws.eu-west-2.bedrock-runtime). Auth via instance-profile
+          IAM role; traffic stays inside the VPC. See §6.4.
 ```
 
-That's it. Six AWS services in total: EC2, EBS, Route 53, CloudWatch, Systems Manager Parameter Store, S3, plus AWS Backup which is just a scheduler over EBS snapshots. Nothing else.
+That's it. Seven AWS services in total: EC2, EBS, Route 53, CloudWatch, Systems Manager Parameter Store, S3, Bedrock (via VPC interface endpoints), plus AWS Backup which is just a scheduler over EBS snapshots. Nothing else.
 
 ---
 
@@ -117,7 +129,7 @@ That's it. Six AWS services in total: EC2, EBS, Route 53, CloudWatch, Systems Ma
 
 - **One unit to reason about.** Reverse proxy, application, database, and cache (we don't actually need a cache today — see B2/B5; the chat server is in-process) all live in one OS, share one log timeline, share one filesystem. Debugging a production incident requires `ssh` and `journalctl`, not seven AWS consoles.
 - **No network plane between services.** All inter-process traffic crosses loopback (`127.0.0.1`). There is no VPC routing, no security-group fan-out, no ALB target health, no service mesh. Less to misconfigure, smaller attack surface.
-- **Deterministic cost.** Fixed monthly EC2 + EBS charges. The unpredictable line item is Anthropic spend, which is the same regardless of topology.
+- **Deterministic cost.** Fixed monthly EC2 + EBS charges. The unpredictable line item is Bedrock token spend, which is the same regardless of topology and now lands on the same AWS invoice.
 - **Boring, well-trodden tooling.** nginx + systemd + postgres + apt + ufw + certbot is a stack any senior Linux admin can operate.
 
 ### Where this design breaks
@@ -167,7 +179,7 @@ Option (a) is more flexible; option (b) is faster to ship. **Pick (a) for produc
 
 ### Blocker 3 — Cancel-pipeline does not actually cancel (B2/B5; §5 item 2)
 
-`websocket.py:127-135` acknowledges `cancel_pipeline` to the client, but the orchestrator task is not stored, not awaited, and not cancellable. The pipeline keeps streaming until natural completion, burning Anthropic tokens after the user clicked Stop (W38). At enterprise scale this directly inflates the bill.
+`websocket.py:127-135` acknowledges `cancel_pipeline` to the client, but the orchestrator task is not stored, not awaited, and not cancellable. The pipeline keeps streaming until natural completion, burning Bedrock tokens after the user clicked Stop (W38). At enterprise scale this directly inflates the AWS invoice — and unlike the previous Anthropic-direct setup, the cost now hits the same bill as the rest of the infra, so the Bedrock token-budget alarm in §10.4 is the only protective guardrail.
 
 **Required fix (in code):**
 
@@ -198,9 +210,11 @@ A consequence of Blocker 3. `workflow_runs` accumulates rows stuck in `status="r
 ### Strongly recommended (non-blocking but ship before going wide)
 
 7. **Rate limit `/api/auth/login`, `/api/auth/register`, `/api/auth/change-password`.** Add `slowapi` keyed on remote-IP. nginx already adds `X-Real-IP` (Appendix A), so `key_func=get_remote_address` works.
-8. **Per-user Anthropic spend cap.** Sum input/output tokens over a rolling 24h window and reject `run_pipeline` over the cap. This is the only line of defence against a compromised account running expensive prototype pipelines on loop.
+8. **Per-user Bedrock token-budget cap.** Sum input/output tokens over a rolling 24h window and reject `run_pipeline` over the cap. This is the only line of defence against a compromised account running expensive prototype pipelines on loop. (Same intent as the prior "Anthropic spend cap" item; the metric source is now Bedrock `InputTokenCount` / `OutputTokenCount`.)
 9. **Email verification on `/api/auth/register`** (out of scope for this deployment guide, but trivially abused otherwise).
 10. **Move `localStorage` JWT to an HttpOnly+SameSite=Strict cookie** (large frontend change; deferred).
+
+**Non-code pre-launch item:** **submit a Bedrock service quota increase request** for `Tokens per minute` and `Requests per minute` for Claude Haiku 4.5 in `eu-west-2` (and any cross-region inference targets — see §0.1). Default Bedrock quotas are conservative (~100 RPM for Haiku 4.5 in some regions); load testing without an increase will hit `InvocationThrottles`. Open the request via Service Quotas console at least 5 business days before the planned load test — increases for Bedrock can require human review.
 
 These are tracked in the project backlog. They are *not* deployment blockers; they are launch-readiness items. The first deployment goes to a small invite-only pilot — keep the user list short until 7 and 8 are done.
 
@@ -265,7 +279,7 @@ Do not use Amazon Linux 2023. The Ubuntu Postgres/nginx packages are well-trodde
 
 ### 5.3 IAM role for the instance
 
-The instance role grants exactly four permission groups. Nothing else.
+The instance role grants exactly five permission groups. Nothing else.
 
 ```json
 {
@@ -310,11 +324,39 @@ The instance role grants exactly four permission groups. Nothing else.
 }
 ```
 
+**Bedrock invocation policy.** Attach this as a separate inline statement (or a separate managed policy) on the same instance role. Scoped to exactly the model and inference profile we use, *not* `bedrock:*` and *not* `Resource: "*"`:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowBedrockClaudeHaiku45",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream",
+        "bedrock:Converse",
+        "bedrock:ConverseStream"
+      ],
+      "Resource": [
+        "arn:aws:bedrock:eu-west-2::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+        "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+        "arn:aws:bedrock:eu-west-2:*:inference-profile/eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+      ]
+    }
+  ]
+}
+```
+
+The second resource ARN with `*` for region is required because the cross-region inference profile fans invocations out to multiple regions (e.g. `eu-west-2`, `eu-west-1`, `eu-central-1`); the IAM check evaluates against the eventual target region's foundation-model ARN, so the wildcard is mandatory for the profile to work. Keep it scoped to the *exact* `claude-haiku-4-5` model — never broaden to `anthropic.*` or `*`.
+
 Notes:
 
 - The `Resource: "*"` on the CloudWatch Agent block is unavoidable (CloudWatch and EC2-describe APIs do not support resource-level scoping for these actions). The blast radius is limited to log/metric write and instance metadata read — both safe.
 - The S3 statement is *write-only* under one prefix. The instance cannot enumerate the bucket, cannot read other prefixes, cannot delete. Backup retention/expiry is enforced by S3 lifecycle policy (§11).
 - Parameter Store decrypts are gated on a KMS encryption-context match, so a leaked AWS credential cannot lift a parameter that was put with a different context.
+- The Bedrock policy contains no API-key material. Auth is the EC2 instance-profile role + STS; rotation is handled by AWS. There is no `ANTHROPIC_API_KEY` Parameter Store entry in the normal path — see §9 for the optional emergency-fallback entry.
 
 Attach this role to the instance via an IAM **instance profile** (`flowin-prod-instance`). You will reference it in the `aws ec2 run-instances --iam-instance-profile Name=flowin-prod-instance`.
 
@@ -420,7 +462,7 @@ aws ec2 associate-route-table --route-table-id <RT_ID> --subnet-id <SUBNET_ID> -
 aws ec2 modify-subnet-attribute --subnet-id <SUBNET_ID> --map-public-ip-on-launch --region eu-west-2
 ```
 
-**Why no NAT Gateway?** NAT is $0.045/hour ($32/month) per AZ, plus per-GB processing. A single instance in a public subnet with a strict outbound security group is functionally equivalent for our use case (egress to apt + Anthropic + Let's Encrypt + S3 backup endpoint). The instance has no inbound ports open beyond 80/443/22, so the public IP is not a meaningful attack surface — the security group is.
+**Why no NAT Gateway?** NAT is $0.045/hour ($32/month) per AZ, plus per-GB processing. A single instance in a public subnet with a strict outbound security group is functionally equivalent for our use case (egress to apt + Bedrock fallback + Let's Encrypt + S3 backup endpoint; the bulk of LLM traffic goes via the VPC interface endpoint in §6.4 and never leaves AWS). The instance has no inbound ports open beyond 80/443/22, so the public IP is not a meaningful attack surface — the security group is.
 
 **Why one AZ?** Because a single EC2 cannot span AZs. Multi-AZ requires multiple instances behind something — at which point §16 applies.
 
@@ -450,7 +492,10 @@ aws ec2 authorize-security-group-ingress --group-id $SG_ID \
 aws ec2 authorize-security-group-ingress --group-id $SG_ID \
   --protocol tcp --port 22 --cidr <BASTION_CIDR>/32 --region eu-west-2
 
-# Outbound: 443/tcp to anywhere (LLM API, apt, GitHub, S3)
+# Outbound: 443/tcp to anywhere (apt, GitHub, S3, Bedrock fallback path).
+# Bedrock traffic normally goes via the VPC interface endpoint (§6.4) and stays
+# inside the VPC; the 0.0.0.0/0:443 egress rule is required for apt + GitHub
+# + Bedrock-fallback only.
 # 80/tcp to anywhere (apt, Let's Encrypt OCSP)
 # Default sg has 0.0.0.0/0 all-egress; replace it with explicit rules:
 aws ec2 revoke-security-group-egress --group-id $SG_ID \
@@ -468,22 +513,67 @@ aws ec2 authorize-security-group-egress --group-id $SG_ID \
 
 **SSH ingress is the most-abused vector on the public internet.** Locking it to `<BASTION_CIDR>/32` is the single most valuable rule on the list. If you do not have a bastion or a corporate VPN egress IP, drop the SSH ingress rule entirely and use **Systems Manager Session Manager** for shell access (§8.1) — it requires zero open ports.
 
-### 6.3 Why we are not pinning egress to `api.anthropic.com`
+### 6.3 Egress posture for non-AWS traffic
 
-Anthropic does not publish a stable IP allowlist. Their API is fronted by Cloudflare; the IPs rotate. Pinning egress to specific IPs *will* break in production. Two acceptable mitigations:
+The non-AWS egress requirements after migration to Bedrock are:
 
-1. **Allow 443/tcp to `0.0.0.0/0`** (current rule). Egress filtering happens at the application layer — only the backend code calls `api.anthropic.com`, no other process on the box can reach the internet because it is firewalled by ufw (§8.1).
-2. **Set up a VPC Endpoint for AWS services** (S3, SSM, KMS) so those calls never traverse the public internet. The S3 gateway endpoint is *free*. Add it:
-   ```bash
-   aws ec2 create-vpc-endpoint \
-     --vpc-id <VPC_ID> \
-     --service-name com.amazonaws.eu-west-2.s3 \
-     --route-table-ids <RT_ID> \
-     --region eu-west-2
-   ```
-   This is a free, security-positive addition and is *recommended*, not optional — it stops the backup path from depending on internet egress.
+- **apt repos** (Ubuntu archive + Canonical security) — TCP/443 (and a small amount of TCP/80 for repo metadata).
+- **GitHub releases** — TCP/443 (`github.com`, `objects.githubusercontent.com`, `codeload.github.com`).
+- **Let's Encrypt** — TCP/80 (HTTP-01 challenge inbound) + TCP/443 (OCSP outbound).
+- **Bedrock public endpoint as fallback** — TCP/443 to `bedrock-runtime.eu-west-2.amazonaws.com` *only if* the VPC interface endpoint (§6.4) is unavailable.
 
-Optional hardening for paranoid environments: put a Squid or `nginx` egress proxy on the box and configure the application to use `HTTPS_PROXY=http://127.0.0.1:3128`, with Squid's domain allowlist set to `api.anthropic.com` and the apt + GitHub endpoints. This is out of scope for the simple-deployment promise but trivially added later.
+These all share Cloudflare-/CDN-style fronts whose IPs rotate, so pinning egress to specific IPs *will* break in production. Egress filtering instead happens at the application layer: only the backend, the apt updater, certbot, and the AWS SDK make outbound calls — no other process on the box can reach the internet because it is firewalled by ufw (§8.1).
+
+**Free S3 gateway endpoint.** Add this regardless — it stops the backup path from depending on internet egress and costs nothing:
+
+```bash
+aws ec2 create-vpc-endpoint \
+  --vpc-id <VPC_ID> \
+  --service-name com.amazonaws.eu-west-2.s3 \
+  --route-table-ids <RT_ID> \
+  --region eu-west-2
+```
+
+For Bedrock (the LLM data path) we go further and provision interface endpoints — see §6.4.
+
+### 6.4 Bedrock VPC interface endpoints
+
+Provision two interface endpoints in the VPC so that Bedrock traffic never leaves AWS:
+
+- `com.amazonaws.eu-west-2.bedrock-runtime` — used by `InvokeModel`, `InvokeModelWithResponseStream`, `Converse`, `ConverseStream`. **This is the one the application uses at runtime.**
+- `com.amazonaws.eu-west-2.bedrock` — management plane, rarely needed at runtime; useful for `aws bedrock list-foundation-models`, model discovery, and operator diagnostics. Provision it for completeness; if budget is tight you can drop this one and only keep `bedrock-runtime`.
+
+```bash
+# Runtime endpoint — required.
+aws ec2 create-vpc-endpoint \
+  --vpc-id <VPC_ID> \
+  --service-name com.amazonaws.eu-west-2.bedrock-runtime \
+  --vpc-endpoint-type Interface \
+  --subnet-ids <SUBNET_ID> \
+  --security-group-ids $SG_ID \
+  --private-dns-enabled \
+  --region eu-west-2
+
+# Management endpoint — recommended, drop if cost-pressured.
+aws ec2 create-vpc-endpoint \
+  --vpc-id <VPC_ID> \
+  --service-name com.amazonaws.eu-west-2.bedrock \
+  --vpc-endpoint-type Interface \
+  --subnet-ids <SUBNET_ID> \
+  --security-group-ids $SG_ID \
+  --private-dns-enabled \
+  --region eu-west-2
+```
+
+**Why the public subnet?** The endpoints attach to the same public subnet as the EC2 instance — acceptable for our single-AZ minimum-footprint design. The `--private-dns-enabled` flag overrides the public DNS name for `bedrock-runtime.eu-west-2.amazonaws.com` so the `boto3` SDK uses the endpoint transparently with no application config changes.
+
+**Cost.** ~$7.30/mo per AZ per endpoint (≈ $0.01/hr per AZ) plus $0.01/GB data processed. With one AZ and two endpoints that's ~$15/mo all-in; data charges are negligible at our throughput (a few GB/mo of LLM token traffic).
+
+**Net effect on the security group.** Outbound 443 to `bedrock-runtime.eu-west-2.amazonaws.com` no longer leaves the VPC — that's the point. Combined with this, the `0.0.0.0/0:443` SG egress rule is still needed for apt, GitHub releases, and the Bedrock public-endpoint fallback path, but **the LLM data path itself is now private**. Document this explicitly when responding to compliance questionnaires: "no LLM request or response leaves the AWS network boundary in normal operation."
+
+**Cross-region inference profile note.** When you invoke via `eu.anthropic.claude-haiku-4-5-20251001-v1:0`, Bedrock fans the actual model invocation out to one of the EU regions (`eu-west-1`, `eu-west-2`, `eu-central-1`, etc.). The fan-out happens *inside* AWS — your traffic from the EC2 still terminates at the `eu-west-2` interface endpoint; Bedrock handles the cross-region hop on its own backbone. You do not need additional interface endpoints in other regions.
+
+Optional hardening for paranoid environments: put a Squid or `nginx` egress proxy on the box and configure the application to use `HTTPS_PROXY=http://127.0.0.1:3128`, with the proxy's domain allowlist set to apt + GitHub + the Bedrock public hostname. This is out of scope for the simple-deployment promise but trivially added later.
 
 ---
 
@@ -925,14 +1015,6 @@ aws ssm put-parameter \
 
 aws ssm put-parameter \
   --region eu-west-2 \
-  --name /flowin/prod/ANTHROPIC_API_KEY \
-  --type SecureString \
-  --value "sk-ant-api03-..." \
-  --key-id alias/flowin-prod-data \
-  --overwrite
-
-aws ssm put-parameter \
-  --region eu-west-2 \
   --name /flowin/prod/DATABASE_PASSWORD \
   --type SecureString \
   --value "<openssl rand -hex 32 output>" \
@@ -960,13 +1042,55 @@ aws ssm put-parameter \
   --type String \
   --value "12" \
   --overwrite
+
+# LLM provider config — selects Bedrock and pins the model. Stored as plain
+# String (not secret), but kept in Parameter Store so all runtime config lives
+# in one place and a model swap doesn't require a redeploy.
+aws ssm put-parameter \
+  --region eu-west-2 \
+  --name /flowin/prod/llm/provider \
+  --type String \
+  --value "bedrock" \
+  --overwrite
+
+aws ssm put-parameter \
+  --region eu-west-2 \
+  --name /flowin/prod/llm/region \
+  --type String \
+  --value "eu-west-2" \
+  --overwrite
+
+aws ssm put-parameter \
+  --region eu-west-2 \
+  --name /flowin/prod/llm/model_id \
+  --type String \
+  --value "eu.anthropic.claude-haiku-4-5-20251001-v1:0" \
+  --overwrite
 ```
+
+**Note:** there is no required `/flowin/prod/ANTHROPIC_API_KEY` in normal operation — auth to Bedrock is via the EC2 instance-profile role (§5.3). For the optional emergency fallback, see the entry at the end of this section.
 
 (Optional, only if LangSmith is enabled:)
 
 ```bash
 aws ssm put-parameter --region eu-west-2 --name /flowin/prod/LANGSMITH_API_KEY \
   --type SecureString --value "lsv2_pt_..." --key-id alias/flowin-prod-data --overwrite
+```
+
+**Optional emergency-fallback entry** — only populated during a Bedrock outage:
+
+```bash
+# Empty placeholder. Populate ONLY during a Bedrock regional outage; flip
+# /flowin/prod/llm/provider to "anthropic" and restart the backend. The
+# application code reads LLM_PROVIDER and switches between bedrock and
+# direct-Anthropic backends.
+aws ssm put-parameter \
+  --region eu-west-2 \
+  --name /flowin/prod/anthropic/api_key \
+  --type SecureString \
+  --value "" \
+  --key-id alias/flowin-prod-data \
+  --overwrite
 ```
 
 ### 9.3 The loader script
@@ -1019,8 +1143,9 @@ Secrets rotate on a calendar:
 | Secret | Rotation cadence | Procedure |
 |---|---|---|
 | `SECRET_KEY` | Yearly + on suspected compromise | `ssm put-parameter --overwrite`, restart backend. **All users will be logged out.** Schedule in maintenance window. |
-| `ANTHROPIC_API_KEY` | Yearly + on suspected compromise | Issue new key in Anthropic console, `ssm put-parameter --overwrite`, restart backend. |
+| Bedrock IAM credentials | N/A — handled by AWS | The instance-profile role uses STS-rotated short-lived credentials. There is no static API key to rotate. If the *role* is compromised, re-issue the role; the running instance picks up new credentials at the next IMDS refresh. |
 | `DATABASE_PASSWORD` | Yearly + on suspected compromise | `ALTER USER flowin WITH PASSWORD '<new>'`, `ssm put-parameter --overwrite` for both `DATABASE_PASSWORD` and `DATABASE_URL`, restart backend. |
+| `/flowin/prod/anthropic/api_key` (fallback only) | Only when populated for an outage; rotate immediately after the incident | Issue new key in Anthropic console, `ssm put-parameter --overwrite`, restart backend, then **clear the parameter** when Bedrock is restored to keep the empty-by-default invariant. |
 | TLS cert | 60-day automated by certbot | No action. |
 
 Document each rotation in the runbook (§13) with a CloudTrail-verifiable timestamp.
@@ -1118,7 +1243,7 @@ done
 
 ### 10.3 Alarms
 
-Eight alarms. Each fires to an SNS topic (`flowin-prod-alerts`) which fans out to PagerDuty / Slack / email per the on-call setup.
+Eleven alarms in total — eight infra alarms below (1–8) and three Bedrock-specific alarms in §10.4 (9–11). Each fires to an SNS topic (`flowin-prod-alerts`) which fans out to PagerDuty / Slack / email per the on-call setup.
 
 ```bash
 # 1. CPU pegged (sustained throttle)
@@ -1197,7 +1322,7 @@ aws cloudwatch put-metric-alarm --region eu-west-2 \
   --threshold 1 --comparison-operator GreaterThanOrEqualToThreshold \
   --alarm-actions <SNS_TOPIC_ARN>
 
-# 8. AWS Billing alarm — Anthropic spend can run away if Blocker 3 (cancel) bites
+# 8. AWS Billing alarm — Bedrock token spend can run away if Blocker 3 (cancel) bites
 # Set in us-east-1 because billing metrics are emitted only there.
 aws cloudwatch put-metric-alarm --region us-east-1 \
   --alarm-name flowin-prod-billing-monthly \
@@ -1207,12 +1332,65 @@ aws cloudwatch put-metric-alarm --region us-east-1 \
   --dimensions Name=Currency,Value=USD \
   --alarm-actions <SNS_TOPIC_ARN>
 # $500/month threshold; tune to your committed budget.
-# Note: this alarm covers the AWS bill. Anthropic spend is invoiced separately;
-# monitor it via the Anthropic console plus the application-level cap from
-# Pre-launch recommended item 8.
+# Note: this alarm now covers Bedrock spend implicitly because Bedrock is on
+# the AWS bill. The application-level token-budget cap (Pre-launch recommended
+# item 8) and the Bedrock-specific alarms in §10.4 are the per-event guardrails;
+# this billing alarm is the daily/monthly aggregate guardrail.
 ```
 
-### 10.4 Health endpoint and external uptime check
+### 10.4 Bedrock metrics & alarms
+
+Bedrock emits CloudWatch metrics in the `AWS/Bedrock` namespace, dimensioned by `ModelId`. The metrics we care about per model:
+
+| Metric | What it tells you |
+|---|---|
+| `Invocations` | Request volume — sanity check that traffic is reaching Bedrock at all. |
+| `InvocationLatency` | End-to-end latency. Useful for tracking slow degradation, not for paging. |
+| `InvocationClientErrors` | 4xx-class errors — auth failures, malformed requests, validation errors. Indicates a code or config bug, not a Bedrock outage. |
+| `InvocationServerErrors` | 5xx-class errors — Bedrock-side faults. Page on these. |
+| `InvocationThrottles` | Quota exhaustion. Page on these (default tier is conservative; see §0.1 trade-off (c)). |
+| `InputTokenCount` / `OutputTokenCount` | Volumes for cost monitoring — covers the same risk the old "Anthropic billing alarm" was meant to catch. |
+
+Three alarms wired to the same SNS topic:
+
+```bash
+# 9. Bedrock throttles — quota exhaustion, page on-call
+aws cloudwatch put-metric-alarm --region eu-west-2 \
+  --alarm-name flowin-prod-bedrock-throttles \
+  --metric-name InvocationThrottles --namespace AWS/Bedrock \
+  --statistic Sum --period 300 --evaluation-periods 1 \
+  --threshold 0 --comparison-operator GreaterThanThreshold \
+  --dimensions Name=ModelId,Value=eu.anthropic.claude-haiku-4-5-20251001-v1:0 \
+  --alarm-actions <SNS_TOPIC_ARN>
+# Any throttle in any 5-minute window is a quota signal — request an increase.
+
+# 10. Bedrock server errors — Bedrock-side outage indicator
+aws cloudwatch put-metric-alarm --region eu-west-2 \
+  --alarm-name flowin-prod-bedrock-5xx \
+  --metric-name InvocationServerErrors --namespace AWS/Bedrock \
+  --statistic Sum --period 300 --evaluation-periods 1 \
+  --threshold 5 --comparison-operator GreaterThanThreshold \
+  --dimensions Name=ModelId,Value=eu.anthropic.claude-haiku-4-5-20251001-v1:0 \
+  --alarm-actions <SNS_TOPIC_ARN>
+# >5 5xx in 5 minutes — likely a Bedrock regional fault. Consider flipping to
+# the optional Anthropic-direct fallback (see §0.1, §9).
+
+# 11. Bedrock input-token daily total — cost runaway detector
+aws cloudwatch put-metric-alarm --region eu-west-2 \
+  --alarm-name flowin-prod-bedrock-tokens-daily \
+  --metric-name InputTokenCount --namespace AWS/Bedrock \
+  --statistic Sum --period 86400 --evaluation-periods 1 \
+  --threshold 50000000 --comparison-operator GreaterThanThreshold \
+  --dimensions Name=ModelId,Value=eu.anthropic.claude-haiku-4-5-20251001-v1:0 \
+  --alarm-actions <SNS_TOPIC_ARN>
+# Set the threshold conservatively — start at one or two times your expected
+# typical-day input-token volume and tighten after a week of baseline data.
+# This covers the same intent as the old "Anthropic billing alarm".
+```
+
+The CloudWatch billing alarm in §10.3 item 8 still applies and now covers Bedrock spend implicitly because Bedrock is on the AWS bill.
+
+### 10.5 Health endpoint and external uptime check
 
 The app already exposes `/health` (`main.py:102-109`). Hit it from outside AWS so a CloudWatch outage doesn't blind your monitoring:
 
@@ -1373,7 +1551,7 @@ If the data volume is also lost (region-wide outage, AZ failure), the recovery p
 ### 11.4 What we explicitly do not back up
 
 - Application logs in CloudWatch — they're already durable.
-- Anthropic responses — re-derivable on demand.
+- LLM (Bedrock) responses — re-derivable on demand.
 - Skills (small, low-churn) — *do* back up, via a nightly `tar` to S3:
   ```bash
   echo '0 4 * * * flowin tar -czf - /opt/flowin/src/backend/skills | aws s3 cp - s3://flowin-prod-backups/skills/$(date -u +\%Y\%m\%d).tar.gz --region eu-west-2 --sse AES256' | sudo tee -a /etc/cron.d/flowin-skills-backup
@@ -1535,7 +1713,8 @@ Postgres major versions (16 → 17 etc.) are *not* automatic. Plan in advance:
 | HTTPS down (no TLS handshake) | `sudo systemctl status nginx`, `sudo nginx -t`, `sudo certbot certificates` | Cert expired? `sudo certbot renew --force-renewal` |
 | Disk full on `/` | `journalctl --vacuum-size=500M`, `apt clean`, check `/var/log` | Permanent fix: log rotation, or expand the root volume |
 | Disk full on `/var/lib/postgresql` | **DO NOT** run `VACUUM FULL` blindly. Check for runaway agent_outputs JSON. Truncate old `workflow_runs` per Blocker 6. | Long term: expand the volume (`aws ec2 modify-volume`, then `xfs_growfs`) |
-| Anthropic 5xx surge | Reactive: nothing. The retries in `pipeline.py:95-122` (B5) handle transient errors. | If sustained, alert customers via status page, recommend retry later |
+| Bedrock 5xx surge (`flowin-prod-bedrock-5xx`) | Reactive: nothing. The retries in `pipeline.py:95-122` (B5) handle transient errors. | If sustained, check the AWS Service Health Dashboard for `eu-west-2` Bedrock; if confirmed regional outage, flip `/flowin/prod/llm/provider` to `anthropic`, populate the fallback API key, restart backend (§9). Alert customers via status page. |
+| Bedrock throttles (`flowin-prod-bedrock-throttles`) | Open a Service Quotas increase request for Haiku 4.5 TPM/RPM in `eu-west-2`. | Until granted, expect `Invocation` failures during peaks; the `pipeline.py:95-122` retries cushion this but only up to a point. |
 | WS storm (clients reconnecting frantically) | Check `flowin-prod-ws-disconnect-spike` alarm; check uvicorn worker count | A bug in W05 reconnect logic? Check `useWebSocket.ts:113-121` — exponential backoff should keep this bounded |
 | User reports stale data | Confirm last successful `pg_dump` from S3; check `pg_stat_activity` for stuck connections | If DB row stuck `running` (Blocker 6), nudge via SQL UPDATE |
 | Suspected breach | (1) Take EBS snapshot for forensics, (2) rotate all Parameter Store secrets, (3) terminate the instance from a fresh one | CloudTrail + GuardDuty + auditd logs in CloudWatch are your evidence |
@@ -1557,26 +1736,29 @@ All in USD, `eu-west-2`, list price (no Reserved Instance / Savings Plan — whe
 | EIP (attached) | $0 | $0 | $0 |
 | Route 53 hosted zone | $0.50 | $0.50 | $0.50 |
 | Route 53 health check (1) | $0.50 | $0.50 | $0.50 |
+| Bedrock VPC interface endpoints (×2, single AZ) | $15 | $15 | $15 |
+| Bedrock interface-endpoint data processing | $0.10 | $0.50 | $2 |
 | Data transfer out | $5 | $20 | $50 |
 | CloudWatch Logs ingestion | $5 | $15 | $40 |
 | CloudWatch Logs storage (90 days) | $3 | $8 | $20 |
 | CloudWatch Metrics (custom) | $3 | $5 | $10 |
-| CloudWatch Alarms (8) | $0.80 | $0.80 | $0.80 |
+| CloudWatch Alarms (11) | $1.10 | $1.10 | $1.10 |
 | Parameter Store (standard tier) | $0 | $0 | $0 |
 | KMS CMK | $1 | $1 | $1 |
 | GuardDuty (incl. CloudTrail/VPC flow ingestion) | $5 | $10 | $25 |
 | AWS CloudTrail (mgmt events to S3) | $0 | $0 | $0 |
 | S3 (backups, ~5 GB versioned) | $0.20 | $0.50 | $2 |
 | S3 requests (backups + artifacts) | $0.50 | $1 | $2 |
-| **Subtotal AWS** | **~$174** | **~$213** | **~$313** |
-| Anthropic API spend (varies wildly) | ~$10 | ~$50 | ~$200+ |
-| **Total** | **~$185** | **~$240–270** | **~$400+** |
+| **Subtotal AWS infra (no LLM tokens)** | **~$190** | **~$229** | **~$330** |
+| Bedrock model invocations (Haiku 4.5, list pricing) | ~$10 | ~$50–$200 | ~$1000+ |
+| **Total** | **~$200** | **~$280–430** | **~$1330+** |
 
 Notes:
 
+- **Bedrock token spend** is *separate and traffic-dependent*. At time of writing, list pricing is **$0.80 per million input tokens** and **$4.00 per million output tokens** for Claude Haiku 4.5 — verify on the Bedrock pricing page. Bedrock charges parity with the Anthropic direct list price; expect ~$50–$200/mo on top of infra at typical pilot traffic, $1k+ at high volume. With Blocker 3 (cancel) unfixed, a single user "Stop"-clicking a runaway PPT pipeline can burn $5+ of tokens — fix it before going wide.
 - **Reserved Instance / Savings Plan:** committing to a 1-year, no-upfront RI on `m6i.xlarge` drops the EC2 line to ~$95/month. Worth doing once steady-state usage is confirmed (~3 months in).
-- **Anthropic spend** scales with usage and is the wildcard. With Blocker 3 (cancel) unfixed, a single user "Stop"-clicking a runaway PPT pipeline can burn $5+ of tokens. Fix it.
-- The multi-service guide (`PRODUCTION_DEPLOYMENT_GUIDE.md`) costs ~$105/$205 base — apparently cheaper at low traffic. The catch: that estimate excludes ALB, RDS Multi-AZ surcharge, ElastiCache reserved capacity, CloudFront data transfer-out, and Bedrock vs Anthropic rate. In practice once you wire it all up the multi-service variant lands in the **$300–500/mo** band at typical traffic; the *real* difference between the two designs is **operational**, not cost.
+- **Bedrock VPC endpoints** are the new ~$15/mo line item versus the old "direct Anthropic" design. The cost is the price we pay for keeping LLM traffic inside AWS — see §0.1 and §6.4.
+- The multi-service guide (`PRODUCTION_DEPLOYMENT_GUIDE.md`) costs ~$105/$205 base — apparently cheaper at low traffic. The catch: that estimate excludes ALB, RDS Multi-AZ surcharge, ElastiCache reserved capacity, and CloudFront data transfer-out. In practice once you wire it all up the multi-service variant lands in the **$300–500/mo** band at typical traffic; the *real* difference between the two designs is **operational**, not cost.
 
 ---
 
@@ -1656,7 +1838,7 @@ When the single-EC2 design no longer fits, migrate in this order:
 
 6. **Add ElastiCache only when you actually need it.** The current code has no cache layer; introducing Redis is a code change. Defer until WS session affinity (step 4 stickiness) starts misbehaving — ElastiCache + a proper session store solves that, and also enables the JWT denylist from Blocker 4.
 
-7. **Migrate to AWS Bedrock** *if and only if* the customer compliance argument changes. See §0.1.
+7. **(Already done.)** AWS Bedrock is the LLM provider from day one — see §0.1 and §6.4. No further action in this migration phase.
 
 The single-EC2 instance can be decommissioned after step 5. Expect the migration to take 4–6 weeks calendar time with one engineer; the bulk of it is steps 4 and 6, not the AWS plumbing.
 
@@ -1875,7 +2057,9 @@ User=flowin
 Group=flowin
 WorkingDirectory=/opt/flowin/backend
 
-# Pull secrets fresh on every start.
+# Pull secrets and runtime config fresh on every start. The loader populates
+# Bedrock provider/region/model_id from /flowin/prod/llm/*; ANTHROPIC_API_KEY
+# is no longer required for boot (only for the optional outage fallback — §9).
 ExecStartPre=/usr/local/bin/flowin-load-secrets
 EnvironmentFile=/etc/flowin/environment.d/flowin.env
 
@@ -2076,7 +2260,9 @@ Canonical reference. **All keys live under `/flowin/prod/`** and are written by 
 | Key | Type | Source / generation | Rotation | Notes |
 |---|---|---|---|---|
 | `/flowin/prod/SECRET_KEY` | SecureString | `openssl rand -hex 64` | Yearly + on compromise | Used by python-jose for HS256. **Required non-default at boot** (Blocker 1). |
-| `/flowin/prod/ANTHROPIC_API_KEY` | SecureString | Anthropic Console → API keys | Yearly + on compromise | Currently the only LLM provider. |
+| `/flowin/prod/llm/provider` | String | `bedrock` | Only on emergency Anthropic-direct fallback (§0.1) | Selects the LLM backend. Values: `bedrock` (default) or `anthropic` (fallback). |
+| `/flowin/prod/llm/region` | String | `eu-west-2` | When deployment region changes | AWS region the Bedrock SDK targets. The cross-region inference profile fans out to other EU regions transparently — the SDK target stays `eu-west-2`. |
+| `/flowin/prod/llm/model_id` | String | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` | When upgrading model | The Bedrock model ID or inference-profile ID the application invokes. Not a secret, but kept in Parameter Store so model swaps don't require a redeploy. |
 | `/flowin/prod/DATABASE_URL` | SecureString | Composed from `DATABASE_PASSWORD` | When password rotates | Form: `postgresql+psycopg2://flowin:<pw>@127.0.0.1:5432/flowin` |
 | `/flowin/prod/DATABASE_PASSWORD` | SecureString | `openssl rand -hex 32` | Yearly + on compromise | Drives `ALTER USER flowin WITH PASSWORD ...` |
 | `/flowin/prod/CORS_ORIGINS` | String | – | When domains change | JSON array. Currently `["https://flowin.example.com"]`. **Code change**: `app/main.py:87` is hard-coded to `localhost`; needs to read `settings.CORS_ORIGINS`. Track as a pre-launch fix. |
@@ -2084,7 +2270,7 @@ Canonical reference. **All keys live under `/flowin/prod/`** and are written by 
 | `/flowin/prod/LANGSMITH_TRACING` | String | `false` (default) or `true` | Per change | If `true`, also requires the next two keys. |
 | `/flowin/prod/LANGSMITH_API_KEY` | SecureString | LangSmith Console | When LangSmith rotates | Optional — only if tracing is on. |
 | `/flowin/prod/LANGSMITH_PROJECT` | String | e.g. `flowin-prod` | Per change | Optional. |
-| `/flowin/prod/ANTHROPIC_MODEL` | String | `claude-haiku-4-5-20251001` (current default per `agents/base.py:27`) | When upgrading model | Optional override; if absent, code default is used. |
+| `/flowin/prod/anthropic/api_key` | SecureString | Anthropic Console → API keys (only when populated for an outage fallback) | Only when the parameter is populated; clear on incident close | **Empty by default and not required for boot.** Populated only during a Bedrock outage; pair with `/flowin/prod/llm/provider=anthropic` and restart the backend. See §0.1, §9. |
 
 To list everything that exists today:
 
@@ -2317,15 +2503,38 @@ npm run build
 EOF
 
 # ── 9. Secrets loader ──────────────────────────────────────────────────
+# Pulls all parameters under /flowin/prod/* and emits them as KEY=value lines
+# into a 0640 root:flowin env file. The mapping rule:
+#   - /flowin/prod/<KEY>            → <KEY>=...    (top-level keys)
+#   - /flowin/prod/llm/<KEY>        → LLM_<KEY>=...   (nested → uppercase prefix)
+#   - /flowin/prod/anthropic/api_key → ANTHROPIC_API_KEY=...  (special-cased)
+# An empty or missing /flowin/prod/anthropic/api_key is fine — the application
+# only consults ANTHROPIC_API_KEY when LLM_PROVIDER=anthropic.
 cat > /usr/local/bin/flowin-load-secrets <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 OUT=/etc/flowin/environment.d/flowin.env
 TMP=$(mktemp /etc/flowin/environment.d/flowin.env.XXXXXX)
 chmod 0640 "$TMP"; chown root:flowin "$TMP"
+
 aws ssm get-parameters-by-path --path /flowin/prod --recursive --with-decryption \
     --region eu-west-2 --query 'Parameters[].{Name:Name,Value:Value}' --output json |
-    jq -r '.[] | "\(.Name|split("/")|last)=\(.Value|@sh)"' > "$TMP"
+    jq -r '
+      .[]
+      | (.Name | sub("^/flowin/prod/"; "")) as $rel
+      | if   ($rel == "anthropic/api_key") then "ANTHROPIC_API_KEY=\(.Value|@sh)"
+        elif ($rel | startswith("llm/"))   then "LLM_\(($rel|sub("^llm/"; "")|ascii_upcase))=\(.Value|@sh)"
+        else                                    "\($rel|gsub("/"; "_"))=\(.Value|@sh)"
+        end
+    ' > "$TMP"
+
+# Provide safe defaults if the optional Anthropic fallback parameter is absent
+# or empty. The boot-time invariant is "LLM_PROVIDER is always set"; the
+# application logic decides whether ANTHROPIC_API_KEY is required.
+grep -q '^LLM_PROVIDER=' "$TMP" || echo "LLM_PROVIDER='bedrock'" >> "$TMP"
+grep -q '^LLM_REGION='   "$TMP" || echo "LLM_REGION='eu-west-2'"  >> "$TMP"
+grep -q '^LLM_MODEL_ID=' "$TMP" || echo "LLM_MODEL_ID='eu.anthropic.claude-haiku-4-5-20251001-v1:0'" >> "$TMP"
+
 mv "$TMP" "$OUT"
 chmod 0640 "$OUT"; chown root:flowin "$OUT"
 EOF

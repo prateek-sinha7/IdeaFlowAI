@@ -1,9 +1,8 @@
-"""Base agent class with Anthropic Claude LLM configuration."""
+"""Base agent class. Provider is selectable: AWS Bedrock (default) or direct Anthropic API."""
 
 import logging
 from typing import AsyncGenerator
 
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.core.config import settings
@@ -12,7 +11,7 @@ logger = logging.getLogger("app.agents.base")
 
 
 class AgentConfigurationError(Exception):
-    """Raised when the agent is misconfigured (e.g., missing API key)."""
+    """Raised when the LLM client is misconfigured."""
 
     pass
 
@@ -20,36 +19,93 @@ class AgentConfigurationError(Exception):
 class BaseAgent:
     """Base class for all LangChain agents.
 
-    Configures the Anthropic Claude LLM and provides streaming/non-streaming
-    methods for subclasses to use.
+    Constructs an LLM client based on ``settings.LLM_PROVIDER``:
+
+    * ``"bedrock"`` (default) — ``langchain_aws.ChatBedrockConverse``. Auth via
+      the boto3 default credential chain (no API key passed).
+    * ``"anthropic"`` — ``langchain_anthropic.ChatAnthropic``. Emergency-
+      continuity fallback; requires ``ANTHROPIC_API_KEY``.
+
+    Subclasses inherit ``astream``/``run`` and may pass ``model=`` to override
+    the provider-default model name.
     """
 
-    def __init__(self, system_prompt: str, model: str = "claude-haiku-4-5-20251001", max_tokens: int = 32000):
+    def __init__(
+        self,
+        system_prompt: str,
+        max_tokens: int = 32000,
+        model: str | None = None,
+    ):
         """Initialize the base agent with a system prompt and LLM configuration.
 
         Args:
             system_prompt: The system prompt defining the agent's role.
-            model: The Anthropic model name to use.
             max_tokens: Maximum output tokens for this agent.
+            model: Optional explicit model identifier. If ``None``, the
+                provider-appropriate default from settings is used.
 
         Raises:
-            AgentConfigurationError: If ANTHROPIC_API_KEY is missing or empty.
+            AgentConfigurationError: If the configured provider is unknown or
+                its required settings are missing.
         """
-        if not settings.ANTHROPIC_API_KEY:
+        provider = (settings.LLM_PROVIDER or "bedrock").lower()
+        if provider == "bedrock":
+            self.llm = self._make_bedrock_client(model, max_tokens)
+            self.model = model or settings.BEDROCK_MODEL_ID
+        elif provider == "anthropic":
+            self.llm = self._make_anthropic_client(model, max_tokens)
+            self.model = (
+                model
+                or settings.ANTHROPIC_MODEL
+                or "claude-haiku-4-5-20251001"
+            )
+        else:
             raise AgentConfigurationError(
-                "ANTHROPIC_API_KEY is not configured. "
-                "Set the ANTHROPIC_API_KEY environment variable to use AI agents."
+                f"LLM_PROVIDER must be 'bedrock' or 'anthropic'; "
+                f"got {settings.LLM_PROVIDER!r}"
             )
 
         self.system_prompt = system_prompt
-        self.model = model
-        self.llm = ChatAnthropic(
-            model=self.model,
+        logger.debug(
+            "Agent initialized provider=%s model=%s max_tokens=%d prompt_len=%d",
+            provider,
+            self.model,
+            max_tokens,
+            len(system_prompt),
+        )
+
+    @staticmethod
+    def _make_bedrock_client(model: str | None, max_tokens: int):
+        """Build a ChatBedrockConverse client. Lazy-import keeps dev installs lean."""
+        from langchain_aws import ChatBedrockConverse  # noqa: WPS433 — lazy import
+
+        model_id = model or settings.BEDROCK_MODEL_ID
+        region = settings.AWS_REGION
+        if not model_id or not region:
+            raise AgentConfigurationError(
+                "Bedrock provider requires BEDROCK_MODEL_ID and AWS_REGION to be set."
+            )
+        return ChatBedrockConverse(
+            model=model_id,
+            region_name=region,
+            max_tokens=max_tokens,
+        )
+
+    @staticmethod
+    def _make_anthropic_client(model: str | None, max_tokens: int):
+        """Build a ChatAnthropic client (fallback path)."""
+        from langchain_anthropic import ChatAnthropic  # noqa: WPS433 — lazy import
+
+        if not settings.ANTHROPIC_API_KEY:
+            raise AgentConfigurationError(
+                "Anthropic provider requires ANTHROPIC_API_KEY to be set."
+            )
+        return ChatAnthropic(
+            model=model or settings.ANTHROPIC_MODEL or "claude-haiku-4-5-20251001",
             anthropic_api_key=settings.ANTHROPIC_API_KEY,
             streaming=True,
             max_tokens=max_tokens,
         )
-        logger.debug("Agent initialized with model=%s, max_tokens=%d, prompt_length=%d", model, max_tokens, len(system_prompt))
 
     def _build_messages(
         self, user_message: str, context: dict | None = None

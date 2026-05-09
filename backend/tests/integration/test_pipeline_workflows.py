@@ -2,13 +2,15 @@
 
 These tests verify:
 1. Correct agent sequence for each pipeline type
-2. Pipeline execution with real Claude API (requires ANTHROPIC_API_KEY)
+2. Pipeline execution with a real LLM (requires the active LLM_PROVIDER to be
+   fully configured — either ANTHROPIC_API_KEY or AWS Bedrock credentials)
 3. Output format validation (JSON for PPT/Prototype, Markdown for User Stories)
 4. Context passing between agents
 5. Error handling and recovery
 
 Run with: pytest backend/tests/integration/ -v
-Skip if no API key: pytest backend/tests/integration/ -v -m "not requires_api_key"
+Skip if no LLM is configured:
+    pytest backend/tests/integration/ -v -m "not requires_api_key"
 """
 
 import asyncio
@@ -33,10 +35,21 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Skip tests that require API key if not configured
+# Skip tests that require a real LLM if the active provider is not configured.
+# (Marker name kept as `requires_api_key` for backward-compat with existing test
+# selection commands; semantics now cover Bedrock too.)
+def _llm_configured() -> bool:
+    provider = (settings.LLM_PROVIDER or "bedrock").lower()
+    if provider == "bedrock":
+        return bool(settings.BEDROCK_MODEL_ID and settings.AWS_REGION)
+    if provider == "anthropic":
+        return bool(settings.ANTHROPIC_API_KEY)
+    return False
+
+
 requires_api_key = pytest.mark.skipif(
-    not settings.ANTHROPIC_API_KEY,
-    reason="ANTHROPIC_API_KEY not configured"
+    not _llm_configured(),
+    reason="Active LLM_PROVIDER is not fully configured",
 )
 
 
