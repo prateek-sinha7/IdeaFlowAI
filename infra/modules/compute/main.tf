@@ -1,4 +1,6 @@
 data "aws_ami" "ubuntu" {
+  count = var.ami_id == "" ? 1 : 0
+
   most_recent = true
   owners      = [var.ami_owner]
 
@@ -30,6 +32,9 @@ data "aws_ami" "ubuntu" {
 
 locals {
   parameter_path_prefix = "/flowin/${var.environment}"
+
+  # Either the explicit override (LocalStack et al.) or the data-source lookup.
+  effective_ami_id = var.ami_id != "" ? var.ami_id : data.aws_ami.ubuntu[0].id
 
   user_data = templatefile("${path.module}/user_data.sh.tpl", {
     environment           = var.environment
@@ -65,11 +70,11 @@ resource "aws_ebs_volume" "data" {
 # --- EC2 instance -----------------------------------------------------------
 
 resource "aws_instance" "app" {
-  ami                    = data.aws_ami.ubuntu.id
+  ami                    = local.effective_ami_id
   instance_type          = var.instance_type
   subnet_id              = var.subnet_id
   vpc_security_group_ids = [var.security_group_id]
-  iam_instance_profile   = var.iam_instance_profile_name
+  iam_instance_profile   = var.iam_instance_profile_name != "" ? var.iam_instance_profile_name : null
   key_name               = var.ssh_key_name != "" ? var.ssh_key_name : null
 
   user_data                   = base64encode(local.user_data)
@@ -84,8 +89,8 @@ resource "aws_instance" "app" {
     instance_metadata_tags      = "enabled"
   }
 
-  monitoring                           = true
-  ebs_optimized                        = true
+  monitoring                           = var.detailed_monitoring
+  ebs_optimized                        = var.ebs_optimized
   instance_initiated_shutdown_behavior = "stop"
 
   root_block_device {

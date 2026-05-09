@@ -4,7 +4,7 @@ variable "name_prefix" {
 }
 
 variable "environment" {
-  description = "Environment short name (e.g. prod). Used in parameter paths /flowin/${env}/..."
+  description = "Environment short name (e.g. prod). Used in parameter paths /flowin/$${env}/..."
   type        = string
 }
 

@@ -20,3 +20,9 @@ variable "components" {
     secrets    = "SSM Parameter Store entries"
   }
 }
+
+variable "description_separator" {
+  description = "Glyph between the component-name prefix and the human description in each per-component group. Defaults to em-dash; LocalStack validates description against a stricter ASCII regex than real AWS, so test envs override this with '-'."
+  type        = string
+  default     = "—"
+}

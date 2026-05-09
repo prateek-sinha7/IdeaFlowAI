@@ -14,7 +14,7 @@ variable "kms_key_arn" {
 }
 
 variable "bucket_name" {
-  description = "Name of the S3 backup bucket. Must be globally unique. Suggested: flowin-${env}-pg-dumps-<account-id>."
+  description = "Name of the S3 backup bucket. Must be globally unique. Suggested: flowin-$${env}-pg-dumps-<account-id>."
   type        = string
 
   validation {

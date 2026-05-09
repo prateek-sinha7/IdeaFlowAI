@@ -90,6 +90,24 @@ variable "ami_name_pattern" {
   default     = "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"
 }
 
+variable "ami_id" {
+  description = "Optional override for the AMI ID. When non-empty the data-source lookup is bypassed (useful for environments such as LocalStack where the Canonical filter doesn't resolve). Empty default preserves prod behaviour."
+  type        = string
+  default     = ""
+}
+
+variable "detailed_monitoring" {
+  description = "Toggle EC2 detailed (1-minute) CloudWatch monitoring. Default true (matches prod). Set false in environments such as LocalStack where MonitorInstances isn't implemented."
+  type        = bool
+  default     = true
+}
+
+variable "ebs_optimized" {
+  description = "Toggle EBS-optimized launch. Default true. Set false in environments where the chosen AMI doesn't support it."
+  type        = bool
+  default     = true
+}
+
 variable "user_data_extra_env" {
   description = "Extra key/value pairs injected into the user-data template (e.g. backup bucket name)."
   type        = map(string)

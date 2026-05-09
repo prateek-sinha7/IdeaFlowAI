@@ -35,5 +35,5 @@ output "data_volume_arn" {
 
 output "ami_id" {
   description = "AMI ID resolved at apply time."
-  value       = data.aws_ami.ubuntu.id
+  value       = local.effective_ami_id
 }

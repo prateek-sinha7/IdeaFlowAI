@@ -1,5 +1,5 @@
 variable "expected_account_id" {
-  description = "AWS account ID this stack must run against. Plan/apply abort on mismatch."
+  description = "AWS account ID this stack must run against. Plan/apply abort on mismatch. LocalStack default = 000000000000."
   type        = string
 
   validation {
@@ -28,7 +28,7 @@ variable "availability_zone" {
 variable "environment" {
   description = "Environment short name; appears in name_prefix and parameter paths."
   type        = string
-  default     = "prod"
+  default     = "ls"
 
   validation {
     condition     = can(regex("^[a-z][a-z0-9]{1,15}$", var.environment))
@@ -46,18 +46,6 @@ variable "cost_center" {
   type        = string
 }
 
-variable "assume_role_arn" {
-  description = "Optional IAM role ARN the AWS provider assumes. Empty = use the caller's identity directly."
-  type        = string
-  default     = ""
-}
-
-variable "assume_role_external_id" {
-  description = "Optional external ID for the assume-role call."
-  type        = string
-  default     = ""
-}
-
 # --- Network ----------------------------------------------------------------
 
 variable "vpc_cidr" {
@@ -73,7 +61,7 @@ variable "public_subnet_cidr" {
 }
 
 variable "ssh_allowed_cidrs" {
-  description = "List of CIDRs permitted SSH ingress. Leave empty to use only SSM Session Manager (recommended)."
+  description = "List of CIDRs permitted SSH ingress. Empty = SSM-only."
   type        = list(string)
   default     = []
 }
@@ -99,7 +87,13 @@ variable "data_volume_size_gb" {
 }
 
 variable "ssh_key_name" {
-  description = "Existing EC2 keypair name. Empty disables --key-name (use SSM Session Manager)."
+  description = "Existing EC2 keypair name. Empty disables --key-name."
+  type        = string
+  default     = ""
+}
+
+variable "ami_id" {
+  description = "AMI ID override. Required for LocalStack since the Canonical filter doesn't resolve there. Empty falls back to data-source lookup."
   type        = string
   default     = ""
 }
@@ -107,12 +101,12 @@ variable "ssh_key_name" {
 # --- DNS --------------------------------------------------------------------
 
 variable "route53_zone_name" {
-  description = "Existing Route 53 hosted zone name (e.g. example.com). MUST already exist in this account."
+  description = "Existing Route 53 hosted zone name."
   type        = string
 }
 
 variable "app_subdomain" {
-  description = "Subdomain (without zone) the app answers on, e.g. 'flowin'."
+  description = "Subdomain (without zone) the app answers on."
   type        = string
   default     = "flowin"
 }
@@ -126,19 +120,19 @@ variable "dns_ttl_seconds" {
 # --- Bedrock / LLM ----------------------------------------------------------
 
 variable "bedrock_model_id" {
-  description = "Bedrock foundation-model ID Flowin invokes."
+  description = "Bedrock foundation-model ID."
   type        = string
   default     = "anthropic.claude-haiku-4-5-20251001-v1:0"
 }
 
 variable "bedrock_inference_profile_id" {
-  description = "Cross-region inference profile ID, used in IAM and as the active model_id when traffic must span regions."
+  description = "Cross-region inference profile ID."
   type        = string
   default     = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
 }
 
 variable "use_inference_profile_for_app" {
-  description = "If true, the app's /flowin/$${env}/llm/model_id parameter is the inference profile ID rather than the foundation-model ID."
+  description = "If true, /flowin/$${env}/llm/model_id is the inference profile ID."
   type        = bool
   default     = true
 }
@@ -146,7 +140,7 @@ variable "use_inference_profile_for_app" {
 # --- Secrets / app config ---------------------------------------------------
 
 variable "app_secret_key" {
-  description = "Application JWT signing key (>= 32 chars, generate via `openssl rand -hex 64`). NEVER commit. Set via env var TF_VAR_app_secret_key or terraform.tfvars (which is gitignored)."
+  description = "App JWT signing key (>= 32 chars)."
   type        = string
   sensitive   = true
 
@@ -157,7 +151,7 @@ variable "app_secret_key" {
 }
 
 variable "db_password" {
-  description = "Postgres password for the application user. Generate via `openssl rand -hex 32`. NEVER commit."
+  description = "Postgres app user password (>= 16 chars)."
   type        = string
   sensitive   = true
 
@@ -175,8 +169,9 @@ variable "anthropic_api_key" {
 }
 
 variable "cors_origins" {
-  description = "JSON-encoded list of CORS origins, e.g. '[\"https://flowin.example.com\"]'."
+  description = "JSON-encoded list of CORS origins."
   type        = string
+  default     = "[\"https://flowin.test\"]"
 }
 
 variable "access_token_expire_hours" {
@@ -188,7 +183,7 @@ variable "access_token_expire_hours" {
 # --- Backups ----------------------------------------------------------------
 
 variable "backup_bucket_name" {
-  description = "Globally-unique name for the pg_dump backup bucket. Suggested: flowin-prod-pg-dumps-<account-id>."
+  description = "Globally-unique name for the pg_dump backup bucket."
   type        = string
 }
 
@@ -201,7 +196,7 @@ variable "daily_backup_retention_days" {
 # --- Monitoring -------------------------------------------------------------
 
 variable "alert_email" {
-  description = "Email address subscribed to the SNS alerts topic."
+  description = "Email subscribed to the SNS alerts topic."
   type        = string
 
   validation {

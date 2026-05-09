@@ -19,6 +19,11 @@ plan.out
 *.auto.tfvars.json
 !*.tfvars.example
 
+# Exception: the LocalStack environment is a hermetic test fixture — its
+# values are canonical (account 000000000000, stub AMI, dummy creds) and
+# carry no secrets, so they ship with the repo.
+!envs/localstack/terraform.tfvars
+
 # Crash logs
 crash.log
 crash.*.log

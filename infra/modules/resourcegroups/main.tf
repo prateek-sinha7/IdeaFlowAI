@@ -28,7 +28,7 @@ resource "aws_resourcegroups_group" "per_component" {
   for_each = var.components
 
   name        = "${var.name_prefix}-${each.key}"
-  description = "Flowin ${each.key} resources — ${each.value}"
+  description = "Flowin ${each.key} resources ${var.description_separator} ${each.value}"
 
   resource_query {
     query = jsonencode({
