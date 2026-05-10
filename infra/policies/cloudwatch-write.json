@@ -9,7 +9,7 @@
         "logs:PutLogEvents",
         "logs:DescribeLogStreams"
       ],
-      "Resource": "arn:aws:logs:${region}:${account_id}:log-group:/flowin/${environment}/*"
+      "Resource": "arn:${partition}:logs:${region}:${account_id}:log-group:/flowin/${environment}/*"
     },
     {
       "Sid": "DescribeLogGroups",
@@ -17,7 +17,7 @@
       "Action": [
         "logs:DescribeLogGroups"
       ],
-      "Resource": "arn:aws:logs:${region}:${account_id}:log-group:/flowin/${environment}*"
+      "Resource": "arn:${partition}:logs:${region}:${account_id}:log-group:/flowin/${environment}/*"
     }
   ]
 }

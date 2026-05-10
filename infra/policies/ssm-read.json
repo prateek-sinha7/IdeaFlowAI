@@ -9,7 +9,7 @@
         "ssm:GetParameters",
         "ssm:GetParametersByPath"
       ],
-      "Resource": "arn:aws:ssm:${region}:${account_id}:parameter/flowin/${environment}/*"
+      "Resource": "arn:${partition}:ssm:${region}:${account_id}:parameter/flowin/${environment}/*"
     }
   ]
 }

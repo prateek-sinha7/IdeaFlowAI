@@ -54,6 +54,7 @@ resource "aws_iam_role_policy" "bedrock_invoke" {
   # the list there. See:
   #   https://docs.aws.amazon.com/bedrock/latest/userguide/cross-region-inference.html
   policy = templatefile("${path.module}/${var.policies_dir}/bedrock-invoke.json", {
+    partition            = data.aws_partition.current.partition
     region               = var.region
     account_id           = var.account_id
     model_id             = var.bedrock_model_id
@@ -66,6 +67,7 @@ resource "aws_iam_role_policy" "ssm_read" {
   role = aws_iam_role.instance.id
 
   policy = templatefile("${path.module}/${var.policies_dir}/ssm-read.json", {
+    partition   = data.aws_partition.current.partition
     region      = var.region
     account_id  = var.account_id
     environment = var.environment
@@ -83,6 +85,7 @@ resource "aws_iam_role_policy" "kms_decrypt" {
   # the aws:logs:arn encryption context). All four statements need
   # region/account_id/environment for ARN composition.
   policy = templatefile("${path.module}/${var.policies_dir}/kms-decrypt.json", {
+    partition   = data.aws_partition.current.partition
     kms_key_arn = var.kms_key_arn
     region      = var.region
     account_id  = var.account_id
@@ -95,6 +98,7 @@ resource "aws_iam_role_policy" "cloudwatch_write" {
   role = aws_iam_role.instance.id
 
   policy = templatefile("${path.module}/${var.policies_dir}/cloudwatch-write.json", {
+    partition   = data.aws_partition.current.partition
     region      = var.region
     account_id  = var.account_id
     environment = var.environment
@@ -124,6 +128,7 @@ resource "aws_iam_role_policy" "ecr_pull" {
   role = aws_iam_role.instance.id
 
   policy = templatefile("${path.module}/${var.policies_dir}/ecr-pull.json", {
+    partition   = data.aws_partition.current.partition
     region      = var.region
     account_id  = var.account_id
     name_prefix = var.name_prefix
@@ -131,8 +136,11 @@ resource "aws_iam_role_policy" "ecr_pull" {
 }
 
 # --- The CloudWatch Agent needs a couple of describe + metric-put actions ---
-# These cannot be scoped down (per AWS docs); kept as a small, separate
-# policy so they're easy to audit on their own.
+# These cannot be scoped down by Resource (per AWS docs — the APIs don't
+# accept resource-level scoping). Kept as a small, separate policy so they're
+# easy to audit on their own. The `aws:RequestedRegion` condition bounds the
+# blast radius to the deploy region so a stolen instance credential can't
+# be replayed against another region's CloudWatch / EC2 metadata.
 data "aws_iam_policy_document" "cw_agent_describes" {
   statement {
     sid    = "CloudWatchAgentMetricPut"
@@ -143,6 +151,12 @@ data "aws_iam_policy_document" "cw_agent_describes" {
       "ec2:DescribeVolumes"
     ]
     resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.region]
+    }
   }
 }
 

@@ -22,3 +22,13 @@ output "verified_region" {
   description = "Region confirmed by the guard."
   value       = data.aws_region.current.name
 }
+
+output "kms_key_arn" {
+  description = "Bootstrap CMK ARN. State bucket and lock table encrypt with this key."
+  value       = aws_kms_key.bootstrap.arn
+}
+
+output "kms_key_alias" {
+  description = "Alias of the bootstrap CMK (alias/flowin-tfstate)."
+  value       = aws_kms_alias.bootstrap.name
+}

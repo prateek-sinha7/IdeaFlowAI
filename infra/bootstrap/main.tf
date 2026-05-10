@@ -1,5 +1,6 @@
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
+data "aws_partition" "current" {}
 
 # Account-id guard. Refuses to operate against the wrong account.
 resource "terraform_data" "account_guard" {
@@ -21,6 +22,54 @@ resource "terraform_data" "account_guard" {
       error_message = "Region mismatch: provider region is ${data.aws_region.current.name}, expected ${var.aws_region}. Refusing to apply."
     }
   }
+}
+
+# --- Bootstrap CMK ---------------------------------------------------------
+#
+# A small, bootstrap-local KMS key used to encrypt:
+#   - the Terraform state bucket (`aws_s3_bucket_server_side_encryption_configuration.tfstate`)
+#   - the DynamoDB state-lock table (`aws_dynamodb_table.tflock.server_side_encryption`)
+#
+# Why a dedicated key rather than the project CMK that `modules/kms` creates
+# downstream of bootstrap? Because bootstrap MUST be runnable against an empty
+# account; the project CMK doesn't exist until `envs/prod/` applies, which
+# in turn needs this state backend already present. Chicken-and-egg.
+#
+# Key policy: AWS-account root principal is the sole grantee — anyone whose
+# IAM policy grants `kms:*` on this key (the Terraform operator role(s)) can
+# use it. S3 and DynamoDB authorize through the caller's principal, so we
+# don't need explicit service grants.
+#
+# Rotation is enabled; deletion window is 30 days (max) so an accidental
+# `terraform destroy` of the key can be recovered.
+resource "aws_kms_key" "bootstrap" {
+  description             = "Flowin Terraform bootstrap CMK (state bucket + DynamoDB lock table)."
+  deletion_window_in_days = 30
+  enable_key_rotation     = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "EnableRootAccountAccess"
+        Effect    = "Allow"
+        Principal = { AWS = "arn:${data.aws_partition.current.partition}:iam::${var.expected_account_id}:root" }
+        Action    = "kms:*"
+        Resource  = "*"
+      }
+    ]
+  })
+
+  lifecycle {
+    prevent_destroy = true
+  }
+
+  depends_on = [terraform_data.account_guard]
+}
+
+resource "aws_kms_alias" "bootstrap" {
+  name          = "alias/flowin-tfstate"
+  target_key_id = aws_kms_key.bootstrap.key_id
 }
 
 # --- State bucket -----------------------------------------------------------
@@ -48,7 +97,8 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "tfstate" {
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.bootstrap.arn
     }
     bucket_key_enabled = true
   }
@@ -116,7 +166,8 @@ resource "aws_dynamodb_table" "tflock" {
   }
 
   server_side_encryption {
-    enabled = true
+    enabled     = true
+    kms_key_arn = aws_kms_key.bootstrap.arn
   }
 
   lifecycle {

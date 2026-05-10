@@ -8,7 +8,7 @@
       "Resource": "${kms_key_arn}",
       "Condition": {
         "StringLike": {
-          "kms:EncryptionContext:PARAMETER_ARN": "arn:aws:ssm:${region}:${account_id}:parameter/flowin/${environment}/*"
+          "kms:EncryptionContext:PARAMETER_ARN": "arn:${partition}:ssm:${region}:${account_id}:parameter/flowin/${environment}/*"
         }
       }
     },
@@ -56,7 +56,7 @@
           "kms:ViaService": "logs.${region}.amazonaws.com"
         },
         "ArnLike": {
-          "kms:EncryptionContext:aws:logs:arn": "arn:aws:logs:${region}:${account_id}:log-group:/flowin/${environment}*"
+          "kms:EncryptionContext:aws:logs:arn": "arn:${partition}:logs:${region}:${account_id}:log-group:/flowin/${environment}/*"
         }
       }
     }

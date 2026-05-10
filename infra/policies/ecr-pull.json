@@ -5,7 +5,12 @@
       "Sid": "ECRGetAuthToken",
       "Effect": "Allow",
       "Action": "ecr:GetAuthorizationToken",
-      "Resource": "*"
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "${region}"
+        }
+      }
     },
     {
       "Sid": "ECRPullScopedToProjectRepos",
@@ -16,8 +21,8 @@
         "ecr:BatchGetImage"
       ],
       "Resource": [
-        "arn:aws:ecr:${region}:${account_id}:repository/${name_prefix}-backend",
-        "arn:aws:ecr:${region}:${account_id}:repository/${name_prefix}-frontend"
+        "arn:${partition}:ecr:${region}:${account_id}:repository/${name_prefix}-backend",
+        "arn:${partition}:ecr:${region}:${account_id}:repository/${name_prefix}-frontend"
       ]
     }
   ]
