@@ -51,11 +51,30 @@ ssh_key_name = ""
 
 # ---- DNS -------------------------------------------------------------------
 
-# The hosted zone MUST already exist in this account; this Terraform looks it
-# up but never creates it.
-route53_zone_name = "example.com"
-app_subdomain     = "flowin"
-dns_ttl_seconds   = 60
+# Two DNS strategies are supported. Pick one:
+#
+#   (a) `use_nip_io = true` (the current default for this customer):
+#       The FQDN is derived from the EIP via nip.io, a magic-DNS service that
+#       resolves any `1-2-3-4.nip.io` to the IP `1.2.3.4`. nip.io is on the
+#       Public Suffix List so Let's Encrypt issues real certs against the
+#       resulting hostname. Zero DNS configuration required — no hosted zone,
+#       no A record. `route53_zone_name` and `app_subdomain` below are
+#       ignored. Used for sandbox/no-domain deployments while the customer
+#       gets a real domain provisioned.
+#
+#   (b) `use_nip_io = false` (custom-domain path):
+#       The Terraform looks up an EXISTING Route 53 hosted zone by name and
+#       creates an A record `${app_subdomain}.${route53_zone_name}` pointing
+#       at the EIP. Uncomment the two values below and set them, then flip
+#       `use_nip_io` to false. The hosted zone MUST already exist in this
+#       account; this Terraform looks it up but never creates it.
+use_nip_io = true
+
+# The two below are ONLY consumed when use_nip_io = false. Leave commented
+# out (or empty) while use_nip_io = true.
+# route53_zone_name = "example.com"
+# app_subdomain     = "flowin"
+dns_ttl_seconds = 60
 
 # ---- Bedrock / LLM ---------------------------------------------------------
 
@@ -89,6 +108,13 @@ anthropic_api_key = ""
 # langsmith_api_key = "lsv2_pt_..."
 # langsmith_project = "flowin-prod"
 
+# When use_nip_io = true the FQDN is only known after the EIP is allocated, so
+# the cors_origins list cannot be pre-computed in this file. Two practical
+# patterns:
+#   1) Apply once with `cors_origins = "[]"`, read the `fqdn` output, then
+#      `terraform apply -var "cors_origins=[\"https://1-2-3-4.nip.io\"]"`.
+#   2) Use a wildcard-friendly origin list during sandbox use only.
+# When use_nip_io = false set this to `["https://${app_subdomain}.${route53_zone_name}"]`.
 cors_origins              = "[\"https://flowin.example.com\"]"
 access_token_expire_hours = 12
 

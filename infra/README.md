@@ -65,8 +65,12 @@ Per `docs/SIMPLE_AWS_DEPLOYMENT.md`:
 - **Secrets**: SSM Parameter Store entries under `/flowin/${env}/...`
   (LLM provider/region/model id, app secret key, db password, optional
   Anthropic fallback key, CORS origins, JWT expiry).
-- **DNS**: an A record `${app_subdomain}.${route53_zone_name}` → EIP, in
-  an **existing** Route 53 hosted zone (we never create one).
+- **DNS**: two paths controlled by `var.use_nip_io` (see Variables below).
+  Default `true` in `terraform.tfvars.example`: the FQDN is computed from
+  the EIP via [nip.io](https://nip.io) (e.g. `1-2-3-4.nip.io` for EIP
+  `1.2.3.4`) and **no AWS DNS resources are created**. Flip to `false` to
+  use a customer-owned Route 53 hosted zone (which must already exist) and
+  create an A record at `${app_subdomain}.${route53_zone_name}` → EIP.
 - **Backups**: S3 bucket for `pg_dump` archives (versioned, KMS-encrypted,
   TLS-only, lifecycle rules) + AWS Backup vault + daily plan (35-day
   retention) + tag-based selection (`Backup=true`).
@@ -179,8 +183,11 @@ A "what does Flowin own?" question is answered by the `*-all` group; a
 - AWS credentials in `~/.aws/credentials` or via `AWS_PROFILE`/STS.
 - An IAM principal with permission to create the resources listed above
   in **only this account**.
-- An existing Route 53 hosted zone you own (the DNS module does not create
-  one — `data "aws_route53_zone"` looks it up).
+- A DNS strategy: either accept the default `use_nip_io = true` (which
+  needs no upstream DNS provisioning at all — the FQDN is derived from
+  the EIP via [nip.io](https://nip.io)) or set `use_nip_io = false` and
+  bring an existing Route 53 hosted zone you own (the DNS module never
+  creates one — `data "aws_route53_zone"` looks it up).
 - Terraform `>= 1.7.0`. AWS provider `~> 5.70`. Both are pinned in
   `versions.tf`.
 
@@ -234,8 +241,9 @@ Variables the operator MUST set in `terraform.tfvars`:
 | `environment` | Default `prod` |
 | `owner` | Tag value |
 | `cost_center` | Tag value |
-| `route53_zone_name` | Existing hosted zone name |
-| `app_subdomain` | Subdomain — usually `flowin` |
+| `use_nip_io` | DNS strategy. `true` (default in tfvars.example) derives FQDN from the EIP via nip.io — no Route 53 needed. `false` uses Route 53 + the two vars below |
+| `route53_zone_name` | Existing hosted zone name. Required when `use_nip_io = false`; ignored when `true` |
+| `app_subdomain` | Subdomain — usually `flowin`. Ignored when `use_nip_io = true` |
 | `cors_origins` | JSON list of allowed origins |
 | `alert_email` | SNS subscription email |
 | `ssh_allowed_cidrs` | List of CIDRs (or empty for SSM-only) |

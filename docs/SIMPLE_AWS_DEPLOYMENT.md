@@ -17,6 +17,7 @@ The customer asked for "as little AWS as possible, but no security shortcuts". T
 | Instance type | `m6i.2xlarge` (8 vCPU / 32 GB RAM / 100 GB gp3 EBS) on Ubuntu 24.04 LTS | Doubles the heavy-pipeline headroom of `m6i.xlarge` for B7/B8 memory profile (~100 MB / pipeline); 6-7 concurrent heavy pipelines well within budget | §5 |
 | OS | Ubuntu 24.04 LTS (Canonical official AMI) | LTS kernel, free `unattended-upgrades`, well-known Postgres/nginx packages | §5, §8.1 |
 | Reverse proxy + TLS | nginx 1.24+ on the box, Let's Encrypt certs via certbot (HTTP-01) | Customer rejects ALB; ACM doesn't issue free certs to EC2; certbot+nginx is boring and proven | §7, §8.2 |
+| DNS strategy | **Default: nip.io** — the FQDN is computed from the EIP at apply time (e.g. `1-2-3-4.nip.io` for EIP `1.2.3.4`). No Route 53 zone, no A record, no DNS provisioning. nip.io is on the Public Suffix List so Let's Encrypt issues real certs. Alternative: Route 53 + a customer-owned domain (set `use_nip_io = false`, supply `route53_zone_name` and `app_subdomain`; the zone must already exist). | Customer doesn't have / doesn't want a custom domain yet. nip.io's wildcard DNS gives a real HTTPS hostname with zero DNS wiring; we keep the Route 53 path so it's a single tfvars flip when the customer brings a domain. | §7 |
 | WebSocket timeout | nginx `proxy_read_timeout 5400s; proxy_send_timeout 5400s` (90 min) | Long PPT/prototype runs in B7 stream tokens for tens of minutes; idle close on 90 min cap | §8.2, W21/W33/B5 |
 | Database | PostgreSQL 16 on the same instance, on a *separate* encrypted gp3 EBS volume (50 GB) mounted at `/var/lib/postgresql` | Customer accepts; isolating the data volume gives clean snapshot/restore | §8.4, §11 |
 | Secrets store | AWS Systems Manager Parameter Store (SecureString, KMS-encrypted) | Free tier; meets "encrypted at rest, not in git, IAM-gated"; cheaper than Secrets Manager and adequate for this footprint | §9 |
@@ -61,8 +62,14 @@ Honest trade-offs:
                                               | TCP/80 (redirect + ACME http-01)
                                               v
                             +---------------------------------+
-                            |       Route 53 hosted zone      |
-                            |  flowin.example.com  A → EIP    |
+                            |  DNS — pick one (§7):           |
+                            |  (a) nip.io (default):          |
+                            |    1-2-3-4.nip.io  → EIP        |
+                            |        (no AWS resources;       |
+                            |         wildcard handled by     |
+                            |         nip.io upstream)        |
+                            |  (b) Route 53 hosted zone:      |
+                            |    flowin.example.com  A → EIP  |
                             +---------------------------------+
                                               |
                                               v
@@ -119,7 +126,7 @@ LLM:      AWS Bedrock (Claude Haiku 4.5) via VPC interface endpoint
           IAM role; traffic stays inside the VPC. See §6.4.
 ```
 
-That's it. Seven AWS services in total: EC2, EBS, Route 53, CloudWatch, Systems Manager Parameter Store, S3, Bedrock (via VPC interface endpoints), plus AWS Backup which is just a scheduler over EBS snapshots. Nothing else.
+That's it. Seven AWS services in total: EC2, EBS, CloudWatch, Systems Manager Parameter Store, S3, Bedrock (via VPC interface endpoints), Route 53 (only on the custom-domain path; the default nip.io path uses zero AWS DNS resources), plus AWS Backup which is just a scheduler over EBS snapshots. Nothing else.
 
 ---
 
@@ -232,8 +239,10 @@ Run these once per AWS account, ideally well before the deployment. None of them
 6. **Create a dedicated IAM user `flowin-deployer`** with programmatic access; attach the least-privilege policy in §5.3. Use this for the bootstrap; do not use a personal SSO identity for instance lifecycle.
 7. **Choose a region.** For Hexaware UKI customers, **`eu-central-1` (Frankfurt)** is the default. EU data residency. If a customer requires Ireland (`eu-west-1`) or London (`eu-central-1`), the guide below works unchanged — just substitute `eu-central-1` everywhere.
 8. **Pick an Availability Zone within that region** — e.g. `eu-central-1a`. Single-AZ design (§2). Document the choice; the snapshot-restore drill in §11 needs to know it.
-9. **Reserve an Elastic IP** in the region (`aws ec2 allocate-address`). Cost: free while attached to a running instance. Keep the EIP across instance replacements so the Route 53 A-record never has to update.
-10. **Buy a Route 53 hosted zone** for the apex domain (e.g. `flowin.example.com`).
+9. **Reserve an Elastic IP** in the region (`aws ec2 allocate-address`). Cost: free while attached to a running instance. Keep the EIP across instance replacements so the FQDN never has to update — true for both DNS paths (a Route 53 A record outliving an instance replacement, or the nip.io hostname being a deterministic function of the EIP).
+10. **DNS — pick a path.** Two options, see §7:
+    - **nip.io (default for sandbox / no-domain customers).** No Route 53 zone, no setup. The FQDN is computed from the EIP at apply time (e.g. `1-2-3-4.nip.io`). Skip step 10 entirely — Terraform's `var.use_nip_io = true` does the rest.
+    - **Custom domain (Route 53).** Buy a Route 53 hosted zone for the apex domain (e.g. `flowin.example.com`). Set `var.use_nip_io = false`, `var.route53_zone_name` and `var.app_subdomain` in tfvars. Terraform looks up the zone (it must already exist) and creates the A record.
 
 ---
 
@@ -592,13 +601,45 @@ Optional hardening for paranoid environments: put a Squid or `nginx` egress prox
 
 ---
 
-## 7. DNS & TLS — Route 53, certbot/Let's Encrypt
+## 7. DNS & TLS — nip.io / Route 53, certbot/Let's Encrypt
 
-### 7.1 Domain & A-record
+### 7.1 The two DNS paths
 
-In the existing Route 53 hosted zone for `flowin.example.com`:
+This stack supports two DNS strategies, picked at apply time via `var.use_nip_io` (in `infra/envs/prod/`):
+
+#### Path A — nip.io (default; no real DNS)
+
+`use_nip_io = true` (the current default in `terraform.tfvars.example`).
+
+The FQDN is **computed from the Elastic IP** by the `dns` Terraform module:
+
+> **EIP `1.2.3.4`** → **`1-2-3-4.nip.io`** (dots in the IP become hyphens in the host label).
+
+Why this works:
+
+- **nip.io** is a magic-DNS service whose authoritative servers run a wildcard rule: any subdomain of the form `<dashed-ip>.nip.io` resolves to that exact IP. No zone provisioning, no A record, no propagation delay.
+- nip.io is on the **Public Suffix List** (`https://publicsuffix.org/list/`), which Let's Encrypt's CA accepts as a valid eTLD parent. HTTP-01 challenges against `1-2-3-4.nip.io` issue real, browser-trusted TLS certs.
+- The Terraform `dns` module creates **zero AWS resources** in this path: no Route 53 zone, no record. The single output is `module.dns.fqdn` = `1-2-3-4.nip.io`. The bootstrap script (Appendix D) reads this from `/etc/flowin/bootstrap.env` and uses it for nginx `server_name`, certbot, and the Next.js build's public URL.
+
+When to pick this path:
+
+- Sandbox / proof-of-concept deployments where the customer doesn't have a custom domain yet.
+- Internal demos where running an HTTPS hostname matters but registrar provisioning is friction.
+- Any deployment where DNS configuration is out-of-band or hasn't been completed yet.
+
+Limitations (read these before recommending nip.io to a customer):
+
+- The hostname is **not memorable** — it embeds the EIP. If the EIP is ever released and re-allocated, the FQDN changes (the EIP has `prevent_destroy = true` so this is hard, but operators should know the failure mode).
+- Email DKIM/SPF, SaaS allowlists, and corporate egress filters that work on hostname rather than IP may not whitelist `*.nip.io`. The browser-facing path works; sending mail _from_ this FQDN is not supported anyway (we don't run an MTA).
+- The third-party operator (nipio LLC) controls the resolver. If `nip.io` itself ever fails, name resolution fails. Public IP path still works directly. We accept this for the no-DNS use case.
+
+#### Path B — Route 53 (custom domain)
+
+`use_nip_io = false`. Set `route53_zone_name` and `app_subdomain` in tfvars. The zone must **already exist** in this account; this Terraform never creates a zone (the resource type is forbidden in the shared account — see `infra/README.md`). The module looks up the zone via `data "aws_route53_zone"` and writes a single A record.
 
 ```bash
+# (Done by Terraform — no manual aws-cli call needed when use_nip_io = false.
+# The aws-cli equivalent below is for operator-side verification.)
 aws route53 change-resource-record-sets \
   --hosted-zone-id <ZONE_ID> \
   --change-batch '{
@@ -620,24 +661,24 @@ A 60-second TTL during go-live; raise to 300 once stable. Adding a `www.` CNAME 
 
 **Why not ACM?** ACM does not issue free public TLS certs to EC2 instances directly — only to ALB / CloudFront / API Gateway. The customer rejects ALB. The honest options are:
 
-- **Let's Encrypt + certbot** (recommended): free, 90-day rotation, automated. The HTTP-01 challenge requires port 80 reachable from the public internet — which we already need for the HTTPS redirect. Renewal runs as a systemd timer (Appendix B).
+- **Let's Encrypt + certbot** (recommended): free, 90-day rotation, automated. The HTTP-01 challenge requires port 80 reachable from the public internet — which we already need for the HTTPS redirect. Renewal runs as a systemd timer (Appendix B). Works equally for nip.io and custom-domain paths because both expose a hostname that resolves to the EIP.
 - **AWS Private CA + ACM** (~$400/month for a CA + cert issuance): only justified if you must have certificates issued by your own CA chain. Massively over-budget for this deployment.
-- **Bring-your-own-cert from DigiCert / Sectigo**: fine, but adds a manual rotation chore. Pick this only if the customer has a corporate cert procurement they are committed to.
+- **Bring-your-own-cert from DigiCert / Sectigo**: fine, but adds a manual rotation chore. Pick this only if the customer has a corporate cert procurement they are committed to. (Not applicable to the nip.io path — the upstream CAs only issue to domains the customer owns.)
 
 **Decision: Let's Encrypt + certbot.**
 
-Install (in the bootstrap; see Appendix D):
+Install (in the bootstrap; see Appendix D). `$FLOWIN_FQDN` comes from `/etc/flowin/bootstrap.env`, which Terraform writes via the `user_data_extra_env` mechanism (compute module). It's the same value whether the deployment uses nip.io or a custom domain.
 
 ```bash
 sudo apt-get install -y certbot python3-certbot-nginx
 sudo certbot --nginx \
-  -d flowin.example.com \
+  -d "$FLOWIN_FQDN" \
   --non-interactive --agree-tos \
   --email security@example.com \
   --redirect --hsts --staple-ocsp
 ```
 
-`certbot --nginx` will rewrite the nginx config to add the `ssl_certificate` and `ssl_certificate_key` directives and the HTTP→HTTPS redirect block. Verify the resulting nginx config matches Appendix A; if certbot's auto-edit clashes with our config, supply a pre-prepared nginx config first and use `certbot certonly --webroot -w /var/www/letsencrypt -d flowin.example.com` instead.
+`certbot --nginx` will rewrite the nginx config to add the `ssl_certificate` and `ssl_certificate_key` directives and the HTTP→HTTPS redirect block. Verify the resulting nginx config matches Appendix A; if certbot's auto-edit clashes with our config, supply a pre-prepared nginx config first and use `certbot certonly --webroot -w /var/www/letsencrypt -d "$FLOWIN_FQDN"` instead.
 
 Certbot also installs `/etc/systemd/system/timers.target.wants/certbot.timer`, which runs twice-daily and renews when <30 days remain. Monitor renewals via CloudWatch alarm on the cert-expiry metric (§10).
 
@@ -655,7 +696,7 @@ In nginx (Appendix A), force these settings:
 - `add_header X-Frame-Options DENY always;` (Note: PPT and prototype previews use *sandboxed* iframes — see W56/W57 — so `DENY` is correct because the *parent page* shouldn't be framable; the inner iframes still work because they sandbox into themselves, not into a cross-origin parent.)
 - `add_header Referrer-Policy strict-origin-when-cross-origin always;`
 
-After deployment, validate against SSL Labs (`https://www.ssllabs.com/ssltest/analyze.html?d=flowin.example.com`). Target **A+**.
+After deployment, validate against SSL Labs (`https://www.ssllabs.com/ssltest/analyze.html?d=$FLOWIN_FQDN`). Target **A+**. Substitute the actual FQDN — the same URL works for nip.io and custom-domain hostnames.
 
 ---
 
@@ -800,9 +841,9 @@ Two units, both running as the unprivileged `flowin` user. Full files in **Appen
 
 **Backend** (`flowin-backend.service`): runs `uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 4 --proxy-headers --forwarded-allow-ips=127.0.0.1`. Four workers gives ~4× the WS throughput on `m6i.2xlarge` (8 vCPU). `--proxy-headers` makes uvicorn trust nginx's `X-Forwarded-*`. `--forwarded-allow-ips=127.0.0.1` means nginx is the *only* trusted source of those headers — you don't get IP spoofing from a misconfigured ingress.
 
-**Frontend** (`flowin-frontend.service`): runs `node /opt/flowin/frontend/.next/standalone/server.js`. Built ahead of time with `next build` and `NEXT_PUBLIC_API_URL=https://flowin.example.com` and `NEXT_PUBLIC_WS_URL=wss://flowin.example.com/ws/chat` baked in.
+**Frontend** (`flowin-frontend.service`): runs `node /opt/flowin/frontend/.next/standalone/server.js`. Built ahead of time with `next build` and `NEXT_PUBLIC_API_URL=https://${FLOWIN_FQDN}` and `NEXT_PUBLIC_WS_URL=wss://${FLOWIN_FQDN}/ws/chat` baked in. `FLOWIN_FQDN` is the same hostname the rest of the stack resolves at — `<dashed-eip>.nip.io` when `var.use_nip_io = true`, or `<app_subdomain>.<route53_zone_name>` for the custom-domain path.
 
-**Crucial detail about `NEXT_PUBLIC_*`:** these vars are **inlined at build time** in Next.js. You cannot change them via the systemd unit's environment. Set them at the GitLab CI build step (§12) or at the bootstrap-time `npm run build` step, not afterwards.
+**Crucial detail about `NEXT_PUBLIC_*`:** these vars are **inlined at build time** in Next.js. You cannot change them via the systemd unit's environment. Set them at the GitLab CI build step (§12) or at the bootstrap-time `npm run build` step, not afterwards. The bootstrap script (Appendix D) sources `/etc/flowin/bootstrap.env` and exports both into the `npm run build` invocation so the baked-in values match the FQDN Terraform produced.
 
 Enable:
 
@@ -964,11 +1005,16 @@ Frontend build:
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt-get install -y nodejs
 
-# Build with the production env vars baked in
-sudo -u flowin bash -c '
+# Build with the production env vars baked in. FLOWIN_FQDN comes from
+# /etc/flowin/bootstrap.env (Terraform writes it via the compute module's
+# user_data_extra_env). When the stack is applied with use_nip_io=true the
+# value will be e.g. 1-2-3-4.nip.io; with the Route 53 path it's the
+# customer's chosen FQDN. The build is identical either way.
+. /etc/flowin/bootstrap.env
+sudo -u flowin -- bash -c '
   cd /opt/flowin/frontend &&
-  NEXT_PUBLIC_API_URL=https://flowin.example.com \
-  NEXT_PUBLIC_WS_URL=wss://flowin.example.com/ws/chat \
+  NEXT_PUBLIC_API_URL=https://'"$FLOWIN_FQDN"' \
+  NEXT_PUBLIC_WS_URL=wss://'"$FLOWIN_FQDN"'/ws/chat \
   npm ci &&
   npm run build
 '
@@ -2503,10 +2549,21 @@ set -euo pipefail
 exec > >(tee -a /var/log/flowin-bootstrap.log) 2>&1
 echo "[bootstrap] start $(date -u --iso-8601=seconds)"
 
-REGION=eu-central-1
-DOMAIN=flowin.example.com
+# Pull operator-controlled values from /etc/flowin/bootstrap.env, written by
+# the EC2 user-data template (see infra/modules/compute/user_data.sh.tpl).
+# That file carries FLOWIN_REGION, FLOWIN_PARAM_PREFIX, FLOWIN_KMS_KEY_ID,
+# FLOWIN_BACKUP_BUCKET — and FLOWIN_FQDN, which is the public hostname the
+# app is reachable on. It's `<dashed-eip>.nip.io` when the Terraform was
+# applied with `var.use_nip_io = true` (the default), or
+# `<app_subdomain>.<route53_zone_name>` when the Route 53 path is used.
+# Either way the bootstrap below uses it the same way.
+# shellcheck source=/dev/null
+. /etc/flowin/bootstrap.env
+
+REGION="${FLOWIN_REGION:-eu-central-1}"
+DOMAIN="${FLOWIN_FQDN:?FLOWIN_FQDN missing in /etc/flowin/bootstrap.env — apply Terraform first}"
 ACME_EMAIL=security@example.com
-PARAM_PREFIX=/flowin/prod
+PARAM_PREFIX="${FLOWIN_PARAM_PREFIX:-/flowin/prod}"
 DATA_DEV=/dev/nvme1n1
 DATA_MOUNT=/var/lib/postgresql
 APP_USER=flowin

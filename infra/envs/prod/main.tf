@@ -139,6 +139,12 @@ module "compute" {
     # whose KMS key isn't this one (see modules/backups/main.tf
     # DenyWrongKmsKey), so this var must be present at boot.
     FLOWIN_KMS_KEY_ID = module.kms.key_arn
+    # Public hostname the on-host bootstrap (Appendix D) needs for nginx
+    # `server_name`, certbot HTTP-01, and the NEXT_PUBLIC_API_URL /
+    # NEXT_PUBLIC_WS_URL the Next.js build bakes in. Derived from
+    # module.dns.fqdn so the same value drives Route 53 (when configured)
+    # OR the nip.io path when var.use_nip_io = true.
+    FLOWIN_FQDN = module.dns.fqdn
   }
 }
 
@@ -147,6 +153,7 @@ module "dns" {
   source = "../../modules/dns"
 
   name_prefix       = local.name_prefix
+  use_nip_io        = var.use_nip_io
   route53_zone_name = var.route53_zone_name
   app_subdomain     = var.app_subdomain
   eip_address       = module.compute.public_ip

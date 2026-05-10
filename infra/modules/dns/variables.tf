@@ -3,13 +3,31 @@ variable "name_prefix" {
   type        = string
 }
 
+variable "use_nip_io" {
+  description = <<-EOT
+    If true, derive the public hostname from var.eip_address via nip.io
+    (e.g. 1-2-3-4.nip.io for EIP 1.2.3.4) instead of looking up a Route 53
+    hosted zone and creating an A record under it. nip.io is on the Public
+    Suffix List so Let's Encrypt issues real certs against the computed
+    hostname; its wildcard resolver handles A-record resolution server-side
+    so this module creates no Route 53 resources at all when this flag is
+    set.
+
+    When true, var.route53_zone_name and var.app_subdomain are ignored.
+    Default false preserves the existing Route 53 path.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "route53_zone_name" {
-  description = "Existing Route 53 hosted zone name (e.g. example.com). This module ONLY looks the zone up; it does NOT create one. The zone must already exist in the account."
+  description = "Existing Route 53 hosted zone name (e.g. example.com). This module ONLY looks the zone up; it does NOT create one. The zone must already exist in the account. Ignored when use_nip_io = true."
   type        = string
+  default     = ""
 }
 
 variable "app_subdomain" {
-  description = "Subdomain (without trailing dot, without zone) where the app is reachable, e.g. 'flowin' resolves to flowin.<route53_zone_name>. Set apex_record=true to ignore this and use the zone apex."
+  description = "Subdomain (without trailing dot, without zone) where the app is reachable, e.g. 'flowin' resolves to flowin.<route53_zone_name>. Set apex_record=true to ignore this and use the zone apex. Ignored when use_nip_io = true."
   type        = string
   default     = "flowin"
 
@@ -20,13 +38,13 @@ variable "app_subdomain" {
 }
 
 variable "apex_record" {
-  description = "If true, create the A-record at the apex of the zone (ignores app_subdomain). Default false."
+  description = "If true, create the A-record at the apex of the zone (ignores app_subdomain). Default false. Ignored when use_nip_io = true."
   type        = bool
   default     = false
 }
 
 variable "eip_address" {
-  description = "Elastic IP address (string form) the A-record points at."
+  description = "Elastic IP address (string form). When use_nip_io=false, the A-record points at this address. When use_nip_io=true, this address is the source of the computed nip.io hostname (`<dashed-ip>.nip.io`)."
   type        = string
 
   validation {
@@ -36,7 +54,7 @@ variable "eip_address" {
 }
 
 variable "ttl_seconds" {
-  description = "TTL on the A-record. 60 during go-live, raise to 300 once stable."
+  description = "TTL on the A-record. 60 during go-live, raise to 300 once stable. Ignored when use_nip_io = true (no record is created)."
   type        = number
   default     = 60
 

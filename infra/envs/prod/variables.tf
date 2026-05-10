@@ -122,9 +122,25 @@ variable "ssh_key_name" {
 
 # --- DNS --------------------------------------------------------------------
 
+variable "use_nip_io" {
+  description = <<-EOT
+    If true, derive the public hostname from the EIP via nip.io
+    (e.g. 1-2-3-4.nip.io for EIP 1.2.3.4) instead of creating a Route 53
+    A record under route53_zone_name + app_subdomain. nip.io is on the
+    Public Suffix List so Let's Encrypt issues real certs. Use this for
+    sandbox / no-DNS deployments. Set to false (default) for prod with
+    a real domain.
+
+    When true, route53_zone_name and app_subdomain are ignored.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "route53_zone_name" {
-  description = "Existing Route 53 hosted zone name (e.g. example.com). MUST already exist in this account. Bare DNS name only — no http://, no leading or trailing dots."
+  description = "Existing Route 53 hosted zone name (e.g. example.com). MUST already exist in this account. Bare DNS name only — no http://, no leading or trailing dots. Ignored when use_nip_io = true; supply an empty string in that case."
   type        = string
+  default     = ""
 
   validation {
     # Audit B P2-9: catch the common operator mistake of pasting a URL
@@ -132,19 +148,20 @@ variable "route53_zone_name" {
     # into a hosted-zone field. The DNS module looks up via data source on
     # the bare name; with a protocol prefix the lookup silently returns an
     # empty result and the A-record creation then fails far downstream.
-    condition     = !startswith(var.route53_zone_name, "http") && !startswith(var.route53_zone_name, ".") && !endswith(var.route53_zone_name, ".")
-    error_message = "route53_zone_name must be a bare DNS name (no http://, no leading or trailing dots)."
+    # Empty is permitted for the use_nip_io = true path.
+    condition     = var.route53_zone_name == "" || (!startswith(var.route53_zone_name, "http") && !startswith(var.route53_zone_name, ".") && !endswith(var.route53_zone_name, "."))
+    error_message = "route53_zone_name must be a bare DNS name (no http://, no leading or trailing dots), or empty when use_nip_io = true."
   }
 }
 
 variable "app_subdomain" {
-  description = "Subdomain (without zone) the app answers on, e.g. 'flowin'."
+  description = "Subdomain (without zone) the app answers on, e.g. 'flowin'. Ignored when use_nip_io = true."
   type        = string
   default     = "flowin"
 }
 
 variable "dns_ttl_seconds" {
-  description = "TTL for the A record."
+  description = "TTL for the A record. Ignored when use_nip_io = true (no record is created)."
   type        = number
   default     = 60
 }
