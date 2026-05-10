@@ -23,6 +23,22 @@ variable "availability_zone" {
   description = "Single AZ inside aws_region (e.g. eu-central-1a)."
   type        = string
   default     = "eu-central-1a"
+
+  validation {
+    condition     = can(regex("^[a-z]{2}-[a-z]+-[0-9][a-z]$", var.availability_zone))
+    error_message = "availability_zone must look like e.g. eu-central-1a."
+  }
+
+  # Audit B P2-9: cross-var validation. AZs are scoped to a region — passing
+  # `eu-central-1a` while aws_region=`us-east-1` would deploy into an AZ
+  # that doesn't exist in that region (or worse, deploy into the wrong region
+  # silently). Cross-var validation requires Terraform 1.9+; the version pin
+  # in versions.tf is `>= 1.7.0`. Bumping the floor to 1.9 is safe for this
+  # repo (CI uses 1.15+; local dev follows). See ADR comment in versions.tf.
+  validation {
+    condition     = startswith(var.availability_zone, var.aws_region)
+    error_message = "availability_zone must be in aws_region (e.g. eu-central-1a for aws_region=eu-central-1)."
+  }
 }
 
 variable "environment" {
@@ -107,8 +123,18 @@ variable "ssh_key_name" {
 # --- DNS --------------------------------------------------------------------
 
 variable "route53_zone_name" {
-  description = "Existing Route 53 hosted zone name (e.g. example.com). MUST already exist in this account."
+  description = "Existing Route 53 hosted zone name (e.g. example.com). MUST already exist in this account. Bare DNS name only — no http://, no leading or trailing dots."
   type        = string
+
+  validation {
+    # Audit B P2-9: catch the common operator mistake of pasting a URL
+    # ("https://example.com") or a fully-qualified absolute name (".example.com.")
+    # into a hosted-zone field. The DNS module looks up via data source on
+    # the bare name; with a protocol prefix the lookup silently returns an
+    # empty result and the A-record creation then fails far downstream.
+    condition     = !startswith(var.route53_zone_name, "http") && !startswith(var.route53_zone_name, ".") && !endswith(var.route53_zone_name, ".")
+    error_message = "route53_zone_name must be a bare DNS name (no http://, no leading or trailing dots)."
+  }
 }
 
 variable "app_subdomain" {
@@ -126,9 +152,18 @@ variable "dns_ttl_seconds" {
 # --- Bedrock / LLM ----------------------------------------------------------
 
 variable "bedrock_model_id" {
-  description = "Bedrock foundation-model ID Flowin invokes."
+  description = "Bedrock foundation-model ID Flowin invokes. Must start with `anthropic.` (foundation-model), `eu.anthropic.` (EU inference profile), or `us.anthropic.` (US inference profile) — anything else won't match the IAM scope in modules/iam/policies/bedrock-invoke.json."
   type        = string
   default     = "anthropic.claude-haiku-4-5-20251001-v1:0"
+
+  validation {
+    # Audit B P2-9: the IAM Bedrock policy scopes invoke to ARNs with these
+    # exact prefixes. A typo here (e.g. `claude-haiku-4-5...` without the
+    # vendor prefix) would deploy clean, then every InvokeModel call would
+    # 403 in production. Cheap pre-flight check.
+    condition     = startswith(var.bedrock_model_id, "anthropic.") || startswith(var.bedrock_model_id, "eu.anthropic.") || startswith(var.bedrock_model_id, "us.anthropic.")
+    error_message = "bedrock_model_id must start with `anthropic.`, `eu.anthropic.`, or `us.anthropic.`."
+  }
 }
 
 variable "bedrock_inference_profile_id" {
@@ -194,8 +229,25 @@ variable "langsmith_project" {
 }
 
 variable "cors_origins" {
-  description = "JSON-encoded list of CORS origins, e.g. '[\"https://flowin.example.com\"]'."
+  description = "JSON-encoded list of CORS origins, e.g. '[\"https://flowin.example.com\"]'. Each entry must be a fully-qualified URL (http:// or https://). The on-host loader pushes this verbatim into CORS_ORIGINS env, which Settings parses as JSON."
   type        = string
+
+  validation {
+    # Audit B P2-9: trip on a bare string ("flowin.example.com") or comma-
+    # separated list ("a,b") rather than JSON. Both common operator mistakes;
+    # both deploy clean and break at app startup when Settings.cors_origins
+    # JSON-parses the value.
+    condition     = can(jsondecode(var.cors_origins))
+    error_message = "cors_origins must be valid JSON (a list of URL strings, e.g. '[\"https://flowin.example.com\"]')."
+  }
+
+  validation {
+    # Element-level shape check: each origin must be a fully-qualified URL.
+    # FastAPI's CORSMiddleware also validates this, but failing fast at
+    # `terraform plan` time is cheaper than failing at app startup.
+    condition     = can(jsondecode(var.cors_origins)) ? alltrue([for o in jsondecode(var.cors_origins) : startswith(o, "https://") || startswith(o, "http://")]) : false
+    error_message = "cors_origins entries must each start with http:// or https://."
+  }
 }
 
 variable "access_token_expire_hours" {
@@ -223,6 +275,50 @@ variable "cold_storage_after_days" {
   default     = 30
 }
 
+variable "pg_dump_expiry_days" {
+  description = "Days after which current versions of pg_dump archives expire from the S3 backup bucket. Default 365 matches docs/SIMPLE_AWS_DEPLOYMENT.md §11.2."
+  type        = number
+  default     = 365
+}
+
+# --- Backup Vault Lock (opt-in, ONE-WAY) -----------------------------------
+# Default false. Enabling these flags should follow validation drills — see
+# modules/backups/variables.tf::enable_vault_lock for the full rationale.
+
+variable "enable_vault_lock" {
+  description = "If true, applies AWS Backup Vault Lock in compliance mode. ONE-WAY: once on, recovery points cannot be deleted before delete_after, and the lock itself becomes immutable after a 3-day cooling-off window. Recommended for production AFTER you've validated daily_backup_retention_days and cold_storage_after_days against real recovery drills."
+  type        = bool
+  default     = false
+}
+
+variable "vault_lock_min_retention_days" {
+  description = "Minimum retention enforced by Vault Lock (compliance mode). Should be >= the operator's expected mistake-recovery window."
+  type        = number
+  default     = 7
+}
+
+variable "vault_lock_max_retention_days" {
+  description = "Maximum retention enforced by Vault Lock. Should be >= daily_backup_retention_days."
+  type        = number
+  default     = 365
+}
+
+# --- S3 Object Lock (opt-in, creation-time-only) ---------------------------
+# Default false. CANNOT be retrofitted to an existing bucket — see
+# modules/backups/variables.tf::enable_object_lock for the full caveat.
+
+variable "enable_object_lock" {
+  description = "If true, the backup bucket is created with Object Lock enabled (governance mode by default). MUST BE SET AT BUCKET CREATION — cannot be retrofitted. Flipping this against an already-created bucket has no effect (Terraform plans bucket replacement, which prevent_destroy correctly blocks). Recommended for new deployments only."
+  type        = bool
+  default     = false
+}
+
+variable "object_lock_retention_days" {
+  description = "Default retention period (days) for Object Lock in Governance mode. An IAM principal with s3:BypassGovernanceRetention can override."
+  type        = number
+  default     = 35
+}
+
 # --- Monitoring -------------------------------------------------------------
 
 variable "alert_email" {
@@ -236,9 +332,23 @@ variable "alert_email" {
 }
 
 variable "log_retention_days" {
-  description = "CloudWatch Log retention in days."
+  description = "Default CloudWatch Log retention in days for any group not in log_retention_overrides. Audit D P2-5: prefer setting this conservatively (30d) and overriding the high-volume groups (nginx-access) and forensic groups (auth) explicitly."
   type        = number
   default     = 30
+
+  validation {
+    condition = contains(
+      [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653],
+      var.log_retention_days
+    )
+    error_message = "log_retention_days must be one of CloudWatch's allowed values."
+  }
+}
+
+variable "log_retention_overrides" {
+  description = "Audit D P2-5: per-log-group retention overrides. Keys are full log group names (e.g. /flowin/prod/auth), values are retention days from the AWS-allowed set. Empty map preserves the previous one-size-fits-all behaviour. Recommended: shorten /flowin/prod/nginx-access to 7d (high churn, lowest forensic value) and lengthen /flowin/prod/auth to 90-180d (forensics)."
+  type        = map(number)
+  default     = {}
 }
 
 variable "billing_alarm_threshold_usd" {
@@ -251,4 +361,36 @@ variable "bedrock_daily_token_threshold" {
   description = "Daily Bedrock InputTokenCount threshold (Sum over 24h). Default 5,000,000 input tokens — see modules/monitoring/variables.tf for the cost model."
   type        = number
   default     = 5000000
+}
+
+# --- Phase 3 Audit D additions ---------------------------------------------
+
+variable "bedrock_throttles_threshold" {
+  description = "Audit D P3-12: Sum threshold for Bedrock InvocationThrottles over 5 min. 0 (the original default) was hair-trigger; 5 absorbs short bursts but still pages on sustained quota pressure. Tune up after a week of baseline."
+  type        = number
+  default     = 5
+}
+
+variable "bedrock_throttles_evaluation_periods" {
+  description = "Audit D P3-12: number of consecutive 5-minute windows the Bedrock throttle threshold must be exceeded before paging. 2 = ~10 min of sustained pressure."
+  type        = number
+  default     = 2
+}
+
+variable "agent_error_rate_threshold" {
+  description = "Audit D P2-2: AgentErrorCount threshold above which the agent-error-high alarm fires (over 5-min Sum, 2 consecutive windows). 20 = sustained, not a burst."
+  type        = number
+  default     = 20
+}
+
+variable "stuck_workflows_threshold" {
+  description = "Audit D P2-3: count of WorkflowRun rows in `running` for >60 min above which the stuck-workflows alarm fires."
+  type        = number
+  default     = 0
+}
+
+variable "stuck_workflows_check_period" {
+  description = "Audit D P2-3: alarm period in seconds. The on-host probe runs every 15 min; 1800s (30 min) gives two publishes per evaluation window."
+  type        = number
+  default     = 1800
 }

@@ -93,6 +93,14 @@ resource "aws_instance" "app" {
   ebs_optimized                        = var.ebs_optimized
   instance_initiated_shutdown_behavior = "stop"
 
+  # Console + API guard against an accidental `aws ec2 terminate-instances`
+  # or `aws ec2 stop-instances` (a deliberate operator unset is an explicit
+  # `terraform apply` away). The data EBS survives termination because it's a
+  # separate aws_ebs_volume with prevent_destroy=true, but reattaching it is
+  # manual — we'd rather make the destructive verb a hard no by default.
+  disable_api_termination = var.disable_api_termination
+  disable_api_stop        = var.disable_api_stop
+
   root_block_device {
     volume_type           = "gp3"
     volume_size           = var.root_volume_size_gb

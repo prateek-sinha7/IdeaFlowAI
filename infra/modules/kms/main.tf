@@ -116,9 +116,21 @@ resource "aws_kms_key" "this" {
             "kms:CreateGrant"
           ]
           Resource = "*"
+          # Confused-deputy defence:
+          #   - aws:SourceAccount   pins to *our* account (cross-account
+          #     attacker can't trick AWS Backup into using this grant).
+          #   - aws:SourceArn       narrows further to backup vaults in our
+          #     account+region. Wildcard at the vault-name end is intentional:
+          #     the kms module doesn't know the vault name (and pinning it
+          #     would close a circular dependency: kms -> backups -> kms).
+          #     aws:SourceAccount already restricts to our account; the ArnLike
+          #     adds defence-in-depth on the service+region pair.
           Condition = {
             StringEquals = {
               "aws:SourceAccount" = var.account_id
+            }
+            ArnLike = {
+              "aws:SourceArn" = "arn:${local.partition}:backup:${var.region}:${var.account_id}:backup-vault:*"
             }
           }
         }

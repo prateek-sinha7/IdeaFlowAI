@@ -42,3 +42,18 @@ output "internet_gateway_id" {
   description = "ID of the Internet Gateway."
   value       = aws_internet_gateway.this.id
 }
+
+output "flow_logs_log_group_name" {
+  description = "Name of the CloudWatch log group receiving VPC flow logs."
+  value       = aws_cloudwatch_log_group.flow_logs.name
+}
+
+output "flow_logs_log_group_arn" {
+  description = "ARN of the CloudWatch log group receiving VPC flow logs."
+  value       = aws_cloudwatch_log_group.flow_logs.arn
+}
+
+output "flow_logs_iam_role_arn" {
+  description = "ARN of the IAM role used by the VPC flow-logs service to write to CloudWatch."
+  value       = aws_iam_role.flow_logs.arn
+}

@@ -25,7 +25,7 @@ variable "alert_email" {
 }
 
 variable "log_retention_days" {
-  description = "CloudWatch Log retention in days."
+  description = "Default CloudWatch Log retention in days. Applied to any log group not present in log_retention_overrides. Audit D P2-5: groups with materially different operational profile (nginx-access high-volume vs auth/auditd long-forensics) should override via log_retention_overrides rather than push this default to one global compromise number."
   type        = number
   default     = 30
 
@@ -35,6 +35,20 @@ variable "log_retention_days" {
       var.log_retention_days
     )
     error_message = "log_retention_days must be one of CloudWatch's allowed values (1,3,5,7,14,30,60,90,120,150,180,365,400,545,731,1827,3653)."
+  }
+}
+
+variable "log_retention_overrides" {
+  description = "Per-log-group retention overrides. Keys are full log group names (e.g. /flowin/prod/auth, /flowin/prod/nginx-access), values are retention days from the AWS-allowed set. Backward-compatible: empty map preserves the previous one-size-fits-all behaviour where every group used log_retention_days."
+  type        = map(number)
+  default     = {}
+
+  validation {
+    condition = alltrue([
+      for v in values(var.log_retention_overrides) :
+      contains([1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653], v)
+    ])
+    error_message = "log_retention_overrides values must be one of CloudWatch's allowed retention periods (1,3,5,7,14,30,60,90,120,150,180,365,400,545,731,1827,3653)."
   }
 }
 
@@ -99,4 +113,71 @@ variable "backup_vault_name" {
   description = "Name of the AWS Backup vault to wire job-state notifications onto. Empty disables aws_backup_vault_notifications (LocalStack and during bootstrap before the vault exists)."
   type        = string
   default     = ""
+}
+
+variable "bedrock_throttles_threshold" {
+  description = "Sum threshold for the Bedrock InvocationThrottles alarm over a 5-minute window. Audit D P3-12: 0 is hair-trigger (any single throttle in 5 min pages); 5 absorbs short bursts of quota pressure that auto-recover after backoff but still pages on sustained pressure. Tune up if Bedrock quota gets bumped and the baseline noise floor changes."
+  type        = number
+  default     = 5
+
+  validation {
+    condition     = var.bedrock_throttles_threshold >= 0
+    error_message = "bedrock_throttles_threshold must be >= 0."
+  }
+}
+
+variable "bedrock_throttles_evaluation_periods" {
+  description = "Number of consecutive 5-minute windows the Bedrock throttle threshold must be exceeded before the alarm fires. 1 = pages on the first window over threshold; 2 = requires sustained pressure across two windows (~10 min) before paging."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.bedrock_throttles_evaluation_periods >= 1
+    error_message = "bedrock_throttles_evaluation_periods must be >= 1."
+  }
+}
+
+variable "agent_error_rate_threshold" {
+  description = "Sum threshold for the agent-error rate alarm. Audit D P2-2: triggers when the AgentErrorCount metric exceeds this in any 5-minute window for two consecutive windows. Default 20 = 'sustained, not a burst' — at ~150 concurrent sessions the natural burst-rate from transient Bedrock blips is well under 20/5min, so 20 cleanly separates a normal blip from a real degradation."
+  type        = number
+  default     = 20
+
+  validation {
+    condition     = var.agent_error_rate_threshold >= 0
+    error_message = "agent_error_rate_threshold must be >= 0."
+  }
+}
+
+variable "stuck_workflows_threshold" {
+  description = "Audit D P2-3: WorkflowRun rows in `running` for >60 min above this count fires the stuck-workflows alarm. Default 0 — the on-host SQL probe pushes the literal count and any non-zero value is a finding."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.stuck_workflows_threshold >= 0
+    error_message = "stuck_workflows_threshold must be >= 0."
+  }
+}
+
+variable "stuck_workflows_check_period" {
+  description = "Audit D P2-3: alarm period in seconds. The on-host probe runs every 15 min (900s); 1800s (30 min) gives the alarm two publishes per evaluation window so a single missed probe doesn't auto-clear the alarm."
+  type        = number
+  default     = 1800
+
+  validation {
+    condition     = var.stuck_workflows_check_period >= 60
+    error_message = "stuck_workflows_check_period must be >= 60s (CloudWatch alarm period minimum)."
+  }
+}
+
+variable "root_disk_path" {
+  description = "Mount path of the root filesystem for the inode_low alarm dimensions. Must match what the CW Agent emits as the `path` dimension on `disk_inodes_free_percent`."
+  type        = string
+  default     = "/"
+}
+
+variable "data_disk_path" {
+  description = "Mount path of the data (Postgres) filesystem for the inode_low alarm dimensions. Must match what the CW Agent emits as the `path` dimension on `disk_inodes_free_percent`."
+  type        = string
+  default     = "/var/lib/postgresql"
 }

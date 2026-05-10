@@ -29,6 +29,17 @@ module "network" {
   availability_zone  = var.availability_zone
   ssh_allowed_cidrs  = var.ssh_allowed_cidrs
   region             = module.account_guard.region
+
+  # Same wiring as envs/prod: flow logs into a project-owned KMS-encrypted CW
+  # log group + endpoint policies pinning aws:PrincipalAccount and (for S3
+  # gateway) scoping Resource to the backup bucket. LocalStack accepts the
+  # API calls; full enforcement is best-effort here, but the dependency graph
+  # is the same as prod so we exercise the wiring during smoke runs.
+  environment        = var.environment
+  account_id         = module.account_guard.account_id
+  kms_key_arn        = module.kms.key_arn
+  log_retention_days = var.log_retention_days
+  backup_bucket_arn  = module.backups.backup_bucket_arn
 }
 
 # --- Backups ----------------------------------------------------------------
@@ -40,6 +51,13 @@ module "backups" {
   kms_key_arn                 = module.kms.key_arn
   bucket_name                 = var.backup_bucket_name
   daily_backup_retention_days = var.daily_backup_retention_days
+
+  # LocalStack does NOT fully implement AWS Backup Vault Lock or S3 Object
+  # Lock. The APIs accept the calls but enforcement guarantees aren't
+  # there. Hardcoded false here so a tfvars override can't accidentally
+  # produce lock state in a throwaway env. Use prod for the real flag.
+  enable_vault_lock  = false
+  enable_object_lock = false
 }
 
 # --- IAM --------------------------------------------------------------------
@@ -117,6 +135,12 @@ module "compute" {
   # `terraform destroy`. See modules/compute/variables.tf::protect_eip
   # for the future-proofing rationale.
   protect_eip = false
+
+  # Phase 3 item 19. Prod hard-codes both true; localstack wants both false
+  # so destroy.sh's `terraform destroy` succeeds without an extra
+  # `aws ec2 modify-instance-attribute --no-disable-api-termination` call.
+  disable_api_termination = false
+  disable_api_stop        = false
 
   user_data_extra_env = {
     FLOWIN_BACKUP_BUCKET = module.backups.backup_bucket_name

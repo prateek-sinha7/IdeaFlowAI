@@ -7,6 +7,13 @@ data "aws_region" "current" {}
 resource "aws_s3_bucket" "backups" {
   bucket = var.bucket_name
 
+  # Object Lock is a CREATION-TIME ONLY property: AWS does not allow turning
+  # it on for an existing bucket. If this module is being applied against an
+  # already-created bucket (lifecycle.prevent_destroy = true blocks
+  # replacement), flipping enable_object_lock has no effect. New deployments
+  # only. See variables.tf::enable_object_lock for the full caveat.
+  object_lock_enabled = var.enable_object_lock
+
   tags = {
     Name      = var.bucket_name
     Component = "storage"
@@ -74,16 +81,26 @@ resource "aws_s3_bucket_lifecycle_configuration" "backups" {
   }
 
   rule {
-    id     = "transition-pg-dumps-to-glacier-ir"
+    id     = "expire-pg-dumps"
     status = "Enabled"
 
     filter {
       prefix = "postgres/"
     }
 
+    # Cold-tier transition cuts storage cost on the long tail.
     transition {
       days          = var.transition_to_glacier_ir_days
       storage_class = "GLACIER_IR"
+    }
+
+    # Without an expiration, current versions of pg_dump archives accumulate
+    # forever — bucket cost grows monotonically. docs/SIMPLE_AWS_DEPLOYMENT.md
+    # §11.2 specifies 365d retention for current versions. The
+    # noncurrent-version expiry above (separate rule) handles old versions;
+    # this one bounds the current-version tail.
+    expiration {
+      days = var.pg_dump_expiry_days
     }
   }
 }
@@ -286,3 +303,64 @@ resource "aws_backup_selection" "by_tag" {
 # monitoring.alerts_topic_arn — closing the cycle. Monitoring receives the
 # vault name (a non-cyclic input from backups -> monitoring) and binds
 # the notifications there. See modules/monitoring/main.tf.
+
+# --- S3 Object Lock configuration (opt-in) ---------------------------------
+#
+# Active only when `var.enable_object_lock = true` AND the bucket was
+# created with object_lock_enabled = true. Both conditions hold together
+# for new deployments because this module wires object_lock_enabled to the
+# same flag — but for an EXISTING bucket the flag has no effect: S3 does
+# not permit enabling Object Lock retroactively, and the bucket's
+# prevent_destroy = true correctly blocks Terraform from replacing it.
+#
+# Mode: GOVERNANCE. An IAM principal holding s3:BypassGovernanceRetention
+# can override per-object retention; root cannot bypass without that
+# permission. To go fully one-way, edit `mode` to "COMPLIANCE" — that
+# choice is permanent for any object placed under the lock.
+resource "aws_s3_bucket_object_lock_configuration" "backups" {
+  count  = var.enable_object_lock ? 1 : 0
+  bucket = aws_s3_bucket.backups.id
+
+  rule {
+    default_retention {
+      mode = "GOVERNANCE"
+      days = var.object_lock_retention_days
+    }
+  }
+}
+
+# --- AWS Backup Vault Lock (opt-in, ONE-WAY) -------------------------------
+#
+# !!! IRREVERSIBLE OPERATION !!!
+#
+# When applied:
+#   - Recovery points in this vault cannot be deleted before their
+#     scheduled delete_after, even by the operator or AWS Support.
+#   - The lock itself is mutable for `changeable_for_days` (3 days), then
+#     becomes immutable. Beyond that window, the lock cannot be removed —
+#     `terraform destroy` of this resource will fail, and AWS Support will
+#     refuse to remove it. The only escape is account closure.
+#   - During the 3-day window, the lock can still be deleted. This is the
+#     intended cooling-off / mistake-recovery period; treat it as the
+#     deadline by which you must validate retention numbers in production.
+#
+# Recommended workflow:
+#   1. Deploy with enable_vault_lock = false. Run a few daily snapshot
+#      cycles. Confirm delete_after, cold_storage_after, and the chosen
+#      min/max retention bounds work for your recovery drills.
+#   2. Set enable_vault_lock = true and apply.
+#   3. Within 72h, run another recovery drill. If anything fails, run
+#      `terraform destroy -target=module.backups.aws_backup_vault_lock_configuration.this[0]`
+#      BEFORE the cooling-off expires.
+#   4. After 72h, the lock is permanent. Plan accordingly.
+#
+# LocalStack: this resource exists in the moto API surface but the
+# enforcement guarantees do not. The prod env wires this via
+# var.enable_vault_lock; the localstack env hardcodes false.
+resource "aws_backup_vault_lock_configuration" "this" {
+  count               = var.enable_vault_lock ? 1 : 0
+  backup_vault_name   = aws_backup_vault.this.name
+  changeable_for_days = 3
+  min_retention_days  = var.vault_lock_min_retention_days
+  max_retention_days  = var.vault_lock_max_retention_days
+}

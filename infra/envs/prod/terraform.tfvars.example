@@ -65,12 +65,18 @@ use_inference_profile_for_app = true
 
 # ---- Secrets — DO NOT commit real values -----------------------------------
 
-# Generate via: openssl rand -hex 64
-# Prefer: export TF_VAR_app_secret_key="$(openssl rand -hex 64)"
-app_secret_key = "REPLACE_ME_WITH_64_HEX_BYTES_FROM_OPENSSL_RAND_HEX_64_CALL_____________________"
-
-# Generate via: openssl rand -hex 32
-db_password = "REPLACE_ME_WITH_HEX_BYTES_FROM_OPENSSL_RAND_HEX_32_CALL"
+# Audit B P2-6/P2-7: placeholders are DELIBERATELY shorter than the
+# validation minimums (32 / 16 chars) so a `terraform apply` against this
+# file as-is fails fast with a clear "must be at least N characters"
+# error rather than silently deploying with a guessable secret. Set via
+# env var TF_VAR_app_secret_key / TF_VAR_db_password with `openssl rand
+# -hex 64` and `openssl rand -hex 32` respectively, or copy this file to
+# terraform.tfvars (gitignored) and edit with real values.
+#
+#   export TF_VAR_app_secret_key="$(openssl rand -hex 64)"
+#   export TF_VAR_db_password="$(openssl rand -hex 32)"
+app_secret_key = "REPLACE_ME"
+db_password    = "REPLACE_ME"
 
 # Optional fallback. Empty = no parameter created.
 anthropic_api_key = ""
@@ -94,6 +100,28 @@ backup_bucket_name          = "flowin-prod-pg-dumps-123456789012"
 # of 30 satisfies this (365 - 30 = 335 >= 90).
 daily_backup_retention_days = 365
 cold_storage_after_days     = 30
+# Current pg_dump archives in S3 expire after this many days. 365 matches
+# the AWS Backup retention so the two storage tiers age out in lockstep.
+pg_dump_expiry_days = 365
+
+# ---- Backup Vault Lock (opt-in, ONE-WAY) -----------------------------------
+# Vault Lock locks AWS Backup retention in compliance mode. Once the lock
+# becomes immutable (3 days after apply), recovery points cannot be deleted
+# before delete_after — even by root, even by AWS Support. Leave false until
+# you've run real recovery drills against the chosen retention values.
+enable_vault_lock             = false
+vault_lock_min_retention_days = 7
+vault_lock_max_retention_days = 365
+
+# ---- S3 Object Lock (opt-in, CREATION-TIME-ONLY) ---------------------------
+# Object Lock prevents overwrite/delete of pg_dump objects for a retention
+# period. Mode is GOVERNANCE (an IAM principal with
+# s3:BypassGovernanceRetention can override). MUST be set BEFORE the bucket
+# exists — flipping this on an already-created bucket has no effect because
+# the bucket has prevent_destroy = true and Object Lock can't be retrofitted.
+# Default false; enable only for new deployments.
+enable_object_lock         = false
+object_lock_retention_days = 35
 
 # ---- Monitoring ------------------------------------------------------------
 
@@ -105,3 +133,32 @@ billing_alarm_threshold_usd = 500
 # variable-output budget; tune up after a week of baseline data. See
 # modules/monitoring/variables.tf for the rationale.
 bedrock_daily_token_threshold = 5000000
+
+# Audit D P2-5: per-log-group retention overrides. Empty means every group
+# gets the global log_retention_days above (30d). Recommended split:
+#   - nginx-access: 7d  — high-volume request log, low forensic value
+#   - auth:         90d — sshd / sudo events, useful for incident response
+#   - postgres:     30d (default)
+#   - app:          30d (default)
+log_retention_overrides = {
+  "/flowin/prod/nginx-access" = 7
+  "/flowin/prod/auth"         = 90
+}
+
+# ---- Phase 3 Audit D tunables (alarms) -------------------------------------
+#
+# These have sensible defaults; override only after a week of baseline.
+#
+# Bedrock throttle alarm threshold (Audit D P3-12). Default 5 = absorb
+# short bursts but page on sustained quota pressure. Was 0 (hair-trigger).
+# bedrock_throttles_threshold          = 5
+# bedrock_throttles_evaluation_periods = 2
+#
+# Agent-error rate alarm threshold (Audit D P2-2). 20 errors per 5-min
+# window for 2 consecutive windows = "sustained, not a burst".
+# agent_error_rate_threshold = 20
+#
+# Stuck WorkflowRun alarm (Audit D P2-3). Period covers ~2 publishes from
+# the on-host probe (which runs every 15 min).
+# stuck_workflows_threshold    = 0
+# stuck_workflows_check_period = 1800

@@ -119,3 +119,15 @@ variable "protect_eip" {
   type        = bool
   default     = true
 }
+
+variable "disable_api_termination" {
+  description = "If true, the EC2 instance cannot be terminated via the AWS API/console. The data EBS volume survives termination either way (it's a separate aws_ebs_volume with prevent_destroy=true), but reattaching it to a fresh instance is manual and disruptive. Default true in prod; set false in ephemeral envs (LocalStack) so destroy.sh works without state-rm."
+  type        = bool
+  default     = true
+}
+
+variable "disable_api_stop" {
+  description = "If true, the EC2 instance cannot be stopped via the AWS API/console. Default true in prod; mostly cosmetic since stop+start works the same as reboot for our use case, but it's the symmetric guard to disable_api_termination and worth turning on alongside it."
+  type        = bool
+  default     = true
+}

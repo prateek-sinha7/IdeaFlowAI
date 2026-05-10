@@ -10,6 +10,8 @@ locals {
   #  - postgres     : /var/log/postgresql/postgresql-16-main.log
   #  - system       : journald system slice
   #  - auth         : /var/log/auth.log (sshd / sudo)
+  #  - letsencrypt  : /var/log/letsencrypt/letsencrypt.log — Phase 3 item 21
+  #                   (cert-renew failures + renewal-heartbeat alarms watch this).
   log_groups = [
     "/flowin/${var.environment}/nginx-access",
     "/flowin/${var.environment}/nginx-error",
@@ -17,7 +19,17 @@ locals {
     "/flowin/${var.environment}/postgres",
     "/flowin/${var.environment}/system",
     "/flowin/${var.environment}/auth",
+    "/flowin/${var.environment}/letsencrypt",
   ]
+
+  # Path -> alarm-name-friendly slug for the inode_low for_each. "/" maps
+  # to "root"; everything else strips the leading "/" and replaces inner
+  # "/" with "-". Avoids trailing dashes from a naive replace().
+  # Used by aws_cloudwatch_metric_alarm.inode_low (Audit D P3-4) below.
+  inode_path_slug = {
+    (var.root_disk_path) = var.root_disk_path == "/" ? "root" : trim(replace(var.root_disk_path, "/", "-"), "-")
+    (var.data_disk_path) = var.data_disk_path == "/" ? "root" : trim(replace(var.data_disk_path, "/", "-"), "-")
+  }
 }
 
 # --- Log groups -------------------------------------------------------------
@@ -25,8 +37,12 @@ locals {
 resource "aws_cloudwatch_log_group" "groups" {
   for_each = toset(local.log_groups)
 
-  name              = each.value
-  retention_in_days = var.log_retention_days
+  name = each.value
+  # Per-group retention overrides take precedence over the default. This lets
+  # nginx-access (high churn, lowest forensic value) age out faster than
+  # auth/auditd (which we want for incident-response forensics). Keys in the
+  # map are full log-group names — value validation is in variables.tf.
+  retention_in_days = lookup(var.log_retention_overrides, each.value, var.log_retention_days)
   kms_key_id        = var.kms_key_arn
 
   tags = {
@@ -142,6 +158,12 @@ data "aws_iam_policy_document" "alerts_topic" {
   # CloudWatch alarms publishing into this same topic — the alarms in this
   # module specify SNS:Publish via alarm_actions, which in CloudWatch lingo
   # means "the cloudwatch service publishes on the alarm's behalf".
+  #
+  # aws:SourceArn is constrained to alarms named `flowin-${env}-*` in this
+  # account+region. Audit A P3 (23): without this constraint, any CloudWatch
+  # alarm in the account that listed this topic in alarm_actions could
+  # publish — the Service principal is the *service*, not the alarm. The
+  # name-prefix scope mirrors the project's name_prefix discipline.
   statement {
     sid    = "AllowCloudWatchAlarmsPublish"
     effect = "Allow"
@@ -158,6 +180,14 @@ data "aws_iam_policy_document" "alerts_topic" {
       test     = "StringEquals"
       variable = "aws:SourceAccount"
       values   = [data.aws_caller_identity.current.account_id]
+    }
+
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values = [
+        "arn:${data.aws_partition.current.partition}:cloudwatch:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:alarm:${var.name_prefix}-*",
+      ]
     }
   }
 }
@@ -223,6 +253,66 @@ resource "aws_sns_topic_subscription" "email_useast1" {
   topic_arn = aws_sns_topic.alerts_useast1.arn
   protocol  = "email"
   endpoint  = var.alert_email
+}
+
+# Topic policy mirror for the us-east-1 billing topic. Audit A P3 (23):
+# without an explicit policy, the default SNS topic policy depends on the
+# topic owner's principal — fine until a future operator adds a service-
+# principal binding (e.g. EventBridge cross-region) at which point we'd
+# rather have the constraint already in place. Only the billing alarm ARN
+# is allowed; the topic carries no other publishers in this region.
+data "aws_iam_policy_document" "alerts_useast1_topic" {
+  provider = aws.useast1
+
+  statement {
+    sid    = "OwnerFullControl"
+    effect = "Allow"
+
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root"]
+    }
+
+    actions   = ["SNS:*"]
+    resources = [aws_sns_topic.alerts_useast1.arn]
+  }
+
+  # CloudWatch billing alarm publishing on its behalf. SourceArn pinned to
+  # the single billing alarm in us-east-1 — no other alarms in that region
+  # should ever target this topic.
+  statement {
+    sid    = "AllowCloudWatchAlarmsPublish"
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudwatch.amazonaws.com"]
+    }
+
+    actions   = ["SNS:Publish"]
+    resources = [aws_sns_topic.alerts_useast1.arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values = [
+        "arn:${data.aws_partition.current.partition}:cloudwatch:us-east-1:${data.aws_caller_identity.current.account_id}:alarm:${var.name_prefix}-*",
+      ]
+    }
+  }
+}
+
+resource "aws_sns_topic_policy" "alerts_useast1" {
+  provider = aws.useast1
+
+  arn    = aws_sns_topic.alerts_useast1.arn
+  policy = data.aws_iam_policy_document.alerts_useast1_topic.json
 }
 
 # --- CloudWatch alarms ------------------------------------------------------
@@ -406,16 +496,25 @@ resource "aws_cloudwatch_metric_alarm" "db_conn_error" {
 }
 
 # 6. Bedrock throttles
+#
+# Audit D P3-12: the original threshold=0 / evaluation_periods=1 was
+# hair-trigger — any single throttle in 5 min paged on-call. Bursty quota
+# pressure (which auto-recovers after backoff) is normal at the edges of
+# Bedrock's regional quota; sustained pressure is the real signal worth
+# paging for. Both threshold and evaluation_periods are now tunable so the
+# operator can absorb short bursts without losing the page on actual quota
+# exhaustion. Defaults: threshold=5 (any 5 throttles in 5 min), 2 windows
+# (i.e. ~10 minutes of sustained pressure).
 resource "aws_cloudwatch_metric_alarm" "bedrock_throttles" {
   alarm_name          = "${var.name_prefix}-bedrock-throttles"
-  alarm_description   = "Bedrock InvocationThrottles for ${var.bedrock_model_id} > 0 over 5 minutes — request a quota increase."
+  alarm_description   = "Bedrock InvocationThrottles for ${var.bedrock_model_id} > ${var.bedrock_throttles_threshold} per 5-min window for ${var.bedrock_throttles_evaluation_periods} consecutive windows — request a quota increase."
   comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = 1
+  evaluation_periods  = var.bedrock_throttles_evaluation_periods
   metric_name         = "InvocationThrottles"
   namespace           = "AWS/Bedrock"
   period              = 300
   statistic           = "Sum"
-  threshold           = 0
+  threshold           = var.bedrock_throttles_threshold
   treat_missing_data  = "notBreaching"
 
   dimensions = {
@@ -496,6 +595,13 @@ resource "aws_cloudwatch_metric_alarm" "billing" {
 # `code=1011` for internal errors. We catch all four shapes via the OR'd
 # pattern; CloudWatch's syntax for "any of these phrases anywhere in the
 # event" is `?phrase1 ?phrase2 ?phrase3` (each ? token is a substring match).
+#
+# Audit D P2-4 verification (JWT revocation surge / 4001 storm): the four
+# `close code 4001` sites in websocket.py (lines 145, 168, 171, 285) all
+# go through FastAPI/uvicorn's standard WS close handler, which emits
+# `connection closed (code=4001, ...)` at INFO. The `?"close code 4001"`
+# substring catches it. No separate alarm needed for JWT revocation surge
+# — this filter already covers it.
 resource "aws_cloudwatch_log_metric_filter" "ws_disconnect" {
   name           = "${var.name_prefix}-ws-disconnect"
   log_group_name = aws_cloudwatch_log_group.groups["/flowin/${var.environment}/app"].name
@@ -518,11 +624,11 @@ resource "aws_cloudwatch_metric_alarm" "ws_disconnect_spike" {
   namespace           = var.cw_metric_namespace
   period              = 300
   # Sum is the canonical statistic for a count-style metric filter.
-  statistic           = "Sum"
-  threshold           = var.ws_disconnect_threshold
+  statistic = "Sum"
+  threshold = var.ws_disconnect_threshold
   # Traffic-dependent: legitimately zero in low-traffic windows. notBreaching
   # is correct here — we don't want to page when the app is just idle.
-  treat_missing_data  = "notBreaching"
+  treat_missing_data = "notBreaching"
 
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn]
@@ -594,9 +700,224 @@ resource "aws_cloudwatch_metric_alarm" "pg_dump_heartbeat" {
   # SampleCount on a count metric — number of put-metric-data calls in
   # the period. Less than 1 in two hours means at least two hourly runs
   # have failed (or the host is dead).
-  statistic           = "SampleCount"
+  statistic          = "SampleCount"
+  threshold          = 1
+  treat_missing_data = "breaching"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+
+  tags = {
+    Component = "monitoring"
+  }
+}
+
+# 12a. Cert renewal failure — Phase 3 item 21.
+#
+# certbot.timer renews automatically (twice daily, randomised), but a stuck
+# renewal (network blip, ACME server flake, validation failure) silently
+# leaves a soon-expiring cert. The CW Agent ships /var/log/letsencrypt/*
+# into the letsencrypt log group; certbot logs the literal string
+# "Failed to renew certificate" on a renewal failure. Any such line in any
+# 1-hour window is a page.
+resource "aws_cloudwatch_log_metric_filter" "cert_renew_failure" {
+  name           = "${var.name_prefix}-cert-renew-failure"
+  log_group_name = aws_cloudwatch_log_group.groups["/flowin/${var.environment}/letsencrypt"].name
+  # Substring match — `?` in CloudWatch's JSON-less filter syntax is "any
+  # event containing this phrase".
+  pattern = "?\"Failed to renew\" ?\"All renewals failed\""
+
+  metric_transformation {
+    name          = "CertRenewFailure"
+    namespace     = var.cw_metric_namespace
+    value         = "1"
+    default_value = "0"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "cert_renew_failure" {
+  alarm_name          = "${var.name_prefix}-cert-renew-failure"
+  alarm_description   = "certbot logged a renewal failure in the last hour. Cert may expire — investigate /var/log/letsencrypt/letsencrypt.log on the host."
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = "CertRenewFailure"
+  namespace           = var.cw_metric_namespace
+  period              = 3600 # 1 hour
+  statistic           = "Sum"
   threshold           = 1
+  treat_missing_data  = "notBreaching"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+
+  tags = {
+    Component = "monitoring"
+  }
+}
+
+# 12b. Cert renewal heartbeat — covers the "stuck silent" case the failure
+# alarm above misses. If certbot.timer is dead, *neither* "Failed to renew"
+# nor "Cert not yet due" / "successfully renewed" will appear in the log,
+# so the failure-only alarm stays OK while the cert silently approaches
+# expiry. This heartbeat alarm fires when the success-side filter sees
+# fewer than 1 sample in 30 days. Cert lifetime is 90 days; 30 days of
+# silence is a strong signal that something is wrong.
+#
+# treat_missing_data = "breaching" — absence IS the alert (same pattern as
+# pg_dump_heartbeat).
+resource "aws_cloudwatch_log_metric_filter" "cert_renew_success" {
+  name           = "${var.name_prefix}-cert-renew-success"
+  log_group_name = aws_cloudwatch_log_group.groups["/flowin/${var.environment}/letsencrypt"].name
+  # certbot logs "Cert not yet due for renewal" on a no-op run, and
+  # "successfully renewed" / "renewed" on a real renewal.
+  pattern = "?\"Cert not yet due for renewal\" ?\"successfully renewed\" ?\"Renewing\""
+
+  metric_transformation {
+    name          = "CertRenewSuccess"
+    namespace     = var.cw_metric_namespace
+    value         = "1"
+    default_value = "0"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "cert_renew_heartbeat" {
+  alarm_name          = "${var.name_prefix}-cert-renew-heartbeat-stale"
+  alarm_description   = "certbot has not logged any renewal activity in 30 days — timer may be stuck. Cert lifetime is 90 days; investigate before the cert expires."
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "CertRenewSuccess"
+  namespace           = var.cw_metric_namespace
+  period              = 2592000 # 30 days
+  # SampleCount: absence of any matching log line in 30 days fires.
+  statistic          = "SampleCount"
+  threshold          = 1
+  treat_missing_data = "breaching"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+
+  tags = {
+    Component = "monitoring"
+  }
+}
+
+# 13. Agent error rate — Audit D P2-2.
+#
+# The pipeline executor logs `AGENT [%d/%d] FAILED — %s: %s` at error level
+# (backend/app/agents/pipeline.py:178) when an agent invocation raises;
+# upstream that becomes an `agent_error` event in the WS stream
+# (pipeline.py:181). Sustained high agent_error rate is meaningful:
+# Bedrock throttling spillover, prompt-engineering regressions, post-A3
+# cancel storms, etc. The pattern below ORs three substrings so we catch
+# both the logger line and the JSON event payload.
+resource "aws_cloudwatch_log_metric_filter" "agent_error_rate" {
+  name           = "${var.name_prefix}-agent-error-rate"
+  log_group_name = aws_cloudwatch_log_group.groups["/flowin/${var.environment}/app"].name
+  # Any of: the emoji-free FAILED log line, the CONFIG ERROR variant, or the
+  # `agent_error` event-type field. CONFIG ERROR is included because A1
+  # config errors break the pipeline harder than a recoverable runtime
+  # failure but emit the same operational concern (re: prompt regressions).
+  pattern = "?\"AGENT [\" ?\"FAILED\" ?\"CONFIG ERROR\" ?\"agent_error\""
+
+  metric_transformation {
+    name          = "AgentErrorCount"
+    namespace     = var.cw_metric_namespace
+    value         = "1"
+    default_value = "0"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "agent_error_high" {
+  alarm_name          = "${var.name_prefix}-agent-error-high"
+  alarm_description   = "Sustained agent_error rate (>${var.agent_error_rate_threshold} per 5-min window for 2 consecutive windows). Possible Bedrock throttling, prompt regression, or upstream LLM degradation."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "AgentErrorCount"
+  namespace           = var.cw_metric_namespace
+  period              = 300
+  statistic           = "Sum"
+  threshold           = var.agent_error_rate_threshold
+  treat_missing_data  = "notBreaching"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+
+  tags = {
+    Component = "monitoring"
+  }
+}
+
+# 14. Stuck running WorkflowRun rows — Audit D P2-3.
+#
+# A4 fixed cancel-pipeline so cancelled rows reach a terminal state. But a
+# row that is genuinely stuck (orchestrator crashed without cancellation,
+# DB connection dropped between status updates, etc.) still goes unnoticed.
+#
+# Approach: a small SQL-driven custom metric. The on-host
+# `flowin-stuck-workflows-check.timer` (docs/SIMPLE_AWS_DEPLOYMENT.md
+# Appendix B / Appendix D) runs every 15 min, queries Postgres for
+# WorkflowRun rows in `running` for >60 min, and pushes the count as
+# `Flowin/App::StuckRunningWorkflows`. Alarm fires when the count > 0
+# for the whole evaluation window (period covers ~2 publishes).
+#
+# treat_missing_data = "missing" rather than "breaching" — absence is
+# benign in low-traffic windows and we already alarm separately on a
+# dead host (cpu_high, mem_high — both treat_missing_data="breaching").
+resource "aws_cloudwatch_metric_alarm" "stuck_workflows" {
+  alarm_name          = "${var.name_prefix}-stuck-running-workflows"
+  alarm_description   = "WorkflowRun rows stuck in `running` state for >60 min. Likely an orchestrator crash, DB drop, or A4 regression. Investigate immediately."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "StuckRunningWorkflows"
+  namespace           = var.cw_metric_namespace
+  period              = var.stuck_workflows_check_period
+  statistic           = "Maximum"
+  threshold           = var.stuck_workflows_threshold
+  treat_missing_data  = "missing"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+
+  tags = {
+    Component = "monitoring"
+  }
+}
+
+# 15. Inode usage low — Audit D P3-4.
+#
+# disk_used_percent (the alarm above on root and data) measures bytes used
+# only — a partition can run out of inodes long before it runs out of
+# bytes, and the kernel will refuse new file creates with ENOSPC even
+# though `df -h` shows free space. Many small files (logs, journald
+# fragments, npm/pip caches, postgres temp) are the typical cause.
+#
+# CW Agent emits `disk_inodes_free_percent` per disk (configured in
+# §10.1). Alarm fires when free inode percent < 20% on either the root
+# or data partition. treat_missing_data = "breaching" mirrors the
+# disk_used_percent alarm — a dead CW Agent should still page.
+#
+# (Slug map for the alarm name lives in the top `locals` block.)
+resource "aws_cloudwatch_metric_alarm" "inode_low" {
+  for_each = toset([var.root_disk_path, var.data_disk_path])
+
+  alarm_name          = "${var.name_prefix}-inode-low-${local.inode_path_slug[each.key]}"
+  alarm_description   = "Inode usage > 80% on ${each.key}. Many small files (or runaway logs) — investigate before file creates start failing with ENOSPC."
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "disk_inodes_free_percent"
+  namespace           = var.cw_metric_namespace
+  period              = 300
+  statistic           = "Average"
+  threshold           = 20
   treat_missing_data  = "breaching"
+
+  # Match the disk_used_percent alarm dimensions: InstanceId + path. The CW
+  # Agent also emits device + fstype but those add fragility (a remount
+  # changes them) for no extra precision in our single-instance design.
+  dimensions = {
+    InstanceId = var.instance_id
+    path       = each.key
+  }
 
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn]

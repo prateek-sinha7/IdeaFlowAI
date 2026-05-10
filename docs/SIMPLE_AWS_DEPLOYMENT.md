@@ -1216,7 +1216,7 @@ Drop the config at `/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent
     "metrics_collected": {
       "cpu":    {"measurement": ["cpu_usage_idle","cpu_usage_iowait","cpu_usage_user","cpu_usage_system"], "totalcpu": true, "metrics_collection_interval": 60},
       "mem":    {"measurement": ["mem_used_percent","mem_available"], "metrics_collection_interval": 60},
-      "disk":   {"measurement": ["used_percent"], "resources": ["/", "/var/lib/postgresql"], "metrics_collection_interval": 60},
+      "disk":   {"measurement": ["used_percent","inodes_free_percent"], "resources": ["/", "/var/lib/postgresql"], "metrics_collection_interval": 60},
       "diskio": {"measurement": ["io_time","write_bytes","read_bytes"], "resources": ["*"], "metrics_collection_interval": 60},
       "swap":   {"measurement": ["swap_used_percent"], "metrics_collection_interval": 60},
       "net":    {"measurement": ["bytes_sent","bytes_recv","drop_in","drop_out"], "resources": ["*"], "metrics_collection_interval": 60}
@@ -1236,7 +1236,8 @@ Drop the config at `/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent
           {"file_path": "/var/log/postgresql/postgresql-16-main.log", "log_group_name": "/flowin/prod/postgres", "log_stream_name": "{instance_id}", "timezone": "UTC"},
           {"file_path": "/var/log/audit/audit.log",     "log_group_name": "/flowin/prod/system",          "log_stream_name": "{instance_id}", "timezone": "UTC"},
           {"file_path": "/var/log/auth.log",            "log_group_name": "/flowin/prod/auth",            "log_stream_name": "{instance_id}", "timezone": "UTC"},
-          {"file_path": "/var/log/unattended-upgrades/unattended-upgrades.log", "log_group_name": "/flowin/prod/system", "log_stream_name": "{instance_id}", "timezone": "UTC"}
+          {"file_path": "/var/log/unattended-upgrades/unattended-upgrades.log", "log_group_name": "/flowin/prod/system", "log_stream_name": "{instance_id}", "timezone": "UTC"},
+          {"file_path": "/var/log/letsencrypt/letsencrypt.log", "log_group_name": "/flowin/prod/letsencrypt", "log_stream_name": "{instance_id}", "timezone": "UTC"}
         ]
       }
     }
@@ -1272,22 +1273,43 @@ sudo systemctl enable --now amazon-cloudwatch-agent
 Set a sane retention on every log group. The default is "Never expire", which is bad for cost and for GDPR posture:
 
 ```bash
-# Terraform's monitoring module already sets retention on the six groups it
-# creates (nginx-access, nginx-error, app, postgres, system, auth). The loop
-# below is the equivalent CLI form for ad-hoc verification.
+# Terraform's monitoring module sets retention on seven groups
+# (nginx-access, nginx-error, app, postgres, system, auth, letsencrypt).
+# Per-group overrides via `var.log_retention_overrides` (Audit D P2-5):
+#   - /flowin/prod/nginx-access: 7d  (high churn, low forensic value)
+#   - /flowin/prod/auth:         90d (forensics — sshd / sudo events)
+#   - others:                    var.log_retention_days (default 30d)
+# The loop below is the equivalent CLI form for ad-hoc verification.
 for lg in /flowin/prod/nginx-access /flowin/prod/nginx-error \
           /flowin/prod/app /flowin/prod/postgres \
-          /flowin/prod/system /flowin/prod/auth; do
+          /flowin/prod/system /flowin/prod/auth \
+          /flowin/prod/letsencrypt; do
   aws logs put-retention-policy --region eu-central-1 \
     --log-group-name "$lg" --retention-in-days 90
 done
 ```
 
-90 days strikes a balance between forensic value and cost. nginx-access is the largest by volume (~$3/month at 100 req/sec); the others are cheap.
+The split balances forensic value against cost. nginx-access is the largest by volume (~$3/month at 100 req/sec) and the lowest in forensic value (the same data shows up in CloudFront access logs / app traces); auth gets the long retention because sshd / sudo events are what an investigator wants on day-30 of an incident.
+
+The `letsencrypt` log group (new in Phase 3) backs the cert-renew failure and renewal-heartbeat alarms — see §10.3 alarms 12a/12b.
 
 ### 10.3 Alarms
 
-Eleven alarms in total — eight infra alarms below (1–8) and three Bedrock-specific alarms in §10.4 (9–11). Each fires to an SNS topic (`flowin-prod-alerts`) which fans out to PagerDuty / Slack / email per the on-call setup.
+Eighteen alarms in total — eight infra alarms below (1–8), three Bedrock-specific alarms in §10.4 (9–11), the WS-disconnect spike + Bedrock-tokens-daily + pg-dump heartbeat from Phase 2 (which Terraform owns), and six Phase 3 hardening alarms (12a/b–15a/b — covered by Terraform; see `infra/modules/monitoring/main.tf` for canonical definitions). Each fires to an SNS topic (`flowin-prod-alerts`) which fans out to PagerDuty / Slack / email per the on-call setup.
+
+Phase 3 additions (Audit D P2-2, P2-3, P3-4, P3-12 + Phase 3 item 21):
+
+| # | Alarm | What it catches |
+|---|---|---|
+| 12a | `cert-renew-failure` | certbot logged "Failed to renew" or "All renewals failed" — cert about to expire |
+| 12b | `cert-renew-heartbeat-stale` | No certbot activity in /var/log/letsencrypt/* for 30 days — timer is stuck |
+| 13 | `agent-error-high` | `>20 agent_error events / 5-min` for 2 windows — Bedrock throttling, prompt regression, cancel-storm |
+| 14 | `stuck-running-workflows` | WorkflowRun rows in `running` for >60 min — orchestrator crash / DB drop / A4 regression |
+| 15a/b | `inode-low-` (root + data) | `disk_inodes_free_percent < 20%` per disk — many small files, runaway logs, ENOSPC about to bite |
+
+Alarm 14 is fed by a small SQL probe (a new systemd timer; see Appendix B.6 below) that publishes the count to CloudWatch every 15 min. The IAM instance role already grants `cloudwatch:PutMetricData` on `Resource:*` (documented exception — that API doesn't support resource-level scoping).
+
+Alarm 16 (Bedrock throttle threshold tuning, Audit D P3-12): the original `bedrock_throttles` alarm fired at threshold=0 (any single throttle in 5 min). Phase 3 makes it tunable via `var.bedrock_throttles_threshold` (default 5) and `var.bedrock_throttles_evaluation_periods` (default 2) — bursty quota pressure auto-recovers after backoff; only sustained pressure pages.
 
 ```bash
 # 1. CPU pegged (sustained throttle)
@@ -2345,6 +2367,72 @@ tar -czf - -C /opt/flowin/src/backend skills \
       --sse-kms-key-id "$FLOWIN_KMS_KEY_ID"
 ```
 
+### B.6 `/etc/systemd/system/flowin-stuck-workflows-check.service` and `.timer`
+
+Audit D P2-3: a stuck `running` WorkflowRun row (orchestrator crash, DB drop between status updates) wouldn't be caught by the cancel-pipeline path. This timer runs every 15 min, queries Postgres for rows in `running` for >60 min, and pushes the count to CloudWatch as `Flowin/App::StuckRunningWorkflows`. The corresponding alarm (`flowin-prod-stuck-running-workflows` in the monitoring module) pages when the count > 0.
+
+`flowin-stuck-workflows-check.service`:
+
+```ini
+[Unit]
+Description=Flowin stuck-running WorkflowRun probe
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=flowin
+Group=flowin
+EnvironmentFile=/etc/flowin/bootstrap.env
+EnvironmentFile=/etc/flowin/environment.d/flowin.env
+ExecStart=/usr/local/bin/flowin-stuck-workflows-check
+TimeoutStartSec=60
+```
+
+`flowin-stuck-workflows-check.timer`:
+
+```ini
+[Unit]
+Description=Run stuck-workflows probe every 15 minutes
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+RandomizedDelaySec=60
+Unit=flowin-stuck-workflows-check.service
+
+[Install]
+WantedBy=timers.target
+```
+
+`/usr/local/bin/flowin-stuck-workflows-check`:
+
+```bash
+#!/usr/bin/env bash
+# Audit D P2-3 — push StuckRunningWorkflows custom metric.
+# DATABASE_URL is exported by /etc/flowin/environment.d/flowin.env via the
+# secrets loader (Appendix D). We use psql in tuples-only mode so the
+# output is just the integer count.
+set -euo pipefail
+: "${DATABASE_URL:?DATABASE_URL is required}"
+AWS_REGION="${AWS_REGION:-eu-central-1}"
+
+COUNT=$(psql "$DATABASE_URL" -tAc \
+  "SELECT count(*) FROM workflow_runs \
+   WHERE status='running' AND created_at < NOW() - INTERVAL '60 minutes'")
+
+# Empty result -> 0. Defensive but should never happen.
+COUNT=${COUNT:-0}
+
+aws cloudwatch put-metric-data \
+  --namespace Flowin/Prod \
+  --metric-name StuckRunningWorkflows \
+  --value "$COUNT" \
+  --region "$AWS_REGION"
+```
+
+The IAM instance role already grants `cloudwatch:PutMetricData` on `Resource:*` (documented exception — the API doesn't support resource-level scoping; see `infra/modules/iam/main.tf::cw_agent_describes`).
+
 ---
 
 ## Appendix C — Parameter Store key list
@@ -2720,9 +2808,11 @@ systemctl enable --now amazon-cloudwatch-agent
 
 # ── 13. Backups (see §11.2) ────────────────────────────────────────────
 # Drop in /usr/local/bin/flowin-pg-dump and the timer/service files.
-chmod +x /usr/local/bin/flowin-pg-dump /usr/local/bin/flowin-skills-backup
+chmod +x /usr/local/bin/flowin-pg-dump /usr/local/bin/flowin-skills-backup \
+         /usr/local/bin/flowin-stuck-workflows-check
 systemctl daemon-reload
-systemctl enable --now flowin-pg-dump.timer flowin-skills-backup.timer
+systemctl enable --now flowin-pg-dump.timer flowin-skills-backup.timer \
+                       flowin-stuck-workflows-check.timer
 
 # ── 14. Application units ──────────────────────────────────────────────
 /usr/local/bin/flowin-load-secrets

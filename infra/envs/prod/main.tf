@@ -26,6 +26,16 @@ module "network" {
   availability_zone  = var.availability_zone
   ssh_allowed_cidrs  = var.ssh_allowed_cidrs
   region             = module.account_guard.region
+
+  # Inputs for VPC flow logs (Phase 3 item 17) and VPC endpoint policies
+  # (Phase 3 item 18). Flow logs deliver into a project-owned, KMS-encrypted
+  # CloudWatch log group; endpoint policies pin aws:PrincipalAccount to this
+  # account and (for the S3 gateway) scope Resource to the backup bucket.
+  environment        = var.environment
+  account_id         = module.account_guard.account_id
+  kms_key_arn        = module.kms.key_arn
+  log_retention_days = var.log_retention_days
+  backup_bucket_arn  = module.backups.backup_bucket_arn
 }
 
 # --- Backups (storage bucket + Backup vault) -------------------------------
@@ -45,6 +55,19 @@ module "backups" {
   bucket_name                 = var.backup_bucket_name
   daily_backup_retention_days = var.daily_backup_retention_days
   cold_storage_after_days     = var.cold_storage_after_days
+  pg_dump_expiry_days         = var.pg_dump_expiry_days
+
+  # Vault Lock — opt-in, ONE-WAY. Default false. See variables.tf for the
+  # full irreversibility caveat; enable only after retention drills.
+  enable_vault_lock             = var.enable_vault_lock
+  vault_lock_min_retention_days = var.vault_lock_min_retention_days
+  vault_lock_max_retention_days = var.vault_lock_max_retention_days
+
+  # S3 Object Lock — opt-in, CREATION-TIME-ONLY. Default false. Cannot be
+  # retrofitted to an existing bucket; the prevent_destroy on the bucket
+  # correctly blocks the replacement Terraform would otherwise plan.
+  enable_object_lock         = var.enable_object_lock
+  object_lock_retention_days = var.object_lock_retention_days
 }
 
 # --- IAM (instance role + policies) ----------------------------------------
@@ -100,6 +123,14 @@ module "compute" {
   root_volume_size_gb       = var.root_volume_size_gb
   data_volume_size_gb       = var.data_volume_size_gb
 
+  # Phase 3 item 19. Both default true in the module; explicit here so an
+  # operator skimming this composition knows the EC2 is protected from a
+  # console mis-click `terminate-instances` / `stop-instances`. To roll the
+  # instance deliberately, flip these to false in tfvars + apply, or run
+  # `aws ec2 modify-instance-attribute --no-disable-api-termination` first.
+  disable_api_termination = true
+  disable_api_stop        = true
+
   user_data_extra_env = {
     FLOWIN_BACKUP_BUCKET = module.backups.backup_bucket_name
     FLOWIN_PARAM_PREFIX  = module.secrets.parameter_path_prefix
@@ -137,6 +168,7 @@ module "monitoring" {
   kms_key_arn                 = module.kms.key_arn
   alert_email                 = var.alert_email
   log_retention_days          = var.log_retention_days
+  log_retention_overrides     = var.log_retention_overrides
   billing_alarm_threshold_usd = var.billing_alarm_threshold_usd
   # CloudWatch Bedrock metrics dimension by the model ID the SDK actually invokes.
   # When the app uses an EU-wide inference profile, that's the profile ID — NOT
@@ -150,6 +182,14 @@ module "monitoring" {
   # see backups module main.tf for the full rationale.
   backup_vault_name             = module.backups.backup_vault_name
   bedrock_daily_token_threshold = var.bedrock_daily_token_threshold
+
+  # Phase 3 tunables (audit D P2-2 agent error, P2-3 stuck workflows,
+  # P3-12 Bedrock throttle thresholds).
+  bedrock_throttles_threshold          = var.bedrock_throttles_threshold
+  bedrock_throttles_evaluation_periods = var.bedrock_throttles_evaluation_periods
+  agent_error_rate_threshold           = var.agent_error_rate_threshold
+  stuck_workflows_threshold            = var.stuck_workflows_threshold
+  stuck_workflows_check_period         = var.stuck_workflows_check_period
 }
 
 # --- Resource Groups (last; they tag-query everything else) ----------------

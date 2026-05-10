@@ -8,6 +8,51 @@ locals {
     "ec2messages",
     "logs",
   ]
+
+  # Endpoint policy for the interface endpoints. Pins aws:PrincipalAccount to
+  # the deploying account so a leaked credential from another account can't use
+  # this endpoint to reach Bedrock / SSM / Logs from inside our VPC. Action /
+  # Resource stay wide-open — the IAM role on the EC2 already constrains what
+  # the principal may actually do, this is defence-in-depth at the network
+  # boundary.
+  interface_endpoint_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = "*"
+      Action    = "*"
+      Resource  = "*"
+      Condition = {
+        StringEquals = { "aws:PrincipalAccount" = var.account_id }
+      }
+    }]
+  })
+
+  # S3 gateway endpoint policy. Pins aws:PrincipalAccount AND scopes Resource
+  # to the project's backup bucket (when supplied) so traffic over the gateway
+  # can only address that bucket — pg_dump / skills-backup uploads still work,
+  # but a misconfigured client can't write to (or read from) a stranger's
+  # bucket via this endpoint. Falls back to Resource:* if backup_bucket_arn
+  # is empty (e.g. early in localstack apply where the bucket isn't yet
+  # plumbed); the principal-account pin is still effective in that case.
+  s3_endpoint_policy_resources = (
+    var.backup_bucket_arn == ""
+    ? ["*"]
+    : [var.backup_bucket_arn, "${var.backup_bucket_arn}/*"]
+  )
+
+  s3_endpoint_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = "*"
+      Action    = "*"
+      Resource  = local.s3_endpoint_policy_resources
+      Condition = {
+        StringEquals = { "aws:PrincipalAccount" = var.account_id }
+      }
+    }]
+  })
 }
 
 # --- VPC --------------------------------------------------------------------
@@ -29,6 +74,44 @@ resource "aws_internet_gateway" "this" {
   tags = {
     Name      = "${var.name_prefix}-igw"
     Component = "network"
+  }
+}
+
+# --- Default VPC SG + default route table — locked down ---------------------
+#
+# The README's "no aws_*default*" rule is a guard against account-wide
+# defaults (the account-level default VPC, the default S3 BPA, etc.). The two
+# resources below are the documented exception: `aws_default_security_group`
+# and `aws_default_route_table` operate ONLY on this VPC's defaults — they
+# adopt the default SG / RT that AWS auto-creates inside the VPC at creation
+# time and replace its ingress/egress (or its routes) with empty sets.
+#
+# Why bother — we never reference the default SG in any of our resources, so
+# nothing rides on it today. But a future change might land an ENI directly
+# in this VPC without specifying a security group, and AWS would attach the
+# default SG (which by default permits all-ingress from itself + all-egress
+# to anywhere). Same hazard for the default RT: if someone associates a new
+# subnet without specifying a route table, AWS uses the default. Wiping both
+# to empty makes those a noisy fail-fast rather than a silent open door.
+resource "aws_default_security_group" "vpc_default" {
+  vpc_id = aws_vpc.this.id
+
+  # No ingress, no egress — empty by design.
+  tags = {
+    Name      = "${var.name_prefix}-default-sg-locked"
+    Component = "network"
+    Note      = "Locked down — DO NOT use; place resources in the explicit app SG instead."
+  }
+}
+
+resource "aws_default_route_table" "vpc_default" {
+  default_route_table_id = aws_vpc.this.default_route_table_id
+
+  # No routes — empty by design.
+  tags = {
+    Name      = "${var.name_prefix}-default-rt-locked"
+    Component = "network"
+    Note      = "Locked down — explicit aws_route_table.public is what subnets actually use."
   }
 }
 
@@ -224,7 +307,11 @@ resource "aws_vpc_security_group_ingress_rule" "endpoints_from_app" {
 # We keep the SG with no explicit egress (default: deny).
 
 # --- Interface endpoints ----------------------------------------------------
-
+#
+# Each endpoint carries an explicit policy that pins aws:PrincipalAccount.
+# Without an explicit policy, the AWS default is "*" / "*" / "*" (any
+# principal, any action, any resource), making the endpoint a defence-in-depth
+# gap. See locals.interface_endpoint_policy above for the full statement.
 resource "aws_vpc_endpoint" "interface" {
   for_each = toset(local.interface_endpoint_services)
 
@@ -234,6 +321,7 @@ resource "aws_vpc_endpoint" "interface" {
   subnet_ids          = [aws_subnet.public.id]
   security_group_ids  = [aws_security_group.endpoints.id]
   private_dns_enabled = true
+  policy              = local.interface_endpoint_policy
 
   tags = {
     Name      = "${var.name_prefix}-${each.value}-endpoint"
@@ -242,15 +330,118 @@ resource "aws_vpc_endpoint" "interface" {
 }
 
 # --- S3 gateway endpoint ----------------------------------------------------
-
+#
+# Carries the same aws:PrincipalAccount pin and additionally scopes Resource
+# to the project's backup bucket (when var.backup_bucket_arn is supplied).
+# See locals.s3_endpoint_policy.
 resource "aws_vpc_endpoint" "s3" {
   vpc_id            = aws_vpc.this.id
   service_name      = "com.amazonaws.${var.region}.s3"
   vpc_endpoint_type = "Gateway"
   route_table_ids   = [aws_route_table.public.id]
+  policy            = local.s3_endpoint_policy
 
   tags = {
     Name      = "${var.name_prefix}-s3-endpoint"
+    Component = "network"
+  }
+}
+
+# --- VPC flow logs ----------------------------------------------------------
+#
+# Captures every flow (accept/reject) on the project VPC into a
+# project-owned, KMS-encrypted CloudWatch log group. Lets the project-side
+# incident response reconstruct flows after an EC2 compromise without
+# depending on the org-wide GuardDuty data plane.
+#
+# Three resources:
+#   * aws_iam_role.flow_logs         — service role for vpc-flow-logs
+#   * aws_iam_role_policy.flow_logs  — narrow CW Logs write permission
+#   * aws_cloudwatch_log_group.flow_logs — destination, KMS-encrypted, prevent_destroy
+#   * aws_flow_log.vpc               — the capture binding itself
+data "aws_iam_policy_document" "flow_logs_assume" {
+  statement {
+    sid     = "AllowVPCFlowLogsAssume"
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["vpc-flow-logs.amazonaws.com"]
+    }
+
+    # Confused-deputy guard: the assumer must be acting on behalf of THIS
+    # account. Without this, any other account's vpc-flow-logs principal
+    # could (in principle) ride this trust policy.
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [var.account_id]
+    }
+  }
+}
+
+resource "aws_iam_role" "flow_logs" {
+  name               = "${var.name_prefix}-vpc-flow-logs"
+  description        = "Allows the VPC flow-logs service to write to the project's CloudWatch log group."
+  assume_role_policy = data.aws_iam_policy_document.flow_logs_assume.json
+
+  tags = {
+    Name      = "${var.name_prefix}-vpc-flow-logs"
+    Component = "network"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "flow_logs" {
+  # Path matches the monitoring module's `/flowin/${var.environment}/<suffix>`
+  # convention so all CW log groups for the project share a tree (CW Logs
+  # console becomes a tidy `/flowin/prod/...` listing). Suffix is constant
+  # `vpc-flow-logs`.
+  name              = "/flowin/${var.environment}/vpc-flow-logs"
+  retention_in_days = var.log_retention_days
+  kms_key_id        = var.kms_key_arn
+
+  tags = {
+    Name      = "${var.name_prefix}-vpc-flow-logs"
+    Component = "network"
+  }
+
+  lifecycle {
+    # Flow logs carry forensic data; recreating the group loses the historical
+    # stream. Same pattern as the monitoring module's log groups.
+    prevent_destroy = true
+  }
+}
+
+resource "aws_iam_role_policy" "flow_logs" {
+  name = "${var.name_prefix}-vpc-flow-logs-write"
+  role = aws_iam_role.flow_logs.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogStreams",
+      ]
+      # Stream-level resource scope — `${arn}:*` matches any log stream
+      # below the group. The group itself isn't a write target.
+      Resource = "${aws_cloudwatch_log_group.flow_logs.arn}:*"
+    }]
+  })
+}
+
+resource "aws_flow_log" "vpc" {
+  iam_role_arn         = aws_iam_role.flow_logs.arn
+  log_destination_type = "cloud-watch-logs"
+  log_destination      = aws_cloudwatch_log_group.flow_logs.arn
+  traffic_type         = "ALL"
+  vpc_id               = aws_vpc.this.id
+
+  tags = {
+    Name      = "${var.name_prefix}-vpc-flow-log"
     Component = "network"
   }
 }

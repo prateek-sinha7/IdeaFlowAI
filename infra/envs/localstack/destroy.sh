@@ -27,6 +27,11 @@ protected=(
   "module.backups.aws_backup_selection.by_tag"
   "module.compute.aws_ebs_volume.data"
   "module.compute.aws_eip.this"
+  # Phase 3 item 17 — VPC flow-logs CW log group is prevent_destroy.
+  "module.network.aws_cloudwatch_log_group.flow_logs"
+  # Phase 3 B P3-2 — IAM instance role + profile are prevent_destroy.
+  "module.iam.aws_iam_role.instance"
+  "module.iam.aws_iam_instance_profile.instance"
 )
 
 state_snapshot=$(terraform state list)

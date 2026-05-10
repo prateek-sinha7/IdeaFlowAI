@@ -3,6 +3,17 @@ variable "name_prefix" {
   type        = string
 }
 
+variable "environment" {
+  description = "Environment short name (e.g. prod, ls). Appears in the VPC flow-logs CloudWatch log-group path so it shares the `/flowin/$${environment}/...` tree with the monitoring module's groups."
+  type        = string
+  default     = "prod"
+
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9]{1,15}$", var.environment))
+    error_message = "environment must be lowercase, start with a letter, max 16 chars."
+  }
+}
+
 variable "vpc_cidr" {
   description = "Primary CIDR block for the project VPC."
   type        = string
@@ -56,4 +67,38 @@ variable "ssh_allowed_cidrs" {
 variable "region" {
   description = "Region (used to construct VPC endpoint service names)."
   type        = string
+}
+
+# --- Flow logs / endpoint policies inputs -----------------------------------
+
+variable "account_id" {
+  description = "AWS account ID. Used by the VPC flow-logs IAM trust-policy aws:SourceAccount condition and by the VPC-endpoint policies' aws:PrincipalAccount condition. Mismatch with the deploying account fails plan/apply via the account_guard module."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9]{12}$", var.account_id))
+    error_message = "account_id must be a 12-digit AWS account ID."
+  }
+}
+
+variable "kms_key_arn" {
+  description = "ARN of the project CMK used to encrypt the VPC flow-logs CloudWatch log group at rest. The KMS key policy must already permit logs.<region>.amazonaws.com (the modules/kms key policy does)."
+  type        = string
+}
+
+variable "log_retention_days" {
+  description = "Retention (days) for the VPC flow-logs CloudWatch log group. Same concern as the monitoring module's same-named variable but a separate value here so the network module stays self-contained — wire from the env composition with the same number used elsewhere."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = contains([1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 2192, 2557, 2922, 3288, 3653], var.log_retention_days)
+    error_message = "log_retention_days must be one of the values CloudWatch Logs accepts (1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 2192, 2557, 2922, 3288, 3653)."
+  }
+}
+
+variable "backup_bucket_arn" {
+  description = "ARN of the S3 backup bucket. Used to scope the S3 gateway VPC endpoint's Resource policy (see aws_vpc_endpoint.s3 in main.tf). Empty string falls back to a Resource:* allow-list — useful for ephemeral envs where the bucket isn't in the dependency graph yet. Always set in prod."
+  type        = string
+  default     = ""
 }
