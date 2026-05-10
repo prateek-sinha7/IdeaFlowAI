@@ -24,15 +24,17 @@ variable "bedrock_model_id" {
 }
 
 variable "app_secret_key" {
-  description = "App SECRET_KEY (used to sign JWTs). Generate via `openssl rand -hex 64`. Set via tfvars or environment variable; never commit. Stored as SecureString."
+  description = "App SECRET_KEY (used to sign JWTs). Generate via `openssl rand -hex 64`. Set via tfvars / TF_VAR_app_secret_key; never commit. Stored as SecureString. EMPTY DEFAULT: a 64-char random_password is generated on first apply and used instead — operator only sets this if they want to import an existing key (e.g. migration from another env)."
   type        = string
   sensitive   = true
+  default     = ""
 }
 
 variable "db_password" {
-  description = "Postgres password for the application user. Stored as SecureString."
+  description = "Postgres password for the application user. Stored as SecureString. EMPTY DEFAULT: a 32-char random_password is generated on first apply. Override only when restoring from a snapshot whose existing Postgres role uses a known password."
   type        = string
   sensitive   = true
+  default     = ""
 }
 
 # --- LangSmith — three optional, count-guarded parameters ------------------
@@ -63,8 +65,9 @@ variable "langsmith_project" {
 }
 
 variable "cors_origins" {
-  description = "JSON-encoded list of CORS origins, e.g. '[\"https://flowin.example.com\"]'."
+  description = "JSON-encoded list of CORS origins, e.g. '[\"https://flowin.example.com\"]'. EMPTY DEFAULT: bootstrap script's flowin-load-secrets falls back to `[\"https://$FLOWIN_FQDN\"]` when this parameter is empty — operator only sets this for multi-origin deployments."
   type        = string
+  default     = ""
 }
 
 variable "access_token_expire_hours" {

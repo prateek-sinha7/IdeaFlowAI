@@ -2,6 +2,29 @@ locals {
   prefix = "/flowin/${var.environment}"
 }
 
+# --- Auto-generated secrets ------------------------------------------------
+#
+# When the operator does NOT pass var.app_secret_key / var.db_password, these
+# random_password resources fill in a strong default. They're generated ONCE
+# (no `keepers`) and persisted in state; subsequent plans reuse the same
+# value. Manual rotation works out-of-band because the matching SSM parameter
+# resources below set `lifecycle.ignore_changes = [value]`.
+#
+# `special = false` keeps the result to [a-zA-Z0-9] so the EnvironmentFile
+# format used by systemd / docker-compose doesn't have to grapple with
+# embedded quotes, backslashes, or `$` expansion. 64-char alphanumeric is
+# ~380 bits of entropy — well past the >= 32-char policy in the prod env
+# variable validations.
+resource "random_password" "app_secret_key" {
+  length  = 64
+  special = false
+}
+
+resource "random_password" "db_password" {
+  length  = 32
+  special = false
+}
+
 # Notes on the schema
 # -------------------
 # Terraform writes the canonical UPPERCASE top-level keys that the application's
@@ -75,7 +98,7 @@ resource "aws_ssm_parameter" "app_secret_key" {
   description = "JWT signing key. Rotate yearly; rotation logs all users out."
   type        = "SecureString"
   key_id      = var.kms_key_id
-  value       = var.app_secret_key
+  value       = var.app_secret_key != "" ? var.app_secret_key : random_password.app_secret_key.result
   tier        = "Standard"
 
   tags = {
@@ -95,7 +118,7 @@ resource "aws_ssm_parameter" "db_password" {
   description = "Application Postgres user password. Loader composes DATABASE_URL from this value (postgresql://flowin:$${pw}@127.0.0.1:5432/flowin)."
   type        = "SecureString"
   key_id      = var.kms_key_id
-  value       = var.db_password
+  value       = var.db_password != "" ? var.db_password : random_password.db_password.result
   tier        = "Standard"
 
   tags = {

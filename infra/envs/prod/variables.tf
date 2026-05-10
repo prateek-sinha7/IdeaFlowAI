@@ -198,24 +198,26 @@ variable "use_inference_profile_for_app" {
 # --- Secrets / app config ---------------------------------------------------
 
 variable "app_secret_key" {
-  description = "Application JWT signing key (>= 32 chars, generate via `openssl rand -hex 64`). NEVER commit. Set via env var TF_VAR_app_secret_key or terraform.tfvars (which is gitignored)."
+  description = "Application JWT signing key. EMPTY DEFAULT: secrets module generates a 64-char random_password on first apply. Override only when importing an existing key (must then be >= 32 chars)."
   type        = string
   sensitive   = true
+  default     = ""
 
   validation {
-    condition     = length(var.app_secret_key) >= 32
-    error_message = "app_secret_key must be at least 32 characters."
+    condition     = var.app_secret_key == "" || length(var.app_secret_key) >= 32
+    error_message = "When set, app_secret_key must be at least 32 characters (or leave empty to auto-generate)."
   }
 }
 
 variable "db_password" {
-  description = "Postgres password for the application user. Generate via `openssl rand -hex 32`. NEVER commit."
+  description = "Postgres password for the application user. EMPTY DEFAULT: secrets module generates a 32-char random_password. Override only when restoring from a snapshot whose Postgres role already has a known password (must then be >= 16 chars)."
   type        = string
   sensitive   = true
+  default     = ""
 
   validation {
-    condition     = length(var.db_password) >= 16
-    error_message = "db_password must be at least 16 characters."
+    condition     = var.db_password == "" || length(var.db_password) >= 16
+    error_message = "When set, db_password must be at least 16 characters (or leave empty to auto-generate)."
   }
 }
 
@@ -239,24 +241,25 @@ variable "langsmith_project" {
 }
 
 variable "cors_origins" {
-  description = "JSON-encoded list of CORS origins, e.g. '[\"https://flowin.example.com\"]'. Each entry must be a fully-qualified URL (http:// or https://). The on-host loader pushes this verbatim into CORS_ORIGINS env, which Settings parses as JSON."
+  description = "JSON-encoded list of CORS origins, e.g. '[\"https://flowin.example.com\"]'. Each entry must be a fully-qualified URL (http:// or https://). The on-host loader pushes this verbatim into CORS_ORIGINS env, which Settings parses as JSON. EMPTY DEFAULT: flowin-load-secrets falls back to `[\"https://$FLOWIN_FQDN\"]`."
   type        = string
+  default     = ""
 
   validation {
     # Audit B P2-9: trip on a bare string ("flowin.example.com") or comma-
     # separated list ("a,b") rather than JSON. Both common operator mistakes;
     # both deploy clean and break at app startup when Settings.cors_origins
-    # JSON-parses the value.
-    condition     = can(jsondecode(var.cors_origins))
-    error_message = "cors_origins must be valid JSON (a list of URL strings, e.g. '[\"https://flowin.example.com\"]')."
+    # JSON-parses the value. Empty allowed — loader defaults to the FQDN.
+    condition     = var.cors_origins == "" || can(jsondecode(var.cors_origins))
+    error_message = "When set, cors_origins must be valid JSON (a list of URL strings, e.g. '[\"https://flowin.example.com\"]')."
   }
 
   validation {
     # Element-level shape check: each origin must be a fully-qualified URL.
     # FastAPI's CORSMiddleware also validates this, but failing fast at
     # `terraform plan` time is cheaper than failing at app startup.
-    condition     = can(jsondecode(var.cors_origins)) ? alltrue([for o in jsondecode(var.cors_origins) : startswith(o, "https://") || startswith(o, "http://")]) : false
-    error_message = "cors_origins entries must each start with http:// or https://."
+    condition     = var.cors_origins == "" || (can(jsondecode(var.cors_origins)) ? alltrue([for o in jsondecode(var.cors_origins) : startswith(o, "https://") || startswith(o, "http://")]) : false)
+    error_message = "When set, cors_origins entries must each start with http:// or https://."
   }
 }
 

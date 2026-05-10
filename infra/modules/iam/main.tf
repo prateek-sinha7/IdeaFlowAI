@@ -114,6 +114,19 @@ resource "aws_iam_role_policy" "s3_backup_rw" {
   })
 }
 
+# Read-only on `config/*` of the same bucket. Bootstrap script downloads
+# /opt/flowin/docker-compose.yml from s3://<bucket>/config/docker-compose.yml,
+# uploaded by Terraform (envs/prod/main.tf aws_s3_object.compose_yaml).
+# Kept distinct from s3_backup_rw so that policy can stay strictly write-only.
+resource "aws_iam_role_policy" "s3_config_read" {
+  name = "${var.name_prefix}-s3-config-read"
+  role = aws_iam_role.instance.id
+
+  policy = templatefile("${path.module}/${var.policies_dir}/s3-config-read.json", {
+    bucket_arn = var.backup_bucket_arn
+  })
+}
+
 # ECR pull. Two statements:
 #   1) ecr:GetAuthorizationToken on Resource "*" — required by AWS, the API
 #      doesn't accept a scoped Resource. This grants a short-lived token
@@ -218,6 +231,7 @@ resource "aws_iam_role_policies_exclusive" "instance" {
     aws_iam_role_policy.kms_decrypt.name,
     aws_iam_role_policy.cloudwatch_write.name,
     aws_iam_role_policy.s3_backup_rw.name,
+    aws_iam_role_policy.s3_config_read.name,
     aws_iam_role_policy.ecr_pull.name,
     aws_iam_role_policy.cw_agent.name,
   ]

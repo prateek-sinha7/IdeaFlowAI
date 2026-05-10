@@ -44,10 +44,11 @@ fi
 #   FLOWIN_KMS_KEY_ID     — project CMK ARN/alias for backup encryption
 #   FLOWIN_BACKUP_BUCKET  — S3 bucket for pg_dump + skills tarballs
 #   FLOWIN_ECR_REGISTRY   — <ACCOUNT>.dkr.ecr.<region>.amazonaws.com
-#   FLOWIN_GIT_REF        — branch/tag to fetch docker-compose.yml from
-#   FLOWIN_REPO_URL       — git URL of the project repo (https or ssh)
-#                           defaults to gitlab.com/hexaware-uki/flowin
 #   FLOWIN_ACME_EMAIL     — email for Let's Encrypt registration
+#
+# docker-compose.yml is downloaded from s3://$FLOWIN_BACKUP_BUCKET/config/
+# (uploaded by Terraform's aws_s3_object.compose_yaml in envs/prod/main.tf).
+# The EC2 needs no git auth.
 if [[ ! -f /etc/flowin/bootstrap.env ]]; then
     echo "[bootstrap] ERROR: /etc/flowin/bootstrap.env missing — terraform apply hasn't completed?" >&2
     exit 1
@@ -59,9 +60,11 @@ REGION="${FLOWIN_REGION:-eu-central-1}"
 DOMAIN="${FLOWIN_FQDN:?FLOWIN_FQDN missing in /etc/flowin/bootstrap.env}"
 PARAM_PREFIX="${FLOWIN_PARAM_PREFIX:-/flowin/prod}"
 ENVIRONMENT="${FLOWIN_ENVIRONMENT:-prod}"
+# Capitalize first letter for CloudWatch namespace ("prod" -> "Prod"). Matches
+# the monitoring module's `cw_metric_namespace = "Flowin/${title(env)}"`.
+ENV_TITLE="${ENVIRONMENT^}"
 ACME_EMAIL="${FLOWIN_ACME_EMAIL:-security@example.com}"
-REPO_URL="${FLOWIN_REPO_URL:-https://gitlab.com/hexaware-uki/flowin.git}"
-GIT_REF="${FLOWIN_GIT_REF:-main}"
+BACKUP_BUCKET="${FLOWIN_BACKUP_BUCKET:?FLOWIN_BACKUP_BUCKET missing in /etc/flowin/bootstrap.env}"
 DATA_DEV=/dev/nvme1n1
 DATA_MOUNT=/var/lib/postgresql
 APP_USER=flowin
@@ -75,7 +78,7 @@ apt-get update
 apt-get -y full-upgrade
 apt-get install -y \
     nginx postgresql-16 postgresql-contrib-16 postgresql-client-16 \
-    git curl jq xfsprogs acl \
+    curl jq xfsprogs acl \
     certbot python3-certbot-nginx \
     ufw fail2ban auditd \
     unattended-upgrades update-notifier-common \
@@ -144,19 +147,14 @@ fi
 chown postgres:postgres "$DATA_MOUNT"
 
 # ── 6. Postgres init / configure ───────────────────────────────────────
+# DATABASE_PASSWORD is provisioned by Terraform's random_password in
+# infra/modules/secrets/main.tf — script just reads it. (The composite
+# DATABASE_URL is composed at app-start by /usr/local/bin/flowin-load-secrets
+# from this same password; we don't store DATABASE_URL in SSM separately.)
 PG_DATA="$DATA_MOUNT/16/main"
 if [[ $RECOVERY -eq 0 ]]; then
     sudo -u postgres /usr/lib/postgresql/16/bin/initdb -D "$PG_DATA" \
         --auth=scram-sha-256 --pwprompt=false --pwfile=<(echo)
-    DB_PW=$(openssl rand -hex 32)
-    aws ssm put-parameter --region "$REGION" \
-        --name "$PARAM_PREFIX/DATABASE_PASSWORD" \
-        --type SecureString --value "$DB_PW" --overwrite
-    aws ssm put-parameter --region "$REGION" \
-        --name "$PARAM_PREFIX/DATABASE_URL" \
-        --type SecureString \
-        --value "postgresql+psycopg2://flowin:${DB_PW}@127.0.0.1:5432/flowin" \
-        --overwrite
 fi
 
 PG_CONF=/etc/postgresql/16/main/postgresql.conf
@@ -271,17 +269,15 @@ TIMER
 systemctl daemon-reload
 systemctl enable --now flowin-ecr-login.timer
 
-# ── 10. docker-compose.yml on the host (shallow clone) ─────────────────
-# Clone the project repo (shallow) into /opt/flowin/src to fetch a single
-# file — docker-compose.yml. We do not run anything else from the clone.
-if [[ ! -d /opt/flowin/src/.git ]]; then
-    git clone --depth=1 --branch "$GIT_REF" "$REPO_URL" /opt/flowin/src
-else
-    git -C /opt/flowin/src fetch --depth=1 origin "$GIT_REF"
-    git -C /opt/flowin/src checkout -f "FETCH_HEAD"
-fi
-install -o "$APP_USER" -g "$APP_USER" -m 0644 \
-    /opt/flowin/src/docker-compose.yml /opt/flowin/docker-compose.yml
+# ── 10. docker-compose.yml from S3 ─────────────────────────────────────
+# Terraform's envs/prod aws_s3_object.compose_yaml uploads the canonical
+# docker-compose.yml to s3://$BACKUP_BUCKET/config/docker-compose.yml on
+# every apply. The instance role's s3-config-read policy grants GetObject
+# on that exact prefix. Re-running this script picks up the latest file.
+aws s3 cp "s3://${BACKUP_BUCKET}/config/docker-compose.yml" \
+    /opt/flowin/docker-compose.yml --region "$REGION"
+chown "$APP_USER:$APP_USER" /opt/flowin/docker-compose.yml
+chmod 0644 /opt/flowin/docker-compose.yml
 
 # ── 11. /etc/flowin/app.env initial pin (CI updates this in place) ─────
 if [[ ! -f /etc/flowin/app.env ]]; then
@@ -300,46 +296,74 @@ EOF
 fi
 
 # ── 12. /usr/local/bin/flowin-load-secrets ─────────────────────────────
-cat > /usr/local/bin/flowin-load-secrets <<EOF
+# Quoted heredoc — no shell expansion at install time. The generated script
+# sources /etc/flowin/bootstrap.env at run time, so REGION/PREFIX/FQDN come
+# from whatever Terraform last wrote, not from this bootstrap's invocation.
+cat > /usr/local/bin/flowin-load-secrets <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Read REGION / PREFIX / FQDN from the same bootstrap.env Terraform writes
+# via user_data. Lets `terraform apply` change any of these without a
+# re-bootstrap — next flowin-app.service restart picks them up.
+# shellcheck source=/dev/null
+. /etc/flowin/bootstrap.env
+
 OUT=/etc/flowin/app.env
-TMP=\$(mktemp /etc/flowin/app.env.XXXXXX)
-chmod 0640 "\$TMP"; chown root:flowin "\$TMP"
+TMP=$(mktemp /etc/flowin/app.env.XXXXXX)
+chmod 0640 "$TMP"; chown root:flowin "$TMP"
 
-REGION=${REGION}
-PREFIX=${PARAM_PREFIX}
+REGION="${FLOWIN_REGION:-eu-central-1}"
+PREFIX="${FLOWIN_PARAM_PREFIX:-/flowin/prod}"
+DOMAIN="${FLOWIN_FQDN:-}"
 
-# Preserve CI-managed image-tag pins + ENV line from the previous app.env.
-if [[ -f "\$OUT" ]]; then
-    grep -E '^(BACKEND_IMAGE|FRONTEND_IMAGE|ENV)=' "\$OUT" >> "\$TMP" || true
+# Preserve CI-managed image-tag pins + the operator-defined ENV.
+if [[ -f "$OUT" ]]; then
+    grep -E '^(BACKEND_IMAGE|FRONTEND_IMAGE|ENV)=' "$OUT" >> "$TMP" || true
 fi
 
 emit() {
-    printf '%s=%q\n' "\$1" "\$2" >> "\$TMP"
+    printf '%s=%q\n' "$1" "$2" >> "$TMP"
 }
 
-while IFS=\$'\t' read -r name value; do
-    rel="\${name#\${PREFIX}/}"
-    case "\$rel" in
-        SECRET_KEY|CORS_ORIGINS|ACCESS_TOKEN_EXPIRE_HOURS|LANGSMITH_TRACING|LANGSMITH_API_KEY|LANGSMITH_PROJECT)
-            emit "\$rel" "\$value" ;;
+CORS_SET=0
+while IFS=$'\t' read -r name value; do
+    rel="${name#${PREFIX}/}"
+    case "$rel" in
+        CORS_ORIGINS)
+            # Empty/missing CORS_ORIGINS in SSM triggers the FQDN fallback
+            # below — the operator only has to populate this parameter for
+            # multi-origin deployments (staging mirror, alternate domain, …).
+            if [[ -n "$value" ]]; then
+                emit CORS_ORIGINS "$value"
+                CORS_SET=1
+            fi
+            ;;
+        SECRET_KEY|ACCESS_TOKEN_EXPIRE_HOURS|LANGSMITH_TRACING|LANGSMITH_API_KEY|LANGSMITH_PROJECT)
+            emit "$rel" "$value" ;;
         DATABASE_PASSWORD)
-            emit DATABASE_URL "postgresql://flowin:\${value}@host.docker.internal:5432/flowin" ;;
-        llm/region)        emit AWS_REGION       "\$value" ;;
-        llm/model_id)      emit BEDROCK_MODEL_ID "\$value" ;;
-        llm/inference_profile_id) emit BEDROCK_INFERENCE_PROFILE_ID "\$value" ;;
+            emit DATABASE_URL "postgresql://flowin:${value}@host.docker.internal:5432/flowin" ;;
+        llm/region)               emit AWS_REGION                  "$value" ;;
+        llm/model_id)             emit BEDROCK_MODEL_ID            "$value" ;;
+        llm/inference_profile_id) emit BEDROCK_INFERENCE_PROFILE_ID "$value" ;;
         *)
-            echo "[flowin-load-secrets] WARN: ignoring unknown parameter \${name}" >&2 ;;
+            echo "[flowin-load-secrets] WARN: ignoring unknown parameter ${name}" >&2 ;;
     esac
 done < <(aws ssm get-parameters-by-path \
-            --path "\$PREFIX" --recursive --with-decryption \
-            --region "\$REGION" \
+            --path "$PREFIX" --recursive --with-decryption \
+            --region "$REGION" \
             --query 'Parameters[].[Name,Value]' --output text)
 
-mv "\$TMP" "\$OUT"
-chmod 0640 "\$OUT"; chown root:flowin "\$OUT"
+# Fallback: if SSM didn't supply a non-empty CORS_ORIGINS, default to a
+# single-origin list containing the FQDN we're serving from. Matches the
+# common case (single domain) and lets the operator opt-out by setting
+# /flowin/$env/CORS_ORIGINS to a non-empty JSON list.
+if [[ "$CORS_SET" -eq 0 && -n "$DOMAIN" ]]; then
+    emit CORS_ORIGINS "[\"https://${DOMAIN}\"]"
+fi
+
+mv "$TMP" "$OUT"
+chmod 0640 "$OUT"; chown root:flowin "$OUT"
 EOF
 chmod +x /usr/local/bin/flowin-load-secrets
 
@@ -541,16 +565,60 @@ fi
 setfacl -R -m u:cwagent:rX /var/lib/docker/containers
 setfacl -R -d -m u:cwagent:rX /var/lib/docker/containers
 
-# CloudWatch agent config — see SIMPLE_AWS_DEPLOYMENT.md §10.1 for the full
-# JSON. To bootstrap with no metrics until the operator deploys it, we leave
-# this as a TODO: until /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
-# exists, the daemon won't ship any metrics. The systemd unit is enabled
-# below regardless; it idles until config arrives.
-# TODO(ops): drop the rendered §10.1 JSON at the path above, then run:
-#   /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
-#     -a fetch-config -m ec2 -s \
-#     -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
-systemctl enable amazon-cloudwatch-agent || true
+# CloudWatch agent config — materialized from SIMPLE_AWS_DEPLOYMENT.md §10.1.
+# - `${ENV_TITLE}` / `${ENVIRONMENT}` interpolate at install time (bash).
+# - `\${aws:InstanceId}` / `\${aws:InstanceType}` are escaped: the CloudWatch
+#   agent resolves those itself from instance metadata at runtime.
+# - The collect_list mirrors the doc (nginx access/error, postgres, audit,
+#   auth, unattended-upgrades, letsencrypt) PLUS the Docker JSON log path
+#   that captures backend+frontend stdout via the json-file log driver.
+mkdir -p /opt/aws/amazon-cloudwatch-agent/etc
+cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<EOF
+{
+  "agent": {
+    "metrics_collection_interval": 60,
+    "logfile": "/var/log/amazon-cloudwatch-agent.log",
+    "run_as_user": "cwagent"
+  },
+  "metrics": {
+    "namespace": "Flowin/${ENV_TITLE}",
+    "metrics_collected": {
+      "cpu":    {"measurement": ["cpu_usage_idle","cpu_usage_iowait","cpu_usage_user","cpu_usage_system"], "totalcpu": true, "metrics_collection_interval": 60},
+      "mem":    {"measurement": ["mem_used_percent","mem_available"], "metrics_collection_interval": 60},
+      "disk":   {"measurement": ["used_percent","inodes_free_percent"], "resources": ["/", "/var/lib/postgresql"], "metrics_collection_interval": 60},
+      "diskio": {"measurement": ["io_time","write_bytes","read_bytes"], "resources": ["*"], "metrics_collection_interval": 60},
+      "swap":   {"measurement": ["swap_used_percent"], "metrics_collection_interval": 60},
+      "net":    {"measurement": ["bytes_sent","bytes_recv","drop_in","drop_out"], "resources": ["*"], "metrics_collection_interval": 60}
+    },
+    "append_dimensions": {
+      "InstanceId":   "\${aws:InstanceId}",
+      "InstanceType": "\${aws:InstanceType}"
+    }
+  },
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {"file_path": "/var/log/nginx/access.log",                            "log_group_name": "/flowin/${ENVIRONMENT}/nginx-access", "log_stream_name": "{instance_id}",        "timezone": "UTC"},
+          {"file_path": "/var/log/nginx/error.log",                             "log_group_name": "/flowin/${ENVIRONMENT}/nginx-error",  "log_stream_name": "{instance_id}",        "timezone": "UTC"},
+          {"file_path": "/var/log/postgresql/postgresql-16-main.log",           "log_group_name": "/flowin/${ENVIRONMENT}/postgres",     "log_stream_name": "{instance_id}",        "timezone": "UTC"},
+          {"file_path": "/var/log/audit/audit.log",                             "log_group_name": "/flowin/${ENVIRONMENT}/system",       "log_stream_name": "{instance_id}",        "timezone": "UTC"},
+          {"file_path": "/var/log/auth.log",                                    "log_group_name": "/flowin/${ENVIRONMENT}/auth",         "log_stream_name": "{instance_id}",        "timezone": "UTC"},
+          {"file_path": "/var/log/unattended-upgrades/unattended-upgrades.log", "log_group_name": "/flowin/${ENVIRONMENT}/system",       "log_stream_name": "{instance_id}",        "timezone": "UTC"},
+          {"file_path": "/var/log/letsencrypt/letsencrypt.log",                 "log_group_name": "/flowin/${ENVIRONMENT}/letsencrypt",  "log_stream_name": "{instance_id}",        "timezone": "UTC"},
+          {"file_path": "/var/lib/docker/containers/*/*-json.log",              "log_group_name": "/flowin/${ENVIRONMENT}/app",          "log_stream_name": "{instance_id}/docker", "timezone": "UTC"}
+        ]
+      }
+    }
+  }
+}
+EOF
+
+# fetch-config also starts the agent if it isn't running. We don't `systemctl
+# enable` separately — the agent's deb postinst already does that.
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+    -a fetch-config -m ec2 -s \
+    -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
 
 # ── 15. flowin-deploy user + restricted sudoers + image-tag wrapper ────
 if ! id flowin-deploy >/dev/null 2>&1; then

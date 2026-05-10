@@ -119,6 +119,37 @@ module "secrets" {
   langsmith_project = var.langsmith_project
 }
 
+# --- docker-compose.yml hosted in S3 ---------------------------------------
+#
+# Bootstrap-ec2.sh downloads /opt/flowin/docker-compose.yml from this object
+# via `aws s3 cp` instead of cloning the project repo. Two benefits:
+#   1. The EC2 doesn't need git auth to gitlab.com (no deploy token to manage).
+#   2. The compose file can be updated by re-running `terraform apply`; the
+#      next flowin-app.service restart picks up the new file via systemd
+#      ExecStartPre (if you wire that — for now, manual `aws s3 cp` on the
+#      box, or roll the instance).
+#
+# `source_hash` makes Terraform detect a local file change and re-upload;
+# without it the state-stored hash would stay stale.
+# `server_side_encryption = "aws:kms"` + `kms_key_id` is required by the
+# backup bucket's DenyUnencryptedPuts / DenyWrongKmsKey policy statements.
+resource "aws_s3_object" "compose_yaml" {
+  bucket = module.backups.backup_bucket_name
+  key    = "config/docker-compose.yml"
+
+  source      = "${path.root}/../../../docker-compose.yml"
+  source_hash = filemd5("${path.root}/../../../docker-compose.yml")
+
+  content_type           = "text/yaml"
+  server_side_encryption = "aws:kms"
+  kms_key_id             = module.kms.key_arn
+
+  tags = {
+    Name      = "${local.name_prefix}-compose-yaml"
+    Component = "config"
+  }
+}
+
 # --- Compute (EC2, EBS, EIP) -----------------------------------------------
 module "compute" {
   source = "../../modules/compute"
