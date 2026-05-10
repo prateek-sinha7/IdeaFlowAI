@@ -1013,19 +1013,14 @@ aws ssm put-parameter \
   --key-id alias/flowin-prod-data \
   --overwrite
 
+# DATABASE_PASSWORD only — the on-host loader composes DATABASE_URL from this
+# value (postgresql://flowin:<pw>@127.0.0.1:5432/flowin). Terraform doesn't
+# write DATABASE_URL because it doesn't know about the on-host Postgres.
 aws ssm put-parameter \
   --region eu-west-2 \
   --name /flowin/prod/DATABASE_PASSWORD \
   --type SecureString \
   --value "<openssl rand -hex 32 output>" \
-  --key-id alias/flowin-prod-data \
-  --overwrite
-
-aws ssm put-parameter \
-  --region eu-west-2 \
-  --name /flowin/prod/DATABASE_URL \
-  --type SecureString \
-  --value "postgresql+psycopg2://flowin:<password>@127.0.0.1:5432/flowin" \
   --key-id alias/flowin-prod-data \
   --overwrite
 
@@ -1101,6 +1096,24 @@ aws ssm put-parameter \
 #!/usr/bin/env bash
 # Load Flowin secrets from Parameter Store into a 0640 env file consumed by
 # systemd EnvironmentFile=. Runs as root before each unit start.
+#
+# The mapping rule (per-SSM-key, no implicit translation) is:
+#
+#   /flowin/prod/SECRET_KEY                  → SECRET_KEY=<value>
+#   /flowin/prod/CORS_ORIGINS                → CORS_ORIGINS=<value>
+#   /flowin/prod/ACCESS_TOKEN_EXPIRE_HOURS   → ACCESS_TOKEN_EXPIRE_HOURS=<value>
+#   /flowin/prod/DATABASE_PASSWORD           → DATABASE_URL=postgresql://flowin:${value}@127.0.0.1:5432/flowin
+#                                              (composed; loader never emits DATABASE_PASSWORD itself)
+#   /flowin/prod/llm/provider                → LLM_PROVIDER=<value>
+#   /flowin/prod/llm/region                  → AWS_REGION=<value>
+#   /flowin/prod/llm/model_id                → BEDROCK_MODEL_ID=<value>
+#   /flowin/prod/anthropic/api_key           → ANTHROPIC_API_KEY=<value>
+#   /flowin/prod/LANGSMITH_*                 → LANGSMITH_*=<value>  (passthrough)
+#   anything else                            → logged as a warning, ignored
+#
+# No fallback defaults: if /flowin/prod/llm/* is missing the loader writes
+# nothing for those keys and Settings boots with its codebase default. ENV is
+# set by the systemd unit (Environment=ENV=production), not by this loader.
 set -euo pipefail
 
 OUT=/etc/flowin/environment.d/flowin.env
@@ -1111,19 +1124,32 @@ chown root:flowin "$TMP"
 REGION=eu-west-2
 PREFIX=/flowin/prod
 
-while IFS= read -r line; do
-    name=$(jq -r '.Name' <<<"$line")
-    value=$(jq -r '.Value' <<<"$line")
-    key="${name##*/}"
-    # Escape any quotes/dollars in the value
-    printf '%s=%q\n' "$key" "$value" >> "$TMP"
+emit() {
+    # Escape any quotes/dollars in the value via printf %q.
+    printf '%s=%q\n' "$1" "$2" >> "$TMP"
+}
+
+while IFS=$'\t' read -r name value; do
+    rel="${name#${PREFIX}/}"
+    case "$rel" in
+        SECRET_KEY|CORS_ORIGINS|ACCESS_TOKEN_EXPIRE_HOURS|LANGSMITH_TRACING|LANGSMITH_API_KEY|LANGSMITH_PROJECT)
+            emit "$rel" "$value" ;;
+        DATABASE_PASSWORD)
+            emit DATABASE_URL "postgresql://flowin:${value}@127.0.0.1:5432/flowin" ;;
+        llm/provider)      emit LLM_PROVIDER     "$value" ;;
+        llm/region)        emit AWS_REGION       "$value" ;;
+        llm/model_id)      emit BEDROCK_MODEL_ID "$value" ;;
+        anthropic/api_key) emit ANTHROPIC_API_KEY "$value" ;;
+        *)
+            echo "[flowin-load-secrets] WARN: ignoring unknown parameter ${name}" >&2 ;;
+    esac
 done < <(aws ssm get-parameters-by-path \
             --path "$PREFIX" \
             --recursive \
             --with-decryption \
             --region "$REGION" \
-            --query 'Parameters[].{Name:Name,Value:Value}' \
-            --output json | jq -c '.[]')
+            --query 'Parameters[].[Name,Value]' \
+            --output text)
 
 mv "$TMP" "$OUT"
 chmod 0640 "$OUT"
@@ -1192,10 +1218,10 @@ Drop the config at `/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent
         "collect_list": [
           {"file_path": "/var/log/nginx/access.log",    "log_group_name": "/flowin/prod/nginx-access",    "log_stream_name": "{instance_id}", "timezone": "UTC"},
           {"file_path": "/var/log/nginx/error.log",     "log_group_name": "/flowin/prod/nginx-error",     "log_stream_name": "{instance_id}", "timezone": "UTC"},
-          {"file_path": "/var/log/postgresql/postgresql-16-main.log", "log_group_name": "/flowin/prod/postgresql", "log_stream_name": "{instance_id}", "timezone": "UTC"},
-          {"file_path": "/var/log/audit/audit.log",     "log_group_name": "/flowin/prod/auditd",          "log_stream_name": "{instance_id}", "timezone": "UTC"},
+          {"file_path": "/var/log/postgresql/postgresql-16-main.log", "log_group_name": "/flowin/prod/postgres", "log_stream_name": "{instance_id}", "timezone": "UTC"},
+          {"file_path": "/var/log/audit/audit.log",     "log_group_name": "/flowin/prod/system",          "log_stream_name": "{instance_id}", "timezone": "UTC"},
           {"file_path": "/var/log/auth.log",            "log_group_name": "/flowin/prod/auth",            "log_stream_name": "{instance_id}", "timezone": "UTC"},
-          {"file_path": "/var/log/unattended-upgrades/unattended-upgrades.log", "log_group_name": "/flowin/prod/apt", "log_stream_name": "{instance_id}", "timezone": "UTC"}
+          {"file_path": "/var/log/unattended-upgrades/unattended-upgrades.log", "log_group_name": "/flowin/prod/system", "log_stream_name": "{instance_id}", "timezone": "UTC"}
         ]
       }
     }
@@ -1231,9 +1257,12 @@ sudo systemctl enable --now amazon-cloudwatch-agent
 Set a sane retention on every log group. The default is "Never expire", which is bad for cost and for GDPR posture:
 
 ```bash
+# Terraform's monitoring module already sets retention on the six groups it
+# creates (nginx-access, nginx-error, app, postgres, system, auth). The loop
+# below is the equivalent CLI form for ad-hoc verification.
 for lg in /flowin/prod/nginx-access /flowin/prod/nginx-error \
-          /flowin/prod/postgresql /flowin/prod/auditd \
-          /flowin/prod/auth /flowin/prod/apt /flowin/prod/app; do
+          /flowin/prod/app /flowin/prod/postgres \
+          /flowin/prod/system /flowin/prod/auth; do
   aws logs put-retention-policy --region eu-west-2 \
     --log-group-name "$lg" --retention-in-days 90
 done
@@ -1460,6 +1489,10 @@ Wants=network-online.target
 Type=oneshot
 User=postgres
 Group=postgres
+# bootstrap.env carries FLOWIN_BACKUP_BUCKET and FLOWIN_KMS_KEY_ID (Terraform
+# injects these via user_data_extra_env in module.compute). flowin.env carries
+# the application secrets; pg_dump doesn't need them but loading both is fine.
+EnvironmentFile=/etc/flowin/bootstrap.env
 EnvironmentFile=/etc/flowin/environment.d/flowin.env
 ExecStart=/usr/local/bin/flowin-pg-dump
 ```
@@ -1484,13 +1517,23 @@ WantedBy=timers.target
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
+
+# FLOWIN_BACKUP_BUCKET and FLOWIN_KMS_KEY_ID come from /etc/flowin/bootstrap.env
+# (Terraform writes them via module.compute's user_data_extra_env). The bucket
+# policy in modules/backups (DenyUnencryptedPuts + DenyWrongKmsKey) requires
+# `--sse aws:kms --sse-kms-key-id <project CMK>`; AES256 is rejected.
+: "${FLOWIN_BACKUP_BUCKET:?FLOWIN_BACKUP_BUCKET is required}"
+: "${FLOWIN_KMS_KEY_ID:?FLOWIN_KMS_KEY_ID is required}"
+
 TS=$(date -u +%Y%m%dT%H%M%SZ)
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 DUMP="$TMP/flowin-${TS}.sql.gz"
 pg_dump --format=plain --no-owner --no-acl flowin | gzip -9 > "$DUMP"
-aws s3 cp "$DUMP" "s3://flowin-prod-backups/postgres/${TS}/flowin.sql.gz" \
-    --region eu-west-2 --sse AES256
+aws s3 cp "$DUMP" "s3://${FLOWIN_BACKUP_BUCKET}/postgres/${TS}/flowin.sql.gz" \
+    --region eu-west-2 \
+    --sse aws:kms \
+    --sse-kms-key-id "$FLOWIN_KMS_KEY_ID"
 echo "pg_dump complete: $(stat -c%s "$DUMP") bytes uploaded to S3"
 ```
 
@@ -1501,11 +1544,11 @@ sudo systemctl enable --now flowin-pg-dump.timer
 sudo systemctl list-timers flowin-pg-dump.timer
 ```
 
-The S3 bucket lifecycle handles retention:
+The S3 bucket lifecycle handles retention (Terraform configures this in `infra/modules/backups/main.tf`; the snippet below is the equivalent CLI form for ad-hoc verification):
 
 ```bash
 aws s3api put-bucket-lifecycle-configuration \
-  --bucket flowin-prod-backups \
+  --bucket "${FLOWIN_BACKUP_BUCKET}" \
   --lifecycle-configuration '{
     "Rules": [{
       "ID": "expire-pg-dumps",
@@ -1517,10 +1560,10 @@ aws s3api put-bucket-lifecycle-configuration \
   }'
 ```
 
-Bucket also needs:
+Bucket also needs (all enforced by `infra/modules/backups/`):
 
 - **Versioning enabled** (`aws s3api put-bucket-versioning --versioning-configuration Status=Enabled`).
-- **Default SSE** (`AES256` is fine; CMK-encrypted is better but adds KMS cost; pick AES256 unless compliance demands KMS).
+- **Default SSE-KMS with the project CMK.** The bucket policy denies any PUT whose `x-amz-server-side-encryption` is not `aws:kms` and whose KMS key id is not the project CMK. AES256 will return 403; this is intentional.
 - **Block-all-public-access enabled** (`aws s3api put-public-access-block`).
 - **Object lock in compliance mode** for the most-recent N hourly dumps if you want true ransomware resistance. Out of scope for this guide; revisit if customer compliance demands it.
 
@@ -1552,9 +1595,9 @@ If the data volume is also lost (region-wide outage, AZ failure), the recovery p
 
 - Application logs in CloudWatch — they're already durable.
 - LLM (Bedrock) responses — re-derivable on demand.
-- Skills (small, low-churn) — *do* back up, via a nightly `tar` to S3:
+- Skills (small, low-churn) — *do* back up. The systemd unit in Appendix B.5 is the supported path (it sources `/etc/flowin/bootstrap.env` for `FLOWIN_BACKUP_BUCKET` and `FLOWIN_KMS_KEY_ID` and uploads with `--sse aws:kms`). If you prefer cron for any reason, the equivalent line is:
   ```bash
-  echo '0 4 * * * flowin tar -czf - /opt/flowin/src/backend/skills | aws s3 cp - s3://flowin-prod-backups/skills/$(date -u +\%Y\%m\%d).tar.gz --region eu-west-2 --sse AES256' | sudo tee -a /etc/cron.d/flowin-skills-backup
+  echo '0 4 * * * flowin . /etc/flowin/bootstrap.env && tar -czf - /opt/flowin/src/backend/skills | aws s3 cp - s3://${FLOWIN_BACKUP_BUCKET}/skills/$(date -u +\%Y\%m\%d).tar.gz --region eu-west-2 --sse aws:kms --sse-kms-key-id $FLOWIN_KMS_KEY_ID' | sudo tee -a /etc/cron.d/flowin-skills-backup
   ```
 
 ---
@@ -2077,6 +2120,11 @@ WorkingDirectory=/opt/flowin/backend
 ExecStartPre=/usr/local/bin/flowin-load-secrets
 EnvironmentFile=/etc/flowin/environment.d/flowin.env
 
+# ENV is environment-defining: it gates the A1 SECRET_KEY hard-fail in
+# backend/app/core/config.py. Putting it in the unit (not in SSM) means an
+# accidental SSM rotation or a missing parameter cannot disarm strict mode.
+Environment=ENV=production
+
 # Apply pending Alembic migrations before uvicorn starts. EnvironmentFile is
 # loaded for ExecStartPre too, so DATABASE_URL is set when alembic runs. The
 # command is idempotent — it's a no-op when the DB is already at HEAD — so
@@ -2243,6 +2291,9 @@ Wants=network-online.target
 Type=oneshot
 User=flowin
 Group=flowin
+# bootstrap.env carries FLOWIN_BACKUP_BUCKET and FLOWIN_KMS_KEY_ID
+# (Terraform injects these via module.compute's user_data_extra_env).
+EnvironmentFile=/etc/flowin/bootstrap.env
 ExecStart=/usr/local/bin/flowin-skills-backup
 ```
 
@@ -2267,10 +2318,14 @@ WantedBy=timers.target
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
+: "${FLOWIN_BACKUP_BUCKET:?FLOWIN_BACKUP_BUCKET is required}"
+: "${FLOWIN_KMS_KEY_ID:?FLOWIN_KMS_KEY_ID is required}"
 TS=$(date -u +%Y%m%d)
 tar -czf - -C /opt/flowin/src/backend skills \
-  | aws s3 cp - "s3://flowin-prod-backups/skills/${TS}.tar.gz" \
-      --region eu-west-2 --sse AES256
+  | aws s3 cp - "s3://${FLOWIN_BACKUP_BUCKET}/skills/${TS}.tar.gz" \
+      --region eu-west-2 \
+      --sse aws:kms \
+      --sse-kms-key-id "$FLOWIN_KMS_KEY_ID"
 ```
 
 ---
@@ -2279,20 +2334,27 @@ tar -czf - -C /opt/flowin/src/backend skills \
 
 Canonical reference. **All keys live under `/flowin/prod/`** and are written by an operator (never by the application). Type `SecureString` unless noted.
 
-| Key | Type | Source / generation | Rotation | Notes |
-|---|---|---|---|---|
-| `/flowin/prod/SECRET_KEY` | SecureString | `openssl rand -hex 64` | Yearly + on compromise | Used by python-jose for HS256. **Required non-default at boot** (Blocker 1). |
-| `/flowin/prod/llm/provider` | String | `bedrock` | Only on emergency Anthropic-direct fallback (§0.1) | Selects the LLM backend. Values: `bedrock` (default) or `anthropic` (fallback). |
-| `/flowin/prod/llm/region` | String | `eu-west-2` | When deployment region changes | AWS region the Bedrock SDK targets. The cross-region inference profile fans out to other EU regions transparently — the SDK target stays `eu-west-2`. |
-| `/flowin/prod/llm/model_id` | String | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` | When upgrading model | The Bedrock model ID or inference-profile ID the application invokes. Not a secret, but kept in Parameter Store so model swaps don't require a redeploy. |
-| `/flowin/prod/DATABASE_URL` | SecureString | Composed from `DATABASE_PASSWORD` | When password rotates | Form: `postgresql+psycopg2://flowin:<pw>@127.0.0.1:5432/flowin` |
-| `/flowin/prod/DATABASE_PASSWORD` | SecureString | `openssl rand -hex 32` | Yearly + on compromise | Drives `ALTER USER flowin WITH PASSWORD ...` |
-| `/flowin/prod/CORS_ORIGINS` | String | – | When domains change | JSON array. Currently `["https://flowin.example.com"]`. **Code change**: `app/main.py:87` is hard-coded to `localhost`; needs to read `settings.CORS_ORIGINS`. Track as a pre-launch fix. |
-| `/flowin/prod/ACCESS_TOKEN_EXPIRE_HOURS` | String | `12` | Re-evaluate yearly | Production override per env-template (env-templates/.env.production). |
-| `/flowin/prod/LANGSMITH_TRACING` | String | `false` (default) or `true` | Per change | If `true`, also requires the next two keys. |
-| `/flowin/prod/LANGSMITH_API_KEY` | SecureString | LangSmith Console | When LangSmith rotates | Optional — only if tracing is on. |
-| `/flowin/prod/LANGSMITH_PROJECT` | String | e.g. `flowin-prod` | Per change | Optional. |
-| `/flowin/prod/anthropic/api_key` | SecureString | Anthropic Console → API keys (only when populated for an outage fallback) | Only when the parameter is populated; clear on incident close | **Empty by default and not required for boot.** Populated only during a Bedrock outage; pair with `/flowin/prod/llm/provider=anthropic` and restart the backend. See §0.1, §9. |
+The columns:
+- **SSM key** — the parameter name in Parameter Store (Terraform writes these via `infra/modules/secrets/`).
+- **Env var** — the variable name the on-host loader (`/usr/local/bin/flowin-load-secrets`) emits into `/etc/flowin/environment.d/flowin.env`. Settings (`backend/app/core/config.py`) reads these.
+
+> **Note on `ENV`.** `ENV` is **set in the systemd unit** (`Environment=ENV=production` in `flowin-backend.service`), not in SSM. It is environment-defining — putting it in SSM would let an out-of-band parameter rotation accidentally disarm the A1 SECRET_KEY hard-fail. Keeping it inline in the unit makes the production-strict mode unconditional.
+>
+> **Note on `DATABASE_URL`.** The composed URL embeds `127.0.0.1` (the on-host Postgres), which Terraform doesn't know. The loader composes it from `DATABASE_PASSWORD` at boot.
+
+| SSM key | Env var | Type | Source / generation | Rotation | Notes |
+|---|---|---|---|---|---|
+| `/flowin/prod/SECRET_KEY` | `SECRET_KEY` | SecureString | `openssl rand -hex 64` | Yearly + on compromise | Used by python-jose for HS256. **Required non-default at boot** (Blocker 1). |
+| `/flowin/prod/DATABASE_PASSWORD` | `DATABASE_URL` (composed by loader) | SecureString | `openssl rand -hex 32` | Yearly + on compromise | Drives `ALTER USER flowin WITH PASSWORD ...`. The loader composes `DATABASE_URL=postgresql://flowin:${pw}@127.0.0.1:5432/flowin` from this value. |
+| `/flowin/prod/CORS_ORIGINS` | `CORS_ORIGINS` | String | – | When domains change | JSON array. Currently `["https://flowin.example.com"]`. |
+| `/flowin/prod/ACCESS_TOKEN_EXPIRE_HOURS` | `ACCESS_TOKEN_EXPIRE_HOURS` | String | `12` | Re-evaluate yearly | Production override per env-template (env-templates/.env.production). |
+| `/flowin/prod/llm/provider` | `LLM_PROVIDER` | String | `bedrock` | Only on emergency Anthropic-direct fallback (§0.1) | Selects the LLM backend. Values: `bedrock` (default) or `anthropic` (fallback). |
+| `/flowin/prod/llm/region` | `AWS_REGION` | String | `eu-west-2` | When deployment region changes | AWS region the Bedrock SDK targets. The cross-region inference profile fans out to other EU regions transparently — the SDK target stays `eu-west-2`. |
+| `/flowin/prod/llm/model_id` | `BEDROCK_MODEL_ID` | String | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` | When upgrading model | The Bedrock model ID or inference-profile ID the application invokes. Not a secret, but kept in Parameter Store so model swaps don't require a redeploy. |
+| `/flowin/prod/anthropic/api_key` | `ANTHROPIC_API_KEY` | SecureString | Anthropic Console → API keys (only when populated for an outage fallback) | Only when the parameter is populated; clear on incident close | **Empty by default and not required for boot.** Populated only during a Bedrock outage; pair with `/flowin/prod/llm/provider=anthropic` and restart the backend. See §0.1, §9. |
+| `/flowin/prod/LANGSMITH_TRACING` | `LANGSMITH_TRACING` | String | `false` (default) or `true` | Per change | If `true`, also requires the next two keys. |
+| `/flowin/prod/LANGSMITH_API_KEY` | `LANGSMITH_API_KEY` | SecureString | LangSmith Console | When LangSmith rotates | Optional — only if tracing is on. |
+| `/flowin/prod/LANGSMITH_PROJECT` | `LANGSMITH_PROJECT` | String | e.g. `flowin-prod` | Per change | Optional. |
 
 To list everything that exists today:
 
@@ -2538,36 +2600,54 @@ sudo -u $APP_USER bash -c "cd /opt/flowin/backend && \
 
 # ── 9. Secrets loader ──────────────────────────────────────────────────
 # Pulls all parameters under /flowin/prod/* and emits them as KEY=value lines
-# into a 0640 root:flowin env file. The mapping rule:
-#   - /flowin/prod/<KEY>            → <KEY>=...    (top-level keys)
-#   - /flowin/prod/llm/<KEY>        → LLM_<KEY>=...   (nested → uppercase prefix)
-#   - /flowin/prod/anthropic/api_key → ANTHROPIC_API_KEY=...  (special-cased)
-# An empty or missing /flowin/prod/anthropic/api_key is fine — the application
-# only consults ANTHROPIC_API_KEY when LLM_PROVIDER=anthropic.
+# into a 0640 root:flowin env file consumed by the systemd EnvironmentFile= in
+# Appendix B. The mapping is per-key and explicit (see §9.3 for the table):
+#
+#   SECRET_KEY,CORS_ORIGINS,ACCESS_TOKEN_EXPIRE_HOURS,LANGSMITH_*  → passthrough
+#   DATABASE_PASSWORD                                              → DATABASE_URL=postgresql://flowin:${value}@127.0.0.1:5432/flowin
+#   llm/provider                                                   → LLM_PROVIDER
+#   llm/region                                                     → AWS_REGION
+#   llm/model_id                                                   → BEDROCK_MODEL_ID
+#   anthropic/api_key                                              → ANTHROPIC_API_KEY
+#   anything else                                                  → warn, ignore
+#
+# Note: ENV is set by the systemd unit (Environment=ENV=production), not here.
 cat > /usr/local/bin/flowin-load-secrets <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+
 OUT=/etc/flowin/environment.d/flowin.env
 TMP=$(mktemp /etc/flowin/environment.d/flowin.env.XXXXXX)
 chmod 0640 "$TMP"; chown root:flowin "$TMP"
 
-aws ssm get-parameters-by-path --path /flowin/prod --recursive --with-decryption \
-    --region eu-west-2 --query 'Parameters[].{Name:Name,Value:Value}' --output json |
-    jq -r '
-      .[]
-      | (.Name | sub("^/flowin/prod/"; "")) as $rel
-      | if   ($rel == "anthropic/api_key") then "ANTHROPIC_API_KEY=\(.Value|@sh)"
-        elif ($rel | startswith("llm/"))   then "LLM_\(($rel|sub("^llm/"; "")|ascii_upcase))=\(.Value|@sh)"
-        else                                    "\($rel|gsub("/"; "_"))=\(.Value|@sh)"
-        end
-    ' > "$TMP"
+REGION=eu-west-2
+PREFIX=/flowin/prod
 
-# Provide safe defaults if the optional Anthropic fallback parameter is absent
-# or empty. The boot-time invariant is "LLM_PROVIDER is always set"; the
-# application logic decides whether ANTHROPIC_API_KEY is required.
-grep -q '^LLM_PROVIDER=' "$TMP" || echo "LLM_PROVIDER='bedrock'" >> "$TMP"
-grep -q '^LLM_REGION='   "$TMP" || echo "LLM_REGION='eu-west-2'"  >> "$TMP"
-grep -q '^LLM_MODEL_ID=' "$TMP" || echo "LLM_MODEL_ID='eu.anthropic.claude-haiku-4-5-20251001-v1:0'" >> "$TMP"
+emit() {
+    printf '%s=%q\n' "$1" "$2" >> "$TMP"
+}
+
+while IFS=$'\t' read -r name value; do
+    rel="${name#${PREFIX}/}"
+    case "$rel" in
+        SECRET_KEY|CORS_ORIGINS|ACCESS_TOKEN_EXPIRE_HOURS|LANGSMITH_TRACING|LANGSMITH_API_KEY|LANGSMITH_PROJECT)
+            emit "$rel" "$value" ;;
+        DATABASE_PASSWORD)
+            emit DATABASE_URL "postgresql://flowin:${value}@127.0.0.1:5432/flowin" ;;
+        llm/provider)      emit LLM_PROVIDER     "$value" ;;
+        llm/region)        emit AWS_REGION       "$value" ;;
+        llm/model_id)      emit BEDROCK_MODEL_ID "$value" ;;
+        anthropic/api_key) emit ANTHROPIC_API_KEY "$value" ;;
+        *)
+            echo "[flowin-load-secrets] WARN: ignoring unknown parameter ${name}" >&2 ;;
+    esac
+done < <(aws ssm get-parameters-by-path \
+            --path "$PREFIX" \
+            --recursive \
+            --with-decryption \
+            --region "$REGION" \
+            --query 'Parameters[].[Name,Value]' \
+            --output text)
 
 mv "$TMP" "$OUT"
 chmod 0640 "$OUT"; chown root:flowin "$OUT"

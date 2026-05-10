@@ -1,10 +1,22 @@
 locals {
+  # Log group names match the destinations the on-host CloudWatch Agent ships to
+  # (see docs/SIMPLE_AWS_DEPLOYMENT.md §10.1). Keeping these in lock-step is
+  # load-bearing: a name drift means alarms watch a group nothing writes to.
+  #
+  #  - nginx-access : /var/log/nginx/access.log (target of the 5xx metric filter)
+  #  - nginx-error  : /var/log/nginx/error.log
+  #  - app          : journald-shipped uvicorn + Next.js combined log group
+  #                   (filterable per unit via _SYSTEMD_UNIT)
+  #  - postgres     : /var/log/postgresql/postgresql-16-main.log
+  #  - system       : journald system slice
+  #  - auth         : /var/log/auth.log (sshd / sudo)
   log_groups = [
-    "/flowin/${var.environment}/nginx",
-    "/flowin/${var.environment}/uvicorn",
-    "/flowin/${var.environment}/next",
+    "/flowin/${var.environment}/nginx-access",
+    "/flowin/${var.environment}/nginx-error",
+    "/flowin/${var.environment}/app",
     "/flowin/${var.environment}/postgres",
     "/flowin/${var.environment}/system",
+    "/flowin/${var.environment}/auth",
   ]
 }
 
@@ -23,7 +35,22 @@ resource "aws_cloudwatch_log_group" "groups" {
   }
 }
 
-# --- SNS topic --------------------------------------------------------------
+# --- SNS topics -------------------------------------------------------------
+#
+# We need two topics:
+#
+#  - `alerts`           in eu-west-2 (project region) — fans out every regional
+#    alarm. Encrypted with the project CMK.
+#
+#  - `alerts_useast1`   in us-east-1 — required ONLY for the billing alarm
+#    because CloudWatch alarms can publish only to a same-region SNS topic and
+#    `EstimatedCharges` is emitted exclusively in us-east-1. We use the
+#    AWS-managed `alias/aws/sns` key here (deliberate deviation): the project
+#    CMK is region-pinned to eu-west-2, and this topic carries only billing
+#    alarm payloads (account ID + USD threshold) — no PII, no application
+#    secrets, no log content. The added-managed-key risk is small; the
+#    additional-region CMK cost and operational surface are not worth it for
+#    one alarm whose payload is operational metadata.
 
 resource "aws_sns_topic" "alerts" {
   name              = "${var.name_prefix}-alerts"
@@ -39,6 +66,29 @@ resource "aws_sns_topic_subscription" "email" {
   count = length(var.alert_email) > 0 ? 1 : 0
 
   topic_arn = aws_sns_topic.alerts.arn
+  protocol  = "email"
+  endpoint  = var.alert_email
+}
+
+# Billing-alarm topic in us-east-1.
+resource "aws_sns_topic" "alerts_useast1" {
+  provider = aws.useast1
+
+  name = "${var.name_prefix}-alerts-useast1"
+  # AWS-managed key — see header comment above for the deviation rationale.
+  kms_master_key_id = "alias/aws/sns"
+
+  tags = {
+    Name      = "${var.name_prefix}-alerts-useast1"
+    Component = "monitoring"
+  }
+}
+
+resource "aws_sns_topic_subscription" "email_useast1" {
+  count    = length(var.alert_email) > 0 ? 1 : 0
+  provider = aws.useast1
+
+  topic_arn = aws_sns_topic.alerts_useast1.arn
   protocol  = "email"
   endpoint  = var.alert_email
 }
@@ -150,7 +200,7 @@ resource "aws_cloudwatch_metric_alarm" "disk_data_high" {
 # 4. nginx 5xx spike — derived metric from a log filter
 resource "aws_cloudwatch_log_metric_filter" "nginx_5xx" {
   name           = "${var.name_prefix}-nginx-5xx"
-  log_group_name = aws_cloudwatch_log_group.groups["/flowin/${var.environment}/nginx"].name
+  log_group_name = aws_cloudwatch_log_group.groups["/flowin/${var.environment}/nginx-access"].name
   pattern        = "[ip, id, user, ts, request, status_code=5*, ...]"
 
   metric_transformation {
@@ -181,10 +231,10 @@ resource "aws_cloudwatch_metric_alarm" "nginx_5xx_spike" {
   }
 }
 
-# 5. Postgres connection failures observed in uvicorn log
+# 5. Postgres connection failures observed in the unified backend log (journald)
 resource "aws_cloudwatch_log_metric_filter" "db_conn_error" {
   name           = "${var.name_prefix}-db-conn-error"
-  log_group_name = aws_cloudwatch_log_group.groups["/flowin/${var.environment}/uvicorn"].name
+  log_group_name = aws_cloudwatch_log_group.groups["/flowin/${var.environment}/app"].name
   pattern        = "OperationalError ?could not connect"
 
   metric_transformation {
@@ -268,6 +318,10 @@ resource "aws_cloudwatch_metric_alarm" "bedrock_server_errors" {
 # 8. Estimated charges — must be authored against us-east-1.
 # The AWS/Billing namespace publishes EstimatedCharges only in us-east-1; an
 # alarm in any other region will be permanently INSUFFICIENT_DATA.
+#
+# The alarm and its target SNS topic must live in the same region — alarms
+# cannot publish across regions. So this alarm fans out to alerts_useast1
+# (defined above), not the project's eu-west-2 alerts topic.
 resource "aws_cloudwatch_metric_alarm" "billing" {
   provider = aws.useast1
 
@@ -286,7 +340,8 @@ resource "aws_cloudwatch_metric_alarm" "billing" {
     Currency = "USD"
   }
 
-  alarm_actions = [aws_sns_topic.alerts.arn]
+  alarm_actions = [aws_sns_topic.alerts_useast1.arn]
+  ok_actions    = [aws_sns_topic.alerts_useast1.arn]
 
   tags = {
     Component = "monitoring"

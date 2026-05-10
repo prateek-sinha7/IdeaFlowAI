@@ -2,46 +2,26 @@ locals {
   prefix = "/flowin/${var.environment}"
 }
 
+# Notes on the schema
+# -------------------
+# Terraform writes the canonical UPPERCASE top-level keys that the application's
+# Settings (backend/app/core/config.py) reads directly, plus the existing nested
+# `llm/*` and `anthropic/*` namespaces. The on-host loader translates the nested
+# paths to env-var names per the rule documented in
+# docs/SIMPLE_AWS_DEPLOYMENT.md §9.3.
+#
+# The composite `DATABASE_URL` is intentionally NOT written here — Terraform
+# doesn't know about the on-host Postgres (it lives at 127.0.0.1 inside the
+# instance), so the loader composes it from `DATABASE_PASSWORD` at boot.
+#
+# `ENV` is intentionally NOT written here either — it is environment-defining,
+# so it lives in the systemd unit (`Environment=ENV=production`) where it can't
+# be misconfigured by an SSM rotation.
+
 # --- Plain-string config -----------------------------------------------------
 
-resource "aws_ssm_parameter" "llm_provider" {
-  name        = "${local.prefix}/llm/provider"
-  description = "LLM provider toggle (bedrock|anthropic)."
-  type        = "String"
-  value       = var.llm_provider
-  tier        = "Standard"
-
-  tags = {
-    Component = "secrets"
-  }
-}
-
-resource "aws_ssm_parameter" "llm_region" {
-  name        = "${local.prefix}/llm/region"
-  description = "Region in which Bedrock is invoked."
-  type        = "String"
-  value       = var.region
-  tier        = "Standard"
-
-  tags = {
-    Component = "secrets"
-  }
-}
-
-resource "aws_ssm_parameter" "llm_model_id" {
-  name        = "${local.prefix}/llm/model_id"
-  description = "Bedrock model ID or cross-region inference profile ID the app invokes."
-  type        = "String"
-  value       = var.bedrock_model_id
-  tier        = "Standard"
-
-  tags = {
-    Component = "secrets"
-  }
-}
-
 resource "aws_ssm_parameter" "cors_origins" {
-  name        = "${local.prefix}/app/cors_origins"
+  name        = "${local.prefix}/CORS_ORIGINS"
   description = "JSON list of allowed CORS origins."
   type        = "String"
   value       = var.cors_origins
@@ -53,7 +33,7 @@ resource "aws_ssm_parameter" "cors_origins" {
 }
 
 resource "aws_ssm_parameter" "access_token_expire_hours" {
-  name        = "${local.prefix}/app/access_token_expire_hours"
+  name        = "${local.prefix}/ACCESS_TOKEN_EXPIRE_HOURS"
   description = "JWT lifetime in hours."
   type        = "String"
   value       = tostring(var.access_token_expire_hours)
@@ -64,10 +44,46 @@ resource "aws_ssm_parameter" "access_token_expire_hours" {
   }
 }
 
+resource "aws_ssm_parameter" "llm_provider" {
+  name        = "${local.prefix}/llm/provider"
+  description = "LLM provider toggle (bedrock|anthropic). Loader maps to LLM_PROVIDER."
+  type        = "String"
+  value       = var.llm_provider
+  tier        = "Standard"
+
+  tags = {
+    Component = "secrets"
+  }
+}
+
+resource "aws_ssm_parameter" "llm_region" {
+  name        = "${local.prefix}/llm/region"
+  description = "Region in which Bedrock is invoked. Loader maps to AWS_REGION."
+  type        = "String"
+  value       = var.region
+  tier        = "Standard"
+
+  tags = {
+    Component = "secrets"
+  }
+}
+
+resource "aws_ssm_parameter" "llm_model_id" {
+  name        = "${local.prefix}/llm/model_id"
+  description = "Bedrock model ID or cross-region inference profile ID the app invokes. Loader maps to BEDROCK_MODEL_ID."
+  type        = "String"
+  value       = var.bedrock_model_id
+  tier        = "Standard"
+
+  tags = {
+    Component = "secrets"
+  }
+}
+
 # --- SecureStrings ----------------------------------------------------------
 
 resource "aws_ssm_parameter" "app_secret_key" {
-  name        = "${local.prefix}/app/secret_key"
+  name        = "${local.prefix}/SECRET_KEY"
   description = "JWT signing key. Rotate yearly; rotation logs all users out."
   type        = "SecureString"
   key_id      = var.kms_key_id
@@ -87,8 +103,8 @@ resource "aws_ssm_parameter" "app_secret_key" {
 }
 
 resource "aws_ssm_parameter" "db_password" {
-  name        = "${local.prefix}/app/db_password"
-  description = "Application Postgres user password."
+  name        = "${local.prefix}/DATABASE_PASSWORD"
+  description = "Application Postgres user password. Loader composes DATABASE_URL from this value (postgresql://flowin:$${pw}@127.0.0.1:5432/flowin)."
   type        = "SecureString"
   key_id      = var.kms_key_id
   value       = var.db_password
@@ -109,7 +125,7 @@ resource "aws_ssm_parameter" "anthropic_api_key" {
   count = length(var.anthropic_api_key) > 0 ? 1 : 0
 
   name        = "${local.prefix}/anthropic/api_key"
-  description = "Optional Anthropic API key (fallback for Bedrock outages)."
+  description = "Optional Anthropic API key (fallback for Bedrock outages). Loader maps to ANTHROPIC_API_KEY."
   type        = "SecureString"
   key_id      = var.kms_key_id
   value       = var.anthropic_api_key

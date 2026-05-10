@@ -63,7 +63,7 @@ variable "billing_alarm_threshold_usd" {
 }
 
 variable "bedrock_model_id" {
-  description = "Bedrock foundation model ID — used as the ModelId dimension on Bedrock alarms."
+  description = "The model ID the app actually invokes — typically the cross-region inference profile (e.g. eu.anthropic.claude-haiku-4-5-20251001-v1:0), NOT the foundation-model ID. Used as the ModelId dimension on Bedrock alarms; CloudWatch dimensions metrics by whichever string the SDK passed as modelId."
   type        = string
 }
 

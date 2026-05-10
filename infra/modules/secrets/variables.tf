@@ -4,7 +4,7 @@ variable "name_prefix" {
 }
 
 variable "environment" {
-  description = "Environment short name (e.g. prod). Used in parameter paths /flowin/$${env}/..."
+  description = "Environment short name (e.g. prod). Used in parameter paths /flowin/$${env}/... — top-level keys are UPPERCASE (SECRET_KEY, DATABASE_PASSWORD, CORS_ORIGINS, ACCESS_TOKEN_EXPIRE_HOURS); nested namespaces are lower-case (llm/*, anthropic/api_key) and translated to env-var names by the on-host loader."
   type        = string
 }
 

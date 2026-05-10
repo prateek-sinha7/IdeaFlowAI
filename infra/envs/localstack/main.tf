@@ -106,6 +106,9 @@ module "compute" {
   user_data_extra_env = {
     FLOWIN_BACKUP_BUCKET = module.backups.backup_bucket_name
     FLOWIN_PARAM_PREFIX  = module.secrets.parameter_path_prefix
+    # See envs/prod: pg_dump and skills-backup scripts read this for `aws s3 cp
+    # --sse aws:kms --sse-kms-key-id $FLOWIN_KMS_KEY_ID`.
+    FLOWIN_KMS_KEY_ID = module.kms.key_arn
     # Forces module.iam to be in the graph so the IAM resources are still
     # created and exercised in this environment.
     _IAM_PROFILE_HOOK = module.iam.instance_profile_name
@@ -139,8 +142,10 @@ module "monitoring" {
   alert_email                 = var.alert_email
   log_retention_days          = var.log_retention_days
   billing_alarm_threshold_usd = var.billing_alarm_threshold_usd
-  bedrock_model_id            = var.bedrock_model_id
-  cw_metric_namespace         = "Flowin/${title(var.environment)}"
+  # See envs/prod: the alarm must dimension on whatever string the app passes
+  # to Bedrock as modelId. local.effective_model_id matches that.
+  bedrock_model_id    = local.effective_model_id
+  cw_metric_namespace = "Flowin/${title(var.environment)}"
 }
 
 # --- Resource Groups --------------------------------------------------------

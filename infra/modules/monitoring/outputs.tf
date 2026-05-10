@@ -9,13 +9,18 @@ output "log_group_arns" {
 }
 
 output "alerts_topic_arn" {
-  description = "SNS topic ARN for alarm fan-out."
+  description = "SNS topic ARN for alarm fan-out (eu-west-2)."
   value       = aws_sns_topic.alerts.arn
 }
 
 output "alerts_topic_name" {
-  description = "SNS topic name."
+  description = "SNS topic name (eu-west-2)."
   value       = aws_sns_topic.alerts.name
+}
+
+output "alerts_useast1_topic_arn" {
+  description = "SNS topic ARN in us-east-1 used by the billing alarm (alarms can only publish to a same-region SNS topic)."
+  value       = aws_sns_topic.alerts_useast1.arn
 }
 
 output "alarm_names" {

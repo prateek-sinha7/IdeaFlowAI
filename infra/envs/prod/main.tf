@@ -90,6 +90,11 @@ module "compute" {
   user_data_extra_env = {
     FLOWIN_BACKUP_BUCKET = module.backups.backup_bucket_name
     FLOWIN_PARAM_PREFIX  = module.secrets.parameter_path_prefix
+    # The pg_dump and skills-backup scripts upload with `--sse aws:kms
+    # --sse-kms-key-id $FLOWIN_KMS_KEY_ID`. The bucket policy denies any PUT
+    # whose KMS key isn't this one (see modules/backups/main.tf
+    # DenyWrongKmsKey), so this var must be present at boot.
+    FLOWIN_KMS_KEY_ID = module.kms.key_arn
   }
 }
 
@@ -120,8 +125,12 @@ module "monitoring" {
   alert_email                 = var.alert_email
   log_retention_days          = var.log_retention_days
   billing_alarm_threshold_usd = var.billing_alarm_threshold_usd
-  bedrock_model_id            = var.bedrock_model_id
-  cw_metric_namespace         = "Flowin/${title(var.environment)}"
+  # CloudWatch Bedrock metrics dimension by the model ID the SDK actually invokes.
+  # When the app uses an EU-wide inference profile, that's the profile ID — NOT
+  # the foundation-model ID. local.effective_model_id resolves to whichever the
+  # app is configured to call (see locals.tf).
+  bedrock_model_id    = local.effective_model_id
+  cw_metric_namespace = "Flowin/${title(var.environment)}"
 }
 
 # --- Resource Groups (last; they tag-query everything else) ----------------
