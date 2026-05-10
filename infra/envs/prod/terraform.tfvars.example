@@ -82,20 +82,24 @@ bedrock_model_id              = "anthropic.claude-haiku-4-5-20251001-v1:0"
 bedrock_inference_profile_id  = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
 use_inference_profile_for_app = true
 
-# ---- Secrets — DO NOT commit real values -----------------------------------
-
-# Audit B P2-6/P2-7: placeholders are DELIBERATELY shorter than the
-# validation minimums (32 / 16 chars) so a `terraform apply` against this
-# file as-is fails fast with a clear "must be at least N characters"
-# error rather than silently deploying with a guessable secret. Set via
-# env var TF_VAR_app_secret_key / TF_VAR_db_password with `openssl rand
-# -hex 64` and `openssl rand -hex 32` respectively, or copy this file to
-# terraform.tfvars (gitignored) and edit with real values.
+# ---- Secrets — leave empty unless importing existing values ----------------
 #
+# Default behaviour (both empty / unset): modules/secrets generates a 64-char
+# SECRET_KEY and a 32-char DB password via random_password. Both land in SSM
+# as SecureStrings encrypted with the project CMK. The aws_ssm_parameter
+# `ignore_changes = [value]` lifecycle preserves operator rotations done
+# out-of-band — Terraform won't fight them on the next apply.
+#
+# Override only when importing an existing key (e.g. migrating from another
+# env and needing to keep JWTs in flight valid, or restoring from a snapshot
+# whose Postgres role already has a known password). Validation still
+# enforces >= 32 / >= 16 chars when non-empty.
+#
+# To override at apply time without committing the value:
 #   export TF_VAR_app_secret_key="$(openssl rand -hex 64)"
 #   export TF_VAR_db_password="$(openssl rand -hex 32)"
-app_secret_key = "REPLACE_ME"
-db_password    = "REPLACE_ME"
+# app_secret_key = ""
+# db_password    = ""
 
 # Optional LangSmith tracing — leave commented (empty values disable
 # parameter creation; the LangChain client treats missing env as "off").
@@ -105,14 +109,12 @@ db_password    = "REPLACE_ME"
 # langsmith_api_key = "lsv2_pt_..."
 # langsmith_project = "flowin-prod"
 
-# When use_nip_io = true the FQDN is only known after the EIP is allocated, so
-# the cors_origins list cannot be pre-computed in this file. Two practical
-# patterns:
-#   1) Apply once with `cors_origins = "[]"`, read the `fqdn` output, then
-#      `terraform apply -var "cors_origins=[\"https://1-2-3-4.nip.io\"]"`.
-#   2) Use a wildcard-friendly origin list during sandbox use only.
-# When use_nip_io = false set this to `["https://${app_subdomain}.${route53_zone_name}"]`.
-cors_origins              = "[\"https://flowin.example.com\"]"
+# CORS origins. Leave empty (the default) and the on-host flowin-load-secrets
+# auto-derives `["https://$FLOWIN_FQDN"]` on every flowin-app start — the
+# right behaviour for single-domain deployments (both nip.io and a real
+# Route 53 path; the loader knows the FQDN at runtime). Set explicitly only
+# for multi-origin deployments — an alternate domain, a staging mirror, etc.
+# cors_origins = "[\"https://flowin.example.com\",\"https://flowin-staging.example.com\"]"
 access_token_expire_hours = 12
 
 # ---- Backups ---------------------------------------------------------------
