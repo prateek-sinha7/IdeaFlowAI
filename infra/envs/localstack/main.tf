@@ -71,6 +71,13 @@ module "secrets" {
   anthropic_api_key         = var.anthropic_api_key
   cors_origins              = var.cors_origins
   access_token_expire_hours = var.access_token_expire_hours
+
+  # LangSmith — explicitly empty in LocalStack; the count guards in the
+  # secrets module skip the parameters when these are empty so there's no
+  # behaviour change versus before this commit.
+  langsmith_tracing = ""
+  langsmith_api_key = ""
+  langsmith_project = ""
 }
 
 # --- Compute ----------------------------------------------------------------
@@ -102,6 +109,14 @@ module "compute" {
   # LocalStack hasn't implemented MonitorInstances or ebs-optimized launches.
   detailed_monitoring = false
   ebs_optimized       = false
+
+  # Documents the LocalStack-side intent (the EIP is ephemeral here). In
+  # practice Terraform doesn't allow variable references in the EIP's
+  # lifecycle.prevent_destroy field, so the EIP is hard-protected `true`
+  # in modules/compute/main.tf and destroy.sh state-rm's it before
+  # `terraform destroy`. See modules/compute/variables.tf::protect_eip
+  # for the future-proofing rationale.
+  protect_eip = false
 
   user_data_extra_env = {
     FLOWIN_BACKUP_BUCKET = module.backups.backup_bucket_name
@@ -146,6 +161,11 @@ module "monitoring" {
   # to Bedrock as modelId. local.effective_model_id matches that.
   bedrock_model_id    = local.effective_model_id
   cw_metric_namespace = "Flowin/${title(var.environment)}"
+  # Empty backup_vault_name skips aws_backup_vault_notifications — LocalStack
+  # may not have that API surface, and the failure-notifications path is a
+  # prod-only concern.
+  backup_vault_name             = ""
+  bedrock_daily_token_threshold = var.bedrock_daily_token_threshold
 }
 
 # --- Resource Groups --------------------------------------------------------

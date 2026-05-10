@@ -29,6 +29,13 @@ module "network" {
 }
 
 # --- Backups (storage bucket + Backup vault) -------------------------------
+#
+# Note: `aws_backup_vault_notifications` (which fans BACKUP_JOB_FAILED /
+# RESTORE_JOB_FAILED into the alerts topic) intentionally lives in the
+# monitoring module rather than here. Putting it in backups would close a
+# cycle (compute -> monitoring -> backups -> compute via the bucket-name
+# reference). Monitoring receives the vault name and creates the
+# notifications binding there.
 module "backups" {
   source = "../../modules/backups"
 
@@ -37,6 +44,7 @@ module "backups" {
   kms_key_arn                 = module.kms.key_arn
   bucket_name                 = var.backup_bucket_name
   daily_backup_retention_days = var.daily_backup_retention_days
+  cold_storage_after_days     = var.cold_storage_after_days
 }
 
 # --- IAM (instance role + policies) ----------------------------------------
@@ -58,16 +66,21 @@ module "iam" {
 module "secrets" {
   source = "../../modules/secrets"
 
-  name_prefix                = local.name_prefix
-  environment                = var.environment
-  region                     = module.account_guard.region
-  kms_key_id                 = module.kms.key_id
-  bedrock_model_id           = local.effective_model_id
-  app_secret_key             = var.app_secret_key
-  db_password                = var.db_password
-  anthropic_api_key          = var.anthropic_api_key
-  cors_origins               = var.cors_origins
-  access_token_expire_hours  = var.access_token_expire_hours
+  name_prefix               = local.name_prefix
+  environment               = var.environment
+  region                    = module.account_guard.region
+  kms_key_id                = module.kms.key_id
+  bedrock_model_id          = local.effective_model_id
+  app_secret_key            = var.app_secret_key
+  db_password               = var.db_password
+  anthropic_api_key         = var.anthropic_api_key
+  cors_origins              = var.cors_origins
+  access_token_expire_hours = var.access_token_expire_hours
+
+  # LangSmith — empty defaults; opt-in via tfvars / TF_VAR_*.
+  langsmith_tracing = var.langsmith_tracing
+  langsmith_api_key = var.langsmith_api_key
+  langsmith_project = var.langsmith_project
 }
 
 # --- Compute (EC2, EBS, EIP) -----------------------------------------------
@@ -131,6 +144,12 @@ module "monitoring" {
   # app is configured to call (see locals.tf).
   bedrock_model_id    = local.effective_model_id
   cw_metric_namespace = "Flowin/${title(var.environment)}"
+  # Wires aws_backup_vault_notifications onto the alerts topic so AWS
+  # Backup fires on BACKUP_JOB_FAILED / RESTORE_JOB_FAILED. The resource
+  # lives in monitoring (not backups) to avoid a module-output cycle —
+  # see backups module main.tf for the full rationale.
+  backup_vault_name             = module.backups.backup_vault_name
+  bedrock_daily_token_threshold = var.bedrock_daily_token_threshold
 }
 
 # --- Resource Groups (last; they tag-query everything else) ----------------

@@ -147,8 +147,19 @@ resource "aws_eip" "this" {
   }
 
   lifecycle {
-    # EIPs are address-bearing identity. Don't let a casual destroy free it.
-    prevent_destroy = false # we DO want to be able to release in dev
+    # EIPs are address-bearing identity — releasing one frees the IPv4
+    # address back to the AWS pool, after which the same /32 cannot be
+    # reclaimed. The DNS A-record + any TLS-cert allowlists external
+    # parties hold for the IP would all break on re-allocation, so this
+    # is hard-coded `true` — Terraform 1.x rejects variable references
+    # in `prevent_destroy` (the field is evaluated when the dependency
+    # graph is built, before any variable is resolved; verified on TF
+    # 1.15.1 in May 2026). Ephemeral envs (LocalStack) state-rm the EIP
+    # before `terraform destroy` instead — see
+    # envs/localstack/destroy.sh. The `var.protect_eip` input is kept
+    # for documentation and forward-compatibility: when (if) Terraform
+    # ever loosens this restriction, the wiring change is one line.
+    prevent_destroy = true
   }
 }
 

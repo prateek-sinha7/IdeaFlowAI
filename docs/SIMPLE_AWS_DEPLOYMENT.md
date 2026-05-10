@@ -303,8 +303,16 @@ The instance role grants exactly five permission groups. Nothing else.
     {
       "Sid": "BackupBucketWrite",
       "Effect": "Allow",
-      "Action": ["s3:PutObject", "s3:PutObjectAcl"],
-      "Resource": "arn:aws:s3:::flowin-prod-backups/postgres/*"
+      "Action": [
+        "s3:PutObject",
+        "s3:PutObjectAcl",
+        "s3:AbortMultipartUpload",
+        "s3:ListMultipartUploadParts"
+      ],
+      "Resource": [
+        "arn:aws:s3:::flowin-prod-backups/postgres/*",
+        "arn:aws:s3:::flowin-prod-backups/skills/*"
+      ]
     },
     {
       "Sid": "CloudWatchAgent",
@@ -343,7 +351,12 @@ The instance role grants exactly five permission groups. Nothing else.
         "arn:aws:bedrock:eu-west-2::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
         "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
         "arn:aws:bedrock:eu-west-2:*:inference-profile/eu.anthropic.claude-haiku-4-5-20251001-v1:0"
-      ]
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": ["eu-west-2", "eu-west-1", "eu-central-1"]
+        }
+      }
     }
   ]
 }
@@ -351,11 +364,13 @@ The instance role grants exactly five permission groups. Nothing else.
 
 The second resource ARN with `*` for region is required because the cross-region inference profile fans invocations out to multiple regions (e.g. `eu-west-2`, `eu-west-1`, `eu-central-1`); the IAM check evaluates against the eventual target region's foundation-model ARN, so the wildcard is mandatory for the profile to work. Keep it scoped to the *exact* `claude-haiku-4-5` model — never broaden to `anthropic.*` or `*`.
 
+The `aws:RequestedRegion` condition pins invocation to the EU regions the cross-region inference profile fans to — without it a leaked instance credential could invoke Bedrock in any region the account has Bedrock enabled, which is a real cost vector. The list must match the EU profile's fan-out set; if AWS adds another EU region to the profile, update both this doc and `infra/policies/bedrock-invoke.json`. Reference: <https://docs.aws.amazon.com/bedrock/latest/userguide/cross-region-inference.html>.
+
 Notes:
 
 - The `Resource: "*"` on the CloudWatch Agent block is unavoidable (CloudWatch and EC2-describe APIs do not support resource-level scoping for these actions). The blast radius is limited to log/metric write and instance metadata read — both safe.
-- The S3 statement is *write-only* under one prefix. The instance cannot enumerate the bucket, cannot read other prefixes, cannot delete. Backup retention/expiry is enforced by S3 lifecycle policy (§11).
-- Parameter Store decrypts are gated on a KMS encryption-context match, so a leaked AWS credential cannot lift a parameter that was put with a different context.
+- The S3 statement is *write-only* under two prefixes (`postgres/` for `pg_dump` uploads and `skills/` for the skills tarball). The instance cannot enumerate the bucket, cannot read either prefix back, cannot get bucket location, cannot delete. Multipart upload completion (`AbortMultipartUpload`, `ListMultipartUploadParts`) is permitted under the same two prefixes only. Backup retention/expiry is enforced by S3 lifecycle policy (§11). DR restore (which needs `s3:GetObject`) is a different identity — see §11.3.
+- KMS decrypt is split into four narrowly-scoped statements: SSM SecureStrings (gated on `kms:EncryptionContext:PARAMETER_ARN`), EBS volumes (gated on `kms:ViaService = ec2.<region>.amazonaws.com`), S3 backup PUTs (gated on `kms:ViaService = s3.<region>.amazonaws.com`), and CloudWatch Logs streams (gated on `kms:ViaService = logs.<region>.amazonaws.com` plus the `aws:logs:arn` encryption context). The role no longer holds an unconditional `kms:DescribeKey` on the project CMK. A leaked AWS credential cannot lift a Parameter Store value that was put with a different context, cannot decrypt EBS or S3 objects directly (only via the integrated services), and cannot read foreign log streams.
 - The Bedrock policy contains no API-key material. Auth is the EC2 instance-profile role + STS; rotation is handled by AWS. There is no `ANTHROPIC_API_KEY` Parameter Store entry in the normal path — see §9 for the optional emergency-fallback entry.
 
 Attach this role to the instance via an IAM **instance profile** (`flowin-prod-instance`). You will reference it in the `aws ec2 run-instances --iam-instance-profile Name=flowin-prod-instance`.
@@ -1590,6 +1605,8 @@ The runbook for "instance died, EIP detached, EBS data volume preserved":
 **Wallclock target: 30 minutes.** Practiced quarterly during a maintenance window. Document the most recent drill date in the runbook.
 
 If the data volume is also lost (region-wide outage, AZ failure), the recovery path is the same as above but step 1 becomes "create a new volume from the latest AWS Backup snapshot" (`aws backup start-restore-job ...`). RTO grows to ~45 min; RPO degrades to last-completed hourly `pg_dump` if the snapshot is older.
+
+**Restore identity — must not be the production EC2 role.** The `pg_dump` recovery path needs `s3:GetObject` on the backup bucket and `kms:Decrypt` on the project CMK; the production EC2 instance role grants neither (the S3 backup policy is write-only under `postgres/` and `skills/`, and the KMS policy decrypts S3 only via the `s3.<region>.amazonaws.com` ViaService channel which doesn't help for direct GETs from a non-EC2 caller). A DR drill or real restore therefore runs from a different identity: either an operator's workstation using IAM-Identity-Center / SSO credentials with a "DR-restore" permission set, or a separate short-lived DR-drill EC2 with its own role. That role's permissions list `s3:GetObject` + `s3:ListBucket` on the backup bucket and `kms:Decrypt` on the project CMK conditioned on `kms:ViaService = s3.<region>.amazonaws.com`. Do not extend the production EC2 role to read its own backups — a compromised production instance could then exfiltrate every historical dump in one call.
 
 ### 11.4 What we explicitly do not back up
 

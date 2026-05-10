@@ -53,6 +53,33 @@ variable "anthropic_api_key" {
   default     = ""
 }
 
+# --- LangSmith — three optional, count-guarded parameters ------------------
+#
+# All three are independently optional: empty values cause the resource
+# count to be 0, so no parameter is created. The on-host loader maps these
+# UPPERCASE top-level keys directly to env vars of the same name, and the
+# LangChain client treats the env as "tracing disabled" if any of them are
+# absent. So leaving the defaults empty is a clean opt-out.
+
+variable "langsmith_tracing" {
+  description = "LangSmith tracing toggle (e.g. \"true\"/\"false\"). Empty default disables creation of the parameter."
+  type        = string
+  default     = ""
+}
+
+variable "langsmith_api_key" {
+  description = "LangSmith API key. Stored as SecureString. Empty default disables creation of the parameter."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "langsmith_project" {
+  description = "LangSmith project name (e.g. flowin-prod). Empty default disables creation of the parameter."
+  type        = string
+  default     = ""
+}
+
 variable "cors_origins" {
   description = "JSON-encoded list of CORS origins, e.g. '[\"https://flowin.example.com\"]'."
   type        = string

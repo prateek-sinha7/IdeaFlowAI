@@ -60,7 +60,10 @@ access_token_expire_hours = 12
 # ---- Backups ---------------------------------------------------------------
 
 backup_bucket_name          = "flowin-ls-pg-dumps-000000000000"
-daily_backup_retention_days = 35
+# Match the prod default (365d) so the cold_storage_after_days >= 90 days
+# below delete_after validation passes. LocalStack mocks don't enforce
+# retention so the actual number is operationally irrelevant here.
+daily_backup_retention_days = 365
 
 # ---- Monitoring ------------------------------------------------------------
 

@@ -35,5 +35,8 @@ output "alarm_names" {
     aws_cloudwatch_metric_alarm.bedrock_throttles.alarm_name,
     aws_cloudwatch_metric_alarm.bedrock_server_errors.alarm_name,
     aws_cloudwatch_metric_alarm.billing.alarm_name,
+    aws_cloudwatch_metric_alarm.ws_disconnect_spike.alarm_name,
+    aws_cloudwatch_metric_alarm.bedrock_tokens_daily.alarm_name,
+    aws_cloudwatch_metric_alarm.pg_dump_heartbeat.alarm_name,
   ]
 }

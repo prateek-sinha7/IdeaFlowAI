@@ -216,3 +216,9 @@ variable "billing_alarm_threshold_usd" {
   type        = number
   default     = 500
 }
+
+variable "bedrock_daily_token_threshold" {
+  description = "Daily Bedrock InputTokenCount threshold (Sum over 24h). Default 5,000,000 input tokens."
+  type        = number
+  default     = 5000000
+}

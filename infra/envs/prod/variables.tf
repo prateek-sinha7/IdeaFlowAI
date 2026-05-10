@@ -174,6 +174,25 @@ variable "anthropic_api_key" {
   default     = ""
 }
 
+variable "langsmith_tracing" {
+  description = "Optional LangSmith tracing toggle (e.g. \"true\"). Empty = no parameter created (tracing off)."
+  type        = string
+  default     = ""
+}
+
+variable "langsmith_api_key" {
+  description = "Optional LangSmith API key. Empty = no parameter created."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "langsmith_project" {
+  description = "Optional LangSmith project name. Empty = no parameter created."
+  type        = string
+  default     = ""
+}
+
 variable "cors_origins" {
   description = "JSON-encoded list of CORS origins, e.g. '[\"https://flowin.example.com\"]'."
   type        = string
@@ -193,9 +212,15 @@ variable "backup_bucket_name" {
 }
 
 variable "daily_backup_retention_days" {
-  description = "How long AWS Backup keeps each daily snapshot."
+  description = "How long AWS Backup keeps each daily snapshot. Default 365d matches docs/SIMPLE_AWS_DEPLOYMENT.md §11. Module enforces (delete_after - cold_storage_after) >= 90 — see modules/backups/variables.tf for the validation."
   type        = number
-  default     = 35
+  default     = 365
+}
+
+variable "cold_storage_after_days" {
+  description = "Days after which a recovery point transitions to cold storage. AWS Backup requires (delete_after - cold_storage_after) >= 90."
+  type        = number
+  default     = 30
 }
 
 # --- Monitoring -------------------------------------------------------------
@@ -220,4 +245,10 @@ variable "billing_alarm_threshold_usd" {
   description = "USD threshold for the EstimatedCharges alarm (us-east-1)."
   type        = number
   default     = 500
+}
+
+variable "bedrock_daily_token_threshold" {
+  description = "Daily Bedrock InputTokenCount threshold (Sum over 24h). Default 5,000,000 input tokens — see modules/monitoring/variables.tf for the cost model."
+  type        = number
+  default     = 5000000
 }

@@ -206,8 +206,11 @@ terraform plan
 terraform apply
 ```
 
-Note the outputs (bucket name + lock table name) — you'll wire them into
-the prod environment's backend config below.
+Note the `state_bucket_name` output — you'll pass it to
+`terraform init -backend-config="bucket=..."` below. The other backend
+keys (`key`, `region`, `encrypt`, `dynamodb_table`) are committed in
+`envs/prod/backend.tf` so every operator inits against the same state
+location.
 
 ### 2. Variables for the prod environment
 
@@ -257,17 +260,28 @@ Optional but commonly tuned:
 
 ### 3. Initialise the prod backend
 
-Wire in the bootstrap outputs via CLI flags (so you don't bake them into
-git):
+`envs/prod/backend.tf` commits the non-secret backend keys (`key`,
+`region`, `encrypt`, `dynamodb_table`) so every operator inits against
+the same state location. The only operator-supplied value is the bucket
+name (which embeds the account ID and so isn't worth committing in a
+shared-account repo):
 
 ```bash
 terraform init \
-  -backend-config="bucket=flowin-tfstate-123456789012-eu-west-2" \
-  -backend-config="key=envs/prod/terraform.tfstate" \
-  -backend-config="region=eu-west-2" \
-  -backend-config="dynamodb_table=flowin-tfstate-locks" \
-  -backend-config="encrypt=true"
+  -backend-config="bucket=flowin-tfstate-123456789012-eu-west-2"
 ```
+
+The state location is therefore unambiguous: regardless of which
+operator runs `init`, the state lives at
+`s3://<bucket>/envs/prod/terraform.tfstate`, locked via
+`flowin-tfstate-locks`. Two engineers cannot silently fork state by
+typing different `key=...` values.
+
+If the bucket name is sensitive in your org, commit a `backend.hcl` to
+a private channel and use `terraform init -backend-config=backend.hcl`
+instead — but never the other way round (don't push the operator-only
+flags back into a flat list of CLI args; the point of committing the
+non-secret keys is to remove them from the operator's working memory).
 
 ### 4. Plan and apply
 

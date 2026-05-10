@@ -29,6 +29,12 @@ resource "aws_iam_role_policy" "bedrock_invoke" {
   name = "${var.name_prefix}-bedrock-invoke"
   role = aws_iam_role.instance.id
 
+  # The bedrock-invoke.json policy includes an `aws:RequestedRegion` condition
+  # pinning invocation to the EU regions the cross-region inference profile
+  # fans to. The list is hardcoded in the JSON (eu-west-2, eu-west-1,
+  # eu-central-1). If AWS adds another EU region to the EU profile, update
+  # the list there. See:
+  #   https://docs.aws.amazon.com/bedrock/latest/userguide/cross-region-inference.html
   policy = templatefile("${path.module}/${var.policies_dir}/bedrock-invoke.json", {
     region               = var.region
     account_id           = var.account_id
@@ -52,8 +58,17 @@ resource "aws_iam_role_policy" "kms_decrypt" {
   name = "${var.name_prefix}-kms-decrypt"
   role = aws_iam_role.instance.id
 
+  # kms-decrypt.json is split into four narrowly-scoped statements
+  # (SSM SecureStrings via PARAMETER_ARN encryption context; EBS via
+  # ec2.<region>.amazonaws.com ViaService; S3 backup via s3.<region>.amazonaws.com
+  # ViaService; CloudWatch Logs via logs.<region>.amazonaws.com ViaService and
+  # the aws:logs:arn encryption context). All four statements need
+  # region/account_id/environment for ARN composition.
   policy = templatefile("${path.module}/${var.policies_dir}/kms-decrypt.json", {
     kms_key_arn = var.kms_key_arn
+    region      = var.region
+    account_id  = var.account_id
+    environment = var.environment
   })
 }
 

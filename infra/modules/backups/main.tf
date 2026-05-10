@@ -140,6 +140,19 @@ resource "aws_s3_bucket_policy" "backups" {
 }
 
 # --- AWS Backup service role -----------------------------------------------
+#
+# The trust policy includes the AWS-recommended confused-deputy guards:
+#
+#   - aws:SourceAccount  pins the assume-role to *our* account ID, so a
+#     compromised AWS Backup principal in another account can't trick the
+#     service into using this role on their behalf.
+#   - aws:SourceArn      narrows further to the AWS Backup resources in this
+#     region of this account (vault + plan + selection ARNs all match
+#     arn:aws:backup:${region}:${account_id}:*).
+#
+# Both are required to defeat the cross-account confused-deputy class of
+# attacks documented in the IAM Service Authorization Reference. AWS Backup
+# itself is a regional service, so the SourceArn shape is region-pinned.
 
 data "aws_iam_policy_document" "backup_assume" {
   statement {
@@ -149,6 +162,18 @@ data "aws_iam_policy_document" "backup_assume" {
     principals {
       type        = "Service"
       identifiers = ["backup.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values   = ["arn:${data.aws_partition.current.partition}:backup:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:*"]
     }
   }
 }
@@ -205,7 +230,10 @@ resource "aws_backup_plan" "daily" {
     enable_continuous_backup = false
 
     lifecycle {
-      delete_after = var.daily_backup_retention_days
+      # Cold-storage transition cuts retention cost; AWS Backup requires
+      # delete_after - cold_storage_after >= 90, validated on the variables.
+      cold_storage_after = var.cold_storage_after_days
+      delete_after       = var.daily_backup_retention_days
     }
 
     recovery_point_tags = {
@@ -218,6 +246,13 @@ resource "aws_backup_plan" "daily" {
   tags = {
     Name      = "${var.name_prefix}-daily"
     Component = "storage"
+  }
+
+  lifecycle {
+    # Losing the plan stops new snapshots — RPO degrades silently while
+    # the vault still claims to be "configured for backups". Require an
+    # explicit `terraform state rm` to delete this.
+    prevent_destroy = true
   }
 }
 
@@ -233,4 +268,21 @@ resource "aws_backup_selection" "by_tag" {
     key   = var.backup_selection_tag_key
     value = var.backup_selection_tag_value
   }
+
+  lifecycle {
+    # Deleting the selection means the plan still ticks but covers nothing
+    # — every nightly run succeeds with zero recovery points. Same silent
+    # RPO regression as deleting the plan; explicit state-rm to remove.
+    prevent_destroy = true
+  }
 }
+
+# --- Backup job failure notifications --------------------------------------
+#
+# `aws_backup_vault_notifications` is created in the monitoring module
+# (not here) to break what would otherwise be a module-output cycle:
+# compute consumes backups.backup_bucket_name, monitoring consumes
+# compute.instance_id, and a notifications resource here would consume
+# monitoring.alerts_topic_arn — closing the cycle. Monitoring receives the
+# vault name (a non-cyclic input from backups -> monitoring) and binds
+# the notifications there. See modules/monitoring/main.tf.

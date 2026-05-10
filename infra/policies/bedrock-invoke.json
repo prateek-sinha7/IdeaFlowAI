@@ -14,7 +14,16 @@
         "arn:aws:bedrock:${region}::foundation-model/${model_id}",
         "arn:aws:bedrock:*::foundation-model/${model_id}",
         "arn:aws:bedrock:${region}:${account_id}:inference-profile/${inference_profile_id}"
-      ]
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": [
+            "eu-west-2",
+            "eu-west-1",
+            "eu-central-1"
+          ]
+        }
+      }
     }
   ]
 }

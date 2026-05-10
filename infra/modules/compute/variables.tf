@@ -113,3 +113,9 @@ variable "user_data_extra_env" {
   type        = map(string)
   default     = {}
 }
+
+variable "protect_eip" {
+  description = "Documents the EIP-protection contract. Currently advisory only: Terraform's lifecycle.prevent_destroy field accepts only literal bools (verified on TF 1.15.1, May 2026), so the EIP is unconditionally `prevent_destroy = true` and ephemeral envs (LocalStack) state-rm it before `terraform destroy` — see envs/localstack/destroy.sh. The variable is plumbed through the modules so a future Terraform release that loosens this restriction can be adopted with a one-line change in modules/compute/main.tf."
+  type        = bool
+  default     = true
+}

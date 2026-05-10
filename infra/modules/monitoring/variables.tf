@@ -72,3 +72,31 @@ variable "cw_metric_namespace" {
   type        = string
   default     = "Flowin/Prod"
 }
+
+variable "bedrock_daily_token_threshold" {
+  description = "Daily Bedrock InputTokenCount threshold (Sum over 24h). 5,000,000 input tokens at Haiku 4.5 list (~$4 / 1M input + ~$20 / 1M output) is roughly a $20-input + variable-output budget — the alarm catches token-runaway from cancel-pipeline failures, retry storms, and runaway long-context fan-out before they show up on the monthly bill. Tune after a week of baseline data."
+  type        = number
+  default     = 5000000
+
+  validation {
+    condition     = var.bedrock_daily_token_threshold > 0
+    error_message = "bedrock_daily_token_threshold must be > 0."
+  }
+}
+
+variable "ws_disconnect_threshold" {
+  description = "WebSocket disconnect count over a 5-minute window above which the alarm fires. >50/5min is a reasonable starting threshold for a single-instance deployment serving ~150 concurrent sessions; tune up if traffic grows."
+  type        = number
+  default     = 50
+
+  validation {
+    condition     = var.ws_disconnect_threshold > 0
+    error_message = "ws_disconnect_threshold must be > 0."
+  }
+}
+
+variable "backup_vault_name" {
+  description = "Name of the AWS Backup vault to wire job-state notifications onto. Empty disables aws_backup_vault_notifications (LocalStack and during bootstrap before the vault exists)."
+  type        = string
+  default     = ""
+}

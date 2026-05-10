@@ -75,16 +75,33 @@ db_password = "REPLACE_ME_WITH_HEX_BYTES_FROM_OPENSSL_RAND_HEX_32_CALL"
 # Optional fallback. Empty = no parameter created.
 anthropic_api_key = ""
 
+# Optional LangSmith tracing — leave commented (empty values disable
+# parameter creation; the LangChain client treats missing env as "off").
+# Opt in by uncommenting all three; the on-host loader maps these
+# UPPERCASE top-level keys directly to env vars of the same name.
+# langsmith_tracing = "true"
+# langsmith_api_key = "lsv2_pt_..."
+# langsmith_project = "flowin-prod"
+
 cors_origins              = "[\"https://flowin.example.com\"]"
 access_token_expire_hours = 12
 
 # ---- Backups ---------------------------------------------------------------
 
 backup_bucket_name          = "flowin-prod-pg-dumps-123456789012"
-daily_backup_retention_days = 35
+# 365d matches docs/SIMPLE_AWS_DEPLOYMENT.md §11. AWS Backup requires
+# (delete_after - cold_storage_after) >= 90; the default cold_storage_after
+# of 30 satisfies this (365 - 30 = 335 >= 90).
+daily_backup_retention_days = 365
+cold_storage_after_days     = 30
 
 # ---- Monitoring ------------------------------------------------------------
 
 alert_email                 = "flowin-oncall@hexaware.com"
 log_retention_days          = 30
 billing_alarm_threshold_usd = 500
+# Daily Bedrock InputTokenCount cap (Sum over 24h). 5M input tokens at
+# Haiku 4.5 list (~$4 / 1M input + ~$20 / 1M output) is a ~$20-input-plus-
+# variable-output budget; tune up after a week of baseline data. See
+# modules/monitoring/variables.tf for the rationale.
+bedrock_daily_token_threshold = 5000000

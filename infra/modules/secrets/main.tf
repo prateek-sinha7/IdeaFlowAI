@@ -141,3 +141,76 @@ resource "aws_ssm_parameter" "anthropic_api_key" {
     ]
   }
 }
+
+# --- LangSmith (LangChain tracing) — optional ------------------------------
+#
+# Three count-guarded parameters; absent unless the operator opts in by
+# supplying non-empty values in tfvars. The on-host loader already supports
+# the canonical env-var names (LANGSMITH_TRACING / LANGSMITH_API_KEY /
+# LANGSMITH_PROJECT) — see docs/SIMPLE_AWS_DEPLOYMENT.md §9.3 / Appendix D.
+# When all three are absent, the LangSmith client treats the env as
+# "tracing disabled" and is a no-op on every call.
+#
+# `lifecycle.ignore_changes = [value]` mirrors the other rotatable secrets:
+# operators may rotate the API key out-of-band without Terraform reverting.
+
+resource "aws_ssm_parameter" "langsmith_tracing" {
+  count = length(var.langsmith_tracing) > 0 ? 1 : 0
+
+  name        = "${local.prefix}/LANGSMITH_TRACING"
+  description = "Toggle for LangSmith tracing (true|false). Empty default — created only when set in tfvars."
+  type        = "String"
+  value       = var.langsmith_tracing
+  tier        = "Standard"
+
+  tags = {
+    Component = "secrets"
+  }
+
+  lifecycle {
+    ignore_changes = [
+      value,
+    ]
+  }
+}
+
+resource "aws_ssm_parameter" "langsmith_api_key" {
+  count = length(var.langsmith_api_key) > 0 ? 1 : 0
+
+  name        = "${local.prefix}/LANGSMITH_API_KEY"
+  description = "LangSmith API key. Stored as SecureString; rotated out-of-band by the operator."
+  type        = "SecureString"
+  key_id      = var.kms_key_id
+  value       = var.langsmith_api_key
+  tier        = "Standard"
+
+  tags = {
+    Component = "secrets"
+  }
+
+  lifecycle {
+    ignore_changes = [
+      value,
+    ]
+  }
+}
+
+resource "aws_ssm_parameter" "langsmith_project" {
+  count = length(var.langsmith_project) > 0 ? 1 : 0
+
+  name        = "${local.prefix}/LANGSMITH_PROJECT"
+  description = "LangSmith project name (e.g. flowin-prod)."
+  type        = "String"
+  value       = var.langsmith_project
+  tier        = "Standard"
+
+  tags = {
+    Component = "secrets"
+  }
+
+  lifecycle {
+    ignore_changes = [
+      value,
+    ]
+  }
+}

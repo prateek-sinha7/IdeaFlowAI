@@ -33,6 +33,16 @@ resource "aws_cloudwatch_log_group" "groups" {
     Name      = each.value
     Component = "monitoring"
   }
+
+  lifecycle {
+    # Log groups carry forensic and audit data. Recreating them after an
+    # accidental destroy loses the historical stream and breaks every
+    # metric-filter that points at them. Operators should `terraform state
+    # rm` deliberately if a rename is required. Note: `dynamic` blocks are
+    # disallowed inside `lifecycle`, but a static block alongside `for_each`
+    # works — every key in the map gets the same protection.
+    prevent_destroy = true
+  }
 }
 
 # --- SNS topics -------------------------------------------------------------
@@ -70,6 +80,128 @@ resource "aws_sns_topic_subscription" "email" {
   endpoint  = var.alert_email
 }
 
+# Topic policy: lets the AWS Backup service principal publish job-state
+# notifications, and lets CloudWatch Events / EventBridge publish on behalf
+# of CloudWatch alarms. The default SNS topic policy restricts Publish to
+# the topic owner — without this, aws_backup_vault_notifications gets no
+# events into the topic.
+#
+# The Confused-Deputy guards are aws:SourceAccount (and aws:SourceArn for
+# the EventBridge case where ARN shape is well-defined). Backup events come
+# from the vault itself, so we constrain the SourceArn to vault + plan ARNs
+# in this account+region.
+data "aws_caller_identity" "current" {}
+data "aws_partition" "current" {}
+data "aws_region" "current" {}
+
+data "aws_iam_policy_document" "alerts_topic" {
+  # Owner has full control (canonical default).
+  statement {
+    sid    = "OwnerFullControl"
+    effect = "Allow"
+
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root"]
+    }
+
+    actions   = ["SNS:*"]
+    resources = [aws_sns_topic.alerts.arn]
+  }
+
+  # AWS Backup vault notifications — required so aws_backup_vault_notifications
+  # can deliver BACKUP_JOB_FAILED / RESTORE_JOB_FAILED into this topic.
+  statement {
+    sid    = "AllowBackupServicePublish"
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["backup.amazonaws.com"]
+    }
+
+    actions   = ["SNS:Publish"]
+    resources = [aws_sns_topic.alerts.arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+
+    # Vault ARNs only — narrows further than the account check.
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values = [
+        "arn:${data.aws_partition.current.partition}:backup:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:backup-vault:*",
+      ]
+    }
+  }
+
+  # CloudWatch alarms publishing into this same topic — the alarms in this
+  # module specify SNS:Publish via alarm_actions, which in CloudWatch lingo
+  # means "the cloudwatch service publishes on the alarm's behalf".
+  statement {
+    sid    = "AllowCloudWatchAlarmsPublish"
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudwatch.amazonaws.com"]
+    }
+
+    actions   = ["SNS:Publish"]
+    resources = [aws_sns_topic.alerts.arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+  }
+}
+
+resource "aws_sns_topic_policy" "alerts" {
+  arn    = aws_sns_topic.alerts.arn
+  policy = data.aws_iam_policy_document.alerts_topic.json
+}
+
+# --- AWS Backup job-state notifications ------------------------------------
+#
+# Hooks the alerts SNS topic into the project's AWS Backup vault so AWS
+# Backup itself fires on job-state changes (FAILED / EXPIRED / RESTORE
+# FAILED). Cleaner than an EventBridge rule + target since the binding is
+# on the vault.
+#
+# Lives here rather than in modules/backups to break a module-output cycle:
+# compute consumes backups.backup_bucket_name; monitoring consumes
+# compute.instance_id; placing this resource in backups would close the
+# triangle. The vault name is a one-way input (backups -> monitoring), so
+# it doesn't reintroduce the cycle.
+#
+# Empty `var.backup_vault_name` disables the resource — used in LocalStack
+# and useful as an escape hatch when bootstrap order matters.
+resource "aws_backup_vault_notifications" "alerts" {
+  count = length(var.backup_vault_name) > 0 ? 1 : 0
+
+  backup_vault_name = var.backup_vault_name
+  sns_topic_arn     = aws_sns_topic.alerts.arn
+
+  # Three states cover the failure surface: FAILED is the routine error,
+  # EXPIRED means the backup job ran out of its completion window without
+  # finishing. RESTORE_JOB_FAILED ties in the test-restore drill workflow.
+  backup_vault_events = [
+    "BACKUP_JOB_FAILED",
+    "BACKUP_JOB_EXPIRED",
+    "RESTORE_JOB_FAILED",
+  ]
+
+  # The notifications API requires the SNS topic policy to allow
+  # backup.amazonaws.com to publish — see aws_sns_topic_policy.alerts.
+  depends_on = [aws_sns_topic_policy.alerts]
+}
+
 # Billing-alarm topic in us-east-1.
 resource "aws_sns_topic" "alerts_useast1" {
   provider = aws.useast1
@@ -95,10 +227,18 @@ resource "aws_sns_topic_subscription" "email_useast1" {
 
 # --- CloudWatch alarms ------------------------------------------------------
 
+# Host alarms 1-3b (CPU / memory / root-disk / data-disk) all use
+# `treat_missing_data = "breaching"`. Rationale: the metrics are
+# CloudWatch-Agent-emitted. When the agent dies, the metrics go absent —
+# they don't go to zero. With `notBreaching`, a dead agent leaves every
+# host alarm in OK state while the disk fills, OOM-killer fires, etc. With
+# `breaching`, missing data pages on-call (which is what we want — "I
+# can't see the host" *is* the alert).
+
 # 1. CPU sustained high
 resource "aws_cloudwatch_metric_alarm" "cpu_high" {
   alarm_name          = "${var.name_prefix}-cpu-high"
-  alarm_description   = "Sustained host CPU above ${var.cpu_threshold_percent}% for 15 minutes"
+  alarm_description   = "Sustained host CPU above ${var.cpu_threshold_percent}% for 15 minutes (breaching on missing data — covers a dead CloudWatch Agent)"
   comparison_operator = "GreaterThanOrEqualToThreshold"
   evaluation_periods  = 3
   metric_name         = "cpu_usage_user"
@@ -106,7 +246,7 @@ resource "aws_cloudwatch_metric_alarm" "cpu_high" {
   period              = 300
   statistic           = "Average"
   threshold           = var.cpu_threshold_percent
-  treat_missing_data  = "notBreaching"
+  treat_missing_data  = "breaching"
 
   dimensions = {
     InstanceId = var.instance_id
@@ -123,7 +263,7 @@ resource "aws_cloudwatch_metric_alarm" "cpu_high" {
 # 2. Memory pressure
 resource "aws_cloudwatch_metric_alarm" "mem_high" {
   alarm_name          = "${var.name_prefix}-mem-high"
-  alarm_description   = "Memory above ${var.memory_threshold_percent}% for 10 minutes"
+  alarm_description   = "Memory above ${var.memory_threshold_percent}% for 10 minutes (breaching on missing data — covers a dead CloudWatch Agent)"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 2
   metric_name         = "mem_used_percent"
@@ -131,7 +271,7 @@ resource "aws_cloudwatch_metric_alarm" "mem_high" {
   period              = 300
   statistic           = "Average"
   threshold           = var.memory_threshold_percent
-  treat_missing_data  = "notBreaching"
+  treat_missing_data  = "breaching"
 
   dimensions = {
     InstanceId = var.instance_id
@@ -148,7 +288,7 @@ resource "aws_cloudwatch_metric_alarm" "mem_high" {
 # 3a. Root disk near full
 resource "aws_cloudwatch_metric_alarm" "disk_root_high" {
   alarm_name          = "${var.name_prefix}-disk-root-high"
-  alarm_description   = "Root filesystem disk usage above ${var.disk_threshold_percent}%"
+  alarm_description   = "Root filesystem disk usage above ${var.disk_threshold_percent}% (breaching on missing data — covers a dead CloudWatch Agent)"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 2
   metric_name         = "disk_used_percent"
@@ -156,7 +296,7 @@ resource "aws_cloudwatch_metric_alarm" "disk_root_high" {
   period              = 300
   statistic           = "Maximum"
   threshold           = var.disk_threshold_percent
-  treat_missing_data  = "notBreaching"
+  treat_missing_data  = "breaching"
 
   dimensions = {
     InstanceId = var.instance_id
@@ -174,7 +314,7 @@ resource "aws_cloudwatch_metric_alarm" "disk_root_high" {
 # 3b. Data disk near full (Postgres)
 resource "aws_cloudwatch_metric_alarm" "disk_data_high" {
   alarm_name          = "${var.name_prefix}-disk-data-high"
-  alarm_description   = "Postgres data filesystem disk usage above ${var.disk_threshold_percent}%"
+  alarm_description   = "Postgres data filesystem disk usage above ${var.disk_threshold_percent}% (breaching on missing data — covers a dead CloudWatch Agent)"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 2
   metric_name         = "disk_used_percent"
@@ -182,7 +322,7 @@ resource "aws_cloudwatch_metric_alarm" "disk_data_high" {
   period              = 300
   statistic           = "Maximum"
   threshold           = var.disk_threshold_percent
-  treat_missing_data  = "notBreaching"
+  treat_missing_data  = "breaching"
 
   dimensions = {
     InstanceId = var.instance_id
@@ -342,6 +482,124 @@ resource "aws_cloudwatch_metric_alarm" "billing" {
 
   alarm_actions = [aws_sns_topic.alerts_useast1.arn]
   ok_actions    = [aws_sns_topic.alerts_useast1.arn]
+
+  tags = {
+    Component = "monitoring"
+  }
+}
+
+# 9. WebSocket disconnect spike — derived from the unified backend log group.
+#
+# The backend logs disconnects at info level: `WebSocket disconnected: user=…`
+# (backend/app/api/websocket.py:439) when WebSocketDisconnect propagates up;
+# the FastAPI close path also issues `code=4001` for auth failures and
+# `code=1011` for internal errors. We catch all four shapes via the OR'd
+# pattern; CloudWatch's syntax for "any of these phrases anywhere in the
+# event" is `?phrase1 ?phrase2 ?phrase3` (each ? token is a substring match).
+resource "aws_cloudwatch_log_metric_filter" "ws_disconnect" {
+  name           = "${var.name_prefix}-ws-disconnect"
+  log_group_name = aws_cloudwatch_log_group.groups["/flowin/${var.environment}/app"].name
+  pattern        = "?\"WebSocket disconnected\" ?\"WebSocketDisconnect\" ?\"close code 4001\" ?\"close code 1011\""
+
+  metric_transformation {
+    name          = "WSDisconnect"
+    namespace     = var.cw_metric_namespace
+    value         = "1"
+    default_value = "0"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "ws_disconnect_spike" {
+  alarm_name          = "${var.name_prefix}-ws-disconnect-spike"
+  alarm_description   = "Spike in WebSocket disconnects — possible JWT-revocation surge, frontend bug, or upstream failure."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "WSDisconnect"
+  namespace           = var.cw_metric_namespace
+  period              = 300
+  # Sum is the canonical statistic for a count-style metric filter.
+  statistic           = "Sum"
+  threshold           = var.ws_disconnect_threshold
+  # Traffic-dependent: legitimately zero in low-traffic windows. notBreaching
+  # is correct here — we don't want to page when the app is just idle.
+  treat_missing_data  = "notBreaching"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+
+  tags = {
+    Component = "monitoring"
+  }
+}
+
+# 10. Bedrock InputTokenCount daily total — cost-runaway detector.
+#
+# Covers: cancel-pipeline failures still streaming, frontend retry storms,
+# accidental long-context fan-out. Threshold expressed as a daily input-
+# token cap. Haiku 4.5 list price ~$4 input + ~$20 output per 1M tokens at
+# the time of writing, so 5M input ≈ ~$20 input + variable output. Tunable
+# in tfvars.
+#
+# Dimensions on whichever ModelId the SDK actually invokes — for the EU
+# inference profile that's the profile ID, NOT the foundation-model ID.
+# `var.bedrock_model_id` is the post-P0 fix value (effective_model_id from
+# envs/prod/locals.tf).
+resource "aws_cloudwatch_metric_alarm" "bedrock_tokens_daily" {
+  alarm_name          = "${var.name_prefix}-bedrock-tokens-daily"
+  alarm_description   = "Bedrock input-token consumption above the daily cap. Cost-runaway detector — covers the cancel-pipeline failure mode and any unexpected traffic surge."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "InputTokenCount"
+  namespace           = "AWS/Bedrock"
+  period              = 86400 # 24 hours
+  statistic           = "Sum"
+  threshold           = var.bedrock_daily_token_threshold
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    ModelId = var.bedrock_model_id
+  }
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+
+  tags = {
+    Component = "monitoring"
+  }
+}
+
+# 11. pg_dump heartbeat — RPO 1h backstop.
+#
+# The `flowin-pg-dump` systemd timer (docs/SIMPLE_AWS_DEPLOYMENT.md
+# §11.2 / Appendix B.3) runs hourly and PUTs to s3://.../postgres/<TS>/
+# under SSE-KMS. After a successful upload, the script publishes a
+# CloudWatch custom metric `Flowin/Backups::PgDumpHeartbeat = 1` —
+# absence of that metric for >2h means the timer is stuck or the host is
+# unreachable, both of which jeopardise the documented RPO 1h.
+#
+# treat_missing_data = "breaching" is the *correct* setting here — the
+# whole point is that absence IS the alert signal.
+#
+# (The IAM instance role already grants cloudwatch:PutMetricData on
+# Resource: "*" — see infra/modules/iam/main.tf::cw_agent_describes —
+# because that API doesn't support resource-level scoping.)
+resource "aws_cloudwatch_metric_alarm" "pg_dump_heartbeat" {
+  alarm_name          = "${var.name_prefix}-pg-dump-heartbeat-stale"
+  alarm_description   = "No successful pg_dump in the last 2 hours. RPO 1h is at risk — check the flowin-pg-dump.timer / instance health."
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "PgDumpHeartbeat"
+  namespace           = "Flowin/Backups"
+  period              = 7200 # 2 hours
+  # SampleCount on a count metric — number of put-metric-data calls in
+  # the period. Less than 1 in two hours means at least two hourly runs
+  # have failed (or the host is dead).
+  statistic           = "SampleCount"
+  threshold           = 1
+  treat_missing_data  = "breaching"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
 
   tags = {
     Component = "monitoring"

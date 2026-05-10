@@ -24,13 +24,29 @@ variable "bucket_name" {
 }
 
 variable "daily_backup_retention_days" {
-  description = "How long AWS Backup keeps each daily snapshot."
+  description = "How long AWS Backup keeps each daily snapshot. Default 365d matches docs/SIMPLE_AWS_DEPLOYMENT.md §11."
   type        = number
-  default     = 35
+  default     = 365
 
   validation {
-    condition     = var.daily_backup_retention_days >= 7 && var.daily_backup_retention_days <= 365
-    error_message = "daily_backup_retention_days must be between 7 and 365."
+    condition     = var.daily_backup_retention_days >= 7 && var.daily_backup_retention_days <= 36500
+    error_message = "daily_backup_retention_days must be between 7 and 36500 (100 years)."
+  }
+}
+
+variable "cold_storage_after_days" {
+  description = "Days after which a recovery point transitions to cold storage. AWS Backup requires (delete_after - cold_storage_after) >= 90."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.cold_storage_after_days >= 1
+    error_message = "cold_storage_after_days must be at least 1."
+  }
+
+  validation {
+    condition     = var.cold_storage_after_days <= var.daily_backup_retention_days - 90
+    error_message = "AWS Backup requires (daily_backup_retention_days - cold_storage_after_days) >= 90 days. Default retention 365 + cold_storage 30 satisfies this; tightening retention requires bringing cold_storage_after down with it."
   }
 }
 
