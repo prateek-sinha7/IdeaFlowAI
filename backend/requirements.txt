@@ -24,3 +24,9 @@ python-dotenv==1.0.1
 pytest==8.3.4
 hypothesis==6.122.3
 httpx==0.28.1
+# pytest-asyncio is required to actually run the @pytest.mark.asyncio tests
+# in tests/unit/test_base_agent.py and tests/unit/test_pipeline_cancel.py.
+# Without it pytest silently skips them with a PytestUnhandledCoroutineWarning
+# — discovered when the local Bedrock-live walk-through caught two bugs in
+# BaseAgent that the test suite had been quietly missing.
+pytest-asyncio==0.24.0

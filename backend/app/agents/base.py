@@ -46,7 +46,14 @@ class BaseAgent:
                 is missing.
         """
         self.llm = self._make_bedrock_client(model, max_tokens)
-        self.model = model or settings.BEDROCK_MODEL_ID
+        # Mirror the resolution chain inside _make_bedrock_client so
+        # agent.model is what actually went to Bedrock — not the foundation
+        # id when the inference profile is what was invoked.
+        self.model = (
+            model
+            or settings.BEDROCK_INFERENCE_PROFILE_ID
+            or settings.BEDROCK_MODEL_ID
+        )
 
         self.system_prompt = system_prompt
         logger.debug(
@@ -58,20 +65,71 @@ class BaseAgent:
 
     @staticmethod
     def _make_bedrock_client(model: str | None, max_tokens: int):
-        """Build a ChatBedrockConverse client. Lazy-import keeps dev installs lean."""
+        """Build a ChatBedrockConverse client. Lazy-import keeps dev installs lean.
+
+        Resolution order for the model identifier passed to Bedrock's
+        Converse API:
+
+        1. The explicit ``model=`` arg, if provided by the subclass.
+        2. ``settings.BEDROCK_INFERENCE_PROFILE_ID`` — the cross-region
+           inference profile id, e.g. ``eu.anthropic.claude-haiku-4-5-…``.
+        3. ``settings.BEDROCK_MODEL_ID`` — the foundation-model id, e.g.
+           ``anthropic.claude-haiku-4-5-…``.
+
+        The inference profile is preferred because most regions (eu-central-1
+        included) reject *on-demand* invocations of the foundation-model id
+        directly with ``ValidationException: Invocation of model ID … with
+        on-demand throughput isn't supported. Retry your request with the ID
+        or ARN of an inference profile that contains this model.``
+        Falling back to ``BEDROCK_MODEL_ID`` keeps regions/accounts that DO
+        support on-demand foundation invocation working without any extra
+        config.
+        """
         from langchain_aws import ChatBedrockConverse  # noqa: WPS433 — lazy import
 
-        model_id = model or settings.BEDROCK_MODEL_ID
+        model_id = (
+            model
+            or settings.BEDROCK_INFERENCE_PROFILE_ID
+            or settings.BEDROCK_MODEL_ID
+        )
         region = settings.AWS_REGION
         if not model_id or not region:
             raise AgentConfigurationError(
-                "Bedrock provider requires BEDROCK_MODEL_ID and AWS_REGION to be set."
+                "Bedrock provider requires BEDROCK_INFERENCE_PROFILE_ID (preferred) "
+                "or BEDROCK_MODEL_ID, plus AWS_REGION, to be set."
             )
         return ChatBedrockConverse(
             model=model_id,
             region_name=region,
             max_tokens=max_tokens,
         )
+
+    @staticmethod
+    def _extract_text(content) -> str:
+        """Pull text out of an AIMessage(Chunk).content payload.
+
+        ``ChatBedrockConverse`` (langchain-aws 0.2.x) ALWAYS returns ``content``
+        as a ``list[dict]`` of typed blocks — even for plain text streaming
+        responses, where each text delta arrives as
+        ``[{"type": "text", "text": "..."}]``. Other providers/wrappers may
+        return a bare ``str``. We accept either; non-text blocks (tool_use,
+        reasoning, image, …) are ignored at this layer because the WS payload
+        downstream string-concatenates the result.
+
+        Returning "" for unknown shapes is deliberate — yielding raw blocks
+        upstream would break ``current_agent_output_live["output"] += chunk``
+        in ``app.api.websocket`` with a ``TypeError: can only concatenate str
+        (not "list") to str``.
+        """
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            return "".join(
+                block.get("text", "")
+                for block in content
+                if isinstance(block, dict) and block.get("type") == "text"
+            )
+        return ""
 
     def _build_messages(
         self, user_message: str, context: dict | None = None
@@ -110,9 +168,10 @@ class BaseAgent:
 
         chunk_count = 0
         async for chunk in self.llm.astream(messages):
-            if chunk.content:
+            text = self._extract_text(chunk.content)
+            if text:
                 chunk_count += 1
-                yield chunk.content
+                yield text
 
         logger.debug("Stream complete — %d chunks received", chunk_count)
 
@@ -121,5 +180,6 @@ class BaseAgent:
         messages = self._build_messages(user_message, context)
         logger.debug("Invoking LLM — messages=%d", len(messages))
         response = await self.llm.ainvoke(messages)
-        logger.debug("Response received — length=%d", len(response.content))
-        return response.content
+        text = self._extract_text(response.content)
+        logger.debug("Response received — length=%d", len(text))
+        return text
