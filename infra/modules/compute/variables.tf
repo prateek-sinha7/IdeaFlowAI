@@ -16,7 +16,7 @@ variable "region" {
 variable "instance_type" {
   description = "EC2 instance type."
   type        = string
-  default     = "m6i.xlarge"
+  default     = "m6i.2xlarge"
 }
 
 variable "subnet_id" {

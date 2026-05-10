@@ -11,18 +11,18 @@ variable "expected_account_id" {
 variable "aws_region" {
   description = "AWS region."
   type        = string
-  default     = "eu-west-2"
+  default     = "eu-central-1"
 
   validation {
     condition     = can(regex("^[a-z]{2}-[a-z]+-[0-9]$", var.aws_region))
-    error_message = "aws_region must look like e.g. eu-west-2."
+    error_message = "aws_region must look like e.g. eu-central-1."
   }
 }
 
 variable "availability_zone" {
-  description = "Single AZ inside aws_region (e.g. eu-west-2a)."
+  description = "Single AZ inside aws_region (e.g. eu-central-1a)."
   type        = string
-  default     = "eu-west-2a"
+  default     = "eu-central-1a"
 }
 
 variable "environment" {
@@ -71,7 +71,7 @@ variable "ssh_allowed_cidrs" {
 variable "instance_type" {
   description = "EC2 instance type."
   type        = string
-  default     = "m6i.xlarge"
+  default     = "m6i.2xlarge"
 }
 
 variable "root_volume_size_gb" {

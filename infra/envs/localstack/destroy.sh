@@ -13,7 +13,7 @@ set -eu  # NOTE: no `pipefail` — `grep -q` closes the pipe early and that
 
 export PATH="${HOME}/Library/Python/3.9/bin:${PATH}"
 export AWS_ENDPOINT_URL="${AWS_ENDPOINT_URL:-http://localhost:4666}"
-export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-eu-west-2}"
+export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-eu-central-1}"
 export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-test}"
 export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-test}"
 export TF_VAR_app_secret_key="${TF_VAR_app_secret_key:-localstack-destroy-placeholder-padding-32+chars}"

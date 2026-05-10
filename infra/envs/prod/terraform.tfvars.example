@@ -10,8 +10,8 @@
 expected_account_id = "123456789012"
 
 # Region. The guard rejects anything else.
-aws_region        = "eu-west-2"
-availability_zone = "eu-west-2a"
+aws_region        = "eu-central-1"
+availability_zone = "eu-central-1a"
 
 # Friendly name; used in name_prefix (= flowin-${environment}) and in the
 # /flowin/${environment}/... parameter paths.
@@ -42,7 +42,7 @@ ssh_allowed_cidrs = [
 
 # ---- Compute ---------------------------------------------------------------
 
-instance_type       = "m6i.xlarge"
+instance_type       = "m6i.2xlarge"
 root_volume_size_gb = 100
 data_volume_size_gb = 50
 

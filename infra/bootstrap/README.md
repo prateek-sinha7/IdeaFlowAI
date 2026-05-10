@@ -28,10 +28,10 @@ cd infra/bootstrap
 
 cat > terraform.tfvars <<EOF
 expected_account_id = "123456789012"          # the Flowin AWS account
-aws_region          = "eu-west-2"
+aws_region          = "eu-central-1"
 owner               = "flowin-platform-team@hexaware.com"
 cost_center         = "UKI-FLOWIN-PROD"
-state_bucket_name   = "flowin-tfstate-123456789012-eu-west-2"
+state_bucket_name   = "flowin-tfstate-123456789012-eu-central-1"
 lock_table_name     = "flowin-tfstate-locks"
 EOF
 
@@ -82,10 +82,10 @@ cd infra/bootstrap
 #    original values, see "Reconstructing tfvars from tags" below.
 cat > terraform.tfvars <<'EOF'
 expected_account_id = "123456789012"
-aws_region          = "eu-west-2"
+aws_region          = "eu-central-1"
 owner               = "flowin-platform-team@hexaware.com"
 cost_center         = "UKI-FLOWIN-PROD"
-state_bucket_name   = "flowin-tfstate-123456789012-eu-west-2"
+state_bucket_name   = "flowin-tfstate-123456789012-eu-central-1"
 lock_table_name     = "flowin-tfstate-locks"
 EOF
 
@@ -95,7 +95,7 @@ terraform init
 
 # 4. Import the two existing resources into the new local state.
 #    Use the actual bucket and table names — replace the example values.
-terraform import aws_s3_bucket.tfstate flowin-tfstate-123456789012-eu-west-2
+terraform import aws_s3_bucket.tfstate flowin-tfstate-123456789012-eu-central-1
 terraform import aws_dynamodb_table.tflock flowin-tfstate-locks
 
 # 5. Sanity check: plan should now show "no changes". If it shows
@@ -124,12 +124,12 @@ values:
 ```bash
 # Tags on the state bucket
 aws s3api get-bucket-tagging \
-  --bucket flowin-tfstate-123456789012-eu-west-2 \
+  --bucket flowin-tfstate-123456789012-eu-central-1 \
   --query 'TagSet'
 
 # Tags on the lock table
 aws dynamodb list-tags-of-resource \
-  --resource-arn "arn:aws:dynamodb:eu-west-2:123456789012:table/flowin-tfstate-locks" \
+  --resource-arn "arn:aws:dynamodb:eu-central-1:123456789012:table/flowin-tfstate-locks" \
   --query 'Tags'
 ```
 

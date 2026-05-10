@@ -49,14 +49,14 @@ resource "aws_cloudwatch_log_group" "groups" {
 #
 # We need two topics:
 #
-#  - `alerts`           in eu-west-2 (project region) — fans out every regional
+#  - `alerts`           in eu-central-1 (project region) — fans out every regional
 #    alarm. Encrypted with the project CMK.
 #
 #  - `alerts_useast1`   in us-east-1 — required ONLY for the billing alarm
 #    because CloudWatch alarms can publish only to a same-region SNS topic and
 #    `EstimatedCharges` is emitted exclusively in us-east-1. We use the
 #    AWS-managed `alias/aws/sns` key here (deliberate deviation): the project
-#    CMK is region-pinned to eu-west-2, and this topic carries only billing
+#    CMK is region-pinned to eu-central-1, and this topic carries only billing
 #    alarm payloads (account ID + USD threshold) — no PII, no application
 #    secrets, no log content. The added-managed-key risk is small; the
 #    additional-region CMK cost and operational surface are not worth it for
@@ -461,7 +461,7 @@ resource "aws_cloudwatch_metric_alarm" "bedrock_server_errors" {
 #
 # The alarm and its target SNS topic must live in the same region — alarms
 # cannot publish across regions. So this alarm fans out to alerts_useast1
-# (defined above), not the project's eu-west-2 alerts topic.
+# (defined above), not the project's eu-central-1 alerts topic.
 resource "aws_cloudwatch_metric_alarm" "billing" {
   provider = aws.useast1
 

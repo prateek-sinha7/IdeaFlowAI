@@ -11,11 +11,11 @@ variable "expected_account_id" {
 variable "aws_region" {
   description = "AWS region for the state bucket and lock table."
   type        = string
-  default     = "eu-west-2"
+  default     = "eu-central-1"
 
   validation {
     condition     = can(regex("^[a-z]{2}-[a-z]+-[0-9]$", var.aws_region))
-    error_message = "aws_region must look like e.g. eu-west-2."
+    error_message = "aws_region must look like e.g. eu-central-1."
   }
 }
 

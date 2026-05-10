@@ -9,12 +9,12 @@ output "log_group_arns" {
 }
 
 output "alerts_topic_arn" {
-  description = "SNS topic ARN for alarm fan-out (eu-west-2)."
+  description = "SNS topic ARN for alarm fan-out (eu-central-1)."
   value       = aws_sns_topic.alerts.arn
 }
 
 output "alerts_topic_name" {
-  description = "SNS topic name (eu-west-2)."
+  description = "SNS topic name (eu-central-1)."
   value       = aws_sns_topic.alerts.name
 }
 

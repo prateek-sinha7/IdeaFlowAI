@@ -14,7 +14,7 @@ The customer asked for "as little AWS as possible, but no security shortcuts". T
 | Decision | Choice | Why (one line) | Cross-ref |
 |---|---|---|---|
 | Topology | Single EC2 instance running everything | Smallest moving parts, smallest blast radius, smallest bill | §2 |
-| Instance type | `m6i.xlarge` (4 vCPU / 16 GB RAM / 100 GB gp3 EBS) on Ubuntu 24.04 LTS | Headroom for ~200 concurrent sessions given B7/B8 memory profile (~100 MB / pipeline) | §5 |
+| Instance type | `m6i.2xlarge` (8 vCPU / 32 GB RAM / 100 GB gp3 EBS) on Ubuntu 24.04 LTS | Doubles the heavy-pipeline headroom of `m6i.xlarge` for B7/B8 memory profile (~100 MB / pipeline); 6-7 concurrent heavy pipelines well within budget | §5 |
 | OS | Ubuntu 24.04 LTS (Canonical official AMI) | LTS kernel, free `unattended-upgrades`, well-known Postgres/nginx packages | §5, §8.1 |
 | Reverse proxy + TLS | nginx 1.24+ on the box, Let's Encrypt certs via certbot (HTTP-01) | Customer rejects ALB; ACM doesn't issue free certs to EC2; certbot+nginx is boring and proven | §7, §8.2 |
 | WebSocket timeout | nginx `proxy_read_timeout 5400s; proxy_send_timeout 5400s` (90 min) | Long PPT/prototype runs in B7 stream tokens for tens of minutes; idle close on 90 min cap | §8.2, W21/W33/B5 |
@@ -26,9 +26,9 @@ The customer asked for "as little AWS as possible, but no security shortcuts". T
 | Logging | CloudWatch Agent ships nginx, journald (systemd units), and Postgres logs | The customer named CloudWatch as the AWS-mandated service; alarms fire from there | §10 |
 | Backups | (a) EBS snapshot of the data volume nightly via AWS Backup; (b) `pg_dump` → S3 (SSE-S3) hourly via systemd timer. RPO 1 hour, RTO 30 min. | Belt-and-braces. Snapshot is fast, dump is portable. | §11 |
 | Disaster recovery | Bootstrap script (Appendix D) + latest snapshot + Parameter Store puts a fresh instance back in service in <30 min | §11 |
-| Concurrency ceiling | ~150 concurrent live pipeline sessions on `m6i.xlarge`, ~50 concurrent if all running PPT/prototype (the 32K-token agents) | B7 / B8: each running pipeline holds ~100 MB Python heap | §15 |
+| Concurrency ceiling | ~300 concurrent live pipeline sessions on `m6i.2xlarge`, ~100 concurrent if all running PPT/prototype (the 32K-token agents) | B7 / B8: each running pipeline holds ~100 MB Python heap | §15 |
 | Migration path | Vertical scale → split frontend onto static-host EC2 → move to ECS/ALB/RDS per `PRODUCTION_DEPLOYMENT_GUIDE.md` | §16 |
-| Monthly cost band | Infra-only: low ~$200, typical ~$240–285, high ~$415 (includes the new ~$15/mo Bedrock VPC interface endpoint pair). LLM token spend is **separate and traffic-dependent**: ~$50–$200/mo typical, $1k+ at high volume. | §14 |
+| Monthly cost band | Infra-only: low ~$377, typical ~$416, high ~$517 (includes the new ~$15/mo Bedrock VPC interface endpoint pair). LLM token spend is **separate and traffic-dependent**: ~$50–$200/mo typical, $1k+ at high volume. | §14 |
 
 ### 0.1 The Bedrock vs Anthropic question, settled
 
@@ -44,7 +44,7 @@ Honest trade-offs:
 
 | Trade-off | Mitigation |
 |---|---|
-| **(a) Region availability.** Haiku 4.5 may not be directly available in `eu-west-2`. Confirm with `aws bedrock list-foundation-models --region eu-west-2 --query 'modelSummaries[?contains(modelId, \`claude-haiku-4-5\`)].modelId' --output table`. If the model is not available directly, use the EU cross-region inference profile `eu.anthropic.claude-haiku-4-5-20251001-v1:0` which routes invocations between EU regions transparently. | The deployment defaults to the inference profile; data-residency is preserved across the EU geography. |
+| **(a) Region availability.** Haiku 4.5 may not be directly available in `eu-central-1`. Confirm with `aws bedrock list-foundation-models --region eu-central-1 --query 'modelSummaries[?contains(modelId, \`claude-haiku-4-5\`)].modelId' --output table`. If the model is not available directly, use the EU cross-region inference profile `eu.anthropic.claude-haiku-4-5-20251001-v1:0` which routes invocations between EU regions transparently. | The deployment defaults to the inference profile; data-residency is preserved across the EU geography. |
 | **(b) Model-version lag.** Anthropic ships new Claude variants on direct API a few weeks before Bedrock. Acceptable for production. | We don't auto-track the bleeding edge anyway; model upgrades are a release-gated change (§9). |
 | **(c) Throughput tier.** Bedrock has its own per-account / per-model TPM and RPM quotas. The default tier is conservative (e.g. ~100 RPM for Haiku 4.5 in some regions). | Open a quota-increase request **before** load testing — see §10.4 and the new pre-launch item in §3. |
 
@@ -74,7 +74,7 @@ Honest trade-offs:
    |   |  10.20.1.0/24               |<-->|                               |    |
    |   |                             |    +------------------------------+    |
    |   |  +-----------------------+  |                                        |
-   |   |  | EC2 m6i.xlarge        |  |    Egress: 443/tcp 0.0.0.0/0 (apt,    |
+   |   |  | EC2 m6i.2xlarge       |  |    Egress: 443/tcp 0.0.0.0/0 (apt,    |
    |   |  | Ubuntu 24.04 LTS      |  |    github, Bedrock fallback only),    |
    |   |  | EIP attached          |  |    80/tcp 0.0.0.0/0 (ACME).           |
    |   |  |                       |  |    LLM via Bedrock VPC endpoint (§6.4).|
@@ -115,7 +115,7 @@ Honest trade-offs:
         +-------------+   +-------------+   +-----------------+  +----------+
 
 LLM:      AWS Bedrock (Claude Haiku 4.5) via VPC interface endpoint
-          (com.amazonaws.eu-west-2.bedrock-runtime). Auth via instance-profile
+          (com.amazonaws.eu-central-1.bedrock-runtime). Auth via instance-profile
           IAM role; traffic stays inside the VPC. See §6.4.
 ```
 
@@ -136,7 +136,7 @@ That's it. Seven AWS services in total: EC2, EBS, Route 53, CloudWatch, Systems 
 
 - **Single AZ.** Hardware fault, EBS volume issue, or Availability-Zone outage takes the whole product down. The recovery story is "snapshot + bootstrap to a new instance, possibly in a different AZ" (§11). RTO is 30 min in practice; if you need a single-digit-minute RTO, you need the multi-service architecture.
 - **Single OS upgrade.** A bad kernel update or a Postgres major-version upgrade brings everything down at once. Mitigated by a strict maintenance-window policy (§13) and the bootstrap-from-snapshot drill.
-- **Vertical scaling has a ceiling.** ~50 concurrent prototype/PPT pipelines (B7 says each holds ~100 MB heap on a 32K-token output agent). Past that, vertical scaling on `m6i` tops out at `m6i.4xlarge` (16 vCPU / 64 GB), which is not three years of headroom.
+- **Vertical scaling has a ceiling.** ~100 concurrent prototype/PPT pipelines on `m6i.2xlarge` (B7 says each holds ~100 MB heap on a 32K-token output agent). Past that, vertical scaling on `m6i` tops out at `m6i.4xlarge` (16 vCPU / 64 GB), which is not three years of headroom.
 - **Co-resident database.** Application memory pressure can OOM-kill Postgres. We pin Postgres to a cgroup-managed memory floor (§8.4) but at any non-trivial load, RDS is the right answer.
 - **You cannot do a zero-downtime release on one box.** A backend rollout is "stop, deploy, start" — typically 5–10 seconds of WS reconnect noise. Frontend rollout is the same. For a true blue-green you need at least two boxes.
 
@@ -214,7 +214,7 @@ A consequence of Blocker 3. `workflow_runs` accumulates rows stuck in `status="r
 9. **Email verification on `/api/auth/register`** (out of scope for this deployment guide, but trivially abused otherwise).
 10. **Move `localStorage` JWT to an HttpOnly+SameSite=Strict cookie** (large frontend change; deferred).
 
-**Non-code pre-launch item:** **submit a Bedrock service quota increase request** for `Tokens per minute` and `Requests per minute` for Claude Haiku 4.5 in `eu-west-2` (and any cross-region inference targets — see §0.1). Default Bedrock quotas are conservative (~100 RPM for Haiku 4.5 in some regions); load testing without an increase will hit `InvocationThrottles`. Open the request via Service Quotas console at least 5 business days before the planned load test — increases for Bedrock can require human review.
+**Non-code pre-launch item:** **submit a Bedrock service quota increase request** for `Tokens per minute` and `Requests per minute` for Claude Haiku 4.5 in `eu-central-1` (and any cross-region inference targets — see §0.1). Default Bedrock quotas are conservative (~100 RPM for Haiku 4.5 in some regions); load testing without an increase will hit `InvocationThrottles`. Open the request via Service Quotas console at least 5 business days before the planned load test — increases for Bedrock can require human review.
 
 These are tracked in the project backlog. They are *not* deployment blockers; they are launch-readiness items. The first deployment goes to a small invite-only pilot — keep the user list short until 7 and 8 are done.
 
@@ -230,8 +230,8 @@ Run these once per AWS account, ideally well before the deployment. None of them
 4. **Enable GuardDuty** in the deployment region (~$3/month at this scale, well worth it). This is the one extra paid service the security argument forces us to add — it detects EC2 instance compromise from VPC flow logs and CloudTrail without needing any agent on the box.
 5. **Set the root account on hardware MFA**, no static keys.
 6. **Create a dedicated IAM user `flowin-deployer`** with programmatic access; attach the least-privilege policy in §5.3. Use this for the bootstrap; do not use a personal SSO identity for instance lifecycle.
-7. **Choose a region.** For Hexaware UKI customers, **`eu-west-2` (London)** is the default. UK data residency. If a customer requires Ireland (`eu-west-1`) or Frankfurt (`eu-central-1`), the guide below works unchanged — just substitute `eu-west-2` everywhere.
-8. **Pick an Availability Zone within that region** — e.g. `eu-west-2a`. Single-AZ design (§2). Document the choice; the snapshot-restore drill in §11 needs to know it.
+7. **Choose a region.** For Hexaware UKI customers, **`eu-central-1` (Frankfurt)** is the default. EU data residency. If a customer requires Ireland (`eu-west-1`) or London (`eu-central-1`), the guide below works unchanged — just substitute `eu-central-1` everywhere.
+8. **Pick an Availability Zone within that region** — e.g. `eu-central-1a`. Single-AZ design (§2). Document the choice; the snapshot-restore drill in §11 needs to know it.
 9. **Reserve an Elastic IP** in the region (`aws ec2 allocate-address`). Cost: free while attached to a running instance. Keep the EIP across instance replacements so the Route 53 A-record never has to update.
 10. **Buy a Route 53 hosted zone** for the apex domain (e.g. `flowin.example.com`).
 
@@ -247,26 +247,26 @@ The dominant memory consumer is per-pipeline Python heap. From `WORKFLOWS.md` B7
 - Postgres for ~1500 active users at steady state is ~1 GB on disk and ~512 MB shared_buffers (we'll tune to 4 GB shared_buffers; see §8.4).
 - Next.js production server idles around 200 MB; uvicorn + FastAPI idles around 150 MB; nginx well under 50 MB.
 
-A reasonable steady-state budget on `m6i.xlarge` (16 GB RAM):
+A reasonable steady-state budget on `m6i.2xlarge` (32 GB RAM):
 
 | Component | Reserved RAM |
 |---|---|
 | Linux kernel + system services | 1.0 GB |
 | nginx | 0.1 GB |
-| Postgres (`shared_buffers=4GB`, plus work_mem etc.) | 5.0 GB |
+| Postgres (`shared_buffers=8GB`, plus work_mem etc.) | 9.0 GB |
 | Next.js (`next start`) | 0.4 GB |
 | FastAPI baseline | 0.2 GB |
-| Per-pipeline working memory | 9.3 GB (≈ 90 concurrent pipelines if each holds 100 MB) |
+| Per-pipeline working memory | 21.3 GB (≈ 200 concurrent pipelines if each holds 100 MB) |
 
-That gives a **comfortable headroom of ~90 concurrent active pipelines** before swap pressure starts. With chat sessions (cheaper, short-lived agent calls) the practical concurrency is higher: ~150–200 *connected* WebSocket sessions, ~50 of which can be running heavy pipelines simultaneously. If you need more, vertical scale to `m6i.2xlarge` (8 vCPU / 32 GB, doubles the heavy-pipeline ceiling) before you split the topology.
+That gives a **comfortable headroom of ~200 concurrent active pipelines** before swap pressure starts (double the `m6i.xlarge` ceiling per WORKFLOWS.md §B7's ~100 MB/pipeline memory profile). With chat sessions (cheaper, short-lived agent calls) the practical concurrency is higher: ~300–400 *connected* WebSocket sessions, ~100 of which can be running heavy pipelines simultaneously — well above the 6–7 concurrent heavy pipelines we sized for. If you need more, vertical scale to `m6i.4xlarge` (16 vCPU / 64 GB) before you split the topology.
 
 ### 5.2 AMI choice
 
-Use the **official Canonical Ubuntu 24.04 LTS** AMI (Noble Numbat). At time of writing the AMI ID in `eu-west-2` is published at `https://ubuntu.com/server/docs/cloud-images/amazon-ec2`; resolve it dynamically:
+Use the **official Canonical Ubuntu 24.04 LTS** AMI (Noble Numbat). At time of writing the AMI ID in `eu-central-1` is published at `https://ubuntu.com/server/docs/cloud-images/amazon-ec2`; resolve it dynamically:
 
 ```bash
 aws ec2 describe-images \
-  --region eu-west-2 \
+  --region eu-central-1 \
   --owners 099720109477 \
   --filters \
     "Name=name,Values=ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*" \
@@ -289,15 +289,15 @@ The instance role grants exactly five permission groups. Nothing else.
       "Sid": "ParameterStoreRead",
       "Effect": "Allow",
       "Action": ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"],
-      "Resource": "arn:aws:ssm:eu-west-2:<ACCOUNT_ID>:parameter/flowin/prod/*"
+      "Resource": "arn:aws:ssm:eu-central-1:<ACCOUNT_ID>:parameter/flowin/prod/*"
     },
     {
       "Sid": "ParameterStoreKMS",
       "Effect": "Allow",
       "Action": ["kms:Decrypt"],
-      "Resource": "arn:aws:kms:eu-west-2:<ACCOUNT_ID>:key/<PARAMETER_STORE_KMS_KEY_ID>",
+      "Resource": "arn:aws:kms:eu-central-1:<ACCOUNT_ID>:key/<PARAMETER_STORE_KMS_KEY_ID>",
       "Condition": {
-        "StringEquals": {"kms:EncryptionContext:PARAMETER_ARN": "arn:aws:ssm:eu-west-2:<ACCOUNT_ID>:parameter/flowin/prod/*"}
+        "StringEquals": {"kms:EncryptionContext:PARAMETER_ARN": "arn:aws:ssm:eu-central-1:<ACCOUNT_ID>:parameter/flowin/prod/*"}
       }
     },
     {
@@ -348,13 +348,13 @@ The instance role grants exactly five permission groups. Nothing else.
         "bedrock:ConverseStream"
       ],
       "Resource": [
-        "arn:aws:bedrock:eu-west-2::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+        "arn:aws:bedrock:eu-central-1::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
         "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
-        "arn:aws:bedrock:eu-west-2:*:inference-profile/eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+        "arn:aws:bedrock:eu-central-1:*:inference-profile/eu.anthropic.claude-haiku-4-5-20251001-v1:0"
       ],
       "Condition": {
         "StringEquals": {
-          "aws:RequestedRegion": ["eu-west-2", "eu-west-1", "eu-central-1"]
+          "aws:RequestedRegion": ["eu-central-1", "eu-west-1", "eu-west-2"]
         }
       }
     }
@@ -362,7 +362,7 @@ The instance role grants exactly five permission groups. Nothing else.
 }
 ```
 
-The second resource ARN with `*` for region is required because the cross-region inference profile fans invocations out to multiple regions (e.g. `eu-west-2`, `eu-west-1`, `eu-central-1`); the IAM check evaluates against the eventual target region's foundation-model ARN, so the wildcard is mandatory for the profile to work. Keep it scoped to the *exact* `claude-haiku-4-5` model — never broaden to `anthropic.*` or `*`.
+The second resource ARN with `*` for region is required because the cross-region inference profile fans invocations out to multiple regions (e.g. `eu-central-1`, `eu-west-1`, `eu-west-2`); the IAM check evaluates against the eventual target region's foundation-model ARN, so the wildcard is mandatory for the profile to work. Keep it scoped to the *exact* `claude-haiku-4-5` model — never broaden to `anthropic.*` or `*`.
 
 The `aws:RequestedRegion` condition pins invocation to the EU regions the cross-region inference profile fans to — without it a leaked instance credential could invoke Bedrock in any region the account has Bedrock enabled, which is a real cost vector. The list must match the EU profile's fan-out set; if AWS adds another EU region to the profile, update both this doc and `infra/policies/bedrock-invoke.json`. Reference: <https://docs.aws.amazon.com/bedrock/latest/userguide/cross-region-inference.html>.
 
@@ -392,20 +392,20 @@ aws kms create-key \
   --description "Flowin prod data volume encryption" \
   --key-usage ENCRYPT_DECRYPT \
   --key-spec SYMMETRIC_DEFAULT \
-  --region eu-west-2
+  --region eu-central-1
 aws kms create-alias \
   --alias-name alias/flowin-prod-data \
   --target-key-id <KEY_ID> \
-  --region eu-west-2
+  --region eu-central-1
 ```
 
 ### 5.5 Launching the instance
 
 ```bash
 aws ec2 run-instances \
-  --region eu-west-2 \
+  --region eu-central-1 \
   --image-id <AMI_ID_FROM_5.2> \
-  --instance-type m6i.xlarge \
+  --instance-type m6i.2xlarge \
   --key-name flowin-prod-bastion \
   --subnet-id <PUBLIC_SUBNET_ID> \
   --security-group-ids <SG_ID_FROM_§6> \
@@ -431,12 +431,12 @@ After launch:
 ```bash
 INSTANCE_ID=$(aws ec2 describe-instances \
   --filters "Name=tag:Name,Values=flowin-prod" "Name=instance-state-name,Values=running" \
-  --query 'Reservations[0].Instances[0].InstanceId' --output text --region eu-west-2)
+  --query 'Reservations[0].Instances[0].InstanceId' --output text --region eu-central-1)
 
 aws ec2 associate-address \
   --instance-id $INSTANCE_ID \
   --allocation-id <EIP_ALLOCATION_ID_FROM_§4_step_9> \
-  --region eu-west-2
+  --region eu-central-1
 ```
 
 `bootstrap.sh` (Appendix D) takes the instance from cold to "ready for app deploy" in ~6 minutes.
@@ -453,28 +453,28 @@ This is intentionally minimal. **One VPC, one public subnet, one Internet Gatewa
 aws ec2 create-vpc \
   --cidr-block 10.20.0.0/16 \
   --tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value=flowin-prod-vpc}]' \
-  --region eu-west-2
+  --region eu-central-1
 
 aws ec2 create-subnet \
   --vpc-id <VPC_ID> \
   --cidr-block 10.20.1.0/24 \
-  --availability-zone eu-west-2a \
+  --availability-zone eu-central-1a \
   --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=flowin-prod-public-2a}]' \
-  --region eu-west-2
+  --region eu-central-1
 
 aws ec2 create-internet-gateway \
   --tag-specifications 'ResourceType=internet-gateway,Tags=[{Key=Name,Value=flowin-prod-igw}]' \
-  --region eu-west-2
+  --region eu-central-1
 
-aws ec2 attach-internet-gateway --vpc-id <VPC_ID> --internet-gateway-id <IGW_ID> --region eu-west-2
+aws ec2 attach-internet-gateway --vpc-id <VPC_ID> --internet-gateway-id <IGW_ID> --region eu-central-1
 
 aws ec2 create-route-table --vpc-id <VPC_ID> \
   --tag-specifications 'ResourceType=route-table,Tags=[{Key=Name,Value=flowin-prod-public-rt}]' \
-  --region eu-west-2
-aws ec2 create-route --route-table-id <RT_ID> --destination-cidr-block 0.0.0.0/0 --gateway-id <IGW_ID> --region eu-west-2
-aws ec2 associate-route-table --route-table-id <RT_ID> --subnet-id <SUBNET_ID> --region eu-west-2
+  --region eu-central-1
+aws ec2 create-route --route-table-id <RT_ID> --destination-cidr-block 0.0.0.0/0 --gateway-id <IGW_ID> --region eu-central-1
+aws ec2 associate-route-table --route-table-id <RT_ID> --subnet-id <SUBNET_ID> --region eu-central-1
 
-aws ec2 modify-subnet-attribute --subnet-id <SUBNET_ID> --map-public-ip-on-launch --region eu-west-2
+aws ec2 modify-subnet-attribute --subnet-id <SUBNET_ID> --map-public-ip-on-launch --region eu-central-1
 ```
 
 **Why no NAT Gateway?** NAT is $0.045/hour ($32/month) per AZ, plus per-GB processing. A single instance in a public subnet with a strict outbound security group is functionally equivalent for our use case (egress to apt + Bedrock fallback + Let's Encrypt + S3 backup endpoint; the bulk of LLM traffic goes via the VPC interface endpoint in §6.4 and never leaves AWS). The instance has no inbound ports open beyond 80/443/22, so the public IP is not a meaningful attack surface — the security group is.
@@ -490,22 +490,22 @@ SG_ID=$(aws ec2 create-security-group \
   --group-name flowin-prod-sg \
   --description "Flowin production single-EC2" \
   --vpc-id <VPC_ID> \
-  --region eu-west-2 \
+  --region eu-central-1 \
   --query 'GroupId' --output text)
 
 # Inbound 80/tcp from world (HTTP -> HTTPS redirect + ACME challenge)
 aws ec2 authorize-security-group-ingress --group-id $SG_ID \
-  --protocol tcp --port 80 --cidr 0.0.0.0/0 --region eu-west-2
+  --protocol tcp --port 80 --cidr 0.0.0.0/0 --region eu-central-1
 
 # Inbound 443/tcp from world (HTTPS, WSS)
 aws ec2 authorize-security-group-ingress --group-id $SG_ID \
-  --protocol tcp --port 443 --cidr 0.0.0.0/0 --region eu-west-2
+  --protocol tcp --port 443 --cidr 0.0.0.0/0 --region eu-central-1
 
 # Inbound 22/tcp ONLY from the bastion / corporate egress CIDR
 # Replace <BASTION_CIDR> with the team's egress IP/32 or corporate VPN CIDR.
 # This is a hardline rule. SSH from anywhere = automatic credential-stuffing.
 aws ec2 authorize-security-group-ingress --group-id $SG_ID \
-  --protocol tcp --port 22 --cidr <BASTION_CIDR>/32 --region eu-west-2
+  --protocol tcp --port 22 --cidr <BASTION_CIDR>/32 --region eu-central-1
 
 # Outbound: 443/tcp to anywhere (apt, GitHub, S3, Bedrock fallback path).
 # Bedrock traffic normally goes via the VPC interface endpoint (§6.4) and stays
@@ -514,16 +514,16 @@ aws ec2 authorize-security-group-ingress --group-id $SG_ID \
 # 80/tcp to anywhere (apt, Let's Encrypt OCSP)
 # Default sg has 0.0.0.0/0 all-egress; replace it with explicit rules:
 aws ec2 revoke-security-group-egress --group-id $SG_ID \
-  --protocol -1 --port -1 --cidr 0.0.0.0/0 --region eu-west-2
+  --protocol -1 --port -1 --cidr 0.0.0.0/0 --region eu-central-1
 aws ec2 authorize-security-group-egress --group-id $SG_ID \
-  --protocol tcp --port 443 --cidr 0.0.0.0/0 --region eu-west-2
+  --protocol tcp --port 443 --cidr 0.0.0.0/0 --region eu-central-1
 aws ec2 authorize-security-group-egress --group-id $SG_ID \
-  --protocol tcp --port 80 --cidr 0.0.0.0/0 --region eu-west-2
+  --protocol tcp --port 80 --cidr 0.0.0.0/0 --region eu-central-1
 # DNS — VPC resolver lives at the VPC's +2 address but UDP/53 outbound is also needed
 aws ec2 authorize-security-group-egress --group-id $SG_ID \
-  --protocol udp --port 53 --cidr 0.0.0.0/0 --region eu-west-2
+  --protocol udp --port 53 --cidr 0.0.0.0/0 --region eu-central-1
 aws ec2 authorize-security-group-egress --group-id $SG_ID \
-  --protocol tcp --port 53 --cidr 0.0.0.0/0 --region eu-west-2
+  --protocol tcp --port 53 --cidr 0.0.0.0/0 --region eu-central-1
 ```
 
 **SSH ingress is the most-abused vector on the public internet.** Locking it to `<BASTION_CIDR>/32` is the single most valuable rule on the list. If you do not have a bastion or a corporate VPN egress IP, drop the SSH ingress rule entirely and use **Systems Manager Session Manager** for shell access (§8.1) — it requires zero open ports.
@@ -535,7 +535,7 @@ The non-AWS egress requirements after migration to Bedrock are:
 - **apt repos** (Ubuntu archive + Canonical security) — TCP/443 (and a small amount of TCP/80 for repo metadata).
 - **GitHub releases** — TCP/443 (`github.com`, `objects.githubusercontent.com`, `codeload.github.com`).
 - **Let's Encrypt** — TCP/80 (HTTP-01 challenge inbound) + TCP/443 (OCSP outbound).
-- **Bedrock public endpoint as fallback** — TCP/443 to `bedrock-runtime.eu-west-2.amazonaws.com` *only if* the VPC interface endpoint (§6.4) is unavailable.
+- **Bedrock public endpoint as fallback** — TCP/443 to `bedrock-runtime.eu-central-1.amazonaws.com` *only if* the VPC interface endpoint (§6.4) is unavailable.
 
 These all share Cloudflare-/CDN-style fronts whose IPs rotate, so pinning egress to specific IPs *will* break in production. Egress filtering instead happens at the application layer: only the backend, the apt updater, certbot, and the AWS SDK make outbound calls — no other process on the box can reach the internet because it is firewalled by ufw (§8.1).
 
@@ -544,9 +544,9 @@ These all share Cloudflare-/CDN-style fronts whose IPs rotate, so pinning egress
 ```bash
 aws ec2 create-vpc-endpoint \
   --vpc-id <VPC_ID> \
-  --service-name com.amazonaws.eu-west-2.s3 \
+  --service-name com.amazonaws.eu-central-1.s3 \
   --route-table-ids <RT_ID> \
-  --region eu-west-2
+  --region eu-central-1
 ```
 
 For Bedrock (the LLM data path) we go further and provision interface endpoints — see §6.4.
@@ -555,38 +555,38 @@ For Bedrock (the LLM data path) we go further and provision interface endpoints 
 
 Provision two interface endpoints in the VPC so that Bedrock traffic never leaves AWS:
 
-- `com.amazonaws.eu-west-2.bedrock-runtime` — used by `InvokeModel`, `InvokeModelWithResponseStream`, `Converse`, `ConverseStream`. **This is the one the application uses at runtime.**
-- `com.amazonaws.eu-west-2.bedrock` — management plane, rarely needed at runtime; useful for `aws bedrock list-foundation-models`, model discovery, and operator diagnostics. Provision it for completeness; if budget is tight you can drop this one and only keep `bedrock-runtime`.
+- `com.amazonaws.eu-central-1.bedrock-runtime` — used by `InvokeModel`, `InvokeModelWithResponseStream`, `Converse`, `ConverseStream`. **This is the one the application uses at runtime.**
+- `com.amazonaws.eu-central-1.bedrock` — management plane, rarely needed at runtime; useful for `aws bedrock list-foundation-models`, model discovery, and operator diagnostics. Provision it for completeness; if budget is tight you can drop this one and only keep `bedrock-runtime`.
 
 ```bash
 # Runtime endpoint — required.
 aws ec2 create-vpc-endpoint \
   --vpc-id <VPC_ID> \
-  --service-name com.amazonaws.eu-west-2.bedrock-runtime \
+  --service-name com.amazonaws.eu-central-1.bedrock-runtime \
   --vpc-endpoint-type Interface \
   --subnet-ids <SUBNET_ID> \
   --security-group-ids $SG_ID \
   --private-dns-enabled \
-  --region eu-west-2
+  --region eu-central-1
 
 # Management endpoint — recommended, drop if cost-pressured.
 aws ec2 create-vpc-endpoint \
   --vpc-id <VPC_ID> \
-  --service-name com.amazonaws.eu-west-2.bedrock \
+  --service-name com.amazonaws.eu-central-1.bedrock \
   --vpc-endpoint-type Interface \
   --subnet-ids <SUBNET_ID> \
   --security-group-ids $SG_ID \
   --private-dns-enabled \
-  --region eu-west-2
+  --region eu-central-1
 ```
 
-**Why the public subnet?** The endpoints attach to the same public subnet as the EC2 instance — acceptable for our single-AZ minimum-footprint design. The `--private-dns-enabled` flag overrides the public DNS name for `bedrock-runtime.eu-west-2.amazonaws.com` so the `boto3` SDK uses the endpoint transparently with no application config changes.
+**Why the public subnet?** The endpoints attach to the same public subnet as the EC2 instance — acceptable for our single-AZ minimum-footprint design. The `--private-dns-enabled` flag overrides the public DNS name for `bedrock-runtime.eu-central-1.amazonaws.com` so the `boto3` SDK uses the endpoint transparently with no application config changes.
 
 **Cost.** ~$7.30/mo per AZ per endpoint (≈ $0.01/hr per AZ) plus $0.01/GB data processed. With one AZ and two endpoints that's ~$15/mo all-in; data charges are negligible at our throughput (a few GB/mo of LLM token traffic).
 
-**Net effect on the security group.** Outbound 443 to `bedrock-runtime.eu-west-2.amazonaws.com` no longer leaves the VPC — that's the point. Combined with this, the `0.0.0.0/0:443` SG egress rule is still needed for apt, GitHub releases, and the Bedrock public-endpoint fallback path, but **the LLM data path itself is now private**. Document this explicitly when responding to compliance questionnaires: "no LLM request or response leaves the AWS network boundary in normal operation."
+**Net effect on the security group.** Outbound 443 to `bedrock-runtime.eu-central-1.amazonaws.com` no longer leaves the VPC — that's the point. Combined with this, the `0.0.0.0/0:443` SG egress rule is still needed for apt, GitHub releases, and the Bedrock public-endpoint fallback path, but **the LLM data path itself is now private**. Document this explicitly when responding to compliance questionnaires: "no LLM request or response leaves the AWS network boundary in normal operation."
 
-**Cross-region inference profile note.** When you invoke via `eu.anthropic.claude-haiku-4-5-20251001-v1:0`, Bedrock fans the actual model invocation out to one of the EU regions (`eu-west-1`, `eu-west-2`, `eu-central-1`, etc.). The fan-out happens *inside* AWS — your traffic from the EC2 still terminates at the `eu-west-2` interface endpoint; Bedrock handles the cross-region hop on its own backbone. You do not need additional interface endpoints in other regions.
+**Cross-region inference profile note.** When you invoke via `eu.anthropic.claude-haiku-4-5-20251001-v1:0`, Bedrock fans the actual model invocation out to one of the EU regions (`eu-west-1`, `eu-west-2`, `eu-central-1`, etc.). The fan-out happens *inside* AWS — your traffic from the EC2 still terminates at the `eu-central-1` interface endpoint; Bedrock handles the cross-region hop on its own backbone. You do not need additional interface endpoints in other regions.
 
 Optional hardening for paranoid environments: put a Squid or `nginx` egress proxy on the box and configure the application to use `HTTPS_PROXY=http://127.0.0.1:3128`, with the proxy's domain allowlist set to apt + GitHub + the Bedrock public hostname. This is out of scope for the simple-deployment promise but trivially added later.
 
@@ -723,7 +723,7 @@ sudo systemctl status snap.amazon-ssm-agent.amazon-ssm-agent.service
 To attach a session from a developer's laptop, the developer needs an IAM principal with `ssm:StartSession` on the instance, plus the AWS CLI `session-manager-plugin`:
 
 ```bash
-aws ssm start-session --target $INSTANCE_ID --region eu-west-2
+aws ssm start-session --target $INSTANCE_ID --region eu-central-1
 ```
 
 SSM sessions are logged to CloudWatch Logs / S3 and audited via CloudTrail. **Prefer SSM over SSH for day-to-day operations.** Reserve direct SSH for the genuine emergency where SSM is broken.
@@ -798,7 +798,7 @@ Two units, both running as the unprivileged `flowin` user. Full files in **Appen
 - `PrivateTmp=yes`, `ProtectSystem=strict`, `ProtectHome=yes`, `NoNewPrivileges=yes`, `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`, `CapabilityBoundingSet=` (empty). Standard systemd hardening.
 - `ReadWritePaths=/opt/flowin/backend/skills /var/log/flowin` — explicit allowlist of writable paths.
 
-**Backend** (`flowin-backend.service`): runs `uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 4 --proxy-headers --forwarded-allow-ips=127.0.0.1`. Four workers gives ~4× the WS throughput on `m6i.xlarge` (4 vCPU). `--proxy-headers` makes uvicorn trust nginx's `X-Forwarded-*`. `--forwarded-allow-ips=127.0.0.1` means nginx is the *only* trusted source of those headers — you don't get IP spoofing from a misconfigured ingress.
+**Backend** (`flowin-backend.service`): runs `uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 4 --proxy-headers --forwarded-allow-ips=127.0.0.1`. Four workers gives ~4× the WS throughput on `m6i.2xlarge` (8 vCPU). `--proxy-headers` makes uvicorn trust nginx's `X-Forwarded-*`. `--forwarded-allow-ips=127.0.0.1` means nginx is the *only* trusted source of those headers — you don't get IP spoofing from a misconfigured ingress.
 
 **Frontend** (`flowin-frontend.service`): runs `node /opt/flowin/frontend/.next/standalone/server.js`. Built ahead of time with `next build` and `NEXT_PUBLIC_API_URL=https://flowin.example.com` and `NEXT_PUBLIC_WS_URL=wss://flowin.example.com/ws/chat` baked in.
 
@@ -1021,7 +1021,7 @@ Stored under the prefix `/flowin/prod/`, all as `SecureString` with the customer
 
 ```bash
 aws ssm put-parameter \
-  --region eu-west-2 \
+  --region eu-central-1 \
   --name /flowin/prod/SECRET_KEY \
   --type SecureString \
   --value "$(openssl rand -hex 64)" \
@@ -1032,7 +1032,7 @@ aws ssm put-parameter \
 # value (postgresql://flowin:<pw>@127.0.0.1:5432/flowin). Terraform doesn't
 # write DATABASE_URL because it doesn't know about the on-host Postgres.
 aws ssm put-parameter \
-  --region eu-west-2 \
+  --region eu-central-1 \
   --name /flowin/prod/DATABASE_PASSWORD \
   --type SecureString \
   --value "<openssl rand -hex 32 output>" \
@@ -1040,14 +1040,14 @@ aws ssm put-parameter \
   --overwrite
 
 aws ssm put-parameter \
-  --region eu-west-2 \
+  --region eu-central-1 \
   --name /flowin/prod/CORS_ORIGINS \
   --type String \
   --value '["https://flowin.example.com"]' \
   --overwrite
 
 aws ssm put-parameter \
-  --region eu-west-2 \
+  --region eu-central-1 \
   --name /flowin/prod/ACCESS_TOKEN_EXPIRE_HOURS \
   --type String \
   --value "12" \
@@ -1057,21 +1057,21 @@ aws ssm put-parameter \
 # String (not secret), but kept in Parameter Store so all runtime config lives
 # in one place and a model swap doesn't require a redeploy.
 aws ssm put-parameter \
-  --region eu-west-2 \
+  --region eu-central-1 \
   --name /flowin/prod/llm/provider \
   --type String \
   --value "bedrock" \
   --overwrite
 
 aws ssm put-parameter \
-  --region eu-west-2 \
+  --region eu-central-1 \
   --name /flowin/prod/llm/region \
   --type String \
-  --value "eu-west-2" \
+  --value "eu-central-1" \
   --overwrite
 
 aws ssm put-parameter \
-  --region eu-west-2 \
+  --region eu-central-1 \
   --name /flowin/prod/llm/model_id \
   --type String \
   --value "eu.anthropic.claude-haiku-4-5-20251001-v1:0" \
@@ -1083,7 +1083,7 @@ aws ssm put-parameter \
 (Optional, only if LangSmith is enabled:)
 
 ```bash
-aws ssm put-parameter --region eu-west-2 --name /flowin/prod/LANGSMITH_API_KEY \
+aws ssm put-parameter --region eu-central-1 --name /flowin/prod/LANGSMITH_API_KEY \
   --type SecureString --value "lsv2_pt_..." --key-id alias/flowin-prod-data --overwrite
 ```
 
@@ -1095,7 +1095,7 @@ aws ssm put-parameter --region eu-west-2 --name /flowin/prod/LANGSMITH_API_KEY \
 # application code reads LLM_PROVIDER and switches between bedrock and
 # direct-Anthropic backends.
 aws ssm put-parameter \
-  --region eu-west-2 \
+  --region eu-central-1 \
   --name /flowin/prod/anthropic/api_key \
   --type SecureString \
   --value "" \
@@ -1136,7 +1136,7 @@ TMP=$(mktemp /etc/flowin/environment.d/flowin.env.XXXXXX)
 chmod 0640 "$TMP"
 chown root:flowin "$TMP"
 
-REGION=eu-west-2
+REGION=eu-central-1
 PREFIX=/flowin/prod
 
 emit() {
@@ -1278,7 +1278,7 @@ Set a sane retention on every log group. The default is "Never expire", which is
 for lg in /flowin/prod/nginx-access /flowin/prod/nginx-error \
           /flowin/prod/app /flowin/prod/postgres \
           /flowin/prod/system /flowin/prod/auth; do
-  aws logs put-retention-policy --region eu-west-2 \
+  aws logs put-retention-policy --region eu-central-1 \
     --log-group-name "$lg" --retention-in-days 90
 done
 ```
@@ -1291,7 +1291,7 @@ Eleven alarms in total — eight infra alarms below (1–8) and three Bedrock-sp
 
 ```bash
 # 1. CPU pegged (sustained throttle)
-aws cloudwatch put-metric-alarm --region eu-west-2 \
+aws cloudwatch put-metric-alarm --region eu-central-1 \
   --alarm-name flowin-prod-cpu-high \
   --metric-name cpu_usage_idle --namespace Flowin/Prod \
   --statistic Average --period 300 --evaluation-periods 3 \
@@ -1300,7 +1300,7 @@ aws cloudwatch put-metric-alarm --region eu-west-2 \
   --dimensions Name=InstanceId,Value=$INSTANCE_ID
 
 # 2. Memory pressure
-aws cloudwatch put-metric-alarm --region eu-west-2 \
+aws cloudwatch put-metric-alarm --region eu-central-1 \
   --alarm-name flowin-prod-mem-high \
   --metric-name mem_used_percent --namespace Flowin/Prod \
   --statistic Average --period 300 --evaluation-periods 2 \
@@ -1309,7 +1309,7 @@ aws cloudwatch put-metric-alarm --region eu-west-2 \
   --dimensions Name=InstanceId,Value=$INSTANCE_ID
 
 # 3. Root disk near full
-aws cloudwatch put-metric-alarm --region eu-west-2 \
+aws cloudwatch put-metric-alarm --region eu-central-1 \
   --alarm-name flowin-prod-disk-root-high \
   --metric-name used_percent --namespace Flowin/Prod \
   --statistic Maximum --period 300 --evaluation-periods 2 \
@@ -1318,7 +1318,7 @@ aws cloudwatch put-metric-alarm --region eu-west-2 \
   --dimensions Name=InstanceId,Value=$INSTANCE_ID Name=path,Value=/
 
 # 4. Postgres data disk near full (this is the dangerous one)
-aws cloudwatch put-metric-alarm --region eu-west-2 \
+aws cloudwatch put-metric-alarm --region eu-central-1 \
   --alarm-name flowin-prod-disk-pgdata-high \
   --metric-name used_percent --namespace Flowin/Prod \
   --statistic Maximum --period 300 --evaluation-periods 2 \
@@ -1327,12 +1327,12 @@ aws cloudwatch put-metric-alarm --region eu-west-2 \
   --dimensions Name=InstanceId,Value=$INSTANCE_ID Name=path,Value=/var/lib/postgresql
 
 # 5. nginx 5xx surge — derived metric from a log filter
-aws logs put-metric-filter --region eu-west-2 \
+aws logs put-metric-filter --region eu-central-1 \
   --log-group-name /flowin/prod/nginx-access \
   --filter-name "5xx-responses" \
   --filter-pattern '[ip, id, user, ts, request, status_code=5*, ...]' \
   --metric-transformations 'metricName=Nginx5xx,metricNamespace=Flowin/Prod,metricValue=1'
-aws cloudwatch put-metric-alarm --region eu-west-2 \
+aws cloudwatch put-metric-alarm --region eu-central-1 \
   --alarm-name flowin-prod-nginx-5xx-spike \
   --metric-name Nginx5xx --namespace Flowin/Prod \
   --statistic Sum --period 60 --evaluation-periods 5 \
@@ -1341,12 +1341,12 @@ aws cloudwatch put-metric-alarm --region eu-west-2 \
 # 10 5xx in any 1-minute window for 5 minutes is an outage signal.
 
 # 6. WebSocket disconnect spike — derived from journald app logs
-aws logs put-metric-filter --region eu-west-2 \
+aws logs put-metric-filter --region eu-central-1 \
   --log-group-name /flowin/prod/app \
   --filter-name "ws-disconnects" \
   --filter-pattern 'WebSocketDisconnect' \
   --metric-transformations 'metricName=WSDisconnects,metricNamespace=Flowin/Prod,metricValue=1'
-aws cloudwatch put-metric-alarm --region eu-west-2 \
+aws cloudwatch put-metric-alarm --region eu-central-1 \
   --alarm-name flowin-prod-ws-disconnect-spike \
   --metric-name WSDisconnects --namespace Flowin/Prod \
   --statistic Sum --period 60 --evaluation-periods 3 \
@@ -1354,12 +1354,12 @@ aws cloudwatch put-metric-alarm --region eu-west-2 \
   --alarm-actions <SNS_TOPIC_ARN>
 
 # 7. Postgres down / connection failures
-aws logs put-metric-filter --region eu-west-2 \
+aws logs put-metric-filter --region eu-central-1 \
   --log-group-name /flowin/prod/app \
   --filter-name "db-connection-error" \
   --filter-pattern 'OperationalError ?could not connect' \
   --metric-transformations 'metricName=DBConnError,metricNamespace=Flowin/Prod,metricValue=1'
-aws cloudwatch put-metric-alarm --region eu-west-2 \
+aws cloudwatch put-metric-alarm --region eu-central-1 \
   --alarm-name flowin-prod-db-conn-error \
   --metric-name DBConnError --namespace Flowin/Prod \
   --statistic Sum --period 60 --evaluation-periods 1 \
@@ -1399,7 +1399,7 @@ Three alarms wired to the same SNS topic:
 
 ```bash
 # 9. Bedrock throttles — quota exhaustion, page on-call
-aws cloudwatch put-metric-alarm --region eu-west-2 \
+aws cloudwatch put-metric-alarm --region eu-central-1 \
   --alarm-name flowin-prod-bedrock-throttles \
   --metric-name InvocationThrottles --namespace AWS/Bedrock \
   --statistic Sum --period 300 --evaluation-periods 1 \
@@ -1409,7 +1409,7 @@ aws cloudwatch put-metric-alarm --region eu-west-2 \
 # Any throttle in any 5-minute window is a quota signal — request an increase.
 
 # 10. Bedrock server errors — Bedrock-side outage indicator
-aws cloudwatch put-metric-alarm --region eu-west-2 \
+aws cloudwatch put-metric-alarm --region eu-central-1 \
   --alarm-name flowin-prod-bedrock-5xx \
   --metric-name InvocationServerErrors --namespace AWS/Bedrock \
   --statistic Sum --period 300 --evaluation-periods 1 \
@@ -1420,7 +1420,7 @@ aws cloudwatch put-metric-alarm --region eu-west-2 \
 # the optional Anthropic-direct fallback (see §0.1, §9).
 
 # 11. Bedrock input-token daily total — cost runaway detector
-aws cloudwatch put-metric-alarm --region eu-west-2 \
+aws cloudwatch put-metric-alarm --region eu-central-1 \
   --alarm-name flowin-prod-bedrock-tokens-daily \
   --metric-name InputTokenCount --namespace AWS/Bedrock \
   --statistic Sum --period 86400 --evaluation-periods 1 \
@@ -1461,10 +1461,10 @@ The OS root volume contains nothing irreplaceable; the bootstrap script can recr
 aws backup create-backup-vault \
   --backup-vault-name flowin-prod-vault \
   --encryption-key-arn alias/flowin-prod-data \
-  --region eu-west-2
+  --region eu-central-1
 
 aws backup create-backup-plan \
-  --region eu-west-2 \
+  --region eu-central-1 \
   --backup-plan '{
     "BackupPlanName": "flowin-prod-daily",
     "Rules": [{
@@ -1546,7 +1546,7 @@ trap 'rm -rf "$TMP"' EXIT
 DUMP="$TMP/flowin-${TS}.sql.gz"
 pg_dump --format=plain --no-owner --no-acl flowin | gzip -9 > "$DUMP"
 aws s3 cp "$DUMP" "s3://${FLOWIN_BACKUP_BUCKET}/postgres/${TS}/flowin.sql.gz" \
-    --region eu-west-2 \
+    --region eu-central-1 \
     --sse aws:kms \
     --sse-kms-key-id "$FLOWIN_KMS_KEY_ID"
 echo "pg_dump complete: $(stat -c%s "$DUMP") bytes uploaded to S3"
@@ -1614,7 +1614,7 @@ If the data volume is also lost (region-wide outage, AZ failure), the recovery p
 - LLM (Bedrock) responses — re-derivable on demand.
 - Skills (small, low-churn) — *do* back up. The systemd unit in Appendix B.5 is the supported path (it sources `/etc/flowin/bootstrap.env` for `FLOWIN_BACKUP_BUCKET` and `FLOWIN_KMS_KEY_ID` and uploads with `--sse aws:kms`). If you prefer cron for any reason, the equivalent line is:
   ```bash
-  echo '0 4 * * * flowin . /etc/flowin/bootstrap.env && tar -czf - /opt/flowin/src/backend/skills | aws s3 cp - s3://${FLOWIN_BACKUP_BUCKET}/skills/$(date -u +\%Y\%m\%d).tar.gz --region eu-west-2 --sse aws:kms --sse-kms-key-id $FLOWIN_KMS_KEY_ID' | sudo tee -a /etc/cron.d/flowin-skills-backup
+  echo '0 4 * * * flowin . /etc/flowin/bootstrap.env && tar -czf - /opt/flowin/src/backend/skills | aws s3 cp - s3://${FLOWIN_BACKUP_BUCKET}/skills/$(date -u +\%Y\%m\%d).tar.gz --region eu-central-1 --sse aws:kms --sse-kms-key-id $FLOWIN_KMS_KEY_ID' | sudo tee -a /etc/cron.d/flowin-skills-backup
   ```
 
 ---
@@ -1631,7 +1631,7 @@ A simple, secure pipeline:
 stages: [test, build, deploy]
 
 variables:
-  AWS_REGION: eu-west-2
+  AWS_REGION: eu-central-1
   S3_BUCKET: flowin-prod-artifacts
   INSTANCE_TAG: flowin-prod
 
@@ -1688,7 +1688,7 @@ deploy:
 #!/usr/bin/env bash
 set -euo pipefail
 
-AWS_REGION=eu-west-2
+AWS_REGION=eu-central-1
 S3_BUCKET=flowin-prod-artifacts
 DEPLOY_DIR=/opt/flowin
 RELEASES_DIR=${DEPLOY_DIR}/releases
@@ -1784,8 +1784,8 @@ Postgres major versions (16 → 17 etc.) are *not* automatic. Plan in advance:
 | HTTPS down (no TLS handshake) | `sudo systemctl status nginx`, `sudo nginx -t`, `sudo certbot certificates` | Cert expired? `sudo certbot renew --force-renewal` |
 | Disk full on `/` | `journalctl --vacuum-size=500M`, `apt clean`, check `/var/log` | Permanent fix: log rotation, or expand the root volume |
 | Disk full on `/var/lib/postgresql` | **DO NOT** run `VACUUM FULL` blindly. Check for runaway agent_outputs JSON. Truncate old `workflow_runs` per Blocker 6. | Long term: expand the volume (`aws ec2 modify-volume`, then `xfs_growfs`) |
-| Bedrock 5xx surge (`flowin-prod-bedrock-5xx`) | Reactive: nothing. The retries in `pipeline.py:95-122` (B5) handle transient errors. | If sustained, check the AWS Service Health Dashboard for `eu-west-2` Bedrock; if confirmed regional outage, flip `/flowin/prod/llm/provider` to `anthropic`, populate the fallback API key, restart backend (§9). Alert customers via status page. |
-| Bedrock throttles (`flowin-prod-bedrock-throttles`) | Open a Service Quotas increase request for Haiku 4.5 TPM/RPM in `eu-west-2`. | Until granted, expect `Invocation` failures during peaks; the `pipeline.py:95-122` retries cushion this but only up to a point. |
+| Bedrock 5xx surge (`flowin-prod-bedrock-5xx`) | Reactive: nothing. The retries in `pipeline.py:95-122` (B5) handle transient errors. | If sustained, check the AWS Service Health Dashboard for `eu-central-1` Bedrock; if confirmed regional outage, flip `/flowin/prod/llm/provider` to `anthropic`, populate the fallback API key, restart backend (§9). Alert customers via status page. |
+| Bedrock throttles (`flowin-prod-bedrock-throttles`) | Open a Service Quotas increase request for Haiku 4.5 TPM/RPM in `eu-central-1`. | Until granted, expect `Invocation` failures during peaks; the `pipeline.py:95-122` retries cushion this but only up to a point. |
 | WS storm (clients reconnecting frantically) | Check `flowin-prod-ws-disconnect-spike` alarm; check uvicorn worker count | A bug in W05 reconnect logic? Check `useWebSocket.ts:113-121` — exponential backoff should keep this bounded |
 | User reports stale data | Confirm last successful `pg_dump` from S3; check `pg_stat_activity` for stuck connections | If DB row stuck `running` (Blocker 6), nudge via SQL UPDATE |
 | Suspected breach | (1) Take EBS snapshot for forensics, (2) rotate all Parameter Store secrets, (3) terminate the instance from a fresh one | CloudTrail + GuardDuty + auditd logs in CloudWatch are your evidence |
@@ -1794,11 +1794,11 @@ Postgres major versions (16 → 17 etc.) are *not* automatic. Plan in advance:
 
 ## 14. Cost estimate (monthly, low/typical/high)
 
-All in USD, `eu-west-2`, list price (no Reserved Instance / Savings Plan — when traffic is steady, buying a 1-year RI on the EC2 saves ~30%).
+All in USD, `eu-central-1`, list price (no Reserved Instance / Savings Plan — when traffic is steady, buying a 1-year RI on the EC2 saves ~30%).
 
 | Item | Low | Typical | High |
 |---|---|---|---|
-| EC2 `m6i.xlarge` (730h) | $140 | $140 | $140 |
+| EC2 `m6i.2xlarge` (730h) | $327 | $327 | $327 |
 | EBS gp3 root, 30 GB | $2.40 | $2.40 | $2.40 |
 | EBS gp3 data, 50 GB | $4.00 | $4.00 | $4.00 |
 | EBS gp3 data, 100 GB (if you grow) | – | – | $8.00 |
@@ -1820,14 +1820,14 @@ All in USD, `eu-west-2`, list price (no Reserved Instance / Savings Plan — whe
 | AWS CloudTrail (mgmt events to S3) | $0 | $0 | $0 |
 | S3 (backups, ~5 GB versioned) | $0.20 | $0.50 | $2 |
 | S3 requests (backups + artifacts) | $0.50 | $1 | $2 |
-| **Subtotal AWS infra (no LLM tokens)** | **~$190** | **~$229** | **~$330** |
+| **Subtotal AWS infra (no LLM tokens)** | **~$377** | **~$416** | **~$517** |
 | Bedrock model invocations (Haiku 4.5, list pricing) | ~$10 | ~$50–$200 | ~$1000+ |
-| **Total** | **~$200** | **~$280–430** | **~$1330+** |
+| **Total** | **~$387** | **~$466–616** | **~$1517+** |
 
 Notes:
 
 - **Bedrock token spend** is *separate and traffic-dependent*. At time of writing, list pricing is **$0.80 per million input tokens** and **$4.00 per million output tokens** for Claude Haiku 4.5 — verify on the Bedrock pricing page. Bedrock charges parity with the Anthropic direct list price; expect ~$50–$200/mo on top of infra at typical pilot traffic, $1k+ at high volume. With Blocker 3 (cancel) unfixed, a single user "Stop"-clicking a runaway PPT pipeline can burn $5+ of tokens — fix it before going wide.
-- **Reserved Instance / Savings Plan:** committing to a 1-year, no-upfront RI on `m6i.xlarge` drops the EC2 line to ~$95/month. Worth doing once steady-state usage is confirmed (~3 months in).
+- **Reserved Instance / Savings Plan:** committing to a 1-year, no-upfront RI on `m6i.2xlarge` drops the EC2 line to ~$220/month. Worth doing once steady-state usage is confirmed (~3 months in).
 - **Bedrock VPC endpoints** are the new ~$15/mo line item versus the old "direct Anthropic" design. The cost is the price we pay for keeping LLM traffic inside AWS — see §0.1 and §6.4.
 - The multi-service guide (`PRODUCTION_DEPLOYMENT_GUIDE.md`) costs ~$105/$205 base — apparently cheaper at low traffic. The catch: that estimate excludes ALB, RDS Multi-AZ surcharge, ElastiCache reserved capacity, and CloudFront data transfer-out. In practice once you wire it all up the multi-service variant lands in the **$300–500/mo** band at typical traffic; the *real* difference between the two designs is **operational**, not cost.
 
@@ -1844,14 +1844,14 @@ From B7 / B8:
 - A typical user_stories pipeline = 6 agents × ~2 min = ~12 min wall-clock, but only one agent is active at a time (B5 — pipeline is sequential).
 - Chat sessions (W42–W49) are cheaper (4–16K-token agents, 5–60 sec wall-clock).
 
-On `m6i.xlarge` (4 vCPU / 16 GB):
+On `m6i.2xlarge` (8 vCPU / 32 GB):
 
 | Workload mix | Comfortable concurrent | Warning at | Hard ceiling |
 |---|---|---|---|
-| All chat sessions | 200 | 250 | 350 |
-| All user_stories pipelines | 60 | 75 | 90 |
-| All PPT / prototype pipelines | 40 | 50 | 60 |
-| Realistic mix (60% chat, 30% user_stories, 10% PPT) | 150 | 180 | 220 |
+| All chat sessions | 400 | 500 | 700 |
+| All user_stories pipelines | 120 | 150 | 180 |
+| All PPT / prototype pipelines | 80 | 100 | 120 |
+| Realistic mix (60% chat, 30% user_stories, 10% PPT) | 300 | 360 | 440 |
 
 The ceiling is **memory** before it is **CPU**. Vertical-scale signals:
 
@@ -1863,14 +1863,14 @@ The ceiling is **memory** before it is **CPU**. Vertical-scale signals:
 
 | From | To | When |
 |---|---|---|
-| `m6i.xlarge` (4 vCPU / 16 GB) | `m6i.2xlarge` (8 vCPU / 32 GB) | Sustained >120 concurrent pipelines |
-| `m6i.2xlarge` | `m6i.4xlarge` (16 vCPU / 64 GB) | Sustained >250 concurrent pipelines |
-| `m6i.4xlarge` | **migrate to multi-service** | At this point the single-box outage cost outweighs the operational simplicity |
+| `m6i.2xlarge` (8 vCPU / 32 GB) | `m6i.4xlarge` (16 vCPU / 64 GB) | Sustained >240 concurrent pipelines |
+| `m6i.4xlarge` | `m6i.8xlarge` (32 vCPU / 128 GB) | Sustained >500 concurrent pipelines |
+| `m6i.8xlarge` | **migrate to multi-service** | At this point the single-box outage cost outweighs the operational simplicity |
 
 Vertical scale procedure:
 1. Stop traffic during a maintenance window (set Route 53 to a maintenance page, or just accept downtime — single-box reality).
 2. `aws ec2 stop-instances --instance-ids <ID>`.
-3. `aws ec2 modify-instance-attribute --instance-id <ID> --instance-type m6i.2xlarge`.
+3. `aws ec2 modify-instance-attribute --instance-id <ID> --instance-type m6i.4xlarge`.
 4. `aws ec2 start-instances --instance-ids <ID>`.
 5. The EIP, security group, and EBS volumes all stay attached; nothing else changes.
 
@@ -1889,7 +1889,7 @@ Not strictly necessary; a stepping-stone if you're on the edge of needing the mu
 
 ### 15.4 The hard ceiling
 
-Past ~250 concurrent active pipelines on `m6i.4xlarge`, the *real* answer is: ECS Fargate, multiple tasks, ALB sticky sessions for WS, RDS Multi-AZ, ElastiCache for chat-session-id-to-task pinning, S3 for artifacts. That is `PRODUCTION_DEPLOYMENT_GUIDE.md`. We have no business pretending otherwise.
+Past ~500 concurrent active pipelines on `m6i.8xlarge`, the *real* answer is: ECS Fargate, multiple tasks, ALB sticky sessions for WS, RDS Multi-AZ, ElastiCache for chat-session-id-to-task pinning, S3 for artifacts. That is `PRODUCTION_DEPLOYMENT_GUIDE.md`. We have no business pretending otherwise.
 
 ---
 
@@ -2340,7 +2340,7 @@ set -euo pipefail
 TS=$(date -u +%Y%m%d)
 tar -czf - -C /opt/flowin/src/backend skills \
   | aws s3 cp - "s3://${FLOWIN_BACKUP_BUCKET}/skills/${TS}.tar.gz" \
-      --region eu-west-2 \
+      --region eu-central-1 \
       --sse aws:kms \
       --sse-kms-key-id "$FLOWIN_KMS_KEY_ID"
 ```
@@ -2366,7 +2366,7 @@ The columns:
 | `/flowin/prod/CORS_ORIGINS` | `CORS_ORIGINS` | String | – | When domains change | JSON array. Currently `["https://flowin.example.com"]`. |
 | `/flowin/prod/ACCESS_TOKEN_EXPIRE_HOURS` | `ACCESS_TOKEN_EXPIRE_HOURS` | String | `12` | Re-evaluate yearly | Production override per env-template (env-templates/.env.production). |
 | `/flowin/prod/llm/provider` | `LLM_PROVIDER` | String | `bedrock` | Only on emergency Anthropic-direct fallback (§0.1) | Selects the LLM backend. Values: `bedrock` (default) or `anthropic` (fallback). |
-| `/flowin/prod/llm/region` | `AWS_REGION` | String | `eu-west-2` | When deployment region changes | AWS region the Bedrock SDK targets. The cross-region inference profile fans out to other EU regions transparently — the SDK target stays `eu-west-2`. |
+| `/flowin/prod/llm/region` | `AWS_REGION` | String | `eu-central-1` | When deployment region changes | AWS region the Bedrock SDK targets. The cross-region inference profile fans out to other EU regions transparently — the SDK target stays `eu-central-1`. |
 | `/flowin/prod/llm/model_id` | `BEDROCK_MODEL_ID` | String | `eu.anthropic.claude-haiku-4-5-20251001-v1:0` | When upgrading model | The Bedrock model ID or inference-profile ID the application invokes. Not a secret, but kept in Parameter Store so model swaps don't require a redeploy. |
 | `/flowin/prod/anthropic/api_key` | `ANTHROPIC_API_KEY` | SecureString | Anthropic Console → API keys (only when populated for an outage fallback) | Only when the parameter is populated; clear on incident close | **Empty by default and not required for boot.** Populated only during a Bedrock outage; pair with `/flowin/prod/llm/provider=anthropic` and restart the backend. See §0.1, §9. |
 | `/flowin/prod/LANGSMITH_TRACING` | `LANGSMITH_TRACING` | String | `false` (default) or `true` | Per change | If `true`, also requires the next two keys. |
@@ -2379,7 +2379,7 @@ To list everything that exists today:
 aws ssm get-parameters-by-path \
   --path /flowin/prod \
   --recursive \
-  --region eu-west-2 \
+  --region eu-central-1 \
   --query 'Parameters[].Name' --output table
 ```
 
@@ -2389,8 +2389,8 @@ To audit who-has-read access:
 aws iam simulate-principal-policy \
   --policy-source-arn arn:aws:iam::<ACCOUNT_ID>:role/flowin-prod-instance \
   --action-names ssm:GetParameter \
-  --resource-arns arn:aws:ssm:eu-west-2:<ACCOUNT_ID>:parameter/flowin/prod/SECRET_KEY \
-  --region eu-west-2
+  --resource-arns arn:aws:ssm:eu-central-1:<ACCOUNT_ID>:parameter/flowin/prod/SECRET_KEY \
+  --region eu-central-1
 ```
 
 (Run this as a quarterly audit.)
@@ -2415,7 +2415,7 @@ set -euo pipefail
 exec > >(tee -a /var/log/flowin-bootstrap.log) 2>&1
 echo "[bootstrap] start $(date -u --iso-8601=seconds)"
 
-REGION=eu-west-2
+REGION=eu-central-1
 DOMAIN=flowin.example.com
 ACME_EMAIL=security@example.com
 PARAM_PREFIX=/flowin/prod
@@ -2637,7 +2637,7 @@ OUT=/etc/flowin/environment.d/flowin.env
 TMP=$(mktemp /etc/flowin/environment.d/flowin.env.XXXXXX)
 chmod 0640 "$TMP"; chown root:flowin "$TMP"
 
-REGION=eu-west-2
+REGION=eu-central-1
 PREFIX=/flowin/prod
 
 emit() {

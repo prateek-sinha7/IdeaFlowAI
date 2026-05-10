@@ -202,7 +202,7 @@ def _llm_provider_ok(monkeypatch):
         ws_module.settings, "BEDROCK_MODEL_ID",
         "eu.anthropic.claude-haiku-4-5-20251001-v1:0", raising=False,
     )
-    monkeypatch.setattr(ws_module.settings, "AWS_REGION", "eu-west-2", raising=False)
+    monkeypatch.setattr(ws_module.settings, "AWS_REGION", "eu-central-1", raising=False)
 
 
 @pytest.fixture(autouse=True)

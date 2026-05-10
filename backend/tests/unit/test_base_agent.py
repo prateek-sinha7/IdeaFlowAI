@@ -12,7 +12,7 @@ def _bedrock_settings(mock_settings, **overrides):
     mock_settings.BEDROCK_MODEL_ID = overrides.get(
         "BEDROCK_MODEL_ID", "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
     )
-    mock_settings.AWS_REGION = overrides.get("AWS_REGION", "eu-west-2")
+    mock_settings.AWS_REGION = overrides.get("AWS_REGION", "eu-central-1")
     mock_settings.ANTHROPIC_API_KEY = overrides.get("ANTHROPIC_API_KEY", "")
     mock_settings.ANTHROPIC_MODEL = overrides.get(
         "ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"
@@ -52,7 +52,7 @@ class TestBaseAgentConfiguration:
             mock_bedrock.assert_called_once()
             kwargs = mock_bedrock.call_args.kwargs
             assert kwargs["model"] == "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
-            assert kwargs["region_name"] == "eu-west-2"
+            assert kwargs["region_name"] == "eu-central-1"
             assert kwargs["max_tokens"] == 32000
 
     def test_bedrock_accepts_custom_model(self):

@@ -49,7 +49,7 @@ Per `docs/SIMPLE_AWS_DEPLOYMENT.md`:
   group on the VPC endpoints, and **VPC interface endpoints** for `bedrock`,
   `bedrock-runtime`, `ssm`, `ssmmessages`, `ec2messages`, `logs`, plus a
   **gateway endpoint for S3**.
-- **Compute**: one `m6i.xlarge` Ubuntu 24.04 LTS instance, an encrypted
+- **Compute**: one `m6i.2xlarge` Ubuntu 24.04 LTS instance, an encrypted
   100 GB gp3 root volume, an encrypted 50 GB gp3 data volume tagged
   `Backup=true`, and an Elastic IP.
 - **IAM**: an instance profile whose role can:
@@ -194,10 +194,10 @@ cd infra/bootstrap
 
 cat > terraform.tfvars <<'EOF'
 expected_account_id = "123456789012"
-aws_region          = "eu-west-2"
+aws_region          = "eu-central-1"
 owner               = "flowin-platform-team@hexaware.com"
 cost_center         = "UKI-FLOWIN-PROD"
-state_bucket_name   = "flowin-tfstate-123456789012-eu-west-2"
+state_bucket_name   = "flowin-tfstate-123456789012-eu-central-1"
 lock_table_name     = "flowin-tfstate-locks"
 EOF
 
@@ -229,7 +229,7 @@ Variables the operator MUST set in `terraform.tfvars`:
 | Variable | Notes |
 |---|---|
 | `expected_account_id` | Forces the guard to the right account |
-| `aws_region` | Default `eu-west-2`; override only if needed |
+| `aws_region` | Default `eu-central-1`; override only if needed |
 | `availability_zone` | The single AZ you chose |
 | `environment` | Default `prod` |
 | `owner` | Tag value |
@@ -247,7 +247,7 @@ Optional but commonly tuned:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `instance_type` | `m6i.xlarge` | Vertical scaling |
+| `instance_type` | `m6i.2xlarge` | Vertical scaling |
 | `root_volume_size_gb` | `100` | Headroom for logs/code/releases |
 | `data_volume_size_gb` | `50` | Postgres data |
 | `bedrock_model_id` | `anthropic.claude-haiku-4-5-20251001-v1:0` | If model id changes |
@@ -268,7 +268,7 @@ shared-account repo):
 
 ```bash
 terraform init \
-  -backend-config="bucket=flowin-tfstate-123456789012-eu-west-2"
+  -backend-config="bucket=flowin-tfstate-123456789012-eu-central-1"
 ```
 
 The state location is therefore unambiguous: regardless of which

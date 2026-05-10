@@ -7,8 +7,8 @@
 # ---- Identity guard --------------------------------------------------------
 
 expected_account_id = "000000000000"
-aws_region          = "eu-west-2"
-availability_zone   = "eu-west-2a"
+aws_region          = "eu-central-1"
+availability_zone   = "eu-central-1a"
 environment         = "ls"
 
 # ---- Tagging ---------------------------------------------------------------
@@ -24,7 +24,7 @@ ssh_allowed_cidrs  = []
 
 # ---- Compute ---------------------------------------------------------------
 
-instance_type       = "m6i.xlarge"
+instance_type       = "m6i.2xlarge"
 root_volume_size_gb = 100
 data_volume_size_gb = 50
 ssh_key_name        = ""

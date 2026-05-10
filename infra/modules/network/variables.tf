@@ -26,12 +26,12 @@ variable "public_subnet_cidr" {
 }
 
 variable "availability_zone" {
-  description = "Single AZ to deploy into (e.g. eu-west-2a). Single-AZ design — see SIMPLE_AWS_DEPLOYMENT.md §6."
+  description = "Single AZ to deploy into (e.g. eu-central-1a). Single-AZ design — see SIMPLE_AWS_DEPLOYMENT.md §6."
   type        = string
 
   validation {
     condition     = can(regex("^[a-z]{2}-[a-z]+-[0-9][a-z]$", var.availability_zone))
-    error_message = "availability_zone must look like e.g. eu-west-2a."
+    error_message = "availability_zone must look like e.g. eu-central-1a."
   }
 }
 

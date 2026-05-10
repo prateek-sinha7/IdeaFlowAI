@@ -14,6 +14,6 @@ variable "expected_region" {
 
   validation {
     condition     = can(regex("^[a-z]{2}-[a-z]+-[0-9]$", var.expected_region))
-    error_message = "expected_region must look like e.g. eu-west-2."
+    error_message = "expected_region must look like e.g. eu-central-1."
   }
 }
