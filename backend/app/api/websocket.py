@@ -373,8 +373,8 @@ async def websocket_chat(websocket: WebSocket):
                     await websocket.send_json(stream_msg)
 
             except AgentConfigurationError:
-                # Provider-config gap (e.g. Anthropic key missing in fallback mode,
-                # or Bedrock model id / region not set). Always non-recoverable.
+                # Provider-config gap (Bedrock model id / region not set).
+                # Always non-recoverable.
                 logger.error("Agent configuration error during chat stream")
                 await websocket.send_json({
                     "type": "error", "chunk": None, "section": None,
@@ -385,13 +385,13 @@ async def websocket_chat(websocket: WebSocket):
                     },
                 })
             except Exception as exc:
-                # Maps both botocore (Bedrock) and anthropic (direct) exceptions
-                # to the {error, code, recoverable} triple the frontend expects.
+                # Maps botocore (Bedrock) exceptions to the
+                # {error, code, recoverable} triple the frontend expects.
                 # Falls back to a generic recoverable internal_error otherwise.
                 payload = _map_llm_exception(exc)
                 logger.error(
-                    "LLM call failed: provider=%s code=%s recoverable=%s exc=%s",
-                    settings.LLM_PROVIDER, payload.code, payload.recoverable, exc,
+                    "LLM call failed: code=%s recoverable=%s exc=%s",
+                    payload.code, payload.recoverable, exc,
                 )
                 await websocket.send_json({
                     "type": "error", "chunk": None, "section": None,
@@ -529,33 +529,17 @@ async def _handle_pipeline_execution(
         finally:
             db.close()
 
-    # Check if the active LLM provider is configured
-    _provider = (settings.LLM_PROVIDER or "bedrock").lower()
-    if _provider == "bedrock":
-        _llm_ok = bool(settings.BEDROCK_MODEL_ID and settings.AWS_REGION)
-        _missing_msg = (
-            "Bedrock provider is not fully configured. Set BEDROCK_MODEL_ID and "
-            "AWS_REGION in backend/.env to run pipelines."
-        )
-    elif _provider == "anthropic":
-        _llm_ok = bool(settings.ANTHROPIC_API_KEY)
-        _missing_msg = (
-            "ANTHROPIC_API_KEY is not configured. Please add your API key to "
-            "backend/.env to run pipelines."
-        )
-    else:
-        _llm_ok = False
-        _missing_msg = (
-            f"LLM_PROVIDER must be 'bedrock' or 'anthropic'; got "
-            f"{settings.LLM_PROVIDER!r}."
-        )
-    if not _llm_ok:
+    # Check if Bedrock is configured
+    if not (settings.BEDROCK_MODEL_ID and settings.AWS_REGION):
         await websocket.send_json({
             "type": "error",
             "chunk": None,
             "section": None,
             "data": {
-                "error": _missing_msg,
+                "error": (
+                    "Bedrock is not fully configured. Set BEDROCK_MODEL_ID and "
+                    "AWS_REGION in backend/.env to run pipelines."
+                ),
                 "code": "llm_provider_misconfigured",
                 "recoverable": False,
             },

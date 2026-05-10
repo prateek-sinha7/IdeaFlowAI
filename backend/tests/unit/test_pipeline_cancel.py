@@ -192,12 +192,11 @@ def stub_executor(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _llm_provider_ok(monkeypatch):
-    """The helper short-circuits on a misconfigured LLM provider before it
+def _bedrock_settings_ok(monkeypatch):
+    """The helper short-circuits on a misconfigured Bedrock setup before it
     even imports the executor. Pin a valid Bedrock-shaped settings to bypass
     that gate without ever calling out to Bedrock (the executor is stubbed).
     """
-    monkeypatch.setattr(ws_module.settings, "LLM_PROVIDER", "bedrock", raising=False)
     monkeypatch.setattr(
         ws_module.settings, "BEDROCK_MODEL_ID",
         "eu.anthropic.claude-haiku-4-5-20251001-v1:0", raising=False,

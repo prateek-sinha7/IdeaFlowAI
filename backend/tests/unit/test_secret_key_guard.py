@@ -33,11 +33,9 @@ def _build_settings(monkeypatch: pytest.MonkeyPatch, **overrides: str):
     for key in (
         "ENV",
         "SECRET_KEY",
-        "LLM_PROVIDER",
         "BEDROCK_MODEL_ID",
+        "BEDROCK_INFERENCE_PROFILE_ID",
         "AWS_REGION",
-        "ANTHROPIC_API_KEY",
-        "ANTHROPIC_MODEL",
         "DATABASE_URL",
         "CORS_ORIGINS",
         "ACCESS_TOKEN_EXPIRE_HOURS",

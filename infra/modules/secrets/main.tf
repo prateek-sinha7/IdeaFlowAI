@@ -5,9 +5,9 @@ locals {
 # Notes on the schema
 # -------------------
 # Terraform writes the canonical UPPERCASE top-level keys that the application's
-# Settings (backend/app/core/config.py) reads directly, plus the existing nested
-# `llm/*` and `anthropic/*` namespaces. The on-host loader translates the nested
-# paths to env-var names per the rule documented in
+# Settings (backend/app/core/config.py) reads directly, plus the nested
+# `llm/*` namespace for Bedrock region/model id. The on-host loader translates
+# the nested paths to env-var names per the rule documented in
 # docs/SIMPLE_AWS_DEPLOYMENT.md §9.3.
 #
 # The composite `DATABASE_URL` is intentionally NOT written here — Terraform
@@ -37,18 +37,6 @@ resource "aws_ssm_parameter" "access_token_expire_hours" {
   description = "JWT lifetime in hours."
   type        = "String"
   value       = tostring(var.access_token_expire_hours)
-  tier        = "Standard"
-
-  tags = {
-    Component = "secrets"
-  }
-}
-
-resource "aws_ssm_parameter" "llm_provider" {
-  name        = "${local.prefix}/llm/provider"
-  description = "LLM provider toggle (bedrock|anthropic). Loader maps to LLM_PROVIDER."
-  type        = "String"
-  value       = var.llm_provider
   tier        = "Standard"
 
   tags = {
@@ -108,27 +96,6 @@ resource "aws_ssm_parameter" "db_password" {
   type        = "SecureString"
   key_id      = var.kms_key_id
   value       = var.db_password
-  tier        = "Standard"
-
-  tags = {
-    Component = "secrets"
-  }
-
-  lifecycle {
-    ignore_changes = [
-      value,
-    ]
-  }
-}
-
-resource "aws_ssm_parameter" "anthropic_api_key" {
-  count = length(var.anthropic_api_key) > 0 ? 1 : 0
-
-  name        = "${local.prefix}/anthropic/api_key"
-  description = "Optional Anthropic API key (fallback for Bedrock outages). Loader maps to ANTHROPIC_API_KEY."
-  type        = "SecureString"
-  key_id      = var.kms_key_id
-  value       = var.anthropic_api_key
   tier        = "Standard"
 
   tags = {

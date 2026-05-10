@@ -5,8 +5,8 @@ AI SaaS Platform
 An enterprise-grade AI SaaS platform featuring a three-panel dashboard
 (Sidebar, Chat, Preview) where authenticated users interact with a multi-agent
 AI system via real-time WebSocket streaming. The AI system follows a multi-phase
-execution flow (Phases 0-7) powered by LangChain agents using the Anthropic
-Claude API to generate structured deliverables: User Stories (Markdown),
+execution flow (Phases 0-7) powered by LangChain agents calling Claude via
+AWS Bedrock to generate structured deliverables: User Stories (Markdown),
 PowerPoint slides (JSON), and UI Prototypes.
 
 ================================================================================
@@ -65,9 +65,13 @@ cross-platform compatible syntax.
        cp .env.example .env
 
      Edit .env and set:
-       ANTHROPIC_API_KEY=your-anthropic-api-key
+       AWS_REGION=eu-central-1
+       BEDROCK_MODEL_ID=eu.anthropic.claude-haiku-4-5-20251001-v1:0
        SECRET_KEY=your-secret-key-for-jwt
        DATABASE_URL=sqlite:///./dev.db
+
+     AWS authentication is via the boto3 default credential chain
+     (~/.aws/credentials, AWS_PROFILE, or env vars). No API key.
 
   d) Run the backend server:
 
@@ -128,10 +132,15 @@ ENVIRONMENT VARIABLES REFERENCE
 
 Backend (.env in project root):
 
-  ANTHROPIC_API_KEY    (required) Your Anthropic Claude API key for AI agents
+  AWS_REGION           (required) AWS region for Bedrock (e.g. eu-central-1)
+  BEDROCK_MODEL_ID     (required) Bedrock model id or inference-profile id
+                       Default: eu.anthropic.claude-haiku-4-5-20251001-v1:0
   SECRET_KEY           (required) Secret key used for JWT token signing
   DATABASE_URL         (optional) Database connection string
                        Default: sqlite:///./dev.db
+
+  Bedrock authentication uses the boto3 default credential chain
+  (~/.aws/credentials, AWS_PROFILE, or env vars). No API key.
 
 Frontend (frontend/.env.local):
 

@@ -219,13 +219,6 @@ variable "db_password" {
   }
 }
 
-variable "anthropic_api_key" {
-  description = "Optional fallback Anthropic API key. Empty = no parameter created."
-  type        = string
-  sensitive   = true
-  default     = ""
-}
-
 variable "langsmith_tracing" {
   description = "Optional LangSmith tracing toggle (e.g. \"true\"). Empty = no parameter created (tracing off)."
   type        = string

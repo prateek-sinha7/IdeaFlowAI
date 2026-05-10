@@ -34,10 +34,10 @@ inclusion: auto
 - **Framework**: FastAPI + Uvicorn
 - **Database**: SQLite (dev) via SQLAlchemy
 - **Auth**: python-jose (JWT) + passlib with bcrypt
-- **AI**: LangChain + langchain-anthropic (Claude API only)
-- **Env var**: `ANTHROPIC_API_KEY` (required), `SECRET_KEY`, `DATABASE_URL=sqlite:///./dev.db`
+- **AI**: LangChain + langchain-aws (AWS Bedrock — Claude Haiku 4.5 via the EU cross-region inference profile `eu.anthropic.claude-haiku-4-5-20251001-v1:0`). Bedrock-only — no direct Anthropic SDK / API path.
+- **Env var**: `AWS_REGION` (default `eu-central-1`), `BEDROCK_MODEL_ID` (default `anthropic.claude-haiku-4-5-20251001-v1:0`), `BEDROCK_INFERENCE_PROFILE_ID` (default `eu.anthropic.claude-haiku-4-5-20251001-v1:0`), `SECRET_KEY` (required), `DATABASE_URL=sqlite:///./dev.db`. AWS auth via the boto3 default credential chain — no API key.
 - **Testing**: pytest + Hypothesis
-- **Key packages**: fastapi, uvicorn, sqlalchemy, pydantic[email], python-jose[cryptography], passlib[bcrypt], langchain, langchain-anthropic, websockets, python-dotenv, pytest, hypothesis
+- **Key packages**: fastapi, uvicorn, sqlalchemy, pydantic[email], python-jose[cryptography], passlib[bcrypt], langchain, langchain-aws, boto3, websockets, python-dotenv, pytest, hypothesis
 
 ### Frontend (React/Next.js)
 

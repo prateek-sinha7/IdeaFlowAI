@@ -19,8 +19,6 @@ langchain-aws==0.2.10
 # Pinned for reproducibility; langchain-aws depends on it transitively.
 # langchain-aws 0.2.10 requires boto3>=1.35.74.
 boto3==1.35.74
-# Kept for the LLM_PROVIDER=anthropic emergency-continuity fallback path.
-langchain-anthropic==0.3.4
 websockets==14.1
 python-dotenv==1.0.1
 pytest==8.3.4

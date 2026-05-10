@@ -1,8 +1,6 @@
-"""Tests for the provider-agnostic LLM exception mapper (A7)."""
+"""Tests for the Bedrock LLM exception mapper (A7)."""
 
 from __future__ import annotations
-
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -69,53 +67,6 @@ class TestBedrockMapping:
         result = map_exception(EndpointConnectionError(endpoint_url="https://example"))
         assert result.code == "connection_error"
         assert result.recoverable is True
-
-
-# ---------------------------------------------------------------------------
-# Anthropic mappings
-# ---------------------------------------------------------------------------
-
-
-def _anthropic_exc(cls_name: str):
-    """Construct a subclass of the named anthropic error.
-
-    The anthropic SDK exception constructors expect a request and a body; we
-    work around that by subclassing into a plain ``Exception`` that still
-    isinstance-matches the original via its MRO.
-    """
-    import anthropic
-
-    base = getattr(anthropic, cls_name)
-    instance = MagicMock(spec=base)
-    instance.__class__ = base
-    return instance
-
-
-class TestAnthropicMapping:
-    def test_anthropic_timeout_maps_to_timeout(self):
-        result = map_exception(_anthropic_exc("APITimeoutError"))
-        assert result.code == "timeout"
-        assert result.recoverable is True
-
-    def test_anthropic_rate_limit_maps_to_rate_limit(self):
-        result = map_exception(_anthropic_exc("RateLimitError"))
-        assert result.code == "rate_limit"
-        assert result.recoverable is True
-
-    def test_anthropic_connection_maps_to_connection(self):
-        result = map_exception(_anthropic_exc("APIConnectionError"))
-        assert result.code == "connection_error"
-        assert result.recoverable is True
-
-    def test_anthropic_authentication_maps_to_auth_error_not_recoverable(self):
-        result = map_exception(_anthropic_exc("AuthenticationError"))
-        assert result.code == "auth_error"
-        assert result.recoverable is False
-
-    def test_anthropic_bad_request_maps_to_internal_error_not_recoverable(self):
-        result = map_exception(_anthropic_exc("BadRequestError"))
-        assert result.code == "internal_error"
-        assert result.recoverable is False
 
 
 # ---------------------------------------------------------------------------

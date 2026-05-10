@@ -66,20 +66,11 @@ async def lifespan(app: FastAPI):
     """Application lifespan: create database tables on startup."""
     logger.info("🚀 Starting IdeaFlow AI Backend...")
     logger.info("   Database: %s", settings.DATABASE_URL)
-    provider = (settings.LLM_PROVIDER or "bedrock").lower()
-    if provider == "bedrock":
-        logger.info(
-            "   LLM provider: bedrock (model=%s region=%s)",
-            settings.BEDROCK_MODEL_ID or "NOT SET",
-            settings.AWS_REGION or "NOT SET",
-        )
-    elif provider == "anthropic":
-        logger.info(
-            "   LLM provider: anthropic (key=%s)",
-            "configured ✓" if settings.ANTHROPIC_API_KEY else "NOT SET ✗",
-        )
-    else:
-        logger.info("   LLM provider: %s (UNKNOWN ✗)", settings.LLM_PROVIDER)
+    logger.info(
+        "   LLM provider: bedrock (model=%s region=%s)",
+        settings.BEDROCK_MODEL_ID or "NOT SET",
+        settings.AWS_REGION or "NOT SET",
+    )
     logger.info("   LangSmith: %s", "enabled ✓" if langsmith_enabled else "disabled")
 
     # Schema is now driven by alembic, not Base.metadata.create_all. We do a
@@ -141,15 +132,9 @@ app.include_router(websocket_router)
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    provider = (settings.LLM_PROVIDER or "bedrock").lower()
-    if provider == "bedrock":
-        llm_configured = bool(settings.BEDROCK_MODEL_ID and settings.AWS_REGION)
-    elif provider == "anthropic":
-        llm_configured = bool(settings.ANTHROPIC_API_KEY)
-    else:
-        llm_configured = False
+    llm_configured = bool(settings.BEDROCK_MODEL_ID and settings.AWS_REGION)
     return {
         "status": "healthy",
-        "llm_provider": provider if llm_configured else "none",
+        "llm_provider": "bedrock" if llm_configured else "none",
         "langsmith": langsmith_enabled,
     }

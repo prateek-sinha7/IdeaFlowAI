@@ -76,8 +76,8 @@ Per `docs/SIMPLE_AWS_DEPLOYMENT.md`:
   alias `alias/flowin-${env}`, used by EBS, the S3 backup bucket, the
   AWS Backup vault, the SNS topic, and SSM SecureStrings.
 - **Secrets**: SSM Parameter Store entries under `/flowin/${env}/...`
-  (LLM provider/region/model id, app secret key, db password, optional
-  Anthropic fallback key, CORS origins, JWT expiry).
+  (Bedrock region / model id, app secret key, db password, CORS origins,
+  JWT expiry).
 - **DNS**: two paths controlled by `var.use_nip_io` (see Variables below).
   Default `true` in `terraform.tfvars.example`: the FQDN is computed from
   the EIP via [nip.io](https://nip.io) (e.g. `1-2-3-4.nip.io` for EIP
@@ -281,7 +281,6 @@ Optional but commonly tuned:
 | `daily_backup_retention_days` | `35` | AWS Backup retention |
 | `log_retention_days` | `30` | CloudWatch logs retention |
 | `billing_alarm_threshold_usd` | `500` | Account-wide billing alarm |
-| `anthropic_api_key` | `""` | Optional emergency fallback |
 
 ### 3. Initialise the prod backend
 

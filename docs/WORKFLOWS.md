@@ -341,7 +341,7 @@ No cookies, no sessionStorage, no IndexedDB. Object URLs used for downloads are 
 >
 > **Frontend ↔ backend mismatch:** the front-end documents a `step` message type for `ProcessSteps`, but **no backend code emits `step`** today — it appears to be a planned feature. The front-end `[code:…][recoverable:…]` markers are also absent on the backend; `code` and `recoverable` are sent as separate JSON fields.
 
-**Streaming model.** LangChain `ChatAnthropic.astream()` yields one chunk per LLM token (`base.py:82-95`); each chunk becomes one `agent_chunk`/`stream` JSON frame. **No batching, no flow control.**
+**Streaming model.** LangChain `ChatBedrockConverse.astream()` yields one chunk per LLM token (`base.py:82-95`); each chunk becomes one `agent_chunk`/`stream` JSON frame. **No batching, no flow control.**
 
 **Cancellation reality.** `cancel_pipeline` only acknowledges to the client; **the executor task is not cancelled.** No task reference is stored, so `task.cancel()` cannot be called. The pipeline keeps running and burning LLM tokens until natural completion (or until the WS closes — at which point `send_json` calls fail silently but the orchestrator still completes).
 
@@ -488,11 +488,9 @@ Total **30 agents**. Front-end's `LIBRARY_AGENTS` list matches the backend regis
 
 ### B7 — Per-agent LLM profiles
 
-**Provider:** Anthropic Claude via `langchain_anthropic.ChatAnthropic`. **Single env var read:** `ANTHROPIC_API_KEY` (`config.py:15`). Missing key → `AgentConfigurationError` (`base.py:38-42`).
+**Provider:** AWS Bedrock via `langchain_aws.ChatBedrockConverse`. **Env vars read:** `BEDROCK_MODEL_ID` and `AWS_REGION` (see `app/core/config.py`). Missing either → `AgentConfigurationError` (`base.py`). Auth is via the boto3 default credential chain — instance-profile IAM role in prod, `~/.aws/credentials` / `AWS_PROFILE` locally.
 
-**Default model:** `claude-haiku-4-5-20251001` (`base.py:27`). *(The unit test `tests/unit/test_base_agent.py:34` expects `claude-sonnet-4-20250514` — the test is outdated relative to current code.)*
-
-**No Bedrock integration.** No `AWS_BEDROCK_*` env vars are read; the project speaks directly to `api.anthropic.com`. (See §4 — AWS deployment plan in `docs/SIMPLE_AWS_DEPLOYMENT.md` for whether to keep this or migrate to Bedrock.)
+**Default model:** `eu.anthropic.claude-haiku-4-5-20251001-v1:0` (the EU cross-region inference profile; see `app/core/config.py`).
 
 **Per-agent profiles** (token caps and observed I/O magnitudes; all use the default Haiku model and stream token-by-token):
 
@@ -514,7 +512,7 @@ Total **30 agents**. Front-end's `LIBRARY_AGENTS` list matches the backend regis
 
 **Approximate cost per pipeline run (Haiku 4.5 list price):** user_stories ~$0.04–0.10; PPT ~$0.05–0.12; prototype/app_builder/reverse_engineer ~$0.10–0.30 (HTML/code-heavy). **Concurrency consideration:** at 10 parallel runs, peak working memory in Python is ~100 MB per pipeline (output buffers + LangChain frames).
 
-**Other behaviours.** No temperature override (LangChain default ~0.7 — *non-deterministic*; for JSON-output agents, consider setting `temperature=0`). No retry on Anthropic 429; only network-level retry (B5). No token counting / usage tracking (cost monitoring would have to come from external observability).
+**Other behaviours.** No temperature override (LangChain default ~0.7 — *non-deterministic*; for JSON-output agents, consider setting `temperature=0`). No retry on Bedrock `ThrottlingException`; only network-level retry (B5). No token counting / usage tracking inside the app (Bedrock emits `InputTokenCount` / `OutputTokenCount` to CloudWatch — see `docs/SIMPLE_AWS_DEPLOYMENT.md` §10.4).
 
 ---
 
@@ -552,7 +550,7 @@ A typical 12-agent run can persist ~700 KB; **at ~1 500 active users with steady
 The phase-2 traces surfaced these issues that will inform deployment hardening:
 
 1. **Skills are globally writable** (B6) — must namespace per user or restrict via admin role.
-2. **Cancel-pipeline doesn't actually cancel** (B2/B5) — pipeline keeps consuming Anthropic tokens after the user clicks Stop. Will affect AWS cost.
+2. **Cancel-pipeline doesn't actually cancel** (B2/B5) — pipeline keeps consuming Bedrock tokens after the user clicks Stop. Will affect AWS cost.
 3. **No JWT revocation, no logout endpoint, no password-change session invalidation** (B1) — needs Redis-backed token blacklist.
 4. **Cancelled runs never reach a terminal state** (B4) — DB will accumulate phantom `running` rows.
 5. **Frontend `step` events and `[code:…]` markers are documented but not emitted** (B2) — front-end sees no process steps unless the backend code is added.

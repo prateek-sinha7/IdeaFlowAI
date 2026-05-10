@@ -161,13 +161,6 @@ variable "db_password" {
   }
 }
 
-variable "anthropic_api_key" {
-  description = "Optional fallback Anthropic API key. Empty = no parameter created."
-  type        = string
-  sensitive   = true
-  default     = ""
-}
-
 variable "cors_origins" {
   description = "JSON-encoded list of CORS origins."
   type        = string

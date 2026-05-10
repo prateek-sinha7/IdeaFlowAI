@@ -97,9 +97,6 @@ use_inference_profile_for_app = true
 app_secret_key = "REPLACE_ME"
 db_password    = "REPLACE_ME"
 
-# Optional fallback. Empty = no parameter created.
-anthropic_api_key = ""
-
 # Optional LangSmith tracing — leave commented (empty values disable
 # parameter creation; the LangChain client treats missing env as "off").
 # Opt in by uncommenting all three; the on-host loader maps these

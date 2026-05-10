@@ -7,30 +7,15 @@ from app.agents.base import BaseAgent, AgentConfigurationError
 
 
 def _bedrock_settings(mock_settings, **overrides):
-    """Apply a default 'bedrock provider OK' settings shape to a mock."""
-    mock_settings.LLM_PROVIDER = overrides.get("LLM_PROVIDER", "bedrock")
+    """Apply a default 'bedrock OK' settings shape to a mock."""
     mock_settings.BEDROCK_MODEL_ID = overrides.get(
-        "BEDROCK_MODEL_ID", "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+        "BEDROCK_MODEL_ID", "anthropic.claude-haiku-4-5-20251001-v1:0"
+    )
+    mock_settings.BEDROCK_INFERENCE_PROFILE_ID = overrides.get(
+        "BEDROCK_INFERENCE_PROFILE_ID",
+        "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
     )
     mock_settings.AWS_REGION = overrides.get("AWS_REGION", "eu-central-1")
-    mock_settings.ANTHROPIC_API_KEY = overrides.get("ANTHROPIC_API_KEY", "")
-    mock_settings.ANTHROPIC_MODEL = overrides.get(
-        "ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"
-    )
-    return mock_settings
-
-
-def _anthropic_settings(mock_settings, **overrides):
-    """Apply a default 'anthropic provider OK' settings shape to a mock."""
-    mock_settings.LLM_PROVIDER = overrides.get("LLM_PROVIDER", "anthropic")
-    mock_settings.BEDROCK_MODEL_ID = overrides.get("BEDROCK_MODEL_ID", "")
-    mock_settings.AWS_REGION = overrides.get("AWS_REGION", "")
-    mock_settings.ANTHROPIC_API_KEY = overrides.get(
-        "ANTHROPIC_API_KEY", "sk-ant-test-key"
-    )
-    mock_settings.ANTHROPIC_MODEL = overrides.get(
-        "ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"
-    )
     return mock_settings
 
 
@@ -47,11 +32,11 @@ class TestBaseAgentConfiguration:
             agent = BaseAgent(system_prompt="You are helpful.")
 
             assert agent.system_prompt == "You are helpful."
-            assert agent.model == "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+            assert agent.model == "anthropic.claude-haiku-4-5-20251001-v1:0"
             assert agent.llm is not None
             mock_bedrock.assert_called_once()
             kwargs = mock_bedrock.call_args.kwargs
-            assert kwargs["model"] == "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+            assert kwargs["model"] == "anthropic.claude-haiku-4-5-20251001-v1:0"
             assert kwargs["region_name"] == "eu-central-1"
             assert kwargs["max_tokens"] == 32000
 
@@ -88,54 +73,6 @@ class TestBaseAgentConfiguration:
             with pytest.raises(AgentConfigurationError) as exc_info:
                 BaseAgent(system_prompt="test")
             assert "AWS_REGION" in str(exc_info.value)
-
-    def test_anthropic_provider_with_key(self):
-        """BaseAgent constructs successfully under the Anthropic fallback."""
-        with patch("app.agents.base.settings") as mock_settings, \
-                patch("langchain_anthropic.ChatAnthropic") as mock_anthropic:
-            _anthropic_settings(mock_settings)
-            mock_anthropic.return_value = MagicMock()
-
-            agent = BaseAgent(system_prompt="You are helpful.")
-
-            assert agent.system_prompt == "You are helpful."
-            assert agent.model == "claude-haiku-4-5-20251001"
-            assert agent.llm is not None
-            mock_anthropic.assert_called_once()
-            kwargs = mock_anthropic.call_args.kwargs
-            assert kwargs["model"] == "claude-haiku-4-5-20251001"
-            assert kwargs["anthropic_api_key"] == "sk-ant-test-key"
-            assert kwargs["streaming"] is True
-
-    def test_anthropic_accepts_custom_model(self):
-        """An explicit model= overrides the Anthropic default."""
-        with patch("app.agents.base.settings") as mock_settings, \
-                patch("langchain_anthropic.ChatAnthropic") as mock_anthropic:
-            _anthropic_settings(mock_settings)
-            mock_anthropic.return_value = MagicMock()
-
-            agent = BaseAgent(
-                system_prompt="test", model="claude-3-haiku-20240307"
-            )
-
-            assert agent.model == "claude-3-haiku-20240307"
-
-    def test_anthropic_missing_key_raises(self):
-        """Anthropic provider with empty ANTHROPIC_API_KEY raises."""
-        with patch("app.agents.base.settings") as mock_settings, \
-                patch("langchain_anthropic.ChatAnthropic"):
-            _anthropic_settings(mock_settings, ANTHROPIC_API_KEY="")
-            with pytest.raises(AgentConfigurationError) as exc_info:
-                BaseAgent(system_prompt="test")
-            assert "ANTHROPIC_API_KEY" in str(exc_info.value)
-
-    def test_unknown_provider_raises(self):
-        """An unrecognised LLM_PROVIDER raises AgentConfigurationError."""
-        with patch("app.agents.base.settings") as mock_settings:
-            _bedrock_settings(mock_settings, LLM_PROVIDER="foo")
-            with pytest.raises(AgentConfigurationError) as exc_info:
-                BaseAgent(system_prompt="test")
-            assert "LLM_PROVIDER" in str(exc_info.value)
 
 
 class TestBaseAgentMessageBuilding:

@@ -110,7 +110,6 @@ module "secrets" {
   bedrock_model_id          = local.effective_model_id
   app_secret_key            = var.app_secret_key
   db_password               = var.db_password
-  anthropic_api_key         = var.anthropic_api_key
   cors_origins              = var.cors_origins
   access_token_expire_hours = var.access_token_expire_hours
 

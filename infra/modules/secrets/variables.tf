@@ -4,7 +4,7 @@ variable "name_prefix" {
 }
 
 variable "environment" {
-  description = "Environment short name (e.g. prod). Used in parameter paths /flowin/$${env}/... — top-level keys are UPPERCASE (SECRET_KEY, DATABASE_PASSWORD, CORS_ORIGINS, ACCESS_TOKEN_EXPIRE_HOURS); nested namespaces are lower-case (llm/*, anthropic/api_key) and translated to env-var names by the on-host loader."
+  description = "Environment short name (e.g. prod). Used in parameter paths /flowin/$${env}/... — top-level keys are UPPERCASE (SECRET_KEY, DATABASE_PASSWORD, CORS_ORIGINS, ACCESS_TOKEN_EXPIRE_HOURS); nested namespaces are lower-case (llm/*) and translated to env-var names by the on-host loader."
   type        = string
 }
 
@@ -16,17 +16,6 @@ variable "region" {
 variable "kms_key_id" {
   description = "KMS key ID or ARN that encrypts SecureString parameters."
   type        = string
-}
-
-variable "llm_provider" {
-  description = "LLM provider tag, e.g. bedrock or anthropic."
-  type        = string
-  default     = "bedrock"
-
-  validation {
-    condition     = contains(["bedrock", "anthropic"], var.llm_provider)
-    error_message = "llm_provider must be 'bedrock' or 'anthropic'."
-  }
 }
 
 variable "bedrock_model_id" {
@@ -44,13 +33,6 @@ variable "db_password" {
   description = "Postgres password for the application user. Stored as SecureString."
   type        = string
   sensitive   = true
-}
-
-variable "anthropic_api_key" {
-  description = "Optional fallback Anthropic API key for emergency continuity. Empty default — set out-of-band only when Bedrock is unavailable."
-  type        = string
-  sensitive   = true
-  default     = ""
 }
 
 # --- LangSmith — three optional, count-guarded parameters ------------------

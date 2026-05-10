@@ -1,16 +1,11 @@
-"""Provider-agnostic LLM exception mapping.
+"""Bedrock LLM exception mapping.
 
-The backend supports two LLM providers (see ``app.core.config``):
-
-* AWS Bedrock via ``langchain_aws.ChatBedrockConverse`` — wraps boto3, raises
-  ``botocore.exceptions.ClientError`` (with codes like ``ThrottlingException``,
-  ``AccessDeniedException``, ``ValidationException``,
-  ``ServiceUnavailableException``, ``ModelNotReadyException``,
-  ``ModelStreamErrorException``…) plus connection-level errors
-  (``EndpointConnectionError``, ``ReadTimeoutError``, ``ConnectionError``).
-* Direct Anthropic API via ``langchain_anthropic.ChatAnthropic`` — raises
-  ``anthropic.APITimeoutError``, ``RateLimitError``, ``APIConnectionError``,
-  ``AuthenticationError``, ``BadRequestError``, etc.
+The backend uses AWS Bedrock via ``langchain_aws.ChatBedrockConverse`` which
+wraps boto3 and raises ``botocore.exceptions.ClientError`` (with codes like
+``ThrottlingException``, ``AccessDeniedException``, ``ValidationException``,
+``ServiceUnavailableException``, ``ModelNotReadyException``,
+``ModelStreamErrorException``…) plus connection-level errors
+(``EndpointConnectionError``, ``ReadTimeoutError``, ``ConnectionError``).
 
 The frontend's ``ErrorMessage`` component (``frontend/src/components/chat/
 ErrorMessage.tsx``) keys off three things in the WebSocket ``error`` payload:
@@ -44,10 +39,9 @@ class LLMErrorPayload:
 
 
 # ---------------------------------------------------------------------------
-# Imports are deliberately lazy: each provider lib may not be installed in
-# every environment (langchain-anthropic is optional in a Bedrock-only deploy
-# and vice versa). We import inside the ``map_*`` helpers so a missing module
-# never breaks application startup.
+# botocore is imported lazily inside ``map_exception`` so a missing module
+# (which would only happen in a malformed install) never breaks application
+# startup — it simply falls through to the generic ``internal_error`` branch.
 # ---------------------------------------------------------------------------
 
 # Bedrock / botocore error-code → (code, recoverable)
@@ -77,8 +71,8 @@ _BEDROCK_CODE_MAP: dict[str, tuple[str, bool]] = {
 def map_exception(exc: BaseException) -> LLMErrorPayload:
     """Map any LLM-call exception to the triple shown to the user.
 
-    Recognises Bedrock (botocore), Anthropic (anthropic SDK), and falls back
-    to a generic ``internal_error`` for everything else.
+    Recognises Bedrock (botocore) errors and falls back to a generic
+    ``internal_error`` for everything else.
     """
     # ---- Bedrock / botocore ------------------------------------------------
     try:
@@ -107,25 +101,6 @@ def map_exception(exc: BaseException) -> LLMErrorPayload:
         ):
             return LLMErrorPayload(_message_for("connection_error"), "connection_error", True)
     except ImportError:  # pragma: no cover — botocore is always installed when Bedrock is in use
-        pass
-
-    # ---- Anthropic direct --------------------------------------------------
-    try:
-        import anthropic
-
-        if isinstance(exc, anthropic.APITimeoutError):
-            return LLMErrorPayload(_message_for("timeout"), "timeout", True)
-        if isinstance(exc, anthropic.RateLimitError):
-            return LLMErrorPayload(_message_for("rate_limit"), "rate_limit", True)
-        if isinstance(exc, anthropic.APIConnectionError):
-            return LLMErrorPayload(_message_for("connection_error"), "connection_error", True)
-        if isinstance(exc, anthropic.AuthenticationError):
-            return LLMErrorPayload(_message_for("auth_error"), "auth_error", False)
-        if isinstance(exc, anthropic.BadRequestError):
-            return LLMErrorPayload(_message_for("internal_error"), "internal_error", False)
-        if isinstance(exc, anthropic.APIError):
-            return LLMErrorPayload(_message_for("internal_error"), "internal_error", True)
-    except ImportError:  # pragma: no cover — anthropic is always installed today
         pass
 
     # ---- Fallback ----------------------------------------------------------

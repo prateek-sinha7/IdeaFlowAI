@@ -53,7 +53,6 @@ use_inference_profile_for_app = true
 app_secret_key = "localstack-placeholder-secret-key-32chars-minimum-padding"
 db_password    = "localstack-placeholder-pw-16chars"
 
-anthropic_api_key         = ""
 cors_origins              = "[\"https://app.flowin.test\"]"
 access_token_expire_hours = 12
 

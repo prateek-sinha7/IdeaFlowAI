@@ -2,23 +2,19 @@
 
 LLM provider notes
 ------------------
-The backend supports two LLM providers, selectable via ``LLM_PROVIDER``:
+The backend uses AWS Bedrock via ``langchain_aws.ChatBedrockConverse``.
+Auth comes from the boto3 default credential chain (instance profile in
+prod, ``~/.aws/credentials`` / ``AWS_PROFILE`` locally). Requires
+``BEDROCK_MODEL_ID`` and ``AWS_REGION``.
 
-* ``"bedrock"`` (default) — AWS Bedrock via ``langchain_aws.ChatBedrockConverse``.
-  Auth comes from the boto3 default credential chain (instance profile in prod,
-  ``~/.aws/credentials`` / ``AWS_PROFILE`` locally). Requires
-  ``BEDROCK_MODEL_ID`` and ``AWS_REGION``.
+IMPORTANT — operator action: the ``BEDROCK_MODEL_ID`` default below is a
+cross-region inference profile for ``eu-central-1``. Verify availability
+with::
 
-  IMPORTANT — operator action: the ``BEDROCK_MODEL_ID`` default below is a
-  cross-region inference profile for ``eu-central-1``. Verify availability with::
+    aws bedrock list-foundation-models --region eu-central-1
 
-      aws bedrock list-foundation-models --region eu-central-1
-
-  If a model ID isn't returned, request access in the Bedrock console and/or
-  pick the inference-profile ID that maps to your region.
-
-* ``"anthropic"`` — Direct Anthropic API via ``langchain_anthropic.ChatAnthropic``.
-  Kept as an emergency-continuity fallback. Requires ``ANTHROPIC_API_KEY``.
+If a model ID isn't returned, request access in the Bedrock console and/or
+pick the inference-profile ID that maps to your region.
 """
 
 import logging
@@ -61,20 +57,18 @@ class Settings(BaseSettings):
     # Anything else (production, staging, ci, …) → strict.
     ENV: str = "development"
 
-    # ---- LLM provider selection ----
-    # "bedrock" (default) → AWS Bedrock; "anthropic" → direct Anthropic API.
-    LLM_PROVIDER: str = "bedrock"
-
-    # ---- AWS Bedrock (used when LLM_PROVIDER=bedrock) ----
+    # ---- AWS Bedrock ----
+    # Foundation-model ID. The IAM policy in
+    # infra/policies/bedrock-invoke.json scopes invoke to this exact ID, the
+    # cross-region inference-profile ID, and the EU regions the profile fans
+    # out to.
+    BEDROCK_MODEL_ID: str = "anthropic.claude-haiku-4-5-20251001-v1:0"
     # Cross-region inference profile is the safest default for eu-central-1.
-    # See module docstring for verification command.
-    BEDROCK_MODEL_ID: str = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+    # See module docstring for verification command. The application invokes
+    # the inference profile (not the foundation-model ID directly), so
+    # CloudWatch metrics dimension by this string.
+    BEDROCK_INFERENCE_PROFILE_ID: str = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
     AWS_REGION: str = "eu-central-1"
-
-    # ---- Anthropic direct API (used when LLM_PROVIDER=anthropic) ----
-    # Optional now: only required when LLM_PROVIDER=anthropic.
-    ANTHROPIC_API_KEY: str = ""
-    ANTHROPIC_MODEL: str = "claude-haiku-4-5-20251001"
 
     SECRET_KEY: str = _DEFAULT_SECRET_KEY
     DATABASE_URL: str = "sqlite:///./dev.db"
