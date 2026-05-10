@@ -146,12 +146,16 @@ async def websocket_chat(websocket: WebSocket):
         return
 
     # When the client offered a subprotocol we MUST echo something back
-    # (otherwise browsers reject the handshake response). We deliberately
-    # echo the placeholder string ``bearer`` and NOT the token — never echo
-    # a credential back. The placeholder just satisfies the RFC requirement
-    # that the server pick one of the offered subprotocols.
+    # (otherwise browsers reject the handshake response). RFC 6455 + browser
+    # strict mode require the server to pick a value that was in the client's
+    # offered list, so we cannot invent a placeholder. The frontend offers
+    # ["bearer.<jwt>", "flowin.v1"]; we always echo the second (selector) one
+    # and never the credential. If a client only offered the credential
+    # (e.g. an older smoke client), we degrade by echoing the credential too —
+    # not ideal for log hygiene, but the alternative is closing 4001.
     if auth_method == "subprotocol":
-        await websocket.accept(subprotocol="bearer")
+        echo_subprotocol = "flowin.v1" if "flowin.v1" in proto_list else f"bearer.{token}"
+        await websocket.accept(subprotocol=echo_subprotocol)
     else:
         await websocket.accept()
     print(f"[WS] Connection accepted via {auth_method}, validating token...")

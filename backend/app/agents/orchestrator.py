@@ -332,11 +332,23 @@ class AgentOrchestrator:
         except asyncio.CancelledError:
             raise
         except Exception as e:
+            from app.agents.llm_errors import map_exception
             logger.error(f"Phase 0 (Discovery) failed: {e}")
             context["discovery"] = {"status": "failed", "error": str(e)}
             output_selection = ["user_stories", "ppt", "prototype", "ui_design"]
             context["output_selection"] = output_selection
-            yield {"type": "error", "chunk": None, "section": "discovery", "data": {"error": str(e), "phase": 0}}
+            payload = map_exception(e)
+            yield {
+                "type": "error",
+                "chunk": None,
+                "section": "discovery",
+                "data": {
+                    "error": payload.message,
+                    "code": payload.code,
+                    "recoverable": payload.recoverable,
+                    "phase": 0,
+                },
+            }
         yield {"type": "phase_end", "section": "discovery", "chunk": None, "data": {"phase": 0}}
 
         # Phase 1: Requirements
@@ -354,9 +366,21 @@ class AgentOrchestrator:
         except asyncio.CancelledError:
             raise
         except Exception as e:
+            from app.agents.llm_errors import map_exception
             logger.error(f"Phase 1 (Requirements) failed: {e}")
             context["requirements"] = {"status": "failed", "error": str(e)}
-            yield {"type": "error", "chunk": None, "section": "requirements", "data": {"error": str(e), "phase": 1}}
+            payload = map_exception(e)
+            yield {
+                "type": "error",
+                "chunk": None,
+                "section": "requirements",
+                "data": {
+                    "error": payload.message,
+                    "code": payload.code,
+                    "recoverable": payload.recoverable,
+                    "phase": 1,
+                },
+            }
         yield {"type": "phase_end", "section": "requirements", "chunk": None, "data": {"phase": 1}}
 
         # Phase 2: Conditional Routing
@@ -396,9 +420,21 @@ class AgentOrchestrator:
             except asyncio.CancelledError:
                 raise
             except Exception as e:
+                from app.agents.llm_errors import map_exception
                 logger.error(f"Phase {phase} ({section}) failed: {e}")
                 context[section] = {"status": "failed", "error": str(e)}
-                yield {"type": "error", "chunk": None, "section": section, "data": {"error": str(e), "phase": phase}}
+                payload = map_exception(e)
+                yield {
+                    "type": "error",
+                    "chunk": None,
+                    "section": section,
+                    "data": {
+                        "error": payload.message,
+                        "code": payload.code,
+                        "recoverable": payload.recoverable,
+                        "phase": phase,
+                    },
+                }
             yield {"type": "phase_end", "section": section, "chunk": None, "data": {"phase": phase}}
 
         # Compile Final_Output

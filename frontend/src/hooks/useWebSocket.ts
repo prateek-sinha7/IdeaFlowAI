@@ -84,11 +84,17 @@ export function useWebSocket(config: UseWebSocketConfig): UseWebSocketReturn {
     // Referer headers. Browsers can't set arbitrary headers on a WS open, but
     // each entry in the second arg of `new WebSocket(url, protocols)` is sent
     // as a comma-separated `Sec-WebSocket-Protocol`. The backend reads the
-    // entry starting with `bearer.` and strips the prefix to recover the JWT.
-    // The JWT is base64url so no further encoding is needed. The server
-    // accepts with subprotocol="bearer" (a placeholder, never the token) to
-    // complete the handshake.
-    const ws = new WebSocket(url, [`bearer.${currentToken}`]);
+    // entry starting with `bearer.` to recover the JWT, then accepts with
+    // subprotocol="flowin.v1" to complete the handshake.
+    //
+    // We MUST offer two subprotocols: a credential one (`bearer.<jwt>`) and a
+    // protocol-selector one (`flowin.v1`). The server echoes the selector,
+    // never the credential. RFC 6455 + browser strict mode require the
+    // server to echo a value that was in the client's offered list — if we
+    // sent only `bearer.<jwt>`, echoing `flowin.v1` would be rejected as
+    // "unsupported subprotocol". This is the same pattern used by k8s and
+    // similar projects.
+    const ws = new WebSocket(url, [`bearer.${currentToken}`, "flowin.v1"]);
     wsRef.current = ws;
 
     ws.onopen = () => {

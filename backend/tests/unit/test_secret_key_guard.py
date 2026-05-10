@@ -12,14 +12,24 @@ import importlib
 import pytest
 
 
-def _build_settings(monkeypatch: pytest.MonkeyPatch, **overrides: str):
-    """Re-import the settings module with a clean env so the validator runs.
+class _Module:
+    """Tiny shim so callers keep their `module.settings` access pattern."""
 
-    We delete the .env file from the search path by clearing every related
-    env var the loader might find, then re-import config.py to trigger the
-    model_validator afresh.
+    def __init__(self, settings):
+        self.settings = settings
+
+
+def _build_settings(monkeypatch: pytest.MonkeyPatch, **overrides: str):
+    """Build a fresh Settings instance with a clean env, ignoring backend/.env.
+
+    Why not just `importlib.reload(config_module)`? Because the reload
+    re-evaluates the module body, which re-runs ``ENV_FILE = BACKEND_DIR /
+    ".env"`` and ``class Config: env_file = str(ENV_FILE)``. Any monkeypatch
+    on those attributes is overwritten by the reload itself. The robust
+    approach is to instantiate ``Settings`` directly with ``_env_file=None``
+    so pydantic-settings doesn't read any .env file at all.
     """
-    # Clear anything that could leak from the host environment
+    # 1. Clear anything that could leak from the host environment
     for key in (
         "ENV",
         "SECRET_KEY",
@@ -35,18 +45,16 @@ def _build_settings(monkeypatch: pytest.MonkeyPatch, **overrides: str):
     ):
         monkeypatch.delenv(key, raising=False)
 
+    # 2. Test-supplied overrides
     for key, value in overrides.items():
         monkeypatch.setenv(key, value)
 
-    # Make pydantic-settings ignore the .env file by pointing at a non-existent
-    # path; we want pure env-var driven validation in tests.
-    monkeypatch.setenv("PYDANTIC_SETTINGS_TEST_ONLY", "1")
+    # 3. Build a fresh Settings instance, explicitly bypassing .env file
+    # loading. The validator runs at construction time, so any rejection
+    # (default key in production, etc.) raises here.
+    from app.core.config import Settings
 
-    import app.core.config as config_module
-
-    # Force a re-import so the module-level Settings() runs again with our env.
-    importlib.reload(config_module)
-    return config_module
+    return _Module(Settings(_env_file=None))
 
 
 _SHIPPED_DEFAULT = "dev-secret-key-change-in-production"
