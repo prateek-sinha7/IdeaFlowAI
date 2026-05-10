@@ -50,15 +50,21 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     env_file:
-      # /etc/flowin/app.env is populated on every systemd-unit start by
-      # /usr/local/bin/flowin-load-secrets (it pulls from SSM Parameter Store
-      # and writes a 0640 root:flowin file). On a developer laptop the file
-      # may not exist; `required: false` (Compose v2.24+) means a missing
-      # file is logged as a warning rather than a fatal error so local devs
-      # can `docker compose up` without first creating the file. In
-      # production the file is created by the bootstrap script (Appendix D)
-      # before the systemd unit starts compose.
+      # Two paths, both required: false. Compose merges them in order, so
+      # ./app.env overrides /etc/flowin/app.env when both exist — that is the
+      # local-dev pattern: drop an `app.env` next to the compose file and
+      # `docker compose up` picks it up without needing root or sudo.
+      #
+      # Production:  /etc/flowin/app.env exists (written on every start by
+      #              /usr/local/bin/flowin-load-secrets, root:flowin 0640),
+      #              ./app.env does not — bootstrap deliberately doesn't put
+      #              one in /opt/flowin to avoid an accidental override.
+      # Local dev:   /etc/flowin/app.env doesn't exist on the laptop, devs
+      #              create ./app.env with their dev settings (or copy from
+      #              app.env.example — see the example file at the repo root).
       - path: /etc/flowin/app.env
+        required: false
+      - path: ./app.env
         required: false
     extra_hosts:
       # On Linux, host.docker.internal isn't auto-mapped — `host-gateway` is
@@ -140,7 +146,10 @@ services:
       - "127.0.0.1:3000:3000"
     healthcheck:
       # The frontend Dockerfile uses busybox wget; we mirror that here.
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      # 127.0.0.1 (NOT localhost): busybox wget resolves localhost to ::1, but
+      # Next.js standalone binds 0.0.0.0 (IPv4 only), so a localhost spider
+      # silently times out and the healthcheck stays "starting" forever.
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/"]
       interval: 30s
       timeout: 5s
       start_period: 15s

@@ -2,6 +2,12 @@
 .env
 .env.local
 .env.*.local
+# Local-dev compose env (devs copy from app.env.example).
+# The .example template IS committed; the real file is not.
+/app.env
+
+# Local-dev compose overrides — see app.env.example for the convention.
+docker-compose.override.yml
 
 # Python
 __pycache__/

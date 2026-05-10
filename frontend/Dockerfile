@@ -78,8 +78,11 @@ USER nextjs
 EXPOSE 3000
 
 # wget is provided by busybox in alpine — no install needed.
+# 127.0.0.1 (NOT localhost): busybox wget resolves localhost to ::1 first, but
+# Next.js standalone binds 0.0.0.0 (IPv4 only), so a localhost spider silently
+# times out and the healthcheck stays "starting" forever.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/ || exit 1
 
 # Exec form so signals (SIGTERM, SIGINT) reach node directly.
 CMD ["node", "server.js"]

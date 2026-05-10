@@ -178,17 +178,29 @@ class PipelineExecutor:
                 logger.error("AGENT [%d/%d] FAILED — %s: %s", i + 1, len(self.agents), agent_def.name, e, exc_info=True)
                 duration = time.time() - agent_start
 
+                from app.agents.llm_errors import map_exception
+                payload = map_exception(e)
+
                 yield {
                     "type": "agent_error",
                     "data": {
                         "agent_id": agent_def.id,
-                        "error": str(e),
+                        "error": payload.message,
+                        "code": payload.code,
                         "duration": round(duration, 2),
-                        "recoverable": True,
+                        "recoverable": payload.recoverable,
                     },
                 }
+                # Non-recoverable errors abort the pipeline. Continuing into
+                # the next agent would just hit the same wall (e.g. missing
+                # AWS credentials, model-not-found, validation mismatch on a
+                # prompt template). Short-circuit so the user sees one clear
+                # error rather than N identical ones.
+                if not payload.recoverable:
+                    logger.warning("PIPELINE ABORTED — non-recoverable error code=%s on agent %s", payload.code, agent_def.id)
+                    break
                 # Continue to next agent on recoverable errors
-                self.context[agent_def.id] = f"[Error: {str(e)}]"
+                self.context[agent_def.id] = f"[Error: {payload.message}]"
                 continue
 
         # Pipeline complete

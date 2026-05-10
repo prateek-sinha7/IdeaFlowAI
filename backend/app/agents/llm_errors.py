@@ -100,6 +100,14 @@ def map_exception(exc: BaseException) -> LLMErrorPayload:
             ),
         ):
             return LLMErrorPayload(_message_for("connection_error"), "connection_error", True)
+
+        # Credentials missing or partial — IAM/IMDS/profile misconfiguration.
+        # Not retryable: every subsequent agent in the same pipeline will hit
+        # the same wall, and the user can't fix it from the chat UI.
+        # `recoverable=False` so the orchestrator short-circuits the pipeline
+        # instead of plowing through six identical failures.
+        if isinstance(exc, (botocore_exc.NoCredentialsError, botocore_exc.PartialCredentialsError)):
+            return LLMErrorPayload(_message_for("auth_error"), "auth_error", False)
     except ImportError:  # pragma: no cover — botocore is always installed when Bedrock is in use
         pass
 
