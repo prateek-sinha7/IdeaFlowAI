@@ -18,9 +18,11 @@ availability_zone = "eu-central-1a"
 environment = "prod"
 
 # ---- Tagging ---------------------------------------------------------------
-
-owner       = "flowin-platform-team@hexaware.com"
-cost_center = "UKI-FLOWIN-PROD"
+# Both default to "flowin" — fine for single-team accounts. Override only for
+# multi-team accounts where Cost Explorer needs to break spend down by team
+# / project / finance code.
+# owner       = "flowin-platform-team@hexaware.com"
+# cost_center = "UKI-AI-001"
 
 # ---- Optional cross-account assume-role ------------------------------------
 

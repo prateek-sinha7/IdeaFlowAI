@@ -20,13 +20,15 @@ variable "aws_region" {
 }
 
 variable "owner" {
-  description = "Tag value for Owner (team contact)."
+  description = "Tag value for Owner. Drives AWS Cost Explorer / Billing reports filtered by tag — finance can answer 'how much is team X costing us?' when this is set. Default 'flowin' is fine for single-team / single-project accounts; override for multi-team / multi-project accounts where per-team cost allocation matters."
   type        = string
+  default     = "flowin"
 }
 
 variable "cost_center" {
-  description = "Tag value for CostCenter (finance code)."
+  description = "Tag value for CostCenter (finance code). Same Cost-Explorer reasoning as `owner`; default 'flowin' is the catch-all. Set to your org's real finance code (e.g. 'UKI-AI-001') when you want this stack's spend to roll up into a specific budget."
   type        = string
+  default     = "flowin"
 }
 
 variable "state_bucket_name" {

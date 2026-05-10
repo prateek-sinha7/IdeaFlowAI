@@ -16,9 +16,11 @@ expected_account_id = "123456789012"
 # Region. Default is eu-central-1 — change only if your prod env runs elsewhere.
 # aws_region = "eu-central-1"
 
-# Tag values applied to every resource via provider default_tags.
-owner       = "flowin-platform-team@hexaware.com"
-cost_center = "UKI-FLOWIN-PROD"
+# Tag values for Cost Explorer / Billing breakdowns. Defaults are "flowin"
+# — fine for single-team accounts. Override for multi-team accounts where
+# you want per-team cost allocation (e.g. by org finance code).
+# owner       = "flowin-platform-team@hexaware.com"
+# cost_center = "UKI-AI-001"
 
 # Globally-unique S3 bucket name. Convention: flowin-tfstate-<account>-<region>.
 # Must be 3-63 chars. The bucket has prevent_destroy = true once created.
