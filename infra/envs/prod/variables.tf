@@ -411,3 +411,16 @@ variable "stuck_workflows_check_period" {
   type        = number
   default     = 1800
 }
+
+# --- Container deploy --------------------------------------------------------
+
+variable "git_ref" {
+  description = "Branch, tag, or short SHA the EC2 bootstrap fetches docker-compose.yml from. Threaded into user_data via FLOWIN_GIT_REF. Defaults to main; override per-env to pin a release."
+  type        = string
+  default     = "main"
+
+  validation {
+    condition     = length(var.git_ref) > 0 && length(var.git_ref) <= 250
+    error_message = "git_ref must be a non-empty git ref (branch, tag, or sha)."
+  }
+}

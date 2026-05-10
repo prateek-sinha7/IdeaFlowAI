@@ -1,0 +1,54 @@
+# Keep the build context small AND prevent dev/test/secret artefacts from
+# being baked into the image. Anything excluded here is invisible to the
+# `COPY` instructions in the Dockerfile.
+
+# --- Python build/runtime detritus -----------------------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Local virtualenvs (must NEVER be copied — wrong arch & polluted) ------
+.venv/
+venv/
+env/
+ENV/
+
+# --- Test code & fixtures (not part of the runtime image) ------------------
+tests/
+pptx/
+
+# --- Per-user runtime data (bind-mounted from the host at runtime) ---------
+# In production /app/skills is an EBS volume, NOT baked image content.
+skills/
+
+# --- Secrets & local configuration (NEVER bake into images) ----------------
+.env
+.env.*
+*.pem
+*.key
+
+# --- Documentation (the runtime image doesn't serve docs) ------------------
+*.md
+README*
+
+# --- Git metadata ----------------------------------------------------------
+.git/
+.gitignore
+.gitattributes
+
+# --- Docker artefacts (avoid recursive context bloat) ----------------------
+Dockerfile*
+.dockerignore
+docker-compose*.yml
+docker-compose*.yaml
+
+# --- Editor / OS / misc paranoia ------------------------------------------
+.DS_Store
+.idea/
+.vscode/
+*.swp
+node_modules/

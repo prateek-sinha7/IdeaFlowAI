@@ -1,0 +1,168 @@
+# docker-compose.yml
+#
+# Flowin app stack — backend (FastAPI/uvicorn) + frontend (Next.js standalone).
+#
+# Postgres and nginx run NATIVELY on the host — they are deliberately NOT in
+# this compose file. The reasoning is in docs/SIMPLE_AWS_DEPLOYMENT.md, but
+# in short:
+#   * Postgres stays native because the data dir lives on a separate encrypted
+#     EBS volume mounted at /var/lib/postgresql; that volume is what the EBS-
+#     snapshot backup path captures (§11.2 path A) and what the disaster-
+#     recovery drill re-attaches to a fresh instance (§11.3). Wrapping it in
+#     a container would put another file-system / UID / fsync layer between
+#     the database and the disk that the backup story depends on. It would
+#     also make `pg_dump` and `psql` invocations from systemd timers (the
+#     backup unit, the stuck-workflows probe) awkward. Cleaner: leave it on
+#     the host, expose it on 127.0.0.1:5432 the way it already is.
+#   * Nginx stays native because it is the TLS terminator. The certs live at
+#     /etc/letsencrypt/live/<fqdn>/, are renewed by the host's certbot
+#     timer, and need to be consumed *outside* any application-image rebuild
+#     cycle (the cert refreshes every 60 days; the app images rebuild on
+#     every deploy). Containerising nginx would force a bind-mount of
+#     /etc/letsencrypt into the container, plus signal-routing for cert
+#     reloads — for no benefit. Clean separation of concerns: nginx is
+#     infrastructure, the app is the deployable.
+#
+# Two run modes:
+#   Local dev:  `docker compose build && docker compose up -d`
+#               (uses local sources via the `build:` context for each service)
+#   Production: `docker compose pull && docker compose up -d`
+#               (pulls pre-built images from ECR; tags from /etc/flowin/app.env)
+#
+# In production the operator sets BACKEND_IMAGE and FRONTEND_IMAGE in
+# /etc/flowin/app.env to fully qualified ECR URIs with a specific tag, e.g.
+#   BACKEND_IMAGE=<ACCOUNT>.dkr.ecr.eu-central-1.amazonaws.com/flowin-prod-backend:v20260510-abc1234
+#   FRONTEND_IMAGE=<ACCOUNT>.dkr.ecr.eu-central-1.amazonaws.com/flowin-prod-frontend:v20260510-abc1234
+# The `${BACKEND_IMAGE:-flowin-backend:local}` interpolation below means an
+# unset variable falls back to the local-build tag, so the same compose file
+# works for both contexts without a `--profile` switch.
+
+name: flowin
+
+services:
+  backend:
+    # Image URI is interpolated from the env. Fallback is the local-build tag
+    # the `build:` block below produces; that is what makes `docker compose
+    # build && docker compose up` work straight from a developer checkout.
+    image: ${BACKEND_IMAGE:-flowin-backend:local}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      # /etc/flowin/app.env is populated on every systemd-unit start by
+      # /usr/local/bin/flowin-load-secrets (it pulls from SSM Parameter Store
+      # and writes a 0640 root:flowin file). On a developer laptop the file
+      # may not exist; `required: false` (Compose v2.24+) means a missing
+      # file is logged as a warning rather than a fatal error so local devs
+      # can `docker compose up` without first creating the file. In
+      # production the file is created by the bootstrap script (Appendix D)
+      # before the systemd unit starts compose.
+      - path: /etc/flowin/app.env
+        required: false
+    extra_hosts:
+      # On Linux, host.docker.internal isn't auto-mapped — `host-gateway` is
+      # the supported (Docker 20.10+) way for a container to reach a service
+      # bound to the host's loopback. Postgres is on the host at
+      # 127.0.0.1:5432; from inside this container the same Postgres is
+      # reachable as host.docker.internal:5432. The DATABASE_URL composed by
+      # /usr/local/bin/flowin-load-secrets uses `host.docker.internal` for
+      # exactly this reason. Do NOT use `network_mode: host` instead — that
+      # disables the network namespace and undoes most of the container
+      # isolation we get for free.
+      - "host.docker.internal:host-gateway"
+    ports:
+      # Bind to 127.0.0.1 only — nginx (on the host) is the only client that
+      # talks to this port. Using `127.0.0.1:8000:8000` rather than
+      # `8000:8000` (which binds 0.0.0.0:8000 by default) is a defence-in-
+      # depth measure: a misconfigured security group would still not expose
+      # uvicorn to the public internet because the host kernel never accepts
+      # the connection in the first place.
+      - "127.0.0.1:8000:8000"
+    volumes:
+      # Per-user agent skills live on the EBS data volume so they survive
+      # instance replacement. Mounted RW because the backend writes new
+      # agents/skills at runtime (see backend Dockerfile note: /app/skills
+      # exists in the image as an empty mount target).
+      - /opt/flowin/data/skills:/app/skills
+    healthcheck:
+      # /health is implemented in app/main.py; the backend Dockerfile already
+      # has a HEALTHCHECK directive but compose's healthcheck overrides it
+      # with the same intent so it shows up in `docker compose ps` cleanly.
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    deploy:
+      # Mirrors §15.1 capacity numbers — backend can hold ~100 MB per running
+      # pipeline, hence the 8G ceiling. `reservations` is a soft hint to the
+      # scheduler; on a single-host compose deployment the limit is the part
+      # that actually matters (it maps to a kernel cgroup memory.max).
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 2G
+    logging:
+      # Cap container log size so the json-file driver can't fill
+      # /var/lib/docker/containers and OOM the host's root filesystem.
+      # 100m × 5 files = 500 MB max per container; CloudWatch agent ships
+      # the live tail, so on-disk retention here is just for ad-hoc
+      # `docker compose logs` debugging.
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
+    # Long-lived WebSocket pipelines (B5/W21/W33) can stream tokens for tens
+    # of minutes. SIGTERM-then-SIGKILL with a 30-second window gives uvicorn
+    # time to drain in-flight WS frames cleanly instead of the default 10s
+    # KillTimeout that would chop the last response mid-stream.
+    stop_grace_period: 30s
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-flowin-frontend:local}
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Baked at BUILD time into the JS bundle (Next.js inlines NEXT_PUBLIC_*
+        # vars at build, not at runtime — they CANNOT be changed by the
+        # runtime container env). In CI these are populated from the
+        # deployment FQDN (terraform output -raw fqdn) so the same image is
+        # bound to a single environment. Empty defaults are fine for local
+        # dev: the frontend then uses relative URLs that nginx terminates.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-}
+    restart: unless-stopped
+    ports:
+      # Same loopback-only rationale as backend above.
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      # The frontend Dockerfile uses busybox wget; we mirror that here.
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    deploy:
+      # Next.js standalone is small; 1G hard cap, 256M reservation matches
+      # the previous flowin-frontend.service `MemoryMax=2G` minus headroom
+      # we no longer need (no native systemd cache layer here).
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
+    depends_on:
+      # Wait for the backend's healthcheck to pass before starting frontend.
+      # Without this, the SSR layer of Next.js can race on the first request
+      # and 502 a freshly deployed box for the few seconds the backend takes
+      # to come up.
+      backend:
+        condition: service_healthy

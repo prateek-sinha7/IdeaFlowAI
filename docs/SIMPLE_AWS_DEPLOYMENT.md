@@ -99,12 +99,16 @@ Honest trade-offs:
    |   |  |     50 GB, encrypted) |  |                                        |
    |   |  |                       |  |                                        |
    |   |  | systemd units:        |  |                                        |
-   |   |  |   flowin-backend      |  |                                        |
-   |   |  |   flowin-frontend     |  |                                        |
+   |   |  |   flowin-app  (docker |  |                                        |
+   |   |  |     compose: backend  |  |                                        |
+   |   |  |     + frontend)       |  |                                        |
+   |   |  |   docker              |  |                                        |
    |   |  |   nginx               |  |                                        |
    |   |  |   postgresql          |  |                                        |
    |   |  |   amazon-cloudwatch-  |  |                                        |
    |   |  |     agent             |  |                                        |
+   |   |  |   flowin-ecr-login    |  |                                        |
+   |   |  |     .timer            |  |                                        |
    |   |  |   pg-dump-to-s3.timer |  |                                        |
    |   |  |   certbot.timer       |  |                                        |
    |   |  +-----------------------+  |                                        |
@@ -810,6 +814,9 @@ sudo systemctl enable nginx
 The full `/etc/nginx/sites-available/flowin` lives in **Appendix A**. Highlights:
 
 - **Backend HTTP routes (`/api/*`, `/health`, `/openapi.json`, `/docs`):** proxied to `127.0.0.1:8000`. `proxy_buffering off;` is critical because the backend streams JSON tokens back from LLM calls — buffering would hold them up and break the chat-typing illusion (W44, B5).
+
+> Nginx upstreams `127.0.0.1:8000` (backend) and `127.0.0.1:3000` (frontend) are now Docker port mappings — the containers bind to those ports on the loopback interface (`docker-compose.yml` uses `127.0.0.1:8000:8000` / `127.0.0.1:3000:3000`). The nginx config is unchanged from the pre-Docker version: the same upstream URLs work, since Docker Compose's port mapping is transparent to the proxy.
+
 - **WebSocket route (`/ws/chat`):** proxied to `127.0.0.1:8000` with the WS upgrade headers. `proxy_read_timeout 5400s;` and `proxy_send_timeout 5400s;` give a 90-minute idle window — see W21/W33/B5: prototype/PPT pipelines can stream tokens for tens of minutes; we want to be safely above the worst observed long-tail. *Don't* set this to "infinity"; idle WS connections must be reaped.
 - **Frontend (`/`):** proxied to `127.0.0.1:3000` (Next.js prod server). `proxy_pass http://127.0.0.1:3000;` with the standard `Host`/`X-Forwarded-*` headers.
 - **Access log:** custom log_format `flowin` that **omits the `args` (query string)** to mitigate Blocker 5 token leakage. See Appendix A — the `log_format flowin` block uses `$uri` instead of `$request`.
@@ -827,29 +834,35 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-### 8.3 systemd units for backend (uvicorn) and frontend (next start)
+### 8.3 systemd unit for the app stack (Docker Compose)
 
-Two units, both running as the unprivileged `flowin` user. Full files in **Appendix B**. Key properties:
+The backend and frontend run as containers managed by a single systemd unit, `flowin-app.service`, which delegates to `docker compose`. Postgres has its own native unit (`postgresql@16-main.service`, §8.4) and nginx has `nginx.service` (§8.2 and Appendix A) — those are unchanged from the pre-Docker design.
 
-- `User=flowin`, `Group=flowin`. No root.
-- `WorkingDirectory=/opt/flowin/backend` (or `/frontend`).
-- `EnvironmentFile=/etc/flowin/environment.d/flowin.env` — populated from Parameter Store on every start by `ExecStartPre=/usr/local/bin/flowin-load-secrets`. Secrets never sit on disk in plaintext outside this 0640 file owned by root:flowin (see §9 for why this is acceptable, plus an even stricter alternative).
-- `Restart=always`, `RestartSec=5s`. Crash → restart.
-- `LimitNOFILE=65535` for the backend. WebSocket fan-out can otherwise hit the default 1024 ulimit.
-- `PrivateTmp=yes`, `ProtectSystem=strict`, `ProtectHome=yes`, `NoNewPrivileges=yes`, `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`, `CapabilityBoundingSet=` (empty). Standard systemd hardening.
-- `ReadWritePaths=/opt/flowin/backend/skills /var/log/flowin` — explicit allowlist of writable paths.
+**Why one unit, not two.** Docker Compose already orchestrates start ordering (the frontend's `depends_on: backend` with `condition: service_healthy`) and per-container restart policies (`restart: unless-stopped`). Splitting into two systemd units would duplicate that orchestration in two places and create races between systemd's `After=`/`Requires=` graph and Compose's healthcheck-driven start order. One unit, one source of truth.
 
-**Backend** (`flowin-backend.service`): runs `uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 4 --proxy-headers --forwarded-allow-ips=127.0.0.1`. Four workers gives ~4× the WS throughput on `m6i.2xlarge` (8 vCPU). `--proxy-headers` makes uvicorn trust nginx's `X-Forwarded-*`. `--forwarded-allow-ips=127.0.0.1` means nginx is the *only* trusted source of those headers — you don't get IP spoofing from a misconfigured ingress.
+**Why `Type=oneshot` + `RemainAfterExit=yes`.** `docker compose up -d` exits immediately once the containers are detached; we need systemd to mark the unit "active" at that point and then leave Docker to manage the actual container lifecycles via its own restart policies. A long-running `Type=simple`/`Type=exec` would block on a process that has already detached.
 
-**Frontend** (`flowin-frontend.service`): runs `node /opt/flowin/frontend/.next/standalone/server.js`. Built ahead of time with `next build` and `NEXT_PUBLIC_API_URL=https://${FLOWIN_FQDN}` and `NEXT_PUBLIC_WS_URL=wss://${FLOWIN_FQDN}/ws/chat` baked in. `FLOWIN_FQDN` is the same hostname the rest of the stack resolves at — `<dashed-eip>.nip.io` when `var.use_nip_io = true`, or `<app_subdomain>.<route53_zone_name>` for the custom-domain path.
+Key properties of the unit:
 
-**Crucial detail about `NEXT_PUBLIC_*`:** these vars are **inlined at build time** in Next.js. You cannot change them via the systemd unit's environment. Set them at the GitLab CI build step (§12) or at the bootstrap-time `npm run build` step, not afterwards. The bootstrap script (Appendix D) sources `/etc/flowin/bootstrap.env` and exports both into the `npm run build` invocation so the baked-in values match the FQDN Terraform produced.
+- `Type=oneshot` + `RemainAfterExit=yes` — systemd marks the unit "active" once `docker compose up -d` returns; the Docker daemon then keeps the containers running.
+- `EnvironmentFile=/etc/flowin/app.env` — populated on every start by `ExecStartPre=/usr/local/bin/flowin-load-secrets` (same SSM-pull mechanism as the native version, just renamed from `flowin.env` to `app.env`). The file is also picked up by Compose's `env_file:` so backend container env stays in sync.
+- `ExecStartPre=/usr/bin/docker compose pull` — refreshes images from ECR before bringing them up. (No-op locally if `BACKEND_IMAGE` / `FRONTEND_IMAGE` aren't set; `docker compose up` falls back to the local `flowin-backend:local` / `flowin-frontend:local` tags built from the source tree.)
+- `ExecStart=/usr/bin/docker compose up -d --remove-orphans` — `--remove-orphans` cleans up any stale containers from a previous compose definition (e.g. an old `redis` service we removed).
+- `ExecStop=/usr/bin/docker compose down` — graceful stop; honours each service's `stop_grace_period:` (30 s on backend so uvicorn drains in-flight WS frames).
+- `ExecReload=/usr/bin/docker compose restart` — wired so `systemctl reload flowin-app` is the operator-facing knob.
+- `WorkingDirectory=/opt/flowin` — the compose file lives there; bootstrap copies it from the repo on first deploy.
+
+Hardening at the systemd level is intentionally light here because the security boundary is the container, not the unit. The Dockerfiles (`backend/Dockerfile`, `frontend/Dockerfile`) already enforce `USER 10001:10001`, drop unnecessary packages, and the daemon applies the default seccomp profile and capability set. Re-asserting `NoNewPrivileges=` etc. on a unit that just calls `docker compose` would constrain Docker itself, not the workload.
+
+Keep `Restart=on-failure` (with `RestartSec=30s`) so a `docker compose` failure (e.g. ECR auth token expired between the `pull` and `up`, or a transient daemon hiccup) bounces the unit instead of leaving the host in a half-up state.
+
+**Crucial detail about `NEXT_PUBLIC_*`:** these vars are **inlined at build time** in Next.js. You cannot change them via the runtime container env. They are passed to the frontend image as `--build-arg NEXT_PUBLIC_API_URL=...` and `--build-arg NEXT_PUBLIC_WS_URL=...` in CI (see §12.1) so the image is bound to the FQDN of the environment it will run in. Once the image is built, the EC2 just pulls and runs it — the systemd unit never touches those variables.
 
 Enable:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now flowin-backend.service flowin-frontend.service
+sudo systemctl enable --now flowin-app.service
 ```
 
 ### 8.4 PostgreSQL on the same instance
@@ -978,67 +991,25 @@ Create the user **before** anything else:
 sudo useradd -r -m -d /opt/flowin -s /usr/sbin/nologin flowin
 ```
 
-Repository checkout:
+The `flowin` user no longer owns a Python venv or a frontend build — those live inside the container images, built in CI (§12). The host-side responsibilities of the user are:
 
-```bash
-sudo -u flowin git clone https://gitlab.com/hexaware-uki/flowin.git /opt/flowin/src
-sudo -u flowin ln -s /opt/flowin/src/backend /opt/flowin/backend
-sudo -u flowin ln -s /opt/flowin/src/frontend /opt/flowin/frontend
-```
+1. Owning the bind-mount target `/opt/flowin/data/skills` so files written by the in-container UID 10001 survive container restarts and stay readable for the skills-backup timer.
+2. Owning the compose file at `/opt/flowin/docker-compose.yml`.
+3. Running the host-side timers (`flowin-pg-dump`, `flowin-skills-backup`, `flowin-stuck-workflows-check`).
 
-Python venv for the backend:
+The `flowin-app.service` itself runs as **root** (it needs to talk to the Docker socket); the workload inside each container drops to UID 10001 via the Dockerfiles' `USER` directive. Don't add the `flowin` user to the `docker` group — Docker socket access is root-equivalent and we keep that to the systemd-managed flow only.
 
-```bash
-sudo apt-get install -y python3.12-venv
-sudo -u flowin python3.12 -m venv /opt/flowin/venv
-sudo -u flowin /opt/flowin/venv/bin/pip install -U pip
-sudo -u flowin /opt/flowin/venv/bin/pip install -r /opt/flowin/backend/requirements.txt
-sudo -u flowin /opt/flowin/venv/bin/pip install psycopg2-binary
-```
-
-(`psycopg2-binary` isn't pinned in `requirements.txt` today — `requirements.txt` lines 1–14 — but it is required for Postgres. Document that.)
-
-Frontend build:
-
-```bash
-# Install Node 20 (LTS) via NodeSource. The official Ubuntu apt repos are too old.
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
-
-# Build with the production env vars baked in. FLOWIN_FQDN comes from
-# /etc/flowin/bootstrap.env (Terraform writes it via the compute module's
-# user_data_extra_env). When the stack is applied with use_nip_io=true the
-# value will be e.g. 1-2-3-4.nip.io; with the Route 53 path it's the
-# customer's chosen FQDN. The build is identical either way.
-. /etc/flowin/bootstrap.env
-sudo -u flowin -- bash -c '
-  cd /opt/flowin/frontend &&
-  NEXT_PUBLIC_API_URL=https://'"$FLOWIN_FQDN"' \
-  NEXT_PUBLIC_WS_URL=wss://'"$FLOWIN_FQDN"'/ws/chat \
-  npm ci &&
-  npm run build
-'
-```
-
-For Next.js standalone output, add `output: "standalone"` to `frontend/next.config.ts`:
-
-```ts
-const nextConfig: NextConfig = {
-  devIndicators: false,
-  output: "standalone",
-};
-```
-
-This is a one-line code change; ship it as part of pre-launch.
+For Next.js standalone output, the frontend repo already has `output: "standalone"` in `frontend/next.config.ts`. The frontend Dockerfile depends on this — no host-side action.
 
 Permissions:
 
 ```
 /opt/flowin                       drwxr-xr-x flowin:flowin
-/opt/flowin/src                   drwxr-xr-x flowin:flowin
-/opt/flowin/venv                  drwxr-xr-x flowin:flowin
-/etc/flowin/environment.d         drwxr-x--- root:flowin
-/etc/flowin/environment.d/*.env   -rw-r----- root:flowin (mode 0640)
+/opt/flowin/data/skills           drwxr-xr-x flowin:flowin   # bind-mounted RW into backend container (UID 10001)
+/opt/flowin/docker-compose.yml    -rw-r--r-- flowin:flowin
+/etc/flowin                       drwxr-x--- root:flowin
+/etc/flowin/app.env               -rw-r----- root:flowin (mode 0640)
+/etc/flowin/bootstrap.env         -rw-r----- root:flowin (mode 0640)
 /var/log/flowin                   drwxrwxr-x flowin:flowin
 ```
 
@@ -1174,16 +1145,26 @@ aws ssm put-parameter \
 #
 # No fallback defaults: if /flowin/prod/llm/* is missing the loader writes
 # nothing for those keys and Settings boots with its codebase default. ENV is
-# set by the systemd unit (Environment=ENV=production), not by this loader.
+# preserved from the previous app.env (it's written once by the bootstrap
+# script — see Appendix D §8c — and persists across loader runs via the
+# `BACKEND_IMAGE|FRONTEND_IMAGE|ENV` preserve clause below).
 set -euo pipefail
 
-OUT=/etc/flowin/environment.d/flowin.env
-TMP=$(mktemp /etc/flowin/environment.d/flowin.env.XXXXXX)
+OUT=/etc/flowin/app.env
+TMP=$(mktemp /etc/flowin/app.env.XXXXXX)
 chmod 0640 "$TMP"
 chown root:flowin "$TMP"
 
 REGION=eu-central-1
 PREFIX=/flowin/prod
+
+# Preserve operator-managed image-tag pins from the previous app.env. Lines
+# starting with BACKEND_IMAGE= or FRONTEND_IMAGE= are CI-managed (the deploy
+# step seds them in place) — we don't want a load-secrets run to clobber a
+# freshly deployed tag.
+if [[ -f "$OUT" ]]; then
+    grep -E '^(BACKEND_IMAGE|FRONTEND_IMAGE|ENV)=' "$OUT" >> "$TMP" || true
+fi
 
 emit() {
     # Escape any quotes/dollars in the value via printf %q.
@@ -1196,7 +1177,11 @@ while IFS=$'\t' read -r name value; do
         SECRET_KEY|CORS_ORIGINS|ACCESS_TOKEN_EXPIRE_HOURS|LANGSMITH_TRACING|LANGSMITH_API_KEY|LANGSMITH_PROJECT)
             emit "$rel" "$value" ;;
         DATABASE_PASSWORD)
-            emit DATABASE_URL "postgresql://flowin:${value}@127.0.0.1:5432/flowin" ;;
+            # host.docker.internal resolves inside the backend container to
+            # the host gateway (mapped via extra_hosts in docker-compose.yml).
+            # Host-side scripts (flowin-stuck-workflows-check) substitute
+            # this back to 127.0.0.1 before invoking psql.
+            emit DATABASE_URL "postgresql://flowin:${value}@host.docker.internal:5432/flowin" ;;
         llm/provider)      emit LLM_PROVIDER     "$value" ;;
         llm/region)        emit AWS_REGION       "$value" ;;
         llm/model_id)      emit BEDROCK_MODEL_ID "$value" ;;
@@ -1217,7 +1202,7 @@ chmod 0640 "$OUT"
 chown root:flowin "$OUT"
 ```
 
-The `flowin` user has read access to the env file (group-read), but not write. The application reads `os.environ` at boot.
+The `flowin` user has read access to the env file (group-read), but not write. Compose reads `/etc/flowin/app.env` via the `env_file:` block in `docker-compose.yml`, the secret values land in the backend container's environment, and the application reads `os.environ` at boot.
 
 ### 9.4 An even-stricter alternative (optional)
 
@@ -1291,20 +1276,35 @@ Drop the config at `/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent
 }
 ```
 
-Application logs go via journald (uvicorn and `next` write to stdout, which systemd captures). The CloudWatch agent does not natively tail journald, so we use the `journald` driver via:
+Application logs are now written to stdout by uvicorn / `next` *inside* their containers; the Docker daemon's `json-file` log driver captures them in `/var/lib/docker/containers/<id>/<id>-json.log`. The CloudWatch agent tails those files (rather than journald) and tags each stream with the container name, so backend and frontend land in distinct streams in `/flowin/prod/app`:
 
 ```json
-"journald": {
-  "log_group_name": "/flowin/prod/app",
-  "log_stream_name": "{instance_id}",
-  "filters": [
-    {"type": "include", "expression": "_SYSTEMD_UNIT=flowin-backend.service"},
-    {"type": "include", "expression": "_SYSTEMD_UNIT=flowin-frontend.service"}
+"files": {
+  "collect_list": [
+    /* ... existing nginx/postgres/auth entries ... */
+    {
+      "file_path":      "/var/lib/docker/containers/*/*-json.log",
+      "log_group_name": "/flowin/prod/app",
+      "log_stream_name": "{instance_id}/docker",
+      "timezone": "UTC"
+    }
   ]
 }
 ```
 
-(Add this under `logs.logs_collected.journald` in the same config.)
+(Add this under `logs.logs_collected.files` in the same config — the existing `journald` block can stay for systemd-managed services like sshd; the application-log path no longer goes through journald.)
+
+**File-permission requirement.** Docker daemon writes JSON logs as `root:root 0640` by default — the `cwagent` user cannot read them out of the box. Adding `cwagent` to the `docker` group is the obvious fix but it grants *full* Docker socket access (root-equivalent), which is too broad. The right fix is a POSIX ACL granting `cwagent` read+traverse on the directory and a default ACL so newly-created log files inherit the same:
+
+```bash
+sudo apt-get install -y acl
+sudo setfacl -R -m u:cwagent:rX /var/lib/docker/containers
+sudo setfacl -R -d -m u:cwagent:rX /var/lib/docker/containers
+```
+
+The bootstrap script (Appendix D) does this automatically right after the Docker install. If you skip it, the CloudWatch agent runs without errors but quietly captures zero application log lines — silent failure, so test once with `aws logs tail /flowin/prod/app --since 5m` after a deploy.
+
+Alternatively, run a sidecar like `vector` or use the AWS CloudWatch Logs Docker logging driver (`awslogs`) per service in `docker-compose.yml`. The file-tail approach above keeps the local `docker compose logs` tool working for ad-hoc debugging, which is why we recommend it.
 
 Apply:
 
@@ -1516,7 +1516,7 @@ The app already exposes `/health` (`main.py:102-109`). Hit it from outside AWS s
 ### 11.1 What we are protecting
 
 - The Postgres data dir (`/var/lib/postgresql`) — user accounts, chats, workflow runs, agent_outputs JSON.
-- The skills directory (`/opt/flowin/src/backend/skills`) — small, but custom user content.
+- The skills directory (`/opt/flowin/data/skills`) — small, but custom user content. Bind-mounted into the backend container; lives on the EBS data volume.
 - The TLS cert + key (`/etc/letsencrypt`) — annoying to lose but recreatable in 5 min.
 
 The OS root volume contains nothing irreplaceable; the bootstrap script can recreate it.
@@ -1573,10 +1573,10 @@ Type=oneshot
 User=postgres
 Group=postgres
 # bootstrap.env carries FLOWIN_BACKUP_BUCKET and FLOWIN_KMS_KEY_ID (Terraform
-# injects these via user_data_extra_env in module.compute). flowin.env carries
+# injects these via user_data_extra_env in module.compute). app.env carries
 # the application secrets; pg_dump doesn't need them but loading both is fine.
 EnvironmentFile=/etc/flowin/bootstrap.env
-EnvironmentFile=/etc/flowin/environment.d/flowin.env
+EnvironmentFile=/etc/flowin/app.env
 ExecStart=/usr/local/bin/flowin-pg-dump
 ```
 
@@ -1662,12 +1662,12 @@ The runbook for "instance died, EIP detached, EBS data volume preserved":
 3. **Attach the existing data volume:** `aws ec2 attach-volume --instance-id <NEW> --volume-id <VOL> --device /dev/sdf`.
 4. **Re-attach the EIP:** `aws ec2 associate-address --instance-id <NEW> --allocation-id <EIP_ALLOC>`.
 5. **Wait for cloud-init.** The bootstrap script:
-   - Installs nginx, postgres, node, certbot, cloudwatch agent.
+   - Installs nginx, postgres, Docker engine + Compose plugin, certbot, cloudwatch agent.
    - Mounts the data volume.
-   - Re-clones the repo.
-   - Pulls secrets from Parameter Store.
+   - Authenticates to ECR and pulls the backend + frontend images.
+   - Pulls secrets from Parameter Store into `/etc/flowin/app.env`.
    - Renews the Let's Encrypt cert if it's already in `/etc/letsencrypt/live/` (skip if old cert is fine).
-   - Brings up `flowin-backend`, `flowin-frontend`, `nginx`, `postgresql`.
+   - Brings up `flowin-app.service` (which runs `docker compose up -d`), `nginx`, `postgresql@16-main`.
 6. **Smoke test:** `curl https://flowin.example.com/health`. Click through `/login`, run a small pipeline.
 
 **Wallclock target: 30 minutes.** Practiced quarterly during a maintenance window. Document the most recent drill date in the runbook.
@@ -1680,9 +1680,9 @@ If the data volume is also lost (region-wide outage, AZ failure), the recovery p
 
 - Application logs in CloudWatch — they're already durable.
 - LLM (Bedrock) responses — re-derivable on demand.
-- Skills (small, low-churn) — *do* back up. The systemd unit in Appendix B.5 is the supported path (it sources `/etc/flowin/bootstrap.env` for `FLOWIN_BACKUP_BUCKET` and `FLOWIN_KMS_KEY_ID` and uploads with `--sse aws:kms`). If you prefer cron for any reason, the equivalent line is:
+- Skills (small, low-churn) — *do* back up. The systemd unit in Appendix B.5 is the supported path (it sources `/etc/flowin/bootstrap.env` for `FLOWIN_BACKUP_BUCKET` and `FLOWIN_KMS_KEY_ID` and uploads with `--sse aws:kms`). The skills directory now lives at `/opt/flowin/data/skills` (the backend container's bind-mount target) instead of `/opt/flowin/src/backend/skills`. If you prefer cron for any reason, the equivalent line is:
   ```bash
-  echo '0 4 * * * flowin . /etc/flowin/bootstrap.env && tar -czf - /opt/flowin/src/backend/skills | aws s3 cp - s3://${FLOWIN_BACKUP_BUCKET}/skills/$(date -u +\%Y\%m\%d).tar.gz --region eu-central-1 --sse aws:kms --sse-kms-key-id $FLOWIN_KMS_KEY_ID' | sudo tee -a /etc/cron.d/flowin-skills-backup
+  echo '0 4 * * * flowin . /etc/flowin/bootstrap.env && tar -czf - /opt/flowin/data/skills | aws s3 cp - s3://${FLOWIN_BACKUP_BUCKET}/skills/$(date -u +\%Y\%m\%d).tar.gz --region eu-central-1 --sse aws:kms --sse-kms-key-id $FLOWIN_KMS_KEY_ID' | sudo tee -a /etc/cron.d/flowin-skills-backup
   ```
 
 ---
@@ -1691,129 +1691,90 @@ If the data volume is also lost (region-wide outage, AZ failure), the recovery p
 
 ### 12.1 Release pipeline (GitLab CI)
 
-The project repo is `gitlab.com/hexaware-uki/flowin` on branch `agent-pipeline-execution`. The release job lives in `.gitlab-ci.yml` (not currently present; ship it as part of this work).
+The project repo is `gitlab.com/hexaware-uki/flowin`. The release job lives in `.gitlab-ci.yml`. The pipeline now builds and pushes Docker images to ECR, then SSH's into the EC2 to point `/etc/flowin/app.env` at the new tags and restart the unit.
 
-A simple, secure pipeline:
+The minimal deploy job (test stages omitted for brevity — they run unchanged):
 
 ```yaml
-stages: [test, build, deploy]
-
-variables:
-  AWS_REGION: eu-central-1
-  S3_BUCKET: flowin-prod-artifacts
-  INSTANCE_TAG: flowin-prod
-
-test-backend:
-  stage: test
-  image: python:3.12-slim
-  script:
-    - pip install -r backend/requirements.txt
-    - pytest backend/tests/ -v
-
-test-frontend:
-  stage: test
-  image: node:20
-  script:
-    - cd frontend && npm ci
-    - npm test
-    - npm run build
-
-build-artifact:
-  stage: build
-  image: amazon/aws-cli:latest
-  needs: [test-backend, test-frontend]
-  only: [main]
-  script:
-    - apk add --no-cache git tar gzip
-    - SHA=$(git rev-parse --short HEAD)
-    - tar -czf flowin-${SHA}.tar.gz backend/ frontend/.next/standalone/ frontend/.next/static/ frontend/public/
-    - aws s3 cp flowin-${SHA}.tar.gz s3://${S3_BUCKET}/releases/flowin-${SHA}.tar.gz --sse AES256
-    - echo "${SHA}" > current-sha.txt
-    - aws s3 cp current-sha.txt s3://${S3_BUCKET}/releases/current.txt --sse AES256
-
-deploy:
+# .gitlab-ci.yml (snippet)
+build_and_deploy:
   stage: deploy
-  image: amazon/aws-cli:latest
-  needs: [build-artifact]
-  only: [main]
-  when: manual                      # human approves prod deploy
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    AWS_REGION:    eu-central-1
+    ECR_REGISTRY:  $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+    BACKEND_REPO:  $ECR_REGISTRY/flowin-prod-backend
+    FRONTEND_REPO: $ECR_REGISTRY/flowin-prod-frontend
+    TAG: v$(date +%Y%m%d)-$CI_COMMIT_SHORT_SHA
+  before_script:
+    - apk add --no-cache aws-cli openssh-client
+    - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
   script:
-    - INSTANCE_ID=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=${INSTANCE_TAG}" "Name=instance-state-name,Values=running" --query 'Reservations[0].Instances[0].InstanceId' --output text)
-    - aws ssm send-command \
-        --instance-ids ${INSTANCE_ID} \
-        --document-name AWS-RunShellScript \
-        --parameters 'commands=["sudo /usr/local/bin/flowin-deploy"]' \
-        --comment "Deploy ${SHA}"
+    # FQDN comes from a CI variable populated by `terraform output -raw fqdn`
+    # (the Terraform CI job runs first; the value is published as $DEPLOY_FQDN).
+    - docker build -t $BACKEND_REPO:$TAG  backend/
+    - docker build -t $FRONTEND_REPO:$TAG --build-arg NEXT_PUBLIC_API_URL=https://$DEPLOY_FQDN --build-arg NEXT_PUBLIC_WS_URL=wss://$DEPLOY_FQDN/ws/chat frontend/
+    - docker push $BACKEND_REPO:$TAG
+    - docker push $FRONTEND_REPO:$TAG
+    # SSH to the EC2 and update /etc/flowin/app.env to point at the new tags,
+    # then restart. The SSH key + user come from CI secrets; the EC2 host is
+    # in $DEPLOY_HOST (also from CI vars).
+    - |
+      ssh -o StrictHostKeyChecking=no flowin-deploy@$DEPLOY_HOST <<EOF
+      set -e
+      sudo /usr/local/bin/flowin-update-image-tag backend  "$BACKEND_REPO:$TAG"
+      sudo /usr/local/bin/flowin-update-image-tag frontend "$FRONTEND_REPO:$TAG"
+      sudo systemctl restart flowin-app.service
+      EOF
+  only:
+    - main
 ```
 
-`when: manual` on the deploy stage means a human clicks "Deploy" in the GitLab UI. **Never auto-deploy main to prod on a single-EC2 topology** — there's no canary, no blue-green, no rollback besides re-deploying the previous SHA.
+**Notes:**
 
-### 12.2 The on-host deploy script
+- `NEXT_PUBLIC_API_URL` / `NEXT_PUBLIC_WS_URL` are baked into the frontend image at build time. That is why the build job needs the FQDN — it cannot be supplied at run time. A consequence: every environment (prod, staging, etc.) gets its own frontend image; you cannot reuse the staging image in prod.
+- The EC2 has a `flowin-deploy` system user (created by Appendix D §13) with **restricted sudo** on three exact commands. CI never runs `sudo sed` directly — it calls `/usr/local/bin/flowin-update-image-tag`, a wrapper that whitelists `(backend|frontend)` and a regex-bounded image URI before editing `/etc/flowin/app.env`. The full sudoers stanza Appendix D installs:
+  ```
+  flowin-deploy ALL=(root) NOPASSWD: /usr/local/bin/flowin-update-image-tag backend *
+  flowin-deploy ALL=(root) NOPASSWD: /usr/local/bin/flowin-update-image-tag frontend *
+  flowin-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart flowin-app.service
+  ```
+  This is the minimum-privilege deploy account: it cannot read secrets, cannot install packages, cannot escalate, and cannot edit any file outside `/etc/flowin/app.env`.
+- Image tags are immutable (Terraform's ECR module enforces `IMAGE_TAG_MUTABILITY = "IMMUTABLE"`). A double-deploy of the same SHA fails on push — that's intentional; bump a commit, retry.
+- ECR retains the last 10 tagged images per repo (lifecycle policy in `infra/modules/ecr/main.tf`). Older tags expire automatically. Rollback is to pick a still-resident tag.
+- `only: [main]` plus `when: manual` (add it back if you want — omitted here for brevity) gives the operator-clicks-Deploy gate. **Never auto-deploy main to prod on a single-EC2 topology** — there's no canary, no blue-green, no rollback besides re-deploying the previous tag.
 
-`/usr/local/bin/flowin-deploy`:
+### 12.2 What `flowin-app.service restart` actually does
 
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
+When the CI deploy step runs `systemctl restart flowin-app.service`:
 
-AWS_REGION=eu-central-1
-S3_BUCKET=flowin-prod-artifacts
-DEPLOY_DIR=/opt/flowin
-RELEASES_DIR=${DEPLOY_DIR}/releases
+1. systemd runs `ExecStop=docker compose down`, which sends SIGTERM to each container then SIGKILL after `stop_grace_period` (30 s for backend so uvicorn drains in-flight WS frames).
+2. systemd runs `ExecStartPre=/usr/local/bin/flowin-load-secrets` — this re-reads SSM Parameter Store and rewrites `/etc/flowin/app.env`, but it preserves the `BACKEND_IMAGE=` / `FRONTEND_IMAGE=` lines that the CI deploy step just `sed`'d in (the loader's "preserve image-tag pins" merge — see §9.3).
+3. systemd runs `ExecStartPre=docker compose pull`, which pulls the new image tags from ECR. ECR auth is fresh (the `flowin-ecr-login.timer` refreshes it every 6 h).
+4. systemd runs `ExecStart=docker compose up -d --remove-orphans`. Backend starts; its `docker-entrypoint.sh` runs `alembic upgrade head` against the host Postgres, then `exec`s uvicorn. Frontend waits for backend's healthcheck to go green (`depends_on: { backend: { condition: service_healthy } }`), then starts.
 
-# Get the SHA the CI just published
-SHA=$(aws s3 cp s3://${S3_BUCKET}/releases/current.txt - --region ${AWS_REGION})
-RELEASE_DIR=${RELEASES_DIR}/${SHA}
-
-echo "Deploying ${SHA} to ${RELEASE_DIR}"
-sudo -u flowin mkdir -p ${RELEASE_DIR}
-aws s3 cp s3://${S3_BUCKET}/releases/flowin-${SHA}.tar.gz /tmp/flowin-${SHA}.tar.gz --region ${AWS_REGION}
-sudo -u flowin tar -xzf /tmp/flowin-${SHA}.tar.gz -C ${RELEASE_DIR}
-rm /tmp/flowin-${SHA}.tar.gz
-
-# Backend deps (incremental: only reinstall if requirements.txt changed)
-sudo -u flowin /opt/flowin/venv/bin/pip install -r ${RELEASE_DIR}/backend/requirements.txt
-sudo -u flowin /opt/flowin/venv/bin/pip install psycopg2-binary
-
-# Atomic switch
-sudo -u flowin ln -sfn ${RELEASE_DIR}/backend ${DEPLOY_DIR}/backend.new
-sudo -u flowin ln -sfn ${RELEASE_DIR}/frontend ${DEPLOY_DIR}/frontend.new
-sudo -u flowin mv -T ${DEPLOY_DIR}/backend.new ${DEPLOY_DIR}/backend
-sudo -u flowin mv -T ${DEPLOY_DIR}/frontend.new ${DEPLOY_DIR}/frontend
-
-# Reload secrets so the env file reflects the latest Parameter Store state
-# BEFORE we run alembic — the migration command needs DATABASE_URL.
-sudo /usr/local/bin/flowin-load-secrets
-
-# Apply pending schema migrations BEFORE restarting uvicorn. Idempotent: if
-# there are no pending migrations alembic logs "no upgrade operations" and
-# exits 0. Running it pre-restart (rather than as ExecStartPre alone) means
-# the deploy script fails loudly here if a migration breaks, instead of the
-# systemd unit looping on Restart=always.
-sudo -u flowin bash -c "cd ${DEPLOY_DIR}/backend && \
-    set -a && source /etc/flowin/environment.d/flowin.env && set +a && \
-    /opt/flowin/venv/bin/alembic upgrade head"
-
-sudo systemctl restart flowin-backend.service
-sleep 5
-sudo systemctl restart flowin-frontend.service
-
-# Smoke test
-sleep 5
-curl -fsS http://127.0.0.1:8000/health > /dev/null
-echo "Deploy OK"
-
-# Keep last 5 releases for rollback
-sudo -u flowin bash -c "ls -1dt ${RELEASES_DIR}/* | tail -n +6 | xargs -r rm -rf"
-```
+Total downtime: ~5–15 seconds depending on image pull cache.
 
 ### 12.3 Rollback
 
-`sudo systemctl restart flowin-backend flowin-frontend` after `ln -sfn /opt/flowin/releases/<previous-sha>/backend /opt/flowin/backend && ln -sfn /opt/flowin/releases/<previous-sha>/frontend /opt/flowin/frontend`. ~30 seconds. Acceptable because deployments happen in a maintenance window (§13).
+Rollback is now two `flowin-update-image-tag` invocations pointing `BACKEND_IMAGE` / `FRONTEND_IMAGE` in `/etc/flowin/app.env` at the previous tag, plus `sudo systemctl restart flowin-app.service`. ECR retains the last 10 tagged images per the lifecycle policy (Terraform `infra/modules/ecr`), so the previous-known-good image is always available.
+
+```bash
+# On the EC2 (via SSH as flowin-deploy or SSM as the operator):
+PREV_BACKEND=v20260509-abc1234   # whatever was running before the bad deploy
+PREV_FRONTEND=v20260509-abc1234
+sudo /usr/local/bin/flowin-update-image-tag backend  "${ECR_REGISTRY}/flowin-prod-backend:$PREV_BACKEND"
+sudo /usr/local/bin/flowin-update-image-tag frontend "${ECR_REGISTRY}/flowin-prod-frontend:$PREV_FRONTEND"
+sudo systemctl restart flowin-app.service
+```
+
+~30 seconds end-to-end. Acceptable because deployments happen in a maintenance window (§13).
 
 ### 12.4 First-time deploy
 
-On a fresh box, the bootstrap script (Appendix D) does a `git clone` + `npm run build` + `pip install` directly, bypassing the S3 artifact path. This means the first deploy of a *new* box uses the latest `main` rather than a pinned SHA — acceptable for a recovery scenario; not acceptable for steady-state. Steady-state always uses the artifact pipeline above.
+On a fresh box, the bootstrap script (Appendix D) installs Docker, authenticates to ECR, copies `docker-compose.yml` from the repo, and writes an initial `/etc/flowin/app.env` with `:latest`-tagged image URIs. The first `systemctl enable --now flowin-app.service` then pulls and runs whatever `:latest` resolves to. Steady-state deploys (§12.1) replace `:latest` with pinned, immutable tags as soon as the first CI run completes. For a recovery boot from snapshot, the `app.env` is preserved across instance replacement (it lives on the host's encrypted root volume, not on the data EBS), so the recovered instance comes up on the same tags it was running before.
 
 ---
 
@@ -1848,7 +1809,7 @@ Postgres major versions (16 → 17 etc.) are *not* automatic. Plan in advance:
 
 | Symptom | First action | Investigation |
 |---|---|---|
-| `/health` returns 5xx for >5 min | Check `flowin-backend.service` status and last 200 lines of journald | If OOM, consider scaling up; if DB, check Postgres |
+| `/health` returns 5xx for >5 min | `sudo systemctl status flowin-app.service` and `sudo docker compose -f /opt/flowin/docker-compose.yml logs --tail=200 backend` | If OOM, consider scaling up; if DB, check Postgres on the host (`systemctl status postgresql@16-main`) |
 | HTTPS down (no TLS handshake) | `sudo systemctl status nginx`, `sudo nginx -t`, `sudo certbot certificates` | Cert expired? `sudo certbot renew --force-renewal` |
 | Disk full on `/` | `journalctl --vacuum-size=500M`, `apt clean`, check `/var/log` | Permanent fix: log rotation, or expand the root volume |
 | Disk full on `/var/lib/postgresql` | **DO NOT** run `VACUUM FULL` blindly. Check for runaway agent_outputs JSON. Truncate old `workflow_runs` per Blocker 6. | Long term: expand the volume (`aws ec2 modify-volume`, then `xfs_growfs`) |
@@ -1986,6 +1947,8 @@ The single-EC2 instance can be decommissioned after step 5. Expect the migration
 ## Appendix A — exact `nginx.conf`
 
 `/etc/nginx/sites-available/flowin`. Replace `flowin.example.com` with your domain. The file is what certbot's `--nginx` flag will modify on first run; if you prefer to control it yourself, use `certbot certonly --webroot` and copy the cert paths in manually.
+
+> **Note:** the upstreams `127.0.0.1:8000` / `127.0.0.1:3000` are now Docker port mappings (the backend and frontend containers each bind their listening port on the host's loopback interface). The nginx config itself is unchanged from the pre-Docker version — Compose's port mapping is transparent to the proxy.
 
 ```nginx
 # Rate-limit zones — must be in nginx.conf http{} or a snippet, not server{}
@@ -2184,127 +2147,45 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ## Appendix B — exact systemd unit files
 
-### B.1 `/etc/systemd/system/flowin-backend.service`
+### B.1 `/etc/systemd/system/flowin-app.service`
+
+A single unit replaces the previous `flowin-backend.service` + `flowin-frontend.service` pair. The rationale (one source of truth for ordering, no duplicate orchestration between systemd and Compose, security boundary is the container) is in §8.3. The unit delegates all process management to `docker compose`; container-level hardening (non-root UID 10001, default seccomp, capability drop) lives in the Dockerfiles, not here.
 
 ```ini
+# /etc/systemd/system/flowin-app.service
 [Unit]
-Description=Flowin backend (FastAPI + uvicorn)
-After=network-online.target postgresql.service
+Description=Flowin app stack (backend + frontend) via Docker Compose
+After=docker.service network-online.target postgresql.service
+Requires=docker.service
 Wants=network-online.target
-Requires=postgresql.service
 
 [Service]
-Type=exec
-User=flowin
-Group=flowin
-WorkingDirectory=/opt/flowin/backend
-
-# Pull secrets and runtime config fresh on every start. The loader populates
-# Bedrock provider/region/model_id from /flowin/prod/llm/*; ANTHROPIC_API_KEY
-# is no longer required for boot (only for the optional outage fallback — §9).
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/flowin
+EnvironmentFile=/etc/flowin/app.env
 ExecStartPre=/usr/local/bin/flowin-load-secrets
-EnvironmentFile=/etc/flowin/environment.d/flowin.env
-
-# ENV is environment-defining: it gates the A1 SECRET_KEY hard-fail in
-# backend/app/core/config.py. Putting it in the unit (not in SSM) means an
-# accidental SSM rotation or a missing parameter cannot disarm strict mode.
-Environment=ENV=production
-
-# Apply pending Alembic migrations before uvicorn starts. EnvironmentFile is
-# loaded for ExecStartPre too, so DATABASE_URL is set when alembic runs. The
-# command is idempotent — it's a no-op when the DB is already at HEAD — so
-# safe to run on every restart. If a migration fails, systemd refuses to
-# start uvicorn (Restart=always then loops with backoff) — this is the
-# guard that prevents prod from booting against a stale schema.
-ExecStartPre=/opt/flowin/venv/bin/alembic upgrade head
-
-ExecStart=/opt/flowin/venv/bin/uvicorn app.main:app \
-    --host 127.0.0.1 \
-    --port 8000 \
-    --workers 4 \
-    --proxy-headers \
-    --forwarded-allow-ips=127.0.0.1 \
-    --no-access-log \
-    --log-level info
-
-Restart=always
-RestartSec=5
-TimeoutStopSec=30
-KillMode=mixed
-
-# File descriptor limit — uvicorn + websockets need this
-LimitNOFILE=65535
-
-# systemd hardening
-NoNewPrivileges=yes
-PrivateTmp=yes
-ProtectSystem=strict
-ProtectHome=yes
-ProtectKernelTunables=yes
-ProtectKernelModules=yes
-ProtectControlGroups=yes
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-RestrictNamespaces=yes
-RestrictRealtime=yes
-RestrictSUIDSGID=yes
-LockPersonality=yes
-MemoryDenyWriteExecute=no   # JIT-using libs (none today) would need this off; left off as defensive default
-SystemCallArchitectures=native
-ReadWritePaths=/opt/flowin/src/backend/skills /var/log/flowin
-
-# Resource caps
-MemoryMax=12G
-TasksMax=4096
+ExecStartPre=/usr/bin/docker compose pull
+ExecStart=/usr/bin/docker compose up -d --remove-orphans
+ExecStop=/usr/bin/docker compose down
+ExecReload=/usr/bin/docker compose restart
+TimeoutStartSec=600
+Restart=on-failure
+RestartSec=30s
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-### B.2 `/etc/systemd/system/flowin-frontend.service`
+Notes on the design:
 
-```ini
-[Unit]
-Description=Flowin frontend (Next.js standalone)
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=exec
-User=flowin
-Group=flowin
-WorkingDirectory=/opt/flowin/frontend/.next/standalone
-
-Environment=NODE_ENV=production
-Environment=PORT=3000
-Environment=HOSTNAME=127.0.0.1
-
-ExecStart=/usr/bin/node /opt/flowin/frontend/.next/standalone/server.js
-
-Restart=always
-RestartSec=5
-TimeoutStopSec=15
-
-LimitNOFILE=32768
-
-NoNewPrivileges=yes
-PrivateTmp=yes
-ProtectSystem=strict
-ProtectHome=yes
-ProtectKernelTunables=yes
-ProtectKernelModules=yes
-ProtectControlGroups=yes
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-RestrictNamespaces=yes
-LockPersonality=yes
-SystemCallArchitectures=native
-ReadWritePaths=/var/log/flowin
-
-MemoryMax=2G
-TasksMax=512
-
-[Install]
-WantedBy=multi-user.target
-```
+- `Type=oneshot` + `RemainAfterExit=yes` is the correct shape for a unit whose `ExecStart` returns immediately (Compose detaches the containers). A `Type=simple` unit would think the work is done and exit; `Type=forking` would expect a PID file we don't produce.
+- `Requires=docker.service` is hard, not soft — without the daemon there is nothing for compose to talk to.
+- `After=postgresql.service` keeps the start ordering "host services first, app last", same as the old design. Compose's healthcheck on the backend will retry until Postgres is reachable, so this is belt-and-braces.
+- `ExecStartPre=/usr/local/bin/flowin-load-secrets` repopulates `/etc/flowin/app.env` from Parameter Store before each start. The file is then read both by systemd (`EnvironmentFile=`) and by Compose (`env_file:` in `docker-compose.yml`).
+- `ExecStartPre=/usr/bin/docker compose pull` keeps the box honest — every restart pulls the tag pinned in `app.env`. ECR auth is refreshed by the `flowin-ecr-login.timer` (every 6 h) so this rarely fails on auth.
+- `Restart=on-failure` with `RestartSec=30s` retries on transient ECR / daemon errors without busy-looping.
+- `TimeoutStartSec=600` covers the worst case of a slow ECR pull + container start on a cold cache.
 
 ### B.3 `/etc/systemd/system/flowin-pg-dump.service` and `.timer`
 
@@ -2406,7 +2287,12 @@ set -euo pipefail
 : "${FLOWIN_BACKUP_BUCKET:?FLOWIN_BACKUP_BUCKET is required}"
 : "${FLOWIN_KMS_KEY_ID:?FLOWIN_KMS_KEY_ID is required}"
 TS=$(date -u +%Y%m%d)
-tar -czf - -C /opt/flowin/src/backend skills \
+# Source path moved from /opt/flowin/src/backend/skills (native install) to
+# /opt/flowin/data/skills (Docker bind-mount target — see docker-compose.yml
+# `volumes:` for the backend service). Files are written from inside the
+# container by UID 10001 and are readable by the host's flowin user via the
+# permissions set in the bootstrap script.
+tar -czf - -C /opt/flowin/data skills \
   | aws s3 cp - "s3://${FLOWIN_BACKUP_BUCKET}/skills/${TS}.tar.gz" \
       --region eu-central-1 \
       --sse aws:kms \
@@ -2430,7 +2316,7 @@ Type=oneshot
 User=flowin
 Group=flowin
 EnvironmentFile=/etc/flowin/bootstrap.env
-EnvironmentFile=/etc/flowin/environment.d/flowin.env
+EnvironmentFile=/etc/flowin/app.env
 ExecStart=/usr/local/bin/flowin-stuck-workflows-check
 TimeoutStartSec=60
 ```
@@ -2456,14 +2342,20 @@ WantedBy=timers.target
 ```bash
 #!/usr/bin/env bash
 # Audit D P2-3 — push StuckRunningWorkflows custom metric.
-# DATABASE_URL is exported by /etc/flowin/environment.d/flowin.env via the
-# secrets loader (Appendix D). We use psql in tuples-only mode so the
-# output is just the integer count.
+# DATABASE_URL is exported by /etc/flowin/app.env via the secrets loader
+# (Appendix D). The loader writes the URL with `host.docker.internal` as
+# the hostname (so the in-container backend can reach native Postgres);
+# this script runs ON THE HOST, so we rewrite that to 127.0.0.1 below.
+# psql in tuples-only mode keeps the output to just the integer count.
 set -euo pipefail
 : "${DATABASE_URL:?DATABASE_URL is required}"
 AWS_REGION="${AWS_REGION:-eu-central-1}"
 
-COUNT=$(psql "$DATABASE_URL" -tAc \
+# Container-side hostname → host-loopback. The substring is unique enough
+# in a DATABASE_URL to swap unambiguously.
+HOST_DB_URL="${DATABASE_URL//host.docker.internal/127.0.0.1}"
+
+COUNT=$(psql "$HOST_DB_URL" -tAc \
   "SELECT count(*) FROM workflow_runs \
    WHERE status='running' AND created_at < NOW() - INTERVAL '60 minutes'")
 
@@ -2487,9 +2379,9 @@ Canonical reference. **All keys live under `/flowin/prod/`** and are written by 
 
 The columns:
 - **SSM key** — the parameter name in Parameter Store (Terraform writes these via `infra/modules/secrets/`).
-- **Env var** — the variable name the on-host loader (`/usr/local/bin/flowin-load-secrets`) emits into `/etc/flowin/environment.d/flowin.env`. Settings (`backend/app/core/config.py`) reads these.
+- **Env var** — the variable name the on-host loader (`/usr/local/bin/flowin-load-secrets`) emits into `/etc/flowin/app.env`, which Compose then injects into the backend container's environment. Settings (`backend/app/core/config.py`) reads these.
 
-> **Note on `ENV`.** `ENV` is **set in the systemd unit** (`Environment=ENV=production` in `flowin-backend.service`), not in SSM. It is environment-defining — putting it in SSM would let an out-of-band parameter rotation accidentally disarm the A1 SECRET_KEY hard-fail. Keeping it inline in the unit makes the production-strict mode unconditional.
+> **Note on `ENV`.** `ENV` is **declared in `/etc/flowin/app.env` directly** (the bootstrap script writes `ENV=production` once on first boot; the load-secrets script preserves it on every refresh — see the `BACKEND_IMAGE|FRONTEND_IMAGE|ENV` preserve clause in §9.3). It is intentionally kept out of SSM so an out-of-band parameter rotation cannot accidentally disarm the A1 SECRET_KEY hard-fail in `backend/app/core/config.py`. Anchoring it on disk in the host's protected `/etc/flowin/app.env` makes the production-strict mode unconditional.
 >
 > **Note on `DATABASE_URL`.** The composed URL embeds `127.0.0.1` (the on-host Postgres), which Terraform doesn't know. The loader composes it from `DATABASE_PASSWORD` at boot.
 
@@ -2537,8 +2429,8 @@ aws iam simulate-principal-policy \
 
 The script supports two modes auto-detected at run:
 
-- **Fresh provision:** no data on `/dev/nvme1n1`. Script formats it, initializes Postgres, runs `git clone`, `npm run build`, `pip install`, generates a new password, puts it into Parameter Store.
-- **Recovery from snapshot:** `/dev/nvme1n1` has an xfs filesystem with an existing Postgres data dir. Script mounts it, skips `initdb`, reuses the existing password from Parameter Store.
+- **Fresh provision:** no data on `/dev/nvme1n1`. Script formats it, initializes Postgres, generates a new DB password, puts it into Parameter Store, installs Docker, authenticates to ECR, pulls the backend + frontend images, and starts `flowin-app.service`. (No host-side `git clone` / `npm run build` / `pip install` — application code lives only inside the container images.)
+- **Recovery from snapshot:** `/dev/nvme1n1` has an xfs filesystem with an existing Postgres data dir. Script mounts it, skips `initdb`, reuses the existing password from Parameter Store. Same Docker / ECR / image-pull path as fresh provision (the OS root volume is recreated; the data volume's contents are preserved).
 
 ```bash
 #!/usr/bin/env bash
@@ -2551,12 +2443,18 @@ echo "[bootstrap] start $(date -u --iso-8601=seconds)"
 
 # Pull operator-controlled values from /etc/flowin/bootstrap.env, written by
 # the EC2 user-data template (see infra/modules/compute/user_data.sh.tpl).
-# That file carries FLOWIN_REGION, FLOWIN_PARAM_PREFIX, FLOWIN_KMS_KEY_ID,
-# FLOWIN_BACKUP_BUCKET — and FLOWIN_FQDN, which is the public hostname the
-# app is reachable on. It's `<dashed-eip>.nip.io` when the Terraform was
-# applied with `var.use_nip_io = true` (the default), or
-# `<app_subdomain>.<route53_zone_name>` when the Route 53 path is used.
-# Either way the bootstrap below uses it the same way.
+# That file carries:
+#   FLOWIN_REGION         — AWS region for SSM, ECR, S3 calls
+#   FLOWIN_PARAM_PREFIX   — Parameter Store prefix, e.g. /flowin/prod
+#   FLOWIN_KMS_KEY_ID     — project CMK ARN/alias for backup encryption
+#   FLOWIN_BACKUP_BUCKET  — S3 bucket for pg_dump + skills tarballs
+#   FLOWIN_FQDN           — public hostname (nip.io or Route 53)
+#   FLOWIN_ENVIRONMENT    — short env tag, e.g. prod / staging
+#   FLOWIN_ECR_REGISTRY   — <ACCOUNT>.dkr.ecr.<region>.amazonaws.com
+#                           (no path/repo suffix — bootstrap composes per-image URIs)
+#   FLOWIN_GIT_REF        — branch or tag the bootstrap fetches docker-compose.yml from
+# Terraform's module.compute writes all of these via the `user_data_extra_env`
+# mechanism. The bootstrap below uses them all.
 # shellcheck source=/dev/null
 . /etc/flowin/bootstrap.env
 
@@ -2573,12 +2471,15 @@ REPO_URL=https://gitlab.com/hexaware-uki/flowin.git
 while ! cloud-init status --wait > /dev/null 2>&1; do sleep 2; done
 
 # ── 1. Patch & baseline tools ──────────────────────────────────────────
+# Note: python venv + node toolchains are intentionally NOT installed on the
+# host any more — backend and frontend ship as containers. Postgres and nginx
+# stay on the host (see docs §8 and the docker-compose.yml header comment).
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get -y full-upgrade
 apt-get install -y \
     nginx postgresql-16 postgresql-contrib-16 \
-    python3.12-venv python3-pip git curl jq xfsprogs \
+    git curl jq xfsprogs \
     certbot python3-certbot-nginx \
     ufw fail2ban auditd \
     unattended-upgrades update-notifier-common \
@@ -2619,11 +2520,16 @@ systemctl enable --now unattended-upgrades
 timedatectl set-timezone UTC
 
 # ── 3. Application user ────────────────────────────────────────────────
+# Kept as a real Unix user for backwards compat (skills-backup unit still
+# runs as it; ownership of /opt/flowin/data/skills and /var/log/flowin
+# matters for the bind-mount into the backend container — files written by
+# the in-container UID 10001 must be readable by the host's flowin user
+# for the skills-backup timer to tar them up).
 id -u $APP_USER >/dev/null 2>&1 || useradd -r -m -d /opt/flowin -s /usr/sbin/nologin $APP_USER
-mkdir -p /opt/flowin /var/log/flowin /etc/flowin/environment.d
+mkdir -p /opt/flowin /opt/flowin/data/skills /var/log/flowin /etc/flowin
 chown -R $APP_USER:$APP_USER /opt/flowin /var/log/flowin
-chown root:$APP_USER /etc/flowin/environment.d
-chmod 0750 /etc/flowin/environment.d
+chown root:$APP_USER /etc/flowin
+chmod 0750 /etc/flowin
 
 # ── 4. Data volume — detect fresh vs existing ──────────────────────────
 systemctl stop postgresql || true
@@ -2709,81 +2615,183 @@ fi
 sysctl -w vm.swappiness=10
 echo 'vm.swappiness = 10' > /etc/sysctl.d/99-flowin.conf
 
-# ── 7. Node.js 20 LTS ──────────────────────────────────────────────────
-if ! command -v node >/dev/null; then
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-    apt-get install -y nodejs
+# ── 7. Docker engine + Compose plugin ──────────────────────────────────
+echo "[bootstrap] installing Docker engine + Compose plugin"
+
+# Use Docker's official APT repo, NOT Ubuntu's docker.io package — that one
+# lags badly and ships Compose v1 (deprecated). The official repo gives us
+# Compose v2 as a plugin (`docker compose`, no hyphen).
+apt-get install -y ca-certificates gnupg
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+  | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+chmod a+r /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+  > /etc/apt/sources.list.d/docker.list
+apt-get update
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+systemctl enable --now docker
+
+# We do NOT add the ubuntu/admin user to the docker group — Docker socket
+# access is root-equivalent and we keep that to the systemd-managed flow
+# only (the `flowin-app.service` unit and `flowin-load-secrets` both run as
+# root). Operators reach the app via SSM Session Manager (§8.1) and use
+# `sudo docker compose ...` when they need ad-hoc inspection.
+
+# Grant cwagent read access to /var/lib/docker/containers via POSIX ACLs so
+# the CloudWatch agent can tail JSON log files (see §10.1). Adding cwagent to
+# the docker group would also work but grants full docker.sock access — too
+# broad. ACLs grant exactly the right bit (read+traverse).
+apt-get install -y acl
+setfacl -R -m u:cwagent:rX /var/lib/docker/containers || true
+setfacl -R -d -m u:cwagent:rX /var/lib/docker/containers || true
+# `|| true` because cwagent is installed later in §13; we re-run setfacl from
+# §13's post-install hook to capture the user once it exists. The two
+# invocations together guarantee the ACL is in place regardless of install
+# order. New containers' log files inherit the default ACL automatically.
+
+echo "[bootstrap] Docker installed: $(docker --version), $(docker compose version)"
+
+# ── 8. ECR login (one-shot — pull happens via flowin-app's ExecStartPre) ─
+echo "[bootstrap] authenticating to ECR"
+
+# FLOWIN_ECR_REGISTRY is written into /etc/flowin/bootstrap.env by Terraform
+# (compute module's user_data_extra_env). It is the registry hostname
+# without a path suffix, e.g.
+#   <ACCOUNT>.dkr.ecr.eu-central-1.amazonaws.com
+# The per-image URIs (with tags) live in /etc/flowin/app.env — populated
+# below as part of the compose-env bootstrap.
+ECR_REGISTRY="${FLOWIN_ECR_REGISTRY:-}"
+if [ -z "$ECR_REGISTRY" ]; then
+    echo "[bootstrap] ERROR: FLOWIN_ECR_REGISTRY not set in /etc/flowin/bootstrap.env"
+    exit 1
 fi
 
-# ── 8. App checkout & build ────────────────────────────────────────────
-sudo -u $APP_USER bash <<EOF
-set -euo pipefail
-if [[ ! -d /opt/flowin/src ]]; then
-    git clone $REPO_URL /opt/flowin/src
-fi
-cd /opt/flowin/src
-git fetch --all
-git checkout main
-git pull --ff-only
+aws ecr get-login-password --region "$REGION" \
+  | docker login --username AWS --password-stdin "$ECR_REGISTRY"
 
-# Symlinks
-ln -sfn /opt/flowin/src/backend  /opt/flowin/backend
-ln -sfn /opt/flowin/src/frontend /opt/flowin/frontend
+# ECR auth tokens expire after 12 hours. A systemd timer refreshes the
+# docker login twice the rate (every 6 hours, with a 5-minute randomized
+# delay). Keeping this on a timer rather than cron matches the rest of the
+# project (certbot, pg-dump, skills-backup, stuck-workflows are all timers).
+cat > /etc/systemd/system/flowin-ecr-login.service <<'UNIT'
+[Unit]
+Description=Refresh Docker login to ECR
+After=network-online.target
+Wants=network-online.target
 
-# Python venv
-if [[ ! -x /opt/flowin/venv/bin/python ]]; then
-    python3.12 -m venv /opt/flowin/venv
-fi
-/opt/flowin/venv/bin/pip install -U pip
-/opt/flowin/venv/bin/pip install -r backend/requirements.txt
-/opt/flowin/venv/bin/pip install psycopg2-binary
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/flowin/bootstrap.env
+ExecStart=/bin/bash -c '/usr/local/bin/aws ecr get-login-password --region $FLOWIN_REGION | /usr/bin/docker login --username AWS --password-stdin $FLOWIN_ECR_REGISTRY'
+UNIT
 
-# Frontend build
-cd frontend
-NEXT_PUBLIC_API_URL=https://$DOMAIN \
-NEXT_PUBLIC_WS_URL=wss://$DOMAIN/ws/chat \
-npm ci
-NEXT_PUBLIC_API_URL=https://$DOMAIN \
-NEXT_PUBLIC_WS_URL=wss://$DOMAIN/ws/chat \
-npm run build
+cat > /etc/systemd/system/flowin-ecr-login.timer <<'TIMER'
+[Unit]
+Description=Refresh Docker login to ECR every 6 hours
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:00:00
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+TIMER
+
+systemctl daemon-reload
+systemctl enable --now flowin-ecr-login.timer
+
+# ── 8b. docker-compose.yml on the host ─────────────────────────────────
+# The compose file is committed at the repo root (so devs can `docker
+# compose up` locally); for the bootstrap we fetch it from the deployed
+# branch. Steady-state deploys (§12) overwrite this file via SSH-and-sed
+# OR keep this initial copy and only mutate /etc/flowin/app.env (image
+# tags), depending on whether the compose file itself is changing.
+curl -fsSL "https://raw.githubusercontent.com/<ORG>/<REPO>/${FLOWIN_GIT_REF:-main}/docker-compose.yml" \
+  | tee /opt/flowin/docker-compose.yml > /dev/null
+chown $APP_USER:$APP_USER /opt/flowin/docker-compose.yml
+chmod 0644 /opt/flowin/docker-compose.yml
+
+# ── 8c. /etc/flowin/app.env  — single source of runtime config for both containers
+# /usr/local/bin/flowin-load-secrets (created in §9 below) overwrites this
+# file on every flowin-app.service start. The bootstrap creates an initial
+# version with the image URIs (set to ":latest" — the first deploy via the
+# CI pipeline replaces these with a pinned tag). The systemd unit's
+# EnvironmentFile= would fail-stop if the file didn't exist on first boot.
+if [[ ! -f /etc/flowin/app.env ]]; then
+    cat > /etc/flowin/app.env <<EOF
+# Populated by /usr/local/bin/flowin-load-secrets on every start. The loader
+# preserves the BACKEND_IMAGE / FRONTEND_IMAGE / ENV lines below; everything
+# else is overwritten from /flowin/prod/* in SSM.
+
+# ENV is environment-defining — kept on the host (NOT in SSM) so an
+# out-of-band SSM rotation cannot accidentally disarm the A1 SECRET_KEY
+# hard-fail in backend/app/core/config.py. See Appendix C note on ENV.
+ENV=production
+
+# Container image URIs (with tags) — the CI pipeline (§12) updates these
+# in-place via sed on every deploy.
+BACKEND_IMAGE=${ECR_REGISTRY}/flowin-${FLOWIN_ENVIRONMENT:-prod}-backend:latest
+FRONTEND_IMAGE=${ECR_REGISTRY}/flowin-${FLOWIN_ENVIRONMENT:-prod}-frontend:latest
 EOF
+    chown root:$APP_USER /etc/flowin/app.env
+    chmod 0640 /etc/flowin/app.env
+fi
 
-# ── 8b. Apply DB migrations ────────────────────────────────────────────
-# The application now uses Alembic — the schema is no longer auto-created
-# at uvicorn startup. We need DATABASE_URL in scope; pull it from
-# Parameter Store rather than waiting for /etc/flowin/environment.d/flowin.env
-# (which §9 populates further down). Idempotent: re-running on a recovery
-# boot is a no-op when the DB is already at HEAD.
-DB_URL=$(aws ssm get-parameter --region $REGION --name $PARAM_PREFIX/DATABASE_URL --with-decryption --query 'Parameter.Value' --output text)
-sudo -u $APP_USER bash -c "cd /opt/flowin/backend && \
-    DATABASE_URL='$DB_URL' \
-    SECRET_KEY=\$(aws ssm get-parameter --region $REGION --name $PARAM_PREFIX/SECRET_KEY --with-decryption --query 'Parameter.Value' --output text) \
-    /opt/flowin/venv/bin/alembic upgrade head"
+# Note: DB schema migrations are now run inside the backend container by
+# backend/docker-entrypoint.sh on every container start (alembic upgrade
+# head, then exec uvicorn). The bootstrap doesn't run alembic itself.
 
 # ── 9. Secrets loader ──────────────────────────────────────────────────
 # Pulls all parameters under /flowin/prod/* and emits them as KEY=value lines
-# into a 0640 root:flowin env file consumed by the systemd EnvironmentFile= in
-# Appendix B. The mapping is per-key and explicit (see §9.3 for the table):
+# into a 0640 root:flowin env file consumed both by the systemd
+# EnvironmentFile= on flowin-app.service AND by Compose's `env_file:` block
+# inside docker-compose.yml. The mapping is per-key and explicit (see §9.3
+# for the table):
 #
 #   SECRET_KEY,CORS_ORIGINS,ACCESS_TOKEN_EXPIRE_HOURS,LANGSMITH_*  → passthrough
-#   DATABASE_PASSWORD                                              → DATABASE_URL=postgresql://flowin:${value}@127.0.0.1:5432/flowin
+#   DATABASE_PASSWORD                                              → DATABASE_URL=postgresql://flowin:${value}@host.docker.internal:5432/flowin
 #   llm/provider                                                   → LLM_PROVIDER
 #   llm/region                                                     → AWS_REGION
 #   llm/model_id                                                   → BEDROCK_MODEL_ID
 #   anthropic/api_key                                              → ANTHROPIC_API_KEY
 #   anything else                                                  → warn, ignore
 #
-# Note: ENV is set by the systemd unit (Environment=ENV=production), not here.
+# Why host.docker.internal: the backend now runs in a container; Postgres is
+# still native on the host. From inside the container, the host's loopback
+# is reachable via the host-gateway alias (extra_hosts in docker-compose.yml
+# wires this up). Compose v2.24+ also lets us drop the alias and use the
+# magic name directly, but we keep the alias for older Compose installs.
+#
+# The loader does NOT touch BACKEND_IMAGE / FRONTEND_IMAGE — those are
+# managed by the CI deploy step (§12) and the bootstrap's first-run
+# initializer above. The loader uses a "merge" strategy: it preserves any
+# pre-existing BACKEND_IMAGE / FRONTEND_IMAGE lines and only rewrites the
+# parameter-store-sourced keys.
+#
+# Note: ENV is written ONCE by the bootstrap (§8c above) and preserved by
+# this loader on each refresh via the BACKEND_IMAGE|FRONTEND_IMAGE|ENV
+# regex below. It is intentionally OUT of SSM — see Appendix C "Note on ENV".
 cat > /usr/local/bin/flowin-load-secrets <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-OUT=/etc/flowin/environment.d/flowin.env
-TMP=$(mktemp /etc/flowin/environment.d/flowin.env.XXXXXX)
+OUT=/etc/flowin/app.env
+TMP=$(mktemp /etc/flowin/app.env.XXXXXX)
 chmod 0640 "$TMP"; chown root:flowin "$TMP"
 
 REGION=eu-central-1
 PREFIX=/flowin/prod
+
+# Preserve operator-managed image-tag pins from the previous app.env. Lines
+# starting with BACKEND_IMAGE= or FRONTEND_IMAGE= are CI-managed (the deploy
+# step seds them in place) — we don't want a load-secrets run to clobber a
+# freshly deployed tag with the bootstrap's :latest default.
+if [[ -f "$OUT" ]]; then
+    grep -E '^(BACKEND_IMAGE|FRONTEND_IMAGE|ENV)=' "$OUT" >> "$TMP" || true
+fi
 
 emit() {
     printf '%s=%q\n' "$1" "$2" >> "$TMP"
@@ -2795,7 +2803,7 @@ while IFS=$'\t' read -r name value; do
         SECRET_KEY|CORS_ORIGINS|ACCESS_TOKEN_EXPIRE_HOURS|LANGSMITH_TRACING|LANGSMITH_API_KEY|LANGSMITH_PROJECT)
             emit "$rel" "$value" ;;
         DATABASE_PASSWORD)
-            emit DATABASE_URL "postgresql://flowin:${value}@127.0.0.1:5432/flowin" ;;
+            emit DATABASE_URL "postgresql://flowin:${value}@host.docker.internal:5432/flowin" ;;
         llm/provider)      emit LLM_PROVIDER     "$value" ;;
         llm/region)        emit AWS_REGION       "$value" ;;
         llm/model_id)      emit BEDROCK_MODEL_ID "$value" ;;
@@ -2819,6 +2827,12 @@ chmod +x /usr/local/bin/flowin-load-secrets
 # ── 10. systemd units (see Appendix B) ─────────────────────────────────
 # (omitted here — copy Appendix B verbatim into /etc/systemd/system/)
 # In real deployment, the bootstrap script writes them with cat-heredocs.
+# The new layout is:
+#   /etc/systemd/system/flowin-app.service                (B.1 — wraps compose)
+#   /etc/systemd/system/flowin-pg-dump.{service,timer}    (B.3 — host pg_dump)
+#   /etc/systemd/system/flowin-skills-backup.{service,timer}  (B.5)
+#   /etc/systemd/system/flowin-stuck-workflows-check.{service,timer}  (B.6)
+# (flowin-ecr-login.{service,timer} are inlined in §8 above.)
 
 # ── 11. nginx ──────────────────────────────────────────────────────────
 mkdir -p /var/www/letsencrypt /etc/nginx/snippets
@@ -2858,10 +2872,93 @@ if ! dpkg -s amazon-cloudwatch-agent >/dev/null 2>&1; then
     dpkg -i /tmp/cw-agent.deb
     rm /tmp/cw-agent.deb
 fi
+
+# Re-run the ACL grant now that the cwagent user definitely exists. §7 ran
+# this with `|| true` because the user is created by the cw-agent .deb
+# postinst, which only ran above.
+setfacl -R -m u:cwagent:rX /var/lib/docker/containers
+setfacl -R -d -m u:cwagent:rX /var/lib/docker/containers
+
 # Drop in /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json (see §10.1)
 /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
     -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
 systemctl enable --now amazon-cloudwatch-agent
+
+# ── 13. flowin-deploy user (CI deploy account, restricted sudo) ──────────
+# CI runs `ssh flowin-deploy@$DEPLOY_HOST` to update /etc/flowin/app.env and
+# restart the app service (see §12). The user has NO interactive shell role
+# and a tightly-scoped sudoers stanza — only the two sed patterns and the
+# single systemctl restart needed for deploys.
+if ! id flowin-deploy >/dev/null 2>&1; then
+    useradd --system --create-home --shell /bin/bash flowin-deploy
+    install -d -o flowin-deploy -g flowin-deploy -m 0700 /home/flowin-deploy/.ssh
+    # The CI public key is uploaded out-of-band by the operator (or fetched
+    # from SSM Parameter Store at /flowin/$ENVIRONMENT/deploy/ssh_authorized_key
+    # if you want to manage it via Terraform). The bootstrap creates the file
+    # empty here; CI deploys will fail until the key is provisioned. We
+    # deliberately do NOT copy any default key — explicit pairing only.
+    install -o flowin-deploy -g flowin-deploy -m 0600 /dev/null \
+        /home/flowin-deploy/.ssh/authorized_keys
+fi
+
+# Wrapper script that CI calls instead of `sudo sed`. Validates inputs (only
+# `backend` or `frontend`, only docker-URI-shaped image strings) before
+# editing /etc/flowin/app.env. Allowing `sudo sed` directly would leak: sed's
+# `-i` could write any file with the right glob; sed's expression syntax
+# allows escaping that's hard to whitelist in sudoers. A 30-line wrapper is
+# the right boundary.
+cat > /usr/local/bin/flowin-update-image-tag <<'WRAPPER'
+#!/bin/bash
+# /usr/local/bin/flowin-update-image-tag — called by `sudo` from CI.
+# Usage: flowin-update-image-tag (backend|frontend) <image_uri>
+# Edits the matching IMAGE= line in /etc/flowin/app.env and exits 0 on
+# success. Any malformed input rejects with non-zero.
+set -euo pipefail
+if [ "$#" -ne 2 ]; then
+    echo "ERROR: usage: $0 (backend|frontend) <image_uri>" >&2
+    exit 64
+fi
+component="$1"
+image="$2"
+case "$component" in
+    backend|frontend) ;;
+    *) echo "ERROR: component must be backend or frontend, got: $component" >&2; exit 65 ;;
+esac
+# Permissive but bounded character class for a docker image URI: lowercase
+# alphanumerics, hyphens, dots, slashes (registry/repo separator), colons
+# (tag separator), underscores. Rejects shell metachars, spaces, newlines.
+if [ "${#image}" -gt 255 ] || ! [[ "$image" =~ ^[a-z0-9._/:-]+$ ]]; then
+    echo "ERROR: image URI rejected — must match ^[a-z0-9._/:-]+$ (max 255 chars)" >&2
+    exit 66
+fi
+upper="${component^^}"
+sed -i.bak "s|^${upper}_IMAGE=.*|${upper}_IMAGE=${image}|" /etc/flowin/app.env
+rm -f /etc/flowin/app.env.bak
+WRAPPER
+chmod 0755 /usr/local/bin/flowin-update-image-tag
+chown root:root /usr/local/bin/flowin-update-image-tag
+
+# Restricted sudoers — three exact commands. The wrapper script validates its
+# own arguments, so sudoers' wildcard match is bounded by the wrapper's
+# regex check. Use visudo -cf to refuse a malformed file rather than locking
+# the operator out.
+SUDOERS_TMP=$(mktemp)
+cat > "$SUDOERS_TMP" <<'SUDO'
+# /etc/sudoers.d/flowin-deploy — deploy account, NOPASSWD restricted commands.
+# Generated by Flowin bootstrap (Appendix D §13). Do not edit by hand.
+flowin-deploy ALL=(root) NOPASSWD: /usr/local/bin/flowin-update-image-tag backend *
+flowin-deploy ALL=(root) NOPASSWD: /usr/local/bin/flowin-update-image-tag frontend *
+flowin-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart flowin-app.service
+SUDO
+chmod 0440 "$SUDOERS_TMP"
+if visudo -cf "$SUDOERS_TMP"; then
+    install -o root -g root -m 0440 "$SUDOERS_TMP" /etc/sudoers.d/flowin-deploy
+else
+    echo "[bootstrap] ERROR: flowin-deploy sudoers stanza failed visudo check" >&2
+    rm -f "$SUDOERS_TMP"
+    exit 1
+fi
+rm -f "$SUDOERS_TMP"
 
 # ── 13. Backups (see §11.2) ────────────────────────────────────────────
 # Drop in /usr/local/bin/flowin-pg-dump and the timer/service files.
@@ -2874,7 +2971,10 @@ systemctl enable --now flowin-pg-dump.timer flowin-skills-backup.timer \
 # ── 14. Application units ──────────────────────────────────────────────
 /usr/local/bin/flowin-load-secrets
 systemctl daemon-reload
-systemctl enable --now flowin-backend.service flowin-frontend.service
+# Single unit replaces flowin-backend.service + flowin-frontend.service.
+# It wraps `docker compose up -d`. Start ordering for backend → frontend
+# is handled by Compose's depends_on/healthcheck, not systemd. See §8.3.
+systemctl enable --now flowin-app.service
 
 # ── 15. Smoke test ─────────────────────────────────────────────────────
 sleep 15

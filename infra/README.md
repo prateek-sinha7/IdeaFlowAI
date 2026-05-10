@@ -2,8 +2,10 @@
 
 Terraform suite for the Flowin single-EC2 deployment described in
 [`docs/SIMPLE_AWS_DEPLOYMENT.md`](../docs/SIMPLE_AWS_DEPLOYMENT.md). Branch
-`infra`. The architecture is one EC2 instance running nginx + uvicorn +
-Next.js + Postgres, talking to AWS Bedrock (Claude Haiku 4.5) for LLM calls.
+`infra`. The architecture is one EC2 instance running nginx + Postgres
+natively, with backend (FastAPI/uvicorn) and frontend (Next.js standalone)
+as Docker Compose containers pulled from ECR. The backend talks to AWS
+Bedrock (Claude Haiku 4.5) for LLM calls.
 
 > **Important — shared account.** This Terraform runs in an AWS Organizations
 > account that other Hexaware projects also use. The single most important
@@ -22,15 +24,17 @@ infra/
 ├── .gitignore                 # state, plans, secrets ignored; lock file committed
 ├── bootstrap/                 # one-time: state bucket + DynamoDB lock (local state)
 ├── envs/
-│   └── prod/                  # the production environment composition
+│   ├── prod/                  # the production environment composition
+│   └── localstack/            # hermetic LocalStack-Pro fixture (sibling of prod)
 ├── modules/
 │   ├── account_guard/         # account-id + region precondition
-│   ├── network/               # VPC, subnet, IGW, SGs, VPC endpoints
+│   ├── network/               # VPC, subnet, IGW, SGs, VPC endpoints, flow logs
 │   ├── compute/               # EC2, EBS data volume, EIP
-│   ├── iam/                   # instance role + policies (Bedrock, SSM, KMS, Logs, S3)
+│   ├── iam/                   # instance role + policies (Bedrock, SSM, KMS, Logs, S3, ECR)
 │   ├── kms/                   # customer-managed CMK + alias + key policy
 │   ├── secrets/               # SSM Parameter Store entries
-│   ├── dns/                   # data-lookup of existing Route 53 zone + A record
+│   ├── dns/                   # data-lookup of existing Route 53 zone + A record (or nip.io)
+│   ├── ecr/                   # private container registries (backend + frontend)
 │   ├── backups/               # S3 bucket + AWS Backup vault + plan + selection
 │   ├── monitoring/            # CloudWatch log groups + alarms + SNS topic
 │   └── resourcegroups/        # AWS Resource Groups (top-level + per-component)
@@ -51,14 +55,23 @@ Per `docs/SIMPLE_AWS_DEPLOYMENT.md`:
   **gateway endpoint for S3**.
 - **Compute**: one `m6i.2xlarge` Ubuntu 24.04 LTS instance, an encrypted
   100 GB gp3 root volume, an encrypted 50 GB gp3 data volume tagged
-  `Backup=true`, and an Elastic IP.
+  `Backup=true`, and an Elastic IP. Docker engine + Compose plugin install
+  on first boot via the Appendix-D bootstrap script.
 - **IAM**: an instance profile whose role can:
   - Invoke the Claude Haiku 4.5 model and the EU cross-region inference
     profile (no other Bedrock model);
   - Read SSM parameters under `/flowin/${env}/*`;
   - Use the project KMS key for `Decrypt`/`GenerateDataKey`;
   - Write to log groups under `/flowin/${env}/*`;
-  - Read/write under one S3 backup bucket.
+  - Read/write under one S3 backup bucket;
+  - Pull images from the two project ECR repos (`GetAuthorizationToken`
+    is account-wide; pull verbs are scoped to the project repo ARNs).
+- **ECR**: two private repositories, `flowin-${env}-backend` and
+  `flowin-${env}-frontend`. KMS-encrypted, scan-on-push, `IMMUTABLE`
+  tags (rollback is by re-deploying a previous tag, not by re-tagging
+  `latest`). Lifecycle policy keeps the last 10 tagged images and expires
+  untagged images after 14 days. Repository policies grant pull only to
+  the EC2 instance role — pushes come from CI using its own credentials.
 - **KMS**: one customer-managed symmetric CMK with rotation enabled,
   alias `alias/flowin-${env}`, used by EBS, the S3 backup bucket, the
   AWS Backup vault, the SNS topic, and SSM SecureStrings.
@@ -74,13 +87,16 @@ Per `docs/SIMPLE_AWS_DEPLOYMENT.md`:
 - **Backups**: S3 bucket for `pg_dump` archives (versioned, KMS-encrypted,
   TLS-only, lifecycle rules) + AWS Backup vault + daily plan (35-day
   retention) + tag-based selection (`Backup=true`).
-- **Monitoring**: five log groups under `/flowin/${env}/`, an SNS topic
-  with an email subscription, and nine alarms (CPU/mem/disk pressure,
-  nginx 5xx, DB connection failures, Bedrock throttles, Bedrock server
-  errors, billing in `us-east-1`).
-- **Resource Groups**: a top-level `flowin-${env}-all` group plus six
+- **Monitoring**: seven log groups under `/flowin/${env}/`, an SNS topic
+  with an email subscription, and 17 alarms (host CPU/memory/disk; backend
+  /frontend container health proxy via journald-error rate; nginx 5xx;
+  DB connection failures; Bedrock throttles + server errors + per-region
+  invocation count; AWS Backup job failures; agent error rate; stuck
+  workflows probe; billing in `us-east-1`). VPC flow logs ship to a
+  dedicated CW log group with per-flow KMS encryption.
+- **Resource Groups**: a top-level `flowin-${env}-all` group plus seven
   per-component groups (`network`, `compute`, `storage`, `monitoring`,
-  `iam`, `secrets`), each filtering on its `Component` tag.
+  `iam`, `secrets`, `ecr`), each filtering on its `Component` tag.
 
 ---
 
@@ -146,9 +162,9 @@ Every resource is tagged via the provider's `default_tags`:
 | `CostCenter` | `var.cost_center` | `UKI-FLOWIN-PROD` |
 
 Plus, **every resource** also gets a per-resource `Component` tag
-(`network`, `compute`, `storage`, `monitoring`, `iam`, or `secrets`) so the
-Resource Groups can split by component. Many resources also get a `Name`
-tag for the AWS console.
+(`network`, `compute`, `storage`, `monitoring`, `iam`, `secrets`, or `ecr`)
+so the Resource Groups can split by component. Many resources also get a
+`Name` tag for the AWS console.
 
 The data EBS volume additionally carries `Backup = true`, which is the
 selector AWS Backup uses to discover what to snapshot.
@@ -170,6 +186,7 @@ Console → Resource Groups → Saved Groups:
 - **`flowin-${env}-monitoring`** — CloudWatch log groups, alarms, SNS.
 - **`flowin-${env}-iam`** — IAM role, KMS key.
 - **`flowin-${env}-secrets`** — SSM Parameter Store entries.
+- **`flowin-${env}-ecr`** — backend + frontend container repositories.
 
 A "what does Flowin own?" question is answered by the `*-all` group; a
 "what changed in compute today?" question is answered by `*-compute`.

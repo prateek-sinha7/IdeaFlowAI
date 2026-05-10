@@ -1,0 +1,67 @@
+# Dependencies — rebuilt cleanly via `npm ci` in the deps stage.
+node_modules/
+
+# Next.js build output — rebuilt in the builder stage; baking the local one
+# in is a footgun for layer caching.
+.next/
+out/
+build/
+
+# Git metadata — never ship to image.
+.git/
+.gitignore
+.gitattributes
+
+# Docker files themselves — no point copying them into the build context layer.
+Dockerfile*
+.dockerignore
+docker-compose*.yml
+docker-compose*.yaml
+
+# Secrets — NEVER ship .env files. Build args / runtime env handle config.
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+.env.*
+
+# Docs — not needed at runtime.
+*.md
+README*
+LICENSE*
+
+# Test artefacts.
+coverage/
+.nyc_output/
+
+# TypeScript incremental build info.
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+next-env.d.ts
+
+# Logs.
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Vercel.
+.vercel/
+
+# Editor / OS noise.
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+
+# Misc.
+.pnp
+.pnp.*
+.yarn/cache
+.yarn/install-state.gz

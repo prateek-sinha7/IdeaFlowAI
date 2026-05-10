@@ -5,7 +5,7 @@ import type { AgentRunState, PipelineRunState } from "@/types/index";
 
 export interface UseWorkflowReturn {
   pipelineState: PipelineRunState;
-  startPipeline: (type: string, message: string) => void;
+  startPipeline: (type: string, message: string, agentIds?: string[]) => void;
   resetPipeline: () => void;
   isRunning: boolean;
   handleMessage: (msg: { type: string; [key: string]: unknown }) => boolean;

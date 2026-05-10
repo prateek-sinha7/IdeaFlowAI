@@ -97,3 +97,13 @@ output "resource_groups_per_component" {
   description = "Map of component -> Resource Group name."
   value       = module.resourcegroups.per_component_group_names
 }
+
+output "ecr_backend_repository_url" {
+  description = "ECR pull URL for the backend image. Bootstrap uses this in /etc/flowin/app.env to drive `docker compose pull`."
+  value       = module.ecr.backend_repository_url
+}
+
+output "ecr_frontend_repository_url" {
+  description = "ECR pull URL for the frontend image. Bootstrap uses this in /etc/flowin/app.env to drive `docker compose pull`."
+  value       = module.ecr.frontend_repository_url
+}

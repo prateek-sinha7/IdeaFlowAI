@@ -25,6 +25,15 @@ no EBS optimisation).
    Port `4566` is intentionally avoided so this container doesn't collide
    with a team-shared `hexaware-localstack` instance.
 
+   **Heads up — `ecr` not in the SERVICES list above.** The ECR module
+   (`modules/ecr`) was added after this snippet was written. To exercise
+   it under LocalStack, append `,ecr` to the `SERVICES=` value when
+   starting the container. Without it, `terraform apply` will fail at the
+   first `aws_ecr_repository` create with a connection refused or
+   `UnknownService` error from the AWS provider. The snippet above is
+   left untouched intentionally — flag-and-fix-on-rebuild rather than
+   silently rotate the team's running container.
+
 2. `awslocal` and `tflocal` (`pip install awscli-local terraform-local`).
    You can also use plain `aws` / `terraform` with explicit
    `AWS_ENDPOINT_URL=http://localhost:4666` — the providers in this env

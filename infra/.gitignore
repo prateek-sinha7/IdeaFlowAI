@@ -12,6 +12,11 @@ plan.out
 .terraform/
 .terraform.tfstate.lock.info
 
+# Module-level lock files are transient (created when an operator runs
+# `terraform init` inside a module dir for validate/plan-isolation). The
+# canonical lock files live in envs/* and ARE committed.
+modules/*/.terraform.lock.hcl
+
 # Variable files (.tfvars). Real values are operator-supplied and may
 # contain secrets. Only the .example template is committed.
 *.tfvars

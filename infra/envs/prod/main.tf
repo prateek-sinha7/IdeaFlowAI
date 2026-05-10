@@ -85,6 +85,20 @@ module "iam" {
   attach_ssm_managed_policy    = true
 }
 
+# --- ECR (container image registry) ----------------------------------------
+# Lives after iam because the per-repo policy's Principal is the instance
+# role ARN. The reverse direction (iam policy scoping Resource to repo ARNs)
+# does NOT read ecr outputs — it reconstructs ARNs from name_prefix. That
+# asymmetry is what breaks the would-be iam<->ecr cycle.
+module "ecr" {
+  source = "../../modules/ecr"
+
+  name_prefix       = local.name_prefix
+  environment       = var.environment
+  kms_key_arn       = module.kms.key_arn
+  instance_role_arn = module.iam.instance_role_arn
+}
+
 # --- Secrets (SSM Parameter Store) -----------------------------------------
 module "secrets" {
   source = "../../modules/secrets"
@@ -145,6 +159,19 @@ module "compute" {
     # module.dns.fqdn so the same value drives Route 53 (when configured)
     # OR the nip.io path when var.use_nip_io = true.
     FLOWIN_FQDN = module.dns.fqdn
+
+    # Container deploy: ECR registry the bootstrap logs into and pulls images
+    # from. Bootstrap script's `aws ecr get-login-password | docker login
+    # $FLOWIN_ECR_REGISTRY` and `/etc/flowin/app.env` BACKEND_IMAGE/
+    # FRONTEND_IMAGE both reference this. Derived from module.ecr's repo URL
+    # by stripping the trailing /<repo>; see modules/ecr/outputs.tf.
+    FLOWIN_ECR_REGISTRY = module.ecr.registry_url
+
+    # Branch/tag the bootstrap fetches docker-compose.yml from. Defaults to
+    # main; pin in tfvars to release a specific commit. (The compose file is
+    # the only artifact still pulled from git at boot — Dockerfiles and the
+    # app code live inside the ECR images.)
+    FLOWIN_GIT_REF = var.git_ref
   }
 }
 

@@ -75,6 +75,19 @@ module "iam" {
   attach_ssm_managed_policy    = true
 }
 
+# --- ECR --------------------------------------------------------------------
+# Mirrors envs/prod. LocalStack Pro implements ECR but the operator must
+# include `ecr` in the SERVICES env var when starting the container — see
+# envs/localstack/README.md for the docker-run snippet.
+module "ecr" {
+  source = "../../modules/ecr"
+
+  name_prefix       = local.name_prefix
+  environment       = var.environment
+  kms_key_arn       = module.kms.key_arn
+  instance_role_arn = module.iam.instance_role_arn
+}
+
 # --- Secrets ----------------------------------------------------------------
 module "secrets" {
   source = "../../modules/secrets"
@@ -151,6 +164,11 @@ module "compute" {
     # Forces module.iam to be in the graph so the IAM resources are still
     # created and exercised in this environment.
     _IAM_PROFILE_HOOK = module.iam.instance_profile_name
+    # Container deploy — same shape as prod. LocalStack's ECR mock returns
+    # 000000000000.dkr.ecr.<region>.amazonaws.com style URLs so the bootstrap
+    # exercise still sees a syntactically valid registry hostname.
+    FLOWIN_ECR_REGISTRY = module.ecr.registry_url
+    FLOWIN_GIT_REF      = "main"
   }
 }
 
@@ -211,5 +229,6 @@ module "resourcegroups" {
     monitoring = "CloudWatch log-groups alarms SNS"
     iam        = "IAM-role KMS-key instance-profile"
     secrets    = "SSM-Parameter-Store-entries"
+    ecr        = "ECR-repositories backend frontend lifecycle-policies"
   }
 }

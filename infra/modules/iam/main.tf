@@ -110,6 +110,26 @@ resource "aws_iam_role_policy" "s3_backup_rw" {
   })
 }
 
+# ECR pull. Two statements:
+#   1) ecr:GetAuthorizationToken on Resource "*" — required by AWS, the API
+#      doesn't accept a scoped Resource. This grants a short-lived token
+#      usable against any registry in the account; we accept that.
+#   2) Pull-action verbs scoped to exactly two repository ARNs derived from
+#      name_prefix (NOT from the ecr module outputs — that would close a
+#      cycle: iam reads ecr.repository_arns AND ecr reads iam.instance_role_arn
+#      for its repo policy Principal). name_prefix is known statically at
+#      plan time so reconstructing the ARNs here is safe.
+resource "aws_iam_role_policy" "ecr_pull" {
+  name = "${var.name_prefix}-ecr-pull"
+  role = aws_iam_role.instance.id
+
+  policy = templatefile("${path.module}/${var.policies_dir}/ecr-pull.json", {
+    region      = var.region
+    account_id  = var.account_id
+    name_prefix = var.name_prefix
+  })
+}
+
 # --- The CloudWatch Agent needs a couple of describe + metric-put actions ---
 # These cannot be scoped down (per AWS docs); kept as a small, separate
 # policy so they're easy to audit on their own.
@@ -184,6 +204,7 @@ resource "aws_iam_role_policies_exclusive" "instance" {
     aws_iam_role_policy.kms_decrypt.name,
     aws_iam_role_policy.cloudwatch_write.name,
     aws_iam_role_policy.s3_backup_rw.name,
+    aws_iam_role_policy.ecr_pull.name,
     aws_iam_role_policy.cw_agent.name,
   ]
 }

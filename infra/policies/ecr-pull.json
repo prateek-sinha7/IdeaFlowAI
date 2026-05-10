@@ -1,0 +1,24 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ECRGetAuthToken",
+      "Effect": "Allow",
+      "Action": "ecr:GetAuthorizationToken",
+      "Resource": "*"
+    },
+    {
+      "Sid": "ECRPullScopedToProjectRepos",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage"
+      ],
+      "Resource": [
+        "arn:aws:ecr:${region}:${account_id}:repository/${name_prefix}-backend",
+        "arn:aws:ecr:${region}:${account_id}:repository/${name_prefix}-frontend"
+      ]
+    }
+  ]
+}

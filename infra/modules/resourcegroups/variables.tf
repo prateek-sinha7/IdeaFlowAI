@@ -18,6 +18,7 @@ variable "components" {
     monitoring = "CloudWatch log groups, alarms, SNS"
     iam        = "IAM role, KMS key, instance profile"
     secrets    = "SSM Parameter Store entries"
+    ecr        = "ECR repositories (backend, frontend) and lifecycle policies"
   }
 }
 
