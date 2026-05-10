@@ -1,6 +1,9 @@
 fastapi==0.115.6
 uvicorn==0.34.0
 sqlalchemy==2.0.36
+# Postgres driver — required for the production DATABASE_URL=postgresql://...
+# In dev with the SQLite default, this dependency is unused but harmless.
+psycopg2-binary==2.9.12
 pydantic[email]==2.10.4
 pydantic-settings==2.7.1
 python-jose[cryptography]==3.3.0
@@ -10,7 +13,8 @@ langchain==0.3.14
 # verify the latest 0.2.x with `pip index versions langchain-aws`.
 langchain-aws==0.2.10
 # Pinned for reproducibility; langchain-aws depends on it transitively.
-boto3==1.35.50
+# langchain-aws 0.2.10 requires boto3>=1.35.74.
+boto3==1.35.74
 # Kept for the LLM_PROVIDER=anthropic emergency-continuity fallback path.
 langchain-anthropic==0.3.4
 websockets==14.1

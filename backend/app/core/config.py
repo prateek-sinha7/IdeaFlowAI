@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     class Config:
         env_file = str(ENV_FILE)
         env_file_encoding = "utf-8"
+        # Tolerate unrelated env vars (boto3 reads AWS_*, the production
+        # secrets-loader pours every SSM key into the env file, etc.).
+        # Without this, any unexpected variable raises ValidationError at boot.
+        extra = "ignore"
 
 
 settings = Settings()
