@@ -1,0 +1,22 @@
+Flowin Alembic migrations.
+
+The DB URL is read at runtime from ``app.core.config.settings.DATABASE_URL``
+(see ``env.py``); ``alembic.ini`` deliberately leaves ``sqlalchemy.url`` empty
+so dev and prod use the same env-driven config the application uses.
+
+Common commands (run from ``backend/``):
+
+    alembic upgrade head              # apply all pending migrations
+    alembic downgrade -1              # roll back one revision
+    alembic current                   # show the DB's current revision
+    alembic history                   # list every migration
+    alembic revision --autogenerate -m "describe change"
+                                      # generate a migration from model diffs;
+                                      # ALWAYS hand-review the result before
+                                      # committing — autogenerate can miss
+                                      # column renames and Postgres-specific
+                                      # types.
+
+Production deploy: ``alembic upgrade head`` runs as ``ExecStartPre=`` on the
+``flowin-backend.service`` systemd unit (see ``docs/SIMPLE_AWS_DEPLOYMENT.md``
+Appendix B), so the schema is applied before uvicorn starts.

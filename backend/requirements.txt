@@ -1,6 +1,10 @@
 fastapi==0.115.6
 uvicorn==0.34.0
 sqlalchemy==2.0.36
+# Schema migrations. Production runs `alembic upgrade head` as the systemd
+# unit's ExecStartPre (see docs/SIMPLE_AWS_DEPLOYMENT.md Appendix B). The
+# 1.14.x series is the latest stable as of 2026-Q2 and pairs with SA 2.0.x.
+alembic==1.14.0
 # Postgres driver — required for the production DATABASE_URL=postgresql://...
 # In dev with the SQLite default, this dependency is unused but harmless.
 psycopg2-binary==2.9.12

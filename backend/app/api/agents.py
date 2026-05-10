@@ -1,10 +1,23 @@
-"""Agent Pipeline API — REST endpoints for agent management and workflow execution."""
+"""Agent Pipeline API — REST endpoints for agent management and workflow execution.
 
-from fastapi import APIRouter, Depends
+Skills are namespaced per user (see WORKFLOWS.md §B6 for the rationale and the
+storage layout in ``app/agents/skills.py``). Every skill endpoint requires
+``get_current_user`` and only ever reads/writes that user's own files; no
+endpoint here can touch another user's skill or the admin-managed global tier.
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from app.agents.registry import get_pipeline_agents, get_all_agents_flat, get_agent_by_id
-from app.agents.skills import get_skill_content, save_custom_skill, list_all_skills, delete_custom_skill
+from app.agents.skills import (
+    MAX_SKILL_BYTES,
+    delete_custom_skill,
+    get_skill_content,
+    list_user_skills,
+    read_user_skill,
+    save_custom_skill,
+)
 from app.core.dependencies import get_current_user
 from app.models.user import User
 
@@ -41,6 +54,14 @@ class SkillResponse(BaseModel):
     content: str
 
 
+# --- Helpers ---
+
+def _agent_has_resolvable_skill(agent_id: str, user_id: str) -> bool:
+    """Return True if any skill (user, global, pptx, or default) resolves for
+    the given agent under the calling user. Used purely as a UI hint."""
+    return bool(get_skill_content(agent_id, user_id=user_id))
+
+
 # --- Endpoints ---
 
 @router.get("/pipelines/{pipeline_type}", response_model=PipelineResponse)
@@ -50,7 +71,6 @@ def get_pipeline(
 ):
     """Get all agents for a specific pipeline type."""
     agents = get_pipeline_agents(pipeline_type)
-    skills = list_all_skills()
 
     agent_responses = [
         AgentResponse(
@@ -62,7 +82,7 @@ def get_pipeline(
             order=a.order,
             icon=a.icon,
             estimated_duration=a.estimated_duration,
-            has_skill=a.id in skills,
+            has_skill=_agent_has_resolvable_skill(a.id, current_user.id),
         )
         for a in agents
     ]
@@ -82,7 +102,6 @@ def get_agent_library(
 ):
     """Get all available agents across all pipelines."""
     all_agents = get_all_agents_flat()
-    skills = list_all_skills()
 
     return {
         "agents": [
@@ -95,7 +114,7 @@ def get_agent_library(
                 "order": a.order,
                 "icon": a.icon,
                 "estimated_duration": a.estimated_duration,
-                "has_skill": a.id in skills,
+                "has_skill": _agent_has_resolvable_skill(a.id, current_user.id),
             }
             for a in all_agents
         ],
@@ -112,8 +131,14 @@ def get_agent_library(
 def get_all_skills_endpoint(
     current_user: User = Depends(get_current_user),
 ):
-    """Get all available skills."""
-    skills = list_all_skills()
+    """List the calling user's own custom skills only.
+
+    Returns user-saved skills under ``backend/skills/users/{user_id}/``. Does
+    not include other users' skills, the admin global tier, or the in-code
+    DEFAULT_SKILLS — those are implementation details exposed only at runtime
+    via ``get_skill_content``.
+    """
+    skills = list_user_skills(current_user.id)
     return {
         "skills": [
             {"agent_id": agent_id, "content_preview": content[:200]}
@@ -128,11 +153,14 @@ def get_skill(
     agent_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    """Get the skill content for a specific agent."""
-    content = get_skill_content(agent_id)
-    if content is None:
-        content = ""
-    return SkillResponse(agent_id=agent_id, content=content)
+    """Read the calling user's own custom skill for an agent.
+
+    Returns an empty string when the user has not saved a custom skill for
+    this agent — this matches the pre-existing "no custom skill yet" UX and
+    deliberately does not fall back to other users' files or to defaults.
+    """
+    content = read_user_skill(agent_id, user_id=current_user.id)
+    return SkillResponse(agent_id=agent_id, content=content or "")
 
 
 @router.post("/skills")
@@ -140,8 +168,29 @@ def create_skill(
     request: SkillRequest,
     current_user: User = Depends(get_current_user),
 ):
-    """Create or update a custom skill for an agent."""
-    path = save_custom_skill(request.agent_id, request.content)
+    """Create or update the calling user's custom skill for an agent.
+
+    - Validates ``agent_id`` against the registry (rejects unknown IDs with 400).
+    - Caps content at ``MAX_SKILL_BYTES`` (currently 64 KB) — oversized
+      payloads return 413.
+    - Writes to ``backend/skills/users/{current_user.id}/{agent_id}/SKILL.md``.
+    """
+    if get_agent_by_id(request.agent_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown agent_id: {request.agent_id}",
+        )
+
+    content_bytes = request.content.encode("utf-8")
+    if len(content_bytes) > MAX_SKILL_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=(
+                f"Skill content exceeds maximum size of {MAX_SKILL_BYTES} bytes"
+            ),
+        )
+
+    path = save_custom_skill(request.agent_id, request.content, user_id=current_user.id)
     return {"status": "saved", "agent_id": request.agent_id, "path": path}
 
 
@@ -150,6 +199,11 @@ def remove_skill(
     agent_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    """Delete a custom skill."""
-    deleted = delete_custom_skill(agent_id)
+    """Delete the calling user's own custom skill.
+
+    Idempotent — returns ``{status: "not_found"}`` with HTTP 200 when no
+    custom skill exists, instead of raising 404, so the frontend can call
+    DELETE without checking first.
+    """
+    deleted = delete_custom_skill(agent_id, user_id=current_user.id)
     return {"status": "deleted" if deleted else "not_found", "agent_id": agent_id}

@@ -1,19 +1,21 @@
 """WebSocket endpoint for real-time AI chat streaming."""
 
+import asyncio
 import json
 import logging
+import time
 from datetime import datetime, timezone
 
-import anthropic
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from jose import JWTError
 from sqlalchemy.orm import Session
 
 from app.agents.base import AgentConfigurationError
+from app.agents.llm_errors import map_exception as _map_llm_exception
 from app.agents.modes import get_mode_prompt
 from app.agents.orchestrator import AgentOrchestrator
 from app.core.config import settings
-from app.core.security import decode_access_token
+from app.core.security import decode_access_token, is_token_revoked
 from app.models.chat import ChatSession, Message
 from app.models.database import SessionLocal
 from app.models.user import User
@@ -32,6 +34,14 @@ def _get_db() -> Session:
 def _authenticate_token(token: str, db: Session) -> User | None:
     """Validate JWT token and return the user, or None if invalid.
 
+    Mirrors :func:`app.core.dependencies.get_current_user` — including the
+    revocation checks introduced for /api/auth/logout — so a token that has
+    been revoked over HTTP can no longer be used to open or keep a WebSocket.
+
+    Called from both the open-time auth gate and the per-message re-validation
+    in ``websocket_chat``; the latter is what catches a /logout that revoked
+    the token mid-session.
+
     Args:
         token: The JWT token string.
         db: The database session.
@@ -49,6 +59,33 @@ def _authenticate_token(token: str, db: Session) -> User | None:
         return None
 
     user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        return None
+
+    # Per-token revocation (logout)
+    jti = payload.get("jti")
+    if jti and is_token_revoked(jti, db):
+        return None
+
+    # Blanket revocation on password change: reject any JWT whose ``iat``
+    # second is strictly before the password-rotation second. Comparison is
+    # done at whole-second resolution to match JWT ``iat`` precision — see
+    # the matching logic + rationale in app.core.dependencies.
+    pwd_changed_at = user.password_changed_at
+    if pwd_changed_at is not None and pwd_changed_at.tzinfo is None:
+        pwd_changed_at = pwd_changed_at.replace(tzinfo=timezone.utc)
+    iat_raw = payload.get("iat")
+    if pwd_changed_at is not None and iat_raw is not None:
+        if isinstance(iat_raw, (int, float)):
+            iat_seconds = int(iat_raw)
+        elif isinstance(iat_raw, datetime):
+            iat_dt = iat_raw if iat_raw.tzinfo else iat_raw.replace(tzinfo=timezone.utc)
+            iat_seconds = int(iat_dt.timestamp())
+        else:
+            iat_seconds = None
+        if iat_seconds is not None and iat_seconds < int(pwd_changed_at.timestamp()):
+            return None
+
     return user
 
 
@@ -56,24 +93,68 @@ def _authenticate_token(token: str, db: Session) -> User | None:
 async def websocket_chat(websocket: WebSocket):
     """WebSocket endpoint for real-time AI chat streaming.
 
-    Authentication is performed via JWT query parameter (?token=<jwt>).
+    Authentication (A5): the JWT is read from the ``Sec-WebSocket-Protocol``
+    request header as the entry ``bearer.<jwt>``. Browsers can't set arbitrary
+    headers on a WebSocket open, but they *can* declare subprotocols via the
+    second arg to ``new WebSocket(url, protocols)`` — we piggyback the token
+    there. This keeps the JWT off the URL, off nginx access logs, and off any
+    ``Referer`` header the browser may send on subsequent navigations.
+
+    Transitional path: a ``?token=<jwt>`` query parameter is still accepted for
+    one release so any in-flight client tabs at deploy time keep working. It
+    emits a deprecation warning in the backend log on every use; the frontend
+    only sends the new path.
+
     On successful auth, the connection enters a message loop where:
     - Client sends JSON messages with type, content, and chat_session_id
     - Server routes to AgentOrchestrator and streams responses back
     - Responses include phase_start, stream, phase_end, and complete messages
 
     Close codes:
-    - 4001: JWT expired or invalid during session
+    - 4001: JWT missing, invalid, expired, or revoked
     """
-    await websocket.accept()
-    print(f"[WS] Connection accepted, checking token...")
+    # Extract token BEFORE accept() so we can pick the right subprotocol echo
+    # — once you've called accept() you can't change the subprotocol the
+    # handshake committed to.
+    token: str | None = None
+    auth_method: str | None = None  # for logging only
 
-    # Extract JWT from query parameters
-    token = websocket.query_params.get("token")
+    # 1) Preferred: Sec-WebSocket-Protocol header (A5).
+    proto_raw = websocket.headers.get("sec-websocket-protocol", "")
+    proto_list = [p.strip() for p in proto_raw.split(",") if p.strip()]
+    for p in proto_list:
+        if p.startswith("bearer."):
+            token = p[len("bearer."):]
+            auth_method = "subprotocol"
+            break
+
+    # 2) Transitional: ?token= query parameter. Still works, but logged as
+    # deprecated so we can spot stragglers before removing this branch.
+    if token is None:
+        token = websocket.query_params.get("token")
+        if token:
+            auth_method = "query_param"
+            logger.warning(
+                "WebSocket auth via query string ?token= is deprecated and will be removed. "
+                "Switch the client to Sec-WebSocket-Protocol: bearer.<jwt>."
+            )
+
     if not token:
-        print("[WS] No token provided, closing")
+        # Reject before accept() — browsers see this as a connect failure,
+        # which is exactly what we want for a missing-credential case.
         await websocket.close(code=4001, reason="Missing authentication token")
         return
+
+    # When the client offered a subprotocol we MUST echo something back
+    # (otherwise browsers reject the handshake response). We deliberately
+    # echo the placeholder string ``bearer`` and NOT the token — never echo
+    # a credential back. The placeholder just satisfies the RFC requirement
+    # that the server pick one of the offered subprotocols.
+    if auth_method == "subprotocol":
+        await websocket.accept(subprotocol="bearer")
+    else:
+        await websocket.accept()
+    print(f"[WS] Connection accepted via {auth_method}, validating token...")
 
     # Validate JWT and get user
     db = _get_db()
@@ -90,6 +171,13 @@ async def websocket_chat(websocket: WebSocket):
 
     logger.info(f"WebSocket connected: user={user.id}")
     print(f"[WS] Authenticated user={user.id}, entering message loop")
+
+    # Track the in-flight pipeline (if any) for this connection. Pipelines run
+    # as background tasks so the receive loop stays responsive — that's what
+    # makes cancel_pipeline actually able to interrupt a running pipeline
+    # (blocker A3) and lets WebSocketDisconnect propagate cancellation to the
+    # task. A single connection can run at most one pipeline at a time.
+    current_pipeline_task: asyncio.Task | None = None
 
     # Message loop
     try:
@@ -117,21 +205,56 @@ async def websocket_chat(websocket: WebSocket):
             # Handle pipeline execution requests
             if msg_type == "run_pipeline":
                 print(f"[WS] Received run_pipeline: type={message_data.get('pipeline_type')}")
+                # Reject overlapping runs — the UI should never send a second
+                # run_pipeline while one is in flight, but a misbehaving client
+                # or a double-click race would otherwise spawn parallel
+                # WorkflowRuns and stream interleaved events.
+                if current_pipeline_task is not None and not current_pipeline_task.done():
+                    await websocket.send_json({
+                        "type": "error",
+                        "chunk": None,
+                        "section": None,
+                        "data": {
+                            "error": "Pipeline already running. Cancel the current one first.",
+                            "code": "pipeline_already_running",
+                            "recoverable": True,
+                        },
+                    })
+                    continue
                 pipeline_type = message_data.get("pipeline_type", "user_stories")
                 pipeline_content = message_data.get("message") or message_data.get("content") or ""
                 agent_ids = message_data.get("agent_ids")  # Optional custom agent list
-                await _handle_pipeline_execution(websocket, pipeline_content, pipeline_type, chat_session_id, token, user, agent_ids=agent_ids)
+                # Spawn as a background task — DO NOT await. Awaiting here
+                # blocks the receive loop for the entire pipeline duration,
+                # which is what made cancel_pipeline a no-op before A3.
+                current_pipeline_task = asyncio.create_task(
+                    _handle_pipeline_execution(
+                        websocket, pipeline_content, pipeline_type,
+                        chat_session_id, token, user, agent_ids=agent_ids,
+                    )
+                )
                 continue
 
             # Handle pipeline cancellation
             if msg_type == "cancel_pipeline":
                 logger.info(f"Pipeline cancellation requested by user={user.id}")
-                await websocket.send_json({
-                    "type": "pipeline_cancelled",
-                    "chunk": None,
-                    "section": None,
-                    "data": {"message": "Pipeline execution cancelled by user"},
-                })
+                if current_pipeline_task is not None and not current_pipeline_task.done():
+                    # Issue cancellation; the task itself (in
+                    # _handle_pipeline_execution) catches CancelledError,
+                    # marks the WorkflowRun as "cancelled" (A6), and sends
+                    # pipeline_cancelled to the client. We deliberately do
+                    # NOT send the ack here — doing so would race with the
+                    # task's own ack and the WorkflowRun update.
+                    current_pipeline_task.cancel()
+                else:
+                    # Idempotent: nothing to cancel, but the client expects an
+                    # ack so its UI state machine can return to idle.
+                    await websocket.send_json({
+                        "type": "pipeline_cancelled",
+                        "chunk": None,
+                        "section": None,
+                        "data": {"message": "No active pipeline"},
+                    })
                 continue
 
             # Handle questionnaire generation requests
@@ -246,40 +369,33 @@ async def websocket_chat(websocket: WebSocket):
                     await websocket.send_json(stream_msg)
 
             except AgentConfigurationError:
-                logger.error("Agent configuration error: missing API key")
+                # Provider-config gap (e.g. Anthropic key missing in fallback mode,
+                # or Bedrock model id / region not set). Always non-recoverable.
+                logger.error("Agent configuration error during chat stream")
                 await websocket.send_json({
                     "type": "error", "chunk": None, "section": None,
-                    "data": {"error": "AI service is not configured. Please contact the administrator.", "code": "api_key_missing", "recoverable": False},
+                    "data": {
+                        "error": "AI service is not configured. Please contact the administrator.",
+                        "code": "api_key_missing",
+                        "recoverable": False,
+                    },
                 })
-            except anthropic.APITimeoutError:
-                logger.error("Anthropic API timeout")
+            except Exception as exc:
+                # Maps both botocore (Bedrock) and anthropic (direct) exceptions
+                # to the {error, code, recoverable} triple the frontend expects.
+                # Falls back to a generic recoverable internal_error otherwise.
+                payload = _map_llm_exception(exc)
+                logger.error(
+                    "LLM call failed: provider=%s code=%s recoverable=%s exc=%s",
+                    settings.LLM_PROVIDER, payload.code, payload.recoverable, exc,
+                )
                 await websocket.send_json({
                     "type": "error", "chunk": None, "section": None,
-                    "data": {"error": "The AI service took too long to respond. Please try again.", "code": "timeout", "recoverable": True},
-                })
-            except anthropic.RateLimitError:
-                logger.error("Anthropic rate limit exceeded")
-                await websocket.send_json({
-                    "type": "error", "chunk": None, "section": None,
-                    "data": {"error": "Too many requests. Please wait a moment and try again.", "code": "rate_limit", "recoverable": True},
-                })
-            except anthropic.APIConnectionError:
-                logger.error("Anthropic API connection error")
-                await websocket.send_json({
-                    "type": "error", "chunk": None, "section": None,
-                    "data": {"error": "Unable to reach the AI service. Please check your connection and try again.", "code": "connection_error", "recoverable": True},
-                })
-            except anthropic.AuthenticationError:
-                logger.error("Anthropic API authentication error")
-                await websocket.send_json({
-                    "type": "error", "chunk": None, "section": None,
-                    "data": {"error": "AI service authentication failed. Please contact the administrator.", "code": "auth_error", "recoverable": False},
-                })
-            except Exception as e:
-                logger.error(f"Agent execution error: {e}")
-                await websocket.send_json({
-                    "type": "error", "chunk": None, "section": None,
-                    "data": {"error": "Something went wrong. Please try again.", "code": "internal_error", "recoverable": True},
+                    "data": {
+                        "error": payload.message,
+                        "code": payload.code,
+                        "recoverable": payload.recoverable,
+                    },
                 })
 
             # Persist assistant response and final output
@@ -317,8 +433,25 @@ async def websocket_chat(websocket: WebSocket):
 
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected: user={user.id}")
+        # Stop burning Bedrock tokens for a connection that's already gone.
+        # Without this, the pipeline task keeps streaming into a dead WS.
+        if current_pipeline_task is not None and not current_pipeline_task.done():
+            current_pipeline_task.cancel()
+            try:
+                await current_pipeline_task
+            except (asyncio.CancelledError, Exception):
+                # The task's CancelledError handler will have marked the
+                # WorkflowRun "cancelled" already; any send_json there will
+                # have failed silently because the WS is closed. That's fine.
+                pass
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
+        if current_pipeline_task is not None and not current_pipeline_task.done():
+            current_pipeline_task.cancel()
+            try:
+                await current_pipeline_task
+            except (asyncio.CancelledError, Exception):
+                pass
         try:
             await websocket.close(code=1011, reason="Internal server error")
         except Exception:
@@ -440,15 +573,18 @@ async def _handle_pipeline_execution(
         agent_map = {a.id: a for a in all_agents}
         agents = [agent_map[aid] for aid in agent_ids if aid in agent_map]
 
+    # Pass the authenticated user's id so per-user custom skills override
+    # global/default skills at runtime (per WORKFLOWS.md §B6 namespacing fix).
     skills: dict[str, str] = {}
     for agent_def in agents:
-        skill_content = get_skill_content(agent_def.id)
+        skill_content = get_skill_content(agent_def.id, user_id=user.id)
         if skill_content:
             skills[agent_def.id] = skill_content
 
     # Execute the pipeline
     executor = PipelineExecutor(pipeline_type, custom_agents=agents if agent_ids else None)
 
+    monotonic_start = time.monotonic()
     try:
         current_agent_output_live: dict = {}
         async for update in executor.execute(content, skills=skills):
@@ -479,6 +615,51 @@ async def _handle_pipeline_execution(
                 current_agent_output_live = {}
             elif update["type"] == "pipeline_complete":
                 final_output = update["data"].get("final_output", "")
+    except asyncio.CancelledError:
+        # Cooperative cancellation from cancel_pipeline (or WebSocketDisconnect
+        # cleanup). The async generator's CancelledError propagates here from
+        # the LLM stream; everything below is the A6 fix — without it the
+        # WorkflowRun row stays at status="running" forever.
+        duration = round(time.monotonic() - monotonic_start, 1)
+        logger.info(
+            "Pipeline cancelled by user — workflow_run_id=%s agents_completed=%d duration=%.1fs",
+            workflow_run_id, len(agent_outputs_collector), duration,
+        )
+        if workflow_run_id:
+            db = _get_db()
+            try:
+                wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+                if wr:
+                    wr.status = "cancelled"
+                    wr.completed_at = datetime.now(timezone.utc)
+                    wr.duration = duration
+                    # Persist whatever partial output we collected — useful
+                    # for "show me what the pipeline got through" UX, and
+                    # avoids losing finished agents' work.
+                    if agent_outputs_collector:
+                        wr.agent_outputs = json.dumps(agent_outputs_collector)
+                    db.commit()
+            finally:
+                db.close()
+        # Best-effort ack; the WS may already be closed (e.g. user closed the
+        # tab → WebSocketDisconnect → cleanup cancelled us).
+        try:
+            await websocket.send_json({
+                "type": "pipeline_cancelled",
+                "chunk": None,
+                "section": None,
+                "data": {
+                    "message": "Pipeline cancelled by user",
+                    "agents_completed": len(agent_outputs_collector),
+                    "duration": duration,
+                },
+            })
+        except Exception:
+            pass
+        # Re-raise so the asyncio scheduler finalises this task as
+        # `cancelled` (not `done`). Anything that introspects task state
+        # later (`task.cancelled()`) depends on this re-raise.
+        raise
     except Exception as e:
         logger.error(f"Pipeline execution error: {e}")
         await websocket.send_json({

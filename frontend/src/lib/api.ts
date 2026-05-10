@@ -32,6 +32,33 @@ export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY);
 }
 
+/**
+ * Log the current user out: ask the backend to revoke the JWT, then drop it
+ * locally. Network failure or an already-revoked token must not block the
+ * client-side clear — the user is logging out either way, so we swallow
+ * errors and always run clearToken() in the finally block. Pair this with a
+ * post-logout redirect at the call site (the dashboard's handleLogout does so).
+ *
+ * Pass an empty string when no token is available; the request will 401 and
+ * the catch will swallow it. (See the WS-expired close handler in
+ * useWebSocket.ts which legitimately calls clearToken() directly — the token
+ * is already invalid, so /logout would just 401.)
+ */
+export async function logout(token: string): Promise<void> {
+  try {
+    await fetch(`${BASE_URL}/api/auth/logout`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  } catch {
+    // best-effort — see the docstring
+  } finally {
+    clearToken();
+  }
+}
+
 // --- HTTP helpers ---
 
 class ApiError extends Error {

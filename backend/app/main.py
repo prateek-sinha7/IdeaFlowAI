@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect, text
 
 from app.api.auth import router as auth_router
 from app.api.chats import router as chats_router
@@ -14,7 +15,7 @@ from app.api.agents import router as agents_router
 from app.api.workflows import router as workflows_router
 from app.api.websocket import router as websocket_router
 from app.core.config import settings
-from app.models.database import Base, engine
+from app.models.database import engine
 
 # ============================================================
 # LOGGING CONFIGURATION
@@ -80,8 +81,33 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("   LLM provider: %s (UNKNOWN ✗)", settings.LLM_PROVIDER)
     logger.info("   LangSmith: %s", "enabled ✓" if langsmith_enabled else "disabled")
-    Base.metadata.create_all(bind=engine)
-    logger.info("   Database tables: created ✓")
+
+    # Schema is now driven by alembic, not Base.metadata.create_all. We do a
+    # cheap sanity check: if the alembic_version table is missing the DB has
+    # never been migrated, which in production means we're about to serve
+    # traffic against an empty schema and fail every query. Refuse to boot.
+    # In development we tolerate it (with a loud warning) so first-time
+    # contributors don't have to remember an extra step.
+    inspector = inspect(engine)
+    if not inspector.has_table("alembic_version"):
+        msg = (
+            "Database schema has not been initialised. Run "
+            "`alembic upgrade head` from backend/ before starting the backend."
+        )
+        if settings.ENV.lower() == "development":
+            logger.warning("%s (Continuing because ENV=development.)", msg)
+        else:
+            logger.error(msg)
+            raise RuntimeError(msg)
+    else:
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT version_num FROM alembic_version"))
+            row = result.first()
+            logger.info(
+                "   Database schema: alembic=%s",
+                row[0] if row else "unknown",
+            )
+
     logger.info("🟢 Backend ready — accepting connections")
     yield
     logger.info("🔴 Shutting down...")

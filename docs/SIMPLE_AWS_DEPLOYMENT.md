@@ -1653,8 +1653,19 @@ sudo -u flowin ln -sfn ${RELEASE_DIR}/frontend ${DEPLOY_DIR}/frontend.new
 sudo -u flowin mv -T ${DEPLOY_DIR}/backend.new ${DEPLOY_DIR}/backend
 sudo -u flowin mv -T ${DEPLOY_DIR}/frontend.new ${DEPLOY_DIR}/frontend
 
-# Reload secrets, restart units
+# Reload secrets so the env file reflects the latest Parameter Store state
+# BEFORE we run alembic — the migration command needs DATABASE_URL.
 sudo /usr/local/bin/flowin-load-secrets
+
+# Apply pending schema migrations BEFORE restarting uvicorn. Idempotent: if
+# there are no pending migrations alembic logs "no upgrade operations" and
+# exits 0. Running it pre-restart (rather than as ExecStartPre alone) means
+# the deploy script fails loudly here if a migration breaks, instead of the
+# systemd unit looping on Restart=always.
+sudo -u flowin bash -c "cd ${DEPLOY_DIR}/backend && \
+    set -a && source /etc/flowin/environment.d/flowin.env && set +a && \
+    /opt/flowin/venv/bin/alembic upgrade head"
+
 sudo systemctl restart flowin-backend.service
 sleep 5
 sudo systemctl restart flowin-frontend.service
@@ -1861,8 +1872,11 @@ The single-EC2 instance can be decommissioned after step 5. Expect the migration
 #                     '"$request_method $uri $server_protocol" '
 #                     '$status $body_bytes_sent "$http_referer" '
 #                     '"$http_user_agent" rt=$request_time';
-#   # NOTE: $uri intentionally instead of $request — strips the query string,
-#   # mitigating Blocker 5 (WS token in query string leaks to access logs).
+#   # NOTE: $uri intentionally instead of $request — strips the query string.
+#   # WebSocket auth uses Sec-WebSocket-Protocol: bearer.<jwt> per A5, so the
+#   # primary fix for Blocker 5 lives in the application. The $uri-instead-of-
+#   # $request choice still applies as defense in depth during the transitional
+#   # window where some clients may still send ?token=.
 
 # Upstreams
 upstream flowin_backend {
@@ -2062,6 +2076,14 @@ WorkingDirectory=/opt/flowin/backend
 # is no longer required for boot (only for the optional outage fallback — §9).
 ExecStartPre=/usr/local/bin/flowin-load-secrets
 EnvironmentFile=/etc/flowin/environment.d/flowin.env
+
+# Apply pending Alembic migrations before uvicorn starts. EnvironmentFile is
+# loaded for ExecStartPre too, so DATABASE_URL is set when alembic runs. The
+# command is idempotent — it's a no-op when the DB is already at HEAD — so
+# safe to run on every restart. If a migration fails, systemd refuses to
+# start uvicorn (Restart=always then loops with backoff) — this is the
+# guard that prevents prod from booting against a stale schema.
+ExecStartPre=/opt/flowin/venv/bin/alembic upgrade head
 
 ExecStart=/opt/flowin/venv/bin/uvicorn app.main:app \
     --host 127.0.0.1 \
@@ -2501,6 +2523,18 @@ NEXT_PUBLIC_API_URL=https://$DOMAIN \
 NEXT_PUBLIC_WS_URL=wss://$DOMAIN/ws/chat \
 npm run build
 EOF
+
+# ── 8b. Apply DB migrations ────────────────────────────────────────────
+# The application now uses Alembic — the schema is no longer auto-created
+# at uvicorn startup. We need DATABASE_URL in scope; pull it from
+# Parameter Store rather than waiting for /etc/flowin/environment.d/flowin.env
+# (which §9 populates further down). Idempotent: re-running on a recovery
+# boot is a no-op when the DB is already at HEAD.
+DB_URL=$(aws ssm get-parameter --region $REGION --name $PARAM_PREFIX/DATABASE_URL --with-decryption --query 'Parameter.Value' --output text)
+sudo -u $APP_USER bash -c "cd /opt/flowin/backend && \
+    DATABASE_URL='$DB_URL' \
+    SECRET_KEY=\$(aws ssm get-parameter --region $REGION --name $PARAM_PREFIX/SECRET_KEY --with-decryption --query 'Parameter.Value' --output text) \
+    /opt/flowin/venv/bin/alembic upgrade head"
 
 # ── 9. Secrets loader ──────────────────────────────────────────────────
 # Pulls all parameters under /flowin/prod/* and emits them as KEY=value lines

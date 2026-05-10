@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getToken, getChat, addMessage, clearToken, deleteChat, createChat, getWorkflows, getWorkflow } from "@/lib/api";
+import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow } from "@/lib/api";
 import { ENV } from "@/lib/env";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useWorkflow } from "@/hooks/useWorkflow";
@@ -545,9 +545,14 @@ export default function DashboardPage() {
     [activeChatId]
   );
 
-  // Handle logout
-  const handleLogout = useCallback(() => {
-    clearToken();
+  // Handle logout: revoke the JWT on the backend, then drop it locally and
+  // redirect. We await the logout call so the token is reliably revoked
+  // before navigation — fire-and-forget would be at the mercy of the page
+  // unload aborting the request. logout() swallows network errors and always
+  // clears the local token in its finally block, so navigation is safe even
+  // if the backend is unreachable.
+  const handleLogout = useCallback(async () => {
+    await logout(getToken() ?? "");
     router.replace("/login");
   }, [router]);
 

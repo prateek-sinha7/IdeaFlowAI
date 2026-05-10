@@ -1,5 +1,6 @@
 """Agent Orchestrator: Multi-phase execution pipeline coordinator."""
 
+import asyncio
 import json
 import logging
 from typing import AsyncGenerator
@@ -234,6 +235,8 @@ class AgentOrchestrator:
                 output_selection = self._parse_output_selection(discovery_output)
                 context["output_selection"] = output_selection
             logger.info(f"Phase 0: Complete. Output_Selection: {output_selection}")
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.error(f"Phase 0 (Discovery) failed: {e}")
             context["discovery"] = {"status": "failed", "error": str(e)}
@@ -247,6 +250,8 @@ class AgentOrchestrator:
             if requirements_output:
                 context["requirements"] = {"output": requirements_output}
             logger.info("Phase 1: Complete")
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.error(f"Phase 1 (Requirements) failed: {e}")
             context["requirements"] = {"status": "failed", "error": str(e)}
@@ -274,6 +279,8 @@ class AgentOrchestrator:
                     else:
                         context[section] = {"output": phase_output}
                 logger.info(f"Phase {phase}: Complete ({section})")
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
                 logger.error(f"Phase {phase} ({section}) failed: {e}")
                 context[section] = {"status": "failed", "error": str(e)}
@@ -322,6 +329,8 @@ class AgentOrchestrator:
             output_selection = self._parse_output_selection(discovery_output)
             context["output_selection"] = output_selection
             logger.info(f"Phase 0: Complete. Output_Selection: {output_selection}")
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.error(f"Phase 0 (Discovery) failed: {e}")
             context["discovery"] = {"status": "failed", "error": str(e)}
@@ -342,6 +351,8 @@ class AgentOrchestrator:
             requirements_output = "".join(requirements_parts)
             context["requirements"] = {"output": requirements_output}
             logger.info("Phase 1: Complete")
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.error(f"Phase 1 (Requirements) failed: {e}")
             context["requirements"] = {"status": "failed", "error": str(e)}
@@ -382,6 +393,8 @@ class AgentOrchestrator:
                     context[section] = {"output": phase_output}
 
                 logger.info(f"Phase {phase}: Complete ({section})")
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
                 logger.error(f"Phase {phase} ({section}) failed: {e}")
                 context[section] = {"status": "failed", "error": str(e)}

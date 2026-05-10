@@ -75,12 +75,20 @@ export function useWebSocket(config: UseWebSocketConfig): UseWebSocketReturn {
     cleanup();
     intentionalCloseRef.current = false;
 
-    const wsUrl = `${url}?token=${encodeURIComponent(currentToken)}`;
     setConnectionStatus(
       retryCountRef.current > 0 ? "reconnecting" : "connecting"
     );
 
-    const ws = new WebSocket(wsUrl);
+    // A5: send the JWT in the Sec-WebSocket-Protocol header instead of on the
+    // URL, so it doesn't leak into nginx access logs, browser history, or
+    // Referer headers. Browsers can't set arbitrary headers on a WS open, but
+    // each entry in the second arg of `new WebSocket(url, protocols)` is sent
+    // as a comma-separated `Sec-WebSocket-Protocol`. The backend reads the
+    // entry starting with `bearer.` and strips the prefix to recover the JWT.
+    // The JWT is base64url so no further encoding is needed. The server
+    // accepts with subprotocol="bearer" (a placeholder, never the token) to
+    // complete the handshake.
+    const ws = new WebSocket(url, [`bearer.${currentToken}`]);
     wsRef.current = ws;
 
     ws.onopen = () => {

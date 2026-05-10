@@ -1,15 +1,28 @@
 """Skill Manager — Manages skill files (SKILL.md) that enhance agent capabilities.
 
-For PPT pipeline agents, skills are loaded from the backend/pptx/ folder
-which contains comprehensive PptxGenJS API reference and design guidelines.
+Storage layout (post per-user namespacing fix, see WORKFLOWS.md §B6):
+    backend/skills/users/{user_id}/{agent_id}/SKILL.md   — user-specific custom skills
+    backend/skills/global/{agent_id}/SKILL.md            — admin-managed skills (reserved;
+                                                          NOT writable from user-facing
+                                                          REST endpoints today)
+
+For PPT pipeline agents, additional shipped reference docs are loaded from
+backend/pptx/ (pptxgenjs.md, skill.md). Those are read-only built-ins, not
+user-managed skills, and are stored outside the skills/ tree on purpose.
 """
 
-import os
 from pathlib import Path
 from typing import Optional
 
-SKILLS_DIR = Path(__file__).parent.parent.parent / "skills"
-PPTX_SKILLS_DIR = Path(__file__).parent.parent.parent / "pptx"
+_BACKEND_DIR = Path(__file__).parent.parent.parent
+SKILLS_DIR = _BACKEND_DIR / "skills"
+USER_SKILLS_DIR = SKILLS_DIR / "users"
+GLOBAL_SKILLS_DIR = SKILLS_DIR / "global"
+PPTX_SKILLS_DIR = _BACKEND_DIR / "pptx"
+
+# Maximum size in bytes accepted for a custom SKILL.md payload.
+# Enforced at the API layer; exposed here so tests and call sites can share it.
+MAX_SKILL_BYTES = 64 * 1024  # 64 KB
 
 
 # ============================================================
@@ -140,24 +153,83 @@ Generate correct PptxGenJS JavaScript code following these rules:
 }
 
 
-def get_skill_content(agent_id: str) -> Optional[str]:
-    """Get the skill content for an agent.
+# ============================================================
+# Path helpers
+# ============================================================
 
-    Checks custom skills directory first, then falls back to defaults.
-    For PPT pipeline agents, loads skills from the pptx/ folder.
+def _user_skill_path(user_id: str, agent_id: str) -> Path:
+    """Resolve the on-disk path for a user's custom skill file."""
+    return USER_SKILLS_DIR / user_id / agent_id / "SKILL.md"
+
+
+def _global_skill_path(agent_id: str) -> Path:
+    """Resolve the on-disk path for the admin-managed global skill file."""
+    return GLOBAL_SKILLS_DIR / agent_id / "SKILL.md"
+
+
+# ============================================================
+# Resolution
+# ============================================================
+
+def read_user_skill(agent_id: str, user_id: str) -> Optional[str]:
+    """Read the user's own custom skill file, with no fallback.
+
+    Used by the REST GET endpoint, where the API contract is "return what
+    the user saved or empty" — never another user's content, never the
+    DEFAULT_SKILLS, never the admin global tier.
 
     Args:
-        agent_id: The agent's ID
+        agent_id: The agent's ID.
+        user_id: The authenticated user's ID.
 
     Returns:
-        Skill content string, or None if no skill exists
+        The raw file contents if the user has saved a custom skill for
+        this agent; otherwise ``None``.
     """
-    # Check custom skills directory
-    custom_skill_path = SKILLS_DIR / agent_id / "SKILL.md"
-    if custom_skill_path.exists():
-        return custom_skill_path.read_text(encoding="utf-8")
+    if not user_id:
+        return None
+    path = _user_skill_path(user_id, agent_id)
+    if path.exists():
+        return path.read_text(encoding="utf-8")
+    return None
 
-    # PPT pipeline agents get pptx/ folder skills injected
+
+def get_skill_content(agent_id: str, user_id: Optional[str] = None) -> Optional[str]:
+    """Resolve the runtime skill content for a single agent.
+
+    Lookup order:
+      1. ``backend/skills/users/{user_id}/{agent_id}/SKILL.md`` — per-user override
+         (only consulted when ``user_id`` is provided).
+      2. ``backend/skills/global/{agent_id}/SKILL.md`` — admin-managed skill
+         (reserved; not yet writable from the public API).
+      3. Special-case PPT skills under ``backend/pptx/`` — shipped reference docs
+         injected for the PPT pipeline agents.
+      4. ``DEFAULT_SKILLS`` dict — hard-coded fallback baked into this module.
+
+    Passing ``user_id=None`` (the legacy signature) skips step 1 and behaves
+    like the pre-namespacing global resolver. Call sites that authenticate the
+    caller should always pass ``user_id`` so user customisations win.
+
+    Args:
+        agent_id: The agent's ID.
+        user_id: The authenticated user's ID, or None to skip the user-override
+            lookup (e.g. for code paths that have no user context).
+
+    Returns:
+        Skill content string, or None if no skill exists at any layer.
+    """
+    # 1. Per-user override
+    if user_id:
+        user_path = _user_skill_path(user_id, agent_id)
+        if user_path.exists():
+            return user_path.read_text(encoding="utf-8")
+
+    # 2. Admin-managed global skill (file-backed; reserved for future)
+    global_path = _global_skill_path(agent_id)
+    if global_path.exists():
+        return global_path.read_text(encoding="utf-8")
+
+    # 3. PPT pipeline agents get shipped pptx/ reference docs injected.
     if agent_id == "ppt-code-generator":
         # The code generator gets the full PptxGenJS API reference
         pptxgenjs_path = PPTX_SKILLS_DIR / "pptxgenjs.md"
@@ -195,21 +267,36 @@ Include at least 2 data/chart slides with specific numbers."""
             if pitfalls_start != -1:
                 return f"=== PPTXGENJS COMMON PITFALLS (for validation) ===\n{content[pitfalls_start:]}"
 
-    # Fall back to default skills
+    # 4. Fall back to default skills
     return DEFAULT_SKILLS.get(agent_id)
 
 
-def save_custom_skill(agent_id: str, content: str) -> str:
-    """Save a custom skill file for an agent.
+# ============================================================
+# User-scoped CRUD
+# ============================================================
+
+def save_custom_skill(agent_id: str, content: str, user_id: str) -> str:
+    """Persist a user's custom skill file at the per-user namespaced path.
+
+    The caller is responsible for validating ``agent_id`` against the registry
+    and enforcing payload size limits — this function just writes.
 
     Args:
-        agent_id: The agent's ID
-        content: The skill markdown content
+        agent_id: The agent's ID.
+        content: The skill markdown content.
+        user_id: The authenticated user's ID. Required — there is no global
+            write path from the public API.
 
     Returns:
-        The path where the skill was saved
+        The absolute path where the skill was saved.
     """
-    skill_dir = SKILLS_DIR / agent_id
+    if not user_id:
+        # Defensive — caller must always supply a user_id. Fail loudly so a
+        # missing dependency injection surfaces in tests instead of silently
+        # writing to a directory named "None/".
+        raise ValueError("user_id is required to save a custom skill")
+
+    skill_dir = USER_SKILLS_DIR / user_id / agent_id
     skill_dir.mkdir(parents=True, exist_ok=True)
 
     skill_path = skill_dir / "SKILL.md"
@@ -218,35 +305,54 @@ def save_custom_skill(agent_id: str, content: str) -> str:
     return str(skill_path)
 
 
-def list_all_skills() -> dict[str, str]:
-    """List all available skills (default + custom).
+def list_user_skills(user_id: str) -> dict[str, str]:
+    """List every custom skill the given user has saved.
+
+    Iterates ``backend/skills/users/{user_id}/*/SKILL.md`` and returns a dict
+    mapping ``agent_id`` -> raw file content. Does NOT include defaults, the
+    global tier, or other users' files. The API layer is expected to combine
+    this with previews/registry metadata as needed.
+
+    Args:
+        user_id: The authenticated user's ID.
 
     Returns:
-        Dict of agent_id -> skill content
+        Dict of agent_id -> skill content. Empty if the user has no skills.
     """
-    skills = dict(DEFAULT_SKILLS)
+    if not user_id:
+        return {}
 
-    # Add custom skills
-    if SKILLS_DIR.exists():
-        for skill_dir in SKILLS_DIR.iterdir():
-            if skill_dir.is_dir():
-                skill_file = skill_dir / "SKILL.md"
-                if skill_file.exists():
-                    skills[skill_dir.name] = skill_file.read_text(encoding="utf-8")
+    user_root = USER_SKILLS_DIR / user_id
+    if not user_root.exists():
+        return {}
 
+    skills: dict[str, str] = {}
+    for agent_dir in user_root.iterdir():
+        if not agent_dir.is_dir():
+            continue
+        skill_file = agent_dir / "SKILL.md"
+        if skill_file.exists():
+            skills[agent_dir.name] = skill_file.read_text(encoding="utf-8")
     return skills
 
 
-def delete_custom_skill(agent_id: str) -> bool:
-    """Delete a custom skill file.
+def delete_custom_skill(agent_id: str, user_id: str) -> bool:
+    """Delete a user's own custom skill file.
+
+    Only ever touches files under ``backend/skills/users/{user_id}/``; cannot
+    be used to delete another user's skill or anything in the global tier.
 
     Args:
-        agent_id: The agent's ID
+        agent_id: The agent's ID.
+        user_id: The authenticated user's ID.
 
     Returns:
-        True if deleted, False if not found
+        True if a file was deleted, False if there was nothing to delete.
     """
-    skill_path = SKILLS_DIR / agent_id / "SKILL.md"
+    if not user_id:
+        return False
+
+    skill_path = _user_skill_path(user_id, agent_id)
     if skill_path.exists():
         skill_path.unlink()
         return True

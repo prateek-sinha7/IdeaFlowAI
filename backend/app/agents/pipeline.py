@@ -1,5 +1,6 @@
 """Pipeline Executor — Runs a chain of agents sequentially with streaming status updates."""
 
+import asyncio
 import logging
 import time
 from typing import AsyncGenerator
@@ -105,6 +106,13 @@ class PipelineExecutor:
                                 },
                             }
                         break  # Success — exit retry loop
+                    except asyncio.CancelledError:
+                        # Cooperative cancellation must propagate immediately —
+                        # never retried, never swallowed, never converted into
+                        # an agent_error event. The downstream WS handler
+                        # finalises WorkflowRun.status="cancelled" and the
+                        # asyncio scheduler marks the task as cancelled.
+                        raise
                     except Exception as stream_err:
                         err_name = type(stream_err).__name__
                         if attempt < max_retries and ("RemoteProtocolError" in err_name or "ReadTimeout" in err_name or "chunked" in str(stream_err).lower()):
@@ -116,7 +124,6 @@ class PipelineExecutor:
                                     "thinking": f"Connection interrupted, retrying ({attempt + 1}/{max_retries})...",
                                 },
                             }
-                            import asyncio
                             await asyncio.sleep(2)
                             continue
                         raise  # Non-retryable or max retries exceeded
@@ -159,6 +166,13 @@ class PipelineExecutor:
                     },
                 }
                 break  # Stop pipeline on config error
+
+            except asyncio.CancelledError:
+                # Re-raise so the WS handler can finalise WorkflowRun and
+                # emit pipeline_cancelled. Without this, the broad except
+                # below would convert the cancellation into a recoverable
+                # agent_error and the pipeline would keep iterating.
+                raise
 
             except Exception as e:
                 logger.error("AGENT [%d/%d] FAILED — %s: %s", i + 1, len(self.agents), agent_def.name, e, exc_info=True)
