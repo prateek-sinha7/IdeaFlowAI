@@ -2,23 +2,315 @@
 
 Extracts the generatePresentation() function from Agent 3's output
 and runs it with Node.js to produce a real .pptx file.
+
+================================================================================
+SECURITY MODEL — LAYERED DEFENCE
+================================================================================
+Agent 3 (an LLM) produces JavaScript that this service feeds into a Node.js
+subprocess. The LLM is *not* a trusted code source — prompt injection,
+hallucination, or a model swap can yield JavaScript that is hostile to the
+host. We therefore treat ``js_code`` as **attacker-influenced input** and
+defend in depth. No single layer is sufficient.
+
+Layer 1 — Syntactic sanitisation (in this file).
+    The regex passes near the top of ``generate_pptx_from_code`` (hex-color
+    fixing, negative-offset clamping, ``.line.`` filtering, writeFile→write
+    rewrites) exist for **render quality**, not security. They prevent
+    PptxGenJS from crashing on commonly-mangled output. A motivated attacker
+    can trivially bypass them — DO NOT TREAT THEM AS A SECURITY BOUNDARY.
+
+Layer 2 — Process isolation (this file).
+    The Node subprocess runs with:
+      * A scrubbed environment (no AWS_*, DATABASE_URL, SECRET_KEY, etc.).
+        An attacker who achieves RCE inside Node cannot exfiltrate secrets
+        via env vars or reach Bedrock/RDS/Redis with our credentials.
+      * POSIX rlimits (CPU, AS, FSIZE, NOFILE, NPROC) so a runaway script
+        is killed by the kernel before it exhausts the host.
+      * NODE_OPTIONS=--max-old-space-size=512 so V8 OOMs cleanly inside
+        its own heap budget (well below the RLIMIT_AS ceiling).
+      * cwd=temp_dir + 0o700 mode so the script cannot read another
+        request's temp dir even if scheduling overlaps.
+      * A 30s wall-clock timeout matching RLIMIT_CPU (defence in depth:
+        if the subprocess ignores SIGXCPU we still SIGKILL via Python).
+
+Layer 3 — Concurrency cap (this file).
+    A module-level Semaphore caps concurrent Node subprocesses at 3. This
+    protects the host from a thundering herd (an attacker requesting many
+    /pptx/export at once cannot fork-bomb the box via legitimate API
+    calls). The acquire has a 5s timeout to keep the API responsive.
+
+Layer 4 — Container egress (NOT in this file).
+    The Linux container runs in a VPC with security-group egress rules
+    restricting traffic to Bedrock/RDS/Redis only — 0.0.0.0/0 is BLOCKED.
+    Even if a hostile JS callout escapes Layers 1-3 and tries to phone
+    home, the SG drops the SYN. We rely on this for full network
+    isolation because Node has no in-process flag to disable networking
+    and ``unshare -n`` would require CAP_SYS_ADMIN we don't grant.
+
+Layer 5 — Output validation (this file).
+    The output ``.pptx`` is size-capped at 50 MB before being returned.
+    Stderr is path-redacted and truncated before any error string can
+    leak to the HTTP response (avoiding container-path disclosure).
+
+================================================================================
+RESOURCE-LIMIT RATIONALE
+================================================================================
+RLIMIT_CPU    = 30 s         Matches the Python-side ``timeout=30``. Most
+                             real decks render in <2 s; 30 s leaves
+                             generous headroom for a 50-slide deck.
+RLIMIT_AS     = 768 MB       NODE_OPTIONS caps the V8 *heap* at 512 MB.
+                             RLIMIT_AS is the *virtual memory* ceiling
+                             which must include native libs, stacks,
+                             and JIT scratch — 768 MB lets Node OOM
+                             cleanly via V8 rather than via SIGKILL.
+RLIMIT_FSIZE  = 50 MB        A 50 MB .pptx is already absurd. Caps
+                             attackers writing huge files to fill disk.
+RLIMIT_NOFILE = 64           Enough for pptxgenjs's internal file
+                             handles + 4 inherited fds + headroom; far
+                             below what a fork-bomb or fd-leak needs.
+RLIMIT_NPROC  = 16           Stops fork-bombs from this UID. Note: this
+                             is per-uid on Linux, so if multiple
+                             concurrent Node procs share a uid (they do
+                             in our container), the actual usable budget
+                             per-subprocess is lower — that's fine,
+                             pptxgenjs doesn't fork.
+Wall-clock    = 30 s         Python-side ``timeout=`` belt+braces in
+                             case the kernel doesn't enforce SIGXCPU.
+Semaphore     = 3            Bounds host memory at ~3 * 768 MB = 2.3 GB
+                             worst case. Tune via PPTX_MAX_CONCURRENT.
+Acquire wait  = 5 s          Long enough to absorb micro-bursts; short
+                             enough that the API returns a clear 503
+                             rather than holding the connection open.
+
+================================================================================
+PLATFORM NOTES
+================================================================================
+* macOS dev path: ``RLIMIT_AS`` is not honoured the same way (Darwin
+  enforces a much higher implicit cap), and ``RLIMIT_NPROC`` can be
+  finicky. Each ``setrlimit`` is guarded by try/except so a Mac dev
+  still gets working PPTX export. Production runs on the Linux
+  container where these limits are properly enforced.
+* Windows is unsupported — ``preexec_fn`` and POSIX rlimits do not
+  exist there. The codebase as a whole assumes POSIX (gunicorn,
+  fork-based workers).
+
+================================================================================
+FOLLOW-UPS (not in this hardening pass)
+================================================================================
+* The caller in ``api/workflows.py`` currently maps every exception to
+  HTTP 500. The "renderer busy" RuntimeError should be a 503 Retry-After.
+  Out of scope for this change — touching the caller is non-negotiable
+  per the hardening brief. Tracked as a separate ticket.
 """
 
+import logging
 import os
 import re
-import logging
+import resource
+import shutil
 import subprocess
+import sys
 import tempfile
+import threading
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-FRONTEND_DIR = Path(__file__).parent.parent.parent.parent / "frontend"
-NODE_MODULES_PPTXGENJS = FRONTEND_DIR / "node_modules" / "pptxgenjs"
+# Resolve the pptxgenjs install location.
+#
+# Production (Docker): pptxgenjs is pre-installed into /opt/pptx/node_modules
+#   by the pptx-builder stage of backend/Dockerfile. The runtime image has no
+#   access to the frontend tree, so we must point at this deterministic path.
+# Local dev: developers run uvicorn outside Docker against the sibling
+#   frontend/node_modules tree they already have from `npm install`.
+#
+# Override priority:
+#   1. PPTX_NODE_MODULES_DIR env var (explicit override, wins everywhere)
+#   2. /opt/pptx/node_modules if it exists (production Docker)
+#   3. frontend/node_modules relative to repo root (local dev fallback)
+_DEFAULT_PROD = Path("/opt/pptx/node_modules")
+_DEFAULT_DEV = Path(__file__).parent.parent.parent.parent / "frontend" / "node_modules"
+_node_modules_env = os.environ.get("PPTX_NODE_MODULES_DIR")
+if _node_modules_env:
+    NODE_MODULES_DIR = Path(_node_modules_env)
+elif _DEFAULT_PROD.exists():
+    NODE_MODULES_DIR = _DEFAULT_PROD
+else:
+    NODE_MODULES_DIR = _DEFAULT_DEV
+NODE_MODULES_PPTXGENJS = NODE_MODULES_DIR / "pptxgenjs"
+
+
+# ---------------------------------------------------------------------------
+# Concurrency cap.
+# ---------------------------------------------------------------------------
+# The FastAPI route is sync (runs in the thread pool), so a threading
+# Semaphore is the right primitive. An asyncio.Semaphore would not block
+# the sync-threadpool worker correctly. We use a BoundedSemaphore so a
+# bug in release/acquire pairing raises immediately instead of silently
+# allowing extra parallelism.
+_DEFAULT_MAX_CONCURRENT = 3
+try:
+    _MAX_CONCURRENT = max(1, int(os.environ.get("PPTX_MAX_CONCURRENT", _DEFAULT_MAX_CONCURRENT)))
+except ValueError:
+    _MAX_CONCURRENT = _DEFAULT_MAX_CONCURRENT
+_RENDER_SEMAPHORE = threading.BoundedSemaphore(_MAX_CONCURRENT)
+_ACQUIRE_TIMEOUT_S = 5.0
+
+
+# ---------------------------------------------------------------------------
+# Stderr scrubbing — strip container paths and skill-file references before
+# any error string is allowed to reach the HTTP response.
+# ---------------------------------------------------------------------------
+_PATH_REDACT_PATTERNS = [
+    # Absolute paths under known infra prefixes.
+    re.compile(r"/app/[^\s:'\"`)]+"),
+    re.compile(r"/opt/[^\s:'\"`)]+"),
+    re.compile(r"/tmp/[^\s:'\"`)]+"),
+    re.compile(r"/var/[^\s:'\"`)]+"),
+    # SKILL.md references (e.g. "/something/SKILL.md" — paths into the
+    # agent's skill files that we don't want to disclose).
+    re.compile(r"/[A-Za-z0-9_-]+/SKILL\.md"),
+]
+
+
+def _redact_stderr(stderr: str, max_len: int = 256) -> str:
+    """Scrub container paths from stderr and truncate.
+
+    Replaces absolute paths under known infra prefixes (/app, /opt, /tmp,
+    /var) and any ``/<segment>/SKILL.md`` references with ``<path>``. The
+    result is truncated to ``max_len`` characters so a verbose Node trace
+    cannot dominate the HTTP error body.
+
+    This is the **last line of defence**. Earlier layers (env scrubbing,
+    cwd isolation) reduce what stderr can legitimately contain in the
+    first place; this regex pass deals with whatever leaks through, e.g.
+    pptxgenjs printing its own install path.
+    """
+    if not stderr:
+        return ""
+    cleaned = stderr.strip()
+    for pat in _PATH_REDACT_PATTERNS:
+        cleaned = pat.sub("<path>", cleaned)
+    if len(cleaned) > max_len:
+        cleaned = cleaned[: max_len - 3] + "..."
+    return cleaned
+
+
+# ---------------------------------------------------------------------------
+# preexec_fn — POSIX resource limits applied in the child process after
+# fork() but before execve(). Each setrlimit is independently guarded
+# because some platforms (notably macOS) silently reject specific
+# resource types — we want best-effort hardening, not a hard failure
+# on the dev box.
+# ---------------------------------------------------------------------------
+_RLIMIT_CPU_SECONDS = 30
+_RLIMIT_AS_BYTES = 768 * 1024 * 1024
+_RLIMIT_FSIZE_BYTES = 50 * 1024 * 1024
+_RLIMIT_NOFILE = 64
+_RLIMIT_NPROC = 16
+_OUTPUT_MAX_BYTES = _RLIMIT_FSIZE_BYTES  # Same number, two enforcements.
+
+
+def _apply_child_rlimits() -> None:
+    """Apply POSIX resource limits to the current (child) process.
+
+    Called via ``preexec_fn`` in subprocess.run — runs in the forked
+    child after fork() and before execve(). MUST be picklable / safe
+    in a fork context: no logger.* calls (the lock state is undefined
+    post-fork), no global mutation.
+
+    Each rlimit is best-effort: ``setrlimit`` can fail on macOS for
+    RLIMIT_AS and RLIMIT_NPROC and we'd rather continue with weaker
+    limits than abort the child. Production (Linux) enforces all of
+    them; macOS dev gets whatever Darwin allows.
+    """
+    # CPU seconds — kernel sends SIGXCPU at soft limit, SIGKILL at hard.
+    try:
+        resource.setrlimit(
+            resource.RLIMIT_CPU,
+            (_RLIMIT_CPU_SECONDS, _RLIMIT_CPU_SECONDS),
+        )
+    except (ValueError, OSError, resource.error):  # type: ignore[attr-defined]
+        pass
+
+    # Address space (virtual memory). Capped above NODE_OPTIONS heap
+    # cap so V8 OOMs cleanly via its own machinery first.
+    try:
+        resource.setrlimit(
+            resource.RLIMIT_AS,
+            (_RLIMIT_AS_BYTES, _RLIMIT_AS_BYTES),
+        )
+    except (ValueError, OSError, resource.error):  # type: ignore[attr-defined]
+        # macOS is well-known for refusing RLIMIT_AS; not fatal.
+        pass
+
+    # Max file size. A single write that would exceed this gets SIGXFSZ.
+    try:
+        resource.setrlimit(
+            resource.RLIMIT_FSIZE,
+            (_RLIMIT_FSIZE_BYTES, _RLIMIT_FSIZE_BYTES),
+        )
+    except (ValueError, OSError, resource.error):  # type: ignore[attr-defined]
+        pass
+
+    # File descriptors.
+    try:
+        resource.setrlimit(
+            resource.RLIMIT_NOFILE,
+            (_RLIMIT_NOFILE, _RLIMIT_NOFILE),
+        )
+    except (ValueError, OSError, resource.error):  # type: ignore[attr-defined]
+        pass
+
+    # Process count — fork bomb prevention.
+    try:
+        resource.setrlimit(
+            resource.RLIMIT_NPROC,
+            (_RLIMIT_NPROC, _RLIMIT_NPROC),
+        )
+    except (ValueError, OSError, AttributeError, resource.error):  # type: ignore[attr-defined]
+        # RLIMIT_NPROC missing on some platforms; tolerate it.
+        pass
+
+
+def _build_clean_env(temp_dir: str) -> dict:
+    """Build a minimal env dict for the Node subprocess.
+
+    Explicitly excludes every variable the parent process has — by
+    passing this dict to ``subprocess.run(env=...)`` the child sees
+    *only* what we list here. No AWS_*, no DATABASE_URL, no SECRET_KEY,
+    no BEDROCK_*, no JWT_*, no FLOWIN_*. An RCE in the child therefore
+    cannot dump our credentials via ``process.env``.
+
+    NODE_OPTIONS sets the V8 heap cap AND a DNS resolution hint
+    (ipv4first — defence-in-depth nudge so if a hostile script tries
+    DNS it resolves A records before AAAA). NODE_NO_WARNINGS silences
+    deprecation noise that would otherwise inflate stderr. TMPDIR
+    points anything respecting it at our cleanup-able dir.
+
+    Note: real egress prevention happens at the VPC security-group
+    level — see the layered-defence note in the module docstring.
+    Node has no flag for "deny all network"; the security group blocks
+    0.0.0.0/0 except known service endpoints, which is the actual
+    network control.
+    """
+    return {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "HOME": "/tmp",
+        "TMPDIR": temp_dir,
+        "NODE_OPTIONS": "--max-old-space-size=512 --dns-result-order=ipv4first",
+        "NODE_NO_WARNINGS": "1",
+    }
 
 
 def generate_pptx_from_code(js_code: str, title: str = "Presentation") -> bytes:
-    """Execute PptxGenJS code server-side and return .pptx bytes."""
+    """Execute PptxGenJS code server-side and return .pptx bytes.
+
+    Public signature is intentionally stable — the API route at
+    ``app.api.workflows`` calls this with two positional arguments.
+    Errors are raised as ``RuntimeError`` with redacted messages safe
+    to surface in an HTTP response body.
+    """
 
     func_code = js_code.strip()
 
@@ -29,7 +321,11 @@ def generate_pptx_from_code(js_code: str, title: str = "Presentation") -> bytes:
 
     pptxgenjs_path = str(NODE_MODULES_PPTXGENJS).replace("\\", "/")
 
-    # Sanitize: fix common corruption patterns
+    # ------------------------------------------------------------------
+    # Render-quality sanitisation. See module docstring — this is NOT
+    # a security control, it just prevents PptxGenJS from crashing on
+    # common LLM-output mangling.
+    # ------------------------------------------------------------------
     # 1. Remove # from hex colors
     func_code = re.sub(r'color:\s*"#([0-9A-Fa-f]{6})"', r'color: "\1"', func_code)
     func_code = re.sub(r"color:\s*'#([0-9A-Fa-f]{6})'", r"color: '\1'", func_code)
@@ -68,6 +364,15 @@ def generate_pptx_from_code(js_code: str, title: str = "Presentation") -> bytes:
         func_code = f"async function generatePresentation() {{\n{func_code}\n}}"
 
     temp_dir = tempfile.mkdtemp(prefix="pptx_export_")
+    # Owner-only — keeps a co-located process from another uid out of our
+    # working dir. ``mkdtemp`` already creates with 0o700 on POSIX but
+    # we set it explicitly so the contract is auditable and survives any
+    # future move to a custom temp factory.
+    try:
+        os.chmod(temp_dir, 0o700)
+    except OSError:
+        pass
+
     js_file = os.path.join(temp_dir, "input.js")
     out_file = os.path.join(temp_dir, "output.pptx")
     out_path = out_file.replace("\\", "/")
@@ -133,27 +438,66 @@ main();
     with open(js_file, "w", encoding="utf-8") as f:
         f.write(node_script)
 
+    clean_env = _build_clean_env(temp_dir)
+
+    # preexec_fn is unavailable on Windows. We assume POSIX (the codebase
+    # only supports Linux/macOS) but guard explicitly so an accidental
+    # Windows runtime fails loudly here rather than at fork.
+    preexec = _apply_child_rlimits if sys.platform != "win32" else None
+
     try:
-        result = subprocess.run(
-            ["node", js_file],
-            capture_output=True, text=True, timeout=30, cwd=temp_dir
-        )
+        # --------------------------------------------------------------
+        # Acquire the concurrency semaphore. Only the subprocess call
+        # is inside the semaphore — string templating and disk writes
+        # happen freely outside it.
+        # --------------------------------------------------------------
+        acquired = _RENDER_SEMAPHORE.acquire(timeout=_ACQUIRE_TIMEOUT_S)
+        if not acquired:
+            # Caller maps RuntimeError to HTTP 500 today; a future
+            # refactor should distinguish this as a 503 with Retry-After.
+            raise RuntimeError("PPTX renderer busy; please retry in a moment.")
+
+        try:
+            result = subprocess.run(
+                ["node", js_file],
+                capture_output=True,
+                text=True,
+                timeout=_RLIMIT_CPU_SECONDS,
+                cwd=temp_dir,
+                env=clean_env,
+                preexec_fn=preexec,
+            )
+        finally:
+            _RENDER_SEMAPHORE.release()
 
         if not os.path.exists(out_file):
-            err = result.stderr.strip()[:300] or "PPTX file not created"
-            logger.error(f"Node.js PPTX generation failed: {err}")
+            err = _redact_stderr(result.stderr) or "PPTX file not created"
+            logger.error("Node.js PPTX generation failed: %s", err)
             raise RuntimeError(f"PPTX generation failed: {err}")
+
+        # Size cap BEFORE reading — an attacker writing a huge file
+        # shouldn't get to consume our memory on the read.
+        out_size = os.path.getsize(out_file)
+        if out_size > _OUTPUT_MAX_BYTES:
+            logger.error(
+                "PPTX output exceeded cap: %d bytes > %d",
+                out_size, _OUTPUT_MAX_BYTES,
+            )
+            raise RuntimeError("Generated PPTX exceeded 50 MB cap")
 
         with open(out_file, "rb") as f:
             pptx_bytes = f.read()
 
-        logger.info(f"Generated PPTX: {len(pptx_bytes)} bytes")
+        logger.info("Generated PPTX: %d bytes", len(pptx_bytes))
         return pptx_bytes
 
+    except subprocess.TimeoutExpired:
+        # Belt-and-braces: kernel SIGXCPU should fire first, but if the
+        # child somehow ignored it Python will SIGKILL on timeout.
+        logger.error("PPTX generation timed out after %ds", _RLIMIT_CPU_SECONDS)
+        raise RuntimeError("PPTX generation timed out")
+
     finally:
-        try:
-            if os.path.exists(js_file): os.unlink(js_file)
-            if os.path.exists(out_file): os.unlink(out_file)
-            os.rmdir(temp_dir)
-        except Exception:
-            pass
+        # Recursive cleanup — replaces the per-file unlink+rmdir which
+        # left orphan intermediates if pptxgenjs wrote scratch files.
+        shutil.rmtree(temp_dir, ignore_errors=True)

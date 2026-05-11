@@ -2,9 +2,11 @@
 #
 # Production Dockerfile for the Flowin backend.
 #
-# Two stages:
-#   1. builder  — installs build toolchains and compiles wheels into /opt/venv.
-#   2. runtime  — slim image, copies /opt/venv, runs as non-root user `flowin`.
+# Three stages:
+#   1. builder      — installs build toolchains and compiles wheels into /opt/venv.
+#   2. pptx-builder — installs Node 20 + pptxgenjs into /opt/pptx/node_modules.
+#   3. runtime      — slim image, copies /opt/venv + /opt/pptx + node binary,
+#                     runs as non-root user `flowin`.
 #
 # Notes on build hygiene:
 #   * Only `requirements.txt` is COPYed before `pip install` so unrelated
@@ -14,6 +16,8 @@
 #   * `requirements.txt` mixes runtime + test deps (pytest, hypothesis). We
 #     install the lot rather than refactor the file; ~5 MB of dead weight is
 #     acceptable to avoid coupling this Dockerfile to a requirements split.
+#   * The Node toolchain lives in its own builder stage so that pptxgenjs
+#     version bumps don't invalidate the Python wheel cache (and vice versa).
 
 # ============================================================================
 # Stage 1 — builder
@@ -66,7 +70,35 @@ RUN find /opt/venv -depth -type d -name '__pycache__' -prune -exec rm -rf {} + \
 
 
 # ============================================================================
-# Stage 2 — runtime
+# Stage 2 — pptx-builder
+# ============================================================================
+# Dedicated stage for installing pptxgenjs. Kept separate from the Python
+# builder so that JS-side version bumps don't bust the (slow) pip-install
+# layer and so the Python builder stays lean. Only /opt/pptx/node_modules is
+# copied forward into the runtime stage.
+#
+# We use the official `node:20-bookworm-slim` image rather than installing
+# Node 20 on top of `python:3.13-slim-bookworm` via the NodeSource setup
+# script. Reasons:
+#   * Same base distro (Debian Bookworm), so the Node 20 binaries and
+#     shared libraries are ABI-compatible with the runtime stage's apt-
+#     installed Node 20 (same Debian, same libc).
+#   * Avoids an HTTPS fetch of the NodeSource setup script during the
+#     build, which is fragile on networks that intercept TLS.
+#   * Mirrors the approach already used by frontend/Dockerfile, so the two
+#     services pull Node from the same upstream and we don't add a second
+#     pattern for the same problem.
+FROM node:20-bookworm-slim AS pptx-builder
+
+# Install pptxgenjs at the exact version pinned by frontend/package-lock.json.
+# `--prefix /opt/pptx` lays out node_modules under /opt/pptx/node_modules/
+# without requiring a package.json. The same path is mirrored in the runtime
+# stage so the Python service can reference it via PPTX_NODE_MODULES_DIR.
+RUN npm install --prefix /opt/pptx --no-audit --no-fund --omit=dev pptxgenjs@3.12.0
+
+
+# ============================================================================
+# Stage 3 — runtime
 # ============================================================================
 FROM python:3.13-slim-bookworm AS runtime
 
@@ -80,6 +112,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 #   * libpq5     — psycopg2's shared lib at runtime (libpq-dev is build-only)
 #   * curl       — used by HEALTHCHECK below
 #   * ca-certs   — TLS for outbound calls (Bedrock, LangSmith, Anthropic API)
+#   * libstdc++6 — the official Node 20 binary we copy below links against
+#                  it; libc.so.6 / libm.so.6 / libgcc_s.so.1 are already
+#                  present in python:3.13-slim-bookworm.
 # Everything else from the builder stage (gcc, libpq-dev, build-essential)
 # stays out of this layer to keep the image small.
 RUN apt-get update \
@@ -87,11 +122,22 @@ RUN apt-get update \
         libpq5 \
         curl \
         ca-certificates \
+        libstdc++6 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Bring the pre-built venv across.
 COPY --from=builder /opt/venv /opt/venv
+
+# Node 20 runtime binary, taken from the same official image used by the
+# pptx-builder stage so the ABI matches the node_modules copied below.
+# We need only the `node` binary itself — `npm` is not invoked at runtime;
+# the FastAPI service in pptx_export.py spawns `node <script>` directly.
+COPY --from=node:20-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+
+# Bring the pre-installed pptxgenjs node_modules across. Owned by the non-root
+# runtime user so `node` can read them when invoked from the FastAPI process.
+COPY --from=pptx-builder --chown=10001:10001 /opt/pptx/node_modules /opt/pptx/node_modules
 
 # Non-root user. Numeric UID/GID 10001 makes the image safe to run on
 # Kubernetes / hardened hosts that enforce `runAsNonRoot` and don't bother
