@@ -9,7 +9,10 @@
         "ssm:GetParameters",
         "ssm:GetParametersByPath"
       ],
-      "Resource": "arn:${partition}:ssm:${region}:${account_id}:parameter/flowin/${environment}/*"
+      "Resource": [
+        "arn:${partition}:ssm:${region}:${account_id}:parameter/flowin/${environment}",
+        "arn:${partition}:ssm:${region}:${account_id}:parameter/flowin/${environment}/*"
+      ]
     }
   ]
 }
