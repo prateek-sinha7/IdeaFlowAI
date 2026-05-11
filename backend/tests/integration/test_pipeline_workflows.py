@@ -60,10 +60,17 @@ class TestAgentRegistry:
         agents = get_pipeline_agents("user_stories")
         assert len(agents) == 6, f"Expected 6 agents, got {len(agents)}"
 
-    def test_ppt_pipeline_has_3_agents(self):
-        """PPT pipeline should have 3 agents."""
+    def test_ppt_pipeline_has_4_agents(self):
+        """PPT pipeline should have 4 agents.
+
+        The pipeline grew from 3 → 4 agents in the agent-pipeline-execution
+        merge — a dedicated ``ppt-assembler`` stage was split out from the
+        previous ``ppt-code-generator``, so the code-generator now emits raw
+        PptxGenJS and the assembler wraps it in a self-contained HTML
+        previewer. Verify against ``backend/app/agents/registry.py``.
+        """
         agents = get_pipeline_agents("ppt")
-        assert len(agents) == 3, f"Expected 3 agents, got {len(agents)}"
+        assert len(agents) == 4, f"Expected 4 agents, got {len(agents)}"
 
     def test_prototype_pipeline_has_4_agents(self):
         """Prototype pipeline should have 4 agents."""
@@ -102,15 +109,21 @@ class TestAgentRegistry:
             assert len(ids) == len(set(ids)), f"Duplicate agent IDs in {pipeline_type}: {[x for x in ids if ids.count(x) > 1]}"
 
     def test_user_stories_agent_sequence(self):
-        """User Stories pipeline should follow the correct agent sequence."""
+        """User Stories pipeline should follow the correct agent sequence.
+
+        Roles tightened in the merge to match the in-prompt persona naming
+        (e.g. ``Principal Product Manager`` → ``Product Manager`` for the
+        epic-architect agent). Verify against the AgentDefinition.role values
+        in ``backend/app/agents/registry.py``.
+        """
         agents = get_pipeline_agents("user_stories")
         expected_roles = [
-            "Product Strategist",       # domain-analyst
-            "Principal Product Manager", # epic-architect
-            "Technical Lead",           # story-estimator
-            "Solution Architect",       # nfr-specialist
-            "Agile Coach",             # backlog-reviewer
-            "Principal PM",            # backlog-compiler
+            "Product Strategist",   # domain-analyst
+            "Product Manager",      # epic-architect
+            "Technical Lead",       # story-estimator
+            "Solution Architect",   # nfr-specialist
+            "Agile Coach",          # backlog-reviewer
+            "Product Manager",      # backlog-compiler
         ]
         actual_roles = [a.role for a in agents]
         assert actual_roles == expected_roles, f"Agents have wrong roles: {actual_roles}"
@@ -141,9 +154,15 @@ class TestAgentRegistry:
         assert "FFFFFF" in agent.system_prompt, "Should use white background"
         assert "1B2A4A" in agent.system_prompt, "Should use navy blue accent"
 
-    def test_prototype_assembler_requests_html(self):
-        """Prototype assembler should request HTML output."""
-        agent = get_agent_by_id("prototype-assembler")
+    def test_prototype_finalizer_requests_html(self):
+        """Prototype finalizer should request HTML output.
+
+        Renamed from ``prototype-assembler`` to ``prototype-finalizer`` in
+        the agent-pipeline-execution merge; the final stage is what emits the
+        full HTML page. Verify against
+        ``backend/app/agents/registry.py``.
+        """
+        agent = get_agent_by_id("prototype-finalizer")
         assert agent is not None
         assert "HTML" in agent.system_prompt
         assert "<!DOCTYPE html>" in agent.system_prompt
@@ -178,7 +197,7 @@ class TestPipelineExecution:
             elif update["type"] == "pipeline_complete":
                 final_output = update["data"]["final_output"]
 
-        assert agent_count == 12, f"Expected 12 agents to complete, got {agent_count}"
+        assert agent_count == 6, f"Expected 6 agents to complete, got {agent_count}"
         assert len(final_output) > 100, "Final output should be substantial"
         # User stories output should contain markdown indicators
         assert any(marker in final_output for marker in ["#", "**", "- ", "As a"]), \
@@ -198,26 +217,19 @@ class TestPipelineExecution:
             elif update["type"] == "pipeline_complete":
                 final_output = update["data"]["final_output"]
 
-        assert agent_count == 10, f"Expected 10 agents to complete, got {agent_count}"
+        assert agent_count == 4, f"Expected 4 agents to complete, got {agent_count}"
         assert len(final_output) > 100, "Final output should be substantial"
 
-        # Try to parse as JSON
-        # Extract JSON if wrapped in markdown
-        json_str = final_output.strip()
-        if json_str.startswith("```"):
-            lines = json_str.split("\n")
-            json_str = "\n".join(lines[1:-1])
-        if "{" in json_str:
-            json_str = json_str[json_str.index("{"):json_str.rindex("}") + 1]
-
-        parsed = json.loads(json_str)
-        assert "slides" in parsed, "Output should have 'slides' key"
-        assert len(parsed["slides"]) >= 3, "Should have at least 3 slides"
-
-        # Verify slide structure
-        first_slide = parsed["slides"][0]
-        assert "title" in first_slide, "Slide should have 'title'"
-        assert "content" in first_slide or "type" in first_slide, "Slide should have content or type"
+        # The PPT pipeline's terminal output is the assembler's self-contained
+        # HTML page (with the generatePresentation() PptxGenJS function
+        # embedded in a <script> tag). The old version of this test expected
+        # raw JSON of slide data, which the pipeline stopped emitting once
+        # the assembler stage was added. Verify the HTML shape instead.
+        lowered = final_output.lower().strip()
+        assert "<!doctype html>" in lowered or "<html" in lowered, \
+            f"PPT pipeline output should be HTML, starts with: {final_output[:80]}"
+        assert "generatepresentation" in lowered, \
+            "PPT HTML should embed the generatePresentation() PptxGenJS function"
 
     @pytest.mark.asyncio
     async def test_prototype_pipeline_produces_html(self):
@@ -233,7 +245,7 @@ class TestPipelineExecution:
             elif update["type"] == "pipeline_complete":
                 final_output = update["data"]["final_output"]
 
-        assert agent_count == 12, f"Expected 12 agents to complete, got {agent_count}"
+        assert agent_count == 4, f"Expected 4 agents to complete, got {agent_count}"
         assert len(final_output) > 200, "Final output should be substantial"
 
         # Should be HTML
@@ -410,18 +422,24 @@ class TestCustomAgentOrder:
     """Test that custom agent ordering works correctly."""
 
     def test_custom_agent_ids_resolve_correctly(self):
-        """Custom agent IDs should resolve to valid agent definitions."""
+        """Custom agent IDs should resolve to valid agent definitions.
+
+        Uses three real agent IDs from the registry. ``story-writer`` was
+        previously hard-coded here but never existed in the current
+        registry — replaced with ``story-estimator`` which is the
+        equivalent story-shaping agent.
+        """
         all_agents = get_all_agents_flat()
         agent_map = {a.id: a for a in all_agents}
 
         # Test resolving a custom order
-        custom_ids = ["domain-analyst", "epic-architect", "story-writer"]
+        custom_ids = ["domain-analyst", "epic-architect", "story-estimator"]
         resolved = [agent_map[aid] for aid in custom_ids if aid in agent_map]
 
         assert len(resolved) == 3
         assert resolved[0].id == "domain-analyst"
         assert resolved[1].id == "epic-architect"
-        assert resolved[2].id == "story-writer"
+        assert resolved[2].id == "story-estimator"
 
     def test_pipeline_executor_accepts_custom_agents(self):
         """WorkflowOrchestrator should accept custom agent list."""
@@ -430,11 +448,20 @@ class TestCustomAgentOrder:
         assert len(executor.agents) == 3
 
     def test_unknown_agent_ids_are_skipped(self):
-        """Unknown agent IDs should be silently skipped."""
+        """Unknown agent IDs should be silently skipped.
+
+        Note: this exercises the pure dict-lookup pattern — NOT the WS
+        handler's stricter ``allowed_custom_agent_ids`` allow-list, which
+        rejects unknown IDs (see ``test_run_pipeline_validation.py``).
+        Both patterns coexist: the WS handler rejects, but the
+        ``agent_map.get`` style is still used in non-pipeline lookups
+        (e.g. library page rendering) where silent-skip is the right
+        behaviour.
+        """
         all_agents = get_all_agents_flat()
         agent_map = {a.id: a for a in all_agents}
 
-        custom_ids = ["domain-analyst", "nonexistent-agent", "story-writer"]
+        custom_ids = ["domain-analyst", "nonexistent-agent", "story-estimator"]
         resolved = [agent_map[aid] for aid in custom_ids if aid in agent_map]
 
         assert len(resolved) == 2  # nonexistent skipped
