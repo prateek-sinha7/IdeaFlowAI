@@ -63,13 +63,14 @@ CALLER_ARN=$(aws sts get-caller-identity --query Arn --output text)
 REGION="${AWS_REGION:-$(aws configure get region 2>/dev/null || true)}"
 REGION="${REGION:-eu-central-1}"
 
-# Owner: last segment of the caller ARN (SSO-shaped ARNs end in user.name).
-# If the last segment looks like a role/session name (no `@`, no `.`), fall
-# back to the role-name segment, then to "flowin".
+# Owner: last segment of the caller ARN — for SSO that's usually the user's
+# email or username; for IAM users it's the user name. Anything containing
+# whitespace or weirder than `[A-Za-z0-9_.@-]` falls back to "flowin" rather
+# than turning into a malformed tag value (some AWS resource tag schemas
+# reject the `:` that appears in ARN-prefix substrings).
 DETECTED_OWNER="${CALLER_ARN##*/}"
-if [[ "$DETECTED_OWNER" != *.*@* && "$DETECTED_OWNER" != *.* && "$DETECTED_OWNER" != *@* ]]; then
-    DETECTED_OWNER=$(awk -F'/' '{print $(NF-1)}' <<< "$CALLER_ARN")
-    [[ -n "$DETECTED_OWNER" && "$DETECTED_OWNER" != "sts" ]] || DETECTED_OWNER="flowin"
+if [[ -z "$DETECTED_OWNER" || ! "$DETECTED_OWNER" =~ ^[A-Za-z0-9_.@+=-]+$ ]]; then
+    DETECTED_OWNER="flowin"
 fi
 
 ENVIRONMENT="${FLOWIN_ENVIRONMENT:-prod}"
@@ -77,6 +78,9 @@ OWNER="${FLOWIN_OWNER:-$DETECTED_OWNER}"
 COST_CENTER="${FLOWIN_COST_CENTER:-flowin}"
 STATE_BUCKET="flowin-tfstate-${ACCOUNT_ID}-${REGION}"
 BACKUP_BUCKET="flowin-${ENVIRONMENT}-pg-dumps-${ACCOUNT_ID}"
+# DynamoDB lock table — must match the default in infra/bootstrap/variables.tf
+# AND the hardcoded value in infra/envs/prod/backend.tf. Single source here.
+LOCK_TABLE="flowin-tfstate-locks"
 USE_NIP_IO="${FLOWIN_USE_NIP_IO:-true}"
 
 if [[ -z "${FLOWIN_ALERT_EMAIL:-}" ]]; then
@@ -138,6 +142,7 @@ if [[ -z "${FLOWIN_SKIP_PROD_TF:-}" ]]; then
     PROD_TF_VARS=(
         -var "expected_account_id=$ACCOUNT_ID"
         -var "aws_region=$REGION"
+        -var "environment=$ENVIRONMENT"
         -var "owner=$OWNER"
         -var "cost_center=$COST_CENTER"
         -var "alert_email=$FLOWIN_ALERT_EMAIL"
@@ -156,7 +161,8 @@ if [[ -z "${FLOWIN_SKIP_PROD_TF:-}" ]]; then
     # potentially-different backend without prompting for state migration.
     terraform -chdir=infra/envs/prod init -input=false -reconfigure \
         -backend-config="bucket=$STATE_BUCKET" \
-        -backend-config="region=$REGION"
+        -backend-config="region=$REGION" \
+        -backend-config="dynamodb_table=$LOCK_TABLE"
     terraform -chdir=infra/envs/prod apply -input=false -auto-approve "${PROD_TF_VARS[@]}"
 else
     yellow "==> [2/5] SKIPPED (FLOWIN_SKIP_PROD_TF=1)"
@@ -179,8 +185,17 @@ if [[ -z "${FLOWIN_SKIP_IMAGES:-}" ]]; then
     aws ecr get-login-password --region "$REGION" \
         | docker login --username AWS --password-stdin "$REGISTRY"
 
-    docker build -t "$BACKEND_REPO:$TAG" backend/
-    docker build \
+    # --platform linux/amd64 is mandatory: the EC2 is m6i.2xlarge (x86_64),
+    # but the operator's laptop may be Apple Silicon (arm64). Without this
+    # flag Docker builds for the host arch, the EC2 runs the image, and
+    # exec() fails with "exec format error" — flowin-app.service then loops
+    # restarting and the deploy looks like a Bedrock/networking problem.
+    # On Apple Silicon, Docker emulates amd64 via QEMU (slower build but
+    # produces correct artefacts).
+    docker build --platform linux/amd64 \
+        -t "$BACKEND_REPO:$TAG" \
+        backend/
+    docker build --platform linux/amd64 \
         --build-arg "NEXT_PUBLIC_API_URL=https://$FQDN" \
         --build-arg "NEXT_PUBLIC_WS_URL=wss://$FQDN/ws/chat" \
         -t "$FRONTEND_REPO:$TAG" \
@@ -196,12 +211,45 @@ fi
 if [[ -z "${FLOWIN_SKIP_BOOTSTRAP_SSM:-}" ]]; then
     bold "==> [4/5] EC2 bootstrap via SSM RunCommand (~6 min)"
 
+    # `terraform apply` returns when the instance is `running`, NOT when
+    # cloud-init has finished writing /etc/flowin/bootstrap.env or when the
+    # SSM Agent has registered. Two waits are needed before send-command:
+    #   (a) ec2 wait instance-status-ok — passes both EC2 + system status,
+    #       which implies cloud-init's user_data completed.
+    #   (b) describe-instance-information — confirms the SSM Agent has
+    #       connected to the SSM control plane. Without this, send-command
+    #       returns InvalidInstanceId.
+    echo "    waiting for EC2 instance-status-ok..."
+    aws ec2 wait instance-status-ok --region "$REGION" --instance-ids "$INSTANCE_ID"
+
+    echo "    waiting for SSM Agent registration..."
+    for i in $(seq 1 60); do
+        PING=$(aws ssm describe-instance-information \
+            --region "$REGION" \
+            --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
+            --query 'InstanceInformationList[0].PingStatus' \
+            --output text 2>/dev/null || echo "None")
+        if [[ "$PING" == "Online" ]]; then
+            echo "    SSM Agent online"
+            break
+        fi
+        if [[ $i -ge 60 ]]; then
+            die "SSM Agent did not register within 10 minutes. Check the EC2 console."
+        fi
+        sleep 10
+    done
+
+    # send-command's --timeout-seconds caps delivery (must START within this
+    # window), not run-time. Run-time is the `executionTimeout` parameter
+    # below — 1800s gives bootstrap-ec2.sh comfortable headroom past its
+    # typical ~6 min runtime.
     CMD_ID=$(aws ssm send-command \
         --region "$REGION" \
         --document-name AWS-RunShellScript \
         --instance-ids "$INSTANCE_ID" \
-        --parameters "commands=[$(jq -Rs . < infra/scripts/bootstrap-ec2.sh)]" \
-        --timeout-seconds 1800 \
+        --parameters "$(jq -n \
+            --rawfile script infra/scripts/bootstrap-ec2.sh \
+            '{commands: [$script], executionTimeout: ["1800"]}')" \
         --output text --query 'Command.CommandId')
 
     echo "    command id: $CMD_ID"
@@ -223,6 +271,14 @@ if [[ -z "${FLOWIN_SKIP_BOOTSTRAP_SSM:-}" ]]; then
                 echo "      aws ssm get-command-invocation --region $REGION --command-id $CMD_ID --instance-id $INSTANCE_ID"
                 exit 1
                 ;;
+            Cancelling)
+                echo "    status: Cancelling (will become Cancelled)"
+                sleep 10
+                ;;
+            Delayed)
+                echo "    status: Delayed (SSM control plane busy, waiting 30s)"
+                sleep 30
+                ;;
             *)
                 echo "    status: $STATUS (waiting 30s)"
                 sleep 30
@@ -235,10 +291,16 @@ fi
 
 # ── 7. Smoke test ─────────────────────────────────────────────────────
 bold "==> [5/5] smoke test https://$FQDN/health"
-# certbot + nginx + flowin-app.service can take an extra 30-60s after the
-# SSM run reports Success. Give it 3 retries on a 20s interval before
-# declaring failure.
-for attempt in 1 2 3 4 5; do
+# After SSM reports Success, three more things have to settle before
+# /health responds via HTTPS:
+#   - flowin-app.service ExecStartPre runs `docker compose pull`. Cold
+#     ECR cache of two ~500 MB images takes 30-120s on a fresh box.
+#   - alembic upgrade head runs as the container's entrypoint.
+#   - On the very first deploy, certbot has to fetch and install the
+#     Let's Encrypt cert (HTTP-01 challenge — 30-60s).
+# Total post-bootstrap settle: typically 60-180s; cold path: up to 5 min.
+# 10 attempts at 30s = 5 min budget.
+for attempt in $(seq 1 10); do
     if curl -fsS --max-time 10 "https://$FQDN/health" >/dev/null 2>&1; then
         green ""
         green "  Flowin is live at https://$FQDN"
@@ -248,14 +310,14 @@ for attempt in 1 2 3 4 5; do
         green ""
         exit 0
     fi
-    if [[ $attempt -lt 5 ]]; then
-        yellow "    /health not responding yet (attempt $attempt/5), retrying in 20s..."
-        sleep 20
+    if [[ $attempt -lt 10 ]]; then
+        yellow "    /health not responding yet (attempt $attempt/10), retrying in 30s..."
+        sleep 30
     fi
 done
 
 red ""
-red "/health didn't respond within ~100s of bootstrap completion."
+red "/health didn't respond within ~5 min of bootstrap completion."
 red "Likely causes:"
 red "  - flowin-app.service still pulling images (slow ECR / cold cache)"
 red "  - cert not yet issued (DNS propagation if NOT using nip.io)"
