@@ -16,7 +16,7 @@ import {
   Loader2,
   Clock,
 } from "lucide-react";
-import type { ChatSession, WorkflowRun, WorkflowType } from "@/types/index";
+import type { ChatSession, WorkflowRun, WorkflowStatus, WorkflowType } from "@/types/index";
 import { getToken, getChats } from "@/lib/api";
 
 interface SidebarProps {
@@ -40,16 +40,18 @@ const TYPE_CONFIG: Record<WorkflowType, { icon: typeof FileText; color: string; 
   custom: { icon: Layout, color: "text-slate-400", label: "Custom" },
 };
 
-const STATUS_ICON = {
+const STATUS_ICON: Record<WorkflowStatus, typeof Loader2> = {
   running: Loader2,
   completed: CheckCircle2,
   failed: XCircle,
+  cancelled: XCircle,
 };
 
-const STATUS_COLOR = {
+const STATUS_COLOR: Record<WorkflowStatus, string> = {
   running: "text-blue-400",
   completed: "text-green-400",
   failed: "text-red-400",
+  cancelled: "text-amber-400",
 };
 
 /**

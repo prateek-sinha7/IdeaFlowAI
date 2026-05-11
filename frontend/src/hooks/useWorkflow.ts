@@ -180,8 +180,14 @@ export function handlePipelineMessage(
     }
 
     case "agent_complete": {
+      // Backend only emits `output_length` on agent_complete (see
+      // orchestrator_v2.py emit site); the full output was streamed
+      // chunk-by-chunk via `agent_chunk` and accumulated into
+      // `updated[agentIdx].output` already. The previous code read a
+      // non-existent `msg.output` and fell through to the accumulated
+      // value by accident — keep the accumulated value explicitly so
+      // the intent is obvious.
       const agentId = msg.agent_id as string;
-      const output = (msg.output as string) || "";
       const startTime = agentStartTimesRef.current[agentId];
       const duration = startTime ? (Date.now() - startTime) / 1000 : null;
 
@@ -193,7 +199,6 @@ export function handlePipelineMessage(
         updated[agentIdx] = {
           ...updated[agentIdx],
           status: "done",
-          output: output || updated[agentIdx].output,
           duration,
           thinking: "",
         };
@@ -235,6 +240,32 @@ export function handlePipelineMessage(
         totalDuration,
         completedCount: prev.agents.filter((a) => a.status === "done").length,
       }));
+      return true;
+    }
+
+    case "pipeline_cancelled": {
+      // Backend emits this on Stop / WebSocketDisconnect with an
+      // `agents_completed` count and a partial `duration`. The previous
+      // dispatcher omitted this case entirely so `isRunning` stayed true
+      // forever after a cancel — UI showed a spinner that never resolved.
+      // Reset any in-flight agent (status "thinking"/"running") back to
+      // "idle" so the progress panel stops animating; completed agents
+      // ("done") and already-errored agents are left untouched.
+      const totalDuration = (msg.duration as number) || null;
+      setPipelineState((prev) => {
+        const updated: AgentRunState[] = prev.agents.map((a) =>
+          a.status === "thinking" || a.status === "running"
+            ? { ...a, status: "idle", thinking: "" }
+            : a
+        );
+        return {
+          ...prev,
+          agents: updated,
+          isRunning: false,
+          totalDuration,
+          completedCount: updated.filter((a) => a.status === "done").length,
+        };
+      });
       return true;
     }
 

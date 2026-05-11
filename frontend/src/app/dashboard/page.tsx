@@ -71,8 +71,12 @@ export default function DashboardPage() {
 
   // Handle incoming WebSocket messages
   const handleWebSocketMessage = useCallback((msg: StreamMessage) => {
-    // Route pipeline messages to the workflow handler
-    const pipelineTypes = ["pipeline_start", "agent_start", "agent_thinking", "agent_chunk", "agent_complete", "agent_error", "pipeline_complete"];
+    // Route pipeline messages to the workflow handler.
+    // pipeline_cancelled was omitted previously, which left
+    // `pipelineState.isRunning` stuck true after Stop — the BE cancelled
+    // and emitted the event, but the FE never transitioned out of the
+    // running state.
+    const pipelineTypes = ["pipeline_start", "agent_start", "agent_thinking", "agent_chunk", "agent_complete", "agent_error", "pipeline_complete", "pipeline_cancelled"];
     if (pipelineTypes.includes(msg.type)) {
       handlePipelineMsgRef.current?.({
         type: msg.type,

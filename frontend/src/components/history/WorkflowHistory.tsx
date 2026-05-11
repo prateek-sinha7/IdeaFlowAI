@@ -393,9 +393,13 @@ export function WorkflowHistory({ onBack }: WorkflowHistoryProps) {
                       <span className="text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full">
                         Done
                       </span>
+                    ) : run.status === "cancelled" ? (
+                      <span className="text-[9px] font-semibold text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full">
+                        Cancelled
+                      </span>
                     ) : run.status === "failed" ? (
                       <span className="text-[9px] font-semibold text-gray-500 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-full">
-                        {run.error === "Cancelled by user" ? "Cancelled" : "Failed"}
+                        Failed
                       </span>
                     ) : (
                       <span className="text-[9px] font-semibold text-gray-500 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-full">

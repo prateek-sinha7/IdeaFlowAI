@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   X,
@@ -13,6 +13,7 @@ import {
   BookMarked,
 } from "lucide-react";
 import { getToken } from "@/lib/api";
+import { ENV } from "@/lib/env";
 
 interface SkillManagerProps {
   isOpen: boolean;
@@ -20,8 +21,6 @@ interface SkillManagerProps {
   agentId?: string;
   agentName?: string;
 }
-
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 /**
  * Skill Manager — View, create, and attach skill files to agents.
@@ -45,7 +44,7 @@ export function SkillManager({ isOpen, onClose, agentId, agentName }: SkillManag
     setLoadError(null);
 
     try {
-      const response = await fetch(`${BASE_URL}/api/agents/skills/${agentId}`, {
+      const response = await fetch(`${ENV.API_URL}/api/agents/skills/${agentId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (response.ok) {
@@ -72,7 +71,7 @@ export function SkillManager({ isOpen, onClose, agentId, agentName }: SkillManag
     setSaveSuccess(false);
 
     try {
-      const response = await fetch(`${BASE_URL}/api/agents/skills`, {
+      const response = await fetch(`${ENV.API_URL}/api/agents/skills`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -100,7 +99,7 @@ export function SkillManager({ isOpen, onClose, agentId, agentName }: SkillManag
     if (!token) return;
 
     try {
-      await fetch(`${BASE_URL}/api/agents/skills/${agentId}`, {
+      await fetch(`${ENV.API_URL}/api/agents/skills/${agentId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -125,12 +124,17 @@ export function SkillManager({ isOpen, onClose, agentId, agentName }: SkillManag
     reader.readAsText(file);
   }, []);
 
-  // Load skill when panel opens
-  useState(() => {
+  // Load skill when panel opens or agent changes. `useState(fn)` only runs `fn`
+  // on first mount (with isOpen=false), so loadSkill was effectively never
+  // called and saving overwrote the server with empty content. Use
+  // `useEffect` so reopening or switching agents actually fetches the saved
+  // skill. `loadSkill` is wrapped in useCallback above, so its identity is
+  // stable across renders unless agentId changes.
+  useEffect(() => {
     if (isOpen && agentId) {
       loadSkill();
     }
-  });
+  }, [isOpen, agentId, loadSkill]);
 
   if (!isOpen) return null;
 

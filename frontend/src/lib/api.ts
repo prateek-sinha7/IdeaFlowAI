@@ -11,9 +11,9 @@ import type {
   WorkflowRun,
   WorkflowType,
 } from "@/types/index";
+import { ENV } from "@/lib/env";
 
-const BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const BASE_URL = ENV.API_URL;
 
 const TOKEN_KEY = "auth_token";
 

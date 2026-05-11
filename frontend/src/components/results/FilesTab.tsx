@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { motion } from "motion/react";
 import { Download, FileText, Presentation, Layout, Code, Package } from "lucide-react";
 import { exportUserStories } from "@/lib/exporters/storyExporter";
+import { ENV } from "@/lib/env";
 import type { WorkflowType } from "@/types/index";
 
 interface FilesTabProps {
@@ -142,7 +143,7 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
         // Find matching workflow
         let workflowId = "";
         try {
-          const res = await fetch("http://localhost:8000/api/workflows?type=ppt&limit=20", {
+          const res = await fetch(`${ENV.API_URL}/api/workflows?type=ppt&limit=20`, {
             headers: { "Authorization": `Bearer ${token}` },
           });
           if (res.ok) {
@@ -156,7 +157,7 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
           }
         } catch {}
 
-        const response = await fetch("http://localhost:8000/api/workflows/export-pptx", {
+        const response = await fetch(`${ENV.API_URL}/api/workflows/export-pptx`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
           body: JSON.stringify({ html: pptContent, workflow_id: workflowId, title }),

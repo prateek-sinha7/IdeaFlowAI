@@ -102,7 +102,13 @@ export function PrototypePreview({ content, isStreaming, onRevise }: PrototypePr
           key={iframeKey}
           srcDoc={htmlContent}
           className="w-full h-full border-0"
-          sandbox="allow-scripts allow-same-origin"
+          /* `allow-same-origin` + `allow-scripts` neuters the sandbox; the
+             iframe could read parent localStorage (incl. JWT) and call
+             same-origin APIs. The prototype HTML is LLM-generated and
+             must be treated as untrusted. allow-scripts alone keeps
+             the prototype interactive (button clicks, form state) without
+             leaking origin authority. */
+          sandbox="allow-scripts"
           title="Prototype Preview"
         />
       </div>

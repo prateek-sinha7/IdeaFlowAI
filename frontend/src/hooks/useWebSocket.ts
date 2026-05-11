@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { StreamMessage } from "@/types/index";
 import { clearToken, getToken } from "@/lib/api";
+import { ENV } from "@/lib/env";
 
 export type ConnectionStatus =
   | "connecting"
@@ -25,7 +26,7 @@ export interface UseWebSocketReturn {
   lastError: string | null;
 }
 
-const DEFAULT_WS_URL = "ws://localhost:8000/ws/chat";
+const DEFAULT_WS_URL = ENV.WS_URL;
 const BASE_DELAY_MS = 1000;
 const MAX_RETRIES = 5;
 const JWT_EXPIRED_CODE = 4001;

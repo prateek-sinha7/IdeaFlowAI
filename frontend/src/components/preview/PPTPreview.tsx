@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Presentation, Download, Loader2, ExternalLink, RefreshCw } from "lucide-react";
 import { getToken } from "@/lib/api";
+import { ENV } from "@/lib/env";
 
 interface PPTPreviewProps {
   content?: string;
@@ -35,7 +36,7 @@ export function PPTPreview({ content, isStreaming, pptxCode, onRevise }: PPTPrev
       // Find matching workflow for Agent 3 code
       let workflowId = "";
       try {
-        const res = await fetch("http://localhost:8000/api/workflows?type=ppt&limit=20", {
+        const res = await fetch(`${ENV.API_URL}/api/workflows?type=ppt&limit=20`, {
           headers: { "Authorization": `Bearer ${token}` },
         });
         if (res.ok) {
@@ -49,7 +50,7 @@ export function PPTPreview({ content, isStreaming, pptxCode, onRevise }: PPTPrev
         }
       } catch {}
 
-      const response = await fetch("http://localhost:8000/api/workflows/export-pptx", {
+      const response = await fetch(`${ENV.API_URL}/api/workflows/export-pptx`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({
@@ -158,7 +159,16 @@ export function PPTPreview({ content, isStreaming, pptxCode, onRevise }: PPTPrev
           srcDoc={htmlContent}
           className="w-full h-full border-0"
           title="Slide Deck Preview"
-          sandbox="allow-scripts allow-same-origin"
+          /* `allow-same-origin` combined with `allow-scripts` effectively
+             disables the sandbox — the iframe can then reach into the
+             parent's localStorage (which holds the JWT). The HTML we render
+             here is constructed from LLM output, so we must assume it can
+             contain malicious script. Dropping allow-same-origin keeps
+             scripts working inside the iframe but blocks DOM/localStorage
+             access against the parent. Downloads from inside the iframe
+             go through the server-side endpoint, not the iframe's
+             writeFile, so we don't need allow-downloads either. */
+          sandbox="allow-scripts"
         />
 
         {/* Action buttons — server-side Download PPTX + Full Screen */}
