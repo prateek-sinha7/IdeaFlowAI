@@ -99,6 +99,26 @@ resource "aws_ssm_parameter" "llm_model_id" {
   }
 }
 
+resource "aws_ssm_parameter" "llm_inference_profile_id" {
+  # Created only when an inference profile ID is supplied. The on-host loader
+  # (infra/scripts/bootstrap-ec2.sh) has always known how to translate the
+  # nested key `llm/inference_profile_id` into `BEDROCK_INFERENCE_PROFILE_ID`,
+  # but until this resource existed the parameter was never written and the
+  # backend silently fell back to its hardcoded default in
+  # ``backend/app/core/config.py``. Adding the resource closes that contract.
+  count = length(var.bedrock_inference_profile_id) > 0 ? 1 : 0
+
+  name        = "${local.prefix}/llm/inference_profile_id"
+  description = "Cross-region inference profile ID. Loader maps to BEDROCK_INFERENCE_PROFILE_ID; preferred over llm/model_id in backend/app/agents/base.py."
+  type        = "String"
+  value       = var.bedrock_inference_profile_id
+  tier        = "Standard"
+
+  tags = {
+    Component = "secrets"
+  }
+}
+
 # --- SecureStrings ----------------------------------------------------------
 
 resource "aws_ssm_parameter" "app_secret_key" {

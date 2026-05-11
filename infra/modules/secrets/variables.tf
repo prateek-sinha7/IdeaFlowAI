@@ -23,6 +23,12 @@ variable "bedrock_model_id" {
   type        = string
 }
 
+variable "bedrock_inference_profile_id" {
+  description = "Cross-region inference profile ID. Written to /flowin/$${env}/llm/inference_profile_id; the on-host loader maps it to BEDROCK_INFERENCE_PROFILE_ID, which the app prefers over BEDROCK_MODEL_ID (see backend/app/agents/base.py:54)."
+  type        = string
+  default     = ""
+}
+
 variable "app_secret_key" {
   description = "App SECRET_KEY (used to sign JWTs). Generate via `openssl rand -hex 64`. Set via tfvars / TF_VAR_app_secret_key; never commit. Stored as SecureString. EMPTY DEFAULT: a 64-char random_password is generated on first apply and used instead — operator only sets this if they want to import an existing key (e.g. migration from another env)."
   type        = string

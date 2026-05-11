@@ -925,6 +925,685 @@ resource "aws_cloudwatch_metric_alarm" "stuck_workflows" {
   }
 }
 
+# --- C2-1: CloudTrail data-event audit trail --------------------------------
+#
+# Audit C/TF-Security HIGH #9: there is no actionable signal when an
+# unauthorized identity calls `ssm:GetParameter*` against the SECRET_KEY (or
+# any other /flowin/${env}/* SecureString) or `kms:Decrypt` against the
+# project CMK. CloudTrail's default management-event capture records those
+# calls but CloudTrail data events (Put/Get on individual SSM parameters,
+# Decrypt against individual KMS keys) are OFF BY DEFAULT and not captured
+# by the AWS account-default trail.
+#
+# This trail captures data events specifically for:
+#   - SSM Put/Get* on the /flowin/${var.environment}/* parameter prefix
+#     (the namespace containing SECRET_KEY, DATABASE_PASSWORD, LANGSMITH_API_KEY,
+#     and every other application secret).
+#   - KMS Decrypt against the project CMK (used by the EC2 instance role's
+#     boto3 calls to read SecureStrings).
+#
+# Trail delivers to S3 (CloudTrail's mandatory durable sink) AND mirrors
+# events into a KMS-encrypted CloudWatch Logs group so two
+# `aws_cloudwatch_log_metric_filter` resources can derive metrics:
+#   - UnexpectedSecretRead   — any Get* on /flowin/${env}/* from a principal
+#                              that is NOT the EC2 instance role.
+#   - UnexpectedKmsDecrypt   — any Decrypt against the project CMK from a
+#                              principal that is NOT the EC2 instance role.
+#
+# Two `aws_cloudwatch_metric_alarm` resources fire on SUM > 0 over a 5-min
+# window (period=300s, evaluation_periods=1; both well inside the
+# `period × evaluation_periods ≤ 604_800s (7d)` cap CloudWatch enforces on
+# alarms whose Period >= 60s).
+#
+# Cost estimate (eu-central-1 Sept-2025 list):
+#   - CloudTrail data events: $0.10 per 100,000 events.
+#   - Project workload generates ~5-10 data events per backend restart
+#     (flowin-load-secrets runs `aws ssm get-parameters-by-path` once on
+#     each app boot — 1 SSM Get + N KMS Decrypt + ~2 cwagent SSM reads),
+#     and ~tens per deploy (`terraform apply` writes the SecureStrings).
+#   - Steady-state: ~100-200 data events/day. Worst case 200/day × 30 =
+#     6_000 events/mo → $0.006/mo for data events.
+#   - S3 storage: trail JSON GZ-compressed ~1KB/event × 6_000/mo = ~6MB →
+#     <$0.001/mo.
+#   - CloudWatch Logs ingest: $0.50/GB ingest + $0.03/GB storage. 6_000
+#     events × ~2KB JSON = ~12MB ingest = $0.006/mo.
+#   - Grand total: well under $1/month for the audit trail. (Compare to
+#     SECRET_KEY rotation cost if it's exfiltrated and not detected: 1 PR
+#     to rotate + an unknown incident-response budget.)
+#
+# Deliberately NOT a multi-region trail: the project is single-region
+# (eu-central-1); a multi-region trail captures KMS Decrypt + SSM
+# data-events in every region but the project CMK exists only here and
+# /flowin/${env}/* SSM parameters live only here. Multi-region would
+# double-count for $0 benefit. is_multi_region_trail = false.
+#
+# Multi-trail check: no other aws_cloudtrail resources exist in this TF
+# tree. Grep confirmed `aws_cloudtrail` is absent from every modules/* and
+# envs/* main.tf. So this is the project's first trail; no need to fold
+# the data-event selectors into an existing trail's event_selector list.
+# The LocalStack endpoints map already registers `cloudtrail`, so plan/
+# apply works in both envs.
+
+# CloudWatch Log group the trail mirrors into for metric-filter
+# derivation. Lives outside the for_each-managed `log_groups` set above so
+# the retention (var.audit_trail_log_retention_days, default 90) can
+# diverge from operational logs. KMS-encrypted with the project CMK —
+# the existing AllowCloudWatchLogs grant covers any log group under
+# /flowin/${env}/* (see modules/kms/main.tf).
+resource "aws_cloudwatch_log_group" "audit_trail" {
+  name              = "/flowin/${var.environment}/cloudtrail-audit"
+  retention_in_days = var.audit_trail_log_retention_days
+  kms_key_id        = var.kms_key_arn
+
+  tags = {
+    Name      = "/flowin/${var.environment}/cloudtrail-audit"
+    Component = "monitoring"
+  }
+
+  lifecycle {
+    # Same rationale as the operational log groups: forensic capture, must
+    # not vanish on a stray `terraform destroy`. Operator must
+    # `terraform state rm` deliberately to recycle.
+    #
+    # Cross-resource asymmetry — DELIBERATE:
+    #   - This log group:      prevent_destroy = true
+    #   - aws_cloudtrail.audit: prevent_destroy = false (see below)
+    #   - aws_s3_bucket.audit_trail: prevent_destroy = false (see below)
+    #
+    # Why protect ONLY the log group and not the trail/bucket:
+    # (a) The log group is where the metric filters + alarms read from;
+    #     losing it silently breaks the SECRET_KEY-exfil alarm path with no
+    #     visible signal. The trail can be reconstructed from `var.name_prefix`
+    #     and the bucket from CloudTrail's standard delivery shape, but the
+    #     log-stream history (CW Logs is the durable forensic record between
+    #     trail apply cycles) cannot be retroactively reconstructed.
+    # (b) The trail topology is operationally fluid: switching to a multi-
+    #     region trail, moving to event-data-store, or adding more advanced
+    #     event selectors all require destroying + recreating the trail. A
+    #     prevent_destroy on the trail would block those legitimate
+    #     refactors and force state-surgery on every change.
+    # (c) The bucket is the trail's own delivery sink — it MUST be replaced
+    #     together with the trail (the trail name is encoded in the
+    #     AWSCloudTrailWrite bucket-policy condition's SourceArn). Pinning
+    #     prevent_destroy on the bucket but not the trail would create
+    #     a perpetual drift between the two.
+    # See infra/envs/localstack/destroy.sh: this log group is in the
+    # protected state-rm list precisely because of prevent_destroy = true.
+    prevent_destroy = true
+  }
+}
+
+# IAM role CloudTrail assumes to put events into the CW Logs log group.
+# CloudTrail can only write to a log group via this delivery role (not via
+# the trail's own service principal); this role is therefore narrow:
+# logs:CreateLogStream + logs:PutLogEvents on exactly one log group.
+data "aws_iam_policy_document" "audit_trail_assume" {
+  statement {
+    sid     = "CloudTrailAssumeRole"
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudtrail.amazonaws.com"]
+    }
+
+    # Confused-deputy guard — pin to trails in this account+region.
+    # The SourceArn pins to the EXACT trail name (`${var.name_prefix}-audit`)
+    # rather than a wildcard: the trail name is derived independently from
+    # `var.name_prefix` on both sides of this string boundary (string-level
+    # coupling, not resource-attribute coupling), so there's no resource-
+    # graph cycle. Same pattern as the bucket-policy SourceArn pins below.
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values = [
+        "arn:${data.aws_partition.current.partition}:cloudtrail:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:trail/${var.name_prefix}-audit",
+      ]
+    }
+  }
+}
+
+resource "aws_iam_role" "audit_trail_to_logs" {
+  name               = "${var.name_prefix}-cloudtrail-to-logs"
+  assume_role_policy = data.aws_iam_policy_document.audit_trail_assume.json
+
+  tags = {
+    Name      = "${var.name_prefix}-cloudtrail-to-logs"
+    Component = "monitoring"
+  }
+}
+
+data "aws_iam_policy_document" "audit_trail_to_logs" {
+  statement {
+    sid    = "WriteAuditTrailLogStream"
+    effect = "Allow"
+    actions = [
+      "logs:CreateLogStream",
+      "logs:PutLogEvents",
+    ]
+    # Trail-delivery streams are named by AWS as `<acct>_CloudTrail_<region>`
+    # under the log group. We can't predict the stream name at TF plan
+    # time, so scope to log-stream:* under the audit-trail group ARN.
+    resources = ["${aws_cloudwatch_log_group.audit_trail.arn}:*"]
+  }
+}
+
+resource "aws_iam_role_policy" "audit_trail_to_logs" {
+  name   = "${var.name_prefix}-cloudtrail-to-logs"
+  role   = aws_iam_role.audit_trail_to_logs.id
+  policy = data.aws_iam_policy_document.audit_trail_to_logs.json
+}
+
+# Mirror the discipline used by modules/iam: lock the role's inline-policy
+# set to exactly this one document, so any out-of-band addition gets
+# reverted on the next `terraform apply`. The role exists ONLY to let
+# CloudTrail write to one log group; an out-of-band PutRolePolicy could
+# in principle add `s3:*` (the role has no resource-policy constraint),
+# and that would be invisible without this exclusive guard.
+resource "aws_iam_role_policies_exclusive" "audit_trail_to_logs" {
+  role_name    = aws_iam_role.audit_trail_to_logs.name
+  policy_names = [aws_iam_role_policy.audit_trail_to_logs.name]
+}
+
+# S3 bucket CloudTrail uses as its durable sink. CloudTrail REQUIRES an
+# S3 bucket — there is no S3-less trail. Kept separate from the project
+# backup bucket (modules/backups) for two reasons: (a) bucket policy shape
+# is CloudTrail-specific (`AWSCloudTrailAclCheck` + `AWSCloudTrailWrite`
+# statements with `aws:SourceArn` pinning to the trail ARN); (b) the
+# backup bucket has `prevent_destroy=true` and forcing a CloudTrail
+# topology change later would be awkward against that. A separate bucket
+# gives operational independence.
+#
+# Bucket carries `prevent_destroy = false` DELIBERATELY (cross-resource
+# asymmetry — see the matching note on aws_cloudwatch_log_group.audit_trail):
+# forensic CloudTrail logs are far less load-bearing than the database/skills
+# backups in modules/backups, and an operator must be able to roll the trail
+# topology (e.g. switching to a multi-region trail, moving to event-data-
+# store) without state-surgery on a `prevent_destroy = true` bucket. The
+# trail name is encoded in this bucket's policy via SourceArn, so the bucket
+# MUST move together with the trail when topology changes.
+#
+# Tamper-evidence:
+#   - Versioning is ENABLED on the bucket below (`aws_s3_bucket_versioning`).
+#     With CloudTrail's `enable_log_file_validation = true`, an attacker with
+#     `s3:DeleteObject` who tries to wipe BOTH the log files AND the digest
+#     files in the same window now leaves delete-markers; the underlying
+#     versions survive for forensic recovery.
+#   - Lifecycle below transitions objects to GLACIER at 30d and expires at
+#     `var.audit_trail_log_retention_s3_days` (default 365) so the S3 record
+#     outlives the CW Logs metric-filter window (default 90d) by ~4x.
+#
+# force_destroy gating: `var.audit_trail_bucket_force_destroy` (default false
+# in prod, true in localstack tfvars) makes `terraform destroy` empty the
+# bucket before deletion. Mirrors the backups-bucket pattern.
+resource "aws_s3_bucket" "audit_trail" {
+  bucket        = "${var.name_prefix}-cloudtrail-${data.aws_caller_identity.current.account_id}"
+  force_destroy = var.audit_trail_bucket_force_destroy
+
+  tags = {
+    Name      = "${var.name_prefix}-cloudtrail"
+    Component = "monitoring"
+  }
+}
+
+# Versioning — enables tamper-evidence: an attacker who deletes log + digest
+# files in the same window still leaves delete-markers; the underlying
+# versions remain recoverable via S3's version API. The backups bucket uses
+# the same pattern (modules/backups/main.tf::aws_s3_bucket_versioning).
+resource "aws_s3_bucket_versioning" "audit_trail" {
+  bucket = aws_s3_bucket.audit_trail.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_ownership_controls" "audit_trail" {
+  bucket = aws_s3_bucket.audit_trail.id
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "audit_trail" {
+  bucket = aws_s3_bucket.audit_trail.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# SSE-KMS with the project CMK — the CloudTrail trail itself sets
+# kms_key_id, but the bucket-level encryption is independent of trail
+# encryption and aligns the storage encryption shape with the backup
+# bucket (modules/backups/main.tf).
+resource "aws_s3_bucket_server_side_encryption_configuration" "audit_trail" {
+  bucket = aws_s3_bucket.audit_trail.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = var.kms_key_arn
+    }
+    bucket_key_enabled = true
+  }
+}
+
+# Lifecycle — keep S3 storage cost bounded over time. CloudTrail JSON.gz
+# objects are ~1KB/event and accumulate forever without an explicit policy.
+# Pattern matches modules/backups/main.tf::aws_s3_bucket_lifecycle_configuration:
+#   - Current objects transition to GLACIER at 30d (cheap cold storage; the
+#     last 30 days are still in STANDARD for quick forensic access).
+#   - Current objects expire at var.audit_trail_log_retention_s3_days (365d
+#     default — ~4x the CW Logs 90d window, so the S3 record outlives the
+#     metric-filter / alarm replay window).
+#   - Noncurrent versions (from delete-marker scenarios — see versioning
+#     resource above) expire 30 days after they become noncurrent. This
+#     preserves the tamper-evidence forensic window without paying storage
+#     for ancient noncurrent-version churn.
+#   - Incomplete multipart uploads abort at 7d (matches backups bucket).
+resource "aws_s3_bucket_lifecycle_configuration" "audit_trail" {
+  bucket = aws_s3_bucket.audit_trail.id
+
+  # Versioning must be enabled before noncurrent_version_expiration is
+  # legal in a lifecycle rule. Same constraint as the backups bucket.
+  depends_on = [aws_s3_bucket_versioning.audit_trail]
+
+  rule {
+    id     = "expire-cloudtrail-deliveries"
+    status = "Enabled"
+
+    filter {} # apply to whole bucket
+
+    transition {
+      days          = 30
+      storage_class = "GLACIER"
+    }
+
+    expiration {
+      days = var.audit_trail_log_retention_s3_days
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 30
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
+}
+
+# Bucket-policy statements CloudTrail requires to write deliveries:
+#   - AWSCloudTrailAclCheck   — the trail's pre-write GetBucketAcl
+#   - AWSCloudTrailWrite      — the trail's PutObject delivery, scoped to
+#                               AWSLogs/<acct>/ prefix and bucket-owner-
+#                               full-control as required by CT.
+# Both pin `aws:SourceArn` to the EXACT trail name (string-level coupling
+# via `var.name_prefix`, no resource-graph cycle — same pattern as the
+# trust-policy SourceArn above). This is the confused-deputy guard: without
+# it any CloudTrail in any account that knew this bucket name could target
+# it.
+#
+# Defense-in-depth Deny statements (symmetric with modules/backups bucket
+# policy):
+#   - DenyInsecureTransport   — requires TLS for any access
+#   - DenyUnencryptedPuts     — requires aws:kms SSE on every PutObject
+#   - DenyWrongKmsKey         — pins SSE-KMS key id to the project CMK
+# Today only the cloudtrail.amazonaws.com service principal CAN write (the
+# default S3 deny implicitly blocks everything else), so the two
+# encryption-related Denies are belt-and-braces against a future change
+# that opens additional writers (e.g. an accidentally-added backup-style
+# `Allow s3:PutObject` for the instance role). CloudTrail itself always
+# sets aws:kms SSE via the trail's kms_key_id, so the Denies don't block
+# legitimate deliveries.
+data "aws_iam_policy_document" "audit_trail_bucket" {
+  statement {
+    sid     = "AWSCloudTrailAclCheck"
+    effect  = "Allow"
+    actions = ["s3:GetBucketAcl"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudtrail.amazonaws.com"]
+    }
+
+    resources = [aws_s3_bucket.audit_trail.arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceArn"
+      values = [
+        "arn:${data.aws_partition.current.partition}:cloudtrail:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:trail/${var.name_prefix}-audit",
+      ]
+    }
+  }
+
+  statement {
+    sid     = "AWSCloudTrailWrite"
+    effect  = "Allow"
+    actions = ["s3:PutObject"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudtrail.amazonaws.com"]
+    }
+
+    resources = [
+      "${aws_s3_bucket.audit_trail.arn}/AWSLogs/${data.aws_caller_identity.current.account_id}/*",
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "s3:x-amz-acl"
+      values   = ["bucket-owner-full-control"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceArn"
+      values = [
+        "arn:${data.aws_partition.current.partition}:cloudtrail:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:trail/${var.name_prefix}-audit",
+      ]
+    }
+  }
+
+  # Deny insecure transport — same shape as modules/backups' bucket policy.
+  statement {
+    sid     = "DenyInsecureTransport"
+    effect  = "Deny"
+    actions = ["s3:*"]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    resources = [
+      aws_s3_bucket.audit_trail.arn,
+      "${aws_s3_bucket.audit_trail.arn}/*",
+    ]
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+
+  # Deny PutObject without aws:kms SSE — defense in depth in case future
+  # changes open additional writers beyond the cloudtrail.amazonaws.com
+  # principal. Modeled on modules/backups/main.tf::DenyUnencryptedPuts.
+  statement {
+    sid     = "DenyUnencryptedPuts"
+    effect  = "Deny"
+    actions = ["s3:PutObject"]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    resources = ["${aws_s3_bucket.audit_trail.arn}/*"]
+    condition {
+      test     = "StringNotEquals"
+      variable = "s3:x-amz-server-side-encryption"
+      values   = ["aws:kms"]
+    }
+  }
+
+  # Deny PutObject when SSE-KMS key id is NOT the project CMK — pins
+  # encryption to a key we control. Uses StringNotEqualsIfExists so a
+  # genuinely-missing header (caught by DenyUnencryptedPuts) doesn't double-
+  # fire here. Modeled on modules/backups/main.tf::DenyWrongKmsKey.
+  statement {
+    sid     = "DenyWrongKmsKey"
+    effect  = "Deny"
+    actions = ["s3:PutObject"]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    resources = ["${aws_s3_bucket.audit_trail.arn}/*"]
+    condition {
+      test     = "StringNotEqualsIfExists"
+      variable = "s3:x-amz-server-side-encryption-aws-kms-key-id"
+      values   = [var.kms_key_arn]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "audit_trail" {
+  bucket = aws_s3_bucket.audit_trail.id
+  policy = data.aws_iam_policy_document.audit_trail_bucket.json
+}
+
+# The trail itself.
+#
+# Cross-resource asymmetry — DELIBERATE: this resource has no
+# `lifecycle.prevent_destroy = true` while aws_cloudwatch_log_group.audit_trail
+# does. See the matching note on the log group above for the full rationale:
+# the trail topology must remain operationally fluid (multi-region switch,
+# event-data-store migration, additional event selectors), while the log
+# group is the durable forensic record between trail apply cycles.
+#
+# We use `advanced_event_selector` rather than the classic `event_selector`
+# because the classic schema only supports `AWS::S3::Object`,
+# `AWS::Lambda::Function`, and `AWS::DynamoDB::Table` as data-resource
+# types. SSM Parameter Store and KMS Key resource types are ONLY available
+# under advanced event selectors (eventCategory = "Data" + resources.type
+# = "AWS::SSM::ManagedParameter" / "AWS::KMS::Key"). The two schemas are
+# mutually exclusive on a single trail; we get one shot at picking one.
+#
+# Reference: https://docs.aws.amazon.com/awscloudtrail/latest/userguide/logging-data-events-with-cloudtrail.html
+# (the resource-types matrix lists every type usable in advanced event
+# selectors; the classic event_selector matrix is much narrower).
+#
+# Management events are NOT included — the AWS account default trail
+# captures them; we don't want to double-count or double-charge.
+resource "aws_cloudtrail" "audit" {
+  name           = "${var.name_prefix}-audit"
+  s3_bucket_name = aws_s3_bucket.audit_trail.bucket
+
+  cloud_watch_logs_group_arn = "${aws_cloudwatch_log_group.audit_trail.arn}:*"
+  cloud_watch_logs_role_arn  = aws_iam_role.audit_trail_to_logs.arn
+
+  # Trail log files in S3 are encrypted with the project CMK. The
+  # AllowCloudTrailService grant in modules/kms/main.tf enables this.
+  kms_key_id = var.kms_key_arn
+
+  # Detects tampering with delivered log files (sigfile per-hour).
+  enable_log_file_validation = true
+
+  # Single-region: project is eu-central-1 only; the SSM parameters and
+  # CMK exist only here. Multi-region would double-capture for zero
+  # additional signal. See module header.
+  is_multi_region_trail         = false
+  include_global_service_events = false
+
+  # Advanced selector 1: SSM data events on /flowin/${env}/* parameters.
+  #
+  # `eventCategory = "Data"` is mandatory on every advanced selector that
+  # captures data events. `resources.type = "AWS::SSM::ManagedParameter"`
+  # restricts to SSM Parameter Store data events; `resources.ARN
+  # starts_with` narrows further to our env's parameter namespace. The
+  # trailing slash on the prefix is intentional — `starts_with` would
+  # otherwise match a hypothetical sibling parameter like
+  # `/flowin/prod-other-tenant/...`.
+  advanced_event_selector {
+    name = "${var.name_prefix} SSM SecureString data events"
+
+    field_selector {
+      field  = "eventCategory"
+      equals = ["Data"]
+    }
+    field_selector {
+      field  = "resources.type"
+      equals = ["AWS::SSM::ManagedParameter"]
+    }
+    field_selector {
+      field       = "resources.ARN"
+      starts_with = ["${var.secrets_path_prefix_arn}/"]
+    }
+  }
+
+  # Advanced selector 2: KMS data events on the project CMK only.
+  #
+  # CloudTrail KMS data events include Decrypt, Encrypt, GenerateDataKey,
+  # ReEncrypt, Sign, Verify. The metric filter (below) further narrows to
+  # Decrypt-by-unexpected-identity, which is the SECRET_KEY-leak path.
+  # `resources.ARN` is `equals` (exact match) so we don't capture decrypts
+  # against unrelated keys.
+  advanced_event_selector {
+    name = "${var.name_prefix} project CMK data events"
+
+    field_selector {
+      field  = "eventCategory"
+      equals = ["Data"]
+    }
+    field_selector {
+      field  = "resources.type"
+      equals = ["AWS::KMS::Key"]
+    }
+    field_selector {
+      field  = "resources.ARN"
+      equals = [var.project_cmk_arn]
+    }
+  }
+
+  tags = {
+    Name      = "${var.name_prefix}-audit"
+    Component = "monitoring"
+  }
+
+  # CloudTrail validates the bucket policy + CW Logs role at create-time.
+  # Without the explicit depends_on the create call can race the policy
+  # attach and fail with "InsufficientS3BucketPolicyException".
+  depends_on = [
+    aws_s3_bucket_policy.audit_trail,
+    aws_iam_role_policy.audit_trail_to_logs,
+  ]
+}
+
+# Metric filter 1: any SSM Get*/Put* against /flowin/${env}/* from a
+# principal that is NOT the EC2 instance role.
+#
+# CloudTrail data-event records arrive as JSON (one event per log entry
+# in the CW Logs group). The metric-filter pattern uses CloudWatch's JSON
+# filter syntax:
+#   - `$.field = "value"`            exact-match string
+#   - `$.field != "value"`           exclusion (the load-bearing piece)
+#   - `*` wildcard inside the quoted string
+#   - whitespace = logical AND, `||` = logical OR
+#
+# `$.userIdentity.sessionContext.sessionIssuer.arn` is the FIELD CloudTrail
+# populates for assumed-role calls (every EC2-role-mediated call lands as
+# AssumedRole; sessionIssuer.arn is the underlying role ARN — which IS
+# var.instance_role_arn for legitimate traffic). We exclude that.
+#
+# `$.eventName` matches `GetParameter`, `GetParameters`, `GetParametersByPath`,
+# and `PutParameter` via the wildcard prefix (`Get*` OR `Put*`). The
+# wildcard at the END of the quoted value works in JSON filters.
+#
+# Why NOT use a `OR` on the wildcard parts: CloudWatch's JSON filter
+# wildcards do support the prefix shape `"GetParameter*"`, and that single
+# token covers all three Get* variants. We need a separate `||` branch for
+# Put*. Test pattern locally with
+#   aws logs filter-log-events --filter-pattern '...'
+# before tweaking.
+resource "aws_cloudwatch_log_metric_filter" "unexpected_secret_read" {
+  name           = "${var.name_prefix}-unexpected-secret-read"
+  log_group_name = aws_cloudwatch_log_group.audit_trail.name
+
+  # JSON filter, parenthesised for clarity:
+  #   eventSource is ssm AND eventName is Get*/Put* on a parameter
+  #   AND the assuming role ARN is NOT the instance role.
+  pattern = "{ ($.eventSource = \"ssm.amazonaws.com\") && (($.eventName = \"GetParameter*\") || ($.eventName = \"PutParameter\")) && ($.userIdentity.sessionContext.sessionIssuer.arn != \"${var.instance_role_arn}\") }"
+
+  metric_transformation {
+    name          = "UnexpectedSecretRead"
+    namespace     = var.cw_metric_namespace
+    value         = "1"
+    default_value = "0"
+  }
+}
+
+# Metric filter 2: KMS Decrypt against the project CMK from any identity
+# OTHER than the EC2 instance role.
+#
+# CloudTrail KMS data-events surface the key ARN under `$.resources[0].ARN`.
+# We DON'T match on resources[0].ARN here because the trail's
+# event_selector already pre-filters to the project CMK only (so 100% of
+# events delivered to this log group concern the project CMK already);
+# the metric filter only adds the identity exclusion.
+#
+# Match Decrypt only — Encrypt / GenerateDataKey by external identities
+# is a separate (and less acute) concern; if needed, broaden the eventName
+# wildcard later. Same identity-exclusion shape as filter 1.
+resource "aws_cloudwatch_log_metric_filter" "unexpected_kms_decrypt" {
+  name           = "${var.name_prefix}-unexpected-kms-decrypt"
+  log_group_name = aws_cloudwatch_log_group.audit_trail.name
+
+  pattern = "{ ($.eventSource = \"kms.amazonaws.com\") && ($.eventName = \"Decrypt\") && ($.userIdentity.sessionContext.sessionIssuer.arn != \"${var.instance_role_arn}\") }"
+
+  metric_transformation {
+    name          = "UnexpectedKmsDecrypt"
+    namespace     = var.cw_metric_namespace
+    value         = "1"
+    default_value = "0"
+  }
+}
+
+# Alarm 1: any UnexpectedSecretRead in 5 minutes pages on-call.
+#
+# Threshold 0 / GreaterThanThreshold means "any event in the window
+# triggers". period × evaluation_periods = 300 × 1 = 300s, well inside
+# the CloudWatch 7-day cap. treat_missing_data = "notBreaching" — absence
+# of unexpected reads IS the desired state (the legitimate traffic is
+# excluded by the filter and doesn't bump the metric).
+resource "aws_cloudwatch_metric_alarm" "unexpected_secret_read" {
+  alarm_name          = "${var.name_prefix}-unexpected-secret-read"
+  alarm_description   = "An SSM GetParameter*/PutParameter on /flowin/${var.environment}/* was issued by a principal OTHER than the EC2 instance role. Investigate immediately — this is the SECRET_KEY exfiltration page."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "UnexpectedSecretRead"
+  namespace           = var.cw_metric_namespace
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 0
+  treat_missing_data  = "notBreaching"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+
+  tags = {
+    Component = "monitoring"
+  }
+}
+
+# Alarm 2: any UnexpectedKmsDecrypt in 5 minutes pages on-call. Same
+# threshold/period rationale as filter 1.
+resource "aws_cloudwatch_metric_alarm" "unexpected_kms_decrypt" {
+  alarm_name          = "${var.name_prefix}-unexpected-kms-decrypt"
+  alarm_description   = "kms:Decrypt against the project CMK was issued by a principal OTHER than the EC2 instance role. Investigate immediately — possible SecureString-decrypt or EBS-snapshot-read attempt."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "UnexpectedKmsDecrypt"
+  namespace           = var.cw_metric_namespace
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 0
+  treat_missing_data  = "notBreaching"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+
+  tags = {
+    Component = "monitoring"
+  }
+}
+
 # 15. Inode usage low — Audit D P3-4.
 #
 # disk_used_percent (the alarm above on root and data) measures bytes used

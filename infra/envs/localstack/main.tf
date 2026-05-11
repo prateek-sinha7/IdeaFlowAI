@@ -92,15 +92,16 @@ module "ecr" {
 module "secrets" {
   source = "../../modules/secrets"
 
-  name_prefix               = local.name_prefix
-  environment               = var.environment
-  region                    = module.account_guard.region
-  kms_key_id                = module.kms.key_id
-  bedrock_model_id          = local.effective_model_id
-  app_secret_key            = var.app_secret_key
-  db_password               = var.db_password
-  cors_origins              = var.cors_origins
-  access_token_expire_hours = var.access_token_expire_hours
+  name_prefix                  = local.name_prefix
+  environment                  = var.environment
+  region                       = module.account_guard.region
+  kms_key_id                   = module.kms.key_id
+  bedrock_model_id             = local.effective_model_id
+  bedrock_inference_profile_id = var.bedrock_inference_profile_id
+  app_secret_key               = var.app_secret_key
+  db_password                  = var.db_password
+  cors_origins                 = var.cors_origins
+  access_token_expire_hours    = var.access_token_expire_hours
 
   # LangSmith — explicitly empty in LocalStack; the count guards in the
   # secrets module skip the parameters when these are empty so there's no
@@ -207,7 +208,31 @@ module "monitoring" {
   # prod-only concern.
   backup_vault_name             = ""
   bedrock_daily_token_threshold = var.bedrock_daily_token_threshold
+
+  # Phase C C2-1 — CloudTrail data-event audit trail. LocalStack Pro
+  # exposes the `cloudtrail` endpoint (see providers.tf) and accepts trail
+  # create/update calls, so the dependency graph is exercised end-to-end
+  # in this env. The metric-filter pattern is plain-text and doesn't
+  # require real CloudTrail event delivery to validate at plan/apply.
+  instance_role_arn = module.iam.instance_role_arn
+  secrets_path_prefix_arn = format(
+    "arn:%s:ssm:%s:%s:parameter%s",
+    data.aws_partition.current.partition,
+    module.account_guard.region,
+    module.account_guard.account_id,
+    module.secrets.parameter_path_prefix,
+  )
+  project_cmk_arn = module.kms.key_arn
+
+  # LocalStack-only: let `terraform destroy` clean up the bucket without
+  # an external `aws s3 rm s3://... --recursive` step. Prod inherits the
+  # module default (false) so forensic logs can't be lost on a stray destroy.
+  audit_trail_bucket_force_destroy = var.audit_trail_bucket_force_destroy
 }
+
+# Partition data source for the secrets_path_prefix_arn construction —
+# same shape as envs/prod/main.tf.
+data "aws_partition" "current" {}
 
 # --- Resource Groups --------------------------------------------------------
 # LocalStack's resource-groups validator rejects any character outside

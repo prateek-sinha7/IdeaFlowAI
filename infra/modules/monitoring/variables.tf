@@ -181,3 +181,66 @@ variable "data_disk_path" {
   type        = string
   default     = "/var/lib/postgresql"
 }
+
+# --- C2-1: CloudTrail data-event audit trail --------------------------------
+
+variable "instance_role_arn" {
+  description = "ARN of the EC2 instance role (module.iam.instance_role_arn). The CloudTrail data-event metric filters exclude calls whose userIdentity (sessionContext.sessionIssuer.arn) is this role — only unexpected secret/KMS access pages on-call. The role is the legitimate consumer of /flowin/<env>/* SSM parameters and the project CMK from boot, so its calls are the noise floor we have to exclude or the alarm fires every time flowin-load-secrets runs."
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:aws[a-zA-Z-]*:iam::[0-9]{12}:role/.+$", var.instance_role_arn))
+    error_message = "instance_role_arn must be a valid IAM role ARN (arn:aws:iam::<acct>:role/<name>)."
+  }
+}
+
+variable "secrets_path_prefix_arn" {
+  description = "ARN prefix (no trailing slash, no wildcard) for the SSM parameter path containing the project's SecureStrings — e.g. arn:aws:ssm:<region>:<acct>:parameter/flowin/<env>. The CloudTrail data-event selector captures Put/Get on /flowin/<env>/* via this prefix + '/*'. Sourced from the parent composition (envs/prod/main.tf) so the value tracks module.secrets.parameter_path_prefix without re-deriving partition/region/account here."
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:aws[a-zA-Z-]*:ssm:[a-z0-9-]+:[0-9]{12}:parameter/.+$", var.secrets_path_prefix_arn))
+    error_message = "secrets_path_prefix_arn must be a valid SSM Parameter ARN prefix (arn:aws:ssm:<region>:<acct>:parameter/<path>) with no trailing slash and no wildcard."
+  }
+}
+
+variable "project_cmk_arn" {
+  description = "ARN of the project KMS CMK (module.kms.key_arn). Used (a) as the resources_arn match on the KMS data-event selector so we capture Decrypt only on THIS key, and (b) inside the KMS metric filter pattern so we don't alarm on Decrypt against arbitrary keys."
+  type        = string
+
+  validation {
+    condition     = can(regex("^arn:aws[a-zA-Z-]*:kms:[a-z0-9-]+:[0-9]{12}:key/[0-9a-f-]+$", var.project_cmk_arn))
+    error_message = "project_cmk_arn must be a valid KMS key ARN (arn:aws:kms:<region>:<acct>:key/<uuid>)."
+  }
+}
+
+variable "audit_trail_log_retention_days" {
+  description = "CloudWatch Logs retention (days) for the CloudTrail data-event trail's delivery log group. CloudTrail records are forensic — defaulting to 90 days strikes a balance between cost and how far back a SECRET_KEY-leak post-mortem can reach. Must be one of CloudWatch's allowed values (mirrors log_retention_days validation)."
+  type        = number
+  default     = 90
+
+  validation {
+    condition = contains(
+      [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653],
+      var.audit_trail_log_retention_days
+    )
+    error_message = "audit_trail_log_retention_days must be one of CloudWatch's allowed values."
+  }
+}
+
+variable "audit_trail_log_retention_s3_days" {
+  description = "S3-side retention (days) for the CloudTrail audit-trail bucket. Objects transition to GLACIER at 30d and expire at this value. Default 365 — typical audit-log retention window; chosen so the S3 record outlives the CW Logs metric-filter window (audit_trail_log_retention_days default 90) by ~4x for forensic reach. Must be > 30 so the GLACIER transition stays valid."
+  type        = number
+  default     = 365
+
+  validation {
+    condition     = var.audit_trail_log_retention_s3_days > 30
+    error_message = "audit_trail_log_retention_s3_days must be > 30 to exceed the GLACIER transition day."
+  }
+}
+
+variable "audit_trail_bucket_force_destroy" {
+  description = "If true, `terraform destroy` will empty the CloudTrail audit-trail bucket before deleting it. Default false (prod-safe — operators must explicitly empty the bucket). LocalStack tfvars sets this true so the destroy.sh ritual works without the operator having to `aws s3 rm` first. Mirrors the pattern on var.backup_bucket_force_destroy."
+  type        = bool
+  default     = false
+}

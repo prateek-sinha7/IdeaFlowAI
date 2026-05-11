@@ -53,3 +53,9 @@ variable "allow_backup_service" {
   type        = bool
   default     = true
 }
+
+variable "allow_cloudtrail_service" {
+  description = "If true, allow CloudTrail service principal to use the key so trails configured with kms_key_id = this CMK can encrypt log files. Confused-deputy guarded by (a) aws:SourceAccount pinned to var.account_id, (b) aws:SourceArn pinned to the exact $${var.name_prefix}-audit trail in this account+region (string-level coupling via name_prefix, no resource-graph cycle), and (c) kms:EncryptionContext:aws:cloudtrail:arn pinned to the same trail ARN (defense in depth — CloudTrail auto-supplies this context on encryption operations)."
+  type        = bool
+  default     = true
+}

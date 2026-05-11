@@ -32,6 +32,14 @@ protected=(
   # Phase 3 B P3-2 — IAM instance role + profile are prevent_destroy.
   "module.iam.aws_iam_role.instance"
   "module.iam.aws_iam_instance_profile.instance"
+  # Phase C C2-1 — CloudTrail audit-trail log group is prevent_destroy.
+  # The S3 bucket is NOT prevent_destroy (var.audit_trail_bucket_force_destroy
+  # is true in this env's tfvars, so terraform destroy empties + deletes it
+  # cleanly), but it's still listed here as a belt-and-braces safety in case
+  # an operator overrides force_destroy=false: the bucket may contain test
+  # CloudTrail deliveries and a plain destroy would fail with BucketNotEmpty.
+  "module.monitoring.aws_cloudwatch_log_group.audit_trail"
+  "module.monitoring.aws_s3_bucket.audit_trail"
 )
 
 state_snapshot=$(terraform state list)

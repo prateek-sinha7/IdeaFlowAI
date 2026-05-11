@@ -215,3 +215,9 @@ variable "bedrock_daily_token_threshold" {
   type        = number
   default     = 5000000
 }
+
+variable "audit_trail_bucket_force_destroy" {
+  description = "If true, `terraform destroy` empties the CloudTrail audit-trail bucket before deleting it. Default true for the throwaway localstack env so destroy.sh works without an external `aws s3 rm` step. Prod hardcodes the underlying module default (false) for forensic safety."
+  type        = bool
+  default     = true
+}

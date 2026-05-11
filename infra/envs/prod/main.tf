@@ -103,15 +103,16 @@ module "ecr" {
 module "secrets" {
   source = "../../modules/secrets"
 
-  name_prefix               = local.name_prefix
-  environment               = var.environment
-  region                    = module.account_guard.region
-  kms_key_id                = module.kms.key_id
-  bedrock_model_id          = local.effective_model_id
-  app_secret_key            = var.app_secret_key
-  db_password               = var.db_password
-  cors_origins              = var.cors_origins
-  access_token_expire_hours = var.access_token_expire_hours
+  name_prefix                  = local.name_prefix
+  environment                  = var.environment
+  region                       = module.account_guard.region
+  kms_key_id                   = module.kms.key_id
+  bedrock_model_id             = local.effective_model_id
+  bedrock_inference_profile_id = var.bedrock_inference_profile_id
+  app_secret_key               = var.app_secret_key
+  db_password                  = var.db_password
+  cors_origins                 = var.cors_origins
+  access_token_expire_hours    = var.access_token_expire_hours
 
   # LangSmith — empty defaults; opt-in via tfvars / TF_VAR_*.
   langsmith_tracing = var.langsmith_tracing
@@ -145,8 +146,14 @@ resource "aws_s3_object" "compose_yaml" {
   kms_key_id             = module.kms.key_arn
 
   tags = {
-    Name      = "${local.name_prefix}-compose-yaml"
-    Component = "config"
+    Name = "${local.name_prefix}-compose-yaml"
+    # The docker-compose.yml is the EC2's runtime config; tagging it as
+    # `compute` lands it in the same resource group as the instance/EBS/EIP
+    # so operators see the whole compute surface in one view. The
+    # resourcegroups module enumerates valid Component values; `config`
+    # was not one of them, so this object was previously absent from any
+    # per-component group.
+    Component = "compute"
   }
 }
 
@@ -261,7 +268,31 @@ module "monitoring" {
   agent_error_rate_threshold           = var.agent_error_rate_threshold
   stuck_workflows_threshold            = var.stuck_workflows_threshold
   stuck_workflows_check_period         = var.stuck_workflows_check_period
+
+  # Phase C C2-1 — CloudTrail data-event alarm wiring. The trail's metric
+  # filters need to know:
+  #  - the instance-role ARN (so the legitimate boot-time SSM reads from
+  #    flowin-load-secrets don't generate alarm noise);
+  #  - the SSM-path ARN prefix (so the trail's event_selector captures
+  #    Put/Get on exactly /flowin/${env}/* and nothing else);
+  #  - the project CMK ARN (so the KMS-data-event selector matches one key).
+  # See modules/monitoring/main.tf C2-1 header for the full rationale and
+  # ~$1/mo CloudTrail cost estimate.
+  instance_role_arn = module.iam.instance_role_arn
+  secrets_path_prefix_arn = format(
+    "arn:%s:ssm:%s:%s:parameter%s",
+    data.aws_partition.current.partition,
+    module.account_guard.region,
+    module.account_guard.account_id,
+    module.secrets.parameter_path_prefix,
+  )
+  project_cmk_arn = module.kms.key_arn
 }
+
+# Partition data source — used to construct the SSM parameter ARN prefix
+# above without hard-coding `aws` (so the same code paths work in
+# `aws-cn` / `aws-us-gov` partitions where the prefix changes).
+data "aws_partition" "current" {}
 
 # --- Resource Groups (last; they tag-query everything else) ----------------
 module "resourcegroups" {

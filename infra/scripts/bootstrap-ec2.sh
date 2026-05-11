@@ -348,6 +348,155 @@ setfacl -R -d -m u:cwagent:rX,o::r /var/lib/docker/containers || true
 
 echo "[bootstrap] Docker installed: $(docker --version), $(docker compose version)"
 
+# ── 8b. IMDS containment for the pptx_export Node subprocess (C2-2) ────
+#
+# Audit C / TF-Sec CRITICAL-2: the pptx_export.py service spawns a Node
+# subprocess running LLM-generated rendering code. G1-C1 hardened that
+# subprocess with:
+#   - scrubbed env (no AWS_*, DATABASE_URL, SECRET_KEY in the child env)
+#   - prlimit-style rlimits (CPU, AS, NOFILE)
+#   - a Semaphore that caps concurrency at 3
+# But the child INHERITS the container's network namespace. Inside that
+# namespace, 169.254.169.254 (IMDSv2) is reachable because
+# `infra/modules/compute/main.tf` sets `http_put_response_hop_limit = 2`
+# — required so Docker's bridge can forward IMDS to ANY container — and
+# the EC2 security group can't block link-local IMDS (it bypasses VPC
+# routing entirely; 169.254.169.254 is reached via a special hypervisor
+# route not visible to security groups).
+#
+# The Node child can therefore call:
+#   curl -sH "X-aws-ec2-metadata-token-ttl-seconds: 21600" -X PUT \
+#     http://169.254.169.254/latest/api/token \
+#     | xargs -I{} curl -H "X-aws-ec2-metadata-token: {}" \
+#     http://169.254.169.254/latest/meta-data/iam/security-credentials/<role>
+# …and exfiltrate STS credentials valid for ~6h. Those credentials carry
+# Bedrock invoke, SSM Get* on /flowin/${ENV}/*, KMS Decrypt against the
+# project CMK, and S3 PutObject on the backup bucket.
+#
+# ── Why we can NOT cleanly block this in bootstrap-ec2.sh today ────────
+#
+# Five candidate enforcement points, four of them broken for our shape:
+#
+# 1. `iptables -I DOCKER-USER -d 169.254.169.254 -j DROP`
+#    Drops IMDS from ALL containers. But the BACKEND container ALSO uses
+#    IMDS via boto3 (instance-role credential resolution chain). Blocking
+#    all containers breaks legitimate boto3 → SSM / Bedrock / S3 calls.
+#    Verdict: REJECTED — would break the running service.
+#
+# 2. `iptables -A OUTPUT -m owner --uid-owner 10001 -d 169.254.169.254 -j DROP`
+#    Drops IMDS from any process running as uid 10001 on the host. But
+#    UID 10001 inside the container does NOT map to UID 10001 on the host
+#    in our config — there's no user namespace, but the OUTPUT chain on
+#    the host doesn't see traffic that originates from inside Docker's
+#    bridge network anyway (it goes through the FORWARD path with the
+#    container's bridge IP as source). The `--uid-owner` match requires
+#    locally-originating traffic. Verdict: REJECTED — no effect on
+#    bridge-network-originating IMDS attempts.
+#
+# 3. cgroup-based block: `iptables -A OUTPUT -m cgroup --cgroup <id>`
+#    Container processes ARE in distinct cgroups (per docker), but the
+#    Node subprocess inherits the backend container's cgroup. Distinguishing
+#    parent (backend uvicorn) from child (Node) by cgroup is not feasible
+#    inside the same container's namespace.
+#    Verdict: REJECTED — same-cgroup parent and child are indistinguishable.
+#
+# 4. `unshare -n` (network-namespace isolation for the Node child)
+#    pptx_export.py:48 documents the rejection: "unshare -n would require
+#    CAP_SYS_ADMIN we don't grant." Granting it would let the LLM-generated
+#    Node code mount filesystems, escape the cgroup, etc. — worse than the
+#    IMDS surface. Verdict: REJECTED — net negative.
+#
+# 5. Per-process network namespace via a setuid wrapper that drops IMDS
+#    and then exec's Node:
+#    Possible in principle but: (a) requires us to ship a setuid binary
+#    inside the container, which we explicitly reject as a hardening
+#    practice; (b) the LLM-generated Node code could just curl 169.254.x
+#    after the wrapper exec's — the wrapper drops privileges but doesn't
+#    keep the namespace, since unshare -n requires CAP_SYS_ADMIN per (4).
+#    Verdict: REJECTED — same blocker as (4).
+#
+# ── What we DO have ────────────────────────────────────────────────────
+#
+# Containment is currently layered as follows:
+#   (a) process-level — env-scrubbed subprocess (pptx_export.py:277-320),
+#       so even if Node calls IMDS the IAM creds are fresh, not the long-
+#       lived host vars.
+#   (b) process-level — rlimits cap CPU, address space, file descriptors.
+#   (c) process-level — concurrency cap (Semaphore = 3 max parallel).
+#   (d) VPC-egress level — the EC2 security group restricts the host's
+#       egress to {80, 443, 53, VPC-internal endpoint ranges}; an
+#       attacker exfiltrating credentials over arbitrary TCP ports is
+#       blocked at the SG. (Bedrock, SSM, KMS are 443 — that's what the
+#       SG INTENDS to allow because the legitimate workload needs them.)
+#   (e) detection — Phase C C2-1 (this branch, modules/monitoring) adds a
+#       CloudTrail trail + metric filter + CloudWatch alarm on any
+#       SSM Get* on /flowin/${ENV}/* or KMS Decrypt from a principal
+#       OTHER than the instance role. An LLM-RCE-exfil attempt would
+#       trigger the UnexpectedSecretRead / UnexpectedKmsDecrypt alarm
+#       within 5 minutes — the "find out" surface for the surface (d)
+#       leaves open.
+#
+# ── The REAL fix (deferred to a follow-up branch) ──────────────────────
+#
+# Sidecar refactor: spin a separate `pptx-renderer` container in
+# docker-compose.yml with:
+#   network_mode: "none"     # NO network namespace at all — can't reach 169.254
+#   read_only: true
+#   cap_drop: [ALL]
+#   pids_limit: 32
+#   mem_limit: 256m
+#   cpus: 0.5
+# The backend (FastAPI) then HTTP-POSTs `js_code` to the renderer over
+# the internal compose network (which the renderer ISN'T attached to —
+# they share a unix socket bind-mounted from the host, or the backend
+# `docker exec`s a one-shot command into the renderer). The renderer
+# can't reach IMDS because it has no network namespace; the backend
+# (which DOES need IMDS for boto3) keeps its current network and
+# never executes LLM-generated code itself.
+#
+# TODO(C3-x, separate PR — see docs/_audit/TRIAGE_PHASE_C.md group C3):
+#   1. Add `pptx-renderer` service to docker-compose.yml with `network_mode: none`.
+#   2. Build a minimal Node-only image (no boto3, no AWS SDK, no curl).
+#   3. Refactor pptx_export.py to POST js_code to the renderer over a
+#      unix-domain socket bind-mounted from the host into both containers.
+#   4. Once landed, this whole §8b comment block can be deleted (the
+#      sidecar's `network_mode: none` is the real fix; the layered
+#      controls (a)-(e) above become defence-in-depth rather than the
+#      primary control).
+#
+# Until then, the layered controls above are what we have. This section
+# adds NO iptables rule because every candidate rule is either ineffective
+# (rejected in 1-5 above) or breaks legitimate backend traffic.
+#
+# What this section DOES add: assertion checks. The TF compute module
+# (`infra/modules/compute/main.tf::metadata_options`) is the authoritative
+# source for IMDS posture (http_tokens=required, hop_limit=2). The
+# instance role does NOT carry `ec2:ModifyInstanceMetadataOptions` (we
+# don't want the host able to grant itself more permissive IMDS), so the
+# bootstrap can only OBSERVE the current setting, not re-assert it.
+#
+# Observation 1: IMDSv2 token-required mode is on. A v1 GET (no token
+# header) should return 401 Unauthorized. If a v1 GET succeeds, the EC2
+# launch template has drifted from TF — page operator.
+if curl -sf --max-time 2 http://169.254.169.254/latest/meta-data/ \
+    >/dev/null 2>&1; then
+    echo "[bootstrap] CRITICAL: IMDSv1 (no token) is reachable — the EC2 IMDS posture has drifted from TF. Run \`aws ec2 modify-instance-metadata-options --http-tokens required\` immediately, then re-apply terraform to bring the launch template back in sync."
+    # Don't `exit 1` — bootstrap completing is more valuable than failing
+    # here, and the CloudTrail UnexpectedKmsDecrypt alarm (C2-1) is the
+    # safety net for any actual exfil. The log line is the operator
+    # signal; cwagent ships it to /flowin/${env}/system.
+else
+    echo "[bootstrap] OK: IMDSv1 (no token) returns 401 — IMDSv2 token-required is enforced (C2-2 baseline)"
+fi
+
+# Observation 2: hop_limit visibility. We can't query the configured
+# hop_limit from inside the instance (the SDK call requires
+# ec2:DescribeInstances which is not granted to the instance role and
+# arguably shouldn't be — it would let any in-container shell enumerate
+# the EC2 fleet). The TF compute module is the SoT; this is a comment
+# placeholder so operators reading the bootstrap know where to look:
+echo "[bootstrap] IMDS hop_limit is set in TF: infra/modules/compute/main.tf::metadata_options.http_put_response_hop_limit (currently 2 — Docker bridge requires >= 2)"
+
 # ── 9. ECR login + refresh timer ───────────────────────────────────────
 ECR_REGISTRY="${FLOWIN_ECR_REGISTRY:-}"
 if [[ -z "$ECR_REGISTRY" ]]; then

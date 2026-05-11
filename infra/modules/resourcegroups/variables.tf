@@ -14,11 +14,11 @@ variable "components" {
   default = {
     network    = "VPC subnets route tables security groups VPC endpoints"
     compute    = "EC2 instance root EBS volume EIP"
-    storage   = "Data EBS volume S3 backup bucket AWS Backup vault"
+    storage    = "Data EBS volume S3 backup bucket AWS Backup vault"
     monitoring = "CloudWatch log groups alarms SNS"
-    iam       = "IAM role KMS key instance profile"
-    secrets   = "SSM Parameter Store entries"
-    ecr       = "ECR repositories backend frontend lifecycle policies"
+    iam        = "IAM role KMS key instance profile"
+    secrets    = "SSM Parameter Store entries"
+    ecr        = "ECR repositories backend frontend lifecycle policies"
   }
 
   validation {

@@ -239,11 +239,11 @@ resource "aws_backup_plan" "daily" {
   name = "${var.name_prefix}-daily"
 
   rule {
-    rule_name           = "DailyAt03UTC"
-    target_vault_name   = aws_backup_vault.this.name
-    schedule            = var.backup_schedule_cron
-    start_window        = 60
-    completion_window   = 240
+    rule_name                = "DailyAt03UTC"
+    target_vault_name        = aws_backup_vault.this.name
+    schedule                 = var.backup_schedule_cron
+    start_window             = 60
+    completion_window        = 240
     enable_continuous_backup = false
 
     lifecycle {

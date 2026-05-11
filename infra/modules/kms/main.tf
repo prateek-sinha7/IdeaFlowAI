@@ -7,12 +7,12 @@ locals {
 # Customer-managed CMK used for: EBS data volume, S3 backup bucket SSE,
 # AWS Backup vault, and SSM Parameter Store SecureStrings.
 resource "aws_kms_key" "this" {
-  description             = "${var.name_prefix} project key (EBS data, S3 backups, SSM SecureStrings, Backup vault)"
-  deletion_window_in_days = var.deletion_window_in_days
-  enable_key_rotation     = true
-  key_usage               = "ENCRYPT_DECRYPT"
+  description              = "${var.name_prefix} project key (EBS data, S3 backups, SSM SecureStrings, Backup vault)"
+  deletion_window_in_days  = var.deletion_window_in_days
+  enable_key_rotation      = true
+  key_usage                = "ENCRYPT_DECRYPT"
   customer_master_key_spec = "SYMMETRIC_DEFAULT"
-  multi_region            = false
+  multi_region             = false
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -80,6 +80,16 @@ resource "aws_kms_key" "this" {
             "kms:GenerateDataKey"
           ]
           Resource = "*"
+          # Confused-deputy guard — symmetric with the S3 and Backup
+          # statements below. Without aws:SourceAccount, any AWS account's
+          # SNS topic could (in principle) ask this KMS key to decrypt or
+          # generate-data-key on its behalf; the SourceAccount pin forces
+          # the caller to be in our own account.
+          Condition = {
+            StringEquals = {
+              "aws:SourceAccount" = var.account_id
+            }
+          }
         }
       ] : [],
       var.allow_s3_service ? [
@@ -131,6 +141,57 @@ resource "aws_kms_key" "this" {
             }
             ArnLike = {
               "aws:SourceArn" = "arn:${local.partition}:backup:${var.region}:${var.account_id}:backup-vault:*"
+            }
+          }
+        }
+      ] : [],
+      # CloudTrail service grant — required so the security-audit trail
+      # (modules/monitoring) can configure `kms_key_id = this CMK` and have
+      # CloudTrail encrypt the S3-stored log files with our CMK rather than
+      # the AWS-managed s3 key. Audit C2-1: the trail captures data events
+      # for SECRET_KEY reads + KMS Decrypt; encrypting those records with our
+      # own key keeps the cryptographic boundary inside the project.
+      #
+      # Confused-deputy guards (layered):
+      #   - aws:SourceAccount   pins to our account.
+      #   - aws:SourceArn       pins to the EXACT trail in this account/region
+      #                         (`${var.name_prefix}-audit`). Both sides derive
+      #                         the trail name independently from
+      #                         `var.name_prefix` — string-level coupling only,
+      #                         no resource-graph cycle (the monitoring module
+      #                         doesn't read kms module outputs to compute the
+      #                         trail name; the kms module doesn't read
+      #                         monitoring outputs to compute this ARN).
+      #   - kms:EncryptionContext (aws:cloudtrail:arn) — defence in depth.
+      #                         CloudTrail sets this encryption context
+      #                         automatically on every encryption operation
+      #                         with the trail's own ARN; pinning it here
+      #                         means even an in-account attacker that owned
+      #                         cloudtrail-create rights can't trick the key
+      #                         into encrypting for an unrelated trail.
+      #                         Modeled on the AllowCloudWatchLogs grant
+      #                         (lines 64-67) which uses the analogous
+      #                         kms:EncryptionContext:aws:logs:arn.
+      var.allow_cloudtrail_service ? [
+        {
+          Sid    = "AllowCloudTrailService"
+          Effect = "Allow"
+          Principal = {
+            Service = "cloudtrail.amazonaws.com"
+          }
+          Action = [
+            "kms:Decrypt",
+            "kms:GenerateDataKey*",
+            "kms:DescribeKey"
+          ]
+          Resource = "*"
+          Condition = {
+            StringEquals = {
+              "aws:SourceAccount"                        = var.account_id
+              "kms:EncryptionContext:aws:cloudtrail:arn" = "arn:${local.partition}:cloudtrail:${var.region}:${var.account_id}:trail/${var.name_prefix}-audit"
+            }
+            ArnLike = {
+              "aws:SourceArn" = "arn:${local.partition}:cloudtrail:${var.region}:${var.account_id}:trail/${var.name_prefix}-audit"
             }
           }
         }

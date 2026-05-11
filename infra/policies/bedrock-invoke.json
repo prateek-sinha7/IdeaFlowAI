@@ -13,7 +13,7 @@
       "Resource": [
         "arn:${partition}:bedrock:${region}::foundation-model/${model_id}",
         "arn:${partition}:bedrock:*::foundation-model/${model_id}",
-        "arn:${partition}:bedrock:${region}:${account_id}:inference-profile/${inference_profile_id}"
+        "arn:${partition}:bedrock:*:${account_id}:inference-profile/${inference_profile_id}"
       ],
       "Condition": {
         "StringEquals": {

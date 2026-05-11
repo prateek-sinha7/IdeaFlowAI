@@ -49,9 +49,9 @@ resource "aws_iam_role_policy" "bedrock_invoke" {
 
   # The bedrock-invoke.json policy includes an `aws:RequestedRegion` condition
   # pinning invocation to the EU regions the cross-region inference profile
-  # fans to. The list is hardcoded in the JSON (eu-central-1, eu-west-1,
-  # eu-west-2). If AWS adds another EU region to the EU profile, update
-  # the list there. See:
+  # fans to. The list is hardcoded in the JSON (eu-central-1, eu-north-1,
+  # eu-south-1, eu-south-2, eu-west-1, eu-west-2, eu-west-3 — 7 regions).
+  # If AWS adds another EU region to the EU profile, update the JSON. See:
   #   https://docs.aws.amazon.com/bedrock/latest/userguide/cross-region-inference.html
   policy = templatefile("${path.module}/${var.policies_dir}/bedrock-invoke.json", {
     partition            = data.aws_partition.current.partition

@@ -170,7 +170,7 @@ resource "aws_eip" "this" {
 
   tags = {
     Name      = "${var.name_prefix}-eip"
-    Component = "network"
+    Component = "compute"
   }
 
   lifecycle {

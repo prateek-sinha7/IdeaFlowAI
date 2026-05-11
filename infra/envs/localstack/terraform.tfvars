@@ -58,7 +58,7 @@ access_token_expire_hours = 12
 
 # ---- Backups ---------------------------------------------------------------
 
-backup_bucket_name          = "flowin-ls-pg-dumps-000000000000"
+backup_bucket_name = "flowin-ls-pg-dumps-000000000000"
 # Match the prod default (365d) so the cold_storage_after_days >= 90 days
 # below delete_after validation passes. LocalStack mocks don't enforce
 # retention so the actual number is operationally irrelevant here.
@@ -69,3 +69,9 @@ daily_backup_retention_days = 365
 alert_email                 = "flowin-oncall@example.test"
 log_retention_days          = 30
 billing_alarm_threshold_usd = 500
+
+# CloudTrail audit-trail S3 bucket: allow `terraform destroy` to empty it
+# even when it contains test deliveries. Prod hardcodes the default `false`
+# so an operator can't accidentally lose forensic logs. See
+# infra/modules/monitoring/variables.tf::audit_trail_bucket_force_destroy.
+audit_trail_bucket_force_destroy = true
