@@ -367,9 +367,6 @@ async def _handle_pipeline_execution(
     Creates a WorkflowRun record to track the execution.
     If agent_ids is provided, uses that custom agent list instead of defaults.
     """
-    from app.agents.pipeline import PipelineExecutor
-    from app.agents.skills import get_skill_content
-
     logger.info(f"Pipeline execution: type={pipeline_type}, user={user.id}, custom_agents={len(agent_ids) if agent_ids else 'default'}")
 
     # Determine agent count
@@ -379,28 +376,50 @@ async def _handle_pipeline_execution(
         agent_counts = {"user_stories": 12, "ppt": 4, "prototype": 12}
         agent_count = agent_counts.get(pipeline_type, 12)
 
-    # Create a WorkflowRun record with a temporary title (will be updated by Claude async)
+    # Check if this is a revision run with an original workflow ID to update
+    import re as _re_wf
+    original_workflow_id = None
+    wf_id_match = _re_wf.search(r'=== ORIGINAL_WORKFLOW_ID ===\s*\n([a-f0-9\-]+)\s*\n=== END WORKFLOW_ID ===', content or "")
+    if wf_id_match:
+        original_workflow_id = wf_id_match.group(1).strip()
+        logger.info(f"Revision run — will update original workflow: {original_workflow_id}")
+
+    # Create or reuse WorkflowRun record
     workflow_run_id = None
     db = _get_db()
     try:
-        # Quick fallback title while Claude generates a better one
-        import re as _re
-        raw_input = (content or "Untitled").strip()
-        raw_input = _re.split(r'\n\n===\s*(?:CONTEXT FROM PREVIOUS|USER PREFERENCES|ORIGINAL USER REQUEST)', raw_input)[0].strip()
-        fallback_title = raw_input.split('\n')[0].strip()[:60] or "Untitled"
+        if original_workflow_id:
+            # Revision: reuse the original workflow run record
+            existing = db.query(WorkflowRun).filter(
+                WorkflowRun.id == original_workflow_id,
+                WorkflowRun.user_id == user.id
+            ).first()
+            if existing:
+                existing.status = "running"
+                existing.type = pipeline_type  # update to revision type temporarily
+                db.commit()
+                workflow_run_id = existing.id
+                logger.info(f"Reusing workflow run {workflow_run_id} for revision")
 
-        workflow_run = WorkflowRun(
-            user_id=user.id,
-            title=fallback_title,
-            type=pipeline_type,
-            status="running",
-            input=content or f"Run {pipeline_type} pipeline",
-            agent_count=agent_count,
-        )
-        db.add(workflow_run)
-        db.commit()
-        db.refresh(workflow_run)
-        workflow_run_id = workflow_run.id
+        if not workflow_run_id:
+            # Fresh run: create new WorkflowRun record
+            import re as _re
+            raw_input = (content or "Untitled").strip()
+            raw_input = _re.split(r'\n\n===\s*(?:CONTEXT FROM PREVIOUS|USER PREFERENCES|ORIGINAL USER REQUEST|EXISTING)', raw_input)[0].strip()
+            fallback_title = raw_input.split('\n')[0].strip()[:60] or "Untitled"
+
+            workflow_run = WorkflowRun(
+                user_id=user.id,
+                title=fallback_title,
+                type=pipeline_type,
+                status="running",
+                input=content or f"Run {pipeline_type} pipeline",
+                agent_count=agent_count,
+            )
+            db.add(workflow_run)
+            db.commit()
+            db.refresh(workflow_run)
+            workflow_run_id = workflow_run.id
     finally:
         db.close()
 
@@ -493,32 +512,29 @@ async def _handle_pipeline_execution(
     execution_start = datetime.now(timezone.utc)
     agent_outputs_collector: list[dict] = []  # Collect per-agent thinking/output
 
-    # === LIVE PIPELINE MODE ===
-    # Load skills for agents that have them
-    from app.agents.registry import get_pipeline_agents, get_all_agents
-    agents = get_pipeline_agents(pipeline_type)
+    # === WORKFLOW ORCHESTRATOR ===
+    # All workflows (fresh + revisions) go through WorkflowOrchestrator
+    from app.agents.orchestrator_v2 import WorkflowOrchestrator
+    from app.agents.registry import get_all_agents
 
     # If custom agent_ids provided, filter and reorder agents accordingly
+    custom_agents = None
     if agent_ids:
         all_agents = get_all_agents()
         agent_map = {a.id: a for a in all_agents}
-        agents = [agent_map[aid] for aid in agent_ids if aid in agent_map]
+        custom_agents = [agent_map[aid] for aid in agent_ids if aid in agent_map]
 
-    skills: dict[str, str] = {}
-    for agent_def in agents:
-        skill_content = get_skill_content(agent_def.id)
-        if skill_content:
-            skills[agent_def.id] = skill_content
-
-    # Execute the pipeline
-    executor = PipelineExecutor(pipeline_type, custom_agents=agents if agent_ids else None)
+    orchestrator = WorkflowOrchestrator(
+        pipeline_type=pipeline_type,
+        custom_agents=custom_agents,
+    )
 
     try:
         current_agent_output_live: dict = {}
-        async for update in executor.execute(content, skills=skills):
+        async for update in orchestrator.execute(content, cancel_event=cancel_event):
             # Check cancellation before sending each update
             if cancel_event and cancel_event.is_set():
-                logger.info(f"Pipeline cancelled mid-execution for user={user.id}")
+                logger.info(f"Workflow cancelled mid-execution for user={user.id}")
                 break
 
             await websocket.send_json({
@@ -606,6 +622,10 @@ async def _handle_pipeline_execution(
                 wr.completed_at = datetime.now(timezone.utc)
                 duration = (datetime.now(timezone.utc) - execution_start).total_seconds()
                 wr.duration = round(duration, 1)
+                # For revision runs, restore the base type so history shows correctly
+                from app.agents.orchestrator_v2 import REVISION_BASE_MAP
+                if pipeline_type in REVISION_BASE_MAP:
+                    wr.type = REVISION_BASE_MAP[pipeline_type]
                 db.commit()
         finally:
             db.close()

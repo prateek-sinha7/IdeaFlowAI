@@ -86,11 +86,11 @@ export default function DashboardPage() {
         const pipelineType = data.pipeline_type as string;
 
         if (finalOutput && pipelineType) {
-          if (pipelineType === "user_stories" || pipelineType === "app_builder" || pipelineType === "custom") {
+          if (pipelineType === "user_stories" || pipelineType === "user_stories_revision" || pipelineType === "app_builder" || pipelineType === "app_builder_revision" || pipelineType === "custom") {
             setUserStoryContent(finalOutput);
-          } else if (pipelineType === "ppt") {
+          } else if (pipelineType === "ppt" || pipelineType === "ppt_revision") {
             setPptContent(finalOutput);
-          } else if (pipelineType === "prototype") {
+          } else if (pipelineType === "prototype" || pipelineType === "prototype_revision") {
             setPrototypeContent(finalOutput);
           }
         }
@@ -593,13 +593,17 @@ export default function DashboardPage() {
       websocketSend={send}
       pipelineState={pipelineState}
       onStartPipeline={(type, message, agentIds) => {
-        // Clear previous preview content before starting new pipeline
-        setUserStoryContent("");
-        setPptContent("");
-        setPrototypeContent("");
-        pptContentRef.current = "";
-        prototypeContentRef.current = "";
-        userStoryContentRef.current = "";
+        const isRevision = type.endsWith("_revision");
+        if (!isRevision) {
+          // Fresh run — clear previous preview content
+          setUserStoryContent("");
+          setPptContent("");
+          setPrototypeContent("");
+          pptContentRef.current = "";
+          prototypeContentRef.current = "";
+          userStoryContentRef.current = "";
+        }
+        // For revisions, keep existing content visible until new output arrives
         startPipeline(type, message, agentIds);
       }}
       onResetPipeline={resetPipeline}

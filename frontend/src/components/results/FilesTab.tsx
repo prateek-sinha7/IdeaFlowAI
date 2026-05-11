@@ -76,16 +76,16 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const files: FileItem[] = [];
 
-  // ── User Stories ──────────────────────────────────────────────────────────
-  if (workflowType === "user_stories" && userStoryContent) {
+  // ── User Stories (including revisions) ──────────────────────────────────
+  if ((workflowType === "user_stories" || workflowType === "user_stories_revision") && userStoryContent) {
     let name = "user-stories";
     const h = userStoryContent.match(/^#\s+(.+)/m);
     if (h) name = h[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
     files.push({ id: "user-stories-md", name: `${name}.md`, type: "Markdown", icon: FileText, size: formatSize(userStoryContent.length), format: "Markdown (.md)", content: userStoryContent, mimeType: "text/markdown" });
   }
 
-  // ── App Builder — individual project files ────────────────────────────────
-  if (workflowType === "app_builder" && userStoryContent) {
+  // ── App Builder (including revisions) ────────────────────────────────────
+  if ((workflowType === "app_builder" || workflowType === "app_builder_revision") && userStoryContent) {
     const projectFiles = parseAppBuilderFiles(userStoryContent);
     if (projectFiles.length > 0) {
       files.push(...projectFiles);
@@ -106,8 +106,8 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
     files.push({ id: "custom-md", name: `${name}.md`, type: "Markdown", icon: FileText, size: formatSize(userStoryContent.length), format: "Markdown (.md)", content: userStoryContent, mimeType: "text/markdown" });
   }
 
-  // ── PPT ───────────────────────────────────────────────────────────────────
-  if (workflowType === "ppt" && pptContent) {
+  // ── PPT (including revisions) ─────────────────────────────────────────────
+  if ((workflowType === "ppt" || workflowType === "ppt_revision") && pptContent) {
     let name = "presentation";
     const t = pptContent.match(/<title>([^<]+)<\/title>/i);
     const h1 = pptContent.match(/<h1[^>]*>([^<]+)<\/h1>/i);
@@ -120,8 +120,8 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
     files.push({ id: "presentation-html", name: `${name}.html`, type: "HTML Presentation", icon: Presentation, size: formatSize(pptContent.length), format: "HTML (.html) — open in browser", content: pptContent, mimeType: "text/html" });
   }
 
-  // ── Prototype ─────────────────────────────────────────────────────────────
-  if (workflowType === "prototype" && prototypeContent) {
+  // ── Prototype (including revisions) ──────────────────────────────────────
+  if ((workflowType === "prototype" || workflowType === "prototype_revision") && prototypeContent) {
     let name = "prototype";
     const t = prototypeContent.match(/<title>(.+?)<\/title>/i);
     if (t) name = t[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);

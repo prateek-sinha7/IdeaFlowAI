@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Presentation, Download, Loader2, ExternalLink } from "lucide-react";
+import { Presentation, Download, Loader2, ExternalLink, RefreshCw } from "lucide-react";
 import { getToken } from "@/lib/api";
 
 interface PPTPreviewProps {
@@ -9,11 +9,14 @@ interface PPTPreviewProps {
   isStreaming?: boolean;
   /** Agent 3's raw PptxGenJS code — enables reliable server-side export */
   pptxCode?: string;
+  /** Callback to trigger a revision pipeline run */
+  onRevise?: (instruction: string) => void;
 }
 
-export function PPTPreview({ content, isStreaming, pptxCode }: PPTPreviewProps) {
+export function PPTPreview({ content, isStreaming, pptxCode, onRevise }: PPTPreviewProps) {
   const [iframeKey] = useState(0);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [revisionText, setRevisionText] = useState("");
 
   const handleDownloadPptx = async () => {
     setIsDownloading(true);
@@ -93,27 +96,7 @@ export function PPTPreview({ content, isStreaming, pptxCode }: PPTPreviewProps) 
     );
   }
 
-  if (!content && pptxCode) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-4 px-6">
-        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-gray-100 border border-gray-200 animate-pulse">
-          <Presentation className="h-6 w-6 text-gray-400" />
-        </div>
-        <p className="text-[11px] text-gray-500 font-medium">Generating slide preview...</p>
-        <button
-          onClick={handleDownloadPptx}
-          disabled={isDownloading}
-          className="flex items-center gap-2 text-[12px] font-medium text-white bg-[#1B2A4A] hover:bg-[#2a3d5e] disabled:opacity-60 rounded-lg px-4 py-2 transition-colors shadow-sm"
-        >
-          {isDownloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-          {isDownloading ? "Exporting..." : "Download PPTX Now"}
-        </button>
-        <p className="text-[10px] text-gray-400">PPTX ready — preview still loading</p>
-      </div>
-    );
-  }
-
-  if (isStreaming) {
+  if (!content) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3">
         <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-gray-100 border border-gray-200 animate-pulse">
@@ -133,6 +116,17 @@ export function PPTPreview({ content, isStreaming, pptxCode }: PPTPreviewProps) 
   htmlContent = htmlContent.replace(/<button[^>]*class="dl-btn"[^>]*>[^<]*<\/button>/gi, "");
   htmlContent = htmlContent.replace(/<button[^>]*onclick="generatePresentation\(\)"[^>]*>[^<]*<\/button>/gi, "");
   htmlContent = htmlContent.replace(/<button[^>]*>[^<]*(?:download|export)\s*pptx[^<]*<\/button>/gi, "");
+
+  // Inject CSS to fix iframe internal height when revision bar is present
+  if (onRevise) {
+    // Override the internal html/body height to use 100% of iframe container, not 100vh
+    const heightFix = `<style>html,body{height:100%!important;overflow:hidden!important}</style>`;
+    if (htmlContent.includes('</head>')) {
+      htmlContent = htmlContent.replace('</head>', `${heightFix}</head>`);
+    } else {
+      htmlContent = heightFix + htmlContent;
+    }
+  }
 
   const isHtml = htmlContent.startsWith("<!DOCTYPE") || htmlContent.startsWith("<html") || htmlContent.startsWith("<!");
 
@@ -156,9 +150,9 @@ export function PPTPreview({ content, isStreaming, pptxCode }: PPTPreviewProps) 
   };
 
   return (
-    <div className="h-full flex flex-col relative">
-      {/* Iframe — HTML handles slide navigation */}
-      <div className="flex-1 min-h-0">
+    <div className="h-full flex flex-col overflow-hidden">
+      {/* Iframe — HTML handles slide navigation, constrained to available space */}
+      <div className="flex-1 min-h-0 relative overflow-hidden">
         <iframe
           key={iframeKey}
           srcDoc={htmlContent}
@@ -166,26 +160,57 @@ export function PPTPreview({ content, isStreaming, pptxCode }: PPTPreviewProps) 
           title="Slide Deck Preview"
           sandbox="allow-scripts allow-same-origin"
         />
+
+        {/* Action buttons — server-side Download PPTX + Full Screen */}
+        <div className="absolute top-[7px] right-[12px] z-10 flex items-center gap-2">
+          <button
+            onClick={handleDownloadPptx}
+            disabled={isDownloading}
+            className="flex items-center gap-1.5 text-[11px] font-medium text-white bg-[#1B2A4A] hover:bg-[#2a3d5e] disabled:opacity-60 rounded-md px-3 py-1.5 transition-colors shadow-md"
+          >
+            {isDownloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            {isDownloading ? "Exporting..." : "Download PPTX"}
+          </button>
+          <button
+            onClick={handleOpenFullScreen}
+            className="flex items-center gap-1.5 text-[10px] text-gray-500 hover:text-gray-800 bg-white/90 hover:bg-white border border-gray-200 hover:border-gray-300 backdrop-blur-sm rounded-md px-2.5 py-1.5 transition-all shadow-sm"
+            title="Open in new tab"
+          >
+            <ExternalLink className="h-3 w-3" /> Full Screen
+          </button>
+        </div>
       </div>
 
-      {/* Action buttons — server-side Download PPTX + Full Screen */}
-      <div className="absolute top-[7px] right-[12px] z-10 flex items-center gap-2">
-        <button
-          onClick={handleDownloadPptx}
-          disabled={isDownloading}
-          className="flex items-center gap-1.5 text-[11px] font-medium text-white bg-[#1B2A4A] hover:bg-[#2a3d5e] disabled:opacity-60 rounded-md px-3 py-1.5 transition-colors shadow-md"
-        >
-          {isDownloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-          {isDownloading ? "Exporting..." : "Download PPTX"}
-        </button>
-        <button
-          onClick={handleOpenFullScreen}
-          className="flex items-center gap-1.5 text-[10px] text-gray-500 hover:text-gray-800 bg-white/90 hover:bg-white border border-gray-200 hover:border-gray-300 backdrop-blur-sm rounded-md px-2.5 py-1.5 transition-all shadow-sm"
-          title="Open in new tab"
-        >
-          <ExternalLink className="h-3 w-3" /> Full Screen
-        </button>
-      </div>
+      {/* Revision bar — request changes to the presentation */}
+      {onRevise && (
+        <div className="flex-shrink-0 border-t border-gray-200 bg-white px-4 py-3 flex items-center gap-3">
+          <input
+            type="text"
+            value={revisionText}
+            onChange={(e) => setRevisionText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && revisionText.trim()) {
+                onRevise(revisionText.trim());
+                setRevisionText("");
+              }
+            }}
+            placeholder='Request changes, e.g. "Make slide 3 title bigger" or "Add a slide about ROI"'
+            className="flex-1 text-[12px] text-gray-700 placeholder-gray-400 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-gray-400 transition-colors"
+          />
+          <button
+            onClick={() => {
+              if (revisionText.trim()) {
+                onRevise(revisionText.trim());
+                setRevisionText("");
+              }
+            }}
+            disabled={!revisionText.trim()}
+            className="flex items-center gap-1.5 text-[11px] font-medium text-white bg-[#1B2A4A] hover:bg-[#2a3d5e] disabled:opacity-40 rounded-lg px-3 py-2 transition-colors flex-shrink-0"
+          >
+            <RefreshCw className="h-3.5 w-3.5" /> Revise
+          </button>
+        </div>
+      )}
     </div>
   );
 }

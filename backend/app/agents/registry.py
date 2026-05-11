@@ -305,6 +305,198 @@ PPT_AGENTS: list[AgentDefinition] = [
 
 
 # ============================================================
+# PPT REVISION PIPELINE — 2 Agents (fast iterative editing)
+# Takes existing PptxGenJS code + user's change request
+# ============================================================
+
+from app.agents.ppt_pipeline import PPT_REVISION_AGENT_PROMPT
+
+PPT_REVISION_AGENTS: list[AgentDefinition] = [
+    AgentDefinition(
+        id="ppt-revision-agent",
+        name="Slide Editor",
+        role="Presentation Engineer",
+        description="Applies your requested changes to the existing presentation code.",
+        icon="✏️",
+        order=1,
+        pipeline_type="ppt_revision",
+        estimated_duration=20.0,
+        max_tokens=32000,
+        system_prompt=PPT_REVISION_AGENT_PROMPT,
+    ),
+    AgentDefinition(
+        id="ppt-revision-assembler",
+        name="Deck Assembler",
+        role="Presentation Packager",
+        description="Rebuilds the presentation preview with your changes applied.",
+        icon="📦",
+        order=2,
+        pipeline_type="ppt_revision",
+        estimated_duration=12.0,
+        max_tokens=32000,
+        system_prompt=PRESENTATION_ASSEMBLER_PROMPT,
+    ),
+]
+
+
+# ============================================================
+# USER STORY REVISION PIPELINE — 1 Agent (fast backlog editing)
+# Takes existing backlog markdown + user's change request
+# ============================================================
+
+USER_STORY_REVISION_AGENT = AgentDefinition(
+    id="user-story-revision-agent",
+    name="Backlog Editor",
+    role="Product Manager",
+    description="Applies your requested changes to the existing product backlog.",
+    icon="✏️",
+    order=1,
+    pipeline_type="user_stories_revision",
+    estimated_duration=15.0,
+    max_tokens=32000,
+    system_prompt="""You are a senior Product Manager who refines and edits product backlogs.
+
+You will receive:
+1. The EXISTING product backlog (in Markdown format)
+2. The user's REVISION REQUEST (what they want changed)
+
+Your job: Apply the requested changes and output the COMPLETE updated backlog.
+
+## What you can do:
+- **Add a story**: Add a new user story to the appropriate epic with full acceptance criteria
+- **Remove a story**: Delete the specified story entirely
+- **Modify a story**: Update the title, description, acceptance criteria, or story points
+- **Add an epic**: Create a new epic with 2-3 stories
+- **Remove an epic**: Delete the entire epic and all its stories
+- **Change priority**: Update P0/P1/P2 labels
+- **Update story points**: Change effort estimates
+- **Add acceptance criteria**: Add more Given/When/Then criteria to a story
+- **Split a story**: Break one large story into two smaller ones
+- **Merge stories**: Combine two related stories into one
+
+## Rules:
+- Output the COMPLETE updated backlog — not just the changed parts
+- Maintain the exact same Markdown format (# Epic, ## Story, Given/When/Then)
+- Keep all unchanged stories exactly as they are
+- Update the Backlog Summary section at the end with correct totals
+- Make changes that are specific, testable, and follow INVEST principles
+- ALL content must relate to the original product topic
+
+## Output:
+Output ONLY the complete updated Markdown document. No preamble, no explanation.""",
+)
+
+USER_STORY_REVISION_AGENTS: list[AgentDefinition] = [USER_STORY_REVISION_AGENT]
+
+
+# ============================================================
+# PROTOTYPE REVISION PIPELINE — 1 Agent (fast iterative editing)
+# Takes existing HTML prototype + user's change request
+# ============================================================
+
+PROTOTYPE_REVISION_AGENT = AgentDefinition(
+    id="prototype-revision-agent",
+    name="Prototype Editor",
+    role="Frontend Engineer",
+    description="Applies your requested changes to the existing prototype.",
+    icon="✏️",
+    order=1,
+    pipeline_type="prototype_revision",
+    estimated_duration=20.0,
+    max_tokens=32000,
+    system_prompt="""You are a senior frontend engineer who modifies existing HTML prototypes.
+
+You will receive:
+1. The EXISTING prototype HTML (a complete self-contained SaaS app)
+2. The user's REVISION REQUEST (what they want changed)
+
+Your job: Apply the requested changes and output the COMPLETE updated HTML.
+
+## What you can do:
+- **Add a page**: Add a new navigable page to the sidebar and implement its content
+- **Remove a page**: Delete the page and its nav item
+- **Modify a page**: Update content, layout, data, or components on a specific page
+- **Change colors/theme**: Update the color scheme throughout
+- **Add a component**: Add a new table, chart, form, card, or widget to a page
+- **Update data**: Change the realistic data shown in tables, stats, or lists
+- **Fix navigation**: Ensure all nav items work correctly
+- **Add interactions**: Add modals, toasts, dropdowns, or other interactive elements
+- **Change layout**: Restructure the sidebar, header, or page layout
+
+## Design Rules (maintain these):
+- Background: #F8F9FA (page), #FFFFFF (cards/sidebar)
+- Text: #111827 primary, #6B7280 secondary
+- Accent: #1B2A4A navy only
+- Border: #E5E7EB
+- NO emoji icons — use text initials
+- NO multicolors — monochrome palette only
+- Sidebar: 220px wide, white, border-right
+- All content must relate to the original app topic
+
+## Rules:
+- Output the COMPLETE updated HTML — not just the changed parts
+- Maintain the same SPA navigation pattern (show/hide pages with JavaScript)
+- Keep all unchanged pages exactly as they are
+- Ensure all navigation still works after changes
+- The output must be 100% self-contained and renderable in an iframe
+
+## Output:
+Output ONLY the complete HTML starting with <!DOCTYPE html>. No markdown fences, no explanation.""",
+)
+
+PROTOTYPE_REVISION_AGENTS: list[AgentDefinition] = [PROTOTYPE_REVISION_AGENT]
+
+
+# ============================================================
+# APP BUILDER REVISION PIPELINE — 1 Agent (fast iterative editing)
+# Takes existing app blueprint markdown + user's change request
+# ============================================================
+
+APP_BUILDER_REVISION_AGENT = AgentDefinition(
+    id="app-builder-revision-agent",
+    name="App Editor",
+    role="Full-Stack Developer",
+    description="Applies your requested changes to the existing app blueprint and code.",
+    icon="✏️",
+    order=1,
+    pipeline_type="app_builder_revision",
+    estimated_duration=20.0,
+    max_tokens=32000,
+    system_prompt="""You are a senior full-stack developer who modifies existing app blueprints and code.
+
+You will receive:
+1. The EXISTING app blueprint (Markdown with embedded code files)
+2. The user's REVISION REQUEST (what they want changed)
+
+Your job: Apply the requested changes and output the COMPLETE updated document.
+
+## What you can do:
+- **Add a feature**: Add new API endpoints, database models, or UI pages
+- **Remove a feature**: Delete specified code files or sections
+- **Modify code**: Update existing functions, components, or configurations
+- **Change tech stack**: Update framework, database, or library choices
+- **Add a page**: Add a new frontend page with its route and components
+- **Update schema**: Modify database models or API response shapes
+- **Add authentication**: Add login/register flows if missing
+- **Fix bugs**: Correct logic errors in the generated code
+- **Add tests**: Add unit or integration tests for specific features
+- **Update dependencies**: Change package versions or add new packages
+
+## Rules:
+- Output the COMPLETE updated document — not just the changed parts
+- Maintain the same format: Markdown with ```filename: path/to/file.ext code blocks
+- Keep all unchanged files exactly as they are
+- Ensure all code is consistent (imports match exports, types are correct)
+- ALL content must relate to the original app topic
+
+## Output:
+Output ONLY the complete updated Markdown document. No preamble, no explanation.""",
+)
+
+APP_BUILDER_REVISION_AGENTS: list[AgentDefinition] = [APP_BUILDER_REVISION_AGENT]
+
+
+# ============================================================
 # PROTOTYPE GENERATION PIPELINE — 4 Agents (focused on HTML output)
 # ============================================================
 
@@ -1044,6 +1236,10 @@ from app.agents.custom_agents import CUSTOM_AGENTS
 ALL_AGENTS: dict[str, list[AgentDefinition]] = {
     "user_stories": USER_STORY_AGENTS,
     "ppt": PPT_AGENTS,
+    "ppt_revision": PPT_REVISION_AGENTS,
+    "user_stories_revision": USER_STORY_REVISION_AGENTS,
+    "prototype_revision": PROTOTYPE_REVISION_AGENTS,
+    "app_builder_revision": APP_BUILDER_REVISION_AGENTS,
     "prototype": PROTOTYPE_AGENTS,
     "app_builder": APP_BUILDER_AGENTS,
     "reverse_engineer": REVERSE_ENGINEER_AGENTS,

@@ -21,9 +21,13 @@ interface WorkflowHistoryProps {
 
 const TYPE_META: Record<string, { icon: typeof FileText; label: string }> = {
   user_stories: { icon: FileText, label: "User Stories" },
+  user_stories_revision: { icon: FileText, label: "User Stories (Revised)" },
   ppt: { icon: Presentation, label: "Presentation" },
+  ppt_revision: { icon: Presentation, label: "Presentation (Revised)" },
   prototype: { icon: Layout, label: "Prototype" },
+  prototype_revision: { icon: Layout, label: "Prototype (Revised)" },
   app_builder: { icon: Layout, label: "App Builder" },
+  app_builder_revision: { icon: Layout, label: "App Builder (Revised)" },
   custom: { icon: FileText, label: "Custom" },
 };
 
@@ -107,7 +111,9 @@ export function WorkflowHistory({ onBack }: WorkflowHistoryProps) {
   }, [deleteConfirmId, selectedRun]);
 
   const filteredRuns = runs.filter((r) => {
-    const matchType = filterType === "all" || r.type === filterType;
+    // Group revision types with their base type for filtering
+    const baseType = r.type.replace("_revision", "");
+    const matchType = filterType === "all" || baseType === filterType || r.type === filterType;
     const matchSearch = !searchQuery || (r.title || "").toLowerCase().includes(searchQuery.toLowerCase());
     return matchType && matchSearch;
   });
@@ -117,10 +123,10 @@ export function WorkflowHistory({ onBack }: WorkflowHistoryProps) {
     const meta = TYPE_META[selectedRun.type] || TYPE_META.custom;
     const Icon = meta.icon;
     const workflowType = selectedRun.type as WorkflowType;
-    const isUserStory = workflowType === "user_stories";
-    const isMarkdown = workflowType === "app_builder" || workflowType === "custom";
-    const isPpt = workflowType === "ppt";
-    const isPrototype = workflowType === "prototype";
+    const isUserStory = workflowType === "user_stories" || workflowType === "user_stories_revision";
+    const isMarkdown = workflowType === "app_builder" || workflowType === "app_builder_revision" || workflowType === "custom";
+    const isPpt = workflowType === "ppt" || workflowType === "ppt_revision";
+    const isPrototype = workflowType === "prototype" || workflowType === "prototype_revision";
 
     let agentOutputs: { agent_id: string; name: string; role: string; icon: string; output: string; duration: number | null }[] = [];
     if (selectedRun.agentOutputs) {

@@ -18,7 +18,7 @@ import pytest
 import logging
 
 from app.agents.base import BaseAgent, AgentConfigurationError
-from app.agents.pipeline import PipelineExecutor
+from app.agents.orchestrator_v2 import WorkflowOrchestrator
 from app.agents.registry import (
     get_pipeline_agents,
     get_all_agents_flat,
@@ -159,7 +159,7 @@ class TestPipelineExecution:
     @pytest.mark.asyncio
     async def test_user_stories_pipeline_produces_markdown(self):
         """User Stories pipeline should produce markdown output."""
-        executor = PipelineExecutor("user_stories")
+        executor = WorkflowOrchestrator("user_stories")
         final_output = ""
         agent_count = 0
 
@@ -179,7 +179,7 @@ class TestPipelineExecution:
     @pytest.mark.asyncio
     async def test_ppt_pipeline_produces_valid_json(self):
         """PPT pipeline should produce valid JSON slide data."""
-        executor = PipelineExecutor("ppt")
+        executor = WorkflowOrchestrator("ppt")
         final_output = ""
         agent_count = 0
 
@@ -214,7 +214,7 @@ class TestPipelineExecution:
     @pytest.mark.asyncio
     async def test_prototype_pipeline_produces_html(self):
         """Prototype pipeline should produce HTML output."""
-        executor = PipelineExecutor("prototype")
+        executor = WorkflowOrchestrator("prototype")
         final_output = ""
         agent_count = 0
 
@@ -238,7 +238,7 @@ class TestPipelineExecution:
     @pytest.mark.asyncio
     async def test_pipeline_passes_context_between_agents(self):
         """Each agent should receive context from previous agents."""
-        executor = PipelineExecutor("user_stories")
+        executor = WorkflowOrchestrator("user_stories")
         outputs = {}
 
         async for update in executor.execute("A fitness tracking app"):
@@ -254,7 +254,7 @@ class TestPipelineExecution:
     async def test_pipeline_handles_agent_error_gracefully(self):
         """Pipeline should continue if a non-critical agent fails."""
         # This tests the error recovery path
-        executor = PipelineExecutor("user_stories")
+        executor = WorkflowOrchestrator("user_stories")
         completed = 0
         errors = 0
 
@@ -376,9 +376,9 @@ class TestCustomAgentOrder:
         assert resolved[2].id == "story-writer"
 
     def test_pipeline_executor_accepts_custom_agents(self):
-        """PipelineExecutor should accept custom agent list."""
+        """WorkflowOrchestrator should accept custom agent list."""
         agents = get_pipeline_agents("user_stories")[:3]  # First 3 only
-        executor = PipelineExecutor("user_stories", custom_agents=agents)
+        executor = WorkflowOrchestrator("user_stories", custom_agents=agents)
         assert len(executor.agents) == 3
 
     def test_unknown_agent_ids_are_skipped(self):

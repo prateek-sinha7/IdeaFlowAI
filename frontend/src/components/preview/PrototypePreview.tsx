@@ -1,19 +1,21 @@
 "use client";
 
 import { useState } from "react";
-import { Layout, ExternalLink } from "lucide-react";
+import { Layout, ExternalLink, RefreshCw } from "lucide-react";
 
 interface PrototypePreviewProps {
   content?: string;
   isStreaming?: boolean;
+  onRevise?: (instruction: string) => void;
 }
 
 /**
  * Renders the prototype HTML in a browser-chrome mockup.
  * Gives the preview a professional "live app" feel.
  */
-export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps) {
+export function PrototypePreview({ content, isStreaming, onRevise }: PrototypePreviewProps) {
   const [iframeKey] = useState(0);
+  const [revisionText, setRevisionText] = useState("");
 
   if (!content) {
     return (
@@ -104,6 +106,37 @@ export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps
           title="Prototype Preview"
         />
       </div>
+
+      {/* Revision bar */}
+      {onRevise && (
+        <div className="flex-shrink-0 border-t border-gray-200 bg-white px-4 py-3 flex items-center gap-3">
+          <input
+            type="text"
+            value={revisionText}
+            onChange={(e) => setRevisionText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && revisionText.trim()) {
+                onRevise(revisionText.trim());
+                setRevisionText("");
+              }
+            }}
+            placeholder='Request changes, e.g. "Add a Reports page" or "Change the dashboard stats"'
+            className="flex-1 text-[12px] text-gray-700 placeholder-gray-400 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-gray-400 transition-colors"
+          />
+          <button
+            onClick={() => {
+              if (revisionText.trim()) {
+                onRevise(revisionText.trim());
+                setRevisionText("");
+              }
+            }}
+            disabled={!revisionText.trim()}
+            className="flex items-center gap-1.5 text-[11px] font-medium text-white bg-[#1B2A4A] hover:bg-[#2a3d5e] disabled:opacity-40 rounded-lg px-3 py-2 transition-colors flex-shrink-0"
+          >
+            <RefreshCw className="h-3.5 w-3.5" /> Revise
+          </button>
+        </div>
+      )}
     </div>
   );
 }

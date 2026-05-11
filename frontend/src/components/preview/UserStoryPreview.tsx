@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { FileText, Copy, Check, ChevronDown, ChevronRight, Link2 } from "lucide-react";
+import { FileText, Copy, Check, ChevronDown, ChevronRight, Link2, RefreshCw } from "lucide-react";
 import { parseUserStoryMarkdown } from "@/lib/parsers/userStoryParser";
 
 interface UserStoryPreviewProps {
   content?: string;
+  onRevise?: (instruction: string) => void;
 }
 
 function getPriorityLabel(priority?: string): { label: string; cls: string } {
@@ -22,9 +23,10 @@ function getSprintColor(sp?: number): string {
   return "text-gray-700 bg-gray-100";
 }
 
-export function UserStoryPreview({ content }: UserStoryPreviewProps) {
+export function UserStoryPreview({ content, onRevise }: UserStoryPreviewProps) {
   const [copied, setCopied] = useState(false);
   const [expandedEpics, setExpandedEpics] = useState<Set<number>>(new Set([0, 1, 2, 3, 4, 5]));
+  const [revisionText, setRevisionText] = useState("");
 
   if (!content) {
     return (
@@ -236,6 +238,37 @@ export function UserStoryPreview({ content }: UserStoryPreviewProps) {
           );
         })}
       </div>
+
+      {/* Revision bar — request changes to the backlog */}
+      {onRevise && (
+        <div className="flex-shrink-0 border-t border-gray-100 bg-white px-5 py-3 flex items-center gap-3 sticky bottom-0">
+          <input
+            type="text"
+            value={revisionText}
+            onChange={(e) => setRevisionText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && revisionText.trim()) {
+                onRevise(revisionText.trim());
+                setRevisionText("");
+              }
+            }}
+            placeholder='Request changes, e.g. "Add a story for password reset" or "Remove the NFR epic"'
+            className="flex-1 text-[12px] text-gray-700 placeholder-gray-400 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-gray-400 transition-colors"
+          />
+          <button
+            onClick={() => {
+              if (revisionText.trim()) {
+                onRevise(revisionText.trim());
+                setRevisionText("");
+              }
+            }}
+            disabled={!revisionText.trim()}
+            className="flex items-center gap-1.5 text-[11px] font-medium text-white bg-[#1B2A4A] hover:bg-[#2a3d5e] disabled:opacity-40 rounded-lg px-3 py-2 transition-colors flex-shrink-0"
+          >
+            <RefreshCw className="h-3.5 w-3.5" /> Revise
+          </button>
+        </div>
+      )}
     </div>
   );
 }

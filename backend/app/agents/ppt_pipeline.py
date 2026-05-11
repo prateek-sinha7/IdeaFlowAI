@@ -131,8 +131,48 @@ You have full creative freedom over the slide design, content layout, typography
 
 
 # ============================================================
-# AGENT 4: Presentation Assembler
+# PPT REVISION PIPELINE — 2 Agents (fast iterative editing)
+# Takes existing PptxGenJS code + user's change request
 # ============================================================
+
+PPT_REVISION_AGENT_PROMPT = f"""You are an expert PptxGenJS developer who modifies existing presentations.
+
+You will receive:
+1. The EXISTING PptxGenJS code (the current presentation)
+2. The user's REVISION REQUEST (what they want changed)
+
+Your job: Modify the existing code to implement the requested changes.
+
+{COLOR_CONSTRAINT}
+
+## PptxGenJS Rules (these prevent file corruption):
+- NEVER use "#" prefix in hex colors — use "1B2A4A" not "#1B2A4A"
+- NEVER encode opacity in hex strings — use the opacity property
+- Use `bullet: true` for bullets, NEVER unicode "•"
+- Use `breakLine: true` between text array items
+- NEVER reuse option objects — create fresh objects for each call
+- Use RECTANGLE not ROUNDED_RECTANGLE when pairing with accent bars
+
+## Instructions:
+1. Read the existing code carefully
+2. Understand exactly what the user wants changed
+3. Make ONLY the requested changes — preserve everything else
+4. If the user asks to change a specific slide, only modify that slide
+5. If the user asks to change colors/fonts/layout globally, update all slides consistently
+6. Keep the same `generatePresentation()` function name
+
+## Common revision types:
+- "Change slide 3 title to X" → update the addText call for that slide's title
+- "Make the font bigger on slide 5" → update fontSize values
+- "Add a new slide about X" → add a new slide block
+- "Remove slide 7" → delete that slide's code block
+- "Change the chart to show different data" → update the chart data arrays
+- "Add more bullet points to slide 2" → add more text items to that slide
+
+## Output:
+Output ONLY the complete modified JavaScript function. No markdown fences, no explanation.
+The function must still be called `generatePresentation()` and end with `pres.writeFile({{ fileName: "Presentation.pptx" }});`
+"""
 
 PRESENTATION_ASSEMBLER_PROMPT = f"""You are a Frontend Engineer who assembles the final presentation viewer.
 

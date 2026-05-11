@@ -113,6 +113,56 @@ export function DashboardLayout({
   // Extract Agent 3's (ppt-code-generator) output for early PPTX download
   const pptxCode = pipelineState?.agents.find(a => a.id === "ppt-code-generator" && a.status === "done")?.output || undefined;
 
+  // Track the current workflow run ID for revision updates
+  const currentWorkflowRunId = recentRuns?.find(
+    r => (r.type === workflowType || r.type === workflowType + "_revision") && r.status === "completed"
+  )?.id || "";
+
+  // Handle PPT revision — re-run pipeline with existing code + change instruction
+  const handleRevisePpt = useCallback((instruction: string) => {
+    if (!pptxCode && !pptContent) return;
+    const existingCode = pptxCode || "";
+    const revisionMessage = `=== EXISTING PRESENTATION CODE ===\n${existingCode}\n=== END EXISTING CODE ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
+    setWorkflowType("ppt_revision" as WorkflowType);
+    if (onResetPipeline) onResetPipeline();
+    if (onStartPipeline) {
+      onStartPipeline("ppt_revision", revisionMessage);
+    }
+  }, [pptxCode, pptContent, onStartPipeline, onResetPipeline]);
+
+  // Handle User Story revision — re-run pipeline with existing backlog + change instruction
+  const handleReviseUserStory = useCallback((instruction: string) => {
+    if (!userStoryContent) return;
+    const revisionMessage = `=== EXISTING PRODUCT BACKLOG ===\n${userStoryContent}\n=== END EXISTING BACKLOG ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
+    setWorkflowType("user_stories_revision" as WorkflowType);
+    if (onResetPipeline) onResetPipeline();
+    if (onStartPipeline) {
+      onStartPipeline("user_stories_revision", revisionMessage);
+    }
+  }, [userStoryContent, onStartPipeline, onResetPipeline]);
+
+  // Handle Prototype revision — re-run pipeline with existing HTML + change instruction
+  const handleRevisePrototype = useCallback((instruction: string) => {
+    if (!prototypeContent) return;
+    const revisionMessage = `=== EXISTING PROTOTYPE HTML ===\n${prototypeContent.slice(0, 40000)}\n=== END EXISTING HTML ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
+    setWorkflowType("prototype_revision" as WorkflowType);
+    if (onResetPipeline) onResetPipeline();
+    if (onStartPipeline) {
+      onStartPipeline("prototype_revision", revisionMessage);
+    }
+  }, [prototypeContent, onStartPipeline, onResetPipeline]);
+
+  // Handle App Builder revision — re-run pipeline with existing blueprint + change instruction
+  const handleReviseAppBuilder = useCallback((instruction: string) => {
+    if (!userStoryContent) return;
+    const revisionMessage = `=== EXISTING APP BLUEPRINT ===\n${userStoryContent.slice(0, 40000)}\n=== END EXISTING BLUEPRINT ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
+    setWorkflowType("app_builder_revision" as WorkflowType);
+    if (onResetPipeline) onResetPipeline();
+    if (onStartPipeline) {
+      onStartPipeline("app_builder_revision", revisionMessage);
+    }
+  }, [userStoryContent, onStartPipeline, onResetPipeline]);
+
   // Handle incoming questionnaire data from WebSocket
   useEffect(() => {
     if (questionnaireData && questionnaireData.questions) {
@@ -425,6 +475,10 @@ export function DashboardLayout({
                       isStreaming={isStreaming}
                       workflowType={workflowType}
                       pptxCode={pptxCode}
+                      onRevisePpt={(workflowType === "ppt" || workflowType === "ppt_revision") ? handleRevisePpt : undefined}
+                      onReviseUserStory={(workflowType === "user_stories" || workflowType === "user_stories_revision") ? handleReviseUserStory : undefined}
+                      onRevisePrototype={(workflowType === "prototype" || workflowType === "prototype_revision") ? handleRevisePrototype : undefined}
+                      onReviseAppBuilder={(workflowType === "app_builder" || workflowType === "app_builder_revision") ? handleReviseAppBuilder : undefined}
                     />
                   )}
                 </ErrorBoundary>
