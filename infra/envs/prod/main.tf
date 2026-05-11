@@ -202,6 +202,13 @@ module "compute" {
     # the only artifact still pulled from git at boot — Dockerfiles and the
     # app code live inside the ECR images.)
     FLOWIN_GIT_REF = var.git_ref
+
+    # Email passed to certbot for Let's Encrypt ACME account registration.
+    # Let's Encrypt sends renewal-failure / expiry-approaching notifications
+    # here. Reusing var.alert_email is the canonical pattern — same operator
+    # already gets the SNS alerts, no reason to split addresses. To use a
+    # different address, introduce var.acme_email and reference it here.
+    FLOWIN_ACME_EMAIL = var.alert_email
   }
 }
 

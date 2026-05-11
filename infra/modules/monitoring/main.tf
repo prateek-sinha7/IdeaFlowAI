@@ -111,7 +111,12 @@ data "aws_partition" "current" {}
 data "aws_region" "current" {}
 
 data "aws_iam_policy_document" "alerts_topic" {
-  # Owner has full control (canonical default).
+  # Owner has full control. SNS's resource-policy validator rejects the
+  # `sns:*` wildcard ("action out of service scope") because the wildcard
+  # expansion includes service-level actions (sns:CreateTopic, sns:ListTopics,
+  # etc.) that only work via IAM identity policies, not resource policies.
+  # Enumerate the resource-scoped actions explicitly.
+  # Ref: https://docs.aws.amazon.com/sns/latest/dg/sns-access-policy-language-api-permissions-reference.html
   statement {
     sid    = "OwnerFullControl"
     effect = "Allow"
@@ -121,7 +126,21 @@ data "aws_iam_policy_document" "alerts_topic" {
       identifiers = ["arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root"]
     }
 
-    actions   = ["SNS:*"]
+    actions = [
+      "sns:AddPermission",
+      "sns:DeleteTopic",
+      "sns:GetDataProtectionPolicy",
+      "sns:GetTopicAttributes",
+      "sns:ListSubscriptionsByTopic",
+      "sns:ListTagsForResource",
+      "sns:Publish",
+      "sns:PutDataProtectionPolicy",
+      "sns:RemovePermission",
+      "sns:SetTopicAttributes",
+      "sns:Subscribe",
+      "sns:TagResource",
+      "sns:UntagResource",
+    ]
     resources = [aws_sns_topic.alerts.arn]
   }
 
@@ -136,7 +155,7 @@ data "aws_iam_policy_document" "alerts_topic" {
       identifiers = ["backup.amazonaws.com"]
     }
 
-    actions   = ["SNS:Publish"]
+    actions   = ["sns:Publish"]
     resources = [aws_sns_topic.alerts.arn]
 
     condition {
@@ -173,7 +192,7 @@ data "aws_iam_policy_document" "alerts_topic" {
       identifiers = ["cloudwatch.amazonaws.com"]
     }
 
-    actions   = ["SNS:Publish"]
+    actions   = ["sns:Publish"]
     resources = [aws_sns_topic.alerts.arn]
 
     condition {
@@ -264,6 +283,8 @@ resource "aws_sns_topic_subscription" "email_useast1" {
 data "aws_iam_policy_document" "alerts_useast1_topic" {
   provider = aws.useast1
 
+  # See note on alerts_topic above — `sns:*` is rejected by SNS's resource-
+  # policy validator. Same enumerated action list.
   statement {
     sid    = "OwnerFullControl"
     effect = "Allow"
@@ -273,7 +294,21 @@ data "aws_iam_policy_document" "alerts_useast1_topic" {
       identifiers = ["arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root"]
     }
 
-    actions   = ["SNS:*"]
+    actions = [
+      "sns:AddPermission",
+      "sns:DeleteTopic",
+      "sns:GetDataProtectionPolicy",
+      "sns:GetTopicAttributes",
+      "sns:ListSubscriptionsByTopic",
+      "sns:ListTagsForResource",
+      "sns:Publish",
+      "sns:PutDataProtectionPolicy",
+      "sns:RemovePermission",
+      "sns:SetTopicAttributes",
+      "sns:Subscribe",
+      "sns:TagResource",
+      "sns:UntagResource",
+    ]
     resources = [aws_sns_topic.alerts_useast1.arn]
   }
 
@@ -289,7 +324,7 @@ data "aws_iam_policy_document" "alerts_useast1_topic" {
       identifiers = ["cloudwatch.amazonaws.com"]
     }
 
-    actions   = ["SNS:Publish"]
+    actions   = ["sns:Publish"]
     resources = [aws_sns_topic.alerts_useast1.arn]
 
     condition {
@@ -781,14 +816,21 @@ resource "aws_cloudwatch_log_metric_filter" "cert_renew_success" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "cert_renew_heartbeat" {
-  alarm_name          = "${var.name_prefix}-cert-renew-heartbeat-stale"
-  alarm_description   = "certbot has not logged any renewal activity in 30 days — timer may be stuck. Cert lifetime is 90 days; investigate before the cert expires."
+  alarm_name = "${var.name_prefix}-cert-renew-heartbeat-stale"
+  # CloudWatch caps EvaluationPeriods * Period at 604_800s (7 days) when
+  # Period >= 3600. The original design (period=30d, eval=1) violated that.
+  # We're at the inclusive boundary: 86_400 * 7 = 604_800 = 7 days, which
+  # is the longest single-alarm window CloudWatch will accept here. Cert
+  # lifetime is 90 days, so 7 days of timer silence is still well inside
+  # the renewal headroom (cert renewal triggers at T-30d).
+  alarm_description   = "certbot has not logged any renewal activity in 7 days — the renew timer may be stuck. Cert lifetime is 90 days; investigate before the cert expires."
   comparison_operator = "LessThanThreshold"
-  evaluation_periods  = 1
+  evaluation_periods  = 7
   metric_name         = "CertRenewSuccess"
   namespace           = var.cw_metric_namespace
-  period              = 2592000 # 30 days
-  # SampleCount: absence of any matching log line in 30 days fires.
+  period              = 86400 # 1 day
+  # SampleCount: absence of any matching log line across 7 consecutive
+  # daily windows fires.
   statistic          = "SampleCount"
   threshold          = 1
   treat_missing_data = "breaching"
@@ -891,24 +933,31 @@ resource "aws_cloudwatch_metric_alarm" "stuck_workflows" {
 # though `df -h` shows free space. Many small files (logs, journald
 # fragments, npm/pip caches, postgres temp) are the typical cause.
 #
-# CW Agent emits `disk_inodes_free_percent` per disk (configured in
-# §10.1). Alarm fires when free inode percent < 20% on either the root
-# or data partition. treat_missing_data = "breaching" mirrors the
-# disk_used_percent alarm — a dead CW Agent should still page.
+# CW Agent's disk plugin only emits absolute inode counts — `disk_inodes_free`,
+# `disk_inodes_total`, `disk_inodes_used`. There's no `_percent` variant
+# (the agent rejects it as an invalid measurement name); CloudWatch Metric
+# Math would be needed to derive a percentage, and the added fragility isn't
+# worth it for a single-EC2 deploy. Use an absolute-count threshold instead.
+#
+# Threshold 1_000_000: xfs on 50-100 GB volumes typically reports millions
+# of inodes free; this fires when something is creating files at runaway
+# rate (broken log rotation, runaway test artifacts, etc.) and free inodes
+# drop into 6-figure territory. Well before ENOSPC kicks in. Adjust if a
+# different filesystem or volume size makes 1M unreasonable.
 #
 # (Slug map for the alarm name lives in the top `locals` block.)
 resource "aws_cloudwatch_metric_alarm" "inode_low" {
   for_each = toset([var.root_disk_path, var.data_disk_path])
 
   alarm_name          = "${var.name_prefix}-inode-low-${local.inode_path_slug[each.key]}"
-  alarm_description   = "Inode usage > 80% on ${each.key}. Many small files (or runaway logs) — investigate before file creates start failing with ENOSPC."
+  alarm_description   = "Free inodes < 1_000_000 on ${each.key}. Many small files (or runaway logs) — investigate before file creates start failing with ENOSPC."
   comparison_operator = "LessThanThreshold"
   evaluation_periods  = 2
-  metric_name         = "disk_inodes_free_percent"
+  metric_name         = "disk_inodes_free"
   namespace           = var.cw_metric_namespace
   period              = 300
   statistic           = "Average"
-  threshold           = 20
+  threshold           = 1000000
   treat_missing_data  = "breaching"
 
   # Match the disk_used_percent alarm dimensions: InstanceId + path. The CW

@@ -44,6 +44,14 @@ resource "random_password" "db_password" {
 # --- Plain-string config -----------------------------------------------------
 
 resource "aws_ssm_parameter" "cors_origins" {
+  # SSM PutParameter requires value length >= 1. The host-side
+  # flowin-load-secrets (infra/scripts/bootstrap-ec2.sh ~line 389) handles
+  # the missing-parameter case: when get-parameters-by-path doesn't return
+  # CORS_ORIGINS, it falls back to ["https://$FLOWIN_FQDN"]. So when the
+  # operator hasn't set var.cors_origins we skip creating the parameter
+  # entirely rather than fail apply with an invalid empty string.
+  count = length(var.cors_origins) > 0 ? 1 : 0
+
   name        = "${local.prefix}/CORS_ORIGINS"
   description = "JSON list of allowed CORS origins."
   type        = "String"

@@ -28,13 +28,25 @@ locals {
     }]
   })
 
-  # S3 gateway endpoint policy. Pins aws:PrincipalAccount AND scopes Resource
-  # to the project's backup bucket (when supplied) so traffic over the gateway
-  # can only address that bucket — pg_dump / skills-backup uploads still work,
-  # but a misconfigured client can't write to (or read from) a stranger's
-  # bucket via this endpoint. Falls back to Resource:* if backup_bucket_arn
-  # is empty (e.g. early in localstack apply where the bucket isn't yet
-  # plumbed); the principal-account pin is still effective in that case.
+  # S3 gateway endpoint policy. Two statements:
+  #
+  #  (1) Project bucket access — pins aws:PrincipalAccount AND scopes
+  #      Resource to the project's backup bucket so traffic over the gateway
+  #      can only address that bucket. pg_dump / skills-backup uploads work;
+  #      a misconfigured client can't reach a stranger's bucket via this
+  #      endpoint. Falls back to Resource:* if backup_bucket_arn is empty
+  #      (e.g. early in localstack apply where the bucket isn't yet
+  #      plumbed); the principal-account pin remains effective.
+  #
+  #  (2) ECR layer bucket access — `docker pull` of KMS-encrypted ECR
+  #      images retrieves layers via a presigned URL to an AWS-owned bucket
+  #      named `prod-<region>-starport-layer-bucket`. Because the gateway
+  #      endpoint sits on the route table, all S3 traffic from the VPC
+  #      flows through it; without an explicit allow, the GET on the layer
+  #      bucket returns 403 and every `docker compose pull` fails. Resource
+  #      is locked to the regional starport bucket only (no wildcard S3
+  #      escape), and the aws:PrincipalAccount pin still blocks foreign
+  #      accounts from using this endpoint to pivot.
   s3_endpoint_policy_resources = (
     var.backup_bucket_arn == ""
     ? ["*"]
@@ -43,15 +55,40 @@ locals {
 
   s3_endpoint_policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = "*"
-      Action    = "*"
-      Resource  = local.s3_endpoint_policy_resources
-      Condition = {
-        StringEquals = { "aws:PrincipalAccount" = var.account_id }
+    Statement = [
+      {
+        Sid       = "AllowProjectBucketAccess"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "*"
+        Resource  = local.s3_endpoint_policy_resources
+        Condition = {
+          StringEquals = { "aws:PrincipalAccount" = var.account_id }
+        }
+      },
+      {
+        Sid       = "AllowEcrLayerBucketRead"
+        Effect    = "Allow"
+        Principal = "*"
+        Action = [
+          "s3:GetObject",
+          "s3:GetObjectVersion",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          "arn:aws:s3:::prod-${var.region}-starport-layer-bucket",
+          "arn:aws:s3:::prod-${var.region}-starport-layer-bucket/*"
+        ]
+        # No aws:PrincipalAccount condition here. ECR generates a presigned
+        # S3 URL signed by its own service-linked role; when our EC2 GETs
+        # that URL, the VPC endpoint evaluates `aws:PrincipalAccount` against
+        # the URL's STS identity (ECR's account, not ours) and denies. The
+        # AWS-owned starport-layer-bucket is only reachable via legitimate
+        # ECR-signed URLs anyway, so Resource is the only constraint we need
+        # — there's no "stranger's bucket" attack surface to defend against
+        # (this bucket name is AWS-internal and not user-writable).
       }
-    }]
+    ]
   })
 }
 

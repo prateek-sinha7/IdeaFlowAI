@@ -171,13 +171,13 @@ variable "stuck_workflows_check_period" {
 }
 
 variable "root_disk_path" {
-  description = "Mount path of the root filesystem for the inode_low alarm dimensions. Must match what the CW Agent emits as the `path` dimension on `disk_inodes_free_percent`."
+  description = "Mount path of the root filesystem for the inode_low alarm dimensions. Must match what the CW Agent emits as the `path` dimension on `disk_inodes_free`."
   type        = string
   default     = "/"
 }
 
 variable "data_disk_path" {
-  description = "Mount path of the data (Postgres) filesystem for the inode_low alarm dimensions. Must match what the CW Agent emits as the `path` dimension on `disk_inodes_free_percent`."
+  description = "Mount path of the data (Postgres) filesystem for the inode_low alarm dimensions. Must match what the CW Agent emits as the `path` dimension on `disk_inodes_free`."
   type        = string
   default     = "/var/lib/postgresql"
 }

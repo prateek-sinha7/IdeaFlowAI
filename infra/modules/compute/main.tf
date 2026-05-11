@@ -128,6 +128,15 @@ resource "aws_instance" "app" {
       # not on every plan.
       ami,
       user_data,
+      # AWS provider drift: after `aws_eip_association` attaches an EIP, the
+      # describe-instances API starts reporting `associate_public_ip_address`
+      # as `true` regardless of the launch-time setting. Without this ignore,
+      # every subsequent `terraform plan` marks the instance for replacement
+      # (true -> false # forces replacement) — which then cascades into
+      # destroying the data EBS volume_attachment, which requires stopping
+      # the instance, which is blocked by `disable_api_stop = true`. See
+      # hashicorp/terraform-provider-aws#14149 for the upstream issue.
+      associate_public_ip_address,
     ]
   }
 }
