@@ -86,7 +86,7 @@ export default function DashboardPage() {
         const pipelineType = data.pipeline_type as string;
 
         if (finalOutput && pipelineType) {
-          if (pipelineType === "user_stories" || pipelineType === "app_builder" || pipelineType === "reverse_engineer" || pipelineType === "custom") {
+          if (pipelineType === "user_stories" || pipelineType === "app_builder" || pipelineType === "custom") {
             setUserStoryContent(finalOutput);
           } else if (pipelineType === "ppt") {
             setPptContent(finalOutput);
@@ -258,6 +258,17 @@ export default function DashboardPage() {
         if (msg.data && "title" in msg.data && "chat_session_id" in msg.data) {
           const titleData = msg.data as { chat_session_id: string; title: string };
           setChatTitleUpdate(titleData);
+        }
+        break;
+      }
+
+      case "workflow_title_update": {
+        // Claude generated a clean title for the workflow run — update the list
+        if (msg.data && "workflow_id" in msg.data && "title" in msg.data) {
+          const { workflow_id, title } = msg.data as { workflow_id: string; title: string };
+          setRecentRuns((prev) =>
+            prev.map((r) => r.id === workflow_id ? { ...r, title } : r)
+          );
         }
         break;
       }

@@ -37,7 +37,6 @@ const TYPE_CONFIG: Record<WorkflowType, { icon: typeof FileText; color: string; 
   ppt: { icon: Presentation, color: "text-amber-400", label: "Presentation" },
   prototype: { icon: Layout, color: "text-emerald-400", label: "Prototype" },
   app_builder: { icon: Layout, color: "text-orange-400", label: "App Builder" },
-  reverse_engineer: { icon: FileText, color: "text-rose-400", label: "Reverse Engineer" },
   custom: { icon: Layout, color: "text-slate-400", label: "Custom" },
 };
 
@@ -171,7 +170,7 @@ export function Sidebar({
                       <TypeIcon className={`h-3.5 w-3.5 ${typeConf.color}`} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-[11px] font-medium text-white/80 truncate group-hover:text-white transition-colors">
+                      <p className="text-[11px] font-medium text-white/80 group-hover:text-white transition-colors">
                         {run.title || run.input.slice(0, 40)}
                       </p>
                       <div className="flex items-center gap-1.5 mt-0.5">

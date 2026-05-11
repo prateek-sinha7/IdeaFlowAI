@@ -1,5 +1,6 @@
 """WebSocket endpoint for real-time AI chat streaming."""
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -91,6 +92,10 @@ async def websocket_chat(websocket: WebSocket):
     logger.info(f"WebSocket connected: user={user.id}")
     print(f"[WS] Authenticated user={user.id}, entering message loop")
 
+    # Track active pipeline task and cancellation event
+    pipeline_task: asyncio.Task | None = None
+    cancel_event = asyncio.Event()
+
     # Message loop
     try:
         while True:
@@ -119,13 +124,34 @@ async def websocket_chat(websocket: WebSocket):
                 print(f"[WS] Received run_pipeline: type={message_data.get('pipeline_type')}")
                 pipeline_type = message_data.get("pipeline_type", "user_stories")
                 pipeline_content = message_data.get("message") or message_data.get("content") or ""
-                agent_ids = message_data.get("agent_ids")  # Optional custom agent list
-                await _handle_pipeline_execution(websocket, pipeline_content, pipeline_type, chat_session_id, token, user, agent_ids=agent_ids)
+                agent_ids = message_data.get("agent_ids")
+
+                # Cancel any existing pipeline
+                if pipeline_task and not pipeline_task.done():
+                    cancel_event.set()
+                    pipeline_task.cancel()
+
+                # Reset cancel event for new pipeline
+                cancel_event = asyncio.Event()
+
+                # Run pipeline as background task so message loop stays responsive
+                pipeline_task = asyncio.create_task(
+                    _handle_pipeline_execution(
+                        websocket, pipeline_content, pipeline_type,
+                        chat_session_id, token, user,
+                        agent_ids=agent_ids,
+                        cancel_event=cancel_event,
+                    )
+                )
                 continue
 
             # Handle pipeline cancellation
             if msg_type == "cancel_pipeline":
                 logger.info(f"Pipeline cancellation requested by user={user.id}")
+                # Signal the running pipeline to stop
+                cancel_event.set()
+                if pipeline_task and not pipeline_task.done():
+                    pipeline_task.cancel()
                 await websocket.send_json({
                     "type": "pipeline_cancelled",
                     "chunk": None,
@@ -333,6 +359,7 @@ async def _handle_pipeline_execution(
     token: str,
     user: User,
     agent_ids: list[str] | None = None,
+    cancel_event: asyncio.Event | None = None,
 ):
     """Handle a pipeline execution request via WebSocket.
 
@@ -352,13 +379,19 @@ async def _handle_pipeline_execution(
         agent_counts = {"user_stories": 12, "ppt": 4, "prototype": 12}
         agent_count = agent_counts.get(pipeline_type, 12)
 
-    # Create a WorkflowRun record
+    # Create a WorkflowRun record with a temporary title (will be updated by Claude async)
     workflow_run_id = None
     db = _get_db()
     try:
+        # Quick fallback title while Claude generates a better one
+        import re as _re
+        raw_input = (content or "Untitled").strip()
+        raw_input = _re.split(r'\n\n===\s*(?:CONTEXT FROM PREVIOUS|USER PREFERENCES|ORIGINAL USER REQUEST)', raw_input)[0].strip()
+        fallback_title = raw_input.split('\n')[0].strip()[:60] or "Untitled"
+
         workflow_run = WorkflowRun(
             user_id=user.id,
-            title=(content or "Untitled")[:60].strip(),
+            title=fallback_title,
             type=pipeline_type,
             status="running",
             input=content or f"Run {pipeline_type} pipeline",
@@ -370,6 +403,56 @@ async def _handle_pipeline_execution(
         workflow_run_id = workflow_run.id
     finally:
         db.close()
+
+    # Generate a clean title using Claude (async, non-blocking)
+    # Same pattern as chat title auto-generation
+    pipeline_labels = {
+        "ppt": "presentation",
+        "user_stories": "user stories",
+        "prototype": "prototype",
+        "app_builder": "app",
+        "reverse_engineer": "codebase analysis",
+        "custom": "workflow",
+    }
+    pipeline_label = pipeline_labels.get(pipeline_type, "workflow")
+    try:
+        from app.agents.base import BaseAgent
+        title_agent = BaseAgent(
+            system_prompt=(
+                f"Generate a short, clean title (3-6 words max) for a {pipeline_label} based on the user's request. "
+                "The title should describe the TOPIC, not the action. "
+                "Examples: 'Blockchain Technology', 'Healthcare Market Analysis', 'E-Commerce Platform', 'Stock Exchange App'. "
+                "Return ONLY the title text. No quotes, no punctuation at the end, no explanation."
+            ),
+            max_tokens=30,
+        )
+        # Strip context blocks before sending to title agent
+        import re as _re2
+        clean_input = (content or "").strip()
+        clean_input = _re2.split(r'\n\n===\s*(?:CONTEXT FROM PREVIOUS|USER PREFERENCES|ORIGINAL USER REQUEST)', clean_input)[0].strip()
+        clean_input = clean_input[:300]  # Only first 300 chars needed for title
+
+        generated_title = await title_agent.run(clean_input)
+        generated_title = generated_title.strip().strip('"').strip("'").strip(".")[:80]
+
+        if generated_title and workflow_run_id:
+            db2 = _get_db()
+            try:
+                wr = db2.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+                if wr:
+                    wr.title = generated_title
+                    db2.commit()
+                    # Notify frontend of title update
+                    await websocket.send_json({
+                        "type": "workflow_title_update",
+                        "chunk": None,
+                        "section": None,
+                        "data": {"workflow_id": workflow_run_id, "title": generated_title},
+                    })
+            finally:
+                db2.close()
+    except Exception as e:
+        logger.warning(f"Failed to generate workflow title: {e}")
 
     # Persist user message if chat_session_id provided
     if chat_session_id:
@@ -433,6 +516,11 @@ async def _handle_pipeline_execution(
     try:
         current_agent_output_live: dict = {}
         async for update in executor.execute(content, skills=skills):
+            # Check cancellation before sending each update
+            if cancel_event and cancel_event.is_set():
+                logger.info(f"Pipeline cancelled mid-execution for user={user.id}")
+                break
+
             await websocket.send_json({
                 "type": update["type"],
                 "chunk": None,
@@ -480,6 +568,24 @@ async def _handle_pipeline_execution(
                 if wr:
                     wr.status = "failed"
                     wr.error = str(e)
+                    wr.completed_at = datetime.now(timezone.utc)
+                    duration = (datetime.now(timezone.utc) - execution_start).total_seconds()
+                    wr.duration = round(duration, 1)
+                    db.commit()
+            finally:
+                db.close()
+        return
+
+    # Check if pipeline was cancelled — mark as cancelled in DB and return early
+    if cancel_event and cancel_event.is_set():
+        logger.info(f"Pipeline was cancelled — marking workflow as cancelled")
+        if workflow_run_id:
+            db = _get_db()
+            try:
+                wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+                if wr:
+                    wr.status = "failed"
+                    wr.error = "Cancelled by user"
                     wr.completed_at = datetime.now(timezone.utc)
                     duration = (datetime.now(timezone.utc) - execution_start).total_seconds()
                     wr.duration = round(duration, 1)

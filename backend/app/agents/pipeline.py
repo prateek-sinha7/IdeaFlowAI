@@ -160,6 +160,12 @@ class PipelineExecutor:
                 }
                 break  # Stop pipeline on config error
 
+            except asyncio.CancelledError:
+                # Pipeline was cancelled — propagate so the task actually stops
+                logger.info("AGENT [%d/%d] CANCELLED — %s", i + 1, len(self.agents), agent_def.name)
+                raise
+                break  # Stop pipeline on config error
+
             except Exception as e:
                 logger.error("AGENT [%d/%d] FAILED — %s: %s", i + 1, len(self.agents), agent_def.name, e, exc_info=True)
                 duration = time.time() - agent_start

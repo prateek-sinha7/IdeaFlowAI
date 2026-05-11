@@ -110,6 +110,9 @@ export function DashboardLayout({
   // Check if pipeline is running (blocks navigation)
   const isPipelineRunning = pipelineState?.isRunning || false;
 
+  // Extract Agent 3's (ppt-code-generator) output for early PPTX download
+  const pptxCode = pipelineState?.agents.find(a => a.id === "ppt-code-generator" && a.status === "done")?.output || undefined;
+
   // Handle incoming questionnaire data from WebSocket
   useEffect(() => {
     if (questionnaireData && questionnaireData.questions) {
@@ -258,7 +261,7 @@ export function DashboardLayout({
     mainView === "execution" ? "execution" : "home";
 
   return (
-    <div className="flex flex-col h-screen w-full overflow-hidden bg-white">
+    <div className="flex flex-col h-screen w-full overflow-hidden" style={{ background: "#f5f5f0" }}>
       {/* Connection status banner */}
       <AnimatePresence>
         {connectionStatus === "reconnecting" && (
@@ -380,9 +383,10 @@ export function DashboardLayout({
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
               className="h-full flex flex-col md:flex-row"
+              style={{ background: "#f5f5f0" }}
             >
               {/* Left Panel — Agent Progress */}
-              <div className="w-full md:w-[340px] lg:w-[360px] flex-shrink-0 h-[45vh] md:h-full border-b md:border-b-0 md:border-r border-gray-200 overflow-y-auto">
+              <div className="w-full md:w-[340px] lg:w-[360px] flex-shrink-0 h-[45vh] md:h-full border-b md:border-b-0 md:border-r border-gray-200 overflow-y-auto bg-white">
                 <ErrorBoundary fallbackLabel="AgentProgress">
                   <AgentProgressPanel
                     pipelineState={pipelineState || { isRunning: false, pipeline_type: "", agents: [], currentAgentIndex: -1, totalDuration: null, completedCount: 0 }}
@@ -403,7 +407,7 @@ export function DashboardLayout({
               </div>
 
               {/* Right Panel — Questionnaire or Preview */}
-              <div className="flex-1 h-[55vh] md:h-full min-w-0">
+              <div className="flex-1 h-[55vh] md:h-full min-w-0 bg-white rounded-none md:rounded-l-none">
                 <ErrorBoundary fallbackLabel="Preview">
                   {(questionnaireLoading || questionnaireQuestions.length > 0) && pendingPipelineRun ? (
                     <QuestionnairePanel
@@ -420,6 +424,7 @@ export function DashboardLayout({
                       prototypeContent={prototypeContent || undefined}
                       isStreaming={isStreaming}
                       workflowType={workflowType}
+                      pptxCode={pptxCode}
                     />
                   )}
                 </ErrorBoundary>

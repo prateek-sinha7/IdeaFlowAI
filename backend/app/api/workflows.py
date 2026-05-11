@@ -125,6 +125,108 @@ def list_workflows(
     return runs
 
 
+@router.post("/export-pptx")
+def export_pptx(
+    request: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Generate a .pptx file from Agent 3's PptxGenJS code.
+
+    Tries to get the code from:
+    1. workflow_id → agent_outputs (Agent 3 output from DB)
+    2. js_code field directly
+    3. html field → extract generatePresentation() from HTML
+
+    Returns: .pptx binary download.
+    """
+    import json as _json
+    from fastapi.responses import Response
+    from app.services.pptx_export import generate_pptx_from_code
+
+    js_code = request.get("js_code", "")
+    html_content = request.get("html", "")
+    workflow_id = request.get("workflow_id", "")
+    title = request.get("title", "Presentation")
+
+    # Strategy 1: Get Agent 3 output from workflow DB
+    if not js_code and workflow_id:
+        wr = db.query(WorkflowRun).filter(
+            WorkflowRun.id == workflow_id,
+            WorkflowRun.user_id == current_user.id
+        ).first()
+        if wr and wr.agent_outputs:
+            try:
+                outputs = _json.loads(wr.agent_outputs)
+                for agent in outputs:
+                    aid = agent.get("agent_id", "")
+                    if "code" in aid or "generator" in aid or "ppt-code" in aid:
+                        js_code = agent.get("output", "")
+                        break
+            except Exception:
+                pass
+
+    # Strategy 2: Extract from HTML
+    if not js_code and html_content:
+        import re as _re
+        # Find generatePresentation function in script tags
+        scripts = _re.findall(r'<script[^>]*>([\s\S]*?)</script>', html_content)
+        for script in scripts:
+            m = _re.search(r'((?:async\s+)?function\s+generatePresentation\s*\([^)]*\)\s*\{)', script)
+            if m:
+                start = m.start()
+                depth = 0
+                end = start
+                for i in range(m.end() - 1, len(script)):
+                    if script[i] == '{': depth += 1
+                    elif script[i] == '}':
+                        depth -= 1
+                        if depth == 0:
+                            end = i + 1
+                            break
+                if end > start:
+                    js_code = script[start:end]
+                    break
+
+        # Also try full HTML search
+        if not js_code:
+            m = _re.search(r'((?:async\s+)?function\s+generatePresentation\s*\([^)]*\)\s*\{)', html_content)
+            if m:
+                start = m.start()
+                depth = 0
+                end = start
+                for i in range(start, len(html_content)):
+                    if html_content[i] == '{': depth += 1
+                    elif html_content[i] == '}':
+                        depth -= 1
+                        if depth == 0:
+                            end = i + 1
+                            break
+                if end > start:
+                    js_code = html_content[start:end]
+
+    if not js_code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Could not find PptxGenJS code. Try re-running the pipeline.",
+        )
+
+    try:
+        pptx_bytes = generate_pptx_from_code(js_code, title=title)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate PPTX: {str(e)[:200]}",
+        )
+
+    filename = f"{title.replace(' ', '_')[:40]}.pptx"
+    return Response(
+        content=pptx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/{workflow_id}", response_model=WorkflowRunResponse)
 def get_workflow(
     workflow_id: str,

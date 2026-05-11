@@ -3,18 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import {
-  ArrowLeft,
-  Play,
-  Mic,
-  MicOff,
-  Paperclip,
-  Eye,
-  File,
-  X,
-  FileText,
-  Presentation,
-  Layout,
-  Plus,
+  ArrowLeft, ArrowRight, Paperclip, File, X, FileText,
+  Presentation, Layout, Settings2, Mic, MicOff,
 } from "lucide-react";
 import { AgentsPopup } from "./AgentsPopup";
 import { LIBRARY_AGENTS } from "./AgentLibraryData";
@@ -27,35 +17,52 @@ interface IdeaInputPageProps {
   onRun: (message: string, agentIds: string[]) => void;
 }
 
-const TYPE_CONFIG: Record<WorkflowType, { label: string; subtitle: string; icon: typeof FileText }> = {
+const TYPE_CONFIG: Record<WorkflowType, {
+  tag: string;
+  heading: string;
+  inputLabel: string;
+  outputLabel: string;
+  placeholder: string;
+  icon: typeof FileText;
+}> = {
   user_stories: {
-    label: "Product Requirements",
-    subtitle: "Shape a fuzzy idea into a PRD with epics, user stories, and Gherkin acceptance criteria.",
+    tag: "Turn an idea into product requirements",
+    heading: "Tell us a bit more.",
+    inputLabel: "Idea, PRD, or requirements doc",
+    outputLabel: "PRD + epics + Jira-ready stories",
+    placeholder: "e.g. Generate epics and stories for a refunds workflow with multi-currency support.",
     icon: FileText,
   },
   prototype: {
-    label: "Clickable Prototype",
-    subtitle: "Go from stories or sketches to a high-fidelity, navigable prototype in minutes.",
+    tag: "Turn stories into a clickable prototype",
+    heading: "Describe your product.",
+    inputLabel: "Idea, user stories, or wireframes",
+    outputLabel: "Interactive HTML prototype",
+    placeholder: "e.g. Build a dashboard for tracking SaaS subscription metrics with charts and filters.",
     icon: Layout,
   },
   ppt: {
-    label: "Craft a Presentation",
-    subtitle: "Generate an enterprise-grade slide deck with charts, data tables, and compelling visuals.",
+    tag: "Create a professional presentation",
+    heading: "What's the topic?",
+    inputLabel: "Topic, brief, or outline",
+    outputLabel: "Slide deck with charts & visuals",
+    placeholder: "e.g. Blockchain technology — enterprise adoption trends and ROI analysis for 2025.",
     icon: Presentation,
   },
   app_builder: {
-    label: "Build an App",
-    subtitle: "Hand us a deck, a repo, or a brief — we'll deliver a working app, end to end.",
+    tag: "Build a full-stack application",
+    heading: "Describe your app.",
+    inputLabel: "Brief, PRD, or repo description",
+    outputLabel: "Full-stack code + infrastructure",
+    placeholder: "e.g. A SaaS platform for managing freelance invoices with Stripe integration.",
     icon: Layout,
   },
-  reverse_engineer: {
-    label: "Reverse-Engineer a Codebase",
-    subtitle: "Map architecture, dependencies, risks, and hidden user journeys from any repo.",
-    icon: FileText,
-  },
   custom: {
-    label: "Custom Workflow",
-    subtitle: "Compose specialist agents and skills into a bespoke pipeline for anything else.",
+    tag: "Design your own workflow",
+    heading: "What do you need?",
+    inputLabel: "Any idea or task",
+    outputLabel: "Custom agent output",
+    placeholder: "e.g. Research the competitive landscape for AI coding assistants and generate a SWOT analysis.",
     icon: Layout,
   },
 };
@@ -77,20 +84,21 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
   }, [workflowType]);
 
   const config = TYPE_CONFIG[workflowType];
-  const Icon = config.icon;
 
-  useEffect(() => { if (isListening && transcript) setIdeaInput(preSpeechTextRef.current ? `${preSpeechTextRef.current} ${transcript}` : transcript); }, [transcript, isListening]);
+  useEffect(() => {
+    if (isListening && transcript) setIdeaInput(preSpeechTextRef.current ? `${preSpeechTextRef.current} ${transcript}` : transcript);
+  }, [transcript, isListening]);
+
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 200); }, []);
 
   const handleRun = () => {
-    if (!ideaInput.trim()) return;
-    if (pipelineAgents.length === 0) return;
+    if (!ideaInput.trim() || pipelineAgents.length === 0) return;
     onRun(ideaInput.trim(), pipelineAgents.map((a) => a.id));
   };
 
   const defaultAgentIds = new Set(LIBRARY_AGENTS.filter((a) => a.pipeline_type === workflowType).map((a) => a.id));
   const optionalAgentCount = pipelineAgents.filter((a) => !defaultAgentIds.has(a.id)).length;
-  const maxOptional = workflowType === "custom" ? 8 : 2;
+  const maxOptional = workflowType === "custom" ? 8 : 5;
   const canAddMore = optionalAgentCount < maxOptional;
 
   const handleAddAgent = useCallback((agent: AgentDef) => {
@@ -98,7 +106,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
       if (prev.find((a) => a.id === agent.id)) return prev;
       const currentDefaults = new Set(LIBRARY_AGENTS.filter((a) => a.pipeline_type === workflowType).map((a) => a.id));
       const currentOptional = prev.filter((a) => !currentDefaults.has(a.id)).length;
-      const limit = workflowType === "custom" ? 8 : 2;
+      const limit = workflowType === "custom" ? 8 : 5;
       if (currentOptional >= limit) return prev;
       const insertIdx = workflowType === "custom" ? prev.length : (prev.length > 0 ? prev.length - 1 : 0);
       const updated = [...prev];
@@ -107,59 +115,93 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
     });
   }, [workflowType]);
 
-  const handleRemoveAgent = useCallback((agentId: string) => { setPipelineAgents((prev) => prev.filter((a) => a.id !== agentId)); }, []);
-  const handleReorderAgents = useCallback((reordered: AgentDef[]) => { setPipelineAgents(reordered); }, []);
+  const handleRemoveAgent = useCallback((agentId: string) => {
+    setPipelineAgents((prev) => prev.filter((a) => a.id !== agentId));
+  }, []);
+
+  const handleReorderAgents = useCallback((reordered: AgentDef[]) => {
+    setPipelineAgents(reordered);
+  }, []);
+
+  const totalEstimatedTime = Math.round(pipelineAgents.reduce((s, a) => s + a.estimated_duration, 0));
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto bg-gray-50">
-      <div className="relative flex-1 flex flex-col items-center px-4 sm:px-6 md:px-8 py-6 sm:py-10 max-w-3xl mx-auto w-full">
-        {/* Back */}
-        <div className="w-full mb-8">
-          <motion.button
-            initial={{ opacity: 0, x: -10 }}
-            animate={{ opacity: 1, x: 0 }}
-            onClick={onBack}
-            className="flex items-center gap-2 text-xs text-gray-500 hover:text-gray-900 transition-colors"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to workflows
-          </motion.button>
-        </div>
+    <div className="flex h-full flex-col overflow-y-auto" style={{ background: "#f5f5f0" }}>
+      <div className="flex-1 flex flex-col items-center justify-center px-4 sm:px-6 py-10 max-w-2xl mx-auto w-full">
 
-        {/* Header */}
+        {/* Back */}
         <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
-          className="text-center mb-8 w-full"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="w-full mb-8"
         >
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100 mx-auto mb-3">
-            <Icon className="h-5 w-5 text-gray-600" />
-          </div>
-          <h1 className="text-xl font-semibold text-gray-900 tracking-tight mb-1">{config.label}</h1>
-          <p className="text-sm text-gray-500">{config.subtitle}</p>
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1.5 text-[12px] text-gray-500 hover:text-gray-900 transition-colors"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" /> Back
+          </button>
         </motion.div>
 
-        {/* Input Area */}
+        {/* Heading */}
         <motion.div
-          initial={{ opacity: 0, y: 16 }}
+          initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.1 }}
+          transition={{ duration: 0.35 }}
+          className="w-full mb-6"
+        >
+          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-[0.15em] mb-3">
+            {config.tag}
+          </p>
+          <h1 className="text-[32px] font-bold text-gray-900 leading-tight tracking-tight mb-2">
+            {config.heading}
+          </h1>
+          <p className="text-[13px] text-gray-500">
+            <span className="text-gray-400">Input:</span>{" "}
+            <span className="text-gray-600">{config.inputLabel}</span>
+            {" · "}
+            <span className="text-gray-400">Output:</span>{" "}
+            <span className="font-medium text-gray-700">{config.outputLabel}</span>
+          </p>
+        </motion.div>
+
+        {/* Input card */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, delay: 0.08 }}
           className="w-full"
         >
-          <div className="rounded-lg border border-gray-200 bg-white overflow-hidden focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-400 transition-all shadow-sm">
+          <div className="rounded-2xl bg-white shadow-sm border border-gray-200/80 overflow-hidden">
+            {/* Textarea */}
             <textarea
               ref={inputRef}
               value={ideaInput}
               onChange={(e) => setIdeaInput(e.target.value)}
-              placeholder={isListening ? "Listening... speak your idea" : "Describe your idea in as much or as little detail as you like..."}
-              className="w-full resize-none bg-transparent text-sm text-gray-900 placeholder-gray-400 px-4 py-4 focus:outline-none min-h-[140px] max-h-[280px] leading-relaxed"
+              placeholder={isListening ? "Listening... speak your idea" : config.placeholder}
+              className="w-full resize-none bg-transparent text-[14px] text-gray-900 placeholder-gray-400 px-5 pt-5 pb-3 focus:outline-none min-h-[130px] max-h-[260px] leading-relaxed"
               rows={5}
               onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleRun(); }}
             />
-            {/* Toolbar */}
+
+            {/* Attached files */}
+            {attachedFiles.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 px-5 pb-2">
+                {attachedFiles.map((file, idx) => (
+                  <span key={`${file.name}-${idx}`} className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1 text-[10px] text-gray-600">
+                    <File className="h-2.5 w-2.5" /> {file.name}
+                    <button onClick={() => setAttachedFiles((p) => p.filter((_, i) => i !== idx))} className="ml-1 text-gray-400 hover:text-red-500">
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Bottom toolbar */}
             <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
+                {/* Hidden file input */}
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -181,66 +223,58 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
                 />
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-all"
-                  title="Attach file"
+                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all border border-transparent hover:border-gray-200"
                 >
-                  <Paperclip className="h-3.5 w-3.5" /> Attach
+                  <Paperclip className="h-3.5 w-3.5" /> + Attach file
                 </button>
-                <button
-                  onClick={() => { if (isListening) stopListening(); else { preSpeechTextRef.current = ideaInput; startListening(); } }}
-                  disabled={!speechSupported}
-                  className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] transition-all ${
-                    isListening ? "text-red-500 bg-red-50 animate-pulse" :
-                    speechSupported ? "text-gray-500 hover:text-gray-900 hover:bg-gray-100" :
-                    "text-gray-300 cursor-not-allowed"
-                  }`}
-                >
-                  {isListening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
-                  {isListening ? "Stop" : "Voice"}
-                </button>
+                {speechSupported && (
+                  <button
+                    onClick={() => { if (isListening) stopListening(); else { preSpeechTextRef.current = ideaInput; startListening(); } }}
+                    className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] transition-all border border-transparent ${
+                      isListening
+                        ? "text-red-500 bg-red-50 border-red-100 animate-pulse"
+                        : "text-gray-400 hover:text-gray-700 hover:bg-gray-100 hover:border-gray-200"
+                    }`}
+                  >
+                    {isListening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+                    {isListening ? "Stop" : "Voice"}
+                  </button>
+                )}
               </div>
+
+              {/* Run button */}
               <button
                 onClick={handleRun}
                 disabled={!ideaInput.trim() || pipelineAgents.length === 0}
-                className="flex items-center gap-2 rounded-lg bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 rounded-xl bg-gray-900 text-white px-5 py-2.5 text-[13px] font-semibold hover:bg-gray-800 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
-                <Play className="h-4 w-4" />
-                {pipelineAgents.length === 0 ? "Add Agents First" : "Run Workflow"}
+                {pipelineAgents.length === 0 ? "Add agents first" : "Run workflow"}
+                <ArrowRight className="h-4 w-4" />
               </button>
             </div>
           </div>
-
-          {/* Attached files */}
-          {attachedFiles.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-3">
-              {attachedFiles.map((file, idx) => (
-                <span key={`${file.name}-${idx}`} className="inline-flex items-center gap-1 rounded-lg bg-gray-100 border border-gray-200 px-2.5 py-1 text-[10px] text-gray-600">
-                  <File className="h-2.5 w-2.5" /> {file.name} <span className="text-gray-400">({file.size})</span>
-                  <button onClick={() => setAttachedFiles((p) => p.filter((_, i) => i !== idx))} className="ml-1 text-gray-400 hover:text-red-500">
-                    <X className="h-2.5 w-2.5" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
         </motion.div>
 
-        {/* View Agents */}
+        {/* Advanced / agents info */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 0.3 }}
-          className="flex items-center gap-3 mt-6"
+          transition={{ delay: 0.2 }}
+          className="w-full mt-4"
         >
           <button
             onClick={() => setShowAgents(true)}
-            className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 px-4 py-2.5 text-xs text-gray-600 hover:text-gray-900 transition-all shadow-sm"
+            className="flex items-center gap-2 text-[12px] text-gray-400 hover:text-gray-700 transition-colors"
           >
-            <Eye className="h-3.5 w-3.5" /> View &amp; Manage Agents ({pipelineAgents.length})
+            <Settings2 className="h-3.5 w-3.5" />
+            <span className="font-medium text-gray-600">Advanced</span>
+            <span className="text-gray-400">
+              {pipelineAgents.length} agent{pipelineAgents.length !== 1 ? "s" : ""}
+              {totalEstimatedTime > 0 && ` · ~${totalEstimatedTime < 60 ? `${totalEstimatedTime}s` : `${Math.round(totalEstimatedTime / 60)}m`}`}
+            </span>
           </button>
         </motion.div>
 
-        <p className="mt-4 text-[10px] text-gray-400">Ctrl+Enter to run · Attach files for context</p>
       </div>
 
       <AgentsPopup

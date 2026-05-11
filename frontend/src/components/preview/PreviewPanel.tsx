@@ -21,6 +21,8 @@ interface PreviewPanelProps {
   initialTab?: string;
   onTabSelect?: (tab: string) => void;
   workflowType?: WorkflowType;
+  /** Raw PptxGenJS code from Agent 3 for reliable server-side export */
+  pptxCode?: string;
 }
 
 const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
@@ -28,7 +30,7 @@ const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
   { id: "files", label: "Files", icon: FolderDown },
 ];
 
-export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, isStreaming, onCollapse, initialTab, onTabSelect, workflowType }: PreviewPanelProps) {
+export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, pptxCode }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>("preview");
   const [copied, setCopied] = useState(false);
 
@@ -36,12 +38,12 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, i
 
   const detectedType: WorkflowType = workflowType || (userStoryContent ? "user_stories" : pptContent ? "ppt" : prototypeContent ? "prototype" : "user_stories");
   const activeContent =
-    detectedType === "user_stories" || detectedType === "app_builder" || detectedType === "reverse_engineer" || detectedType === "custom"
+    detectedType === "user_stories" || detectedType === "app_builder" || detectedType === "custom"
       ? userStoryContent
       : detectedType === "ppt"
       ? pptContent
       : prototypeContent;
-  const hasContent = !!(userStoryContent || pptContent || prototypeContent);
+  const hasContent = !!(userStoryContent || pptContent || prototypeContent || pptxCode);
 
   const handleTabChange = (tabId: PanelTab) => { setActiveTab(tabId); onTabSelect?.(tabId); };
   const handleCopy = () => {
@@ -122,8 +124,8 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, i
               ) : (
                 <>
                   {detectedType === "user_stories" && userStoryContent && <UserStoryPreview content={userStoryContent} />}
-                  {(detectedType === "app_builder" || detectedType === "reverse_engineer" || detectedType === "custom") && userStoryContent && <MarkdownPreview content={userStoryContent} />}
-                  {detectedType === "ppt" && pptContent && <PPTPreview content={pptContent} isStreaming={isStreaming} />}
+                  {(detectedType === "app_builder" || detectedType === "custom") && userStoryContent && <MarkdownPreview content={userStoryContent} />}
+                  {detectedType === "ppt" && (pptContent || pptxCode) && <PPTPreview content={pptContent} isStreaming={isStreaming} pptxCode={pptxCode} />}
                   {detectedType === "prototype" && prototypeContent && <PrototypePreview content={prototypeContent} isStreaming={isStreaming} />}
                 </>
               )}

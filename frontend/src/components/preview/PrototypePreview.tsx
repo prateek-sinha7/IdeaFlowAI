@@ -1,6 +1,7 @@
 "use client";
 
-import { Layout } from "lucide-react";
+import { useState } from "react";
+import { Layout, ExternalLink } from "lucide-react";
 
 interface PrototypePreviewProps {
   content?: string;
@@ -8,10 +9,12 @@ interface PrototypePreviewProps {
 }
 
 /**
- * Renders HTML content in a full-size iframe.
- * Used for Prototype and PPT (both generate self-contained HTML).
+ * Renders the prototype HTML in a browser-chrome mockup.
+ * Gives the preview a professional "live app" feel.
  */
 export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps) {
+  const [iframeKey] = useState(0);
+
   if (!content) {
     return (
       <div className="flex h-full flex-col items-center justify-center px-6">
@@ -20,7 +23,7 @@ export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps
         </div>
         <p className="text-sm font-medium text-gray-600 mb-1">No Preview Yet</p>
         <p className="text-xs text-gray-400 text-center max-w-[200px]">
-          Run the pipeline to generate output.
+          Run the pipeline to generate your prototype.
         </p>
       </div>
     );
@@ -28,11 +31,11 @@ export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps
 
   if (isStreaming) {
     return (
-      <div className="flex h-full flex-col items-center justify-center px-6">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100 border border-gray-200 mb-3 animate-pulse">
-          <Layout className="h-5 w-5 text-gray-400" />
+      <div className="flex h-full flex-col items-center justify-center gap-3">
+        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-gray-100 border border-gray-200 animate-pulse">
+          <Layout className="h-6 w-6 text-gray-400" />
         </div>
-        <p className="text-xs text-gray-400">Generating...</p>
+        <p className="text-[11px] text-gray-500 font-medium">Building prototype...</p>
       </div>
     );
   }
@@ -43,7 +46,6 @@ export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps
     htmlContent = htmlContent.replace(/^```(?:html)?\s*\n?/, "").replace(/\n?```\s*$/, "");
   }
 
-  // Check if content is HTML
   const isHtml = htmlContent.startsWith("<!DOCTYPE") || htmlContent.startsWith("<html") || htmlContent.startsWith("<!");
 
   if (!isHtml) {
@@ -59,15 +61,49 @@ export function PrototypePreview({ content, isStreaming }: PrototypePreviewProps
     );
   }
 
-  // Render HTML in iframe — takes full available space
+  const handleOpenInNewTab = () => {
+    const blob = new Blob([htmlContent], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  };
+
   return (
-    <div className="h-full w-full">
-      <iframe
-        srcDoc={htmlContent}
-        className="w-full h-full border-0"
-        sandbox="allow-scripts allow-same-origin"
-        title="Prototype Preview"
-      />
+    <div className="h-full flex flex-col" style={{ background: "#f5f5f0" }}>
+      {/* Browser chrome */}
+      <div className="flex-shrink-0 bg-white border-b border-gray-200 px-4 py-2.5 flex items-center gap-3">
+        {/* Traffic lights */}
+        <div className="flex items-center gap-1.5">
+          <div className="w-3 h-3 rounded-full bg-gray-200" />
+          <div className="w-3 h-3 rounded-full bg-gray-200" />
+          <div className="w-3 h-3 rounded-full bg-gray-200" />
+        </div>
+        {/* URL bar */}
+        <div className="flex-1 flex items-center gap-2 bg-gray-100 rounded-md px-3 py-1.5 max-w-sm">
+          <div className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
+          <span className="text-[11px] text-gray-500 font-mono truncate">localhost:3000 / dashboard</span>
+        </div>
+        {/* Open in new tab */}
+        <button
+          onClick={handleOpenInNewTab}
+          className="flex items-center gap-1.5 text-[10px] text-gray-400 hover:text-gray-700 transition-colors ml-auto"
+          title="Open in new tab"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+          <span>Open</span>
+        </button>
+      </div>
+
+      {/* Prototype iframe */}
+      <div className="flex-1 min-h-0">
+        <iframe
+          key={iframeKey}
+          srcDoc={htmlContent}
+          className="w-full h-full border-0"
+          sandbox="allow-scripts allow-same-origin"
+          title="Prototype Preview"
+        />
+      </div>
     </div>
   );
 }

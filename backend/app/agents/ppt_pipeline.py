@@ -144,7 +144,7 @@ Take the PptxGenJS code from the previous agent and wrap it in a self-contained 
 1. Only ONE slide visible at a time (others hidden via CSS class toggling)
 2. Navigation: arrow buttons + keyboard arrows
 3. Slide counter showing "1 / 12"
-4. No download button inside the HTML (download is handled externally)
+4. NO download button inside the HTML — download is handled externally
 5. Must work inside an iframe with no scrollbars
 6. Include the COMPLETE generatePresentation() function in a script tag (needed for PPTX export)
 

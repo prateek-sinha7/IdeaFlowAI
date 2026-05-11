@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { X, Zap, Trash2, Plus, GripVertical, Lock, Shield, Bot } from "lucide-react";
+import { X, Plus, ArrowRight, Lock, GripVertical } from "lucide-react";
 import { AgentLibrary } from "./AgentLibrary";
 import type { AgentDef, WorkflowType } from "@/types/index";
 
@@ -35,59 +35,102 @@ const REQUIRED_AGENT_IDS = new Set([
 
 type AgentRole = "locked" | "required" | "optional";
 
-function getAgentRole(agentId: string): AgentRole {
-  if (LOCKED_AGENT_IDS.has(agentId)) return "locked";
-  if (REQUIRED_AGENT_IDS.has(agentId)) return "required";
+function getRole(agentId: string, pipelineType: WorkflowType): AgentRole {
+  // An agent is only locked/required if it belongs to the current pipeline
+  // Agents from other pipelines added as extras are always optional (removable)
+  const isNativeLocked = LOCKED_AGENT_IDS.has(agentId);
+  const isNativeRequired = REQUIRED_AGENT_IDS.has(agentId);
+
+  if (!isNativeLocked && !isNativeRequired) return "optional";
+
+  // Check if this agent actually belongs to the current pipeline type
+  // by checking if its ID prefix matches the pipeline
+  const pipelinePrefixes: Record<string, string[]> = {
+    user_stories: ["domain-analyst", "epic-architect", "story-estimator", "nfr-specialist", "backlog-reviewer", "backlog-compiler"],
+    ppt: ["ppt-content-strategist", "ppt-slide-architect", "ppt-code-generator", "ppt-assembler"],
+    prototype: ["requirements-analyst", "html-prototype-builder", "prototype-polisher", "prototype-finalizer"],
+    app_builder: ["material-analyzer", "app-code-generator", "app-infra-generator", "app-assembler"],
+    custom: [],
+  };
+
+  const nativeAgents = pipelinePrefixes[pipelineType] || [];
+  const isNativeToThisPipeline = nativeAgents.includes(agentId);
+
+  if (!isNativeToThisPipeline) return "optional"; // cross-pipeline agent = always removable
+
+  if (isNativeLocked) return "locked";
+  if (isNativeRequired) return "required";
   return "optional";
 }
 
-function getRoleBadge(role: AgentRole) {
-  switch (role) {
-    case "locked":   return { label: "Core",     color: "bg-gray-100 text-gray-600 border-gray-200",   icon: Lock };
-    case "required": return { label: "Required", color: "bg-blue-50 text-blue-600 border-blue-200",    icon: Shield };
-    case "optional": return { label: "Optional", color: "bg-gray-100 text-gray-500 border-gray-200",   icon: Plus };
-  }
-}
+const PIPELINE_LABEL: Record<string, string> = {
+  user_stories: "User Stories",
+  ppt: "Presentation",
+  prototype: "Prototype",
+  app_builder: "App Builder",
+  custom: "Custom",
+};
 
-export function AgentsPopup({ isOpen, onClose, agents, pipelineType, onAddAgent, onRemoveAgent, onReorder, canAddMore = true }: AgentsPopupProps) {
+const COLS = 3;
+
+export function AgentsPopup({
+  isOpen, onClose, agents, pipelineType,
+  onAddAgent, onRemoveAgent, onReorder, canAddMore = true,
+}: AgentsPopupProps) {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
 
-  const totalDuration = agents.reduce((sum, a) => sum + a.estimated_duration, 0);
+  const handleRemove = useCallback((agentId: string) => {
+    if (getRole(agentId, pipelineType) !== "optional") return;
+    onRemoveAgent?.(agentId);
+  }, [onRemoveAgent, pipelineType]);
 
   const handleDragStart = useCallback((idx: number) => {
-    const role = getAgentRole(agents[idx].id);
-    if (role === "locked") return;
+    if (getRole(agents[idx].id, pipelineType) === "locked") return;
     setDraggedIdx(idx);
-  }, [agents]);
+  }, [agents, pipelineType]);
 
   const handleDragOver = useCallback((e: React.DragEvent, idx: number) => {
     e.preventDefault();
-    const role = getAgentRole(agents[idx].id);
-    if (role === "locked") return;
+    if (getRole(agents[idx].id, pipelineType) === "locked") return;
     setDragOverIdx(idx);
-  }, [agents]);
-
-  const handleDragEnd = useCallback(() => { setDraggedIdx(null); setDragOverIdx(null); }, []);
+  }, [agents, pipelineType]);
 
   const handleDrop = useCallback((idx: number) => {
     if (draggedIdx === null || draggedIdx === idx) { setDraggedIdx(null); setDragOverIdx(null); return; }
-    const targetRole = getAgentRole(agents[idx].id);
-    if (targetRole === "locked") { setDraggedIdx(null); setDragOverIdx(null); return; }
+    if (getRole(agents[idx].id, pipelineType) === "locked") { setDraggedIdx(null); setDragOverIdx(null); return; }
     const updated = [...agents];
     const [moved] = updated.splice(draggedIdx, 1);
     updated.splice(idx, 0, moved);
     onReorder?.(updated);
     setDraggedIdx(null);
     setDragOverIdx(null);
-  }, [draggedIdx, agents, onReorder]);
+  }, [draggedIdx, agents, onReorder, pipelineType]);
 
-  const handleRemove = useCallback((agentId: string) => {
-    const role = getAgentRole(agentId);
-    if (role === "locked" || role === "required") return;
-    onRemoveAgent?.(agentId);
-  }, [onRemoveAgent]);
+  const handleDragEnd = useCallback(() => { setDraggedIdx(null); setDragOverIdx(null); }, []);
+
+  const pipelineLabel = PIPELINE_LABEL[pipelineType] || pipelineType;
+  const defaultAgentIds = new Set(
+    agents.filter(a => {
+      const pipelinePrefixes: Record<string, string[]> = {
+        user_stories: ["domain-analyst", "epic-architect", "story-estimator", "nfr-specialist", "backlog-reviewer", "backlog-compiler"],
+        ppt: ["ppt-content-strategist", "ppt-slide-architect", "ppt-code-generator", "ppt-assembler"],
+        prototype: ["requirements-analyst", "html-prototype-builder", "prototype-polisher", "prototype-finalizer"],
+        app_builder: ["material-analyzer", "app-code-generator", "app-infra-generator", "app-assembler"],
+        custom: [],
+      };
+      return (pipelinePrefixes[pipelineType] || []).includes(a.id);
+    }).map(a => a.id)
+  );
+  const optionalCount = agents.filter(a => !defaultAgentIds.has(a.id) && getRole(a.id, pipelineType) === "optional").length;
+  const maxOptional = pipelineType === "custom" ? 8 : 5;
+  const slotsLeft = maxOptional - optionalCount;
+  const allCells: Array<AgentDef | "add"> = [...agents, ...(canAddMore ? ["add" as const] : [])];
+  const rows: Array<Array<AgentDef | "add">> = [];
+  for (let i = 0; i < allCells.length; i += COLS) {
+    rows.push(allCells.slice(i, i + COLS));
+  }
 
   return (
     <AnimatePresence>
@@ -96,148 +139,168 @@ export function AgentsPopup({ isOpen, onClose, agents, pipelineType, onAddAgent,
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-6"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
         >
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute inset-0 bg-black/30 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/30 backdrop-blur-[2px]"
             onClick={onClose}
           />
+
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            transition={{ duration: 0.25 }}
-            className="relative w-full sm:max-w-2xl max-h-[90vh] sm:max-h-[80vh] rounded-t-xl sm:rounded-xl border border-gray-200 bg-white shadow-2xl shadow-black/10 overflow-hidden flex flex-col"
+            initial={{ opacity: 0, y: 10, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.98 }}
+            transition={{ duration: 0.18 }}
+            className="relative w-full max-w-[780px] bg-white rounded-2xl shadow-2xl flex flex-col"
+            style={{ maxHeight: "90vh" }}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-sm font-semibold text-gray-900">Autonomous Pipeline</h2>
-                  <span className="flex items-center gap-1 text-[9px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
-                    <Bot className="h-2.5 w-2.5" /> Auto
-                  </span>
-                </div>
-                <p className="text-[11px] text-gray-500 mt-0.5">
-                  {agents.length} agents · ~{Math.ceil(totalDuration / 60)} min · Runs autonomously once started
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => canAddMore && setLibraryOpen(true)}
-                  disabled={!canAddMore}
-                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-medium border transition-all ${
-                    canAddMore
-                      ? "text-gray-600 hover:text-gray-900 bg-gray-50 hover:bg-gray-100 border-gray-200"
-                      : "text-gray-300 bg-gray-50 border-gray-200 cursor-not-allowed"
-                  }`}
-                  title={canAddMore ? "Add an optional agent" : "Maximum 2 optional agents allowed"}
-                >
-                  <Plus className="h-3 w-3" />
-                  {canAddMore ? "Add Agent" : "Limit Reached (2 max)"}
-                </button>
-                <button
-                  onClick={onClose}
-                  className="flex items-center justify-center rounded-lg p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all"
-                >
+            <div className="px-8 pt-6 pb-0 flex-shrink-0">
+              <div className="flex items-start justify-between mb-1">
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-[0.18em]">Advanced</p>
+                <button onClick={onClose} className="h-7 w-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all">
                   <X className="h-4 w-4" />
                 </button>
               </div>
+              <h2 className="text-[20px] font-bold text-gray-900 mb-3">Workflow agents</h2>
+              <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+                <div className="flex items-center gap-3 text-[10px] font-semibold text-gray-400 uppercase tracking-widest flex-wrap">
+                  <span>{agents.length} agents · {pipelineLabel}</span>
+                  <span className="flex items-center gap-1 text-gray-300"><Lock className="h-2.5 w-2.5" /> Core = locked</span>
+                  <span className="text-gray-300">· Drag to reorder · × to remove</span>
+                </div>
+                <button onClick={() => setLibraryOpen(true)} className="text-[10px] font-semibold text-gray-400 hover:text-[#1B2A4A] uppercase tracking-widest transition-colors flex-shrink-0 ml-4">
+                  Browse agent library →
+                </button>
+              </div>
             </div>
 
-            {/* Legend */}
-            <div className="px-6 py-2 border-b border-gray-100 flex items-center gap-4">
-              <span className="flex items-center gap-1 text-[9px] text-gray-500"><Lock className="h-2.5 w-2.5" /> Core = locked</span>
-              <span className="flex items-center gap-1 text-[9px] text-gray-500"><Shield className="h-2.5 w-2.5" /> Required = can reorder</span>
-              <span className="flex items-center gap-1 text-[9px] text-gray-500"><Plus className="h-2.5 w-2.5" /> Optional = can remove</span>
-            </div>
+            {/* Flow grid canvas */}
+            <div className="mx-6 my-4 rounded-xl overflow-y-auto flex-1" style={{
+              background: "#f7f6f3",
+              backgroundImage: "radial-gradient(#d4d0ca 1px, transparent 1px)",
+              backgroundSize: "20px 20px",
+            }}>
+              <div className="p-4 space-y-2.5">
+                {rows.map((row, rowIdx) => (
+                  <div key={rowIdx} className="flex items-stretch">
+                    {row.map((cell, colIdx) => {
+                      const globalIdx = rowIdx * COLS + colIdx;
+                      const isLastInRow = colIdx === row.length - 1;
+                      const isLastCell = globalIdx === allCells.length - 1;
 
-            {/* Agent List */}
-            <div className="flex-1 overflow-y-auto px-6 py-4">
-              <div className="space-y-1.5">
-                {agents.map((agent, idx) => {
-                  const role = getAgentRole(agent.id);
-                  const badge = getRoleBadge(role);
-                  const BadgeIcon = badge.icon;
-                  const isLocked = role === "locked";
-                  const canDrag = !isLocked;
-                  const canDelete = role === "optional";
+                      if (cell === "add") {
+                        return (
+                          <div key="add" className="flex items-center">
+                            {colIdx > 0 && (
+                              <div className="flex items-center w-7 flex-shrink-0">
+                                <div className="flex-1 border-t-2 border-dashed border-gray-300" />
+                                <ArrowRight className="h-3 w-3 text-gray-300 -ml-1" />
+                              </div>
+                            )}
+                            <button
+                              onClick={() => setLibraryOpen(true)}
+                              className="flex flex-col items-center justify-center gap-1 bg-white border-2 border-dashed border-gray-300 rounded-lg text-[10px] font-medium text-gray-400 hover:text-gray-700 hover:border-gray-400 hover:bg-gray-50 transition-all"
+                              style={{ width: "130px", height: "68px" }}
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                              {slotsLeft > 0 ? `+ Add agent (${slotsLeft} left)` : "Limit reached"}
+                            </button>
+                          </div>
+                        );
+                      }
 
-                  return (
-                    <div
-                      key={agent.id}
-                      draggable={canDrag}
-                      onDragStart={() => canDrag && handleDragStart(idx)}
-                      onDragOver={(e) => handleDragOver(e, idx)}
-                      onDrop={() => handleDrop(idx)}
-                      onDragEnd={handleDragEnd}
-                      className="relative"
-                    >
-                      {dragOverIdx === idx && draggedIdx !== null && draggedIdx !== idx && (
-                        <div className="absolute -top-0.5 left-0 right-0 h-0.5 bg-blue-500 rounded-full z-10" />
-                      )}
-                      <div className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 transition-all group ${
-                        isLocked
-                          ? "border-gray-200 bg-gray-50"
-                          : draggedIdx === idx
-                          ? "opacity-40 scale-[0.98] border-gray-200 bg-gray-50"
-                          : "border-gray-200 bg-gray-50 hover:bg-gray-100"
-                      }`}>
-                        {isLocked ? (
-                          <Lock className="h-3 w-3 text-gray-400 flex-shrink-0" />
-                        ) : (
-                          <GripVertical className="h-3.5 w-3.5 text-gray-400 cursor-grab active:cursor-grabbing flex-shrink-0" />
-                        )}
-                        <span className="text-[11px] text-gray-400 w-4 text-center font-mono flex-shrink-0">{idx + 1}</span>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <p className={`text-[11px] font-medium ${isLocked ? "text-gray-500" : "text-gray-900"}`}>
+                      const agent = cell as AgentDef;
+                      const role = getRole(agent.id, pipelineType);
+                      const locked = role === "locked";
+                      const optional = role === "optional";
+                      const isDragging = draggedIdx === globalIdx;
+                      const isDragOver = dragOverIdx === globalIdx;
+
+                      return (
+                        <div key={agent.id} className="flex items-center">
+                          {colIdx > 0 && (
+                            <div className="flex items-center w-7 flex-shrink-0">
+                              <div className="flex-1 border-t-2 border-dashed border-gray-300" />
+                              <ArrowRight className="h-3 w-3 text-gray-300 -ml-1" />
+                            </div>
+                          )}
+
+                          <motion.div
+                            initial={{ opacity: 0, scale: 0.96 }}
+                            animate={{ opacity: isDragging ? 0.4 : 1, scale: isDragOver ? 1.02 : 1 }}
+                            transition={{ delay: globalIdx * 0.03 }}
+                            draggable={!locked}
+                            onDragStart={() => handleDragStart(globalIdx)}
+                            onDragOver={(e) => handleDragOver(e, globalIdx)}
+                            onDrop={() => handleDrop(globalIdx)}
+                            onDragEnd={handleDragEnd}
+                            className={`group relative bg-white rounded-lg border px-3 py-2.5 shadow-sm transition-all ${
+                              isDragOver ? "border-[#1B2A4A] shadow-md" :
+                              locked ? "border-gray-200 opacity-80" :
+                              "border-gray-200 hover:border-gray-300 hover:shadow-md"
+                            } ${!locked ? "cursor-grab active:cursor-grabbing" : ""}`}
+                            style={{ width: "130px" }}
+                          >
+                            {/* Top row: drag/lock + role badge + remove */}
+                            <div className="flex items-center justify-between mb-1.5">
+                              <div>
+                                {locked
+                                  ? <Lock className="h-2.5 w-2.5 text-gray-300" />
+                                  : <GripVertical className="h-3 w-3 text-gray-400" />
+                                }
+                              </div>
+                              <div className="flex items-center gap-1">
+                                {locked && (
+                                  <span className="text-[7px] font-semibold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded uppercase tracking-wide">Core</span>
+                                )}
+                                {role === "required" && (
+                                  <span className="text-[7px] font-semibold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded uppercase tracking-wide">Required</span>
+                                )}
+                                {optional && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleRemove(agent.id); }}
+                                    className="flex items-center justify-center w-5 h-5 rounded bg-red-50 border border-red-200 hover:bg-red-100 transition-colors"
+                                    title="Remove agent"
+                                  >
+                                    <X className="h-3 w-3 text-red-500" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="w-6 h-6 rounded-md bg-gray-100 border border-gray-200 flex items-center justify-center mb-2">
+                              <span className="text-[9px] font-bold text-gray-500 select-none">
+                                {agent.name.split(" ").map(w => w[0]).slice(0, 2).join("")}
+                              </span>
+                            </div>
+
+                            <p className="text-[11px] font-semibold text-gray-900 leading-snug mb-0.5 line-clamp-2">
                               {agent.name}
                             </p>
-                            <span className={`text-[7px] font-semibold px-1.5 py-0.5 rounded-full border ${badge.color}`}>
-                              {badge.label}
-                            </span>
-                          </div>
-                          <p className="text-[9px] text-gray-400 truncate">{agent.role}</p>
-                        </div>
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                          <span className="text-[8px] text-gray-400 flex items-center gap-0.5">
-                            <Zap className="h-2 w-2" />~{agent.estimated_duration}s
-                          </span>
-                          {canDelete && (
-                            <button
-                              onClick={() => handleRemove(agent.id)}
-                              className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all"
-                              title="Remove"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </button>
+                            <p className="text-[8px] font-semibold text-gray-400 uppercase tracking-wider">
+                              {pipelineLabel}
+                            </p>
+                          </motion.div>
+
+                          {isLastInRow && !isLastCell && (
+                            <div className="w-4 flex-shrink-0 ml-1 border-t-2 border-dashed border-gray-300" />
                           )}
                         </div>
-                      </div>
-
-                      {idx < agents.length - 1 && (
-                        <div className="flex justify-center py-0.5">
-                          <div className="w-px h-2 bg-gray-200" />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             </div>
 
             {/* Footer */}
-            <div className="px-6 py-3 border-t border-gray-200 flex items-center justify-between">
-              <p className="text-[10px] text-gray-400">Agents execute sequentially, top → bottom</p>
-              <button
-                onClick={onClose}
-                className="rounded-lg bg-blue-600 hover:bg-blue-700 px-4 py-2 text-xs font-medium text-white transition-all"
-              >
-                Done
+            <div className="px-8 pb-6 flex-shrink-0 flex items-center justify-end gap-3">
+              <button onClick={onClose} className="px-5 py-2.5 rounded-xl border border-gray-200 text-[12px] font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+                Cancel
+              </button>
+              <button onClick={onClose} className="px-5 py-2.5 rounded-xl bg-gray-900 text-[12px] font-semibold text-white hover:bg-gray-800 transition-colors">
+                Save changes
               </button>
             </div>
           </motion.div>
