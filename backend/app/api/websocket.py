@@ -5,6 +5,7 @@ import json
 import logging
 import time
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from jose import JWTError
@@ -477,10 +478,61 @@ async def _handle_pipeline_execution(
     Creates a WorkflowRun record to track the execution.
     If agent_ids is provided, uses that custom agent list instead of defaults.
     """
-    from app.agents.pipeline import PipelineExecutor
-    from app.agents.skills import get_skill_content
+    from app.agents.orchestrator_v2 import WorkflowOrchestrator
+    from app.agents.registry import (
+        SUPPORTED_PIPELINE_TYPES,
+        allowed_custom_agent_ids,
+    )
 
     logger.info(f"Pipeline execution: type={pipeline_type}, user={user.id}, custom_agents={len(agent_ids) if agent_ids else 'default'}")
+
+    # --- Input validation (G1-C6) -----------------------------------------
+    # Validate BEFORE any DB writes so we don't leave phantom WorkflowRun
+    # rows behind when the client sends a bad pipeline_type or a forged
+    # agent_ids list. Both checks emit an `error` WS event the frontend can
+    # surface to the user, and return without spawning the orchestrator.
+    #
+    # See docs/_audit/TRIAGE.md G1-C6 for the original mass-assignment
+    # write-up — the previous code path (`get_all_agents()` + dict lookup)
+    # silently dropped unknown IDs, which is how cross-pipeline injection
+    # of e.g. PPT agents into a User Stories run slipped past review.
+    if pipeline_type not in SUPPORTED_PIPELINE_TYPES:
+        await websocket.send_json({
+            "type": "error",
+            "chunk": None,
+            "section": None,
+            "data": {
+                "error": f"Unsupported pipeline_type: {pipeline_type!r}",
+                "code": "invalid_pipeline_type",
+                "recoverable": False,
+            },
+        })
+        return
+
+    if agent_ids:
+        allowed = allowed_custom_agent_ids(pipeline_type)
+        rejected = [aid for aid in agent_ids if aid not in allowed]
+        if rejected:
+            # List the rejected IDs in the message — silently dropping them
+            # (which is what `get_all_agents()` filtering did before) is the
+            # whole class of bug we're fixing. The client UI should be able
+            # to highlight exactly which entries it asked for that the
+            # server refused.
+            await websocket.send_json({
+                "type": "error",
+                "chunk": None,
+                "section": None,
+                "data": {
+                    "error": (
+                        "Invalid agent_ids for pipeline_type "
+                        f"{pipeline_type!r}: {rejected}"
+                    ),
+                    "code": "invalid_agent_ids",
+                    "recoverable": False,
+                    "rejected_agent_ids": rejected,
+                },
+            })
+            return
 
     # Determine agent count
     if agent_ids:
@@ -552,30 +604,46 @@ async def _handle_pipeline_execution(
 
     # === LIVE PIPELINE MODE ===
     # Load skills for agents that have them
-    from app.agents.registry import get_pipeline_agents, get_all_agents
+    from app.agents.registry import get_pipeline_agents, get_agent_by_id
     agents = get_pipeline_agents(pipeline_type)
 
-    # If custom agent_ids provided, filter and reorder agents accordingly
+    # If custom agent_ids provided, filter and reorder agents accordingly.
+    # By the time we reach here, every entry in `agent_ids` is guaranteed to
+    # be in the pipeline's allow-list (validated above). We resolve each ID
+    # to its AgentDefinition via the registry; `get_agent_by_id` cannot
+    # return None for an allow-listed ID because the allow-list is derived
+    # from the same registry.
     if agent_ids:
-        all_agents = get_all_agents()
-        agent_map = {a.id: a for a in all_agents}
-        agents = [agent_map[aid] for aid in agent_ids if aid in agent_map]
+        agents = [get_agent_by_id(aid) for aid in agent_ids]
+        # Defensive: filter Nones in case the registry mutates between the
+        # allow-list check and here (it shouldn't — both reads are
+        # synchronous and the registry is module-level immutable — but the
+        # type checker can't prove that, and a silent crash deeper in the
+        # orchestrator is worse than dropping a mid-flight race).
+        agents = [a for a in agents if a is not None]
 
-    # Pass the authenticated user's id so per-user custom skills override
-    # global/default skills at runtime (per WORKFLOWS.md §B6 namespacing fix).
-    skills: dict[str, str] = {}
-    for agent_def in agents:
-        skill_content = get_skill_content(agent_def.id, user_id=user.id)
-        if skill_content:
-            skills[agent_def.id] = skill_content
-
-    # Execute the pipeline
-    executor = PipelineExecutor(pipeline_type, custom_agents=agents if agent_ids else None)
+    # Execute the workflow. user_id is forwarded so the orchestrator's
+    # _load_skills picks up per-user custom skills (WORKFLOWS.md §B6 —
+    # was previously assembled here in the WS handler before we moved
+    # skill loading into the orchestrator).
+    executor = WorkflowOrchestrator(
+        pipeline_type,
+        custom_agents=agents if agent_ids else None,
+        user_id=user.id,
+    )
 
     monotonic_start = time.monotonic()
     try:
         current_agent_output_live: dict = {}
-        async for update in executor.execute(content, skills=skills):
+        # Tracks whether the orchestrator emitted any agent_error events
+        # during this run. Used after the loop to decide whether to mark
+        # the WorkflowRun as `completed` (no errors) or `failed` (one or
+        # more agents errored). Without this, a single agent_error in a
+        # 12-agent pipeline would still produce status="completed" with
+        # garbage final output.
+        any_agent_errored = False
+        first_agent_error_msg: Optional[str] = None
+        async for update in executor.execute(content):
             await websocket.send_json({
                 "type": update["type"],
                 "chunk": None,
@@ -594,11 +662,28 @@ async def _handle_pipeline_execution(
                     "duration": None,
                 }
             elif update["type"] == "agent_thinking":
+                # agent_thinking marks the START of an LLM call. The
+                # orchestrator re-emits it on each retry attempt (orchestrator_v2
+                # retries up to 2x within a single agent without re-emitting
+                # agent_start). Reset the chunk buffer here so retries don't
+                # accumulate duplicated content into the persisted output.
                 current_agent_output_live["thinking"] = update["data"].get("thinking", "")
+                current_agent_output_live["output"] = ""
             elif update["type"] == "agent_chunk":
                 current_agent_output_live["output"] += update["data"].get("chunk", "")
             elif update["type"] == "agent_complete":
                 current_agent_output_live["duration"] = update["data"].get("duration")
+                agent_outputs_collector.append(current_agent_output_live)
+                current_agent_output_live = {}
+            elif update["type"] == "agent_error":
+                any_agent_errored = True
+                if first_agent_error_msg is None:
+                    first_agent_error_msg = update["data"].get("error") or "Agent execution error"
+                # Persist what we collected so far for the failed agent
+                # too — useful for "show me what the pipeline got through"
+                # debugging UX.
+                current_agent_output_live["duration"] = update["data"].get("duration")
+                current_agent_output_live["error"] = update["data"].get("error")
                 agent_outputs_collector.append(current_agent_output_live)
                 current_agent_output_live = {}
             elif update["type"] == "pipeline_complete":
@@ -650,17 +735,12 @@ async def _handle_pipeline_execution(
         raise
     except Exception as e:
         logger.error(f"Pipeline execution error: {e}")
-        await websocket.send_json({
-            "type": "error",
-            "chunk": None,
-            "section": None,
-            "data": {
-                "error": f"Pipeline execution failed: {str(e)}",
-                "code": "pipeline_error",
-                "recoverable": True,
-            },
-        })
-        # Mark workflow as failed
+        # Persist the failure FIRST. If we sent over the WS first and the
+        # client was already disconnected (the most common trigger of an
+        # `except Exception` here), the send_json would re-raise and skip
+        # the DB write — leaving WorkflowRun rows at `status="running"`
+        # forever. Doing the DB commit before the best-effort send is
+        # order-of-operations: durable state, then notify.
         if workflow_run_id:
             db = _get_db()
             try:
@@ -674,15 +754,40 @@ async def _handle_pipeline_execution(
                     db.commit()
             finally:
                 db.close()
+        # Best-effort error event. Swallow send errors — the row is already
+        # marked failed, and a disconnected client can't be told anyway.
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "chunk": None,
+                "section": None,
+                "data": {
+                    "error": f"Pipeline execution failed: {str(e)}",
+                    "code": "pipeline_error",
+                    "recoverable": True,
+                },
+            })
+        except Exception:
+            logger.info("Failed to notify client of pipeline failure — WS likely closed.")
         return
 
-    # Mark workflow as completed
+    # Persist terminal state. If any agent emitted `agent_error` during the
+    # run, mark the WorkflowRun `failed` rather than `completed` — leaving
+    # it `completed` would mislead history UIs and downstream consumers
+    # that branch on `status` (e.g. "show retry" affordances). The final
+    # output is still persisted because the orchestrator continues running
+    # subsequent agents after a recoverable error, and the user may want
+    # to see whatever was produced.
     if workflow_run_id:
         db = _get_db()
         try:
             wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
             if wr:
-                wr.status = "completed"
+                if any_agent_errored:
+                    wr.status = "failed"
+                    wr.error = first_agent_error_msg
+                else:
+                    wr.status = "completed"
                 wr.output = final_output if final_output else None
                 wr.agent_outputs = json.dumps(agent_outputs_collector) if agent_outputs_collector else None
                 wr.completed_at = datetime.now(timezone.utc)
@@ -692,30 +797,45 @@ async def _handle_pipeline_execution(
         finally:
             db.close()
 
-    # Persist the final output as assistant message
+    # Persist the final output as assistant message.
+    #
+    # `chat_session_id` arrives from the client over the WS. The earlier
+    # user-message persistence path (around :514-518) already filters on
+    # `ChatSession.user_id == user.id`; this assistant-message write
+    # previously did NOT, which let an authenticated user persist messages
+    # into another user's session by guessing the session UUID. We now do
+    # the ownership check up-front and bail without writing if the session
+    # doesn't belong to `user`.
     if final_output and chat_session_id:
         db = _get_db()
         try:
-            if pipeline_type == "ppt":
-                summary = "\u2705 **Presentation generated!** Check the Preview panel \u2192 PPT tab."
-            elif pipeline_type == "prototype":
-                summary = "\u2705 **Prototype generated!** Check the Preview panel \u2192 Prototype tab."
-            else:
-                summary = final_output[:500]
-
-            assistant_msg = Message(
-                chat_session_id=chat_session_id,
-                role="assistant",
-                content=summary,
-            )
-            db.add(assistant_msg)
-
             chat_session = (
                 db.query(ChatSession)
-                .filter(ChatSession.id == chat_session_id)
+                .filter(
+                    ChatSession.id == chat_session_id,
+                    ChatSession.user_id == user.id,
+                )
                 .first()
             )
-            if chat_session:
+            if chat_session is None:
+                logger.warning(
+                    "Skipping assistant-message persistence: chat_session %s not owned by user %s",
+                    chat_session_id, user.id,
+                )
+            else:
+                if pipeline_type == "ppt":
+                    summary = "\u2705 **Presentation generated!** Check the Preview panel \u2192 PPT tab."
+                elif pipeline_type == "prototype":
+                    summary = "\u2705 **Prototype generated!** Check the Preview panel \u2192 Prototype tab."
+                else:
+                    summary = final_output[:500]
+
+                assistant_msg = Message(
+                    chat_session_id=chat_session_id,
+                    role="assistant",
+                    content=summary,
+                )
+                db.add(assistant_msg)
                 chat_session.last_activity = datetime.now(timezone.utc)
                 db.commit()
         finally:

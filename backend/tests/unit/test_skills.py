@@ -297,7 +297,17 @@ class TestSkillEndpointsValidation:
         assert "not-a-real-agent" in resp.text
 
     def test_oversize_content_rejected_with_413(self, api_client):
-        """Content larger than MAX_SKILL_BYTES returns 413."""
+        """Content larger than MAX_SKILL_BYTES is rejected.
+
+        Two cooperating defences fire on oversize input — the Pydantic
+        ``max_length`` validator on the request schema returns 422, and the
+        explicit byte-level check in the handler returns 413. The Pydantic
+        layer runs first, so an ASCII-only oversize payload (1 char == 1
+        byte) gets the 422. Either status counts as a rejection; the
+        contract from the caller's POV is "oversize never lands on disk".
+        See the byte-overflow path test in ``test_skill_content_guard.py``
+        for the 413-specific case.
+        """
         from app.agents.skills import MAX_SKILL_BYTES
 
         too_big = "x" * (MAX_SKILL_BYTES + 1)
@@ -305,7 +315,7 @@ class TestSkillEndpointsValidation:
             "/api/agents/skills",
             json={"agent_id": "domain-analyst", "content": too_big},
         )
-        assert resp.status_code == 413, resp.text
+        assert resp.status_code in (413, 422), resp.text
 
     def test_at_limit_accepted(self, api_client):
         """Content exactly at MAX_SKILL_BYTES is accepted."""

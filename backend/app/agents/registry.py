@@ -1275,6 +1275,99 @@ get_all_agents = get_all_agents_flat
 
 
 # ============================================================
+# Pipeline-scoped allow-list for client-supplied agent_ids
+# ============================================================
+
+# Revision pipeline types map back to their base pipeline. Kept here so the
+# allow-list logic and revision orchestrator both share a single source of
+# truth (see orchestrator_v2.REVISION_BASE_MAP for the orchestrator's copy —
+# we deliberately don't import from there to avoid a circular dependency at
+# registry-load time).
+_REVISION_BASE_MAP: dict[str, str] = {
+    "ppt_revision": "ppt",
+    "user_stories_revision": "user_stories",
+    "prototype_revision": "prototype",
+    "app_builder_revision": "app_builder",
+}
+
+# Base pipeline types whose default agent list may be augmented with the
+# "custom utility" agents from custom_agents.CUSTOM_AGENTS (market research,
+# SWOT, roadmap, security audit, test cases, performance, documentation,
+# report). These are the pipelines exposed in the UI's workflow chooser and
+# in the agent-library "add agent" modal (frontend/src/components/workflow/
+# AgentLibrary.tsx). reverse_engineer is intentionally NOT in this set —
+# the UI removed it in commit 047fb43 and the backend still has agents for
+# it only because nobody pruned the registry yet (Group 3 cleanup in
+# docs/_audit/TRIAGE.md).
+_BASE_PIPELINES_WITH_CUSTOM_AGENTS: frozenset[str] = frozenset({
+    "user_stories", "ppt", "prototype", "app_builder",
+})
+
+# All pipeline types the run_pipeline WS handler is allowed to dispatch.
+# Anything else — including reverse_engineer, questionnaire (a synthetic
+# pipeline used only by _handle_questionnaire), or a typo — must be
+# rejected up-front rather than silently running with whatever
+# get_pipeline_agents() returns (which would be []).
+SUPPORTED_PIPELINE_TYPES: frozenset[str] = frozenset({
+    "user_stories", "ppt", "prototype", "app_builder",
+    "user_stories_revision", "ppt_revision", "prototype_revision",
+    "app_builder_revision",
+    "custom",
+})
+
+
+def allowed_custom_agent_ids(pipeline_type: str) -> set[str]:
+    """Return the set of agent IDs a client may legitimately supply in
+    ``run_pipeline.agent_ids`` for the given ``pipeline_type``.
+
+    Why this exists: ``websocket.py`` used to call ``get_all_agents()`` and
+    pick whichever IDs were in the registry, which let a client send PPT
+    ``agent_ids`` to a user_stories pipeline, resurrect the deprecated
+    ``reverse_engineer`` agents (still in the registry — see Group 3
+    cleanup in ``docs/_audit/TRIAGE.md``), or invoke synthetic agents like
+    QUESTIONNAIRE_AGENT outside the questionnaire flow. See audit ticket
+    G1-C6 for the original write-up.
+
+    The allow-list is derived from the registry (NOT a hand-maintained
+    constant) so adding or removing a pipeline doesn't require updating
+    two places.
+
+    Returns:
+        - For a base pipeline (``user_stories`` / ``ppt`` / ``prototype`` /
+          ``app_builder``): the union of (a) the agent IDs in that pipeline's
+          default list and (b) every ID in ``CUSTOM_AGENTS`` — these are
+          the "custom utility" agents the UI exposes via the agent library
+          (frontend/.../AgentLibrary.tsx).
+        - For a revision pipeline (``*_revision``): only the agent IDs in
+          that revision pipeline's default list. Revisions are intentionally
+          tight — the orchestrator's revision context-passing assumes a
+          fixed shape, and the UI doesn't let the user inject extra agents
+          into a revision run.
+        - For ``custom``: every ID in ``CUSTOM_AGENTS``. A ``custom`` run
+          starts from an empty list (see ``CUSTOM_WORKFLOW_AGENTS = []``)
+          and is fully assembled by the user from the agent library, so the
+          allow-list is exactly the library's pool.
+        - For an unknown / unsupported ``pipeline_type``: empty set. The
+          caller is expected to also reject unknown pipeline types up-front
+          (see ``SUPPORTED_PIPELINE_TYPES``); this empty-set fallback
+          ensures that even if a check is forgotten, no agent_ids can ever
+          be smuggled through under an unknown type.
+    """
+    if pipeline_type in _BASE_PIPELINES_WITH_CUSTOM_AGENTS:
+        defaults = {a.id for a in ALL_AGENTS.get(pipeline_type, [])}
+        custom = {a.id for a in CUSTOM_AGENTS}
+        return defaults | custom
+
+    if pipeline_type in _REVISION_BASE_MAP:
+        return {a.id for a in ALL_AGENTS.get(pipeline_type, [])}
+
+    if pipeline_type == "custom":
+        return {a.id for a in CUSTOM_AGENTS}
+
+    return set()
+
+
+# ============================================================
 # QUESTIONNAIRE AGENT — Generates clarifying MCQ questions
 # ============================================================
 

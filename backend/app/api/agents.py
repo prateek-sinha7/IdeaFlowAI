@@ -4,10 +4,17 @@ Skills are namespaced per user (see WORKFLOWS.md §B6 for the rationale and the
 storage layout in ``app/agents/skills.py``). Every skill endpoint requires
 ``get_current_user`` and only ever reads/writes that user's own files; no
 endpoint here can touch another user's skill or the admin-managed global tier.
+
+Phase B G1-C7 (prompt-injection via per-user skill content): user-controllable
+skill payloads are capped at ``MAX_SKILL_BYTES`` at save time. The orchestrator
+applies sanitisation + a backstop truncation at load time — see
+``app.agents.skills.sanitize_user_skill_content``.
 """
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.agents.registry import get_pipeline_agents, get_all_agents_flat, get_agent_by_id
 from app.agents.skills import (
@@ -20,6 +27,8 @@ from app.agents.skills import (
 )
 from app.core.dependencies import get_current_user
 from app.models.user import User
+
+logger = logging.getLogger("app.api.agents")
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -46,7 +55,14 @@ class PipelineResponse(BaseModel):
 
 class SkillRequest(BaseModel):
     agent_id: str
-    content: str
+    # Pydantic ``max_length`` is a *character* cap (defence in depth). The
+    # authoritative byte-level cap is the explicit check in ``create_skill``
+    # using ``MAX_SKILL_BYTES`` — Pydantic counts code points, not UTF-8
+    # bytes, so for multi-byte text the byte check is stricter and is what
+    # actually returns HTTP 413. Keep these in sync: ``max_length`` is the
+    # number of bytes (since 1 ASCII char == 1 byte) and only differs for
+    # non-ASCII content, where the byte check will fire first anyway.
+    content: str = Field(..., max_length=MAX_SKILL_BYTES)
 
 
 class SkillResponse(BaseModel):
@@ -171,9 +187,12 @@ def create_skill(
     """Create or update the calling user's custom skill for an agent.
 
     - Validates ``agent_id`` against the registry (rejects unknown IDs with 400).
-    - Caps content at ``MAX_SKILL_BYTES`` (currently 64 KB) — oversized
-      payloads return 413.
+    - Caps content at ``MAX_SKILL_BYTES`` (8 KB) — oversized payloads return
+      HTTP 413. This is the primary defence against the Phase B G1-C7
+      prompt-injection vector (see module docstring).
     - Writes to ``backend/skills/users/{current_user.id}/{agent_id}/SKILL.md``.
+    - Audit-logs the save (user, agent, byte count) so a malicious tenant
+      churning skill content shows up in the application log.
     """
     if get_agent_by_id(request.agent_id) is None:
         raise HTTPException(
@@ -183,6 +202,13 @@ def create_skill(
 
     content_bytes = request.content.encode("utf-8")
     if len(content_bytes) > MAX_SKILL_BYTES:
+        # The Pydantic ``max_length=MAX_SKILL_BYTES`` cap on the request
+        # schema returns 422 for the easy case (ASCII content); this branch
+        # catches the multi-byte case where len(content) <= MAX_SKILL_BYTES
+        # but len(content.encode('utf-8')) > MAX_SKILL_BYTES. Either way the
+        # user-visible contract is "oversize gets rejected"; we use 413 for
+        # the byte-overflow path because it's the canonical
+        # payload-too-large signal.
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=(
@@ -191,6 +217,12 @@ def create_skill(
         )
 
     path = save_custom_skill(request.agent_id, request.content, user_id=current_user.id)
+    logger.info(
+        "Skill saved: user=%s agent=%s bytes=%d",
+        current_user.id,
+        request.agent_id,
+        len(content_bytes),
+    )
     return {"status": "saved", "agent_id": request.agent_id, "path": path}
 
 

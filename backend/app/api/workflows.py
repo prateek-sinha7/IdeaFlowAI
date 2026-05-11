@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user
@@ -30,10 +30,46 @@ class CreateWorkflowRequest(BaseModel):
 class UpdateWorkflowRequest(BaseModel):
     """Request body for updating a workflow run status."""
 
-    status: Optional[str] = None  # "completed" | "failed"
+    status: Optional[str] = None  # "completed" | "failed" | "cancelled"
     output: Optional[str] = None
     duration: Optional[float] = None
     error: Optional[str] = None
+
+
+class ExportPptxRequest(BaseModel):
+    """Request body for POST /api/workflows/export-pptx.
+
+    All four fields are optional, but at least one of ``workflow_id``,
+    ``js_code`` or ``html`` MUST be present (enforced inside the handler
+    rather than via Pydantic, since the field that matters depends on the
+    extraction strategy chosen).
+
+    Caps exist to bound subprocess input and prevent trivial DoS via huge
+    payloads — they are intentionally generous (a real PptxGenJS function
+    is rarely > 100 KB) and not a substitute for the sandboxing work
+    tracked separately under the pptx_export hardening item.
+    """
+
+    workflow_id: Optional[str] = Field(
+        default=None,
+        max_length=64,
+        description="UUID of a WorkflowRun belonging to the caller; agent output is fetched server-side.",
+    )
+    js_code: Optional[str] = Field(
+        default=None,
+        max_length=512_000,
+        description="Raw PptxGenJS JavaScript (the generatePresentation function body).",
+    )
+    html: Optional[str] = Field(
+        default=None,
+        max_length=2_000_000,
+        description="An HTML preview containing a generatePresentation() function in a <script> block.",
+    )
+    title: str = Field(
+        default="Presentation",
+        max_length=120,
+        description="Filename hint for the Content-Disposition response header.",
+    )
 
 
 class WorkflowRunResponse(BaseModel):
@@ -127,14 +163,14 @@ def list_workflows(
 
 @router.post("/export-pptx")
 def export_pptx(
-    request: dict,
+    request: ExportPptxRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Generate a .pptx file from Agent 3's PptxGenJS code.
 
     Tries to get the code from:
-    1. workflow_id → agent_outputs (Agent 3 output from DB)
+    1. workflow_id → agent_outputs (the ppt-code-generator agent's output)
     2. js_code field directly
     3. html field → extract generatePresentation() from HTML
 
@@ -144,10 +180,19 @@ def export_pptx(
     from fastapi.responses import Response
     from app.services.pptx_export import generate_pptx_from_code
 
-    js_code = request.get("js_code", "")
-    html_content = request.get("html", "")
-    workflow_id = request.get("workflow_id", "")
-    title = request.get("title", "Presentation")
+    js_code = request.js_code or ""
+    html_content = request.html or ""
+    workflow_id = request.workflow_id or ""
+    title = request.title
+
+    # The set of agent IDs whose `output` is canonical PptxGenJS source. The
+    # previous substring scan (`"code" in aid or "generator" in aid or
+    # "ppt-code" in aid`) had four false positives (`app-code-generator`,
+    # `barcode-extractor`, `prototype-generator`, `code-reviewer`) — a user
+    # who had run a non-PPT pipeline in the same workflow_id could silently
+    # download a deck built from the wrong agent's output. Exact match
+    # against the registered IDs eliminates that class of mistake.
+    _PPT_CODE_AGENT_IDS = {"ppt-code-generator"}
 
     # Strategy 1: Get Agent 3 output from workflow DB
     if not js_code and workflow_id:
@@ -159,8 +204,7 @@ def export_pptx(
             try:
                 outputs = _json.loads(wr.agent_outputs)
                 for agent in outputs:
-                    aid = agent.get("agent_id", "")
-                    if "code" in aid or "generator" in aid or "ppt-code" in aid:
+                    if agent.get("agent_id", "") in _PPT_CODE_AGENT_IDS:
                         js_code = agent.get("output", "")
                         break
             except Exception:
@@ -219,7 +263,14 @@ def export_pptx(
             detail=f"Failed to generate PPTX: {str(e)[:200]}",
         )
 
-    filename = f"{title.replace(' ', '_')[:40]}.pptx"
+    # Sanitize the filename to ASCII alphanumerics + `_-.` only. The previous
+    # `title.replace(' ', '_')[:40]` did NOT strip CR/LF/control chars or
+    # double-quote, which let a maliciously-crafted title smuggle additional
+    # headers (HTTP response splitting). The Pydantic max_length on `title`
+    # bounds the size; this re.sub bounds the alphabet.
+    import re as _re
+    safe_title = _re.sub(r"[^A-Za-z0-9._-]", "_", title)[:40] or "Presentation"
+    filename = f"{safe_title}.pptx"
     return Response(
         content=pptx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",

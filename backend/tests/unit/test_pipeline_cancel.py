@@ -8,7 +8,7 @@ Strategy: rather than stand up a real WebSocket — which would require
 tests drive the ``_handle_pipeline_execution`` coroutine directly with:
 
 * A ``FakeWebSocket`` that records every ``send_json`` call.
-* A ``StubPipelineExecutor`` whose ``execute`` is a slow async generator
+* A ``StubWorkflowOrchestrator`` whose ``execute`` is a slow async generator
   (sleeps between yields) so ``task.cancel()`` lands mid-stream.
 * An in-memory SQLite DB wired into the websocket module's ``_get_db`` and
   the model schema, exactly like ``test_logout.py`` does for the auth router.
@@ -21,10 +21,23 @@ Coverage:
 4. Disconnect mid-pipeline cancels the task.
 5. An exception inside the pipeline still goes through the ``failed`` path
    (regression check that the new CancelledError handler didn't break it).
-6. ``CancelledError`` raised from inside ``PipelineExecutor`` propagates
-   through orchestrator-style retry layers — verifies the
+6. ``CancelledError`` raised from inside ``WorkflowOrchestrator`` propagates
+   through the orchestrator's retry layers — verifies the
    ``except asyncio.CancelledError: raise`` shielding in
-   ``app/agents/pipeline.py`` works as designed.
+   ``app/agents/orchestrator_v2.py`` works as designed.
+
+Migration notes (post-pipeline.py deletion):
+
+* The orchestrator under test is now ``app.agents.orchestrator_v2.WorkflowOrchestrator``.
+  Its constructor takes ``(pipeline_type, custom_agents=None, db_session=None,
+  user_id=None)`` and its ``execute(content, cancel_event=None)`` method
+  remains an async generator yielding the same event shapes as before.
+* Tests #1–#5 swap in ``StubWorkflowOrchestrator`` via ``monkeypatch.setattr``
+  on the ``app.agents.orchestrator_v2`` symbol (which is what
+  ``_handle_pipeline_execution`` imports lazily).
+* Test #6 drives a real ``WorkflowOrchestrator`` with a ``BaseAgent`` stub
+  whose ``astream`` raises ``CancelledError`` — the shield now lives at
+  orchestrator_v2.py:337 (per-attempt) and orchestrator_v2.py:393 (per-agent).
 """
 
 from __future__ import annotations
@@ -119,23 +132,36 @@ class FakeWebSocket:
         self.sent.append(payload)
 
 
-class StubPipelineExecutor:
-    """Async-generator stub for ``PipelineExecutor`` whose pacing we control.
+class StubWorkflowOrchestrator:
+    """Async-generator stub for ``WorkflowOrchestrator`` whose pacing we control.
 
-    The yielded events match the shape ``_handle_pipeline_execution`` expects
-    so the collector branches (``agent_start``/``agent_thinking``/
-    ``agent_chunk``/``agent_complete``/``pipeline_complete``) all execute.
+    Matches the post-refactor ``WorkflowOrchestrator`` constructor signature:
+    ``(pipeline_type, custom_agents=None, db_session=None, user_id=None)``.
+    The ``execute(content, cancel_event=None)`` method is an async generator
+    yielding the same event types the WS handler expects — ``pipeline_start``,
+    ``agent_start``, ``agent_thinking``, ``agent_chunk``, ``agent_complete``,
+    ``pipeline_complete`` — so all collector branches in
+    ``_handle_pipeline_execution`` execute.
     """
 
     # Every instance shares this attribute so tests can configure it before
     # the helper instantiates the class internally.
     behaviour: str = "slow"  # "slow" | "fast" | "raise"
 
-    def __init__(self, pipeline_type: str, custom_agents=None):
+    def __init__(
+        self,
+        pipeline_type: str,
+        custom_agents=None,
+        db_session=None,
+        user_id=None,
+    ):
         self.pipeline_type = pipeline_type
+        self.custom_agents = custom_agents
+        self.db_session = db_session
+        self.user_id = user_id
 
-    async def execute(self, content: str, skills=None):
-        if StubPipelineExecutor.behaviour == "raise":
+    async def execute(self, content: str, cancel_event=None):
+        if StubWorkflowOrchestrator.behaviour == "raise":
             yield {"type": "pipeline_start", "data": {"agents": []}}
             await asyncio.sleep(0)
             raise RuntimeError("simulated pipeline crash")
@@ -158,7 +184,7 @@ class StubPipelineExecutor:
             "type": "agent_thinking",
             "data": {"agent_id": "stub-agent", "thinking": "stubbed"},
         }
-        chunk_count = 2 if StubPipelineExecutor.behaviour == "fast" else 50
+        chunk_count = 2 if StubWorkflowOrchestrator.behaviour == "fast" else 50
         for i in range(chunk_count):
             yield {
                 "type": "agent_chunk",
@@ -166,7 +192,7 @@ class StubPipelineExecutor:
             }
             # Long enough that cancel() in the test reliably interrupts;
             # short enough that the "fast" path completes quickly.
-            await asyncio.sleep(0.02 if StubPipelineExecutor.behaviour == "fast" else 0.05)
+            await asyncio.sleep(0.02 if StubWorkflowOrchestrator.behaviour == "fast" else 0.05)
         yield {
             "type": "agent_complete",
             "data": {"agent_id": "stub-agent", "name": "Stub Agent", "duration": 0.1},
@@ -179,16 +205,20 @@ class StubPipelineExecutor:
 
 @pytest.fixture
 def stub_executor(monkeypatch):
-    """Replace ``PipelineExecutor`` (the symbol imported lazily inside the
+    """Replace ``WorkflowOrchestrator`` (the symbol imported lazily inside the
     helper) so every test can swap behaviour by setting
-    ``StubPipelineExecutor.behaviour``.
-    """
-    import app.agents.pipeline as pipeline_mod
+    ``StubWorkflowOrchestrator.behaviour``.
 
-    monkeypatch.setattr(pipeline_mod, "PipelineExecutor", StubPipelineExecutor)
+    ``_handle_pipeline_execution`` does ``from app.agents.orchestrator_v2
+    import WorkflowOrchestrator`` at function scope, so patching the symbol
+    on the module is what the lazy import will resolve.
+    """
+    import app.agents.orchestrator_v2 as orchestrator_mod
+
+    monkeypatch.setattr(orchestrator_mod, "WorkflowOrchestrator", StubWorkflowOrchestrator)
     # Reset to default for each test so leakage between tests is impossible.
-    StubPipelineExecutor.behaviour = "slow"
-    yield StubPipelineExecutor
+    StubWorkflowOrchestrator.behaviour = "slow"
+    yield StubWorkflowOrchestrator
 
 
 @pytest.fixture(autouse=True)
@@ -251,6 +281,10 @@ class TestCancelMidPipeline:
     def test_cancel_marks_workflow_cancelled_and_sends_ack(
         self, in_memory_db, make_user, stub_executor,
     ):
+        """Cancelling a running pipeline must end with the task in the
+        ``cancelled`` state, a ``pipeline_cancelled`` ack on the wire, and
+        ``WorkflowRun.status == "cancelled"`` persisted to the DB.
+        """
         user = make_user()
 
         async def scenario():
@@ -308,6 +342,10 @@ class TestCancelBeforeRun:
     """
 
     def test_idempotent_ack_when_no_active_task(self):
+        """With no current pipeline task, a ``cancel_pipeline`` request must
+        result in a ``pipeline_cancelled`` ack with body
+        ``{"message": "No active pipeline"}`` and no DB writes.
+        """
         async def scenario():
             ws = FakeWebSocket()
             current_pipeline_task: asyncio.Task | None = None
@@ -344,6 +382,9 @@ class TestRejectOverlappingRun:
     """
 
     def test_second_run_pipeline_is_rejected(self, in_memory_db, make_user, stub_executor):
+        """While a pipeline task is in flight, the dispatch branch must send
+        a ``pipeline_already_running`` error and refuse to start a second one.
+        """
         user = make_user()
 
         async def scenario():
@@ -403,6 +444,9 @@ class TestDisconnectCancels:
     def test_disconnect_path_cancels_running_task(
         self, in_memory_db, make_user, stub_executor,
     ):
+        """A ``WebSocketDisconnect`` mid-pipeline must cancel the background
+        task and still persist ``WorkflowRun.status == "cancelled"``.
+        """
         user = make_user()
 
         async def scenario():
@@ -453,8 +497,12 @@ class TestExceptionPathStillWorks:
     def test_runtime_error_marks_workflow_failed(
         self, in_memory_db, make_user, stub_executor,
     ):
+        """When the orchestrator raises a non-cancellation exception, the
+        handler must send a ``pipeline_error`` event and mark the
+        ``WorkflowRun`` row ``failed`` (NOT ``cancelled`` or ``running``).
+        """
         user = make_user()
-        StubPipelineExecutor.behaviour = "raise"
+        StubWorkflowOrchestrator.behaviour = "raise"
 
         async def scenario():
             ws = FakeWebSocket()
@@ -478,46 +526,54 @@ class TestExceptionPathStillWorks:
         assert wr.error and "simulated pipeline crash" in wr.error
 
 
-# --- 6. CancelledError shield in PipelineExecutor.execute -----------------
+# --- 6. CancelledError shield in WorkflowOrchestrator.execute --------------
 
 
-class TestPipelineExecutorShield:
-    """``PipelineExecutor.execute``'s retry block previously caught
-    ``Exception`` — which would also catch ``CancelledError`` — and the
-    outer per-agent block did the same. Both now have an
-    ``except asyncio.CancelledError: raise`` shield ahead of the broad
-    catch. This test verifies the shield is honoured.
+class TestWorkflowOrchestratorShield:
+    """``WorkflowOrchestrator.execute`` has two ``except`` blocks that could
+    inadvertently swallow ``asyncio.CancelledError``:
+
+      1. The per-attempt block at orchestrator_v2.py:337 around the retry
+         loop's broad ``except Exception``.
+      2. The per-agent block at orchestrator_v2.py:393 around the broad
+         ``except Exception`` that converts errors to ``agent_error``
+         events.
+
+    Both have an explicit ``except asyncio.CancelledError: raise`` shield
+    ahead of the broad catch. This test verifies the shield is honoured —
+    a ``CancelledError`` from inside ``BaseAgent.astream`` must propagate
+    out of ``execute()`` rather than be turned into a recoverable
+    ``agent_error`` event.
     """
 
     def test_cancellederror_is_not_swallowed_by_retry_or_outer_catch(self):
-        """A real ``PipelineExecutor`` driven by a ``BaseAgent`` whose
+        """A real ``WorkflowOrchestrator`` driven by a ``BaseAgent`` whose
         ``astream`` raises ``CancelledError`` must propagate the
         ``CancelledError`` out — not yield an ``agent_error`` event and
         keep iterating.
         """
-        from app.agents.pipeline import PipelineExecutor
+        from app.agents.orchestrator_v2 import WorkflowOrchestrator
         from app.agents.registry import AgentDefinition
 
-        class CancellingAgent:
-            async def astream(self, _msg):
-                # Allow one yield boundary before raising so the retry
-                # loop has actually started consuming.
-                await asyncio.sleep(0)
-                raise asyncio.CancelledError()
-                # Ensure this is treated as an async generator method by
-                # the type system; the unreachable yield keeps Python
-                # from optimising the function into a coroutine.
-                yield  # pragma: no cover
+        async def _cancelling_astream(_msg):
+            # Allow one yield boundary before raising so the retry
+            # loop has actually started consuming.
+            await asyncio.sleep(0)
+            raise asyncio.CancelledError()
+            # Ensure this is treated as an async generator method by the
+            # type system; the unreachable yield keeps Python from
+            # optimising the function into a coroutine.
+            yield  # pragma: no cover
 
         async def scenario():
-            executor = PipelineExecutor(
+            orchestrator = WorkflowOrchestrator(
                 "user_stories",
                 custom_agents=[
                     AgentDefinition(
                         id="cancel-stub",
                         name="Cancel Stub",
                         role="Tester",
-                        description="stub used only to drive the executor",
+                        description="stub used only to drive the orchestrator",
                         icon="bug",
                         order=1,
                         pipeline_type="user_stories",
@@ -528,23 +584,27 @@ class TestPipelineExecutorShield:
                 ],
             )
 
-            # Patch BaseAgent so ``PipelineExecutor`` uses our cancelling
-            # double instead of building a real LLM client.
-            import app.agents.pipeline as pipeline_mod
+            # Patch BaseAgent so the orchestrator uses our cancelling double
+            # instead of building a real LLM client. The orchestrator does
+            # ``from app.agents.base import BaseAgent`` at module-load time
+            # (top-of-file) so we patch the symbol on the orchestrator's
+            # module — that's the binding the constructor will see.
+            import app.agents.orchestrator_v2 as orch_mod
 
             class _StubBase:
                 def __init__(self, system_prompt, max_tokens):
-                    self._impl = CancellingAgent()
+                    self.system_prompt = system_prompt
+                    self.max_tokens = max_tokens
 
                 def astream(self, msg):
-                    return self._impl.astream(msg)
+                    return _cancelling_astream(msg)
 
-            saved = pipeline_mod.BaseAgent
-            pipeline_mod.BaseAgent = _StubBase
+            saved = orch_mod.BaseAgent
+            orch_mod.BaseAgent = _StubBase
             try:
                 events = []
                 with pytest.raises(asyncio.CancelledError):
-                    async for ev in executor.execute("hi"):
+                    async for ev in orchestrator.execute("hi"):
                         events.append(ev)
                 # The cancellation should have surfaced before any
                 # ``agent_error`` event was yielded — the shield's whole
@@ -552,6 +612,6 @@ class TestPipelineExecutorShield:
                 # turning cancellation into a recoverable agent_error.
                 assert not any(e["type"] == "agent_error" for e in events)
             finally:
-                pipeline_mod.BaseAgent = saved
+                orch_mod.BaseAgent = saved
 
         _run(scenario())
