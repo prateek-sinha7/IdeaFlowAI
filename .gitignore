@@ -26,6 +26,9 @@ venv/
 .venv/
 env/
 
+# pip --user installs landing inside a bind-mounted container WORKDIR
+.local/
+
 # Node.js
 node_modules/
 .next/

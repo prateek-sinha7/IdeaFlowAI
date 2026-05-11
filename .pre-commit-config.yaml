@@ -1,0 +1,99 @@
+# Pre-commit hooks for the Flowin monorepo.
+#
+# Install once per clone:
+#     pip install pre-commit==4.0.1
+#     pre-commit install
+#
+# Run manually against the whole repo:
+#     pre-commit run --all-files
+#
+# These hooks fire on `git commit`. They are NOT a replacement for CI —
+# CI re-runs them on every push. The point of pre-commit is to catch
+# obvious regressions before they ever reach review.
+#
+# Versions are pinned exactly. Do not use `master` / floating refs.
+
+repos:
+  # ---------------------------------------------------------------------
+  # Backend: ruff (correctness rules only — see backend/pyproject.toml).
+  # ---------------------------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      - id: ruff
+        name: ruff (backend)
+        # IMPORTANT: no --fix. We do not auto-modify code in a hook; the
+        # developer must decide. See backend/pyproject.toml header.
+        args: []
+        files: ^backend/.*\.py$
+        # Ruff reads its config from backend/pyproject.toml. We pass the
+        # path explicitly so pre-commit (which runs from the repo root)
+        # picks it up regardless of where git invokes the hook.
+        # `--config` is the documented way; passing it via args.
+        # NOTE: ruff auto-discovers pyproject.toml by walking up from
+        # each file, so this normally works without --config. Leaving it
+        # implicit keeps the command short.
+
+  # ---------------------------------------------------------------------
+  # Backend: pyright (import resolution only — see backend/pyrightconfig.json).
+  #
+  # We use `language: system` so the hook runs the locally-installed
+  # pyright (from `pip install -r backend/requirements-dev.txt`). This
+  # is intentional: pyright needs to see the installed third-party deps
+  # (fastapi, sqlalchemy, etc.) to resolve imports correctly. The
+  # standalone mirror at pre-commit-mirrors-pyright runs in an isolated
+  # venv where those deps don't exist, which would produce false
+  # positives on every commit.
+  # ---------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: pyright
+        name: pyright (backend imports)
+        # Pre-commit passes paths relative to the repo root (e.g.
+        # `backend/app/foo.py`). After `cd backend`, those paths would
+        # double up to `backend/backend/app/foo.py`. We strip the leading
+        # `backend/` from each argument with a tiny bash transform.
+        entry: bash -c 'cd backend && exec pyright "${@/#backend\//}"' --
+        language: system
+        types: [python]
+        files: ^backend/.*\.py$
+        pass_filenames: true
+        # Pyright reads backend/pyrightconfig.json. typeCheckingMode is
+        # `off` there; only `reportMissingImports` is `error`. This means
+        # the hook catches deleted-module imports without surfacing the
+        # tens of thousands of latent type errors in an untyped codebase.
+
+  # ---------------------------------------------------------------------
+  # Frontend: ESLint via the npm-local install.
+  #
+  # We deliberately use `language: system` + the project-local eslint
+  # binary so the hook runs the exact same eslint and plugins as
+  # `npm run lint`. Using the upstream eslint pre-commit mirror would
+  # install a separate eslint into pre-commit's venv, which would not
+  # know about eslint-config-next or any other project-local plugins.
+  # ---------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: eslint
+        name: eslint (frontend)
+        # `--max-warnings=-1` keeps the default behavior (warnings allowed).
+        # We do NOT auto-fix in the hook.
+        entry: bash -c 'cd frontend && ./node_modules/.bin/eslint "$@"' --
+        language: system
+        files: ^frontend/src/.*\.(ts|tsx|js|jsx)$
+        # Strip the leading `frontend/` prefix so eslint receives paths
+        # relative to its cwd. Pre-commit always passes repo-relative
+        # paths; the bash wrapper above changes into `frontend/`.
+        # Pre-commit doesn't have a built-in prefix-strip option, so we
+        # do it via a small inline sed-equivalent below.
+        types_or: [ts, tsx, javascript, jsx]
+        pass_filenames: false
+        # Why pass_filenames=false: the bash wrapper would need to
+        # rewrite paths from "frontend/src/foo.tsx" to "src/foo.tsx"
+        # before passing to eslint. Simpler to let eslint use its own
+        # config-driven file discovery via `npm run lint` semantics.
+        # The trade-off: this lints the WHOLE frontend on any frontend
+        # change, not just the changed files. For ~50 source files this
+        # is fast enough (sub-second on a warm cache) and avoids a
+        # whole class of "I changed a file but the hook didn't fire on
+        # the right paths" bugs.

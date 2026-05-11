@@ -1,0 +1,39 @@
+# Backend development-only dependencies.
+#
+# Install with:    pip install -r requirements-dev.txt
+#
+# These are NOT installed in production containers (see Dockerfile, which
+# only installs requirements.txt). They power local static analysis,
+# linting, and pre-commit checks.
+#
+# Versions are pinned exactly for reproducibility. Bump deliberately, never
+# with a range.
+
+# Static analysis (pyflakes/pycodestyle/bugbear/pylint subsets).
+# Configured in pyproject.toml under [tool.ruff].
+#
+# Ruff catches:
+#   - Unused imports (F401), undefined names within a file (F821, F811)
+#   - Pycodestyle errors (E*, W*) including indentation/whitespace bugs
+#   - Bugbear (B*) likely-bug patterns
+#   - Pylint ERROR-level rules (PLE*)
+#
+# Ruff does NOT do module resolution. It cannot tell that
+# `from app.agents.pipeline import X` references a deleted module.
+# That's what pyright is for — see below.
+ruff==0.8.4
+
+# Type/import resolution. We run pyright in `typeCheckingMode: off` with
+# only `reportMissingImports` enabled — i.e. a pure import-resolution
+# check. This catches the class of bug ruff cannot: a lazy or top-level
+# `from x.y import Z` to a module that doesn't exist (e.g. deleted in a
+# merge). Configured in `pyrightconfig.json`.
+#
+# IMPORTANT: Run pyright AFTER `pip install -r requirements.txt`. Without
+# the runtime deps installed, pyright will (correctly) report fastapi,
+# sqlalchemy, etc. as unresolved.
+pyright==1.1.391
+
+# Pre-commit framework. Run `pre-commit install` once after installing.
+# Hooks live in /.pre-commit-config.yaml at the repo root.
+pre-commit==4.0.1

@@ -1,0 +1,51 @@
+{
+  "_comment_1": "Pyright configuration — IMPORT RESOLUTION ONLY.",
+  "_comment_2": "Ruff cannot detect that a `from x.y import Z` references a deleted",
+  "_comment_3": "module (the motivating bug: app/api/websocket.py:480 importing the",
+  "_comment_4": "removed `app.agents.pipeline`). Pyflakes only sees symbols within",
+  "_comment_5": "a single file; module resolution requires a real type-checker.",
+  "_comment_6": "",
+  "_comment_7": "We run pyright in the most permissive mode possible and ONLY surface",
+  "_comment_8": "missing-imports errors. Everything else (untyped functions, optional",
+  "_comment_9": "access, etc.) is disabled because adopting full type-checking on a",
+  "_comment_10": "live codebase is a separate project.",
+
+  "include": ["app"],
+  "exclude": [
+    "**/__pycache__",
+    "**/node_modules",
+    ".venv",
+    "venv",
+    "alembic/versions",
+    "tests"
+  ],
+  "pythonVersion": "3.12",
+
+  "typeCheckingMode": "off",
+
+  "reportMissingImports": "error",
+  "reportMissingModuleSource": "none",
+  "reportInvalidTypeForm": "none",
+  "reportGeneralTypeIssues": "none",
+  "reportOptionalMemberAccess": "none",
+  "reportOptionalSubscript": "none",
+  "reportOptionalCall": "none",
+  "reportOptionalIterable": "none",
+  "reportOptionalContextManager": "none",
+  "reportOptionalOperand": "none",
+  "reportTypedDictNotRequiredAccess": "none",
+  "reportPrivateImportUsage": "none",
+  "reportUnboundVariable": "none",
+  "reportUnusedExpression": "none",
+  "reportAttributeAccessIssue": "none",
+  "reportArgumentType": "none",
+  "reportAssignmentType": "none",
+  "reportReturnType": "none",
+  "reportCallIssue": "none",
+  "reportIndexIssue": "none",
+  "reportOperatorIssue": "none",
+  "reportPossiblyUnboundVariable": "none",
+  "reportRedeclaration": "none",
+
+  "useLibraryCodeForTypes": false
+}

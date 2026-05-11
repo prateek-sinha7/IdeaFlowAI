@@ -189,6 +189,29 @@ All scripts are cross-platform and work on both Windows and macOS without
 modification.
 
 ================================================================================
+LINTING AND STATIC ANALYSIS
+================================================================================
+
+Full setup, rule rationale, and known-violations summary live in
+docs/linting.md. Short version:
+
+  Backend (ruff + pyright):
+    cd backend
+    pip install -r requirements-dev.txt
+    ruff check .                       # pyflakes/pycodestyle/bugbear
+    pyright                            # missing-imports only
+
+  Frontend (ESLint, project-local):
+    cd frontend
+    npm run lint
+
+  Pre-commit hooks (auto-run on git commit):
+    pip install pre-commit==4.0.1
+    pre-commit install
+
+We deliberately do NOT auto-fix in any hook. The developer must decide.
+
+================================================================================
 CROSS-PLATFORM NOTES
 ================================================================================
 

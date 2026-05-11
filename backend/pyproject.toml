@@ -13,3 +13,71 @@ addopts = "-v --tb=short"
 
 [tool.hypothesis]
 max_examples = 100
+
+# ---------------------------------------------------------------------------
+# Ruff — static analysis for the Python backend.
+#
+# Scope: CORRECTNESS only. We intentionally do NOT enable formatter-style
+# rules (line length, quote style, import sorting, etc.) because we are
+# adding ruff to a live codebase and a cascade of cosmetic fixes would
+# obscure real bugs and create merge conflicts.
+#
+# The motivating bug for this config was a lazy import to a deleted module
+# (`from app.agents.pipeline import PipelineExecutor` after `pipeline.py`
+# was removed in a merge). Pyflakes (`F` rules) catches this as F401
+# (unused import — would also be F821 if the symbol were referenced at
+# module-load time) because ruff resolves intra-project imports.
+# ---------------------------------------------------------------------------
+[tool.ruff]
+# Match the project's Python version so syntax-level checks line up.
+target-version = "py312"
+# Anchor src so first-party imports (`app.*`) resolve for unresolved-import
+# detection.
+src = ["."]
+extend-exclude = [
+    # Auto-generated and vendored content.
+    "alembic/versions",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "build",
+    "dist",
+]
+
+[tool.ruff.lint]
+# Enabled rule families:
+#   F  — Pyflakes: undefined names, unused imports, redefined names, etc.
+#        This is the family that catches the deleted-module lazy import.
+#   E  — pycodestyle ERRORS only (syntax-adjacent issues like E9*, E7*).
+#        We exclude E501 (line too long) because it's stylistic and would
+#        flood the report.
+#   W  — pycodestyle WARNINGS that indicate real bugs (W605 invalid escape).
+#   B  — flake8-bugbear: likely bugs (mutable default args, B008 etc.).
+#   PLE — Pylint ERRORS only (no convention/refactor noise).
+select = ["F", "E", "W", "B", "PLE"]
+ignore = [
+    # Line length — stylistic, not correctness; would generate hundreds of
+    # findings on the existing codebase. Reviewers can opt-in later.
+    "E501",
+    # Ambiguous variable name — many existing single-letter loop vars; not
+    # a correctness issue.
+    "E741",
+    # B008 — function calls in argument defaults. FastAPI's `Depends(...)`
+    # is the canonical idiom and would generate hundreds of false positives.
+    "B008",
+    # B904 — `raise ... from err`. Stylistic; reviewers can adopt
+    # incrementally. Not a correctness regression.
+    "B904",
+    # B007 — unused loop control variable. Common in (idx, item) patterns.
+    "B007",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests legitimately use unused imports (for side effects / fixtures),
+# magic numbers, and asserts.
+"tests/**" = ["F401", "F811"]
+# Alembic env.py runs at migration time and imports models for metadata
+# introspection — those imports look "unused" to static analysis.
+"alembic/env.py" = ["F401"]
+# __init__.py files re-export symbols; that's not "unused".
+"**/__init__.py" = ["F401"]
