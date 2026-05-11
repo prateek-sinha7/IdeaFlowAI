@@ -33,7 +33,17 @@ if [[ "$EUID" -ne 0 ]]; then
     exit 1
 fi
 
-# ── 0. Source operator-controlled values written by user_data ──────────
+# ── 0. Wait for cloud-init to finish ───────────────────────────────────
+# Must come BEFORE sourcing /etc/flowin/bootstrap.env: that file is written
+# by user_data which runs as cloud-init's final stage. `aws ec2 wait
+# instance-status-ok` (used by the calling deploy.sh) only confirms system
+# reachability; on a fast SSM dispatch the box can report status-ok before
+# cloud-init's final stage has written bootstrap.env, and we'd die at the
+# file-existence check below.
+echo "[bootstrap] waiting for cloud-init final stage..."
+while ! cloud-init status --wait > /dev/null 2>&1; do sleep 2; done
+
+# ── 1. Source operator-controlled values written by user_data ──────────
 #
 # /etc/flowin/bootstrap.env is created by Terraform's compute module user_data
 # (see infra/modules/compute/user_data.sh.tpl). It carries:
@@ -46,6 +56,11 @@ fi
 #   FLOWIN_ECR_REGISTRY   — <ACCOUNT>.dkr.ecr.<region>.amazonaws.com
 #   FLOWIN_ACME_EMAIL     — email for Let's Encrypt registration
 #
+# Also expects FLOWIN_IMAGE_TAG from the calling environment (deploy.sh
+# `aws ssm send-command` injects this via `export` prepended to the script
+# body). Defaults to "latest" for legacy compatibility, but deploy.sh
+# always sets a git-sha tag so re-runs don't collide with ECR IMMUTABLE.
+#
 # docker-compose.yml is downloaded from s3://$FLOWIN_BACKUP_BUCKET/config/
 # (uploaded by Terraform's aws_s3_object.compose_yaml in envs/prod/main.tf).
 # The EC2 needs no git auth.
@@ -55,6 +70,8 @@ if [[ ! -f /etc/flowin/bootstrap.env ]]; then
 fi
 # shellcheck source=/dev/null
 . /etc/flowin/bootstrap.env
+
+IMAGE_TAG="${FLOWIN_IMAGE_TAG:-latest}"
 
 REGION="${FLOWIN_REGION:-eu-central-1}"
 DOMAIN="${FLOWIN_FQDN:?FLOWIN_FQDN missing in /etc/flowin/bootstrap.env}"
@@ -69,20 +86,42 @@ DATA_DEV=/dev/nvme1n1
 DATA_MOUNT=/var/lib/postgresql
 APP_USER=flowin
 
-# ── 1. Wait for cloud-init ─────────────────────────────────────────────
-while ! cloud-init status --wait > /dev/null 2>&1; do sleep 2; done
-
 # ── 2. Patch & baseline tools ──────────────────────────────────────────
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get -y full-upgrade
+# Note on awscli: Ubuntu Noble (24.04 LTS) removed the `awscli` apt package
+# — it was v1 (deprecated, EOL July 2025) and the Debian/Ubuntu package was
+# unmaintained. AWS officially distributes v2 as a self-contained binary
+# from awscli.amazonaws.com. `unzip` here is needed to unpack the v2
+# installer in section 2b below.
 apt-get install -y \
     nginx postgresql-16 postgresql-contrib-16 postgresql-client-16 \
-    curl jq xfsprogs acl \
+    curl jq xfsprogs acl unzip \
     certbot python3-certbot-nginx \
     ufw fail2ban auditd \
     unattended-upgrades update-notifier-common \
-    awscli ca-certificates gnupg
+    ca-certificates gnupg
+
+# ── 2b. AWS CLI v2 (official installer) ────────────────────────────────
+# Ubuntu's apt repo no longer ships awscli; AWS-recommended path is to
+# download the v2 self-contained binary directly. Idempotent: `aws/install
+# --update` is a no-op if v2 is already installed at the same/newer version.
+# Pinning the version (vs latest) makes deploys reproducible; bump
+# AWSCLI_VERSION here to roll forward.
+AWSCLI_VERSION="2.17.42"
+if ! command -v aws >/dev/null 2>&1 \
+    || [[ "$(aws --version 2>&1 | awk -F'[/ ]' '{print $2}')" != "${AWSCLI_VERSION}" ]]; then
+    AWSCLI_TMP="$(mktemp -d)"
+    trap 'rm -rf "$AWSCLI_TMP"' EXIT
+    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-${AWSCLI_VERSION}.zip" \
+        -o "${AWSCLI_TMP}/awscliv2.zip"
+    unzip -q "${AWSCLI_TMP}/awscliv2.zip" -d "${AWSCLI_TMP}"
+    "${AWSCLI_TMP}/aws/install" --update --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli
+    rm -rf "$AWSCLI_TMP"
+    trap - EXIT
+fi
+echo "[bootstrap] aws cli version: $(aws --version)"
 
 # ── 3. Firewall + SSH hardening + unattended upgrades ──────────────────
 ufw default deny incoming
@@ -90,6 +129,14 @@ ufw default allow outgoing
 ufw allow 22/tcp
 ufw allow 80/tcp
 ufw allow 443/tcp
+# Postgres reachable only from RFC 1918 ranges Docker uses for its bridge
+# networks (default bridge + compose-created bridges). The backend
+# container connects to host.docker.internal:5432 (resolved to the docker0
+# / compose-bridge gateway), and without this rule UFW silently drops the
+# traffic — symptom is "Connection timed out" from psycopg2, not "refused".
+# The VPC security group separately blocks 5432 from outside the EC2, so
+# this is a narrow allow that only opens postgres to local containers.
+ufw allow from 172.16.0.0/12 to any port 5432 proto tcp comment "Postgres from docker bridges"
 ufw --force enable
 
 cat >/etc/ssh/sshd_config.d/10-flowin.conf <<'EOF'
@@ -106,7 +153,12 @@ ClientAliveCountMax 2
 MaxAuthTries 3
 LoginGraceTime 30
 EOF
-systemctl reload ssh
+# On Ubuntu Noble, ssh.service is often socket-activated (ssh.socket starts
+# ssh.service on first connect), so a plain `systemctl reload ssh` against
+# an inactive service fails with "ssh.service is not active, cannot reload"
+# and set -e kills the bootstrap. reload-or-restart is the systemd-idiomatic
+# command for "apply the new sshd_config, regardless of current state".
+systemctl reload-or-restart ssh
 
 cat >/etc/apt/apt.conf.d/52flowin <<'EOF'
 APT::Periodic::Update-Package-Lists "1";
@@ -128,13 +180,15 @@ chmod 0750 /etc/flowin
 
 # ── 5. Data volume — fresh vs recovery ─────────────────────────────────
 systemctl stop postgresql || true
+# Format the data device if it has no filesystem signature yet. The
+# filesystem-signature check below is separate from the recovery-mode
+# decision: a partially-failed prior bootstrap can leave xfs in place
+# but no postgres data, which is still "fresh" from initdb's perspective.
 if blkid "$DATA_DEV" >/dev/null 2>&1; then
-    echo "[bootstrap] data volume already formatted — recovery mode"
-    RECOVERY=1
+    echo "[bootstrap] data device has filesystem signature — skipping mkfs"
 else
-    echo "[bootstrap] data volume blank — fresh provision"
+    echo "[bootstrap] data device blank — formatting xfs"
     mkfs.xfs -L flowin-data "$DATA_DEV"
-    RECOVERY=0
 fi
 
 mkdir -p "$DATA_MOUNT"
@@ -146,6 +200,19 @@ if ! mountpoint -q "$DATA_MOUNT"; then
 fi
 chown postgres:postgres "$DATA_MOUNT"
 
+# Recovery-mode detection — based on actual Postgres data (PG_VERSION marker
+# file written by a successful initdb), NOT filesystem-signature presence.
+# Previously the check fired on xfs presence; a partial bootstrap that
+# formatted xfs but died before initdb would mis-classify as "recovery"
+# and skip the initdb that actually has to run.
+if [[ -f "$DATA_MOUNT/16/main/PG_VERSION" ]]; then
+    echo "[bootstrap] postgres data dir present — recovery mode"
+    RECOVERY=1
+else
+    echo "[bootstrap] postgres data dir absent — fresh provision"
+    RECOVERY=0
+fi
+
 # ── 6. Postgres init / configure ───────────────────────────────────────
 # DATABASE_PASSWORD is provisioned by Terraform's random_password in
 # infra/modules/secrets/main.tf — script just reads it. (The composite
@@ -153,26 +220,58 @@ chown postgres:postgres "$DATA_MOUNT"
 # from this same password; we don't store DATABASE_URL in SSM separately.)
 PG_DATA="$DATA_MOUNT/16/main"
 if [[ $RECOVERY -eq 0 ]]; then
+    # PostgreSQL 16 initdb syntax notes:
+    #   - `--pwprompt` is a flag (no value); the previous `--pwprompt=false`
+    #     made initdb error with "option '--pwprompt' doesn't allow an
+    #     argument" and the bootstrap died here.
+    #   - Match the Debian/Ubuntu pg_createcluster default: peer for the
+    #     local Unix socket (so `sudo -u postgres psql` works without
+    #     password), scram-sha-256 for TCP (the flowin app container
+    #     connects over TCP with a real password from SSM).
+    #   - No --pwfile / --pwprompt: the postgres SUPERUSER role gets no
+    #     password set at initdb time. The flowin role created in the next
+    #     block is the one with a real scram-sha-256 hash, and that's the
+    #     only role the app ever uses over TCP.
     sudo -u postgres /usr/lib/postgresql/16/bin/initdb -D "$PG_DATA" \
-        --auth=scram-sha-256 --pwprompt=false --pwfile=<(echo)
+        --auth-local=peer --auth-host=scram-sha-256
 fi
 
 PG_CONF=/etc/postgresql/16/main/postgresql.conf
 PG_HBA=/etc/postgresql/16/main/pg_hba.conf
+# listen_addresses = '*' is paired with a tight pg_hba.conf below + a
+# firewall that blocks 5432/tcp from external sources, so postgres is
+# reachable only by:
+#   - host-local processes via 127.0.0.1
+#   - docker containers connecting via their bridge gateway (typically
+#     172.17-31.x.1, depending on which docker-compose network they're on)
+# The backend container's DATABASE_URL uses `host.docker.internal` which
+# host-gateway resolves to the bridge gateway, hitting postgres on that
+# interface. Binding to 127.0.0.1 ONLY (the previous setting) made the
+# container's TCP connect fail because postgres wasn't accepting on the
+# bridge IP — symptom was "connection refused" or a misleading
+# "could not translate host name" from libpq.
 sed -i \
     -e "s|^#*data_directory.*|data_directory = '$PG_DATA'|" \
-    -e "s|^#*listen_addresses.*|listen_addresses = '127.0.0.1'|" \
+    -e "s|^#*listen_addresses.*|listen_addresses = '*'|" \
     -e "s|^#*shared_buffers.*|shared_buffers = 4GB|" \
     -e "s|^#*effective_cache_size.*|effective_cache_size = 10GB|" \
     -e "s|^#*work_mem.*|work_mem = 32MB|" \
     -e "s|^#*maintenance_work_mem.*|maintenance_work_mem = 512MB|" \
     -e "s|^#*log_min_duration_statement.*|log_min_duration_statement = 1000|" \
     "$PG_CONF"
+# pg_hba.conf: peer auth for the postgres superuser on the local socket
+# (no password needed), scram-sha-256 for everyone else. Host entries
+# cover loopback + the docker bridge ranges that compose/dockerd allocate
+# from (172.16.0.0/12 covers 172.17.0.0/16 through 172.31.0.0/16, which
+# is the full RFC 1918 range Docker hands out by default). The VPC
+# security group + ufw both block 5432 from outside the EC2, so the
+# /12 grant is only reachable from local containers in practice.
 cat > "$PG_HBA" <<'EOF'
-local   all   postgres                peer
-local   all   all                     scram-sha-256
-host    all   all      127.0.0.1/32   scram-sha-256
-host    all   all      ::1/128        scram-sha-256
+local   all   postgres                  peer
+local   all   all                       scram-sha-256
+host    all   all      127.0.0.1/32     scram-sha-256
+host    all   all      ::1/128          scram-sha-256
+host    all   all      172.16.0.0/12    scram-sha-256
 EOF
 
 mkdir -p /etc/systemd/system/postgresql@16-main.service.d
@@ -182,6 +281,12 @@ OOMScoreAdjust=-900
 EOF
 systemctl daemon-reload
 systemctl enable --now postgresql@16-main
+# Restart so the postgresql.conf / pg_hba.conf rewrites above take effect
+# on re-runs. listen_addresses changes specifically require a restart (not
+# just SIGHUP / reload). On a fresh box this is a no-op equivalent of the
+# first start above; on re-run it picks up the new config without manual
+# intervention.
+systemctl restart postgresql@16-main
 
 if [[ $RECOVERY -eq 0 ]]; then
     DB_PW=$(aws ssm get-parameter --region "$REGION" \
@@ -226,8 +331,20 @@ systemctl enable --now docker
 # being in the docker group (docker.sock = root-equivalent). `|| true`
 # because the cwagent user may not exist yet — repeated after cwagent install
 # in §13.
-setfacl -R -m u:cwagent:rX /var/lib/docker/containers || true
-setfacl -R -d -m u:cwagent:rX /var/lib/docker/containers || true
+#
+# `o::r` is intentional and load-bearing. /var/lib/docker/containers is
+# mode 0710 by default — owner:root, group:root, other:---. When setfacl
+# sets a default ACL it inherits the dir's current "other" bits as the
+# default for new files. That meant new container bind-mount files
+# (notably /etc/hosts, which docker generates per container and bind-mounts
+# in) got mode 0640 — readable only by root and the cwagent named entry.
+# Containers running as a non-root user (our Dockerfile sets uid 10001
+# `flowin`) then can't read /etc/hosts and DNS lookups for entries we
+# added via `extra_hosts: host.docker.internal:host-gateway` fail with
+# "Temporary failure in name resolution". Forcing `o::r` here restores the
+# normal world-readable /etc/hosts so app containers can use the host.
+setfacl -R -m u:cwagent:rX,o::r /var/lib/docker/containers || true
+setfacl -R -d -m u:cwagent:rX,o::r /var/lib/docker/containers || true
 
 echo "[bootstrap] Docker installed: $(docker --version), $(docker compose version)"
 
@@ -279,21 +396,35 @@ aws s3 cp "s3://${BACKUP_BUCKET}/config/docker-compose.yml" \
 chown "$APP_USER:$APP_USER" /opt/flowin/docker-compose.yml
 chmod 0644 /opt/flowin/docker-compose.yml
 
-# ── 11. /etc/flowin/app.env initial pin (CI updates this in place) ─────
-if [[ ! -f /etc/flowin/app.env ]]; then
-    cat > /etc/flowin/app.env <<EOF
+# ── 11. /etc/flowin/app.env image-tag pin ──────────────────────────────
+# ECR repos are IMMUTABLE — deploy.sh pushes :<git-sha> (never :latest).
+# On every bootstrap run we overwrite the BACKEND_IMAGE / FRONTEND_IMAGE
+# pin lines so a redeploy points at the just-pushed tag; flowin-load-secrets
+# preserves these pin lines on subsequent flowin-app.service starts (it
+# only reloads SSM-sourced secrets, not the image pins).
+mkdir -p /etc/flowin
+if [[ -f /etc/flowin/app.env ]]; then
+    # Strip the three managed lines; keep everything else operators added.
+    grep -vE '^(ENV|BACKEND_IMAGE|FRONTEND_IMAGE)=' /etc/flowin/app.env \
+        > /etc/flowin/app.env.new || true
+else
+    # Fresh box: seed with the header comment so future operators know
+    # where these values come from.
+    cat > /etc/flowin/app.env.new <<EOF
 # Populated by /usr/local/bin/flowin-load-secrets on every flowin-app start.
 # The loader preserves BACKEND_IMAGE / FRONTEND_IMAGE / ENV lines below;
 # everything else is overwritten from SSM ${PARAM_PREFIX}/*.
 
-ENV=production
-
-BACKEND_IMAGE=${ECR_REGISTRY}/flowin-${ENVIRONMENT}-backend:latest
-FRONTEND_IMAGE=${ECR_REGISTRY}/flowin-${ENVIRONMENT}-frontend:latest
 EOF
-    chown root:"$APP_USER" /etc/flowin/app.env
-    chmod 0640 /etc/flowin/app.env
 fi
+cat >> /etc/flowin/app.env.new <<EOF
+ENV=production
+BACKEND_IMAGE=${ECR_REGISTRY}/flowin-${ENVIRONMENT}-backend:${IMAGE_TAG}
+FRONTEND_IMAGE=${ECR_REGISTRY}/flowin-${ENVIRONMENT}-frontend:${IMAGE_TAG}
+EOF
+mv /etc/flowin/app.env.new /etc/flowin/app.env
+chown root:"$APP_USER" /etc/flowin/app.env
+chmod 0640 /etc/flowin/app.env
 
 # ── 12. /usr/local/bin/flowin-load-secrets ─────────────────────────────
 # Quoted heredoc — no shell expansion at install time. The generated script
@@ -323,7 +454,16 @@ if [[ -f "$OUT" ]]; then
 fi
 
 emit() {
-    printf '%s=%q\n' "$1" "$2" >> "$TMP"
+    # Raw VAR=VALUE (no shell-quoting). Both systemd's EnvironmentFile
+    # parser and Docker Compose's env-file reader treat everything after
+    # the first `=` up to end-of-line as the literal value. Previously
+    # this used `printf %s=%q` which works for shell re-evaluation but
+    # produces backslash-escaped output (e.g. `CORS_ORIGINS=\[\"…\"\]`)
+    # that systemd/Compose pass through verbatim, breaking JSON-shaped
+    # values like CORS_ORIGINS (pydantic_settings sees the backslashes
+    # and json.loads raises). SSM parameter values are guaranteed not to
+    # contain literal newlines, so raw VAR=VALUE is safe here.
+    printf '%s=%s\n' "$1" "$2" >> "$TMP"
 }
 
 CORS_SET=0
@@ -426,9 +566,13 @@ server {
 }
 
 server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    http2 on;
+    # nginx 1.24 (apt-shipped on Ubuntu Noble) does not recognize the
+    # standalone http2 directive — that syntax was added in 1.25.1. The
+    # listen-parameter form works on both 1.24 (required) and 1.25+
+    # (deprecated but accepted), so this stays portable across Noble's
+    # lifetime. Revisit when apt-shipped nginx moves past 1.25.
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
     server_name ${DOMAIN};
 
     server_tokens off;
@@ -561,9 +705,11 @@ if ! dpkg -s amazon-cloudwatch-agent >/dev/null 2>&1; then
     dpkg -i /tmp/cw-agent.deb
     rm /tmp/cw-agent.deb
 fi
-# Re-grant ACL now that cwagent user exists.
-setfacl -R -m u:cwagent:rX /var/lib/docker/containers
-setfacl -R -d -m u:cwagent:rX /var/lib/docker/containers
+# Re-grant ACL now that cwagent user exists. See §8 above for why o::r is
+# load-bearing (preserves world-read on per-container /etc/hosts so non-
+# root containers can do DNS).
+setfacl -R -m u:cwagent:rX,o::r /var/lib/docker/containers
+setfacl -R -d -m u:cwagent:rX,o::r /var/lib/docker/containers
 
 # CloudWatch agent config — materialized from SIMPLE_AWS_DEPLOYMENT.md §10.1.
 # - `${ENV_TITLE}` / `${ENVIRONMENT}` interpolate at install time (bash).
@@ -585,7 +731,7 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<EOF
     "metrics_collected": {
       "cpu":    {"measurement": ["cpu_usage_idle","cpu_usage_iowait","cpu_usage_user","cpu_usage_system"], "totalcpu": true, "metrics_collection_interval": 60},
       "mem":    {"measurement": ["mem_used_percent","mem_available"], "metrics_collection_interval": 60},
-      "disk":   {"measurement": ["used_percent","inodes_free_percent"], "resources": ["/", "/var/lib/postgresql"], "metrics_collection_interval": 60},
+      "disk":   {"measurement": ["used_percent","inodes_free"], "resources": ["/", "/var/lib/postgresql"], "metrics_collection_interval": 60},
       "diskio": {"measurement": ["io_time","write_bytes","read_bytes"], "resources": ["*"], "metrics_collection_interval": 60},
       "swap":   {"measurement": ["swap_used_percent"], "metrics_collection_interval": 60},
       "net":    {"measurement": ["bytes_sent","bytes_recv","drop_in","drop_out"], "resources": ["*"], "metrics_collection_interval": 60}
@@ -846,6 +992,14 @@ systemctl enable --now \
 
 # ── 18. App service — load secrets, start ──────────────────────────────
 /usr/local/bin/flowin-load-secrets
+# Tear down any existing containers before (re-)starting the service. This
+# forces fresh containers on every bootstrap re-run, which is necessary so
+# that any change to host state that influences container provisioning
+# (default ACLs on /var/lib/docker/containers — see §8 above, image-tag
+# pins in /etc/flowin/app.env, etc.) takes effect even when neither the
+# image digest nor compose-detectable env has changed. Idempotent: on a
+# fresh box there are no containers to remove.
+( cd /opt/flowin && docker compose down --remove-orphans 2>/dev/null || true )
 systemctl enable --now flowin-app.service
 
 # ── 19. Smoke test ─────────────────────────────────────────────────────
