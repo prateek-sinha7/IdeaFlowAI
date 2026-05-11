@@ -168,8 +168,18 @@ else
     yellow "==> [2/5] SKIPPED (FLOWIN_SKIP_PROD_TF=1)"
 fi
 
-# Resolve outputs once for the next steps.
-tf_out() { terraform -chdir=infra/envs/prod output -raw "$1"; }
+# Resolve outputs once for the next steps. `terraform output -raw` returns
+# nonzero (and a confusing one-line "Warning") when the output is missing —
+# usually because the prod apply was skipped on a tree that never had it.
+# Wrap so the operator gets a useful diagnosis instead of `set -e` killing
+# the script silently.
+tf_out() {
+    local val
+    val=$(terraform -chdir=infra/envs/prod output -raw "$1" 2>/dev/null) \
+        || die "terraform output '$1' is missing. Did the prod apply succeed? (If you set FLOWIN_SKIP_PROD_TF=1, the state must already contain this output.)"
+    [[ -n "$val" ]] || die "terraform output '$1' is empty."
+    printf '%s' "$val"
+}
 
 BACKEND_REPO=$(tf_out ecr_backend_repository_url)
 FRONTEND_REPO=$(tf_out ecr_frontend_repository_url)
@@ -177,10 +187,27 @@ FQDN=$(tf_out fqdn)
 INSTANCE_ID=$(tf_out instance_id)
 REGISTRY="${BACKEND_REPO%/*}"
 
+# ── Compute image tag (shared by step 5 build/push + step 6 SSM env) ──
+# ECR repos are `image_tag_mutability = "IMMUTABLE"` (see infra/modules/ecr).
+# Pushing the same tag twice fails with ImagePushNotAllowedException, so we
+# can't use :latest — every deploy needs a unique tag. Default = current
+# commit's short sha; uncommitted local changes get a `-dirty-<unixts>`
+# suffix so iterating with WIP changes still produces unique tags. Operator
+# can override via FLOWIN_IMAGE_TAG (mainly for FLOWIN_SKIP_IMAGES=1 mode,
+# where you want the box to pull an already-pushed tag).
+TAG="$(git rev-parse --short HEAD)"
+if ! git diff --quiet HEAD 2>/dev/null \
+    || [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
+    DIRTY_SUFFIX="-dirty-$(date +%s)"
+    yellow "    NOTE: uncommitted changes — tagging as ${TAG}${DIRTY_SUFFIX}"
+    yellow "    (commit for a reproducible tag)"
+    TAG="${TAG}${DIRTY_SUFFIX}"
+fi
+TAG="${FLOWIN_IMAGE_TAG:-$TAG}"
+
 # ── 5. Build + push initial images ────────────────────────────────────
 if [[ -z "${FLOWIN_SKIP_IMAGES:-}" ]]; then
-    bold "==> [3/5] build + push initial images to ECR"
-    TAG="latest"
+    bold "==> [3/5] build + push images to ECR ($TAG)"
 
     aws ecr get-login-password --region "$REGION" \
         | docker login --username AWS --password-stdin "$REGISTRY"
@@ -205,6 +232,20 @@ if [[ -z "${FLOWIN_SKIP_IMAGES:-}" ]]; then
     docker push "$FRONTEND_REPO:$TAG"
 else
     yellow "==> [3/5] SKIPPED (FLOWIN_SKIP_IMAGES=1)"
+    # The box will try `docker compose pull` on this tag. If it doesn't
+    # exist in ECR yet, flowin-app.service crash-loops with manifest-unknown
+    # and the only signal is buried in `journalctl -u flowin-app`. Fail fast
+    # here instead — saves a 15-min round trip.
+    for repo in "$BACKEND_REPO" "$FRONTEND_REPO"; do
+        repo_name="${repo##*/}"
+        if ! aws ecr describe-images \
+            --region "$REGION" \
+            --repository-name "$repo_name" \
+            --image-ids "imageTag=$TAG" >/dev/null 2>&1; then
+            die "FLOWIN_SKIP_IMAGES=1 set, but $repo_name:$TAG isn't in ECR. Either unset FLOWIN_SKIP_IMAGES, or set FLOWIN_IMAGE_TAG to a tag that's been pushed."
+        fi
+    done
+    yellow "    verified $TAG present in both ECR repos"
 fi
 
 # ── 6. SSM RunCommand: run bootstrap-ec2.sh on the instance ───────────
@@ -243,12 +284,41 @@ if [[ -z "${FLOWIN_SKIP_BOOTSTRAP_SSM:-}" ]]; then
     # window), not run-time. Run-time is the `executionTimeout` parameter
     # below — 1800s gives bootstrap-ec2.sh comfortable headroom past its
     # typical ~6 min runtime.
+    #
+    # AWS-RunShellScript runs the commands array under /bin/sh, which on
+    # Ubuntu is dash (POSIX), not bash. bootstrap-ec2.sh is bash-specific:
+    # `set -o pipefail`, `[[ ]]`, `${var^}`, `[[ "$x" =~ regex ]]`, etc.
+    # Wrap the body in a quoted heredoc and pipe it to /bin/bash so the
+    # entire script executes under bash regardless of what SSM dispatches
+    # us under. The terminator __FLOWIN_BOOTSTRAP_EOF__ is unique vs. any
+    # heredoc terminator inside bootstrap-ec2.sh (it uses EOF, UNIT, TIMER,
+    # WRAPPER, SUDO, etc.). Quoted heredoc delimiter ('${EOF_TAG}') keeps
+    # /bin/sh from doing $-expansion on the bash body before bash sees it.
+    #
+    # FLOWIN_IMAGE_TAG is set via `export` inside the bash heredoc so
+    # bootstrap-ec2.sh's IMAGE_TAG="${FLOWIN_IMAGE_TAG:-latest}" picks up
+    # the just-pushed git-sha tag.
+    EOF_TAG="__FLOWIN_BOOTSTRAP_EOF__"
+    SCRIPT_BODY="$(cat infra/scripts/bootstrap-ec2.sh)"
+    # FLOWIN_ACME_EMAIL is exported here as a belt-and-suspenders for instances
+    # whose /etc/flowin/bootstrap.env was written before TF started populating
+    # the key (modules/compute/user_data.sh.tpl writes it via user_data_extra_env
+    # going forward). bootstrap-ec2.sh's `${FLOWIN_ACME_EMAIL:-fallback}` keeps
+    # the bootstrap.env-sourced value when present, otherwise our export wins —
+    # safer than the placeholder `security@example.com` which Let's Encrypt
+    # rejects as an invalid registration email.
+    SSM_SCRIPT="exec /bin/bash <<'${EOF_TAG}'
+export FLOWIN_IMAGE_TAG=$(printf %q "$TAG")
+export FLOWIN_ACME_EMAIL=$(printf %q "$FLOWIN_ALERT_EMAIL")
+${SCRIPT_BODY}
+${EOF_TAG}"
+
     CMD_ID=$(aws ssm send-command \
         --region "$REGION" \
         --document-name AWS-RunShellScript \
         --instance-ids "$INSTANCE_ID" \
         --parameters "$(jq -n \
-            --rawfile script infra/scripts/bootstrap-ec2.sh \
+            --arg script "$SSM_SCRIPT" \
             '{commands: [$script], executionTimeout: ["1800"]}')" \
         --output text --query 'Command.CommandId')
 

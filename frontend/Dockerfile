@@ -1,12 +1,23 @@
 # syntax=docker/dockerfile:1.7
 
 # ----------------------------------------------------------------------------
+# Base image choice — `bookworm-slim` (Debian glibc) rather than `alpine`
+# (musl). Two reasons:
+#   1. Cross-arch builds: producing linux/amd64 from an Apple Silicon laptop
+#      runs the image layer through QEMU x86_64 emulation. The Alpine+apk+
+#      QEMU combination has a long-known TLS-handshake failure mode that
+#      makes `apk add` fail with "server certificate not trusted" on a
+#      proxy-clean network. glibc bookworm-slim avoids the apk step entirely.
+#   2. The `libc6-compat` workaround the previous Alpine layer needed is a
+#      musl-specific kludge for npm's prebuilt native modules — glibc base
+#      images don't need it.
+# Image size penalty: ~50 MB vs alpine. Acceptable for a single-EC2 deploy.
+# ----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------
 # Stage 1: deps — install npm dependencies (deterministic via npm ci)
 # ----------------------------------------------------------------------------
-FROM node:20-alpine AS deps
-
-# libc6-compat is needed for some npm native modules on alpine (musl vs glibc).
-RUN apk add --no-cache libc6-compat
+FROM node:20-bookworm-slim AS deps
 
 WORKDIR /app
 
@@ -21,7 +32,7 @@ RUN npm ci
 # ----------------------------------------------------------------------------
 # Stage 2: builder — produce the standalone Next.js bundle
 # ----------------------------------------------------------------------------
-FROM node:20-alpine AS builder
+FROM node:20-bookworm-slim AS builder
 
 WORKDIR /app
 
@@ -49,7 +60,7 @@ RUN npm run build
 # ----------------------------------------------------------------------------
 # Stage 3: runner — minimal runtime image
 # ----------------------------------------------------------------------------
-FROM node:20-alpine AS runner
+FROM node:20-bookworm-slim AS runner
 
 WORKDIR /app
 
@@ -77,12 +88,14 @@ USER nextjs
 
 EXPOSE 3000
 
-# wget is provided by busybox in alpine — no install needed.
-# 127.0.0.1 (NOT localhost): busybox wget resolves localhost to ::1 first, but
-# Next.js standalone binds 0.0.0.0 (IPv4 only), so a localhost spider silently
-# times out and the healthcheck stays "starting" forever.
+# bookworm-slim has no wget/curl by default. Rather than apt-install one
+# (extra layer, +5 MB, another apt-update over the proxy), use Node's
+# built-in http module — Node is already in the image. 127.0.0.1 (NOT
+# localhost) because Next.js's standalone server binds 0.0.0.0 (IPv4 only)
+# and `localhost` resolves to ::1 first on Debian — a v6 probe would
+# silently time out and the healthcheck would stay "starting" forever.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/ || exit 1
+    CMD node -e "require('http').get('http://127.0.0.1:3000/', r => process.exit(r.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))"
 
 # Exec form so signals (SIGTERM, SIGINT) reach node directly.
 CMD ["node", "server.js"]
