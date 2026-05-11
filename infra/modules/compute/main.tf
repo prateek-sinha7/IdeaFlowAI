@@ -83,9 +83,19 @@ resource "aws_instance" "app" {
   associate_public_ip_address = false # EIP is associated explicitly
 
   metadata_options {
-    http_endpoint               = "enabled"
-    http_tokens                 = "required"      # IMDSv2-only
-    http_put_response_hop_limit = 1
+    http_endpoint = "enabled"
+    http_tokens   = "required" # IMDSv2-only
+    # hop_limit = 2 is required for containerized workloads on EC2. The
+    # IMDS responds on 169.254.169.254 and the EC2 IAM role's temporary
+    # credentials are only fetchable through IMDS. From inside a Docker
+    # container the request travels container → bridge → IMDS = 2 hops,
+    # so a response capped at 1 hop is dropped before reaching the
+    # container. Symptom is `boto3.NoCredentialsError: Unable to locate
+    # credentials` — exactly what the backend hit when calling Bedrock.
+    # AWS's own docs explicitly recommend hop_limit=2 for ECS/EKS/Docker-
+    # on-EC2 deployments. Still IMDSv2-only (http_tokens=required), so
+    # SSRF protection is preserved.
+    http_put_response_hop_limit = 2
     instance_metadata_tags      = "enabled"
   }
 
