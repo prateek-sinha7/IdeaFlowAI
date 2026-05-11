@@ -21,6 +21,11 @@ interface PreviewPanelProps {
   initialTab?: string;
   onTabSelect?: (tab: string) => void;
   workflowType?: WorkflowType;
+  pptxCode?: string;
+  onRevisePpt?: (instruction: string) => void;
+  onReviseUserStory?: (instruction: string) => void;
+  onRevisePrototype?: (instruction: string) => void;
+  onReviseAppBuilder?: (instruction: string) => void;
 }
 
 const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
@@ -28,20 +33,26 @@ const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
   { id: "files", label: "Files", icon: FolderDown },
 ];
 
-export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, isStreaming, onCollapse, initialTab, onTabSelect, workflowType }: PreviewPanelProps) {
+export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>("preview");
   const [copied, setCopied] = useState(false);
 
   useEffect(() => { if (initialTab === "preview" || initialTab === "files") setActiveTab(initialTab); }, [initialTab]);
 
   const detectedType: WorkflowType = workflowType || (userStoryContent ? "user_stories" : pptContent ? "ppt" : prototypeContent ? "prototype" : "user_stories");
+  // Normalize revision types to their base type for rendering
+  const renderType = detectedType === "user_stories_revision" ? "user_stories"
+    : detectedType === "ppt_revision" ? "ppt"
+    : detectedType === "prototype_revision" ? "prototype"
+    : detectedType === "app_builder_revision" ? "app_builder"
+    : detectedType;
   const activeContent =
-    detectedType === "user_stories" || detectedType === "app_builder" || detectedType === "reverse_engineer" || detectedType === "custom"
+    renderType === "user_stories" || renderType === "app_builder" || renderType === "custom"
       ? userStoryContent
-      : detectedType === "ppt"
+      : renderType === "ppt"
       ? pptContent
       : prototypeContent;
-  const hasContent = !!(userStoryContent || pptContent || prototypeContent);
+  const hasContent = !!(userStoryContent || pptContent || prototypeContent || pptxCode);
 
   const handleTabChange = (tabId: PanelTab) => { setActiveTab(tabId); onTabSelect?.(tabId); };
   const handleCopy = () => {
@@ -121,10 +132,10 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, i
                 </div>
               ) : (
                 <>
-                  {detectedType === "user_stories" && userStoryContent && <UserStoryPreview content={userStoryContent} />}
-                  {(detectedType === "app_builder" || detectedType === "reverse_engineer" || detectedType === "custom") && userStoryContent && <MarkdownPreview content={userStoryContent} />}
-                  {detectedType === "ppt" && pptContent && <PPTPreview content={pptContent} isStreaming={isStreaming} />}
-                  {detectedType === "prototype" && prototypeContent && <PrototypePreview content={prototypeContent} isStreaming={isStreaming} />}
+                  {renderType === "user_stories" && userStoryContent && <UserStoryPreview content={userStoryContent} onRevise={onReviseUserStory} />}
+                  {(renderType === "app_builder" || renderType === "custom") && userStoryContent && <MarkdownPreview content={userStoryContent} onRevise={renderType === "app_builder" ? onReviseAppBuilder : undefined} />}
+                  {renderType === "ppt" && (pptContent || pptxCode) && <PPTPreview content={pptContent} isStreaming={isStreaming} pptxCode={pptxCode} onRevise={onRevisePpt} />}
+                  {renderType === "prototype" && prototypeContent && <PrototypePreview content={prototypeContent} isStreaming={isStreaming} onRevise={onRevisePrototype} />}
                 </>
               )}
             </motion.div>
@@ -138,7 +149,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, i
               transition={{ duration: 0.15 }}
               className="absolute inset-0"
             >
-              <FilesTab workflowType={detectedType} userStoryContent={userStoryContent} pptContent={pptContent} prototypeContent={prototypeContent} />
+              <FilesTab workflowType={renderType} userStoryContent={userStoryContent} pptContent={pptContent} prototypeContent={prototypeContent} />
             </motion.div>
           )}
         </AnimatePresence>

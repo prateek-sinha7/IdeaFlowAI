@@ -3,17 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  History,
-  FileText,
-  Presentation,
-  Layout,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  Loader2,
-  ArrowLeft,
-  Trash2,
-  Filter,
+  FileText, Presentation, Layout, Clock, CheckCircle2,
+  XCircle, Loader2, ArrowLeft, Trash2, ChevronRight,
+  Search, MoreHorizontal,
 } from "lucide-react";
 import { getToken, getWorkflows, getWorkflow, deleteWorkflow } from "@/lib/api";
 import { PPTPreview } from "@/components/preview/PPTPreview";
@@ -27,22 +19,34 @@ interface WorkflowHistoryProps {
   onBack: () => void;
 }
 
-const TYPE_META: Record<string, { icon: typeof FileText; label: string; color: string }> = {
-  user_stories: { icon: FileText, label: "User Stories", color: "text-gray-600 bg-gray-100" },
-  ppt: { icon: Presentation, label: "Presentation", color: "text-gray-600 bg-gray-100" },
-  prototype: { icon: Layout, label: "Prototype", color: "text-gray-600 bg-gray-100" },
-  app_builder: { icon: Layout, label: "App Builder", color: "text-gray-600 bg-gray-100" },
-  reverse_engineer: { icon: FileText, label: "Reverse Engineer", color: "text-gray-600 bg-gray-100" },
-  custom: { icon: FileText, label: "Custom", color: "text-gray-600 bg-gray-100" },
+const TYPE_META: Record<string, { icon: typeof FileText; label: string }> = {
+  user_stories: { icon: FileText, label: "User Stories" },
+  user_stories_revision: { icon: FileText, label: "User Stories (Revised)" },
+  ppt: { icon: Presentation, label: "Presentation" },
+  ppt_revision: { icon: Presentation, label: "Presentation (Revised)" },
+  prototype: { icon: Layout, label: "Prototype" },
+  prototype_revision: { icon: Layout, label: "Prototype (Revised)" },
+  app_builder: { icon: Layout, label: "App Builder" },
+  app_builder_revision: { icon: Layout, label: "App Builder (Revised)" },
+  custom: { icon: FileText, label: "Custom" },
 };
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  const now = new Date();
+  const diff = now.getTime() - d.getTime();
+  const mins = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 function formatDuration(seconds?: number): string {
-  if (!seconds) return "—";
+  if (!seconds) return "";
   if (seconds < 60) return `${Math.round(seconds)}s`;
   return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
 }
@@ -54,9 +58,11 @@ export function WorkflowHistory({ onBack }: WorkflowHistoryProps) {
   const [selectedOutput, setSelectedOutput] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [filterType, setFilterType] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [detailTab, setDetailTab] = useState<"preview" | "files">("preview");
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
-  // Load workflow runs
   useEffect(() => {
     const token = getToken();
     if (!token) return;
@@ -67,19 +73,14 @@ export function WorkflowHistory({ onBack }: WorkflowHistoryProps) {
       .finally(() => setLoading(false));
   }, []);
 
-  // Load full workflow detail when selected
   const handleSelectRun = useCallback(async (run: WorkflowRun) => {
     setSelectedRun(run);
     setSelectedOutput(null);
     setDetailTab("preview");
-
-    // If output already available from list, use it
     if (run.output && run.output.length > 0) {
       setSelectedOutput(run.output);
       return;
     }
-
-    // Otherwise fetch full detail from API
     const token = getToken();
     if (!token) return;
     setLoadingDetail(true);
@@ -87,26 +88,13 @@ export function WorkflowHistory({ onBack }: WorkflowHistoryProps) {
       const full = await getWorkflow(token, run.id);
       setSelectedRun(full);
       setSelectedOutput(full.output || null);
-    } catch {
-      // silently fail
-    } finally {
-      setLoadingDetail(false);
-    }
+    } catch {}
+    finally { setLoadingDetail(false); }
   }, []);
 
-  const handleBack = () => {
-    if (selectedRun) {
-      setSelectedRun(null);
-      setSelectedOutput(null);
-    } else {
-      onBack();
-    }
-  };
-
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-
   const handleDeleteClick = useCallback((runId: string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
+    e?.stopPropagation();
+    setOpenMenuId(null);
     setDeleteConfirmId(runId);
   }, []);
 
@@ -117,128 +105,164 @@ export function WorkflowHistory({ onBack }: WorkflowHistoryProps) {
     try {
       await deleteWorkflow(token, deleteConfirmId);
       setRuns((prev) => prev.filter((r) => r.id !== deleteConfirmId));
-      if (selectedRun?.id === deleteConfirmId) {
-        setSelectedRun(null);
-        setSelectedOutput(null);
-      }
-    } catch {
-      // silently fail
-    } finally {
-      setDeleteConfirmId(null);
-    }
+      if (selectedRun?.id === deleteConfirmId) { setSelectedRun(null); setSelectedOutput(null); }
+    } catch {}
+    finally { setDeleteConfirmId(null); }
   }, [deleteConfirmId, selectedRun]);
 
-  const handleDeleteCancel = useCallback(() => {
-    setDeleteConfirmId(null);
-  }, []);
+  const filteredRuns = runs.filter((r) => {
+    // Group revision types with their base type for filtering
+    const baseType = r.type.replace("_revision", "");
+    const matchType = filterType === "all" || baseType === filterType || r.type === filterType;
+    const matchSearch = !searchQuery || (r.title || "").toLowerCase().includes(searchQuery.toLowerCase());
+    return matchType && matchSearch;
+  });
 
-  const filteredRuns = filterType === "all" ? runs : runs.filter((r) => r.type === filterType);
-
-  // Detail view for a selected run
+  // ─── DETAIL VIEW ───────────────────────────────────────────────────────────
   if (selectedRun) {
     const meta = TYPE_META[selectedRun.type] || TYPE_META.custom;
     const Icon = meta.icon;
     const workflowType = selectedRun.type as WorkflowType;
+    const isUserStory = workflowType === "user_stories" || workflowType === "user_stories_revision";
+    const isMarkdown = workflowType === "app_builder" || workflowType === "app_builder_revision" || workflowType === "custom";
+    const isPpt = workflowType === "ppt" || workflowType === "ppt_revision";
+    const isPrototype = workflowType === "prototype" || workflowType === "prototype_revision";
 
-    // Determine content for preview
-    const isUserStory = workflowType === "user_stories";
-    const isMarkdown = workflowType === "app_builder" || workflowType === "reverse_engineer" || workflowType === "custom";
-    const isPpt = workflowType === "ppt";
-    const isPrototype = workflowType === "prototype";
-
-    // Parse agent outputs if available
     let agentOutputs: { agent_id: string; name: string; role: string; icon: string; output: string; duration: number | null }[] = [];
     if (selectedRun.agentOutputs) {
-      try {
-        agentOutputs = typeof selectedRun.agentOutputs === "string" ? JSON.parse(selectedRun.agentOutputs) : selectedRun.agentOutputs;
-      } catch { /* ignore */ }
+      try { agentOutputs = typeof selectedRun.agentOutputs === "string" ? JSON.parse(selectedRun.agentOutputs) : selectedRun.agentOutputs; }
+      catch {}
     }
 
     return (
-      <div className="h-full flex bg-gray-50">
-        {/* Left Panel — Back button + Agents */}
-        <div className="w-full md:w-[280px] lg:w-[300px] flex-shrink-0 h-full border-r border-gray-200 overflow-y-auto bg-white flex flex-col">
-          {/* Header with back + title */}
-          <div className="px-3 py-2.5 border-b border-gray-200 flex-shrink-0">
-            <div className="flex items-center gap-2">
-              <button onClick={handleBack} className="flex items-center justify-center h-6 w-6 rounded-lg hover:bg-gray-100 transition-colors flex-shrink-0">
-                <ArrowLeft className="h-3 w-3 text-gray-500" />
-              </button>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[7px] font-semibold ${meta.color}`}>
-                    <Icon className="h-2 w-2" />{meta.label}
-                  </span>
-                  <span className="text-[8px] text-gray-400">{formatDuration(selectedRun.duration)}</span>
-                </div>
-                <p className="text-[10px] font-semibold text-gray-900 truncate mt-0.5">{selectedRun.title}</p>
+      <div className="h-full flex" style={{ background: "#f5f5f0" }}>
+        {/* Left sidebar — white panel */}
+        <div className="w-[260px] flex-shrink-0 h-full border-r border-gray-200 flex flex-col bg-white min-h-0">
+          {/* Back + run info */}
+          <div className="px-5 pt-5 pb-4 border-b border-gray-100">
+            <button
+              onClick={() => { setSelectedRun(null); setSelectedOutput(null); }}
+              className="flex items-center gap-1.5 text-[11px] text-gray-400 hover:text-gray-700 transition-colors mb-4"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" /> Back to history
+            </button>
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-8 h-8 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center flex-shrink-0">
+                <Icon className="h-4 w-4 text-gray-500" />
               </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-widest">{meta.label}</p>
+              </div>
+              {selectedRun.status === "completed" && (
+                <span className="text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-full flex-shrink-0">Done</span>
+              )}
+            </div>
+            <h2 className="text-[13px] font-semibold text-gray-900 leading-snug mb-1.5">{selectedRun.title}</h2>
+            <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
+              <span>{formatDate(selectedRun.createdAt)}</span>
+              {selectedRun.duration && <><span>·</span><span>{formatDuration(selectedRun.duration)}</span></>}
             </div>
           </div>
 
-          {/* Agent list */}
-          <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
-            {agentOutputs.length > 0 ? agentOutputs.map((agent, idx) => (
-              <details key={idx} className="rounded-lg border border-gray-200 bg-gray-50 overflow-hidden">
-                <summary className="flex items-center gap-2 px-2.5 py-2 cursor-pointer hover:bg-gray-100 transition-colors">
-                  <div className="flex h-5 w-5 items-center justify-center rounded bg-gray-200 flex-shrink-0">
-                    <FileText className="h-3 w-3 text-gray-500" />
+          {/* Agents list */}
+          <div className="flex-1 overflow-y-auto min-h-0 px-3 py-3 space-y-2">
+            <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-widest px-2 mb-2">
+              {agentOutputs.length} Agents
+            </p>
+            {agentOutputs.length > 0 ? agentOutputs.map((agent, idx) => {
+              const iconStyles = [
+                { bg: "#E8EDF5", text: "#1B2A4A" },
+                { bg: "#F0EDE8", text: "#5C4A2A" },
+                { bg: "#EAF0EA", text: "#2A5C2A" },
+                { bg: "#F0E8EE", text: "#5C2A4A" },
+                { bg: "#E8EEF0", text: "#2A4A5C" },
+                { bg: "#F0EEE8", text: "#5C5A2A" },
+              ];
+              const iconStyle = iconStyles[idx % iconStyles.length];
+              const initials = agent.name.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
+              return (
+                <details key={idx} className="group rounded-xl border border-gray-100 bg-white overflow-hidden">
+                  <summary className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors list-none">
+                    {/* Icon */}
+                    <div
+                      className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-[11px] font-bold"
+                      style={{ background: iconStyle.bg, color: iconStyle.text }}
+                    >
+                      {initials}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[12px] font-semibold text-gray-900 leading-tight">{agent.name}</p>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          {agent.duration != null && (
+                            <span className="text-[9px] text-gray-400">{agent.duration.toFixed(0)}s</span>
+                          )}
+                          <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                            DONE
+                          </span>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-0.5">{agent.role}</p>
+                    </div>
+                    <ChevronRight className="h-3 w-3 text-gray-300 group-open:rotate-90 transition-transform flex-shrink-0" />
+                  </summary>
+                  <div className="border-t border-gray-100 overflow-hidden" style={{ background: "#f7f6f3" }}>
+                    <pre className="text-[9px] text-gray-500 whitespace-pre-wrap leading-relaxed p-3 max-h-[120px] overflow-y-auto font-mono">
+                      {agent.output?.slice(0, 1200) || "No output"}
+                      {agent.output && agent.output.length > 1200 && "\n...[truncated]"}
+                    </pre>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[10px] font-medium text-gray-900 truncate">{agent.name}</p>
-                  </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    {agent.duration && <span className="text-[8px] text-gray-400">{agent.duration.toFixed(1)}s</span>}
-                    <CheckCircle2 className="h-3 w-3 text-emerald-500" />
-                  </div>
-                </summary>
-                <div className="px-2.5 pb-2 border-t border-gray-200">
-                  <pre className="text-[9px] text-gray-600 whitespace-pre-wrap leading-relaxed mt-1.5 max-h-[120px] overflow-y-auto font-mono bg-white rounded p-2 border border-gray-200">
-                    {agent.output?.slice(0, 1500) || "No output"}
-                    {agent.output && agent.output.length > 1500 && "\n...[truncated]"}
-                  </pre>
-                </div>
-              </details>
-            )) : (
-              <p className="text-[10px] text-gray-400 text-center py-4">No agent data available</p>
+                </details>
+              );
+            }) : (
+              <div className="flex flex-col items-center justify-center py-8 text-center">
+                <p className="text-[11px] text-gray-400">No agent data</p>
+              </div>
             )}
           </div>
         </div>
 
-        {/* Right Panel — Preview + Files (full height, no top header) */}
-        <div className="flex-1 min-w-0 h-full flex flex-col">
+        {/* Main content — white panel */}
+        <div className="flex-1 min-w-0 h-full flex flex-col bg-white border-l border-gray-200">
           {/* Tabs */}
-          <div className="px-4 py-1.5 border-b border-gray-200 bg-white flex-shrink-0">
-            <div className="flex gap-0.5 bg-gray-100 rounded-md p-0.5 w-fit">
-              <button onClick={() => setDetailTab("preview")} className={`rounded px-3 py-1 text-[10px] font-medium transition-all ${detailTab === "preview" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"}`}>
-                Preview
+          <div className="flex items-center gap-1 px-5 py-3 border-b border-gray-100 bg-white flex-shrink-0">
+            {(["preview", "files"] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setDetailTab(tab)}
+                className={`px-3 py-1.5 rounded-md text-[11px] font-medium transition-all capitalize ${
+                  detailTab === tab
+                    ? "bg-gray-100 text-gray-900"
+                    : "text-gray-400 hover:text-gray-700"
+                }`}
+              >
+                {tab === "files" ? "Files" : "Preview"}
               </button>
-              <button onClick={() => setDetailTab("files")} className={`rounded px-3 py-1 text-[10px] font-medium transition-all ${detailTab === "files" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"}`}>
-                Files
-              </button>
-            </div>
+            ))}
           </div>
 
           {/* Content */}
           <div className="flex-1 min-h-0 overflow-auto">
             {loadingDetail ? (
               <div className="flex items-center justify-center h-full">
-                <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
-              </div>
-            ) : !selectedOutput ? (
-              <div className="flex flex-col items-center justify-center h-full gap-2">
-                <FileText className="h-8 w-8 text-gray-300" />
-                <p className="text-sm text-gray-400">No preview available</p>
-                <p className="text-[10px] text-gray-300 text-center max-w-[200px]">Check agent outputs on the left panel.</p>
+                <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
               </div>
             ) : detailTab === "preview" ? (
-              <div className="h-full">
-                {isUserStory && <UserStoryPreview content={selectedOutput} />}
-                {isMarkdown && <MarkdownPreview content={selectedOutput} />}
-                {isPpt && <PPTPreview content={selectedOutput} />}
-                {isPrototype && <PrototypePreview content={selectedOutput} />}
-              </div>
+              !selectedOutput ? (
+                <div className="flex flex-col items-center justify-center h-full gap-2">
+                  <FileText className="h-8 w-8 text-gray-200" />
+                  <p className="text-[12px] text-gray-400">No preview available</p>
+                </div>
+              ) : (
+                <div className="h-full">
+                  {isUserStory && <UserStoryPreview content={selectedOutput} />}
+                  {isMarkdown && <MarkdownPreview content={selectedOutput} />}
+                  {isPpt && <PPTPreview content={selectedOutput} />}
+                  {isPrototype && <PrototypePreview content={selectedOutput} />}
+                </div>
+              )
             ) : (
+              /* Files tab */
               <FilesTab
                 workflowType={workflowType}
                 userStoryContent={(isUserStory || isMarkdown) ? selectedOutput || undefined : undefined}
@@ -249,155 +273,166 @@ export function WorkflowHistory({ onBack }: WorkflowHistoryProps) {
           </div>
         </div>
 
-        {/* Delete Confirmation Modal */}
+        {/* Delete modal */}
         <AnimatePresence>
-          {deleteConfirmId && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
-              onClick={handleDeleteCancel}
-            >
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                onClick={(e) => e.stopPropagation()}
-                className="bg-white rounded-xl border border-gray-200 shadow-xl p-6 max-w-sm w-full mx-4"
-              >
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100">
-                    <Trash2 className="h-5 w-5 text-gray-600" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold text-gray-900">Delete Workflow</h3>
-                    <p className="text-[11px] text-gray-500">This action cannot be undone</p>
-                  </div>
-                </div>
-                <p className="text-[12px] text-gray-600 mb-5">
-                  Are you sure you want to delete this workflow run? The preview and all associated data will be permanently removed.
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleDeleteCancel}
-                    className="flex-1 rounded-lg border border-gray-200 px-4 py-2.5 text-[12px] font-medium text-gray-600 hover:bg-gray-50 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleDeleteConfirm}
-                    className="flex-1 rounded-lg bg-gray-900 px-4 py-2.5 text-[12px] font-medium text-white hover:bg-gray-800 transition-colors"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
+          {deleteConfirmId && <DeleteModal onConfirm={handleDeleteConfirm} onCancel={() => setDeleteConfirmId(null)} />}
         </AnimatePresence>
       </div>
     );
   }
 
-  // List view
+  // ─── LIST VIEW ─────────────────────────────────────────────────────────────
+  const typeGroups = ["all", "user_stories", "ppt", "prototype", "app_builder"];
+  const typeCounts: Record<string, number> = { all: runs.length };
+  runs.forEach((r) => { typeCounts[r.type] = (typeCounts[r.type] || 0) + 1; });
+
   return (
-    <div className="h-full flex flex-col bg-gray-50">
+    <div className="h-full flex flex-col bg-white" style={{ background: "#f5f5f0" }}>
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-white">
-        <div className="flex items-center gap-3">
-          <button onClick={onBack} className="flex items-center justify-center h-8 w-8 rounded-lg hover:bg-gray-100 transition-colors">
+      <div className="px-6 pt-5 pb-4 border-b border-gray-100">
+        <div className="flex items-center gap-3 mb-4">
+          <button
+            onClick={onBack}
+            className="flex items-center justify-center h-8 w-8 rounded-lg hover:bg-gray-100 transition-colors"
+          >
             <ArrowLeft className="h-4 w-4 text-gray-500" />
           </button>
           <div>
-            <h1 className="text-base font-semibold text-gray-900 flex items-center gap-2">
-              <History className="h-4 w-4 text-blue-600" />
-              Workflow History
-            </h1>
-            <p className="text-[11px] text-gray-500 mt-0.5">{runs.length} total runs</p>
+            <h1 className="text-[15px] font-semibold text-gray-900">Workflow History</h1>
+            <p className="text-[11px] text-gray-400 mt-0.5">{runs.length} runs</p>
           </div>
         </div>
 
-        {/* Filter */}
-        <div className="flex items-center gap-2">
-          <Filter className="h-3.5 w-3.5 text-gray-400" />
-          <select
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
-            className="text-[11px] rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-gray-900 focus:outline-none focus:border-blue-400 transition-colors"
-          >
-            <option value="all">All Types</option>
-            <option value="user_stories">User Stories</option>
-            <option value="ppt">Presentation</option>
-            <option value="prototype">Prototype</option>
-            <option value="app_builder">App Builder</option>
-            <option value="reverse_engineer">Reverse Engineer</option>
-          </select>
+        {/* Search */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search workflows..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-4 py-2 text-[12px] bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400 transition-colors placeholder-gray-400"
+          />
+        </div>
+
+        {/* Type filter tabs */}
+        <div className="flex items-center gap-1 mt-3 overflow-x-auto pb-0.5">
+          {typeGroups.map((type) => {
+            const count = typeCounts[type] || 0;
+            if (type !== "all" && count === 0) return null;
+            const label = type === "all" ? "All" : (TYPE_META[type]?.label || type);
+            return (
+              <button
+                key={type}
+                onClick={() => setFilterType(type)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium whitespace-nowrap transition-all flex-shrink-0 ${
+                  filterType === type
+                    ? "bg-[#1B2A4A] text-white"
+                    : "text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                }`}
+              >
+                {label}
+                <span className={`text-[9px] font-semibold px-1 rounded ${filterType === type ? "bg-white/20 text-white" : "bg-gray-200 text-gray-500"}`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto px-6 py-4">
+      <div className="flex-1 overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center h-40">
-            <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+            <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
           </div>
         ) : filteredRuns.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-40">
-            <History className="h-8 w-8 text-gray-300 mb-3" />
-            <p className="text-sm text-gray-400">No workflow runs yet</p>
-            <p className="text-[11px] text-gray-300 mt-1">Run a pipeline from the home page to see history here</p>
+          <div className="flex flex-col items-center justify-center h-40 gap-2">
+            <FileText className="h-8 w-8 text-gray-200" />
+            <p className="text-[12px] text-gray-400">No workflows found</p>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="divide-y divide-gray-100">
             {filteredRuns.map((run, idx) => {
               const meta = TYPE_META[run.type] || TYPE_META.custom;
               const Icon = meta.icon;
               return (
                 <motion.div
                   key={run.id}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.03 }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: idx * 0.02 }}
                   onClick={() => handleSelectRun(run)}
-                  className="flex items-center gap-4 rounded-lg border border-gray-200 bg-white p-4 cursor-pointer hover:border-gray-300 hover:shadow-sm transition-all"
+                  className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-50 transition-colors group"
                 >
-                  {/* Type icon */}
-                  <div className={`flex h-10 w-10 items-center justify-center rounded-lg flex-shrink-0 ${meta.color}`}>
-                    <Icon className="h-5 w-5" />
+                  {/* Icon */}
+                  <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0 group-hover:bg-gray-200 transition-colors">
+                    <Icon className="h-4 w-4 text-gray-500" />
                   </div>
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-[12px] font-semibold text-gray-900 truncate">{run.title}</h3>
-                    <div className="flex items-center gap-3 mt-1">
-                      <span className={`text-[9px] font-medium rounded-full px-2 py-0.5 ${meta.color}`}>{meta.label}</span>
-                      <span className="text-[9px] text-gray-400 flex items-center gap-1">
-                        <Clock className="h-2.5 w-2.5" />
-                        {formatDate(run.createdAt)}
-                      </span>
+                    <p className="text-[13px] font-semibold text-gray-900 leading-tight">{run.title}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[10px] text-gray-400">{meta.label}</span>
+                      <span className="text-gray-200">·</span>
+                      <span className="text-[10px] text-gray-400">{formatDate(run.createdAt)}</span>
                       {run.duration && (
-                        <span className="text-[9px] text-gray-400">{formatDuration(run.duration)}</span>
+                        <>
+                          <span className="text-gray-200">·</span>
+                          <span className="text-[10px] text-gray-400">{formatDuration(run.duration)}</span>
+                        </>
                       )}
                     </div>
                   </div>
 
-                  {/* Status + Delete */}
+                  {/* Status + actions */}
                   <div className="flex items-center gap-2 flex-shrink-0">
                     {run.status === "completed" ? (
-                      <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                      <span className="text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full">
+                        Done
+                      </span>
                     ) : run.status === "failed" ? (
-                      <XCircle className="h-5 w-5 text-gray-400" />
+                      <span className="text-[9px] font-semibold text-gray-500 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-full">
+                        {run.error === "Cancelled by user" ? "Cancelled" : "Failed"}
+                      </span>
                     ) : (
-                      <Loader2 className="h-5 w-5 text-gray-400 animate-spin" />
+                      <span className="text-[9px] font-semibold text-gray-500 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-full">
+                        Running
+                      </span>
                     )}
-                    <button
-                      onClick={(e) => handleDeleteClick(run.id, e)}
-                      className="flex items-center justify-center h-7 w-7 rounded-lg text-gray-300 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-                      title="Delete"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+
+                    {/* Menu */}
+                    <div className="relative">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === run.id ? null : run.id); }}
+                        className="flex items-center justify-center h-7 w-7 rounded-lg text-gray-300 hover:text-gray-600 hover:bg-gray-100 transition-colors opacity-0 group-hover:opacity-100"
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </button>
+                      <AnimatePresence>
+                        {openMenuId === run.id && (
+                          <motion.div
+                            initial={{ opacity: 0, scale: 0.95, y: -4 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                            transition={{ duration: 0.1 }}
+                            className="absolute right-0 top-8 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[120px]"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              onClick={() => handleDeleteClick(run.id)}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-red-600 hover:bg-red-50 transition-colors"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" /> Delete
+                            </button>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+
+                    <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-gray-500 transition-colors" />
                   </div>
                 </motion.div>
               );
@@ -406,53 +441,63 @@ export function WorkflowHistory({ onBack }: WorkflowHistoryProps) {
         )}
       </div>
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete modal */}
       <AnimatePresence>
-        {deleteConfirmId && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
-            onClick={handleDeleteCancel}
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-xl border border-gray-200 shadow-xl p-6 max-w-sm w-full mx-4"
-            >
-              <div className="flex items-center gap-3 mb-4">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100">
-                  <Trash2 className="h-5 w-5 text-gray-600" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-900">Delete Workflow</h3>
-                  <p className="text-[11px] text-gray-500">This action cannot be undone</p>
-                </div>
-              </div>
-              <p className="text-[12px] text-gray-600 mb-5">
-                Are you sure you want to delete this workflow run? The preview and all associated data will be permanently removed.
-              </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={handleDeleteCancel}
-                  className="flex-1 rounded-lg border border-gray-200 px-4 py-2.5 text-[12px] font-medium text-gray-600 hover:bg-gray-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleDeleteConfirm}
-                  className="flex-1 rounded-lg bg-gray-900 px-4 py-2.5 text-[12px] font-medium text-white hover:bg-gray-800 transition-colors"
-                >
-                  Delete
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
+        {deleteConfirmId && <DeleteModal onConfirm={handleDeleteConfirm} onCancel={() => setDeleteConfirmId(null)} />}
       </AnimatePresence>
+
+      {/* Close menu on outside click */}
+      {openMenuId && (
+        <div className="fixed inset-0 z-10" onClick={() => setOpenMenuId(null)} />
+      )}
     </div>
+  );
+}
+
+function DeleteModal({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm"
+      onClick={onCancel}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 8 }}
+        transition={{ duration: 0.15 }}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-2xl border border-gray-200 shadow-2xl p-6 max-w-[340px] w-full mx-4"
+      >
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
+            <Trash2 className="h-5 w-5 text-gray-600" />
+          </div>
+          <div>
+            <h3 className="text-[13px] font-semibold text-gray-900">Delete workflow</h3>
+            <p className="text-[11px] text-gray-400">This cannot be undone</p>
+          </div>
+        </div>
+        <p className="text-[12px] text-gray-500 leading-relaxed mb-5">
+          The workflow run and all its output will be permanently deleted.
+        </p>
+        <div className="flex gap-2">
+          <button
+            onClick={onCancel}
+            className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-[12px] font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="flex-1 rounded-xl bg-gray-900 px-4 py-2.5 text-[12px] font-medium text-white hover:bg-gray-800 transition-colors"
+          >
+            Delete
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }

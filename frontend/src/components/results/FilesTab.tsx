@@ -1,13 +1,8 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { motion } from "motion/react";
-import {
-  Download,
-  FileText,
-  Presentation,
-  Layout,
-} from "lucide-react";
+import { Download, FileText, Presentation, Layout, Code, Package } from "lucide-react";
 import { exportUserStories } from "@/lib/exporters/storyExporter";
 import type { WorkflowType } from "@/types/index";
 
@@ -23,139 +18,167 @@ interface FileItem {
   name: string;
   type: string;
   icon: typeof FileText;
-  iconColor: string;
   size: string;
   format: string;
-  available: boolean;
+  content: string;
+  mimeType: string;
 }
 
-/**
- * Files Tab — shows downloadable artifacts as file cards.
- */
-export function FilesTab({ workflowType, userStoryContent, pptContent, prototypeContent }: FilesTabProps) {
+// ─── App Builder: parse code files from markdown output ───────────────────────
+// The App Builder agent outputs code blocks like:
+//   ```filename: src/models/user.ts
+//   [content]
+//   ```
+function parseAppBuilderFiles(markdown: string): FileItem[] {
   const files: FileItem[] = [];
 
-  // Primary output file
-  if (workflowType === "user_stories" && userStoryContent) {
-    // Derive filename from first heading or first line
-    let storyName = "user-stories";
-    const firstHeading = userStoryContent.match(/^#\s+(.+)/m);
-    if (firstHeading) {
-      storyName = firstHeading[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
-    }
+  // Match ```filename: path/to/file.ext\n[content]\n```
+  const codeBlockRegex = /```(?:filename:\s*([^\n]+)\n)([\s\S]*?)```/g;
+  let match;
+
+  while ((match = codeBlockRegex.exec(markdown)) !== null) {
+    const filePath = match[1].trim();
+    const content = match[2];
+    if (!filePath || !content.trim()) continue;
+
+    const ext = filePath.split(".").pop()?.toLowerCase() || "txt";
+    const mimeMap: Record<string, string> = {
+      ts: "text/typescript", tsx: "text/typescript", js: "text/javascript",
+      jsx: "text/javascript", py: "text/x-python", json: "application/json",
+      md: "text/markdown", yml: "text/yaml", yaml: "text/yaml",
+      env: "text/plain", txt: "text/plain", sh: "text/x-sh",
+      dockerfile: "text/plain", css: "text/css", html: "text/html",
+      sql: "text/x-sql", prisma: "text/plain", toml: "text/plain",
+    };
+
+    const iconMap: Record<string, typeof FileText> = {
+      ts: Code, tsx: Code, js: Code, jsx: Code, py: Code,
+      json: FileText, md: FileText, yml: FileText, yaml: FileText,
+      dockerfile: Package, sh: Code, css: Code, html: Layout,
+    };
 
     files.push({
-      id: "user-stories-md",
-      name: `${storyName}.md`,
-      type: "Markdown",
-      icon: FileText,
-      iconColor: "text-blue-400",
-      size: formatSize(userStoryContent.length),
-      format: "Markdown (.md)",
-      available: true,
+      id: `file-${files.length}-${filePath.replace(/[^a-z0-9]/gi, "-")}`,
+      name: filePath.includes("/") ? filePath.split("/").pop()! : filePath,
+      type: filePath,
+      icon: iconMap[ext] || FileText,
+      size: formatSize(content.length),
+      format: ext.toUpperCase(),
+      content,
+      mimeType: mimeMap[ext] || "text/plain",
     });
   }
 
-  if ((workflowType === "app_builder" || workflowType === "reverse_engineer" || workflowType === "custom") && userStoryContent) {
-    let docName = workflowType === "app_builder" ? "app-blueprint" : "codebase-analysis";
-    const firstHeading = userStoryContent.match(/^#\s+(.+)/m);
-    if (firstHeading) {
-      docName = firstHeading[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
-    }
+  return files;
+}
 
-    files.push({
-      id: "project-md",
-      name: `${docName}.md`,
-      type: "Markdown",
-      icon: FileText,
-      iconColor: workflowType === "app_builder" ? "text-orange-400" : "text-rose-400",
-      size: formatSize(userStoryContent.length),
-      format: "Markdown (.md)",
-      available: true,
-    });
+export function FilesTab({ workflowType, userStoryContent, pptContent, prototypeContent }: FilesTabProps) {
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const files: FileItem[] = [];
+
+  // ── User Stories (including revisions) ──────────────────────────────────
+  if ((workflowType === "user_stories" || workflowType === "user_stories_revision") && userStoryContent) {
+    let name = "user-stories";
+    const h = userStoryContent.match(/^#\s+(.+)/m);
+    if (h) name = h[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
+    files.push({ id: "user-stories-md", name: `${name}.md`, type: "Markdown", icon: FileText, size: formatSize(userStoryContent.length), format: "Markdown (.md)", content: userStoryContent, mimeType: "text/markdown" });
   }
 
-  if (workflowType === "ppt" && pptContent) {
-    // PPT is now an HTML slide deck — offer as HTML download
-    // The PPTX download is built into the HTML itself (Download button in the presentation)
-    let pptName = "presentation";
-    const titleMatch = pptContent.match(/<title>(.+?)<\/title>/i);
-    if (titleMatch) {
-      pptName = titleMatch[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
+  // ── App Builder (including revisions) ────────────────────────────────────
+  if ((workflowType === "app_builder" || workflowType === "app_builder_revision") && userStoryContent) {
+    const projectFiles = parseAppBuilderFiles(userStoryContent);
+    if (projectFiles.length > 0) {
+      files.push(...projectFiles);
+    } else {
+      // Fallback: single markdown download
+      let name = "app-blueprint";
+      const h = userStoryContent.match(/^#\s+(.+)/m);
+      if (h) name = h[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
+      files.push({ id: "project-md", name: `${name}.md`, type: "Markdown", icon: FileText, size: formatSize(userStoryContent.length), format: "Markdown (.md)", content: userStoryContent, mimeType: "text/markdown" });
     }
-
-    files.push({
-      id: "presentation-html",
-      name: `${pptName}.html`,
-      type: "HTML Presentation",
-      icon: Presentation,
-      iconColor: "text-amber-400",
-      size: formatSize(pptContent.length),
-      format: "HTML (.html) — Open in browser to view slides & download PPTX",
-      available: true,
-    });
   }
 
-  if (workflowType === "prototype" && prototypeContent) {
-    // Derive filename from content
-    let protoName = "prototype";
-    const titleMatch = prototypeContent.match(/<title>(.+?)<\/title>/i);
-    if (titleMatch) {
-      protoName = titleMatch[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
-    }
-
-    files.push({
-      id: "prototype-html",
-      name: `${protoName}.html`,
-      type: "HTML",
-      icon: Layout,
-      iconColor: "text-emerald-400",
-      size: formatSize(prototypeContent.length),
-      format: "HTML (.html)",
-      available: true,
-    });
+  // ── Custom ────────────────────────────────────────────────────────────────
+  if (workflowType === "custom" && userStoryContent) {
+    let name = "custom-output";
+    const h = userStoryContent.match(/^#\s+(.+)/m);
+    if (h) name = h[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
+    files.push({ id: "custom-md", name: `${name}.md`, type: "Markdown", icon: FileText, size: formatSize(userStoryContent.length), format: "Markdown (.md)", content: userStoryContent, mimeType: "text/markdown" });
   }
 
-  const handleDownload = useCallback((fileId: string) => {
-    if (fileId === "user-stories-md" && userStoryContent) {
-      // Derive filename from first heading
-      let storyName = "user-stories";
-      const firstHeading = userStoryContent.match(/^#\s+(.+)/m);
-      if (firstHeading) {
-        storyName = firstHeading[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
+  // ── PPT (including revisions) ─────────────────────────────────────────────
+  if ((workflowType === "ppt" || workflowType === "ppt_revision") && pptContent) {
+    let name = "presentation";
+    const t = pptContent.match(/<title>([^<]+)<\/title>/i);
+    const h1 = pptContent.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+    if (t && t[1] !== "Presentation") name = t[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
+    else if (h1) name = h1[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
+
+    // PPTX download via server-side export
+    files.push({ id: "presentation-pptx", name: `${name}.pptx`, type: "PowerPoint", icon: Presentation, size: "~", format: "PowerPoint (.pptx)", content: pptContent, mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation" });
+    // HTML fallback
+    files.push({ id: "presentation-html", name: `${name}.html`, type: "HTML Presentation", icon: Presentation, size: formatSize(pptContent.length), format: "HTML (.html) — open in browser", content: pptContent, mimeType: "text/html" });
+  }
+
+  // ── Prototype (including revisions) ──────────────────────────────────────
+  if ((workflowType === "prototype" || workflowType === "prototype_revision") && prototypeContent) {
+    let name = "prototype";
+    const t = prototypeContent.match(/<title>(.+?)<\/title>/i);
+    if (t) name = t[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
+    files.push({ id: "prototype-html", name: `${name}.html`, type: "HTML Prototype", icon: Layout, size: formatSize(prototypeContent.length), format: "HTML (.html)", content: prototypeContent, mimeType: "text/html" });
+  }
+
+  const handleDownload = useCallback(async (file: FileItem) => {
+    if (file.id === "user-stories-md" && userStoryContent) {
+      exportUserStories(userStoryContent, file.name.replace(".md", ""));
+    } else if (file.id === "presentation-pptx" && pptContent) {
+      // Server-side PPTX export
+      setDownloadingId(file.id);
+      try {
+        const { getToken } = await import("@/lib/api");
+        const token = getToken();
+        // Get title from filename
+        const title = file.name.replace(".pptx", "").replace(/-/g, " ");
+        // Find matching workflow
+        let workflowId = "";
+        try {
+          const res = await fetch("http://localhost:8000/api/workflows?type=ppt&limit=20", {
+            headers: { "Authorization": `Bearer ${token}` },
+          });
+          if (res.ok) {
+            const runs = await res.json();
+            const h1 = pptContent.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+            if (h1) {
+              const match = runs.find((r: { output?: string }) => r.output?.includes(h1[1]));
+              if (match) workflowId = match.id;
+            }
+            if (!workflowId && runs.length > 0) workflowId = runs[0].id;
+          }
+        } catch {}
+
+        const response = await fetch("http://localhost:8000/api/workflows/export-pptx", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+          body: JSON.stringify({ html: pptContent, workflow_id: workflowId, title }),
+        });
+        if (response.ok) {
+          const blob = await response.blob();
+          downloadBlob(URL.createObjectURL(blob), file.name, "");
+        } else {
+          alert("PPTX export failed. Try the Download PPTX button in the preview.");
+        }
+      } catch (e) {
+        alert("PPTX export failed.");
+      } finally {
+        setDownloadingId(null);
       }
-      exportUserStories(userStoryContent, storyName);
-    } else if (fileId === "project-md" && userStoryContent) {
-      let docName = workflowType === "app_builder" ? "app-blueprint" : "codebase-analysis";
-      const firstHeading = userStoryContent.match(/^#\s+(.+)/m);
-      if (firstHeading) {
-        docName = firstHeading[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
-      }
-      exportUserStories(userStoryContent, docName);
-    } else if (fileId === "presentation-html" && pptContent) {
-      let pptName = "presentation";
-      const titleMatch = pptContent.match(/<title>(.+?)<\/title>/i);
-      if (titleMatch) {
-        pptName = titleMatch[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
-      }
-      downloadBlob(pptContent, `${pptName}.html`, "text/html");
-    } else if (fileId === "prototype-html" && prototypeContent) {
-      let protoName = "prototype";
-      const titleMatch = prototypeContent.match(/<title>(.+?)<\/title>/i);
-      if (titleMatch) {
-        protoName = titleMatch[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
-      }
-      downloadBlob(prototypeContent, `${protoName}.html`, "text/html");
+    } else {
+      downloadBlob(file.content, file.name, file.mimeType);
     }
-  }, [userStoryContent, pptContent, prototypeContent]);
+  }, [userStoryContent, pptContent]);
 
   const handleDownloadAll = useCallback(() => {
-    // Download each available file
-    files.forEach((file) => {
-      if (file.available) {
-        setTimeout(() => handleDownload(file.id), 100);
-      }
-    });
+    files.forEach((file, i) => setTimeout(() => handleDownload(file), i * 150));
   }, [files, handleDownload]);
 
   if (files.length === 0) {
@@ -170,18 +193,16 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
   }
 
   return (
-    <div className="px-5 py-4 h-full overflow-y-auto">
+    <div className="px-5 py-4 h-full overflow-y-auto" style={{ background: "#f5f5f0" }}>
       <div className="flex items-center justify-between mb-4">
-        <span className="text-[11px] text-gray-500 font-medium">{files.length} files available</span>
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.97 }}
+        <span className="text-[11px] text-gray-500 font-medium">{files.length} file{files.length !== 1 ? "s" : ""} available</span>
+        <button
           onClick={handleDownloadAll}
-          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[10px] font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 border border-gray-200 transition-all"
+          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[10px] font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 transition-all"
         >
           <Download className="h-3 w-3" />
           Download All
-        </motion.button>
+        </button>
       </div>
 
       <div className="space-y-2">
@@ -190,27 +211,29 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
           return (
             <motion.div
               key={file.id}
-              initial={{ opacity: 0, y: 8 }}
+              initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.05 }}
-              className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 px-4 py-3 transition-all"
+              transition={{ delay: idx * 0.03 }}
+              className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 hover:border-gray-300 hover:shadow-sm transition-all"
             >
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100 border border-gray-200 flex-shrink-0">
-                <Icon className={`h-5 w-5 ${file.iconColor}`} />
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-100 border border-gray-200 flex-shrink-0">
+                <Icon className="h-4 w-4 text-gray-500" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-gray-900">{file.name}</p>
-                <p className="text-[10px] text-gray-500 mt-0.5">{file.format} • {file.size}</p>
+                <p className="text-[12px] font-semibold text-gray-900 truncate">{file.name}</p>
+                <p className="text-[10px] text-gray-400 mt-0.5 truncate">{file.type !== file.name ? file.type + " · " : ""}{file.size}</p>
               </div>
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => handleDownload(file.id)}
-                className="flex items-center justify-center rounded-lg p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 border border-gray-200 transition-all"
+              <button
+                onClick={() => handleDownload(file)}
+                disabled={downloadingId === file.id}
+                className="flex items-center justify-center rounded-lg p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 border border-gray-200 transition-all flex-shrink-0 disabled:opacity-50"
                 title={`Download ${file.name}`}
               >
-                <Download className="h-4 w-4" />
-              </motion.button>
+                {downloadingId === file.id
+                  ? <span className="h-3.5 w-3.5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                  : <Download className="h-3.5 w-3.5" />
+                }
+              </button>
             </motion.div>
           );
         })}
@@ -226,13 +249,18 @@ function formatSize(bytes: number): string {
 }
 
 function downloadBlob(content: string, filename: string, mimeType: string) {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  let url: string;
+  if (content.startsWith("blob:")) {
+    url = content; // already a blob URL
+  } else {
+    const blob = new Blob([content], { type: mimeType });
+    url = URL.createObjectURL(blob);
+  }
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  if (!content.startsWith("blob:")) URL.revokeObjectURL(url);
 }

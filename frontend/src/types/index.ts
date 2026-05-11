@@ -33,7 +33,7 @@ export interface ChatMessage {
 }
 
 export interface StreamMessage {
-  type: "stream" | "complete" | "error" | "phase_start" | "phase_end" | "title_update" | "step" | "pipeline_start" | "agent_start" | "agent_thinking" | "agent_chunk" | "agent_complete" | "agent_error" | "pipeline_complete" | "questionnaire" | "pipeline_cancelled";
+  type: "stream" | "complete" | "error" | "phase_start" | "phase_end" | "title_update" | "step" | "pipeline_start" | "agent_start" | "agent_thinking" | "agent_chunk" | "agent_complete" | "agent_error" | "pipeline_complete" | "questionnaire" | "pipeline_cancelled" | "workflow_title_update";
   chunk?: string;
   section?: string;
   data?: FinalOutput | ErrorDetail | ProcessStep | Record<string, unknown>;
@@ -183,7 +183,7 @@ export interface Story {
 // WORKFLOW / PIPELINE TYPES
 // ============================================================
 
-export type WorkflowType = "user_stories" | "ppt" | "prototype" | "app_builder" | "reverse_engineer" | "custom";
+export type WorkflowType = "user_stories" | "user_stories_revision" | "ppt" | "ppt_revision" | "prototype" | "prototype_revision" | "app_builder" | "app_builder_revision" | "custom";
 
 export type WorkflowStatus = "running" | "completed" | "failed";
 

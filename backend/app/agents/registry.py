@@ -28,9 +28,9 @@ class AgentDefinition:
 USER_STORY_AGENTS: list[AgentDefinition] = [
     AgentDefinition(
         id="domain-analyst",
-        name="Domain & Persona Analyst",
+        name="Research Analyst",
         role="Product Strategist",
-        description="Analyzes the idea, identifies the domain, target users, and key personas.",
+        description="Researches your idea, identifies the target market, users, and key personas.",
         icon="🔍",
         order=1,
         pipeline_type="user_stories",
@@ -61,9 +61,9 @@ RULES:
     ),
     AgentDefinition(
         id="epic-architect",
-        name="Epic & Story Architect",
-        role="Principal Product Manager",
-        description="Creates epics and breaks them into detailed user stories with acceptance criteria.",
+        name="Story Writer",
+        role="Product Manager",
+        description="Writes product epics and detailed user stories with clear acceptance criteria.",
         icon="🏗️",
         order=2,
         pipeline_type="user_stories",
@@ -102,9 +102,9 @@ RULES:
     ),
     AgentDefinition(
         id="story-estimator",
-        name="Estimator & Dependency Mapper",
+        name="Effort Estimator",
         role="Technical Lead",
-        description="Assigns story points and maps dependencies between stories.",
+        description="Estimates effort for each story and maps out which tasks depend on others.",
         icon="🎯",
         order=3,
         pipeline_type="user_stories",
@@ -129,9 +129,9 @@ Do NOT remove any content — only ADD Story Points and Dependencies lines.""",
     ),
     AgentDefinition(
         id="nfr-specialist",
-        name="NFR & Quality Specialist",
+        name="Quality Advisor",
         role="Solution Architect",
-        description="Adds non-functional requirements as stories (performance, security, accessibility).",
+        description="Adds quality requirements covering performance, security, and accessibility.",
         icon="⚡",
         order=4,
         pipeline_type="user_stories",
@@ -159,9 +159,9 @@ Use the same format: # Epic / ## Story / As a / Acceptance Criteria / Story Poin
     ),
     AgentDefinition(
         id="backlog-reviewer",
-        name="Backlog Reviewer",
+        name="Quality Reviewer",
         role="Agile Coach",
-        description="Reviews the backlog for INVEST compliance, gaps, and quality.",
+        description="Reviews all stories for completeness, gaps, and quality before finalizing.",
         icon="✅",
         order=5,
         pipeline_type="user_stories",
@@ -184,9 +184,9 @@ Keep your review concise — max 300 words. Focus on actionable improvements."""
     ),
     AgentDefinition(
         id="backlog-compiler",
-        name="Backlog Compiler",
-        role="Principal PM",
-        description="Compiles the final complete user stories document in structured markdown.",
+        name="Report Builder",
+        role="Product Manager",
+        description="Compiles all stories into a clean, structured document ready for your team.",
         icon="📦",
         order=6,
         pipeline_type="user_stories",
@@ -254,9 +254,9 @@ from app.agents.ppt_pipeline import (
 PPT_AGENTS: list[AgentDefinition] = [
     AgentDefinition(
         id="ppt-content-strategist",
-        name="Content Strategist",
+        name="Slide Planner",
         role="Presentation Strategist",
-        description="Plans the narrative arc and content for 10-12 slides with specific data and messaging.",
+        description="Plans the story, key messages, and content for each slide in your presentation.",
         icon="🎯",
         order=1,
         pipeline_type="ppt",
@@ -266,9 +266,9 @@ PPT_AGENTS: list[AgentDefinition] = [
     ),
     AgentDefinition(
         id="ppt-slide-architect",
-        name="Slide Architect",
-        role="Visual Layout Designer",
-        description="Designs precise visual layouts, element positions, and visual motifs for each slide.",
+        name="Slide Designer",
+        role="Visual Designer",
+        description="Designs the visual layout, structure, and look of each slide.",
         icon="🏗️",
         order=2,
         pipeline_type="ppt",
@@ -278,9 +278,9 @@ PPT_AGENTS: list[AgentDefinition] = [
     ),
     AgentDefinition(
         id="ppt-code-generator",
-        name="PptxGenJS Code Generator",
-        role="PptxGenJS Expert Developer",
-        description="Generates complete PptxGenJS JavaScript code using the pptx skills reference.",
+        name="Slide Builder",
+        role="Presentation Engineer",
+        description="Builds the complete presentation with all slides, charts, and visual elements.",
         icon="💻",
         order=3,
         pipeline_type="ppt",
@@ -291,9 +291,9 @@ PPT_AGENTS: list[AgentDefinition] = [
     ),
     AgentDefinition(
         id="ppt-assembler",
-        name="Presentation Assembler",
-        role="Frontend Engineer",
-        description="Assembles final HTML with slide previews, navigation, and PPTX download button.",
+        name="Deck Assembler",
+        role="Presentation Packager",
+        description="Packages the final presentation with preview and download ready for sharing.",
         icon="📦",
         order=4,
         pipeline_type="ppt",
@@ -305,15 +305,207 @@ PPT_AGENTS: list[AgentDefinition] = [
 
 
 # ============================================================
+# PPT REVISION PIPELINE — 2 Agents (fast iterative editing)
+# Takes existing PptxGenJS code + user's change request
+# ============================================================
+
+from app.agents.ppt_pipeline import PPT_REVISION_AGENT_PROMPT
+
+PPT_REVISION_AGENTS: list[AgentDefinition] = [
+    AgentDefinition(
+        id="ppt-revision-agent",
+        name="Slide Editor",
+        role="Presentation Engineer",
+        description="Applies your requested changes to the existing presentation code.",
+        icon="✏️",
+        order=1,
+        pipeline_type="ppt_revision",
+        estimated_duration=20.0,
+        max_tokens=32000,
+        system_prompt=PPT_REVISION_AGENT_PROMPT,
+    ),
+    AgentDefinition(
+        id="ppt-revision-assembler",
+        name="Deck Assembler",
+        role="Presentation Packager",
+        description="Rebuilds the presentation preview with your changes applied.",
+        icon="📦",
+        order=2,
+        pipeline_type="ppt_revision",
+        estimated_duration=12.0,
+        max_tokens=32000,
+        system_prompt=PRESENTATION_ASSEMBLER_PROMPT,
+    ),
+]
+
+
+# ============================================================
+# USER STORY REVISION PIPELINE — 1 Agent (fast backlog editing)
+# Takes existing backlog markdown + user's change request
+# ============================================================
+
+USER_STORY_REVISION_AGENT = AgentDefinition(
+    id="user-story-revision-agent",
+    name="Backlog Editor",
+    role="Product Manager",
+    description="Applies your requested changes to the existing product backlog.",
+    icon="✏️",
+    order=1,
+    pipeline_type="user_stories_revision",
+    estimated_duration=15.0,
+    max_tokens=32000,
+    system_prompt="""You are a senior Product Manager who refines and edits product backlogs.
+
+You will receive:
+1. The EXISTING product backlog (in Markdown format)
+2. The user's REVISION REQUEST (what they want changed)
+
+Your job: Apply the requested changes and output the COMPLETE updated backlog.
+
+## What you can do:
+- **Add a story**: Add a new user story to the appropriate epic with full acceptance criteria
+- **Remove a story**: Delete the specified story entirely
+- **Modify a story**: Update the title, description, acceptance criteria, or story points
+- **Add an epic**: Create a new epic with 2-3 stories
+- **Remove an epic**: Delete the entire epic and all its stories
+- **Change priority**: Update P0/P1/P2 labels
+- **Update story points**: Change effort estimates
+- **Add acceptance criteria**: Add more Given/When/Then criteria to a story
+- **Split a story**: Break one large story into two smaller ones
+- **Merge stories**: Combine two related stories into one
+
+## Rules:
+- Output the COMPLETE updated backlog — not just the changed parts
+- Maintain the exact same Markdown format (# Epic, ## Story, Given/When/Then)
+- Keep all unchanged stories exactly as they are
+- Update the Backlog Summary section at the end with correct totals
+- Make changes that are specific, testable, and follow INVEST principles
+- ALL content must relate to the original product topic
+
+## Output:
+Output ONLY the complete updated Markdown document. No preamble, no explanation.""",
+)
+
+USER_STORY_REVISION_AGENTS: list[AgentDefinition] = [USER_STORY_REVISION_AGENT]
+
+
+# ============================================================
+# PROTOTYPE REVISION PIPELINE — 1 Agent (fast iterative editing)
+# Takes existing HTML prototype + user's change request
+# ============================================================
+
+PROTOTYPE_REVISION_AGENT = AgentDefinition(
+    id="prototype-revision-agent",
+    name="Prototype Editor",
+    role="Frontend Engineer",
+    description="Applies your requested changes to the existing prototype.",
+    icon="✏️",
+    order=1,
+    pipeline_type="prototype_revision",
+    estimated_duration=20.0,
+    max_tokens=32000,
+    system_prompt="""You are a senior frontend engineer who modifies existing HTML prototypes.
+
+You will receive:
+1. The EXISTING prototype HTML (a complete self-contained SaaS app)
+2. The user's REVISION REQUEST (what they want changed)
+
+Your job: Apply the requested changes and output the COMPLETE updated HTML.
+
+## What you can do:
+- **Add a page**: Add a new navigable page to the sidebar and implement its content
+- **Remove a page**: Delete the page and its nav item
+- **Modify a page**: Update content, layout, data, or components on a specific page
+- **Change colors/theme**: Update the color scheme throughout
+- **Add a component**: Add a new table, chart, form, card, or widget to a page
+- **Update data**: Change the realistic data shown in tables, stats, or lists
+- **Fix navigation**: Ensure all nav items work correctly
+- **Add interactions**: Add modals, toasts, dropdowns, or other interactive elements
+- **Change layout**: Restructure the sidebar, header, or page layout
+
+## Design Rules (maintain these):
+- Background: #F8F9FA (page), #FFFFFF (cards/sidebar)
+- Text: #111827 primary, #6B7280 secondary
+- Accent: #1B2A4A navy only
+- Border: #E5E7EB
+- NO emoji icons — use text initials
+- NO multicolors — monochrome palette only
+- Sidebar: 220px wide, white, border-right
+- All content must relate to the original app topic
+
+## Rules:
+- Output the COMPLETE updated HTML — not just the changed parts
+- Maintain the same SPA navigation pattern (show/hide pages with JavaScript)
+- Keep all unchanged pages exactly as they are
+- Ensure all navigation still works after changes
+- The output must be 100% self-contained and renderable in an iframe
+
+## Output:
+Output ONLY the complete HTML starting with <!DOCTYPE html>. No markdown fences, no explanation.""",
+)
+
+PROTOTYPE_REVISION_AGENTS: list[AgentDefinition] = [PROTOTYPE_REVISION_AGENT]
+
+
+# ============================================================
+# APP BUILDER REVISION PIPELINE — 1 Agent (fast iterative editing)
+# Takes existing app blueprint markdown + user's change request
+# ============================================================
+
+APP_BUILDER_REVISION_AGENT = AgentDefinition(
+    id="app-builder-revision-agent",
+    name="App Editor",
+    role="Full-Stack Developer",
+    description="Applies your requested changes to the existing app blueprint and code.",
+    icon="✏️",
+    order=1,
+    pipeline_type="app_builder_revision",
+    estimated_duration=20.0,
+    max_tokens=32000,
+    system_prompt="""You are a senior full-stack developer who modifies existing app blueprints and code.
+
+You will receive:
+1. The EXISTING app blueprint (Markdown with embedded code files)
+2. The user's REVISION REQUEST (what they want changed)
+
+Your job: Apply the requested changes and output the COMPLETE updated document.
+
+## What you can do:
+- **Add a feature**: Add new API endpoints, database models, or UI pages
+- **Remove a feature**: Delete specified code files or sections
+- **Modify code**: Update existing functions, components, or configurations
+- **Change tech stack**: Update framework, database, or library choices
+- **Add a page**: Add a new frontend page with its route and components
+- **Update schema**: Modify database models or API response shapes
+- **Add authentication**: Add login/register flows if missing
+- **Fix bugs**: Correct logic errors in the generated code
+- **Add tests**: Add unit or integration tests for specific features
+- **Update dependencies**: Change package versions or add new packages
+
+## Rules:
+- Output the COMPLETE updated document — not just the changed parts
+- Maintain the same format: Markdown with ```filename: path/to/file.ext code blocks
+- Keep all unchanged files exactly as they are
+- Ensure all code is consistent (imports match exports, types are correct)
+- ALL content must relate to the original app topic
+
+## Output:
+Output ONLY the complete updated Markdown document. No preamble, no explanation.""",
+)
+
+APP_BUILDER_REVISION_AGENTS: list[AgentDefinition] = [APP_BUILDER_REVISION_AGENT]
+
+
+# ============================================================
 # PROTOTYPE GENERATION PIPELINE — 4 Agents (focused on HTML output)
 # ============================================================
 
 PROTOTYPE_AGENTS: list[AgentDefinition] = [
     AgentDefinition(
         id="requirements-analyst",
-        name="Requirements & UX Planner",
+        name="UX Planner",
         role="Product Designer",
-        description="Analyzes the idea and plans pages, navigation, and user flows.",
+        description="Plans the pages, navigation flows, and user experience for your prototype.",
         icon="📋",
         order=1,
         pipeline_type="prototype",
@@ -353,124 +545,176 @@ RULES:
     ),
     AgentDefinition(
         id="html-prototype-builder",
-        name="HTML Prototype Builder",
-        role="Senior Frontend Engineer",
-        description="Generates a complete multi-page HTML prototype with navigation and interactions.",
+        name="Prototype Builder",
+        role="Frontend Engineer",
+        description="Builds a complete interactive prototype with all pages and navigation.",
         icon="🖥️",
         order=2,
         pipeline_type="prototype",
         estimated_duration=15.0,
         max_tokens=32000,
-        system_prompt="""You are an elite Frontend Engineer who builds stunning HTML prototypes.
+        system_prompt="""You are a senior product designer and frontend engineer who builds enterprise-grade SaaS prototypes.
 
-Using the requirements plan, generate a SINGLE self-contained HTML file that is a fully interactive, multi-page prototype.
+Generate a SINGLE self-contained HTML file — a fully interactive, multi-page SaaS application prototype.
 
-TECHNICAL REQUIREMENTS:
-1. Single HTML file with embedded <style> and <script>
-2. Include Tailwind CSS: <script src="https://cdn.tailwindcss.com"></script>
-3. For icons: use emoji (📊 📈 ⚙️ 👤 🔔 🏠 📋 etc.) as they work everywhere without CDN
-4. SPA-style navigation using JavaScript (show/hide page sections)
-5. Minimum 5 navigable pages with unique content
-6. Sidebar navigation with icons and active state highlighting
-7. Responsive (works on mobile with hamburger menu)
+## DESIGN SYSTEM (mandatory — no exceptions)
 
-DESIGN REQUIREMENTS:
-- White/light background (#f8fafc or #ffffff)
-- Dark text (#1e293b)
-- One accent color (#3b82f6 blue or #6366f1 indigo)
-- Subtle borders (#e2e8f0)
-- Rounded corners (rounded-lg, rounded-xl)
-- Shadows for cards (shadow-sm, shadow-md)
-- Clean typography with clear hierarchy
-- Proper spacing (p-4, p-6, gap-4, gap-6)
+**Colors:**
+- Background: #F8F9FA (page), #FFFFFF (cards/sidebar)
+- Text: #111827 (primary), #6B7280 (secondary), #9CA3AF (muted)
+- Accent: #1B2A4A (navy — buttons, active states, links)
+- Border: #E5E7EB
+- Success: #059669 | Warning: #D97706 | Danger: #DC2626
 
-UI COMPONENTS TO INCLUDE:
-- Sidebar with logo, nav items with icons, user avatar at bottom
-- Top header with page title, search bar, notification bell
-- Dashboard: Stats cards (4 in a row), a chart placeholder, recent activity list
-- Data tables with headers, rows, status badges, action buttons
-- Forms with labels, inputs, selects, toggles, submit buttons
-- Cards with titles, descriptions, metadata, action buttons
-- Empty states with illustrations (use SVG or emoji)
-- Modal/dialog (triggered by a button)
-- Toast notification (triggered by form submit)
-- Profile page with avatar, info fields, edit button
-- Settings page with toggle switches and save button
+**Typography:**
+- Font: system-ui, -apple-system, sans-serif (no CDN needed)
+- Page title: 24px bold | Section title: 18px semibold | Body: 14px | Caption: 12px
 
-INTERACTIONS:
-- Navigation: clicking sidebar items shows/hides pages
-- Active nav item highlighted with accent color + bg
-- Buttons: hover effects (scale, color change)
-- Forms: basic validation feedback
-- Modal: open/close with backdrop
-- Toast: auto-dismiss after 3 seconds
-- Mobile: hamburger menu toggle
+**Components:**
+- Cards: white bg, 1px #E5E7EB border, 8px radius, subtle shadow (0 1px 3px rgba(0,0,0,0.08))
+- Buttons: primary = #1B2A4A bg white text, 6px radius, 8px 16px padding
+- Inputs: white bg, 1px #E5E7EB border, 6px radius, 14px text
+- Badges: small pill, 4px radius, muted colors (gray/green/amber/red)
+- Tables: white bg, header row #F9FAFB, 1px border rows, 14px text
+- Sidebar: 220px wide, white bg, 1px right border, text-only nav items
 
-REALISTIC DATA:
-- Use realistic names (Alex Johnson, Sarah Chen, etc.)
-- Use realistic dates (May 2026, etc.)
-- Use realistic numbers ($12,450, 2,847 users, etc.)
-- Use realistic statuses (Active, Pending, Completed)
-- ALL content must relate to the user's original idea/topic
+**NO multicolors.** Use only the palette above. No gradients. No colorful icons.
 
-OUTPUT RULES:
-- Output ONLY the HTML. No markdown fences, no explanation.
-- Start with <!DOCTYPE html>
-- The file must be 100% self-contained and renderable in an iframe
-- Use this exact layout structure:
-  ```
-  <body class="flex h-screen">
-    <aside class="w-56 bg-white border-r flex flex-col">sidebar</aside>
-    <main class="flex-1 overflow-y-auto">content</main>
-  </body>
-  ```
-- Sidebar must be: fixed width (w-56), full height, no absolute/fixed positioning
-- Main content must start at the TOP — no empty space above the header
-- Do NOT use position:fixed or position:absolute for layout
-- Use flexbox for the overall page layout (sidebar + main)
-- Icons: use emoji icons (📊 📈 ⚙️ 👤 🔔 🏠 etc.) — they work in all browsers without CDN
-- Do NOT rely on external icon CDNs — they may not load in iframes
-- Test that all navigation works (onclick handlers switch pages)
-- Ensure NO blank space at the top of any page""",
+## LAYOUT STRUCTURE
+
+```html
+<body style="display:flex;height:100vh;margin:0;font-family:system-ui,sans-serif;background:#F8F9FA">
+  <!-- Sidebar: 220px, white, border-right -->
+  <aside style="width:220px;background:#fff;border-right:1px solid #E5E7EB;display:flex;flex-direction:column;flex-shrink:0">
+    <!-- Logo area -->
+    <div style="padding:20px 16px;border-bottom:1px solid #E5E7EB">
+      <span style="font-size:16px;font-weight:700;color:#111827">[App Name]</span>
+    </div>
+    <!-- Nav items -->
+    <nav style="padding:8px;flex:1">
+      <a onclick="showPage('dashboard')" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:14px;color:#6B7280;text-decoration:none;margin-bottom:2px">
+        Dashboard
+      </a>
+      <!-- more nav items -->
+    </nav>
+    <!-- User at bottom -->
+    <div style="padding:12px 16px;border-top:1px solid #E5E7EB;display:flex;align-items:center;gap:8px">
+      <div style="width:32px;height:32px;border-radius:50%;background:#E5E7EB;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#6B7280">AJ</div>
+      <div><div style="font-size:13px;font-weight:500;color:#111827">Alex Johnson</div><div style="font-size:11px;color:#9CA3AF">Admin</div></div>
+    </div>
+  </aside>
+  <!-- Main content -->
+  <main style="flex:1;overflow-y:auto">
+    <!-- Top header -->
+    <div style="background:#fff;border-bottom:1px solid #E5E7EB;padding:0 24px;height:56px;display:flex;align-items:center;justify-content:space-between">
+      <h1 style="font-size:18px;font-weight:600;color:#111827" id="page-title">Dashboard</h1>
+      <div style="display:flex;align-items:center;gap:12px">
+        <input placeholder="Search..." style="border:1px solid #E5E7EB;border-radius:6px;padding:6px 12px;font-size:13px;color:#111827;outline:none;width:200px">
+        <div style="width:32px;height:32px;border-radius:50%;background:#E5E7EB;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#6B7280">AJ</div>
+      </div>
+    </div>
+    <!-- Page content -->
+    <div style="padding:24px">
+      <!-- pages go here -->
+    </div>
+  </main>
+</body>
+```
+
+## PAGES TO BUILD (minimum 5)
+
+1. **Dashboard** — 4 stat cards (metric + value + trend), 2 chart placeholders (hatched pattern), recent activity table
+2. **[Main Feature Page]** — data table with search, filters, status badges, action buttons
+3. **[Secondary Feature Page]** — cards grid or list view with relevant content
+4. **Settings** — form sections with labels, inputs, toggles, save button
+5. **Profile** — user info card, editable fields, avatar with initials
+
+## STAT CARDS (use this exact pattern):
+```html
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:8px;padding:20px">
+  <div style="font-size:11px;font-weight:600;color:#9CA3AF;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">METRIC NAME</div>
+  <div style="font-size:28px;font-weight:700;color:#111827;margin-bottom:4px">$2.84M</div>
+  <div style="font-size:12px;color:#059669">+12.4% from last month</div>
+</div>
+```
+
+## CHART PLACEHOLDERS (use hatched pattern):
+```html
+<div style="background:#fff;border:1px solid #E5E7EB;border-radius:8px;padding:20px">
+  <div style="font-size:14px;font-weight:600;color:#111827;margin-bottom:16px">Chart Title</div>
+  <div style="height:200px;background:repeating-linear-gradient(45deg,#F9FAFB,#F9FAFB 10px,#F3F4F6 10px,#F3F4F6 20px);border-radius:4px;display:flex;align-items:center;justify-content:center">
+    <span style="font-size:13px;color:#9CA3AF;font-style:italic">[ chart — building... ]</span>
+  </div>
+</div>
+```
+
+## ACTIVE NAV STATE:
+```javascript
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.style.display = 'none');
+  document.getElementById('page-' + name).style.display = 'block';
+  document.querySelectorAll('.nav-item').forEach(n => {
+    n.style.background = 'none';
+    n.style.color = '#6B7280';
+    n.style.fontWeight = '400';
+  });
+  const active = document.getElementById('nav-' + name);
+  if (active) { active.style.background = '#F0F4FF'; active.style.color = '#1B2A4A'; active.style.fontWeight = '500'; }
+  document.getElementById('page-title').textContent = name.charAt(0).toUpperCase() + name.slice(1);
+}
+```
+
+## RULES:
+- NO emoji icons anywhere — use text initials or simple SVG shapes
+- NO multicolors — only the palette defined above
+- ALL content must be specific to the user's topic (realistic names, numbers, data)
+- Minimum 5 pages, all navigable
+- Output ONLY the HTML starting with <!DOCTYPE html>
+- No markdown fences, no explanation""",
     ),
     AgentDefinition(
         id="prototype-polisher",
-        name="Prototype Polisher",
-        role="UI/UX Engineer",
-        description="Reviews and enhances the HTML prototype for visual polish and interactions.",
+        name="Design Reviewer",
+        role="UI/UX Designer",
+        description="Reviews and refines the prototype for visual quality and smooth interactions.",
         icon="✨",
         order=3,
         pipeline_type="prototype",
         estimated_duration=8.0,
         max_tokens=32000,
-        system_prompt="""You are a UI/UX Engineer who polishes prototypes to production quality.
+        system_prompt="""You are a senior UI/UX designer reviewing an enterprise SaaS prototype.
 
-Take the HTML prototype from the previous agent and ENHANCE it:
+Take the HTML prototype from the previous agent and ENHANCE it to be production-quality:
 
-1. **Visual Polish**: Add subtle gradients, better shadows, micro-animations (hover transforms, transitions)
-2. **More Content**: If any page looks empty, add realistic content (tables with 5+ rows, lists with items, stats with numbers)
-3. **Interactions**: Ensure all buttons have hover states, all nav items work, modals open/close
-4. **Responsive**: Verify mobile layout works (sidebar collapses, content stacks)
-5. **Consistency**: Same spacing, colors, and typography throughout
-6. **Missing Pages**: If fewer than 5 pages exist, add more relevant pages
+## DESIGN ENFORCEMENT (fix any violations):
+- Background must be #F8F9FA (page) and #FFFFFF (cards/sidebar) — no other backgrounds
+- Text: #111827 primary, #6B7280 secondary — no bright colors
+- Accent: #1B2A4A navy only — no blue, indigo, or other accent colors
+- NO emoji icons — replace with text initials or remove
+- NO multicolors — monochrome palette only
+- Cards must have: white bg, 1px #E5E7EB border, 8px radius, subtle shadow
 
-CRITICAL CHECKS:
-- Does the sidebar navigation work? (clicking items shows correct page)
-- Are there at least 5 distinct pages with unique content?
-- Does the mobile hamburger menu work?
-- Are all interactive elements (buttons, links, toggles) functional?
-- Is the content relevant to the user's original topic?
+## QUALITY CHECKS:
+1. Does sidebar navigation work? (clicking items shows correct page)
+2. Are there at least 5 distinct pages with unique, realistic content?
+3. Do stat cards show real numbers relevant to the topic?
+4. Are tables populated with 5+ realistic rows?
+5. Is the layout clean with consistent spacing (16px/24px grid)?
+6. Are all buttons, forms, and interactive elements functional?
 
-If the prototype is already good, output it as-is with minor enhancements.
-If it has issues, fix them and output the complete corrected HTML.
+## ENHANCEMENTS:
+- Add hover states to all interactive elements (background change, cursor pointer)
+- Ensure stat cards have trend indicators (+X% in green, -X% in red)
+- Add realistic data to all tables and lists
+- Ensure the active nav item is clearly highlighted (#F0F4FF bg, #1B2A4A text)
 
-OUTPUT: ONLY the complete HTML starting with <!DOCTYPE html>. No markdown, no explanation, no code fences.""",
+Output the COMPLETE corrected HTML starting with <!DOCTYPE html>. No markdown, no explanation.""",
     ),
     AgentDefinition(
         id="prototype-finalizer",
-        name="Prototype Finalizer",
-        role="Tech Lead",
-        description="Final validation and output of the HTML prototype.",
+        name="Final Packager",
+        role="Delivery Lead",
+        description="Validates and packages the final prototype ready for review and handoff.",
         icon="📦",
         order=4,
         pipeline_type="prototype",
@@ -501,9 +745,9 @@ OUTPUT: ONLY the raw HTML starting with <!DOCTYPE html>. Nothing else.""",
 APP_BUILDER_AGENTS: list[AgentDefinition] = [
     AgentDefinition(
         id="material-analyzer",
-        name="Material Analyzer & Architect",
+        name="Solution Architect",
         role="Solutions Architect",
-        description="Analyzes input materials and designs the complete app architecture.",
+        description="Analyzes your requirements and designs the complete application architecture.",
         icon="📋",
         order=1,
         pipeline_type="app_builder",
@@ -543,9 +787,9 @@ RULES:
     ),
     AgentDefinition(
         id="app-code-generator",
-        name="Full-Stack Code Generator",
-        role="Senior Full-Stack Developer",
-        description="Generates complete frontend and backend code for the app.",
+        name="Code Generator",
+        role="Full-Stack Developer",
+        description="Generates complete frontend and backend code for your application.",
         icon="💻",
         order=2,
         pipeline_type="app_builder",
@@ -600,9 +844,9 @@ RULES:
     ),
     AgentDefinition(
         id="app-infra-generator",
-        name="Infrastructure & Tests Generator",
+        name="DevOps Builder",
         role="DevOps Engineer",
-        description="Generates Docker, CI/CD, tests, and deployment configuration.",
+        description="Sets up deployment configuration, tests, and infrastructure for your app.",
         icon="🚀",
         order=3,
         pipeline_type="app_builder",
@@ -650,9 +894,9 @@ RULES:
     ),
     AgentDefinition(
         id="app-assembler",
-        name="Project Assembler",
-        role="Tech Lead",
-        description="Compiles everything into a final structured project document.",
+        name="Project Packager",
+        role="Delivery Lead",
+        description="Packages everything into a complete, ready-to-use project document.",
         icon="📦",
         order=4,
         pipeline_type="app_builder",
@@ -992,6 +1236,10 @@ from app.agents.custom_agents import CUSTOM_AGENTS
 ALL_AGENTS: dict[str, list[AgentDefinition]] = {
     "user_stories": USER_STORY_AGENTS,
     "ppt": PPT_AGENTS,
+    "ppt_revision": PPT_REVISION_AGENTS,
+    "user_stories_revision": USER_STORY_REVISION_AGENTS,
+    "prototype_revision": PROTOTYPE_REVISION_AGENTS,
+    "app_builder_revision": APP_BUILDER_REVISION_AGENTS,
     "prototype": PROTOTYPE_AGENTS,
     "app_builder": APP_BUILDER_AGENTS,
     "reverse_engineer": REVERSE_ENGINEER_AGENTS,

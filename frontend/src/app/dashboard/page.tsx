@@ -86,11 +86,11 @@ export default function DashboardPage() {
         const pipelineType = data.pipeline_type as string;
 
         if (finalOutput && pipelineType) {
-          if (pipelineType === "user_stories" || pipelineType === "app_builder" || pipelineType === "reverse_engineer" || pipelineType === "custom") {
+          if (pipelineType === "user_stories" || pipelineType === "user_stories_revision" || pipelineType === "app_builder" || pipelineType === "app_builder_revision" || pipelineType === "custom") {
             setUserStoryContent(finalOutput);
-          } else if (pipelineType === "ppt") {
+          } else if (pipelineType === "ppt" || pipelineType === "ppt_revision") {
             setPptContent(finalOutput);
-          } else if (pipelineType === "prototype") {
+          } else if (pipelineType === "prototype" || pipelineType === "prototype_revision") {
             setPrototypeContent(finalOutput);
           }
         }
@@ -258,6 +258,17 @@ export default function DashboardPage() {
         if (msg.data && "title" in msg.data && "chat_session_id" in msg.data) {
           const titleData = msg.data as { chat_session_id: string; title: string };
           setChatTitleUpdate(titleData);
+        }
+        break;
+      }
+
+      case "workflow_title_update": {
+        // Claude generated a clean title for the workflow run — update the list
+        if (msg.data && "workflow_id" in msg.data && "title" in msg.data) {
+          const { workflow_id, title } = msg.data as { workflow_id: string; title: string };
+          setRecentRuns((prev) =>
+            prev.map((r) => r.id === workflow_id ? { ...r, title } : r)
+          );
         }
         break;
       }
@@ -587,13 +598,17 @@ export default function DashboardPage() {
       websocketSend={send}
       pipelineState={pipelineState}
       onStartPipeline={(type, message, agentIds) => {
-        // Clear previous preview content before starting new pipeline
-        setUserStoryContent("");
-        setPptContent("");
-        setPrototypeContent("");
-        pptContentRef.current = "";
-        prototypeContentRef.current = "";
-        userStoryContentRef.current = "";
+        const isRevision = type.endsWith("_revision");
+        if (!isRevision) {
+          // Fresh run — clear previous preview content
+          setUserStoryContent("");
+          setPptContent("");
+          setPrototypeContent("");
+          pptContentRef.current = "";
+          prototypeContentRef.current = "";
+          userStoryContentRef.current = "";
+        }
+        // For revisions, keep existing content visible until new output arrives
         startPipeline(type, message, agentIds);
       }}
       onResetPipeline={resetPipeline}

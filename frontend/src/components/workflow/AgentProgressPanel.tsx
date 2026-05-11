@@ -1,8 +1,8 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { CheckCircle2, Loader2, Circle, AlertCircle, RotateCcw, Clock, FileText, Presentation, Layout, ArrowRight, StopCircle } from "lucide-react";
+import { CheckCircle2, Loader2, AlertCircle, RotateCcw, FileText, Presentation, Layout, ArrowRight, Square } from "lucide-react";
 import type { AgentRunState, PipelineRunState, WorkflowType } from "@/types/index";
 
 interface AgentProgressPanelProps {
@@ -16,224 +16,232 @@ interface AgentProgressPanelProps {
   onCancelPipeline?: () => void;
 }
 
-const STATUS_ICON = { idle: Circle, thinking: Loader2, running: Loader2, done: CheckCircle2, error: AlertCircle };
-const STATUS_COLOR = {
-  idle: "text-gray-300",
-  thinking: "text-blue-500",
-  running: "text-blue-500",
-  done: "text-emerald-500",
-  error: "text-red-500",
-};
-
-const STATUS_DOT: Record<string, string> = {
-  idle: "bg-gray-300",
-  thinking: "bg-blue-500 animate-pulse",
-  running: "bg-blue-500 animate-pulse",
-  done: "bg-emerald-500",
-  error: "bg-red-500",
-};
-
-const PIPELINE_OPTIONS: { type: WorkflowType; label: string; icon: typeof FileText }[] = [
-  { type: "ppt", label: "Presentation", icon: Presentation },
-  { type: "user_stories", label: "User Stories", icon: FileText },
-  { type: "prototype", label: "Prototype", icon: Layout },
+const PIPELINE_OPTIONS: { type: WorkflowType; label: string; description: string }[] = [
+  { type: "ppt", label: "Presentation", description: "Turn results into slides" },
+  { type: "user_stories", label: "User Stories", description: "Generate product backlog" },
+  { type: "prototype", label: "Prototype", description: "Build interactive UI" },
 ];
 
-export function AgentProgressPanel({ pipelineState, workflowType, onViewResults, onRunAnother, onFollowUp, onChainPipeline, completedPipelineTypes = [], onCancelPipeline }: AgentProgressPanelProps) {
+const PIPELINE_LABELS: Record<string, string> = {
+  user_stories: "User Stories",
+  ppt: "Presentation",
+  prototype: "Prototype",
+  app_builder: "App Builder",
+  custom: "Custom Workflow",
+};
+
+// Deterministic initials color per agent index — monochrome
+const ICON_STYLES = [
+  { bg: "#E8EDF5", text: "#1B2A4A" },
+  { bg: "#F0EDE8", text: "#5C4A2A" },
+  { bg: "#EAF0EA", text: "#2A5C2A" },
+  { bg: "#F0E8EE", text: "#5C2A4A" },
+  { bg: "#E8EEF0", text: "#2A4A5C" },
+  { bg: "#F0EEE8", text: "#5C5A2A" },
+];
+
+function AgentCard({ agent, index }: { agent: AgentRunState; index: number }) {
+  const isActive = agent.status === "running" || agent.status === "thinking";
+  const isDone = agent.status === "done";
+  const isError = agent.status === "error";
+  const isIdle = agent.status === "idle";
+  const iconStyle = ICON_STYLES[index % ICON_STYLES.length];
+  const initials = agent.name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.04 }}
+      className={`rounded-xl border px-4 py-3.5 transition-all ${
+        isActive
+          ? "border-gray-200 bg-white shadow-sm"
+          : isDone
+          ? "border-gray-100 bg-white"
+          : isError
+          ? "border-red-100 bg-red-50"
+          : "border-gray-100 bg-white/60"
+      }`}
+    >
+      {/* Top row */}
+      <div className="flex items-center gap-3 mb-2">
+        {/* Icon */}
+        <div
+          className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-[11px] font-bold"
+          style={{ background: isIdle ? "#F5F5F0" : iconStyle.bg, color: isIdle ? "#9CA3AF" : iconStyle.text }}
+        >
+          {initials}
+        </div>
+
+        {/* Name + badge */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <p className={`text-[12px] font-semibold leading-tight ${isIdle ? "text-gray-400" : "text-gray-900"}`}>
+              {agent.name}
+            </p>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              {isDone && agent.duration != null && (
+                <span className="text-[9px] text-gray-400">{agent.duration.toFixed(0)}s</span>
+              )}
+              {isDone && (
+                <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                  DONE
+                </span>
+              )}
+              {isActive && (
+                <span className="text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded animate-pulse">
+                  RUNNING
+                </span>
+              )}
+              {isError && (
+                <span className="text-[9px] font-bold text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded">
+                  ERROR
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Status line */}
+      {isDone && (
+        <p className="text-[11px] text-gray-500 mb-1.5">Completed successfully</p>
+      )}
+      {isActive && (
+        <p className="text-[11px] text-gray-500 mb-1.5 flex items-center gap-1.5">
+          <Loader2 className="h-3 w-3 animate-spin text-gray-400" />
+          {agent.thinking || "In progress..."}
+        </p>
+      )}
+      {isError && agent.error && (
+        <p className="text-[11px] text-red-600 mb-1.5">{agent.error}</p>
+      )}
+
+      {/* Skills / role metadata */}
+      {!isIdle && (
+        <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider">
+          {agent.role}
+        </p>
+      )}
+    </motion.div>
+  );
+}
+
+export function AgentProgressPanel({
+  pipelineState,
+  workflowType,
+  onRunAnother,
+  onFollowUp,
+  onChainPipeline,
+  completedPipelineTypes = [],
+  onCancelPipeline,
+}: AgentProgressPanelProps) {
   const [showChainSelector, setShowChainSelector] = useState(false);
   const [isCancelled, setIsCancelled] = useState(false);
   const { agents, isRunning, completedCount, totalDuration } = pipelineState;
 
-  const handleCancel = () => {
-    setIsCancelled(true);
-    onCancelPipeline?.();
-  };
+  const handleCancel = () => { setIsCancelled(true); onCancelPipeline?.(); };
   const isComplete = !isRunning && agents.length > 0 && completedCount === agents.length;
   const hasErrors = agents.some((a) => a.status === "error");
-  const errorAgents = agents.filter((a) => a.status === "error");
-
   const allCompleted = [...completedPipelineTypes, workflowType];
   const availablePipelines = PIPELINE_OPTIONS.filter((p) => !allCompleted.includes(p.type));
+  const pipelineLabel = PIPELINE_LABELS[workflowType] || workflowType;
+  const progress = agents.length > 0 ? (completedCount / agents.length) * 100 : 0;
 
   return (
     <div className="flex h-full flex-col bg-white">
       {/* Header */}
-      <div className="px-5 py-4 border-b border-gray-200">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-gray-900">
-              {isCancelled ? "Pipeline Stopped" : isRunning ? "Running Pipeline" : isComplete ? "Pipeline Complete" : hasErrors ? "Pipeline Error" : "Agent Progress"}
-            </h2>
-            <p className="text-[11px] text-gray-500 mt-0.5">
-              {isCancelled && "Execution was cancelled by user"}
-              {!isCancelled && isRunning && `${completedCount}/${agents.length} agents completed`}
-              {!isCancelled && isComplete && totalDuration && `Finished in ${totalDuration.toFixed(1)}s`}
-              {!isCancelled && hasErrors && !isRunning && `${errorAgents.length} agent(s) failed`}
+      <div className="px-5 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
+        <div className="flex items-start justify-between gap-2 mb-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-1">{pipelineLabel}</p>
+            <p className="text-[13px] font-semibold text-gray-900 leading-tight">
+              {isCancelled ? "Pipeline stopped" :
+               isRunning ? `${completedCount} / ${agents.length} agents` :
+               isComplete ? `Done in ${totalDuration?.toFixed(1)}s` :
+               "Agent Progress"}
             </p>
           </div>
           {isRunning && !isCancelled && (
             <button
               onClick={handleCancel}
-              className="flex items-center gap-1.5 text-[11px] font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg px-3 py-1.5 transition-all border border-gray-200 hover:border-gray-300"
-              title="Stop pipeline execution"
+              className="flex items-center gap-1.5 text-[10px] font-medium text-gray-500 hover:text-gray-900 border border-gray-200 hover:border-gray-300 rounded-lg px-2.5 py-1.5 transition-all flex-shrink-0"
             >
-              <StopCircle className="h-3.5 w-3.5" /> Stop Pipeline
+              <Square className="h-3 w-3" /> Pause
             </button>
           )}
-          {!isRunning && !isCancelled && isComplete && !hasErrors && (
-            <div className="flex items-center gap-1.5 text-[10px] text-emerald-700 bg-emerald-50 rounded-full px-2.5 py-1 border border-emerald-100">
-              <CheckCircle2 className="h-3 w-3" /> Done
-            </div>
-          )}
-          {isCancelled && (
-            <div className="flex items-center gap-1.5 text-[10px] text-gray-600 bg-gray-100 rounded-full px-2.5 py-1 border border-gray-200">
-              <StopCircle className="h-3 w-3" /> Stopped
-            </div>
-          )}
         </div>
+
+        {/* Progress bar */}
+        {agents.length > 0 && (
+          <div className="h-0.5 bg-gray-100 rounded-full overflow-hidden">
+            <motion.div
+              className={`h-full rounded-full ${hasErrors ? "bg-red-400" : isCancelled ? "bg-gray-300" : "bg-[#1B2A4A]"}`}
+              initial={{ width: 0 }}
+              animate={{ width: `${progress}%` }}
+              transition={{ duration: 0.4, ease: "easeOut" }}
+            />
+          </div>
+        )}
       </div>
 
-      {/* Cancelled Banner */}
-      {isCancelled && (
-        <div className="mx-5 mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
-          <div className="flex items-start gap-3">
-            <StopCircle className="h-4 w-4 text-gray-500 flex-shrink-0 mt-0.5" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-800">Pipeline execution stopped</p>
-              <p className="text-xs text-gray-500 mt-1">You stopped the pipeline before it completed. No output was generated.</p>
-              <button
-                onClick={() => { setIsCancelled(false); onRunAnother?.(); }}
-                className="mt-3 flex items-center gap-1.5 text-[11px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-all"
-              >
-                <RotateCcw className="h-3 w-3" /> Start a New Pipeline
-              </button>
-            </div>
+      {/* Agent cards */}
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+        {agents.map((agent, idx) => (
+          <AgentCard key={agent.id} agent={agent} index={idx} />
+        ))}
+
+        {/* Chain pipeline */}
+        {isComplete && availablePipelines.length > 0 && onChainPipeline && (
+          <div className="pt-2">
+            <button
+              onClick={() => setShowChainSelector(!showChainSelector)}
+              className="w-full flex items-center justify-between rounded-xl border border-gray-200 bg-white hover:bg-gray-50 px-4 py-3 text-left transition-all"
+            >
+              <div className="flex items-center gap-2">
+                <ArrowRight className="h-3.5 w-3.5 text-gray-400" />
+                <span className="text-[12px] font-semibold text-gray-700">Chain to next pipeline</span>
+              </div>
+              <span className="text-[10px] text-gray-400">{showChainSelector ? "▲" : "▼"}</span>
+            </button>
+            <AnimatePresence>
+              {showChainSelector && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="overflow-hidden mt-1.5 space-y-1"
+                >
+                  {availablePipelines.map((pipeline) => (
+                    <button
+                      key={pipeline.type}
+                      onClick={() => { onChainPipeline(pipeline.type); setShowChainSelector(false); }}
+                      className="w-full flex items-center justify-between rounded-xl border border-gray-200 bg-white hover:border-[#1B2A4A] hover:bg-blue-50 px-4 py-3 text-left transition-all"
+                    >
+                      <div>
+                        <p className="text-[12px] font-semibold text-gray-900">{pipeline.label}</p>
+                        <p className="text-[10px] text-gray-400">{pipeline.description}</p>
+                      </div>
+                      <ArrowRight className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Error Banner */}
-      {hasErrors && !isRunning && (
-        <div className="mx-5 mt-4 rounded-lg border border-red-200 bg-red-50 p-4">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="h-4 w-4 text-red-500 flex-shrink-0 mt-0.5" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-red-800">Pipeline encountered an error</p>
-              <p className="text-xs text-red-600 mt-1 leading-relaxed">
-                {errorAgents.map((a) => a.error || `${a.name} failed`).join(". ")}
-              </p>
-              <button onClick={onRunAnother} className="mt-3 text-[11px] font-medium text-red-700 bg-white border border-red-200 rounded-lg px-3 py-1.5 hover:bg-red-50 transition-all">
-                Try Again
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Agent Timeline */}
-      <div className="flex-1 overflow-y-auto px-5 py-4">
-        <div className="space-y-1">
-          {agents.map((agent, idx) => {
-            const isActive = agent.status === "running" || agent.status === "thinking";
-            return (
-              <motion.div
-                key={agent.id}
-                initial={{ opacity: 0, x: -8 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: idx * 0.02 }}
-                className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all ${
-                  isActive ? "bg-blue-50 border border-blue-100" :
-                  agent.status === "error" ? "bg-red-50 border border-red-100" :
-                  "border border-transparent"
-                }`}
-              >
-                {/* Status dot */}
-                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_DOT[agent.status] || "bg-gray-300"}`} />
-
-                <div className="flex-1 min-w-0">
-                  <p className={`text-[12px] font-medium ${
-                    agent.status === "idle" ? "text-gray-400" :
-                    agent.status === "error" ? "text-red-700" :
-                    "text-gray-900"
-                  }`}>{agent.name}</p>
-                  {isActive && agent.thinking && (
-                    <p className="text-[10px] text-blue-600 mt-0.5 truncate">{agent.thinking}</p>
-                  )}
-                  {isActive && !agent.thinking && (
-                    <p className="text-[10px] text-blue-600 mt-0.5">Processing...</p>
-                  )}
-                  {agent.status === "error" && agent.error && (
-                    <p className="text-[10px] text-red-600 mt-1 leading-relaxed">{agent.error}</p>
-                  )}
-                </div>
-
-                {agent.duration !== null && (
-                  <span className="text-[9px] text-gray-400 flex items-center gap-0.5 flex-shrink-0">
-                    <Clock className="h-2.5 w-2.5" />{agent.duration.toFixed(1)}s
-                  </span>
-                )}
-                {agent.status === "done" && (
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
-                )}
-                {agent.status === "error" && (
-                  <AlertCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
-                )}
-              </motion.div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Actions — shown when pipeline completes */}
-      {isComplete && (
-        <div className="px-5 py-3 border-t border-gray-200 space-y-2">
-          {/* Chain Pipeline Selector */}
-          {availablePipelines.length > 0 && onChainPipeline && (
-            <div>
-              <button
-                onClick={() => setShowChainSelector(!showChainSelector)}
-                className="w-full flex items-center justify-center gap-2 rounded-lg bg-blue-50 border border-blue-200 text-blue-600 px-4 py-2.5 text-xs font-medium hover:bg-blue-100 transition-all"
-              >
-                <ArrowRight className="h-3.5 w-3.5" /> Chain to Next Pipeline
-              </button>
-              <AnimatePresence>
-                {showChainSelector && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="mt-2 space-y-1.5 overflow-hidden"
-                  >
-                    <p className="text-[9px] text-gray-500 px-1">Uses output from this pipeline as context:</p>
-                    {availablePipelines.map((pipeline) => {
-                      const Icon = pipeline.icon;
-                      return (
-                        <button
-                          key={pipeline.type}
-                          onClick={() => { onChainPipeline(pipeline.type); setShowChainSelector(false); }}
-                          className="w-full flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-left hover:bg-gray-100 hover:border-gray-300 transition-all"
-                        >
-                          <Icon className="h-4 w-4 text-gray-500 flex-shrink-0" />
-                          <div className="flex-1">
-                            <p className="text-[11px] font-semibold text-gray-900">{pipeline.label}</p>
-                            <p className="text-[9px] text-gray-500">Build on previous results</p>
-                          </div>
-                          <ArrowRight className="h-3 w-3 text-gray-400" />
-                        </button>
-                      );
-                    })}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          )}
-
-          {/* Start a New Pipeline */}
-          <button onClick={onRunAnother} className="w-full flex items-center justify-center gap-2 rounded-lg bg-gray-100 border border-gray-200 text-gray-600 px-4 py-2 text-xs font-medium hover:bg-gray-200 transition-all">
-            <RotateCcw className="h-3.5 w-3.5" /> Start a New Pipeline
+        {(isComplete || isCancelled) && (
+          <button
+            onClick={() => { setIsCancelled(false); onRunAnother?.(); }}
+            className="w-full flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 px-4 py-2.5 text-[11px] font-medium text-gray-600 transition-all"
+          >
+            <RotateCcw className="h-3.5 w-3.5" /> New Pipeline
           </button>
-        </div>
-      )}
+        )}
+      </div>
+
+      {/* Follow-up input removed — not needed */}
     </div>
   );
 }
