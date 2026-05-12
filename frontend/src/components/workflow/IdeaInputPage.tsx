@@ -4,17 +4,36 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import {
   ArrowLeft, ArrowRight, Paperclip, File, X, FileText,
-  Presentation, Layout, Settings2, Mic, MicOff,
+  Presentation, Layout, Settings2, Mic, MicOff, GitBranch,
 } from "lucide-react";
 import { AgentsPopup } from "./AgentsPopup";
 import { LIBRARY_AGENTS } from "./AgentLibraryData";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import type { WorkflowType, AgentDef } from "@/types/index";
 
+// Migration is a meta-pipeline: the home page sends `workflowType="migration"`
+// and this page lets the user pick the concrete sub-pipeline before running.
+// Defined at module scope so the constant is identity-stable for hook deps.
+const MIGRATION_OPTIONS: { type: WorkflowType; label: string; tagline: string }[] = [
+  {
+    type: "mulesoft_to_springboot",
+    label: "Mulesoft → Spring Boot microservices on AWS",
+    tagline: "Catalogue the Mule estate, decompose into Spring Boot 3 services, generate the AWS landing zone, and harness the cutover.",
+  },
+  {
+    type: "dotnet_to_azure",
+    label: ".NET → Azure (AI-augmented)",
+    tagline: "Inventory .NET projects, map each to the right Azure service, modernise to .NET 8, and bolt on Azure AI where it pays off.",
+  },
+];
+
 interface IdeaInputPageProps {
   workflowType: WorkflowType;
   onBack: () => void;
-  onRun: (message: string, agentIds: string[]) => void;
+  // `resolvedType` is the concrete pipeline the backend should dispatch.
+  // For all standard workflows it equals `workflowType`; for the `migration`
+  // meta-pipeline it is the sub-pipeline the user picked in the tile selector.
+  onRun: (message: string, agentIds: string[], resolvedType: WorkflowType) => void;
 }
 
 const TYPE_CONFIG: Record<WorkflowType, {
@@ -97,6 +116,30 @@ const TYPE_CONFIG: Record<WorkflowType, {
     placeholder: "e.g. Research the competitive landscape for AI coding assistants and generate a SWOT analysis.",
     icon: Layout,
   },
+  migration: {
+    tag: "Migration workflows",
+    heading: "Modernise a legacy estate",
+    inputLabel: "Describe the source estate — repos, integration platforms, .NET solutions, target cloud",
+    outputLabel: "Inventory, target architecture, scaffolding, IaC, and validation harness",
+    placeholder: "e.g. Migrate three Mulesoft 4 apps powering our orders + claims platform onto AWS, splitting into Spring Boot microservices with Aurora Postgres and SQS messaging.",
+    icon: GitBranch,
+  },
+  mulesoft_to_springboot: {
+    tag: "Mulesoft → Spring Boot microservices on AWS",
+    heading: "Modernise off Mulesoft",
+    inputLabel: "Mulesoft apps, flows, and migration constraints",
+    outputLabel: "Inventory, microservice decomposition, Spring Boot scaffolds, Terraform, validation harness",
+    placeholder: "e.g. Migrate three Mulesoft 4 apps powering our orders + claims platform onto AWS, splitting into Spring Boot microservices with Aurora Postgres and SQS messaging.",
+    icon: GitBranch,
+  },
+  dotnet_to_azure: {
+    tag: ".NET → Azure (AI-augmented)",
+    heading: "Modernise .NET onto Azure",
+    inputLabel: ".NET solutions, hosting model, and target Azure landing zone",
+    outputLabel: "Inventory, Azure target map, .NET 8 modernised code, Bicep, Azure AI integrations, validation harness",
+    placeholder: "e.g. Rehost two ASP.NET MVC 4.7 apps and a Windows Service onto Azure App Service + Functions, with Azure SQL and Service Bus. Surface AI document triage where it helps the claims workflow.",
+    icon: GitBranch,
+  },
 };
 
 export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProps) {
@@ -107,15 +150,28 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
   const fileInputRef = useRef<HTMLInputElement>(null);
   const preSpeechTextRef = useRef("");
   const { isListening, transcript, startListening, stopListening, isSupported: speechSupported } = useSpeechRecognition();
+
+  // For the "migration" meta-pipeline, the user must pick a concrete sub-pipeline
+  // (Mulesoft→Spring Boot or .NET→Azure) before Run is allowed. Once picked, the
+  // chosen sub-type drives config, agents, and the Run dispatch.
+  const isMigrationMeta = workflowType === "migration";
+  const [migrationChoice, setMigrationChoice] = useState<WorkflowType | null>(null);
+  const effectiveType: WorkflowType = isMigrationMeta && migrationChoice ? migrationChoice : workflowType;
+
   const [pipelineAgents, setPipelineAgents] = useState<AgentDef[]>(() =>
-    LIBRARY_AGENTS.filter((a) => a.pipeline_type === workflowType).sort((a, b) => a.order - b.order)
+    LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).sort((a, b) => a.order - b.order)
   );
 
   useEffect(() => {
-    setPipelineAgents(LIBRARY_AGENTS.filter((a) => a.pipeline_type === workflowType).sort((a, b) => a.order - b.order));
-  }, [workflowType]);
+    setPipelineAgents(LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).sort((a, b) => a.order - b.order));
+  }, [effectiveType]);
 
-  const config = TYPE_CONFIG[workflowType];
+  // Reset the sub-choice when the parent switches us off the migration meta-type.
+  useEffect(() => {
+    if (!isMigrationMeta) setMigrationChoice(null);
+  }, [isMigrationMeta]);
+
+  const config = TYPE_CONFIG[effectiveType];
 
   useEffect(() => {
     if (isListening && transcript) setIdeaInput(preSpeechTextRef.current ? `${preSpeechTextRef.current} ${transcript}` : transcript);
@@ -125,27 +181,29 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
 
   const handleRun = () => {
     if (!ideaInput.trim() || pipelineAgents.length === 0) return;
-    onRun(ideaInput.trim(), pipelineAgents.map((a) => a.id));
+    // For the migration meta-type, Run is gated on a sub-pipeline being chosen.
+    if (isMigrationMeta && !migrationChoice) return;
+    onRun(ideaInput.trim(), pipelineAgents.map((a) => a.id), effectiveType);
   };
 
-  const defaultAgentIds = new Set(LIBRARY_AGENTS.filter((a) => a.pipeline_type === workflowType).map((a) => a.id));
+  const defaultAgentIds = new Set(LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).map((a) => a.id));
   const optionalAgentCount = pipelineAgents.filter((a) => !defaultAgentIds.has(a.id)).length;
-  const maxOptional = workflowType === "custom" ? 8 : 5;
+  const maxOptional = effectiveType === "custom" ? 8 : 5;
   const canAddMore = optionalAgentCount < maxOptional;
 
   const handleAddAgent = useCallback((agent: AgentDef) => {
     setPipelineAgents((prev) => {
       if (prev.find((a) => a.id === agent.id)) return prev;
-      const currentDefaults = new Set(LIBRARY_AGENTS.filter((a) => a.pipeline_type === workflowType).map((a) => a.id));
+      const currentDefaults = new Set(LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).map((a) => a.id));
       const currentOptional = prev.filter((a) => !currentDefaults.has(a.id)).length;
-      const limit = workflowType === "custom" ? 8 : 5;
+      const limit = effectiveType === "custom" ? 8 : 5;
       if (currentOptional >= limit) return prev;
-      const insertIdx = workflowType === "custom" ? prev.length : (prev.length > 0 ? prev.length - 1 : 0);
+      const insertIdx = effectiveType === "custom" ? prev.length : (prev.length > 0 ? prev.length - 1 : 0);
       const updated = [...prev];
       updated.splice(insertIdx, 0, { ...agent, order: insertIdx + 1 });
       return updated;
     });
-  }, [workflowType]);
+  }, [effectiveType]);
 
   const handleRemoveAgent = useCallback((agentId: string) => {
     setPipelineAgents((prev) => prev.filter((a) => a.id !== agentId));
@@ -277,15 +335,63 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
               {/* Run button */}
               <button
                 onClick={handleRun}
-                disabled={!ideaInput.trim() || pipelineAgents.length === 0}
+                disabled={!ideaInput.trim() || pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
                 className="flex items-center gap-2 rounded-xl bg-gray-900 text-white px-5 py-2.5 text-[13px] font-semibold hover:bg-gray-800 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
-                {pipelineAgents.length === 0 ? "Add agents first" : "Run workflow"}
+                {pipelineAgents.length === 0
+                  ? "Add agents first"
+                  : isMigrationMeta && !migrationChoice
+                  ? "Pick a migration path"
+                  : "Run workflow"}
                 <ArrowRight className="h-4 w-4" />
               </button>
             </div>
           </div>
         </motion.div>
+
+        {/* Migration sub-pipeline selector — only when the meta-type was picked.
+            Two tiles, always visible (no tap-to-reveal). Tapping a tile drives
+            the rest of the page (config copy, agent lineup, Run dispatch). */}
+        {isMigrationMeta && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.12 }}
+            className="w-full mt-5"
+          >
+            <p className="text-[10px] font-semibold text-[#1B2A4A] uppercase tracking-[0.14em] mb-2.5">
+              Choose your migration path
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {MIGRATION_OPTIONS.map((opt) => {
+                const isSelected = migrationChoice === opt.type;
+                return (
+                  <button
+                    key={opt.type}
+                    onClick={() => setMigrationChoice(opt.type)}
+                    className={`group text-left rounded-2xl border-2 px-4 py-3.5 transition-all ${
+                      isSelected
+                        ? "border-[#1B2A4A] bg-[#1B2A4A] shadow-md"
+                        : "border-gray-200 bg-white hover:border-[#1B2A4A]/40 hover:bg-[#F1F4FB]"
+                    }`}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <GitBranch className={`h-4 w-4 mt-0.5 flex-shrink-0 ${isSelected ? "text-white" : "text-[#1B2A4A]"}`} />
+                      <div className="min-w-0">
+                        <p className={`text-[12px] font-semibold leading-snug ${isSelected ? "text-white" : "text-gray-900"}`}>
+                          {opt.label}
+                        </p>
+                        <p className={`text-[10px] mt-1 leading-relaxed ${isSelected ? "text-white/85" : "text-gray-500"}`}>
+                          {opt.tagline}
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
 
         {/* Advanced / agents info */}
         <motion.div
@@ -313,7 +419,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
         isOpen={showAgents}
         onClose={() => setShowAgents(false)}
         agents={pipelineAgents}
-        pipelineType={workflowType}
+        pipelineType={effectiveType}
         onAddAgent={handleAddAgent}
         onRemoveAgent={handleRemoveAgent}
         onReorder={handleReorderAgents}

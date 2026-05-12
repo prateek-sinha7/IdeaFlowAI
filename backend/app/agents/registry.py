@@ -3,6 +3,28 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+# Shared SDLC + migration prompts. Imported at top-of-module because
+# multiple agent lists below (App Builder, both migration pipelines)
+# reference these constants and Python evaluates module-level
+# AgentDefinition(...) calls in source order — so the imports must
+# resolve before the first list that uses them.
+from app.agents.migration_pipelines import (
+    SDLC_SECURITY_ARCHITECTURE_PROMPT,
+    SDLC_CODE_COMPLIANCE_PROMPT,
+    SDLC_TEST_COMPLIANCE_PROMPT,
+    SDLC_GOVERNANCE_PROMPT,
+    MIGRATION_TEST_IMPLEMENTATION_PROMPT,
+)
+from app.agents.app_builder_sdlc import (
+    APP_USER_STORIES_PROMPT,
+    APP_SYSTEM_DESIGN_PROMPT,
+    APP_UX_DESIGN_PROMPT,
+    APP_API_DESIGN_PROMPT,
+    APP_DATABASE_DESIGN_PROMPT,
+    APP_FEATURE_IMPLEMENTATION_PROMPT,
+    APP_DEVOPS_PROMPT,
+)
+
 
 @dataclass
 class AgentDefinition:
@@ -738,8 +760,25 @@ OUTPUT: ONLY the raw HTML starting with <!DOCTYPE html>. Nothing else.""",
 
 
 # ============================================================
-# APP BUILDER PIPELINE — 4 Agents (focused on deliverable output)
-# Maps to "Build an app from existing material"
+# APP BUILDER PIPELINE — 15-agent SDLC pipeline.
+# Maps to "Build an end-to-end application".
+#
+# Order (matches the SDLC phases):
+#   1.  material-analyzer            — Discovery / high-level architecture
+#   2.  app-user-stories             — Requirements
+#   3.  app-system-design            — Detailed system design
+#   4.  app-security-architecture    — Security design gate (reuses migration prompt)
+#   5.  app-ux-design                — UX flows + design system
+#   6.  app-api-design               — REST/GraphQL contracts + OpenAPI
+#   7.  app-database-design          — Schema, indexes, migrations
+#   8.  app-code-generator           — Backend code generation
+#   9.  app-feature-implementation   — Business logic fill-in per user story
+#  10.  app-infra-generator          — Infrastructure as code
+#  11.  app-code-compliance          — SAST/lint/license gate (reuses)
+#  12.  app-test-implementation      — Test code (reuses migration prompt)
+#  13.  app-test-compliance          — Test strategy + coverage gate (reuses)
+#  14.  app-devops                   — DevOps: branching, CI/CD, environments, DORA metrics
+#  15.  app-sdlc-governance          — ADRs, runbooks, ops handover (reuses)
 # ============================================================
 
 APP_BUILDER_AGENTS: list[AgentDefinition] = [
@@ -786,12 +825,84 @@ RULES:
 - Keep it concise but complete""",
     ),
     AgentDefinition(
+        id="app-user-stories",
+        name="User Stories Agent",
+        role="Requirements & Acceptance Criteria",
+        description="Translates the architecture into epics, user stories, and Gherkin acceptance criteria the team can pick up as deliverable work.",
+        icon="📝",
+        order=2,
+        pipeline_type="app_builder",
+        estimated_duration=9.0,
+        max_tokens=10000,
+        system_prompt=APP_USER_STORIES_PROMPT,
+    ),
+    AgentDefinition(
+        id="app-system-design",
+        name="System Design Agent",
+        role="Detailed Architecture & Decomposition",
+        description="Detailed component decomposition, sync/async boundaries, state ownership, deployment topology, and ADRs.",
+        icon="🏗️",
+        order=3,
+        pipeline_type="app_builder",
+        estimated_duration=10.0,
+        max_tokens=10000,
+        system_prompt=APP_SYSTEM_DESIGN_PROMPT,
+    ),
+    AgentDefinition(
+        id="app-security-architecture",
+        name="Security Architecture Agent",
+        role="Threat Modelling & Security Controls",
+        description="STRIDE threat model, identity/IAM design, encryption, secrets, WAF, and security gates for the application.",
+        icon="🛡️",
+        order=4,
+        pipeline_type="app_builder",
+        estimated_duration=9.0,
+        max_tokens=10000,
+        system_prompt=SDLC_SECURITY_ARCHITECTURE_PROMPT,
+    ),
+    AgentDefinition(
+        id="app-ux-design",
+        name="UX & UI Design Agent",
+        role="User Journeys, Wireframes & Design System",
+        description="Information architecture, wireframes, design tokens, component library, accessibility plan, and error/loading states.",
+        icon="🎨",
+        order=5,
+        pipeline_type="app_builder",
+        estimated_duration=9.0,
+        max_tokens=10000,
+        system_prompt=APP_UX_DESIGN_PROMPT,
+    ),
+    AgentDefinition(
+        id="app-api-design",
+        name="API Contract Agent",
+        role="REST/GraphQL Contracts & OpenAPI",
+        description="Endpoint contracts, error envelopes, idempotency rules, async event contracts, versioning policy, and the OpenAPI 3.1 document.",
+        icon="🔌",
+        order=6,
+        pipeline_type="app_builder",
+        estimated_duration=8.0,
+        max_tokens=10000,
+        system_prompt=APP_API_DESIGN_PROMPT,
+    ),
+    AgentDefinition(
+        id="app-database-design",
+        name="Data Model Agent",
+        role="Schema, Indexes & Migrations",
+        description="Entity model, DDL, indexing strategy, migration tooling, PII classification, backup/recovery targets, and query budgets.",
+        icon="🗄️",
+        order=7,
+        pipeline_type="app_builder",
+        estimated_duration=8.0,
+        max_tokens=10000,
+        system_prompt=APP_DATABASE_DESIGN_PROMPT,
+    ),
+    AgentDefinition(
         id="app-code-generator",
         name="Code Generation Agent",
-        role="Full-Stack Implementation",
-        description="Generates complete frontend and backend code for your application.",
+        role="Full-Stack Code Generation",
+        description="Generates complete frontend and backend code for your application — controllers, services, models, pages, components.",
         icon="💻",
-        order=2,
+        order=8,
         pipeline_type="app_builder",
         estimated_duration=15.0,
         max_tokens=32000,
@@ -843,12 +954,24 @@ RULES:
 - Use modern best practices (async/await, proper error handling)""",
     ),
     AgentDefinition(
+        id="app-feature-implementation",
+        name="Feature Implementation Agent",
+        role="Business Logic per User Story",
+        description="Fleshes out the user stories' business logic in the generated codebase — route handlers, services, integrations, and feature flags.",
+        icon="⚙️",
+        order=9,
+        pipeline_type="app_builder",
+        estimated_duration=14.0,
+        max_tokens=16000,
+        system_prompt=APP_FEATURE_IMPLEMENTATION_PROMPT,
+    ),
+    AgentDefinition(
         id="app-infra-generator",
         name="Infrastructure Agent",
         role="Deployment & Platform",
         description="Sets up deployment configuration, tests, and infrastructure for your app.",
         icon="🚀",
-        order=3,
+        order=10,
         pipeline_type="app_builder",
         estimated_duration=8.0,
         max_tokens=16000,
@@ -893,76 +1016,64 @@ RULES:
 - Include realistic environment variable names for the specific app""",
     ),
     AgentDefinition(
-        id="app-assembler",
-        name="Project Assembly Agent",
-        role="Final Compilation & Handoff",
-        description="Packages everything into a complete, ready-to-use project document.",
-        icon="📦",
-        order=4,
+        id="app-code-compliance",
+        name="Code Compliance Agent",
+        role="Static Analysis, Linting & Licensing",
+        description="SAST/SCA tooling, SonarQube quality gates, language-specific lint config, license policy, and pre-commit/CI gates.",
+        icon="🧪",
+        order=11,
         pipeline_type="app_builder",
-        estimated_duration=6.0,
-        max_tokens=32000,
-        system_prompt="""You are a Tech Lead who assembles the final project deliverable.
-
-Take ALL code and architecture from previous agents and compile into ONE complete markdown document.
-
-OUTPUT FORMAT:
-
-# [App Name] — Full-Stack Application
-
-## Architecture Overview
-[Brief description + ASCII diagram]
-
-## Project Structure
-```
-project-root/
-├── src/
-│   ├── app/           # Frontend pages
-│   ├── components/    # Reusable UI components
-│   ├── api/           # Backend API routes
-│   ├── models/        # Database models
-│   ├── lib/           # Utilities
-│   └── types/         # TypeScript types
-├── tests/
-├── Dockerfile
-├── docker-compose.yml
-├── package.json
-└── .env.example
-```
-
-## Setup Instructions
-1. Clone the repository
-2. Install dependencies: `npm install`
-3. Set up environment: `cp .env.example .env`
-4. Start database: `docker-compose up -d db`
-5. Run migrations: `npm run migrate`
-6. Start dev server: `npm run dev`
-
-## Database Schema
-[Tables with fields]
-
-## API Reference
-[Endpoints table]
-
-## Code Files
-
-[Include ALL code files from previous agents with their filename headers]
-
-## Next Steps
-- [ ] Add email verification
-- [ ] Implement rate limiting
-- [ ] Add monitoring/logging
-- [ ] Write E2E tests
-- [ ] Deploy to production
-
----
-Generated by Flowin
-
-RULES:
-- Output ONLY the markdown document
-- Include ALL code files from previous agents (don't summarize them)
-- The document should be complete enough to start building immediately
-- Use the correct app name from the user's topic""",
+        estimated_duration=8.0,
+        max_tokens=10000,
+        system_prompt=SDLC_CODE_COMPLIANCE_PROMPT,
+    ),
+    AgentDefinition(
+        id="app-test-implementation",
+        name="Test Implementation Agent",
+        role="Unit, Integration & Contract Test Code",
+        description="Writes the test code (JUnit/xUnit/Jest/Pact/Playwright) that proves the user stories' acceptance criteria.",
+        icon="🧬",
+        order=12,
+        pipeline_type="app_builder",
+        estimated_duration=12.0,
+        max_tokens=14000,
+        system_prompt=MIGRATION_TEST_IMPLEMENTATION_PROMPT,
+    ),
+    AgentDefinition(
+        id="app-test-compliance",
+        name="Test Compliance Agent",
+        role="Test Strategy & Coverage Gates",
+        description="Test pyramid, coverage gates, compliance test mapping (PCI/GDPR/SOC 2), performance and chaos plans.",
+        icon="🎯",
+        order=13,
+        pipeline_type="app_builder",
+        estimated_duration=8.0,
+        max_tokens=10000,
+        system_prompt=SDLC_TEST_COMPLIANCE_PROMPT,
+    ),
+    AgentDefinition(
+        id="app-devops",
+        name="DevOps Agent",
+        role="Build, Deploy, Operate & Quality Gates",
+        description="Branching model, CI/CD pipeline-as-code, environment promotion, OIDC secrets, DORA-metric observability, and developer-experience tooling.",
+        icon="🚦",
+        order=14,
+        pipeline_type="app_builder",
+        estimated_duration=9.0,
+        max_tokens=12000,
+        system_prompt=APP_DEVOPS_PROMPT,
+    ),
+    AgentDefinition(
+        id="app-sdlc-governance",
+        name="SDLC Governance & Handover Agent",
+        role="ADRs, Runbooks, SLOs & Operations Handover",
+        description="Architecture Decision Records, runbooks, SLOs/SLIs, dashboards, compliance evidence matrix, and operations handover.",
+        icon="📚",
+        order=15,
+        pipeline_type="app_builder",
+        estimated_duration=9.0,
+        max_tokens=12000,
+        system_prompt=SDLC_GOVERNANCE_PROMPT,
     ),
 ]
 
@@ -1228,6 +1339,351 @@ CUSTOM_WORKFLOW_AGENTS: list[AgentDefinition] = []  # User builds from library
 
 
 # ============================================================
+# MIGRATION: MULESOFT → SPRING BOOT MICROSERVICES ON AWS — 6 agents
+# ============================================================
+
+from app.agents.migration_pipelines import (
+    MULESOFT_INVENTORY_PROMPT,
+    MULESOFT_DECOMPOSITION_PROMPT,
+    MULESOFT_SPRINGBOOT_SCAFFOLD_PROMPT,
+    MULESOFT_DATAWEAVE_TRANSLATOR_PROMPT,
+    MULESOFT_AWS_INFRA_PROMPT,
+    MULESOFT_VALIDATION_PROMPT,
+    DOTNET_INVENTORY_PROMPT,
+    DOTNET_AZURE_TARGET_MAPPING_PROMPT,
+    DOTNET_MODERNIZATION_PROMPT,
+    DOTNET_AZURE_BICEP_PROMPT,
+    DOTNET_AZURE_AI_PROMPT,
+    DOTNET_VALIDATION_PROMPT,
+    MIGRATION_USER_STORIES_PROMPT,
+    MIGRATION_FEATURE_CODING_PROMPT,
+)
+
+MULESOFT_TO_SPRINGBOOT_AGENTS: list[AgentDefinition] = [
+    AgentDefinition(
+        id="mulesoft-inventory",
+        name="Mulesoft Asset Inventory Agent",
+        role="Mule App Discovery & Cataloguing",
+        description="Catalogues your Mulesoft estate — flows, connectors, DataWeave transforms, and migration risk hotspots.",
+        icon="📋",
+        order=1,
+        pipeline_type="mulesoft_to_springboot",
+        estimated_duration=8.0,
+        max_tokens=6000,
+        system_prompt=MULESOFT_INVENTORY_PROMPT,
+    ),
+    AgentDefinition(
+        id="mulesoft-user-stories",
+        name="Migration User Stories Agent",
+        role="Requirements & Acceptance Criteria",
+        description="Turns the inventory into epics, user stories, and Gherkin acceptance criteria for the migrated capabilities.",
+        icon="📝",
+        order=2,
+        pipeline_type="mulesoft_to_springboot",
+        estimated_duration=9.0,
+        max_tokens=10000,
+        system_prompt=MIGRATION_USER_STORIES_PROMPT,
+    ),
+    AgentDefinition(
+        id="mulesoft-decomposition",
+        name="Bounded Context Decomposition Agent",
+        role="Domain Modelling & Service Boundaries",
+        description="Proposes the Spring Boot microservice split with bounded contexts and service topology.",
+        icon="🧩",
+        order=3,
+        pipeline_type="mulesoft_to_springboot",
+        estimated_duration=10.0,
+        max_tokens=6000,
+        system_prompt=MULESOFT_DECOMPOSITION_PROMPT,
+    ),
+    AgentDefinition(
+        id="mulesoft-security-architecture",
+        name="Security Architecture Agent",
+        role="Threat Modelling & Security Controls",
+        description="STRIDE threat model, IAM/access design, encryption, secrets, WAF, and security gates for the target AWS architecture.",
+        icon="🛡️",
+        order=4,
+        pipeline_type="mulesoft_to_springboot",
+        estimated_duration=9.0,
+        max_tokens=10000,
+        system_prompt=SDLC_SECURITY_ARCHITECTURE_PROMPT,
+    ),
+    AgentDefinition(
+        id="mulesoft-springboot-scaffold",
+        name="Spring Boot Scaffold Agent",
+        role="Java Microservice Project Scaffolding",
+        description="Generates a commit-ready Spring Boot 3 scaffold for each microservice.",
+        icon="☕",
+        order=5,
+        pipeline_type="mulesoft_to_springboot",
+        estimated_duration=14.0,
+        max_tokens=16000,
+        system_prompt=MULESOFT_SPRINGBOOT_SCAFFOLD_PROMPT,
+    ),
+    AgentDefinition(
+        id="mulesoft-feature-coding",
+        name="Feature Implementation Agent",
+        role="Business Logic & Feature Code",
+        description="Implements the user stories' business logic in the Spring Boot services — controllers, services, persistence, integrations.",
+        icon="⚙️",
+        order=6,
+        pipeline_type="mulesoft_to_springboot",
+        estimated_duration=14.0,
+        max_tokens=16000,
+        system_prompt=MIGRATION_FEATURE_CODING_PROMPT,
+    ),
+    AgentDefinition(
+        id="mulesoft-dataweave-translator",
+        name="DataWeave to Java Mapping Agent",
+        role="Transformation Logic Migration",
+        description="Translates DataWeave scripts into MapStruct or hand-written Java mappers with unit tests.",
+        icon="🔄",
+        order=7,
+        pipeline_type="mulesoft_to_springboot",
+        estimated_duration=10.0,
+        max_tokens=12000,
+        system_prompt=MULESOFT_DATAWEAVE_TRANSLATOR_PROMPT,
+    ),
+    AgentDefinition(
+        id="mulesoft-aws-infra",
+        name="AWS Landing Zone Agent",
+        role="Target Infrastructure on AWS",
+        description="Generates Terraform for ECS Fargate, RDS, SQS/SNS, ALB, and per-service IAM roles.",
+        icon="☁️",
+        order=8,
+        pipeline_type="mulesoft_to_springboot",
+        estimated_duration=12.0,
+        max_tokens=14000,
+        system_prompt=MULESOFT_AWS_INFRA_PROMPT,
+    ),
+    AgentDefinition(
+        id="mulesoft-code-compliance",
+        name="Code Compliance Agent",
+        role="Static Analysis, Linting & Licensing",
+        description="SAST/SCA tooling, SonarQube quality gates, Checkstyle/SpotBugs/PMD config, license policy, and pre-commit/CI gates.",
+        icon="🧪",
+        order=9,
+        pipeline_type="mulesoft_to_springboot",
+        estimated_duration=8.0,
+        max_tokens=10000,
+        system_prompt=SDLC_CODE_COMPLIANCE_PROMPT,
+    ),
+    AgentDefinition(
+        id="mulesoft-test-implementation",
+        name="Test Implementation Agent",
+        role="Unit, Integration & Contract Test Code",
+        description="Writes the JUnit 5 + Testcontainers + Spring Cloud Contract test code that proves the acceptance criteria.",
+        icon="🧬",
+        order=10,
+        pipeline_type="mulesoft_to_springboot",
+        estimated_duration=12.0,
+        max_tokens=14000,
+        system_prompt=MIGRATION_TEST_IMPLEMENTATION_PROMPT,
+    ),
+    AgentDefinition(
+        id="mulesoft-test-compliance",
+        name="Test Compliance Agent",
+        role="Test Strategy & Coverage Gates",
+        description="Test pyramid, coverage gates, compliance test mapping (PCI/GDPR/SOC 2), perf & chaos plans.",
+        icon="🎯",
+        order=11,
+        pipeline_type="mulesoft_to_springboot",
+        estimated_duration=8.0,
+        max_tokens=10000,
+        system_prompt=SDLC_TEST_COMPLIANCE_PROMPT,
+    ),
+    AgentDefinition(
+        id="mulesoft-validation",
+        name="Migration Validation Agent",
+        role="Parallel-Run & Cutover Gates",
+        description="Designs the parallel-run harness against the legacy Mule app, cutover gates, and rollback runbook.",
+        icon="✅",
+        order=12,
+        pipeline_type="mulesoft_to_springboot",
+        estimated_duration=8.0,
+        max_tokens=8000,
+        system_prompt=MULESOFT_VALIDATION_PROMPT,
+    ),
+    AgentDefinition(
+        id="mulesoft-sdlc-governance",
+        name="SDLC Governance & Handover Agent",
+        role="ADRs, Runbooks, SLOs & Operations Handover",
+        description="Architecture Decision Records, runbooks, SLOs/SLIs, dashboards, compliance evidence matrix, and operations handover.",
+        icon="📚",
+        order=13,
+        pipeline_type="mulesoft_to_springboot",
+        estimated_duration=9.0,
+        max_tokens=12000,
+        system_prompt=SDLC_GOVERNANCE_PROMPT,
+    ),
+]
+
+
+# ============================================================
+# MIGRATION: .NET FRAMEWORK → AZURE (AI-augmented) — 6 agents
+# ============================================================
+
+DOTNET_TO_AZURE_AGENTS: list[AgentDefinition] = [
+    AgentDefinition(
+        id="dotnet-inventory",
+        name=".NET Solution Inventory Agent",
+        role="Legacy App Discovery & Cataloguing",
+        description="Catalogues your .NET estate — projects, frameworks, NuGet deps, auth model, and modernisation risk hotspots.",
+        icon="📋",
+        order=1,
+        pipeline_type="dotnet_to_azure",
+        estimated_duration=8.0,
+        max_tokens=6000,
+        system_prompt=DOTNET_INVENTORY_PROMPT,
+    ),
+    AgentDefinition(
+        id="dotnet-user-stories",
+        name="Migration User Stories Agent",
+        role="Requirements & Acceptance Criteria",
+        description="Turns the inventory into epics, user stories, and Gherkin acceptance criteria for the migrated capabilities.",
+        icon="📝",
+        order=2,
+        pipeline_type="dotnet_to_azure",
+        estimated_duration=9.0,
+        max_tokens=10000,
+        system_prompt=MIGRATION_USER_STORIES_PROMPT,
+    ),
+    AgentDefinition(
+        id="dotnet-azure-target-mapping",
+        name="Azure Target Mapping Agent",
+        role="Azure Service Recommendation",
+        description="Maps each .NET project to the right Azure service (App Service, AKS, Functions, SQL) with effort estimates.",
+        icon="🎯",
+        order=3,
+        pipeline_type="dotnet_to_azure",
+        estimated_duration=8.0,
+        max_tokens=6000,
+        system_prompt=DOTNET_AZURE_TARGET_MAPPING_PROMPT,
+    ),
+    AgentDefinition(
+        id="dotnet-security-architecture",
+        name="Security Architecture Agent",
+        role="Threat Modelling & Security Controls",
+        description="STRIDE threat model, Entra ID/Key Vault design, encryption, WAF, and security gates for the target Azure architecture.",
+        icon="🛡️",
+        order=4,
+        pipeline_type="dotnet_to_azure",
+        estimated_duration=9.0,
+        max_tokens=10000,
+        system_prompt=SDLC_SECURITY_ARCHITECTURE_PROMPT,
+    ),
+    AgentDefinition(
+        id="dotnet-modernization",
+        name=".NET Core Modernisation Agent",
+        role=".NET Framework → .NET 8 Code Conversion",
+        description="Translates legacy .NET Framework projects to .NET 8 with breaking-change fixes and async-by-default.",
+        icon="🔧",
+        order=5,
+        pipeline_type="dotnet_to_azure",
+        estimated_duration=14.0,
+        max_tokens=16000,
+        system_prompt=DOTNET_MODERNIZATION_PROMPT,
+    ),
+    AgentDefinition(
+        id="dotnet-feature-coding",
+        name="Feature Implementation Agent",
+        role="Business Logic & Feature Code",
+        description="Implements the user stories' business logic in the modernised .NET 8 services — controllers, services, persistence, integrations.",
+        icon="⚙️",
+        order=6,
+        pipeline_type="dotnet_to_azure",
+        estimated_duration=14.0,
+        max_tokens=16000,
+        system_prompt=MIGRATION_FEATURE_CODING_PROMPT,
+    ),
+    AgentDefinition(
+        id="dotnet-azure-bicep",
+        name="Azure Bicep Provisioning Agent",
+        role="Azure Infrastructure as Code",
+        description="Generates Bicep modules for App Service, Functions, Azure SQL, Service Bus, networking, and observability.",
+        icon="☁️",
+        order=7,
+        pipeline_type="dotnet_to_azure",
+        estimated_duration=12.0,
+        max_tokens=14000,
+        system_prompt=DOTNET_AZURE_BICEP_PROMPT,
+    ),
+    AgentDefinition(
+        id="dotnet-azure-ai",
+        name="Azure AI Integration Agent",
+        role="Cognitive & Generative AI Augmentation",
+        description="Identifies where Azure OpenAI / Document Intelligence / AI Search add measurable value and produces the C# integration code.",
+        icon="🧠",
+        order=8,
+        pipeline_type="dotnet_to_azure",
+        estimated_duration=10.0,
+        max_tokens=10000,
+        system_prompt=DOTNET_AZURE_AI_PROMPT,
+    ),
+    AgentDefinition(
+        id="dotnet-code-compliance",
+        name="Code Compliance Agent",
+        role="Static Analysis, Linting & Licensing",
+        description="SAST/SCA tooling, SonarQube quality gates, Roslyn analyzers, .editorconfig, license policy, and pre-commit/CI gates.",
+        icon="🧪",
+        order=9,
+        pipeline_type="dotnet_to_azure",
+        estimated_duration=8.0,
+        max_tokens=10000,
+        system_prompt=SDLC_CODE_COMPLIANCE_PROMPT,
+    ),
+    AgentDefinition(
+        id="dotnet-test-implementation",
+        name="Test Implementation Agent",
+        role="Unit, Integration & Contract Test Code",
+        description="Writes the xUnit + FluentAssertions + Testcontainers + Pact test code that proves the acceptance criteria.",
+        icon="🧬",
+        order=10,
+        pipeline_type="dotnet_to_azure",
+        estimated_duration=12.0,
+        max_tokens=14000,
+        system_prompt=MIGRATION_TEST_IMPLEMENTATION_PROMPT,
+    ),
+    AgentDefinition(
+        id="dotnet-test-compliance",
+        name="Test Compliance Agent",
+        role="Test Strategy & Coverage Gates",
+        description="Test pyramid, coverage gates, compliance test mapping (PCI/GDPR/SOC 2), perf & chaos plans.",
+        icon="🎯",
+        order=11,
+        pipeline_type="dotnet_to_azure",
+        estimated_duration=8.0,
+        max_tokens=10000,
+        system_prompt=SDLC_TEST_COMPLIANCE_PROMPT,
+    ),
+    AgentDefinition(
+        id="dotnet-validation",
+        name="Migration Validation Agent",
+        role="Behaviour Parity & Cutover Gates",
+        description="Designs parity tests, shadow-traffic config, Application Insights KQL gates, and the rollback drill.",
+        icon="✅",
+        order=12,
+        pipeline_type="dotnet_to_azure",
+        estimated_duration=8.0,
+        max_tokens=8000,
+        system_prompt=DOTNET_VALIDATION_PROMPT,
+    ),
+    AgentDefinition(
+        id="dotnet-sdlc-governance",
+        name="SDLC Governance & Handover Agent",
+        role="ADRs, Runbooks, SLOs & Operations Handover",
+        description="Architecture Decision Records, runbooks, SLOs/SLIs, dashboards, compliance evidence matrix, and operations handover.",
+        icon="📚",
+        order=13,
+        pipeline_type="dotnet_to_azure",
+        estimated_duration=9.0,
+        max_tokens=12000,
+        system_prompt=SDLC_GOVERNANCE_PROMPT,
+    ),
+]
+
+
+# ============================================================
 # REGISTRY — All agents indexed
 # ============================================================
 
@@ -1244,6 +1700,8 @@ ALL_AGENTS: dict[str, list[AgentDefinition]] = {
     "app_builder": APP_BUILDER_AGENTS,
     "reverse_engineer": REVERSE_ENGINEER_AGENTS,
     "custom": CUSTOM_AGENTS,
+    "mulesoft_to_springboot": MULESOFT_TO_SPRINGBOOT_AGENTS,
+    "dotnet_to_azure": DOTNET_TO_AZURE_AGENTS,
 }
 
 
@@ -1301,6 +1759,7 @@ _REVISION_BASE_MAP: dict[str, str] = {
 # docs/_audit/TRIAGE.md).
 _BASE_PIPELINES_WITH_CUSTOM_AGENTS: frozenset[str] = frozenset({
     "user_stories", "ppt", "prototype", "app_builder",
+    "mulesoft_to_springboot", "dotnet_to_azure",
 })
 
 # All pipeline types the run_pipeline WS handler is allowed to dispatch.
@@ -1313,6 +1772,7 @@ SUPPORTED_PIPELINE_TYPES: frozenset[str] = frozenset({
     "user_stories_revision", "ppt_revision", "prototype_revision",
     "app_builder_revision",
     "custom",
+    "mulesoft_to_springboot", "dotnet_to_azure",
 })
 
 

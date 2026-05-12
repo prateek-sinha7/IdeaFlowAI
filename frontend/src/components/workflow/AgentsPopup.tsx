@@ -21,16 +21,38 @@ const LOCKED_AGENT_IDS = new Set([
   "domain-analyst", "backlog-compiler",
   "ppt-content-strategist", "ppt-assembler",
   "requirements-analyst", "prototype-finalizer",
-  "material-analyzer", "app-assembler",
+  // App Builder: architecture (first) and SDLC governance (last) are locked.
+  "material-analyzer", "app-sdlc-governance",
   "repo-scanner", "documentation-generator",
+  // Migration: inventory (first) and SDLC governance (last) are locked.
+  "mulesoft-inventory", "mulesoft-sdlc-governance",
+  "dotnet-inventory", "dotnet-sdlc-governance",
 ]);
 
 const REQUIRED_AGENT_IDS = new Set([
   "epic-architect", "story-estimator", "nfr-specialist", "backlog-reviewer",
   "ppt-slide-architect", "ppt-code-generator",
   "html-prototype-builder", "prototype-polisher",
-  "app-code-generator", "app-infra-generator",
+  // App Builder middle agents — required but reorderable.
+  "app-user-stories", "app-system-design", "app-security-architecture",
+  "app-ux-design", "app-api-design", "app-database-design",
+  "app-code-generator", "app-feature-implementation", "app-infra-generator",
+  "app-code-compliance", "app-test-implementation",
+  "app-test-compliance", "app-devops",
   "deep-analyzer", "modernization-planner",
+  // Migration: middle agents (requirements → design → implementation →
+  // gates → validation) are required but reorderable. Inventory and
+  // governance are locked above.
+  "mulesoft-user-stories", "mulesoft-decomposition", "mulesoft-security-architecture",
+  "mulesoft-springboot-scaffold", "mulesoft-feature-coding",
+  "mulesoft-dataweave-translator", "mulesoft-aws-infra",
+  "mulesoft-code-compliance", "mulesoft-test-implementation",
+  "mulesoft-test-compliance", "mulesoft-validation",
+  "dotnet-user-stories", "dotnet-azure-target-mapping", "dotnet-security-architecture",
+  "dotnet-modernization", "dotnet-feature-coding",
+  "dotnet-azure-bicep", "dotnet-azure-ai",
+  "dotnet-code-compliance", "dotnet-test-implementation",
+  "dotnet-test-compliance", "dotnet-validation",
 ]);
 
 type AgentRole = "locked" | "required" | "optional";
@@ -49,7 +71,31 @@ function getRole(agentId: string, pipelineType: WorkflowType): AgentRole {
     user_stories: ["domain-analyst", "epic-architect", "story-estimator", "nfr-specialist", "backlog-reviewer", "backlog-compiler"],
     ppt: ["ppt-content-strategist", "ppt-slide-architect", "ppt-code-generator", "ppt-assembler"],
     prototype: ["requirements-analyst", "html-prototype-builder", "prototype-polisher", "prototype-finalizer"],
-    app_builder: ["material-analyzer", "app-code-generator", "app-infra-generator", "app-assembler"],
+    app_builder: [
+      "material-analyzer", "app-user-stories", "app-system-design",
+      "app-security-architecture", "app-ux-design", "app-api-design",
+      "app-database-design", "app-code-generator", "app-feature-implementation",
+      "app-infra-generator", "app-code-compliance", "app-test-implementation",
+      "app-test-compliance", "app-devops", "app-sdlc-governance",
+    ],
+    mulesoft_to_springboot: [
+      "mulesoft-inventory", "mulesoft-user-stories",
+      "mulesoft-decomposition", "mulesoft-security-architecture",
+      "mulesoft-springboot-scaffold", "mulesoft-feature-coding",
+      "mulesoft-dataweave-translator", "mulesoft-aws-infra",
+      "mulesoft-code-compliance", "mulesoft-test-implementation",
+      "mulesoft-test-compliance", "mulesoft-validation",
+      "mulesoft-sdlc-governance",
+    ],
+    dotnet_to_azure: [
+      "dotnet-inventory", "dotnet-user-stories",
+      "dotnet-azure-target-mapping", "dotnet-security-architecture",
+      "dotnet-modernization", "dotnet-feature-coding",
+      "dotnet-azure-bicep", "dotnet-azure-ai",
+      "dotnet-code-compliance", "dotnet-test-implementation",
+      "dotnet-test-compliance", "dotnet-validation",
+      "dotnet-sdlc-governance",
+    ],
     custom: [],
   };
 
@@ -69,6 +115,8 @@ const PIPELINE_LABEL: Record<string, string> = {
   prototype: "Prototype",
   app_builder: "App Builder",
   custom: "Custom",
+  mulesoft_to_springboot: "Mulesoft → Spring Boot",
+  dotnet_to_azure: ".NET → Azure",
 };
 
 const COLS = 3;
@@ -117,7 +165,13 @@ export function AgentsPopup({
         user_stories: ["domain-analyst", "epic-architect", "story-estimator", "nfr-specialist", "backlog-reviewer", "backlog-compiler"],
         ppt: ["ppt-content-strategist", "ppt-slide-architect", "ppt-code-generator", "ppt-assembler"],
         prototype: ["requirements-analyst", "html-prototype-builder", "prototype-polisher", "prototype-finalizer"],
-        app_builder: ["material-analyzer", "app-code-generator", "app-infra-generator", "app-assembler"],
+        app_builder: [
+      "material-analyzer", "app-user-stories", "app-system-design",
+      "app-security-architecture", "app-ux-design", "app-api-design",
+      "app-database-design", "app-code-generator", "app-feature-implementation",
+      "app-infra-generator", "app-code-compliance", "app-test-implementation",
+      "app-test-compliance", "app-devops", "app-sdlc-governance",
+    ],
         custom: [],
       };
       return (pipelinePrefixes[pipelineType] || []).includes(a.id);

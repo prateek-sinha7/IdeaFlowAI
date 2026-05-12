@@ -23,11 +23,13 @@ const CATEGORIES = [
   { id: "ppt", label: "Presentation" },
   { id: "prototype", label: "Prototype" },
   { id: "app_builder", label: "App Builder" },
+  { id: "mulesoft_to_springboot", label: "Mulesoft → Spring Boot" },
+  { id: "dotnet_to_azure", label: ".NET → Azure" },
   { id: "custom", label: "Custom" },
 ];
 
 const HIDDEN_FROM_CUSTOM = new Set([
-  "ppt-assembler", "backlog-compiler", "prototype-finalizer", "app-assembler",
+  "ppt-assembler", "backlog-compiler", "prototype-finalizer", "app-sdlc-governance",
   "ppt-content-strategist", "domain-analyst", "requirements-analyst", "material-analyzer",
 ]);
 

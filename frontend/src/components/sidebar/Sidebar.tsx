@@ -11,6 +11,7 @@ import {
   FileText,
   Presentation,
   Layout,
+  GitBranch,
   CheckCircle2,
   XCircle,
   Loader2,
@@ -42,6 +43,9 @@ const TYPE_CONFIG: Record<WorkflowType, { icon: typeof FileText; color: string; 
   app_builder: { icon: Layout, color: "text-orange-400", label: "App Builder" },
   app_builder_revision: { icon: Layout, color: "text-orange-400", label: "App Builder (revision)" },
   custom: { icon: Layout, color: "text-slate-400", label: "Custom" },
+  migration: { icon: GitBranch, color: "text-teal-400", label: "Migration" },
+  mulesoft_to_springboot: { icon: GitBranch, color: "text-teal-400", label: "Mulesoft → Spring Boot" },
+  dotnet_to_azure: { icon: GitBranch, color: "text-indigo-400", label: ".NET → Azure" },
 };
 
 const STATUS_ICON: Record<WorkflowStatus, typeof Loader2> = {

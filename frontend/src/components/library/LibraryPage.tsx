@@ -7,14 +7,21 @@ import { LIBRARY_AGENTS, CUSTOM_AGENTS } from "@/components/workflow/AgentLibrar
 
 const ALL_AGENTS_COMBINED = [...LIBRARY_AGENTS, ...CUSTOM_AGENTS];
 
-const CATEGORIES = [
+type CategoryEntry = { id: string; label: string; section?: boolean };
+
+const CATEGORIES: CategoryEntry[] = [
   { id: "all", label: "All" },
   { id: "user_stories", label: "User Stories" },
   { id: "ppt", label: "Presentation" },
   { id: "prototype", label: "Prototype" },
   { id: "app_builder", label: "App Builder" },
+  { id: "migration", label: "Migration", section: true },
+  { id: "mulesoft_to_springboot", label: "Mulesoft → Spring Boot" },
+  { id: "dotnet_to_azure", label: ".NET → Azure" },
   { id: "custom", label: "Custom" },
 ];
+
+const MIGRATION_TYPES = new Set(["mulesoft_to_springboot", "dotnet_to_azure"]);
 
 const PIPELINE_LABEL: Record<string, string> = {
   user_stories: "User Stories",
@@ -22,6 +29,8 @@ const PIPELINE_LABEL: Record<string, string> = {
   prototype: "Prototype",
   app_builder: "App Builder",
   custom: "Custom",
+  mulesoft_to_springboot: "Mulesoft → Spring Boot",
+  dotnet_to_azure: ".NET → Azure",
 };
 
 function getInitials(name: string): string {
@@ -35,7 +44,10 @@ export function LibraryPage() {
   const [searchQuery, setSearchQuery] = useState("");
 
   const filteredAgents = ALL_AGENTS_COMBINED.filter((agent) => {
-    const matchesCategory = activeCategory === "all" || agent.pipeline_type === activeCategory;
+    const matchesCategory =
+      activeCategory === "all" ||
+      (activeCategory === "migration" && MIGRATION_TYPES.has(agent.pipeline_type)) ||
+      agent.pipeline_type === activeCategory;
     const matchesSearch =
       !searchQuery ||
       agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -55,8 +67,11 @@ export function LibraryPage() {
           {CATEGORIES.map((cat) => {
             const count = cat.id === "all"
               ? ALL_AGENTS_COMBINED.length
+              : cat.id === "migration"
+              ? ALL_AGENTS_COMBINED.filter((a) => MIGRATION_TYPES.has(a.pipeline_type)).length
               : ALL_AGENTS_COMBINED.filter((a) => a.pipeline_type === cat.id).length;
             const isActive = activeCategory === cat.id;
+            const isSubItem = cat.id === "mulesoft_to_springboot" || cat.id === "dotnet_to_azure";
             return (
               <button
                 key={cat.id}
@@ -64,8 +79,10 @@ export function LibraryPage() {
                 className={`flex items-center justify-between w-full px-3 py-2 rounded-lg text-[13px] transition-colors text-left ${
                   isActive
                     ? "bg-gray-100 text-gray-900 font-medium"
+                    : cat.section
+                    ? "text-gray-700 font-semibold hover:bg-gray-50"
                     : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
-                }`}
+                } ${isSubItem ? "pl-6 text-[12px]" : ""}`}
               >
                 <span>{cat.label}</span>
                 <span className={`text-[11px] font-medium ${isActive ? "text-gray-600" : "text-gray-400"}`}>

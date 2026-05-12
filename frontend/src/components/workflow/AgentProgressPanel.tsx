@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
-import { CheckCircle2, Loader2, AlertCircle, RotateCcw, FileText, Presentation, Layout, ArrowRight, Square } from "lucide-react";
+import { motion } from "motion/react";
+import { Loader2, RotateCcw, ArrowRight, Square, Sparkles } from "lucide-react";
 import type { AgentRunState, PipelineRunState, WorkflowType } from "@/types/index";
+import { availableChainTargets } from "@/lib/workflowChaining";
 
 interface AgentProgressPanelProps {
   pipelineState: PipelineRunState;
@@ -15,12 +16,6 @@ interface AgentProgressPanelProps {
   completedPipelineTypes?: WorkflowType[];
   onCancelPipeline?: () => void;
 }
-
-const PIPELINE_OPTIONS: { type: WorkflowType; label: string; description: string }[] = [
-  { type: "ppt", label: "Presentation", description: "Turn results into slides" },
-  { type: "user_stories", label: "User Stories", description: "Generate product backlog" },
-  { type: "prototype", label: "Prototype", description: "Build interactive UI" },
-];
 
 const PIPELINE_LABELS: Record<string, string> = {
   user_stories: "User Stories",
@@ -136,15 +131,13 @@ export function AgentProgressPanel({
   completedPipelineTypes = [],
   onCancelPipeline,
 }: AgentProgressPanelProps) {
-  const [showChainSelector, setShowChainSelector] = useState(false);
   const [isCancelled, setIsCancelled] = useState(false);
   const { agents, isRunning, completedCount, totalDuration } = pipelineState;
 
   const handleCancel = () => { setIsCancelled(true); onCancelPipeline?.(); };
   const isComplete = !isRunning && agents.length > 0 && completedCount === agents.length;
   const hasErrors = agents.some((a) => a.status === "error");
-  const allCompleted = [...completedPipelineTypes, workflowType];
-  const availablePipelines = PIPELINE_OPTIONS.filter((p) => !allCompleted.includes(p.type));
+  const availablePipelines = availableChainTargets(workflowType, completedPipelineTypes);
   const pipelineLabel = PIPELINE_LABELS[workflowType] || workflowType;
   const progress = agents.length > 0 ? (completedCount / agents.length) * 100 : 0;
 
@@ -191,44 +184,45 @@ export function AgentProgressPanel({
           <AgentCard key={agent.id} agent={agent} index={idx} />
         ))}
 
-        {/* Chain pipeline */}
+        {/* Suggested next steps — always visible once the pipeline is complete.
+            Replaces the older collapsible "Chain to next pipeline" affordance:
+            users were missing it because it required a tap to reveal. */}
         {isComplete && availablePipelines.length > 0 && onChainPipeline && (
-          <div className="pt-2">
-            <button
-              onClick={() => setShowChainSelector(!showChainSelector)}
-              className="w-full flex items-center justify-between rounded-xl border border-gray-200 bg-white hover:bg-gray-50 px-4 py-3 text-left transition-all"
-            >
-              <div className="flex items-center gap-2">
-                <ArrowRight className="h-3.5 w-3.5 text-gray-400" />
-                <span className="text-[12px] font-semibold text-gray-700">Chain to next pipeline</span>
-              </div>
-              <span className="text-[10px] text-gray-400">{showChainSelector ? "▲" : "▼"}</span>
-            </button>
-            <AnimatePresence>
-              {showChainSelector && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="overflow-hidden mt-1.5 space-y-1"
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="pt-3 mt-1 rounded-2xl border-2 border-[#1B2A4A]/15 bg-gradient-to-br from-[#FAFBFF] to-[#F1F4FB] p-3.5 shadow-sm"
+          >
+            <div className="flex items-center gap-1.5 mb-2.5">
+              <Sparkles className="h-3.5 w-3.5 text-[#1B2A4A]" />
+              <p className="text-[10px] font-bold text-[#1B2A4A] uppercase tracking-[0.12em]">
+                Suggested next steps
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              {availablePipelines.map((pipeline, idx) => (
+                <motion.button
+                  key={pipeline.type}
+                  initial={{ opacity: 0, x: -4 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.15 + idx * 0.05 }}
+                  onClick={() => onChainPipeline(pipeline.type)}
+                  className="group w-full flex items-center justify-between rounded-xl border border-[#1B2A4A]/20 bg-white hover:border-[#1B2A4A] hover:bg-[#1B2A4A] hover:shadow-md px-3.5 py-2.5 text-left transition-all"
                 >
-                  {availablePipelines.map((pipeline) => (
-                    <button
-                      key={pipeline.type}
-                      onClick={() => { onChainPipeline(pipeline.type); setShowChainSelector(false); }}
-                      className="w-full flex items-center justify-between rounded-xl border border-gray-200 bg-white hover:border-[#1B2A4A] hover:bg-blue-50 px-4 py-3 text-left transition-all"
-                    >
-                      <div>
-                        <p className="text-[12px] font-semibold text-gray-900">{pipeline.label}</p>
-                        <p className="text-[10px] text-gray-400">{pipeline.description}</p>
-                      </div>
-                      <ArrowRight className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-                    </button>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+                  <div className="min-w-0">
+                    <p className="text-[12px] font-semibold text-gray-900 group-hover:text-white transition-colors">
+                      {pipeline.label}
+                    </p>
+                    <p className="text-[10px] text-gray-500 group-hover:text-white/80 transition-colors leading-snug">
+                      {pipeline.description}
+                    </p>
+                  </div>
+                  <ArrowRight className="h-3.5 w-3.5 text-[#1B2A4A] group-hover:text-white group-hover:translate-x-0.5 transition-all flex-shrink-0 ml-2" />
+                </motion.button>
+              ))}
+            </div>
+          </motion.div>
         )}
 
         {(isComplete || isCancelled) && (

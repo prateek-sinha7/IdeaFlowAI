@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   FileText, Presentation, Layout, Clock, CheckCircle2,
   XCircle, Loader2, ArrowLeft, Trash2, ChevronRight,
-  Search, MoreHorizontal,
+  Search, MoreHorizontal, Sparkles, ArrowRight,
 } from "lucide-react";
 import { getToken, getWorkflows, getWorkflow, deleteWorkflow } from "@/lib/api";
 import { PPTPreview } from "@/components/preview/PPTPreview";
@@ -14,9 +14,16 @@ import { PrototypePreview } from "@/components/preview/PrototypePreview";
 import { MarkdownPreview } from "@/components/preview/MarkdownPreview";
 import { FilesTab } from "@/components/results/FilesTab";
 import type { WorkflowRun, WorkflowType } from "@/types/index";
+import { availableChainTargets } from "@/lib/workflowChaining";
 
 interface WorkflowHistoryProps {
   onBack: () => void;
+  // Optional: when set, the detail view shows a "Suggested next steps"
+  // panel that lets the user chain a follow-up pipeline using the
+  // historical run's input/output as context. The parent
+  // (DashboardLayout) wires this to handleChainFromHistory and switches
+  // into the execution view on click.
+  onChainPipeline?: (run: WorkflowRun, nextType: WorkflowType) => void;
 }
 
 const TYPE_META: Record<string, { icon: typeof FileText; label: string }> = {
@@ -51,7 +58,7 @@ function formatDuration(seconds?: number): string {
   return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
 }
 
-export function WorkflowHistory({ onBack }: WorkflowHistoryProps) {
+export function WorkflowHistory({ onBack, onChainPipeline }: WorkflowHistoryProps) {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
@@ -220,6 +227,47 @@ export function WorkflowHistory({ onBack }: WorkflowHistoryProps) {
               </div>
             )}
           </div>
+
+          {/* Suggested next steps — always-visible footer for completed runs.
+              Lets the user chain the historical output into another pipeline
+              without having to re-run from the home page. Excludes the
+              already-completed pipeline (incl. its `_revision` form) via
+              the shared availableChainTargets() rule. */}
+          {onChainPipeline &&
+           selectedRun.status === "completed" &&
+           (() => {
+             const options = availableChainTargets(selectedRun.type as WorkflowType);
+             if (options.length === 0) return null;
+             return (
+               <div className="border-t border-gray-100 px-3 py-3 bg-gradient-to-br from-[#FAFBFF] to-[#F1F4FB] flex-shrink-0">
+                 <div className="flex items-center gap-1.5 mb-2 px-1">
+                   <Sparkles className="h-3 w-3 text-[#1B2A4A]" />
+                   <p className="text-[9px] font-bold text-[#1B2A4A] uppercase tracking-[0.12em]">
+                     Suggested next steps
+                   </p>
+                 </div>
+                 <div className="space-y-1.5">
+                   {options.map((opt) => (
+                     <button
+                       key={opt.type}
+                       onClick={() => onChainPipeline(selectedRun, opt.type)}
+                       className="group w-full flex items-center justify-between rounded-xl border border-[#1B2A4A]/20 bg-white hover:border-[#1B2A4A] hover:bg-[#1B2A4A] hover:shadow-md px-3 py-2 text-left transition-all"
+                     >
+                       <div className="min-w-0">
+                         <p className="text-[11px] font-semibold text-gray-900 group-hover:text-white transition-colors">
+                           {opt.label}
+                         </p>
+                         <p className="text-[9px] text-gray-500 group-hover:text-white/80 transition-colors leading-snug">
+                           {opt.description}
+                         </p>
+                       </div>
+                       <ArrowRight className="h-3 w-3 text-[#1B2A4A] group-hover:text-white group-hover:translate-x-0.5 transition-all flex-shrink-0 ml-2" />
+                     </button>
+                   ))}
+                 </div>
+               </div>
+             );
+           })()}
         </div>
 
         {/* Main content — white panel */}

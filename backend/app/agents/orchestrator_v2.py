@@ -3,7 +3,8 @@
 Replaces PipelineExecutor as the single point of control for:
 - Agent selection and ordering (from registry)
 - Skill injection (from pptx/ folder and defaults)
-- Context passing between agents (smart truncation per pipeline)
+- Context passing between agents (per-pipeline routing of which upstream
+  outputs each agent receives — outputs are passed through in full)
 - Revision awareness (fetches previous output from DB)
 - Streaming WebSocket events
 - Error handling and retries
@@ -83,8 +84,11 @@ REVISION_TYPES = set(REVISION_BASE_MAP.keys())
 def _build_agent_context(state: WorkflowState, agent_index: int, agents: list[AgentDefinition]) -> str:
     """Build the context message for a specific agent.
 
-    Strategy varies by pipeline type to avoid token bloat while
-    ensuring each agent has what it needs.
+    Per-pipeline routing decides *which* upstream outputs are visible to
+    each agent (e.g. the PPT assembler only needs Agent 3's code, not the
+    earlier content plan). Outputs are always passed through in full —
+    no truncation. If you change the routing here, also consider whether
+    a downstream agent now needs more context.
     """
     parts = [f"=== ORIGINAL USER REQUEST ===\n{state.user_request}\n=== END REQUEST ==="]
 
@@ -100,11 +104,10 @@ def _build_agent_context(state: WorkflowState, agent_index: int, agents: list[Ag
             # Second agent (assembler) gets the revised output from agent 0
             prev_agent = agents[0]
             if prev_agent.id in state.agent_outputs:
-                prev_output = state.agent_outputs[prev_agent.id]
-                max_len = 60000
-                if len(prev_output) > max_len:
-                    prev_output = prev_output[:max_len] + "\n...[truncated]"
-                parts.append(f"\n--- Revised Output from {prev_agent.name} ---\n{prev_output}")
+                parts.append(
+                    f"\n--- Revised Output from {prev_agent.name} ---\n"
+                    f"{state.agent_outputs[prev_agent.id]}"
+                )
         return "\n".join(parts)
 
     # ── PPT pipeline ────────────────────────────────────────────────────────
@@ -113,23 +116,26 @@ def _build_agent_context(state: WorkflowState, agent_index: int, agents: list[Ag
             # Assembler: only needs Agent 3's PptxGenJS code
             prev = agents[2]
             if prev.id in state.agent_outputs:
-                out = state.agent_outputs[prev.id]
-                if len(out) > 60000: out = out[:60000] + "\n...[truncated]"
-                parts.append(f"\n--- PptxGenJS Code from {prev.name} ---\n{out}")
+                parts.append(
+                    f"\n--- PptxGenJS Code from {prev.name} ---\n"
+                    f"{state.agent_outputs[prev.id]}"
+                )
         elif agent_index == 2:
             # Code generator: needs content plan (Agent 1) + layout (Agent 2)
             for prev in agents[:2]:
                 if prev.id in state.agent_outputs:
-                    out = state.agent_outputs[prev.id]
-                    if len(out) > 12000: out = out[:12000] + "\n...[truncated]"
-                    parts.append(f"\n--- Output from {prev.name} ({prev.role}) ---\n{out}")
+                    parts.append(
+                        f"\n--- Output from {prev.name} ({prev.role}) ---\n"
+                        f"{state.agent_outputs[prev.id]}"
+                    )
         elif agent_index == 1:
             # Slide architect: gets content plan from Agent 1
             prev = agents[0]
             if prev.id in state.agent_outputs:
-                out = state.agent_outputs[prev.id]
-                if len(out) > 8000: out = out[:8000] + "\n...[truncated]"
-                parts.append(f"\n--- Output from {prev.name} ({prev.role}) ---\n{out}")
+                parts.append(
+                    f"\n--- Output from {prev.name} ({prev.role}) ---\n"
+                    f"{state.agent_outputs[prev.id]}"
+                )
         return "\n".join(parts)
 
     # ── Prototype pipeline ──────────────────────────────────────────────────
@@ -138,24 +144,27 @@ def _build_agent_context(state: WorkflowState, agent_index: int, agents: list[Ag
             # Polisher/Finalizer: only needs immediately previous agent's HTML
             prev = agents[agent_index - 1]
             if prev.id in state.agent_outputs:
-                out = state.agent_outputs[prev.id]
-                if len(out) > 50000: out = out[:50000] + "\n...[truncated]"
-                parts.append(f"\n--- Output from {prev.name} ({prev.role}) ---\n{out}")
+                parts.append(
+                    f"\n--- Output from {prev.name} ({prev.role}) ---\n"
+                    f"{state.agent_outputs[prev.id]}"
+                )
         elif agent_index == 1:
             # HTML Builder: gets UX plan from Agent 1
             prev = agents[0]
             if prev.id in state.agent_outputs:
-                out = state.agent_outputs[prev.id]
-                if len(out) > 8000: out = out[:8000] + "\n...[truncated]"
-                parts.append(f"\n--- Output from {prev.name} ({prev.role}) ---\n{out}")
+                parts.append(
+                    f"\n--- Output from {prev.name} ({prev.role}) ---\n"
+                    f"{state.agent_outputs[prev.id]}"
+                )
         return "\n".join(parts)
 
-    # ── Default: all previous outputs with 8K limit each ───────────────────
+    # ── Default: all previous outputs in full ──────────────────────────────
     for prev in agents[:agent_index]:
         if prev.id in state.agent_outputs:
-            out = state.agent_outputs[prev.id]
-            if len(out) > 8000: out = out[:8000] + "\n...[truncated]"
-            parts.append(f"\n--- Output from {prev.name} ({prev.role}) ---\n{out}")
+            parts.append(
+                f"\n--- Output from {prev.name} ({prev.role}) ---\n"
+                f"{state.agent_outputs[prev.id]}"
+            )
 
     return "\n".join(parts)
 

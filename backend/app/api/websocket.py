@@ -100,6 +100,8 @@ _WORKFLOW_TITLE_PIPELINE_HINTS: dict[str, str] = {
     "app_builder": "full-stack application build",
     "app_builder_revision": "revised application build",
     "custom": "custom AI workflow",
+    "mulesoft_to_springboot": "Mulesoft → Spring Boot migration plan",
+    "dotnet_to_azure": ".NET → Azure migration plan",
 }
 
 
@@ -657,7 +659,10 @@ async def _handle_pipeline_execution(
     if agent_ids:
         agent_count = len(agent_ids)
     else:
-        agent_counts = {"user_stories": 12, "ppt": 4, "prototype": 12}
+        agent_counts = {
+            "user_stories": 12, "ppt": 4, "prototype": 12, "app_builder": 15,
+            "mulesoft_to_springboot": 13, "dotnet_to_azure": 13,
+        }
         agent_count = agent_counts.get(pipeline_type, 12)
 
     # Create a WorkflowRun record

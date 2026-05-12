@@ -19,8 +19,8 @@ const WORKFLOWS = [
   {
     id: "ppt",
     type: "ppt" as WorkflowType,
-    label: "Build an executive presentation",
-    description: "Produce an enterprise-grade slide deck complete with charts, data tables, and executive-ready visuals.",
+    label: "Pitch an idea",
+    description: "Shape a concept into an enterprise-grade pitch deck — charts, data tables, and executive-ready visuals produced by Flowin's presentation agents.",
     badge: null,
   },
   {
@@ -33,9 +33,16 @@ const WORKFLOWS = [
   {
     id: "app_builder",
     type: "app_builder" as WorkflowType,
-    label: "Generate an application from existing materials",
-    description: "Provide a deck, repository, or brief — receive a complete, working application with infrastructure and tests.",
+    label: "Build an end-to-end application",
+    description: "Hand Flowin a deck, repository, or brief — its guardrails, workflows, and specialist agents stand up a complete enterprise application with infrastructure and tests.",
     badge: null,
+  },
+  {
+    id: "migration",
+    type: "migration" as WorkflowType,
+    label: "Migration workflows",
+    description: "Modernise a legacy estate end-to-end — Mulesoft to Spring Boot microservices on AWS, or .NET to Azure with AI augmentation.",
+    badge: "NEW",
   },
   {
     id: "custom",

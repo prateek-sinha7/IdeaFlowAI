@@ -14,6 +14,7 @@ import { AgentProgressPanel } from "@/components/workflow/AgentProgressPanel";
 import { PreviewPanel } from "@/components/preview/PreviewPanel";
 import { QuestionnairePanel } from "@/components/preview/QuestionnairePanel";
 import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WorkflowRun, WorkflowType } from "@/types/index";
+import { canChainFrom } from "@/lib/workflowChaining";
 import type { ConnectionStatus } from "@/hooks/useWebSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
 
@@ -179,10 +180,17 @@ export function DashboardLayout({
   }, [isPipelineRunning]);
 
   // Run the pipeline from Input page — triggers questionnaire first
-  const handleRunPipeline = useCallback((message: string, agentIds: string[]) => {
+  // `resolvedType` is the concrete pipeline the backend will dispatch. For
+  // most workflows it matches the parent state; for the `migration` meta
+  // type the IdeaInputPage resolves it to a real sub-pipeline (Mulesoft→
+  // Spring Boot or .NET→Azure) before invoking us. We sync `workflowType`
+  // here so downstream effects (chaining, sidebar labels, completion
+  // tracking) see the real pipeline.
+  const handleRunPipeline = useCallback((message: string, agentIds: string[], resolvedType: WorkflowType) => {
     setWorkflowInput(message);
     setMainView("execution");
-    setPendingPipelineRun({ type: workflowType, message, agentIds });
+    setWorkflowType(resolvedType);
+    setPendingPipelineRun({ type: resolvedType, message, agentIds });
     setQuestionnaireQuestions([]);
     setQuestionnaireLoading(true);
 
@@ -204,11 +212,11 @@ export function DashboardLayout({
     if (websocketSend) {
       websocketSend(JSON.stringify({
         type: "generate_questions",
-        pipeline_type: workflowType,
+        pipeline_type: resolvedType,
         message,
       }));
     }
-  }, [workflowType, websocketSend, onResetPipeline]);
+  }, [websocketSend, onResetPipeline]);
 
   // Go back to home
   const handleGoHome = useCallback(() => {
@@ -247,6 +255,39 @@ export function DashboardLayout({
       }));
     }
   }, [workflowType, workflowInput, lastPipelineOutput, websocketSend, onResetPipeline]);
+
+  // Chain to another pipeline starting from a historical run. The user is
+  // viewing a past WorkflowRun in the history view; they pick a next
+  // pipeline. We must use the historical run's input/output for the
+  // enrichment (NOT the current dashboard state, which is stale for the
+  // run they just opened from history). After dispatching we switch to
+  // the execution view so the new pipeline shows the agent progress.
+  const handleChainFromHistory = useCallback((run: WorkflowRun, nextType: WorkflowType) => {
+    const baseInput = run.input || "";
+    const baseOutput = (run.output || "").slice(0, 4000);
+    const enrichedInput = `${baseInput}\n\n=== CONTEXT FROM PREVIOUS PIPELINE (${run.type}) ===\n${baseOutput}\n=== END PREVIOUS CONTEXT ===`;
+
+    setWorkflowType(nextType);
+    setWorkflowInput(enrichedInput);
+    setLastPipelineOutput(run.output || "");
+    setCompletedPipelineTypes((prev) =>
+      prev.includes(run.type as WorkflowType) ? prev : [...prev, run.type as WorkflowType],
+    );
+    setMainView("execution");
+    if (onResetPipeline) onResetPipeline();
+
+    setPendingPipelineRun({ type: nextType, message: enrichedInput });
+    setQuestionnaireQuestions([]);
+    setQuestionnaireLoading(true);
+
+    if (websocketSend) {
+      websocketSend(JSON.stringify({
+        type: "generate_questions",
+        pipeline_type: nextType,
+        message: enrichedInput,
+      }));
+    }
+  }, [websocketSend, onResetPipeline]);
 
   // Handle questionnaire answers — run pipeline with enriched input
   const handleQuestionnaireSubmit = useCallback((answers: Record<string, string[]>, freeformInput: string) => {
@@ -388,7 +429,7 @@ export function DashboardLayout({
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <WorkflowHistory onBack={handleGoHome} />
+              <WorkflowHistory onBack={handleGoHome} onChainPipeline={handleChainFromHistory} />
             </motion.div>
           )}
 
@@ -444,7 +485,11 @@ export function DashboardLayout({
                     onViewResults={() => {}}
                     onRunAnother={handleGoHome}
                     onFollowUp={handleFollowUp}
-                    onChainPipeline={["ppt", "user_stories", "prototype"].includes(workflowType) ? handleChainPipeline : undefined}
+                    // Allow chaining from every "deliverable" workflow plus
+                    // its revision counterpart (see lib/workflowChaining).
+                    // Migration and custom are deliberately excluded — too
+                    // heavy / too generic to auto-chain.
+                    onChainPipeline={canChainFrom(workflowType) ? handleChainPipeline : undefined}
                     completedPipelineTypes={completedPipelineTypes}
                     onCancelPipeline={() => {
                       if (websocketSend) {

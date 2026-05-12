@@ -77,10 +77,19 @@ class TestAgentRegistry:
         agents = get_pipeline_agents("prototype")
         assert len(agents) == 4, f"Expected 4 agents, got {len(agents)}"
 
-    def test_app_builder_pipeline_has_4_agents(self):
-        """App Builder pipeline should have 4 agents."""
+    def test_app_builder_pipeline_has_15_agents(self):
+        """App Builder pipeline should have 15 agents (full SDLC).
+
+        Expanded from 4 → 15 in the App Builder SDLC pass: the original
+        material-analyzer / app-code-generator / app-infra-generator stay,
+        the old app-assembler was replaced by app-sdlc-governance, and
+        12 SDLC-phase agents were inserted to give the workflow a true
+        end-to-end remit (requirements → design → security → UX → API →
+        data → feature implementation → code/test compliance → DevOps →
+        operations handover).
+        """
         agents = get_pipeline_agents("app_builder")
-        assert len(agents) == 4, f"Expected 4 agents, got {len(agents)}"
+        assert len(agents) == 15, f"Expected 15 agents, got {len(agents)}"
 
     def test_reverse_engineer_pipeline_has_4_agents(self):
         """Reverse Engineer pipeline should have 4 agents."""

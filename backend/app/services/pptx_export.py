@@ -470,6 +470,24 @@ global.PptxGenJS = _pptx;
 global.pptxgen = _pptx;
 
 // ────────────────────────────────────────────────────────────────────
+// `window` shim. The LLM that authored the function below sometimes
+// emits browser/Node "universal" code like:
+//
+//     const PptxGenJS = window.PptxGenJS || require("pptxgenjs");
+//
+// On Node that line throws `ReferenceError: window is not defined`
+// before the `||` can short-circuit — the right operand is never
+// evaluated. We alias `window` to `globalThis` so `window.PptxGenJS`
+// resolves to the `global.PptxGenJS` we set above (and `window.atob`
+// / `window.btoa` resolve to the Node 16+ globals).
+//
+// This is render-quality repair, not security — see the Layer-1/2/3
+// boundaries in the module docstring.
+if (typeof globalThis.window === "undefined") {{
+  globalThis.window = globalThis;
+}}
+
+// ────────────────────────────────────────────────────────────────────
 // Runtime patch: Slide.addImage({{ path: "data:..." }}) → addImage({{
 // data: "data:..." }}).
 //
