@@ -123,6 +123,7 @@ RUN apt-get update \
         curl \
         ca-certificates \
         libstdc++6 \
+        git \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

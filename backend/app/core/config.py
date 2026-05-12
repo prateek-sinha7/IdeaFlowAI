@@ -68,7 +68,23 @@ class Settings(BaseSettings):
     # the inference profile (not the foundation-model ID directly), so
     # CloudWatch metrics dimension by this string.
     BEDROCK_INFERENCE_PROFILE_ID: str = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+    # Optional override for the coding agent in /flowin-handoff. Coding-task
+    # quality benefits from Sonnet over Haiku; the test + compliance agents
+    # stay on the default Haiku profile. Leave empty to use the default model
+    # for the coding agent too. Example value for eu-central-1:
+    #   eu.anthropic.claude-sonnet-4-5-20250929-v1:0
+    BEDROCK_CODING_MODEL_ID: str = ""
     AWS_REGION: str = "eu-central-1"
+
+    # Base URL the IDE-side slash command and the MCP client use to reach
+    # Flowin. Used to format the handoff URL returned by /api/handoff/receive.
+    # Override in production to the public-facing URL (e.g. https://flowin.example).
+    PUBLIC_BASE_URL: str = "http://localhost:3000"
+
+    # Maximum bytes of transcript we'll accept on a /api/handoff/receive call.
+    # 1 MiB is several long Claude Code sessions in JSONL form; anything more
+    # is almost certainly a misconfigured client. Cheap DoS guard.
+    HANDOFF_MAX_TRANSCRIPT_BYTES: int = 1024 * 1024
 
     SECRET_KEY: str = _DEFAULT_SECRET_KEY
     DATABASE_URL: str = "sqlite:///./dev.db"

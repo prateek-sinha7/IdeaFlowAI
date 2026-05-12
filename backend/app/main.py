@@ -14,6 +14,11 @@ from app.api.chats import router as chats_router
 from app.api.agents import router as agents_router
 from app.api.workflows import router as workflows_router
 from app.api.websocket import router as websocket_router
+from app.api.handoff import router as handoff_router
+from app.api.settings import router as settings_router
+from app.api.mcp import router as mcp_router
+from app.api.install import router as install_router
+from app.api.websocket_handoff import router as websocket_handoff_router
 from app.core.config import settings
 from app.models.database import engine
 
@@ -127,6 +132,11 @@ app.include_router(chats_router)
 app.include_router(agents_router)
 app.include_router(workflows_router)
 app.include_router(websocket_router)
+app.include_router(handoff_router)
+app.include_router(settings_router)
+app.include_router(mcp_router)
+app.include_router(install_router)
+app.include_router(websocket_handoff_router)
 
 
 @app.get("/health")
