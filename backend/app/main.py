@@ -62,7 +62,17 @@ else:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan: create database tables on startup."""
+    """Application lifespan context manager for startup and shutdown events.
+    
+    On startup, initializes the database, logs configuration details, and signals
+    that the backend is ready to accept connections. On shutdown, logs the cleanup.
+    
+    Args:
+        app: The FastAPI application instance.
+        
+    Yields:
+        Control back to FastAPI to serve requests, then resumes on shutdown.
+    """
     logger.info("🚀 Starting IdeaFlow AI Backend...")
     logger.info("   Database: %s", settings.DATABASE_URL)
     logger.info("   API Key: %s", "configured ✓" if settings.ANTHROPIC_API_KEY else "NOT SET ✗")
