@@ -77,12 +77,23 @@ RLIMIT_FSIZE  = 50 MB        A 50 MB .pptx is already absurd. Caps
 RLIMIT_NOFILE = 64           Enough for pptxgenjs's internal file
                              handles + 4 inherited fds + headroom; far
                              below what a fork-bomb or fd-leak needs.
-RLIMIT_NPROC  = 16           Stops fork-bombs from this UID. Note: this
-                             is per-uid on Linux, so if multiple
-                             concurrent Node procs share a uid (they do
-                             in our container), the actual usable budget
-                             per-subprocess is lower — that's fine,
-                             pptxgenjs doesn't fork.
+RLIMIT_NPROC  = 256          Bounds fork-bomb damage from this UID.
+                             NPROC is per-uid on Linux and counts the
+                             TOTAL processes the uid already has — the
+                             flowin uid in production hosts uvicorn
+                             workers + cwagent + the Python interpreter
+                             doing this subprocess.run itself, easily
+                             20+ before Node starts. Setting the cap
+                             too low (originally 16) made V8 fail at
+                             startup with
+                               Assertion failed: uv_thread_create(...)
+                             since V8 spawns ~4 worker threads at boot.
+                             256 leaves headroom for Node + existing
+                             processes + pptxgenjs internals while
+                             still preventing a runaway fork. The
+                             container's pid-namespace and the bounded
+                             render semaphore (max 3 concurrent) are
+                             the outer caps.
 Wall-clock    = 120 s        Python-side ``subprocess.run(timeout=)``.
                              DECOUPLED from RLIMIT_CPU because the two
                              protect against different abuse:
@@ -234,7 +245,22 @@ _RLIMIT_CPU_SECONDS = 60
 _RLIMIT_AS_BYTES = 1536 * 1024 * 1024
 _RLIMIT_FSIZE_BYTES = 50 * 1024 * 1024
 _RLIMIT_NOFILE = 64
-_RLIMIT_NPROC = 16
+# NPROC is per-uid on Linux and counts the TOTAL processes that user
+# already has (not just children of this subprocess). The flowin uid in
+# the production container hosts uvicorn workers + cw-agent + the
+# Python interpreter doing this `subprocess.run` itself, easily 20+
+# processes before Node starts. The previous value of 16 made Node's
+# V8 fail at startup with
+#   Assertion failed: (0) == (uv_thread_create(t.get(), start_thread, this))
+# in node_platform.cc:68 — V8 needs ~4 worker threads on boot and
+# uv_thread_create increments the per-uid process count. The abort
+# then cascaded through the async wrapper as a 120 s wall-clock hang.
+# 256 leaves Node + existing processes + pptxgenjs internals plenty
+# of room while still bounding a runaway fork (which the bounded
+# render semaphore + container pid-namespace already cap). Confirmed
+# safe in prod via the bisect script — Node aborts immediately at
+# 16, renders cleanly at every value tested at or above ~64.
+_RLIMIT_NPROC = 256
 _OUTPUT_MAX_BYTES = _RLIMIT_FSIZE_BYTES  # Same number, two enforcements.
 
 # Wall-clock timeout for the Node subprocess. DECOUPLED from RLIMIT_CPU
