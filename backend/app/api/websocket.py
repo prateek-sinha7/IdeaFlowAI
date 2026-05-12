@@ -103,6 +103,34 @@ _WORKFLOW_TITLE_PIPELINE_HINTS: dict[str, str] = {
 }
 
 
+# Marker prefixes injected into the workflow input by the frontend when
+# chaining pipelines (DashboardLayout.tsx::handleChainPipeline) — and by
+# the orchestrator when sourcing context (orchestrator_v2.py). We strip
+# any text from these markers onward before using the content as either
+# a title placeholder or as the LLM-title-gen input. Otherwise the
+# title shows raw "=== CONTEXT FROM PREVIOUS PIPELINE ..." cruft, or
+# the LLM generates a title describing the previous pipeline's content
+# rather than what the user actually asked for.
+import re as _re  # noqa: E402
+
+_WORKFLOW_TITLE_CONTEXT_MARKER = _re.compile(
+    r"\n*\s*===\s*(?:CONTEXT FROM PREVIOUS|EXISTING|USER PREFERENCES|ORIGINAL USER REQUEST)"
+)
+
+
+def _strip_pipeline_context(content: str) -> str:
+    """Return the user-authored prefix of a workflow input.
+
+    Splits on the first occurrence of any of the section markers used to
+    inject upstream pipeline context, previous output, or system-side
+    preferences. Returns the leading user prompt only, trimmed. Empty
+    string in -> empty string out.
+    """
+    if not content:
+        return ""
+    return _WORKFLOW_TITLE_CONTEXT_MARKER.split(content, maxsplit=1)[0].strip()
+
+
 async def _generate_workflow_title(
     workflow_run_id: str,
     content: str,
@@ -126,7 +154,14 @@ async def _generate_workflow_title(
     punctuation — matching the chat-title generator's contract so both
     surfaces feel consistent.
     """
-    if not content:
+    # Strip injected pipeline-context markers BEFORE the LLM sees the
+    # content. Otherwise on a chained run the LLM gets:
+    #   "make me a fintech app === CONTEXT FROM PREVIOUS PIPELINE (...)"
+    # and tends to write a title describing the *previous* pipeline's
+    # output rather than the user's actual request. We want the title
+    # to reflect what the user typed at the prompt.
+    clean_content = _strip_pipeline_context(content)
+    if not clean_content:
         return
     try:
         from app.agents.base import BaseAgent
@@ -142,7 +177,7 @@ async def _generate_workflow_title(
             ),
             max_tokens=64,
         )
-        generated_title = await title_agent.run(content)
+        generated_title = await title_agent.run(clean_content)
         generated_title = generated_title.strip().strip('"').strip("'").strip(".")[:80]
         if not generated_title:
             return
@@ -631,7 +666,14 @@ async def _handle_pipeline_execution(
     try:
         workflow_run = WorkflowRun(
             user_id=user.id,
-            title=(content or "Untitled")[:60].strip(),
+            # Placeholder title — overwritten asynchronously by the
+            # Bedrock-generated title in _generate_workflow_title below.
+            # We strip any pipeline-context markers (=== CONTEXT FROM
+            # PREVIOUS PIPELINE ===) before truncating, so even if the
+            # async title-gen fails or never lands, the user sees the
+            # user-authored prefix of their prompt rather than the
+            # injected context block.
+            title=(_strip_pipeline_context(content) or content or "Untitled")[:60].strip(),
             type=pipeline_type,
             status="running",
             input=content or f"Run {pipeline_type} pipeline",
