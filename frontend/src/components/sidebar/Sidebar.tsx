@@ -34,9 +34,13 @@ interface SidebarProps {
 
 const TYPE_CONFIG: Record<WorkflowType, { icon: typeof FileText; color: string; label: string }> = {
   user_stories: { icon: FileText, color: "text-blue-400", label: "User Stories" },
+  user_stories_revision: { icon: FileText, color: "text-blue-400", label: "User Stories (revision)" },
   ppt: { icon: Presentation, color: "text-amber-400", label: "Presentation" },
+  ppt_revision: { icon: Presentation, color: "text-amber-400", label: "Presentation (revision)" },
   prototype: { icon: Layout, color: "text-emerald-400", label: "Prototype" },
+  prototype_revision: { icon: Layout, color: "text-emerald-400", label: "Prototype (revision)" },
   app_builder: { icon: Layout, color: "text-orange-400", label: "App Builder" },
+  app_builder_revision: { icon: Layout, color: "text-orange-400", label: "App Builder (revision)" },
   custom: { icon: Layout, color: "text-slate-400", label: "Custom" },
 };
 
