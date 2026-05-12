@@ -26,9 +26,9 @@ const TYPE_CONFIG: Record<WorkflowType, {
   icon: typeof FileText;
 }> = {
   user_stories: {
-    tag: "Turn an idea into product requirements",
-    heading: "Tell us a bit more.",
-    inputLabel: "Idea, PRD, or requirements doc",
+    tag: "Generate product requirements",
+    heading: "Provide the brief",
+    inputLabel: "Idea, PRD, or requirements document",
     outputLabel: "PRD + epics + Jira-ready stories",
     placeholder: "e.g. Generate epics and stories for a refunds workflow with multi-currency support.",
     icon: FileText,
@@ -42,8 +42,8 @@ const TYPE_CONFIG: Record<WorkflowType, {
     icon: FileText,
   },
   prototype: {
-    tag: "Turn stories into a clickable prototype",
-    heading: "Describe your product.",
+    tag: "Build an interactive prototype",
+    heading: "Describe the product",
     inputLabel: "Idea, user stories, or wireframes",
     outputLabel: "Interactive HTML prototype",
     placeholder: "e.g. Build a dashboard for tracking SaaS subscription metrics with charts and filters.",
@@ -58,8 +58,8 @@ const TYPE_CONFIG: Record<WorkflowType, {
     icon: Layout,
   },
   ppt: {
-    tag: "Create a professional presentation",
-    heading: "What's the topic?",
+    tag: "Build an executive presentation",
+    heading: "Specify the topic",
     inputLabel: "Topic, brief, or outline",
     outputLabel: "Slide deck with charts & visuals",
     placeholder: "e.g. Blockchain technology — enterprise adoption trends and ROI analysis for 2025.",
@@ -74,9 +74,9 @@ const TYPE_CONFIG: Record<WorkflowType, {
     icon: Presentation,
   },
   app_builder: {
-    tag: "Build a full-stack application",
-    heading: "Describe your app.",
-    inputLabel: "Brief, PRD, or repo description",
+    tag: "Generate a full-stack application",
+    heading: "Describe the application",
+    inputLabel: "Brief, PRD, or repository description",
     outputLabel: "Full-stack code + infrastructure",
     placeholder: "e.g. A SaaS platform for managing freelance invoices with Stripe integration.",
     icon: Layout,
@@ -90,8 +90,8 @@ const TYPE_CONFIG: Record<WorkflowType, {
     icon: Layout,
   },
   custom: {
-    tag: "Design your own workflow",
-    heading: "What do you need?",
+    tag: "Compose a custom workflow",
+    heading: "Describe the task",
     inputLabel: "Any idea or task",
     outputLabel: "Custom agent output",
     placeholder: "e.g. Research the competitive landscape for AI coding assistants and generate a SWOT analysis.",

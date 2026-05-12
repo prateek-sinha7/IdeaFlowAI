@@ -28,8 +28,8 @@ class AgentDefinition:
 USER_STORY_AGENTS: list[AgentDefinition] = [
     AgentDefinition(
         id="domain-analyst",
-        name="Research Analyst",
-        role="Product Strategist",
+        name="Domain Discovery Agent",
+        role="Market & Persona Research",
         description="Researches your idea, identifies the target market, users, and key personas.",
         icon="🔍",
         order=1,
@@ -61,8 +61,8 @@ RULES:
     ),
     AgentDefinition(
         id="epic-architect",
-        name="Story Writer",
-        role="Product Manager",
+        name="Backlog Architecture Agent",
+        role="Epic & Story Composition",
         description="Writes product epics and detailed user stories with clear acceptance criteria.",
         icon="🏗️",
         order=2,
@@ -102,8 +102,8 @@ RULES:
     ),
     AgentDefinition(
         id="story-estimator",
-        name="Effort Estimator",
-        role="Technical Lead",
+        name="Estimation Agent",
+        role="Effort & Dependency Mapping",
         description="Estimates effort for each story and maps out which tasks depend on others.",
         icon="🎯",
         order=3,
@@ -129,8 +129,8 @@ Do NOT remove any content — only ADD Story Points and Dependencies lines.""",
     ),
     AgentDefinition(
         id="nfr-specialist",
-        name="Quality Advisor",
-        role="Solution Architect",
+        name="Quality Requirements Agent",
+        role="Performance, Security & Compliance",
         description="Adds quality requirements covering performance, security, and accessibility.",
         icon="⚡",
         order=4,
@@ -159,8 +159,8 @@ Use the same format: # Epic / ## Story / As a / Acceptance Criteria / Story Poin
     ),
     AgentDefinition(
         id="backlog-reviewer",
-        name="Quality Reviewer",
-        role="Agile Coach",
+        name="Quality Review Agent",
+        role="Backlog Validation & Gap Analysis",
         description="Reviews all stories for completeness, gaps, and quality before finalizing.",
         icon="✅",
         order=5,
@@ -184,8 +184,8 @@ Keep your review concise — max 300 words. Focus on actionable improvements."""
     ),
     AgentDefinition(
         id="backlog-compiler",
-        name="Report Builder",
-        role="Product Manager",
+        name="Delivery Compilation Agent",
+        role="Final Backlog Synthesis",
         description="Compiles all stories into a clean, structured document ready for your team.",
         icon="📦",
         order=6,
@@ -254,8 +254,8 @@ from app.agents.ppt_pipeline import (
 PPT_AGENTS: list[AgentDefinition] = [
     AgentDefinition(
         id="ppt-content-strategist",
-        name="Slide Planner",
-        role="Presentation Strategist",
+        name="Content Strategy Agent",
+        role="Narrative & Messaging",
         description="Plans the story, key messages, and content for each slide in your presentation.",
         icon="🎯",
         order=1,
@@ -266,8 +266,8 @@ PPT_AGENTS: list[AgentDefinition] = [
     ),
     AgentDefinition(
         id="ppt-slide-architect",
-        name="Slide Designer",
-        role="Visual Designer",
+        name="Visual Design Agent",
+        role="Slide Layout & Composition",
         description="Designs the visual layout, structure, and look of each slide.",
         icon="🏗️",
         order=2,
@@ -278,8 +278,8 @@ PPT_AGENTS: list[AgentDefinition] = [
     ),
     AgentDefinition(
         id="ppt-code-generator",
-        name="Slide Builder",
-        role="Presentation Engineer",
+        name="Slide Generation Agent",
+        role="Presentation Engineering",
         description="Builds the complete presentation with all slides, charts, and visual elements.",
         icon="💻",
         order=3,
@@ -291,8 +291,8 @@ PPT_AGENTS: list[AgentDefinition] = [
     ),
     AgentDefinition(
         id="ppt-assembler",
-        name="Deck Assembler",
-        role="Presentation Packager",
+        name="Deck Assembly Agent",
+        role="Final Deck Compilation",
         description="Packages the final presentation with preview and download ready for sharing.",
         icon="📦",
         order=4,
@@ -314,8 +314,8 @@ from app.agents.ppt_pipeline import PPT_REVISION_AGENT_PROMPT
 PPT_REVISION_AGENTS: list[AgentDefinition] = [
     AgentDefinition(
         id="ppt-revision-agent",
-        name="Slide Editor",
-        role="Presentation Engineer",
+        name="Deck Revision Agent",
+        role="Targeted Slide Edits",
         description="Applies your requested changes to the existing presentation code.",
         icon="✏️",
         order=1,
@@ -326,8 +326,8 @@ PPT_REVISION_AGENTS: list[AgentDefinition] = [
     ),
     AgentDefinition(
         id="ppt-revision-assembler",
-        name="Deck Assembler",
-        role="Presentation Packager",
+        name="Deck Assembly Agent",
+        role="Revised Deck Compilation",
         description="Rebuilds the presentation preview with your changes applied.",
         icon="📦",
         order=2,
@@ -346,8 +346,8 @@ PPT_REVISION_AGENTS: list[AgentDefinition] = [
 
 USER_STORY_REVISION_AGENT = AgentDefinition(
     id="user-story-revision-agent",
-    name="Backlog Editor",
-    role="Product Manager",
+    name="Backlog Revision Agent",
+    role="Targeted Story Refinement",
     description="Applies your requested changes to the existing product backlog.",
     icon="✏️",
     order=1,
@@ -396,8 +396,8 @@ USER_STORY_REVISION_AGENTS: list[AgentDefinition] = [USER_STORY_REVISION_AGENT]
 
 PROTOTYPE_REVISION_AGENT = AgentDefinition(
     id="prototype-revision-agent",
-    name="Prototype Editor",
-    role="Frontend Engineer",
+    name="Prototype Revision Agent",
+    role="Targeted UI Refinement",
     description="Applies your requested changes to the existing prototype.",
     icon="✏️",
     order=1,
@@ -454,8 +454,8 @@ PROTOTYPE_REVISION_AGENTS: list[AgentDefinition] = [PROTOTYPE_REVISION_AGENT]
 
 APP_BUILDER_REVISION_AGENT = AgentDefinition(
     id="app-builder-revision-agent",
-    name="App Editor",
-    role="Full-Stack Developer",
+    name="Application Revision Agent",
+    role="Targeted Code Refinement",
     description="Applies your requested changes to the existing app blueprint and code.",
     icon="✏️",
     order=1,
@@ -503,8 +503,8 @@ APP_BUILDER_REVISION_AGENTS: list[AgentDefinition] = [APP_BUILDER_REVISION_AGENT
 PROTOTYPE_AGENTS: list[AgentDefinition] = [
     AgentDefinition(
         id="requirements-analyst",
-        name="UX Planner",
-        role="Product Designer",
+        name="Experience Discovery Agent",
+        role="UX Flows & Navigation",
         description="Plans the pages, navigation flows, and user experience for your prototype.",
         icon="📋",
         order=1,
@@ -545,8 +545,8 @@ RULES:
     ),
     AgentDefinition(
         id="html-prototype-builder",
-        name="Prototype Builder",
-        role="Frontend Engineer",
+        name="Prototype Generation Agent",
+        role="Interactive HTML Engineering",
         description="Builds a complete interactive prototype with all pages and navigation.",
         icon="🖥️",
         order=2,
@@ -674,8 +674,8 @@ function showPage(name) {
     ),
     AgentDefinition(
         id="prototype-polisher",
-        name="Design Reviewer",
-        role="UI/UX Designer",
+        name="Design Refinement Agent",
+        role="Visual & Interaction Quality",
         description="Reviews and refines the prototype for visual quality and smooth interactions.",
         icon="✨",
         order=3,
@@ -712,8 +712,8 @@ Output the COMPLETE corrected HTML starting with <!DOCTYPE html>. No markdown, n
     ),
     AgentDefinition(
         id="prototype-finalizer",
-        name="Final Packager",
-        role="Delivery Lead",
+        name="Delivery Validation Agent",
+        role="Final Quality Gate",
         description="Validates and packages the final prototype ready for review and handoff.",
         icon="📦",
         order=4,
@@ -745,8 +745,8 @@ OUTPUT: ONLY the raw HTML starting with <!DOCTYPE html>. Nothing else.""",
 APP_BUILDER_AGENTS: list[AgentDefinition] = [
     AgentDefinition(
         id="material-analyzer",
-        name="Solution Architect",
-        role="Solutions Architect",
+        name="Architecture Agent",
+        role="Solution & System Design",
         description="Analyzes your requirements and designs the complete application architecture.",
         icon="📋",
         order=1,
@@ -787,8 +787,8 @@ RULES:
     ),
     AgentDefinition(
         id="app-code-generator",
-        name="Code Generator",
-        role="Full-Stack Developer",
+        name="Code Generation Agent",
+        role="Full-Stack Implementation",
         description="Generates complete frontend and backend code for your application.",
         icon="💻",
         order=2,
@@ -844,8 +844,8 @@ RULES:
     ),
     AgentDefinition(
         id="app-infra-generator",
-        name="DevOps Builder",
-        role="DevOps Engineer",
+        name="Infrastructure Agent",
+        role="Deployment & Platform",
         description="Sets up deployment configuration, tests, and infrastructure for your app.",
         icon="🚀",
         order=3,
@@ -894,8 +894,8 @@ RULES:
     ),
     AgentDefinition(
         id="app-assembler",
-        name="Project Packager",
-        role="Delivery Lead",
+        name="Project Assembly Agent",
+        role="Final Compilation & Handoff",
         description="Packages everything into a complete, ready-to-use project document.",
         icon="📦",
         order=4,
@@ -956,7 +956,7 @@ project-root/
 - [ ] Deploy to production
 
 ---
-Generated by IdeaFlow AI
+Generated by Flowin
 
 RULES:
 - Output ONLY the markdown document
@@ -975,8 +975,8 @@ RULES:
 REVERSE_ENGINEER_AGENTS: list[AgentDefinition] = [
     AgentDefinition(
         id="repo-scanner",
-        name="Codebase Scanner & Architect",
-        role="Solutions Architect",
+        name="Codebase Discovery Agent",
+        role="Repository Analysis & Mapping",
         description="Scans the codebase and maps architecture, tech stack, and structure.",
         icon="🔍",
         order=1,
@@ -1027,8 +1027,8 @@ RULES:
     ),
     AgentDefinition(
         id="deep-analyzer",
-        name="Deep Analysis & Risk Auditor",
-        role="Staff Engineer",
+        name="Risk Analysis Agent",
+        role="Architecture & Security Audit",
         description="Analyzes dependencies, data models, APIs, technical debt, and security risks.",
         icon="🛡️",
         order=2,
@@ -1083,8 +1083,8 @@ RULES:
     ),
     AgentDefinition(
         id="modernization-planner",
-        name="Modernization & Roadmap Planner",
-        role="Engineering Manager",
+        name="Modernization Strategy Agent",
+        role="Migration Roadmap & Prioritization",
         description="Creates a prioritized modernization roadmap with actionable phases.",
         icon="📋",
         order=3,
@@ -1135,8 +1135,8 @@ RULES:
     ),
     AgentDefinition(
         id="documentation-generator",
-        name="Documentation Compiler",
-        role="Technical Writer",
+        name="Documentation Agent",
+        role="Technical Writing & Synthesis",
         description="Compiles the final comprehensive codebase documentation.",
         icon="📝",
         order=4,
@@ -1208,7 +1208,7 @@ OUTPUT FORMAT:
 3. [Third priority]
 
 ---
-Generated by IdeaFlow AI
+Generated by Flowin
 
 RULES:
 - Output ONLY the markdown document
@@ -1373,8 +1373,8 @@ def allowed_custom_agent_ids(pipeline_type: str) -> set[str]:
 
 QUESTIONNAIRE_AGENT = AgentDefinition(
     id="questionnaire",
-    name="Questionnaire Agent",
-    role="Requirements Analyst",
+    name="Requirements Discovery Agent",
+    role="Clarification & Scoping",
     description="Generates clarifying MCQ questions to better understand user needs before running the pipeline.",
     icon="❓",
     order=0,

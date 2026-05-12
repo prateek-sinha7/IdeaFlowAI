@@ -5,7 +5,7 @@ import { Sparkles } from "lucide-react";
 
 /**
  * Elegant typing indicator with shimmer wave animation.
- * Shows "IdeaFlow AI is generating..." with a subtle gradient background.
+ * Shows "Flowin is generating..." with a subtle gradient background.
  */
 export function TypingIndicator() {
   return (
@@ -45,7 +45,7 @@ export function TypingIndicator() {
             ))}
           </div>
           <span className="text-[13px] text-grey/50 font-light">
-            IdeaFlow AI is generating...
+            Flowin is generating...
           </span>
         </div>
       </div>

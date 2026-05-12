@@ -12,36 +12,36 @@ const WORKFLOWS = [
   {
     id: "user_stories",
     type: "user_stories" as WorkflowType,
-    label: "Turn an idea into product requirements",
-    description: "Shape a fuzzy idea into a PRD with epics, user stories, and Gherkin acceptance criteria.",
+    label: "Generate product requirements",
+    description: "Transform an idea or brief into a structured PRD with epics, user stories, and Gherkin acceptance criteria.",
     badge: null,
   },
   {
     id: "ppt",
     type: "ppt" as WorkflowType,
-    label: "Craft a presentation",
-    description: "Generate an enterprise-grade slide deck with charts, data tables, and compelling visuals.",
+    label: "Build an executive presentation",
+    description: "Produce an enterprise-grade slide deck complete with charts, data tables, and executive-ready visuals.",
     badge: null,
   },
   {
     id: "prototype",
     type: "prototype" as WorkflowType,
-    label: "Build a clickable prototype",
-    description: "Go from stories or sketches to a high-fidelity, navigable prototype in minutes.",
+    label: "Build an interactive prototype",
+    description: "Translate stories, requirements, or wireframes into a high-fidelity, navigable HTML prototype.",
     badge: null,
   },
   {
     id: "app_builder",
     type: "app_builder" as WorkflowType,
-    label: "Build an app from existing material",
-    description: "Hand us a deck, a repo, or a brief — we'll deliver a working app, end to end.",
+    label: "Generate an application from existing materials",
+    description: "Provide a deck, repository, or brief — receive a complete, working application with infrastructure and tests.",
     badge: null,
   },
   {
     id: "custom",
     type: "custom" as WorkflowType,
-    label: "Design your own workflow",
-    description: "Compose specialist agents and skills into a bespoke pipeline for anything else.",
+    label: "Compose a custom workflow",
+    description: "Assemble specialist agents and skills into a custom workflow for tasks outside the standard pipelines.",
     badge: null,
   },
 ];
@@ -62,13 +62,13 @@ export function CreationHub({ onSelectFeature }: CreationHubProps) {
           className="text-center mb-12 w-full"
         >
           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-[0.18em] mb-5">
-            IdeaFlow AI
+            Flowin
           </p>
           <h1 className="text-[38px] sm:text-[44px] font-bold text-gray-900 leading-tight tracking-tight mb-4">
-            What would you like to make?
+            Select a workflow to begin
           </h1>
           <p className="text-[14px] text-gray-500 leading-relaxed max-w-md mx-auto">
-            Pick an outcome to begin. We'll compose the right specialist agents and let you tune them before running.
+            Select a deliverable. The right specialist agents will be assembled — review and configure them before execution.
           </p>
         </motion.div>
 

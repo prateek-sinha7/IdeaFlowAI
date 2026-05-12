@@ -43,7 +43,7 @@ export function AppHeader({ currentPage, onNavigate, onLogout, userEmail, disabl
           <Zap className="h-3.5 w-3.5 text-white" />
         </div>
         <span className="text-xs sm:text-sm font-semibold text-white tracking-tight">
-          IdeaFlow <span className="text-gray-400 font-normal hidden sm:inline">AI</span>
+          Flowin
         </span>
       </div>
 

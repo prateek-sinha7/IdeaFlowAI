@@ -9,8 +9,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "IdeaFlow AI",
-  description: "Enterprise-grade AI delivery studio — turn ideas into structured deliverables with specialist AI agents",
+  title: "Flowin",
+  description: "Enterprise-grade AI delivery platform — transform ideas into structured deliverables through specialist AI agents",
 };
 
 export default function RootLayout({

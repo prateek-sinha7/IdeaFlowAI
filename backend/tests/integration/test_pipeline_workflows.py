@@ -111,19 +111,19 @@ class TestAgentRegistry:
     def test_user_stories_agent_sequence(self):
         """User Stories pipeline should follow the correct agent sequence.
 
-        Roles tightened in the merge to match the in-prompt persona naming
-        (e.g. ``Principal Product Manager`` → ``Product Manager`` for the
-        epic-architect agent). Verify against the AgentDefinition.role values
-        in ``backend/app/agents/registry.py``.
+        Roles were re-framed in the enterprise rename pass — each agent's
+        ``role`` field now describes its function/specialty rather than a
+        human job title. Verify against the current AgentDefinition.role
+        values in ``backend/app/agents/registry.py``.
         """
         agents = get_pipeline_agents("user_stories")
         expected_roles = [
-            "Product Strategist",   # domain-analyst
-            "Product Manager",      # epic-architect
-            "Technical Lead",       # story-estimator
-            "Solution Architect",   # nfr-specialist
-            "Agile Coach",          # backlog-reviewer
-            "Product Manager",      # backlog-compiler
+            "Market & Persona Research",          # domain-analyst
+            "Epic & Story Composition",           # epic-architect
+            "Effort & Dependency Mapping",        # story-estimator
+            "Performance, Security & Compliance", # nfr-specialist
+            "Backlog Validation & Gap Analysis",  # backlog-reviewer
+            "Final Backlog Synthesis",            # backlog-compiler
         ]
         actual_roles = [a.role for a in agents]
         assert actual_roles == expected_roles, f"Agents have wrong roles: {actual_roles}"

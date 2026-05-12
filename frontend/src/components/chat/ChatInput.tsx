@@ -129,7 +129,7 @@ export function ChatInput({ onSendMessage, onSendMessageWithMode, isStreaming }:
               value={value}
               onChange={(e) => setValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={isListening ? "🎙️ Listening..." : "Message IdeaFlow AI..."}
+              placeholder={isListening ? "🎙️ Listening..." : "Message Flowin..."}
               disabled={isStreaming}
               rows={2}
               className="w-full resize-none bg-transparent text-white text-[15px] placeholder-grey/35 focus:outline-none disabled:opacity-50 leading-relaxed min-h-[52px] max-h-[240px] overflow-y-auto"
