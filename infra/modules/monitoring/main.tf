@@ -925,29 +925,42 @@ resource "aws_cloudwatch_metric_alarm" "stuck_workflows" {
   }
 }
 
-# --- C2-1: CloudTrail data-event audit trail --------------------------------
+# --- C2-1: CloudTrail management-event audit trail --------------------------
 #
-# Audit C/TF-Security HIGH #9: there is no actionable signal when an
-# unauthorized identity calls `ssm:GetParameter*` against the SECRET_KEY (or
-# any other /flowin/${env}/* SecureString) or `kms:Decrypt` against the
-# project CMK. CloudTrail's default management-event capture records those
-# calls but CloudTrail data events (Put/Get on individual SSM parameters,
-# Decrypt against individual KMS keys) are OFF BY DEFAULT and not captured
-# by the AWS account-default trail.
+# Audit C/TF-Security HIGH #9: there is no per-account actionable signal
+# when an unauthorized identity calls `ssm:GetParameter*` against the
+# SECRET_KEY (or any other /flowin/${env}/* SecureString) or `kms:Decrypt`
+# against the project CMK. The org-level account-default trail (e.g.
+# `aws-controltower-BaselineCloudTrail`) does capture management events,
+# but its log group lives in a parent account — we can't attach a
+# CloudWatch metric filter there. So this module owns its own trail in
+# our account, mirrors into a CW Logs group HERE, and runs the alarm
+# wiring against it.
 #
-# This trail captures data events specifically for:
-#   - SSM Put/Get* on the /flowin/${var.environment}/* parameter prefix
-#     (the namespace containing SECRET_KEY, DATABASE_PASSWORD, LANGSMITH_API_KEY,
-#     and every other application secret).
-#   - KMS Decrypt against the project CMK (used by the EC2 instance role's
-#     boto3 calls to read SecureStrings).
+# Capture model — MANAGEMENT EVENTS, not data events. The original C2-1
+# design tried CloudTrail advanced event selectors with
+# `resources.type = "AWS::SSM::ManagedParameter"` and
+# `resources.type = "AWS::KMS::Key"`. PutEventSelectors rejects both:
+# the advanced-selector resource-types matrix lists `AWS::SSM::ManagedNode`
+# / `AWS::SSM::ExecutionPreview` for SSM (NOT Parameter Store) and has no
+# `AWS::KMS::Key` entry at all (source:
+#   https://docs.aws.amazon.com/awscloudtrail/latest/userguide/logging-data-events-with-cloudtrail.html).
+# The fields the alarms key off — `$.eventSource`, `$.eventName`,
+# `$.requestParameters.name`, `$.resources[0].ARN`,
+# `$.userIdentity.sessionContext.sessionIssuer.arn` — are all populated
+# on MANAGEMENT events for both SSM Parameter Store and KMS. Per AWS KMS
+# docs: "CloudTrail records all KMS API calls as management events." Per
+# SSM docs: GetParameter / PutParameter / GetParametersByPath surface as
+# management events. So the alarm fires on the exact same evidence; only
+# the trail's selector type changes.
 #
-# Trail delivers to S3 (CloudTrail's mandatory durable sink) AND mirrors
-# events into a KMS-encrypted CloudWatch Logs group so two
-# `aws_cloudwatch_log_metric_filter` resources can derive metrics:
-#   - UnexpectedSecretRead   — any Get* on /flowin/${env}/* from a principal
-#                              that is NOT the EC2 instance role.
-#   - UnexpectedKmsDecrypt   — any Decrypt against the project CMK from a
+# This trail captures (via classic event_selector with
+# include_management_events=true) every management event in this account
+# + region. The two metric filters below NARROW to:
+#   - UnexpectedSecretRead   — SSM Get*/PutParameter on /flowin/${env}/*
+#                              from a principal that is NOT the EC2
+#                              instance role.
+#   - UnexpectedKmsDecrypt   — KMS Decrypt on the project CMK from a
 #                              principal that is NOT the EC2 instance role.
 #
 # Two `aws_cloudwatch_metric_alarm` resources fire on SUM > 0 over a 5-min
@@ -955,34 +968,32 @@ resource "aws_cloudwatch_metric_alarm" "stuck_workflows" {
 # `period × evaluation_periods ≤ 604_800s (7d)` cap CloudWatch enforces on
 # alarms whose Period >= 60s).
 #
-# Cost estimate (eu-central-1 Sept-2025 list):
-#   - CloudTrail data events: $0.10 per 100,000 events.
-#   - Project workload generates ~5-10 data events per backend restart
-#     (flowin-load-secrets runs `aws ssm get-parameters-by-path` once on
-#     each app boot — 1 SSM Get + N KMS Decrypt + ~2 cwagent SSM reads),
-#     and ~tens per deploy (`terraform apply` writes the SecureStrings).
-#   - Steady-state: ~100-200 data events/day. Worst case 200/day × 30 =
-#     6_000 events/mo → $0.006/mo for data events.
-#   - S3 storage: trail JSON GZ-compressed ~1KB/event × 6_000/mo = ~6MB →
-#     <$0.001/mo.
-#   - CloudWatch Logs ingest: $0.50/GB ingest + $0.03/GB storage. 6_000
-#     events × ~2KB JSON = ~12MB ingest = $0.006/mo.
-#   - Grand total: well under $1/month for the audit trail. (Compare to
-#     SECRET_KEY rotation cost if it's exfiltrated and not detected: 1 PR
-#     to rotate + an unknown incident-response budget.)
+# Cost estimate (eu-central-1 list, single-EC2 account, low traffic):
+#   - CloudTrail management events: $0 for the first trail, $2.00/100k
+#     for any additional trail. The org `aws-controltower-*` trail is
+#     the first one in this account, so OUR trail is billable. Single-
+#     region account-only management events ≈ 5-15k/day → 150-450k/mo
+#     → $3-9/mo for the trail's own ingestion.
+#   - S3 storage: trail JSON GZ-compressed ~1KB/event × 300k/mo = ~300MB
+#     for the active month, lifecycle transitions to GLACIER at 30d so
+#     month-on-month storage stabilises around 0.3 GB hot + N×0.3 GB
+#     cold. ~$0.01/mo hot + ~$0.005/mo per cold month.
+#   - CloudWatch Logs ingest: $0.50/GB × ~0.6 GB/mo = ~$0.30/mo.
+#   - CloudWatch Logs storage: $0.03/GB × ~0.6 GB = ~$0.02/mo.
+#   - Grand total: ~$4-10/month for the audit trail. (Compare to a
+#     SECRET_KEY exfiltration going undetected: rotation + IR budget.)
 #
 # Deliberately NOT a multi-region trail: the project is single-region
-# (eu-central-1); a multi-region trail captures KMS Decrypt + SSM
-# data-events in every region but the project CMK exists only here and
-# /flowin/${env}/* SSM parameters live only here. Multi-region would
-# double-count for $0 benefit. is_multi_region_trail = false.
+# (eu-central-1); the SSM parameters and CMK exist only here. Multi-
+# region would double-count events for $0 benefit.
+# is_multi_region_trail = false; include_global_service_events = false.
 #
-# Multi-trail check: no other aws_cloudtrail resources exist in this TF
-# tree. Grep confirmed `aws_cloudtrail` is absent from every modules/* and
-# envs/* main.tf. So this is the project's first trail; no need to fold
-# the data-event selectors into an existing trail's event_selector list.
-# The LocalStack endpoints map already registers `cloudtrail`, so plan/
-# apply works in both envs.
+# Multi-trail check: no other aws_cloudtrail resources exist in THIS TF
+# tree. The org account has separate trails (aws-controltower-*,
+# hexaware-codelens-*, hexreverse-*) that we MUST NOT touch — they are
+# managed by other teams. Our trail (`flowin-prod-audit`) is namespaced
+# under `var.name_prefix` so it can't collide. The LocalStack endpoints
+# map already registers `cloudtrail`, so plan/apply works in both envs.
 
 # CloudWatch Log group the trail mirrors into for metric-filter
 # derivation. Lives outside the for_each-managed `log_groups` set above so
@@ -1388,20 +1399,32 @@ resource "aws_s3_bucket_policy" "audit_trail" {
 # event-data-store migration, additional event selectors), while the log
 # group is the durable forensic record between trail apply cycles.
 #
-# We use `advanced_event_selector` rather than the classic `event_selector`
-# because the classic schema only supports `AWS::S3::Object`,
-# `AWS::Lambda::Function`, and `AWS::DynamoDB::Table` as data-resource
-# types. SSM Parameter Store and KMS Key resource types are ONLY available
-# under advanced event selectors (eventCategory = "Data" + resources.type
-# = "AWS::SSM::ManagedParameter" / "AWS::KMS::Key"). The two schemas are
-# mutually exclusive on a single trail; we get one shot at picking one.
+# Capture model — MANAGEMENT events (not data events). The earlier Phase C
+# C2-1 design tried `advanced_event_selector` with
+# `resources.type = "AWS::SSM::ManagedParameter"` and
+# `resources.type = "AWS::KMS::Key"`. PutEventSelectors rejects both:
+# CloudTrail's advanced-event-selector resource-types matrix lists
+# `AWS::SSM::ManagedNode` and `AWS::SSM::ExecutionPreview` for SSM (NOT
+# Parameter Store) and has no `AWS::KMS::Key` entry at all. Source of truth:
+#   https://docs.aws.amazon.com/awscloudtrail/latest/userguide/logging-data-events-with-cloudtrail.html
+# The fields the C2-1 metric filters actually need
+# (`$.eventSource = "ssm.amazonaws.com"`, `$.eventName = "GetParameter*"`,
+# `$.eventSource = "kms.amazonaws.com"`, `$.eventName = "Decrypt"`) are
+# all populated on MANAGEMENT events for both services. Per AWS KMS docs:
+# "CloudTrail records all KMS API calls as management events." Per AWS SSM
+# docs: GetParameter / PutParameter are management events. So the alarm
+# fires on the exact same evidence; only the trail's selector type changes.
 #
-# Reference: https://docs.aws.amazon.com/awscloudtrail/latest/userguide/logging-data-events-with-cloudtrail.html
-# (the resource-types matrix lists every type usable in advanced event
-# selectors; the classic event_selector matrix is much narrower).
+# Cost: management-event capture in eu-central-1 for a single-EC2 account
+# generates O(10k) events/day; CloudTrail bills $2.00/100k after the first
+# trail's free management events, so the dollar impact is single-digit
+# monthly. The org default trail (controltower) already captures the same
+# events, but its log group is in their account — we can't attach metric
+# filters there, hence our own trail.
 #
-# Management events are NOT included — the AWS account default trail
-# captures them; we don't want to double-count or double-charge.
+# `event_selector` (classic) and `advanced_event_selector` are mutually
+# exclusive on a single trail; we pick classic here because management
+# events are not expressible under advanced selectors (those are data-only).
 resource "aws_cloudtrail" "audit" {
   name           = "${var.name_prefix}-audit"
   s3_bucket_name = aws_s3_bucket.audit_trail.bucket
@@ -1422,54 +1445,20 @@ resource "aws_cloudtrail" "audit" {
   is_multi_region_trail         = false
   include_global_service_events = false
 
-  # Advanced selector 1: SSM data events on /flowin/${env}/* parameters.
+  # Capture ALL management events in this account+region. The metric
+  # filters below narrow to the two patterns we actually care about
+  # (SSM GetParameter*/PutParameter on the project namespace by a
+  # non-instance-role identity; KMS Decrypt by a non-instance-role
+  # identity). Filtering at metric-filter time rather than at trail-
+  # selector time means we pay the management-event capture cost once
+  # and can add new alarms later without re-rolling the trail.
   #
-  # `eventCategory = "Data"` is mandatory on every advanced selector that
-  # captures data events. `resources.type = "AWS::SSM::ManagedParameter"`
-  # restricts to SSM Parameter Store data events; `resources.ARN
-  # starts_with` narrows further to our env's parameter namespace. The
-  # trailing slash on the prefix is intentional — `starts_with` would
-  # otherwise match a hypothetical sibling parameter like
-  # `/flowin/prod-other-tenant/...`.
-  advanced_event_selector {
-    name = "${var.name_prefix} SSM SecureString data events"
-
-    field_selector {
-      field  = "eventCategory"
-      equals = ["Data"]
-    }
-    field_selector {
-      field  = "resources.type"
-      equals = ["AWS::SSM::ManagedParameter"]
-    }
-    field_selector {
-      field       = "resources.ARN"
-      starts_with = ["${var.secrets_path_prefix_arn}/"]
-    }
-  }
-
-  # Advanced selector 2: KMS data events on the project CMK only.
-  #
-  # CloudTrail KMS data events include Decrypt, Encrypt, GenerateDataKey,
-  # ReEncrypt, Sign, Verify. The metric filter (below) further narrows to
-  # Decrypt-by-unexpected-identity, which is the SECRET_KEY-leak path.
-  # `resources.ARN` is `equals` (exact match) so we don't capture decrypts
-  # against unrelated keys.
-  advanced_event_selector {
-    name = "${var.name_prefix} project CMK data events"
-
-    field_selector {
-      field  = "eventCategory"
-      equals = ["Data"]
-    }
-    field_selector {
-      field  = "resources.type"
-      equals = ["AWS::KMS::Key"]
-    }
-    field_selector {
-      field  = "resources.ARN"
-      equals = [var.project_cmk_arn]
-    }
+  # `data_resource` is NOT set — Parameter Store and KMS Decrypt are
+  # management events, not data events, so attaching a data_resource here
+  # would either be a no-op or capture the wrong resources.
+  event_selector {
+    read_write_type           = "All"
+    include_management_events = true
   }
 
   tags = {
@@ -1489,12 +1478,12 @@ resource "aws_cloudtrail" "audit" {
 # Metric filter 1: any SSM Get*/Put* against /flowin/${env}/* from a
 # principal that is NOT the EC2 instance role.
 #
-# CloudTrail data-event records arrive as JSON (one event per log entry
-# in the CW Logs group). The metric-filter pattern uses CloudWatch's JSON
-# filter syntax:
+# CloudTrail management-event records arrive as JSON (one event per log
+# entry in the CW Logs group). The metric-filter pattern uses CloudWatch's
+# JSON filter syntax:
 #   - `$.field = "value"`            exact-match string
 #   - `$.field != "value"`           exclusion (the load-bearing piece)
-#   - `*` wildcard inside the quoted string
+#   - `*` wildcard inside the quoted string (prefix-match)
 #   - whitespace = logical AND, `||` = logical OR
 #
 # `$.userIdentity.sessionContext.sessionIssuer.arn` is the FIELD CloudTrail
@@ -1506,10 +1495,16 @@ resource "aws_cloudtrail" "audit" {
 # and `PutParameter` via the wildcard prefix (`Get*` OR `Put*`). The
 # wildcard at the END of the quoted value works in JSON filters.
 #
-# Why NOT use a `OR` on the wildcard parts: CloudWatch's JSON filter
-# wildcards do support the prefix shape `"GetParameter*"`, and that single
-# token covers all three Get* variants. We need a separate `||` branch for
-# Put*. Test pattern locally with
+# Namespace scope is enforced HERE (not at trail level) because the trail
+# now captures ALL management events — see the trail-resource header for
+# why advanced-data-event scoping isn't available. So the filter pattern
+# adds an explicit `$.requestParameters.name = "/flowin/${env}/*"` (for
+# GetParameter / PutParameter) OR `$.requestParameters.path = "/flowin/${env}*"`
+# (for GetParametersByPath). Without that scope, the alarm would page on
+# any unrelated SSM activity (e.g. an operator running `ssm get-parameter`
+# against `/aws/service/...` lookups), which is noise.
+#
+# Test pattern locally with
 #   aws logs filter-log-events --filter-pattern '...'
 # before tweaking.
 resource "aws_cloudwatch_log_metric_filter" "unexpected_secret_read" {
@@ -1518,8 +1513,11 @@ resource "aws_cloudwatch_log_metric_filter" "unexpected_secret_read" {
 
   # JSON filter, parenthesised for clarity:
   #   eventSource is ssm AND eventName is Get*/Put* on a parameter
+  #   AND the request targets a parameter in our /flowin/${env}/* namespace
+  #     (either by `name` for Get/Put-single, or by `path` for
+  #     GetParametersByPath)
   #   AND the assuming role ARN is NOT the instance role.
-  pattern = "{ ($.eventSource = \"ssm.amazonaws.com\") && (($.eventName = \"GetParameter*\") || ($.eventName = \"PutParameter\")) && ($.userIdentity.sessionContext.sessionIssuer.arn != \"${var.instance_role_arn}\") }"
+  pattern = "{ ($.eventSource = \"ssm.amazonaws.com\") && (($.eventName = \"GetParameter*\") || ($.eventName = \"PutParameter\")) && (($.requestParameters.name = \"/flowin/${var.environment}/*\") || ($.requestParameters.path = \"/flowin/${var.environment}*\")) && ($.userIdentity.sessionContext.sessionIssuer.arn != \"${var.instance_role_arn}\") }"
 
   metric_transformation {
     name          = "UnexpectedSecretRead"
@@ -1532,20 +1530,20 @@ resource "aws_cloudwatch_log_metric_filter" "unexpected_secret_read" {
 # Metric filter 2: KMS Decrypt against the project CMK from any identity
 # OTHER than the EC2 instance role.
 #
-# CloudTrail KMS data-events surface the key ARN under `$.resources[0].ARN`.
-# We DON'T match on resources[0].ARN here because the trail's
-# event_selector already pre-filters to the project CMK only (so 100% of
-# events delivered to this log group concern the project CMK already);
-# the metric filter only adds the identity exclusion.
+# CloudTrail KMS management events surface the key ARN under
+# `$.resources[0].ARN`. We MUST match on resources[0].ARN here because the
+# trail now captures all management events (not data events scoped to the
+# project CMK) — see the trail-resource header for why. Without the scope
+# the alarm would page on any KMS Decrypt against any key in the account.
 #
-# Match Decrypt only — Encrypt / GenerateDataKey by external identities
-# is a separate (and less acute) concern; if needed, broaden the eventName
+# Match Decrypt only — Encrypt / GenerateDataKey by external identities is
+# a separate (and less acute) concern; if needed, broaden the eventName
 # wildcard later. Same identity-exclusion shape as filter 1.
 resource "aws_cloudwatch_log_metric_filter" "unexpected_kms_decrypt" {
   name           = "${var.name_prefix}-unexpected-kms-decrypt"
   log_group_name = aws_cloudwatch_log_group.audit_trail.name
 
-  pattern = "{ ($.eventSource = \"kms.amazonaws.com\") && ($.eventName = \"Decrypt\") && ($.userIdentity.sessionContext.sessionIssuer.arn != \"${var.instance_role_arn}\") }"
+  pattern = "{ ($.eventSource = \"kms.amazonaws.com\") && ($.eventName = \"Decrypt\") && ($.resources[0].ARN = \"${var.project_cmk_arn}\") && ($.userIdentity.sessionContext.sessionIssuer.arn != \"${var.instance_role_arn}\") }"
 
   metric_transformation {
     name          = "UnexpectedKmsDecrypt"

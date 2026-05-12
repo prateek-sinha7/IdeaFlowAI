@@ -58,7 +58,7 @@ output "alarm_names" {
 # the log group in the console; the trail ARN is the canonical handle for
 # Cloud Custodian / Security Hub integrations).
 output "audit_trail_name" {
-  description = "Name of the CloudTrail trail that captures SSM/KMS data events (C2-1)."
+  description = "Name of the CloudTrail trail that captures SSM/KMS management events for the C2-1 alarms (`UnexpectedSecretRead`, `UnexpectedKmsDecrypt`)."
   value       = aws_cloudtrail.audit.name
 }
 

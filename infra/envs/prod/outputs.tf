@@ -107,3 +107,18 @@ output "ecr_frontend_repository_url" {
   description = "ECR pull URL for the frontend image. Bootstrap uses this in /etc/flowin/app.env to drive `docker compose pull`."
   value       = module.ecr.frontend_repository_url
 }
+
+output "ecr_staging_backend_repository_url" {
+  description = "Pull URL for the staging backend repo (`flowin-staging-backend`). Holds the previous prod image set as a rollback snapshot. Operator-only — the EC2 instance role's ecr-pull policy is scoped to `flowin-prod-*` and does NOT include this repo."
+  value       = module.ecr_staging.backend_repository_url
+}
+
+output "ecr_staging_frontend_repository_url" {
+  description = "Pull URL for the staging frontend repo (`flowin-staging-frontend`). Rollback snapshot only; see ecr_staging_backend_repository_url for the policy boundary."
+  value       = module.ecr_staging.frontend_repository_url
+}
+
+output "ecr_staging_registry_url" {
+  description = "Registry hostname for the staging repos. Identical to the prod registry (same account+region); separate output for symmetry with ecr_staging_*_repository_url."
+  value       = module.ecr_staging.registry_url
+}

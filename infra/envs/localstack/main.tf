@@ -209,7 +209,7 @@ module "monitoring" {
   backup_vault_name             = ""
   bedrock_daily_token_threshold = var.bedrock_daily_token_threshold
 
-  # Phase C C2-1 — CloudTrail data-event audit trail. LocalStack Pro
+  # Phase C C2-1 — CloudTrail management-event audit trail. LocalStack Pro
   # exposes the `cloudtrail` endpoint (see providers.tf) and accepts trail
   # create/update calls, so the dependency graph is exercised end-to-end
   # in this env. The metric-filter pattern is plain-text and doesn't

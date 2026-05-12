@@ -148,9 +148,14 @@ resource "aws_kms_key" "this" {
       # CloudTrail service grant — required so the security-audit trail
       # (modules/monitoring) can configure `kms_key_id = this CMK` and have
       # CloudTrail encrypt the S3-stored log files with our CMK rather than
-      # the AWS-managed s3 key. Audit C2-1: the trail captures data events
-      # for SECRET_KEY reads + KMS Decrypt; encrypting those records with our
-      # own key keeps the cryptographic boundary inside the project.
+      # the AWS-managed s3 key. Audit C2-1: the trail captures management
+      # events for SSM Get/Put on /flowin/${env}/* + KMS Decrypt on the
+      # project CMK (CloudTrail advanced-data-event resource types don't
+      # cover SSM Parameter Store or KMS keys, so management-event capture
+      # + metric-filter scoping is the working path — see modules/monitoring
+      # main.tf C2-1 header for the full rationale). Encrypting those
+      # records with our own key keeps the cryptographic boundary inside
+      # the project.
       #
       # Confused-deputy guards (layered):
       #   - aws:SourceAccount   pins to our account.

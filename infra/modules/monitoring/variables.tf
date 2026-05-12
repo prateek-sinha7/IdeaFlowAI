@@ -182,10 +182,10 @@ variable "data_disk_path" {
   default     = "/var/lib/postgresql"
 }
 
-# --- C2-1: CloudTrail data-event audit trail --------------------------------
+# --- C2-1: CloudTrail management-event audit trail --------------------------
 
 variable "instance_role_arn" {
-  description = "ARN of the EC2 instance role (module.iam.instance_role_arn). The CloudTrail data-event metric filters exclude calls whose userIdentity (sessionContext.sessionIssuer.arn) is this role — only unexpected secret/KMS access pages on-call. The role is the legitimate consumer of /flowin/<env>/* SSM parameters and the project CMK from boot, so its calls are the noise floor we have to exclude or the alarm fires every time flowin-load-secrets runs."
+  description = "ARN of the EC2 instance role (module.iam.instance_role_arn). The CloudTrail management-event metric filters exclude calls whose userIdentity (sessionContext.sessionIssuer.arn) is this role — only unexpected secret/KMS access pages on-call. The role is the legitimate consumer of /flowin/<env>/* SSM parameters and the project CMK from boot, so its calls are the noise floor we have to exclude or the alarm fires every time flowin-load-secrets runs."
   type        = string
 
   validation {
@@ -195,7 +195,7 @@ variable "instance_role_arn" {
 }
 
 variable "secrets_path_prefix_arn" {
-  description = "ARN prefix (no trailing slash, no wildcard) for the SSM parameter path containing the project's SecureStrings — e.g. arn:aws:ssm:<region>:<acct>:parameter/flowin/<env>. The CloudTrail data-event selector captures Put/Get on /flowin/<env>/* via this prefix + '/*'. Sourced from the parent composition (envs/prod/main.tf) so the value tracks module.secrets.parameter_path_prefix without re-deriving partition/region/account here."
+  description = "ARN prefix (no trailing slash, no wildcard) for the SSM parameter path containing the project's SecureStrings — e.g. arn:aws:ssm:<region>:<acct>:parameter/flowin/<env>. Historically used to scope a (now-removed) advanced-data-event selector; the trail now captures management events, and the namespace scope lives in the unexpected_secret_read metric filter's $.requestParameters.name / $.requestParameters.path patterns. This ARN is still kept on the module contract (a) for forward-compat if data events for SSM Parameter Store become available, and (b) so future filters that need an ARN-shaped scope can reuse it. Sourced from the parent composition (envs/prod/main.tf) so the value tracks module.secrets.parameter_path_prefix without re-deriving partition/region/account here."
   type        = string
 
   validation {
@@ -205,7 +205,7 @@ variable "secrets_path_prefix_arn" {
 }
 
 variable "project_cmk_arn" {
-  description = "ARN of the project KMS CMK (module.kms.key_arn). Used (a) as the resources_arn match on the KMS data-event selector so we capture Decrypt only on THIS key, and (b) inside the KMS metric filter pattern so we don't alarm on Decrypt against arbitrary keys."
+  description = "ARN of the project KMS CMK (module.kms.key_arn). Used inside the unexpected_kms_decrypt metric filter pattern ($.resources[0].ARN match) so we don't alarm on Decrypt against arbitrary keys. The trail itself captures management events for ALL keys in this account+region (CloudTrail advanced-selector data events don't support AWS::KMS::Key — see the trail-resource header), and the per-key scoping is enforced filter-side."
   type        = string
 
   validation {
@@ -215,7 +215,7 @@ variable "project_cmk_arn" {
 }
 
 variable "audit_trail_log_retention_days" {
-  description = "CloudWatch Logs retention (days) for the CloudTrail data-event trail's delivery log group. CloudTrail records are forensic — defaulting to 90 days strikes a balance between cost and how far back a SECRET_KEY-leak post-mortem can reach. Must be one of CloudWatch's allowed values (mirrors log_retention_days validation)."
+  description = "CloudWatch Logs retention (days) for the CloudTrail management-event trail's delivery log group. CloudTrail records are forensic — defaulting to 90 days strikes a balance between cost and how far back a SECRET_KEY-leak post-mortem can reach. Must be one of CloudWatch's allowed values (mirrors log_retention_days validation)."
   type        = number
   default     = 90
 

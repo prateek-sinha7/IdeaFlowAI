@@ -99,6 +99,41 @@ module "ecr" {
   instance_role_arn = module.iam.instance_role_arn
 }
 
+# --- ECR staging (rollback snapshot registry) ------------------------------
+# Second pair of repos, prefixed `flowin-staging-`. Holds a frozen snapshot
+# of whatever was live in prod ECR before a release, so a rollback is "pull
+# from staging → retag → push to prod ECR with a new immutable tag → restart
+# flowin-app.service" rather than "rebuild last good commit and pray it's
+# byte-identical to what was running."
+#
+# Why a separate pair of repos rather than reusing prod ECR with a `-prev`
+# tag: prod ECR is `image_tag_mutability = IMMUTABLE`, the lifecycle policy
+# only retains the last 10 tagged images, and CI's `docker push` against
+# prod ECR runs under the deploying operator's IAM. Each of those is the
+# right default for prod but the wrong default for a rollback snapshot,
+# which is read-mostly, owned by release-management, and shouldn't fight
+# the retention policy for a slot. A separate repo isolates all three.
+#
+# Same KMS CMK as prod ECR (cryptographic boundary stays in-project; cross-
+# repo `docker pull / docker push` re-encrypts client-side with each repo's
+# own KMS context, which works only because both repos point at the same
+# key). instance_role_arn is plumbed for module-contract reasons only — the
+# IAM-side ecr-pull.json (modules/iam + policies/ecr-pull.json) is scoped to
+# `${name_prefix}-backend|frontend` where name_prefix is `flowin-prod`, so
+# the EC2 cannot actually pull from these `flowin-staging-*` repos. That's
+# intentional: staging is operator-only by IAM, not EC2-reachable. If we
+# ever want the box to fall back to staging on prod-pull failure, that's a
+# deliberate iam-module change (add the staging ARNs to ecr-pull.json) —
+# not something this composition will silently grant.
+module "ecr_staging" {
+  source = "../../modules/ecr"
+
+  name_prefix       = "flowin-staging"
+  environment       = "staging"
+  kms_key_arn       = module.kms.key_arn
+  instance_role_arn = module.iam.instance_role_arn
+}
+
 # --- Secrets (SSM Parameter Store) -----------------------------------------
 module "secrets" {
   source = "../../modules/secrets"
@@ -269,15 +304,18 @@ module "monitoring" {
   stuck_workflows_threshold            = var.stuck_workflows_threshold
   stuck_workflows_check_period         = var.stuck_workflows_check_period
 
-  # Phase C C2-1 — CloudTrail data-event alarm wiring. The trail's metric
-  # filters need to know:
+  # Phase C C2-1 — CloudTrail management-event alarm wiring. The trail's
+  # metric filters need to know:
   #  - the instance-role ARN (so the legitimate boot-time SSM reads from
   #    flowin-load-secrets don't generate alarm noise);
-  #  - the SSM-path ARN prefix (so the trail's event_selector captures
-  #    Put/Get on exactly /flowin/${env}/* and nothing else);
-  #  - the project CMK ARN (so the KMS-data-event selector matches one key).
-  # See modules/monitoring/main.tf C2-1 header for the full rationale and
-  # ~$1/mo CloudTrail cost estimate.
+  #  - the SSM-path ARN prefix (kept on the module contract for forward-
+  #    compat; the namespace scope today is enforced via
+  #    $.requestParameters.name in the metric filter pattern);
+  #  - the project CMK ARN (so the KMS metric filter narrows
+  #    $.resources[0].ARN to this key).
+  # See modules/monitoring/main.tf C2-1 header for the full rationale,
+  # including why advanced-data-event selectors for SSM/KMS don't work
+  # and management events are the working path.
   instance_role_arn = module.iam.instance_role_arn
   secrets_path_prefix_arn = format(
     "arn:%s:ssm:%s:%s:parameter%s",
