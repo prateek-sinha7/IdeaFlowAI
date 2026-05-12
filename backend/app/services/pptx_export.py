@@ -443,6 +443,58 @@ const _pptx = require("{pptxgenjs_path}");
 global.PptxGenJS = _pptx;
 global.pptxgen = _pptx;
 
+// ────────────────────────────────────────────────────────────────────
+// Runtime patch: Slide.addImage({{ path: "data:..." }}) → addImage({{
+// data: "data:..." }}).
+//
+// PptxGenJS routes every `addImage` call's `path:` value through
+// `fs.open` at write time — even when the string is a `data:` URI. The
+// LLM commonly produces:
+//
+//   function svgIcon(p) {{ return "data:image/svg+xml;base64," + btoa(...); }}
+//   slide.addImage({{ path: svgIcon(...) }});
+//
+// which crashes inside encodeSlideMediaRels with ENOENT, and the error
+// then cascades through the async chain in a way that parks the export
+// subprocess for the full wall-clock timeout (observed in prod).
+//
+// We patch the Slide prototype once at startup so all `addImage` calls
+// re-route automatically. We get the prototype by constructing a
+// throwaway pres + slide; the resulting `.constructor.prototype` is the
+// real Slide class. Real http://...  or file paths (rare in LLM output,
+// but possible) keep their original `path:` routing untouched.
+//
+// This is render-quality repair, not security — the Layer-1 / Layer-2 /
+// Layer-3 boundaries from the module docstring are unchanged.
+(() => {{
+  try {{
+    const _probePres = new _pptx();
+    const _Slide = _probePres.addSlide().constructor.prototype;
+    if (typeof _Slide.addImage === "function" && !_Slide.__addImagePatched__) {{
+      const _origAddImage = _Slide.addImage;
+      _Slide.addImage = function patchedAddImage(opts) {{
+        if (
+          opts && typeof opts === "object" &&
+          typeof opts.path === "string" && opts.path.startsWith("data:")
+        ) {{
+          const fixed = Object.assign({{}}, opts);
+          fixed.data = opts.path;
+          delete fixed.path;
+          return _origAddImage.call(this, fixed);
+        }}
+        return _origAddImage.call(this, opts);
+      }};
+      _Slide.__addImagePatched__ = true;
+    }}
+  }} catch (e) {{
+    // Patching is best-effort. If the pptxgenjs internal shape ever
+    // changes (e.g. Slide moves off a JS prototype chain) this would
+    // silently no-op and the deck would hit the original bug. We log
+    // for diagnosability but don't fail the export.
+    console.error("[wrapper] addImage data-URI patch failed:", e.message);
+  }}
+}})();
+
 {func_code}
 
 const _FallbackPptx = require("{pptxgenjs_path}");
