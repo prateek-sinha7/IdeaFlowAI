@@ -322,11 +322,23 @@ class WorkflowOrchestrator:
                 context_message = _build_agent_context(state, i, self.agents)
                 logger.debug("Context message: %d chars", len(context_message))
 
+                # Thinking-line phrasing: the first agent (i=0) has no
+                # upstream context to mention, so saying "0 previous
+                # agents" reads as a bug. Speak about previous-agent
+                # context only from the second agent onward, and use
+                # the correct singular/plural for i==1 vs i>=2.
+                if i == 0:
+                    thinking_msg = "Analyzing the request..."
+                elif i == 1:
+                    thinking_msg = "Processing with context from 1 previous agent..."
+                else:
+                    thinking_msg = f"Processing with context from {i} previous agents..."
+
                 yield {
                     "type": "agent_thinking",
                     "data": {
                         "agent_id": agent_def.id,
-                        "thinking": f"Processing with context from {i} previous agents...",
+                        "thinking": thinking_msg,
                     },
                 }
 
