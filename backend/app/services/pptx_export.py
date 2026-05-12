@@ -26,12 +26,13 @@ Layer 2 — Process isolation (this file).
         via env vars or reach Bedrock/RDS/Redis with our credentials.
       * POSIX rlimits (CPU, AS, FSIZE, NOFILE, NPROC) so a runaway script
         is killed by the kernel before it exhausts the host.
-      * NODE_OPTIONS=--max-old-space-size=512 so V8 OOMs cleanly inside
+      * NODE_OPTIONS=--max-old-space-size=1024 so V8 OOMs cleanly inside
         its own heap budget (well below the RLIMIT_AS ceiling).
       * cwd=temp_dir + 0o700 mode so the script cannot read another
         request's temp dir even if scheduling overlaps.
-      * A 30s wall-clock timeout matching RLIMIT_CPU (defence in depth:
-        if the subprocess ignores SIGXCPU we still SIGKILL via Python).
+      * A 120s wall-clock Python timeout DECOUPLED from the 60s RLIMIT_CPU
+        (each protects against a different abuse mode — see the rationale
+        block below).
 
 Layer 3 — Concurrency cap (this file).
     A module-level Semaphore caps concurrent Node subprocesses at 3. This
