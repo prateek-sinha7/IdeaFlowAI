@@ -382,6 +382,23 @@ def generate_pptx_from_code(js_code: str, title: str = "Presentation") -> bytes:
         else:
             safe_lines.append(line)
     func_code = '\n'.join(safe_lines)
+    # 5. Repair data URIs missing the `data:` scheme prefix. The LLM
+    # occasionally emits an `addImage({ path: "image/svg+xml;base64,..." })`
+    # or builds the string via concat (`"image/svg+xml;base64," + b64`)
+    # without the leading `data:`. PptxGenJS routes anything not starting
+    # with `data:` through its file-path branch, calls `fs.open` on the
+    # whole base64 blob, and throws ENOENT inside encodeSlideMediaRels at
+    # `pres.write()` time. That throw cascades up the async chain in a way
+    # that has stalled the export subprocess for the full wall-clock
+    # budget on real decks (observed in prod, 12-slide deck with svgIcon()
+    # helper that returned "image/svg+xml;base64,...").
+    # The lookbehind on the quote character avoids touching strings that
+    # already have a valid `data:` prefix. Covers `"`, `'`, and backtick.
+    func_code = re.sub(
+        r"""(?P<q>["'`])image/(?P<mime>svg\+xml|png|jpe?g|gif|webp);base64,""",
+        r"\g<q>data:image/\g<mime>;base64,",
+        func_code,
+    )
 
     # Replace writeFile/save with write("nodebuffer")
     for pattern in [
