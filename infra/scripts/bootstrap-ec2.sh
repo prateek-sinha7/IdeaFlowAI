@@ -1149,7 +1149,28 @@ systemctl enable --now \
 # image digest nor compose-detectable env has changed. Idempotent: on a
 # fresh box there are no containers to remove.
 ( cd /opt/flowin && docker compose down --remove-orphans 2>/dev/null || true )
-systemctl enable --now flowin-app.service
+# `systemctl enable` registers the unit at boot — idempotent, safe to
+# rerun. `systemctl restart` then forces a fresh ExecStartPre+ExecStart
+# cycle.
+#
+# This split (enable + restart) is INTENTIONAL and important — the
+# previous `systemctl enable --now` collapsed both into one call, but
+# `--now` is internally `enable + start`, and for a `Type=oneshot`
+# service already in `Active (exited)` state from a previous bootstrap,
+# `start` is a no-op. That made the first deploy succeed (unit not yet
+# enabled → enable+start) but every subsequent deploy silently skip the
+# `docker compose pull` + `docker compose up -d --remove-orphans` steps
+# in flowin-app.service, leaving the box running yesterday's containers
+# even though /etc/flowin/app.env now points at the new image tag.
+# `systemctl restart` correctly transitions oneshot
+# Active(exited) → deactivating (runs ExecStop, our `docker compose
+# down`) → inactive → activating (runs ExecStartPre+ExecStart) →
+# active(exited). The on-disk `docker compose down` above is redundant
+# with ExecStop but kept as a belt-and-suspenders teardown for the
+# rare case where the unit file's ExecStop has been edited away from
+# what we expect.
+systemctl enable flowin-app.service
+systemctl restart flowin-app.service
 
 # ── 19. Smoke test ─────────────────────────────────────────────────────
 sleep 15
