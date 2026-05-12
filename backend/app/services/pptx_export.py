@@ -55,14 +55,22 @@ Layer 5 — Output validation (this file).
 ================================================================================
 RESOURCE-LIMIT RATIONALE
 ================================================================================
-RLIMIT_CPU    = 30 s         Matches the Python-side ``timeout=30``. Most
-                             real decks render in <2 s; 30 s leaves
-                             generous headroom for a 50-slide deck.
-RLIMIT_AS     = 768 MB       NODE_OPTIONS caps the V8 *heap* at 512 MB.
-                             RLIMIT_AS is the *virtual memory* ceiling
-                             which must include native libs, stacks,
-                             and JIT scratch — 768 MB lets Node OOM
-                             cleanly via V8 rather than via SIGKILL.
+RLIMIT_CPU    = 60 s         Bounds *CPU time* a runaway script can
+                             consume — catches infinite loops / pure-
+                             compute attacks. NOT the same as wall-
+                             clock: a real deck render is mostly I/O
+                             (zip compression + file writes), so
+                             actual CPU consumed for a 30-slide deck
+                             is <5 s even when wall-clock is 60-90 s.
+                             Was 30 s originally; bumped after a real
+                             deck with embedded chart base64 hit it.
+RLIMIT_AS     = 1536 MB      NODE_OPTIONS caps the V8 *heap* at
+                             1024 MB. RLIMIT_AS is the *virtual
+                             memory* ceiling which must include
+                             native libs, stacks, and JIT scratch —
+                             1.5 GB lets Node OOM cleanly via V8
+                             rather than via SIGKILL. Was 768 MB
+                             originally; bumped alongside the heap.
 RLIMIT_FSIZE  = 50 MB        A 50 MB .pptx is already absurd. Caps
                              attackers writing huge files to fill disk.
 RLIMIT_NOFILE = 64           Enough for pptxgenjs's internal file
@@ -74,10 +82,27 @@ RLIMIT_NPROC  = 16           Stops fork-bombs from this UID. Note: this
                              in our container), the actual usable budget
                              per-subprocess is lower — that's fine,
                              pptxgenjs doesn't fork.
-Wall-clock    = 30 s         Python-side ``timeout=`` belt+braces in
-                             case the kernel doesn't enforce SIGXCPU.
-Semaphore     = 3            Bounds host memory at ~3 * 768 MB = 2.3 GB
-                             worst case. Tune via PPTX_MAX_CONCURRENT.
+Wall-clock    = 120 s        Python-side ``subprocess.run(timeout=)``.
+                             DECOUPLED from RLIMIT_CPU because the two
+                             protect against different abuse:
+                               * RLIMIT_CPU is CPU-time (catches
+                                 compute loops, not I/O hangs).
+                               * Wall-clock catches a stuck-on-syscall
+                                 child that the kernel won't SIGXCPU.
+                             A 30-slide deck with charts can take
+                             60-90 s wall-clock on this box; 120 s
+                             gives generous headroom for a legitimately
+                             large deck without giving an attacker the
+                             whole afternoon.
+NODE heap     = 1024 MB      V8 ``--max-old-space-size``. Bigger heap
+                             keeps the GC from thrashing when a deck
+                             carries many base64-encoded chart /
+                             image payloads. Stays below RLIMIT_AS
+                             so V8 OOM fires before the kernel SIGKILL.
+Semaphore     = 3            Bounds host memory at ~3 * 1536 MB =
+                             4.6 GB worst case. Box is m6i.2xlarge
+                             (32 GB) so this is ~14% — acceptable.
+                             Tune via PPTX_MAX_CONCURRENT.
 Acquire wait  = 5 s          Long enough to absorb micro-bursts; short
                              enough that the API returns a clear 503
                              rather than holding the connection open.
@@ -112,6 +137,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -203,12 +229,22 @@ def _redact_stderr(stderr: str, max_len: int = 256) -> str:
 # resource types — we want best-effort hardening, not a hard failure
 # on the dev box.
 # ---------------------------------------------------------------------------
-_RLIMIT_CPU_SECONDS = 30
-_RLIMIT_AS_BYTES = 768 * 1024 * 1024
+_RLIMIT_CPU_SECONDS = 60
+_RLIMIT_AS_BYTES = 1536 * 1024 * 1024
 _RLIMIT_FSIZE_BYTES = 50 * 1024 * 1024
 _RLIMIT_NOFILE = 64
 _RLIMIT_NPROC = 16
 _OUTPUT_MAX_BYTES = _RLIMIT_FSIZE_BYTES  # Same number, two enforcements.
+
+# Wall-clock timeout for the Node subprocess. DECOUPLED from RLIMIT_CPU
+# so each cap protects against the abuse it actually addresses:
+#   - RLIMIT_CPU = pure CPU-time runaway (compute loops, etc.).
+#   - Wall-clock = stuck-on-syscall / slow-I/O / GC thrash that the
+#                  kernel can't catch via SIGXCPU.
+# 120 s is generous for legitimately large decks (30+ slides with
+# charts) and still bounded enough that an attacker can't park a
+# request open all day. See module docstring for the trade-off.
+_SUBPROCESS_WALL_TIMEOUT_S = 120
 
 
 def _apply_child_rlimits() -> None:
@@ -298,7 +334,7 @@ def _build_clean_env(temp_dir: str) -> dict:
         "PATH": "/usr/local/bin:/usr/bin:/bin",
         "HOME": "/tmp",
         "TMPDIR": temp_dir,
-        "NODE_OPTIONS": "--max-old-space-size=512 --dns-result-order=ipv4first",
+        "NODE_OPTIONS": "--max-old-space-size=1024 --dns-result-order=ipv4first",
         "NODE_NO_WARNINGS": "1",
     }
 
@@ -458,15 +494,20 @@ main();
             raise RuntimeError("PPTX renderer busy; please retry in a moment.")
 
         try:
+            # time.monotonic() (not time.time()) — wall-clock here is for
+            # operational telemetry, not security. Monotonic is immune
+            # to NTP adjustments mid-render.
+            _t_start = time.monotonic()
             result = subprocess.run(
                 ["node", js_file],
                 capture_output=True,
                 text=True,
-                timeout=_RLIMIT_CPU_SECONDS,
+                timeout=_SUBPROCESS_WALL_TIMEOUT_S,
                 cwd=temp_dir,
                 env=clean_env,
                 preexec_fn=preexec,
             )
+            _render_wall_s = time.monotonic() - _t_start
         finally:
             _RENDER_SEMAPHORE.release()
 
@@ -488,13 +529,25 @@ main();
         with open(out_file, "rb") as f:
             pptx_bytes = f.read()
 
-        logger.info("Generated PPTX: %d bytes", len(pptx_bytes))
+        # Logged at INFO with both the output size and the actual
+        # wall-clock so we can build a distribution and tune the
+        # _SUBPROCESS_WALL_TIMEOUT_S / heap cap from real traffic.
+        logger.info(
+            "Generated PPTX: %d bytes in %.2fs (timeout cap=%ds)",
+            len(pptx_bytes),
+            _render_wall_s,
+            _SUBPROCESS_WALL_TIMEOUT_S,
+        )
         return pptx_bytes
 
     except subprocess.TimeoutExpired:
-        # Belt-and-braces: kernel SIGXCPU should fire first, but if the
-        # child somehow ignored it Python will SIGKILL on timeout.
-        logger.error("PPTX generation timed out after %ds", _RLIMIT_CPU_SECONDS)
+        # Wall-clock timeout — child blew past _SUBPROCESS_WALL_TIMEOUT_S.
+        # Either it's looping at low CPU (would've hit SIGXCPU first if
+        # CPU-bound) or doing slow I/O / GC thrashing. Python SIGKILLs.
+        logger.error(
+            "PPTX generation timed out after %ds wall-clock",
+            _SUBPROCESS_WALL_TIMEOUT_S,
+        )
         raise RuntimeError("PPTX generation timed out")
 
     finally:
