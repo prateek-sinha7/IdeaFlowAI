@@ -616,6 +616,7 @@ emit() {
 }
 
 CORS_SET=0
+PUBLIC_BASE_URL_SET=0
 while IFS=$'\t' read -r name value; do
     rel="${name#${PREFIX}/}"
     case "$rel" in
@@ -628,13 +629,25 @@ while IFS=$'\t' read -r name value; do
                 CORS_SET=1
             fi
             ;;
-        SECRET_KEY|ACCESS_TOKEN_EXPIRE_HOURS|LANGSMITH_TRACING|LANGSMITH_API_KEY|LANGSMITH_PROJECT)
+        PUBLIC_BASE_URL)
+            # Same FQDN-fallback shape as CORS_ORIGINS. Set this parameter only
+            # when the public URL diverges from https://${FLOWIN_FQDN} (custom
+            # apex domain, CDN in front, etc.). The /flowin-handoff installer
+            # endpoint reads PUBLIC_BASE_URL to format the curl|bash one-liner
+            # baked into ~/.claude/commands/flowin-handoff.md.
+            if [[ -n "$value" ]]; then
+                emit PUBLIC_BASE_URL "$value"
+                PUBLIC_BASE_URL_SET=1
+            fi
+            ;;
+        SECRET_KEY|ACCESS_TOKEN_EXPIRE_HOURS|LANGSMITH_TRACING|LANGSMITH_API_KEY|LANGSMITH_PROJECT|HANDOFF_MAX_TRANSCRIPT_BYTES)
             emit "$rel" "$value" ;;
         DATABASE_PASSWORD)
             emit DATABASE_URL "postgresql://flowin:${value}@host.docker.internal:5432/flowin" ;;
         llm/region)               emit AWS_REGION                  "$value" ;;
         llm/model_id)             emit BEDROCK_MODEL_ID            "$value" ;;
         llm/inference_profile_id) emit BEDROCK_INFERENCE_PROFILE_ID "$value" ;;
+        llm/coding_model_id)      emit BEDROCK_CODING_MODEL_ID     "$value" ;;
         *)
             echo "[flowin-load-secrets] WARN: ignoring unknown parameter ${name}" >&2 ;;
     esac
@@ -649,6 +662,13 @@ done < <(aws ssm get-parameters-by-path \
 # /flowin/$env/CORS_ORIGINS to a non-empty JSON list.
 if [[ "$CORS_SET" -eq 0 && -n "$DOMAIN" ]]; then
     emit CORS_ORIGINS "[\"https://${DOMAIN}\"]"
+fi
+
+# Same fallback for PUBLIC_BASE_URL — when SSM didn't override, derive from
+# the FQDN Terraform wrote into bootstrap.env. This is what the handoff
+# installer endpoint will hand back to users in the curl|bash one-liner.
+if [[ "$PUBLIC_BASE_URL_SET" -eq 0 && -n "$DOMAIN" ]]; then
+    emit PUBLIC_BASE_URL "https://${DOMAIN}"
 fi
 
 mv "$TMP" "$OUT"
@@ -805,6 +825,49 @@ server {
         proxy_send_timeout      5400s;
         proxy_buffering         off;
         proxy_request_buffering off;
+    }
+
+    # /flowin-handoff live pipeline stream. Auth is JWT-subprotocol at the
+    # backend (issuer-only); nginx is just the WebSocket terminator. Same
+    # long read/send timeouts as /ws/chat because pipeline runs can take
+    # minutes (clone -> classify -> code -> test -> compliance -> push -> PR).
+    location /ws/handoff/ {
+        proxy_pass              http://flowin_backend;
+        proxy_http_version      1.1;
+        proxy_set_header        Upgrade \$http_upgrade;
+        proxy_set_header        Connection \$connection_upgrade;
+        proxy_set_header        Host \$host;
+        proxy_set_header        X-Real-IP \$remote_addr;
+        proxy_set_header        X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header        X-Forwarded-Proto \$scheme;
+        proxy_read_timeout      5400s;
+        proxy_send_timeout      5400s;
+        proxy_buffering         off;
+        proxy_request_buffering off;
+    }
+
+    # MCP remote tool endpoint for /flowin-handoff (JSON-RPC over HTTP).
+    # Bearer-token auth at the backend; same rate limit as /api/. Buffering
+    # off so the tool's structuredContent response streams cleanly.
+    location /mcp/ {
+        limit_req zone=flowin_api burst=20 nodelay;
+        limit_req_status 429;
+        proxy_pass         http://flowin_backend;
+        include            /etc/nginx/snippets/flowin-proxy-headers.conf;
+        proxy_buffering    off;
+        proxy_request_buffering off;
+        proxy_read_timeout 300s;
+    }
+
+    # Public installer endpoint for /flowin-handoff:
+    #   curl -fsSL https://${DOMAIN}/install/flowin-handoff | bash
+    # No auth (the file bodies are generic). Same rate limit as /api/ so the
+    # unauthenticated public surface can't be abused.
+    location /install/ {
+        limit_req zone=flowin_api burst=20 nodelay;
+        limit_req_status 429;
+        proxy_pass         http://flowin_backend;
+        include            /etc/nginx/snippets/flowin-proxy-headers.conf;
     }
 
     location / {
