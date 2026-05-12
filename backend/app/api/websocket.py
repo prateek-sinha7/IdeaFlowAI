@@ -90,6 +90,90 @@ def _authenticate_token(token: str, db: Session) -> User | None:
     return user
 
 
+_WORKFLOW_TITLE_PIPELINE_HINTS: dict[str, str] = {
+    "user_stories": "product requirements / user-stories backlog",
+    "user_stories_revision": "revised user-stories backlog",
+    "ppt": "executive presentation / slide deck",
+    "ppt_revision": "revised executive presentation",
+    "prototype": "interactive HTML prototype",
+    "prototype_revision": "revised interactive prototype",
+    "app_builder": "full-stack application build",
+    "app_builder_revision": "revised application build",
+    "custom": "custom AI workflow",
+}
+
+
+async def _generate_workflow_title(
+    workflow_run_id: str,
+    content: str,
+    pipeline_type: str,
+    websocket: WebSocket,
+) -> None:
+    """Generate a short, professional title for a WorkflowRun via Bedrock.
+
+    Replaces the placeholder ``title = content[:60]`` the run record was
+    created with. Runs as a background task (asyncio.create_task) so it
+    does not delay the pipeline. Best-effort: any failure leaves the
+    placeholder title in place and the pipeline continues unaffected.
+
+    On success:
+      * Updates ``workflow_runs.title`` in the database.
+      * Emits a ``workflow_title_update`` WebSocket event the frontend
+        handler at ``dashboard/page.tsx::workflow_title_update`` uses
+        to swap the title in the recent-runs list in-place.
+
+    The system prompt asks for 3-7 words, no quotes, no trailing
+    punctuation — matching the chat-title generator's contract so both
+    surfaces feel consistent.
+    """
+    if not content:
+        return
+    try:
+        from app.agents.base import BaseAgent
+
+        hint = _WORKFLOW_TITLE_PIPELINE_HINTS.get(pipeline_type, "AI workflow")
+        title_agent = BaseAgent(
+            system_prompt=(
+                "Generate a short, professional title (3-7 words) for a "
+                f"workflow that produces a {hint} based on the user's input. "
+                "The title should describe the topic of the deliverable, "
+                "not the workflow type itself. Return ONLY the title text "
+                "— no quotes, no trailing punctuation, no explanation."
+            ),
+            max_tokens=64,
+        )
+        generated_title = await title_agent.run(content)
+        generated_title = generated_title.strip().strip('"').strip("'").strip(".")[:80]
+        if not generated_title:
+            return
+
+        db = _get_db()
+        try:
+            wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+            if wr is None:
+                return
+            wr.title = generated_title
+            db.commit()
+        finally:
+            db.close()
+
+        # send_json may raise if the client disconnected between pipeline
+        # start and title-generation completion — that's fine, the DB
+        # update is what makes the title persist into the next /api/workflows
+        # call.
+        try:
+            await websocket.send_json({
+                "type": "workflow_title_update",
+                "chunk": None,
+                "section": None,
+                "data": {"workflow_id": workflow_run_id, "title": generated_title},
+            })
+        except Exception:
+            pass
+    except Exception as e:
+        logger.warning("Failed to generate workflow title for %s: %s", workflow_run_id, e)
+
+
 @router.websocket("/ws/chat")
 async def websocket_chat(websocket: WebSocket):
     """WebSocket endpoint for real-time AI chat streaming.
@@ -559,6 +643,24 @@ async def _handle_pipeline_execution(
         workflow_run_id = workflow_run.id
     finally:
         db.close()
+
+    # Kick off LLM-generated title in the background. The WorkflowRun was
+    # just stored with title = first 60 chars of the user's input, which
+    # renders as raw / unpolished in the run-history sidebar (e.g.
+    # "blockchain" or "make me a deck about quantum compute"). We replace
+    # it with a 3-7 word professional title once Bedrock responds. The
+    # task runs in parallel with the pipeline — pipeline execution does
+    # not block on it, and a failure here only leaves the placeholder
+    # title in place (it never breaks the pipeline run).
+    if workflow_run_id:
+        asyncio.create_task(
+            _generate_workflow_title(
+                workflow_run_id=workflow_run_id,
+                content=content or "",
+                pipeline_type=pipeline_type,
+                websocket=websocket,
+            )
+        )
 
     # Persist user message if chat_session_id provided
     if chat_session_id:
