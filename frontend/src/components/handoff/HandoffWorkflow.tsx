@@ -233,8 +233,10 @@ export function HandoffWorkflow({ token: handoffToken }: { token: string }) {
   }
 
   const canStart = session.status === "pending" || session.status === "failed";
+  // Ensure expires_at is treated as UTC — backend returns naive ISO strings without Z
+  const expiresAtUtc = session.expires_at.endsWith("Z") ? session.expires_at : session.expires_at + "Z";
   const expired =
-    session.status === "expired" || new Date(session.expires_at) < new Date();
+    session.status === "expired" || new Date(expiresAtUtc) < new Date();
 
   // Onboarding state: need PAT before we can run.
   const showOnboarding = !session.has_github_pat && canStart && !expired;
