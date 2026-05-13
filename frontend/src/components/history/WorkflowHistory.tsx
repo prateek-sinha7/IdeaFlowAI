@@ -316,6 +316,11 @@ export function WorkflowHistory({ onBack, onChainPipeline }: WorkflowHistoryProp
                 userStoryContent={(isUserStory || isMarkdown) ? selectedOutput || undefined : undefined}
                 pptContent={isPpt ? selectedOutput || undefined : undefined}
                 prototypeContent={isPrototype ? selectedOutput || undefined : undefined}
+                agentOutputs={
+                  selectedRun?.agentOutputs
+                    ?.filter((a) => a.output && a.output.trim().length > 0)
+                    .map((a) => ({ name: a.name, role: a.role, output: a.output, agentId: a.agent_id }))
+                }
               />
             )}
           </div>

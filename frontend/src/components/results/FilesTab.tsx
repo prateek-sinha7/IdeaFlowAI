@@ -12,6 +12,20 @@ interface FilesTabProps {
   userStoryContent?: string;
   pptContent?: string;
   prototypeContent?: string;
+  // Per-agent outputs: each agent's full text becomes a downloadable .md.
+  // For live runs the parent derives this from pipelineState.agents (only
+  // entries with non-empty output should be passed). For history runs the
+  // parent passes WorkflowRun.agentOutputs which the API already returns.
+  // Both share the same shape contract:
+  //   { name, role?, output, agentId? }
+  agentOutputs?: AgentOutputItem[];
+}
+
+export interface AgentOutputItem {
+  name: string;
+  role?: string;
+  output: string;
+  agentId?: string;
 }
 
 interface FileItem {
@@ -73,9 +87,33 @@ function parseAppBuilderFiles(markdown: string): FileItem[] {
   return files;
 }
 
-export function FilesTab({ workflowType, userStoryContent, pptContent, prototypeContent }: FilesTabProps) {
+export function FilesTab({ workflowType, userStoryContent, pptContent, prototypeContent, agentOutputs }: FilesTabProps) {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const files: FileItem[] = [];
+
+  // Build per-agent file entries (rendered separately from final-output files
+  // so the user can see they're the work-in-progress, not the deliverable).
+  // Only agents with non-empty output show up.
+  const agentFiles: FileItem[] = (agentOutputs ?? [])
+    .filter((a) => a.output && a.output.trim().length > 0)
+    .map((a, i) => {
+      const slug = (a.name || `agent-${i + 1}`)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 60);
+      const idx = String(i + 1).padStart(2, "0");
+      return {
+        id: `agent-${a.agentId || slug}-${i}`,
+        name: `${idx}-${slug}.md`,
+        type: a.role || "Agent output",
+        icon: FileText,
+        size: formatSize(a.output.length),
+        format: "Markdown (.md)",
+        content: a.output,
+        mimeType: "text/markdown",
+      };
+    });
 
   // ── User Stories (including revisions) ──────────────────────────────────
   if ((workflowType === "user_stories" || workflowType === "user_stories_revision") && userStoryContent) {
@@ -178,11 +216,9 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
     }
   }, [userStoryContent, pptContent]);
 
-  const handleDownloadAll = useCallback(() => {
-    files.forEach((file, i) => setTimeout(() => handleDownload(file), i * 150));
-  }, [files, handleDownload]);
+  const totalCount = files.length + agentFiles.length;
 
-  if (files.length === 0) {
+  if (totalCount === 0) {
     return (
       <div className="flex items-center justify-center h-full px-6">
         <div className="text-center">
@@ -193,12 +229,44 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
     );
   }
 
+  const renderFileRow = (file: FileItem, idx: number) => {
+    const Icon = file.icon;
+    return (
+      <motion.div
+        key={file.id}
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: idx * 0.03 }}
+        className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 hover:border-gray-300 hover:shadow-sm transition-all"
+      >
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-100 border border-gray-200 flex-shrink-0">
+          <Icon className="h-4 w-4 text-gray-500" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[12px] font-semibold text-gray-900 truncate">{file.name}</p>
+          <p className="text-[10px] text-gray-400 mt-0.5 truncate">{file.type !== file.name ? file.type + " · " : ""}{file.size}</p>
+        </div>
+        <button
+          onClick={() => handleDownload(file)}
+          disabled={downloadingId === file.id}
+          className="flex items-center justify-center rounded-lg p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 border border-gray-200 transition-all flex-shrink-0 disabled:opacity-50"
+          title={`Download ${file.name}`}
+        >
+          {downloadingId === file.id
+            ? <span className="h-3.5 w-3.5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+            : <Download className="h-3.5 w-3.5" />
+          }
+        </button>
+      </motion.div>
+    );
+  };
+
   return (
     <div className="px-5 py-4 h-full overflow-y-auto" style={{ background: "#f5f5f0" }}>
       <div className="flex items-center justify-between mb-4">
-        <span className="text-[11px] text-gray-500 font-medium">{files.length} file{files.length !== 1 ? "s" : ""} available</span>
+        <span className="text-[11px] text-gray-500 font-medium">{totalCount} file{totalCount !== 1 ? "s" : ""} available</span>
         <button
-          onClick={handleDownloadAll}
+          onClick={() => [...files, ...agentFiles].forEach((file, i) => setTimeout(() => handleDownload(file), i * 150))}
           className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[10px] font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 transition-all"
         >
           <Download className="h-3 w-3" />
@@ -206,39 +274,26 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
         </button>
       </div>
 
-      <div className="space-y-2">
-        {files.map((file, idx) => {
-          const Icon = file.icon;
-          return (
-            <motion.div
-              key={file.id}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.03 }}
-              className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 hover:border-gray-300 hover:shadow-sm transition-all"
-            >
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-100 border border-gray-200 flex-shrink-0">
-                <Icon className="h-4 w-4 text-gray-500" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[12px] font-semibold text-gray-900 truncate">{file.name}</p>
-                <p className="text-[10px] text-gray-400 mt-0.5 truncate">{file.type !== file.name ? file.type + " · " : ""}{file.size}</p>
-              </div>
-              <button
-                onClick={() => handleDownload(file)}
-                disabled={downloadingId === file.id}
-                className="flex items-center justify-center rounded-lg p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 border border-gray-200 transition-all flex-shrink-0 disabled:opacity-50"
-                title={`Download ${file.name}`}
-              >
-                {downloadingId === file.id
-                  ? <span className="h-3.5 w-3.5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-                  : <Download className="h-3.5 w-3.5" />
-                }
-              </button>
-            </motion.div>
-          );
-        })}
-      </div>
+      {files.length > 0 && (
+        <>
+          {agentFiles.length > 0 && (
+            <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2">Final output</p>
+          )}
+          <div className="space-y-2 mb-5">{files.map(renderFileRow)}</div>
+        </>
+      )}
+
+      {agentFiles.length > 0 && (
+        <>
+          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2">
+            Agent outputs ({agentFiles.length})
+          </p>
+          <p className="text-[10px] text-gray-400 mb-3">
+            Intermediate work-in-progress from each agent in the pipeline. The final output above is the deliverable.
+          </p>
+          <div className="space-y-2">{agentFiles.map((f, i) => renderFileRow(f, files.length + i))}</div>
+        </>
+      )}
     </div>
   );
 }

@@ -26,6 +26,11 @@ interface PreviewPanelProps {
   onReviseUserStory?: (instruction: string) => void;
   onRevisePrototype?: (instruction: string) => void;
   onReviseAppBuilder?: (instruction: string) => void;
+  // Per-agent outputs surfaced under the Files tab once the pipeline has
+  // completed. Pass undefined / empty while running — the FilesTab filters
+  // out empty outputs itself, but skipping the prop until completion keeps
+  // the live "Final output" header from appearing prematurely.
+  agentOutputs?: import("@/components/results/FilesTab").AgentOutputItem[];
 }
 
 const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
@@ -33,7 +38,7 @@ const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
   { id: "files", label: "Files", icon: FolderDown },
 ];
 
-export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder }: PreviewPanelProps) {
+export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>("preview");
   const [copied, setCopied] = useState(false);
 
@@ -149,7 +154,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, i
               transition={{ duration: 0.15 }}
               className="absolute inset-0"
             >
-              <FilesTab workflowType={renderType} userStoryContent={userStoryContent} pptContent={pptContent} prototypeContent={prototypeContent} />
+              <FilesTab workflowType={renderType} userStoryContent={userStoryContent} pptContent={pptContent} prototypeContent={prototypeContent} agentOutputs={agentOutputs} />
             </motion.div>
           )}
         </AnimatePresence>
