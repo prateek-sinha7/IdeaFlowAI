@@ -1,4 +1,14 @@
-"""Authentication API endpoints for registration, login, and user info."""
+"""Authentication API endpoints.
+
+Provides user registration, login, password changes, and authenticated user info:
+  - POST /api/auth/register: Create a new user account with email and password
+  - POST /api/auth/login: Authenticate and receive a JWT token
+  - GET /api/auth/me: Retrieve current authenticated user's info
+  - POST /api/auth/change-password: Change password for authenticated user
+
+All authentication uses JWT tokens with 24-hour expiry.
+Passwords are hashed with bcrypt.
+"""
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
