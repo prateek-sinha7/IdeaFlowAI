@@ -242,7 +242,7 @@ OUTPUT FORMAT (follow this EXACTLY):
 
 ## Backlog Summary
 - **Total Epics:** X
-- **Total Stories:** X  
+- **Total Stories:** X
 - **Total Story Points:** X
 - **Sprint Estimate:** X sprints (at 30 pts/sprint)
 - **Priority Breakdown:** X P0, X P1, X P2
@@ -265,12 +265,11 @@ CRITICAL RULES:
 # Design: White background, black fonts, navy blue accent, 10-12 slides
 # ============================================================
 
-from app.agents.ppt_pipeline import (
+from app.agents.ppt_pipeline import (  # noqa: E402
     CONTENT_STRATEGIST_PROMPT,
     SLIDE_ARCHITECT_PROMPT,
     PPTXGENJS_CODE_GENERATOR_PROMPT,
     PRESENTATION_ASSEMBLER_PROMPT,
-    get_pptx_skills_combined,
 )
 
 PPT_AGENTS: list[AgentDefinition] = [
@@ -331,7 +330,7 @@ PPT_AGENTS: list[AgentDefinition] = [
 # Takes existing PptxGenJS code + user's change request
 # ============================================================
 
-from app.agents.ppt_pipeline import PPT_REVISION_AGENT_PROMPT
+from app.agents.ppt_pipeline import PPT_REVISION_AGENT_PROMPT  # noqa: E402
 
 PPT_REVISION_AGENTS: list[AgentDefinition] = [
     AgentDefinition(
@@ -1363,7 +1362,7 @@ CUSTOM_WORKFLOW_AGENTS: list[AgentDefinition] = []  # User builds from library
 # MIGRATION: MULESOFT → SPRING BOOT MICROSERVICES ON AWS — 6 agents
 # ============================================================
 
-from app.agents.migration_pipelines import (
+from app.agents.migration_pipelines import (  # noqa: E402
     MULESOFT_INVENTORY_PROMPT,
     MULESOFT_DECOMPOSITION_PROMPT,
     MULESOFT_SPRINGBOOT_SCAFFOLD_PROMPT,
@@ -1708,7 +1707,7 @@ DOTNET_TO_AZURE_AGENTS: list[AgentDefinition] = [
 # REGISTRY — All agents indexed
 # ============================================================
 
-from app.agents.custom_agents import CUSTOM_AGENTS
+from app.agents.custom_agents import CUSTOM_AGENTS  # noqa: E402
 
 ALL_AGENTS: dict[str, list[AgentDefinition]] = {
     "user_stories": USER_STORY_AGENTS,

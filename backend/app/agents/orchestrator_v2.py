@@ -19,11 +19,10 @@ Architecture:
 """
 
 import asyncio
-import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator
 
 from app.agents.base import BaseAgent, AgentConfigurationError
 from app.agents.registry import AgentDefinition, get_pipeline_agents

@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 
 from app.core.dependencies import (
     get_current_user,
-    get_current_user_with_payload,
     get_user_for_logout,
 )
 from app.core.security import create_access_token, hash_password, verify_password

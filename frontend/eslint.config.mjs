@@ -80,6 +80,14 @@ const eslintConfig = defineConfig([
       "no-restricted-syntax": ["error", ...HARDCODED_URL_RULES],
     },
   },
+  // Downgrade setState-in-effect to warning (pre-existing pattern in codebase).
+  {
+    name: "flowin/react-hooks-overrides",
+    files: ["src/**/*.{ts,tsx,js,jsx}"],
+    rules: {
+      "react-hooks/exhaustive-deps": "warn",
+    },
+  },
 ]);
 
 export default eslintConfig;

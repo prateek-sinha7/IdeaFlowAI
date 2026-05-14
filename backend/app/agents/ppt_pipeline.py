@@ -13,7 +13,6 @@ Architecture:
   Agent 4: Presentation Assembler — Builds final HTML with preview + PPTX download
 """
 
-import os
 from pathlib import Path
 
 # Path to the pptx skills folder

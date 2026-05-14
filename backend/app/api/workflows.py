@@ -222,7 +222,8 @@ def export_pptx(
                 depth = 0
                 end = start
                 for i in range(m.end() - 1, len(script)):
-                    if script[i] == '{': depth += 1
+                    if script[i] == '{':
+                        depth += 1
                     elif script[i] == '}':
                         depth -= 1
                         if depth == 0:
@@ -240,7 +241,8 @@ def export_pptx(
                 depth = 0
                 end = start
                 for i in range(start, len(html_content)):
-                    if html_content[i] == '{': depth += 1
+                    if html_content[i] == '{':
+                        depth += 1
                     elif html_content[i] == '}':
                         depth -= 1
                         if depth == 0:

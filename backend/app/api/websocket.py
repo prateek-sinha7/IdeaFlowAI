@@ -1022,7 +1022,7 @@ async def _handle_pipeline_execution(
 
 async def _handle_questionnaire(websocket: WebSocket, prompt: str, pipeline_type: str):
     """Generate clarifying MCQ questions based on the user's prompt and pipeline type.
-    
+
     Uses the questionnaire agent to produce 4 targeted questions.
     Sends the questions back as a 'questionnaire' WebSocket message.
     """

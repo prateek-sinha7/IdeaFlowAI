@@ -393,7 +393,7 @@ export function AgentCapabilitiesModal({
                       {/* Attach button */}
                       <div className="flex items-center justify-between">
                         <p className="text-[10px] text-gray-400 leading-relaxed max-w-[200px]">
-                          This skill will be injected into the agent's prompt when the pipeline runs.
+                          This skill will be injected into the agent&apos;s prompt when the pipeline runs.
                         </p>
                         <button
                           onClick={() => {
@@ -509,7 +509,7 @@ function SkillsHooksTab({ pipelineType }: { pipelineType: WorkflowType }) {
 
         {attachedSkills.length === 0 && !skillsOpen && (
           <div className="rounded-lg border border-dashed border-gray-200 px-4 py-3 text-center">
-            <p className="text-[11px] text-gray-400">No skills attached · click "Add skill" to browse</p>
+            <p className="text-[11px] text-gray-400">No skills attached · click &quot;Add skill&quot; to browse</p>
           </div>
         )}
 
@@ -625,7 +625,7 @@ function SkillsHooksTab({ pipelineType }: { pipelineType: WorkflowType }) {
 
         {attachedHooks.length === 0 && !hooksOpen && (
           <div className="rounded-lg border border-dashed border-gray-200 px-4 py-3 text-center">
-            <p className="text-[11px] text-gray-400">No hooks attached · click "Add hook" to browse</p>
+            <p className="text-[11px] text-gray-400">No hooks attached · click &quot;Add hook&quot; to browse</p>
           </div>
         )}
 
