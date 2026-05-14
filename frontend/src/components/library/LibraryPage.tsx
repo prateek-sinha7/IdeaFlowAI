@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import { Search, Clock } from "lucide-react";
 import { LIBRARY_AGENTS, CUSTOM_AGENTS } from "@/components/workflow/AgentLibraryData";
+import { AgentCapabilitiesModal } from "@/components/workflow/AgentsPopup";
+import type { AgentDef } from "@/types/index";
 
 const ALL_AGENTS_COMBINED = [...LIBRARY_AGENTS, ...CUSTOM_AGENTS];
 
@@ -33,6 +35,15 @@ const PIPELINE_LABEL: Record<string, string> = {
   dotnet_to_azure: ".NET → Azure",
 };
 
+const ICON_STYLES = [
+  { bg: "#E8EDF5", text: "#1B2A4A" },
+  { bg: "#F0EDE8", text: "#5C4A2A" },
+  { bg: "#EAF0EA", text: "#2A5C2A" },
+  { bg: "#F0E8EE", text: "#5C2A4A" },
+  { bg: "#E8EEF0", text: "#2A4A5C" },
+  { bg: "#F0EEE8", text: "#5C5A2A" },
+];
+
 function getInitials(name: string): string {
   const words = name.replace(/\s+agent$/i, "").split(" ");
   if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
@@ -42,6 +53,7 @@ function getInitials(name: string): string {
 export function LibraryPage() {
   const [activeCategory, setActiveCategory] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedAgent, setSelectedAgent] = useState<{ agent: AgentDef; index: number } | null>(null);
 
   const filteredAgents = ALL_AGENTS_COMBINED.filter((agent) => {
     const matchesCategory =
@@ -100,7 +112,9 @@ export function LibraryPage() {
         <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200 flex-shrink-0">
           <div>
             <h1 className="text-[15px] font-semibold text-gray-900">Agent Library</h1>
-            <p className="text-[11px] text-gray-400 mt-0.5">{filteredAgents.length} agents available</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">
+              {filteredAgents.length} agents available · tap any agent to see its capabilities
+            </p>
           </div>
           <div className="relative w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
@@ -123,17 +137,24 @@ export function LibraryPage() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: Math.min(idx * 0.015, 0.4) }}
-                className="flex flex-col bg-white rounded-xl border border-gray-200 p-4 hover:border-gray-300 hover:shadow-sm transition-all cursor-default"
+                onClick={() => setSelectedAgent({ agent, index: idx })}
+                className="flex flex-col bg-white rounded-xl border border-gray-200 p-4 hover:border-gray-300 hover:shadow-md transition-all cursor-pointer group"
               >
                 {/* Icon + name */}
                 <div className="flex items-center gap-3 mb-3">
-                  <div className="w-9 h-9 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center flex-shrink-0">
-                    <span className="text-[11px] font-bold text-gray-500 select-none">
-                      {getInitials(agent.name)}
-                    </span>
+                  <div
+                    className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 text-[11px] font-bold group-hover:scale-105 transition-transform"
+                    style={{
+                      background: ICON_STYLES[idx % ICON_STYLES.length].bg,
+                      color: ICON_STYLES[idx % ICON_STYLES.length].text,
+                    }}
+                  >
+                    {getInitials(agent.name)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-[12px] font-semibold text-gray-900 leading-tight">{agent.name}</p>
+                    <p className="text-[12px] font-semibold text-gray-900 leading-tight group-hover:text-[#1B2A4A] transition-colors">
+                      {agent.name}
+                    </p>
                     <p className="text-[10px] text-gray-400 mt-0.5 uppercase tracking-wide font-medium">
                       {PIPELINE_LABEL[agent.pipeline_type] ?? agent.pipeline_type}
                     </p>
@@ -150,12 +171,12 @@ export function LibraryPage() {
 
                 {/* Footer */}
                 <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-                  <span className="text-[9px] font-semibold text-gray-400 uppercase tracking-wide">
-                    {PIPELINE_LABEL[agent.pipeline_type] ?? agent.pipeline_type}
-                  </span>
                   <span className="flex items-center gap-1 text-[9px] text-gray-400">
                     <Clock className="h-2.5 w-2.5" />
                     ~{agent.estimated_duration}s
+                  </span>
+                  <span className="text-[9px] text-gray-400 group-hover:text-[#1B2A4A] transition-colors font-medium">
+                    Tap to explore →
                   </span>
                 </div>
               </motion.div>
@@ -163,6 +184,17 @@ export function LibraryPage() {
           </div>
         </div>
       </div>
+
+      {/* Capabilities modal */}
+      <AnimatePresence>
+        {selectedAgent && (
+          <AgentCapabilitiesModal
+            agent={selectedAgent.agent}
+            agentIndex={selectedAgent.index}
+            onClose={() => setSelectedAgent(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { X, Plus, ArrowRight, Lock, GripVertical } from "lucide-react";
+import { X, Plus, ArrowRight, Lock, GripVertical, Info, Clock, Zap, BookMarked, CheckCircle2, ChevronRight } from "lucide-react";
 import { AgentLibrary } from "./AgentLibrary";
 import type { AgentDef, WorkflowType } from "@/types/index";
 
@@ -119,6 +119,123 @@ const PIPELINE_LABEL: Record<string, string> = {
   dotnet_to_azure: ".NET → Azure",
 };
 
+const ICON_STYLES = [
+  { bg: "#E8EDF5", text: "#1B2A4A" },
+  { bg: "#F0EDE8", text: "#5C4A2A" },
+  { bg: "#EAF0EA", text: "#2A5C2A" },
+  { bg: "#F0E8EE", text: "#5C2A4A" },
+  { bg: "#E8EEF0", text: "#2A4A5C" },
+  { bg: "#F0EEE8", text: "#5C5A2A" },
+];
+
+function getAgentInitials(name: string): string {
+  const words = name.replace(/\s+agent$/i, "").split(" ");
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[1][0]).toUpperCase();
+}
+
+function getCapabilities(agent: AgentDef): string[] {
+  const desc = agent.description;
+  const parts = desc.split(/,\s*(?:and\s+)?|;\s*/).filter(p => p.trim().length > 10);
+  if (parts.length >= 2) return parts.map(p => p.trim()).slice(0, 5);
+  return [desc];
+}
+
+/** Shared capabilities modal used by both AgentsPopup and AgentLibrary */
+export function AgentCapabilitiesModal({ agent, agentIndex, onClose }: {
+  agent: AgentDef;
+  agentIndex: number;
+  onClose: () => void;
+}) {
+  const iconStyle = ICON_STYLES[agentIndex % ICON_STYLES.length];
+  const capabilities = getCapabilities(agent);
+  const pipelineLabel = PIPELINE_LABEL[agent.pipeline_type] ?? agent.pipeline_type;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[80] flex items-center justify-center p-6 bg-black/30 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96, y: 12 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 12 }}
+        transition={{ duration: 0.18 }}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-md overflow-hidden"
+      >
+        {/* Header */}
+        <div className="px-6 pt-6 pb-4 border-b border-gray-100">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div
+                className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 text-[13px] font-bold"
+                style={{ background: iconStyle.bg, color: iconStyle.text }}
+              >
+                {getAgentInitials(agent.name)}
+              </div>
+              <div>
+                <h2 className="text-[15px] font-bold text-gray-900 leading-tight">{agent.name}</h2>
+                <p className="text-[11px] text-gray-500 mt-0.5">{agent.role}</p>
+              </div>
+            </div>
+            <button onClick={onClose} className="h-7 w-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all flex-shrink-0">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="flex items-center gap-2 mt-3">
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-gray-100 text-gray-600 border-gray-200">{pipelineLabel}</span>
+            <span className="flex items-center gap-1 text-[10px] text-gray-400"><Clock className="h-3 w-3" />~{agent.estimated_duration}s</span>
+            {agent.has_skill && (
+              <span className="flex items-center gap-1 text-[10px] text-gray-600 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-full">
+                <BookMarked className="h-2.5 w-2.5" />Skill support
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="px-6 py-4 space-y-4">
+          <div>
+            <div className="flex items-center gap-2 mb-2.5">
+              <Zap className="h-3.5 w-3.5 text-gray-400" />
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">What this agent does</p>
+            </div>
+            <div className="space-y-2">
+              {capabilities.map((cap, i) => (
+                <div key={i} className="flex items-start gap-2.5">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-gray-400 flex-shrink-0 mt-0.5" />
+                  <p className="text-[12px] text-gray-700 leading-relaxed">{cap}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Pipeline</p>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-medium px-2 py-0.5 rounded-md border bg-gray-100 text-gray-600 border-gray-200">{pipelineLabel}</span>
+              <ChevronRight className="h-3 w-3 text-gray-300" />
+              <span className="text-[11px] text-gray-600 font-medium">Step {agent.order}</span>
+            </div>
+          </div>
+          {agent.has_skill && (
+            <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 flex items-start gap-3">
+              <BookMarked className="h-4 w-4 text-gray-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-[11px] font-semibold text-gray-700 mb-0.5">Custom skill support</p>
+                <p className="text-[10px] text-gray-500 leading-relaxed">Attach a SKILL.md to guide this agent with domain-specific instructions.</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 const COLS = 3;
 
 export function AgentsPopup({
@@ -128,6 +245,7 @@ export function AgentsPopup({
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+  const [capAgent, setCapAgent] = useState<{ agent: AgentDef; index: number } | null>(null);
 
   const handleRemove = useCallback((agentId: string) => {
     if (getRole(agentId, pipelineType) !== "optional") return;
@@ -311,6 +429,14 @@ export function AgentsPopup({
                                 {role === "required" && (
                                   <span className="text-[7px] font-semibold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded uppercase tracking-wide">Required</span>
                                 )}
+                                {/* Info button */}
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setCapAgent({ agent, index: globalIdx }); }}
+                                  className="flex items-center justify-center w-5 h-5 rounded bg-gray-50 border border-gray-200 hover:bg-gray-100 transition-colors"
+                                  title="View capabilities"
+                                >
+                                  <Info className="h-3 w-3 text-gray-400" />
+                                </button>
                                 {optional && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handleRemove(agent.id); }}
@@ -367,6 +493,17 @@ export function AgentsPopup({
             canAddMore={canAddMore}
             existingAgentIds={agents.map((a) => a.id)}
           />
+
+          {/* Agent capabilities modal */}
+          <AnimatePresence>
+            {capAgent && (
+              <AgentCapabilitiesModal
+                agent={capAgent.agent}
+                agentIndex={capAgent.index}
+                onClose={() => setCapAgent(null)}
+              />
+            )}
+          </AnimatePresence>
         </motion.div>
       )}
     </AnimatePresence>
