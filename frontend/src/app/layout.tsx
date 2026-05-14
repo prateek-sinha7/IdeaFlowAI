@@ -10,7 +10,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Flowin",
+  title: "VelocityAI",
   description: "Enterprise-grade AI delivery platform — transform ideas into structured deliverables through specialist AI agents",
 };
 

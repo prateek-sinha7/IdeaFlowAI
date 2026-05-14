@@ -33,7 +33,7 @@ import {
  *
  *   - Install card (one-line `curl | bash`).
  *   - GitHub PAT (paste, save, delete).
- *   - Long-lived Flowin API keys (create, list, revoke).
+ *   - Long-lived VelocityAI API keys (create, list, revoke).
  *
  * Used in two surfaces:
  *
@@ -300,7 +300,7 @@ export function IntegrationsCard({
         <div className="flex items-center gap-2 mb-2">
           <KeyRound className="h-4 w-4 text-gray-500" />
           <h2 className="text-[13px] font-semibold text-gray-900">
-            Flowin API keys
+            VelocityAI API keys
           </h2>
         </div>
         <p className="text-[11px] text-gray-500 mb-3">

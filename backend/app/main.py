@@ -69,7 +69,7 @@ else:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: create database tables on startup."""
-    logger.info("🚀 Starting Flowin Backend...")
+    logger.info("🚀 Starting VelocityAI Backend...")
     logger.info("   Database: %s", settings.DATABASE_URL)
     logger.info(
         "   LLM provider: bedrock (model=%s region=%s)",

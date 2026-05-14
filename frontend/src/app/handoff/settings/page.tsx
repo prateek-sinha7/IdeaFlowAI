@@ -10,7 +10,7 @@ import { IntegrationsCard } from "@/components/handoff/IntegrationsCard";
 
 /**
  * Standalone settings page for /flowin-handoff integrations:
- * install command, GitHub PAT, and Flowin API keys.
+ * install command, GitHub PAT, and VelocityAI API keys.
  *
  * Lives at /handoff/settings (NOT under /settings) so the entire
  * handoff feature is one route family. The existing AccountSettings
@@ -45,7 +45,7 @@ export default function HandoffSettingsPage() {
             Handoff integrations
           </h1>
           <p className="text-[10px] text-gray-500 mt-0.5">
-            Install the slash command, save your GitHub PAT, manage Flowin API keys.
+            Install the slash command, save your GitHub PAT, manage VelocityAI API keys.
           </p>
         </div>
       </header>

@@ -48,7 +48,7 @@ export default function WorkflowPage() {
       <div className="flex-1 flex flex-col">
         {/* Top bar with library button */}
         <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: "var(--theme-border)" }}>
-          <h1 className="text-sm font-semibold text-white">Flowin — Agent Workflows</h1>
+          <h1 className="text-sm font-semibold text-white">VelocityAI — Agent Workflows</h1>
           <button
             onClick={() => setLibraryOpen(true)}
             className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-[11px] font-medium text-grey/70 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 transition-all"

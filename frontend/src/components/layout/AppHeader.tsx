@@ -43,7 +43,7 @@ export function AppHeader({ currentPage, onNavigate, onLogout, userEmail, disabl
           <Zap className="h-3.5 w-3.5 text-white" />
         </div>
         <span className="text-xs sm:text-sm font-semibold text-white tracking-tight">
-          Flowin
+          VelocityAI
         </span>
       </div>
 

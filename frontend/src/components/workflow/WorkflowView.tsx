@@ -223,7 +223,7 @@ export function WorkflowView({
           </div>
           <div>
             <h2 className="text-sm font-semibold text-white">
-              {step === "select" && "Flowin Design Studio"}
+              {step === "select" && "VelocityAI Design Studio"}
               {step === "build" && (selectedFeature?.label || "Build")}
               {step === "running" && "Running Pipeline"}
               {step === "complete" && "Pipeline Complete"}

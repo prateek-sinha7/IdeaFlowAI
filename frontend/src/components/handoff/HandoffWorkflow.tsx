@@ -310,7 +310,7 @@ export function HandoffWorkflow({ token: handoffToken }: { token: string }) {
                   One more step before this can run
                 </h2>
                 <p className="text-[12px] text-amber-900">
-                  Flowin needs a GitHub PAT (with{" "}
+                  VelocityAI needs a GitHub PAT (with{" "}
                   <code className="px-1 rounded bg-amber-100">repo</code> scope) to
                   clone {session.repo_url} and open the pull request. Add one below —
                   it&apos;s saved encrypted and never returned by any API.

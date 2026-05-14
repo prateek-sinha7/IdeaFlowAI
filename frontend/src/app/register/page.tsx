@@ -89,7 +89,7 @@ export default function RegisterPage() {
             <Zap className="h-4.5 w-4.5 text-white" />
           </div>
           <h2 className="text-xl font-semibold text-gray-900 tracking-tight">
-            Flowin
+            VelocityAI
           </h2>
         </motion.div>
 
