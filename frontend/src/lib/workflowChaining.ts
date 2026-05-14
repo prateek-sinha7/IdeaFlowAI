@@ -17,16 +17,14 @@ export interface ChainOption {
 }
 
 /**
- * The pipelines we currently surface as auto-chained next-step targets.
- * Deliberately limited to the three "deliverable" workflows that benefit
- * from being seeded with another's output. App Builder, migration, and
- * custom are excluded because their inputs aren't conversational and
- * auto-chaining produces poor prompts.
+ * The pipelines we surface as auto-chained next-step targets.
+ * Includes app_builder so users can chain from any deliverable into a full app build.
  */
 export const CHAIN_OPTIONS: readonly ChainOption[] = [
   { type: "ppt", label: "Presentation", description: "Turn results into slides" },
   { type: "user_stories", label: "User Stories", description: "Generate product backlog" },
   { type: "prototype", label: "Prototype", description: "Build interactive UI" },
+  { type: "app_builder", label: "App Builder", description: "Build a full-stack application" },
 ];
 
 /**

@@ -119,9 +119,21 @@ _WORKFLOW_TITLE_CONTEXT_MARKER = _re.compile(
     r"\n*\s*===\s*(?:CONTEXT FROM PREVIOUS|EXISTING|USER PREFERENCES|ORIGINAL USER REQUEST)"
 )
 
+# Extracts the revision instruction from revision messages that start with
+# === EXISTING ... === blocks. The user's actual request is in the
+# === REVISION REQUEST === section.
+_REVISION_REQUEST_MARKER = _re.compile(
+    r"===\s*REVISION REQUEST\s*===\s*\n(.*?)\n===\s*END REQUEST\s*===",
+    _re.DOTALL,
+)
+
 
 def _strip_pipeline_context(content: str) -> str:
     """Return the user-authored prefix of a workflow input.
+
+    For revision messages that start with === EXISTING ... === blocks,
+    extracts the === REVISION REQUEST === section instead, since there
+    is no user-authored prefix before the existing content block.
 
     Splits on the first occurrence of any of the section markers used to
     inject upstream pipeline context, previous output, or system-side
@@ -130,7 +142,16 @@ def _strip_pipeline_context(content: str) -> str:
     """
     if not content:
         return ""
-    return _WORKFLOW_TITLE_CONTEXT_MARKER.split(content, maxsplit=1)[0].strip()
+    # For revision messages: content starts with === EXISTING ... ===
+    # Extract the revision instruction from === REVISION REQUEST === section
+    stripped = _WORKFLOW_TITLE_CONTEXT_MARKER.split(content, maxsplit=1)[0].strip()
+    if not stripped:
+        # Content started with a context marker — look for revision request
+        match = _REVISION_REQUEST_MARKER.search(content)
+        if match:
+            return match.group(1).strip()
+        return ""
+    return stripped
 
 
 async def _generate_workflow_title(
