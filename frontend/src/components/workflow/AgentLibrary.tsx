@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { X, Search } from "lucide-react";
+import { X, Search, Info } from "lucide-react";
 import type { AgentDef } from "@/types/index";
 import { LIBRARY_AGENTS, CUSTOM_AGENTS } from "./AgentLibraryData";
+import { AgentCapabilitiesModal } from "./AgentsPopup";
 
 interface AgentLibraryProps {
   isOpen: boolean;
@@ -45,6 +46,7 @@ export function AgentLibrary({
 }: AgentLibraryProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState(currentPipelineType || "all");
+  const [capAgent, setCapAgent] = useState<{ agent: AgentDef; index: number } | null>(null);
 
   // Use only existingAgentIds from parent — no local tracking
   // This ensures removed agents reappear in the library
@@ -75,6 +77,7 @@ export function AgentLibrary({
   };
 
   return (
+    <>
     <AnimatePresence>
       {isOpen && (
         <motion.div
@@ -158,37 +161,62 @@ export function AgentLibrary({
                       const categoryLabel = CATEGORIES.find(c => c.id === agent.pipeline_type)?.label?.toUpperCase() || agent.pipeline_type.toUpperCase();
 
                       return (
-                        <motion.button
+                        <motion.div
                           key={`${agent.pipeline_type}-${agent.id}`}
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
                           transition={{ delay: idx * 0.02 }}
-                          onClick={() => handleAdd(agent)}
-                          disabled={!canAddMore}
-                          className={`flex items-start gap-3 rounded-xl border px-4 py-3.5 text-left transition-all group ${
+                          className={`relative flex flex-col rounded-xl border px-4 py-3.5 transition-all group ${
                             canAddMore
-                              ? "border-gray-200 bg-gray-50 hover:bg-white hover:border-gray-300 hover:shadow-sm cursor-pointer"
-                              : "border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed"
+                              ? "border-gray-200 bg-gray-50 hover:bg-white hover:border-gray-300 hover:shadow-sm"
+                              : "border-gray-100 bg-gray-50 opacity-50"
                           }`}
                         >
-                          {/* Icon */}
-                          <div className="w-9 h-9 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center flex-shrink-0 text-[11px] font-bold text-gray-500">
-                            {getInitials(agent.name)}
+                          {/* ℹ️ button — top right corner */}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setCapAgent({ agent, index: idx }); }}
+                            className="absolute top-3 right-3 flex items-center justify-center w-6 h-6 rounded-md bg-white border border-gray-200 hover:bg-gray-100 transition-colors"
+                            title="View capabilities"
+                          >
+                            <Info className="h-3 w-3 text-gray-400" />
+                          </button>
+
+                          {/* Icon + name */}
+                          <div className="flex items-center gap-3 mb-2 pr-8">
+                            <div className="w-9 h-9 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center flex-shrink-0 text-[11px] font-bold text-gray-500">
+                              {getInitials(agent.name)}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[13px] font-semibold text-gray-900 leading-tight">
+                                {agent.name}
+                              </p>
+                              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mt-0.5">
+                                {categoryLabel}
+                              </p>
+                            </div>
                           </div>
 
-                          {/* Info */}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[13px] font-semibold text-gray-900 leading-tight">
-                              {agent.name}
-                            </p>
-                            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mt-0.5 mb-1.5">
-                              {categoryLabel}
-                            </p>
-                            <p className="text-[11px] text-gray-500 leading-relaxed line-clamp-2">
-                              {agent.description}
-                            </p>
+                          {/* Description */}
+                          <p className="text-[11px] text-gray-500 leading-relaxed line-clamp-2 flex-1 mb-3">
+                            {agent.description}
+                          </p>
+
+                          {/* + Add button — bottom right */}
+                          <div className="flex justify-end">
+                            <button
+                              onClick={() => canAddMore && handleAdd(agent)}
+                              disabled={!canAddMore}
+                              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg border transition-colors text-[11px] font-semibold ${
+                                canAddMore
+                                  ? "bg-gray-100 border-gray-200 text-gray-600 hover:bg-gray-200 cursor-pointer"
+                                  : "bg-gray-50 border-gray-100 text-gray-300 cursor-not-allowed"
+                              }`}
+                              title="Add agent"
+                            >
+                              + Add
+                            </button>
                           </div>
-                        </motion.button>
+                        </motion.div>
                       );
                     })}
                   </div>
@@ -199,5 +227,17 @@ export function AgentLibrary({
         </motion.div>
       )}
     </AnimatePresence>
+
+    {/* Agent capabilities modal */}
+    <AnimatePresence>
+      {capAgent && (
+        <AgentCapabilitiesModal
+          agent={capAgent.agent}
+          agentIndex={capAgent.index}
+          onClose={() => setCapAgent(null)}
+        />
+      )}
+    </AnimatePresence>
+    </>
   );
 }

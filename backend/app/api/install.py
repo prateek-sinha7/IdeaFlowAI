@@ -42,12 +42,12 @@ router = APIRouter(prefix="/install", tags=["install"])
 
 SLASH_COMMAND_MD = """\
 ---
-description: Hand off a coding or test task to Flowin (multi-agent pipeline that opens a PR)
+description: Hand off a coding or test task to VelocityAI (multi-agent pipeline that opens a PR)
 argument-hint: <task description, e.g. "fix the failing user-login test">
 allowed-tools: Bash(flowin-handoff:*)
 ---
 
-Hand off the current task to Flowin. Flowin will run a multi-agent pipeline
+Hand off the current task to VelocityAI. VelocityAI will run a multi-agent pipeline
 (coding agent → test analysis → compliance review) against the current
 repository on a fresh branch, then open a draft pull request.
 
@@ -94,7 +94,7 @@ if [[ -z "${FLOWIN_API_URL-}" ]]; then
   exit 2
 fi
 if [[ -z "${FLOWIN_API_KEY-}" ]]; then
-  echo "FLOWIN_API_KEY is not set. Create one at ${FLOWIN_API_URL}/handoff/settings (Flowin API keys → Create key)." >&2
+  echo "FLOWIN_API_KEY is not set. Create one at ${FLOWIN_API_URL}/handoff/settings (VelocityAI API keys → Create key)." >&2
   exit 2
 fi
 
@@ -169,7 +169,7 @@ RESPONSE="$(
     "$FLOWIN_API_URL/api/handoff/receive"
 )" || {
   status=$?
-  echo "Flowin handoff failed (exit $status):" >&2
+  echo "VelocityAI handoff failed (exit $status):" >&2
   echo "$RESPONSE" >&2
   exit "$status"
 }
@@ -192,7 +192,7 @@ cat <<EOF
   Token: $TOKEN
   Expires: $(jq -r '.expires_at' <<<"$RESPONSE")
 
-The pipeline runs in the Flowin web UI — log in there, supply your
+The pipeline runs in the VelocityAI web UI — log in there, supply your
 GitHub PAT at ${FLOWIN_API_URL}/handoff/settings if you have not
 already, and click Start.
 EOF
@@ -237,7 +237,7 @@ set -euo pipefail
 COMMAND_DIR="${{HOME}}/.claude/commands"
 BIN_DIR="${{HOME}}/.local/bin"
 
-echo "→ Installing Flowin handoff command..."
+echo "→ Installing VelocityAI handoff command..."
 mkdir -p "$COMMAND_DIR" "$BIN_DIR"
 
 # --- Slash-command markdown (project: $COMMAND_DIR/flowin-handoff.md) ---
@@ -279,14 +279,14 @@ fi
 
 cat <<EOF
 
-✓ Flowin handoff installed.
+✓ VelocityAI handoff installed.
 
 Next steps (one time):
 
-  1. Log into Flowin and open:
+  1. Log into VelocityAI and open:
        $FLOWIN_API_URL_DEFAULT/handoff/settings
 
-  2. Under "Flowin API keys" → "Create key" → copy the plaintext token
+  2. Under "VelocityAI API keys" → "Create key" → copy the plaintext token
      (it is shown ONLY once).
 
   3. On the same page, under "GitHub access token", paste a GitHub PAT

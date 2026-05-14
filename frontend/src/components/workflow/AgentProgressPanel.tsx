@@ -178,64 +178,62 @@ export function AgentProgressPanel({
         )}
       </div>
 
-      {/* Agent cards */}
+      {/* Agent cards — scrollable */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
         {agents.map((agent, idx) => (
           <AgentCard key={agent.id} agent={agent} index={idx} />
         ))}
+      </div>
 
-        {/* Suggested next steps — always visible once the pipeline is complete.
-            Replaces the older collapsible "Chain to next pipeline" affordance:
-            users were missing it because it required a tap to reveal. */}
-        {isComplete && availablePipelines.length > 0 && onChainPipeline && (
-          <motion.div
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="pt-3 mt-1 rounded-2xl border-2 border-[#1B2A4A]/15 bg-gradient-to-br from-[#FAFBFF] to-[#F1F4FB] p-3.5 shadow-sm"
-          >
-            <div className="flex items-center gap-1.5 mb-2.5">
-              <Sparkles className="h-3.5 w-3.5 text-[#1B2A4A]" />
-              <p className="text-[10px] font-bold text-[#1B2A4A] uppercase tracking-[0.12em]">
-                Suggested next steps
-              </p>
-            </div>
-            <div className="space-y-1.5">
-              {availablePipelines.map((pipeline, idx) => (
-                <motion.button
-                  key={pipeline.type}
-                  initial={{ opacity: 0, x: -4 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.15 + idx * 0.05 }}
-                  onClick={() => onChainPipeline(pipeline.type)}
-                  className="group w-full flex items-center justify-between rounded-xl border border-[#1B2A4A]/20 bg-white hover:border-[#1B2A4A] hover:bg-[#1B2A4A] hover:shadow-md px-3.5 py-2.5 text-left transition-all"
-                >
-                  <div className="min-w-0">
-                    <p className="text-[12px] font-semibold text-gray-900 group-hover:text-white transition-colors">
-                      {pipeline.label}
-                    </p>
-                    <p className="text-[10px] text-gray-500 group-hover:text-white/80 transition-colors leading-snug">
-                      {pipeline.description}
-                    </p>
-                  </div>
-                  <ArrowRight className="h-3.5 w-3.5 text-[#1B2A4A] group-hover:text-white group-hover:translate-x-0.5 transition-all flex-shrink-0 ml-2" />
-                </motion.button>
-              ))}
-            </div>
-          </motion.div>
-        )}
+      {/* Suggested next steps + New Pipeline — pinned at bottom */}
+      {(isComplete || isCancelled) && (
+        <div className="flex-shrink-0 border-t border-gray-100 px-4 py-3 space-y-2">
+          {isComplete && availablePipelines.length > 0 && onChainPipeline && (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="rounded-2xl border-2 border-[#1B2A4A]/15 bg-gradient-to-br from-[#FAFBFF] to-[#F1F4FB] p-3.5 shadow-sm"
+            >
+              <div className="flex items-center gap-1.5 mb-2.5">
+                <Sparkles className="h-3.5 w-3.5 text-[#1B2A4A]" />
+                <p className="text-[10px] font-bold text-[#1B2A4A] uppercase tracking-[0.12em]">
+                  Suggested next steps
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                {availablePipelines.map((pipeline, idx) => (
+                  <motion.button
+                    key={pipeline.type}
+                    initial={{ opacity: 0, x: -4 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.15 + idx * 0.05 }}
+                    onClick={() => onChainPipeline(pipeline.type)}
+                    className="group w-full flex items-center justify-between rounded-xl border border-[#1B2A4A]/20 bg-white hover:border-[#1B2A4A] hover:bg-[#1B2A4A] hover:shadow-md px-3.5 py-2.5 text-left transition-all"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-[12px] font-semibold text-gray-900 group-hover:text-white transition-colors">
+                        {pipeline.label}
+                      </p>
+                      <p className="text-[10px] text-gray-500 group-hover:text-white/80 transition-colors leading-snug">
+                        {pipeline.description}
+                      </p>
+                    </div>
+                    <ArrowRight className="h-3.5 w-3.5 text-[#1B2A4A] group-hover:text-white group-hover:translate-x-0.5 transition-all flex-shrink-0 ml-2" />
+                  </motion.button>
+                ))}
+              </div>
+            </motion.div>
+          )}
 
-        {(isComplete || isCancelled) && (
           <button
             onClick={() => { setIsCancelled(false); onRunAnother?.(); }}
             className="w-full flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 px-4 py-2.5 text-[11px] font-medium text-gray-600 transition-all"
           >
             <RotateCcw className="h-3.5 w-3.5" /> New Pipeline
           </button>
-        )}
-      </div>
-
-      {/* Follow-up input removed — not needed */}
+        </div>
+      )}
     </div>
   );
 }

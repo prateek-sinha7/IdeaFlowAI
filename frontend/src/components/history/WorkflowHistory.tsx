@@ -397,8 +397,47 @@ export function WorkflowHistory({ onBack, onChainPipeline }: WorkflowHistoryProp
       {/* List */}
       <div className="flex-1 overflow-y-auto">
         {loading ? (
-          <div className="flex items-center justify-center h-40">
-            <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
+          /* Professional skeleton loading state */
+          <div className="px-6 py-4 space-y-1">
+            {/* Loading header */}
+            <div className="flex items-center gap-3 mb-5 pt-2">
+              <div className="relative">
+                <div className="h-8 w-8 rounded-full border-2 border-gray-200 border-t-[#1B2A4A] animate-spin" />
+              </div>
+              <div>
+                <p className="text-[13px] font-semibold text-gray-700">Loading workflows</p>
+                <p className="text-[11px] text-gray-400">Fetching your pipeline history...</p>
+              </div>
+            </div>
+
+            {/* Skeleton cards */}
+            {Array.from({ length: 7 }).map((_, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-4 px-0 py-3.5 border-b border-gray-100"
+                style={{ opacity: 1 - i * 0.1 }}
+              >
+                {/* Icon skeleton */}
+                <div className="w-9 h-9 rounded-xl bg-gray-100 flex-shrink-0 animate-pulse" />
+
+                {/* Text skeleton */}
+                <div className="flex-1 min-w-0 space-y-2">
+                  <div
+                    className="h-3 rounded-full bg-gray-100 animate-pulse"
+                    style={{ width: `${60 + (i % 4) * 10}%` }}
+                  />
+                  <div className="flex items-center gap-2">
+                    <div className="h-2.5 w-20 rounded-full bg-gray-100 animate-pulse" />
+                    <div className="h-2.5 w-2.5 rounded-full bg-gray-100 animate-pulse" />
+                    <div className="h-2.5 w-14 rounded-full bg-gray-100 animate-pulse" />
+                  </div>
+                </div>
+
+                {/* Badge skeleton */}
+                <div className="h-5 w-14 rounded-full bg-gray-100 animate-pulse flex-shrink-0" />
+                <div className="h-4 w-4 rounded bg-gray-100 animate-pulse flex-shrink-0" />
+              </div>
+            ))}
           </div>
         ) : filteredRuns.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-40 gap-2">

@@ -20,7 +20,7 @@ const WORKFLOWS = [
     id: "ppt",
     type: "ppt" as WorkflowType,
     label: "Pitch an idea",
-    description: "Shape a concept into an enterprise-grade pitch deck — charts, data tables, and executive-ready visuals produced by Flowin's presentation agents.",
+    description: "Shape a concept into an enterprise-grade pitch deck — charts, data tables, and executive-ready visuals produced by VelocityAI's presentation agents.",
     badge: null,
   },
   {
@@ -34,7 +34,7 @@ const WORKFLOWS = [
     id: "app_builder",
     type: "app_builder" as WorkflowType,
     label: "Build an end-to-end application",
-    description: "Hand Flowin a deck, repository, or brief — its guardrails, workflows, and specialist agents stand up a complete enterprise application with infrastructure and tests.",
+    description: "Hand VelocityAI a deck, repository, or brief — its guardrails, workflows, and specialist agents stand up a complete enterprise application with infrastructure and tests.",
     badge: null,
   },
   {
@@ -69,7 +69,7 @@ export function CreationHub({ onSelectFeature }: CreationHubProps) {
           className="text-center mb-12 w-full"
         >
           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-[0.18em] mb-5">
-            Flowin
+            VelocityAI
           </p>
           <h1 className="text-[38px] sm:text-[44px] font-bold text-gray-900 leading-tight tracking-tight mb-4">
             Select a workflow to begin

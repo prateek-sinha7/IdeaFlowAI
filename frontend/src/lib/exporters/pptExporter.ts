@@ -46,7 +46,7 @@ function getChartType(type: string): pptxgen.CHART_NAME {
 export function exportToPptx(slideData: SlideData, filename?: string): void {
   const pres = new pptxgen();
   pres.layout = "LAYOUT_WIDE"; // 13.3" x 7.5"
-  pres.author = "Flowin";
+  pres.author = "VelocityAI";
 
   // Derive filename from first slide title if not provided
   const derivedName = filename || (slideData.slides[0]?.title

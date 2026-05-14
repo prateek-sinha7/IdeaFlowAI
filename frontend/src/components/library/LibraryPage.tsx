@@ -1,9 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { motion } from "motion/react";
-import { Search, Clock } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import {
+  Search, Clock, Puzzle, Webhook, X, Copy, Check,
+  ExternalLink, Tag, Zap, BookOpen, ChevronRight,
+} from "lucide-react";
 import { LIBRARY_AGENTS, CUSTOM_AGENTS } from "@/components/workflow/AgentLibraryData";
+import { AgentCapabilitiesModal } from "@/components/workflow/AgentsPopup";
+import { SKILLS, SKILL_CATEGORIES, type SkillDef } from "@/data/skills";
+import { HOOKS, HOOK_EVENTS, type HookDef } from "@/data/hooks";
+import type { AgentDef } from "@/types/index";
 
 const ALL_AGENTS_COMBINED = [...LIBRARY_AGENTS, ...CUSTOM_AGENTS];
 
@@ -24,13 +31,22 @@ const CATEGORIES: CategoryEntry[] = [
 const MIGRATION_TYPES = new Set(["mulesoft_to_springboot", "dotnet_to_azure"]);
 
 const PIPELINE_LABEL: Record<string, string> = {
-  user_stories: "User Stories",
-  ppt: "Presentation",
-  prototype: "Prototype",
-  app_builder: "App Builder",
-  custom: "Custom",
-  mulesoft_to_springboot: "Mulesoft → Spring Boot",
-  dotnet_to_azure: ".NET → Azure",
+  user_stories: "User Stories", ppt: "Presentation", prototype: "Prototype",
+  app_builder: "App Builder", custom: "Custom",
+  mulesoft_to_springboot: "Mulesoft → Spring Boot", dotnet_to_azure: ".NET → Azure",
+};
+
+const ICON_STYLES = [
+  { bg: "#E8EDF5", text: "#1B2A4A" }, { bg: "#F0EDE8", text: "#5C4A2A" },
+  { bg: "#EAF0EA", text: "#2A5C2A" }, { bg: "#F0E8EE", text: "#5C2A4A" },
+  { bg: "#E8EEF0", text: "#2A4A5C" }, { bg: "#F0EEE8", text: "#5C5A2A" },
+];
+
+const SOURCE_LABEL: Record<string, string> = { ecc: "ECC", superpowers: "Superpowers", gsd: "GSD" };
+const SOURCE_URL: Record<string, string> = {
+  ecc: "https://github.com/affaan-m/everything-claude-code",
+  superpowers: "https://github.com/obra/superpowers",
+  gsd: "https://github.com/glittercowboy/get-shit-done",
 };
 
 function getInitials(name: string): string {
@@ -39,130 +55,601 @@ function getInitials(name: string): string {
   return (words[0][0] + words[1][0]).toUpperCase();
 }
 
+// ─── Skill Detail Modal ───────────────────────────────────────────────────────
+
+function SkillDetailModal({ skill, onClose }: { skill: SkillDef; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(skill.content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Parse content into sections for display
+  const lines = skill.content.trim().split("\n");
+  const sections: { heading: string | null; lines: string[] }[] = [];
+  let current: { heading: string | null; lines: string[] } = { heading: null, lines: [] };
+  for (const line of lines) {
+    if (line.startsWith("# ") && current.lines.length === 0 && !current.heading) {
+      current.heading = line.replace(/^#+\s*/, "");
+    } else if (line.startsWith("## ")) {
+      if (current.heading || current.lines.length > 0) sections.push(current);
+      current = { heading: line.replace(/^#+\s*/, ""), lines: [] };
+    } else {
+      current.lines.push(line);
+    }
+  }
+  if (current.heading || current.lines.length > 0) sections.push(current);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[80] flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.97, y: 12 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.97, y: 12 }}
+        transition={{ duration: 0.18 }}
+        onClick={e => e.stopPropagation()}
+        className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-2xl overflow-hidden flex flex-col"
+        style={{ maxHeight: "88vh" }}
+      >
+        {/* Header */}
+        <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex-shrink-0">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center flex-shrink-0">
+                <Puzzle className="h-5 w-5 text-gray-500" />
+              </div>
+              <div>
+                <h2 className="text-[16px] font-bold text-gray-900 leading-tight">{skill.name}</h2>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200 capitalize">{skill.category}</span>
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200">{SOURCE_LABEL[skill.source]}</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={handleCopy}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all border ${
+                  copied
+                    ? "bg-gray-900 text-white border-gray-900"
+                    : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300"
+                }`}
+              >
+                {copied ? <><Check className="h-3 w-3" /> Copied!</> : <><Copy className="h-3 w-3" /> Copy content</>}
+              </button>
+              <button onClick={onClose} className="h-8 w-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+          <p className="text-[12px] text-gray-600 leading-relaxed mt-3">{skill.description}</p>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto">
+          {/* Formatted content */}
+          <div className="px-6 py-4 space-y-4">
+            {sections.map((section, i) => (
+              <div key={i}>
+                {section.heading && (
+                  <div className="flex items-center gap-2 mb-2">
+                    <Zap className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                    <h3 className="text-[12px] font-bold text-gray-800 uppercase tracking-wide">{section.heading}</h3>
+                  </div>
+                )}
+                <div className="space-y-1">
+                  {section.lines.filter(l => l.trim()).map((line, j) => {
+                    const isBullet = line.trim().startsWith("- ") || line.trim().startsWith("* ");
+                    const isNumbered = /^\d+\.\s/.test(line.trim());
+                    const text = isBullet ? line.trim().replace(/^[-*]\s+/, "") : isNumbered ? line.trim().replace(/^\d+\.\s+/, "") : line.trim();
+                    if (!text) return null;
+                    if (isBullet || isNumbered) {
+                      return (
+                        <div key={j} className="flex items-start gap-2.5 py-0.5">
+                          <div className="w-1.5 h-1.5 rounded-full bg-gray-400 flex-shrink-0 mt-1.5" />
+                          <p className="text-[12px] text-gray-700 leading-relaxed">{text}</p>
+                        </div>
+                      );
+                    }
+                    return (
+                      <p key={j} className="text-[12px] text-gray-600 leading-relaxed">{text}</p>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Raw content block */}
+          <div className="mx-6 mb-4 rounded-xl border border-gray-200 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50 border-b border-gray-200">
+              <div className="flex items-center gap-2">
+                <BookOpen className="h-3.5 w-3.5 text-gray-400" />
+                <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">SKILL.md content</span>
+              </div>
+              <button
+                onClick={handleCopy}
+                className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-700 transition-colors"
+              >
+                {copied ? <><Check className="h-3 w-3" /> Copied</> : <><Copy className="h-3 w-3" /> Copy</>}
+              </button>
+            </div>
+            <pre className="px-4 py-3 text-[11px] text-gray-600 leading-relaxed overflow-x-auto whitespace-pre-wrap font-mono bg-white">
+              {skill.content}
+            </pre>
+          </div>
+
+          {/* Footer meta */}
+          <div className="px-6 pb-5 space-y-3">
+            {/* Tags */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <Tag className="h-3 w-3 text-gray-400 flex-shrink-0" />
+              {skill.tags.map(tag => (
+                <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 border border-gray-200 text-gray-500">{tag}</span>
+              ))}
+            </div>
+            {/* Compatible agents */}
+            <div>
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Compatible with</p>
+              <div className="flex flex-wrap gap-1.5">
+                {skill.compatible_agents.slice(0, 6).map(id => (
+                  <span key={id} className="text-[10px] px-2 py-0.5 rounded bg-gray-50 border border-gray-200 text-gray-600 font-medium">{id}</span>
+                ))}
+                {skill.compatible_agents.length > 6 && (
+                  <span className="text-[10px] text-gray-400">+{skill.compatible_agents.length - 6} more</span>
+                )}
+              </div>
+            </div>
+            {/* Source link */}
+            <a
+              href={SOURCE_URL[skill.source]}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-[10px] text-gray-400 hover:text-gray-700 transition-colors"
+            >
+              <ExternalLink className="h-3 w-3" />
+              Source: {SOURCE_LABEL[skill.source]} on GitHub
+            </a>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+
+// ─── Hook Detail Modal ────────────────────────────────────────────────────────
+
+function HookDetailModal({ hook, onClose }: { hook: HookDef; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+
+  const copyText = `Hook: ${hook.name}\nEvent: ${hook.event}\nTrigger: ${hook.trigger}\nSource: ${SOURCE_LABEL[hook.source]}\n\n${hook.description}\n\nTags: ${hook.tags.join(", ")}`;
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(copyText);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const EVENT_DESCRIPTION: Record<string, string> = {
+    PreToolUse: "Runs before a tool is executed. Can inspect or block the operation.",
+    PostToolUse: "Runs after a tool completes. Can validate output or trigger follow-up actions.",
+    Stop: "Runs at the end of each agent response. Good for batch operations and cleanup.",
+    SessionStart: "Runs when a new session begins. Used for context loading and setup.",
+    SessionEnd: "Runs when a session ends. Used for state persistence and cleanup.",
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[80] flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.97, y: 12 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.97, y: 12 }}
+        transition={{ duration: 0.18 }}
+        onClick={e => e.stopPropagation()}
+        className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-xl overflow-hidden flex flex-col"
+        style={{ maxHeight: "88vh" }}
+      >
+        {/* Header */}
+        <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex-shrink-0">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center flex-shrink-0">
+                <Webhook className="h-5 w-5 text-gray-500" />
+              </div>
+              <div>
+                <h2 className="text-[16px] font-bold text-gray-900 leading-tight">{hook.name}</h2>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-900 text-white">{hook.event}</span>
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200">{SOURCE_LABEL[hook.source]}</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={handleCopy}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all border ${
+                  copied
+                    ? "bg-gray-900 text-white border-gray-900"
+                    : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300"
+                }`}
+              >
+                {copied ? <><Check className="h-3 w-3" /> Copied!</> : <><Copy className="h-3 w-3" /> Copy</>}
+              </button>
+              <button onClick={onClose} className="h-8 w-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+          <p className="text-[12px] text-gray-600 leading-relaxed mt-3">{hook.description}</p>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          {/* Event type explanation */}
+          <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+            <div className="flex items-center gap-2 mb-1.5">
+              <Zap className="h-3.5 w-3.5 text-gray-400" />
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Event: {hook.event}</p>
+            </div>
+            <p className="text-[12px] text-gray-600 leading-relaxed">{EVENT_DESCRIPTION[hook.event] ?? "Triggered by the specified event."}</p>
+          </div>
+
+          {/* Trigger */}
+          <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">When it fires</p>
+            <p className="text-[12px] text-gray-700 font-medium">{hook.trigger}</p>
+          </div>
+
+          {/* How to use */}
+          <div>
+            <div className="flex items-center gap-2 mb-2.5">
+              <BookOpen className="h-3.5 w-3.5 text-gray-400" />
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">How to use</p>
+            </div>
+            <div className="space-y-2">
+              {[
+                "Attach this hook to agents in the Advanced → Skills & Hooks panel before running a pipeline.",
+                "The hook's behaviour will be injected as a guideline into the agent's execution context.",
+                `Best suited for: ${hook.compatible_agents.slice(0, 3).join(", ")}${hook.compatible_agents.length > 3 ? " and more" : ""}.`,
+              ].map((step, i) => (
+                <div key={i} className="flex items-start gap-2.5">
+                  <div className="w-5 h-5 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center flex-shrink-0 text-[9px] font-bold text-gray-500 mt-0.5">{i + 1}</div>
+                  <p className="text-[12px] text-gray-600 leading-relaxed">{step}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Compatible agents */}
+          <div>
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Compatible agents</p>
+            <div className="flex flex-wrap gap-1.5">
+              {hook.compatible_agents.map(id => (
+                <div key={id} className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-gray-50 border border-gray-200 text-gray-600">
+                  <ChevronRight className="h-2.5 w-2.5 text-gray-400" />
+                  {id}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Tags */}
+          <div className="flex items-center gap-2 flex-wrap pt-1">
+            <Tag className="h-3 w-3 text-gray-400 flex-shrink-0" />
+            {hook.tags.map(tag => (
+              <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 border border-gray-200 text-gray-500">{tag}</span>
+            ))}
+          </div>
+
+          {/* Source */}
+          <a
+            href={SOURCE_URL[hook.source]}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-[10px] text-gray-400 hover:text-gray-700 transition-colors"
+          >
+            <ExternalLink className="h-3 w-3" />
+            Source: {SOURCE_LABEL[hook.source]} on GitHub
+          </a>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+
+// ─── LibraryPage ─────────────────────────────────────────────────────────────
+
 export function LibraryPage() {
   const [activeCategory, setActiveCategory] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedAgent, setSelectedAgent] = useState<{ agent: AgentDef; index: number } | null>(null);
+  const [mainTab, setMainTab] = useState<"agents" | "skills" | "hooks">("agents");
+  const [skillCategory, setSkillCategory] = useState("all");
+  const [skillSearch, setSkillSearch] = useState("");
+  const [hookEvent, setHookEvent] = useState("all");
+  const [hookSearch, setHookSearch] = useState("");
+  const [selectedSkill, setSelectedSkill] = useState<SkillDef | null>(null);
+  const [selectedHook, setSelectedHook] = useState<HookDef | null>(null);
 
-  const filteredAgents = ALL_AGENTS_COMBINED.filter((agent) => {
+  const filteredAgents = ALL_AGENTS_COMBINED.filter(agent => {
     const matchesCategory =
       activeCategory === "all" ||
       (activeCategory === "migration" && MIGRATION_TYPES.has(agent.pipeline_type)) ||
       agent.pipeline_type === activeCategory;
-    const matchesSearch =
-      !searchQuery ||
+    const matchesSearch = !searchQuery ||
       agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       agent.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
       agent.role.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
   }).sort((a, b) => a.pipeline_type.localeCompare(b.pipeline_type) || a.order - b.order);
 
+  const filteredSkills = SKILLS.filter(s => {
+    const matchCat = skillCategory === "all" || s.category === skillCategory;
+    const matchSearch = !skillSearch ||
+      s.name.toLowerCase().includes(skillSearch.toLowerCase()) ||
+      s.description.toLowerCase().includes(skillSearch.toLowerCase());
+    return matchCat && matchSearch;
+  });
+
+  const filteredHooks = HOOKS.filter(h => {
+    const matchEvent = hookEvent === "all" || h.event === hookEvent;
+    const matchSearch = !hookSearch ||
+      h.name.toLowerCase().includes(hookSearch.toLowerCase()) ||
+      h.description.toLowerCase().includes(hookSearch.toLowerCase());
+    return matchEvent && matchSearch;
+  });
+
   return (
-    <div className="flex h-full" style={{ background: "#f5f5f0" }}>
-      {/* Left Sidebar */}
-      <div className="w-[200px] flex-shrink-0 bg-white border-r border-gray-200 flex flex-col py-5">
-        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-[0.15em] px-5 mb-3">
-          Categories
-        </p>
-        <nav className="flex flex-col gap-0.5 px-3">
-          {CATEGORIES.map((cat) => {
-            const count = cat.id === "all"
-              ? ALL_AGENTS_COMBINED.length
-              : cat.id === "migration"
-              ? ALL_AGENTS_COMBINED.filter((a) => MIGRATION_TYPES.has(a.pipeline_type)).length
-              : ALL_AGENTS_COMBINED.filter((a) => a.pipeline_type === cat.id).length;
-            const isActive = activeCategory === cat.id;
-            const isSubItem = cat.id === "mulesoft_to_springboot" || cat.id === "dotnet_to_azure";
-            return (
-              <button
-                key={cat.id}
-                onClick={() => setActiveCategory(cat.id)}
-                className={`flex items-center justify-between w-full px-3 py-2 rounded-lg text-[13px] transition-colors text-left ${
-                  isActive
-                    ? "bg-gray-100 text-gray-900 font-medium"
-                    : cat.section
-                    ? "text-gray-700 font-semibold hover:bg-gray-50"
-                    : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
-                } ${isSubItem ? "pl-6 text-[12px]" : ""}`}
-              >
-                <span>{cat.label}</span>
-                <span className={`text-[11px] font-medium ${isActive ? "text-gray-600" : "text-gray-400"}`}>
-                  {count}
-                </span>
-              </button>
-            );
-          })}
-        </nav>
-      </div>
-
-      {/* Main content */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Top bar */}
-        <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200 flex-shrink-0">
-          <div>
-            <h1 className="text-[15px] font-semibold text-gray-900">Agent Library</h1>
-            <p className="text-[11px] text-gray-400 mt-0.5">{filteredAgents.length} agents available</p>
-          </div>
-          <div className="relative w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search agents..."
-              className="w-full pl-9 pr-4 py-2 text-[12px] bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400 transition-colors placeholder-gray-400"
-            />
-          </div>
+    <div className="flex flex-col h-full" style={{ background: "#f5f5f0" }}>
+      {/* ── Top bar — always full width, tabs never shift ── */}
+      <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200 flex-shrink-0">
+        <div className="flex items-center gap-1">
+          <button onClick={() => setMainTab("agents")}
+            className={`px-4 py-2 rounded-lg text-[12px] font-semibold transition-colors ${mainTab === "agents" ? "bg-gray-900 text-white" : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"}`}>
+            Agents <span className="ml-1 text-[10px] opacity-70">{ALL_AGENTS_COMBINED.length}</span>
+          </button>
+          <button onClick={() => setMainTab("skills")}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-semibold transition-colors ${mainTab === "skills" ? "bg-gray-900 text-white" : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"}`}>
+            <Puzzle className="h-3.5 w-3.5" /> Skills <span className="text-[10px] opacity-70">{SKILLS.length}</span>
+          </button>
+          <button onClick={() => setMainTab("hooks")}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-semibold transition-colors ${mainTab === "hooks" ? "bg-gray-900 text-white" : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"}`}>
+            <Webhook className="h-3.5 w-3.5" /> Hooks <span className="text-[10px] opacity-70">{HOOKS.length}</span>
+          </button>
         </div>
-
-        {/* Agent grid */}
-        <div className="flex-1 overflow-y-auto p-5">
-          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-            {filteredAgents.map((agent, idx) => (
-              <motion.div
-                key={`${agent.pipeline_type}-${agent.id}`}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: Math.min(idx * 0.015, 0.4) }}
-                className="flex flex-col bg-white rounded-xl border border-gray-200 p-4 hover:border-gray-300 hover:shadow-sm transition-all cursor-default"
-              >
-                {/* Icon + name */}
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-9 h-9 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center flex-shrink-0">
-                    <span className="text-[11px] font-bold text-gray-500 select-none">
-                      {getInitials(agent.name)}
-                    </span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[12px] font-semibold text-gray-900 leading-tight">{agent.name}</p>
-                    <p className="text-[10px] text-gray-400 mt-0.5 uppercase tracking-wide font-medium">
-                      {PIPELINE_LABEL[agent.pipeline_type] ?? agent.pipeline_type}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Role */}
-                <p className="text-[10px] font-semibold text-gray-500 mb-1.5">{agent.role}</p>
-
-                {/* Description */}
-                <p className="text-[11px] text-gray-500 leading-relaxed flex-1 mb-3 line-clamp-3">
-                  {agent.description}
-                </p>
-
-                {/* Footer */}
-                <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-                  <span className="text-[9px] font-semibold text-gray-400 uppercase tracking-wide">
-                    {PIPELINE_LABEL[agent.pipeline_type] ?? agent.pipeline_type}
-                  </span>
-                  <span className="flex items-center gap-1 text-[9px] text-gray-400">
-                    <Clock className="h-2.5 w-2.5" />
-                    ~{agent.estimated_duration}s
-                  </span>
-                </div>
-              </motion.div>
-            ))}
-          </div>
+        <div className="relative w-56">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+          <input type="text"
+            value={mainTab === "agents" ? searchQuery : mainTab === "skills" ? skillSearch : hookSearch}
+            onChange={e => {
+              if (mainTab === "agents") setSearchQuery(e.target.value);
+              else if (mainTab === "skills") setSkillSearch(e.target.value);
+              else setHookSearch(e.target.value);
+            }}
+            placeholder={`Search ${mainTab}...`}
+            className="w-full pl-9 pr-4 py-2 text-[12px] bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400 transition-colors placeholder-gray-400"
+          />
         </div>
       </div>
+
+      {/* ── Body — sidebar + content side by side ── */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left sidebar — always rendered, content changes per tab */}
+        <div className="w-[200px] flex-shrink-0 bg-white border-r border-gray-200 flex flex-col py-5">
+          {mainTab === "agents" && (
+            <>
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-[0.15em] px-5 mb-3">Categories</p>
+              <nav className="flex flex-col gap-0.5 px-3">
+                {CATEGORIES.map(cat => {
+                  const count = cat.id === "all" ? ALL_AGENTS_COMBINED.length
+                    : cat.id === "migration" ? ALL_AGENTS_COMBINED.filter(a => MIGRATION_TYPES.has(a.pipeline_type)).length
+                    : ALL_AGENTS_COMBINED.filter(a => a.pipeline_type === cat.id).length;
+                  const isActive = activeCategory === cat.id;
+                  const isSubItem = cat.id === "mulesoft_to_springboot" || cat.id === "dotnet_to_azure";
+                  return (
+                    <button key={cat.id} onClick={() => setActiveCategory(cat.id)}
+                      className={`flex items-center justify-between w-full px-3 py-2 rounded-lg text-[13px] transition-colors text-left ${
+                        isActive ? "bg-gray-100 text-gray-900 font-medium"
+                        : cat.section ? "text-gray-700 font-semibold hover:bg-gray-50"
+                        : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
+                      } ${isSubItem ? "pl-6 text-[12px]" : ""}`}
+                    >
+                      <span>{cat.label}</span>
+                      <span className={`text-[11px] font-medium ${isActive ? "text-gray-600" : "text-gray-400"}`}>{count}</span>
+                    </button>
+                  );
+                })}
+              </nav>
+            </>
+          )}
+
+          {mainTab === "skills" && (
+            <>
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-[0.15em] px-5 mb-3">Category</p>
+              <nav className="flex flex-col gap-0.5 px-3">
+                {SKILL_CATEGORIES.map(cat => {
+                  const count = cat.id === "all" ? SKILLS.length : SKILLS.filter(s => s.category === cat.id).length;
+                  return (
+                    <button key={cat.id} onClick={() => setSkillCategory(cat.id)}
+                      className={`flex items-center justify-between w-full px-3 py-2 rounded-lg text-[12px] transition-colors text-left ${
+                        skillCategory === cat.id ? "bg-gray-100 text-gray-900 font-medium" : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
+                      }`}>
+                      <span>{cat.label}</span>
+                      <span className="text-[10px] text-gray-400">{count}</span>
+                    </button>
+                  );
+                })}
+              </nav>
+            </>
+          )}
+
+          {mainTab === "hooks" && (
+            <>
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-[0.15em] px-5 mb-3">Event</p>
+              <nav className="flex flex-col gap-0.5 px-3">
+                {HOOK_EVENTS.map(ev => {
+                  const count = ev.id === "all" ? HOOKS.length : HOOKS.filter(h => h.event === ev.id).length;
+                  return (
+                    <button key={ev.id} onClick={() => setHookEvent(ev.id)}
+                      className={`flex items-center justify-between w-full px-3 py-2 rounded-lg text-[12px] transition-colors text-left ${
+                        hookEvent === ev.id ? "bg-gray-100 text-gray-900 font-medium" : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
+                      }`}>
+                      <span>{ev.label}</span>
+                      <span className="text-[10px] text-gray-400">{count}</span>
+                    </button>
+                  );
+                })}
+              </nav>
+            </>
+          )}
+        </div>
+
+        {/* Main content */}
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+
+        {/* ── AGENTS ── */}
+        {mainTab === "agents" && (
+          <>
+            <div className="px-6 py-2 bg-white border-b border-gray-100 flex-shrink-0">
+              <p className="text-[11px] text-gray-400">{filteredAgents.length} agents · tap any agent to see its capabilities</p>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5">
+              <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                {filteredAgents.map((agent, idx) => (
+                  <motion.div key={`${agent.pipeline_type}-${agent.id}`}
+                    initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                    transition={{ delay: Math.min(idx * 0.015, 0.4) }}
+                    onClick={() => setSelectedAgent({ agent, index: idx })}
+                    className="flex flex-col bg-white rounded-xl border border-gray-200 p-4 hover:border-gray-300 hover:shadow-md transition-all cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 text-[11px] font-bold group-hover:scale-105 transition-transform"
+                        style={{ background: ICON_STYLES[idx % ICON_STYLES.length].bg, color: ICON_STYLES[idx % ICON_STYLES.length].text }}>
+                        {getInitials(agent.name)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[12px] font-semibold text-gray-900 leading-tight group-hover:text-[#1B2A4A] transition-colors">{agent.name}</p>
+                        <p className="text-[10px] text-gray-400 mt-0.5 uppercase tracking-wide font-medium">{PIPELINE_LABEL[agent.pipeline_type] ?? agent.pipeline_type}</p>
+                      </div>
+                    </div>
+                    <p className="text-[10px] font-semibold text-gray-500 mb-1.5">{agent.role}</p>
+                    <p className="text-[11px] text-gray-500 leading-relaxed flex-1 mb-3 line-clamp-3">{agent.description}</p>
+                    <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                      <span className="flex items-center gap-1 text-[9px] text-gray-400"><Clock className="h-2.5 w-2.5" />~{agent.estimated_duration}s</span>
+                      <span className="text-[9px] text-gray-400 group-hover:text-[#1B2A4A] transition-colors font-medium">Tap to explore →</span>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── SKILLS ── */}
+        {mainTab === "skills" && (
+          <div className="flex-1 overflow-y-auto p-5">
+            <p className="text-[11px] text-gray-400 mb-4">{filteredSkills.length} skills · tap any skill to see its full content</p>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                {filteredSkills.map((skill, idx) => (
+                  <motion.div key={skill.id}
+                    initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                    transition={{ delay: Math.min(idx * 0.02, 0.3) }}
+                    onClick={() => setSelectedSkill(skill)}
+                    className="flex flex-col bg-white rounded-xl border border-gray-200 p-4 hover:border-gray-300 hover:shadow-md transition-all cursor-pointer group"
+                  >
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <p className="text-[13px] font-semibold text-gray-900 group-hover:text-[#1B2A4A] transition-colors">{skill.name}</p>
+                          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 flex-shrink-0">{SOURCE_LABEL[skill.source]}</span>
+                        </div>
+                        <p className="text-[10px] text-gray-400 uppercase tracking-wide font-medium capitalize">{skill.category}</p>
+                      </div>
+                      <Puzzle className="h-4 w-4 text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0 mt-0.5" />
+                    </div>
+                    <p className="text-[11px] text-gray-600 leading-relaxed mb-3 flex-1 line-clamp-2">{skill.description}</p>
+                    <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                      <div className="flex flex-wrap gap-1">
+                        {skill.tags.slice(0, 3).map(tag => (
+                          <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded bg-gray-50 border border-gray-200 text-gray-500">{tag}</span>
+                        ))}
+                      </div>
+                      <span className="text-[9px] text-gray-400 group-hover:text-[#1B2A4A] transition-colors font-medium flex-shrink-0 ml-2">View →</span>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+        )}
+
+        {/* ── HOOKS ── */}
+        {mainTab === "hooks" && (
+          <div className="flex-1 overflow-y-auto p-5">
+            <p className="text-[11px] text-gray-400 mb-4">{filteredHooks.length} hooks · tap any hook to see details</p>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                {filteredHooks.map((hook, idx) => (
+                  <motion.div key={hook.id}
+                    initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                    transition={{ delay: Math.min(idx * 0.02, 0.3) }}
+                    onClick={() => setSelectedHook(hook)}
+                    className="flex flex-col bg-white rounded-xl border border-gray-200 p-4 hover:border-gray-300 hover:shadow-md transition-all cursor-pointer group"
+                  >
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <p className="text-[13px] font-semibold text-gray-900 group-hover:text-[#1B2A4A] transition-colors">{hook.name}</p>
+                          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-gray-900 text-white flex-shrink-0">{hook.event}</span>
+                          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 flex-shrink-0">{SOURCE_LABEL[hook.source]}</span>
+                        </div>
+                        <p className="text-[10px] text-gray-400 italic">{hook.trigger}</p>
+                      </div>
+                      <Webhook className="h-4 w-4 text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0 mt-0.5" />
+                    </div>
+                    <p className="text-[11px] text-gray-600 leading-relaxed mb-3 flex-1 line-clamp-2">{hook.description}</p>
+                    <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                      <div className="flex flex-wrap gap-1">
+                        {hook.tags.slice(0, 3).map(tag => (
+                          <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded bg-gray-50 border border-gray-200 text-gray-500">{tag}</span>
+                        ))}
+                      </div>
+                      <span className="text-[9px] text-gray-400 group-hover:text-[#1B2A4A] transition-colors font-medium flex-shrink-0 ml-2">View →</span>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+        )}
+      </div>
+      </div>
+
+      {/* Modals */}
+      <AnimatePresence>
+        {selectedAgent && (
+          <AgentCapabilitiesModal
+            agent={selectedAgent.agent}
+            agentIndex={selectedAgent.index}
+            onClose={() => setSelectedAgent(null)}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {selectedSkill && <SkillDetailModal skill={selectedSkill} onClose={() => setSelectedSkill(null)} />}
+      </AnimatePresence>
+      <AnimatePresence>
+        {selectedHook && <HookDetailModal hook={selectedHook} onClose={() => setSelectedHook(null)} />}
+      </AnimatePresence>
     </div>
   );
 }

@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { AgentRunState, PipelineRunState } from "@/types/index";
+import type { AgentRunState, PipelineRunState, AttachedSkill, AttachedHook } from "@/types/index";
 
 export interface UseWorkflowReturn {
   pipelineState: PipelineRunState;
-  startPipeline: (type: string, message: string, agentIds?: string[]) => void;
+  startPipeline: (type: string, message: string, agentIds?: string[], attachedSkills?: AttachedSkill[], attachedHooks?: AttachedHook[]) => void;
   resetPipeline: () => void;
   isRunning: boolean;
   handleMessage: (msg: { type: string; [key: string]: unknown }) => boolean;
@@ -31,7 +31,7 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
   const agentStartTimesRef = useRef<Record<string, number>>({});
 
   const startPipeline = useCallback(
-    (type: string, message: string, agentIds?: string[]) => {
+    (type: string, message: string, agentIds?: string[], attachedSkills?: AttachedSkill[], attachedHooks?: AttachedHook[]) => {
       startTimeRef.current = Date.now();
       agentStartTimesRef.current = {};
 
@@ -50,9 +50,30 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
         message,
       };
 
-      // Include custom agent IDs if provided
       if (agentIds && agentIds.length > 0) {
         payload.agent_ids = agentIds;
+      }
+
+      // Pass attached skills content — backend injects into agent system prompts
+      if (attachedSkills && attachedSkills.length > 0) {
+        payload.attached_skills = attachedSkills.map(s => ({
+          id: s.id,
+          name: s.name,
+          content: s.content,
+          source: s.sourceLabel,
+          compatible_agents: [], // all agents get it unless filtered
+        }));
+      }
+
+      // Pass attached hooks as behavioral guidelines
+      if (attachedHooks && attachedHooks.length > 0) {
+        payload.attached_hooks = attachedHooks.map(h => ({
+          id: h.id,
+          name: h.name,
+          event: h.event,
+          trigger: h.trigger,
+          description: h.name + ": " + h.trigger,
+        }));
       }
 
       websocketSend(JSON.stringify(payload));

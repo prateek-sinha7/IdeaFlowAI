@@ -100,7 +100,7 @@ export function Sidebar({
               <Sparkles className="h-3.5 w-3.5 text-white" />
             </div>
             <h1 className="text-sm font-semibold tracking-tight" style={{ color: "var(--theme-fg)" }}>
-              Flowin
+              VelocityAI
             </h1>
           </div>
           {onCollapse && (
