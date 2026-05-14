@@ -230,6 +230,24 @@ export interface PipelineConfig {
   total_estimated_duration: number;
 }
 
+export interface AttachedSkill {
+  id: string;
+  name: string;
+  source: "ecc" | "superpowers" | "gsd";
+  sourceLabel: string;
+  category: string;
+  content: string;
+}
+
+export interface AttachedHook {
+  id: string;
+  name: string;
+  source: "ecc" | "superpowers" | "gsd";
+  sourceLabel: string;
+  event: string;
+  trigger: string;
+}
+
 export type AgentStatusType = "idle" | "thinking" | "running" | "done" | "error";
 
 export interface AgentRunState {

@@ -9,7 +9,8 @@ import {
 import { AgentsPopup } from "./AgentsPopup";
 import { LIBRARY_AGENTS } from "./AgentLibraryData";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
-import type { WorkflowType, AgentDef } from "@/types/index";
+import { useSkillsHooks } from "@/context/SkillsHooksContext";
+import type { WorkflowType, AgentDef, AttachedSkill, AttachedHook } from "@/types/index";
 
 // Migration is a meta-pipeline: the home page sends `workflowType="migration"`
 // and this page lets the user pick the concrete sub-pipeline before running.
@@ -161,6 +162,8 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
   const [pipelineAgents, setPipelineAgents] = useState<AgentDef[]>(() =>
     LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).sort((a, b) => a.order - b.order)
   );
+
+  const { attachedSkills, attachedHooks } = useSkillsHooks();
 
   useEffect(() => {
     setPipelineAgents(LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).sort((a, b) => a.order - b.order));
@@ -409,6 +412,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
             <span className="text-gray-400">
               {pipelineAgents.length} agent{pipelineAgents.length !== 1 ? "s" : ""}
               {totalEstimatedTime > 0 && ` · ~${totalEstimatedTime < 60 ? `${totalEstimatedTime}s` : `${Math.round(totalEstimatedTime / 60)}m`}`}
+              {(attachedSkills.length + attachedHooks.length) > 0 && ` · ${attachedSkills.length + attachedHooks.length} skill${attachedSkills.length + attachedHooks.length !== 1 ? "s/hooks" : "/hook"}`}
             </span>
           </button>
         </motion.div>

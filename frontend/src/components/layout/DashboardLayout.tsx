@@ -17,6 +17,7 @@ import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WorkflowR
 import { canChainFrom } from "@/lib/workflowChaining";
 import type { ConnectionStatus } from "@/hooks/useWebSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
+import { useSkillsHooks } from "@/context/SkillsHooksContext";
 
 export interface DashboardLayoutProps {
   activeChatId: string | null;
@@ -39,7 +40,7 @@ export interface DashboardLayoutProps {
   processSteps?: ProcessStep[];
   websocketSend?: (msg: string) => void;
   pipelineState?: PipelineRunState;
-  onStartPipeline?: (type: string, message: string, agentIds?: string[]) => void;
+  onStartPipeline?: (type: string, message: string, agentIds?: string[], attachedSkills?: import("@/types/index").AttachedSkill[], attachedHooks?: import("@/types/index").AttachedHook[]) => void;
   onResetPipeline?: () => void;
   recentRuns?: WorkflowRun[];
   onSelectWorkflowRun?: (run: WorkflowRun) => void;
@@ -83,6 +84,9 @@ export function DashboardLayout({
   const [questionnaireQuestions, setQuestionnaireQuestions] = useState<{ id: string; question: string; options: string[] }[]>([]);
   const [questionnaireLoading, setQuestionnaireLoading] = useState(false);
   const [pendingPipelineRun, setPendingPipelineRun] = useState<{ type: WorkflowType; message: string; agentIds?: string[] } | null>(null);
+
+  // Read attached skills/hooks from global context — set by user in AgentsPopup
+  const { attachedSkills, attachedHooks } = useSkillsHooks();
 
   // Detect when pipeline starts running → switch to execution view
   useEffect(() => {
@@ -314,20 +318,20 @@ export function DashboardLayout({
     setQuestionnaireLoading(false);
     setPendingPipelineRun(null);
     if (onStartPipeline) {
-      onStartPipeline(pendingPipelineRun.type, enrichedMessage, pendingPipelineRun.agentIds);
+      onStartPipeline(pendingPipelineRun.type, enrichedMessage, pendingPipelineRun.agentIds, attachedSkills, attachedHooks);
     }
-  }, [pendingPipelineRun, questionnaireQuestions, onStartPipeline]);
+  }, [pendingPipelineRun, questionnaireQuestions, onStartPipeline, attachedSkills, attachedHooks]);
 
-  // Skip questionnaire — run pipeline directly
+  // Skip questionnaire — run pipeline directly with skills/hooks
   const handleQuestionnaireSkip = useCallback(() => {
     if (!pendingPipelineRun) return;
     setQuestionnaireQuestions([]);
     setQuestionnaireLoading(false);
     setPendingPipelineRun(null);
     if (onStartPipeline) {
-      onStartPipeline(pendingPipelineRun.type, pendingPipelineRun.message, pendingPipelineRun.agentIds);
+      onStartPipeline(pendingPipelineRun.type, pendingPipelineRun.message, pendingPipelineRun.agentIds, attachedSkills, attachedHooks);
     }
-  }, [pendingPipelineRun, onStartPipeline]);
+  }, [pendingPipelineRun, onStartPipeline, attachedSkills, attachedHooks]);
 
   // Header navigation
   const handleNavigate = useCallback((page: "home" | "library" | "history" | "settings") => {

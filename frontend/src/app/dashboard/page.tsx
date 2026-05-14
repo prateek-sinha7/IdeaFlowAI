@@ -601,7 +601,7 @@ export default function DashboardPage() {
       processSteps={processSteps}
       websocketSend={send}
       pipelineState={pipelineState}
-      onStartPipeline={(type, message, agentIds) => {
+      onStartPipeline={(type, message, agentIds, attachedSkills, attachedHooks) => {
         const isRevision = type.endsWith("_revision");
         if (!isRevision) {
           // Fresh run — clear previous preview content
@@ -613,7 +613,7 @@ export default function DashboardPage() {
           userStoryContentRef.current = "";
         }
         // For revisions, keep existing content visible until new output arrives
-        startPipeline(type, message, agentIds);
+        startPipeline(type, message, agentIds, attachedSkills, attachedHooks);
       }}
       onResetPipeline={resetPipeline}
       recentRuns={recentRuns}

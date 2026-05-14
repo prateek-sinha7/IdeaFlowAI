@@ -371,6 +371,8 @@ async def websocket_chat(websocket: WebSocket):
                 pipeline_type = message_data.get("pipeline_type", "user_stories")
                 pipeline_content = message_data.get("message") or message_data.get("content") or ""
                 agent_ids = message_data.get("agent_ids")  # Optional custom agent list
+                attached_skills = message_data.get("attached_skills") or []  # UI-selected skills
+                attached_hooks = message_data.get("attached_hooks") or []    # UI-selected hooks
                 # Spawn as a background task — DO NOT await. Awaiting here
                 # blocks the receive loop for the entire pipeline duration,
                 # which is what made cancel_pipeline a no-op before A3.
@@ -378,6 +380,8 @@ async def websocket_chat(websocket: WebSocket):
                     _handle_pipeline_execution(
                         websocket, pipeline_content, pipeline_type,
                         chat_session_id, token, user, agent_ids=agent_ids,
+                        attached_skills=attached_skills,
+                        attached_hooks=attached_hooks,
                     )
                 )
                 continue
@@ -613,6 +617,8 @@ async def _handle_pipeline_execution(
     token: str,
     user: User,
     agent_ids: list[str] | None = None,
+    attached_skills: list[dict] | None = None,
+    attached_hooks: list[dict] | None = None,
 ):
     """Handle a pipeline execution request via WebSocket.
 
@@ -800,6 +806,8 @@ async def _handle_pipeline_execution(
         pipeline_type,
         custom_agents=agents if agent_ids else None,
         user_id=user.id,
+        attached_skills=attached_skills or [],
+        attached_hooks=attached_hooks or [],
     )
 
     monotonic_start = time.monotonic()
