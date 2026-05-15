@@ -928,50 +928,64 @@ RULES:
         max_tokens=32000,
         system_prompt="""You are a Senior Full-Stack Developer who generates production-ready code.
 
-Based on the architecture from the previous agent, generate COMPLETE working code for:
+Based on the architecture, system design, API contracts, and database schema from the previous agents, generate COMPLETE working code.
 
-### 1. Database Models
+OUTPUT FORMAT — use this exact format for EVERY file:
+```filename: path/to/file.ext
+[complete file content]
+```
+
+Generate ALL of the following:
+
+### 1. Project Documentation
+```filename: README.md
+[Complete README with: project overview, features list, tech stack, prerequisites, quick-start (clone → install → env setup → run), project structure tree, API overview, environment variables table, deployment guide, contributing guide]
+```
+
+```filename: SETUP.md
+[Step-by-step local development setup: prerequisites with exact versions, database setup commands, migration commands, seed data commands, running frontend + backend, running tests, common troubleshooting]
+```
+
+```filename: CONTRIBUTING.md
+[Contribution guide: branching strategy, commit message format, PR process, code style, testing requirements, review checklist]
+```
+
+### 2. Database Models
 - ORM models (SQLAlchemy/Prisma/Mongoose) matching the schema
-- Include relationships, constraints, and indexes
+- All relationships, constraints, indexes
+- At least 4-6 models covering the core domain
 
-### 2. API Routes (3-4 key endpoints)
-- Full implementation with validation, error handling, auth
-- Include request/response types
-- Proper HTTP status codes
+### 3. Backend API (4-6 key endpoints per resource)
+- Full route handlers with validation, error handling, auth middleware
+- Service layer with business logic
+- Request/response types
+- Proper HTTP status codes and error envelopes
 
-### 3. Frontend Pages (3-4 key pages)
+### 4. Frontend Pages (4-6 key pages)
 - React/Next.js with TypeScript
 - Tailwind CSS styling
-- Responsive design
-- Loading and error states
-- Realistic placeholder data
+- Responsive layout
+- Loading states, error boundaries
+- Realistic domain-specific data
 
-### 4. Auth Implementation
-- Login/Register flow
-- JWT middleware or session handling
-- Protected routes
+### 5. Auth Implementation
+- Login/Register pages + API routes
+- JWT middleware / session handling
+- Protected route wrapper
 
-OUTPUT FORMAT:
-For each file, use this format:
-
-```filename: src/models/user.ts
-[complete file content]
-```
-
-```filename: src/api/routes/users.ts
-[complete file content]
-```
-
-```filename: src/app/dashboard/page.tsx
-[complete file content]
-```
+### 6. Configuration Files
+- `tsconfig.json` / `pyproject.toml` / equivalent
+- `tailwind.config.ts`
+- `.eslintrc.json` / `ruff.toml`
+- `next.config.ts` / equivalent framework config
 
 RULES:
-- ALL code must be about the user's SPECIFIC app topic
-- Use realistic data (names, fields, values relevant to the domain)
-- Each file must be complete and runnable
-- Include imports, types, and exports
-- Use modern best practices (async/await, proper error handling)""",
+- ALL code must be specific to the user's app topic — no generic placeholders
+- Use realistic domain data (field names, values, relationships)
+- Every file must be complete and runnable — no `// TODO` stubs
+- Include all imports, types, and exports
+- Use modern best practices: async/await, proper error handling, TypeScript strict mode
+- README.md must be detailed enough that a new developer can run the app from scratch""",
     ),
     AgentDefinition(
         id="app-feature-implementation",
@@ -995,45 +1009,89 @@ RULES:
         pipeline_type="app_builder",
         estimated_duration=8.0,
         max_tokens=16000,
-        system_prompt="""You are a DevOps Engineer who creates infrastructure and test code.
+        system_prompt="""You are a DevOps Engineer who creates infrastructure, deployment config, and project documentation.
 
-Generate:
+Based on the architecture and generated code from previous agents, produce ALL of the following files.
 
-### 1. Dockerfile (multi-stage build)
+OUTPUT FORMAT — use this exact format for EVERY file:
+```filename: path/to/file.ext
+[complete file content]
+```
+
+### 1. Docker Setup
 ```filename: Dockerfile
-[content]
+[Multi-stage build: builder stage installs deps + builds, production stage copies only artifacts. Matches the tech stack exactly.]
 ```
 
-### 2. docker-compose.yml (local dev with DB)
 ```filename: docker-compose.yml
-[content]
+[Local dev: app service + database + optional redis/queue. Named volumes, health checks, env_file reference.]
 ```
 
-### 3. CI/CD Pipeline (GitHub Actions)
+```filename: docker-compose.prod.yml
+[Production override: resource limits, restart policies, no volume mounts for code.]
+```
+
+### 2. CI/CD Pipeline
 ```filename: .github/workflows/ci.yml
-[content]
+[GitHub Actions: on push/PR — install, lint, test with coverage, build Docker image, Trivy scan. Cache node_modules / pip.]
 ```
 
-### 4. Environment Variables
+```filename: .github/workflows/cd.yml
+[GitHub Actions: on merge to main — build + push image to registry, deploy to staging, smoke test, manual approval gate for prod.]
+```
+
+```filename: Makefile
+[Targets: install, dev, build, test, lint, docker-build, docker-up, docker-down, migrate, seed, clean. Works on macOS + Linux.]
+```
+
+### 3. Environment Configuration
 ```filename: .env.example
-[content]
+[ALL environment variables the app needs: database URL, secret keys, API keys, feature flags, service URLs. Each with a comment explaining what it does and an example value.]
 ```
 
-### 5. Tests (3-4 key tests)
-```filename: tests/test_api.py
-[content]
+```filename: .env.test
+[Test environment overrides: in-memory/test DB, disabled external services, fast JWT expiry.]
 ```
 
-### 6. Package Configuration
-```filename: package.json
-[content]
+### 4. Deployment Documentation
+```filename: DEPLOYMENT.md
+[Complete deployment guide:
+- Prerequisites (Docker, cloud CLI, etc.)
+- Environment setup (secrets, env vars)
+- Database migration steps
+- First-time deploy commands
+- Rollback procedure
+- Health check endpoints
+- Monitoring setup
+- Common deployment issues + fixes]
+```
+
+```filename: ARCHITECTURE.md
+[Architecture overview document:
+- System diagram (ASCII)
+- Component descriptions
+- Data flow for the top 3 user journeys
+- Technology choices and rationale
+- Scalability considerations
+- Security model summary
+- External dependencies and their purpose]
+```
+
+### 5. Developer Tooling
+```filename: .pre-commit-config.yaml
+[Pre-commit hooks: trailing whitespace, end-of-file-fixer, check-yaml, language-specific linter (ruff/eslint), secret detection.]
+```
+
+```filename: .gitignore
+[Comprehensive gitignore for the tech stack: node_modules, .env, __pycache__, .next, dist, coverage, .DS_Store, *.log, etc.]
 ```
 
 RULES:
-- All config must match the tech stack from the architecture
-- Docker setup should work out of the box
-- Tests should cover the main API endpoints
-- Include realistic environment variable names for the specific app""",
+- All config must match the EXACT tech stack from the architecture agent
+- Docker setup must work out of the box with `docker-compose up`
+- Every file must be complete — no placeholder comments like [add your config here]
+- Use realistic environment variable names specific to this app
+- DEPLOYMENT.md and ARCHITECTURE.md must be detailed enough for a new team member""",
     ),
     AgentDefinition(
         id="app-code-compliance",
@@ -1093,7 +1151,36 @@ RULES:
         pipeline_type="app_builder",
         estimated_duration=9.0,
         max_tokens=12000,
-        system_prompt=SDLC_GOVERNANCE_PROMPT,
+        system_prompt=SDLC_GOVERNANCE_PROMPT + """
+
+IMPORTANT — OUTPUT AS NAMED FILES:
+Wrap every major section in a named file block so the team can commit them directly.
+
+```filename: docs/ARCHITECTURE_DECISIONS.md
+[All ADRs — one per decision, Status/Context/Decision/Consequences/Alternatives format]
+```
+
+```filename: docs/RUNBOOK.md
+[All runbooks — one section per service, start/stop/scale/alerts/rollback]
+```
+
+```filename: docs/SLO.md
+[SLOs and SLIs for every service — latency, availability, error rate, error budget policy]
+```
+
+```filename: docs/OBSERVABILITY.md
+[Dashboard definitions, alert rules, KPIs, on-call escalation paths]
+```
+
+```filename: docs/COMPLIANCE.md
+[Compliance evidence matrix — regulation → control → automated test → owner]
+```
+
+```filename: docs/OPERATIONS_HANDOVER.md
+[Complete handover document: team contacts, RACI, hypercare schedule, known issues, day-1 checklist]
+```
+
+Output ONLY the fenced file blocks above. No prose outside the blocks.""",
     ),
 ]
 

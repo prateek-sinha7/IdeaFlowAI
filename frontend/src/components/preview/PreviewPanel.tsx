@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Eye, FolderDown, PanelRightClose, Copy, Check } from "lucide-react";
 import { UserStoryPreview } from "./UserStoryPreview";
@@ -8,7 +8,139 @@ import { PPTPreview } from "./PPTPreview";
 import { PrototypePreview } from "./PrototypePreview";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { FilesTab } from "@/components/results/FilesTab";
+import { AppBuilderPreview, type ParsedFile } from "./AppBuilderPreview";
 import type { WorkflowType } from "@/types/index";
+
+// ─── Agents whose output contains ```filename: ``` code blocks ────────────────
+const CODE_PRODUCING_AGENT_IDS = new Set([
+  "app-code-generator",
+  "app-feature-implementation",
+  "app-infra-generator",
+  "app-test-implementation",
+]);
+
+// ─── Parse ```filename: path/to/file ``` blocks from any markdown string ──────
+// Also handles the alternative ### path/to/file + fenced block format used
+// by feature-implementation and test-implementation agents.
+function parseAppBuilderFilesForIDE(markdown: string): ParsedFile[] {
+  const files: ParsedFile[] = [];
+  const seen = new Set<string>();
+
+  const langMap: Record<string, string> = {
+    ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
+    py: "python", json: "json", md: "markdown", yml: "yaml", yaml: "yaml",
+    css: "css", html: "html", sh: "bash", sql: "sql", dockerfile: "dockerfile",
+    env: "bash", toml: "toml", prisma: "typescript", rs: "rust", go: "go",
+    gitignore: "bash", lock: "plaintext", txt: "plaintext",
+    java: "java", cs: "csharp", rb: "ruby", php: "php", kt: "kotlin",
+    swift: "swift", xml: "xml", graphql: "graphql",
+  };
+
+  const addFile = (path: string, content: string) => {
+    path = path.trim();
+    if (!path || !content.trim() || seen.has(path)) return;
+    // Skip paths that look like section headers, not file paths
+    // (must contain a dot or be a known extensionless file like Dockerfile/Makefile)
+    const name = path.split("/").pop() || path;
+    const hasDot = name.includes(".");
+    const isKnownExtensionless = /^(Dockerfile|Makefile|Procfile|Gemfile|Rakefile|Guardfile)$/i.test(name);
+    if (!hasDot && !isKnownExtensionless) return;
+
+    seen.add(path);
+    const parts = path.split("/");
+    const fileName = parts[parts.length - 1];
+    const ext = fileName.includes(".") ? fileName.split(".").pop()!.toLowerCase() : "";
+    files.push({
+      path,
+      name: fileName,
+      ext,
+      content,
+      language: langMap[ext] || "plaintext",
+    });
+  };
+
+  // Format 1: ```filename: path/to/file.ext\n[content]\n```
+  const filenameRegex = /```(?:filename:\s*([^\n]+)\n)([\s\S]*?)```/g;
+  let m: RegExpExecArray | null;
+  while ((m = filenameRegex.exec(markdown)) !== null) {
+    addFile(m[1], m[2]);
+  }
+
+  // Format 2: ### path/to/file.ext\n```[lang]\n[content]\n```
+  // Used by feature-implementation, test-implementation, api-design, devops agents
+  const headerRegex = /###\s+([\w./\-@][^\n]*\.\w+)\s*\n```[^\n]*\n([\s\S]*?)```/g;
+  while ((m = headerRegex.exec(markdown)) !== null) {
+    addFile(m[1], m[2]);
+  }
+
+  // Format 3: **`path/to/file.ext`** or **path/to/file.ext** followed by ```
+  // Some agents bold the filename before the code block
+  const boldRegex = /\*\*`?([\w./\-@][^\n`*]*\.\w+)`?\*\*\s*\n```[^\n]*\n([\s\S]*?)```/g;
+  while ((m = boldRegex.exec(markdown)) !== null) {
+    addFile(m[1], m[2]);
+  }
+
+  return files;
+}
+
+// ─── App Builder IDE wrapper ───────────────────────────────────────────────────
+// Merges files from ALL code-producing agents + the final output (last agent).
+// The Preview tab receives userStoryContent = last agent's output only, so
+// without scanning agentOutputs the IDE would only show docs/ files.
+function AppBuilderIDEPreview({
+  content,
+  agentOutputs,
+  onRevise,
+}: {
+  content: string;
+  agentOutputs?: import("@/components/results/FilesTab").AgentOutputItem[];
+  onRevise?: (s: string) => void;
+}) {
+  const files = useMemo(() => {
+    const seen = new Set<string>();
+    const merged: ParsedFile[] = [];
+
+    const addFiles = (parsed: ParsedFile[]) => {
+      for (const f of parsed) {
+        if (!seen.has(f.path)) {
+          seen.add(f.path);
+          merged.push(f);
+        }
+      }
+    };
+
+    // 1. Scan all code-producing agents first (agents 8, 9, 10, 12)
+    if (agentOutputs) {
+      for (const agent of agentOutputs) {
+        if (
+          agent.agentId &&
+          CODE_PRODUCING_AGENT_IDS.has(agent.agentId) &&
+          agent.output?.trim()
+        ) {
+          addFiles(parseAppBuilderFilesForIDE(agent.output));
+        }
+      }
+    }
+
+    // 2. Also scan the final output (last agent — governance) for any
+    //    filename: blocks it may contain (e.g. docs/RUNBOOK.md)
+    if (content) {
+      addFiles(parseAppBuilderFilesForIDE(content));
+    }
+
+    return merged;
+  }, [content, agentOutputs]);
+
+  const projectName = useMemo(() => {
+    // Try to extract project name from architecture agent output first
+    const archAgent = agentOutputs?.find(a => a.agentId === "material-analyzer");
+    const source = archAgent?.output || content;
+    const h = source.match(/^#\s+(.+)/m);
+    return h ? h[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().slice(0, 40) : "Generated App";
+  }, [content, agentOutputs]);
+
+  return <AppBuilderPreview files={files} onRevise={onRevise} projectName={projectName} />;
+}
 
 type PanelTab = "preview" | "files";
 
@@ -138,7 +270,11 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, i
               ) : (
                 <>
                   {renderType === "user_stories" && userStoryContent && <UserStoryPreview content={userStoryContent} onRevise={onReviseUserStory} />}
-                  {(renderType === "app_builder" || renderType === "custom") && userStoryContent && <MarkdownPreview content={userStoryContent} onRevise={renderType === "app_builder" ? onReviseAppBuilder : undefined} />}
+                  {(renderType === "app_builder" || renderType === "custom") && userStoryContent && (
+                    renderType === "app_builder"
+                      ? <AppBuilderIDEPreview content={userStoryContent} agentOutputs={agentOutputs} onRevise={onReviseAppBuilder} />
+                      : <MarkdownPreview content={userStoryContent} />
+                  )}
                   {renderType === "ppt" && (pptContent || pptxCode) && <PPTPreview content={pptContent} isStreaming={isStreaming} pptxCode={pptxCode} onRevise={onRevisePpt} />}
                   {renderType === "prototype" && prototypeContent && <PrototypePreview content={prototypeContent} isStreaming={isStreaming} onRevise={onRevisePrototype} />}
                 </>

@@ -86,6 +86,9 @@ const eslintConfig = defineConfig([
     files: ["src/**/*.{ts,tsx,js,jsx}"],
     rules: {
       "react-hooks/exhaustive-deps": "warn",
+      "react-hooks/set-state-in-effect": "warn",
+      "react-hooks/static-components": "warn",
+      "react-hooks/preserve-manual-memoization": "warn",
     },
   },
 ]);

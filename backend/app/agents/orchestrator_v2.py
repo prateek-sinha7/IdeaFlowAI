@@ -157,6 +157,87 @@ def _build_agent_context(state: WorkflowState, agent_index: int, agents: list[Ag
                 )
         return "\n".join(parts)
 
+    # ── App Builder pipeline — smart context routing ────────────────────────
+    # The app_builder pipeline has 15 agents. Without routing, context grows
+    # to 347K+ chars by agent 15, causing rate-limit / context-window errors.
+    # Each agent only receives the upstream outputs it actually needs.
+    #
+    # Pipeline execution order (by agent index):
+    #  0  material-analyzer      → architecture overview
+    #  1  app-user-stories       → epics + stories
+    #  2  app-system-design      → component decomposition + ADRs
+    #  3  app-security-architecture → threat model + IAM
+    #  4  app-ux-design          → wireframes + design system
+    #  5  app-api-design         → OpenAPI contracts
+    #  6  app-database-design    → DDL + migrations
+    #  7  app-code-generator     → full-stack scaffold code
+    #  8  app-feature-implementation → business logic per story
+    #  9  app-infra-generator    → Dockerfile + CI + .env
+    # 10  app-code-compliance    → SAST + lint config
+    # 11  app-test-implementation → test code
+    # 12  app-test-compliance    → coverage gates + strategy
+    # 13  app-devops             → CI/CD pipeline-as-code
+    # 14  app-sdlc-governance    → ADRs + runbooks + SLOs
+    if pipeline == "app_builder":
+        # Agent ID → which upstream agent IDs it needs (only agents that
+        # have ALREADY run, i.e. lower index). No forward references.
+        APP_BUILDER_CONTEXT_MAP: dict[str, list[str]] = {
+            # Agent 0: no upstream
+            "material-analyzer": [],
+            # Agent 1: needs architecture
+            "app-user-stories": ["material-analyzer"],
+            # Agent 2: needs architecture + user stories
+            "app-system-design": ["material-analyzer", "app-user-stories"],
+            # Agent 3: needs architecture + system design
+            "app-security-architecture": ["material-analyzer", "app-system-design"],
+            # Agent 4: needs architecture + user stories + system design
+            # Prompt: "Using the user stories and the system design"
+            "app-ux-design": ["material-analyzer", "app-user-stories", "app-system-design"],
+            # Agent 5: needs architecture + user stories + system design
+            # Prompt: "Using the user stories and system design"
+            "app-api-design": ["material-analyzer", "app-user-stories", "app-system-design"],
+            # Agent 6: needs architecture + system design + api contracts
+            "app-database-design": ["material-analyzer", "app-system-design", "app-api-design"],
+            # Agent 7: needs arch + system design + api + db (the four design pillars)
+            "app-code-generator": ["material-analyzer", "app-system-design", "app-api-design", "app-database-design"],
+            # Agent 8: needs user stories + code scaffold (implements stories against code)
+            "app-feature-implementation": ["app-user-stories", "app-code-generator"],
+            # Agent 9: needs architecture + code scaffold (infra wraps the app)
+            "app-infra-generator": ["material-analyzer", "app-code-generator"],
+            # Agent 10: needs architecture (for stack/language) + code scaffold + feature impl
+            # Prompt: "Tailor choices to the language and platform established by earlier agents"
+            "app-code-compliance": ["material-analyzer", "app-code-generator", "app-feature-implementation"],
+            # Agent 11: needs user stories + code + feature impl (tests prove ACs)
+            "app-test-implementation": ["app-user-stories", "app-code-generator", "app-feature-implementation"],
+            # Agent 12: needs test impl + compliance + security (for compliance test mapping)
+            # Prompt: "for each in-scope regulation from the security agent's output"
+            "app-test-compliance": ["app-test-implementation", "app-code-compliance", "app-security-architecture"],
+            # Agent 13: needs architecture (platform choice) + infra + code scaffold
+            # Prompt: "Tailor the choice of platform to the materials-analysis agent's recommendation"
+            "app-devops": ["material-analyzer", "app-infra-generator", "app-code-generator"],
+            # Agent 14: needs arch + system design + security + code-compliance + devops + test-compliance
+            # Prompt: "earlier agents produced design, implementation, infrastructure, security,
+            #          code-compliance, test-compliance"
+            "app-sdlc-governance": [
+                "material-analyzer", "app-system-design",
+                "app-security-architecture", "app-code-compliance",
+                "app-devops", "app-test-compliance",
+            ],
+        }
+        current_agent = agents[agent_index]
+        needed_ids = APP_BUILDER_CONTEXT_MAP.get(current_agent.id, [])
+        # Build a lookup of agent_id → AgentDefinition for name/role labels
+        agent_lookup = {a.id: a for a in agents}
+        for needed_id in needed_ids:
+            if needed_id in state.agent_outputs:
+                prev_def = agent_lookup.get(needed_id)
+                label = f"{prev_def.name} ({prev_def.role})" if prev_def else needed_id
+                parts.append(
+                    f"\n--- Output from {label} ---\n"
+                    f"{state.agent_outputs[needed_id]}"
+                )
+        return "\n".join(parts)
+
     # ── Default: all previous outputs in full ──────────────────────────────
     for prev in agents[:agent_index]:
         if prev.id in state.agent_outputs:

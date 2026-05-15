@@ -787,7 +787,12 @@ For every user story, emit:
    placeholders. Comply with the data-protection rules from the
    security agent (no real PII, tokenise where shape matters).
 
-Output every test file under a `### path/to/file` header in a fenced
-code block. Group by user story. Conclude with a coverage matrix
+Output every test file in this exact format:
+
+```filename: path/to/TestFile.java
+[complete test file content]
+```
+
+Group by user story. Conclude with a coverage matrix
 mapping every Gherkin acceptance criterion → the specific test
 method that proves it (story id → test name)."""

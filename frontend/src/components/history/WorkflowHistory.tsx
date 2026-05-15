@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  FileText, Presentation, Layout, Clock, CheckCircle2,
-  XCircle, Loader2, ArrowLeft, Trash2, ChevronRight,
+  FileText, Presentation, Layout,
+  Loader2, ArrowLeft, Trash2, ChevronRight,
   Search, MoreHorizontal, Sparkles, ArrowRight,
 } from "lucide-react";
 import { getToken, getWorkflows, getWorkflow, deleteWorkflow } from "@/lib/api";
@@ -12,6 +12,7 @@ import { PPTPreview } from "@/components/preview/PPTPreview";
 import { UserStoryPreview } from "@/components/preview/UserStoryPreview";
 import { PrototypePreview } from "@/components/preview/PrototypePreview";
 import { MarkdownPreview } from "@/components/preview/MarkdownPreview";
+import { AppBuilderPreview, type ParsedFile } from "@/components/preview/AppBuilderPreview";
 import { FilesTab } from "@/components/results/FilesTab";
 import type { WorkflowRun, WorkflowType } from "@/types/index";
 import { availableChainTargets } from "@/lib/workflowChaining";
@@ -24,6 +25,45 @@ interface WorkflowHistoryProps {
   // (DashboardLayout) wires this to handleChainFromHistory and switches
   // into the execution view on click.
   onChainPipeline?: (run: WorkflowRun, nextType: WorkflowType) => void;
+}
+
+// ─── Parse all filename: blocks from agent outputs for the IDE preview ────────
+const CODE_PRODUCING_AGENT_IDS = new Set([
+  "app-code-generator", "app-feature-implementation",
+  "app-infra-generator", "app-test-implementation",
+]);
+
+function parseFilesForIDE(markdown: string): ParsedFile[] {
+  const files: ParsedFile[] = [];
+  const seen = new Set<string>();
+  const langMap: Record<string, string> = {
+    ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
+    py: "python", json: "json", md: "markdown", yml: "yaml", yaml: "yaml",
+    css: "css", html: "html", sh: "bash", sql: "sql", dockerfile: "dockerfile",
+    env: "bash", toml: "toml", prisma: "typescript", rs: "rust", go: "go",
+    gitignore: "bash", lock: "plaintext", txt: "plaintext",
+    java: "java", cs: "csharp", rb: "ruby", kt: "kotlin", xml: "xml",
+  };
+  const add = (path: string, content: string) => {
+    path = path.trim();
+    if (!path || !content.trim() || seen.has(path)) return;
+    const name = path.split("/").pop() || path;
+    if (!name.includes(".") && !/^(Dockerfile|Makefile|Procfile)$/i.test(name)) return;
+    seen.add(path);
+    const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
+    files.push({ path, name, ext, content, language: langMap[ext] || "plaintext" });
+  };
+  // Format 1: ```filename: path\n[content]\n```
+  const r1 = /```(?:filename:\s*([^\n]+)\n)([\s\S]*?)```/g;
+  let m: RegExpExecArray | null;
+  while ((m = r1.exec(markdown)) !== null) add(m[1], m[2]);
+  // Format 2: ### path/to/file.ext\n```lang\n[content]\n```
+  const r2 = /###\s+([\w./\-@][^\n]*\.\w+)\s*\n```[^\n]*\n([\s\S]*?)```/g;
+  while ((m = r2.exec(markdown)) !== null) add(m[1], m[2]);
+  // Format 3: **`path/to/file.ext`** followed by ```
+  const r3 = /\*\*`?([\w./\-@][^\n`*]*\.\w+)`?\*\*\s*\n```[^\n]*\n([\s\S]*?)```/g;
+  while ((m = r3.exec(markdown)) !== null) add(m[1], m[2]);
+  return files;
 }
 
 const TYPE_META: Record<string, { icon: typeof FileText; label: string }> = {
@@ -125,21 +165,56 @@ export function WorkflowHistory({ onBack, onChainPipeline }: WorkflowHistoryProp
     return matchType && matchSearch;
   });
 
+  // ─── Derived values for detail view — must be computed unconditionally ────
+  // (Rules of Hooks: useMemo cannot be inside an if block)
+  const detailWorkflowType = (selectedRun?.type ?? "custom") as WorkflowType;
+  const detailIsAppBuilder = detailWorkflowType === "app_builder" || detailWorkflowType === "app_builder_revision";
+
+  const detailAgentOutputs = useMemo<{ agent_id: string; name: string; role: string; icon: string; output: string; duration: number | null }[]>(() => {
+    if (!selectedRun?.agentOutputs) return [];
+    try {
+      const raw = selectedRun.agentOutputs;
+      return typeof raw === "string"
+        ? JSON.parse(raw)
+        : (raw as { agent_id: string; name: string; role: string; icon: string; output: string; duration: number | null }[]);
+    } catch { return []; }
+  }, [selectedRun]);
+
+  const ideFiles = useMemo<ParsedFile[]>(() => {
+    if (!detailIsAppBuilder) return [];
+    const seen = new Set<string>();
+    const merged: ParsedFile[] = [];
+    const add = (parsed: ParsedFile[]) => {
+      for (const f of parsed) { if (!seen.has(f.path)) { seen.add(f.path); merged.push(f); } }
+    };
+    for (const a of detailAgentOutputs) {
+      if (CODE_PRODUCING_AGENT_IDS.has(a.agent_id) && a.output?.trim()) {
+        add(parseFilesForIDE(a.output));
+      }
+    }
+    if (selectedOutput) add(parseFilesForIDE(selectedOutput));
+    return merged;
+  }, [detailIsAppBuilder, detailAgentOutputs, selectedOutput]);
+
+  const ideProjectName = useMemo(() => {
+    const arch = detailAgentOutputs.find(a => a.agent_id === "material-analyzer");
+    const src = arch?.output || selectedOutput || "";
+    const h = src.match(/^#\s+(.+)/m);
+    return h ? h[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().slice(0, 40) : (selectedRun?.title || "Generated App");
+  }, [detailAgentOutputs, selectedOutput, selectedRun?.title]);
+
   // ─── DETAIL VIEW ───────────────────────────────────────────────────────────
   if (selectedRun) {
     const meta = TYPE_META[selectedRun.type] || TYPE_META.custom;
     const Icon = meta.icon;
     const workflowType = selectedRun.type as WorkflowType;
     const isUserStory = workflowType === "user_stories" || workflowType === "user_stories_revision";
-    const isMarkdown = workflowType === "app_builder" || workflowType === "app_builder_revision" || workflowType === "custom";
+    const isAppBuilder = detailIsAppBuilder;
+    const isCustom = workflowType === "custom";
+    const isMarkdown = isCustom;
     const isPpt = workflowType === "ppt" || workflowType === "ppt_revision";
     const isPrototype = workflowType === "prototype" || workflowType === "prototype_revision";
-
-    let agentOutputs: { agent_id: string; name: string; role: string; icon: string; output: string; duration: number | null }[] = [];
-    if (selectedRun.agentOutputs) {
-      try { agentOutputs = typeof selectedRun.agentOutputs === "string" ? JSON.parse(selectedRun.agentOutputs) : selectedRun.agentOutputs; }
-      catch {}
-    }
+    const agentOutputs = detailAgentOutputs;
 
     return (
       <div className="h-full flex" style={{ background: "#f5f5f0" }}>
@@ -290,36 +365,45 @@ export function WorkflowHistory({ onBack, onChainPipeline }: WorkflowHistoryProp
           </div>
 
           {/* Content */}
-          <div className="flex-1 min-h-0 overflow-auto">
+          <div className="flex-1 min-h-0 overflow-hidden">
             {loadingDetail ? (
               <div className="flex items-center justify-center h-full">
                 <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
               </div>
             ) : detailTab === "preview" ? (
-              !selectedOutput ? (
+              !selectedOutput && !isAppBuilder ? (
                 <div className="flex flex-col items-center justify-center h-full gap-2">
                   <FileText className="h-8 w-8 text-gray-200" />
                   <p className="text-[12px] text-gray-400">No preview available</p>
                 </div>
               ) : (
-                <div className="h-full">
-                  {isUserStory && <UserStoryPreview content={selectedOutput} />}
-                  {isMarkdown && <MarkdownPreview content={selectedOutput} />}
-                  {isPpt && <PPTPreview content={selectedOutput} />}
-                  {isPrototype && <PrototypePreview content={selectedOutput} />}
+                <div className="h-full overflow-auto">
+                  {isUserStory && selectedOutput && <UserStoryPreview content={selectedOutput} />}
+                  {isAppBuilder && (
+                    ideFiles.length > 0
+                      ? <AppBuilderPreview files={ideFiles} projectName={ideProjectName} />
+                      : selectedOutput
+                        ? <MarkdownPreview content={selectedOutput} />
+                        : <div className="flex flex-col items-center justify-center h-full gap-2"><FileText className="h-8 w-8 text-gray-200" /><p className="text-[12px] text-gray-400">No preview available</p></div>
+                  )}
+                  {isMarkdown && selectedOutput && <MarkdownPreview content={selectedOutput} />}
+                  {isPpt && selectedOutput && <PPTPreview content={selectedOutput} />}
+                  {isPrototype && selectedOutput && <PrototypePreview content={selectedOutput} />}
                 </div>
               )
             ) : (
               /* Files tab */
               <FilesTab
                 workflowType={workflowType}
-                userStoryContent={(isUserStory || isMarkdown) ? selectedOutput || undefined : undefined}
+                userStoryContent={(isUserStory || isMarkdown || isAppBuilder) ? selectedOutput || undefined : undefined}
                 pptContent={isPpt ? selectedOutput || undefined : undefined}
                 prototypeContent={isPrototype ? selectedOutput || undefined : undefined}
                 agentOutputs={
-                  selectedRun?.agentOutputs
-                    ?.filter((a) => a.output && a.output.trim().length > 0)
-                    .map((a) => ({ name: a.name, role: a.role, output: a.output, agentId: a.agent_id }))
+                  agentOutputs.length > 0
+                    ? agentOutputs
+                        .filter((a) => a.output && a.output.trim().length > 0)
+                        .map((a) => ({ name: a.name, role: a.role, output: a.output, agentId: a.agent_id }))
+                    : undefined
                 }
               />
             )}

@@ -529,7 +529,7 @@ export function DashboardLayout({
                       onRevisePrototype={(workflowType === "prototype" || workflowType === "prototype_revision") ? handleRevisePrototype : undefined}
                       onReviseAppBuilder={(workflowType === "app_builder" || workflowType === "app_builder_revision") ? handleReviseAppBuilder : undefined}
                       agentOutputs={
-                        pipelineState && !pipelineState.isRunning
+                        pipelineState && pipelineState.agents.length > 0
                           ? pipelineState.agents
                               .filter((a) => a.status === "done" && a.output && a.output.trim().length > 0)
                               .map((a) => ({ name: a.name, role: a.role, output: a.output, agentId: a.id }))

@@ -285,11 +285,13 @@ emit:
    literal acceptance criterion because of a constraint). Tag with
    `// REVIEW:`.
 
-Use file-path headers `### path/to/file.tsx` (or `.ts` / `.py` /
-`.java` / `.cs` — derived from the stack) followed by fenced code
-blocks. Group code by story. Conclude with a coverage matrix
-mapping every Gherkin AC → the file/function that proves the
-behaviour."""
+Use file-path headers in this exact format for EVERY file:
+
+```filename: path/to/file.tsx
+[complete file content]
+```
+
+(Use `.ts` / `.py` / `.java` / `.cs` — derived from the stack. Group code by story.)"""
 
 
 # ============================================================
@@ -345,5 +347,9 @@ Deliver:
    tells a new engineer how to run the full CI locally before
    pushing.
 
-Output every config file in a fenced code block under a
-`### path/to/file` header so the team can commit them as-is."""
+Output every config file in this exact format so the team can commit them as-is:
+
+```filename: path/to/file
+[complete file content]
+```
+"""
