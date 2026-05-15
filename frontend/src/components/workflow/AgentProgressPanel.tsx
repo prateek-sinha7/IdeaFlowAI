@@ -46,11 +46,27 @@ function AgentCard({ agent, index }: { agent: AgentRunState; index: number }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.04 }}
-      className={`rounded-xl border px-4 py-3.5 transition-all ${
+      animate={
         isActive
-          ? "border-gray-200 bg-white shadow-sm"
+          ? {
+              opacity: 1,
+              y: 0,
+              boxShadow: [
+                "0 0 0 0 rgba(27, 42, 74, 0.18), 0 1px 3px rgba(15, 23, 42, 0.04)",
+                "0 0 0 6px rgba(27, 42, 74, 0.00), 0 6px 18px -8px rgba(27, 42, 74, 0.35)",
+                "0 0 0 0 rgba(27, 42, 74, 0.18), 0 1px 3px rgba(15, 23, 42, 0.04)",
+              ],
+            }
+          : { opacity: 1, y: 0 }
+      }
+      transition={
+        isActive
+          ? { boxShadow: { duration: 1.6, repeat: Infinity, ease: "easeInOut" }, default: { delay: index * 0.04 } }
+          : { delay: index * 0.04 }
+      }
+      className={`rounded-xl border px-4 py-3.5 transition-colors ${
+        isActive
+          ? "border-[#1B2A4A] bg-white"
           : isDone
           ? "border-gray-100 bg-white"
           : isError
@@ -71,7 +87,7 @@ function AgentCard({ agent, index }: { agent: AgentRunState; index: number }) {
         {/* Name + badge */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
-            <p className={`text-[12px] font-semibold leading-tight ${isIdle ? "text-gray-400" : "text-gray-900"}`}>
+            <p className={`text-[12px] font-semibold leading-tight ${isIdle ? "text-gray-500" : "text-gray-900"}`}>
               {agent.name}
             </p>
             <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -84,7 +100,11 @@ function AgentCard({ agent, index }: { agent: AgentRunState; index: number }) {
                 </span>
               )}
               {isActive && (
-                <span className="text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded animate-pulse">
+                <span className="relative inline-flex items-center gap-1 text-[9px] font-bold text-white bg-[#1B2A4A] px-1.5 py-0.5 rounded">
+                  <span className="relative inline-flex h-1.5 w-1.5">
+                    <span className="absolute inline-flex h-full w-full rounded-full bg-white/70 animate-ping" />
+                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white" />
+                  </span>
                   RUNNING
                 </span>
               )}
@@ -103,8 +123,8 @@ function AgentCard({ agent, index }: { agent: AgentRunState; index: number }) {
         <p className="text-[11px] text-gray-500 mb-1.5">Completed successfully</p>
       )}
       {isActive && (
-        <p className="text-[11px] text-gray-500 mb-1.5 flex items-center gap-1.5">
-          <Loader2 className="h-3 w-3 animate-spin text-gray-400" />
+        <p className="text-[11px] text-gray-700 mb-1.5 flex items-center gap-1.5">
+          <Loader2 className="h-3 w-3 animate-spin text-[#1B2A4A]" />
           {agent.thinking || "In progress..."}
         </p>
       )}
@@ -112,12 +132,11 @@ function AgentCard({ agent, index }: { agent: AgentRunState; index: number }) {
         <p className="text-[11px] text-red-600 mb-1.5">{agent.error}</p>
       )}
 
-      {/* Skills / role metadata */}
-      {!isIdle && (
-        <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider">
-          {agent.role}
-        </p>
-      )}
+      {/* Role / subtitle — always shown so users see what each agent will do
+          before it even starts, not just after it begins running. */}
+      <p className={`text-[9px] font-semibold uppercase tracking-wider ${isIdle ? "text-gray-400" : "text-gray-500"}`}>
+        {agent.role}
+      </p>
     </motion.div>
   );
 }

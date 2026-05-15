@@ -72,7 +72,7 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
           <ArrowLeft className="h-4 w-4 text-gray-500" />
         </button>
         <div>
-          <h1 className="text-[15px] font-semibold text-gray-900">Account Settings</h1>
+          <h1 className="text-[18px] font-normal italic text-gray-900 leading-tight font-serif">Account Settings</h1>
           <p className="text-[11px] text-gray-400 mt-0.5">Manage your account and security</p>
         </div>
       </div>

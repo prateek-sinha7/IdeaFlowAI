@@ -8,49 +8,13 @@ interface CreationHubProps {
   onSelectFeature: (type: WorkflowType) => void;
 }
 
-const WORKFLOWS = [
-  {
-    id: "user_stories",
-    type: "user_stories" as WorkflowType,
-    label: "Generate product requirements",
-    description: "Transform an idea or brief into a structured PRD with epics, user stories, and Gherkin acceptance criteria.",
-    badge: null,
-  },
-  {
-    id: "ppt",
-    type: "ppt" as WorkflowType,
-    label: "Pitch an idea",
-    description: "Shape a concept into an enterprise-grade pitch deck — charts, data tables, and executive-ready visuals produced by VelocityAI's presentation agents.",
-    badge: null,
-  },
-  {
-    id: "prototype",
-    type: "prototype" as WorkflowType,
-    label: "Build an interactive prototype",
-    description: "Translate stories, requirements, or wireframes into a high-fidelity, navigable HTML prototype.",
-    badge: null,
-  },
-  {
-    id: "app_builder",
-    type: "app_builder" as WorkflowType,
-    label: "Build an end-to-end application",
-    description: "Hand VelocityAI a deck, repository, or brief — its guardrails, workflows, and specialist agents stand up a complete enterprise application with infrastructure and tests.",
-    badge: null,
-  },
-  {
-    id: "migration",
-    type: "migration" as WorkflowType,
-    label: "Migration workflows",
-    description: "Modernise a legacy estate end-to-end — Mulesoft to Spring Boot microservices on AWS, or .NET to Azure with AI augmentation.",
-    badge: "NEW",
-  },
-  {
-    id: "custom",
-    type: "custom" as WorkflowType,
-    label: "Compose a custom workflow",
-    description: "Assemble specialist agents and skills into a custom workflow for tasks outside the standard pipelines.",
-    badge: null,
-  },
+const WORKFLOWS: { id: string; type: WorkflowType; label: string; subtitle: string; badge: string | null }[] = [
+  { id: "user_stories", type: "user_stories", label: "Generate product requirements", subtitle: "Epics, user stories, and Gherkin acceptance criteria — ready for Jira.",                  badge: null },
+  { id: "ppt",          type: "ppt",          label: "Pitch an idea",                  subtitle: "Executive-grade deck with charts, data, and a clear narrative.",                       badge: null },
+  { id: "prototype",    type: "prototype",    label: "Build an interactive prototype", subtitle: "Navigable, high-fidelity HTML prototype from a brief or story set.",                   badge: null },
+  { id: "app_builder",  type: "app_builder",  label: "Build an end-to-end application", subtitle: "Full-stack code, tests, and infrastructure from a single requirement.",              badge: null },
+  { id: "migration",    type: "migration",    label: "Platform workflows",             subtitle: "Modernise a legacy estate — Mulesoft to AWS or .NET to Azure.",                        badge: "NEW" },
+  { id: "custom",       type: "custom",       label: "Compose a custom workflow",      subtitle: "Assemble specialist agents for tasks outside the standard pipelines.",                badge: null },
 ];
 
 export function CreationHub({ onSelectFeature }: CreationHubProps) {
@@ -71,8 +35,11 @@ export function CreationHub({ onSelectFeature }: CreationHubProps) {
           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-[0.18em] mb-5">
             VelocityAI
           </p>
-          <h1 className="text-[38px] sm:text-[44px] font-bold text-gray-900 leading-tight tracking-tight mb-4">
-            Select a workflow to begin
+          <h1
+            className="text-[38px] sm:text-[44px] font-normal italic text-gray-900 leading-tight tracking-tight mb-4"
+            style={{ fontFamily: "var(--font-fraunces)" }}
+          >
+            What would you like to build today?
           </h1>
           <p className="text-[14px] text-gray-500 leading-relaxed max-w-md mx-auto">
             Select a deliverable. The right specialist agents will be assembled — review and configure them before execution.
@@ -88,7 +55,7 @@ export function CreationHub({ onSelectFeature }: CreationHubProps) {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, delay: 0.1 + idx * 0.06 }}
               onClick={() => onSelectFeature(workflow.type)}
-              className="group w-full flex items-start justify-between gap-4 py-5 text-left hover:bg-white/60 transition-colors rounded-lg px-3 -mx-3"
+              className="group w-full flex items-center justify-between gap-4 py-5 text-left hover:bg-white/60 transition-colors rounded-lg px-3 -mx-3"
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
@@ -101,11 +68,11 @@ export function CreationHub({ onSelectFeature }: CreationHubProps) {
                     </span>
                   )}
                 </div>
-                <p className="text-[12px] text-gray-500 leading-relaxed">
-                  {workflow.description}
+                <p className="text-[12px] italic text-gray-500 leading-snug">
+                  {workflow.subtitle}
                 </p>
               </div>
-              <div className="flex-shrink-0 mt-1">
+              <div className="flex-shrink-0">
                 <ArrowRight className="h-4 w-4 text-gray-300 group-hover:text-gray-600 group-hover:translate-x-0.5 transition-all" />
               </div>
             </motion.button>

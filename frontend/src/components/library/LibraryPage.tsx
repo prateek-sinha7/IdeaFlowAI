@@ -4,7 +4,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Search, Clock, Puzzle, Webhook, X, Copy, Check,
-  ExternalLink, Tag, Zap, BookOpen, ChevronRight,
+  Tag, Zap, BookOpen, ChevronRight,
 } from "lucide-react";
 import { LIBRARY_AGENTS, CUSTOM_AGENTS } from "@/components/workflow/AgentLibraryData";
 import { AgentCapabilitiesModal } from "@/components/workflow/AgentsPopup";
@@ -22,7 +22,7 @@ const CATEGORIES: CategoryEntry[] = [
   { id: "ppt", label: "Presentation" },
   { id: "prototype", label: "Prototype" },
   { id: "app_builder", label: "App Builder" },
-  { id: "migration", label: "Migration", section: true },
+  { id: "migration", label: "Platform", section: true },
   { id: "mulesoft_to_springboot", label: "Mulesoft → Spring Boot" },
   { id: "dotnet_to_azure", label: ".NET → Azure" },
   { id: "custom", label: "Custom" },
@@ -41,13 +41,6 @@ const ICON_STYLES = [
   { bg: "#EAF0EA", text: "#2A5C2A" }, { bg: "#F0E8EE", text: "#5C2A4A" },
   { bg: "#E8EEF0", text: "#2A4A5C" }, { bg: "#F0EEE8", text: "#5C5A2A" },
 ];
-
-const SOURCE_LABEL: Record<string, string> = { ecc: "ECC", superpowers: "Superpowers", gsd: "GSD" };
-const SOURCE_URL: Record<string, string> = {
-  ecc: "https://github.com/affaan-m/everything-claude-code",
-  superpowers: "https://github.com/obra/superpowers",
-  gsd: "https://github.com/glittercowboy/get-shit-done",
-};
 
 function getInitials(name: string): string {
   const words = name.replace(/\s+agent$/i, "").split(" ");
@@ -108,7 +101,6 @@ function SkillDetailModal({ skill, onClose }: { skill: SkillDef; onClose: () => 
                 <h2 className="text-[16px] font-bold text-gray-900 leading-tight">{skill.name}</h2>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200 capitalize">{skill.category}</span>
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200">{SOURCE_LABEL[skill.source]}</span>
                 </div>
               </div>
             </div>
@@ -206,16 +198,6 @@ function SkillDetailModal({ skill, onClose }: { skill: SkillDef; onClose: () => 
                 )}
               </div>
             </div>
-            {/* Source link */}
-            <a
-              href={SOURCE_URL[skill.source]}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-[10px] text-gray-400 hover:text-gray-700 transition-colors"
-            >
-              <ExternalLink className="h-3 w-3" />
-              Source: {SOURCE_LABEL[skill.source]} on GitHub
-            </a>
           </div>
         </div>
       </motion.div>
@@ -229,7 +211,7 @@ function SkillDetailModal({ skill, onClose }: { skill: SkillDef; onClose: () => 
 function HookDetailModal({ hook, onClose }: { hook: HookDef; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
 
-  const copyText = `Hook: ${hook.name}\nEvent: ${hook.event}\nTrigger: ${hook.trigger}\nSource: ${SOURCE_LABEL[hook.source]}\n\n${hook.description}\n\nTags: ${hook.tags.join(", ")}`;
+  const copyText = `Hook: ${hook.name}\nEvent: ${hook.event}\nTrigger: ${hook.trigger}\n\n${hook.description}\n\nTags: ${hook.tags.join(", ")}`;
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(copyText);
@@ -271,7 +253,6 @@ function HookDetailModal({ hook, onClose }: { hook: HookDef; onClose: () => void
                 <h2 className="text-[16px] font-bold text-gray-900 leading-tight">{hook.name}</h2>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-900 text-white">{hook.event}</span>
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200">{SOURCE_LABEL[hook.source]}</span>
                 </div>
               </div>
             </div>
@@ -352,16 +333,6 @@ function HookDetailModal({ hook, onClose }: { hook: HookDef; onClose: () => void
             ))}
           </div>
 
-          {/* Source */}
-          <a
-            href={SOURCE_URL[hook.source]}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-[10px] text-gray-400 hover:text-gray-700 transition-colors"
-          >
-            <ExternalLink className="h-3 w-3" />
-            Source: {SOURCE_LABEL[hook.source]} on GitHub
-          </a>
         </div>
       </motion.div>
     </motion.div>
@@ -573,7 +544,6 @@ export function LibraryPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <p className="text-[13px] font-semibold text-gray-900 group-hover:text-[#1B2A4A] transition-colors">{skill.name}</p>
-                          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 flex-shrink-0">{SOURCE_LABEL[skill.source]}</span>
                         </div>
                         <p className="text-[10px] text-gray-400 uppercase tracking-wide font-medium capitalize">{skill.category}</p>
                       </div>
@@ -611,7 +581,6 @@ export function LibraryPage() {
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <p className="text-[13px] font-semibold text-gray-900 group-hover:text-[#1B2A4A] transition-colors">{hook.name}</p>
                           <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-gray-900 text-white flex-shrink-0">{hook.event}</span>
-                          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 flex-shrink-0">{SOURCE_LABEL[hook.source]}</span>
                         </div>
                         <p className="text-[10px] text-gray-400 italic">{hook.trigger}</p>
                       </div>

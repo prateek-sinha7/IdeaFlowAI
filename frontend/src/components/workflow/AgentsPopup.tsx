@@ -118,10 +118,6 @@ const ICON_STYLES = [
   { bg: "#E8EEF0", text: "#2A4A5C" }, { bg: "#F0EEE8", text: "#5C5A2A" },
 ];
 
-const SOURCE_BADGE: Record<string, string> = {
-  ecc: "ECC", superpowers: "Superpowers", gsd: "GSD",
-};
-
 function getAgentInitials(name: string): string {
   const words = name.replace(/\s+agent$/i, "").split(" ");
   if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
@@ -274,7 +270,6 @@ export function AgentCapabilitiesModal({
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 mb-0.5">
                           <p className="text-[11px] font-semibold text-gray-800 truncate">{skill.name}</p>
-                          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-gray-200 text-gray-500 flex-shrink-0">{SOURCE_BADGE[skill.source]}</span>
                         </div>
                         <p className="text-[10px] text-gray-500 leading-relaxed line-clamp-1">{skill.description}</p>
                       </div>
@@ -497,7 +492,6 @@ function SkillsHooksTab({ pipelineType }: { pipelineType: WorkflowType }) {
                 <div className="flex items-center gap-2 min-w-0">
                   <CheckCircle2 className="h-3.5 w-3.5 text-gray-500 flex-shrink-0" />
                   <span className="text-[12px] font-semibold text-gray-800 truncate">{skill.name}</span>
-                  <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 flex-shrink-0">{skill.sourceLabel}</span>
                 </div>
                 <button onClick={() => detachSkill(skill.id)} className="flex-shrink-0 text-gray-300 hover:text-red-400 transition-colors">
                   <X className="h-3.5 w-3.5" />
@@ -558,7 +552,6 @@ function SkillsHooksTab({ pipelineType }: { pipelineType: WorkflowType }) {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 mb-0.5">
                         <p className="text-[11px] font-semibold text-gray-800">{skill.name}</p>
-                        <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{SOURCE_BADGE[skill.source]}</span>
                         <span className="text-[9px] text-gray-400 capitalize">{skill.category}</span>
                       </div>
                       <p className="text-[10px] text-gray-500 leading-relaxed line-clamp-2">{skill.description}</p>
@@ -673,7 +666,6 @@ function SkillsHooksTab({ pipelineType }: { pipelineType: WorkflowType }) {
                       <div className="flex items-center gap-1.5 mb-0.5">
                         <p className="text-[11px] font-semibold text-gray-800">{hook.name}</p>
                         <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{hook.event}</span>
-                        <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{SOURCE_BADGE[hook.source]}</span>
                       </div>
                       <p className="text-[10px] text-gray-500 leading-relaxed line-clamp-2">{hook.description}</p>
                       <p className="text-[9px] text-gray-400 mt-0.5 italic">{hook.trigger}</p>
@@ -707,7 +699,6 @@ function SkillsHooksTab({ pipelineType }: { pipelineType: WorkflowType }) {
         <p className="text-[10px] text-gray-500 leading-relaxed">
           <span className="font-semibold text-gray-700">Skills</span> inject domain-specific instructions into agent prompts.{" "}
           <span className="font-semibold text-gray-700">Hooks</span> define pre/post behaviours that guide agent execution.
-          Both are sourced from ECC, Superpowers, and GSD.
         </p>
       </div>
     </div>

@@ -40,104 +40,91 @@ interface IdeaInputPageProps {
 const TYPE_CONFIG: Record<WorkflowType, {
   tag: string;
   heading: string;
-  inputLabel: string;
-  outputLabel: string;
+  subtitle: string;
   placeholder: string;
   icon: typeof FileText;
 }> = {
   user_stories: {
     tag: "Generate product requirements",
     heading: "Provide the brief",
-    inputLabel: "Idea, PRD, or requirements document",
-    outputLabel: "PRD + epics + Jira-ready stories",
+    subtitle: "Turn an idea or brief into a Jira-ready backlog — epics, stories, and Gherkin acceptance criteria.",
     placeholder: "e.g. Generate epics and stories for a refunds workflow with multi-currency support.",
     icon: FileText,
   },
   user_stories_revision: {
     tag: "Refine an existing PRD or story set",
     heading: "What would you like to change?",
-    inputLabel: "Revision instructions",
-    outputLabel: "Updated PRD + epics + stories",
+    subtitle: "Apply targeted edits to an existing backlog without rewriting what already works.",
     placeholder: "e.g. Add acceptance criteria for the multi-currency refund flow and split epic E2 into two.",
     icon: FileText,
   },
   prototype: {
     tag: "Build an interactive prototype",
     heading: "Describe the product",
-    inputLabel: "Idea, user stories, or wireframes",
-    outputLabel: "Interactive HTML prototype",
+    subtitle: "Translate a brief, story set, or wireframes into a navigable, high-fidelity HTML prototype.",
     placeholder: "e.g. Build a dashboard for tracking SaaS subscription metrics with charts and filters.",
     icon: Layout,
   },
   prototype_revision: {
     tag: "Iterate on an existing prototype",
     heading: "What should change?",
-    inputLabel: "Revision instructions",
-    outputLabel: "Updated HTML prototype",
+    subtitle: "Surgically refine an existing prototype — preserve the rest of the design exactly as-is.",
     placeholder: "e.g. Swap the side filter for a top tab bar and add a dark-mode toggle.",
     icon: Layout,
   },
   ppt: {
     tag: "Build an executive presentation",
     heading: "Specify the topic",
-    inputLabel: "Topic, brief, or outline",
-    outputLabel: "Slide deck with charts & visuals",
+    subtitle: "Shape a topic into an enterprise-grade pitch deck with charts, data tables, and executive-ready visuals.",
     placeholder: "e.g. Blockchain technology — enterprise adoption trends and ROI analysis for 2025.",
     icon: Presentation,
   },
   ppt_revision: {
     tag: "Refine an existing presentation",
     heading: "What should change?",
-    inputLabel: "Revision instructions",
-    outputLabel: "Updated slide deck",
+    subtitle: "Apply precise, scoped edits to an existing deck — every other slide stays untouched.",
     placeholder: "e.g. Tighten the ROI section to 3 slides and add a competitive-landscape slide before the conclusion.",
     icon: Presentation,
   },
   app_builder: {
     tag: "Generate a full-stack application",
     heading: "Describe the application",
-    inputLabel: "Brief, PRD, or repository description",
-    outputLabel: "Full-stack code + infrastructure",
+    subtitle: "Stand up a complete enterprise application — code, tests, and infrastructure produced by specialist agents.",
     placeholder: "e.g. A SaaS platform for managing freelance invoices with Stripe integration.",
     icon: Layout,
   },
   app_builder_revision: {
     tag: "Extend or refine an existing app",
     heading: "What should change?",
-    inputLabel: "Revision instructions",
-    outputLabel: "Updated full-stack code",
+    subtitle: "Extend an existing blueprint with targeted changes — every file you didn't touch stays exactly the same.",
     placeholder: "e.g. Add a webhook receiver for Stripe events and persist invoice status to the existing schema.",
     icon: Layout,
   },
   custom: {
     tag: "Compose a custom workflow",
     heading: "Describe the task",
-    inputLabel: "Any idea or task",
-    outputLabel: "Custom agent output",
+    subtitle: "Assemble specialist agents and skills into a custom workflow for tasks outside the standard pipelines.",
     placeholder: "e.g. Research the competitive landscape for AI coding assistants and generate a SWOT analysis.",
     icon: Layout,
   },
   migration: {
-    tag: "Migration workflows",
+    tag: "Platform workflows",
     heading: "Modernise a legacy estate",
-    inputLabel: "Describe the source estate — repos, integration platforms, .NET solutions, target cloud",
-    outputLabel: "Inventory, target architecture, scaffolding, IaC, and validation harness",
+    subtitle: "Modernise a legacy estate end-to-end with a 13-agent SDLC pipeline — inventory, design, code, tests, and cutover.",
     placeholder: "e.g. Migrate three Mulesoft 4 apps powering our orders + claims platform onto AWS, splitting into Spring Boot microservices with Aurora Postgres and SQS messaging.",
     icon: GitBranch,
   },
   mulesoft_to_springboot: {
     tag: "Mulesoft → Spring Boot microservices on AWS",
     heading: "Modernise off Mulesoft",
-    inputLabel: "Mulesoft apps, flows, and migration constraints",
-    outputLabel: "Inventory, microservice decomposition, Spring Boot scaffolds, Terraform, validation harness",
+    subtitle: "Decompose the Mule estate into Spring Boot 3 services on AWS, with parallel-run validation before cutover.",
     placeholder: "e.g. Migrate three Mulesoft 4 apps powering our orders + claims platform onto AWS, splitting into Spring Boot microservices with Aurora Postgres and SQS messaging.",
     icon: GitBranch,
   },
   dotnet_to_azure: {
     tag: ".NET → Azure (AI-augmented)",
     heading: "Modernise .NET onto Azure",
-    inputLabel: ".NET solutions, hosting model, and target Azure landing zone",
-    outputLabel: "Inventory, Azure target map, .NET 8 modernised code, Bicep, Azure AI integrations, validation harness",
+    subtitle: "Map .NET projects to the right Azure services, modernise to .NET 8, and bolt on Azure AI where it pays off.",
     placeholder: "e.g. Rehost two ASP.NET MVC 4.7 apps and a Windows Service onto Azure App Service + Functions, with Azure SQL and Service Bus. Surface AI document triage where it helps the claims workflow.",
     icon: GitBranch,
   },
@@ -246,15 +233,14 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-[0.15em] mb-3">
             {config.tag}
           </p>
-          <h1 className="text-[32px] font-bold text-gray-900 leading-tight tracking-tight mb-2">
+          <h1
+            className="text-[32px] font-normal italic text-gray-900 leading-tight tracking-tight mb-2"
+            style={{ fontFamily: "var(--font-fraunces)" }}
+          >
             {config.heading}
           </h1>
-          <p className="text-[13px] text-gray-500">
-            <span className="text-gray-400">Input:</span>{" "}
-            <span className="text-gray-600">{config.inputLabel}</span>
-            {" · "}
-            <span className="text-gray-400">Output:</span>{" "}
-            <span className="font-medium text-gray-700">{config.outputLabel}</span>
+          <p className="text-[13px] text-gray-500 leading-relaxed max-w-xl">
+            {config.subtitle}
           </p>
         </motion.div>
 

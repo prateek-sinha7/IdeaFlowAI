@@ -20,35 +20,21 @@ from app.models.user import User
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", status_code=status.HTTP_403_FORBIDDEN)
 def register(request: RegisterRequest, db: Session = Depends(get_db)):
-    """Register a new user account.
+    """Self-registration is disabled.
 
-    Validates email format and password length (≥8 chars) via Pydantic schema.
-    Returns 409 if email is already registered.
-    On success, creates user with hashed password and returns JWT + user info.
+    Account creation is administrator-only. The endpoint still exists so
+    that legacy clients receive a clear, documented error rather than a
+    404 — they should redirect their user to the login screen. The
+    ``request`` and ``db`` parameters are kept for backwards-compatible
+    request validation (so malformed bodies still 422 rather than 403,
+    which is the more helpful failure mode for the client).
     """
-    # Check for duplicate email
-    existing_user = db.query(User).filter(User.email == request.email).first()
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email already registered",
-        )
-
-    # Hash password and create user
-    hashed = hash_password(request.password)
-    user = User(email=request.email, password_hash=hashed)
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
-    # Generate JWT token
-    token = create_access_token(user.id)
-
-    return AuthResponse(
-        token=token,
-        user=UserResponse(id=user.id, email=user.email),
+    _ = request, db  # Pydantic still validates the body shape.
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Self-registration is disabled. Contact your administrator for an account.",
     )
 
 

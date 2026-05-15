@@ -6,7 +6,8 @@
    ============================================ */
 
 @theme inline {
-  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-sans: var(--font-inter), system-ui, -apple-system, sans-serif;
+  --font-serif: var(--font-fraunces), Georgia, "Times New Roman", serif;
   --font-mono: "JetBrains Mono", "Fira Code", monospace;
 }
 

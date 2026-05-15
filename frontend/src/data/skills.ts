@@ -131,8 +131,7 @@ Critical issues must be resolved before proceeding.`,
     source: "ecc",
     sourceLabel: "ECC",
     category: "testing",
-    content: `# TDD Workflow (ECC)
-Always write tests first. Coverage minimum: 80% (unit + integration + E2E).
+    content: `# TDD WorkflowAlways write tests first. Coverage minimum: 80% (unit + integration + E2E).
 Steps: write user journeys → generate test cases → run (they fail) → implement → run (they pass) → refactor → verify coverage.
 Git checkpoint after RED, after GREEN, after REFACTOR.
 Test types: Unit (Jest/Vitest), Integration (API/DB), E2E (Playwright).`,
@@ -146,8 +145,7 @@ Test types: Unit (Jest/Vitest), Integration (API/DB), E2E (Playwright).`,
     source: "ecc",
     sourceLabel: "ECC",
     category: "security",
-    content: `# Security Review (ECC)
-Checklist: OWASP Top 10, secrets in code/config, SQL injection, XSS, CSRF, auth/authz gaps, dependency vulnerabilities, insecure defaults.
+    content: `# Security ReviewChecklist: OWASP Top 10, secrets in code/config, SQL injection, XSS, CSRF, auth/authz gaps, dependency vulnerabilities, insecure defaults.
 Run: SAST scan, dependency audit (npm audit / pip audit), secrets scan.
 Block release on: critical CVEs, hardcoded secrets, missing auth checks.`,
     compatible_agents: ["app-security-architecture", "security-auditor", "mulesoft-security-architecture", "dotnet-security-architecture", "app-code-compliance"],
@@ -160,8 +158,7 @@ Block release on: critical CVEs, hardcoded secrets, missing auth checks.`,
     source: "ecc",
     sourceLabel: "ECC",
     category: "workflow",
-    content: `# Backend Patterns (ECC)
-API: RESTful conventions, consistent error envelopes, pagination, idempotency keys.
+    content: `# Backend PatternsAPI: RESTful conventions, consistent error envelopes, pagination, idempotency keys.
 Database: connection pooling, query budgets, index strategy, migration tooling.
 Caching: cache-aside pattern, TTL strategy, cache invalidation.
 Error handling: structured errors, retry with backoff, circuit breaker.`,
@@ -175,8 +172,7 @@ Error handling: structured errors, retry with backoff, circuit breaker.`,
     source: "ecc",
     sourceLabel: "ECC",
     category: "workflow",
-    content: `# Frontend Patterns (ECC)
-Components: single responsibility, composition over inheritance, controlled vs uncontrolled.
+    content: `# Frontend PatternsComponents: single responsibility, composition over inheritance, controlled vs uncontrolled.
 State: local state first, lift only when needed, avoid prop drilling with context.
 Performance: code splitting, lazy loading, memoisation only when measured.
 Accessibility: semantic HTML, ARIA labels, keyboard navigation, colour contrast.`,
@@ -190,8 +186,7 @@ Accessibility: semantic HTML, ARIA labels, keyboard navigation, colour contrast.
     source: "ecc",
     sourceLabel: "ECC",
     category: "workflow",
-    content: `# API Design (ECC)
-REST conventions: nouns not verbs, plural resources, nested for ownership.
+    content: `# API DesignREST conventions: nouns not verbs, plural resources, nested for ownership.
 Error envelope: { error: { code, message, details } } — consistent across all endpoints.
 Pagination: cursor-based for large sets, offset for small.
 Versioning: URL path (/v1/) for breaking changes, headers for minor.
@@ -206,8 +201,7 @@ OpenAPI 3.1: document every endpoint, request/response schema, error codes.`,
     source: "ecc",
     sourceLabel: "ECC",
     category: "workflow",
-    content: `# Deployment Patterns (ECC)
-CI/CD: lint → test → build → security scan → deploy to staging → smoke test → promote to prod.
+    content: `# Deployment PatternsCI/CD: lint → test → build → security scan → deploy to staging → smoke test → promote to prod.
 Docker: multi-stage builds, non-root user, minimal base image, health check endpoint.
 Rollback: blue/green or canary, feature flags for gradual rollout.
 Health checks: /health (liveness), /ready (readiness), structured JSON response.`,
@@ -221,8 +215,7 @@ Health checks: /health (liveness), /ready (readiness), structured JSON response.
     source: "ecc",
     sourceLabel: "ECC",
     category: "testing",
-    content: `# E2E Testing (ECC)
-Use Playwright. Page Object Model for reusable selectors.
+    content: `# E2E TestingUse Playwright. Page Object Model for reusable selectors.
 Cover: critical user flows, auth flows, payment flows, error states.
 Selectors: prefer data-testid, then ARIA roles, avoid CSS classes.
 CI: run on every PR, fail fast on critical flow failures.
@@ -237,8 +230,7 @@ Parallelise across browsers: chromium, firefox, webkit.`,
     source: "ecc",
     sourceLabel: "ECC",
     category: "workflow",
-    content: `# Search First (ECC)
-Before writing any code: search for existing solutions, check official docs, look for prior art in the codebase.
+    content: `# Search FirstBefore writing any code: search for existing solutions, check official docs, look for prior art in the codebase.
 Steps: 1) Define what you need. 2) Search docs/codebase. 3) Evaluate options. 4) Only then implement.
 Avoids reinventing the wheel, outdated patterns, and security anti-patterns.`,
     compatible_agents: ["domain-analyst", "market-research-agent", "app-system-design", "mulesoft-inventory", "dotnet-inventory"],
@@ -251,8 +243,7 @@ Avoids reinventing the wheel, outdated patterns, and security anti-patterns.`,
     source: "ecc",
     sourceLabel: "ECC",
     category: "workflow",
-    content: `# Spring Boot Patterns (ECC)
-Architecture: layered (controller → service → repository), avoid fat controllers.
+    content: `# Spring Boot PatternsArchitecture: layered (controller → service → repository), avoid fat controllers.
 DI: constructor injection only, avoid field injection.
 JPA: use projections for read-heavy queries, avoid N+1 with @EntityGraph.
 Config: externalise all config via application.yml + env vars, never hardcode.
@@ -267,8 +258,7 @@ Actuator: expose /health, /info, /metrics for observability.`,
     source: "ecc",
     sourceLabel: "ECC",
     category: "meta",
-    content: `# Continuous Learning (ECC)
-After each session: identify patterns that worked well, extract as reusable skill snippets.
+    content: `# Continuous LearningAfter each session: identify patterns that worked well, extract as reusable skill snippets.
 Store in skills/ directory with YAML frontmatter.
 Review periodically: promote high-confidence patterns, prune outdated ones.
 Share across team via skills repository.`,
@@ -279,12 +269,12 @@ Share across team via skills repository.`,
   // ── GET SHIT DONE (GSD) ──────────────────────────────────────────────────
   {
     id: "gsd-new-project",
-    name: "GSD: New Project",
+    name: "New Project",
     description: "Questions → research → requirements → roadmap. Structured project kickoff that produces PROJECT.md, REQUIREMENTS.md, and ROADMAP.md.",
     source: "gsd",
     sourceLabel: "GSD",
     category: "planning",
-    content: `# GSD: New Project
+    content: `# New Project
 Run at project start. Produces: PROJECT.md (vision), REQUIREMENTS.md (scope), ROADMAP.md (phases).
 Process: ask clarifying questions → research → draft requirements → propose roadmap → get approval.
 Output files survive session boundaries — every new session loads them for context.`,
@@ -293,12 +283,12 @@ Output files survive session boundaries — every new session loads them for con
   },
   {
     id: "gsd-plan-phase",
-    name: "GSD: Plan Phase",
+    name: "Plan Phase",
     description: "Research + plan + verify loop for a single roadmap phase. Each plan is small enough to execute in a fresh 200k-token context window.",
     source: "gsd",
     sourceLabel: "GSD",
     category: "planning",
-    content: `# GSD: Plan Phase
+    content: `# Plan Phase
 For phase N: research → create plan → verify plan passes quality checks → iterate until approved.
 Each plan task: small enough for one subagent context, has clear success criteria.
 Output: PHASES/<N>/PLAN.md with atomic tasks ready for execution.`,
@@ -307,12 +297,12 @@ Output: PHASES/<N>/PLAN.md with atomic tasks ready for execution.`,
   },
   {
     id: "gsd-execute-phase",
-    name: "GSD: Execute Phase",
+    name: "Execute Phase",
     description: "Runs plans in parallel waves. Each executor gets a fresh context. Each task gets its own atomic commit. Main context stays clean.",
     source: "gsd",
     sourceLabel: "GSD",
     category: "workflow",
-    content: `# GSD: Execute Phase
+    content: `# Execute Phase
 Execute tasks from PLAN.md in parallel waves where possible.
 Each task: fresh subagent context, atomic git commit on completion.
 Main context window stays at 30-40% — heavy work in subagents.
@@ -322,12 +312,12 @@ On failure: diagnose, create fix plan, re-execute. Don't debug manually.`,
   },
   {
     id: "gsd-verify-work",
-    name: "GSD: Verify Work",
+    name: "Verify Work",
     description: "Walk through what was built. Broken items get a diagnosed fix plan ready for immediate re-execution. No manual debugging.",
     source: "gsd",
     sourceLabel: "GSD",
     category: "testing",
-    content: `# GSD: Verify Work
+    content: `# Verify Work
 After execution: walk through each task's output against its success criteria.
 For failures: diagnose root cause, write fix plan, mark for re-execution.
 Don't debug manually — generate a fix plan and run execute again.
@@ -337,16 +327,16 @@ Output: PHASES/<N>/VERIFY.md with pass/fail per task and fix plans.`,
   },
   {
     id: "gsd-ship",
-    name: "GSD: Ship",
+    name: "Ship",
     description: "Create PR from verified phase work. Archive milestone, tag release, start next milestone fresh with clean context.",
     source: "gsd",
     sourceLabel: "GSD",
     category: "workflow",
-    content: `# GSD: Ship
+    content: `# Ship
 After verify passes: create PR with phase summary, link to VERIFY.md.
 PR description: what was built, what was tested, known limitations.
 On merge: archive phase artifacts, tag release, update STATE.md.
-Start next milestone with /gsd-new-milestone for clean context.`,
+Start the next milestone with a fresh context.`,
     compatible_agents: ["app-devops", "app-sdlc-governance", "mulesoft-sdlc-governance", "dotnet-sdlc-governance"],
     tags: ["pr", "release", "ship", "milestone", "git"],
   },

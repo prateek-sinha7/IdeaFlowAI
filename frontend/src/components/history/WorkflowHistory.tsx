@@ -435,7 +435,7 @@ export function WorkflowHistory({ onBack, onChainPipeline }: WorkflowHistoryProp
             <ArrowLeft className="h-4 w-4 text-gray-500" />
           </button>
           <div>
-            <h1 className="text-[15px] font-semibold text-gray-900">Workflow History</h1>
+            <h1 className="text-[18px] font-normal italic text-gray-900 leading-tight font-serif">Workflow History</h1>
             <p className="text-[11px] text-gray-400 mt-0.5">{runs.length} runs</p>
           </div>
         </div>

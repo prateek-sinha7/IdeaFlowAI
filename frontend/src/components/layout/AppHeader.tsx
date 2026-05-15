@@ -42,7 +42,7 @@ export function AppHeader({ currentPage, onNavigate, onLogout, userEmail, disabl
         <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600">
           <Zap className="h-3.5 w-3.5 text-white" />
         </div>
-        <span className="text-xs sm:text-sm font-semibold text-white tracking-tight">
+        <span className="text-sm sm:text-base font-normal italic text-white tracking-tight font-serif">
           VelocityAI
         </span>
       </div>

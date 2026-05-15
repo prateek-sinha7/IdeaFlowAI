@@ -1529,7 +1529,7 @@ MULESOFT_TO_SPRINGBOOT_AGENTS: list[AgentDefinition] = [
     ),
     AgentDefinition(
         id="mulesoft-feature-coding",
-        name="Feature Implementation Agent",
+        name="Coding Agent",
         role="Business Logic & Feature Code",
         description="Implements the user stories' business logic in the Spring Boot services — controllers, services, persistence, integrations.",
         icon="⚙️",
@@ -1693,7 +1693,7 @@ DOTNET_TO_AZURE_AGENTS: list[AgentDefinition] = [
     ),
     AgentDefinition(
         id="dotnet-feature-coding",
-        name="Feature Implementation Agent",
+        name="Coding Agent",
         role="Business Logic & Feature Code",
         description="Implements the user stories' business logic in the modernised .NET 8 services — controllers, services, persistence, integrations.",
         icon="⚙️",

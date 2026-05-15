@@ -41,7 +41,7 @@ export default function HandoffSettingsPage() {
           <ArrowLeft className="h-4 w-4 text-gray-500" />
         </Link>
         <div>
-          <h1 className="text-[14px] font-semibold text-gray-900">
+          <h1 className="text-[18px] font-normal italic text-gray-900 leading-tight font-serif">
             Handoff integrations
           </h1>
           <p className="text-[10px] text-gray-500 mt-0.5">
