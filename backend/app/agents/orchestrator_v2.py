@@ -19,12 +19,13 @@ Architecture:
 """
 
 import asyncio
+import json
 import logging
 import time
 from dataclasses import dataclass, field
 from typing import AsyncGenerator
 
-from app.agents.base import BaseAgent, AgentConfigurationError
+from app.agents.base import BaseAgent, AgentConfigurationError, TokenUsage, estimate_cost_usd
 from app.agents.registry import AgentDefinition, get_pipeline_agents
 from app.agents.skills import get_skill_content
 
@@ -56,6 +57,9 @@ class WorkflowState:
 
     # Accumulated outputs from each agent: {agent_id: output_text}
     agent_outputs: dict[str, str] = field(default_factory=dict)
+
+    # Token usage per agent: {agent_id: TokenUsage}
+    agent_token_usage: dict[str, TokenUsage] = field(default_factory=dict)
 
     # Execution results for persistence
     results: list[dict] = field(default_factory=list)
@@ -445,6 +449,10 @@ class WorkflowOrchestrator:
                     max_tokens=agent_def.max_tokens,
                 )
 
+                # Capture model_id for cost estimation (same for all agents)
+                if not getattr(state, "_model_id", ""):
+                    state._model_id = agent.model_id  # type: ignore[attr-defined]
+
                 # Build context message using smart routing
                 context_message = _build_agent_context(state, i, self.agents)
                 logger.debug("Context message: %d chars", len(context_message))
@@ -471,6 +479,7 @@ class WorkflowOrchestrator:
 
                 # Stream agent response with retry
                 output_chunks: list[str] = []
+                agent_usage = TokenUsage()
                 max_retries = 2
 
                 for attempt in range(max_retries + 1):
@@ -480,19 +489,24 @@ class WorkflowOrchestrator:
 
                     try:
                         output_chunks = []
-                        async for chunk in agent.astream(context_message):
+                        agent_usage = TokenUsage()
+                        async for item in agent.astream_with_usage(context_message):
                             # Check cancellation during streaming
                             if cancel_event and cancel_event.is_set():
                                 raise asyncio.CancelledError()
 
-                            output_chunks.append(chunk)
-                            yield {
-                                "type": "agent_chunk",
-                                "data": {
-                                    "agent_id": agent_def.id,
-                                    "chunk": chunk,
-                                },
-                            }
+                            if isinstance(item, TokenUsage):
+                                # Final item — token usage from the last chunk
+                                agent_usage = item
+                            else:
+                                output_chunks.append(item)
+                                yield {
+                                    "type": "agent_chunk",
+                                    "data": {
+                                        "agent_id": agent_def.id,
+                                        "chunk": item,
+                                    },
+                                }
                         break  # Success
 
                     except asyncio.CancelledError:
@@ -541,6 +555,10 @@ class WorkflowOrchestrator:
                 output = "".join(output_chunks)
                 duration = time.time() - agent_start
                 state.agent_outputs[agent_def.id] = output
+                state.agent_token_usage[agent_def.id] = agent_usage
+
+                # Estimate cost for logging
+                cost = estimate_cost_usd(agent_usage, agent.model_id)
                 state.results.append({
                     "agent_id": agent_def.id,
                     "name": agent_def.name,
@@ -548,11 +566,15 @@ class WorkflowOrchestrator:
                     "icon": agent_def.icon,
                     "output": output,
                     "duration": duration,
+                    "token_usage": agent_usage.to_dict(),
                 })
 
                 logger.info(
-                    "AGENT [%d/%d] COMPLETE — %s | %.2fs | %d chars",
-                    i + 1, len(self.agents), agent_def.name, duration, len(output)
+                    "AGENT [%d/%d] COMPLETE — %s | %.2fs | %d chars | "
+                    "in=%d out=%d total=%d tokens (~$%.4f)",
+                    i + 1, len(self.agents), agent_def.name, duration, len(output),
+                    agent_usage.input_tokens, agent_usage.output_tokens,
+                    agent_usage.total_tokens, cost,
                 )
 
                 yield {
@@ -564,6 +586,10 @@ class WorkflowOrchestrator:
                         "output_length": len(output),
                         "index": i,
                         "total": len(self.agents),
+                        "input_tokens": agent_usage.input_tokens,
+                        "output_tokens": agent_usage.output_tokens,
+                        "total_tokens": agent_usage.total_tokens,
+                        "estimated_cost_usd": round(cost, 6),
                     },
                 }
 
@@ -598,10 +624,22 @@ class WorkflowOrchestrator:
         total_duration = time.time() - total_start
         final_output = self._get_final_output(state)
 
+        # Aggregate token usage across all agents
+        pipeline_usage = TokenUsage()
+        pipeline_model_id = ""
+        for usage in state.agent_token_usage.values():
+            pipeline_usage = pipeline_usage + usage
+        # Use the model_id stored during execution (set when first agent runs)
+        pipeline_model_id = getattr(state, "_model_id", "")
+        pipeline_cost = estimate_cost_usd(pipeline_usage, pipeline_model_id)
+
         logger.info("═══════════════════════════════════════════════════════")
         logger.info(
-            "WORKFLOW COMPLETE — type=%s | %.2fs | %d/%d agents",
-            self.pipeline_type, total_duration, len(state.results), len(self.agents)
+            "WORKFLOW COMPLETE — type=%s | %.2fs | %d/%d agents | "
+            "tokens: in=%d out=%d total=%d (~$%.4f)",
+            self.pipeline_type, total_duration, len(state.results), len(self.agents),
+            pipeline_usage.input_tokens, pipeline_usage.output_tokens,
+            pipeline_usage.total_tokens, pipeline_cost,
         )
         logger.info("═══════════════════════════════════════════════════════")
 
@@ -613,6 +651,14 @@ class WorkflowOrchestrator:
                 "agents_completed": len(state.results),
                 "agents_total": len(self.agents),
                 "final_output": final_output,
+                "total_input_tokens": pipeline_usage.input_tokens,
+                "total_output_tokens": pipeline_usage.output_tokens,
+                "total_tokens": pipeline_usage.total_tokens,
+                "estimated_cost_usd": round(pipeline_cost, 6),
+                "token_usage_per_agent": {
+                    aid: u.to_dict()
+                    for aid, u in state.agent_token_usage.items()
+                },
             },
         }
 

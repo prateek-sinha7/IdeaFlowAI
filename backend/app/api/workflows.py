@@ -85,6 +85,7 @@ class WorkflowRunResponse(BaseModel):
     agent_count: int
     duration: Optional[float] = None
     error: Optional[str] = None
+    token_usage: Optional[str] = None
     created_at: datetime
     completed_at: Optional[datetime] = None
 

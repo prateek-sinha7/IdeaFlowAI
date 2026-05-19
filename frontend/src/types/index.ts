@@ -195,6 +195,17 @@ export interface WorkflowRun {
   input: string;
   output?: string;
   agentOutputs?: AgentThinkingEntry[];
+  tokenUsage?: {
+    total_input_tokens: number;
+    total_output_tokens: number;
+    total_tokens: number;
+    estimated_cost_usd: number;
+    per_agent?: Record<string, {
+      input_tokens: number;
+      output_tokens: number;
+      total_tokens: number;
+    }>;
+  };
   createdAt: string;
   completedAt?: string;
   duration?: number;
@@ -261,6 +272,10 @@ export interface AgentRunState {
   duration: number | null;
   error: string | null;
   index: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  estimatedCostUsd?: number;
 }
 
 export interface PipelineRunState {
@@ -270,6 +285,10 @@ export interface PipelineRunState {
   currentAgentIndex: number;
   totalDuration: number | null;
   completedCount: number;
+  totalInputTokens?: number;
+  totalOutputTokens?: number;
+  totalTokens?: number;
+  estimatedCostUsd?: number;
 }
 
 export type PipelineMessageType =

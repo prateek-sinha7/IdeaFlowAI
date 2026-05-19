@@ -259,6 +259,7 @@ interface RawWorkflowRun {
   agent_count: number;
   duration: number | null;
   error: string | null;
+  token_usage: string | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -272,6 +273,13 @@ function normalizeWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
     } catch { /* ignore parse errors */ }
   }
 
+  let tokenUsage: WorkflowRun["tokenUsage"] = undefined;
+  if (raw.token_usage) {
+    try {
+      tokenUsage = JSON.parse(raw.token_usage);
+    } catch { /* ignore parse errors */ }
+  }
+
   return {
     id: raw.id,
     title: raw.title,
@@ -280,6 +288,7 @@ function normalizeWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
     input: raw.input,
     output: raw.output ?? undefined,
     agentOutputs,
+    tokenUsage,
     agentCount: raw.agent_count,
     duration: raw.duration ?? undefined,
     error: raw.error ?? undefined,

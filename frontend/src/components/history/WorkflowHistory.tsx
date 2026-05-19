@@ -246,6 +246,50 @@ export function WorkflowHistory({ onBack, onChainPipeline }: WorkflowHistoryProp
             </div>
           </div>
 
+          {/* Token usage summary — shown when data is available */}
+          {selectedRun.tokenUsage && selectedRun.tokenUsage.total_tokens > 0 && (
+            <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
+              <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-widest mb-2">Token Usage</p>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-gray-500">Input tokens</span>
+                  <span className="text-[10px] font-semibold text-gray-800">
+                    {selectedRun.tokenUsage.total_input_tokens.toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-gray-500">Output tokens</span>
+                  <span className="text-[10px] font-semibold text-gray-800">
+                    {selectedRun.tokenUsage.total_output_tokens.toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between border-t border-gray-200 pt-1.5">
+                  <span className="text-[10px] font-semibold text-gray-600">Total</span>
+                  <span className="text-[10px] font-bold text-gray-900">
+                    {selectedRun.tokenUsage.total_tokens.toLocaleString()}
+                  </span>
+                </div>
+                {/* Input/output ratio bar */}
+                <div className="h-1 bg-gray-200 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-[#1B2A4A] rounded-full"
+                    style={{
+                      width: `${Math.round((selectedRun.tokenUsage.total_input_tokens / selectedRun.tokenUsage.total_tokens) * 100)}%`
+                    }}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[9px] text-gray-400">Est. cost</span>
+                  <span className="text-[10px] font-semibold text-gray-700">
+                    {selectedRun.tokenUsage.estimated_cost_usd < 0.001
+                      ? "<$0.001"
+                      : `~$${selectedRun.tokenUsage.estimated_cost_usd.toFixed(3)}`}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Agents list */}
           <div className="flex-1 overflow-y-auto min-h-0 px-3 py-3 space-y-2">
             <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-widest px-2 mb-2">
@@ -419,9 +463,12 @@ export function WorkflowHistory({ onBack, onChainPipeline }: WorkflowHistoryProp
   }
 
   // ─── LIST VIEW ─────────────────────────────────────────────────────────────
-  const typeGroups = ["all", "user_stories", "ppt", "prototype", "app_builder"];
+  const typeGroups = ["all", "user_stories", "ppt", "prototype", "app_builder", "custom"];
   const typeCounts: Record<string, number> = { all: runs.length };
-  runs.forEach((r) => { typeCounts[r.type] = (typeCounts[r.type] || 0) + 1; });
+  runs.forEach((r) => {
+    const base = r.type.replace("_revision", "");
+    typeCounts[base] = (typeCounts[base] || 0) + 1;
+  });
 
   return (
     <div className="h-full flex flex-col bg-white" style={{ background: "#f5f5f0" }}>

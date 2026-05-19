@@ -11,14 +11,15 @@ import {
   History,
   LogOut,
   ChevronDown,
+  BarChart2,
 } from "lucide-react";
 import { NotificationPanel } from "@/components/ui/NotificationPanel";
 import type { PipelineNotification } from "@/hooks/useNotifications";
 import { getWorkflowLabel } from "@/hooks/useNotifications";
 
 interface AppHeaderProps {
-  currentPage: "home" | "library" | "workflow" | "execution" | "history";
-  onNavigate: (page: "home" | "library" | "history" | "settings") => void;
+  currentPage: "home" | "library" | "workflow" | "execution" | "history" | "analytics";
+  onNavigate: (page: "home" | "library" | "history" | "settings" | "analytics") => void;
   onLogout: () => void;
   userEmail?: string;
   disabled?: boolean;
@@ -175,6 +176,13 @@ export function AppHeader({
                   >
                     <Settings className="h-3.5 w-3.5" />
                     Account Settings
+                  </button>
+                  <button
+                    onClick={() => { setProfileOpen(false); onNavigate("analytics"); }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-[11px] text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-all"
+                  >
+                    <BarChart2 className="h-3.5 w-3.5" />
+                    Analytics
                   </button>
                   <button
                     onClick={() => { setProfileOpen(false); onNavigate("history"); }}

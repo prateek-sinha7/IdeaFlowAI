@@ -5,6 +5,7 @@ import { motion } from "motion/react";
 import { Loader2, RotateCcw, ArrowRight, Square, Sparkles } from "lucide-react";
 import type { AgentRunState, PipelineRunState, WorkflowType } from "@/types/index";
 import { availableChainTargets } from "@/lib/workflowChaining";
+import { TokenUsageSummary, AgentTokenPill } from "./TokenUsageSummary";
 
 interface AgentProgressPanelProps {
   pipelineState: PipelineRunState;
@@ -120,7 +121,14 @@ function AgentCard({ agent, index }: { agent: AgentRunState; index: number }) {
 
       {/* Status line */}
       {isDone && (
-        <p className="text-[11px] text-gray-500 mb-1.5">Completed successfully</p>
+        <div className="flex items-center justify-between mb-1.5">
+          <p className="text-[11px] text-gray-500">Completed successfully</p>
+          <AgentTokenPill
+            inputTokens={agent.inputTokens}
+            outputTokens={agent.outputTokens}
+            totalTokens={agent.totalTokens}
+          />
+        </div>
       )}
       {isActive && (
         <p className="text-[11px] text-gray-700 mb-1.5 flex items-center gap-1.5">
@@ -207,6 +215,10 @@ export function AgentProgressPanel({
       {/* Suggested next steps + New Pipeline — pinned at bottom */}
       {(isComplete || isCancelled) && (
         <div className="flex-shrink-0 border-t border-gray-100 px-4 py-3 space-y-2">
+          {/* Token usage summary — shown when pipeline completes */}
+          {isComplete && (
+            <TokenUsageSummary pipelineState={pipelineState} />
+          )}
           {isComplete && availablePipelines.length > 0 && onChainPipeline && (
             <motion.div
               initial={{ opacity: 0, y: 6 }}

@@ -9,6 +9,7 @@ import { CreationHub } from "@/components/home/CreationHub";
 import { LibraryPage } from "@/components/library/LibraryPage";
 import { WorkflowHistory } from "@/components/history/WorkflowHistory";
 import { AccountSettings } from "@/components/settings/AccountSettings";
+import { AnalyticsPage } from "@/components/analytics/AnalyticsPage";
 import { IdeaInputPage } from "@/components/workflow/IdeaInputPage";
 import { AgentProgressPanel } from "@/components/workflow/AgentProgressPanel";
 import { PreviewPanel } from "@/components/preview/PreviewPanel";
@@ -50,7 +51,7 @@ export interface DashboardLayoutProps {
   questionnaireData?: { questions: { id: string; question: string; options: string[] }[] } | null;
 }
 
-type MainView = "home" | "library" | "history" | "settings" | "input" | "execution";
+type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution";
 
 export function DashboardLayout({
   activeChatId,
@@ -409,7 +410,7 @@ export function DashboardLayout({
   }, [pendingPipelineRun, onStartPipeline, attachedSkills, attachedHooks, pipelineState?.agents?.length, addRunningNotification]);
 
   // Header navigation — no longer blocked by pipeline running
-  const handleNavigate = useCallback((page: "home" | "library" | "history" | "settings") => {
+  const handleNavigate = useCallback((page: "home" | "library" | "history" | "settings" | "analytics") => {
     setMainView(page);
   }, []);
 
@@ -426,6 +427,7 @@ export function DashboardLayout({
   const headerPage = mainView === "library" ? "library" :
     mainView === "history" ? "history" :
     mainView === "settings" ? "history" :
+    mainView === "analytics" ? "analytics" :
     mainView === "input" ? "workflow" :
     mainView === "execution" ? "execution" : "home";
 
@@ -473,8 +475,8 @@ export function DashboardLayout({
         onMarkAllRead={markAllRead}
         onClearNotifications={clearAll}
         onViewResults={(n) => {
-          // Navigate to execution view if running, else history
-          if (n.status === "running") {
+          // Navigate to execution view if running or just completed, else history
+          if (n.status === "running" || n.status === "completed") {
             setMainView("execution");
           } else {
             setMainView("history");
@@ -538,6 +540,20 @@ export function DashboardLayout({
               className="h-full"
             >
               <AccountSettings onBack={handleGoHome} />
+            </motion.div>
+          )}
+
+          {/* ANALYTICS — Token usage and cost analytics */}
+          {mainView === "analytics" && (
+            <motion.div
+              key="analytics"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="h-full"
+            >
+              <AnalyticsPage onBack={handleGoHome} />
             </motion.div>
           )}
 
@@ -640,7 +656,8 @@ export function DashboardLayout({
         onDismiss={dismissToast}
         onViewResults={(toast) => {
           dismissToast(toast.id);
-          setMainView("history");
+          // Go to execution view first so user sees the results panel
+          setMainView("execution");
         }}
       />
     </div>
