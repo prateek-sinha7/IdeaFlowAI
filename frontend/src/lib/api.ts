@@ -377,3 +377,62 @@ export async function changePassword(
 
   return response.json();
 }
+
+// --- Admin API ---
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  tier: "basic" | "pro" | "enterprise";
+  is_admin: boolean;
+  created_at: string;
+  workflow_run_count: number;
+}
+
+export async function adminListUsers(token: string): Promise<AdminUser[]> {
+  return request<AdminUser[]>("/api/admin/users", {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+}
+
+export async function adminUpdateTier(
+  token: string,
+  userId: string,
+  tier: string
+): Promise<AdminUser> {
+  return request<AdminUser>(`/api/admin/users/${userId}/tier`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+    body: JSON.stringify({ tier }),
+  });
+}
+
+export async function adminCreateUser(
+  token: string,
+  email: string,
+  password: string,
+  tier: string,
+  is_admin: boolean
+): Promise<AdminUser> {
+  return request<AdminUser>("/api/admin/users", {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ email, password, tier, is_admin }),
+  });
+}
+
+export async function adminDeleteUser(
+  token: string,
+  userId: string
+): Promise<void> {
+  const url = `${BASE_URL}/api/admin/users/${userId}`;
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: authHeaders(token),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new ApiError(response.status, body.detail ?? body);
+  }
+}

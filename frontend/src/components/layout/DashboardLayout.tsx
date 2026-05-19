@@ -49,6 +49,7 @@ export interface DashboardLayoutProps {
   recentRuns?: WorkflowRun[];
   onSelectWorkflowRun?: (run: WorkflowRun) => void;
   questionnaireData?: { questions: { id: string; question: string; options: string[] }[] } | null;
+  userTier?: "basic" | "pro" | "enterprise";
 }
 
 type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution";
@@ -79,6 +80,7 @@ export function DashboardLayout({
   recentRuns,
   onSelectWorkflowRun,
   questionnaireData,
+  userTier = "basic",
 }: DashboardLayoutProps) {
   const [mainView, setMainView] = useState<MainView>("home");
   const [workflowType, setWorkflowType] = useState<WorkflowType>("user_stories");
@@ -497,7 +499,7 @@ export function DashboardLayout({
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <CreationHub onSelectFeature={handleSelectFeature} />
+              <CreationHub onSelectFeature={handleSelectFeature} userTier={userTier} />
             </motion.div>
           )}
 

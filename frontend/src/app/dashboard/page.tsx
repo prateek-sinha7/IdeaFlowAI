@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow } from "@/lib/api";
+import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkflows, getWorkflow, getMe } from "@/lib/api";
 import { ENV } from "@/lib/env";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useWorkflow } from "@/hooks/useWorkflow";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun } from "@/types/index";
+import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, User } from "@/types/index";
 import type { ChatMode } from "@/components/chat/ChatInput";
 
 /**
@@ -19,6 +19,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
 
   // Chat state (secondary — used for refinement)
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
@@ -53,6 +54,12 @@ export default function DashboardPage() {
     }
     setToken(storedToken);
     setIsAuthenticated(true);
+    // Fetch user profile (includes tier)
+    getMe(storedToken)
+      .then((u) => setUser(u))
+      .catch(() => {
+        // Non-fatal — tier defaults to "basic" if fetch fails
+      });
   }, [router]);
 
   // Fetch workflow runs on auth
@@ -619,6 +626,7 @@ export default function DashboardPage() {
       recentRuns={recentRuns}
       onSelectWorkflowRun={handleSelectWorkflowRun}
       questionnaireData={questionnaireData}
+      userTier={user?.tier ?? "basic"}
     />
   );
 }

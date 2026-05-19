@@ -657,6 +657,23 @@ async def _handle_pipeline_execution(
         })
         return
 
+    # Tier gate — check if user's plan allows this pipeline
+    from app.core.entitlements import can_run_pipeline
+    allowed, reason = can_run_pipeline(user.tier, pipeline_type)
+    if not allowed:
+        await websocket.send_json({
+            "type": "error",
+            "chunk": None,
+            "section": None,
+            "data": {
+                "error": reason,
+                "code": "tier_limit",
+                "recoverable": False,
+                "upgrade_required": True,
+            },
+        })
+        return
+
     if agent_ids:
         allowed = allowed_custom_agent_ids(pipeline_type)
         rejected = [aid for aid in agent_ids if aid not in allowed]

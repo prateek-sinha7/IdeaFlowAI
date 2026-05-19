@@ -1,6 +1,8 @@
 export interface User {
   id: string;
   email: string;
+  tier: "basic" | "pro" | "enterprise";
+  is_admin?: boolean;
 }
 
 export interface AuthResponse {
