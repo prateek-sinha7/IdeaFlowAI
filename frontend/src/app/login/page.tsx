@@ -19,8 +19,8 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      await login(email, password);
-      router.push("/dashboard");
+      const data = await login(email, password);
+      router.push(data.user.is_admin ? "/admin" : "/dashboard");
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setError("Invalid email or password.");

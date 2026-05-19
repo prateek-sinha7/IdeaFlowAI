@@ -868,6 +868,23 @@ async def _handle_pipeline_execution(
         })
         return
 
+    # Tier gate — check if user's plan allows this pipeline
+    from app.core.entitlements import can_run_pipeline
+    allowed, reason = can_run_pipeline(user.tier, pipeline_type)
+    if not allowed:
+        await websocket.send_json({
+            "type": "error",
+            "chunk": None,
+            "section": None,
+            "data": {
+                "error": reason,
+                "code": "tier_limit",
+                "recoverable": False,
+                "upgrade_required": True,
+            },
+        })
+        return
+
     if agent_ids:
         allowed = allowed_custom_agent_ids(pipeline_type)
         rejected = [aid for aid in agent_ids if aid not in allowed]
@@ -986,6 +1003,7 @@ async def _handle_pipeline_execution(
         return
 
     final_output = ""
+    pipeline_token_summary: dict = {}
     execution_start = datetime.now(timezone.utc)
     agent_outputs_collector: list[dict] = []  # Collect per-agent thinking/output
 
@@ -1077,6 +1095,14 @@ async def _handle_pipeline_execution(
                 current_agent_output_live = {}
             elif update["type"] == "pipeline_complete":
                 final_output = update["data"].get("final_output", "")
+                # Capture pipeline-level token totals for DB persistence
+                pipeline_token_summary = {
+                    "total_input_tokens": update["data"].get("total_input_tokens", 0),
+                    "total_output_tokens": update["data"].get("total_output_tokens", 0),
+                    "total_tokens": update["data"].get("total_tokens", 0),
+                    "estimated_cost_usd": update["data"].get("estimated_cost_usd", 0.0),
+                    "per_agent": update["data"].get("token_usage_per_agent", {}),
+                }
     except asyncio.CancelledError:
         # Cooperative cancellation from cancel_pipeline (or WebSocketDisconnect
         # cleanup). The async generator's CancelledError propagates here from
@@ -1179,6 +1205,7 @@ async def _handle_pipeline_execution(
                     wr.status = "completed"
                 wr.output = final_output if final_output else None
                 wr.agent_outputs = json.dumps(agent_outputs_collector) if agent_outputs_collector else None
+                wr.token_usage = json.dumps(pipeline_token_summary) if pipeline_token_summary else None
                 wr.completed_at = datetime.now(timezone.utc)
                 duration = (datetime.now(timezone.utc) - execution_start).total_seconds()
                 wr.duration = round(duration, 1)

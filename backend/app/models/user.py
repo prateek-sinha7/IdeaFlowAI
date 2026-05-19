@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, String
+from sqlalchemy import Boolean, Column, DateTime, String
 from sqlalchemy.orm import relationship
 
 from app.models.database import Base
@@ -22,6 +22,8 @@ class User(Base):
     # "revoke all this user's outstanding tokens" pattern. Nullable so users
     # who have never rotated their password have no blanket-revocation cutoff.
     password_changed_at = Column(DateTime, nullable=True)
+    tier = Column(String, nullable=False, default="basic")
+    is_admin = Column(Boolean, nullable=False, default=False)
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )

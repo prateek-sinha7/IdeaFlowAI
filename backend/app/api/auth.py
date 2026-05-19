@@ -65,14 +65,14 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
 
     return AuthResponse(
         token=token,
-        user=UserResponse(id=user.id, email=user.email),
+        user=UserResponse(id=user.id, email=user.email, tier=user.tier, is_admin=user.is_admin),
     )
 
 
 @router.get("/me", response_model=UserResponse)
 def get_me(current_user: User = Depends(get_current_user)):
     """Return the current authenticated user's info from JWT."""
-    return UserResponse(id=current_user.id, email=current_user.email)
+    return UserResponse(id=current_user.id, email=current_user.email, tier=current_user.tier, is_admin=current_user.is_admin)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)

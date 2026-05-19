@@ -207,13 +207,6 @@ export function handlePipelineMessage(
     }
 
     case "agent_complete": {
-      // Backend only emits `output_length` on agent_complete (see
-      // orchestrator_v2.py emit site); the full output was streamed
-      // chunk-by-chunk via `agent_chunk` and accumulated into
-      // `updated[agentIdx].output` already. The previous code read a
-      // non-existent `msg.output` and fell through to the accumulated
-      // value by accident — keep the accumulated value explicitly so
-      // the intent is obvious.
       const agentId = msg.agent_id as string;
       const startTime = agentStartTimesRef.current[agentId];
       const duration = startTime ? (Date.now() - startTime) / 1000 : null;
@@ -228,6 +221,10 @@ export function handlePipelineMessage(
           status: "done",
           duration,
           thinking: "",
+          inputTokens: (msg.input_tokens as number) || 0,
+          outputTokens: (msg.output_tokens as number) || 0,
+          totalTokens: (msg.total_tokens as number) || 0,
+          estimatedCostUsd: (msg.estimated_cost_usd as number) || 0,
         };
 
         const completedCount = updated.filter((a) => a.status === "done").length;
@@ -266,6 +263,10 @@ export function handlePipelineMessage(
         isRunning: false,
         totalDuration,
         completedCount: prev.agents.filter((a) => a.status === "done").length,
+        totalInputTokens: (msg.total_input_tokens as number) || 0,
+        totalOutputTokens: (msg.total_output_tokens as number) || 0,
+        totalTokens: (msg.total_tokens as number) || 0,
+        estimatedCostUsd: (msg.estimated_cost_usd as number) || 0,
       }));
       return true;
     }

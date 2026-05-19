@@ -25,6 +25,7 @@ class WorkflowRun(Base):
     agent_count = Column(Integer, nullable=False, default=0)
     duration = Column(Float, nullable=True)  # Total execution time in seconds
     error = Column(Text, nullable=True)  # Error message if failed
+    token_usage = Column(Text, nullable=True)  # JSON: {total_input, total_output, total_tokens, estimated_cost_usd, per_agent: {...}}
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )

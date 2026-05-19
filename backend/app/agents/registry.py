@@ -2163,7 +2163,13 @@ def allowed_custom_agent_ids(pipeline_type: str) -> set[str]:
         return {a.id for a in ALL_AGENTS.get(pipeline_type, [])}
 
     if pipeline_type == "custom":
-        return {a.id for a in CUSTOM_AGENTS}
+        # Custom pipeline is fully user-assembled — allow any agent from any
+        # pipeline plus the custom utility agents. The UI's AgentLibrary shows
+        # agents from all pipelines, so the allow-list must match.
+        all_ids: set[str] = set()
+        for agents_list in ALL_AGENTS.values():
+            all_ids.update(a.id for a in agents_list)
+        return all_ids
 
     return set()
 

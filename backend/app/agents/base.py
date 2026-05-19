@@ -1,7 +1,8 @@
 """Base agent class. Wraps AWS Bedrock via langchain-aws ChatBedrockConverse."""
 
 import logging
-from typing import AsyncGenerator
+from dataclasses import dataclass
+from typing import AsyncGenerator, Union
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -10,11 +11,103 @@ from app.core.config import settings
 logger = logging.getLogger("app.agents.base")
 
 
+# ─── Token usage tracking ─────────────────────────────────────────────────────
+
+@dataclass
+class TokenUsage:
+    """Token usage for a single agent invocation."""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+
+    def __add__(self, other: "TokenUsage") -> "TokenUsage":
+        return TokenUsage(
+            input_tokens=self.input_tokens + other.input_tokens,
+            output_tokens=self.output_tokens + other.output_tokens,
+            total_tokens=self.total_tokens + other.total_tokens,
+            cache_read_tokens=self.cache_read_tokens + other.cache_read_tokens,
+            cache_write_tokens=self.cache_write_tokens + other.cache_write_tokens,
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "total_tokens": self.total_tokens,
+            "cache_read_tokens": self.cache_read_tokens,
+            "cache_write_tokens": self.cache_write_tokens,
+        }
+
+
+# Cost rates per 1K tokens (USD) — covers all commonly used Bedrock models.
+# If a model_id isn't listed, _DEFAULT_COST is used as a safe fallback.
+# Source: https://aws.amazon.com/bedrock/pricing/
+_COST_PER_1K: dict[str, dict[str, float]] = {
+    # ── Claude Haiku 4.5 ──────────────────────────────────────────────────
+    "anthropic.claude-haiku-4-5-20251001-v1:0":         {"input": 0.00025,  "output": 0.00125},
+    "eu.anthropic.claude-haiku-4-5-20251001-v1:0":      {"input": 0.00025,  "output": 0.00125},
+    "us.anthropic.claude-haiku-4-5-20251001-v1:0":      {"input": 0.00025,  "output": 0.00125},
+    "ap.anthropic.claude-haiku-4-5-20251001-v1:0":      {"input": 0.00025,  "output": 0.00125},
+    # ── Claude Haiku 3 ────────────────────────────────────────────────────
+    "anthropic.claude-3-haiku-20240307-v1:0":           {"input": 0.00025,  "output": 0.00125},
+    "eu.anthropic.claude-3-haiku-20240307-v1:0":        {"input": 0.00025,  "output": 0.00125},
+    "us.anthropic.claude-3-haiku-20240307-v1:0":        {"input": 0.00025,  "output": 0.00125},
+    # ── Claude Sonnet 4.5 ─────────────────────────────────────────────────
+    "anthropic.claude-sonnet-4-5-20250929-v1:0":        {"input": 0.003,    "output": 0.015},
+    "eu.anthropic.claude-sonnet-4-5-20250929-v1:0":     {"input": 0.003,    "output": 0.015},
+    "us.anthropic.claude-sonnet-4-5-20250929-v1:0":     {"input": 0.003,    "output": 0.015},
+    # ── Claude Sonnet 3.5 ─────────────────────────────────────────────────
+    "anthropic.claude-3-5-sonnet-20241022-v2:0":        {"input": 0.003,    "output": 0.015},
+    "eu.anthropic.claude-3-5-sonnet-20241022-v2:0":     {"input": 0.003,    "output": 0.015},
+    "us.anthropic.claude-3-5-sonnet-20241022-v2:0":     {"input": 0.003,    "output": 0.015},
+    "anthropic.claude-3-5-sonnet-20240620-v1:0":        {"input": 0.003,    "output": 0.015},
+    # ── Claude Sonnet 3 ───────────────────────────────────────────────────
+    "anthropic.claude-3-sonnet-20240229-v1:0":          {"input": 0.003,    "output": 0.015},
+    # ── Claude Opus 4 / 3 ─────────────────────────────────────────────────
+    "anthropic.claude-opus-4-5-20251101-v1:0":          {"input": 0.015,    "output": 0.075},
+    "eu.anthropic.claude-opus-4-5-20251101-v1:0":       {"input": 0.015,    "output": 0.075},
+    "anthropic.claude-3-opus-20240229-v1:0":            {"input": 0.015,    "output": 0.075},
+    # ── Meta Llama 3 ──────────────────────────────────────────────────────
+    "meta.llama3-8b-instruct-v1:0":                     {"input": 0.0003,   "output": 0.0006},
+    "meta.llama3-70b-instruct-v1:0":                    {"input": 0.00265,  "output": 0.0035},
+    "meta.llama3-1-8b-instruct-v1:0":                   {"input": 0.0003,   "output": 0.0006},
+    "meta.llama3-1-70b-instruct-v1:0":                  {"input": 0.00265,  "output": 0.0035},
+    "meta.llama3-1-405b-instruct-v1:0":                 {"input": 0.00532,  "output": 0.016},
+    # ── Mistral ───────────────────────────────────────────────────────────
+    "mistral.mistral-7b-instruct-v0:2":                 {"input": 0.00015,  "output": 0.0002},
+    "mistral.mixtral-8x7b-instruct-v0:1":               {"input": 0.00045,  "output": 0.0007},
+    "mistral.mistral-large-2402-v1:0":                  {"input": 0.004,    "output": 0.012},
+    # ── Amazon Titan ──────────────────────────────────────────────────────
+    "amazon.titan-text-express-v1":                     {"input": 0.0002,   "output": 0.0006},
+    "amazon.titan-text-lite-v1":                        {"input": 0.00015,  "output": 0.0002},
+    "amazon.titan-text-premier-v1:0":                   {"input": 0.0005,   "output": 0.0015},
+    # ── Cohere ────────────────────────────────────────────────────────────
+    "cohere.command-r-v1:0":                            {"input": 0.0005,   "output": 0.0015},
+    "cohere.command-r-plus-v1:0":                       {"input": 0.003,    "output": 0.015},
+}
+# Fallback when model_id isn't in the table — uses Haiku rates (conservative)
+_DEFAULT_COST = {"input": 0.00025, "output": 0.00125}
+
+
+def estimate_cost_usd(usage: TokenUsage, model_id: str) -> float:
+    """Estimate cost in USD for a given token usage and model."""
+    rates = _COST_PER_1K.get(model_id, _DEFAULT_COST)
+    return (
+        (usage.input_tokens / 1000) * rates["input"]
+        + (usage.output_tokens / 1000) * rates["output"]
+    )
+
+
+# ─── Agent configuration error ────────────────────────────────────────────────
+
 class AgentConfigurationError(Exception):
     """Raised when the LLM client is misconfigured."""
-
     pass
 
+
+# ─── Base agent ───────────────────────────────────────────────────────────────
 
 class BaseAgent:
     """Base class for all LangChain agents.
@@ -33,59 +126,29 @@ class BaseAgent:
         max_tokens: int = 32000,
         model: str | None = None,
     ):
-        """Initialize the base agent with a system prompt and LLM configuration.
-
-        Args:
-            system_prompt: The system prompt defining the agent's role.
-            max_tokens: Maximum output tokens for this agent.
-            model: Optional explicit model identifier. If ``None``, the
-                default from ``settings.BEDROCK_MODEL_ID`` is used.
-
-        Raises:
-            AgentConfigurationError: If ``BEDROCK_MODEL_ID`` or ``AWS_REGION``
-                is missing.
-        """
         self.llm = self._make_bedrock_client(model, max_tokens)
-        # Mirror the resolution chain inside _make_bedrock_client so
-        # agent.model is what actually went to Bedrock — not the foundation
-        # id when the inference profile is what was invoked.
-        self.model = (
+        self.model_id = (
             model
             or settings.BEDROCK_INFERENCE_PROFILE_ID
             or settings.BEDROCK_MODEL_ID
         )
-
+        self.model = self.model_id  # backward-compat alias
         self.system_prompt = system_prompt
         logger.debug(
             "Agent initialized model=%s max_tokens=%d prompt_len=%d",
-            self.model,
-            max_tokens,
-            len(system_prompt),
+            self.model_id, max_tokens, len(system_prompt),
         )
 
     @staticmethod
     def _make_bedrock_client(model: str | None, max_tokens: int):
-        """Build a ChatBedrockConverse client. Lazy-import keeps dev installs lean.
+        """Build a ChatBedrockConverse client.
 
-        Resolution order for the model identifier passed to Bedrock's
-        Converse API:
-
-        1. The explicit ``model=`` arg, if provided by the subclass.
-        2. ``settings.BEDROCK_INFERENCE_PROFILE_ID`` — the cross-region
-           inference profile id, e.g. ``eu.anthropic.claude-haiku-4-5-…``.
-        3. ``settings.BEDROCK_MODEL_ID`` — the foundation-model id, e.g.
-           ``anthropic.claude-haiku-4-5-…``.
-
-        The inference profile is preferred because most regions (eu-central-1
-        included) reject *on-demand* invocations of the foundation-model id
-        directly with ``ValidationException: Invocation of model ID … with
-        on-demand throughput isn't supported. Retry your request with the ID
-        or ARN of an inference profile that contains this model.``
-        Falling back to ``BEDROCK_MODEL_ID`` keeps regions/accounts that DO
-        support on-demand foundation invocation working without any extra
-        config.
+        Resolution order:
+        1. Explicit ``model=`` arg from the subclass.
+        2. ``settings.BEDROCK_INFERENCE_PROFILE_ID`` — cross-region profile.
+        3. ``settings.BEDROCK_MODEL_ID`` — foundation-model id.
         """
-        from langchain_aws import ChatBedrockConverse  # noqa: WPS433 — lazy import
+        from langchain_aws import ChatBedrockConverse  # noqa: WPS433
 
         model_id = (
             model
@@ -106,21 +169,7 @@ class BaseAgent:
 
     @staticmethod
     def _extract_text(content) -> str:
-        """Pull text out of an AIMessage(Chunk).content payload.
-
-        ``ChatBedrockConverse`` (langchain-aws 0.2.x) ALWAYS returns ``content``
-        as a ``list[dict]`` of typed blocks — even for plain text streaming
-        responses, where each text delta arrives as
-        ``[{"type": "text", "text": "..."}]``. Other providers/wrappers may
-        return a bare ``str``. We accept either; non-text blocks (tool_use,
-        reasoning, image, …) are ignored at this layer because the WS payload
-        downstream string-concatenates the result.
-
-        Returning "" for unknown shapes is deliberate — yielding raw blocks
-        upstream would break ``current_agent_output_live["output"] += chunk``
-        in ``app.api.websocket`` with a ``TypeError: can only concatenate str
-        (not "list") to str``.
-        """
+        """Pull text out of an AIMessage(Chunk).content payload."""
         if isinstance(content, str):
             return content
         if isinstance(content, list):
@@ -164,16 +213,46 @@ class BaseAgent:
     ) -> AsyncGenerator[str, None]:
         """Stream the LLM response token-by-token."""
         messages = self._build_messages(user_message, context)
-        logger.debug("Streaming LLM call — messages=%d, user_msg_length=%d", len(messages), len(user_message))
-
+        logger.debug("Streaming LLM call — messages=%d, user_msg_length=%d",
+                     len(messages), len(user_message))
         chunk_count = 0
         async for chunk in self.llm.astream(messages):
             text = self._extract_text(chunk.content)
             if text:
                 chunk_count += 1
                 yield text
-
         logger.debug("Stream complete — %d chunks received", chunk_count)
+
+    async def astream_with_usage(
+        self, user_message: str, context: dict | None = None
+    ) -> AsyncGenerator[Union[str, TokenUsage], None]:
+        """Stream text chunks, then yield a final TokenUsage object.
+
+        ChatBedrockConverse populates ``usage_metadata`` on the last chunk
+        with input_tokens / output_tokens — works for any Bedrock model.
+        """
+        messages = self._build_messages(user_message, context)
+        last_chunk = None
+        async for chunk in self.llm.astream(messages):
+            text = self._extract_text(chunk.content)
+            if text:
+                yield text
+            last_chunk = chunk
+
+        usage = TokenUsage()
+        if last_chunk is not None:
+            meta = getattr(last_chunk, "usage_metadata", None)
+            if meta:
+                usage = TokenUsage(
+                    input_tokens=meta.get("input_tokens", 0),
+                    output_tokens=meta.get("output_tokens", 0),
+                    total_tokens=meta.get("total_tokens", 0),
+                    cache_read_tokens=meta.get("cache_read_input_tokens", 0),
+                    cache_write_tokens=meta.get("cache_creation_input_tokens", 0),
+                )
+                if usage.total_tokens == 0:
+                    usage.total_tokens = usage.input_tokens + usage.output_tokens
+        yield usage
 
     async def run(self, user_message: str, context: dict | None = None) -> str:
         """Run the LLM and return the full response."""
