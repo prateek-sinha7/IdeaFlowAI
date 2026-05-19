@@ -39,6 +39,10 @@ export default function DashboardPage() {
   const prototypeContentRef = useRef("");
   const userStoryContentRef = useRef("");
   const handlePipelineMsgRef = useRef<((msg: { type: string; [key: string]: unknown }) => boolean) | null>(null);
+  // Staged od_prototype run — written when authenticated, consumed when connected.
+  const pendingOdProtoRef = useRef<{
+    templateId: string; designSystemId: string; brief: string; discovery: unknown;
+  } | null>(null);
 
   // Workflow runs state (primary)
   const [recentRuns, setRecentRuns] = useState<WorkflowRun[]>([]);
@@ -54,6 +58,30 @@ export default function DashboardPage() {
     setToken(storedToken);
     setIsAuthenticated(true);
   }, [router]);
+
+  // Stage an od_prototype run into a ref as soon as we're authenticated.
+  // We can't fire startPipeline here because the WebSocket isn't open yet.
+  // The second effect (placed after useWebSocket/useWorkflow) consumes the ref
+  // once connectionStatus === "connected".
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const pending = sessionStorage.getItem("od_prototype.pending");
+    if (!pending) return;
+    sessionStorage.removeItem("od_prototype.pending");
+    try {
+      const draft = JSON.parse(sessionStorage.getItem("prototype.draft") ?? "{}") as {
+        templateId?: string; designSystemId?: string; brief?: string;
+      };
+      const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
+      if (!draft.templateId || !draft.designSystemId || !draft.brief) return;
+      pendingOdProtoRef.current = {
+        templateId: draft.templateId,
+        designSystemId: draft.designSystemId,
+        brief: draft.brief,
+        discovery,
+      };
+    } catch { /* ignore malformed session data */ }
+  }, [isAuthenticated]);
 
   // Fetch workflow runs on auth
   useEffect(() => {
@@ -94,7 +122,7 @@ export default function DashboardPage() {
             setUserStoryContent(finalOutput);
           } else if (pipelineType === "ppt" || pipelineType === "ppt_revision") {
             setPptContent(finalOutput);
-          } else if (pipelineType === "prototype" || pipelineType === "prototype_revision") {
+          } else if (pipelineType === "prototype" || pipelineType === "prototype_revision" || pipelineType === "od_prototype") {
             setPrototypeContent(finalOutput);
           }
         }
@@ -319,6 +347,28 @@ export default function DashboardPage() {
   useEffect(() => {
     handlePipelineMsgRef.current = handlePipelineMsg;
   }, [handlePipelineMsg]);
+
+  // Fire a staged od_prototype run as soon as the WebSocket is open.
+  // connectionStatus and startPipeline are both in scope here (declared above).
+  useEffect(() => {
+    if (connectionStatus !== "connected") return;
+    const pending = pendingOdProtoRef.current;
+    if (!pending) return;
+    pendingOdProtoRef.current = null;
+    setUserStoryContent("");
+    setPptContent("");
+    setPrototypeContent("");
+    pptContentRef.current = "";
+    prototypeContentRef.current = "";
+    userStoryContentRef.current = "";
+    startPipeline("od_prototype", pending.brief, undefined, undefined, undefined, {
+      template_id: pending.templateId,
+      design_system_id: pending.designSystemId,
+      discovery: pending.discovery,
+    });
+  // startPipeline is stable; connectionStatus drives the re-run.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionStatus]);
 
   // Send a message via WebSocket (for refinement chat)
   const sendingRef = useRef(false);

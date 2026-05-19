@@ -25,8 +25,10 @@ from dataclasses import dataclass, field
 from typing import AsyncGenerator
 
 from app.agents.base import BaseAgent, AgentConfigurationError
+from app.agents.deep_agent import DeepAgent
 from app.agents.registry import AgentDefinition, get_pipeline_agents
 from app.agents.skills import get_skill_content
+from app.agents.tools.workspace import AgentWorkspace, make_workspace_tools
 
 logger = logging.getLogger("app.agents.orchestrator_v2")
 
@@ -250,6 +252,46 @@ def _build_agent_context(state: WorkflowState, agent_index: int, agents: list[Ag
 
 
 # ============================================================
+# ============================================================
+# DEEP AGENT TOOL FACTORY
+# ============================================================
+
+
+def _build_tools_for_agent(
+    agent_def: AgentDefinition,
+    workspace: AgentWorkspace,
+) -> list:
+    """Return the tool list for a deep agent based on its declared tool sets.
+
+    Tool sets:
+      "workspace" → write_file, read_file, list_workspace_files
+                    (code-generating agents: app-code-generator, feature-impl, etc.)
+      "prototype" → read_template_seed, read_layout_reference, read_checklist,
+                    todo_write, emit_artifact
+                    (prototype agents: html-prototype-builder, prototype-polisher)
+    """
+    from app.agents.tools.prototype import ArtifactStore, make_prototype_tools
+
+    tools: list = []
+    tool_sets = getattr(agent_def, "tools", [])
+
+    if "workspace" in tool_sets:
+        tools.extend(make_workspace_tools(workspace))
+
+    if "prototype" in tool_sets:
+        # Each prototype deep agent gets its own artifact store so each stage
+        # emits independently. The od_runner reads the store after astream_events.
+        store = ArtifactStore()
+        agent_def._artifact_store = store  # type: ignore[attr-defined]
+        tools.extend(make_prototype_tools(
+            template_id=getattr(workspace, "_template_id", "web-prototype"),
+            artifact_store=store,
+        ))
+
+    return tools
+
+
+# ============================================================
 # WORKFLOW ORCHESTRATOR
 # ============================================================
 
@@ -278,6 +320,10 @@ class WorkflowOrchestrator:
         self.attached_skills: list[dict] = attached_skills or []
         # UI-attached hooks: list of {id, name, event, trigger, description}
         self.attached_hooks: list[dict] = attached_hooks or []
+
+        # Shared workspace for deep agents — code-writing agents write files here;
+        # at pipeline_complete the workspace is serialised into the final output.
+        self._workspace = AgentWorkspace()
 
         # Load agents from registry
         self.agents = custom_agents or get_pipeline_agents(pipeline_type)
@@ -439,21 +485,31 @@ class WorkflowOrchestrator:
                         f"{system_prompt}"
                     )
 
-                # Create agent
-                agent = BaseAgent(
-                    system_prompt=system_prompt,
-                    max_tokens=agent_def.max_tokens,
-                )
-
-                # Build context message using smart routing
+                # Create agent — DeepAgent (LangGraph tool loop) or BaseAgent
+                # (single LLM completion) depending on the registry config.
                 context_message = _build_agent_context(state, i, self.agents)
                 logger.debug("Context message: %d chars", len(context_message))
 
-                # Thinking-line phrasing: the first agent (i=0) has no
-                # upstream context to mention, so saying "0 previous
-                # agents" reads as a bug. Speak about previous-agent
-                # context only from the second agent onward, and use
-                # the correct singular/plural for i==1 vs i>=2.
+                use_deep = getattr(agent_def, "use_deep_agent", False)
+                agent_tools_config = getattr(agent_def, "tools", [])
+
+                if use_deep and agent_tools_config:
+                    tools = _build_tools_for_agent(agent_def, self._workspace)
+                    agent: BaseAgent | DeepAgent = DeepAgent(
+                        system_prompt=system_prompt,
+                        tools=tools,
+                        max_tokens=agent_def.max_tokens,
+                    )
+                    logger.info(
+                        "DEEP AGENT [%d/%d] %s — tools=%s",
+                        i + 1, len(self.agents), agent_def.id, agent_tools_config,
+                    )
+                else:
+                    agent = BaseAgent(
+                        system_prompt=system_prompt,
+                        max_tokens=agent_def.max_tokens,
+                    )
+
                 if i == 0:
                     thinking_msg = "Analyzing the request..."
                 elif i == 1:
@@ -463,10 +519,7 @@ class WorkflowOrchestrator:
 
                 yield {
                     "type": "agent_thinking",
-                    "data": {
-                        "agent_id": agent_def.id,
-                        "thinking": thinking_msg,
-                    },
+                    "data": {"agent_id": agent_def.id, "thinking": thinking_msg},
                 }
 
                 # Stream agent response with retry
@@ -474,25 +527,49 @@ class WorkflowOrchestrator:
                 max_retries = 2
 
                 for attempt in range(max_retries + 1):
-                    # Check cancellation before each attempt
                     if cancel_event and cancel_event.is_set():
                         raise asyncio.CancelledError()
 
                     try:
                         output_chunks = []
-                        async for chunk in agent.astream(context_message):
-                            # Check cancellation during streaming
-                            if cancel_event and cancel_event.is_set():
-                                raise asyncio.CancelledError()
-
-                            output_chunks.append(chunk)
-                            yield {
-                                "type": "agent_chunk",
-                                "data": {
-                                    "agent_id": agent_def.id,
-                                    "chunk": chunk,
-                                },
-                            }
+                        # DeepAgent: stream both text chunks AND tool events
+                        if use_deep and agent_tools_config and isinstance(agent, DeepAgent):
+                            async for event in agent.astream_events(context_message):
+                                if cancel_event and cancel_event.is_set():
+                                    raise asyncio.CancelledError()
+                                if event["type"] == "chunk":
+                                    output_chunks.append(event["chunk"])
+                                    yield {
+                                        "type": "agent_chunk",
+                                        "data": {"agent_id": agent_def.id, "chunk": event["chunk"]},
+                                    }
+                                elif event["type"] == "tool_call":
+                                    yield {
+                                        "type": "tool_call",
+                                        "data": {
+                                            "agent_id": agent_def.id,
+                                            "tool": event["tool"],
+                                            "args": event.get("args", {}),
+                                        },
+                                    }
+                                elif event["type"] == "tool_result":
+                                    yield {
+                                        "type": "tool_result",
+                                        "data": {
+                                            "agent_id": agent_def.id,
+                                            "tool": event["tool"],
+                                            "result": str(event.get("result", ""))[:500],
+                                        },
+                                    }
+                        else:
+                            async for chunk in agent.astream(context_message):
+                                if cancel_event and cancel_event.is_set():
+                                    raise asyncio.CancelledError()
+                                output_chunks.append(chunk)
+                                yield {
+                                    "type": "agent_chunk",
+                                    "data": {"agent_id": agent_def.id, "chunk": chunk},
+                                }
                         break  # Success
 
                     except asyncio.CancelledError:
@@ -617,7 +694,14 @@ class WorkflowOrchestrator:
         }
 
     def _get_final_output(self, state: WorkflowState) -> str:
-        """Get the final output — last agent's output."""
+        """Get the final output.
+
+        If any deep agent wrote files to the workspace, the workspace contents
+        take precedence — they represent the structured deliverable the user
+        will download. Otherwise fall back to the last agent's text output.
+        """
+        if self._workspace.file_count() > 0:
+            return self._workspace.to_final_output()
         if state.results:
             return state.results[-1].get("output", "")
         return ""

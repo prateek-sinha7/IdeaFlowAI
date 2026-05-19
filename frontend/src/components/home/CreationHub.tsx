@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
+import { useRouter } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import type { WorkflowType } from "@/types/index";
 
@@ -18,6 +19,19 @@ const WORKFLOWS: { id: string; type: WorkflowType; label: string; subtitle: stri
 ];
 
 export function CreationHub({ onSelectFeature }: CreationHubProps) {
+  const router = useRouter();
+
+  // Prototype now flows through the new OpenDesign-style template gallery
+  // instead of the inline WorkflowView. Everything else still uses the
+  // existing onSelectFeature path.
+  const handleClick = (type: WorkflowType) => {
+    if (type === "prototype") {
+      router.push("/workflow/prototype/templates");
+      return;
+    }
+    onSelectFeature(type);
+  };
+
   return (
     <div
       className="flex h-full flex-col overflow-y-auto"
@@ -54,7 +68,7 @@ export function CreationHub({ onSelectFeature }: CreationHubProps) {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, delay: 0.1 + idx * 0.06 }}
-              onClick={() => onSelectFeature(workflow.type)}
+              onClick={() => handleClick(workflow.type)}
               className="group w-full flex items-center justify-between gap-4 py-5 text-left hover:bg-white/60 transition-colors rounded-lg px-3 -mx-3"
             >
               <div className="flex-1 min-w-0">

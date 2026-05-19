@@ -5,7 +5,7 @@ import type { AgentRunState, PipelineRunState, AttachedSkill, AttachedHook } fro
 
 export interface UseWorkflowReturn {
   pipelineState: PipelineRunState;
-  startPipeline: (type: string, message: string, agentIds?: string[], attachedSkills?: AttachedSkill[], attachedHooks?: AttachedHook[]) => void;
+  startPipeline: (type: string, message: string, agentIds?: string[], attachedSkills?: AttachedSkill[], attachedHooks?: AttachedHook[], context?: Record<string, unknown>) => void;
   resetPipeline: () => void;
   isRunning: boolean;
   handleMessage: (msg: { type: string; [key: string]: unknown }) => boolean;
@@ -31,7 +31,7 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
   const agentStartTimesRef = useRef<Record<string, number>>({});
 
   const startPipeline = useCallback(
-    (type: string, message: string, agentIds?: string[], attachedSkills?: AttachedSkill[], attachedHooks?: AttachedHook[]) => {
+    (type: string, message: string, agentIds?: string[], attachedSkills?: AttachedSkill[], attachedHooks?: AttachedHook[], context?: Record<string, unknown>) => {
       startTimeRef.current = Date.now();
       agentStartTimesRef.current = {};
 
@@ -74,6 +74,12 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
           trigger: h.trigger,
           description: h.name + ": " + h.trigger,
         }));
+      }
+
+      // Extra context fields (e.g. template_id for od_prototype) are merged
+      // at the top level so the backend can read them from message_data.
+      if (context) {
+        Object.assign(payload, context);
       }
 
       websocketSend(JSON.stringify(payload));

@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { motion } from "motion/react";
-import { Loader2, RotateCcw, ArrowRight, Square, Sparkles } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import { Loader2, RotateCcw, ArrowRight, Square, Sparkles, ChevronDown } from "lucide-react";
 import type { AgentRunState, PipelineRunState, WorkflowType } from "@/types/index";
 import { availableChainTargets } from "@/lib/workflowChaining";
 
@@ -21,6 +21,7 @@ const PIPELINE_LABELS: Record<string, string> = {
   user_stories: "User Stories",
   ppt: "Presentation",
   prototype: "Prototype",
+  od_prototype: "Prototype",
   app_builder: "App Builder",
   custom: "Custom Workflow",
 };
@@ -36,12 +37,14 @@ const ICON_STYLES = [
 ];
 
 function AgentCard({ agent, index }: { agent: AgentRunState; index: number }) {
+  const [expanded, setExpanded] = useState(false);
   const isActive = agent.status === "running" || agent.status === "thinking";
   const isDone = agent.status === "done";
   const isError = agent.status === "error";
   const isIdle = agent.status === "idle";
   const iconStyle = ICON_STYLES[index % ICON_STYLES.length];
   const initials = agent.name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
+  const hasOutput = isDone && agent.output && agent.output.trim().length > 0;
 
   return (
     <motion.div
@@ -64,7 +67,7 @@ function AgentCard({ agent, index }: { agent: AgentRunState; index: number }) {
           ? { boxShadow: { duration: 1.6, repeat: Infinity, ease: "easeInOut" }, default: { delay: index * 0.04 } }
           : { delay: index * 0.04 }
       }
-      className={`rounded-xl border px-4 py-3.5 transition-colors ${
+      className={`rounded-xl border transition-colors ${
         isActive
           ? "border-[#1B2A4A] bg-white"
           : isDone
@@ -74,69 +77,100 @@ function AgentCard({ agent, index }: { agent: AgentRunState; index: number }) {
           : "border-gray-100 bg-white/60"
       }`}
     >
-      {/* Top row */}
-      <div className="flex items-center gap-3 mb-2">
-        {/* Icon */}
-        <div
-          className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-[11px] font-bold"
-          style={{ background: isIdle ? "#F5F5F0" : iconStyle.bg, color: isIdle ? "#9CA3AF" : iconStyle.text }}
-        >
-          {initials}
-        </div>
+      {/* Main card content — clickable to expand when done */}
+      <div
+        className={`px-4 py-3.5 ${hasOutput ? "cursor-pointer select-none" : ""}`}
+        onClick={() => hasOutput && setExpanded(v => !v)}
+        role={hasOutput ? "button" : undefined}
+        aria-expanded={hasOutput ? expanded : undefined}
+      >
+        {/* Top row */}
+        <div className="flex items-center gap-3 mb-2">
+          {/* Icon */}
+          <div
+            className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-[11px] font-bold"
+            style={{ background: isIdle ? "#F5F5F0" : iconStyle.bg, color: isIdle ? "#9CA3AF" : iconStyle.text }}
+          >
+            {initials}
+          </div>
 
-        {/* Name + badge */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2">
-            <p className={`text-[12px] font-semibold leading-tight ${isIdle ? "text-gray-500" : "text-gray-900"}`}>
-              {agent.name}
-            </p>
-            <div className="flex items-center gap-1.5 flex-shrink-0">
-              {isDone && agent.duration != null && (
-                <span className="text-[9px] text-gray-400">{agent.duration.toFixed(0)}s</span>
-              )}
-              {isDone && (
-                <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
-                  DONE
-                </span>
-              )}
-              {isActive && (
-                <span className="relative inline-flex items-center gap-1 text-[9px] font-bold text-white bg-[#1B2A4A] px-1.5 py-0.5 rounded">
-                  <span className="relative inline-flex h-1.5 w-1.5">
-                    <span className="absolute inline-flex h-full w-full rounded-full bg-white/70 animate-ping" />
-                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white" />
+          {/* Name + badge */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2">
+              <p className={`text-[12px] font-semibold leading-tight ${isIdle ? "text-gray-500" : "text-gray-900"}`}>
+                {agent.name}
+              </p>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                {isDone && agent.duration != null && (
+                  <span className="text-[9px] text-gray-400">{agent.duration.toFixed(0)}s</span>
+                )}
+                {isDone && (
+                  <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                    DONE
                   </span>
-                  RUNNING
-                </span>
-              )}
-              {isError && (
-                <span className="text-[9px] font-bold text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded">
-                  ERROR
-                </span>
-              )}
+                )}
+                {isActive && (
+                  <span className="relative inline-flex items-center gap-1 text-[9px] font-bold text-white bg-[#1B2A4A] px-1.5 py-0.5 rounded">
+                    <span className="relative inline-flex h-1.5 w-1.5">
+                      <span className="absolute inline-flex h-full w-full rounded-full bg-white/70 animate-ping" />
+                      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white" />
+                    </span>
+                    RUNNING
+                  </span>
+                )}
+                {isError && (
+                  <span className="text-[9px] font-bold text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded">
+                    ERROR
+                  </span>
+                )}
+                {hasOutput && (
+                  <ChevronDown className={`h-3 w-3 text-gray-400 transition-transform ${expanded ? "rotate-180" : ""}`} />
+                )}
+              </div>
             </div>
           </div>
         </div>
+
+        {/* Status line */}
+        {isDone && (
+          <p className="text-[11px] text-gray-500 mb-1.5">
+            {hasOutput ? "Click to view output" : "Completed successfully"}
+          </p>
+        )}
+        {isActive && (
+          <p className="text-[11px] text-gray-700 mb-1.5 flex items-center gap-1.5">
+            <Loader2 className="h-3 w-3 animate-spin text-[#1B2A4A]" />
+            {agent.thinking || "In progress..."}
+          </p>
+        )}
+        {isError && agent.error && (
+          <p className="text-[11px] text-red-600 mb-1.5">{agent.error}</p>
+        )}
+
+        {/* Role / subtitle */}
+        <p className={`text-[9px] font-semibold uppercase tracking-wider ${isIdle ? "text-gray-400" : "text-gray-500"}`}>
+          {agent.role}
+        </p>
       </div>
 
-      {/* Status line */}
-      {isDone && (
-        <p className="text-[11px] text-gray-500 mb-1.5">Completed successfully</p>
-      )}
-      {isActive && (
-        <p className="text-[11px] text-gray-700 mb-1.5 flex items-center gap-1.5">
-          <Loader2 className="h-3 w-3 animate-spin text-[#1B2A4A]" />
-          {agent.thinking || "In progress..."}
-        </p>
-      )}
-      {isError && agent.error && (
-        <p className="text-[11px] text-red-600 mb-1.5">{agent.error}</p>
-      )}
-
-      {/* Role / subtitle — always shown so users see what each agent will do
-          before it even starts, not just after it begins running. */}
-      <p className={`text-[9px] font-semibold uppercase tracking-wider ${isIdle ? "text-gray-400" : "text-gray-500"}`}>
-        {agent.role}
-      </p>
+      {/* Expanded output */}
+      <AnimatePresence>
+        {expanded && hasOutput && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="border-t border-gray-100 px-4 py-3">
+              <pre className="text-[10px] text-gray-700 leading-relaxed whitespace-pre-wrap break-words max-h-64 overflow-y-auto font-mono">
+                {agent.output}
+              </pre>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

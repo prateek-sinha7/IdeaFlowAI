@@ -373,17 +373,33 @@ async def websocket_chat(websocket: WebSocket):
                 agent_ids = message_data.get("agent_ids")  # Optional custom agent list
                 attached_skills = message_data.get("attached_skills") or []  # UI-selected skills
                 attached_hooks = message_data.get("attached_hooks") or []    # UI-selected hooks
-                # Spawn as a background task — DO NOT await. Awaiting here
-                # blocks the receive loop for the entire pipeline duration,
-                # which is what made cancel_pipeline a no-op before A3.
-                current_pipeline_task = asyncio.create_task(
-                    _handle_pipeline_execution(
-                        websocket, pipeline_content, pipeline_type,
-                        chat_session_id, token, user, agent_ids=agent_ids,
-                        attached_skills=attached_skills,
-                        attached_hooks=attached_hooks,
+
+                # OD prototype uses its own runner with per-request prompt
+                # composition; everything else goes through the standard
+                # orchestrator_v2 path.
+                if pipeline_type == "od_prototype":
+                    current_pipeline_task = asyncio.create_task(
+                        _handle_od_prototype_execution(
+                            websocket,
+                            brief=pipeline_content,
+                            template_id=message_data.get("template_id", ""),
+                            design_system_id=message_data.get("design_system_id", ""),
+                            discovery=message_data.get("discovery"),
+                            user=user,
+                        )
                     )
-                )
+                else:
+                    # Spawn as a background task — DO NOT await. Awaiting here
+                    # blocks the receive loop for the entire pipeline duration,
+                    # which is what made cancel_pipeline a no-op before A3.
+                    current_pipeline_task = asyncio.create_task(
+                        _handle_pipeline_execution(
+                            websocket, pipeline_content, pipeline_type,
+                            chat_session_id, token, user, agent_ids=agent_ids,
+                            attached_skills=attached_skills,
+                            attached_hooks=attached_hooks,
+                        )
+                    )
                 continue
 
             # Handle pipeline cancellation
@@ -607,6 +623,201 @@ async def websocket_chat(websocket: WebSocket):
             await websocket.close(code=1011, reason="Internal server error")
         except Exception:
             pass
+
+
+async def _handle_od_prototype_execution(
+    websocket: WebSocket,
+    brief: str,
+    template_id: str,
+    design_system_id: str,
+    discovery: dict | None,
+    user: User,
+) -> None:
+    """Run the OpenDesign-style 4-agent prototype pipeline over WebSocket.
+
+    Translates od_runner's NDJSON-shaped events into the same
+    ``{type, chunk, section, data}`` envelope the existing pipelines use so
+    the frontend ``useWorkflow`` hook and ``AgentProgressPanel`` component
+    work without modification.
+    """
+    from app.agents.od_runner import run_od_prototype_pipeline
+    from app.services.od_loader import get_template, get_design_system
+
+    # Validate IDs up front — avoids starting a WorkflowRun that will fail
+    # immediately inside the runner with a LookupError.
+    if not template_id or get_template(template_id) is None:
+        await websocket.send_json({
+            "type": "error", "chunk": None, "section": None,
+            "data": {"error": f"Unknown template: {template_id!r}", "code": "invalid_template", "recoverable": False},
+        })
+        return
+    if not design_system_id or get_design_system(design_system_id) is None:
+        await websocket.send_json({
+            "type": "error", "chunk": None, "section": None,
+            "data": {"error": f"Unknown design system: {design_system_id!r}", "code": "invalid_design_system", "recoverable": False},
+        })
+        return
+
+    # Create WorkflowRun record for history.
+    workflow_run_id = None
+    db = _get_db()
+    try:
+        workflow_run = WorkflowRun(
+            user_id=user.id,
+            title=(brief or "Prototype")[:60].strip(),
+            type="od_prototype",
+            status="running",
+            input=brief or f"template={template_id} ds={design_system_id}",
+            agent_count=4,
+        )
+        db.add(workflow_run)
+        db.commit()
+        db.refresh(workflow_run)
+        workflow_run_id = workflow_run.id
+    finally:
+        db.close()
+
+    final_html = ""
+    monotonic_start = time.monotonic()
+    execution_start = datetime.now(timezone.utc)
+
+    try:
+        async for event in run_od_prototype_pipeline(
+            template_id=template_id,
+            design_system_id=design_system_id,
+            brief=brief,
+            discovery=discovery,
+        ):
+            t = event.get("type")
+
+            if t == "pipeline_start":
+                await websocket.send_json({
+                    "type": "pipeline_start", "chunk": None, "section": "od_prototype",
+                    "data": {
+                        "agents": event.get("agents", []),
+                        "pipeline_type": "od_prototype",
+                    },
+                })
+
+            elif t == "agent_start":
+                await websocket.send_json({
+                    "type": "agent_start", "chunk": None, "section": "od_prototype",
+                    "data": {
+                        "agent_id": event.get("agent_id"),
+                        "name": event.get("name"),
+                        "role": event.get("role"),
+                        "icon": event.get("icon"),
+                        "index": event.get("index"),
+                    },
+                })
+
+            elif t == "agent_chunk":
+                await websocket.send_json({
+                    "type": "agent_chunk", "chunk": None, "section": "od_prototype",
+                    "data": {
+                        "agent_id": event.get("agent_id"),
+                        "chunk": event.get("chunk", ""),
+                    },
+                })
+
+            elif t == "agent_complete":
+                await websocket.send_json({
+                    "type": "agent_complete", "chunk": None, "section": "od_prototype",
+                    "data": {
+                        "agent_id": event.get("agent_id"),
+                        "duration": event.get("duration"),
+                    },
+                })
+
+            elif t == "agent_error":
+                await websocket.send_json({
+                    "type": "agent_error", "chunk": None, "section": "od_prototype",
+                    "data": {
+                        "agent_id": event.get("agent_id"),
+                        "error": event.get("error", "Agent failed"),
+                    },
+                })
+
+            elif t == "artifact" and event.get("stage") == "final":
+                # Final artifact — store for pipeline_complete; don't emit
+                # a separate WS event since the frontend reads final_output
+                # from pipeline_complete.data.
+                final_html = event.get("html", "")
+
+            elif t == "pipeline_complete":
+                if not final_html:
+                    final_html = event.get("final_html", "")
+                duration = round(time.monotonic() - monotonic_start, 1)
+                await websocket.send_json({
+                    "type": "pipeline_complete", "chunk": None, "section": "od_prototype",
+                    "data": {
+                        "final_output": final_html,
+                        "pipeline_type": "od_prototype",
+                        "total_duration": duration,
+                    },
+                })
+
+            elif t == "pipeline_error":
+                raise RuntimeError(event.get("error", "Pipeline failed"))
+
+    except asyncio.CancelledError:
+        duration = round(time.monotonic() - monotonic_start, 1)
+        if workflow_run_id:
+            db = _get_db()
+            try:
+                wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+                if wr:
+                    wr.status = "cancelled"
+                    wr.completed_at = datetime.now(timezone.utc)
+                    wr.duration = duration
+                    db.commit()
+            finally:
+                db.close()
+        try:
+            await websocket.send_json({
+                "type": "pipeline_cancelled", "chunk": None, "section": None,
+                "data": {"message": "Pipeline cancelled", "duration": duration},
+            })
+        except Exception:
+            pass
+        raise
+
+    except Exception as exc:
+        logger.error("OD prototype pipeline error: %s", exc)
+        if workflow_run_id:
+            db = _get_db()
+            try:
+                wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+                if wr:
+                    wr.status = "failed"
+                    wr.error = str(exc)
+                    wr.completed_at = datetime.now(timezone.utc)
+                    wr.duration = round((datetime.now(timezone.utc) - execution_start).total_seconds(), 1)
+                    db.commit()
+            finally:
+                db.close()
+        try:
+            await websocket.send_json({
+                "type": "error", "chunk": None, "section": None,
+                "data": {"error": f"Pipeline failed: {exc}", "code": "pipeline_error", "recoverable": True},
+            })
+        except Exception:
+            pass
+        return
+
+    # Mark complete in DB.
+    if workflow_run_id:
+        db = _get_db()
+        try:
+            wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+            if wr:
+                wr.status = "completed"
+                wr.output = final_html
+                wr.completed_at = datetime.now(timezone.utc)
+                wr.duration = round(time.monotonic() - monotonic_start, 1)
+                db.commit()
+        finally:
+            db.close()
 
 
 async def _handle_pipeline_execution(

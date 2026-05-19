@@ -88,12 +88,27 @@ export function DashboardLayout({
   // Read attached skills/hooks from global context — set by user in AgentsPopup
   const { attachedSkills, attachedHooks } = useSkillsHooks();
 
-  // Detect when pipeline starts running → switch to execution view
+  // Detect when pipeline starts running → switch to execution view.
+  // Also sync workflowType from the pipeline's declared type so PreviewPanel
+  // renders the right output component. Without this, od_prototype (which is
+  // triggered programmatically, not via handleSelectFeature) would leave
+  // workflowType at its "user_stories" default, causing PreviewPanel to render
+  // UserStoryPreview instead of PrototypePreview.
   useEffect(() => {
-    if (pipelineState?.isRunning && mainView !== "execution") {
-      setMainView("execution");
+    if (pipelineState?.isRunning) {
+      if (mainView !== "execution") {
+        setMainView("execution");
+      }
+      const pt = pipelineState.pipeline_type as WorkflowType | "od_prototype";
+      // Normalise od_prototype → prototype so workflowType stays within the
+      // existing WorkflowType union that the rest of the UI understands.
+      const normalised: WorkflowType = pt === "od_prototype" ? "prototype" : (pt as WorkflowType);
+      if (normalised && normalised !== workflowType) {
+        setWorkflowType(normalised);
+      }
     }
-  }, [pipelineState?.isRunning, mainView]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipelineState?.isRunning, pipelineState?.pipeline_type]);
 
   // Capture output when pipeline completes (for chaining)
   useEffect(() => {

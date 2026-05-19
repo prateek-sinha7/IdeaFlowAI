@@ -65,6 +65,13 @@ const TYPE_CONFIG: Record<WorkflowType, {
     placeholder: "e.g. Build a dashboard for tracking SaaS subscription metrics with charts and filters.",
     icon: Layout,
   },
+  od_prototype: {
+    tag: "Build an interactive prototype",
+    heading: "Describe the product",
+    subtitle: "Translate a brief into a multi-page SPA prototype using a selected template and design system.",
+    placeholder: "e.g. Build a project management SaaS with login, dashboard, and settings.",
+    icon: Layout,
+  },
   prototype_revision: {
     tag: "Iterate on an existing prototype",
     heading: "What should change?",

@@ -13,6 +13,10 @@ pydantic-settings==2.7.1
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 langchain==0.3.14
+# LangGraph — ReAct agent framework for tool-calling deep agents.
+# Used by DeepAgent (app/agents/deep_agent.py) for code-writing and
+# prototype agents that need tool loops (write_file, read_template_seed, etc.)
+langgraph==1.1.10
 # AWS Bedrock provider (default). Bump after testing — the operator should
 # verify the latest 0.2.x with `pip index versions langchain-aws`.
 langchain-aws==0.2.10

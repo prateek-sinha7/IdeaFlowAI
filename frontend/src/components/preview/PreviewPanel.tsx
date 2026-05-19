@@ -181,6 +181,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, i
   const renderType = detectedType === "user_stories_revision" ? "user_stories"
     : detectedType === "ppt_revision" ? "ppt"
     : detectedType === "prototype_revision" ? "prototype"
+    : detectedType === "od_prototype" ? "prototype"
     : detectedType === "app_builder_revision" ? "app_builder"
     : detectedType;
   const activeContent =
