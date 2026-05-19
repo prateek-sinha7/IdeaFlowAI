@@ -41,12 +41,53 @@ class TokenUsage:
         }
 
 
-# Cost rates per 1K tokens (USD) — Bedrock Haiku / Sonnet inference profiles
+# Cost rates per 1K tokens (USD) — covers all commonly used Bedrock models.
+# If a model_id isn't listed, _DEFAULT_COST is used as a safe fallback.
+# Source: https://aws.amazon.com/bedrock/pricing/
 _COST_PER_1K: dict[str, dict[str, float]] = {
-    "anthropic.claude-haiku-4-5-20251001-v1:0":    {"input": 0.00025, "output": 0.00125},
-    "eu.anthropic.claude-haiku-4-5-20251001-v1:0": {"input": 0.00025, "output": 0.00125},
-    "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": {"input": 0.003,   "output": 0.015},
+    # ── Claude Haiku 4.5 ──────────────────────────────────────────────────
+    "anthropic.claude-haiku-4-5-20251001-v1:0":         {"input": 0.00025,  "output": 0.00125},
+    "eu.anthropic.claude-haiku-4-5-20251001-v1:0":      {"input": 0.00025,  "output": 0.00125},
+    "us.anthropic.claude-haiku-4-5-20251001-v1:0":      {"input": 0.00025,  "output": 0.00125},
+    "ap.anthropic.claude-haiku-4-5-20251001-v1:0":      {"input": 0.00025,  "output": 0.00125},
+    # ── Claude Haiku 3 ────────────────────────────────────────────────────
+    "anthropic.claude-3-haiku-20240307-v1:0":           {"input": 0.00025,  "output": 0.00125},
+    "eu.anthropic.claude-3-haiku-20240307-v1:0":        {"input": 0.00025,  "output": 0.00125},
+    "us.anthropic.claude-3-haiku-20240307-v1:0":        {"input": 0.00025,  "output": 0.00125},
+    # ── Claude Sonnet 4.5 ─────────────────────────────────────────────────
+    "anthropic.claude-sonnet-4-5-20250929-v1:0":        {"input": 0.003,    "output": 0.015},
+    "eu.anthropic.claude-sonnet-4-5-20250929-v1:0":     {"input": 0.003,    "output": 0.015},
+    "us.anthropic.claude-sonnet-4-5-20250929-v1:0":     {"input": 0.003,    "output": 0.015},
+    # ── Claude Sonnet 3.5 ─────────────────────────────────────────────────
+    "anthropic.claude-3-5-sonnet-20241022-v2:0":        {"input": 0.003,    "output": 0.015},
+    "eu.anthropic.claude-3-5-sonnet-20241022-v2:0":     {"input": 0.003,    "output": 0.015},
+    "us.anthropic.claude-3-5-sonnet-20241022-v2:0":     {"input": 0.003,    "output": 0.015},
+    "anthropic.claude-3-5-sonnet-20240620-v1:0":        {"input": 0.003,    "output": 0.015},
+    # ── Claude Sonnet 3 ───────────────────────────────────────────────────
+    "anthropic.claude-3-sonnet-20240229-v1:0":          {"input": 0.003,    "output": 0.015},
+    # ── Claude Opus 4 / 3 ─────────────────────────────────────────────────
+    "anthropic.claude-opus-4-5-20251101-v1:0":          {"input": 0.015,    "output": 0.075},
+    "eu.anthropic.claude-opus-4-5-20251101-v1:0":       {"input": 0.015,    "output": 0.075},
+    "anthropic.claude-3-opus-20240229-v1:0":            {"input": 0.015,    "output": 0.075},
+    # ── Meta Llama 3 ──────────────────────────────────────────────────────
+    "meta.llama3-8b-instruct-v1:0":                     {"input": 0.0003,   "output": 0.0006},
+    "meta.llama3-70b-instruct-v1:0":                    {"input": 0.00265,  "output": 0.0035},
+    "meta.llama3-1-8b-instruct-v1:0":                   {"input": 0.0003,   "output": 0.0006},
+    "meta.llama3-1-70b-instruct-v1:0":                  {"input": 0.00265,  "output": 0.0035},
+    "meta.llama3-1-405b-instruct-v1:0":                 {"input": 0.00532,  "output": 0.016},
+    # ── Mistral ───────────────────────────────────────────────────────────
+    "mistral.mistral-7b-instruct-v0:2":                 {"input": 0.00015,  "output": 0.0002},
+    "mistral.mixtral-8x7b-instruct-v0:1":               {"input": 0.00045,  "output": 0.0007},
+    "mistral.mistral-large-2402-v1:0":                  {"input": 0.004,    "output": 0.012},
+    # ── Amazon Titan ──────────────────────────────────────────────────────
+    "amazon.titan-text-express-v1":                     {"input": 0.0002,   "output": 0.0006},
+    "amazon.titan-text-lite-v1":                        {"input": 0.00015,  "output": 0.0002},
+    "amazon.titan-text-premier-v1:0":                   {"input": 0.0005,   "output": 0.0015},
+    # ── Cohere ────────────────────────────────────────────────────────────
+    "cohere.command-r-v1:0":                            {"input": 0.0005,   "output": 0.0015},
+    "cohere.command-r-plus-v1:0":                       {"input": 0.003,    "output": 0.015},
 }
+# Fallback when model_id isn't in the table — uses Haiku rates (conservative)
 _DEFAULT_COST = {"input": 0.00025, "output": 0.00125}
 
 
@@ -86,21 +127,16 @@ class BaseAgent:
         model: str | None = None,
     ):
         self.llm = self._make_bedrock_client(model, max_tokens)
-        # model_id is the actual identifier sent to Bedrock — used for cost
-        # estimation in orchestrator_v2.py.
         self.model_id = (
             model
             or settings.BEDROCK_INFERENCE_PROFILE_ID
             or settings.BEDROCK_MODEL_ID
         )
-        # Keep self.model as an alias for backward compatibility.
-        self.model = self.model_id
+        self.model = self.model_id  # backward-compat alias
         self.system_prompt = system_prompt
         logger.debug(
             "Agent initialized model=%s max_tokens=%d prompt_len=%d",
-            self.model_id,
-            max_tokens,
-            len(system_prompt),
+            self.model_id, max_tokens, len(system_prompt),
         )
 
     @staticmethod
@@ -193,8 +229,7 @@ class BaseAgent:
         """Stream text chunks, then yield a final TokenUsage object.
 
         ChatBedrockConverse populates ``usage_metadata`` on the last chunk
-        with input_tokens / output_tokens — we capture it and yield a
-        TokenUsage so orchestrator_v2 can track costs without extra calls.
+        with input_tokens / output_tokens — works for any Bedrock model.
         """
         messages = self._build_messages(user_message, context)
         last_chunk = None
