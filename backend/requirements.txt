@@ -13,6 +13,8 @@ pydantic-settings==2.7.1
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 langchain==0.3.14
+# Anthropic direct API — used when ANTHROPIC_API_KEY is set (local dev)
+langchain-anthropic==0.3.4
 # LangGraph — ReAct agent framework for tool-calling deep agents.
 # Used by DeepAgent (app/agents/deep_agent.py) for code-writing and
 # prototype agents that need tool loops (write_file, read_template_seed, etc.)

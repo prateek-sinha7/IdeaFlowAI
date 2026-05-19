@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     # Anything else (production, staging, ci, …) → strict.
     ENV: str = "development"
 
+    # ---- Anthropic direct API (local dev fallback) ----
+    # When set, uses langchain-anthropic instead of Bedrock.
+    ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_MODEL_ID: str = "claude-haiku-4-5-20251001"
+
     # ---- AWS Bedrock ----
     # Foundation-model ID. The IAM policy in
     # infra/policies/bedrock-invoke.json scopes invoke to this exact ID, the

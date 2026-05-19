@@ -1,4 +1,4 @@
-"""Base agent class. Wraps AWS Bedrock via langchain-aws ChatBedrockConverse."""
+"""Base agent — auto-selects Anthropic (local dev) or Bedrock (production)."""
 
 import logging
 from dataclasses import dataclass
@@ -112,12 +112,9 @@ class AgentConfigurationError(Exception):
 class BaseAgent:
     """Base class for all LangChain agents.
 
-    Constructs a ``langchain_aws.ChatBedrockConverse`` client. Auth comes from
-    the boto3 default credential chain (instance profile in prod,
-    ``~/.aws/credentials`` / ``AWS_PROFILE`` locally). No API key.
-
-    Subclasses inherit ``astream``/``run`` and may pass ``model=`` to override
-    the default Bedrock model/inference-profile id.
+    Auto-selects provider:
+    - ANTHROPIC_API_KEY set → langchain-anthropic (local dev)
+    - Otherwise            → langchain-aws ChatBedrockConverse (production)
     """
 
     def __init__(
@@ -126,46 +123,34 @@ class BaseAgent:
         max_tokens: int = 32000,
         model: str | None = None,
     ):
-        self.llm = self._make_bedrock_client(model, max_tokens)
-        self.model_id = (
-            model
-            or settings.BEDROCK_INFERENCE_PROFILE_ID
-            or settings.BEDROCK_MODEL_ID
-        )
+        self.model_id = self._resolve_model_id(model)
+        self.llm = self._make_client(self.model_id, max_tokens)
         self.model = self.model_id  # backward-compat alias
         self.system_prompt = system_prompt
-        logger.debug(
-            "Agent initialized model=%s max_tokens=%d prompt_len=%d",
-            self.model_id, max_tokens, len(system_prompt),
-        )
+        logger.debug("Agent initialized provider=%s max_tokens=%d",
+                     "anthropic" if settings.ANTHROPIC_API_KEY else "bedrock", max_tokens)
 
     @staticmethod
-    def _make_bedrock_client(model: str | None, max_tokens: int):
-        """Build a ChatBedrockConverse client.
+    def _resolve_model_id(model: str | None) -> str:
+        if model:
+            return model
+        if settings.ANTHROPIC_API_KEY:
+            return settings.ANTHROPIC_MODEL_ID or "claude-haiku-4-5-20251001"
+        return settings.BEDROCK_INFERENCE_PROFILE_ID or settings.BEDROCK_MODEL_ID or ""
 
-        Resolution order:
-        1. Explicit ``model=`` arg from the subclass.
-        2. ``settings.BEDROCK_INFERENCE_PROFILE_ID`` — cross-region profile.
-        3. ``settings.BEDROCK_MODEL_ID`` — foundation-model id.
-        """
+    @staticmethod
+    def _make_client(model_id: str, max_tokens: int):
+        if settings.ANTHROPIC_API_KEY:
+            from langchain_anthropic import ChatAnthropic
+            return ChatAnthropic(model=model_id, api_key=settings.ANTHROPIC_API_KEY, max_tokens=max_tokens)
+
         from langchain_aws import ChatBedrockConverse  # noqa: WPS433
-
-        model_id = (
-            model
-            or settings.BEDROCK_INFERENCE_PROFILE_ID
-            or settings.BEDROCK_MODEL_ID
-        )
-        region = settings.AWS_REGION
-        if not model_id or not region:
+        if not model_id or not settings.AWS_REGION:
             raise AgentConfigurationError(
-                "Bedrock provider requires BEDROCK_INFERENCE_PROFILE_ID (preferred) "
-                "or BEDROCK_MODEL_ID, plus AWS_REGION, to be set."
+                "No LLM configured. Set ANTHROPIC_API_KEY for local dev or "
+                "BEDROCK_INFERENCE_PROFILE_ID + AWS_REGION for production."
             )
-        return ChatBedrockConverse(
-            model=model_id,
-            region_name=region,
-            max_tokens=max_tokens,
-        )
+        return ChatBedrockConverse(model=model_id, region_name=settings.AWS_REGION, max_tokens=max_tokens)
 
     @staticmethod
     def _extract_text(content) -> str:

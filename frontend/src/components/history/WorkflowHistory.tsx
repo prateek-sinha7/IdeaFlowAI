@@ -73,6 +73,7 @@ const TYPE_META: Record<string, { icon: typeof FileText; label: string }> = {
   ppt_revision: { icon: Presentation, label: "Presentation (Revised)" },
   prototype: { icon: Layout, label: "Prototype" },
   prototype_revision: { icon: Layout, label: "Prototype (Revised)" },
+  od_prototype: { icon: Layout, label: "Prototype" },
   app_builder: { icon: Layout, label: "App Builder" },
   app_builder_revision: { icon: Layout, label: "App Builder (Revised)" },
   custom: { icon: FileText, label: "Custom" },
@@ -158,8 +159,8 @@ export function WorkflowHistory({ onBack, onChainPipeline }: WorkflowHistoryProp
   }, [deleteConfirmId, selectedRun]);
 
   const filteredRuns = runs.filter((r) => {
-    // Group revision types with their base type for filtering
-    const baseType = r.type.replace("_revision", "");
+    // Map od_prototype → prototype for filtering
+    const baseType = r.type === "od_prototype" ? "prototype" : r.type.replace("_revision", "");
     const matchType = filterType === "all" || baseType === filterType || r.type === filterType;
     const matchSearch = !searchQuery || (r.title || "").toLowerCase().includes(searchQuery.toLowerCase());
     return matchType && matchSearch;
@@ -213,7 +214,7 @@ export function WorkflowHistory({ onBack, onChainPipeline }: WorkflowHistoryProp
     const isCustom = workflowType === "custom";
     const isMarkdown = isCustom;
     const isPpt = workflowType === "ppt" || workflowType === "ppt_revision";
-    const isPrototype = workflowType === "prototype" || workflowType === "prototype_revision";
+    const isPrototype = workflowType === "prototype" || workflowType === "prototype_revision" || workflowType === "od_prototype";
     const agentOutputs = detailAgentOutputs;
 
     return (
@@ -466,7 +467,8 @@ export function WorkflowHistory({ onBack, onChainPipeline }: WorkflowHistoryProp
   const typeGroups = ["all", "user_stories", "ppt", "prototype", "app_builder", "custom"];
   const typeCounts: Record<string, number> = { all: runs.length };
   runs.forEach((r) => {
-    const base = r.type.replace("_revision", "");
+    // Map od_prototype → prototype so it counts under the Prototype tab
+    const base = r.type === "od_prototype" ? "prototype" : r.type.replace("_revision", "");
     typeCounts[base] = (typeCounts[base] || 0) + 1;
   });
 

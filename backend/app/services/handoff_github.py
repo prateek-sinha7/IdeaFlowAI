@@ -19,8 +19,14 @@ from __future__ import annotations
 import logging
 import os
 import re
-import resource
+import sys
 import shutil
+
+# resource module is Unix-only
+if sys.platform != "win32":
+    import resource
+else:
+    resource = None  # type: ignore[assignment]
 import subprocess  # nosec B404 — controlled invocation of `git`, scrubbed env, rlimits
 import time
 from dataclasses import dataclass
@@ -44,12 +50,10 @@ _GIT_WALL_TIMEOUT_S = 90
 
 def _apply_child_rlimits() -> None:
     """preexec_fn: tighten resource limits on the cloned ``git`` child.
-
-    Same hardening pattern as :func:`app.services.pptx_export._apply_child_rlimits`.
-    Each setrlimit failure is logged and ignored — a kernel that rejects
-    one limit (sometimes the case on macOS or in restricted containers)
-    should not prevent the rest from being applied.
+    No-op on Windows where the resource module is unavailable.
     """
+    if resource is None:
+        return
     for limit, value in [
         (resource.RLIMIT_CPU, _RLIMIT_CPU_SECONDS),
         (resource.RLIMIT_AS, _RLIMIT_AS_BYTES),
@@ -60,7 +64,6 @@ def _apply_child_rlimits() -> None:
         try:
             resource.setrlimit(limit, (value, value))
         except (ValueError, resource.error, OSError) as exc:
-            # Use logger directly — child stderr will still surface real errors.
             logger.debug("setrlimit(%s, %s) failed in child: %s", limit, value, exc)
 
 

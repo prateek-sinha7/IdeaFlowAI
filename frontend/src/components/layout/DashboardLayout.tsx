@@ -9,10 +9,14 @@ import { CreationHub } from "@/components/home/CreationHub";
 import { LibraryPage } from "@/components/library/LibraryPage";
 import { WorkflowHistory } from "@/components/history/WorkflowHistory";
 import { AccountSettings } from "@/components/settings/AccountSettings";
+import { AnalyticsPage } from "@/components/analytics/AnalyticsPage";
 import { IdeaInputPage } from "@/components/workflow/IdeaInputPage";
 import { AgentProgressPanel } from "@/components/workflow/AgentProgressPanel";
 import { PreviewPanel } from "@/components/preview/PreviewPanel";
 import { QuestionnairePanel } from "@/components/preview/QuestionnairePanel";
+import { CompletionToast } from "@/components/ui/CompletionToast";
+import type { ToastItem } from "@/components/ui/CompletionToast";
+import { useNotifications } from "@/hooks/useNotifications";
 import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WorkflowRun, WorkflowType } from "@/types/index";
 import { canChainFrom } from "@/lib/workflowChaining";
 import type { ConnectionStatus } from "@/hooks/useWebSocket";
@@ -45,9 +49,10 @@ export interface DashboardLayoutProps {
   recentRuns?: WorkflowRun[];
   onSelectWorkflowRun?: (run: WorkflowRun) => void;
   questionnaireData?: { questions: { id: string; question: string; options: string[] }[] } | null;
+  userTier?: "basic" | "pro" | "enterprise";
 }
 
-type MainView = "home" | "library" | "history" | "settings" | "input" | "execution";
+type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution";
 
 export function DashboardLayout({
   activeChatId,
@@ -75,6 +80,7 @@ export function DashboardLayout({
   recentRuns,
   onSelectWorkflowRun,
   questionnaireData,
+  userTier = "basic",
 }: DashboardLayoutProps) {
   const [mainView, setMainView] = useState<MainView>("home");
   const [workflowType, setWorkflowType] = useState<WorkflowType>("user_stories");
@@ -87,6 +93,26 @@ export function DashboardLayout({
 
   // Read attached skills/hooks from global context — set by user in AgentsPopup
   const { attachedSkills, attachedHooks } = useSkillsHooks();
+
+  // ── Notifications + toasts ──────────────────────────────────────────────
+  const {
+    notifications,
+    unreadCount,
+    addRunningNotification,
+    updateProgress,
+    updateAgentsTotal,
+    markCompleted,
+    markFailed,
+    markCancelled,
+    markAllRead,
+    clearAll,
+  } = useNotifications();
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const currentPipelineNotifId = useRef<string | null>(null);
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
 
   // Detect when pipeline starts running → switch to execution view.
   // Also sync workflowType from the pipeline's declared type so PreviewPanel
@@ -115,17 +141,71 @@ export function DashboardLayout({
     if (pipelineState && !pipelineState.isRunning && pipelineState.agents.length > 0) {
       const allDone = pipelineState.agents.every((a) => a.status === "done" || a.status === "error");
       if (allDone && pipelineState.agents.some((a) => a.status === "done")) {
-        // Pipeline just completed — track it
         setCompletedPipelineTypes((prev) => {
           if (prev.includes(workflowType)) return prev;
           return [...prev, workflowType];
         });
-        // Capture the latest output for chaining
         const output = pptContent || userStoryContent || prototypeContent;
         if (output) setLastPipelineOutput(output);
+
+        // Fire completion notification + toast
+        if (currentPipelineNotifId.current) {
+          const notifId = currentPipelineNotifId.current;
+          currentPipelineNotifId.current = null;  // reset so next run gets a fresh notification
+          markCompleted(notifId);
+          setToasts(prev => [...prev, {
+            id: notifId + "-toast",
+            workflowType,
+            title: workflowType,
+            status: "completed",
+          }]);
+        }
       }
     }
   }, [pipelineState, workflowType, pptContent, userStoryContent, prototypeContent]);
+
+  // Update notification progress as agents complete
+  useEffect(() => {
+    if (pipelineState?.isRunning && currentPipelineNotifId.current) {
+      updateProgress(currentPipelineNotifId.current, pipelineState.completedCount);
+    }
+  }, [pipelineState?.completedCount, pipelineState?.isRunning]);
+
+  // Detect when od_prototype starts (fired from dashboard/page.tsx directly,
+  // not through handleQuestionnaireSubmit) and create a notification for it.
+  const odProtoNotifCreated = useRef(false);
+  useEffect(() => {
+    if (
+      pipelineState?.isRunning &&
+      (pipelineState.pipeline_type === "od_prototype" || pipelineState.pipeline_type === "prototype") &&
+      !currentPipelineNotifId.current
+    ) {
+      if (odProtoNotifCreated.current) return;
+      odProtoNotifCreated.current = true;
+      const notifId = `pipeline-${Date.now()}`;
+      currentPipelineNotifId.current = notifId;
+      addRunningNotification(notifId, "prototype", "Prototype", 0);
+    }
+    if (!pipelineState?.isRunning) {
+      odProtoNotifCreated.current = false;
+    }
+  }, [pipelineState?.isRunning, pipelineState?.pipeline_type]);
+
+  // Update agentsTotal when pipeline_start arrives with the real agent list
+  useEffect(() => {
+    const agentCount = pipelineState?.agents?.length ?? 0;
+    if (agentCount > 0 && currentPipelineNotifId.current) {
+      updateAgentsTotal(currentPipelineNotifId.current, agentCount);
+    }
+  }, [pipelineState?.agents?.length]);
+
+  // Update notification title when backend generates a clean title
+  useEffect(() => {
+    const latestRun = recentRuns?.[0];
+    if (latestRun?.title && latestRun.title !== "Untitled" && currentPipelineNotifId.current) {
+      updateAgentsTotal(currentPipelineNotifId.current, pipelineState?.agents?.length ?? 0, latestRun.title);
+    }
+  }, [recentRuns?.[0]?.title]);
 
   // Check if pipeline is running (blocks navigation)
   const isPipelineRunning = pipelineState?.isRunning || false;
@@ -193,10 +273,9 @@ export function DashboardLayout({
 
   // Navigate from Home to Input page
   const handleSelectFeature = useCallback((type: WorkflowType) => {
-    if (isPipelineRunning) return;
     setWorkflowType(type);
     setMainView("input");
-  }, [isPipelineRunning]);
+  }, []);
 
   // Run the pipeline from Input page — triggers questionnaire first
   // `resolvedType` is the concrete pipeline the backend will dispatch. For
@@ -239,13 +318,11 @@ export function DashboardLayout({
 
   // Go back to home
   const handleGoHome = useCallback(() => {
-    if (isPipelineRunning) return;
     setMainView("home");
-    // Clear any pending questionnaire state
     setQuestionnaireQuestions([]);
     setQuestionnaireLoading(false);
     setPendingPipelineRun(null);
-    if (onResetPipeline) onResetPipeline();
+    if (!isPipelineRunning && onResetPipeline) onResetPipeline();
   }, [onResetPipeline, isPipelineRunning]);
 
   // Chain to another pipeline using previous output as context
@@ -333,9 +410,12 @@ export function DashboardLayout({
     setQuestionnaireLoading(false);
     setPendingPipelineRun(null);
     if (onStartPipeline) {
+      const notifId = `pipeline-${Date.now()}`;
+      currentPipelineNotifId.current = notifId;
+      addRunningNotification(notifId, pendingPipelineRun.type, pendingPipelineRun.message.slice(0, 60), 0);
       onStartPipeline(pendingPipelineRun.type, enrichedMessage, pendingPipelineRun.agentIds, attachedSkills, attachedHooks);
     }
-  }, [pendingPipelineRun, questionnaireQuestions, onStartPipeline, attachedSkills, attachedHooks]);
+  }, [pendingPipelineRun, questionnaireQuestions, onStartPipeline, attachedSkills, attachedHooks, addRunningNotification]);
 
   // Skip questionnaire — run pipeline directly with skills/hooks
   const handleQuestionnaireSkip = useCallback(() => {
@@ -344,15 +424,17 @@ export function DashboardLayout({
     setQuestionnaireLoading(false);
     setPendingPipelineRun(null);
     if (onStartPipeline) {
+      const notifId = `pipeline-${Date.now()}`;
+      currentPipelineNotifId.current = notifId;
+      addRunningNotification(notifId, pendingPipelineRun.type, pendingPipelineRun.message.slice(0, 60), 0);
       onStartPipeline(pendingPipelineRun.type, pendingPipelineRun.message, pendingPipelineRun.agentIds, attachedSkills, attachedHooks);
     }
-  }, [pendingPipelineRun, onStartPipeline, attachedSkills, attachedHooks]);
+  }, [pendingPipelineRun, onStartPipeline, attachedSkills, attachedHooks, addRunningNotification]);
 
-  // Header navigation
-  const handleNavigate = useCallback((page: "home" | "library" | "history" | "settings") => {
-    if (isPipelineRunning) return;
-    setMainView(page);
-  }, [isPipelineRunning]);
+  // Header navigation — free navigation even while pipeline runs
+  const handleNavigate = useCallback((page: "home" | "library" | "history" | "settings" | "analytics") => {
+    setMainView(page as MainView);
+  }, []);
 
   // Follow-up / steer agents
   const handleFollowUp = useCallback((message: string) => {
@@ -404,7 +486,22 @@ export function DashboardLayout({
         currentPage={headerPage}
         onNavigate={handleNavigate}
         onLogout={onLogout}
-        disabled={isPipelineRunning}
+        isPipelineRunning={isPipelineRunning}
+        pipelineType={workflowType}
+        pipelineAgentsCompleted={pipelineState?.completedCount ?? 0}
+        pipelineAgentsTotal={pipelineState?.agents?.length ?? 0}
+        onGoToPipeline={() => setMainView("execution")}
+        notifications={notifications}
+        unreadCount={unreadCount}
+        onMarkAllRead={markAllRead}
+        onClearNotifications={clearAll}
+        onViewResults={(n) => {
+          if (n.status === "running" || n.status === "completed") {
+            setMainView("execution");
+          } else {
+            setMainView("history");
+          }
+        }}
       />
 
       {/* Main Content */}
@@ -420,7 +517,7 @@ export function DashboardLayout({
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <CreationHub onSelectFeature={handleSelectFeature} />
+              <CreationHub onSelectFeature={handleSelectFeature} userTier={userTier} />
             </motion.div>
           )}
 
@@ -463,6 +560,20 @@ export function DashboardLayout({
               className="h-full"
             >
               <AccountSettings onBack={handleGoHome} />
+            </motion.div>
+          )}
+
+          {/* ANALYTICS */}
+          {mainView === "analytics" && (
+            <motion.div
+              key="analytics"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="h-full"
+            >
+              <AnalyticsPage onBack={handleGoHome} />
             </motion.div>
           )}
 
@@ -558,6 +669,16 @@ export function DashboardLayout({
           )}
         </AnimatePresence>
       </div>
+
+      {/* Completion toasts — bottom-right, non-blocking */}
+      <CompletionToast
+        toasts={toasts}
+        onDismiss={dismissToast}
+        onViewResults={(toast) => {
+          dismissToast(toast.id);
+          setMainView("execution");
+        }}
+      />
     </div>
   );
 }

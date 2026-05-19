@@ -570,7 +570,7 @@ export default function DashboardPage() {
             setUserStoryContent(fullRun.output);
           } else if (fullRun.type === "ppt") {
             setPptContent(fullRun.output);
-          } else if (fullRun.type === "prototype") {
+          } else if (fullRun.type === "prototype" || fullRun.type === "od_prototype") {
             setPrototypeContent(fullRun.output);
           }
         }

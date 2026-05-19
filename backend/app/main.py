@@ -20,6 +20,7 @@ from app.api.mcp import router as mcp_router
 from app.api.install import router as install_router
 from app.api.websocket_handoff import router as websocket_handoff_router
 from app.api.prototype_templates import router as prototype_templates_router
+from app.api.admin import router as admin_router
 from app.core.config import settings
 from app.models.database import engine
 
@@ -139,6 +140,7 @@ app.include_router(mcp_router)
 app.include_router(install_router)
 app.include_router(websocket_handoff_router)
 app.include_router(prototype_templates_router)
+app.include_router(admin_router)
 
 
 @app.get("/health")

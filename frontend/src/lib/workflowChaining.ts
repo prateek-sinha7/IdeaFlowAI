@@ -36,6 +36,7 @@ export const CHAINABLE_FROM_TYPES: ReadonlySet<WorkflowType> = new Set<WorkflowT
   "ppt", "ppt_revision",
   "user_stories", "user_stories_revision",
   "prototype", "prototype_revision",
+  "od_prototype" as WorkflowType,
   "app_builder", "app_builder_revision",
 ]);
 

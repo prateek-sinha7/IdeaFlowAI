@@ -378,6 +378,15 @@ async def websocket_chat(websocket: WebSocket):
                 # composition; everything else goes through the standard
                 # orchestrator_v2 path.
                 if pipeline_type == "od_prototype":
+                    # Tier gate — prototype requires Pro or higher
+                    from app.core.entitlements import can_run_pipeline
+                    allowed, reason = can_run_pipeline(user.tier, "prototype")
+                    if not allowed:
+                        await websocket.send_json({
+                            "type": "error", "chunk": None, "section": None,
+                            "data": {"error": reason, "code": "tier_limit", "recoverable": False, "upgrade_required": True},
+                        })
+                        continue
                     current_pipeline_task = asyncio.create_task(
                         _handle_od_prototype_execution(
                             websocket,
@@ -915,7 +924,7 @@ async def _handle_pipeline_execution(
         agent_count = len(agent_ids)
     else:
         agent_counts = {
-            "user_stories": 12, "ppt": 4, "prototype": 12, "app_builder": 15,
+            "user_stories": 12, "ppt": 4, "prototype": 4, "app_builder": 15,
             "mulesoft_to_springboot": 13, "dotnet_to_azure": 13,
         }
         agent_count = agent_counts.get(pipeline_type, 12)
