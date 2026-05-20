@@ -71,7 +71,6 @@ class AgentWorkspace:
             return "(no files written)"
         parts: list[str] = []
         for path, content in sorted(self._files.items()):
-            ext = PurePosixPath(path).suffix.lstrip(".") or "text"
             parts.append(f"```filename: {path}\n{content}\n```")
         return "\n\n".join(parts)
 

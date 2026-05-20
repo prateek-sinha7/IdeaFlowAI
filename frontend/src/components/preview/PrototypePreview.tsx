@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Layout, ExternalLink, RefreshCw } from "lucide-react";
 
 interface PrototypePreviewProps {
@@ -11,11 +11,52 @@ interface PrototypePreviewProps {
 
 /**
  * Renders the prototype HTML in a browser-chrome mockup.
- * Gives the preview a professional "live app" feel.
+ *
+ * Navigation fix: uses a Blob URL instead of srcdoc so the iframe gets a
+ * null origin. With sandbox="allow-scripts allow-same-origin", the iframe
+ * can read/write window.location.hash (enabling hash routing) but cannot
+ * access the parent's localStorage (JWT is safe — null origin ≠ localhost).
  */
 export function PrototypePreview({ content, isStreaming, onRevise }: PrototypePreviewProps) {
-  const [iframeKey] = useState(0);
   const [revisionText, setRevisionText] = useState("");
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  // Build a Blob URL from the HTML content.
+  // Blob URLs have a null origin — allow-same-origin gives the iframe
+  // same-origin access to itself (null === null) but NOT to the parent
+  // (parent is localhost:3000, iframe is null origin — cross-origin).
+  // This makes window.location.hash writable and hashchange events fire,
+  // enabling the SPA hash router in the generated prototype HTML.
+  useEffect(() => {
+    if (!content) {
+      setBlobUrl(null);
+      return;
+    }
+
+    let htmlContent = content.trim();
+
+    // Strip markdown code fences
+    if (htmlContent.startsWith("```")) {
+      htmlContent = htmlContent.replace(/^```(?:html)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+    }
+
+    // Robust HTML check — handles leading whitespace, comments, or BOM
+    // Search the FULL string (not just first 500 chars) — the LLM may output
+    // a preamble sentence before <!DOCTYPE html>
+    const isHtml = /<!DOCTYPE\s+html|<html[\s>]/i.test(htmlContent);
+    if (!isHtml) {
+      setBlobUrl(null);
+      return;
+    }
+
+    const blob = new Blob([htmlContent], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    setBlobUrl(url);
+
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [content]);
 
   if (!content) {
     return (
@@ -42,15 +83,22 @@ export function PrototypePreview({ content, isStreaming, onRevise }: PrototypePr
     );
   }
 
-  // Strip markdown code fences if present
-  let htmlContent = content.trim();
-  if (htmlContent.startsWith("```")) {
-    htmlContent = htmlContent.replace(/^```(?:html)?\s*\n?/, "").replace(/\n?```\s*$/, "");
-  }
-
-  const isHtml = htmlContent.startsWith("<!DOCTYPE") || htmlContent.startsWith("<html") || htmlContent.startsWith("<!");
-
-  if (!isHtml) {
+  // If blobUrl is null, content is not HTML — show raw text fallback
+  if (!blobUrl) {
+    // Check if content looks like it could be HTML (still processing in useEffect)
+    // Search full string — preamble prose may appear before <!DOCTYPE>
+    const mightBeHtml = content && /<!DOCTYPE\s+html|<html[\s>]/i.test(content);
+    if (mightBeHtml) {
+      // useEffect hasn't fired yet — show loading briefly
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-gray-100 border border-gray-200 animate-pulse">
+            <Layout className="h-6 w-6 text-gray-400" />
+          </div>
+          <p className="text-[11px] text-gray-500 font-medium">Loading preview...</p>
+        </div>
+      );
+    }
     return (
       <div className="p-4 h-full overflow-auto">
         <div className="rounded-lg border border-gray-200 bg-white p-4">
@@ -64,10 +112,7 @@ export function PrototypePreview({ content, isStreaming, onRevise }: PrototypePr
   }
 
   const handleOpenInNewTab = () => {
-    const blob = new Blob([htmlContent], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-    window.open(url, "_blank");
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    window.open(blobUrl, "_blank");
   };
 
   return (
@@ -96,19 +141,18 @@ export function PrototypePreview({ content, isStreaming, onRevise }: PrototypePr
         </button>
       </div>
 
-      {/* Prototype iframe */}
+      {/* Prototype iframe — Blob URL with null origin.
+          allow-same-origin: lets the iframe's JS use window.location.hash
+            (null === null, so same-origin to itself).
+            Parent is localhost:3000 — different from null origin,
+            so the iframe cannot access parent localStorage or JWT.
+          allow-scripts: enables the SPA router and all interactivity. */}
       <div className="flex-1 min-h-0">
         <iframe
-          key={iframeKey}
-          srcDoc={htmlContent}
+          key={blobUrl}
+          src={blobUrl}
           className="w-full h-full border-0"
-          /* `allow-same-origin` + `allow-scripts` neuters the sandbox; the
-             iframe could read parent localStorage (incl. JWT) and call
-             same-origin APIs. The prototype HTML is LLM-generated and
-             must be treated as untrusted. allow-scripts alone keeps
-             the prototype interactive (button clicks, form state) without
-             leaking origin authority. */
-          sandbox="allow-scripts"
+          sandbox="allow-scripts allow-same-origin"
           title="Prototype Preview"
         />
       </div>

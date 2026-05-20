@@ -36,3 +36,5 @@ httpx==0.28.1
 # — discovered when the local Bedrock-live walk-through caught two bugs in
 # BaseAgent that the test suite had been quietly missing.
 pytest-asyncio==0.24.0
+# YAML frontmatter parser for AGENT.md files (folder-per-agent architecture)
+python-frontmatter==1.1.0

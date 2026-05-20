@@ -44,9 +44,13 @@ export const CHAINABLE_FROM_TYPES: ReadonlySet<WorkflowType> = new Set<WorkflowT
  * Strip the `_revision` suffix so a refined run is treated as having
  * completed the same capability as its base form (and won't offer
  * chaining back to itself).
+ * Also normalises `od_prototype` → `prototype` since both represent
+ * the same deliverable (an interactive HTML prototype).
  */
 export function baseWorkflowType(t: WorkflowType): string {
-  return t.replace(/_revision$/, "");
+  const base = t.replace(/_revision$/, "");
+  // od_prototype is the OpenDesign variant of prototype — treat as the same
+  return base === "od_prototype" ? "prototype" : base;
 }
 
 /** True when this workflow type is allowed to chain. */

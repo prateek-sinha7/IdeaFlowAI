@@ -387,22 +387,21 @@ async def _run_pipeline_background(
         db = SessionLocal()
         try:
             sess = db.query(HandoffSession).filter(HandoffSession.id == handoff_id).first()
-            if sess is None:
-                return
-            now = _now()
-            if error_msg is not None:
-                sess.status = HANDOFF_STATUS_FAILED
-                sess.error = error_msg[:4000]
-            else:
-                sess.status = HANDOFF_STATUS_COMPLETED
-            if pipeline_output is not None:
-                sess.pipeline_output = json.dumps(pipeline_output)
-                sess.resolved_mode = pipeline_output.get("resolved_mode")
-                sess.branch_name = pipeline_output.get("branch_name")
-                sess.pr_url = pipeline_output.get("pr_url")
-                sess.pr_number = pipeline_output.get("pr_number")
-            sess.completed_at = now
-            db.add(sess)
-            db.commit()
+            if sess is not None:
+                now = _now()
+                if error_msg is not None:
+                    sess.status = HANDOFF_STATUS_FAILED
+                    sess.error = error_msg[:4000]
+                else:
+                    sess.status = HANDOFF_STATUS_COMPLETED
+                if pipeline_output is not None:
+                    sess.pipeline_output = json.dumps(pipeline_output)
+                    sess.resolved_mode = pipeline_output.get("resolved_mode")
+                    sess.branch_name = pipeline_output.get("branch_name")
+                    sess.pr_url = pipeline_output.get("pr_url")
+                    sess.pr_number = pipeline_output.get("pr_number")
+                sess.completed_at = now
+                db.add(sess)
+                db.commit()
         finally:
             db.close()

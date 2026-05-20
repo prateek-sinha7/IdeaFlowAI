@@ -652,7 +652,7 @@ export function DashboardLayout({
                       pptxCode={pptxCode}
                       onRevisePpt={(workflowType === "ppt" || workflowType === "ppt_revision") ? handleRevisePpt : undefined}
                       onReviseUserStory={(workflowType === "user_stories" || workflowType === "user_stories_revision") ? handleReviseUserStory : undefined}
-                      onRevisePrototype={(workflowType === "prototype" || workflowType === "prototype_revision") ? handleRevisePrototype : undefined}
+                      onRevisePrototype={(workflowType === "prototype" || workflowType === "prototype_revision" || !!prototypeContent) ? handleRevisePrototype : undefined}
                       onReviseAppBuilder={(workflowType === "app_builder" || workflowType === "app_builder_revision") ? handleReviseAppBuilder : undefined}
                       agentOutputs={
                         pipelineState && pipelineState.agents.length > 0

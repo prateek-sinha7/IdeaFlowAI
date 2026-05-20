@@ -566,11 +566,11 @@ export default function DashboardPage() {
         const fullRun = await getWorkflow(currentToken, run.id);
 
         if (fullRun.output && fullRun.status === "completed") {
-          if (fullRun.type === "user_stories") {
+          if (fullRun.type === "user_stories" || fullRun.type === "user_stories_revision") {
             setUserStoryContent(fullRun.output);
-          } else if (fullRun.type === "ppt") {
+          } else if (fullRun.type === "ppt" || fullRun.type === "ppt_revision") {
             setPptContent(fullRun.output);
-          } else if (fullRun.type === "prototype" || fullRun.type === "od_prototype") {
+          } else if (fullRun.type === "prototype" || fullRun.type === "prototype_revision" || fullRun.type === "od_prototype") {
             setPrototypeContent(fullRun.output);
           }
         }

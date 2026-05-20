@@ -18,7 +18,13 @@ import re
 import time
 from typing import Any, AsyncGenerator
 
-from app.agents.base import BaseAgent
+from app.agents.deep_agent import DeepAgent
+# NOTE: od_runner uses the OLD app.agents.registry intentionally — it needs
+# AgentDefinition objects (with .system_prompt attribute) because it composes
+# system prompts dynamically at runtime by injecting OpenDesign template and
+# design-system content. The new slim agents.registry returns AgentSpec objects
+# which have .prompt_body instead of .system_prompt. Do NOT change this import
+# to agents.registry without also updating all .system_prompt references below.
 from app.agents.registry import get_pipeline_agents
 from app.services import od_loader
 
@@ -35,8 +41,26 @@ def _extract_spec(raw: str) -> str:
 
 
 def _extract_artifact(raw: str) -> str:
+    """Extract HTML content from an artifact-tagged response.
+
+    Tries in order:
+    1. Content inside <artifact>...</artifact> tags (preferred)
+    2. Content starting from <!DOCTYPE or <html anywhere in the response
+       (handles responses where the model outputs HTML without wrapping tags,
+       or with a preamble sentence before the HTML)
+    3. Full raw text as fallback
+    """
     m = _ARTIFACT_RE.search(raw)
-    return (m.group(1) if m else raw).strip()
+    if m:
+        return m.group(1).strip()
+
+    # No artifact tags — search the FULL string for HTML start
+    # (do NOT slice — the DOCTYPE may appear after a preamble sentence)
+    html_match = re.search(r'(<!DOCTYPE\s+html[\s\S]*|<html[\s>][\s\S]*)', raw, re.DOTALL | re.IGNORECASE)
+    if html_match:
+        return html_match.group(1).strip()
+
+    return raw.strip()
 
 
 def _format_discovery(discovery: dict[str, Any] | None) -> str:
@@ -235,9 +259,25 @@ def _user_message_spa_composer(
             "  </style>\n</head>\n<body>\n"
             "  <script>\n"
             "    const store=(()=>{let s={};const l=new Set();return{get:k=>k?s[k]:s,set:p=>{s={...s,...p};l.forEach(f=>f(s));},on:(_,f)=>{l.add(f);return()=>l.delete(f);}};})();\n"
-            "    const routes={};\n"
-            "    function route(){const h=location.hash||'#/';const p=h.slice(1);let id=null,params={};for(const[i,pat]of Object.entries(routes)){const re=new RegExp('^'+pat.replace(/:[a-z]+/gi,'([^/]+)')+'$');const m=p.match(re);if(m){id=i;(pat.match(/:[a-z]+/gi)||[]).forEach((k,j)=>{params[k.slice(1)]=m[j+1]});break;}}document.querySelectorAll('[data-page]').forEach(el=>el.classList.toggle('is-active',el.dataset.page===id));store.set({_route:{id,params}});}\n"
-            "    window.addEventListener('hashchange',route);window.addEventListener('DOMContentLoaded',route);\n"
+            "    // Hash router — shows the <section data-page='...'> whose id matches location.hash\n"
+            "    // e.g. #/dashboard shows <section data-page='dashboard'>\n"
+            "    // Falls back to the first page when hash is empty or unmatched.\n"
+            "    function route(){\n"
+            "      const hash=(location.hash||'').replace(/^#\\/?/,'');\n"
+            "      const pages=document.querySelectorAll('[data-page]');\n"
+            "      let matched=false;\n"
+            "      pages.forEach(el=>{\n"
+            "        const active=el.dataset.page===hash;\n"
+            "        el.classList.toggle('is-active',active);\n"
+            "        if(active)matched=true;\n"
+            "      });\n"
+            "      // Fallback: show first page if nothing matched\n"
+            "      if(!matched&&pages.length>0)pages[0].classList.add('is-active');\n"
+            "      store.set({_route:{id:hash}});\n"
+            "    }\n"
+            "    window.addEventListener('hashchange',route);\n"
+            "    window.addEventListener('DOMContentLoaded',route);\n"
+            "    window.addEventListener('load',route);\n"
             "  </script>\n</body>\n</html>\n"
         )
 
@@ -332,98 +372,142 @@ async def run_od_prototype_pipeline(
     }
 
     # ── Agent 1: Brief Analyst ────────────────────────────────────────────
-    # System prompt: DESIGN.md + SKILL.md + base role (no craft — analyst only
-    # needs to understand the template's shape and DS to produce the right spec)
+    from app.agents.base import TokenUsage
+    from app.agents.base import estimate_cost_usd
+
+    # Token usage tracking across all 4 agents
+    pipeline_usage = TokenUsage()
+    agent_token_usage: dict[str, TokenUsage] = {}
+
     yield {"type": "agent_start", "agent_id": analyst.id, "name": analyst.name,
            "role": analyst.role, "icon": analyst.icon, "index": 0}
     t0 = time.monotonic()
     spec_raw = ""
+    a1_usage = TokenUsage()
     try:
-        a1 = BaseAgent(
+        a1 = DeepAgent(
             system_prompt=_compose_system_prompt(analyst.system_prompt, od, include_craft=False),
+            tools=[],
             max_tokens=analyst.max_tokens,
         )
-        async for chunk in a1.astream(_user_message_brief_analyst(brief, discovery, od)):
-            spec_raw += chunk
-            yield {"type": "agent_chunk", "agent_id": analyst.id, "chunk": chunk}
+        # Use astream_with_usage (direct LLM call, no ReAct loop) for text-only agents.
+        # astream_events goes through the ReAct loop which is unnecessary here and
+        # can cause issues with large HTML outputs on some providers.
+        async for item in a1.astream_with_usage(_user_message_brief_analyst(brief, discovery, od)):
+            if isinstance(item, TokenUsage):
+                a1_usage = item
+                break
+            spec_raw += item
+            yield {"type": "agent_chunk", "agent_id": analyst.id, "chunk": item}
     except Exception as exc:
         logger.exception("Brief Analyst failed")
         yield {"type": "agent_error", "agent_id": analyst.id, "error": str(exc)}
         return
+    agent_token_usage[analyst.id] = a1_usage
+    pipeline_usage = pipeline_usage + a1_usage
     yield {"type": "agent_complete", "agent_id": analyst.id,
-           "output_size": len(spec_raw), "duration": time.monotonic() - t0}
+           "output_length": len(spec_raw), "duration": time.monotonic() - t0,
+           "input_tokens": a1_usage.input_tokens, "output_tokens": a1_usage.output_tokens}
 
     spec_json = _extract_spec(spec_raw)
 
     # ── Agent 2: SPA Composer ─────────────────────────────────────────────
-    # System prompt: DESIGN.md + craft + SKILL.md + base role — matching exactly
-    # how OpenDesign's daemon composes the system prompt before invoking the agent.
     yield {"type": "agent_start", "agent_id": composer.id, "name": composer.name,
            "role": composer.role, "icon": composer.icon, "index": 1}
     t0 = time.monotonic()
     composer_raw = ""
+    a2_usage = TokenUsage()
     try:
-        a2 = BaseAgent(
+        a2 = DeepAgent(
             system_prompt=_compose_system_prompt(composer.system_prompt, od, include_craft=True),
+            tools=[],
             max_tokens=composer.max_tokens,
         )
-        async for chunk in a2.astream(_user_message_spa_composer(spec_json, brief, discovery, od)):
-            composer_raw += chunk
-            yield {"type": "agent_chunk", "agent_id": composer.id, "chunk": chunk}
+        async for item in a2.astream_with_usage(_user_message_spa_composer(spec_json, brief, discovery, od)):
+            if isinstance(item, TokenUsage):
+                a2_usage = item
+                break
+            composer_raw += item
+            yield {"type": "agent_chunk", "agent_id": composer.id, "chunk": item}
     except Exception as exc:
         logger.exception("SPA Composer failed")
         yield {"type": "agent_error", "agent_id": composer.id, "error": str(exc)}
         return
+    agent_token_usage[composer.id] = a2_usage
+    pipeline_usage = pipeline_usage + a2_usage
     composer_html = _extract_artifact(composer_raw)
+    logger.info("SPA Composer: raw=%d chars, extracted html=%d chars", len(composer_raw), len(composer_html))
     yield {"type": "artifact", "stage": "composer", "html": composer_html}
     yield {"type": "agent_complete", "agent_id": composer.id,
-           "output_size": len(composer_raw), "duration": time.monotonic() - t0}
+           "output_length": len(composer_raw), "duration": time.monotonic() - t0,
+           "input_tokens": a2_usage.input_tokens, "output_tokens": a2_usage.output_tokens}
 
     # ── Agent 3: Craft Linter ─────────────────────────────────────────────
-    # System prompt: DESIGN.md + craft + SKILL.md + base role — same composition
-    # so the linter sees the same constraints as the composer did.
     yield {"type": "agent_start", "agent_id": polisher.id, "name": polisher.name,
            "role": polisher.role, "icon": polisher.icon, "index": 2}
     t0 = time.monotonic()
     linter_raw = ""
+    a3_usage = TokenUsage()
     try:
-        a3 = BaseAgent(
+        a3 = DeepAgent(
             system_prompt=_compose_system_prompt(polisher.system_prompt, od, include_craft=True),
+            tools=[],
             max_tokens=polisher.max_tokens,
         )
-        async for chunk in a3.astream(_user_message_craft_linter(composer_html, od)):
-            linter_raw += chunk
-            yield {"type": "agent_chunk", "agent_id": polisher.id, "chunk": chunk}
+        async for item in a3.astream_with_usage(_user_message_craft_linter(composer_html, od)):
+            if isinstance(item, TokenUsage):
+                a3_usage = item
+                break
+            linter_raw += item
+            yield {"type": "agent_chunk", "agent_id": polisher.id, "chunk": item}
     except Exception as exc:
         logger.exception("Craft Linter failed")
         yield {"type": "agent_error", "agent_id": polisher.id, "error": str(exc)}
         return
+    agent_token_usage[polisher.id] = a3_usage
+    pipeline_usage = pipeline_usage + a3_usage
     linter_html = _extract_artifact(linter_raw)
+    logger.info("Craft Linter: raw=%d chars, extracted html=%d chars", len(linter_raw), len(linter_html))
     yield {"type": "artifact", "stage": "linter", "html": linter_html}
     yield {"type": "agent_complete", "agent_id": polisher.id,
-           "output_size": len(linter_raw), "duration": time.monotonic() - t0}
+           "output_length": len(linter_raw), "duration": time.monotonic() - t0,
+           "input_tokens": a3_usage.input_tokens, "output_tokens": a3_usage.output_tokens}
 
     # ── Agent 4: Delivery Validator ───────────────────────────────────────
     yield {"type": "agent_start", "agent_id": finalizer.id, "name": finalizer.name,
            "role": finalizer.role, "icon": finalizer.icon, "index": 3}
     t0 = time.monotonic()
     validator_raw = ""
+    a4_usage = TokenUsage()
     try:
-        a4 = BaseAgent(system_prompt=finalizer.system_prompt, max_tokens=finalizer.max_tokens)
-        async for chunk in a4.astream(_user_message_delivery_validator(linter_html)):
-            validator_raw += chunk
-            yield {"type": "agent_chunk", "agent_id": finalizer.id, "chunk": chunk}
+        a4 = DeepAgent(system_prompt=finalizer.system_prompt, tools=[], max_tokens=finalizer.max_tokens)
+        async for item in a4.astream_with_usage(_user_message_delivery_validator(linter_html)):
+            if isinstance(item, TokenUsage):
+                a4_usage = item
+                break
+            validator_raw += item
+            yield {"type": "agent_chunk", "agent_id": finalizer.id, "chunk": item}
     except Exception as exc:
         logger.exception("Delivery Validator failed")
         yield {"type": "agent_error", "agent_id": finalizer.id, "error": str(exc)}
         return
+    agent_token_usage[finalizer.id] = a4_usage
+    pipeline_usage = pipeline_usage + a4_usage
     final_html = _extract_artifact(validator_raw)
+    logger.info("Delivery Validator: raw=%d chars, final html=%d chars", len(validator_raw), len(final_html))
     yield {"type": "artifact", "stage": "final", "html": final_html}
     yield {"type": "agent_complete", "agent_id": finalizer.id,
-           "output_size": len(validator_raw), "duration": time.monotonic() - t0}
+           "output_length": len(validator_raw), "duration": time.monotonic() - t0,
+           "input_tokens": a4_usage.input_tokens, "output_tokens": a4_usage.output_tokens}
 
+    pipeline_cost = estimate_cost_usd(pipeline_usage, a1.model_id)
     yield {
         "type": "pipeline_complete",
         "final_html": final_html,
         "duration": time.monotonic() - pipeline_start,
+        "total_input_tokens": pipeline_usage.input_tokens,
+        "total_output_tokens": pipeline_usage.output_tokens,
+        "total_tokens": pipeline_usage.total_tokens,
+        "estimated_cost_usd": round(pipeline_cost, 6),
+        "token_usage_per_agent": {aid: u.to_dict() for aid, u in agent_token_usage.items()},
     }

@@ -690,6 +690,17 @@ async def _handle_od_prototype_execution(
     monotonic_start = time.monotonic()
     execution_start = datetime.now(timezone.utc)
 
+    # Collectors for DB persistence (mirrors _handle_pipeline_execution)
+    od_agent_outputs_collector: list[dict] = []
+    current_od_agent_live: dict = {}
+    od_token_summary: dict = {
+        "total_input_tokens": 0,
+        "total_output_tokens": 0,
+        "total_tokens": 0,
+        "estimated_cost_usd": 0.0,
+        "per_agent": {},
+    }
+
     try:
         async for event in run_od_prototype_pipeline(
             template_id=template_id,
@@ -709,6 +720,14 @@ async def _handle_od_prototype_execution(
                 })
 
             elif t == "agent_start":
+                current_od_agent_live = {
+                    "agent_id": event.get("agent_id"),
+                    "name": event.get("name"),
+                    "role": event.get("role"),
+                    "icon": event.get("icon"),
+                    "output": "",
+                    "duration": None,
+                }
                 await websocket.send_json({
                     "type": "agent_start", "chunk": None, "section": "od_prototype",
                     "data": {
@@ -721,6 +740,9 @@ async def _handle_od_prototype_execution(
                 })
 
             elif t == "agent_chunk":
+                current_od_agent_live["output"] = (
+                    current_od_agent_live.get("output", "") + event.get("chunk", "")
+                )
                 await websocket.send_json({
                     "type": "agent_chunk", "chunk": None, "section": "od_prototype",
                     "data": {
@@ -730,15 +752,22 @@ async def _handle_od_prototype_execution(
                 })
 
             elif t == "agent_complete":
+                current_od_agent_live["duration"] = event.get("duration")
+                od_agent_outputs_collector.append(current_od_agent_live)
+                current_od_agent_live = {}
                 await websocket.send_json({
                     "type": "agent_complete", "chunk": None, "section": "od_prototype",
                     "data": {
                         "agent_id": event.get("agent_id"),
                         "duration": event.get("duration"),
+                        "output_length": event.get("output_length", 0),
                     },
                 })
 
             elif t == "agent_error":
+                current_od_agent_live["error"] = event.get("error", "Agent failed")
+                od_agent_outputs_collector.append(current_od_agent_live)
+                current_od_agent_live = {}
                 await websocket.send_json({
                     "type": "agent_error", "chunk": None, "section": "od_prototype",
                     "data": {
@@ -757,12 +786,24 @@ async def _handle_od_prototype_execution(
                 if not final_html:
                     final_html = event.get("final_html", "")
                 duration = round(time.monotonic() - monotonic_start, 1)
+                od_token_summary = {
+                    "total_input_tokens": event.get("total_input_tokens", 0),
+                    "total_output_tokens": event.get("total_output_tokens", 0),
+                    "total_tokens": event.get("total_tokens", 0),
+                    "estimated_cost_usd": event.get("estimated_cost_usd", 0.0),
+                    "per_agent": event.get("token_usage_per_agent", {}),
+                }
                 await websocket.send_json({
                     "type": "pipeline_complete", "chunk": None, "section": "od_prototype",
                     "data": {
                         "final_output": final_html,
                         "pipeline_type": "od_prototype",
                         "total_duration": duration,
+                        "total_input_tokens": od_token_summary["total_input_tokens"],
+                        "total_output_tokens": od_token_summary["total_output_tokens"],
+                        "total_tokens": od_token_summary["total_tokens"],
+                        "estimated_cost_usd": od_token_summary["estimated_cost_usd"],
+                        "token_usage_per_agent": od_token_summary["per_agent"],
                     },
                 })
 
@@ -814,7 +855,7 @@ async def _handle_od_prototype_execution(
             pass
         return
 
-    # Mark complete in DB.
+    # Mark complete in DB — write all fields for consistent workflow history.
     if workflow_run_id:
         db = _get_db()
         try:
@@ -822,6 +863,8 @@ async def _handle_od_prototype_execution(
             if wr:
                 wr.status = "completed"
                 wr.output = final_html
+                wr.agent_outputs = json.dumps(od_agent_outputs_collector) if od_agent_outputs_collector else None
+                wr.token_usage = json.dumps(od_token_summary)
                 wr.completed_at = datetime.now(timezone.utc)
                 wr.duration = round(time.monotonic() - monotonic_start, 1)
                 db.commit()
@@ -1017,24 +1060,24 @@ async def _handle_pipeline_execution(
     agent_outputs_collector: list[dict] = []  # Collect per-agent thinking/output
 
     # === LIVE PIPELINE MODE ===
-    # Load skills for agents that have them
-    from app.agents.registry import get_pipeline_agents, get_agent_by_id
-    agents = get_pipeline_agents(pipeline_type)
-
-    # If custom agent_ids provided, filter and reorder agents accordingly.
-    # By the time we reach here, every entry in `agent_ids` is guaranteed to
-    # be in the pipeline's allow-list (validated above). We resolve each ID
-    # to its AgentDefinition via the registry; `get_agent_by_id` cannot
-    # return None for an allow-listed ID because the allow-list is derived
-    # from the same registry.
+    # If custom agent_ids provided, resolve them to AgentSpec objects from
+    # the new slim registry. By the time we reach here, every entry in
+    # `agent_ids` is guaranteed to be in the pipeline's allow-list (validated
+    # above). The orchestrator handles default agent loading itself when
+    # custom_agents=None.
+    custom_agent_specs = None
     if agent_ids:
-        agents = [get_agent_by_id(aid) for aid in agent_ids]
-        # Defensive: filter Nones in case the registry mutates between the
-        # allow-list check and here (it shouldn't — both reads are
-        # synchronous and the registry is module-level immutable — but the
-        # type checker can't prove that, and a silent crash deeper in the
-        # orchestrator is worse than dropping a mid-flight race).
-        agents = [a for a in agents if a is not None]
+        from agents.loader import load_agent_spec
+        custom_agent_specs = []
+        for aid in agent_ids:
+            try:
+                custom_agent_specs.append(load_agent_spec(aid))
+            except Exception:
+                # Defensive: skip agents that can't be loaded (shouldn't
+                # happen since they passed the allow-list check above).
+                logger.warning("Could not load AgentSpec for %s — skipping", aid)
+        if not custom_agent_specs:
+            custom_agent_specs = None
 
     # Execute the workflow. user_id is forwarded so the orchestrator's
     # _load_skills picks up per-user custom skills (WORKFLOWS.md §B6 —
@@ -1042,7 +1085,7 @@ async def _handle_pipeline_execution(
     # skill loading into the orchestrator).
     executor = WorkflowOrchestrator(
         pipeline_type,
-        custom_agents=agents if agent_ids else None,
+        custom_agents=custom_agent_specs,
         user_id=user.id,
         attached_skills=attached_skills or [],
         attached_hooks=attached_hooks or [],
