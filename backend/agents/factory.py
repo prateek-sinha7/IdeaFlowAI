@@ -126,11 +126,26 @@ def _compose_system_prompt(spec, ctx: AgentContext) -> str:
         if content:
             blocks.append(content)
 
-    # 3. Hooks
-    for hook in ctx.attached_hooks:
-        content = hook.get("content", "")
-        if content:
-            blocks.append(content)
+    # 3. Hooks — convert hook metadata to behavioral guidelines injected into
+    # the system prompt. Hooks don't carry a "content" field (they are event-
+    # driven behavioral rules, not skill documents), so we synthesize a
+    # guideline block from their metadata: name, event, trigger, description.
+    if ctx.attached_hooks:
+        hook_lines: list[str] = []
+        for hook in ctx.attached_hooks:
+            name = hook.get("name", "")
+            event = hook.get("event", "")
+            trigger = hook.get("trigger", "")
+            description = hook.get("description", "")
+            if name:
+                hook_lines.append(f"- **{name}** ({event}): {description or trigger}")
+        if hook_lines:
+            blocks.append(
+                "## Active Behavioral Hooks\n\n"
+                "The following behavioral guidelines are active for this run. "
+                "Apply them throughout your response:\n\n"
+                + "\n".join(hook_lines)
+            )
 
     # 4. Prompt body
     blocks.append(spec.prompt_body)

@@ -12,6 +12,7 @@ import {
 } from "@/lib/prototype-api";
 import { TemplateGallery } from "@/components/workflow/prototype/TemplateGallery";
 import { DesignSystemPicker } from "@/components/workflow/prototype/DesignSystemPicker";
+import type { CustomDesignSystem } from "@/components/workflow/prototype/CustomDesignSystemModal";
 
 const STORAGE_KEY = "prototype.draft";
 
@@ -25,6 +26,8 @@ export default function PrototypeTemplatesPage() {
 
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [selectedDsId, setSelectedDsId] = useState<string | null>(null);
+  // Holds the body of a custom DS when one is selected; null for built-in systems
+  const [customDsBody, setCustomDsBody] = useState<string | null>(null);
   const [brief, setBrief] = useState("");
 
   useEffect(() => {
@@ -39,10 +42,13 @@ export default function PrototypeTemplatesPage() {
     try {
       const raw = sessionStorage.getItem(STORAGE_KEY);
       if (!raw) return;
-      const d = JSON.parse(raw) as { templateId?: string; designSystemId?: string; brief?: string };
+      const d = JSON.parse(raw) as {
+        templateId?: string; designSystemId?: string; brief?: string; customDsBody?: string;
+      };
       if (d.templateId) setSelectedTemplateId(d.templateId);
       if (d.designSystemId) setSelectedDsId(d.designSystemId);
       if (d.brief) setBrief(d.brief);
+      if (d.customDsBody) setCustomDsBody(d.customDsBody);
     } catch { /* ignore */ }
   }, [authChecked]);
 
@@ -51,16 +57,51 @@ export default function PrototypeTemplatesPage() {
     const token = getToken();
     if (!token) return;
     let cancelled = false;
-    Promise.all([listPrototypeTemplates(token), listDesignSystems(token)])
-      .then(([t, s]) => { if (!cancelled) { setTemplates(t); setSystems(s); } })
-      .catch((err: Error) => { if (!cancelled) setLoadError(err.message); });
+
+    // Fetch templates and design systems independently so one failure
+    // doesn't block the other. On 401, redirect to login.
+    listPrototypeTemplates(token)
+      .then((t) => { if (!cancelled) setTemplates(t); })
+      .catch((err: Error) => {
+        if (cancelled) return;
+        if (err.message.startsWith("401")) {
+          router.replace("/login");
+          return;
+        }
+        setLoadError(err.message);
+      });
+
+    listDesignSystems(token)
+      .then((s) => { if (!cancelled) setSystems(s); })
+      .catch((err: Error) => {
+        if (cancelled) return;
+        if (err.message.startsWith("401")) {
+          router.replace("/login");
+        }
+        // Non-fatal — design system picker will just stay empty
+      });
+
     return () => { cancelled = true; };
-  }, [authChecked]);
+  }, [authChecked, router]);
 
   const selectedTemplate = useMemo(
     () => templates.find((t) => t.id === selectedTemplateId) ?? null,
     [templates, selectedTemplateId],
   );
+
+  const handleSelectCustomDs = useCallback((ds: CustomDesignSystem | null) => {
+    if (ds) {
+      setSelectedDsId(ds.id);
+      setCustomDsBody(ds.body);
+    } else {
+      setCustomDsBody(null);
+    }
+  }, []);
+
+  const handleSelectBuiltInDs = useCallback((id: string | null) => {
+    setSelectedDsId(id);
+    setCustomDsBody(null); // clear custom body when switching to built-in
+  }, []);
 
   const canContinue = Boolean(selectedTemplateId && selectedDsId && brief.trim());
 
@@ -70,9 +111,10 @@ export default function PrototypeTemplatesPage() {
       templateId: selectedTemplateId,
       designSystemId: selectedDsId,
       brief: brief.trim(),
+      ...(customDsBody ? { customDsBody } : {}),
     }));
     router.push("/workflow/prototype/discovery");
-  }, [canContinue, selectedTemplateId, selectedDsId, brief, router]);
+  }, [canContinue, selectedTemplateId, selectedDsId, brief, customDsBody, router]);
 
   if (!authChecked) {
     return (
@@ -167,7 +209,8 @@ export default function PrototypeTemplatesPage() {
               <DesignSystemPicker
                 systems={systems}
                 selectedId={selectedDsId}
-                onSelect={setSelectedDsId}
+                onSelect={handleSelectBuiltInDs}
+                onSelectCustom={handleSelectCustomDs}
               />
             )}
           </div>
@@ -175,7 +218,6 @@ export default function PrototypeTemplatesPage() {
 
         {/* ── Continue ───────────────────────────────────────────────────── */}
         <div className="pt-2">
-          {/* Checklist of what's missing */}
           {!canContinue && (
             <div className="mb-4 flex flex-wrap gap-2">
               {!brief.trim() && <Pill label="Add a brief" />}
@@ -196,7 +238,7 @@ export default function PrototypeTemplatesPage() {
 
           {canContinue && (
             <p className="mt-2 text-center text-[11px] text-gray-500">
-              {selectedTemplate?.name} template · {selectedDsId} design system
+              {selectedTemplate?.name} template · {customDsBody ? "Custom design system" : selectedDsId}
             </p>
           )}
         </div>
@@ -206,15 +248,7 @@ export default function PrototypeTemplatesPage() {
   );
 }
 
-function SectionLabel({
-  number,
-  title,
-  subtitle,
-}: {
-  number: number;
-  title: string;
-  subtitle?: string;
-}) {
+function SectionLabel({ number, title, subtitle }: { number: number; title: string; subtitle?: string }) {
   return (
     <div className="flex items-start gap-3">
       <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-[#1B2A4A]/10 text-[11px] font-bold text-[#1B2A4A]">

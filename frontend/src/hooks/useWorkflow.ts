@@ -66,13 +66,16 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
       }
 
       // Pass attached hooks as behavioral guidelines
+      // The backend synthesizes these into system prompt instructions.
+      // Send all available metadata so the backend can generate rich guidelines.
       if (attachedHooks && attachedHooks.length > 0) {
         payload.attached_hooks = attachedHooks.map(h => ({
           id: h.id,
           name: h.name,
           event: h.event,
           trigger: h.trigger,
-          description: h.name + ": " + h.trigger,
+          // Build a rich description the backend can inject as a guideline
+          description: `${h.name}: ${h.trigger}`,
         }));
       }
 
@@ -279,7 +282,11 @@ export function handlePipelineMessage(
       // Reset any in-flight agent (status "thinking"/"running") back to
       // "idle" so the progress panel stops animating; completed agents
       // ("done") and already-errored agents are left untouched.
-      const totalDuration = (msg.duration as number) || null;
+      //
+      // NOTE: od_prototype sends duration nested inside `data.duration`
+      // while the regular pipeline sends it flat at the top level.
+      // Handle both shapes.
+      const totalDuration = (msg.duration as number) || (msg.data as Record<string, unknown>)?.duration as number || null;
       setPipelineState((prev) => {
         const updated: AgentRunState[] = prev.agents.map((a) =>
           a.status === "thinking" || a.status === "running"

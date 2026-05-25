@@ -12,16 +12,20 @@ import {
   LogOut,
   ChevronDown,
   BarChart2,
+  CreditCard,
 } from "lucide-react";
 import { NotificationPanel } from "@/components/ui/NotificationPanel";
 import type { PipelineNotification } from "@/hooks/useNotifications";
 import { getWorkflowLabel } from "@/hooks/useNotifications";
+import type { Tier } from "@/lib/entitlements";
+import { TIER_LABELS } from "@/lib/entitlements";
 
 interface AppHeaderProps {
   currentPage: "home" | "library" | "workflow" | "execution" | "history" | "analytics";
   onNavigate: (page: "home" | "library" | "history" | "settings" | "analytics") => void;
   onLogout: () => void;
   userEmail?: string;
+  userTier?: Tier;
   disabled?: boolean;
   // Pipeline running indicator
   isPipelineRunning?: boolean;
@@ -42,6 +46,7 @@ export function AppHeader({
   onNavigate,
   onLogout,
   userEmail,
+  userTier = "basic",
   disabled,
   isPipelineRunning,
   pipelineType,
@@ -157,47 +162,68 @@ export function AppHeader({
           <AnimatePresence>
             {profileOpen && (
               <motion.div
-                initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                initial={{ opacity: 0, y: 6, scale: 0.97 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 8, scale: 0.95 }}
-                transition={{ duration: 0.15 }}
-                className="absolute right-0 top-full mt-2 w-56 rounded-lg border border-gray-200 bg-white shadow-lg shadow-black/8 overflow-hidden z-50"
+                exit={{ opacity: 0, y: 6, scale: 0.97 }}
+                transition={{ duration: 0.12 }}
+                className="absolute right-0 top-full mt-1.5 w-56 rounded-lg border border-gray-200 bg-white shadow-md overflow-hidden z-50"
               >
-                {userEmail && (
-                  <div className="px-4 py-3 border-b border-gray-100">
-                    <p className="text-[11px] text-gray-900 font-medium truncate">{userEmail}</p>
-                    <p className="text-[10px] text-gray-500 mt-0.5">Free Plan</p>
+                {/* Identity block — email + plan on one compact card */}
+                <div className="px-3.5 py-3.5 border-b border-gray-100">
+                  {userEmail ? (
+                    <p className="text-[12px] font-medium text-gray-900 truncate leading-tight">{userEmail}</p>
+                  ) : (
+                    <p className="text-[12px] font-medium text-gray-400">Account</p>
+                  )}
+                  <div className="flex items-center justify-between mt-2.5">
+                    <div className="flex items-center gap-1.5">
+                      <CreditCard className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                      <span className="text-[12px] text-gray-500 leading-none">
+                        Plan: <span className="text-gray-800 font-semibold">{TIER_LABELS[userTier]}</span>
+                      </span>
+                    </div>
+                    {userTier === "basic" && (
+                      <button
+                        onClick={() => { setProfileOpen(false); onNavigate("settings"); }}
+                        className="text-[11px] font-semibold text-[#1B2A4A] hover:underline leading-none"
+                      >
+                        Upgrade
+                      </button>
+                    )}
                   </div>
-                )}
-                <div className="py-1.5">
+                </div>
+
+                {/* Menu items — compact, no excess padding */}
+                <div className="py-0.5">
                   <button
                     onClick={() => { setProfileOpen(false); onNavigate("settings"); }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-[11px] text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-all"
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2 text-[12px] text-gray-700 hover:bg-gray-50 transition-colors text-left"
                   >
-                    <Settings className="h-3.5 w-3.5" />
+                    <Settings className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
                     Account Settings
                   </button>
                   <button
                     onClick={() => { setProfileOpen(false); onNavigate("analytics"); }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-[11px] text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-all"
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2 text-[12px] text-gray-700 hover:bg-gray-50 transition-colors text-left"
                   >
-                    <BarChart2 className="h-3.5 w-3.5" />
+                    <BarChart2 className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
                     Analytics
                   </button>
                   <button
                     onClick={() => { setProfileOpen(false); onNavigate("history"); }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-[11px] text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-all"
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2 text-[12px] text-gray-700 hover:bg-gray-50 transition-colors text-left"
                   >
-                    <History className="h-3.5 w-3.5" />
+                    <History className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
                     Workflow History
                   </button>
                 </div>
-                <div className="border-t border-gray-100 py-1.5">
+
+                <div className="border-t border-gray-100 py-0.5">
                   <button
                     onClick={() => { setProfileOpen(false); onLogout(); }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-[11px] text-red-600 hover:bg-red-50 transition-all"
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2 text-[12px] text-red-600 hover:bg-red-50 transition-colors text-left"
                   >
-                    <LogOut className="h-3.5 w-3.5" />
+                    <LogOut className="h-3.5 w-3.5 flex-shrink-0" />
                     Log out
                   </button>
                 </div>

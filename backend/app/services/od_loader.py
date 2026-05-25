@@ -175,7 +175,7 @@ def get_template_seed(template_id: str) -> str | None:
     """Return the content of the template's own ``assets/template.html`` seed,
     or ``None`` if the template doesn't ship one.
 
-    11 of 43 prototype templates (mobile-app, web-prototype, live-dashboard,
+    Several prototype templates (mobile-app, web-prototype, live-dashboard,
     etc.) include their own HTML/CSS seed that the SKILL.md instructs the agent
     to copy as the starting point. Injecting this seed into the Composer's
     user message instead of the generic Flowin SPA seed gives much higher
@@ -185,6 +185,39 @@ def get_template_seed(template_id: str) -> str | None:
     if not seed_path.is_file():
         return None
     return _read_file(seed_path)
+
+
+def get_template_references(template_id: str) -> dict[str, str]:
+    """Return all ``*.md`` files from the template's ``references/`` folder.
+
+    These are critical quality documents — layout libraries, P0/P1/P2
+    checklists, component inventories, connector policies — that the SKILL.md
+    workflow explicitly instructs the agent to read before writing any HTML.
+
+    Without injecting these, the agent writes CSS from scratch and ignores
+    the paste-ready section skeletons and quality gates the template ships.
+
+    Returns a dict mapping filename stem → file body, e.g.:
+        {"layouts": "# Web prototype layouts ...", "checklist": "# Web prototype checklist ..."}
+    Returns an empty dict if the template has no references/ folder.
+    """
+    refs_dir = _TEMPLATES_DIR / template_id / "references"
+    if not refs_dir.is_dir():
+        return {}
+    out: dict[str, str] = {}
+    for path in sorted(refs_dir.glob("*.md")):
+        # Skip README files — they describe the directory, not a rule
+        if path.stem.lower() == "readme":
+            continue
+        body = _read_file(path)
+        if body is not None:
+            out[path.stem] = body
+    if out:
+        logger.debug(
+            "Loaded %d reference file(s) for template '%s': %s",
+            len(out), template_id, list(out.keys()),
+        )
+    return out
 
 
 def get_template_preview_path(template_id: str) -> Path | None:
@@ -230,6 +263,7 @@ def _load_one_design_system(folder: Path) -> dict[str, Any] | None:
         "name": h1_match.group(1) if h1_match else _humanize_slug(folder.name),
         "category": cat_match.group(1) if cat_match else "Uncategorised",
         "description": blurb_match.group(1) if blurb_match else "",
+        "has_preview": (folder / "components.html").is_file(),
         "body": raw,
     }
 
@@ -263,6 +297,15 @@ def get_design_system(ds_id: str) -> dict[str, Any] | None:
         if ds["id"] == ds_id:
             return ds
     return None
+
+
+def get_design_system_preview_path(ds_id: str) -> Path | None:
+    """Filesystem path to the design system's components.html, or None if it
+    doesn't exist or has no preview file."""
+    ds = get_design_system(ds_id)
+    if ds is None or not ds.get("has_preview"):
+        return None
+    return _DESIGN_SYSTEMS_DIR / ds_id / "components.html"
 
 
 # ---------------------------------------------------------------------------

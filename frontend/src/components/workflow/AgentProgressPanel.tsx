@@ -221,7 +221,7 @@ export function AgentProgressPanel({
               onClick={handleCancel}
               className="flex items-center gap-1.5 text-[10px] font-medium text-gray-500 hover:text-gray-900 border border-gray-200 hover:border-gray-300 rounded-lg px-2.5 py-1.5 transition-all flex-shrink-0"
             >
-              <Square className="h-3 w-3" /> Pause
+              <Square className="h-3 w-3" /> Stop
             </button>
           )}
         </div>

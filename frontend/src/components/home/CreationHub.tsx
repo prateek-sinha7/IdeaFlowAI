@@ -61,13 +61,6 @@ export function CreationHub({ onSelectFeature, userTier = "basic" }: CreationHub
           </p>
         </motion.div>
 
-        {/* Tier badge */}
-        <div className="w-full flex items-center justify-end mb-2">
-          <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">
-            Plan: <span className="text-[#1B2A4A]">{TIER_LABELS[userTier]}</span>
-          </span>
-        </div>
-
         {/* Workflow list */}
         <div className="w-full divide-y divide-gray-200/70">
           {WORKFLOWS.map((workflow, idx) => {

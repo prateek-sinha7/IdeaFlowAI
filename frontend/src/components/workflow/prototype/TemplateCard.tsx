@@ -8,6 +8,8 @@ interface TemplateCardProps {
   template: PrototypeTemplate;
   selected: boolean;
   onSelect: (id: string) => void;
+  /** Called when the card is clicked — opens the detail modal */
+  onOpenDetail: (id: string) => void;
 }
 
 /**
@@ -24,7 +26,7 @@ interface TemplateCardProps {
  * `pointer-events: none` keeps clicks within the iframe from being swallowed
  * — the entire card is the click target.
  */
-export function TemplateCard({ template, selected, onSelect }: TemplateCardProps) {
+export function TemplateCard({ template, selected, onSelect, onOpenDetail }: TemplateCardProps) {
   const cardRef = useRef<HTMLButtonElement | null>(null);
   const [shouldMount, setShouldMount] = useState(false);
   const [previewLoaded, setPreviewLoaded] = useState(false);
@@ -51,7 +53,7 @@ export function TemplateCard({ template, selected, onSelect }: TemplateCardProps
     <button
       ref={cardRef}
       type="button"
-      onClick={() => onSelect(template.id)}
+      onClick={() => onOpenDetail(template.id)}
       className={`group relative flex flex-col overflow-hidden rounded-xl border bg-white text-left transition-all hover:shadow-md focus:outline-none ${
         selected
           ? "border-[#1B2A4A] ring-2 ring-[#1B2A4A]/15 shadow-md"
@@ -64,6 +66,13 @@ export function TemplateCard({ template, selected, onSelect }: TemplateCardProps
           <Check className="h-3.5 w-3.5" strokeWidth={3} />
         </div>
       )}
+
+      {/* "Click to preview" hint on hover */}
+      <div className="absolute inset-0 z-10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+        <span className="rounded-full bg-black/60 px-3 py-1 text-[10px] font-semibold text-white backdrop-blur-sm">
+          Click to preview
+        </span>
+      </div>
 
       {/* Preview surface */}
       <div className="relative h-44 overflow-hidden bg-gray-50">

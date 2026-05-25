@@ -262,7 +262,7 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
   }
 
   // ── Prototype ─────────────────────────────────────────────────────────────
-  if ((workflowType === "prototype" || workflowType === "prototype_revision") && prototypeContent) {
+  if ((workflowType === "prototype" || workflowType === "prototype_revision" || workflowType === "od_prototype") && prototypeContent) {
     let name = "prototype";
     const t = prototypeContent.match(/<title>(.+?)<\/title>/i);
     if (t) name = t[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);

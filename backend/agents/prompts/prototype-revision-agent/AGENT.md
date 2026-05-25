@@ -1,6 +1,6 @@
 ---
 id: prototype-revision-agent
-name: Prototype Revision Agent
+name: Revision Specialist Agent
 role: Targeted UI Refinement
 pipeline_type: prototype_revision
 order: 1

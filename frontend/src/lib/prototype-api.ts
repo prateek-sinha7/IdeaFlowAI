@@ -35,6 +35,7 @@ export interface DesignSystemListItem {
   name: string;
   category: string;
   description: string;
+  has_preview: boolean;
 }
 
 export interface DesignSystemDetail extends DesignSystemListItem {
@@ -90,4 +91,13 @@ export function getDesignSystem(
  */
 export function getTemplatePreviewUrl(id: string): string {
   return `${BASE_URL}/api/prototype/templates/${encodeURIComponent(id)}/preview`;
+}
+
+/**
+ * Public URL for the design system's components.html preview.
+ * Unauthenticated — safe to use directly as <iframe src>.
+ * Only available for the 17 design systems that ship components.html.
+ */
+export function getDesignSystemPreviewUrl(id: string): string {
+  return `${BASE_URL}/api/prototype/design-systems/${encodeURIComponent(id)}/preview`;
 }

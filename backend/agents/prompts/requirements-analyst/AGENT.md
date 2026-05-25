@@ -1,7 +1,7 @@
 ---
 id: requirements-analyst
-name: Brief Analyst
-role: SPA Spec Architecture
+name: UX Strategist Agent
+role: Product & Navigation Architecture
 pipeline_type: prototype
 order: 1
 max_tokens: 16000

@@ -1,7 +1,7 @@
 ---
 id: html-prototype-builder
-name: SPA Composer
-role: Interactive HTML Engineering
+name: Interface Engineer Agent
+role: Interactive Prototype Development
 pipeline_type: prototype
 order: 2
 max_tokens: 32768
@@ -172,6 +172,46 @@ contradicts them, follow the SKILL.md — these are belt-and-braces:
 5. `data-od-id="<slug>"` on every top-level region.
 6. No default Tailwind indigo / violet. No emoji-as-icon. No placeholder
    text ("Lorem ipsum", "Metric A/B/C"). Every label is domain-specific.
+
+═══════════════════════════════════════════════════════════════════
+NAVIGATION WIRING — MANDATORY CHECKLIST (verify before emitting)
+═══════════════════════════════════════════════════════════════════
+
+Navigation is the most common failure mode. Before emitting, verify:
+
+**A. routes map is populated:**
+```js
+const routes = {
+  'dashboard': '/dashboard',
+  'settings': '/settings',
+  // ... one entry per page in the spec
+};
+```
+An empty `routes = {}` means NO navigation works. Every page in the
+spec's navigation_graph MUST have an entry.
+
+**B. Every page has a `<section data-page="...">` element:**
+```html
+<section data-page="dashboard" class="is-active">...</section>
+<section data-page="settings">...</section>
+```
+The first page gets `class="is-active"`. All others start hidden.
+
+**C. Every nav link uses `href="#/path"` format:**
+```html
+<a href="#/dashboard">Dashboard</a>  ✓
+<a href="#dashboard">Dashboard</a>   ✗ (missing slash — won't trigger hashchange)
+<a onclick="navigate('dashboard')">  ✗ (use href, not onclick for navigation)
+```
+
+**D. Chrome is duplicated in every page section:**
+The sidebar/topbar markup appears inside EVERY `<section data-page>`.
+Only the active nav item's class differs (e.g. `class="nav-item active"`).
+
+**E. Mental test:** Trace each nav link click:
+- User clicks "Settings" link → `href="#/settings"` → `hashchange` fires
+- `route()` runs → matches `routes['settings'] = '/settings'`
+- `<section data-page="settings">` gets `is-active` class → page shows ✓
 
 ═══════════════════════════════════════════════════════════════════
 OUTPUT CONTRACT

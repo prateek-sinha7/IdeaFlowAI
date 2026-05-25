@@ -395,6 +395,7 @@ async def websocket_chat(websocket: WebSocket):
                             design_system_id=message_data.get("design_system_id", ""),
                             discovery=message_data.get("discovery"),
                             user=user,
+                            custom_ds_body=message_data.get("custom_design_system_body") or None,
                         )
                     )
                 else:
@@ -641,6 +642,7 @@ async def _handle_od_prototype_execution(
     design_system_id: str,
     discovery: dict | None,
     user: User,
+    custom_ds_body: str | None = None,
 ) -> None:
     """Run the OpenDesign-style 4-agent prototype pipeline over WebSocket.
 
@@ -652,20 +654,23 @@ async def _handle_od_prototype_execution(
     from app.agents.od_runner import run_od_prototype_pipeline
     from app.services.od_loader import get_template, get_design_system
 
-    # Validate IDs up front — avoids starting a WorkflowRun that will fail
-    # immediately inside the runner with a LookupError.
+    # Validate template up front.
     if not template_id or get_template(template_id) is None:
         await websocket.send_json({
             "type": "error", "chunk": None, "section": None,
             "data": {"error": f"Unknown template: {template_id!r}", "code": "invalid_template", "recoverable": False},
         })
         return
-    if not design_system_id or get_design_system(design_system_id) is None:
-        await websocket.send_json({
-            "type": "error", "chunk": None, "section": None,
-            "data": {"error": f"Unknown design system: {design_system_id!r}", "code": "invalid_design_system", "recoverable": False},
-        })
-        return
+
+    # For custom design systems, skip the built-in DS lookup entirely.
+    # For built-in systems, validate the ID exists.
+    if not custom_ds_body:
+        if not design_system_id or get_design_system(design_system_id) is None:
+            await websocket.send_json({
+                "type": "error", "chunk": None, "section": None,
+                "data": {"error": f"Unknown design system: {design_system_id!r}", "code": "invalid_design_system", "recoverable": False},
+            })
+            return
 
     # Create WorkflowRun record for history.
     workflow_run_id = None
@@ -707,6 +712,7 @@ async def _handle_od_prototype_execution(
             design_system_id=design_system_id,
             brief=brief,
             discovery=discovery,
+            custom_ds_body=custom_ds_body,
         ):
             t = event.get("type")
 

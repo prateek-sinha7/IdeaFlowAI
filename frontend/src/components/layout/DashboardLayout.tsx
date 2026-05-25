@@ -50,6 +50,7 @@ export interface DashboardLayoutProps {
   onSelectWorkflowRun?: (run: WorkflowRun) => void;
   questionnaireData?: { questions: { id: string; question: string; options: string[] }[] } | null;
   userTier?: "basic" | "pro" | "enterprise";
+  userEmail?: string;
 }
 
 type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution";
@@ -81,9 +82,23 @@ export function DashboardLayout({
   onSelectWorkflowRun,
   questionnaireData,
   userTier = "basic",
+  userEmail,
 }: DashboardLayoutProps) {
-  const [mainView, setMainView] = useState<MainView>("home");
-  const [workflowType, setWorkflowType] = useState<WorkflowType>("user_stories");
+  const [mainView, setMainView] = useState<MainView>(() => {
+    // If an od_prototype run is staged (user came from the prototype wizard),
+    // start directly in execution view — avoids the home screen flash while
+    // waiting for the WebSocket to connect and fire the pipeline.
+    if (typeof window !== "undefined" && sessionStorage.getItem("od_prototype.pending")) {
+      return "execution";
+    }
+    return "home";
+  });
+  const [workflowType, setWorkflowType] = useState<WorkflowType>(() => {
+    if (typeof window !== "undefined" && sessionStorage.getItem("od_prototype.pending")) {
+      return "prototype";
+    }
+    return "user_stories";
+  });
   const [workflowInput, setWorkflowInput] = useState("");
   const [completedPipelineTypes, setCompletedPipelineTypes] = useState<WorkflowType[]>([]);
   const [lastPipelineOutput, setLastPipelineOutput] = useState<string>("");
@@ -226,9 +241,9 @@ export function DashboardLayout({
     setWorkflowType("ppt_revision" as WorkflowType);
     if (onResetPipeline) onResetPipeline();
     if (onStartPipeline) {
-      onStartPipeline("ppt_revision", revisionMessage);
+      onStartPipeline("ppt_revision", revisionMessage, undefined, attachedSkills, attachedHooks);
     }
-  }, [pptxCode, pptContent, onStartPipeline, onResetPipeline]);
+  }, [pptxCode, pptContent, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
 
   // Handle User Story revision — re-run pipeline with existing backlog + change instruction
   const handleReviseUserStory = useCallback((instruction: string) => {
@@ -237,9 +252,9 @@ export function DashboardLayout({
     setWorkflowType("user_stories_revision" as WorkflowType);
     if (onResetPipeline) onResetPipeline();
     if (onStartPipeline) {
-      onStartPipeline("user_stories_revision", revisionMessage);
+      onStartPipeline("user_stories_revision", revisionMessage, undefined, attachedSkills, attachedHooks);
     }
-  }, [userStoryContent, onStartPipeline, onResetPipeline]);
+  }, [userStoryContent, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
 
   // Handle Prototype revision — re-run pipeline with existing HTML + change instruction
   const handleRevisePrototype = useCallback((instruction: string) => {
@@ -248,9 +263,9 @@ export function DashboardLayout({
     setWorkflowType("prototype_revision" as WorkflowType);
     if (onResetPipeline) onResetPipeline();
     if (onStartPipeline) {
-      onStartPipeline("prototype_revision", revisionMessage);
+      onStartPipeline("prototype_revision", revisionMessage, undefined, attachedSkills, attachedHooks);
     }
-  }, [prototypeContent, onStartPipeline, onResetPipeline]);
+  }, [prototypeContent, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
 
   // Handle App Builder revision — re-run pipeline with existing blueprint + change instruction
   const handleReviseAppBuilder = useCallback((instruction: string) => {
@@ -259,9 +274,9 @@ export function DashboardLayout({
     setWorkflowType("app_builder_revision" as WorkflowType);
     if (onResetPipeline) onResetPipeline();
     if (onStartPipeline) {
-      onStartPipeline("app_builder_revision", revisionMessage);
+      onStartPipeline("app_builder_revision", revisionMessage, undefined, attachedSkills, attachedHooks);
     }
-  }, [userStoryContent, onStartPipeline, onResetPipeline]);
+  }, [userStoryContent, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
 
   // Handle incoming questionnaire data from WebSocket
   useEffect(() => {
@@ -441,9 +456,9 @@ export function DashboardLayout({
     const refinedInput = `${workflowInput}\n\n---\nRefinement: ${message}`;
     setWorkflowInput(refinedInput);
     if (onStartPipeline) {
-      onStartPipeline(workflowType, refinedInput);
+      onStartPipeline(workflowType, refinedInput, undefined, attachedSkills, attachedHooks);
     }
-  }, [workflowInput, workflowType, onStartPipeline]);
+  }, [workflowInput, workflowType, onStartPipeline, attachedSkills, attachedHooks]);
 
   // Map mainView to header page type
   const headerPage = mainView === "library" ? "library" :
@@ -486,6 +501,8 @@ export function DashboardLayout({
         currentPage={headerPage}
         onNavigate={handleNavigate}
         onLogout={onLogout}
+        userTier={userTier}
+        userEmail={userEmail}
         isPipelineRunning={isPipelineRunning}
         pipelineType={workflowType}
         pipelineAgentsCompleted={pipelineState?.completedCount ?? 0}
@@ -625,7 +642,10 @@ export function DashboardLayout({
                       if (websocketSend) {
                         websocketSend(JSON.stringify({ type: "cancel_pipeline" }));
                       }
-                      if (onResetPipeline) onResetPipeline();
+                      // Do NOT call onResetPipeline() here — the pipeline_cancelled
+                      // WebSocket event drives the state reset. Calling reset
+                      // immediately clears agents[] before the event arrives,
+                      // so the graceful agent state transition (running→idle) is skipped.
                     }}
                   />
                 </ErrorBoundary>

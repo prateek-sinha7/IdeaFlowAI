@@ -79,13 +79,43 @@ def _format_discovery(discovery: dict[str, Any] | None) -> str:
     return "\n".join(lines)
 
 
-def _load_od_context(template_id: str, design_system_id: str) -> dict[str, Any]:
+def _load_od_context(
+    template_id: str,
+    design_system_id: str,
+    custom_ds_body: str | None = None,
+) -> dict[str, Any]:
     template = od_loader.get_template(template_id)
     if template is None:
         raise LookupError(f"Template '{template_id}' not found")
-    ds = od_loader.get_design_system(design_system_id)
-    if ds is None:
-        raise LookupError(f"Design system '{design_system_id}' not found")
+
+    # Custom design system: body is provided directly by the caller.
+    # Skip the od_loader lookup entirely — no file on disk needed.
+    if custom_ds_body:
+        ds_id = design_system_id or "custom"
+        ds_body = custom_ds_body.strip()
+        # Validate minimum quality — a useful DESIGN.md has at least color tokens
+        # and some structure. Warn but don't block if it looks thin.
+        if len(ds_body) < 100:
+            logger.warning(
+                "Custom design system body is very short (%d chars) — "
+                "agents may fall back to invented tokens. "
+                "Recommend a full 9-section DESIGN.md.",
+                len(ds_body),
+            )
+        # Prepend a clear label so agents know this is user-supplied
+        ds_body = (
+            f"# Custom Design System: {ds_id}\n\n"
+            f"This design system was provided directly by the user. "
+            f"Follow its tokens exactly — do not invent or substitute values.\n\n"
+            f"{ds_body}"
+        )
+        logger.info("Using custom design system body (%d chars)", len(ds_body))
+    else:
+        ds = od_loader.get_design_system(design_system_id)
+        if ds is None:
+            raise LookupError(f"Design system '{design_system_id}' not found")
+        ds_id = design_system_id
+        ds_body = ds["body"]
 
     example_path = od_loader.get_template_preview_path(template_id)
     example_html = ""
@@ -95,11 +125,18 @@ def _load_od_context(template_id: str, design_system_id: str) -> dict[str, Any]:
         except OSError as exc:
             logger.warning("Could not read example.html for %s: %s", template_id, exc)
 
-    # Template's own seed (assets/template.html) — present in 11 of 43 templates.
-    # When present, the SKILL.md workflow instructs "Copy assets/template.html as
-    # your starting point." We inject it so the Composer uses the right scaffolding
-    # instead of the generic Flowin SPA seed.
+    # Template's own seed (assets/template.html) — present in several prototype
+    # templates. When present, the SKILL.md workflow instructs "Copy
+    # assets/template.html as your starting point." We inject it so the Composer
+    # uses the right scaffolding instead of the generic Flowin SPA seed.
     template_seed = od_loader.get_template_seed(template_id)
+
+    # Template reference files (references/*.md) — layout libraries, P0/P1/P2
+    # checklists, component inventories, connector policies. The SKILL.md workflow
+    # explicitly instructs the agent to read these before writing any HTML.
+    # Without injecting them the agent writes CSS from scratch and ignores the
+    # paste-ready section skeletons and quality gates the template ships.
+    template_references = od_loader.get_template_references(template_id)
 
     craft_required = template.get("craft_required") or []
     craft_rules = od_loader.get_craft_rules(craft_required)
@@ -109,29 +146,25 @@ def _load_od_context(template_id: str, design_system_id: str) -> dict[str, Any]:
         else "(no craft rules required by this template)"
     )
 
-    # Single-screen flag: mobile and certain design-scenario templates produce
-    # one screen, not a multi-page SPA. The Flowin SPA seed (hash router +
-    # data-page sections) must not be applied to these.
+    # Single-screen flag: mobile templates produce one screen, not a multi-page SPA.
+    # The Flowin SPA seed (hash router + data-page sections) must not be applied
+    # to mobile templates.
+    #
+    # IMPORTANT: Do NOT flag desktop templates as single-screen just because they
+    # ship their own seed (assets/template.html). Many desktop templates (web-prototype,
+    # live-dashboard, etc.) ship a seed AND expect multi-page SPA output. Only
+    # platform == "mobile" is a reliable single-screen signal.
     platform = template.get("platform") or ""
-    is_single_screen = platform == "mobile" or not template.get("has_own_seed") is False
-
-    # More precise: single-screen if platform is mobile OR if the template's
-    # SKILL.md workflow describes one self-contained screen (no navigation graph).
-    # We approximate: templates with their own seed that are NOT dashboard-type
-    # are typically single-screen. Dashboard/kanban templates without a seed are
-    # multi-page candidates.
-    is_single_screen = (
-        platform == "mobile"
-        or (template_seed is not None and platform != "desktop")
-    )
+    is_single_screen = (platform == "mobile")
 
     return {
         "template_id": template_id,
         "template_body": template["body"],
-        "ds_id": design_system_id,
-        "ds_body": ds["body"],
+        "ds_id": ds_id,
+        "ds_body": ds_body,
         "example_html": example_html or "(no example.html available)",
-        "template_seed": template_seed,  # None if template doesn't ship a seed
+        "template_seed": template_seed,       # None if template doesn't ship a seed
+        "template_references": template_references,  # {} if no references/ folder
         "is_single_screen": is_single_screen,
         "craft_block": craft_block,
     }
@@ -217,10 +250,12 @@ def _user_message_spa_composer(
     """Task-specific input for the SPA Composer.
 
     DESIGN.md, craft rules, and SKILL.md are now in the system prompt.
-    The user message carries only: spec, brief, example.html (visual ref), and seed.
+    The user message carries: spec, brief, example.html (visual ref),
+    references/*.md (layout library + checklists), and seed.
     """
     disc = _format_discovery(discovery) or "(none provided)"
     template_seed = od.get("template_seed")
+    template_references = od.get("template_references") or {}
     is_single_screen = od.get("is_single_screen", False)
 
     if is_single_screen:
@@ -231,6 +266,25 @@ def _user_message_spa_composer(
         )
     else:
         structure_note = ""
+
+    # ── Reference files block (layouts.md, checklist.md, etc.) ──────────
+    # These are the most important quality inputs — the SKILL.md workflow
+    # explicitly instructs the agent to read them before writing any HTML.
+    # layouts.md contains paste-ready section skeletons; checklist.md has
+    # P0/P1/P2 quality gates the agent must pass before emitting.
+    if template_references:
+        refs_parts = []
+        for name, body in template_references.items():
+            refs_parts.append(
+                f"═══════════════════════════════════════════════════════════\n"
+                f"TEMPLATE REFERENCE: references/{name}.md\n"
+                f"(The SKILL.md workflow instructs you to read this before writing HTML)\n"
+                f"═══════════════════════════════════════════════════════════\n\n"
+                f"{body}"
+            )
+        references_block = "\n\n".join(refs_parts) + "\n\n"
+    else:
+        references_block = ""
 
     if template_seed:
         seed_section = (
@@ -247,6 +301,8 @@ def _user_message_spa_composer(
             "FLOWIN SPA SEED (multi-page scaffolding)\n"
             "Replace :root tokens with DESIGN.md tokens. "
             "Add <section data-page='...'> per page in the spec.\n"
+            "CRITICAL: Every nav link MUST use href='#/page-id' format.\n"
+            "CRITICAL: The routes map MUST be populated with every page.\n"
             "═══════════════════════════════════════════════════════════\n\n"
             "<!doctype html>\n<html lang=\"en\">\n<head>\n  <style>\n    :root {\n"
             "      /* Replace ALL with DESIGN.md tokens from your system prompt */\n"
@@ -257,27 +313,52 @@ def _user_message_spa_composer(
             "    body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-sans);}\n"
             "    [data-page]{display:none;min-height:100vh;}[data-page].is-active{display:block;}\n"
             "  </style>\n</head>\n<body>\n"
+            "  <!-- IMPORTANT: Every nav link must use href='#/page-id' -->\n"
+            "  <!-- IMPORTANT: Every page must be wrapped in <section data-page='page-id'> -->\n\n"
             "  <script>\n"
-            "    const store=(()=>{let s={};const l=new Set();return{get:k=>k?s[k]:s,set:p=>{s={...s,...p};l.forEach(f=>f(s));},on:(_,f)=>{l.add(f);return()=>l.delete(f);}};})();\n"
-            "    // Hash router — shows the <section data-page='...'> whose id matches location.hash\n"
-            "    // e.g. #/dashboard shows <section data-page='dashboard'>\n"
-            "    // Falls back to the first page when hash is empty or unmatched.\n"
+            "    const store=(()=>{let s={};const l=new Set();return{get:k=>k?s[k]:s,set:p=>{s={...s,...p};l.forEach(f=>f(s));},on:(_,f)=>{l.add(f);return()=>l.delete(f);}};})();\n\n"
+            "    // HASH ROUTER — MUST populate routes with every page from the spec\n"
+            "    // Format: 'page-id': '/path'  (e.g. 'dashboard': '/dashboard')\n"
+            "    // Nav links MUST use href='#/path' to trigger hashchange\n"
+            "    const routes = {\n"
+            "      // FILL IN: 'page-id': '/path' for every page in the spec\n"
+            "      // Example: 'dashboard': '/dashboard', 'settings': '/settings'\n"
+            "    };\n\n"
             "    function route(){\n"
-            "      const hash=(location.hash||'').replace(/^#\\/?/,'');\n"
-            "      const pages=document.querySelectorAll('[data-page]');\n"
-            "      let matched=false;\n"
-            "      pages.forEach(el=>{\n"
-            "        const active=el.dataset.page===hash;\n"
-            "        el.classList.toggle('is-active',active);\n"
-            "        if(active)matched=true;\n"
-            "      });\n"
-            "      // Fallback: show first page if nothing matched\n"
-            "      if(!matched&&pages.length>0)pages[0].classList.add('is-active');\n"
-            "      store.set({_route:{id:hash}});\n"
+            "      // Normalise hash: '#/dashboard' → 'dashboard', '#dashboard' → 'dashboard'\n"
+            "      const raw = location.hash || '';\n"
+            "      const path = raw.replace(/^#\\/?/, '');\n"
+            "      const pages = document.querySelectorAll('[data-page]');\n"
+            "      let matched = false;\n"
+            "      // Try routes map first\n"
+            "      for(const [id, pattern] of Object.entries(routes)){\n"
+            "        const clean = pattern.replace(/^\\//, '');\n"
+            "        if(path === clean || path === id){\n"
+            "          pages.forEach(el => el.classList.toggle('is-active', el.dataset.page === id));\n"
+            "          store.set({_route:{id,params:{}}});\n"
+            "          matched = true;\n"
+            "          break;\n"
+            "        }\n"
+            "      }\n"
+            "      // Fallback: match data-page directly against path\n"
+            "      if(!matched){\n"
+            "        pages.forEach(el => {\n"
+            "          const active = el.dataset.page === path;\n"
+            "          el.classList.toggle('is-active', active);\n"
+            "          if(active) matched = true;\n"
+            "        });\n"
+            "      }\n"
+            "      // Final fallback: show first page when nothing matches (initial load)\n"
+            "      if(!matched && pages.length > 0){\n"
+            "        pages[0].classList.add('is-active');\n"
+            "        store.set({_route:{id: pages[0].dataset.page, params:{}}});\n"
+            "      }\n"
             "    }\n"
-            "    window.addEventListener('hashchange',route);\n"
-            "    window.addEventListener('DOMContentLoaded',route);\n"
-            "    window.addEventListener('load',route);\n"
+            "    window.addEventListener('hashchange', route);\n"
+            "    window.addEventListener('DOMContentLoaded', route);\n"
+            "    window.addEventListener('load', route);\n\n"
+            "    // PER-PAGE HANDLERS — wire forms, buttons, modals per the spec's interactions.\n"
+            "    // Use location.hash = '#/page-id' or <a href='#/page-id'> for navigation.\n"
             "  </script>\n</body>\n</html>\n"
         )
 
@@ -287,6 +368,20 @@ def _user_message_spa_composer(
         f"{spec_json}\n\n"
         f"USER BRIEF (context only — the spec above takes precedence):\n{brief.strip() or '(no brief)'}\n\n"
         f"DISCOVERY ANSWERS:\n{disc}\n\n"
+        f"{references_block}"
+        "═══════════════════════════════════════════════════════════\n"
+        "NAVIGATION WIRING — NON-NEGOTIABLE REQUIREMENTS\n"
+        "═══════════════════════════════════════════════════════════\n\n"
+        "1. Every page in the spec's navigation_graph MUST have a corresponding\n"
+        "   <section data-page='page-id'> element in the HTML.\n"
+        "2. The routes map MUST be populated: routes = { 'page-id': '/path', ... }\n"
+        "   for EVERY page. An empty routes = {} means NO navigation works.\n"
+        "3. Every nav link MUST use href='#/path' format (e.g. href='#/dashboard').\n"
+        "   Do NOT use onclick with location.href. Do NOT use <a href='#page-id'>\n"
+        "   without the slash — it will not trigger hashchange.\n"
+        "4. The chrome (sidebar/topbar) MUST appear identically in EVERY\n"
+        "   <section data-page> block. Only the active nav item class differs.\n"
+        "5. Test mentally: clicking each nav item must show the correct page.\n\n"
         "═══════════════════════════════════════════════════════════\n"
         "TEMPLATE EXAMPLE (example.html — visual reference only)\n"
         "Extract: class system, chrome pattern, density, accent budget.\n"
@@ -301,11 +396,26 @@ def _user_message_craft_linter(prior_html: str, od: dict[str, Any]) -> str:
     """Task-specific input for the Craft Linter.
 
     DESIGN.md, craft rules, and SKILL.md hard rules are in the system prompt.
-    User message carries: the HTML to lint + example.html as visual reference.
+    User message carries: the HTML to lint + checklist reference (if any) +
+    example.html as visual reference.
     """
+    template_references = od.get("template_references") or {}
+
+    # Inject the checklist reference if the template ships one — this is the
+    # P0/P1/P2 quality gate the Craft Linter must enforce.
+    checklist_block = ""
+    if "checklist" in template_references:
+        checklist_block = (
+            "═══════════════════════════════════════════════════════════\n"
+            "TEMPLATE CHECKLIST (references/checklist.md — enforce all P0 items)\n"
+            "═══════════════════════════════════════════════════════════\n\n"
+            f"{template_references['checklist']}\n\n"
+        )
+
     return (
         "PRIOR ARTIFACT (patch in place — do not rewrite, only fix violations):\n\n"
         f"{prior_html}\n\n"
+        f"{checklist_block}"
         "═══════════════════════════════════════════════════════════\n"
         "TEMPLATE EXAMPLE (visual reference for intended chrome/density)\n"
         "═══════════════════════════════════════════════════════════\n\n"
@@ -330,12 +440,17 @@ async def run_od_prototype_pipeline(
     design_system_id: str,
     brief: str,
     discovery: dict[str, Any] | None,
+    custom_ds_body: str | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """4-stage pipeline streaming events in real time.
 
     Each Bedrock token is yielded as an ``agent_chunk`` event immediately —
     no buffering. This gives the frontend live spinner animation, accurate
     per-agent wall-clock durations, and visible thinking text while agents run.
+
+    Pass ``custom_ds_body`` to use a user-supplied DESIGN.md instead of a
+    built-in design system. When set, ``design_system_id`` is used only as a
+    display label and the od_loader lookup is skipped entirely.
 
     Event shapes yielded:
       {type: "pipeline_start",   agents: [...]}
@@ -350,7 +465,7 @@ async def run_od_prototype_pipeline(
     pipeline_start = time.monotonic()
 
     try:
-        od = _load_od_context(template_id, design_system_id)
+        od = _load_od_context(template_id, design_system_id, custom_ds_body=custom_ds_body)
     except LookupError as exc:
         yield {"type": "pipeline_error", "error": str(exc)}
         return

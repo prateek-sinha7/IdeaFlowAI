@@ -55,6 +55,7 @@ class DesignSystemListItem(BaseModel):
     name: str
     category: str
     description: str
+    has_preview: bool = False
 
 
 class DesignSystemDetail(DesignSystemListItem):
@@ -142,6 +143,31 @@ def get_design_system(ds_id: str, _: User = Depends(get_current_user)) -> dict[s
             detail=f"Design system '{ds_id}' not found",
         )
     return ds
+
+
+@router.get(
+    "/design-systems/{ds_id}/preview",
+    summary="Serve the design system's components.html for iframe rendering",
+    response_class=FileResponse,
+)
+def get_design_system_preview(ds_id: str) -> FileResponse:
+    """Returns the raw components.html for the design system.
+
+    Intentionally unauthenticated (same pattern as template preview) so the
+    frontend can embed it in a sandboxed iframe without JWT plumbing.
+    Only serves files inside ``skills/opendesign/design-systems/<id>/components.html``.
+    """
+    path = od_loader.get_design_system_preview_path(ds_id)
+    if path is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Preview not available for design system '{ds_id}'",
+        )
+    return FileResponse(
+        path=path,
+        media_type="text/html; charset=utf-8",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 # ---------------------------------------------------------------------------

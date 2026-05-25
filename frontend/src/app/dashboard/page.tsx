@@ -17,9 +17,19 @@ import type { ChatMode } from "@/components/chat/ChatInput";
  */
 export default function DashboardPage() {
   const router = useRouter();
+  // Keep initial state false/null to match SSR — avoids hydration mismatch.
+  // `mounted` flips to true after the first client render so we never show
+  // the black loading screen; instead we show nothing until hydration is done.
+  const [mounted, setMounted] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+
+  // Run synchronously after DOM paint but before the browser repaints —
+  // this is the earliest safe point to read localStorage on the client.
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Chat state (secondary — used for refinement)
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
@@ -43,13 +53,14 @@ export default function DashboardPage() {
   // Staged od_prototype run — written when authenticated, consumed when connected.
   const pendingOdProtoRef = useRef<{
     templateId: string; designSystemId: string; brief: string; discovery: unknown;
+    customDsBody?: string;
   } | null>(null);
 
   // Workflow runs state (primary)
   const [recentRuns, setRecentRuns] = useState<WorkflowRun[]>([]);
   const [questionnaireData, setQuestionnaireData] = useState<{ questions: { id: string; question: string; options: string[] }[] } | null>(null);
 
-  // Auth check on mount
+  // Auth check on mount — redirect if no token, otherwise fetch user profile.
   useEffect(() => {
     const storedToken = getToken();
     if (!storedToken) {
@@ -77,7 +88,7 @@ export default function DashboardPage() {
     sessionStorage.removeItem("od_prototype.pending");
     try {
       const draft = JSON.parse(sessionStorage.getItem("prototype.draft") ?? "{}") as {
-        templateId?: string; designSystemId?: string; brief?: string;
+        templateId?: string; designSystemId?: string; brief?: string; customDsBody?: string;
       };
       const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
       if (!draft.templateId || !draft.designSystemId || !draft.brief) return;
@@ -86,6 +97,7 @@ export default function DashboardPage() {
         designSystemId: draft.designSystemId,
         brief: draft.brief,
         discovery,
+        customDsBody: draft.customDsBody,
       };
     } catch { /* ignore malformed session data */ }
   }, [isAuthenticated]);
@@ -372,6 +384,7 @@ export default function DashboardPage() {
       template_id: pending.templateId,
       design_system_id: pending.designSystemId,
       discovery: pending.discovery,
+      ...(pending.customDsBody ? { custom_design_system_body: pending.customDsBody } : {}),
     });
   // startPipeline is stable; connectionStatus drives the re-run.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -628,12 +641,11 @@ export default function DashboardPage() {
     router.replace("/login");
   }, [router]);
 
-  if (!isAuthenticated) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-black">
-        <div className="text-grey">Loading...</div>
-      </div>
-    );
+  if (!mounted || !isAuthenticated) {
+    // Return null (not a loading screen) until the client has hydrated and
+    // confirmed auth. This avoids both the hydration mismatch (server renders
+    // null, client renders null — they match) and the black flash.
+    return null;
   }
 
   return (
@@ -677,6 +689,7 @@ export default function DashboardPage() {
       onSelectWorkflowRun={handleSelectWorkflowRun}
       questionnaireData={questionnaireData}
       userTier={user?.tier ?? "basic"}
+      userEmail={user?.email}
     />
   );
 }

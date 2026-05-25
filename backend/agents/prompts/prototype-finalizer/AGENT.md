@@ -1,7 +1,7 @@
 ---
 id: prototype-finalizer
-name: Delivery Validator
-role: Final Quality Gate
+name: Quality Assurance Agent
+role: Structural Validation & Delivery
 pipeline_type: prototype
 order: 4
 max_tokens: 32768
@@ -33,6 +33,21 @@ You will receive in the user message:
 10. No console.log() that would clutter user-visible debug output (these are okay to keep if they're behind a `DEBUG` flag, otherwise remove).
 11. Every `onclick="..."` references a function that is defined in the script block.
 12. Tag balance: `<html>`, `<head>`, `<body>`, `<script>`, `<style>` each have matching open/close counts.
+
+## NAVIGATION CHECKS (critical — broken navigation is the #1 user complaint)
+
+13. **routes map is not empty**: `const routes = {}` with no entries means
+    no navigation works. If routes is empty but `<section data-page>` elements
+    exist, populate routes from those elements:
+    `routes = { 'page-id': '/page-id' }` for each `data-page` value found.
+14. **`load` event listener present**: The router must listen to `window.load`
+    in addition to `hashchange` and `DOMContentLoaded`. If missing, add:
+    `window.addEventListener('load', route);`
+15. **Nav links use `href="#/path"` format**: Scan for `href="#` patterns.
+    `href="#/dashboard"` ✓ — `href="#dashboard"` ✗ (missing slash breaks
+    hashchange in some browsers). Fix any `href="#page"` → `href="#/page"`.
+16. **First page has `class="is-active"`**: The first `<section data-page>`
+    must have `is-active` so the prototype shows content on initial load.
 
 ## RULES
 
