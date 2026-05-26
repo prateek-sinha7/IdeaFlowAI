@@ -34,6 +34,28 @@ You will receive in the user message:
 11. Every `onclick="..."` references a function that is defined in the script block.
 12. Tag balance: `<html>`, `<head>`, `<body>`, `<script>`, `<style>` each have matching open/close counts.
 
+## VALIDATION CHECKLIST
+
+Run each check. If any P0 fails, fix it before emitting.
+
+**P0 — Navigation integrity:**
+- [ ] `const routes = { ... }` is populated — at least one entry per `<section data-page>` element
+- [ ] Every `<section data-page="id">` has a matching entry in `routes`
+- [ ] No nav link uses `href="#page"` without the slash (must be `href="#/page"`)
+- [ ] First `<section data-page>` has `class="is-active"` so the prototype shows on load
+- [ ] `window.addEventListener('load', route)` is present (in addition to `hashchange`)
+
+**P0 — Output contract:**
+- [ ] Output is wrapped in `<artifact>...</artifact>` tags
+- [ ] Output is a single complete HTML file (no external JS/CSS dependencies)
+- [ ] No stray markdown fences (```html) in the output
+
+**P1 — Content quality:**
+- [ ] No "Lorem ipsum", "Metric A/B/C", "User 1/2/3", "Item 1/2/3", or other placeholder text
+- [ ] Every table has ≥5 rows of realistic, domain-specific data
+- [ ] Every button/link has a visible label (no icon-only without aria-label)
+- [ ] Every interactive element has a handler in `<script>`
+
 ## NAVIGATION CHECKS (critical — broken navigation is the #1 user complaint)
 
 13. **routes map is not empty**: `const routes = {}` with no entries means

@@ -25,6 +25,12 @@ interface WorkflowHistoryProps {
   // (DashboardLayout) wires this to handleChainFromHistory and switches
   // into the execution view on click.
   onChainPipeline?: (run: WorkflowRun, nextType: WorkflowType) => void;
+  // Optional: revision callbacks — when set, revision buttons appear in
+  // the preview panel of the detail view, matching the execution page UX.
+  onReviseUserStory?: (instruction: string, content: string) => void;
+  onRevisePpt?: (instruction: string, content: string) => void;
+  onRevisePrototype?: (instruction: string, content: string) => void;
+  onReviseAppBuilder?: (instruction: string, content: string) => void;
 }
 
 // ─── Parse all filename: blocks from agent outputs for the IDE preview ────────
@@ -99,7 +105,7 @@ function formatDuration(seconds?: number): string {
   return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
 }
 
-export function WorkflowHistory({ onBack, onChainPipeline }: WorkflowHistoryProps) {
+export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, onRevisePpt, onRevisePrototype, onReviseAppBuilder }: WorkflowHistoryProps) {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
@@ -423,17 +429,32 @@ export function WorkflowHistory({ onBack, onChainPipeline }: WorkflowHistoryProp
                 </div>
               ) : (
                 <div className="h-full overflow-auto">
-                  {isUserStory && selectedOutput && <UserStoryPreview content={selectedOutput} />}
+                  {isUserStory && selectedOutput && (
+                    <UserStoryPreview
+                      content={selectedOutput}
+                      onRevise={onReviseUserStory ? (instruction) => onReviseUserStory(instruction, selectedOutput) : undefined}
+                    />
+                  )}
                   {isAppBuilder && (
                     ideFiles.length > 0
-                      ? <AppBuilderPreview files={ideFiles} projectName={ideProjectName} />
+                      ? <AppBuilderPreview files={ideFiles} projectName={ideProjectName} onRevise={onReviseAppBuilder ? (instruction) => onReviseAppBuilder(instruction, selectedOutput || "") : undefined} />
                       : selectedOutput
                         ? <MarkdownPreview content={selectedOutput} />
                         : <div className="flex flex-col items-center justify-center h-full gap-2"><FileText className="h-8 w-8 text-gray-200" /><p className="text-[12px] text-gray-400">No preview available</p></div>
                   )}
                   {isMarkdown && selectedOutput && <MarkdownPreview content={selectedOutput} />}
-                  {isPpt && selectedOutput && <PPTPreview content={selectedOutput} />}
-                  {isPrototype && selectedOutput && <PrototypePreview content={selectedOutput} />}
+                  {isPpt && selectedOutput && (
+                    <PPTPreview
+                      content={selectedOutput}
+                      onRevise={onRevisePpt ? (instruction) => onRevisePpt(instruction, selectedOutput) : undefined}
+                    />
+                  )}
+                  {isPrototype && selectedOutput && (
+                    <PrototypePreview
+                      content={selectedOutput}
+                      onRevise={onRevisePrototype ? (instruction) => onRevisePrototype(instruction, selectedOutput) : undefined}
+                    />
+                  )}
                 </div>
               )
             ) : (

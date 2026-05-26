@@ -172,6 +172,16 @@ contradicts them, follow the SKILL.md — these are belt-and-braces:
 5. `data-od-id="<slug>"` on every top-level region.
 6. No default Tailwind indigo / violet. No emoji-as-icon. No placeholder
    text ("Lorem ipsum", "Metric A/B/C"). Every label is domain-specific.
+7. Every page MUST have at least 3 rows/items of realistic seed data.
+   Tables show ≥5 rows. Lists show ≥4 items. Charts show ≥6 data points.
+   No empty states on initial load — seed data must be visible immediately.
+8. Every interactive element (button, form, modal trigger, dropdown) MUST
+   have a wired handler in the `<script>` block. Dead buttons with no
+   handler are a P0 failure — the user will click them and nothing happens.
+9. The chrome (sidebar/topbar) MUST be copy-pasted identically across all
+   `<section data-page>` blocks — do NOT rewrite it per page. Only the
+   active nav item's class changes. Rewriting the chrome per page is the
+   #1 cause of visual inconsistency across pages.
 
 ═══════════════════════════════════════════════════════════════════
 NAVIGATION WIRING — MANDATORY CHECKLIST (verify before emitting)

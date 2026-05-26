@@ -230,3 +230,101 @@ async def run_prototype(
             "Cache-Control": "no-cache",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# URL fetch proxy — avoids CORS when user pastes a website URL as a custom
+# template. Auth-gated, size-limited, private-IP blocked.
+# ---------------------------------------------------------------------------
+
+import ipaddress
+import re
+import socket
+from urllib.parse import urlparse
+
+
+def _is_private_url(url: str) -> bool:
+    """Return True if the URL resolves to a private/loopback address."""
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname or ""
+        if hostname.lower() in ("localhost", "127.0.0.1", "::1"):
+            return True
+        # Resolve to IP and check private ranges
+        ip_str = socket.gethostbyname(hostname)
+        ip = ipaddress.ip_address(ip_str)
+        return ip.is_private or ip.is_loopback or ip.is_link_local
+    except Exception:
+        # If we can't resolve, treat as safe (let httpx handle the error)
+        return False
+
+
+@router.get(
+    "/fetch-url",
+    summary="Proxy-fetch a URL and return its HTML content (for custom template upload)",
+)
+async def fetch_url_for_template(
+    url: str,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Fetch an external URL and return its HTML body.
+
+    Used by the CustomTemplateModal when the user pastes a website URL.
+    Validates the URL, blocks private IPs, enforces a 10s timeout and 2MB
+    size limit, and returns ``{ "html": "<content>" }`` on success or
+    ``{ "error": "<reason>" }`` on failure.
+    """
+    import httpx
+
+    # Basic scheme validation
+    if not re.match(r"^https?://", url, re.IGNORECASE):
+        raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
+
+    # Block private/loopback addresses (SSRF prevention)
+    if _is_private_url(url):
+        raise HTTPException(status_code=400, detail="Private or loopback URLs are not allowed")
+
+    MAX_BYTES = 2 * 1024 * 1024  # 2 MB
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=10.0) as client:
+            response = await client.get(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; FlowIn/1.0; +https://flowin.ai)"},
+            )
+            response.raise_for_status()
+
+            # Read up to MAX_BYTES — don't buffer the whole response
+            content = b""
+            async for chunk in response.aiter_bytes(chunk_size=8192):
+                content += chunk
+                if len(content) > MAX_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail="Response too large (max 2 MB)",
+                    )
+
+            # Decode — try charset from Content-Type, fall back to utf-8
+            charset = "utf-8"
+            ct = response.headers.get("content-type", "")
+            if "charset=" in ct:
+                charset = ct.split("charset=")[-1].split(";")[0].strip()
+            try:
+                html = content.decode(charset, errors="replace")
+            except (LookupError, UnicodeDecodeError):
+                html = content.decode("utf-8", errors="replace")
+
+            return {"html": html}
+
+    except HTTPException:
+        raise
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="URL fetch timed out (10s limit)")
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Remote server returned {exc.response.status_code}",
+        )
+    except Exception as exc:
+        logger.warning("fetch-url failed for %s: %s", url, exc)
+        raise HTTPException(status_code=502, detail=f"URL fetch failed: {exc}")

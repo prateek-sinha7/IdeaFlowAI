@@ -83,10 +83,17 @@ def _load_od_context(
     template_id: str,
     design_system_id: str,
     custom_ds_body: str | None = None,
+    custom_template_body: str | None = None,
 ) -> dict[str, Any]:
     template = od_loader.get_template(template_id)
     if template is None:
-        raise LookupError(f"Template '{template_id}' not found")
+        # For custom templates, fall back to the generic web-prototype SKILL.md
+        if custom_template_body:
+            template = od_loader.get_template("web-prototype")
+            if template is None:
+                raise LookupError(f"Template '{template_id}' not found and no 'web-prototype' fallback available")
+        else:
+            raise LookupError(f"Template '{template_id}' not found")
 
     # Custom design system: body is provided directly by the caller.
     # Skip the od_loader lookup entirely — no file on disk needed.
@@ -124,6 +131,19 @@ def _load_od_context(
             example_html = example_path.read_text(encoding="utf-8")
         except OSError as exc:
             logger.warning("Could not read example.html for %s: %s", template_id, exc)
+
+    # Custom template body: use it as the visual reference (example_html)
+    # instead of the template's own example.html. Log a warning if it looks thin.
+    if custom_template_body:
+        if len(custom_template_body) < 500:
+            logger.warning(
+                "Custom template body is very short (%d chars) — "
+                "agents may produce generic output. "
+                "Recommend a full HTML page.",
+                len(custom_template_body),
+            )
+        example_html = custom_template_body
+        logger.info("Using custom template body (%d chars) as example_html", len(custom_template_body))
 
     # Template's own seed (assets/template.html) — present in several prototype
     # templates. When present, the SKILL.md workflow instructs "Copy
@@ -167,6 +187,7 @@ def _load_od_context(
         "template_references": template_references,  # {} if no references/ folder
         "is_single_screen": is_single_screen,
         "craft_block": craft_block,
+        "is_custom_template": bool(custom_template_body),
     }
 
 
@@ -193,6 +214,27 @@ def _compose_system_prompt(
     comes from those files — exactly as OpenDesign intends.
     """
     sections: list[str] = []
+
+    # 0. CRITICAL RULES — read before anything else; highest-priority constraints
+    sections.append(
+        "═══════════════════════════════════════════════════════════\n"
+        "CRITICAL OUTPUT RULES — READ BEFORE ANYTHING ELSE\n"
+        "═══════════════════════════════════════════════════════════\n\n"
+        "1. OUTPUT FORMAT: Emit ONE complete HTML file inside <artifact>...</artifact> tags.\n"
+        "   Nothing before the opening tag. Nothing after the closing tag except one summary sentence.\n\n"
+        "2. NAVIGATION (most common failure): Every page in the spec MUST have a\n"
+        "   <section data-page='page-id'> element. The routes map MUST be populated:\n"
+        "   routes = { 'page-id': '/path', ... } — an empty routes = {} means NO navigation works.\n"
+        "   Every nav link MUST use href='#/path' format (with the slash).\n\n"
+        "3. CONTENT QUALITY: No placeholder text. No 'Metric A/B/C', 'User 1/2/3', 'Item 1/2/3',\n"
+        "   'Lorem ipsum', or 'Feature X'. Every label, number, name is domain-specific and plausible.\n"
+        "   Tables must have ≥5 rows. Lists must have ≥4 items. Charts must have ≥6 data points.\n\n"
+        "4. DESIGN TOKENS: Use ONLY :root CSS variables from the ACTIVE DESIGN SYSTEM below.\n"
+        "   Do not invent colors, fonts, or spacing values. No hardcoded hex values.\n\n"
+        "5. SELF-CHECK: Before emitting, mentally click every nav link in your output.\n"
+        "   If any page would not show, fix the routes map and href values first.\n"
+        "   Every interactive element (button, form, modal trigger) must have a wired handler.\n"
+    )
 
     # 1. DESIGN.md — brand tokens; must be obeyed without exception
     sections.append(
@@ -267,8 +309,7 @@ def _user_message_spa_composer(
     else:
         structure_note = ""
 
-    # ── Reference files block (layouts.md, checklist.md, etc.) ──────────
-    # These are the most important quality inputs — the SKILL.md workflow
+    # ── Reference files block (layouts.md, checklist.md, etc.) ──────────    # These are the most important quality inputs — the SKILL.md workflow
     # explicitly instructs the agent to read them before writing any HTML.
     # layouts.md contains paste-ready section skeletons; checklist.md has
     # P0/P1/P2 quality gates the agent must pass before emitting.
@@ -362,13 +403,19 @@ def _user_message_spa_composer(
             "  </script>\n</body>\n</html>\n"
         )
 
+    is_custom_template = od.get("is_custom_template", False)
+    example_label = (
+        "CUSTOM TEMPLATE (user-supplied — use as structural reference)\n"
+        "Extract: layout regions, component patterns, navigation chrome.\n"
+        "Apply the ACTIVE DESIGN SYSTEM tokens — do NOT copy the custom\n"
+        "template's colors or fonts verbatim."
+        if is_custom_template else
+        "TEMPLATE EXAMPLE (example.html — visual reference only)\n"
+        "Extract: class system, chrome pattern, density, accent budget.\n"
+        "Do NOT copy its brand tokens — those are in your system prompt."
+    )
+
     return (
-        f"{structure_note}"
-        "SPEC FROM BRIEF ANALYST (execute this literally):\n\n"
-        f"{spec_json}\n\n"
-        f"USER BRIEF (context only — the spec above takes precedence):\n{brief.strip() or '(no brief)'}\n\n"
-        f"DISCOVERY ANSWERS:\n{disc}\n\n"
-        f"{references_block}"
         "═══════════════════════════════════════════════════════════\n"
         "NAVIGATION WIRING — NON-NEGOTIABLE REQUIREMENTS\n"
         "═══════════════════════════════════════════════════════════\n\n"
@@ -382,10 +429,14 @@ def _user_message_spa_composer(
         "4. The chrome (sidebar/topbar) MUST appear identically in EVERY\n"
         "   <section data-page> block. Only the active nav item class differs.\n"
         "5. Test mentally: clicking each nav item must show the correct page.\n\n"
+        f"{structure_note}"
+        "SPEC FROM BRIEF ANALYST (execute this literally):\n\n"
+        f"{spec_json}\n\n"
+        f"USER BRIEF (context only — the spec above takes precedence):\n{brief.strip() or '(no brief)'}\n\n"
+        f"DISCOVERY ANSWERS:\n{disc}\n\n"
+        f"{references_block}"
         "═══════════════════════════════════════════════════════════\n"
-        "TEMPLATE EXAMPLE (example.html — visual reference only)\n"
-        "Extract: class system, chrome pattern, density, accent budget.\n"
-        "Do NOT copy its brand tokens — those are in your system prompt.\n"
+        f"{example_label}\n"
         "═══════════════════════════════════════════════════════════\n\n"
         f"{od['example_html']}\n\n"
         f"{seed_section}"
@@ -441,6 +492,7 @@ async def run_od_prototype_pipeline(
     brief: str,
     discovery: dict[str, Any] | None,
     custom_ds_body: str | None = None,
+    custom_template_body: str | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """4-stage pipeline streaming events in real time.
 
@@ -465,7 +517,7 @@ async def run_od_prototype_pipeline(
     pipeline_start = time.monotonic()
 
     try:
-        od = _load_od_context(template_id, design_system_id, custom_ds_body=custom_ds_body)
+        od = _load_od_context(template_id, design_system_id, custom_ds_body=custom_ds_body, custom_template_body=custom_template_body)
     except LookupError as exc:
         yield {"type": "pipeline_error", "error": str(exc)}
         return

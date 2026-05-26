@@ -44,11 +44,16 @@ export interface DashboardLayoutProps {
   processSteps?: ProcessStep[];
   websocketSend?: (msg: string) => void;
   pipelineState?: PipelineRunState;
-  onStartPipeline?: (type: string, message: string, agentIds?: string[], attachedSkills?: import("@/types/index").AttachedSkill[], attachedHooks?: import("@/types/index").AttachedHook[]) => void;
+  onStartPipeline?: (type: string, message: string, agentIds?: string[], attachedSkills?: import("@/types/index").AttachedSkill[], attachedHooks?: import("@/types/index").AttachedHook[], extraParams?: Record<string, unknown>) => void;
   onResetPipeline?: () => void;
   recentRuns?: WorkflowRun[];
   onSelectWorkflowRun?: (run: WorkflowRun) => void;
   questionnaireData?: { questions: { id: string; question: string; options: string[] }[] } | null;
+  pendingOdProtoParams?: {
+    brief: string; templateId: string; designSystemId: string; discovery: unknown;
+    customDsBody?: string; customTemplateBody?: string;
+  } | null;
+  onClearPendingOdProto?: () => void;
   userTier?: "basic" | "pro" | "enterprise";
   userEmail?: string;
 }
@@ -81,6 +86,8 @@ export function DashboardLayout({
   recentRuns,
   onSelectWorkflowRun,
   questionnaireData,
+  pendingOdProtoParams,
+  onClearPendingOdProto,
   userTier = "basic",
   userEmail,
 }: DashboardLayoutProps) {
@@ -104,7 +111,18 @@ export function DashboardLayout({
   const [lastPipelineOutput, setLastPipelineOutput] = useState<string>("");
   const [questionnaireQuestions, setQuestionnaireQuestions] = useState<{ id: string; question: string; options: string[] }[]>([]);
   const [questionnaireLoading, setQuestionnaireLoading] = useState(false);
-  const [pendingPipelineRun, setPendingPipelineRun] = useState<{ type: WorkflowType; message: string; agentIds?: string[] } | null>(null);
+  const [pendingPipelineRun, setPendingPipelineRun] = useState<{
+    type: WorkflowType;
+    message: string;
+    agentIds?: string[];
+    extraParams?: {
+      template_id?: string;
+      design_system_id?: string;
+      custom_design_system_body?: string;
+      custom_template_body?: string;
+      discovery?: unknown;
+    };
+  } | null>(null);
 
   // Read attached skills/hooks from global context — set by user in AgentsPopup
   const { attachedSkills, attachedHooks } = useSkillsHooks();
@@ -286,6 +304,72 @@ export function DashboardLayout({
     }
   }, [questionnaireData]);
 
+  // If the WebSocket reconnects while a pipeline run is in-flight (i.e. the
+  // user submitted the questionnaire but the connection dropped before the
+  // run_pipeline message was delivered), re-send it on the new connection.
+  const pendingPipelineRunRef = useRef<typeof pendingPipelineRun>(null);
+  useEffect(() => {
+    pendingPipelineRunRef.current = pendingPipelineRun;
+  }, [pendingPipelineRun]);
+
+  // Ref to store a pipeline start that needs to be fired once connected.
+  // Used to survive WebSocket reconnects that happen between questionnaire
+  // submit and pipeline_start arriving (e.g. hot-reload in dev, network blip).
+  const pendingStartOnConnectRef = useRef<{
+    type: string; message: string; agentIds?: string[];
+    extraParams?: Record<string, unknown>;
+  } | null>(null);
+
+  // Fire any pending pipeline start as soon as the WebSocket is connected.
+  useEffect(() => {
+    if (connectionStatus !== "connected") return;
+    const pending = pendingStartOnConnectRef.current;
+    if (!pending) return;
+    pendingStartOnConnectRef.current = null;
+    if (onStartPipeline) {
+      onStartPipeline(pending.type, pending.message, pending.agentIds, attachedSkills, attachedHooks, pending.extraParams);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionStatus]);
+
+  // When pendingOdProtoParams arrives (set by dashboard/page.tsx after the
+  // WebSocket fires generate_questions), set up the questionnaire pending state
+  // so QuestionnairePanel shows and the submit/skip handlers know the extraParams.
+  useEffect(() => {
+    if (!pendingOdProtoParams) return;
+    setMainView("execution");
+    setWorkflowType("prototype");
+    setPendingPipelineRun({
+      type: "od_prototype" as WorkflowType,
+      message: pendingOdProtoParams.brief,
+      extraParams: {
+        template_id: pendingOdProtoParams.templateId,
+        design_system_id: pendingOdProtoParams.designSystemId,
+        ...(pendingOdProtoParams.customDsBody ? { custom_design_system_body: pendingOdProtoParams.customDsBody } : {}),
+        ...(pendingOdProtoParams.customTemplateBody ? { custom_template_body: pendingOdProtoParams.customTemplateBody } : {}),
+        discovery: pendingOdProtoParams.discovery,
+      },
+    });
+    setQuestionnaireQuestions([]);
+    setQuestionnaireLoading(true);
+    // NOTE: do NOT call onResetPipeline here — there's no running pipeline to
+    // reset, and calling it causes unnecessary state churn that can disrupt
+    // the WebSocket connection before the pipeline fires.
+    if (onClearPendingOdProto) onClearPendingOdProto();
+
+    // Timeout: if questionnaire doesn't respond in 15s, skip it
+    setTimeout(() => {
+      setQuestionnaireLoading((loading) => {
+        if (loading) {
+          setQuestionnaireQuestions([]);
+          return false;
+        }
+        return loading;
+      });
+    }, 15000);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingOdProtoParams]);
+
   // Navigate from Home to Input page
   const handleSelectFeature = useCallback((type: WorkflowType) => {
     setWorkflowType(type);
@@ -428,9 +512,20 @@ export function DashboardLayout({
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
       addRunningNotification(notifId, pendingPipelineRun.type, pendingPipelineRun.message.slice(0, 60), 0);
-      onStartPipeline(pendingPipelineRun.type, enrichedMessage, pendingPipelineRun.agentIds, attachedSkills, attachedHooks);
+      // If the WebSocket is connected, fire immediately. Otherwise store in
+      // the ref so the connectionStatus effect fires it on reconnect.
+      if (connectionStatus === "connected") {
+        onStartPipeline(pendingPipelineRun.type, enrichedMessage, pendingPipelineRun.agentIds, attachedSkills, attachedHooks, pendingPipelineRun.extraParams);
+      } else {
+        pendingStartOnConnectRef.current = {
+          type: pendingPipelineRun.type,
+          message: enrichedMessage,
+          agentIds: pendingPipelineRun.agentIds,
+          extraParams: pendingPipelineRun.extraParams,
+        };
+      }
     }
-  }, [pendingPipelineRun, questionnaireQuestions, onStartPipeline, attachedSkills, attachedHooks, addRunningNotification]);
+  }, [pendingPipelineRun, questionnaireQuestions, onStartPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
 
   // Skip questionnaire — run pipeline directly with skills/hooks
   const handleQuestionnaireSkip = useCallback(() => {
@@ -442,9 +537,18 @@ export function DashboardLayout({
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
       addRunningNotification(notifId, pendingPipelineRun.type, pendingPipelineRun.message.slice(0, 60), 0);
-      onStartPipeline(pendingPipelineRun.type, pendingPipelineRun.message, pendingPipelineRun.agentIds, attachedSkills, attachedHooks);
+      if (connectionStatus === "connected") {
+        onStartPipeline(pendingPipelineRun.type, pendingPipelineRun.message, pendingPipelineRun.agentIds, attachedSkills, attachedHooks, pendingPipelineRun.extraParams);
+      } else {
+        pendingStartOnConnectRef.current = {
+          type: pendingPipelineRun.type,
+          message: pendingPipelineRun.message,
+          agentIds: pendingPipelineRun.agentIds,
+          extraParams: pendingPipelineRun.extraParams,
+        };
+      }
     }
-  }, [pendingPipelineRun, onStartPipeline, attachedSkills, attachedHooks, addRunningNotification]);
+  }, [pendingPipelineRun, onStartPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
 
   // Header navigation — free navigation even while pipeline runs
   const handleNavigate = useCallback((page: "home" | "library" | "history" | "settings" | "analytics") => {
@@ -562,7 +666,44 @@ export function DashboardLayout({
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <WorkflowHistory onBack={handleGoHome} onChainPipeline={handleChainFromHistory} />
+              <WorkflowHistory onBack={handleGoHome} onChainPipeline={handleChainFromHistory}
+            onReviseUserStory={(instruction, content) => {
+              setMainView("execution");
+              setWorkflowType("user_stories_revision");
+              if (onResetPipeline) onResetPipeline();
+              if (onStartPipeline) {
+                const msg = `=== EXISTING PRODUCT BACKLOG ===\n${content}\n=== END EXISTING BACKLOG ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
+                onStartPipeline("user_stories_revision", msg, undefined, attachedSkills, attachedHooks);
+              }
+            }}
+            onRevisePpt={(instruction, content) => {
+              setMainView("execution");
+              setWorkflowType("ppt_revision");
+              if (onResetPipeline) onResetPipeline();
+              if (onStartPipeline) {
+                const msg = `=== EXISTING PRESENTATION CODE ===\n${content}\n=== END EXISTING CODE ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
+                onStartPipeline("ppt_revision", msg, undefined, attachedSkills, attachedHooks);
+              }
+            }}
+            onRevisePrototype={(instruction, content) => {
+              setMainView("execution");
+              setWorkflowType("prototype_revision");
+              if (onResetPipeline) onResetPipeline();
+              if (onStartPipeline) {
+                const msg = `=== EXISTING PROTOTYPE HTML ===\n${content.slice(0, 40000)}\n=== END EXISTING HTML ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
+                onStartPipeline("prototype_revision", msg, undefined, attachedSkills, attachedHooks);
+              }
+            }}
+            onReviseAppBuilder={(instruction, content) => {
+              setMainView("execution");
+              setWorkflowType("app_builder_revision");
+              if (onResetPipeline) onResetPipeline();
+              if (onStartPipeline) {
+                const msg = `=== EXISTING APP BLUEPRINT ===\n${content.slice(0, 40000)}\n=== END EXISTING BLUEPRINT ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
+                onStartPipeline("app_builder_revision", msg, undefined, attachedSkills, attachedHooks);
+              }
+            }}
+          />
             </motion.div>
           )}
 

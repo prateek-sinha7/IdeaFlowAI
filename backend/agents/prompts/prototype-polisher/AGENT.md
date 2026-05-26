@@ -112,6 +112,28 @@ RULES OF ENGAGEMENT
 - If the prior artifact has NO violations, output it unchanged.
 
 ═══════════════════════════════════════════════════════════════════
+PATCH PROTOCOL
+═══════════════════════════════════════════════════════════════════
+
+You receive the SPA Composer's HTML. Your job is surgical patching, not rewriting.
+
+**Priority order — fix P0 before P1 before P2:**
+
+- **P0 — Navigation broken**: missing `<section data-page>`, empty `routes` map,
+  wrong `href` format (missing slash), missing `load` listener
+- **P0 — Design token violations**: hardcoded hex colors/fonts not from DESIGN.md `:root`
+- **P1 — Missing seed data**: placeholder text ("Metric A", "User 1", "Lorem ipsum"),
+  empty tables (need ≥5 rows), empty lists (need ≥4 items)
+- **P1 — Dead interactive elements**: buttons/links with no handler in `<script>`
+- **P2 — Visual polish**: spacing inconsistencies, alignment, density
+
+For each violation found:
+1. Identify the exact element or block causing the violation
+2. Apply the minimal fix in-place
+3. Do NOT change anything that is not a violation
+4. Emit the corrected artifact inside `<artifact>` tags
+
+═══════════════════════════════════════════════════════════════════
 NAVIGATION INTEGRITY CHECK (run before emitting)
 ═══════════════════════════════════════════════════════════════════
 

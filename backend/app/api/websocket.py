@@ -396,6 +396,7 @@ async def websocket_chat(websocket: WebSocket):
                             discovery=message_data.get("discovery"),
                             user=user,
                             custom_ds_body=message_data.get("custom_design_system_body") or None,
+                            custom_template_body=message_data.get("custom_template_body") or None,
                         )
                     )
                 else:
@@ -438,7 +439,14 @@ async def websocket_chat(websocket: WebSocket):
             if msg_type == "generate_questions":
                 pipeline_type = message_data.get("pipeline_type", "user_stories")
                 prompt = message_data.get("message") or message_data.get("content") or ""
-                await _handle_questionnaire(websocket, prompt, pipeline_type)
+                # od_prototype passes extra context for tailored questions
+                template_id_q = message_data.get("template_id") or ""
+                design_system_id_q = message_data.get("design_system_id") or ""
+                await _handle_questionnaire(
+                    websocket, prompt, pipeline_type,
+                    template_id=template_id_q,
+                    design_system_id=design_system_id_q,
+                )
                 continue
 
             if msg_type != "user_message" or not content or not chat_session_id:
@@ -643,6 +651,7 @@ async def _handle_od_prototype_execution(
     discovery: dict | None,
     user: User,
     custom_ds_body: str | None = None,
+    custom_template_body: str | None = None,
 ) -> None:
     """Run the OpenDesign-style 4-agent prototype pipeline over WebSocket.
 
@@ -655,12 +664,15 @@ async def _handle_od_prototype_execution(
     from app.services.od_loader import get_template, get_design_system
 
     # Validate template up front.
-    if not template_id or get_template(template_id) is None:
-        await websocket.send_json({
-            "type": "error", "chunk": None, "section": None,
-            "data": {"error": f"Unknown template: {template_id!r}", "code": "invalid_template", "recoverable": False},
-        })
-        return
+    # Skip validation when a custom template body is provided — the template_id
+    # is a client-generated "custom-<timestamp>" that won't exist in od_loader.
+    if not custom_template_body:
+        if not template_id or get_template(template_id) is None:
+            await websocket.send_json({
+                "type": "error", "chunk": None, "section": None,
+                "data": {"error": f"Unknown template: {template_id!r}", "code": "invalid_template", "recoverable": False},
+            })
+            return
 
     # For custom design systems, skip the built-in DS lookup entirely.
     # For built-in systems, validate the ID exists.
@@ -713,6 +725,7 @@ async def _handle_od_prototype_execution(
             brief=brief,
             discovery=discovery,
             custom_ds_body=custom_ds_body,
+            custom_template_body=custom_template_body,
         ):
             t = event.get("type")
 
@@ -1316,24 +1329,76 @@ async def _handle_pipeline_execution(
             db.close()
 
 
-async def _handle_questionnaire(websocket: WebSocket, prompt: str, pipeline_type: str):
+async def _handle_questionnaire(
+    websocket: WebSocket,
+    prompt: str,
+    pipeline_type: str,
+    template_id: str = "",
+    design_system_id: str = "",
+):
     """Generate clarifying MCQ questions based on the user's prompt and pipeline type.
 
     Uses the questionnaire agent to produce 4 targeted questions.
     Sends the questions back as a 'questionnaire' WebSocket message.
+    For od_prototype, uses a prototype-specific system prompt with template/DS context.
     """
     from app.agents.base import BaseAgent, AgentConfigurationError
     from app.agents.registry import QUESTIONNAIRE_AGENT
 
     logger.info(f"Generating questionnaire: pipeline_type={pipeline_type}, prompt={prompt[:50]}")
 
-    try:
-        agent = BaseAgent(
-            system_prompt=QUESTIONNAIRE_AGENT.system_prompt,
-            max_tokens=QUESTIONNAIRE_AGENT.max_tokens,
-        )
+    # Prototype-specific question generator — tailored to brief + template + DS
+    PROTOTYPE_QUESTION_SYSTEM_PROMPT = """You are a UX discovery assistant helping generate a prototype.
+Generate up to 8 targeted multiple-choice questions to clarify the user's prototype requirements.
+Questions should be specific to the brief, template, and design system provided.
 
-        context_message = f"Pipeline type: {pipeline_type}\nUser's idea: {prompt}"
+Focus on:
+- Number of pages/screens needed
+- Key user flows and interactions
+- Data density and content richness
+- Authentication/login requirements
+- Primary user actions and CTAs
+- Navigation structure preferences
+- Specific features to include or exclude
+
+Return a JSON object with this exact shape:
+{
+  "questions": [
+    {
+      "id": "q1",
+      "question": "How many pages should the prototype have?",
+      "options": ["1–2 (focused single flow)", "3–5 (standard app)", "6+ (full product)"]
+    }
+  ]
+}
+
+Rules:
+- Maximum 8 questions, minimum 4
+- Each question has exactly 3–4 options
+- Questions must be directly relevant to the brief
+- No generic questions — every question should help the agent produce better output
+- Return ONLY the JSON object, no prose"""
+
+    try:
+        if pipeline_type == "od_prototype":
+            template_hint = f"\nTemplate: {template_id}" if template_id else ""
+            ds_hint = f"\nDesign system: {design_system_id}" if design_system_id else ""
+            agent = BaseAgent(
+                system_prompt=PROTOTYPE_QUESTION_SYSTEM_PROMPT,
+                max_tokens=1024,
+            )
+            context_message = (
+                f"User brief: {prompt}"
+                f"{template_hint}"
+                f"{ds_hint}"
+            )
+        else:
+            agent = BaseAgent(
+                system_prompt=QUESTIONNAIRE_AGENT.system_prompt,
+                max_tokens=QUESTIONNAIRE_AGENT.max_tokens,
+            )
+            context_message = f"Pipeline type: {pipeline_type}\nUser's idea: {prompt}"
+
         response = await agent.run(context_message)
 
         # Try to parse JSON from response

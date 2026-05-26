@@ -54,11 +54,17 @@ export default function DashboardPage() {
   const pendingOdProtoRef = useRef<{
     templateId: string; designSystemId: string; brief: string; discovery: unknown;
     customDsBody?: string;
+    customTemplateBody?: string;
   } | null>(null);
 
   // Workflow runs state (primary)
   const [recentRuns, setRecentRuns] = useState<WorkflowRun[]>([]);
   const [questionnaireData, setQuestionnaireData] = useState<{ questions: { id: string; question: string; options: string[] }[] } | null>(null);
+  // Pending od_prototype params — set when questionnaire is triggered, consumed by DashboardLayout
+  const [pendingOdProtoParams, setPendingOdProtoParams] = useState<{
+    brief: string; templateId: string; designSystemId: string; discovery: unknown;
+    customDsBody?: string; customTemplateBody?: string;
+  } | null>(null);
 
   // Auth check on mount — redirect if no token, otherwise fetch user profile.
   useEffect(() => {
@@ -88,7 +94,7 @@ export default function DashboardPage() {
     sessionStorage.removeItem("od_prototype.pending");
     try {
       const draft = JSON.parse(sessionStorage.getItem("prototype.draft") ?? "{}") as {
-        templateId?: string; designSystemId?: string; brief?: string; customDsBody?: string;
+        templateId?: string; designSystemId?: string; brief?: string; customDsBody?: string; customTemplateBody?: string;
       };
       const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
       if (!draft.templateId || !draft.designSystemId || !draft.brief) return;
@@ -98,6 +104,7 @@ export default function DashboardPage() {
         brief: draft.brief,
         discovery,
         customDsBody: draft.customDsBody,
+        customTemplateBody: draft.customTemplateBody,
       };
     } catch { /* ignore malformed session data */ }
   }, [isAuthenticated]);
@@ -368,7 +375,9 @@ export default function DashboardPage() {
   }, [handlePipelineMsg]);
 
   // Fire a staged od_prototype run as soon as the WebSocket is open.
-  // connectionStatus and startPipeline are both in scope here (declared above).
+  // Instead of firing startPipeline directly, we trigger the questionnaire
+  // flow first (same as user_stories/ppt). The pending params are stored in
+  // pendingOdProtoRef and passed to DashboardLayout via the onRunOdPrototype prop.
   useEffect(() => {
     if (connectionStatus !== "connected") return;
     const pending = pendingOdProtoRef.current;
@@ -380,13 +389,28 @@ export default function DashboardPage() {
     pptContentRef.current = "";
     prototypeContentRef.current = "";
     userStoryContentRef.current = "";
-    startPipeline("od_prototype", pending.brief, undefined, undefined, undefined, {
-      template_id: pending.templateId,
-      design_system_id: pending.designSystemId,
+    // Fire questionnaire request — DashboardLayout will show QuestionnairePanel
+    // and then call startPipeline with the enriched brief + extraParams.
+    if (send) {
+      send(JSON.stringify({
+        type: "generate_questions",
+        pipeline_type: "od_prototype",
+        message: pending.brief,
+        template_id: pending.templateId,
+        design_system_id: pending.designSystemId,
+      }));
+    }
+    // Store pending params so DashboardLayout can pass them to startPipeline
+    // after the questionnaire is answered/skipped.
+    setPendingOdProtoParams({
+      brief: pending.brief,
+      templateId: pending.templateId,
+      designSystemId: pending.designSystemId,
       discovery: pending.discovery,
-      ...(pending.customDsBody ? { custom_design_system_body: pending.customDsBody } : {}),
+      customDsBody: pending.customDsBody,
+      customTemplateBody: pending.customTemplateBody,
     });
-  // startPipeline is stable; connectionStatus drives the re-run.
+  // send and connectionStatus drive the re-run.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionStatus]);
 
@@ -670,7 +694,7 @@ export default function DashboardPage() {
       processSteps={processSteps}
       websocketSend={send}
       pipelineState={pipelineState}
-      onStartPipeline={(type, message, agentIds, attachedSkills, attachedHooks) => {
+      onStartPipeline={(type, message, agentIds, attachedSkills, attachedHooks, extraParams) => {
         const isRevision = type.endsWith("_revision");
         if (!isRevision) {
           // Fresh run — clear previous preview content
@@ -682,12 +706,14 @@ export default function DashboardPage() {
           userStoryContentRef.current = "";
         }
         // For revisions, keep existing content visible until new output arrives
-        startPipeline(type, message, agentIds, attachedSkills, attachedHooks);
+        startPipeline(type, message, agentIds, attachedSkills, attachedHooks, extraParams);
       }}
       onResetPipeline={resetPipeline}
       recentRuns={recentRuns}
       onSelectWorkflowRun={handleSelectWorkflowRun}
       questionnaireData={questionnaireData}
+      pendingOdProtoParams={pendingOdProtoParams}
+      onClearPendingOdProto={() => setPendingOdProtoParams(null)}
       userTier={user?.tier ?? "basic"}
       userEmail={user?.email}
     />

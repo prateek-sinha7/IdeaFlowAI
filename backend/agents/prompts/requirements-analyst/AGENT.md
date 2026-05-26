@@ -74,3 +74,14 @@ Emit ONE JSON object wrapped in `<spec>...</spec>` tags with this shape:
 - When inventing details (KPI names, sample numbers, user names, ticket titles, column labels), make them specific and plausible for the user's domain — no "Foo Bar Baz" placeholders, no "Metric A/B/C".
 - Pick a page count that matches the brief, not a fixed minimum. A single-page kanban is one page; a SaaS app is 4-6.
 - Output ONE JSON object inside `<spec>...</spec>` tags. No prose before or after the tags.
+- `content_plan_per_page` MUST include for each page:
+  - At least 3 specific data items (real names, numbers, labels — no placeholders like "Metric A", "User 1", "Item 1")
+  - The primary CTA and its exact label
+  - Any table/list column headers (e.g. "Name, Status, Due Date, Assignee")
+  - Any chart type and its axis labels (e.g. "Line chart: x=Week, y=Revenue ($)")
+- `navigation_graph.pages` MUST include every page the user would expect for the described app:
+  - A SaaS dashboard needs at minimum: dashboard, detail/item view, settings
+  - A kanban board needs: board view, card detail
+  - An e-commerce app needs: product list, product detail, cart, checkout
+  - Never produce fewer than 2 pages for any web app brief
+- FORBIDDEN placeholder patterns: "Metric A/B/C", "User 1/2/3", "Item 1/2/3", "Feature X", "Lorem ipsum", "Foo Bar", "Sample Data", "Placeholder"
