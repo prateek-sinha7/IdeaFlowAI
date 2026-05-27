@@ -54,6 +54,11 @@ export interface DashboardLayoutProps {
     customDsBody?: string; customTemplateBody?: string;
   } | null;
   onClearPendingOdProto?: () => void;
+  pendingOdPptParams?: {
+    brief: string; templateId: string; designSystemId: string | null; discovery: unknown;
+    customDsBody?: string; customTemplateBody?: string;
+  } | null;
+  onClearPendingOdPpt?: () => void;
   userTier?: "basic" | "pro" | "enterprise";
   userEmail?: string;
 }
@@ -88,21 +93,27 @@ export function DashboardLayout({
   questionnaireData,
   pendingOdProtoParams,
   onClearPendingOdProto,
+  pendingOdPptParams,
+  onClearPendingOdPpt,
   userTier = "basic",
   userEmail,
 }: DashboardLayoutProps) {
   const [mainView, setMainView] = useState<MainView>(() => {
-    // If an od_prototype run is staged (user came from the prototype wizard),
+    // If an od_prototype or od_ppt run is staged (user came from the wizard),
     // start directly in execution view — avoids the home screen flash while
     // waiting for the WebSocket to connect and fire the pipeline.
-    if (typeof window !== "undefined" && sessionStorage.getItem("od_prototype.pending")) {
+    if (typeof window !== "undefined" && (
+      sessionStorage.getItem("od_prototype.pending") ||
+      sessionStorage.getItem("od_ppt.pending")
+    )) {
       return "execution";
     }
     return "home";
   });
   const [workflowType, setWorkflowType] = useState<WorkflowType>(() => {
-    if (typeof window !== "undefined" && sessionStorage.getItem("od_prototype.pending")) {
-      return "prototype";
+    if (typeof window !== "undefined") {
+      if (sessionStorage.getItem("od_prototype.pending")) return "prototype";
+      if (sessionStorage.getItem("od_ppt.pending")) return "ppt";
     }
     return "user_stories";
   });
@@ -158,10 +169,9 @@ export function DashboardLayout({
       if (mainView !== "execution") {
         setMainView("execution");
       }
-      const pt = pipelineState.pipeline_type as WorkflowType | "od_prototype";
-      // Normalise od_prototype → prototype so workflowType stays within the
-      // existing WorkflowType union that the rest of the UI understands.
-      const normalised: WorkflowType = pt === "od_prototype" ? "prototype" : (pt as WorkflowType);
+      const pt = pipelineState.pipeline_type as WorkflowType | "od_prototype" | "od_ppt";
+      // Normalise od_prototype → prototype, od_ppt → ppt
+      const normalised: WorkflowType = pt === "od_prototype" ? "prototype" : pt === "od_ppt" ? "ppt" : (pt as WorkflowType);
       if (normalised && normalised !== workflowType) {
         setWorkflowType(normalised);
       }
@@ -210,7 +220,8 @@ export function DashboardLayout({
   useEffect(() => {
     if (
       pipelineState?.isRunning &&
-      (pipelineState.pipeline_type === "od_prototype" || pipelineState.pipeline_type === "prototype") &&
+      (pipelineState.pipeline_type === "od_prototype" || pipelineState.pipeline_type === "prototype" ||
+       pipelineState.pipeline_type === "od_ppt") &&
       !currentPipelineNotifId.current
     ) {
       if (odProtoNotifCreated.current) return;
@@ -251,17 +262,34 @@ export function DashboardLayout({
     r => (r.type === workflowType || r.type === workflowType + "_revision") && r.status === "completed"
   )?.id || "";
 
-  // Handle PPT revision — re-run pipeline with existing code + change instruction
+  // Handle PPT revision — branches on pipeline type:
+  // - od_ppt: sends existing HTML + instruction to od_ppt_revision (single HTML-aware agent)
+  // - ppt: sends existing PptxGenJS code + instruction to ppt_revision (old PptxGenJS agents)
   const handleRevisePpt = useCallback((instruction: string) => {
     if (!pptxCode && !pptContent) return;
-    const existingCode = pptxCode || "";
-    const revisionMessage = `=== EXISTING PRESENTATION CODE ===\n${existingCode}\n=== END EXISTING CODE ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
-    setWorkflowType("ppt_revision" as WorkflowType);
-    if (onResetPipeline) onResetPipeline();
-    if (onStartPipeline) {
-      onStartPipeline("ppt_revision", revisionMessage, undefined, attachedSkills, attachedHooks);
+
+    const isOdPpt = workflowType === "od_ppt" || workflowType === "od_ppt_revision";
+
+    if (isOdPpt) {
+      // od_ppt revision — pass existing HTML deck + instruction
+      const existingHtml = pptContent || "";
+      const revisionMessage = `=== EXISTING HTML DECK ===\n${existingHtml.slice(0, 60000)}\n=== END EXISTING DECK ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
+      setWorkflowType("od_ppt_revision" as WorkflowType);
+      if (onResetPipeline) onResetPipeline();
+      if (onStartPipeline) {
+        onStartPipeline("od_ppt_revision", revisionMessage, undefined, attachedSkills, attachedHooks);
+      }
+    } else {
+      // ppt revision — pass existing PptxGenJS code + instruction
+      const existingCode = pptxCode || "";
+      const revisionMessage = `=== EXISTING PRESENTATION CODE ===\n${existingCode}\n=== END EXISTING CODE ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
+      setWorkflowType("ppt_revision" as WorkflowType);
+      if (onResetPipeline) onResetPipeline();
+      if (onStartPipeline) {
+        onStartPipeline("ppt_revision", revisionMessage, undefined, attachedSkills, attachedHooks);
+      }
     }
-  }, [pptxCode, pptContent, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
+  }, [workflowType, pptxCode, pptContent, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
 
   // Handle User Story revision — re-run pipeline with existing backlog + change instruction
   const handleReviseUserStory = useCallback((instruction: string) => {
@@ -369,6 +397,34 @@ export function DashboardLayout({
     }, 15000);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingOdProtoParams]);
+
+  // When pendingOdPptParams arrives, set up the questionnaire for od_ppt.
+  useEffect(() => {
+    if (!pendingOdPptParams) return;
+    setMainView("execution");
+    setWorkflowType("ppt");
+    setPendingPipelineRun({
+      type: "od_ppt" as WorkflowType,
+      message: pendingOdPptParams.brief,
+      extraParams: {
+        template_id: pendingOdPptParams.templateId,
+        ...(pendingOdPptParams.designSystemId ? { design_system_id: pendingOdPptParams.designSystemId } : {}),
+        ...(pendingOdPptParams.customDsBody ? { custom_design_system_body: pendingOdPptParams.customDsBody } : {}),
+        ...(pendingOdPptParams.customTemplateBody ? { custom_template_body: pendingOdPptParams.customTemplateBody } : {}),
+        discovery: pendingOdPptParams.discovery,
+      },
+    });
+    setQuestionnaireQuestions([]);
+    setQuestionnaireLoading(true);
+    if (onClearPendingOdPpt) onClearPendingOdPpt();
+    setTimeout(() => {
+      setQuestionnaireLoading((loading) => {
+        if (loading) { setQuestionnaireQuestions([]); return false; }
+        return loading;
+      });
+    }, 15000);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingOdPptParams]);
 
   // Navigate from Home to Input page
   const handleSelectFeature = useCallback((type: WorkflowType) => {
@@ -810,8 +866,9 @@ export function DashboardLayout({
                       prototypeContent={prototypeContent || undefined}
                       isStreaming={isStreaming}
                       workflowType={workflowType}
+                      rawPipelineType={pipelineState?.pipeline_type || workflowType}
                       pptxCode={pptxCode}
-                      onRevisePpt={(workflowType === "ppt" || workflowType === "ppt_revision") ? handleRevisePpt : undefined}
+                      onRevisePpt={(workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt") ? handleRevisePpt : undefined}
                       onReviseUserStory={(workflowType === "user_stories" || workflowType === "user_stories_revision") ? handleReviseUserStory : undefined}
                       onRevisePrototype={(workflowType === "prototype" || workflowType === "prototype_revision" || !!prototypeContent) ? handleRevisePrototype : undefined}
                       onReviseAppBuilder={(workflowType === "app_builder" || workflowType === "app_builder_revision") ? handleReviseAppBuilder : undefined}

@@ -399,6 +399,38 @@ async def websocket_chat(websocket: WebSocket):
                             custom_template_body=message_data.get("custom_template_body") or None,
                         )
                     )
+                elif pipeline_type == "od_ppt":
+                    # Tier gate — PPT requires Pro or higher
+                    from app.core.entitlements import can_run_pipeline
+                    allowed, reason = can_run_pipeline(user.tier, "ppt")
+                    if not allowed:
+                        await websocket.send_json({
+                            "type": "error", "chunk": None, "section": None,
+                            "data": {"error": reason, "code": "tier_limit", "recoverable": False, "upgrade_required": True},
+                        })
+                        continue
+                    current_pipeline_task = asyncio.create_task(
+                        _handle_od_ppt_execution(
+                            websocket,
+                            brief=pipeline_content,
+                            template_id=message_data.get("template_id", ""),
+                            design_system_id=message_data.get("design_system_id") or None,
+                            discovery=message_data.get("discovery"),
+                            user=user,
+                            custom_ds_body=message_data.get("custom_design_system_body") or None,
+                            custom_template_body=message_data.get("custom_template_body") or None,
+                        )
+                    )
+                elif pipeline_type == "od_ppt_revision":
+                    # od_ppt revision — single agent, HTML in/HTML out
+                    current_pipeline_task = asyncio.create_task(
+                        _handle_pipeline_execution(
+                            websocket, pipeline_content, "od_ppt_revision",
+                            chat_session_id, token, user,
+                            attached_skills=attached_skills,
+                            attached_hooks=attached_hooks,
+                        )
+                    )
                 else:
                     # Spawn as a background task — DO NOT await. Awaiting here
                     # blocks the receive loop for the entire pipeline duration,
@@ -1329,6 +1361,221 @@ async def _handle_pipeline_execution(
             db.close()
 
 
+async def _handle_od_ppt_execution(
+    websocket: WebSocket,
+    brief: str,
+    template_id: str,
+    design_system_id: str | None,
+    discovery: dict | None,
+    user: User,
+    custom_ds_body: str | None = None,
+    custom_template_body: str | None = None,
+) -> None:
+    """Run the OpenDesign-style 3-agent PPT/deck pipeline over WebSocket.
+
+    Mirrors _handle_od_prototype_execution exactly — same event envelope,
+    same DB persistence, same cancellation handling.
+    """
+    from app.agents.od_ppt_runner import run_od_ppt_pipeline
+    from app.services.od_loader import get_ppt_template, get_design_system
+
+    # Validate template (skip for custom templates)
+    if not custom_template_body:
+        if not template_id or get_ppt_template(template_id) is None:
+            await websocket.send_json({
+                "type": "error", "chunk": None, "section": None,
+                "data": {"error": f"Unknown PPT template: {template_id!r}", "code": "invalid_template", "recoverable": False},
+            })
+            return
+
+    # Validate design system only if provided and not custom
+    if design_system_id and not custom_ds_body:
+        if get_design_system(design_system_id) is None:
+            await websocket.send_json({
+                "type": "error", "chunk": None, "section": None,
+                "data": {"error": f"Unknown design system: {design_system_id!r}", "code": "invalid_design_system", "recoverable": False},
+            })
+            return
+
+    # Create WorkflowRun record
+    workflow_run_id = None
+    db = _get_db()
+    try:
+        workflow_run = WorkflowRun(
+            user_id=user.id,
+            title=(brief or "Presentation")[:60].strip(),
+            type="od_ppt",
+            status="running",
+            input=brief or f"template={template_id}",
+            agent_count=3,
+        )
+        db.add(workflow_run)
+        db.commit()
+        db.refresh(workflow_run)
+        workflow_run_id = workflow_run.id
+    finally:
+        db.close()
+
+    # Generate title in background
+    if workflow_run_id:
+        asyncio.create_task(
+            _generate_workflow_title(
+                workflow_run_id=workflow_run_id,
+                content=brief or "",
+                pipeline_type="ppt",
+                websocket=websocket,
+            )
+        )
+
+    final_html = ""
+    monotonic_start = time.monotonic()
+    execution_start = datetime.now(timezone.utc)
+    od_agent_outputs_collector: list[dict] = []
+    current_od_agent_live: dict = {}
+    od_token_summary: dict = {
+        "total_input_tokens": 0, "total_output_tokens": 0,
+        "total_tokens": 0, "estimated_cost_usd": 0.0, "per_agent": {},
+    }
+
+    try:
+        async for event in run_od_ppt_pipeline(
+            template_id=template_id,
+            design_system_id=design_system_id,
+            brief=brief,
+            discovery=discovery,
+            custom_ds_body=custom_ds_body,
+            custom_template_body=custom_template_body,
+        ):
+            t = event.get("type")
+
+            if t == "pipeline_start":
+                await websocket.send_json({
+                    "type": "pipeline_start", "chunk": None, "section": "od_ppt",
+                    "data": {"agents": event.get("agents", []), "pipeline_type": "od_ppt"},
+                })
+            elif t == "agent_start":
+                current_od_agent_live = {
+                    "agent_id": event.get("agent_id"), "name": event.get("name"),
+                    "role": event.get("role"), "icon": event.get("icon"), "output": "", "duration": None,
+                }
+                await websocket.send_json({
+                    "type": "agent_start", "chunk": None, "section": "od_ppt",
+                    "data": {
+                        "agent_id": event.get("agent_id"), "name": event.get("name"),
+                        "role": event.get("role"), "icon": event.get("icon"), "index": event.get("index"),
+                    },
+                })
+            elif t == "agent_chunk":
+                current_od_agent_live["output"] = current_od_agent_live.get("output", "") + event.get("chunk", "")
+                await websocket.send_json({
+                    "type": "agent_chunk", "chunk": None, "section": "od_ppt",
+                    "data": {"agent_id": event.get("agent_id"), "chunk": event.get("chunk", "")},
+                })
+            elif t == "agent_complete":
+                current_od_agent_live["duration"] = event.get("duration")
+                od_agent_outputs_collector.append(current_od_agent_live)
+                current_od_agent_live = {}
+                await websocket.send_json({
+                    "type": "agent_complete", "chunk": None, "section": "od_ppt",
+                    "data": {
+                        "agent_id": event.get("agent_id"), "duration": event.get("duration"),
+                        "output_length": event.get("output_length", 0),
+                    },
+                })
+            elif t == "agent_error":
+                current_od_agent_live["error"] = event.get("error", "Agent failed")
+                od_agent_outputs_collector.append(current_od_agent_live)
+                current_od_agent_live = {}
+                await websocket.send_json({
+                    "type": "agent_error", "chunk": None, "section": "od_ppt",
+                    "data": {"agent_id": event.get("agent_id"), "error": event.get("error", "Agent failed")},
+                })
+            elif t == "artifact" and event.get("stage") == "final":
+                final_html = event.get("html", "")
+            elif t == "pipeline_complete":
+                if not final_html:
+                    final_html = event.get("final_html", "")
+                duration = round(time.monotonic() - monotonic_start, 1)
+                od_token_summary = {
+                    "total_input_tokens": event.get("total_input_tokens", 0),
+                    "total_output_tokens": event.get("total_output_tokens", 0),
+                    "total_tokens": event.get("total_tokens", 0),
+                    "estimated_cost_usd": event.get("estimated_cost_usd", 0.0),
+                    "per_agent": event.get("token_usage_per_agent", {}),
+                }
+                await websocket.send_json({
+                    "type": "pipeline_complete", "chunk": None, "section": "od_ppt",
+                    "data": {
+                        "final_output": final_html, "pipeline_type": "od_ppt",
+                        "total_duration": duration,
+                        "total_input_tokens": od_token_summary["total_input_tokens"],
+                        "total_output_tokens": od_token_summary["total_output_tokens"],
+                        "total_tokens": od_token_summary["total_tokens"],
+                        "estimated_cost_usd": od_token_summary["estimated_cost_usd"],
+                        "token_usage_per_agent": od_token_summary["per_agent"],
+                    },
+                })
+            elif t == "pipeline_error":
+                raise RuntimeError(event.get("error", "Pipeline failed"))
+
+    except asyncio.CancelledError:
+        duration = round(time.monotonic() - monotonic_start, 1)
+        if workflow_run_id:
+            db = _get_db()
+            try:
+                wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+                if wr:
+                    wr.status = "cancelled"; wr.completed_at = datetime.now(timezone.utc); wr.duration = duration
+                    db.commit()
+            finally:
+                db.close()
+        try:
+            await websocket.send_json({
+                "type": "pipeline_cancelled", "chunk": None, "section": None,
+                "data": {"message": "Pipeline cancelled", "duration": duration},
+            })
+        except Exception:
+            pass
+        raise
+
+    except Exception as exc:
+        logger.error("OD PPT pipeline error: %s", exc)
+        if workflow_run_id:
+            db = _get_db()
+            try:
+                wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+                if wr:
+                    wr.status = "failed"; wr.error = str(exc)
+                    wr.completed_at = datetime.now(timezone.utc)
+                    wr.duration = round((datetime.now(timezone.utc) - execution_start).total_seconds(), 1)
+                    db.commit()
+            finally:
+                db.close()
+        try:
+            await websocket.send_json({
+                "type": "error", "chunk": None, "section": None,
+                "data": {"error": f"Pipeline failed: {exc}", "code": "pipeline_error", "recoverable": True},
+            })
+        except Exception:
+            pass
+        return
+
+    # Persist completed run
+    if workflow_run_id:
+        db = _get_db()
+        try:
+            wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+            if wr:
+                wr.status = "completed"; wr.output = final_html
+                wr.agent_outputs = json.dumps(od_agent_outputs_collector) if od_agent_outputs_collector else None
+                wr.token_usage = json.dumps(od_token_summary)
+                wr.completed_at = datetime.now(timezone.utc)
+                wr.duration = round(time.monotonic() - monotonic_start, 1)
+                db.commit()
+        finally:
+            db.close()
+
+
 async def _handle_questionnaire(
     websocket: WebSocket,
     prompt: str,
@@ -1385,6 +1632,45 @@ Rules:
             ds_hint = f"\nDesign system: {design_system_id}" if design_system_id else ""
             agent = BaseAgent(
                 system_prompt=PROTOTYPE_QUESTION_SYSTEM_PROMPT,
+                max_tokens=1024,
+            )
+            context_message = (
+                f"User brief: {prompt}"
+                f"{template_hint}"
+                f"{ds_hint}"
+            )
+        elif pipeline_type == "od_ppt":
+            PPT_QUESTION_SYSTEM_PROMPT = """You are a presentation design assistant helping plan a deck.
+Generate 5 targeted multiple-choice questions to clarify the user's presentation requirements.
+
+Focus on:
+- Target audience (executives, technical team, customers, general public)
+- Number of slides (5-8 focused / 10-12 standard / 15+ comprehensive)
+- Presentation tone (professional, inspirational, data-driven, creative)
+- Primary goal (pitch/fundraise, inform/educate, sell/persuade, quarterly report)
+- Content style (data-heavy with charts, visual-heavy with imagery, balanced mix)
+
+Return a JSON object with this exact shape:
+{
+  "questions": [
+    {
+      "id": "q1",
+      "question": "Who is the primary audience for this presentation?",
+      "options": ["Executives / Board", "Technical team", "Customers / Prospects", "General audience"]
+    }
+  ]
+}
+
+Rules:
+- Exactly 5 questions
+- Each question has exactly 3-4 options
+- Questions must be directly relevant to the brief
+- Return ONLY the JSON object, no prose"""
+
+            template_hint = f"\nTemplate: {template_id}" if template_id else ""
+            ds_hint = f"\nDesign system: {design_system_id}" if design_system_id else ""
+            agent = BaseAgent(
+                system_prompt=PPT_QUESTION_SYSTEM_PROMPT,
                 max_tokens=1024,
             )
             context_message = (

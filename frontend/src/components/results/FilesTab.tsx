@@ -251,14 +251,19 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
   }
 
   // ── PPT ───────────────────────────────────────────────────────────────────
-  if ((workflowType === "ppt" || workflowType === "ppt_revision") && pptContent) {
+  if ((workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt" || workflowType === "od_ppt_revision") && pptContent) {
     let name = "presentation";
     const t = pptContent.match(/<title>([^<]+)<\/title>/i);
     const h1 = pptContent.match(/<h1[^>]*>([^<]+)<\/h1>/i);
     if (t && t[1] !== "Presentation") name = t[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
     else if (h1) name = h1[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
-    files.push({ id: "presentation-pptx", name: `${name}.pptx`, type: "PowerPoint", icon: Presentation, size: "~", format: "PowerPoint (.pptx)", content: pptContent, mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation" });
-    files.push({ id: "presentation-html", name: `${name}.html`, type: "HTML Presentation", icon: Presentation, size: formatSize(pptContent.length), format: "HTML (.html) — open in browser", content: pptContent, mimeType: "text/html" });
+    // od_ppt produces HTML decks — offer HTML download; old ppt also offers PPTX
+    if (workflowType === "od_ppt" || workflowType === "od_ppt_revision") {
+      files.push({ id: "presentation-html", name: `${name}.html`, type: "HTML Presentation", icon: Presentation, size: formatSize(pptContent.length), format: "HTML (.html) — open in browser", content: pptContent, mimeType: "text/html" });
+    } else {
+      files.push({ id: "presentation-pptx", name: `${name}.pptx`, type: "PowerPoint", icon: Presentation, size: "~", format: "PowerPoint (.pptx)", content: pptContent, mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation" });
+      files.push({ id: "presentation-html", name: `${name}.html`, type: "HTML Presentation", icon: Presentation, size: formatSize(pptContent.length), format: "HTML (.html) — open in browser", content: pptContent, mimeType: "text/html" });
+    }
   }
 
   // ── Prototype ─────────────────────────────────────────────────────────────

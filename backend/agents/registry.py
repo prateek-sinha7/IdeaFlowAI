@@ -41,10 +41,21 @@ PIPELINE_AGENTS: dict[str, list[str]] = {
 
     # ── PPT pipeline — 4 agents ───────────────────────────────────────────
     "ppt": [
-        "ppt-content-strategist",
-        "ppt-slide-architect",
-        "ppt-code-generator",
-        "ppt-assembler",
+        "od-ppt-brief-analyst",
+        "od-ppt-composer",
+        "od-ppt-validator",
+    ],
+
+    # ── od_ppt pipeline (alias — same agents, own runner) ─────────────────
+    "od_ppt": [
+        "od-ppt-brief-analyst",
+        "od-ppt-composer",
+        "od-ppt-validator",
+    ],
+
+    # ── od_ppt revision pipeline — 1 agent ────────────────────────────────
+    "od_ppt_revision": [
+        "od-ppt-revision-agent",
     ],
 
     # ── PPT Revision pipeline — 2 agents ─────────────────────────────────

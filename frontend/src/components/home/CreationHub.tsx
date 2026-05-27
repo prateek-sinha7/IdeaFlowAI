@@ -30,6 +30,10 @@ export function CreationHub({ onSelectFeature, userTier = "basic" }: CreationHub
       router.push("/workflow/prototype/templates");
       return;
     }
+    if (type === "ppt") {
+      router.push("/workflow/ppt/templates");
+      return;
+    }
     onSelectFeature(type);
   };
 

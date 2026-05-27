@@ -6,6 +6,7 @@ import {
   FileText, Presentation, Layout,
   Loader2, ArrowLeft, Trash2, ChevronRight,
   Search, MoreHorizontal, Sparkles, ArrowRight,
+  Download, ExternalLink, FileText,
 } from "lucide-react";
 import { getToken, getWorkflows, getWorkflow, deleteWorkflow } from "@/lib/api";
 import { PPTPreview } from "@/components/preview/PPTPreview";
@@ -77,6 +78,8 @@ const TYPE_META: Record<string, { icon: typeof FileText; label: string }> = {
   user_stories_revision: { icon: FileText, label: "User Stories (Revised)" },
   ppt: { icon: Presentation, label: "Presentation" },
   ppt_revision: { icon: Presentation, label: "Presentation (Revised)" },
+  od_ppt: { icon: Presentation, label: "Presentation" },
+  od_ppt_revision: { icon: Presentation, label: "Presentation (Revised)" },
   prototype: { icon: Layout, label: "Prototype" },
   prototype_revision: { icon: Layout, label: "Prototype (Revised)" },
   od_prototype: { icon: Layout, label: "Prototype" },
@@ -219,7 +222,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     const isAppBuilder = detailIsAppBuilder;
     const isCustom = workflowType === "custom";
     const isMarkdown = isCustom;
-    const isPpt = workflowType === "ppt" || workflowType === "ppt_revision";
+    const isPpt = workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt" || workflowType === "od_ppt_revision";
     const isPrototype = workflowType === "prototype" || workflowType === "prototype_revision" || workflowType === "od_prototype";
     const agentOutputs = detailAgentOutputs;
 
@@ -398,21 +401,57 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
 
         {/* Main content — white panel */}
         <div className="flex-1 min-w-0 h-full flex flex-col bg-white border-l border-gray-200">
-          {/* Tabs */}
-          <div className="flex items-center gap-1 px-5 py-3 border-b border-gray-100 bg-white flex-shrink-0">
-            {(["preview", "files"] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setDetailTab(tab)}
-                className={`px-3 py-1.5 rounded-md text-[11px] font-medium transition-all capitalize ${
-                  detailTab === tab
-                    ? "bg-gray-100 text-gray-900"
-                    : "text-gray-400 hover:text-gray-700"
-                }`}
-              >
-                {tab === "files" ? "Files" : "Preview"}
-              </button>
-            ))}
+          {/* Tabs + PPT action buttons */}
+          <div className="flex items-center justify-between gap-2 px-5 py-3 border-b border-gray-100 bg-white flex-shrink-0">
+            <div className="flex items-center gap-1">
+              {(["preview", "files"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setDetailTab(tab)}
+                  className={`px-3 py-1.5 rounded-md text-[11px] font-medium transition-all capitalize ${
+                    detailTab === tab
+                      ? "bg-gray-100 text-gray-900"
+                      : "text-gray-400 hover:text-gray-700"
+                  }`}
+                >
+                  {tab === "files" ? "Files" : "Preview"}
+                </button>
+              ))}
+            </div>
+
+            {/* Download + Full Screen for PPT/prototype previews */}
+            {detailTab === "preview" && selectedOutput && isPpt && (
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => {
+                    let html = selectedOutput.trim();
+                    if (html.startsWith("```")) html = html.replace(/^```(?:html)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+                    const blob = new Blob([html], { type: "text/html" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url; a.download = "presentation.html";
+                    document.body.appendChild(a); a.click();
+                    document.body.removeChild(a); URL.revokeObjectURL(url);
+                  }}
+                  className="flex items-center gap-1.5 rounded-md bg-[#1B2A4A] px-2.5 py-1 text-[11px] font-medium text-white hover:bg-[#2a3d5e] transition-colors"
+                >
+                  <Download className="h-3 w-3" /> Download
+                </button>
+                <button
+                  onClick={() => {
+                    let html = selectedOutput.trim();
+                    if (html.startsWith("```")) html = html.replace(/^```(?:html)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+                    const blob = new Blob([html], { type: "text/html" });
+                    const url = URL.createObjectURL(blob);
+                    window.open(url, "_blank");
+                    setTimeout(() => URL.revokeObjectURL(url), 5000);
+                  }}
+                  className="flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-500 hover:border-gray-300 hover:text-gray-800 transition-colors"
+                >
+                  <ExternalLink className="h-3 w-3" /> Full Screen
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Content */}
@@ -446,6 +485,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                   {isPpt && selectedOutput && (
                     <PPTPreview
                       content={selectedOutput}
+                      pipelineType={workflowType}
                       onRevise={onRevisePpt ? (instruction) => onRevisePpt(instruction, selectedOutput) : undefined}
                     />
                   )}
@@ -488,8 +528,11 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   const typeGroups = ["all", "user_stories", "ppt", "prototype", "app_builder", "custom"];
   const typeCounts: Record<string, number> = { all: runs.length };
   runs.forEach((r) => {
-    // Map od_prototype → prototype so it counts under the Prototype tab
-    const base = r.type === "od_prototype" ? "prototype" : r.type.replace("_revision", "");
+    // Map od_prototype → prototype, od_ppt → ppt so they count under the right tabs
+    const base = r.type === "od_prototype" ? "prototype"
+      : r.type === "od_ppt" ? "ppt"
+      : r.type === "od_ppt_revision" ? "ppt"
+      : r.type.replace("_revision", "");
     typeCounts[base] = (typeCounts[base] || 0) + 1;
   });
 

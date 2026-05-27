@@ -34,6 +34,8 @@ export const CHAIN_OPTIONS: readonly ChainOption[] = [
  */
 export const CHAINABLE_FROM_TYPES: ReadonlySet<WorkflowType> = new Set<WorkflowType>([
   "ppt", "ppt_revision",
+  "od_ppt" as WorkflowType,
+  "od_ppt_revision" as WorkflowType,
   "user_stories", "user_stories_revision",
   "prototype", "prototype_revision",
   "od_prototype" as WorkflowType,
@@ -49,8 +51,10 @@ export const CHAINABLE_FROM_TYPES: ReadonlySet<WorkflowType> = new Set<WorkflowT
  */
 export function baseWorkflowType(t: WorkflowType): string {
   const base = t.replace(/_revision$/, "");
-  // od_prototype is the OpenDesign variant of prototype — treat as the same
-  return base === "od_prototype" ? "prototype" : base;
+  // Normalise OpenDesign variants to their base deliverable type
+  if (base === "od_prototype") return "prototype";
+  if (base === "od_ppt") return "ppt";
+  return base;
 }
 
 /** True when this workflow type is allowed to chain. */

@@ -57,12 +57,23 @@ export default function DashboardPage() {
     customTemplateBody?: string;
   } | null>(null);
 
+  // Staged od_ppt run — written when authenticated, consumed when connected.
+  const pendingOdPptRef = useRef<{
+    templateId: string; designSystemId: string | null; brief: string; discovery: unknown;
+    customDsBody?: string; customTemplateBody?: string;
+  } | null>(null);
+
   // Workflow runs state (primary)
   const [recentRuns, setRecentRuns] = useState<WorkflowRun[]>([]);
   const [questionnaireData, setQuestionnaireData] = useState<{ questions: { id: string; question: string; options: string[] }[] } | null>(null);
   // Pending od_prototype params — set when questionnaire is triggered, consumed by DashboardLayout
   const [pendingOdProtoParams, setPendingOdProtoParams] = useState<{
     brief: string; templateId: string; designSystemId: string; discovery: unknown;
+    customDsBody?: string; customTemplateBody?: string;
+  } | null>(null);
+  // Pending od_ppt params
+  const [pendingOdPptParams, setPendingOdPptParams] = useState<{
+    brief: string; templateId: string; designSystemId: string | null; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string;
   } | null>(null);
 
@@ -84,14 +95,12 @@ export default function DashboardPage() {
   }, [router]);
 
   // Stage an od_prototype run into a ref as soon as we're authenticated.
-  // We can't fire startPipeline here because the WebSocket isn't open yet.
-  // The second effect (placed after useWebSocket/useWorkflow) consumes the ref
-  // once connectionStatus === "connected".
+  // NOTE: We do NOT remove od_prototype.pending here — we remove it only
+  // when the WebSocket connects and we actually fire the questionnaire.
   useEffect(() => {
     if (!isAuthenticated) return;
     const pending = sessionStorage.getItem("od_prototype.pending");
     if (!pending) return;
-    sessionStorage.removeItem("od_prototype.pending");
     try {
       const draft = JSON.parse(sessionStorage.getItem("prototype.draft") ?? "{}") as {
         templateId?: string; designSystemId?: string; brief?: string; customDsBody?: string; customTemplateBody?: string;
@@ -109,7 +118,30 @@ export default function DashboardPage() {
     } catch { /* ignore malformed session data */ }
   }, [isAuthenticated]);
 
-  // Fetch workflow runs on auth
+  // Stage an od_ppt run into a ref as soon as we're authenticated.
+  // NOTE: We do NOT remove od_ppt.pending here — we remove it only when
+  // the WebSocket connects and we actually fire the questionnaire. This
+  // makes the flow resilient to backend restarts between auth and connect.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const pending = sessionStorage.getItem("od_ppt.pending");
+    if (!pending) return;
+    try {
+      const draft = JSON.parse(sessionStorage.getItem("ppt.draft") ?? "{}") as {
+        templateId?: string; designSystemId?: string | null; brief?: string;
+        customDsBody?: string; customTemplateBody?: string;
+      };
+      if (!draft.templateId || !draft.brief) return;
+      pendingOdPptRef.current = {
+        templateId: draft.templateId,
+        designSystemId: draft.designSystemId ?? null,
+        brief: draft.brief,
+        discovery: null,
+        customDsBody: draft.customDsBody,
+        customTemplateBody: draft.customTemplateBody,
+      };
+    } catch { /* ignore malformed session data */ }
+  }, [isAuthenticated]);
   useEffect(() => {
     if (!isAuthenticated) return;
     const currentToken = getToken();
@@ -146,7 +178,7 @@ export default function DashboardPage() {
         if (finalOutput && pipelineType) {
           if (pipelineType === "user_stories" || pipelineType === "user_stories_revision" || pipelineType === "app_builder" || pipelineType === "app_builder_revision" || pipelineType === "custom") {
             setUserStoryContent(finalOutput);
-          } else if (pipelineType === "ppt" || pipelineType === "ppt_revision") {
+          } else if (pipelineType === "ppt" || pipelineType === "ppt_revision" || pipelineType === "od_ppt" || pipelineType === "od_ppt_revision") {
             setPptContent(finalOutput);
           } else if (pipelineType === "prototype" || pipelineType === "prototype_revision" || pipelineType === "od_prototype") {
             setPrototypeContent(finalOutput);
@@ -375,22 +407,42 @@ export default function DashboardPage() {
   }, [handlePipelineMsg]);
 
   // Fire a staged od_prototype run as soon as the WebSocket is open.
-  // Instead of firing startPipeline directly, we trigger the questionnaire
-  // flow first (same as user_stories/ppt). The pending params are stored in
-  // pendingOdProtoRef and passed to DashboardLayout via the onRunOdPrototype prop.
+  // Re-reads from sessionStorage on every connect so backend restarts
+  // don't lose the pending run.
   useEffect(() => {
     if (connectionStatus !== "connected") return;
-    const pending = pendingOdProtoRef.current;
-    if (!pending) return;
+
+    let pending = pendingOdProtoRef.current;
+    if (!pending) {
+      const flag = sessionStorage.getItem("od_prototype.pending");
+      if (!flag) return;
+      try {
+        const draft = JSON.parse(sessionStorage.getItem("prototype.draft") ?? "{}") as {
+          templateId?: string; designSystemId?: string; brief?: string;
+          customDsBody?: string; customTemplateBody?: string;
+        };
+        const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
+        if (!draft.templateId || !draft.designSystemId || !draft.brief) return;
+        pending = {
+          templateId: draft.templateId,
+          designSystemId: draft.designSystemId,
+          brief: draft.brief,
+          discovery,
+          customDsBody: draft.customDsBody,
+          customTemplateBody: draft.customTemplateBody,
+        };
+      } catch { return; }
+    }
+
     pendingOdProtoRef.current = null;
+    sessionStorage.removeItem("od_prototype.pending");
+
     setUserStoryContent("");
     setPptContent("");
     setPrototypeContent("");
     pptContentRef.current = "";
     prototypeContentRef.current = "";
     userStoryContentRef.current = "";
-    // Fire questionnaire request — DashboardLayout will show QuestionnairePanel
-    // and then call startPipeline with the enriched brief + extraParams.
     if (send) {
       send(JSON.stringify({
         type: "generate_questions",
@@ -400,8 +452,6 @@ export default function DashboardPage() {
         design_system_id: pending.designSystemId,
       }));
     }
-    // Store pending params so DashboardLayout can pass them to startPipeline
-    // after the questionnaire is answered/skipped.
     setPendingOdProtoParams({
       brief: pending.brief,
       templateId: pending.templateId,
@@ -411,6 +461,64 @@ export default function DashboardPage() {
       customTemplateBody: pending.customTemplateBody,
     });
   // send and connectionStatus drive the re-run.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionStatus]);
+
+  // Fire a staged od_ppt run as soon as the WebSocket is open.
+  // Re-reads from sessionStorage on every connect so backend restarts
+  // don't lose the pending run.
+  useEffect(() => {
+    if (connectionStatus !== "connected") return;
+
+    // Try ref first, then fall back to sessionStorage (handles reconnects)
+    let pending = pendingOdPptRef.current;
+    if (!pending) {
+      const flag = sessionStorage.getItem("od_ppt.pending");
+      if (!flag) return;
+      try {
+        const draft = JSON.parse(sessionStorage.getItem("ppt.draft") ?? "{}") as {
+          templateId?: string; designSystemId?: string | null; brief?: string;
+          customDsBody?: string; customTemplateBody?: string;
+        };
+        if (!draft.templateId || !draft.brief) return;
+        pending = {
+          templateId: draft.templateId,
+          designSystemId: draft.designSystemId ?? null,
+          brief: draft.brief,
+          discovery: null,
+          customDsBody: draft.customDsBody,
+          customTemplateBody: draft.customTemplateBody,
+        };
+      } catch { return; }
+    }
+
+    // Consume — clear both ref and sessionStorage key
+    pendingOdPptRef.current = null;
+    sessionStorage.removeItem("od_ppt.pending");
+
+    setUserStoryContent("");
+    setPptContent("");
+    setPrototypeContent("");
+    pptContentRef.current = "";
+    prototypeContentRef.current = "";
+    userStoryContentRef.current = "";
+    if (send) {
+      send(JSON.stringify({
+        type: "generate_questions",
+        pipeline_type: "od_ppt",
+        message: pending.brief,
+        template_id: pending.templateId,
+        design_system_id: pending.designSystemId,
+      }));
+    }
+    setPendingOdPptParams({
+      brief: pending.brief,
+      templateId: pending.templateId,
+      designSystemId: pending.designSystemId,
+      discovery: pending.discovery,
+      customDsBody: pending.customDsBody,
+      customTemplateBody: pending.customTemplateBody,
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionStatus]);
 
@@ -605,7 +713,7 @@ export default function DashboardPage() {
         if (fullRun.output && fullRun.status === "completed") {
           if (fullRun.type === "user_stories" || fullRun.type === "user_stories_revision") {
             setUserStoryContent(fullRun.output);
-          } else if (fullRun.type === "ppt" || fullRun.type === "ppt_revision") {
+          } else if (fullRun.type === "ppt" || fullRun.type === "ppt_revision" || fullRun.type === "od_ppt" || fullRun.type === "od_ppt_revision") {
             setPptContent(fullRun.output);
           } else if (fullRun.type === "prototype" || fullRun.type === "prototype_revision" || fullRun.type === "od_prototype") {
             setPrototypeContent(fullRun.output);
@@ -714,6 +822,8 @@ export default function DashboardPage() {
       questionnaireData={questionnaireData}
       pendingOdProtoParams={pendingOdProtoParams}
       onClearPendingOdProto={() => setPendingOdProtoParams(null)}
+      pendingOdPptParams={pendingOdPptParams}
+      onClearPendingOdPpt={() => setPendingOdPptParams(null)}
       userTier={user?.tier ?? "basic"}
       userEmail={user?.email}
     />

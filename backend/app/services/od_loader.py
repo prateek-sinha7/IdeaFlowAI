@@ -162,6 +162,31 @@ def list_prototype_templates() -> list[dict[str, Any]]:
     return out
 
 
+def list_ppt_templates() -> list[dict[str, Any]]:
+    """Return the gallery list: only deck/slides mode templates,
+    stripped of the heavy ``body`` field."""
+    DECK_MODES = {"deck", "slides"}
+    out = []
+    for t in _all_templates():
+        if t.get("mode") not in DECK_MODES:
+            continue
+        out.append({k: v for k, v in t.items() if k != "body"})
+    return out
+
+
+def get_ppt_template(template_id: str) -> dict[str, Any] | None:
+    """Full PPT template payload incl. ``body``. Returns ``None`` for unknown ids."""
+    DECK_MODES = {"deck", "slides"}
+    for t in _all_templates():
+        if t["id"] == template_id and t.get("mode") in DECK_MODES:
+            return t
+    # Fallback: return any template with this ID (custom templates may not have mode set)
+    for t in _all_templates():
+        if t["id"] == template_id:
+            return t
+    return None
+
+
 def get_template(template_id: str) -> dict[str, Any] | None:
     """Full template payload incl. ``body`` (the SKILL.md content after
     frontmatter). Returns ``None`` for unknown ids."""

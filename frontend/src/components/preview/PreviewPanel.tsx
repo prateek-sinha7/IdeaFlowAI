@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Eye, FolderDown, PanelRightClose, Copy, Check } from "lucide-react";
+import { Eye, FolderDown, PanelRightClose, Copy, Check, Download, ExternalLink, Loader2 } from "lucide-react";
 import { UserStoryPreview } from "./UserStoryPreview";
 import { PPTPreview } from "./PPTPreview";
 import { PrototypePreview } from "./PrototypePreview";
@@ -10,6 +10,8 @@ import { MarkdownPreview } from "./MarkdownPreview";
 import { FilesTab } from "@/components/results/FilesTab";
 import { AppBuilderPreview, type ParsedFile } from "./AppBuilderPreview";
 import type { WorkflowType } from "@/types/index";
+import { getToken } from "@/lib/api";
+import { ENV } from "@/lib/env";
 
 // ─── Agents whose output contains ```filename: ``` code blocks ────────────────
 const CODE_PRODUCING_AGENT_IDS = new Set([
@@ -153,6 +155,8 @@ interface PreviewPanelProps {
   initialTab?: string;
   onTabSelect?: (tab: string) => void;
   workflowType?: WorkflowType;
+  /** Raw pipeline type — not normalised. Used to distinguish od_ppt from ppt for download. */
+  rawPipelineType?: string;
   pptxCode?: string;
   onRevisePpt?: (instruction: string) => void;
   onReviseUserStory?: (instruction: string) => void;
@@ -170,7 +174,7 @@ const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
   { id: "files", label: "Files", icon: FolderDown },
 ];
 
-export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs }: PreviewPanelProps) {
+export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>("preview");
   const [copied, setCopied] = useState(false);
 
@@ -180,6 +184,8 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, i
   // Normalize revision types to their base type for rendering
   const renderType = detectedType === "user_stories_revision" ? "user_stories"
     : detectedType === "ppt_revision" ? "ppt"
+    : detectedType === "od_ppt" ? "ppt"
+    : detectedType === "od_ppt_revision" ? "ppt"
     : detectedType === "prototype_revision" ? "prototype"
     : detectedType === "od_prototype" ? "prototype"
     : detectedType === "app_builder_revision" ? "app_builder"
@@ -230,8 +236,8 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, i
         </div>
       </div>
 
-      {/* Tab Bar */}
-      <div className="px-4 py-2 border-b border-gray-200">
+      {/* Tab Bar — tabs on left, PPT action buttons on right when PPT is active */}
+      <div className="px-4 py-2 border-b border-gray-200 flex items-center justify-between gap-2">
         <div className="flex gap-0.5 bg-gray-100 rounded-md p-0.5 w-fit">
           {TAB_CONFIG.map((tab) => {
             const Icon = tab.icon;
@@ -250,6 +256,18 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, i
             );
           })}
         </div>
+
+        {/* PPT action buttons — shown only when PPT preview is active */}
+        {activeTab === "preview" && renderType === "ppt" && (pptContent || pptxCode) && (
+          <PPTTabActions
+            content={pptContent}
+            pptxCode={pptxCode}
+            isOdPpt={
+              rawPipelineType === "od_ppt" || rawPipelineType === "od_ppt_revision" ||
+              detectedType === "od_ppt" || detectedType === "od_ppt_revision"
+            }
+          />
+        )}
       </div>
 
       {/* Tab Content */}
@@ -276,7 +294,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, i
                       ? <AppBuilderIDEPreview content={userStoryContent} agentOutputs={agentOutputs} onRevise={onReviseAppBuilder} />
                       : <MarkdownPreview content={userStoryContent} />
                   )}
-                  {renderType === "ppt" && (pptContent || pptxCode) && <PPTPreview content={pptContent} isStreaming={isStreaming} pptxCode={pptxCode} onRevise={onRevisePpt} />}
+                  {renderType === "ppt" && (pptContent || pptxCode) && <PPTPreview content={pptContent} isStreaming={isStreaming} pptxCode={pptxCode} onRevise={onRevisePpt} pipelineType={workflowType} />}
                   {renderType === "prototype" && prototypeContent && <PrototypePreview content={prototypeContent} isStreaming={isStreaming} onRevise={onRevisePrototype} />}
                 </>
               )}
@@ -296,6 +314,122 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, i
           )}
         </AnimatePresence>
       </div>
+    </div>
+  );
+}
+
+// ── PPT action buttons shown in the tab bar ───────────────────────────────────
+
+function PPTTabActions({
+  content,
+  pptxCode,
+  isOdPpt,
+}: {
+  content?: string;
+  pptxCode?: string;
+  isOdPpt: boolean;
+}) {
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleDownloadHtml = useCallback(() => {
+    if (!content) return;
+    let html = content.trim();
+    if (html.startsWith("```")) {
+      html = html.replace(/^```(?:html)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+    }
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "presentation.html";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [content]);
+
+  const handleDownloadPptx = useCallback(async () => {
+    setIsDownloading(true);
+    try {
+      const token = getToken();
+      let pptTitle = "Presentation";
+      if (content) {
+        const titleMatch = content.match(/<title>([^<]+)<\/title>/i);
+        if (titleMatch && titleMatch[1] !== "Presentation") pptTitle = titleMatch[1].trim();
+      }
+      let workflowId = "";
+      try {
+        const res = await fetch(`${ENV.API_URL}/api/workflows?type=ppt&limit=5`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const runs = await res.json();
+          if (runs.length > 0) workflowId = runs[0].id;
+        }
+      } catch { /* ignore */ }
+      const response = await fetch(`${ENV.API_URL}/api/workflows/export-pptx`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ js_code: pptxCode || "", html: content || "", workflow_id: workflowId, title: pptTitle }),
+      });
+      if (!response.ok) throw new Error("Export failed");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${pptTitle.replace(/[^a-zA-Z0-9\s-]/g, "").trim().replace(/\s+/g, "_") || "Presentation"}.pptx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("PPTX download failed:", err);
+      alert("Download failed. Please try again.");
+    } finally {
+      setIsDownloading(false);
+    }
+  }, [content, pptxCode]);
+
+  const handleFullScreen = useCallback(() => {
+    if (!content) return;
+    let html = content.trim();
+    if (html.startsWith("```")) {
+      html = html.replace(/^```(?:html)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+    }
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }, [content]);
+
+  return (
+    <div className="flex items-center gap-1.5 flex-shrink-0">
+      {isOdPpt ? (
+        <button
+          onClick={handleDownloadHtml}
+          className="flex items-center gap-1.5 rounded-md bg-[#1B2A4A] px-2.5 py-1 text-[11px] font-medium text-white hover:bg-[#2a3d5e] transition-colors"
+        >
+          <Download className="h-3 w-3" />
+          Download
+        </button>
+      ) : (
+        <button
+          onClick={handleDownloadPptx}
+          disabled={isDownloading}
+          className="flex items-center gap-1.5 rounded-md bg-[#1B2A4A] px-2.5 py-1 text-[11px] font-medium text-white hover:bg-[#2a3d5e] disabled:opacity-60 transition-colors"
+        >
+          {isDownloading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+          {isDownloading ? "Exporting…" : "Download"}
+        </button>
+      )}
+      <button
+        onClick={handleFullScreen}
+        className="flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-500 hover:border-gray-300 hover:text-gray-800 transition-colors"
+        title="Open in new tab"
+      >
+        <ExternalLink className="h-3 w-3" />
+        Full Screen
+      </button>
     </div>
   );
 }

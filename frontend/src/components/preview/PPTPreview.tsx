@@ -1,23 +1,44 @@
 "use client";
 
 import { useState } from "react";
-import { Presentation, Download, Loader2, ExternalLink, RefreshCw } from "lucide-react";
+import { Presentation, RefreshCw } from "lucide-react";
 import { getToken } from "@/lib/api";
 import { ENV } from "@/lib/env";
 
 interface PPTPreviewProps {
   content?: string;
   isStreaming?: boolean;
-  /** Agent 3's raw PptxGenJS code — enables reliable server-side export */
+  /** Agent 3's raw PptxGenJS code — enables reliable server-side export (ppt pipeline only) */
   pptxCode?: string;
   /** Callback to trigger a revision pipeline run */
   onRevise?: (instruction: string) => void;
+  /** Pipeline type — od_ppt shows HTML download instead of PPTX */
+  pipelineType?: string;
 }
 
-export function PPTPreview({ content, isStreaming, pptxCode, onRevise }: PPTPreviewProps) {
+export function PPTPreview({ content, isStreaming, pptxCode, onRevise, pipelineType }: PPTPreviewProps) {
   const [iframeKey] = useState(0);
   const [isDownloading, setIsDownloading] = useState(false);
   const [revisionText, setRevisionText] = useState("");
+
+  const isOdPpt = pipelineType === "od_ppt";
+
+  const handleDownloadHtml = () => {
+    if (!content) return;
+    let html = content.trim();
+    if (html.startsWith("```")) {
+      html = html.replace(/^```(?:html)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+    }
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "presentation.html";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   const handleDownloadPptx = async () => {
     setIsDownloading(true);
@@ -113,6 +134,22 @@ export function PPTPreview({ content, isStreaming, pptxCode, onRevise }: PPTPrev
     htmlContent = htmlContent.replace(/^```(?:html)?\s*\n?/, "").replace(/\n?```\s*$/, "");
   }
 
+  // For od_ppt: extract HTML from artifact tags or find the HTML start
+  // (LLM may output a preamble sentence before <!DOCTYPE html>)
+  if (isOdPpt) {
+    // Try artifact tags first
+    const artifactMatch = htmlContent.match(/<artifact[^>]*>\s*([\s\S]*?)\s*<\/artifact>/i);
+    if (artifactMatch) {
+      htmlContent = artifactMatch[1].trim();
+    } else {
+      // Find HTML start anywhere in the string
+      const htmlStart = htmlContent.search(/<!DOCTYPE\s+html|<html[\s>]/i);
+      if (htmlStart > 0) {
+        htmlContent = htmlContent.slice(htmlStart);
+      }
+    }
+  }
+
   // Strip any download/export buttons baked into the HTML (we handle download externally)
   htmlContent = htmlContent.replace(/<button[^>]*class="dl-btn"[^>]*>[^<]*<\/button>/gi, "");
   htmlContent = htmlContent.replace(/<button[^>]*onclick="generatePresentation\(\)"[^>]*>[^<]*<\/button>/gi, "");
@@ -129,7 +166,7 @@ export function PPTPreview({ content, isStreaming, pptxCode, onRevise }: PPTPrev
     }
   }
 
-  const isHtml = htmlContent.startsWith("<!DOCTYPE") || htmlContent.startsWith("<html") || htmlContent.startsWith("<!");
+  const isHtml = /<!DOCTYPE\s+html|<html[\s>]/i.test(htmlContent);
 
   if (!isHtml) {
     return (
@@ -152,43 +189,15 @@ export function PPTPreview({ content, isStreaming, pptxCode, onRevise }: PPTPrev
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      {/* Iframe — HTML handles slide navigation, constrained to available space */}
-      <div className="flex-1 min-h-0 relative overflow-hidden">
+      {/* ── Iframe — full height, buttons are in PreviewPanel tab bar ── */}
+      <div className="flex-1 min-h-0 overflow-hidden">
         <iframe
           key={iframeKey}
           srcDoc={htmlContent}
           className="w-full h-full border-0"
           title="Slide Deck Preview"
-          /* `allow-same-origin` combined with `allow-scripts` effectively
-             disables the sandbox — the iframe can then reach into the
-             parent's localStorage (which holds the JWT). The HTML we render
-             here is constructed from LLM output, so we must assume it can
-             contain malicious script. Dropping allow-same-origin keeps
-             scripts working inside the iframe but blocks DOM/localStorage
-             access against the parent. Downloads from inside the iframe
-             go through the server-side endpoint, not the iframe's
-             writeFile, so we don't need allow-downloads either. */
-          sandbox="allow-scripts"
+          sandbox={isOdPpt ? "allow-scripts allow-same-origin" : "allow-scripts"}
         />
-
-        {/* Action buttons — server-side Download PPTX + Full Screen */}
-        <div className="absolute top-[7px] right-[12px] z-10 flex items-center gap-2">
-          <button
-            onClick={handleDownloadPptx}
-            disabled={isDownloading}
-            className="flex items-center gap-1.5 text-[11px] font-medium text-white bg-[#1B2A4A] hover:bg-[#2a3d5e] disabled:opacity-60 rounded-md px-3 py-1.5 transition-colors shadow-md"
-          >
-            {isDownloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-            {isDownloading ? "Exporting..." : "Download PPTX"}
-          </button>
-          <button
-            onClick={handleOpenFullScreen}
-            className="flex items-center gap-1.5 text-[10px] text-gray-500 hover:text-gray-800 bg-white/90 hover:bg-white border border-gray-200 hover:border-gray-300 backdrop-blur-sm rounded-md px-2.5 py-1.5 transition-all shadow-sm"
-            title="Open in new tab"
-          >
-            <ExternalLink className="h-3 w-3" /> Full Screen
-          </button>
-        </div>
       </div>
 
       {/* Revision bar — request changes to the presentation */}

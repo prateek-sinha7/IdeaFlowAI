@@ -32,6 +32,8 @@ SUPPORTED_PIPELINE_TYPES: frozenset[str] = frozenset(
         "user_stories_revision",
         "ppt",
         "ppt_revision",
+        "od_ppt",
+        "od_ppt_revision",
         "prototype",
         "prototype_revision",
         "app_builder",
