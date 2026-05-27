@@ -378,6 +378,38 @@ export async function changePassword(
   return response.json();
 }
 
+// --- User Preferences API ---
+
+export interface ModelOption {
+  id: string;
+  name: string;
+  description: string;
+  tier: "fast" | "balanced" | "powerful";
+}
+
+export interface UserPreferences {
+  preferred_model: string | null;
+  available_models: ModelOption[];
+}
+
+export async function getPreferences(token: string): Promise<UserPreferences> {
+  return request<UserPreferences>("/api/settings/preferences", {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+}
+
+export async function updatePreferences(
+  token: string,
+  preferred_model: string | null
+): Promise<UserPreferences> {
+  return request<UserPreferences>("/api/settings/preferences", {
+    method: "PUT",
+    headers: authHeaders(token),
+    body: JSON.stringify({ preferred_model }),
+  });
+}
+
 // --- Admin API ---
 
 export interface AdminUser {

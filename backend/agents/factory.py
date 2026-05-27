@@ -47,6 +47,7 @@ class AgentContext:
     attached_skills: list[dict] = field(default_factory=list)
     attached_hooks: list[dict] = field(default_factory=list)
     workspace: "AgentWorkspace | None" = None
+    model: str | None = None                   # User-selected model ID (overrides system default)
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +77,7 @@ def create_agent(agent_id: str, ctx: AgentContext):
         # Workspace agents write many files — cap iterations to avoid runaway loops.
         # Text-only agents (tools=[]) complete in 1 iteration anyway.
         max_iterations=10 if tools else 1,
+        model=ctx.model,
     )
 
 

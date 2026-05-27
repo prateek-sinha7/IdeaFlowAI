@@ -148,12 +148,14 @@ class WorkflowOrchestrator:
         user_id: str | None = None,
         attached_skills: list[dict] | None = None,
         attached_hooks: list[dict] | None = None,
+        model_id: str | None = None,
     ):
         self.pipeline_type = pipeline_type
         self.is_revision = pipeline_type in REVISION_TYPES
         self.base_pipeline_type = REVISION_BASE_MAP.get(pipeline_type, pipeline_type)
         self.db_session = db_session
         self.user_id = user_id
+        self.model_id = model_id  # User-selected model; None = system default
         # UI-attached skills: list of {id, name, content, source}
         self.attached_skills: list[dict] = attached_skills or []
         # UI-attached hooks: list of {id, name, event, trigger, description}
@@ -286,6 +288,7 @@ class WorkflowOrchestrator:
                     attached_skills=merged_skills,
                     attached_hooks=self.attached_hooks,
                     workspace=self._workspace,
+                    model=self.model_id,
                 )
 
                 # Instantiate agent via factory

@@ -1,5 +1,5 @@
 ---
-name: html-ppt-zhangzara-neo-grid-bold
+name: Neo Grid Bold
 description: |
   Neo-Grid Bold — Editorial neo-brutalism with a single neon yellow accent on off-white paper. Anything that should feel confident and editorial-graphic: design-led pitches, brand work, founder talks, conference keynotes.
 triggers:

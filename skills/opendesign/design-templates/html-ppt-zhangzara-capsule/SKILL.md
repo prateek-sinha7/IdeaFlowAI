@@ -1,5 +1,5 @@
 ---
-name: html-ppt-zhangzara-capsule
+name: Capsule
 description: |
   Capsule — Modular pill-shaped cards on warm bone with a full pastel-pop palette. Anything that should feel modular, modern, and a little Y2K: lifestyle brands, creator portfolios, DTC launches, beauty / wellness, agency credentials.
 triggers:

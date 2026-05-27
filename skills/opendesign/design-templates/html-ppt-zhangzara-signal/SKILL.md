@@ -1,5 +1,5 @@
 ---
-name: html-ppt-zhangzara-signal
+name: Signal
 description: |
   Signal — Deep navy canvas with bone paper and a single muted-gold accent; institutional with quiet weight. Anything that should feel weighty, considered, and credibly institutional: investor decks, board presentations, consulting deliverables, legal / policy briefs, advisory pitches.
 triggers:

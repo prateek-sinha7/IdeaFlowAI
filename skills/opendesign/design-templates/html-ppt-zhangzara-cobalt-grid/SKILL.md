@@ -1,5 +1,5 @@
 ---
-name: html-ppt-zhangzara-cobalt-grid
+name: Cobalt Grid
 description: |
   Cobalt Grid — Electric cobalt italic serifs on a graph-paper canvas, anchored by stair-stepped pixel-glitch decorations and slim hairline rules. Anything that should feel like a quietly serious design / research bulletin, art publication, or curated trend report.
 triggers:

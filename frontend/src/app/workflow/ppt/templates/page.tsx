@@ -27,16 +27,28 @@ export default function PPTTemplatesPage() {
   const [customTemplateBody, setCustomTemplateBody] = useState<string | null>(null);
   const [brief, setBrief] = useState("");
 
+  const [chainFrom, setChainFrom] = useState<string | null>(null);
+
   useEffect(() => {
     const token = getToken();
     if (!token) { router.replace("/login"); return; }
     setAuthChecked(true);
+    const from = sessionStorage.getItem("chain.from");
+    if (from) setChainFrom(from);
   }, [router]);
 
   // Restore draft
   useEffect(() => {
     if (!authChecked) return;
     try {
+      // Check for chain brief first (higher priority than saved draft)
+      const chainBrief = sessionStorage.getItem("chain.brief");
+      if (chainBrief) {
+        setBrief(chainBrief);
+        sessionStorage.removeItem("chain.brief");
+        sessionStorage.removeItem("chain.from");
+        return;
+      }
       const raw = sessionStorage.getItem(STORAGE_KEY);
       if (!raw) return;
       const d = JSON.parse(raw) as {
@@ -145,6 +157,24 @@ export default function PPTTemplatesPage() {
 
       <main className="mx-auto max-w-5xl space-y-8 px-6 py-8 pb-16">
 
+        {/* Chain context banner */}
+        {chainFrom && (
+          <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 flex items-center gap-3">
+            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 flex-shrink-0">
+              <span className="text-[11px]">→</span>
+            </div>
+            <p className="text-[12px] text-blue-700">
+              Continuing from your <strong>{{
+                od_ppt: "Presentation", od_ppt_revision: "Presentation",
+                ppt: "Presentation", ppt_revision: "Presentation",
+                od_prototype: "Prototype", prototype: "Prototype", prototype_revision: "Prototype",
+                user_stories: "User Stories", user_stories_revision: "User Stories",
+                app_builder: "App Builder", app_builder_revision: "App Builder",
+              }[chainFrom] ?? chainFrom}</strong> — your brief is pre-filled. Pick a template to generate the presentation.
+            </p>
+          </div>
+        )}
+
         {/* Section 1: Brief */}
         <section>
           <SectionLabel number={1} title="Describe your presentation" />
@@ -222,7 +252,7 @@ export default function PPTTemplatesPage() {
           )}
           <button type="button" onClick={handleContinue} disabled={!canContinue}
             className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#1B2A4A] px-6 py-4 text-[14px] font-semibold text-white shadow-sm transition-all hover:bg-[#0F1B33] disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none">
-            Continue to generate
+            Continue
             <ArrowRight className="h-4 w-4" />
           </button>
           {canContinue && (

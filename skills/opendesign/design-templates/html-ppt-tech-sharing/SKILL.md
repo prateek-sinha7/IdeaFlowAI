@@ -1,5 +1,5 @@
 ---
-name: html-ppt-tech-sharing
+name: Tech Talk Deck
 description: Conference / internal tech-talk deck — GitHub-dark, JetBrains Mono, terminal code blocks, agenda + Q&A pages. Use for engineering presentations, internal sharing sessions, conference talks, and code-heavy walkthroughs.
 triggers:
   - "tech sharing"

@@ -1,5 +1,5 @@
 ---
-name: html-ppt-zhangzara-bold-poster
+name: Bold Poster
 description: |
   Bold Poster — Editorial poster aesthetic with massive Shrikhand display and a single fire-engine red accent. Anything that should land like a magazine cover: brand manifestos, founder vision decks, editorial / cultural pitches, creative reviews.
 triggers:

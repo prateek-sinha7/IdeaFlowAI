@@ -1,5 +1,5 @@
 ---
-name: html-ppt-zhangzara-editorial-tri-tone
+name: Editorial Tri-Tone
 description: |
   Editorial Tri-Tone — Three-color editorial system: dusty pink, mustard cream, and deep burgundy, set in Bricolage + Instrument Serif. Anything that should feel like a fashion-magazine spread: editorial pitches, fashion brand decks, lifestyle media, art direction reviews.
 triggers:

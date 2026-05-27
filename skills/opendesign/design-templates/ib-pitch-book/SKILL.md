@@ -1,5 +1,5 @@
 ---
-name: ib-pitch-book
+name: Investment Banking Pitch Book
 description: |
   Investment-banking pitch book for strategic alternatives — trading comps,
   precedent transactions, valuation football field, DCF sensitivity,

@@ -1,5 +1,5 @@
 ---
-name: html-ppt-course-module
+name: Course Module Deck
 description: Online-course / workshop module deck — warm paper background + Playfair serif, persistent left sidebar of learning objectives, MCQ self-check page. Use for teaching modules, training materials, workshop slides.
 triggers:
   - "course module"

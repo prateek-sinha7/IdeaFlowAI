@@ -1,5 +1,5 @@
 ---
-name: html-ppt-zhangzara-long-table
+name: Long Table
 description: |
   Long Table — Warm cream and rust-red supper-club aesthetic with bold uppercase grotesk headlines, italic Fraunces, and pill-shaped outlined buttons. Anything that should feel like a warm, intimate, modern hospitality / community brand: supper clubs, dinner series, small restaurants, creative-studio events, membership pitches, lifestyle and wine brands.
 triggers:

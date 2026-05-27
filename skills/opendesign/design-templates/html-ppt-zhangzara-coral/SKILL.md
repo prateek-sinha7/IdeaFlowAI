@@ -1,5 +1,5 @@
 ---
-name: html-ppt-zhangzara-coral
+name: Coral
 description: |
   Coral — Cream and coral on near-black, set in oversized Bebas Neue. Anything that should feel warm-graphic and editorial: fashion, beauty, fitness, F&B, lifestyle brands, agency credentials.
 triggers:

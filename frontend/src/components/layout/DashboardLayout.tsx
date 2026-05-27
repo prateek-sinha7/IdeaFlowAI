@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { WifiOff, RefreshCw } from "lucide-react";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
@@ -18,7 +19,7 @@ import { CompletionToast } from "@/components/ui/CompletionToast";
 import type { ToastItem } from "@/components/ui/CompletionToast";
 import { useNotifications } from "@/hooks/useNotifications";
 import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WorkflowRun, WorkflowType } from "@/types/index";
-import { canChainFrom } from "@/lib/workflowChaining";
+import { canChainFrom, CHAIN_OPTIONS, CHAIN_BRIEF_KEY, CHAIN_FROM_KEY } from "@/lib/workflowChaining";
 import type { ConnectionStatus } from "@/hooks/useWebSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
@@ -98,6 +99,7 @@ export function DashboardLayout({
   userTier = "basic",
   userEmail,
 }: DashboardLayoutProps) {
+  const router = useRouter();
   const [mainView, setMainView] = useState<MainView>(() => {
     // If an od_prototype or od_ppt run is staged (user came from the wizard),
     // start directly in execution view — avoids the home screen flash while
@@ -482,10 +484,25 @@ export function DashboardLayout({
 
   // Chain to another pipeline using previous output as context
   const handleChainPipeline = useCallback((nextType: WorkflowType) => {
+    // Check if this chain target requires a wizard (prototype, ppt)
+    const option = CHAIN_OPTIONS.find((o) => o.type === nextType);
+    if (option?.requiresWizard && option.wizardPath) {
+      // Store the current brief so the wizard can pre-fill it
+      const cleanBrief = workflowInput.split("\n\n===")[0].trim();
+      sessionStorage.setItem(CHAIN_BRIEF_KEY, cleanBrief);
+      sessionStorage.setItem(CHAIN_FROM_KEY, workflowType);
+      router.push(option.wizardPath);
+      return;
+    }
+
     setWorkflowType(nextType);
 
-    // Build enriched input: original prompt + summary of previous output
-    const prevSummary = lastPipelineOutput.slice(0, 4000);
+    // For HTML-output pipelines, don't include raw HTML in chain context
+    const isHtmlOutput = workflowType === "od_ppt" || workflowType === "od_ppt_revision" ||
+      workflowType === "od_prototype" || workflowType === "prototype" || workflowType === "prototype_revision";
+    const prevSummary = isHtmlOutput
+      ? `[${workflowType} output — HTML file]`
+      : lastPipelineOutput.slice(0, 4000);
     const enrichedInput = `${workflowInput}\n\n=== CONTEXT FROM PREVIOUS PIPELINE (${workflowType}) ===\n${prevSummary}\n=== END PREVIOUS CONTEXT ===`;
 
     // Reset previous pipeline state so left panel clears
@@ -514,8 +531,26 @@ export function DashboardLayout({
   // run they just opened from history). After dispatching we switch to
   // the execution view so the new pipeline shows the agent progress.
   const handleChainFromHistory = useCallback((run: WorkflowRun, nextType: WorkflowType) => {
+    // Check if this chain target requires a wizard (prototype, ppt)
+    const option = CHAIN_OPTIONS.find((o) => o.type === nextType);
+    if (option?.requiresWizard && option.wizardPath) {
+      // Store the run's brief so the wizard can pre-fill it
+      const cleanBrief = (run.input || "").split("\n\n===")[0].trim();
+      sessionStorage.setItem(CHAIN_BRIEF_KEY, cleanBrief);
+      sessionStorage.setItem(CHAIN_FROM_KEY, run.type);
+      router.push(option.wizardPath);
+      return;
+    }
+
     const baseInput = run.input || "";
-    const baseOutput = (run.output || "").slice(0, 4000);
+    // For HTML-output pipelines (od_ppt, od_prototype), don't include the raw
+    // HTML in the chain context — it's too large and confuses the title generator.
+    // Use a short description instead.
+    const isHtmlOutput = run.type === "od_ppt" || run.type === "od_ppt_revision" ||
+      run.type === "od_prototype" || run.type === "prototype" || run.type === "prototype_revision";
+    const baseOutput = isHtmlOutput
+      ? `[${run.title || run.type} output — HTML file]`
+      : (run.output || "").slice(0, 4000);
     const enrichedInput = `${baseInput}\n\n=== CONTEXT FROM PREVIOUS PIPELINE (${run.type}) ===\n${baseOutput}\n=== END PREVIOUS CONTEXT ===`;
 
     setWorkflowType(nextType);

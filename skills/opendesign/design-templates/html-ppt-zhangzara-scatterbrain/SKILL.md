@@ -1,5 +1,5 @@
 ---
-name: html-ppt-zhangzara-scatterbrain
+name: Scatterbrain
 description: |
   Scatterbrain — Post-it inspired: pastel sticky notes, Caveat handwriting, Shrikhand and Zilla Slab type stack. Anything that should feel like a designer's whiteboard: brainstorms, workshops, creative-agency credentials, design-thinking sessions, ideation pitches, art-direction reviews.
 triggers:

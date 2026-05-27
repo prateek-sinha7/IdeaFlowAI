@@ -1,5 +1,5 @@
 ---
-name: html-ppt-zhangzara-vellum
+name: Vellum
 description: |
   Vellum — Deep navy canvas with warm-yellow italic Cormorant serifs and a single dusty teal accent. A quiet, scholarly aesthetic. Anything that should feel scholarly, literary, and quietly intelligent: research synthesis, white papers, academic and policy briefs, advisory deliverables, longform editorial pieces, founder reflections.
 triggers:

@@ -40,6 +40,14 @@ out/
 *.swp
 *.swo
 
+# Spec Kit — local AI tooling, not tracked in version control
+.specify/
+.claude/
+CLAUDE.md
+
+# Kiro specs — local planning artifacts, not tracked in version control
+.kiro/
+
 # OS
 .DS_Store
 Thumbs.db

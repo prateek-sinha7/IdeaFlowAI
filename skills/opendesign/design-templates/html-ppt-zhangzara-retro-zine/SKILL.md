@@ -1,5 +1,5 @@
 ---
-name: html-ppt-zhangzara-retro-zine
+name: Retro Zine
 description: |
   Retro Zine — Beige paper with green accent and Bebas Neue + Caveat: a riso-printed zine in HTML form. Anything that should feel printed, lo-fi, and crafted: indie zines and publications, music / arts brands, creator portfolios, small-batch craft launches, community decks.
 triggers:

@@ -1,5 +1,5 @@
 ---
-name: html-ppt-product-launch
+name: Product Launch Keynote
 description: Launch keynote deck — dark hero + light content, warm orange→peach accent, feature cards, pricing tiers, CTA. Use when announcing a product, launching a feature, or doing a keynote-style reveal.
 triggers:
   - "product launch"

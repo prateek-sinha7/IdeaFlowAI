@@ -1,5 +1,5 @@
 ---
-name: html-ppt-zhangzara-pink-script
+name: Pink Script
 description: |
   Pink Script — After Hours — Black canvas, hot pink accent, pearl-cream paper, Instrument Serif headlines: late-night editorial luxury. Anything that should feel nocturnal, intentional, and a little luxe: fashion brand decks, creator personal brands, after-hours / nightlife / spirits launches, luxury product reveals, editorial features.
 triggers:

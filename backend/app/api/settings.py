@@ -29,6 +29,47 @@ logger = logging.getLogger("app.api.settings")
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
+# ---------------------------------------------------------------------------
+# Claude 4 series models available on AWS Bedrock
+# ---------------------------------------------------------------------------
+
+AVAILABLE_MODELS = [
+    {
+        "id": "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "name": "Claude Haiku 4.5",
+        "description": "Fastest and most cost-efficient. Great for high-volume tasks.",
+        "tier": "fast",
+    },
+    {
+        "id": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "name": "Claude Sonnet 4.5",
+        "description": "Balanced speed and intelligence. Ideal for most pipelines.",
+        "tier": "balanced",
+    },
+    {
+        "id": "eu.anthropic.claude-sonnet-4-6",
+        "name": "Claude Sonnet 4.6",
+        "description": "Best combination of speed and intelligence. 1M token context.",
+        "tier": "balanced",
+    },
+    {
+        "id": "eu.anthropic.claude-opus-4-5-20251101-v1:0",
+        "name": "Claude Opus 4.5",
+        "description": "Most powerful. Best for complex reasoning and coding tasks.",
+        "tier": "powerful",
+    },
+    {
+        "id": "eu.anthropic.claude-opus-4-6-v1",
+        "name": "Claude Opus 4.6",
+        "description": "Most intelligent broadly available model. Exceptional coding.",
+        "tier": "powerful",
+    },
+]
+
+# Valid model IDs for validation
+_VALID_MODEL_IDS = {m["id"] for m in AVAILABLE_MODELS}
+
+
 # --- Schemas ------------------------------------------------------------
 
 
@@ -46,6 +87,15 @@ class GithubPATResponse(BaseModel):
 
 class ApiKeyCreateRequest(BaseModel):
     name: str = Field(default="Default", min_length=1, max_length=64)
+
+
+class UserPreferencesResponse(BaseModel):
+    preferred_model: str | None = None
+    available_models: list[dict]
+
+
+class UserPreferencesUpdateRequest(BaseModel):
+    preferred_model: str | None = Field(default=None)
 
 
 class ApiKeyCreateResponse(BaseModel):
@@ -249,3 +299,46 @@ def revoke_api_key(
         db.add(row)
         db.commit()
     return None
+
+
+# --- User Preferences (AI Model selection) ----------------------------------
+
+
+@router.get("/preferences", response_model=UserPreferencesResponse)
+def get_preferences(
+    user: User = Depends(get_current_user),
+) -> UserPreferencesResponse:
+    """Return the user's current preferences and the list of available models."""
+    return UserPreferencesResponse(
+        preferred_model=user.preferred_model,
+        available_models=AVAILABLE_MODELS,
+    )
+
+
+@router.put("/preferences", response_model=UserPreferencesResponse)
+def update_preferences(
+    payload: UserPreferencesUpdateRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> UserPreferencesResponse:
+    """Update the user's preferred AI model.
+
+    Pass ``preferred_model: null`` to reset to the system default.
+    """
+    model_id = payload.preferred_model
+
+    if model_id is not None and model_id not in _VALID_MODEL_IDS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid model ID. Choose from: {sorted(_VALID_MODEL_IDS)}",
+        )
+
+    user.preferred_model = model_id
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    return UserPreferencesResponse(
+        preferred_model=user.preferred_model,
+        available_models=AVAILABLE_MODELS,
+    )

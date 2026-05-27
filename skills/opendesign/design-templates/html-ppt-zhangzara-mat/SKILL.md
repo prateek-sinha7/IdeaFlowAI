@@ -1,5 +1,5 @@
 ---
-name: html-ppt-zhangzara-mat
+name: Mat
 description: |
   Mat — Dark sage canvas with bone paper and burnt-orange accent; mid-century modern with wood undertones. Anything that should feel mid-century, tactile, and intentional: design studio credentials, architecture / interior brands, ceramics / craft / furniture, advisory decks.
 triggers:

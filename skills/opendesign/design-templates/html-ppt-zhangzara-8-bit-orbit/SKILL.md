@@ -1,5 +1,5 @@
 ---
-name: html-ppt-zhangzara-8-bit-orbit
+name: 8-Bit Orbit
 description: |
   8-Bit Orbit — Pixel-art neon arcade aesthetic on a deep navy void. Anything that should feel like a CRT screen at 2am: cyberpunk, gaming, web3, indie dev tools, hackathon demos.
 triggers:

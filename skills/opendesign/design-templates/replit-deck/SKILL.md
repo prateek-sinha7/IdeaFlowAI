@@ -1,5 +1,5 @@
 ---
-name: replit-deck
+name: Replit Style Deck
 description: |
   Single-file horizontal-swipe HTML deck in the style of Replit Slides's
   landing-page template gallery. Eight distinct themes (helix, holm, vance,

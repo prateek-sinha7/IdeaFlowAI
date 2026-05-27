@@ -1,5 +1,5 @@
 ---
-name: html-ppt-weekly-report
+name: Weekly Status Report
 description: Team weekly / status-update deck — corporate clarity, 8-cell KPI grid, shipped list, 8-week bar chart, next-week table. Use for 周报, business reviews, team status updates, and exec dashboards.
 triggers:
   - "weekly report"

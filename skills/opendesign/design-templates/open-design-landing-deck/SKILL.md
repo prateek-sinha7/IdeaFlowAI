@@ -1,5 +1,5 @@
 ---
-name: open-design-landing-deck
+name: Atelier Brand Deck
 description: >
   Produce a single-file slide deck in the Atelier Zero visual language
   (warm-paper background, italic-serif emphasis spans, coral terminating

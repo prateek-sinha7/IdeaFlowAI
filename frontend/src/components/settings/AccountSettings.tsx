@@ -4,9 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowLeft, Mail, Lock, Eye, EyeOff, CheckCircle2, AlertCircle,
-  User, Zap, Check, Shield,
+  User, Zap, Check, Shield, Cpu,
 } from "lucide-react";
-import { getToken, getMe, changePassword } from "@/lib/api";
+import { getToken, getMe, changePassword, getPreferences, updatePreferences } from "@/lib/api";
+import type { ModelOption } from "@/lib/api";
 import { TIER_PIPELINES, TIER_LABELS } from "@/lib/entitlements";
 import type { Tier } from "@/lib/entitlements";
 
@@ -14,7 +15,7 @@ interface AccountSettingsProps {
   onBack: () => void;
 }
 
-type SettingsSection = "profile" | "limits";
+type SettingsSection = "profile" | "model" | "limits";
 
 // ─── Tier definitions ─────────────────────────────────────────────────────────
 const TIER_ORDER: Tier[] = ["basic", "pro", "enterprise"];
@@ -85,19 +86,47 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
   // Limits tab state
   const [selectedTierTab, setSelectedTierTab] = useState<Tier>("basic");
 
+  // AI Model preference
+  const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  const [savingModel, setSavingModel] = useState(false);
+  const [modelMessage, setModelMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
   useEffect(() => {
     const token = getToken();
     if (!token) return;
     setLoading(true);
-    getMe(token)
-      .then((user) => {
+
+    Promise.all([
+      getMe(token),
+      getPreferences(token),
+    ])
+      .then(([user, prefs]) => {
         setEmail(user.email);
         const t = (user.tier as Tier) || "basic";
         setUserTier(t);
         setSelectedTierTab(t);
+        setAvailableModels(prefs.available_models);
+        setSelectedModel(prefs.preferred_model);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+  }, []);
+
+  const handleSaveModel = useCallback(async (modelId: string | null) => {
+    setModelMessage(null);
+    const token = getToken();
+    if (!token) return;
+    setSavingModel(true);
+    try {
+      await updatePreferences(token, modelId);
+      setSelectedModel(modelId);
+      setModelMessage({ type: "success", text: "Model preference saved" });
+    } catch (err: unknown) {
+      setModelMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to save preference" });
+    } finally {
+      setSavingModel(false);
+    }
   }, []);
 
   const handleChangePassword = useCallback(async () => {
@@ -130,6 +159,7 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
 
   const NAV_ITEMS: { id: SettingsSection; label: string; icon: typeof User }[] = [
     { id: "profile", label: "Profile", icon: User },
+    { id: "model",   label: "AI Model", icon: Cpu },
     { id: "limits",  label: "Limits",  icon: Zap },
   ];
 
@@ -255,6 +285,123 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
                     </button>
                   </div>
                 </div>
+              </motion.div>
+            )}
+
+            {/* ── AI MODEL ── */}
+            {section === "model" && (
+              <motion.div
+                key="model"
+                initial={{ opacity: 0, x: 8 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -8 }}
+                transition={{ duration: 0.15 }}
+                className="px-8 py-7 max-w-lg"
+              >
+                <h2 className="text-[15px] font-semibold text-gray-900 mb-1">AI Model</h2>
+                <p className="text-[11px] text-gray-400 mb-5">
+                  Choose the Claude model used for all your pipeline runs. Changes apply immediately to new runs.
+                </p>
+
+                {loading ? (
+                  <div className="space-y-3">
+                    {[1, 2, 3].map(i => (
+                      <div key={i} className="h-20 rounded-xl bg-gray-100 animate-pulse" />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {/* System default option */}
+                    <button
+                      type="button"
+                      onClick={() => handleSaveModel(null)}
+                      disabled={savingModel}
+                      className={`w-full text-left rounded-xl border px-4 py-3.5 transition-all ${
+                        selectedModel === null
+                          ? "border-[#1B2A4A] bg-[#E8EDF5] shadow-sm"
+                          : "border-gray-200 bg-white hover:border-gray-300"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className={`text-[13px] font-semibold ${selectedModel === null ? "text-[#1B2A4A]" : "text-gray-900"}`}>
+                            System Default
+                          </p>
+                          <p className="text-[11px] text-gray-400 mt-0.5">
+                            Uses the platform default model (Claude Haiku 4.5)
+                          </p>
+                        </div>
+                        {selectedModel === null && (
+                          <span className="flex-shrink-0 flex items-center justify-center h-5 w-5 rounded-full bg-[#1B2A4A]">
+                            <Check className="h-3 w-3 text-white" />
+                          </span>
+                        )}
+                      </div>
+                    </button>
+
+                    {/* Model options grouped by tier */}
+                    {(["fast", "balanced", "powerful"] as const).map(tier => {
+                      const tierModels = availableModels.filter(m => m.tier === tier);
+                      if (!tierModels.length) return null;
+                      const tierLabel = { fast: "Fast", balanced: "Balanced", powerful: "Powerful" }[tier];
+                      const tierColor = { fast: "text-emerald-600 bg-emerald-50 border-emerald-200", balanced: "text-blue-600 bg-blue-50 border-blue-200", powerful: "text-purple-600 bg-purple-50 border-purple-200" }[tier];
+                      return (
+                        <div key={tier}>
+                          <div className="flex items-center gap-2 mt-4 mb-2">
+                            <span className={`text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border ${tierColor}`}>
+                              {tierLabel}
+                            </span>
+                          </div>
+                          <div className="space-y-2">
+                            {tierModels.map(model => {
+                              const isSelected = selectedModel === model.id;
+                              return (
+                                <button
+                                  key={model.id}
+                                  type="button"
+                                  onClick={() => handleSaveModel(model.id)}
+                                  disabled={savingModel}
+                                  className={`w-full text-left rounded-xl border px-4 py-3.5 transition-all ${
+                                    isSelected
+                                      ? "border-[#1B2A4A] bg-[#E8EDF5] shadow-sm"
+                                      : "border-gray-200 bg-white hover:border-gray-300"
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div>
+                                      <p className={`text-[13px] font-semibold ${isSelected ? "text-[#1B2A4A]" : "text-gray-900"}`}>
+                                        {model.name}
+                                      </p>
+                                      <p className="text-[11px] text-gray-400 mt-0.5">{model.description}</p>
+                                    </div>
+                                    {isSelected && (
+                                      <span className="flex-shrink-0 flex items-center justify-center h-5 w-5 rounded-full bg-[#1B2A4A]">
+                                        <Check className="h-3 w-3 text-white" />
+                                      </span>
+                                    )}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {modelMessage && (
+                      <div className={`flex items-center gap-2 rounded-lg px-3 py-2.5 text-[12px] mt-3 ${
+                        modelMessage.type === "success"
+                          ? "bg-emerald-50 text-emerald-700 border border-emerald-100"
+                          : "bg-red-50 text-red-700 border border-red-100"
+                      }`}>
+                        {modelMessage.type === "success"
+                          ? <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" />
+                          : <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />}
+                        {modelMessage.text}
+                      </div>
+                    )}
+                  </div>
+                )}
               </motion.div>
             )}
 

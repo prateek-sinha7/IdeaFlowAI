@@ -24,6 +24,7 @@ class User(Base):
     password_changed_at = Column(DateTime, nullable=True)
     tier = Column(String, nullable=False, default="basic")
     is_admin = Column(Boolean, nullable=False, default=False)
+    preferred_model = Column(String, nullable=True, default=None)
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )

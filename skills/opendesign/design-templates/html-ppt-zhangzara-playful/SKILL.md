@@ -1,5 +1,5 @@
 ---
-name: html-ppt-zhangzara-playful
+name: Playful
 description: |
   Playful — Sun-warm peach background with Syne display: a friendly indie launch deck. Anything that should feel warm, indie, and approachable: creator portfolios, indie product launches, lifestyle brands, small-business pitches, newsletter / community decks.
 triggers:

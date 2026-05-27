@@ -1,5 +1,5 @@
 ---
-name: html-ppt-zhangzara-pin-and-paper
+name: Pin & Paper
 description: |
   Pin & Paper — Yellow paper with safety-pin illustrations, ink-blue handwritten Caveat, paper-grain texture. Anything that should feel hand-crafted, warm, and literary: qualitative research findings, founder reflections, longform brand stories, workshop debriefs.
 triggers:

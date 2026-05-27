@@ -1140,6 +1140,7 @@ async def _handle_pipeline_execution(
         user_id=user.id,
         attached_skills=attached_skills or [],
         attached_hooks=attached_hooks or [],
+        model_id=getattr(user, "preferred_model", None) or None,
     )
 
     monotonic_start = time.monotonic()

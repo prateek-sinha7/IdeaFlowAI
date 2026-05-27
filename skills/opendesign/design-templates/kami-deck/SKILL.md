@@ -1,5 +1,5 @@
 ---
-name: kami-deck
+name: Kami Editorial Deck
 description: >
   Produce a print-grade slide deck in the kami (紙 / 纸) design system —
   warm parchment background (or ink-blue for cover / chapter slides),

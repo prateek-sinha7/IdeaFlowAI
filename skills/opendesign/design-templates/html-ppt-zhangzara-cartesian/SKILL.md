@@ -1,5 +1,5 @@
 ---
-name: html-ppt-zhangzara-cartesian
+name: Cartesian Grid
 description: |
   Cartesian — Quiet warm-neutral palette with classical Playfair serifs; tasteful and unhurried. Anything that should feel quiet, considered, and grown-up: investment theses, white papers, advisory work, longform research, gallery / cultural decks.
 triggers:

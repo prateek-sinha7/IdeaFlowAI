@@ -1,5 +1,5 @@
 ---
-name: html-ppt-zhangzara-creative-mode
+name: Creative Mode
 description: |
   Creative Mode — Cream paper canvas with confident multi-color (green, pink, orange, yellow) accents and Archivo Black display. Anything that should feel design-led and confident: creative agency pitches, design studio decks, ad shop credentials, brand creative reviews, art-direction reviews.
 triggers:

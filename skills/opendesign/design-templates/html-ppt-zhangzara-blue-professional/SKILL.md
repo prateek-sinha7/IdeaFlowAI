@@ -1,5 +1,5 @@
 ---
-name: html-ppt-zhangzara-blue-professional
+name: Blue Professional
 description: |
   Blue Professional — Cream paper background with electric cobalt blue accents; clean modern professional. Anything that should feel modern-considered and lightly authoritative: B2B SaaS pitches, consulting deliverables, advisory updates, investor reports.
 triggers:
