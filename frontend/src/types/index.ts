@@ -202,12 +202,14 @@ export interface WorkflowRun {
     total_output_tokens: number;
     total_tokens: number;
     estimated_cost_usd: number;
+    model_id?: string;
     per_agent?: Record<string, {
       input_tokens: number;
       output_tokens: number;
       total_tokens: number;
     }>;
   };
+  modelId?: string;
   createdAt: string;
   completedAt?: string;
   duration?: number;
@@ -291,6 +293,7 @@ export interface PipelineRunState {
   totalOutputTokens?: number;
   totalTokens?: number;
   estimatedCostUsd?: number;
+  modelId?: string;
 }
 
 export type PipelineMessageType =

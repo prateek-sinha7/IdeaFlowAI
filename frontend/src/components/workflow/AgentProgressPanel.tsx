@@ -251,7 +251,7 @@ export function AgentProgressPanel({
         <div className="flex-shrink-0 border-t border-gray-100 px-4 py-3 space-y-2">
           {/* Token usage summary — shown when pipeline completes */}
           {isComplete && (
-            <TokenUsageSummary pipelineState={pipelineState} />
+            <TokenUsageSummary pipelineState={pipelineState} modelId={pipelineState.modelId} />
           )}
           {isComplete && availablePipelines.length > 0 && onChainPipeline && (
             <motion.div

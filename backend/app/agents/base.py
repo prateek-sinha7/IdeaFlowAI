@@ -68,6 +68,18 @@ _COST_PER_1K: dict[str, dict[str, float]] = {
     # ── Claude Opus 4 / 3 ─────────────────────────────────────────────────
     "anthropic.claude-opus-4-5-20251101-v1:0":          {"input": 0.015,    "output": 0.075},
     "eu.anthropic.claude-opus-4-5-20251101-v1:0":       {"input": 0.015,    "output": 0.075},
+    "us.anthropic.claude-opus-4-5-20251101-v1:0":       {"input": 0.015,    "output": 0.075},
+    "ap.anthropic.claude-opus-4-5-20251101-v1:0":       {"input": 0.015,    "output": 0.075},
+    # ── Claude Sonnet 4.6 ─────────────────────────────────────────────────
+    "anthropic.claude-sonnet-4-6":                      {"input": 0.003,    "output": 0.015},
+    "eu.anthropic.claude-sonnet-4-6":                   {"input": 0.003,    "output": 0.015},
+    "us.anthropic.claude-sonnet-4-6":                   {"input": 0.003,    "output": 0.015},
+    "ap.anthropic.claude-sonnet-4-6":                   {"input": 0.003,    "output": 0.015},
+    # ── Claude Opus 4.6 ───────────────────────────────────────────────────
+    "anthropic.claude-opus-4-6-v1":                     {"input": 0.015,    "output": 0.075},
+    "eu.anthropic.claude-opus-4-6-v1":                  {"input": 0.015,    "output": 0.075},
+    "us.anthropic.claude-opus-4-6-v1":                  {"input": 0.015,    "output": 0.075},
+    "ap.anthropic.claude-opus-4-6-v1":                  {"input": 0.015,    "output": 0.075},
     "anthropic.claude-3-opus-20240229-v1:0":            {"input": 0.015,    "output": 0.075},
     # ── Meta Llama 3 ──────────────────────────────────────────────────────
     "meta.llama3-8b-instruct-v1:0":                     {"input": 0.0003,   "output": 0.0006},

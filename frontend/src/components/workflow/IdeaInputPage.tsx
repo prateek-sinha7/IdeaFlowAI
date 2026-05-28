@@ -58,6 +58,20 @@ const TYPE_CONFIG: Record<WorkflowType, {
     placeholder: "e.g. Add acceptance criteria for the multi-currency refund flow and split epic E2 into two.",
     icon: FileText,
   },
+  od_ppt: {
+    tag: "Build an executive presentation",
+    heading: "Specify the topic",
+    subtitle: "Shape a topic into an enterprise-grade pitch deck with charts, data tables, and executive-ready visuals.",
+    placeholder: "e.g. Blockchain technology — enterprise adoption trends and ROI analysis for 2025.",
+    icon: Presentation,
+  },
+  od_ppt_revision: {
+    tag: "Refine an existing presentation",
+    heading: "What should change?",
+    subtitle: "Apply precise, scoped edits to an existing deck — every other slide stays untouched.",
+    placeholder: "e.g. Tighten the ROI section to 3 slides and add a competitive-landscape slide before the conclusion.",
+    icon: Presentation,
+  },
   prototype: {
     tag: "Build an interactive prototype",
     heading: "Describe the product",

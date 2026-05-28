@@ -33,6 +33,10 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 # Claude 4 series models available on AWS Bedrock
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Claude 4 series models available on AWS Bedrock
+# ---------------------------------------------------------------------------
+
 AVAILABLE_MODELS = [
     {
         "id": "eu.anthropic.claude-haiku-4-5-20251001-v1:0",

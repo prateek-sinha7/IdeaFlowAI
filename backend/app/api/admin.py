@@ -4,7 +4,7 @@ Only accessible to users with is_admin=True. All endpoints require
 a valid JWT from an admin account.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel

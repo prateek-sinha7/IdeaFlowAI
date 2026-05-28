@@ -21,7 +21,6 @@ can pull the final HTML after the agent finishes.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from langchain_core.tools import tool

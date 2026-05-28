@@ -270,6 +270,7 @@ export function handlePipelineMessage(
         totalOutputTokens: (msg.total_output_tokens as number) || 0,
         totalTokens: (msg.total_tokens as number) || 0,
         estimatedCostUsd: (msg.estimated_cost_usd as number) || 0,
+        modelId: (msg.model_id as string) || undefined,
       }));
       return true;
     }

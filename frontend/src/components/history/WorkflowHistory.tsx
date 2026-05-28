@@ -6,7 +6,7 @@ import {
   FileText, Presentation, Layout,
   Loader2, ArrowLeft, Trash2, ChevronRight,
   Search, MoreHorizontal, Sparkles, ArrowRight,
-  Download, ExternalLink, FileText,
+  Download, ExternalLink,
 } from "lucide-react";
 import { getToken, getWorkflows, getWorkflow, deleteWorkflow } from "@/lib/api";
 import { PPTPreview } from "@/components/preview/PPTPreview";
@@ -261,6 +261,24 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
             <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
               <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-widest mb-2">Token Usage</p>
               <div className="space-y-1.5">
+                {/* Model name */}
+                {(selectedRun.tokenUsage.model_id || selectedRun.modelId) && (() => {
+                  const MODEL_NAMES: Record<string, string> = {
+                    "eu.anthropic.claude-haiku-4-5-20251001-v1:0":  "Claude Haiku 4.5",
+                    "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": "Claude Sonnet 4.5",
+                    "eu.anthropic.claude-sonnet-4-6":               "Claude Sonnet 4.6",
+                    "eu.anthropic.claude-opus-4-5-20251101-v1:0":   "Claude Opus 4.5",
+                    "eu.anthropic.claude-opus-4-6-v1":              "Claude Opus 4.6",
+                  };
+                  const mid = selectedRun.tokenUsage?.model_id || selectedRun.modelId || "";
+                  const modelName = MODEL_NAMES[mid] ?? mid.split(".").pop() ?? mid;
+                  return (
+                    <div className="flex items-center justify-between pb-1.5 border-b border-gray-200">
+                      <span className="text-[10px] text-gray-500">Model</span>
+                      <span className="text-[10px] font-semibold text-[#1B2A4A]">{modelName}</span>
+                    </div>
+                  );
+                })()}
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-gray-500">Input tokens</span>
                   <span className="text-[10px] font-semibold text-gray-800">

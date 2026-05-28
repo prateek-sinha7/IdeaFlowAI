@@ -26,7 +26,7 @@ from typing import AsyncGenerator
 
 from agents.factory import AgentContext, create_agent
 from agents.registry import get_pipeline_agents
-from app.agents.base import BaseAgent, AgentConfigurationError, TokenUsage, estimate_cost_usd
+from app.agents.base import AgentConfigurationError, TokenUsage, estimate_cost_usd
 from app.agents.deep_agent import DeepAgent
 from app.agents.skills import get_skill_content
 from app.agents.summarizer import summarize_agent_output
@@ -565,7 +565,9 @@ class WorkflowOrchestrator:
         pipeline_usage = TokenUsage()
         for usage in state.agent_token_usage.values():
             pipeline_usage = pipeline_usage + usage
-        pipeline_model_id = getattr(state, "_model_id", "")
+        # Use the orchestrator's model_id (user-selected) if available,
+        # otherwise fall back to the model_id captured from the first agent.
+        pipeline_model_id = self.model_id or getattr(state, "_model_id", "") or ""
         pipeline_cost = estimate_cost_usd(pipeline_usage, pipeline_model_id)
 
         logger.info("═══════════════════════════════════════════════════════")
@@ -584,6 +586,7 @@ class WorkflowOrchestrator:
                 "agents_completed": len(state.results),
                 "agents_total": len(self.agents),
                 "final_output": final_output,
+                "model_id": pipeline_model_id,
                 "total_input_tokens": pipeline_usage.input_tokens,
                 "total_output_tokens": pipeline_usage.output_tokens,
                 "total_tokens": pipeline_usage.total_tokens,

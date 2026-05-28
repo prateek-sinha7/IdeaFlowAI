@@ -739,6 +739,14 @@ async def _handle_od_prototype_execution(
     monotonic_start = time.monotonic()
     execution_start = datetime.now(timezone.utc)
 
+    # Model ID used for cost calculation — user preference or system default
+    _od_proto_model_id = (
+        getattr(user, "preferred_model", None)
+        or settings.BEDROCK_INFERENCE_PROFILE_ID
+        or settings.BEDROCK_MODEL_ID
+        or "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+    )
+
     # Collectors for DB persistence (mirrors _handle_pipeline_execution)
     od_agent_outputs_collector: list[dict] = []
     current_od_agent_live: dict = {}
@@ -806,12 +814,21 @@ async def _handle_od_prototype_execution(
                 current_od_agent_live["duration"] = event.get("duration")
                 od_agent_outputs_collector.append(current_od_agent_live)
                 current_od_agent_live = {}
+                _in = event.get("input_tokens", 0) or 0
+                _out = event.get("output_tokens", 0) or 0
+                _total = _in + _out
+                from app.agents.base import TokenUsage, estimate_cost_usd
+                _cost = estimate_cost_usd(TokenUsage(input_tokens=_in, output_tokens=_out, total_tokens=_total), _od_proto_model_id)
                 await websocket.send_json({
                     "type": "agent_complete", "chunk": None, "section": "od_prototype",
                     "data": {
                         "agent_id": event.get("agent_id"),
                         "duration": event.get("duration"),
                         "output_length": event.get("output_length", 0),
+                        "input_tokens": _in,
+                        "output_tokens": _out,
+                        "total_tokens": _total,
+                        "estimated_cost_usd": round(_cost, 6),
                     },
                 })
 
@@ -842,6 +859,7 @@ async def _handle_od_prototype_execution(
                     "total_output_tokens": event.get("total_output_tokens", 0),
                     "total_tokens": event.get("total_tokens", 0),
                     "estimated_cost_usd": event.get("estimated_cost_usd", 0.0),
+                    "model_id": _od_proto_model_id,
                     "per_agent": event.get("token_usage_per_agent", {}),
                 }
                 await websocket.send_json({
@@ -850,6 +868,7 @@ async def _handle_od_prototype_execution(
                         "final_output": final_html,
                         "pipeline_type": "od_prototype",
                         "total_duration": duration,
+                        "model_id": _od_proto_model_id,
                         "total_input_tokens": od_token_summary["total_input_tokens"],
                         "total_output_tokens": od_token_summary["total_output_tokens"],
                         "total_tokens": od_token_summary["total_tokens"],
@@ -916,6 +935,7 @@ async def _handle_od_prototype_execution(
                 wr.output = final_html
                 wr.agent_outputs = json.dumps(od_agent_outputs_collector) if od_agent_outputs_collector else None
                 wr.token_usage = json.dumps(od_token_summary)
+                wr.model_id = _od_proto_model_id or None
                 wr.completed_at = datetime.now(timezone.utc)
                 wr.duration = round(time.monotonic() - monotonic_start, 1)
                 db.commit()
@@ -1205,6 +1225,7 @@ async def _handle_pipeline_execution(
                     "total_output_tokens": update["data"].get("total_output_tokens", 0),
                     "total_tokens": update["data"].get("total_tokens", 0),
                     "estimated_cost_usd": update["data"].get("estimated_cost_usd", 0.0),
+                    "model_id": update["data"].get("model_id", ""),
                     "per_agent": update["data"].get("token_usage_per_agent", {}),
                 }
     except asyncio.CancelledError:
@@ -1310,6 +1331,7 @@ async def _handle_pipeline_execution(
                 wr.output = final_output if final_output else None
                 wr.agent_outputs = json.dumps(agent_outputs_collector) if agent_outputs_collector else None
                 wr.token_usage = json.dumps(pipeline_token_summary) if pipeline_token_summary else None
+                wr.model_id = pipeline_token_summary.get("model_id") or None
                 wr.completed_at = datetime.now(timezone.utc)
                 duration = (datetime.now(timezone.utc) - execution_start).total_seconds()
                 wr.duration = round(duration, 1)
@@ -1431,6 +1453,15 @@ async def _handle_od_ppt_execution(
     final_html = ""
     monotonic_start = time.monotonic()
     execution_start = datetime.now(timezone.utc)
+
+    # Model ID used for cost calculation — user preference or system default
+    _od_ppt_model_id = (
+        getattr(user, "preferred_model", None)
+        or settings.BEDROCK_INFERENCE_PROFILE_ID
+        or settings.BEDROCK_MODEL_ID
+        or "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+    )
+
     od_agent_outputs_collector: list[dict] = []
     current_od_agent_live: dict = {}
     od_token_summary: dict = {
@@ -1476,11 +1507,20 @@ async def _handle_od_ppt_execution(
                 current_od_agent_live["duration"] = event.get("duration")
                 od_agent_outputs_collector.append(current_od_agent_live)
                 current_od_agent_live = {}
+                _in = event.get("input_tokens", 0) or 0
+                _out = event.get("output_tokens", 0) or 0
+                _total = _in + _out
+                from app.agents.base import TokenUsage, estimate_cost_usd
+                _cost = estimate_cost_usd(TokenUsage(input_tokens=_in, output_tokens=_out, total_tokens=_total), _od_ppt_model_id)
                 await websocket.send_json({
                     "type": "agent_complete", "chunk": None, "section": "od_ppt",
                     "data": {
                         "agent_id": event.get("agent_id"), "duration": event.get("duration"),
                         "output_length": event.get("output_length", 0),
+                        "input_tokens": _in,
+                        "output_tokens": _out,
+                        "total_tokens": _total,
+                        "estimated_cost_usd": round(_cost, 6),
                     },
                 })
             elif t == "agent_error":
@@ -1502,6 +1542,7 @@ async def _handle_od_ppt_execution(
                     "total_output_tokens": event.get("total_output_tokens", 0),
                     "total_tokens": event.get("total_tokens", 0),
                     "estimated_cost_usd": event.get("estimated_cost_usd", 0.0),
+                    "model_id": _od_ppt_model_id,
                     "per_agent": event.get("token_usage_per_agent", {}),
                 }
                 await websocket.send_json({
@@ -1509,6 +1550,7 @@ async def _handle_od_ppt_execution(
                     "data": {
                         "final_output": final_html, "pipeline_type": "od_ppt",
                         "total_duration": duration,
+                        "model_id": _od_ppt_model_id,
                         "total_input_tokens": od_token_summary["total_input_tokens"],
                         "total_output_tokens": od_token_summary["total_output_tokens"],
                         "total_tokens": od_token_summary["total_tokens"],
@@ -1526,7 +1568,9 @@ async def _handle_od_ppt_execution(
             try:
                 wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
                 if wr:
-                    wr.status = "cancelled"; wr.completed_at = datetime.now(timezone.utc); wr.duration = duration
+                    wr.status = "cancelled"
+                    wr.completed_at = datetime.now(timezone.utc)
+                    wr.duration = duration
                     db.commit()
             finally:
                 db.close()
@@ -1546,7 +1590,8 @@ async def _handle_od_ppt_execution(
             try:
                 wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
                 if wr:
-                    wr.status = "failed"; wr.error = str(exc)
+                    wr.status = "failed"
+                    wr.error = str(exc)
                     wr.completed_at = datetime.now(timezone.utc)
                     wr.duration = round((datetime.now(timezone.utc) - execution_start).total_seconds(), 1)
                     db.commit()
@@ -1567,9 +1612,11 @@ async def _handle_od_ppt_execution(
         try:
             wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
             if wr:
-                wr.status = "completed"; wr.output = final_html
+                wr.status = "completed"
+                wr.output = final_html
                 wr.agent_outputs = json.dumps(od_agent_outputs_collector) if od_agent_outputs_collector else None
                 wr.token_usage = json.dumps(od_token_summary)
+                wr.model_id = _od_ppt_model_id or None
                 wr.completed_at = datetime.now(timezone.utc)
                 wr.duration = round(time.monotonic() - monotonic_start, 1)
                 db.commit()

@@ -6,6 +6,7 @@ import type { PipelineRunState } from "@/types/index";
 
 interface TokenUsageSummaryProps {
   pipelineState: PipelineRunState;
+  modelId?: string;
 }
 
 function formatTokens(n: number): string {
@@ -20,7 +21,16 @@ function formatCost(usd: number): string {
   return `~$${usd.toFixed(3)}`;
 }
 
-export function TokenUsageSummary({ pipelineState }: TokenUsageSummaryProps) {
+// Model ID → short display name for the cost label
+const MODEL_SHORT_NAMES: Record<string, string> = {
+  "eu.anthropic.claude-haiku-4-5-20251001-v1:0":  "Haiku 4.5",
+  "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": "Sonnet 4.5",
+  "eu.anthropic.claude-sonnet-4-6":               "Sonnet 4.6",
+  "eu.anthropic.claude-opus-4-5-20251101-v1:0":   "Opus 4.5",
+  "eu.anthropic.claude-opus-4-6-v1":              "Opus 4.6",
+};
+
+export function TokenUsageSummary({ pipelineState, modelId }: TokenUsageSummaryProps) {
   const { totalTokens, totalInputTokens, totalOutputTokens, estimatedCostUsd } = pipelineState;
 
   // Don't render if no token data yet
@@ -70,7 +80,9 @@ export function TokenUsageSummary({ pipelineState }: TokenUsageSummaryProps) {
 
       {/* Cost estimate */}
       <div className="flex items-center justify-between">
-        <span className="text-[10px] text-gray-400">Est. cost (Haiku)</span>
+        <span className="text-[10px] text-gray-400">
+          Est. cost ({modelId ? (MODEL_SHORT_NAMES[modelId] ?? "AI") : "AI"})
+        </span>
         <span className="text-[11px] font-semibold text-gray-700">{formatCost(cost)}</span>
       </div>
     </motion.div>

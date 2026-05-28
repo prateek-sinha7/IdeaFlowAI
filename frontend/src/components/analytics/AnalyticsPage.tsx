@@ -4,9 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import {
   ArrowLeft, Zap, DollarSign, Activity, Layers,
-  RefreshCw, TrendingUp, CheckCircle2, XCircle, Clock3,
+  RefreshCw, CheckCircle2, XCircle, Clock3,
 } from "lucide-react";
-import { getToken, getWorkflows } from "@/lib/api";
+import { getToken, getWorkflows, getPreferences } from "@/lib/api";
 import type { WorkflowRun } from "@/types/index";
 
 interface AnalyticsPageProps {
@@ -16,10 +16,35 @@ interface AnalyticsPageProps {
 type DateFilter = "today" | "3d" | "7d" | "30d" | "90d" | "all";
 type PipelineFilter = "all" | "user_stories" | "ppt" | "prototype" | "app_builder" | "custom";
 
+// ─── Model metadata ───────────────────────────────────────────────────────────
+const MODEL_META: Record<string, { name: string; short: string; inputRate: string; outputRate: string; context: string }> = {
+  "eu.anthropic.claude-haiku-4-5-20251001-v1:0":  { name: "Claude Haiku 4.5",  short: "Haiku 4.5",   inputRate: "$0.25 / 1M",  outputRate: "$1.25 / 1M",  context: "200K" },
+  "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": { name: "Claude Sonnet 4.5", short: "Sonnet 4.5",  inputRate: "$3.00 / 1M",  outputRate: "$15.00 / 1M", context: "200K" },
+  "eu.anthropic.claude-sonnet-4-6":               { name: "Claude Sonnet 4.6", short: "Sonnet 4.6",  inputRate: "$3.00 / 1M",  outputRate: "$15.00 / 1M", context: "1M"   },
+  "eu.anthropic.claude-opus-4-5-20251101-v1:0":   { name: "Claude Opus 4.5",   short: "Opus 4.5",    inputRate: "$15.00 / 1M", outputRate: "$75.00 / 1M", context: "200K" },
+  "eu.anthropic.claude-opus-4-6-v1":              { name: "Claude Opus 4.6",   short: "Opus 4.6",    inputRate: "$15.00 / 1M", outputRate: "$75.00 / 1M", context: "200K" },
+};
+const DEFAULT_MODEL_ID = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
+
+/** Infer the model ID for a run that has no stored model_id, using cost-per-token ratio. */
+function inferModelId(run: WorkflowRun): string {
+  if (run.tokenUsage?.model_id) return run.tokenUsage.model_id;
+  if (run.modelId) return run.modelId;
+  if (run.tokenUsage && run.tokenUsage.total_tokens > 0) {
+    const cpt = run.tokenUsage.estimated_cost_usd / run.tokenUsage.total_tokens;
+    if (cpt < 0.000003) return "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
+    if (cpt < 0.00002)  return "eu.anthropic.claude-sonnet-4-5-20250929-v1:0";
+    return "eu.anthropic.claude-opus-4-5-20251101-v1:0";
+  }
+  return DEFAULT_MODEL_ID;
+}
+
 const PIPELINE_LABELS: Record<string, string> = {
   user_stories: "User Stories", user_stories_revision: "User Stories",
   ppt: "Presentation", ppt_revision: "Presentation",
+  od_ppt: "Presentation", od_ppt_revision: "Presentation",
   prototype: "Prototype", prototype_revision: "Prototype",
+  od_prototype: "Prototype", od_prototype_revision: "Prototype",
   app_builder: "App Builder", app_builder_revision: "App Builder",
   custom: "Custom", mulesoft_to_springboot: "Mulesoft Migration",
   dotnet_to_azure: ".NET Migration",
@@ -164,13 +189,23 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
   const [loading, setLoading] = useState(true);
   const [dateFilter, setDateFilter] = useState<DateFilter>("30d");
   const [pipelineFilter, setPipelineFilter] = useState<PipelineFilter>("all");
+  const [modelFilter, setModelFilter] = useState<string>("all");
+  const [preferredModelId, setPreferredModelId] = useState<string | null>(null);
 
   useEffect(() => {
     const token = getToken();
     if (!token) return;
     setLoading(true);
-    getWorkflows(token, { limit: 500 })
-      .then(setRuns).catch(() => {}).finally(() => setLoading(false));
+    Promise.all([
+      getWorkflows(token, { limit: 500 }),
+      getPreferences(token).catch(() => null),
+    ])
+      .then(([wf, prefs]) => {
+        setRuns(wf);
+        if (prefs) setPreferredModelId(prefs.preferred_model);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   const filteredRuns = useMemo(() => {
@@ -185,11 +220,28 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
     return runs.filter(r => {
       if (new Date(r.createdAt).getTime() < cutoff[dateFilter]) return false;
       if (pipelineFilter !== "all") {
-        if (r.type.replace("_revision", "") !== pipelineFilter) return false;
+        // Normalise od_ppt → ppt, od_prototype → prototype before comparing
+        const baseType = r.type
+          .replace("od_ppt", "ppt")
+          .replace("od_prototype", "prototype")
+          .replace("_revision", "");
+        if (baseType !== pipelineFilter) return false;
+      }
+      if (modelFilter !== "all") {
+        if (inferModelId(r) !== modelFilter) return false;
       }
       return true;
     });
-  }, [runs, dateFilter, pipelineFilter]);
+  }, [runs, dateFilter, pipelineFilter, modelFilter]);
+
+  // Derive the set of models that appear in the full run history (for the dropdown)
+  const availableModelIds = useMemo(() => {
+    const seen = new Set<string>();
+    for (const r of runs) {
+      if (r.status === "completed") seen.add(inferModelId(r));
+    }
+    return Array.from(seen).sort();
+  }, [runs]);
 
   const completedRuns = useMemo(() => filteredRuns.filter(r => r.status === "completed"), [filteredRuns]);
   const failedRuns    = useMemo(() => filteredRuns.filter(r => r.status === "failed"), [filteredRuns]);
@@ -213,7 +265,12 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
   const pipelineBreakdown = useMemo(() => {
     const map: Record<string, { runs: number; tokens: number; cost: number }> = {};
     for (const r of completedRuns) {
-      const label = PIPELINE_LABELS[r.type.replace("_revision", "")] || r.type;
+      // Normalise od_ppt → ppt, od_prototype → prototype before label lookup
+      const normType = r.type
+        .replace("od_ppt", "ppt")
+        .replace("od_prototype", "prototype")
+        .replace("_revision", "");
+      const label = PIPELINE_LABELS[normType] || normType;
       if (!map[label]) map[label] = { runs: 0, tokens: 0, cost: 0 };
       map[label].runs++;
       if (r.tokenUsage) { map[label].tokens += r.tokenUsage.total_tokens; map[label].cost += r.tokenUsage.estimated_cost_usd; }
@@ -284,6 +341,18 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
               <option value="app_builder">App Builder</option>
               <option value="custom">Custom</option>
             </select>
+            {/* Model select — only shown when multiple models exist in history */}
+            {availableModelIds.length > 1 && (
+              <select value={modelFilter} onChange={e => setModelFilter(e.target.value)}
+                className="text-[11px] border border-gray-200 rounded-xl px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:border-[#1B2A4A] transition-colors">
+                <option value="all">All models</option>
+                {availableModelIds.map(id => (
+                  <option key={id} value={id}>
+                    {MODEL_META[id]?.short ?? id}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
       </div>
@@ -452,7 +521,11 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
               ) : (
                 <div className="space-y-0">
                   {recentRuns.map((r, i) => {
-                    const label = PIPELINE_LABELS[r.type] || r.type;
+                    const normType = r.type
+                      .replace("od_ppt", "ppt")
+                      .replace("od_prototype", "prototype")
+                      .replace("_revision", "");
+                    const label = PIPELINE_LABELS[normType] || normType;
                     const palette = getPalette(label);
                     return (
                       <motion.div key={r.id}
@@ -539,19 +612,60 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
             {/* Model info */}
             <div className="bg-white rounded-2xl border border-gray-100 px-5 py-4 hover:shadow-md transition-shadow">
               <p className="text-[13px] font-semibold text-gray-900 mb-3">Model Details</p>
-              <div className="space-y-2.5">
-                {[
-                  { label: "Model", value: "Claude Haiku 4.5" },
-                  { label: "Input rate", value: "$0.25 / 1M tokens" },
-                  { label: "Output rate", value: "$1.25 / 1M tokens" },
-                  { label: "Context window", value: "200K tokens" },
-                ].map(item => (
-                  <div key={item.label} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
-                    <span className="text-[11px] text-gray-500">{item.label}</span>
-                    <span className="text-[11px] font-semibold text-gray-800">{item.value}</span>
-                  </div>
-                ))}
-              </div>
+              {(() => {
+                // If a model filter is active, show that model's details directly
+                let activeModelId: string | null = modelFilter !== "all" ? modelFilter : null;
+
+                // Otherwise infer from run data (stored model_id → cost-per-token → default)
+                if (!activeModelId) {
+                  activeModelId = completedRuns
+                    .find(r => r.tokenUsage?.model_id)?.tokenUsage?.model_id
+                    ?? completedRuns.find(r => r.modelId)?.modelId
+                    ?? null;
+
+                  if (!activeModelId) {
+                    const runsWithData = completedRuns.filter(r => r.tokenUsage && r.tokenUsage.total_tokens > 0);
+                    if (runsWithData.length > 0) {
+                      const totalTokens = runsWithData.reduce((s, r) => s + (r.tokenUsage?.total_tokens ?? 0), 0);
+                      const totalCost = runsWithData.reduce((s, r) => s + (r.tokenUsage?.estimated_cost_usd ?? 0), 0);
+                      const avgCostPerToken = totalTokens > 0 ? totalCost / totalTokens : 0;
+                      if (avgCostPerToken < 0.000003) activeModelId = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
+                      else if (avgCostPerToken < 0.00002) activeModelId = "eu.anthropic.claude-sonnet-4-5-20250929-v1:0";
+                      else activeModelId = "eu.anthropic.claude-opus-4-5-20251101-v1:0";
+                    }
+                  }
+                }
+
+                const displayModelId = activeModelId ?? DEFAULT_MODEL_ID;
+                const meta = MODEL_META[displayModelId] ?? MODEL_META[DEFAULT_MODEL_ID];
+                const preferenceLabel = preferredModelId ? (MODEL_META[preferredModelId]?.name ?? null) : null;
+                const showPreferenceNote = preferenceLabel && preferenceLabel !== meta.name && modelFilter === "all";
+
+                return (
+                  <>
+                    <div className="space-y-2.5">
+                      {[
+                        { label: "Model",          value: meta.name },
+                        { label: "Input rate",     value: `${meta.inputRate} tokens` },
+                        { label: "Output rate",    value: `${meta.outputRate} tokens` },
+                        { label: "Context window", value: `${meta.context} tokens` },
+                      ].map(item => (
+                        <div key={item.label} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                          <span className="text-[11px] text-gray-500">{item.label}</span>
+                          <span className="text-[11px] font-semibold text-gray-800">{item.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {showPreferenceNote && (
+                      <div className="mt-3 rounded-lg bg-amber-50 border border-amber-100 px-3 py-2">
+                        <p className="text-[10px] text-amber-700">
+                          New runs will use <span className="font-semibold">{preferenceLabel}</span>
+                        </p>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
               {tokenStats.totalCost > 0 && (
                 <div className="mt-3 bg-[#E8EDF5] border border-[#D0DAF0] rounded-xl px-3 py-2.5 flex items-center justify-between">
                   <span className="text-[10px] text-[#1B2A4A] font-medium">Total spend ({DATE_LABELS[dateFilter]})</span>

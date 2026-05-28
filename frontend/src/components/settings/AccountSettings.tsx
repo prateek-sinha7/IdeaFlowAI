@@ -89,6 +89,7 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
   // AI Model preference
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  const [pendingModel, setPendingModel] = useState<string | null>(null); // dropdown value before save
   const [savingModel, setSavingModel] = useState(false);
   const [modelMessage, setModelMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -108,6 +109,7 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
         setSelectedTierTab(t);
         setAvailableModels(prefs.available_models);
         setSelectedModel(prefs.preferred_model);
+        setPendingModel(prefs.preferred_model);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -300,108 +302,87 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
               >
                 <h2 className="text-[15px] font-semibold text-gray-900 mb-1">AI Model</h2>
                 <p className="text-[11px] text-gray-400 mb-5">
-                  Choose the Claude model used for all your pipeline runs. Changes apply immediately to new runs.
+                  Choose the Claude model used for all your pipeline runs.
                 </p>
 
-                {loading ? (
-                  <div className="space-y-3">
-                    {[1, 2, 3].map(i => (
-                      <div key={i} className="h-20 rounded-xl bg-gray-100 animate-pulse" />
-                    ))}
+                <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Cpu className="h-3.5 w-3.5 text-gray-400" />
+                    <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Pipeline Model</span>
                   </div>
-                ) : (
-                  <div className="space-y-2.5">
-                    {/* System default option */}
-                    <button
-                      type="button"
-                      onClick={() => handleSaveModel(null)}
-                      disabled={savingModel}
-                      className={`w-full text-left rounded-xl border px-4 py-3.5 transition-all ${
-                        selectedModel === null
-                          ? "border-[#1B2A4A] bg-[#E8EDF5] shadow-sm"
-                          : "border-gray-200 bg-white hover:border-gray-300"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className={`text-[13px] font-semibold ${selectedModel === null ? "text-[#1B2A4A]" : "text-gray-900"}`}>
-                            System Default
-                          </p>
-                          <p className="text-[11px] text-gray-400 mt-0.5">
-                            Uses the platform default model (Claude Haiku 4.5)
-                          </p>
-                        </div>
-                        {selectedModel === null && (
-                          <span className="flex-shrink-0 flex items-center justify-center h-5 w-5 rounded-full bg-[#1B2A4A]">
-                            <Check className="h-3 w-3 text-white" />
-                          </span>
+
+                  {loading ? (
+                    <div className="h-10 rounded-lg bg-gray-100 animate-pulse" />
+                  ) : (
+                    <div className="space-y-4">
+                      {/* Dropdown */}
+                      <div>
+                        <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5 block">
+                          Select Model
+                        </label>
+                        <select
+                          value={pendingModel ?? ""}
+                          onChange={e => {
+                            setPendingModel(e.target.value === "" ? null : e.target.value);
+                            setModelMessage(null);
+                          }}
+                          className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-[13px] text-gray-900 focus:outline-none focus:border-[#1B2A4A] transition-colors appearance-none"
+                        >
+                          <option value="">System Default (Claude Haiku 4.5)</option>
+                          {availableModels.map(m => (
+                            <option key={m.id} value={m.id}>{m.name}</option>
+                          ))}
+                        </select>
+                        {/* Description of selected model */}
+                        {pendingModel && (() => {
+                          const m = availableModels.find(x => x.id === pendingModel);
+                          return m ? (
+                            <p className="mt-1.5 text-[11px] text-gray-400">{m.description}</p>
+                          ) : null;
+                        })()}
+                        {!pendingModel && (
+                          <p className="mt-1.5 text-[11px] text-gray-400">Fastest and most cost-efficient. Great for high-volume tasks.</p>
                         )}
                       </div>
-                    </button>
 
-                    {/* Model options grouped by tier */}
-                    {(["fast", "balanced", "powerful"] as const).map(tier => {
-                      const tierModels = availableModels.filter(m => m.tier === tier);
-                      if (!tierModels.length) return null;
-                      const tierLabel = { fast: "Fast", balanced: "Balanced", powerful: "Powerful" }[tier];
-                      const tierColor = { fast: "text-emerald-600 bg-emerald-50 border-emerald-200", balanced: "text-blue-600 bg-blue-50 border-blue-200", powerful: "text-purple-600 bg-purple-50 border-purple-200" }[tier];
-                      return (
-                        <div key={tier}>
-                          <div className="flex items-center gap-2 mt-4 mb-2">
-                            <span className={`text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border ${tierColor}`}>
-                              {tierLabel}
-                            </span>
-                          </div>
-                          <div className="space-y-2">
-                            {tierModels.map(model => {
-                              const isSelected = selectedModel === model.id;
-                              return (
-                                <button
-                                  key={model.id}
-                                  type="button"
-                                  onClick={() => handleSaveModel(model.id)}
-                                  disabled={savingModel}
-                                  className={`w-full text-left rounded-xl border px-4 py-3.5 transition-all ${
-                                    isSelected
-                                      ? "border-[#1B2A4A] bg-[#E8EDF5] shadow-sm"
-                                      : "border-gray-200 bg-white hover:border-gray-300"
-                                  }`}
-                                >
-                                  <div className="flex items-center justify-between">
-                                    <div>
-                                      <p className={`text-[13px] font-semibold ${isSelected ? "text-[#1B2A4A]" : "text-gray-900"}`}>
-                                        {model.name}
-                                      </p>
-                                      <p className="text-[11px] text-gray-400 mt-0.5">{model.description}</p>
-                                    </div>
-                                    {isSelected && (
-                                      <span className="flex-shrink-0 flex items-center justify-center h-5 w-5 rounded-full bg-[#1B2A4A]">
-                                        <Check className="h-3 w-3 text-white" />
-                                      </span>
-                                    )}
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
+                      {/* Current saved value */}
+                      {selectedModel !== pendingModel && (
+                        <p className="text-[11px] text-amber-600">
+                          Unsaved — currently using{" "}
+                          <span className="font-semibold">
+                            {selectedModel
+                              ? (availableModels.find(m => m.id === selectedModel)?.name ?? selectedModel)
+                              : "System Default"}
+                          </span>
+                        </p>
+                      )}
+
+                      {/* Feedback */}
+                      {modelMessage && (
+                        <div className={`flex items-center gap-2 rounded-lg px-3 py-2.5 text-[12px] ${
+                          modelMessage.type === "success"
+                            ? "bg-emerald-50 text-emerald-700 border border-emerald-100"
+                            : "bg-red-50 text-red-700 border border-red-100"
+                        }`}>
+                          {modelMessage.type === "success"
+                            ? <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" />
+                            : <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />}
+                          {modelMessage.text}
                         </div>
-                      );
-                    })}
+                      )}
 
-                    {modelMessage && (
-                      <div className={`flex items-center gap-2 rounded-lg px-3 py-2.5 text-[12px] mt-3 ${
-                        modelMessage.type === "success"
-                          ? "bg-emerald-50 text-emerald-700 border border-emerald-100"
-                          : "bg-red-50 text-red-700 border border-red-100"
-                      }`}>
-                        {modelMessage.type === "success"
-                          ? <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" />
-                          : <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />}
-                        {modelMessage.text}
-                      </div>
-                    )}
-                  </div>
-                )}
+                      {/* Save button */}
+                      <button
+                        type="button"
+                        onClick={() => handleSaveModel(pendingModel)}
+                        disabled={savingModel || selectedModel === pendingModel}
+                        className="w-full rounded-xl bg-[#1B2A4A] text-white py-2.5 text-[13px] font-semibold hover:bg-[#243860] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {savingModel ? "Saving…" : "Save"}
+                      </button>
+                    </div>
+                  )}
+                </div>
               </motion.div>
             )}
 

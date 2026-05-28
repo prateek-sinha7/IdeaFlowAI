@@ -7,9 +7,13 @@ gallery page can render without the backend agents being built yet.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
+import re
+import socket
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse, StreamingResponse
@@ -236,12 +240,6 @@ async def run_prototype(
 # URL fetch proxy — avoids CORS when user pastes a website URL as a custom
 # template. Auth-gated, size-limited, private-IP blocked.
 # ---------------------------------------------------------------------------
-
-import ipaddress
-import re
-import socket
-from urllib.parse import urlparse
-
 
 def _is_private_url(url: str) -> bool:
     """Return True if the URL resolves to a private/loopback address."""

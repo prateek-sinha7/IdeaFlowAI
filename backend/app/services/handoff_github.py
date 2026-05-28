@@ -191,7 +191,7 @@ def _run_git(
             text=True,
             timeout=timeout,
         )
-    except subprocess.TimeoutExpired as exc:
+    except subprocess.TimeoutExpired:
         elapsed = time.monotonic() - started
         return GitResult(
             returncode=124,

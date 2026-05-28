@@ -399,7 +399,7 @@ class TestRejectOverlappingRun:
             # production, but without standing up a real WS server.
             await asyncio.sleep(0.05)  # Let task start.
 
-            second_msg = {"type": "run_pipeline", "pipeline_type": "user_stories", "message": "second"}
+            second_msg = {"type": "run_pipeline", "pipeline_type": "user_stories", "message": "second"}  # noqa: F841
             if current_pipeline_task is not None and not current_pipeline_task.done():
                 await ws.send_json({
                     "type": "error",

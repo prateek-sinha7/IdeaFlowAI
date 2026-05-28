@@ -277,7 +277,7 @@ class TestInjectionOrdering:
             attached_hooks=[{"name": "HOOK NAME", "event": "Stop", "trigger": "t", "description": "HOOK NAME: t"}],
         )
 
-        guardrail_content = "## Guardrail: html-prototype\n\nsome guardrail rules"
+        guardrail_content = "## Guardrail: html-prototype\n\nsome guardrail rules"  # noqa: F841
 
         with patch("agents.factory._GUARDRAILS_DIR") as mock_dir:
             mock_file = MagicMock()

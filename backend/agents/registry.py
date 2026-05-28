@@ -13,7 +13,6 @@ Public API:
 
 from agents.loader import (
     AgentSpec,
-    AgentSpecError,
     SUPPORTED_PIPELINE_TYPES,
     list_agent_ids,
     load_agent_spec,

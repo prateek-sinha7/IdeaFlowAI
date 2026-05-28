@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import re
 from pathlib import PurePosixPath
-from typing import Callable
 
 from langchain_core.tools import tool
 

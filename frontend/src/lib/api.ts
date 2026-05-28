@@ -260,6 +260,7 @@ interface RawWorkflowRun {
   duration: number | null;
   error: string | null;
   token_usage: string | null;
+  model_id: string | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -289,6 +290,7 @@ function normalizeWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
     output: raw.output ?? undefined,
     agentOutputs,
     tokenUsage,
+    modelId: raw.model_id ?? undefined,
     agentCount: raw.agent_count,
     duration: raw.duration ?? undefined,
     error: raw.error ?? undefined,

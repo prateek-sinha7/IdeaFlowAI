@@ -123,7 +123,7 @@ class DeepAgent:
           {type: "done",        output: str}             — final text output
           {type: "error",       error: str}
         """
-        from langchain_core.messages import AIMessage, ToolMessage
+        from langchain_core.messages import ToolMessage
 
         messages: list = [
             SystemMessage(content=self.system_prompt),
