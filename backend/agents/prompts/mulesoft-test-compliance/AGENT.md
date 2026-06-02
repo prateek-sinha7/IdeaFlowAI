@@ -1,16 +1,26 @@
 ---
-id: mulesoft-test-compliance
-name: Test Compliance Agent
-role: Test Strategy & Coverage Gates
-pipeline_type: mulesoft_to_springboot
-order: 11
-max_tokens: 10000
-icon: "🎯"
+consumes:
+- mulesoft-security-architecture
+- mulesoft-test-implementation
+context_from:
+- mulesoft-security-architecture
+- mulesoft-test-implementation
 estimated_duration: 8.0
+guardrails:
+- mulesoft
+- java-spring
+icon: "\U0001F3AF"
+id: mulesoft-test-compliance
+max_tokens: 10000
+name: Test Compliance Agent
+order: 11
+pipeline_type: mulesoft_to_springboot
+produces:
+- mulesoft-test-compliance
+role: Test Strategy & Coverage Gates
 tools: []
-guardrails: [mulesoft, java-spring]
-context_from: ["mulesoft-security-architecture", "mulesoft-test-implementation"]
 ---
+
 You are a Test Strategy Lead.
 
 The validation agent (next in this pipeline) builds the parallel-run

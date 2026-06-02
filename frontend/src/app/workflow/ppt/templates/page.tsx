@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, Sparkles, ChevronDown, ChevronRight, Layers, Eye } from "lucide-react";
 import { getToken } from "@/lib/api";
 import { listPPTTemplates, type PPTTemplate } from "@/lib/ppt-api";
 import { listDesignSystems, type DesignSystemListItem } from "@/lib/prototype-api";
@@ -26,8 +26,9 @@ export default function PPTTemplatesPage() {
   const [customDsBody, setCustomDsBody] = useState<string | null>(null);
   const [customTemplateBody, setCustomTemplateBody] = useState<string | null>(null);
   const [brief, setBrief] = useState("");
-
   const [chainFrom, setChainFrom] = useState<string | null>(null);
+  const [chainContextBlock, setChainContextBlock] = useState<string | null>(null);
+  const [contextExpanded, setContextExpanded] = useState(false);
 
   useEffect(() => {
     const token = getToken();
@@ -35,6 +36,8 @@ export default function PPTTemplatesPage() {
     setAuthChecked(true);
     const from = sessionStorage.getItem("chain.from");
     if (from) setChainFrom(from);
+    const ctx = sessionStorage.getItem("chain.context_block");
+    if (ctx) setChainContextBlock(ctx);
   }, [router]);
 
   // Restore draft
@@ -107,24 +110,40 @@ export default function PPTTemplatesPage() {
     else { setSelectedTemplateId(null); setCustomTemplateBody(null); }
   }, []);
 
-  // canContinue: DS only required when template declares it
+  // canContinue: DS only required when template declares it; brief not required when chaining
+  const isChaining = Boolean(chainFrom);
   const canContinue = Boolean(
-    selectedTemplateId && brief.trim() &&
+    selectedTemplateId &&
+    (isChaining || brief.trim()) &&
     (!dsRequired || selectedDsId),
   );
 
   const handleContinue = useCallback(() => {
     if (!canContinue) return;
+    const sourceRunId = sessionStorage.getItem("chain.source_run_id") ?? undefined;
+    const contextBlock = sessionStorage.getItem("chain.context_block") ?? undefined;
+    sessionStorage.removeItem("chain.context_block");
+
+    let finalBrief: string;
+    if (isChaining && contextBlock) {
+      finalBrief = contextBlock;
+    } else if (contextBlock && brief.trim()) {
+      finalBrief = `${brief.trim()}\n\n${contextBlock}`;
+    } else {
+      finalBrief = brief.trim();
+    }
+
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
       templateId: selectedTemplateId,
       designSystemId: dsRequired ? selectedDsId : null,
-      brief: brief.trim(),
+      brief: finalBrief,
       ...(customDsBody ? { customDsBody } : {}),
       ...(customTemplateBody ? { customTemplateBody } : {}),
+      ...(sourceRunId ? { sourceRunId } : {}),
     }));
     sessionStorage.setItem("od_ppt.pending", "true");
     router.push("/dashboard");
-  }, [canContinue, selectedTemplateId, selectedDsId, dsRequired, brief, customDsBody, customTemplateBody, router]);
+  }, [canContinue, isChaining, selectedTemplateId, selectedDsId, dsRequired, brief, customDsBody, customTemplateBody, router]);
 
   if (!authChecked) {
     return (
@@ -145,11 +164,11 @@ export default function PPTTemplatesPage() {
           </button>
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-400">
-              New presentation · Step 1 of 2
+              {isChaining ? "Chained presentation" : "New presentation"} · {isChaining ? "Step 1 of 1" : "Step 1 of 2"}
             </p>
             <h1 className="text-[15px] font-normal italic text-gray-900"
               style={{ fontFamily: "var(--font-fraunces)" }}>
-              Configure your presentation
+              {isChaining ? "Pick a template" : "Configure your presentation"}
             </h1>
           </div>
         </div>
@@ -157,8 +176,55 @@ export default function PPTTemplatesPage() {
 
       <main className="mx-auto max-w-5xl space-y-8 px-6 py-8 pb-16">
 
-        {/* Chain context banner */}
-        {chainFrom && (
+        {/* Chain context panel — shows extracted content from previous pipeline */}
+        {chainFrom && chainContextBlock && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setContextExpanded(v => !v)}
+              className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-emerald-100/50 transition-colors"
+            >
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-100 flex-shrink-0">
+                <Layers className="h-3.5 w-3.5 text-emerald-700" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[12px] font-semibold text-emerald-800">
+                  Context from previous pipeline
+                </p>
+                <p className="text-[10px] text-emerald-600 truncate">
+                  {{
+                    user_stories: "Product backlog", user_stories_revision: "Product backlog",
+                    od_prototype: "Prototype spec", prototype: "Prototype spec",
+                    app_builder: "App architecture", app_builder_revision: "App architecture",
+                  }[chainFrom] ?? "Previous pipeline output"} · will be passed to agents
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span className="text-[9px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">
+                  {contextExpanded ? "Hide" : "Preview"}
+                </span>
+                {contextExpanded
+                  ? <ChevronDown className="h-4 w-4 text-emerald-600" />
+                  : <ChevronRight className="h-4 w-4 text-emerald-600" />}
+              </div>
+            </button>
+            {contextExpanded && (
+              <div className="border-t border-emerald-200 px-4 py-3">
+                <p className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Eye className="h-3 w-3" /> What agents will receive
+                </p>
+                <pre className="text-[10px] text-emerald-900 whitespace-pre-wrap leading-relaxed bg-white/60 rounded-lg p-3 max-h-[200px] overflow-y-auto font-mono border border-emerald-100">
+                  {chainContextBlock}
+                </pre>
+                <p className="text-[10px] text-emerald-600 mt-2">
+                  This context is automatically appended to your brief when the pipeline runs.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {chainFrom && !chainContextBlock && (
           <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 flex items-center gap-3">
             <div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 flex-shrink-0">
               <span className="text-[11px]">→</span>
@@ -170,37 +236,39 @@ export default function PPTTemplatesPage() {
                 od_prototype: "Prototype", prototype: "Prototype", prototype_revision: "Prototype",
                 user_stories: "User Stories", user_stories_revision: "User Stories",
                 app_builder: "App Builder", app_builder_revision: "App Builder",
-              }[chainFrom] ?? chainFrom}</strong> — your brief is pre-filled. Pick a template to generate the presentation.
+              }[chainFrom] ?? chainFrom}</strong> — your brief is pre-filled.
             </p>
           </div>
         )}
 
-        {/* Section 1: Brief */}
-        <section>
-          <SectionLabel number={1} title="Describe your presentation" />
-          <div className="mt-3 rounded-2xl border border-gray-200/70 bg-white">
-            <textarea
-              value={brief} onChange={(e) => setBrief(e.target.value)}
-              placeholder="e.g. A pitch deck for our Series A fundraise — $5M ask, B2B SaaS, 10 slides for investors."
-              rows={5}
-              className="w-full resize-none rounded-2xl bg-transparent px-5 py-4 text-[14px] leading-relaxed text-gray-900 placeholder:text-gray-400 focus:outline-none"
-            />
-            {selectedTemplate?.example_prompt && (
-              <div className="border-t border-gray-100 px-5 py-2.5">
-                <button type="button" onClick={() => setBrief(selectedTemplate.example_prompt ?? "")}
-                  className="inline-flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-[#1B2A4A]">
-                  <Sparkles className="h-3 w-3" />
-                  Use template example
-                  <span className="italic text-gray-400">"{selectedTemplate.example_prompt}"</span>
-                </button>
-              </div>
-            )}
-          </div>
-        </section>
+        {/* Section 1: Brief — hidden when chaining */}
+        {!isChaining && (
+          <section>
+            <SectionLabel number={1} title="Describe your presentation" />
+            <div className="mt-3 rounded-2xl border border-gray-200/70 bg-white">
+              <textarea
+                value={brief} onChange={(e) => setBrief(e.target.value)}
+                placeholder="e.g. A pitch deck for our Series A fundraise — $5M ask, B2B SaaS, 10 slides for investors."
+                rows={5}
+                className="w-full resize-none rounded-2xl bg-transparent px-5 py-4 text-[14px] leading-relaxed text-gray-900 placeholder:text-gray-400 focus:outline-none"
+              />
+              {selectedTemplate?.example_prompt && (
+                <div className="border-t border-gray-100 px-5 py-2.5">
+                  <button type="button" onClick={() => setBrief(selectedTemplate.example_prompt ?? "")}
+                    className="inline-flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-[#1B2A4A]">
+                    <Sparkles className="h-3 w-3" />
+                    Use template example
+                    <span className="italic text-gray-400">"{selectedTemplate.example_prompt}"</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
-        {/* Section 2: Template */}
+        {/* Section 2 (or 1 when chaining): Template */}
         <section>
-          <SectionLabel number={2} title="Choose a deck template"
+          <SectionLabel number={isChaining ? 1 : 2} title="Choose a deck template"
             subtitle="Sets the visual style — layouts, themes, animation, and slide structure." />
           <div className="mt-3">
             {loadError ? (
@@ -221,10 +289,10 @@ export default function PPTTemplatesPage() {
           </div>
         </section>
 
-        {/* Section 3: Design system — only shown when template requires it */}
+        {/* Section 3 (or 2 when chaining): Design system — only shown when template requires it */}
         {dsRequired && (
           <section>
-            <SectionLabel number={3} title="Choose a design system"
+            <SectionLabel number={isChaining ? 2 : 3} title="Choose a design system"
               subtitle="This template uses your design system's tokens for colors and typography." />
             <div className="mt-3">
               {systems.length === 0 ? (
@@ -245,7 +313,7 @@ export default function PPTTemplatesPage() {
         <div className="pt-2">
           {!canContinue && (
             <div className="mb-4 flex flex-wrap gap-2">
-              {!brief.trim() && <Pill label="Add a brief" />}
+              {!isChaining && !brief.trim() && <Pill label="Add a brief" />}
               {!selectedTemplateId && <Pill label="Pick a template" />}
               {dsRequired && !selectedDsId && <Pill label="Pick a design system" />}
             </div>

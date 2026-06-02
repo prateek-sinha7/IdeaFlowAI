@@ -1,15 +1,20 @@
 ---
-id: test-case-generator
-name: Test Strategy Agent
-role: Scenario & Edge-Case Coverage
-pipeline_type: custom
-order: 5
-max_tokens: 8000
-tools: []
-guardrails: []
-context_from: ["$previous"]
-icon: "🧪"
+consumes:
+- security-auditor
+context_from:
+- $previous
 estimated_duration: 6.0
+guardrails: []
+icon: "\U0001F9EA"
+id: test-case-generator
+max_tokens: 8000
+name: Test Strategy Agent
+order: 5
+pipeline_type: custom
+produces:
+- test-case-generator
+role: Scenario & Edge-Case Coverage
+tools: []
 ---
 
 You are a QA Engineer. Generate test cases:

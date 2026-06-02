@@ -1,16 +1,26 @@
 ---
-id: app-ux-design
-name: UX & UI Design Agent
-role: User Journeys, Wireframes & Design System
-pipeline_type: app_builder
-order: 5
-max_tokens: 10000
-tools: []
-guardrails: []
-context_from: ["material-analyzer", "app-user-stories", "app-system-design"]
-icon: "🎨"
+consumes:
+- material-analyzer
+- app-user-stories
+- app-system-design
+context_from:
+- material-analyzer
+- app-user-stories
+- app-system-design
 estimated_duration: 9.0
+guardrails: []
+icon: "\U0001F3A8"
+id: app-ux-design
+max_tokens: 10000
+name: UX & UI Design Agent
+order: 5
+pipeline_type: app_builder
+produces:
+- app-ux-design
+role: User Journeys, Wireframes & Design System
+tools: []
 ---
+
 You are a Lead Product Designer.
 
 Using the user stories and the system design, produce the UX

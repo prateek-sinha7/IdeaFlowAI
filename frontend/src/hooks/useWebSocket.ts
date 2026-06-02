@@ -28,7 +28,7 @@ export interface UseWebSocketReturn {
 
 const DEFAULT_WS_URL = ENV.WS_URL;
 const BASE_DELAY_MS = 1000;
-const MAX_RETRIES = 5;
+const MAX_RETRY_DELAY_MS = 30000; // cap backoff at 30s — never give up
 const JWT_EXPIRED_CODE = 4001;
 
 export function useWebSocket(config: UseWebSocketConfig): UseWebSocketReturn {
@@ -56,6 +56,12 @@ export function useWebSocket(config: UseWebSocketConfig): UseWebSocketReturn {
       retryTimeoutRef.current = null;
     }
     if (wsRef.current) {
+      // Clear ping interval if set
+      const ws = wsRef.current as WebSocket & { _pingInterval?: ReturnType<typeof setInterval> };
+      if (ws._pingInterval) {
+        clearInterval(ws._pingInterval);
+        ws._pingInterval = undefined;
+      }
       wsRef.current.onopen = null;
       wsRef.current.onclose = null;
       wsRef.current.onerror = null;
@@ -102,11 +108,26 @@ export function useWebSocket(config: UseWebSocketConfig): UseWebSocketReturn {
       retryCountRef.current = 0;
       setConnectionStatus("connected");
       setLastError(null);
+
+      // Start client-side ping every 20s to keep the connection alive through
+      // proxies and browsers that drop idle WebSocket connections.
+      // Prototype build tasks can take 2-4 min each with no messages flowing.
+      const pingInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "ping" }));
+        } else {
+          clearInterval(pingInterval);
+        }
+      }, 20000);
+      // Store interval on the ws object so cleanup can clear it
+      (ws as WebSocket & { _pingInterval?: ReturnType<typeof setInterval> })._pingInterval = pingInterval;
     };
 
     ws.onmessage = (event: MessageEvent) => {
       try {
         const parsed: StreamMessage = JSON.parse(event.data as string);
+        // Ignore keepalive messages — they exist only to prevent connection drops
+        if (parsed.type === "pipeline_heartbeat" || parsed.type === "pong") return;
         setLastMessage(parsed);
         onMessageRef.current?.(parsed);
       } catch {
@@ -141,21 +162,16 @@ export function useWebSocket(config: UseWebSocketConfig): UseWebSocketReturn {
         return;
       }
 
-      // Attempt reconnection with exponential backoff
-      if (retryCountRef.current < MAX_RETRIES) {
-        const delay = BASE_DELAY_MS * Math.pow(2, retryCountRef.current);
-        retryCountRef.current += 1;
-        setConnectionStatus("reconnecting");
-        setLastError("Connection lost. Attempting to reconnect...");
-        retryTimeoutRef.current = setTimeout(() => {
-          connect();
-        }, delay);
-      } else {
-        setConnectionStatus("failed");
-        setLastError(
-          "Unable to establish a connection to the server. Please check your internet connection and try again."
-        );
-      }
+      // Attempt reconnection with exponential backoff — no retry limit.
+      // Long-running pipelines (2-6 hours) must survive extended network
+      // outages. The delay is capped at 30s to avoid waiting too long.
+      const delay = Math.min(BASE_DELAY_MS * Math.pow(2, retryCountRef.current), MAX_RETRY_DELAY_MS);
+      retryCountRef.current += 1;
+      setConnectionStatus("reconnecting");
+      setLastError(`Connection lost. Reconnecting in ${Math.round(delay / 1000)}s… (attempt ${retryCountRef.current})`);
+      retryTimeoutRef.current = setTimeout(() => {
+        connect();
+      }, delay);
     };
   }, [url, cleanup]);
 

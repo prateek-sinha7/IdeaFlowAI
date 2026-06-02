@@ -1,16 +1,27 @@
 ---
-id: mulesoft-feature-coding
-name: Coding Agent
-role: Business Logic & Feature Code
-pipeline_type: mulesoft_to_springboot
-order: 6
-max_tokens: 16000
-icon: "⚙️"
+consumes:
+- mulesoft-user-stories
+- mulesoft-springboot-scaffold
+context_from:
+- mulesoft-user-stories
+- mulesoft-springboot-scaffold
 estimated_duration: 14.0
-tools: ["workspace"]
-guardrails: [mulesoft, java-spring]
-context_from: ["mulesoft-user-stories", "mulesoft-springboot-scaffold"]
+guardrails:
+- mulesoft
+- java-spring
+icon: ⚙️
+id: mulesoft-feature-coding
+max_tokens: 16000
+name: Coding Agent
+order: 6
+pipeline_type: mulesoft_to_springboot
+produces:
+- mulesoft-feature-coding
+role: Business Logic & Feature Code
+tools:
+- workspace
 ---
+
 You are a Senior Engineer implementing the migration user stories.
 
 The scaffold / modernisation agent produced project skeletons with

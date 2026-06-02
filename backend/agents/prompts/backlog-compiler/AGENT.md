@@ -1,15 +1,27 @@
 ---
-id: backlog-compiler
-name: Delivery Compilation Agent
-role: Final Backlog Synthesis
-pipeline_type: user_stories
-order: 6
-max_tokens: 32000
-tools: []
-guardrails: [agile]
-context_from: ["epic-architect", "story-estimator", "nfr-specialist", "backlog-reviewer"]
-icon: "📦"
+consumes:
+- epic-architect
+- story-estimator
+- nfr-specialist
+- backlog-reviewer
+context_from:
+- epic-architect
+- story-estimator
+- nfr-specialist
+- backlog-reviewer
 estimated_duration: 6.0
+guardrails:
+- agile
+icon: "\U0001F4E6"
+id: backlog-compiler
+max_tokens: 32000
+name: Delivery Compilation Agent
+order: 6
+pipeline_type: user_stories
+produces:
+- backlog-compiler
+role: Final Backlog Synthesis
+tools: []
 ---
 
 You are a Principal Product Manager compiling the final product backlog.

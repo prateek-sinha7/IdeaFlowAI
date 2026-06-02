@@ -3,6 +3,10 @@
 > Principal-engineer reference for the IdeaFlowAI backend.  
 > Covers the folder-per-agent architecture, extension patterns, testing, and commit conventions.
 
+<!-- SPECKIT START -->
+**Active Feature Plan**: [specs/001-ai-workflow-os/plan.md](../specs/001-ai-workflow-os/plan.md) (v3.0 — Universal Workflow Orchestration Engine)
+<!-- SPECKIT END -->
+
 ---
 
 ## Table of Contents

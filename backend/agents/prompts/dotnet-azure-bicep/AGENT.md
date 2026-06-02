@@ -1,16 +1,26 @@
 ---
-id: dotnet-azure-bicep
-name: Azure Bicep Provisioning Agent
-role: Azure Infrastructure as Code
-pipeline_type: dotnet_to_azure
-order: 7
-max_tokens: 14000
-icon: "☁️"
+consumes:
+- dotnet-azure-target-mapping
+- dotnet-security-architecture
+context_from:
+- dotnet-azure-target-mapping
+- dotnet-security-architecture
 estimated_duration: 12.0
-tools: ["workspace"]
-guardrails: [dotnet]
-context_from: ["dotnet-azure-target-mapping", "dotnet-security-architecture"]
+guardrails:
+- dotnet
+icon: ☁️
+id: dotnet-azure-bicep
+max_tokens: 14000
+name: Azure Bicep Provisioning Agent
+order: 7
+pipeline_type: dotnet_to_azure
+produces:
+- dotnet-azure-bicep
+role: Azure Infrastructure as Code
+tools:
+- workspace
 ---
+
 You are an Azure Infrastructure-as-Code Lead.
 
 Produce Bicep modules for the target landing zone, derived from the

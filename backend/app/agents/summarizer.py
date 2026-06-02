@@ -22,8 +22,18 @@ logger = logging.getLogger("app.agents.summarizer")
 # Outputs shorter than this threshold are passed verbatim — no summarization needed.
 _MIN_CHARS_TO_SUMMARIZE = 2000
 
-# Pipeline types whose outputs must never be summarized (HTML artifacts, etc.)
-_SKIP_SUMMARIZATION_PIPELINES = {"od_prototype", "prototype", "prototype_revision"}
+# Pipeline types whose outputs must never be summarized (HTML artifacts, code, etc.)
+# - Prototype pipelines: output is raw HTML — summarizing corrupts the artifact
+# - PPT pipelines: output is PptxGenJS code — summarizing corrupts the artifact
+# - App Builder / Migration pipelines: intermediate agents produce raw code
+#   (TypeScript, Java, C#, Bicep, Terraform) that downstream agents consume
+#   verbatim — summarizing would mangle variable names, function signatures, etc.
+_SKIP_SUMMARIZATION_PIPELINES = {
+    "od_prototype", "prototype", "prototype_revision",
+    "od_ppt", "od_ppt_revision", "ppt", "ppt_revision",
+    "app_builder", "app_builder_revision",
+    "mulesoft_to_springboot", "dotnet_to_azure",
+}
 
 # ---------------------------------------------------------------------------
 # Pipeline-aware summary system prompts
@@ -39,7 +49,7 @@ CRITICAL RULES:
 - Preserve ALL: names, IDs, numbers, percentages, URLs, field names, method names, file paths
 - Preserve ALL: architecture decisions, ADRs, acceptance criteria, story points, dependencies
 - Use structured markdown with the same section headers as the original
-- Target length: 600–1200 words. Go longer if needed to preserve all detail.
+- Target length: 60-80% of the original length. NEVER produce more words than the original.
 - If the original has lists, preserve every list item
 - If the original has tables, preserve every row
 - Do NOT add commentary, opinions, or new information — only summarize what is there
@@ -188,11 +198,15 @@ async def summarize_agent_output(
     )
 
     try:
-        from app.agents.base import BaseAgent
+        from app.agents.deep_agent import DeepAgent
 
-        summarizer = BaseAgent(
+        # tools=[] intentional: summarization is a single-call utility,
+        # not a pipeline agent (constitution §II — no BaseAgent).
+        summarizer = DeepAgent(
             system_prompt=system_prompt,
-            max_tokens=4000,  # Enough for a thorough 600–1200 word summary
+            tools=[],
+            max_tokens=4000,
+            max_iterations=1,
         )
         summary = await summarizer.run(user_message)
 
@@ -200,6 +214,14 @@ async def summarize_agent_output(
             logger.warning(
                 "Summarizer returned empty output for %s — falling back to full output",
                 agent_name,
+            )
+            return output
+
+        # Never return a summary that's larger than the original — that defeats the purpose
+        if len(summary) >= len(output):
+            logger.warning(
+                "Summarizer expanded output for %s (%d → %d chars) — using original",
+                agent_name, len(output), len(summary),
             )
             return output
 

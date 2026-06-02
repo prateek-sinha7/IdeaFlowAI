@@ -108,7 +108,17 @@ class TestGuardrailInjection:
         from agents.factory import _GUARDRAILS_DIR
         from agents.loader import SUPPORTED_PIPELINE_TYPES, list_agent_ids
 
-        ctx = AgentContext(user_request="Guardrail verbatim check")
+        # Agents declaring `injects` (prototype / od_ppt) need an od_context;
+        # supply a stub so the composer reaches the guardrail blocks instead of
+        # tripping the FR-008 missing-template guard.
+        stub_od_context = {
+            "template_id": "guardrail-check",
+            "template_body": "TEMPLATE BODY",
+            "ds_id": "ds",
+            "ds_body": "DS TOKENS",
+            "craft_block": "CRAFT",
+            "is_design_system_required": True,
+        }
 
         for pipeline_type in sorted(SUPPORTED_PIPELINE_TYPES):
             for agent_id in list_agent_ids(pipeline_type):
@@ -116,6 +126,10 @@ class TestGuardrailInjection:
                 if not spec.guardrails:
                     continue
 
+                ctx = AgentContext(
+                    user_request="Guardrail verbatim check",
+                    od_context=stub_od_context if getattr(spec, "injects", []) else None,
+                )
                 system_prompt = self._capture_system_prompt(agent_id, ctx)
 
                 for guardrail_name in spec.guardrails:

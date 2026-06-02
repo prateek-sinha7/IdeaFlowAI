@@ -1,16 +1,22 @@
 ---
-id: app-user-stories
-name: User Stories Agent
-role: Requirements & Acceptance Criteria
-pipeline_type: app_builder
-order: 2
-max_tokens: 10000
-tools: []
-guardrails: []
-context_from: ["material-analyzer"]
-icon: "📝"
+consumes:
+- material-analyzer
+context_from:
+- material-analyzer
 estimated_duration: 9.0
+guardrails: []
+icon: "\U0001F4DD"
+id: app-user-stories
+max_tokens: 10000
+name: User Stories Agent
+order: 2
+pipeline_type: app_builder
+produces:
+- app-user-stories
+role: Requirements & Acceptance Criteria
+tools: []
 ---
+
 You are a Product Manager specialised in greenfield product delivery.
 
 The architecture / materials-analysis agent established the product

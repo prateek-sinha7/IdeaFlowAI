@@ -342,6 +342,29 @@ export async function getWorkflow(
   return normalizeWorkflowRun(raw);
 }
 
+export interface ChainContext {
+  workflow_id: string;
+  pipeline_type: string;
+  title: string;
+  brief: string;
+  structured_summary: string;
+  agent_summaries: Array<{ agent: string; summary: string }>;
+  context_block: string;
+}
+
+/** Fetch structured chain context from a completed workflow run.
+ *  Returns the key text content (slide plan, backlog, architecture, etc.)
+ *  formatted as a ready-to-inject context block for the next pipeline. */
+export async function getChainContext(
+  token: string,
+  workflowId: string
+): Promise<ChainContext> {
+  return request<ChainContext>(`/api/workflows/${workflowId}/chain-context`, {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+}
+
 export async function deleteWorkflow(
   token: string,
   workflowId: string

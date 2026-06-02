@@ -26,6 +26,29 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# ---------------------------------------------------------------------------
+# Pipeline event queue registry
+# ---------------------------------------------------------------------------
+# Decouples pipeline execution from the WebSocket connection.
+# Each running pipeline writes events to a queue keyed by pipeline_run_id.
+# The WebSocket drains the queue. If the WS disconnects and reconnects,
+# the new connection picks up the same queue and resumes streaming.
+# A sentinel value of None signals the pipeline has finished.
+
+_PIPELINE_QUEUES: dict[str, asyncio.Queue] = {}
+_PIPELINE_TASKS: dict[str, asyncio.Task] = {}  # pipeline_run_id → background task
+
+
+def _get_or_create_queue(pipeline_run_id: str) -> asyncio.Queue:
+    if pipeline_run_id not in _PIPELINE_QUEUES:
+        _PIPELINE_QUEUES[pipeline_run_id] = asyncio.Queue(maxsize=0)  # unbounded
+    return _PIPELINE_QUEUES[pipeline_run_id]
+
+
+def _cleanup_pipeline(pipeline_run_id: str) -> None:
+    _PIPELINE_QUEUES.pop(pipeline_run_id, None)
+    _PIPELINE_TASKS.pop(pipeline_run_id, None)
+
 
 def _get_db() -> Session:
     """Create a new database session for WebSocket use."""
@@ -187,10 +210,12 @@ async def _generate_workflow_title(
     if not clean_content:
         return
     try:
-        from app.agents.base import BaseAgent
+        from app.agents.deep_agent import DeepAgent
 
         hint = _WORKFLOW_TITLE_PIPELINE_HINTS.get(pipeline_type, "AI workflow")
-        title_agent = BaseAgent(
+        # tools=[] intentional: title generation is a single-call utility,
+        # not a pipeline agent (constitution §II — no BaseAgent).
+        title_agent = DeepAgent(
             system_prompt=(
                 "Generate a short, professional title (3-7 words) for a "
                 f"workflow that produces a {hint} based on the user's input. "
@@ -198,7 +223,9 @@ async def _generate_workflow_title(
                 "not the workflow type itself. Return ONLY the title text "
                 "— no quotes, no trailing punctuation, no explanation."
             ),
+            tools=[],
             max_tokens=64,
+            max_iterations=1,
         )
         generated_title = await title_agent.run(clean_content)
         generated_title = generated_title.strip().strip('"').strip("'").strip(".")[:80]
@@ -374,75 +401,37 @@ async def websocket_chat(websocket: WebSocket):
                 attached_skills = message_data.get("attached_skills") or []  # UI-selected skills
                 attached_hooks = message_data.get("attached_hooks") or []    # UI-selected hooks
 
-                # OD prototype uses its own runner with per-request prompt
-                # composition; everything else goes through the standard
-                # orchestrator_v2 path.
-                if pipeline_type == "od_prototype":
-                    # Tier gate — prototype requires Pro or higher
-                    from app.core.entitlements import can_run_pipeline
-                    allowed, reason = can_run_pipeline(user.tier, "prototype")
-                    if not allowed:
-                        await websocket.send_json({
-                            "type": "error", "chunk": None, "section": None,
-                            "data": {"error": reason, "code": "tier_limit", "recoverable": False, "upgrade_required": True},
-                        })
-                        continue
-                    current_pipeline_task = asyncio.create_task(
-                        _handle_od_prototype_execution(
-                            websocket,
-                            brief=pipeline_content,
-                            template_id=message_data.get("template_id", ""),
-                            design_system_id=message_data.get("design_system_id", ""),
-                            discovery=message_data.get("discovery"),
-                            user=user,
-                            custom_ds_body=message_data.get("custom_design_system_body") or None,
-                            custom_template_body=message_data.get("custom_template_body") or None,
-                        )
+                # Tier gate — map od_* aliases to their base type for the check
+                from app.core.entitlements import can_run_pipeline
+                _tier_check_type = {
+                    "od_prototype": "prototype",
+                    "od_ppt": "ppt",
+                }.get(pipeline_type, pipeline_type)
+                allowed, reason = can_run_pipeline(user.tier, _tier_check_type)
+                if not allowed:
+                    await websocket.send_json({
+                        "type": "error", "chunk": None, "section": None,
+                        "data": {"error": reason, "code": "tier_limit",
+                                 "recoverable": False, "upgrade_required": True},
+                    })
+                    continue
+
+                # ── Unified routing — every pipeline goes through the
+                #    Universal Execution_Engine (Phase 2, T020). ───────────
+                current_pipeline_task = asyncio.create_task(
+                    _handle_workflow_execution(
+                        websocket, pipeline_content, pipeline_type,
+                        chat_session_id, token, user, agent_ids=agent_ids,
+                        attached_skills=attached_skills,
+                        attached_hooks=attached_hooks,
+                        template_id=message_data.get("template_id"),
+                        design_system_id=message_data.get("design_system_id"),
+                        discovery=message_data.get("discovery"),
+                        custom_ds_body=message_data.get("custom_design_system_body") or None,
+                        custom_template_body=message_data.get("custom_template_body") or None,
+                        source_workflow_run_id=message_data.get("source_workflow_run_id") or None,
                     )
-                elif pipeline_type == "od_ppt":
-                    # Tier gate — PPT requires Pro or higher
-                    from app.core.entitlements import can_run_pipeline
-                    allowed, reason = can_run_pipeline(user.tier, "ppt")
-                    if not allowed:
-                        await websocket.send_json({
-                            "type": "error", "chunk": None, "section": None,
-                            "data": {"error": reason, "code": "tier_limit", "recoverable": False, "upgrade_required": True},
-                        })
-                        continue
-                    current_pipeline_task = asyncio.create_task(
-                        _handle_od_ppt_execution(
-                            websocket,
-                            brief=pipeline_content,
-                            template_id=message_data.get("template_id", ""),
-                            design_system_id=message_data.get("design_system_id") or None,
-                            discovery=message_data.get("discovery"),
-                            user=user,
-                            custom_ds_body=message_data.get("custom_design_system_body") or None,
-                            custom_template_body=message_data.get("custom_template_body") or None,
-                        )
-                    )
-                elif pipeline_type == "od_ppt_revision":
-                    # od_ppt revision — single agent, HTML in/HTML out
-                    current_pipeline_task = asyncio.create_task(
-                        _handle_pipeline_execution(
-                            websocket, pipeline_content, "od_ppt_revision",
-                            chat_session_id, token, user,
-                            attached_skills=attached_skills,
-                            attached_hooks=attached_hooks,
-                        )
-                    )
-                else:
-                    # Spawn as a background task — DO NOT await. Awaiting here
-                    # blocks the receive loop for the entire pipeline duration,
-                    # which is what made cancel_pipeline a no-op before A3.
-                    current_pipeline_task = asyncio.create_task(
-                        _handle_pipeline_execution(
-                            websocket, pipeline_content, pipeline_type,
-                            chat_session_id, token, user, agent_ids=agent_ids,
-                            attached_skills=attached_skills,
-                            attached_hooks=attached_hooks,
-                        )
-                    )
+                )
                 continue
 
             # Handle pipeline cancellation
@@ -467,18 +456,218 @@ async def websocket_chat(websocket: WebSocket):
                     })
                 continue
 
-            # Handle questionnaire generation requests
-            if msg_type == "generate_questions":
-                pipeline_type = message_data.get("pipeline_type", "user_stories")
-                prompt = message_data.get("message") or message_data.get("content") or ""
-                # od_prototype passes extra context for tailored questions
-                template_id_q = message_data.get("template_id") or ""
-                design_system_id_q = message_data.get("design_system_id") or ""
-                await _handle_questionnaire(
-                    websocket, prompt, pipeline_type,
-                    template_id=template_id_q,
-                    design_system_id=design_system_id_q,
-                )
+            # Handle reconnect restoration — client reconnects while a pipeline
+            # is still running. Attaches to the running pipeline's event queue
+            # so the client resumes receiving events seamlessly without losing
+            # any pipeline output.
+            if msg_type == "reconnect_pipeline":
+                _reconnect_run_id = message_data.get("pipeline_run_id")
+                if _reconnect_run_id:
+                    running_task = _PIPELINE_TASKS.get(_reconnect_run_id)
+                    running_queue = _PIPELINE_QUEUES.get(_reconnect_run_id)
+
+                    if running_task and not running_task.done() and running_queue is not None:
+                        # Pipeline is still running — attach a new drainer
+                        logger.info("Client reconnected to running pipeline run=%s", _reconnect_run_id)
+                        try:
+                            await websocket.send_json({
+                                "type": "pipeline_reconnected", "chunk": None, "section": None,
+                                "data": {"pipeline_run_id": _reconnect_run_id,
+                                         "message": "Reconnected — resuming pipeline stream"},
+                            })
+                        except Exception:
+                            pass
+                        try:
+                            while True:
+                                try:
+                                    event = await asyncio.wait_for(running_queue.get(), timeout=10.0)
+                                except asyncio.TimeoutError:
+                                    try:
+                                        await websocket.send_json({
+                                            "type": "pipeline_heartbeat", "chunk": None, "section": None,
+                                            "data": {"pipeline_run_id": _reconnect_run_id,
+                                                     "timestamp": datetime.now(timezone.utc).isoformat()},
+                                        })
+                                    except Exception:
+                                        break
+                                    continue
+                                if event is None:
+                                    break
+                                try:
+                                    await websocket.send_json({
+                                        "type": event["type"], "chunk": None,
+                                        "section": None, "data": event.get("data", {}),
+                                    })
+                                except Exception:
+                                    await running_queue.put(event)
+                                    break
+                                if event["type"] in ("pipeline_complete", "pipeline_cancelled", "error"):
+                                    break
+                        except Exception:
+                            pass
+                    else:
+                        # No running pipeline — check if paused at clarify gate
+                        from agents.artifact_store.store import get_artifact_store as _get_store
+                        from agents.execution_engine.state_machine import get_state_machine as _get_sm
+                        _store = _get_store()
+                        _sm = _get_sm()
+                        _state = _sm.get_state(_reconnect_run_id)
+                        if _state == "waiting_for_user":
+                            _clarifications = await _store.retrieve_latest(_reconnect_run_id, "clarifications")
+                            if _clarifications:
+                                try:
+                                    import json as _json
+                                    _qa_pairs = _json.loads(_clarifications["content"])
+                                    _unanswered = [
+                                        {"question_id": q["question_id"], "question_text": q["question_text"],
+                                         "impact_level": q.get("impact_level", "medium"), "answer_type": "free_text",
+                                         "options": None, "recommended_answer": ""}
+                                        for q in _qa_pairs if not q.get("answer")
+                                    ]
+                                    if _unanswered:
+                                        await websocket.send_json({
+                                            "type": "questionnaire_ready", "chunk": None, "section": None,
+                                            "data": {"pipeline_run_id": _reconnect_run_id, "questions": _unanswered,
+                                                     "round": _qa_pairs[0].get("round", 1) if _qa_pairs else 1,
+                                                     "timestamp": datetime.now(timezone.utc).isoformat()},
+                                        })
+                                except Exception as _exc:
+                                    logger.warning("Reconnect restoration failed for %s: %s", _reconnect_run_id, _exc)
+                continue
+
+            # Handle revision requests (Phase 3 / T054, FR-014).
+            # Creates a new WorkflowRun with parent_run_id and runs the revision
+            # agent with the original artifact, version history, and instruction
+            # as three separate structured inputs.
+            if msg_type == "run_revision":
+                _rev_parent_run_id = message_data.get("parent_run_id")
+                _rev_target_type = message_data.get("target_artifact_type")
+                _rev_instruction = message_data.get("instruction", "").strip()
+
+                # Pre-creation validation (FR-014)
+                if not _rev_instruction:
+                    await websocket.send_json({
+                        "type": "error", "chunk": None, "section": None,
+                        "data": {"error": "run_revision requires a non-empty instruction",
+                                 "code": "empty_revision_instruction", "recoverable": True},
+                    })
+                    continue
+                if not _rev_parent_run_id or not _rev_target_type:
+                    await websocket.send_json({
+                        "type": "error", "chunk": None, "section": None,
+                        "data": {"error": "run_revision requires parent_run_id and target_artifact_type",
+                                 "code": "missing_revision_params", "recoverable": True},
+                    })
+                    continue
+
+                import uuid as _uuid_mod
+                _rev_pipeline_run_id = str(_uuid_mod.uuid4())
+
+                # Create a new WorkflowRun with parent_run_id
+                _rev_db = _get_db()
+                try:
+                    _rev_wr = WorkflowRun(
+                        user_id=user.id,
+                        title=f"Revision: {_rev_instruction[:50]}",
+                        type=f"{_rev_target_type}_revision",
+                        status="revising",
+                        input=_rev_instruction,
+                        agent_count=1,
+                    )
+                    _rev_db.add(_rev_wr)
+                    _rev_db.commit()
+                    _rev_db.refresh(_rev_wr)
+                    _rev_workflow_run_id = _rev_wr.id
+                finally:
+                    _rev_db.close()
+
+                async def _send_revision_event(event: dict) -> None:
+                    await websocket.send_json({
+                        "type": event["type"], "chunk": None,
+                        "section": _rev_target_type, "data": event["data"],
+                    })
+
+                from agents.execution_engine.engine import get_execution_engine as _get_engine
+                _rev_engine = _get_engine()
+                try:
+                    await _rev_engine._handle_revision(
+                        parent_run_id=_rev_parent_run_id,
+                        target_artifact_type=_rev_target_type,
+                        instruction=_rev_instruction,
+                        pipeline_run_id=_rev_pipeline_run_id,
+                        websocket_send_fn=_send_revision_event,
+                        model_id=getattr(user, "preferred_model", None) or None,
+                    )
+                    # Mark revision run completed
+                    _rev_db2 = _get_db()
+                    try:
+                        _rev_wr2 = _rev_db2.query(WorkflowRun).filter(WorkflowRun.id == _rev_workflow_run_id).first()
+                        if _rev_wr2:
+                            _rev_wr2.status = "completed"
+                            _rev_wr2.completed_at = datetime.now(timezone.utc)
+                            _rev_db2.commit()
+                    finally:
+                        _rev_db2.close()
+                except ValueError as _rev_err:
+                    await websocket.send_json({
+                        "type": "error", "chunk": None, "section": None,
+                        "data": {"error": str(_rev_err), "code": "revision_validation_error",
+                                 "recoverable": False},
+                    })
+                except Exception as _rev_err:
+                    logger.error("Revision failed: %s", _rev_err, exc_info=True)
+                    await websocket.send_json({
+                        "type": "error", "chunk": None, "section": None,
+                        "data": {"error": f"Revision failed: {_rev_err}",
+                                 "code": "revision_error", "recoverable": True},
+                    })
+                continue
+
+            # Handle questionnaire answer submission (Phase 2 — replaces the
+            # retired `generate_questions` request/response flow). The Clarify_Engine
+            # (running inside the ExecutionEngine) is paused on an asyncio.Event
+            # keyed by pipeline_run_id; submitting answers sets that event and
+            # resumes the paused pipeline from the gate.
+            if msg_type == "submit_questionnaire":
+                from agents.artifact_store.store import get_artifact_store
+                pipeline_run_id = message_data.get("pipeline_run_id")
+                responses = message_data.get("responses") or []
+                if not pipeline_run_id:
+                    await websocket.send_json({
+                        "type": "error", "chunk": None, "section": None,
+                        "data": {"error": "submit_questionnaire requires pipeline_run_id",
+                                 "code": "missing_pipeline_run_id", "recoverable": True},
+                    })
+                    continue
+                store = get_artifact_store()
+                await store.set_questionnaire_responses(pipeline_run_id, responses)
+                continue
+
+            # Handle review gate approval/rejection.
+            # The user has reviewed an agent's output and either approved it
+            # (optionally with edits) or rejected it (cancels the pipeline).
+            if msg_type == "approve_review":
+                from agents.artifact_store.store import get_artifact_store
+                gate_key = message_data.get("gate_key")
+                approved = message_data.get("approved", True)
+                edited_content = message_data.get("edited_content")  # None = no edits
+                if not gate_key:
+                    await websocket.send_json({
+                        "type": "error", "chunk": None, "section": None,
+                        "data": {"error": "approve_review requires gate_key",
+                                 "code": "missing_gate_key", "recoverable": True},
+                    })
+                    continue
+                store = get_artifact_store()
+                await store.set_review_response(gate_key, approved=approved, edited_content=edited_content)
+                continue
+
+            if msg_type == "ping":
+                # Client keepalive ping — respond with pong to confirm connection is alive
+                try:
+                    await websocket.send_json({"type": "pong", "chunk": None, "section": None, "data": {}})
+                except Exception:
+                    pass
                 continue
 
             if msg_type != "user_message" or not content or not chat_session_id:
@@ -535,13 +724,17 @@ async def websocket_chat(websocket: WebSocket):
             # Auto-generate chat title from first message (like ChatGPT)
             if needs_title:
                 try:
-                    from app.agents.base import BaseAgent
-                    title_agent = BaseAgent(
+                    from app.agents.deep_agent import DeepAgent
+                    # tools=[] intentional: chat-title generation is a single-call
+                    # utility, not a pipeline agent (constitution §II — no BaseAgent).
+                    title_agent = DeepAgent(
                         system_prompt=(
                             "Generate a very short title (3-5 words max) for a chat conversation "
                             "based on the user's first message. Return ONLY the title text, nothing else. "
                             "No quotes, no punctuation at the end, no explanation. Just the title."
-                        )
+                        ),
+                        tools=[],
+                        max_iterations=1,
                     )
                     generated_title = await title_agent.run(content)
                     # Clean up the title
@@ -673,394 +866,149 @@ async def websocket_chat(websocket: WebSocket):
             await websocket.close(code=1011, reason="Internal server error")
         except Exception:
             pass
-
-
-async def _handle_od_prototype_execution(
-    websocket: WebSocket,
-    brief: str,
-    template_id: str,
-    design_system_id: str,
-    discovery: dict | None,
-    user: User,
-    custom_ds_body: str | None = None,
-    custom_template_body: str | None = None,
-) -> None:
-    """Run the OpenDesign-style 4-agent prototype pipeline over WebSocket.
-
-    Translates od_runner's NDJSON-shaped events into the same
-    ``{type, chunk, section, data}`` envelope the existing pipelines use so
-    the frontend ``useWorkflow`` hook and ``AgentProgressPanel`` component
-    work without modification.
-    """
-    from app.agents.od_runner import run_od_prototype_pipeline
-    from app.services.od_loader import get_template, get_design_system
-
-    # Validate template up front.
-    # Skip validation when a custom template body is provided — the template_id
-    # is a client-generated "custom-<timestamp>" that won't exist in od_loader.
-    if not custom_template_body:
-        if not template_id or get_template(template_id) is None:
-            await websocket.send_json({
-                "type": "error", "chunk": None, "section": None,
-                "data": {"error": f"Unknown template: {template_id!r}", "code": "invalid_template", "recoverable": False},
-            })
-            return
-
-    # For custom design systems, skip the built-in DS lookup entirely.
-    # For built-in systems, validate the ID exists.
-    if not custom_ds_body:
-        if not design_system_id or get_design_system(design_system_id) is None:
-            await websocket.send_json({
-                "type": "error", "chunk": None, "section": None,
-                "data": {"error": f"Unknown design system: {design_system_id!r}", "code": "invalid_design_system", "recoverable": False},
-            })
-            return
-
-    # Create WorkflowRun record for history.
-    workflow_run_id = None
-    db = _get_db()
-    try:
-        workflow_run = WorkflowRun(
-            user_id=user.id,
-            title=(brief or "Prototype")[:60].strip(),
-            type="od_prototype",
-            status="running",
-            input=brief or f"template={template_id} ds={design_system_id}",
-            agent_count=4,
-        )
-        db.add(workflow_run)
-        db.commit()
-        db.refresh(workflow_run)
-        workflow_run_id = workflow_run.id
-    finally:
-        db.close()
-
-    final_html = ""
-    monotonic_start = time.monotonic()
-    execution_start = datetime.now(timezone.utc)
-
-    # Model ID used for cost calculation — user preference or system default
-    _od_proto_model_id = (
-        getattr(user, "preferred_model", None)
-        or settings.BEDROCK_INFERENCE_PROFILE_ID
-        or settings.BEDROCK_MODEL_ID
-        or "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
-    )
-
-    # Collectors for DB persistence (mirrors _handle_pipeline_execution)
-    od_agent_outputs_collector: list[dict] = []
-    current_od_agent_live: dict = {}
-    od_token_summary: dict = {
-        "total_input_tokens": 0,
-        "total_output_tokens": 0,
-        "total_tokens": 0,
-        "estimated_cost_usd": 0.0,
-        "per_agent": {},
-    }
-
-    try:
-        async for event in run_od_prototype_pipeline(
-            template_id=template_id,
-            design_system_id=design_system_id,
-            brief=brief,
-            discovery=discovery,
-            custom_ds_body=custom_ds_body,
-            custom_template_body=custom_template_body,
-        ):
-            t = event.get("type")
-
-            if t == "pipeline_start":
-                await websocket.send_json({
-                    "type": "pipeline_start", "chunk": None, "section": "od_prototype",
-                    "data": {
-                        "agents": event.get("agents", []),
-                        "pipeline_type": "od_prototype",
-                    },
-                })
-
-            elif t == "agent_start":
-                current_od_agent_live = {
-                    "agent_id": event.get("agent_id"),
-                    "name": event.get("name"),
-                    "role": event.get("role"),
-                    "icon": event.get("icon"),
-                    "output": "",
-                    "duration": None,
-                }
-                await websocket.send_json({
-                    "type": "agent_start", "chunk": None, "section": "od_prototype",
-                    "data": {
-                        "agent_id": event.get("agent_id"),
-                        "name": event.get("name"),
-                        "role": event.get("role"),
-                        "icon": event.get("icon"),
-                        "index": event.get("index"),
-                    },
-                })
-
-            elif t == "agent_chunk":
-                current_od_agent_live["output"] = (
-                    current_od_agent_live.get("output", "") + event.get("chunk", "")
-                )
-                await websocket.send_json({
-                    "type": "agent_chunk", "chunk": None, "section": "od_prototype",
-                    "data": {
-                        "agent_id": event.get("agent_id"),
-                        "chunk": event.get("chunk", ""),
-                    },
-                })
-
-            elif t == "agent_complete":
-                current_od_agent_live["duration"] = event.get("duration")
-                od_agent_outputs_collector.append(current_od_agent_live)
-                current_od_agent_live = {}
-                _in = event.get("input_tokens", 0) or 0
-                _out = event.get("output_tokens", 0) or 0
-                _total = _in + _out
-                from app.agents.base import TokenUsage, estimate_cost_usd
-                _cost = estimate_cost_usd(TokenUsage(input_tokens=_in, output_tokens=_out, total_tokens=_total), _od_proto_model_id)
-                await websocket.send_json({
-                    "type": "agent_complete", "chunk": None, "section": "od_prototype",
-                    "data": {
-                        "agent_id": event.get("agent_id"),
-                        "duration": event.get("duration"),
-                        "output_length": event.get("output_length", 0),
-                        "input_tokens": _in,
-                        "output_tokens": _out,
-                        "total_tokens": _total,
-                        "estimated_cost_usd": round(_cost, 6),
-                    },
-                })
-
-            elif t == "agent_error":
-                current_od_agent_live["error"] = event.get("error", "Agent failed")
-                od_agent_outputs_collector.append(current_od_agent_live)
-                current_od_agent_live = {}
-                await websocket.send_json({
-                    "type": "agent_error", "chunk": None, "section": "od_prototype",
-                    "data": {
-                        "agent_id": event.get("agent_id"),
-                        "error": event.get("error", "Agent failed"),
-                    },
-                })
-
-            elif t == "artifact" and event.get("stage") == "final":
-                # Final artifact — store for pipeline_complete; don't emit
-                # a separate WS event since the frontend reads final_output
-                # from pipeline_complete.data.
-                final_html = event.get("html", "")
-
-            elif t == "pipeline_complete":
-                if not final_html:
-                    final_html = event.get("final_html", "")
-                duration = round(time.monotonic() - monotonic_start, 1)
-                od_token_summary = {
-                    "total_input_tokens": event.get("total_input_tokens", 0),
-                    "total_output_tokens": event.get("total_output_tokens", 0),
-                    "total_tokens": event.get("total_tokens", 0),
-                    "estimated_cost_usd": event.get("estimated_cost_usd", 0.0),
-                    "model_id": _od_proto_model_id,
-                    "per_agent": event.get("token_usage_per_agent", {}),
-                }
-                await websocket.send_json({
-                    "type": "pipeline_complete", "chunk": None, "section": "od_prototype",
-                    "data": {
-                        "final_output": final_html,
-                        "pipeline_type": "od_prototype",
-                        "total_duration": duration,
-                        "model_id": _od_proto_model_id,
-                        "total_input_tokens": od_token_summary["total_input_tokens"],
-                        "total_output_tokens": od_token_summary["total_output_tokens"],
-                        "total_tokens": od_token_summary["total_tokens"],
-                        "estimated_cost_usd": od_token_summary["estimated_cost_usd"],
-                        "token_usage_per_agent": od_token_summary["per_agent"],
-                    },
-                })
-
-            elif t == "pipeline_error":
-                raise RuntimeError(event.get("error", "Pipeline failed"))
-
-    except asyncio.CancelledError:
-        duration = round(time.monotonic() - monotonic_start, 1)
-        if workflow_run_id:
-            db = _get_db()
-            try:
-                wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
-                if wr:
-                    wr.status = "cancelled"
-                    wr.completed_at = datetime.now(timezone.utc)
-                    wr.duration = duration
-                    db.commit()
-            finally:
-                db.close()
-        try:
-            await websocket.send_json({
-                "type": "pipeline_cancelled", "chunk": None, "section": None,
-                "data": {"message": "Pipeline cancelled", "duration": duration},
-            })
-        except Exception:
-            pass
-        raise
-
-    except Exception as exc:
-        logger.error("OD prototype pipeline error: %s", exc)
-        if workflow_run_id:
-            db = _get_db()
-            try:
-                wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
-                if wr:
-                    wr.status = "failed"
-                    wr.error = str(exc)
-                    wr.completed_at = datetime.now(timezone.utc)
-                    wr.duration = round((datetime.now(timezone.utc) - execution_start).total_seconds(), 1)
-                    db.commit()
-            finally:
-                db.close()
-        try:
-            await websocket.send_json({
-                "type": "error", "chunk": None, "section": None,
-                "data": {"error": f"Pipeline failed: {exc}", "code": "pipeline_error", "recoverable": True},
-            })
-        except Exception:
-            pass
-        return
-
-    # Mark complete in DB — write all fields for consistent workflow history.
-    if workflow_run_id:
-        db = _get_db()
-        try:
-            wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
-            if wr:
-                wr.status = "completed"
-                wr.output = final_html
-                wr.agent_outputs = json.dumps(od_agent_outputs_collector) if od_agent_outputs_collector else None
-                wr.token_usage = json.dumps(od_token_summary)
-                wr.model_id = _od_proto_model_id or None
-                wr.completed_at = datetime.now(timezone.utc)
-                wr.duration = round(time.monotonic() - monotonic_start, 1)
-                db.commit()
-        finally:
-            db.close()
-
-
-async def _handle_pipeline_execution(
+async def _handle_workflow_execution(
     websocket: WebSocket,
     content: str,
     pipeline_type: str,
-    chat_session_id: str,
+    chat_session_id: str | None,
     token: str,
     user: User,
     agent_ids: list[str] | None = None,
     attached_skills: list[dict] | None = None,
     attached_hooks: list[dict] | None = None,
-):
-    """Handle a pipeline execution request via WebSocket.
+    template_id: str | None = None,
+    design_system_id: str | None = None,
+    discovery: dict | None = None,
+    custom_ds_body: str | None = None,
+    custom_template_body: str | None = None,
+    source_workflow_run_id: str | None = None,
+) -> None:
+    """Unified pipeline handler — routes every pipeline through the Universal
+    Execution_Engine (Phase 2, T020).
 
-    Runs the full agent pipeline and streams per-agent status updates.
-    Creates a WorkflowRun record to track the execution.
-    If agent_ids is provided, uses that custom agent list instead of defaults.
+    Replaces _handle_pipeline_execution, _handle_od_prototype_execution, and
+    _handle_od_ppt_execution. Preserves all DB persistence, tier gating,
+    validation, cancellation, and async title generation.
+
+    For od_prototype / od_ppt pipelines, loads od_context (template skill,
+    design system, craft rules) and threads it to the engine, which delegates
+    injection composition to factory.py via the `injects` field.
     """
-    from app.agents.orchestrator_v2 import WorkflowOrchestrator
-    from app.agents.registry import (
-        SUPPORTED_PIPELINE_TYPES,
-        allowed_custom_agent_ids,
+    import uuid as _uuid
+
+    from agents.execution_engine.engine import get_execution_engine
+    from agents.execution_engine.od_context import (
+        load_prototype_od_context,
+        load_ppt_od_context,
+    )
+    from agents.loader import SUPPORTED_PIPELINE_TYPES, load_agent_spec
+    from agents.registry import get_pipeline_agents
+
+    logger.info(
+        "Workflow execution: type=%s user=%s custom_agents=%s",
+        pipeline_type, user.id, len(agent_ids) if agent_ids else "default",
     )
 
-    logger.info(f"Pipeline execution: type={pipeline_type}, user={user.id}, custom_agents={len(agent_ids) if agent_ids else 'default'}")
-
-    # --- Input validation (G1-C6) -----------------------------------------
-    # Validate BEFORE any DB writes so we don't leave phantom WorkflowRun
-    # rows behind when the client sends a bad pipeline_type or a forged
-    # agent_ids list. Both checks emit an `error` WS event the frontend can
-    # surface to the user, and return without spawning the orchestrator.
-    #
-    # See docs/_audit/TRIAGE.md G1-C6 for the original mass-assignment
-    # write-up — the previous code path (`get_all_agents()` + dict lookup)
-    # silently dropped unknown IDs, which is how cross-pipeline injection
-    # of e.g. PPT agents into a User Stories run slipped past review.
-    if pipeline_type not in SUPPORTED_PIPELINE_TYPES:
-        await websocket.send_json({
-            "type": "error",
-            "chunk": None,
-            "section": None,
-            "data": {
-                "error": f"Unsupported pipeline_type: {pipeline_type!r}",
-                "code": "invalid_pipeline_type",
-                "recoverable": False,
-            },
-        })
-        return
-
-    # Tier gate — check if user's plan allows this pipeline
-    from app.core.entitlements import can_run_pipeline
-    allowed, reason = can_run_pipeline(user.tier, pipeline_type)
-    if not allowed:
-        await websocket.send_json({
-            "type": "error",
-            "chunk": None,
-            "section": None,
-            "data": {
-                "error": reason,
-                "code": "tier_limit",
-                "recoverable": False,
-                "upgrade_required": True,
-            },
-        })
-        return
-
-    if agent_ids:
-        allowed = allowed_custom_agent_ids(pipeline_type)
-        rejected = [aid for aid in agent_ids if aid not in allowed]
-        if rejected:
-            # List the rejected IDs in the message — silently dropping them
-            # (which is what `get_all_agents()` filtering did before) is the
-            # whole class of bug we're fixing. The client UI should be able
-            # to highlight exactly which entries it asked for that the
-            # server refused.
+    # ── Resolve od_prototype/od_ppt to their base pipeline + load od_context ──
+    od_context: dict | None = None
+    base_pipeline_type = pipeline_type
+    if pipeline_type == "od_prototype":
+        base_pipeline_type = "prototype"
+        try:
+            od_context = load_prototype_od_context(
+                template_id or "", design_system_id or "",
+                custom_ds_body=custom_ds_body, custom_template_body=custom_template_body,
+            )
+        except LookupError as exc:
             await websocket.send_json({
-                "type": "error",
-                "chunk": None,
-                "section": None,
-                "data": {
-                    "error": (
-                        "Invalid agent_ids for pipeline_type "
-                        f"{pipeline_type!r}: {rejected}"
-                    ),
-                    "code": "invalid_agent_ids",
-                    "recoverable": False,
-                    "rejected_agent_ids": rejected,
-                },
+                "type": "error", "chunk": None, "section": None,
+                "data": {"error": str(exc), "code": "template_not_found", "recoverable": False},
             })
             return
+    elif pipeline_type == "od_ppt":
+        base_pipeline_type = "od_ppt"
+        try:
+            od_context = load_ppt_od_context(
+                template_id or "", design_system_id,
+                custom_ds_body=custom_ds_body, custom_template_body=custom_template_body,
+            )
+        except LookupError as exc:
+            await websocket.send_json({
+                "type": "error", "chunk": None, "section": None,
+                "data": {"error": str(exc), "code": "template_not_found", "recoverable": False},
+            })
+            return
+    elif pipeline_type == "od_ppt_revision":
+        # Revision of an od_ppt run — load od_context so template/DS context
+        # is available to the revision agent (T056 / FR-014).
+        base_pipeline_type = "od_ppt_revision"
+        if template_id:
+            try:
+                od_context = load_ppt_od_context(
+                    template_id, design_system_id,
+                    custom_ds_body=custom_ds_body, custom_template_body=custom_template_body,
+                )
+            except LookupError:
+                # Non-fatal for revisions — proceed without od_context
+                pass
 
-    # Determine agent count
+    # ── Validate pipeline type ────────────────────────────────────────────
+    if base_pipeline_type not in SUPPORTED_PIPELINE_TYPES:
+        await websocket.send_json({
+            "type": "error", "chunk": None, "section": None,
+            "data": {"error": f"Unsupported pipeline_type: {pipeline_type!r}",
+                     "code": "invalid_pipeline_type", "recoverable": False},
+        })
+        return
+
+    # ── Resolve agents ────────────────────────────────────────────────────
     if agent_ids:
-        agent_count = len(agent_ids)
+        from app.agents.registry import allowed_custom_agent_ids
+        allowed_ids = allowed_custom_agent_ids(base_pipeline_type)
+        rejected = [aid for aid in agent_ids if aid not in allowed_ids]
+        if rejected:
+            await websocket.send_json({
+                "type": "error", "chunk": None, "section": None,
+                "data": {"error": f"Invalid agent_ids for {pipeline_type!r}: {rejected}",
+                         "code": "invalid_agent_ids", "recoverable": False,
+                         "rejected_agent_ids": rejected},
+            })
+            return
+        agents = [load_agent_spec(aid) for aid in agent_ids]
     else:
-        agent_counts = {
-            "user_stories": 12, "ppt": 4, "prototype": 4, "app_builder": 15,
-            "mulesoft_to_springboot": 13, "dotnet_to_azure": 13,
-        }
-        agent_count = agent_counts.get(pipeline_type, 12)
+        agents = get_pipeline_agents(base_pipeline_type)
+        # od_ppt/ppt share agents — the scan returns od_ppt agents for both.
+        if not agents and base_pipeline_type == "ppt":
+            from agents.registry import PIPELINE_AGENTS
+            agents = [load_agent_spec(aid) for aid in PIPELINE_AGENTS.get("ppt", [])]
 
-    # Create a WorkflowRun record
+    if not agents:
+        await websocket.send_json({
+            "type": "error", "chunk": None, "section": None,
+            "data": {"error": f"No agents found for pipeline_type {pipeline_type!r}",
+                     "code": "no_agents", "recoverable": False},
+        })
+        return
+
+    # ── Create WorkflowRun record ─────────────────────────────────────────
+    pipeline_run_id = str(_uuid.uuid4())
     workflow_run_id = None
+    execution_start = datetime.now(timezone.utc)
+    monotonic_start = time.monotonic()
     db = _get_db()
     try:
         workflow_run = WorkflowRun(
             user_id=user.id,
-            # Placeholder title — overwritten asynchronously by the
-            # Bedrock-generated title in _generate_workflow_title below.
-            # We strip any pipeline-context markers (=== CONTEXT FROM
-            # PREVIOUS PIPELINE ===) before truncating, so even if the
-            # async title-gen fails or never lands, the user sees the
-            # user-authored prefix of their prompt rather than the
-            # injected context block.
             title=(_strip_pipeline_context(content) or content or "Untitled")[:60].strip(),
             type=pipeline_type,
             status="running",
             input=content or f"Run {pipeline_type} pipeline",
-            agent_count=agent_count,
+            agent_count=len(agents),
+            # Phase 3 (T072): persist session_id and pipeline_run_id for cross-restart resumability
+            session_id=user.id,
+            pipeline_run_id=pipeline_run_id,
+            # Phase 3 (T056): revision chaining — link to the source run
+            parent_run_id=source_workflow_run_id or None,
         )
         db.add(workflow_run)
         db.commit()
@@ -1069,26 +1017,286 @@ async def _handle_pipeline_execution(
     finally:
         db.close()
 
-    # Kick off LLM-generated title in the background. The WorkflowRun was
-    # just stored with title = first 60 chars of the user's input, which
-    # renders as raw / unpolished in the run-history sidebar (e.g.
-    # "blockchain" or "make me a deck about quantum compute"). We replace
-    # it with a 3-7 word professional title once Bedrock responds. The
-    # task runs in parallel with the pipeline — pipeline execution does
-    # not block on it, and a failure here only leaves the placeholder
-    # title in place (it never breaks the pipeline run).
+    # Async title generation (best-effort, non-blocking)
     if workflow_run_id:
         asyncio.create_task(
             _generate_workflow_title(
-                workflow_run_id=workflow_run_id,
-                content=content or "",
-                pipeline_type=pipeline_type,
-                websocket=websocket,
+                workflow_run_id=workflow_run_id, content=content or "",
+                pipeline_type=pipeline_type, websocket=websocket,
             )
         )
 
-    # Persist user message if chat_session_id provided
-    if chat_session_id:
+    # ── Bedrock config check ──────────────────────────────────────────────
+    if not (settings.BEDROCK_MODEL_ID and settings.AWS_REGION) and not settings.ANTHROPIC_API_KEY:
+        await websocket.send_json({
+            "type": "error", "chunk": None, "section": None,
+            "data": {"error": "LLM provider not configured.",
+                     "code": "llm_provider_misconfigured", "recoverable": False},
+        })
+        return
+
+    # ── Execute through the Universal Engine — queue-based, WS-decoupled ──
+    # The pipeline runs as a background task writing events to a queue.
+    # The WebSocket drains the queue. If the WS disconnects, the pipeline
+    # keeps running. On reconnect, the new WS picks up the same queue.
+    engine = get_execution_engine()
+    final_output = ""
+    agent_outputs_collector: list[dict] = []
+    current_agent: dict = {}
+    any_agent_errored = False
+    first_agent_error_msg: Optional[str] = None
+
+    event_queue = _get_or_create_queue(pipeline_run_id)
+
+    async def _run_pipeline_to_queue() -> None:
+        """Run the engine and push all events into the queue. Never touches WS."""
+        nonlocal final_output, agent_outputs_collector, current_agent
+        nonlocal any_agent_errored, first_agent_error_msg
+
+        try:
+            async for update in engine.execute(
+                agents=agents,
+                user_message=content,
+                pipeline_run_id=pipeline_run_id,
+                pipeline_type=pipeline_type,
+                user_id=user.id,
+                attached_skills=attached_skills or [],
+                attached_hooks=attached_hooks or [],
+                model_id=getattr(user, "preferred_model", None) or None,
+                od_context=od_context,
+            ):
+                await event_queue.put({"type": update["type"], "data": update.get("data", {})})
+                # Track state for DB persistence
+                utype = update["type"]
+                if utype == "agent_start":
+                    current_agent = {
+                        "agent_id": update["data"].get("agent_id"),
+                        "name": update["data"].get("name"),
+                        "role": update["data"].get("role"),
+                        "icon": update["data"].get("icon"),
+                        "output": "", "duration": None,
+                        "input_prompt": None, "context_sources": [],
+                        "tool_calls": [], "thinking_text": "",
+                    }
+                elif utype == "agent_input":
+                    current_agent["input_prompt"] = update["data"].get("context_message")
+                    current_agent["context_sources"] = update["data"].get("context_sources", [])
+                elif utype == "agent_thinking":
+                    current_agent["thinking_text"] = (current_agent.get("thinking_text") or "") + update["data"].get("thinking", "")
+                elif utype == "tool_call":
+                    current_agent.setdefault("tool_calls", []).append({
+                        "tool": update["data"].get("tool"),
+                        "args": update["data"].get("args", {}),
+                        "result": None,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    })
+                elif utype == "tool_result":
+                    for tc in reversed(current_agent.get("tool_calls", [])):
+                        if tc.get("tool") == update["data"].get("tool") and tc.get("result") is None:
+                            tc["result"] = update["data"].get("result")
+                            break
+                elif utype == "agent_chunk":
+                    current_agent["output"] = current_agent.get("output", "") + update["data"].get("chunk", "")
+                elif utype == "agent_complete":
+                    current_agent["duration"] = update["data"].get("duration")
+                    current_agent["input_tokens"] = update["data"].get("input_tokens", 0)
+                    current_agent["output_tokens"] = update["data"].get("output_tokens", 0)
+                    current_agent["total_tokens"] = update["data"].get("total_tokens", 0)
+                    agent_outputs_collector.append(current_agent)
+                    current_agent = {}
+                elif utype == "agent_error":
+                    any_agent_errored = True
+                    if first_agent_error_msg is None:
+                        first_agent_error_msg = update["data"].get("error") or "Agent execution error"
+                    current_agent["error"] = update["data"].get("error")
+                    agent_outputs_collector.append(current_agent)
+                    current_agent = {}
+                elif utype == "pipeline_complete":
+                    final_output = update["data"].get("final_output", "")
+
+            # ── Pipeline completed successfully — persist immediately ──────
+            # This runs INSIDE the background task, after the async for loop
+            # completes normally (all events processed). We have the full
+            # agent_outputs_collector and final_output here — no race condition.
+            if workflow_run_id:
+                db = _get_db()
+                try:
+                    wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+                    if wr:
+                        # Always write output and agent_outputs — the outer block
+                        # may have already set status to "completed" but with NULL output
+                        # due to the race condition. We fix it here with real data.
+                        wr.status = "failed" if any_agent_errored else "completed"
+                        if any_agent_errored:
+                            wr.error = first_agent_error_msg
+                        if final_output:
+                            wr.output = final_output
+                        if agent_outputs_collector:
+                            wr.agent_outputs = json.dumps(agent_outputs_collector)
+                        # Aggregate token usage across all agents
+                        total_input = sum(a.get("input_tokens", 0) or 0 for a in agent_outputs_collector)
+                        total_output = sum(a.get("output_tokens", 0) or 0 for a in agent_outputs_collector)
+                        if total_input + total_output > 0:
+                            wr.token_usage = json.dumps({
+                                "total_input_tokens": total_input,
+                                "total_output_tokens": total_output,
+                                "total_tokens": total_input + total_output,
+                                "estimated_cost_usd": round(
+                                    (total_input * 0.00000025) + (total_output * 0.00000125), 6
+                                ),  # Haiku pricing: $0.25/M input, $1.25/M output
+                            })
+                        if not wr.completed_at:
+                            wr.completed_at = datetime.now(timezone.utc)
+                        if not wr.duration:
+                            wr.duration = round(time.monotonic() - monotonic_start, 1)
+                        db.commit()
+                        logger.info(
+                            "Pipeline completed — run=%s status=%s agents=%d output=%d chars tokens=%d",
+                            workflow_run_id, wr.status, len(agent_outputs_collector),
+                            len(final_output) if final_output else 0,
+                            total_input + total_output,
+                        )
+                finally:
+                    db.close()
+        except asyncio.CancelledError:
+            duration = round(time.monotonic() - monotonic_start, 1)
+            logger.info("Pipeline task cancelled — run=%s duration=%.1fs", workflow_run_id, duration)
+            await event_queue.put({"type": "pipeline_cancelled", "data": {
+                "message": "Pipeline cancelled", "duration": duration,
+                "agents_completed": len(agent_outputs_collector),
+            }})
+            if workflow_run_id:
+                db = _get_db()
+                try:
+                    wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+                    if wr:
+                        wr.status = "cancelled"
+                        wr.completed_at = datetime.now(timezone.utc)
+                        wr.duration = duration
+                        if agent_outputs_collector:
+                            wr.agent_outputs = json.dumps(agent_outputs_collector)
+                        db.commit()
+                finally:
+                    db.close()
+        except Exception as e:
+            logger.error("Pipeline task error — run=%s: %s", workflow_run_id, e, exc_info=True)
+            await event_queue.put({"type": "error", "data": {
+                "error": f"Pipeline execution failed: {e}",
+                "code": "pipeline_error", "recoverable": True,
+            }})
+            if workflow_run_id:
+                db = _get_db()
+                try:
+                    wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+                    if wr:
+                        wr.status = "failed"
+                        wr.error = str(e)
+                        wr.completed_at = datetime.now(timezone.utc)
+                        wr.duration = round((datetime.now(timezone.utc) - execution_start).total_seconds(), 1)
+                        db.commit()
+                finally:
+                    db.close()
+        finally:
+            # Signal queue consumers that the pipeline is done
+            await event_queue.put(None)
+            _cleanup_pipeline(pipeline_run_id)
+
+    # Start the pipeline as a background task (independent of WS connection)
+    pipeline_bg_task = asyncio.create_task(_run_pipeline_to_queue())
+    _PIPELINE_TASKS[pipeline_run_id] = pipeline_bg_task
+
+    # ── Drain the queue to the WebSocket ─────────────────────────────────
+    # This loop reads events from the queue and sends them to the WS.
+    # If the WS dies, we exit this loop but the pipeline keeps running.
+    # On reconnect, the client sends reconnect_pipeline and a new drainer starts.
+    # Timeout of 10s — sends heartbeat to detect dead connections quickly.
+    try:
+        while True:
+            try:
+                # Use a short timeout so we can send WS-level pings periodically
+                event = await asyncio.wait_for(event_queue.get(), timeout=10.0)
+            except asyncio.TimeoutError:
+                # Send a heartbeat to detect dead connections.
+                try:
+                    await websocket.send_json({
+                        "type": "pipeline_heartbeat",
+                        "chunk": None,
+                        "section": pipeline_type,
+                        "data": {"pipeline_run_id": pipeline_run_id,
+                                 "timestamp": datetime.now(timezone.utc).isoformat()},
+                    })
+                except Exception:
+                    # WS is dead — exit drainer, pipeline keeps running in background
+                    logger.info(
+                        "WS send failed during heartbeat — disconnecting drainer for run=%s (pipeline continues)",
+                        pipeline_run_id,
+                    )
+                    break
+                continue
+
+            if event is None:
+                # Pipeline finished — sentinel received
+                break
+
+            try:
+                await websocket.send_json({
+                    "type": event["type"], "chunk": None,
+                    "section": pipeline_type, "data": event.get("data", {}),
+                })
+            except Exception:
+                # WS died — put the event back and exit drainer
+                # Pipeline keeps running; reconnect will resume
+                logger.info(
+                    "WS send failed — disconnecting drainer for run=%s (pipeline continues in background)",
+                    pipeline_run_id,
+                )
+                await event_queue.put(event)  # put it back for the next consumer
+                break
+
+            utype = event["type"]
+            if utype == "pipeline_complete":
+                final_output = event.get("data", {}).get("final_output", "")
+                break
+            elif utype in ("pipeline_cancelled", "error"):
+                break
+
+    except asyncio.CancelledError:
+        # WS connection task was cancelled (e.g. user closed tab)
+        # Cancel the pipeline background task too
+        pipeline_bg_task.cancel()
+        raise
+
+    # ── Persist terminal state (safety fallback) ─────────────────────────
+    # The pipeline background task already persists the success case above.
+    # This fallback only writes if output/agents are still missing.
+    try:
+        await asyncio.wait_for(pipeline_bg_task, timeout=5.0)
+    except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+        pass
+
+    if workflow_run_id and not pipeline_bg_task.cancelled():
+        db = _get_db()
+        try:
+            wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+            # Only write if output/agents are still missing — the bg task should have written them
+            if wr and (wr.output is None or wr.agent_outputs is None):
+                if wr.status == "running":
+                    wr.status = "failed" if any_agent_errored else "completed"
+                    if any_agent_errored:
+                        wr.error = first_agent_error_msg
+                    wr.completed_at = datetime.now(timezone.utc)
+                    wr.duration = round((datetime.now(timezone.utc) - execution_start).total_seconds(), 1)
+                if final_output and wr.output is None:
+                    wr.output = final_output
+                if agent_outputs_collector and wr.agent_outputs is None:
+                    wr.agent_outputs = json.dumps(agent_outputs_collector)
+                db.commit()
+                logger.info("Fallback persistence wrote output/agents for run=%s", workflow_run_id)
+        finally:
+            db.close()
+
+    # ── Persist assistant message ─────────────────────────────────────────
+    if final_output and chat_session_id:
         db = _get_db()
         try:
             chat_session = (
@@ -1096,678 +1304,15 @@ async def _handle_pipeline_execution(
                 .filter(ChatSession.id == chat_session_id, ChatSession.user_id == user.id)
                 .first()
             )
-            if chat_session:
-                user_msg = Message(
-                    chat_session_id=chat_session_id,
-                    role="user",
-                    content=content or f"Run {pipeline_type} pipeline",
-                )
-                db.add(user_msg)
-                chat_session.last_activity = datetime.now(timezone.utc)
-                db.commit()
-        finally:
-            db.close()
-
-    # Check if Bedrock is configured
-    if not (settings.BEDROCK_MODEL_ID and settings.AWS_REGION):
-        await websocket.send_json({
-            "type": "error",
-            "chunk": None,
-            "section": None,
-            "data": {
-                "error": (
-                    "Bedrock is not fully configured. Set BEDROCK_MODEL_ID and "
-                    "AWS_REGION in backend/.env to run pipelines."
-                ),
-                "code": "llm_provider_misconfigured",
-                "recoverable": False,
-            },
-        })
-        return
-
-    final_output = ""
-    pipeline_token_summary: dict = {}
-    execution_start = datetime.now(timezone.utc)
-    agent_outputs_collector: list[dict] = []  # Collect per-agent thinking/output
-
-    # === LIVE PIPELINE MODE ===
-    # If custom agent_ids provided, resolve them to AgentSpec objects from
-    # the new slim registry. By the time we reach here, every entry in
-    # `agent_ids` is guaranteed to be in the pipeline's allow-list (validated
-    # above). The orchestrator handles default agent loading itself when
-    # custom_agents=None.
-    custom_agent_specs = None
-    if agent_ids:
-        from agents.loader import load_agent_spec
-        custom_agent_specs = []
-        for aid in agent_ids:
-            try:
-                custom_agent_specs.append(load_agent_spec(aid))
-            except Exception:
-                # Defensive: skip agents that can't be loaded (shouldn't
-                # happen since they passed the allow-list check above).
-                logger.warning("Could not load AgentSpec for %s — skipping", aid)
-        if not custom_agent_specs:
-            custom_agent_specs = None
-
-    # Execute the workflow. user_id is forwarded so the orchestrator's
-    # _load_skills picks up per-user custom skills (WORKFLOWS.md §B6 —
-    # was previously assembled here in the WS handler before we moved
-    # skill loading into the orchestrator).
-    executor = WorkflowOrchestrator(
-        pipeline_type,
-        custom_agents=custom_agent_specs,
-        user_id=user.id,
-        attached_skills=attached_skills or [],
-        attached_hooks=attached_hooks or [],
-        model_id=getattr(user, "preferred_model", None) or None,
-    )
-
-    monotonic_start = time.monotonic()
-    try:
-        current_agent_output_live: dict = {}
-        # Tracks whether the orchestrator emitted any agent_error events
-        # during this run. Used after the loop to decide whether to mark
-        # the WorkflowRun as `completed` (no errors) or `failed` (one or
-        # more agents errored). Without this, a single agent_error in a
-        # 12-agent pipeline would still produce status="completed" with
-        # garbage final output.
-        any_agent_errored = False
-        first_agent_error_msg: Optional[str] = None
-        async for update in executor.execute(content):
-            await websocket.send_json({
-                "type": update["type"],
-                "chunk": None,
-                "section": pipeline_type,
-                "data": update["data"],
-            })
-            # Collect agent outputs for persistence
-            if update["type"] == "agent_start":
-                current_agent_output_live = {
-                    "agent_id": update["data"].get("agent_id"),
-                    "name": update["data"].get("name"),
-                    "role": update["data"].get("role"),
-                    "icon": update["data"].get("icon"),
-                    "thinking": "",
-                    "output": "",
-                    "duration": None,
-                }
-            elif update["type"] == "agent_thinking":
-                # agent_thinking marks the START of an LLM call. The
-                # orchestrator re-emits it on each retry attempt (orchestrator_v2
-                # retries up to 2x within a single agent without re-emitting
-                # agent_start). Reset the chunk buffer here so retries don't
-                # accumulate duplicated content into the persisted output.
-                current_agent_output_live["thinking"] = update["data"].get("thinking", "")
-                current_agent_output_live["output"] = ""
-            elif update["type"] == "agent_chunk":
-                current_agent_output_live["output"] += update["data"].get("chunk", "")
-            elif update["type"] == "agent_complete":
-                current_agent_output_live["duration"] = update["data"].get("duration")
-                agent_outputs_collector.append(current_agent_output_live)
-                current_agent_output_live = {}
-            elif update["type"] == "agent_error":
-                any_agent_errored = True
-                if first_agent_error_msg is None:
-                    first_agent_error_msg = update["data"].get("error") or "Agent execution error"
-                # Persist what we collected so far for the failed agent
-                # too — useful for "show me what the pipeline got through"
-                # debugging UX.
-                current_agent_output_live["duration"] = update["data"].get("duration")
-                current_agent_output_live["error"] = update["data"].get("error")
-                agent_outputs_collector.append(current_agent_output_live)
-                current_agent_output_live = {}
-            elif update["type"] == "pipeline_complete":
-                final_output = update["data"].get("final_output", "")
-                # Capture pipeline-level token totals for DB persistence
-                pipeline_token_summary = {
-                    "total_input_tokens": update["data"].get("total_input_tokens", 0),
-                    "total_output_tokens": update["data"].get("total_output_tokens", 0),
-                    "total_tokens": update["data"].get("total_tokens", 0),
-                    "estimated_cost_usd": update["data"].get("estimated_cost_usd", 0.0),
-                    "model_id": update["data"].get("model_id", ""),
-                    "per_agent": update["data"].get("token_usage_per_agent", {}),
-                }
-    except asyncio.CancelledError:
-        # Cooperative cancellation from cancel_pipeline (or WebSocketDisconnect
-        # cleanup). The async generator's CancelledError propagates here from
-        # the LLM stream; everything below is the A6 fix — without it the
-        # WorkflowRun row stays at status="running" forever.
-        duration = round(time.monotonic() - monotonic_start, 1)
-        logger.info(
-            "Pipeline cancelled by user — workflow_run_id=%s agents_completed=%d duration=%.1fs",
-            workflow_run_id, len(agent_outputs_collector), duration,
-        )
-        if workflow_run_id:
-            db = _get_db()
-            try:
-                wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
-                if wr:
-                    wr.status = "cancelled"
-                    wr.completed_at = datetime.now(timezone.utc)
-                    wr.duration = duration
-                    # Persist whatever partial output we collected — useful
-                    # for "show me what the pipeline got through" UX, and
-                    # avoids losing finished agents' work.
-                    if agent_outputs_collector:
-                        wr.agent_outputs = json.dumps(agent_outputs_collector)
-                    db.commit()
-            finally:
-                db.close()
-        # Best-effort ack; the WS may already be closed (e.g. user closed the
-        # tab → WebSocketDisconnect → cleanup cancelled us).
-        try:
-            await websocket.send_json({
-                "type": "pipeline_cancelled",
-                "chunk": None,
-                "section": None,
-                "data": {
-                    "message": "Pipeline cancelled by user",
-                    "agents_completed": len(agent_outputs_collector),
-                    "duration": duration,
-                },
-            })
-        except Exception:
-            pass
-        # Re-raise so the asyncio scheduler finalises this task as
-        # `cancelled` (not `done`). Anything that introspects task state
-        # later (`task.cancelled()`) depends on this re-raise.
-        raise
-    except Exception as e:
-        logger.error(f"Pipeline execution error: {e}")
-        # Persist the failure FIRST. If we sent over the WS first and the
-        # client was already disconnected (the most common trigger of an
-        # `except Exception` here), the send_json would re-raise and skip
-        # the DB write — leaving WorkflowRun rows at `status="running"`
-        # forever. Doing the DB commit before the best-effort send is
-        # order-of-operations: durable state, then notify.
-        if workflow_run_id:
-            db = _get_db()
-            try:
-                wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
-                if wr:
-                    wr.status = "failed"
-                    wr.error = str(e)
-                    wr.completed_at = datetime.now(timezone.utc)
-                    duration = (datetime.now(timezone.utc) - execution_start).total_seconds()
-                    wr.duration = round(duration, 1)
-                    db.commit()
-            finally:
-                db.close()
-        # Best-effort error event. Swallow send errors — the row is already
-        # marked failed, and a disconnected client can't be told anyway.
-        try:
-            await websocket.send_json({
-                "type": "error",
-                "chunk": None,
-                "section": None,
-                "data": {
-                    "error": f"Pipeline execution failed: {str(e)}",
-                    "code": "pipeline_error",
-                    "recoverable": True,
-                },
-            })
-        except Exception:
-            logger.info("Failed to notify client of pipeline failure — WS likely closed.")
-        return
-
-    # Persist terminal state. If any agent emitted `agent_error` during the
-    # run, mark the WorkflowRun `failed` rather than `completed` — leaving
-    # it `completed` would mislead history UIs and downstream consumers
-    # that branch on `status` (e.g. "show retry" affordances). The final
-    # output is still persisted because the orchestrator continues running
-    # subsequent agents after a recoverable error, and the user may want
-    # to see whatever was produced.
-    if workflow_run_id:
-        db = _get_db()
-        try:
-            wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
-            if wr:
-                if any_agent_errored:
-                    wr.status = "failed"
-                    wr.error = first_agent_error_msg
-                else:
-                    wr.status = "completed"
-                wr.output = final_output if final_output else None
-                wr.agent_outputs = json.dumps(agent_outputs_collector) if agent_outputs_collector else None
-                wr.token_usage = json.dumps(pipeline_token_summary) if pipeline_token_summary else None
-                wr.model_id = pipeline_token_summary.get("model_id") or None
-                wr.completed_at = datetime.now(timezone.utc)
-                duration = (datetime.now(timezone.utc) - execution_start).total_seconds()
-                wr.duration = round(duration, 1)
-                db.commit()
-        finally:
-            db.close()
-
-    # Persist the final output as assistant message.
-    #
-    # `chat_session_id` arrives from the client over the WS. The earlier
-    # user-message persistence path (around :514-518) already filters on
-    # `ChatSession.user_id == user.id`; this assistant-message write
-    # previously did NOT, which let an authenticated user persist messages
-    # into another user's session by guessing the session UUID. We now do
-    # the ownership check up-front and bail without writing if the session
-    # doesn't belong to `user`.
-    if final_output and chat_session_id:
-        db = _get_db()
-        try:
-            chat_session = (
-                db.query(ChatSession)
-                .filter(
-                    ChatSession.id == chat_session_id,
-                    ChatSession.user_id == user.id,
-                )
-                .first()
-            )
-            if chat_session is None:
-                logger.warning(
-                    "Skipping assistant-message persistence: chat_session %s not owned by user %s",
-                    chat_session_id, user.id,
-                )
-            else:
-                if pipeline_type == "ppt":
-                    summary = "\u2705 **Presentation generated!** Check the Preview panel \u2192 PPT tab."
-                elif pipeline_type == "prototype":
-                    summary = "\u2705 **Prototype generated!** Check the Preview panel \u2192 Prototype tab."
+            if chat_session is not None:
+                if pipeline_type in ("ppt", "od_ppt"):
+                    summary = "\u2705 **Presentation generated!** Check the Preview panel."
+                elif pipeline_type in ("prototype", "od_prototype"):
+                    summary = "\u2705 **Prototype generated!** Check the Preview panel."
                 else:
                     summary = final_output[:500]
-
-                assistant_msg = Message(
-                    chat_session_id=chat_session_id,
-                    role="assistant",
-                    content=summary,
-                )
-                db.add(assistant_msg)
+                db.add(Message(chat_session_id=chat_session_id, role="assistant", content=summary))
                 chat_session.last_activity = datetime.now(timezone.utc)
                 db.commit()
         finally:
             db.close()
-
-
-async def _handle_od_ppt_execution(
-    websocket: WebSocket,
-    brief: str,
-    template_id: str,
-    design_system_id: str | None,
-    discovery: dict | None,
-    user: User,
-    custom_ds_body: str | None = None,
-    custom_template_body: str | None = None,
-) -> None:
-    """Run the OpenDesign-style 3-agent PPT/deck pipeline over WebSocket.
-
-    Mirrors _handle_od_prototype_execution exactly — same event envelope,
-    same DB persistence, same cancellation handling.
-    """
-    from app.agents.od_ppt_runner import run_od_ppt_pipeline
-    from app.services.od_loader import get_ppt_template, get_design_system
-
-    # Validate template (skip for custom templates)
-    if not custom_template_body:
-        if not template_id or get_ppt_template(template_id) is None:
-            await websocket.send_json({
-                "type": "error", "chunk": None, "section": None,
-                "data": {"error": f"Unknown PPT template: {template_id!r}", "code": "invalid_template", "recoverable": False},
-            })
-            return
-
-    # Validate design system only if provided and not custom
-    if design_system_id and not custom_ds_body:
-        if get_design_system(design_system_id) is None:
-            await websocket.send_json({
-                "type": "error", "chunk": None, "section": None,
-                "data": {"error": f"Unknown design system: {design_system_id!r}", "code": "invalid_design_system", "recoverable": False},
-            })
-            return
-
-    # Create WorkflowRun record
-    workflow_run_id = None
-    db = _get_db()
-    try:
-        workflow_run = WorkflowRun(
-            user_id=user.id,
-            title=(brief or "Presentation")[:60].strip(),
-            type="od_ppt",
-            status="running",
-            input=brief or f"template={template_id}",
-            agent_count=3,
-        )
-        db.add(workflow_run)
-        db.commit()
-        db.refresh(workflow_run)
-        workflow_run_id = workflow_run.id
-    finally:
-        db.close()
-
-    # Generate title in background
-    if workflow_run_id:
-        asyncio.create_task(
-            _generate_workflow_title(
-                workflow_run_id=workflow_run_id,
-                content=brief or "",
-                pipeline_type="ppt",
-                websocket=websocket,
-            )
-        )
-
-    final_html = ""
-    monotonic_start = time.monotonic()
-    execution_start = datetime.now(timezone.utc)
-
-    # Model ID used for cost calculation — user preference or system default
-    _od_ppt_model_id = (
-        getattr(user, "preferred_model", None)
-        or settings.BEDROCK_INFERENCE_PROFILE_ID
-        or settings.BEDROCK_MODEL_ID
-        or "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
-    )
-
-    od_agent_outputs_collector: list[dict] = []
-    current_od_agent_live: dict = {}
-    od_token_summary: dict = {
-        "total_input_tokens": 0, "total_output_tokens": 0,
-        "total_tokens": 0, "estimated_cost_usd": 0.0, "per_agent": {},
-    }
-
-    try:
-        async for event in run_od_ppt_pipeline(
-            template_id=template_id,
-            design_system_id=design_system_id,
-            brief=brief,
-            discovery=discovery,
-            custom_ds_body=custom_ds_body,
-            custom_template_body=custom_template_body,
-        ):
-            t = event.get("type")
-
-            if t == "pipeline_start":
-                await websocket.send_json({
-                    "type": "pipeline_start", "chunk": None, "section": "od_ppt",
-                    "data": {"agents": event.get("agents", []), "pipeline_type": "od_ppt"},
-                })
-            elif t == "agent_start":
-                current_od_agent_live = {
-                    "agent_id": event.get("agent_id"), "name": event.get("name"),
-                    "role": event.get("role"), "icon": event.get("icon"), "output": "", "duration": None,
-                }
-                await websocket.send_json({
-                    "type": "agent_start", "chunk": None, "section": "od_ppt",
-                    "data": {
-                        "agent_id": event.get("agent_id"), "name": event.get("name"),
-                        "role": event.get("role"), "icon": event.get("icon"), "index": event.get("index"),
-                    },
-                })
-            elif t == "agent_chunk":
-                current_od_agent_live["output"] = current_od_agent_live.get("output", "") + event.get("chunk", "")
-                await websocket.send_json({
-                    "type": "agent_chunk", "chunk": None, "section": "od_ppt",
-                    "data": {"agent_id": event.get("agent_id"), "chunk": event.get("chunk", "")},
-                })
-            elif t == "agent_complete":
-                current_od_agent_live["duration"] = event.get("duration")
-                od_agent_outputs_collector.append(current_od_agent_live)
-                current_od_agent_live = {}
-                _in = event.get("input_tokens", 0) or 0
-                _out = event.get("output_tokens", 0) or 0
-                _total = _in + _out
-                from app.agents.base import TokenUsage, estimate_cost_usd
-                _cost = estimate_cost_usd(TokenUsage(input_tokens=_in, output_tokens=_out, total_tokens=_total), _od_ppt_model_id)
-                await websocket.send_json({
-                    "type": "agent_complete", "chunk": None, "section": "od_ppt",
-                    "data": {
-                        "agent_id": event.get("agent_id"), "duration": event.get("duration"),
-                        "output_length": event.get("output_length", 0),
-                        "input_tokens": _in,
-                        "output_tokens": _out,
-                        "total_tokens": _total,
-                        "estimated_cost_usd": round(_cost, 6),
-                    },
-                })
-            elif t == "agent_error":
-                current_od_agent_live["error"] = event.get("error", "Agent failed")
-                od_agent_outputs_collector.append(current_od_agent_live)
-                current_od_agent_live = {}
-                await websocket.send_json({
-                    "type": "agent_error", "chunk": None, "section": "od_ppt",
-                    "data": {"agent_id": event.get("agent_id"), "error": event.get("error", "Agent failed")},
-                })
-            elif t == "artifact" and event.get("stage") == "final":
-                final_html = event.get("html", "")
-            elif t == "pipeline_complete":
-                if not final_html:
-                    final_html = event.get("final_html", "")
-                duration = round(time.monotonic() - monotonic_start, 1)
-                od_token_summary = {
-                    "total_input_tokens": event.get("total_input_tokens", 0),
-                    "total_output_tokens": event.get("total_output_tokens", 0),
-                    "total_tokens": event.get("total_tokens", 0),
-                    "estimated_cost_usd": event.get("estimated_cost_usd", 0.0),
-                    "model_id": _od_ppt_model_id,
-                    "per_agent": event.get("token_usage_per_agent", {}),
-                }
-                await websocket.send_json({
-                    "type": "pipeline_complete", "chunk": None, "section": "od_ppt",
-                    "data": {
-                        "final_output": final_html, "pipeline_type": "od_ppt",
-                        "total_duration": duration,
-                        "model_id": _od_ppt_model_id,
-                        "total_input_tokens": od_token_summary["total_input_tokens"],
-                        "total_output_tokens": od_token_summary["total_output_tokens"],
-                        "total_tokens": od_token_summary["total_tokens"],
-                        "estimated_cost_usd": od_token_summary["estimated_cost_usd"],
-                        "token_usage_per_agent": od_token_summary["per_agent"],
-                    },
-                })
-            elif t == "pipeline_error":
-                raise RuntimeError(event.get("error", "Pipeline failed"))
-
-    except asyncio.CancelledError:
-        duration = round(time.monotonic() - monotonic_start, 1)
-        if workflow_run_id:
-            db = _get_db()
-            try:
-                wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
-                if wr:
-                    wr.status = "cancelled"
-                    wr.completed_at = datetime.now(timezone.utc)
-                    wr.duration = duration
-                    db.commit()
-            finally:
-                db.close()
-        try:
-            await websocket.send_json({
-                "type": "pipeline_cancelled", "chunk": None, "section": None,
-                "data": {"message": "Pipeline cancelled", "duration": duration},
-            })
-        except Exception:
-            pass
-        raise
-
-    except Exception as exc:
-        logger.error("OD PPT pipeline error: %s", exc)
-        if workflow_run_id:
-            db = _get_db()
-            try:
-                wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
-                if wr:
-                    wr.status = "failed"
-                    wr.error = str(exc)
-                    wr.completed_at = datetime.now(timezone.utc)
-                    wr.duration = round((datetime.now(timezone.utc) - execution_start).total_seconds(), 1)
-                    db.commit()
-            finally:
-                db.close()
-        try:
-            await websocket.send_json({
-                "type": "error", "chunk": None, "section": None,
-                "data": {"error": f"Pipeline failed: {exc}", "code": "pipeline_error", "recoverable": True},
-            })
-        except Exception:
-            pass
-        return
-
-    # Persist completed run
-    if workflow_run_id:
-        db = _get_db()
-        try:
-            wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
-            if wr:
-                wr.status = "completed"
-                wr.output = final_html
-                wr.agent_outputs = json.dumps(od_agent_outputs_collector) if od_agent_outputs_collector else None
-                wr.token_usage = json.dumps(od_token_summary)
-                wr.model_id = _od_ppt_model_id or None
-                wr.completed_at = datetime.now(timezone.utc)
-                wr.duration = round(time.monotonic() - monotonic_start, 1)
-                db.commit()
-        finally:
-            db.close()
-
-
-async def _handle_questionnaire(
-    websocket: WebSocket,
-    prompt: str,
-    pipeline_type: str,
-    template_id: str = "",
-    design_system_id: str = "",
-):
-    """Generate clarifying MCQ questions based on the user's prompt and pipeline type.
-
-    Uses the questionnaire agent to produce 4 targeted questions.
-    Sends the questions back as a 'questionnaire' WebSocket message.
-    For od_prototype, uses a prototype-specific system prompt with template/DS context.
-    """
-    from app.agents.base import BaseAgent, AgentConfigurationError
-    from app.agents.registry import QUESTIONNAIRE_AGENT
-
-    logger.info(f"Generating questionnaire: pipeline_type={pipeline_type}, prompt={prompt[:50]}")
-
-    # Prototype-specific question generator — tailored to brief + template + DS
-    PROTOTYPE_QUESTION_SYSTEM_PROMPT = """You are a UX discovery assistant helping generate a prototype.
-Generate up to 8 targeted multiple-choice questions to clarify the user's prototype requirements.
-Questions should be specific to the brief, template, and design system provided.
-
-Focus on:
-- Number of pages/screens needed
-- Key user flows and interactions
-- Data density and content richness
-- Authentication/login requirements
-- Primary user actions and CTAs
-- Navigation structure preferences
-- Specific features to include or exclude
-
-Return a JSON object with this exact shape:
-{
-  "questions": [
-    {
-      "id": "q1",
-      "question": "How many pages should the prototype have?",
-      "options": ["1–2 (focused single flow)", "3–5 (standard app)", "6+ (full product)"]
-    }
-  ]
-}
-
-Rules:
-- Maximum 8 questions, minimum 4
-- Each question has exactly 3–4 options
-- Questions must be directly relevant to the brief
-- No generic questions — every question should help the agent produce better output
-- Return ONLY the JSON object, no prose"""
-
-    try:
-        if pipeline_type == "od_prototype":
-            template_hint = f"\nTemplate: {template_id}" if template_id else ""
-            ds_hint = f"\nDesign system: {design_system_id}" if design_system_id else ""
-            agent = BaseAgent(
-                system_prompt=PROTOTYPE_QUESTION_SYSTEM_PROMPT,
-                max_tokens=1024,
-            )
-            context_message = (
-                f"User brief: {prompt}"
-                f"{template_hint}"
-                f"{ds_hint}"
-            )
-        elif pipeline_type == "od_ppt":
-            PPT_QUESTION_SYSTEM_PROMPT = """You are a presentation design assistant helping plan a deck.
-Generate 5 targeted multiple-choice questions to clarify the user's presentation requirements.
-
-Focus on:
-- Target audience (executives, technical team, customers, general public)
-- Number of slides (5-8 focused / 10-12 standard / 15+ comprehensive)
-- Presentation tone (professional, inspirational, data-driven, creative)
-- Primary goal (pitch/fundraise, inform/educate, sell/persuade, quarterly report)
-- Content style (data-heavy with charts, visual-heavy with imagery, balanced mix)
-
-Return a JSON object with this exact shape:
-{
-  "questions": [
-    {
-      "id": "q1",
-      "question": "Who is the primary audience for this presentation?",
-      "options": ["Executives / Board", "Technical team", "Customers / Prospects", "General audience"]
-    }
-  ]
-}
-
-Rules:
-- Exactly 5 questions
-- Each question has exactly 3-4 options
-- Questions must be directly relevant to the brief
-- Return ONLY the JSON object, no prose"""
-
-            template_hint = f"\nTemplate: {template_id}" if template_id else ""
-            ds_hint = f"\nDesign system: {design_system_id}" if design_system_id else ""
-            agent = BaseAgent(
-                system_prompt=PPT_QUESTION_SYSTEM_PROMPT,
-                max_tokens=1024,
-            )
-            context_message = (
-                f"User brief: {prompt}"
-                f"{template_hint}"
-                f"{ds_hint}"
-            )
-        else:
-            agent = BaseAgent(
-                system_prompt=QUESTIONNAIRE_AGENT.system_prompt,
-                max_tokens=QUESTIONNAIRE_AGENT.max_tokens,
-            )
-            context_message = f"Pipeline type: {pipeline_type}\nUser's idea: {prompt}"
-
-        response = await agent.run(context_message)
-
-        # Try to parse JSON from response
-        import re
-        json_match = re.search(r'\{[\s\S]*\}', response)
-        if json_match:
-            questions_data = json.loads(json_match.group())
-            await websocket.send_json({
-                "type": "questionnaire",
-                "chunk": None,
-                "section": None,
-                "data": questions_data,
-            })
-        else:
-            # Fallback — couldn't parse questions, skip questionnaire
-            await websocket.send_json({
-                "type": "questionnaire",
-                "chunk": None,
-                "section": None,
-                "data": {"questions": []},
-            })
-
-    except AgentConfigurationError:
-        # No API key — skip questionnaire
-        await websocket.send_json({
-            "type": "questionnaire",
-            "chunk": None,
-            "section": None,
-            "data": {"questions": []},
-        })
-    except Exception as e:
-        logger.error(f"Questionnaire generation error: {e}")
-        await websocket.send_json({
-            "type": "questionnaire",
-            "chunk": None,
-            "section": None,
-            "data": {"questions": []},
-        })

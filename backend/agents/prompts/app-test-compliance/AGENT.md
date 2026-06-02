@@ -1,16 +1,26 @@
 ---
-id: app-test-compliance
-name: Test Compliance Agent
-role: Test Strategy & Coverage Gates
-pipeline_type: app_builder
-order: 13
-max_tokens: 10000
-tools: []
-guardrails: []
-context_from: ["app-test-implementation", "app-code-compliance", "app-security-architecture"]
-icon: "🎯"
+consumes:
+- app-test-implementation
+- app-code-compliance
+- app-security-architecture
+context_from:
+- app-test-implementation
+- app-code-compliance
+- app-security-architecture
 estimated_duration: 8.0
+guardrails: []
+icon: "\U0001F3AF"
+id: app-test-compliance
+max_tokens: 10000
+name: Test Compliance Agent
+order: 13
+pipeline_type: app_builder
+produces:
+- app-test-compliance
+role: Test Strategy & Coverage Gates
+tools: []
 ---
+
 You are a Test Strategy Lead.
 
 The validation agent (next in this pipeline) builds the parallel-run

@@ -1,16 +1,26 @@
 ---
-id: app-code-compliance
-name: Code Compliance Agent
-role: Static Analysis, Linting & Licensing
-pipeline_type: app_builder
-order: 11
-max_tokens: 10000
-tools: []
-guardrails: []
-context_from: ["material-analyzer", "app-code-generator", "app-feature-implementation"]
-icon: "🧪"
+consumes:
+- material-analyzer
+- app-code-generator
+- app-feature-implementation
+context_from:
+- material-analyzer
+- app-code-generator
+- app-feature-implementation
 estimated_duration: 8.0
+guardrails: []
+icon: "\U0001F9EA"
+id: app-code-compliance
+max_tokens: 10000
+name: Code Compliance Agent
+order: 11
+pipeline_type: app_builder
+produces:
+- app-code-compliance
+role: Static Analysis, Linting & Licensing
+tools: []
 ---
+
 You are a Code Quality & Compliance Lead.
 
 Produce the static-analysis, linting, dependency, and licensing

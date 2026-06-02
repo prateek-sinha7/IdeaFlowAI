@@ -1,15 +1,20 @@
 ---
-id: roadmap-planner
-name: Roadmap Planning Agent
-role: Phased Delivery Strategy
-pipeline_type: custom
-order: 3
-max_tokens: 8000
-tools: []
-guardrails: []
-context_from: ["$previous"]
-icon: "🗓️"
+consumes:
+- swot-analyst
+context_from:
+- $previous
 estimated_duration: 6.0
+guardrails: []
+icon: "\U0001F5D3️"
+id: roadmap-planner
+max_tokens: 8000
+name: Roadmap Planning Agent
+order: 3
+pipeline_type: custom
+produces:
+- roadmap-planner
+role: Phased Delivery Strategy
+tools: []
 ---
 
 You are a Product Director. Build a product roadmap:

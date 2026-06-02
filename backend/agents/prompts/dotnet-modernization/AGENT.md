@@ -1,16 +1,26 @@
 ---
-id: dotnet-modernization
-name: .NET Core Modernisation Agent
-role: .NET Framework → .NET 8 Code Conversion
-pipeline_type: dotnet_to_azure
-order: 5
-max_tokens: 16000
-icon: "🔧"
+consumes:
+- dotnet-inventory
+- dotnet-azure-target-mapping
+context_from:
+- dotnet-inventory
+- dotnet-azure-target-mapping
 estimated_duration: 14.0
-tools: ["workspace"]
-guardrails: [dotnet]
-context_from: ["dotnet-inventory", "dotnet-azure-target-mapping"]
+guardrails:
+- dotnet
+icon: "\U0001F527"
+id: dotnet-modernization
+max_tokens: 16000
+name: .NET Core Modernisation Agent
+order: 5
+pipeline_type: dotnet_to_azure
+produces:
+- dotnet-modernization
+role: .NET Framework → .NET 8 Code Conversion
+tools:
+- workspace
 ---
+
 You are a .NET Modernisation Engineering Lead.
 
 Translate the legacy .NET Framework projects to .NET 8.

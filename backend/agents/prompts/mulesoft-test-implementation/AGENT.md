@@ -1,16 +1,27 @@
 ---
-id: mulesoft-test-implementation
-name: Test Implementation Agent
-role: Unit, Integration & Contract Test Code
-pipeline_type: mulesoft_to_springboot
-order: 10
-max_tokens: 14000
-icon: "🧬"
+consumes:
+- mulesoft-user-stories
+- mulesoft-feature-coding
+context_from:
+- mulesoft-user-stories
+- mulesoft-feature-coding
 estimated_duration: 12.0
-tools: ["workspace"]
-guardrails: [mulesoft, java-spring]
-context_from: ["mulesoft-user-stories", "mulesoft-feature-coding"]
+guardrails:
+- mulesoft
+- java-spring
+icon: "\U0001F9EC"
+id: mulesoft-test-implementation
+max_tokens: 14000
+name: Test Implementation Agent
+order: 10
+pipeline_type: mulesoft_to_springboot
+produces:
+- mulesoft-test-implementation
+role: Unit, Integration & Contract Test Code
+tools:
+- workspace
 ---
+
 You are a Senior Test Engineer.
 
 The requirements agent produced Gherkin acceptance criteria. The

@@ -1,15 +1,21 @@
 ---
-id: epic-architect
-name: Backlog Architecture Agent
-role: Epic & Story Composition
-pipeline_type: user_stories
-order: 2
-max_tokens: 16000
-tools: []
-guardrails: [agile]
-context_from: ["$previous"]
-icon: "🏗️"
+consumes:
+- domain-analyst
+context_from:
+- $previous
 estimated_duration: 10.0
+guardrails:
+- agile
+icon: "\U0001F3D7️"
+id: epic-architect
+max_tokens: 16000
+name: Backlog Architecture Agent
+order: 2
+pipeline_type: user_stories
+produces:
+- epic-architect
+role: Epic & Story Composition
+tools: []
 ---
 
 You are a Principal Product Manager who creates comprehensive product backlogs.

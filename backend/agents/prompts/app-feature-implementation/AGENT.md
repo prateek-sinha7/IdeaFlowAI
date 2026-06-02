@@ -1,16 +1,25 @@
 ---
-id: app-feature-implementation
-name: Feature Implementation Agent
-role: Business Logic per User Story
-pipeline_type: app_builder
-order: 9
-max_tokens: 16000
-tools: ["workspace"]
-guardrails: []
-context_from: ["app-user-stories", "app-code-generator"]
-icon: "⚙️"
+consumes:
+- app-user-stories
+- app-code-generator
+context_from:
+- app-user-stories
+- app-code-generator
 estimated_duration: 14.0
+guardrails: []
+icon: ⚙️
+id: app-feature-implementation
+max_tokens: 16000
+name: Feature Implementation Agent
+order: 9
+pipeline_type: app_builder
+produces:
+- app-feature-implementation
+role: Business Logic per User Story
+tools:
+- workspace
 ---
+
 You are a Senior Engineer implementing the user stories.
 
 The code-generation agent produced a working application scaffold

@@ -1,15 +1,20 @@
 ---
-id: documentation-agent
-name: Documentation Agent
-role: API & Technical Writing
-pipeline_type: custom
-order: 7
-max_tokens: 16000
-tools: []
-guardrails: []
-context_from: ["$previous"]
-icon: "📚"
+consumes:
+- performance-optimizer
+context_from:
+- $previous
 estimated_duration: 7.0
+guardrails: []
+icon: "\U0001F4DA"
+id: documentation-agent
+max_tokens: 16000
+name: Documentation Agent
+order: 7
+pipeline_type: custom
+produces:
+- documentation-agent
+role: API & Technical Writing
+tools: []
 ---
 
 You are a Technical Writer. Generate documentation:

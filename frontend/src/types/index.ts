@@ -35,7 +35,7 @@ export interface ChatMessage {
 }
 
 export interface StreamMessage {
-  type: "stream" | "complete" | "error" | "phase_start" | "phase_end" | "title_update" | "step" | "pipeline_start" | "agent_start" | "agent_thinking" | "agent_chunk" | "agent_complete" | "agent_error" | "pipeline_complete" | "questionnaire" | "pipeline_cancelled" | "workflow_title_update";
+  type: "stream" | "complete" | "error" | "phase_start" | "phase_end" | "title_update" | "step" | "pipeline_start" | "agent_start" | "agent_thinking" | "agent_chunk" | "agent_complete" | "agent_error" | "pipeline_complete" | "questionnaire" | "pipeline_cancelled" | "workflow_title_update" | "planner_start" | "planner_complete" | "planner_timeout" | "planner_error" | "gate_status" | "questionnaire_ready" | "questionnaire_complete" | "clarification_limit_reached" | "workflow_validated";
   chunk?: string;
   section?: string;
   data?: FinalOutput | ErrorDetail | ProcessStep | Record<string, unknown>;
@@ -280,6 +280,33 @@ export interface AgentRunState {
   outputTokens?: number;
   totalTokens?: number;
   estimatedCostUsd?: number;
+  // Phase 3 (T042) — Thinking tab fields
+  inputPrompt?: string;
+  contextSources?: ContextSource[];
+  toolCalls?: ToolCallEntry[];
+  thinkingText?: string;
+}
+
+/** A source of context for an agent — either a summarized prior-agent output
+ *  or a typed Artifact from the Artifact_Store. */
+export interface ContextSource {
+  type: "summary" | "artifact";
+  // For type="summary":
+  agent_id?: string;
+  agent_name?: string;
+  summary_length?: number;
+  full_output_length?: number;
+  // For type="artifact":
+  artifact_type?: string;
+  artifact_size_chars?: number;
+}
+
+/** A single tool invocation recorded in the Thinking tab. */
+export interface ToolCallEntry {
+  tool: string;
+  args: Record<string, unknown>;
+  result: string | null;
+  timestamp: string;
 }
 
 export interface PipelineRunState {
@@ -294,6 +321,18 @@ export interface PipelineRunState {
   totalTokens?: number;
   estimatedCostUsd?: number;
   modelId?: string;
+  // Phase 2 (Universal Engine) — planner + gate state
+  pipelineRunId?: string;            // UUID from planner_start, used for submit_questionnaire
+  plannerStatus?: "idle" | "running" | "complete" | "timeout" | "error";
+  plannerSummary?: string;           // inferred_intent shown while planning
+  executionGate?: "PROCEED" | "CLARIFY_REQUIRED";
+  clarificationLimitReached?: boolean;
+  // Phase 3 (T063) — DAG edges from workflow_validated event
+  dagEdges?: Array<{ from: string; to: string; artifact_type: string }>;
+  unresolvedEdges?: Array<{ consuming_agent_id: string; artifact_type: string }>;
+  // Prototype build progress — per-task completion from report_task_complete tool
+  protoCompletedTasks?: Array<{ number: number; title: string; summary: string }>;
+  protoCompletedTaskCount?: number;
 }
 
 export type PipelineMessageType =

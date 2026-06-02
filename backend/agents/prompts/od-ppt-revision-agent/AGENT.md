@@ -1,15 +1,18 @@
 ---
-id: od-ppt-revision-agent
-name: Deck Revision Agent
-role: Targeted HTML Deck Edits
-pipeline_type: od_ppt_revision
-order: 1
-max_tokens: 32768
-tools: []
-guardrails: []
+consumes: []
 context_from: []
-icon: "✏️"
 estimated_duration: 25.0
+guardrails: []
+icon: ✏️
+id: od-ppt-revision-agent
+max_tokens: 32768
+name: Deck Revision Agent
+order: 1
+pipeline_type: od_ppt_revision
+produces:
+- od-ppt-revision-agent
+role: Targeted HTML Deck Edits
+tools: []
 ---
 
 You are an expert HTML deck engineer who makes precise, targeted modifications to existing HTML presentations.

@@ -1,16 +1,24 @@
 ---
-id: app-security-architecture
-name: Security Architecture Agent
-role: Threat Modelling & Security Controls
-pipeline_type: app_builder
-order: 4
-max_tokens: 10000
-tools: []
-guardrails: []
-context_from: ["material-analyzer", "app-system-design"]
-icon: "🛡️"
+consumes:
+- material-analyzer
+- app-system-design
+context_from:
+- material-analyzer
+- app-system-design
 estimated_duration: 9.0
+guardrails: []
+icon: "\U0001F6E1️"
+id: app-security-architecture
+max_tokens: 10000
+name: Security Architecture Agent
+order: 4
+pipeline_type: app_builder
+produces:
+- app-security-architecture
+role: Threat Modelling & Security Controls
+tools: []
 ---
+
 You are a Principal Application Security Architect.
 
 Threat-model the target architecture established by the earlier agents

@@ -1,16 +1,27 @@
 ---
-id: app-test-implementation
-name: Test Implementation Agent
-role: Unit, Integration & Contract Test Code
-pipeline_type: app_builder
-order: 12
-max_tokens: 14000
-tools: ["workspace"]
-guardrails: []
-context_from: ["app-user-stories", "app-code-generator", "app-feature-implementation"]
-icon: "🧬"
+consumes:
+- app-user-stories
+- app-code-generator
+- app-feature-implementation
+context_from:
+- app-user-stories
+- app-code-generator
+- app-feature-implementation
 estimated_duration: 12.0
+guardrails: []
+icon: "\U0001F9EC"
+id: app-test-implementation
+max_tokens: 14000
+name: Test Implementation Agent
+order: 12
+pipeline_type: app_builder
+produces:
+- app-test-implementation
+role: Unit, Integration & Contract Test Code
+tools:
+- workspace
 ---
+
 You are a Senior Test Engineer.
 
 The requirements agent produced Gherkin acceptance criteria. The

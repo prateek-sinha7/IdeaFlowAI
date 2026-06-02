@@ -12,7 +12,7 @@ import logging
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -213,7 +213,7 @@ def get_github_pat_status(
     )
 
 
-@router.delete("/github-pat", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/github-pat", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 def delete_github_pat(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -285,7 +285,7 @@ def list_api_keys(
     ]
 
 
-@router.delete("/api-keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/api-keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 def revoke_api_key(
     key_id: str,
     user: User = Depends(get_current_user),
@@ -346,3 +346,60 @@ def update_preferences(
         preferred_model=user.preferred_model,
         available_models=AVAILABLE_MODELS,
     )
+
+
+# ---------------------------------------------------------------------------
+# Constitution endpoints (Phase 3 / T074a — FR-012)
+# ---------------------------------------------------------------------------
+
+
+class ConstitutionResponse(BaseModel):
+    content: str | None = None
+
+
+class ConstitutionRequest(BaseModel):
+    content: str = Field(..., min_length=1, max_length=1_048_576)
+
+
+@router.get("/constitution", response_model=ConstitutionResponse)
+async def get_constitution(
+    user: User = Depends(get_current_user),
+) -> ConstitutionResponse:
+    """Retrieve the user's Constitution from Workflow_Memory.
+
+    Returns null content if no Constitution has been set.
+    """
+    from agents.workflow_memory.memory import get_workflow_memory
+    memory = get_workflow_memory()
+    content = await memory.get_constitution(user.id)
+    return ConstitutionResponse(content=content)
+
+
+@router.put("/constitution", response_model=ConstitutionResponse)
+async def set_constitution(
+    payload: ConstitutionRequest,
+    user: User = Depends(get_current_user),
+) -> ConstitutionResponse:
+    """Persist the user's Constitution to Workflow_Memory.
+
+    The Constitution is injected into every governed agent's system prompt
+    as a guardrail on all subsequent pipeline runs.
+    """
+    from agents.workflow_memory.memory import get_workflow_memory, WorkflowMemoryError
+    memory = get_workflow_memory()
+    try:
+        await memory.set_constitution(user.id, payload.content)
+    except WorkflowMemoryError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return ConstitutionResponse(content=payload.content)
+
+
+@router.delete("/constitution")
+async def delete_constitution(
+    user: User = Depends(get_current_user),
+) -> Response:
+    """Delete the user's Constitution from Workflow_Memory."""
+    from agents.workflow_memory.memory import get_workflow_memory
+    memory = get_workflow_memory()
+    await memory.delete_constitution(user.id)
+    return Response(status_code=204)

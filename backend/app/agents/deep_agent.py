@@ -33,6 +33,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, AsyncGenerator
 
@@ -122,6 +123,15 @@ class DeepAgent:
           {type: "tool_result", tool: str, result: str} — tool execution result
           {type: "done",        output: str}             — final text output
           {type: "error",       error: str}
+
+        THREADING MODEL:
+        Each LLM call runs in asyncio.to_thread() to prevent blocking the event loop.
+        Both langchain_anthropic and langchain_aws (boto3) can block the event loop
+        during large-input calls — serialization, token counting, and sometimes the
+        HTTP streaming itself runs synchronously. Running in a thread ensures:
+          - asyncio.timeout() in the caller ALWAYS fires on schedule
+          - Heartbeats, reconnect handlers, and other coroutines keep running
+          - No event loop freeze regardless of input size or model response time
         """
         from langchain_core.messages import ToolMessage
 
@@ -134,30 +144,75 @@ class DeepAgent:
         full_output = ""
 
         for iteration in range(self.max_iterations):
-            # ── LLM call ─────────────────────────────────────────────────
-            response_chunks: list[str] = []
-            ai_message = None
+            # ── LLM call in thread — never blocks the event loop ──────────
+            # We run the synchronous .stream() (not .astream()) in a thread.
+            # This is correct even for langchain_anthropic: under the hood,
+            # astream() calls the sync stream() via run_in_executor anyway,
+            # but with extra overhead. Using to_thread directly is cleaner and
+            # guarantees the event loop is free during the entire call.
+            #
+            # The thread returns (chunks, ai_message, error) as a tuple.
+            # We then yield the chunks from the event loop (safe — no thread access).
+            ai_message_container: list = []  # [ai_msg] or []
+            error_container: list = []       # [exc] or []
+            chunks_container: list = []      # [chunk_str, ...]
 
+            def _sync_llm_iteration(msgs: list) -> None:
+                """Run one LLM iteration synchronously in a thread."""
+                try:
+                    ai_msg = None
+                    for chunk in self.llm_with_tools.stream(msgs):
+                        text = _extract_text(chunk.content)
+                        if text:
+                            chunks_container.append(text)
+                        if ai_msg is None:
+                            ai_msg = chunk
+                        else:
+                            try:
+                                ai_msg = ai_msg + chunk
+                            except Exception:
+                                pass  # some chunk types don't support +
+                    if ai_msg is not None:
+                        ai_message_container.append(ai_msg)
+                except Exception as exc:
+                    error_container.append(exc)
+
+            # Run in thread with a generous per-call timeout.
+            # The timeout here uses asyncio.wait_for on the to_thread coroutine,
+            # which ALWAYS works because to_thread is a proper coroutine that
+            # yields control to the event loop.
             try:
-                async for chunk in self.llm_with_tools.astream(messages):
-                    text = _extract_text(chunk.content)
-                    if text:
-                        response_chunks.append(text)
-                        full_output += text
-                        yield {"type": "chunk", "chunk": text}
-                    # Accumulate full message for tool_call detection
-                    if ai_message is None:
-                        ai_message = chunk
-                    else:
-                        ai_message = ai_message + chunk
-            except Exception as exc:
-                logger.exception("LLM call failed on iteration %d", iteration)
+                await asyncio.wait_for(
+                    asyncio.to_thread(_sync_llm_iteration, list(messages)),
+                    timeout=300,  # 5 min max per LLM call — enough for any size
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "LLM call timed out (5min) on iteration %d — using partial output",
+                    iteration,
+                )
+                if full_output:
+                    yield {"type": "done", "output": full_output}
+                else:
+                    yield {"type": "error", "error": "LLM call timed out after 5 minutes"}
+                return
+
+            # Check for error from thread
+            if error_container:
+                exc = error_container[0]
+                logger.exception("LLM call failed on iteration %d: %s", iteration, exc)
                 yield {"type": "error", "error": str(exc)}
                 return
 
-            if ai_message is None:
+            # Yield all accumulated text chunks
+            for text in chunks_container:
+                full_output += text
+                yield {"type": "chunk", "chunk": text}
+
+            if not ai_message_container:
                 break
 
+            ai_message = ai_message_container[0]
             messages.append(ai_message)
 
             # ── Emit token usage for this iteration ───────────────────────
@@ -176,7 +231,7 @@ class DeepAgent:
                 yield {"type": "done", "output": full_output}
                 return
 
-            # ── Execute each tool call ────────────────────────────────────
+            # ── Execute each tool call (also in thread for safety) ────────
             for tc in tool_calls:
                 tool_name = tc.get("name") or tc.get("function", {}).get("name", "unknown")
                 tool_args = tc.get("args") or tc.get("function", {}).get("arguments", {})
@@ -186,7 +241,8 @@ class DeepAgent:
 
                 if tool_name in tool_map:
                     try:
-                        result = tool_map[tool_name].invoke(tool_args)
+                        # Run tool in thread — tools may do file I/O or heavy computation
+                        result = await asyncio.to_thread(tool_map[tool_name].invoke, tool_args)
                         result_str = str(result)
                     except Exception as exc:
                         result_str = f"Tool error: {exc}"
@@ -195,7 +251,6 @@ class DeepAgent:
 
                 yield {"type": "tool_result", "tool": tool_name, "result": result_str}
 
-                # Feed the tool result back into the conversation
                 messages.append(
                     ToolMessage(content=result_str, tool_call_id=tool_id)
                 )
@@ -220,7 +275,7 @@ class DeepAgent:
         """Stream text chunks then yield a final TokenUsage — mirrors BaseAgent.
 
         The orchestrator calls this for text-only agents (tools=[]).
-        Captures usage_metadata from the last LangChain chunk.
+        Runs in asyncio.to_thread() to prevent blocking the event loop.
         """
         from app.agents.base import TokenUsage
 
@@ -229,17 +284,33 @@ class DeepAgent:
             HumanMessage(content=user_message),
         ]
 
-        last_chunk = None
-        async for chunk in self.llm_with_tools.astream(messages):
-            text = _extract_text(chunk.content)
-            if text:
-                yield text
-            last_chunk = chunk
+        chunks_out: list[str] = []
+        last_chunk_container: list = []
 
-        # Extract token usage from the final chunk's usage_metadata
+        def _sync_stream() -> None:
+            last = None
+            for chunk in self.llm_with_tools.stream(messages):
+                text = _extract_text(chunk.content)
+                if text:
+                    chunks_out.append(text)
+                last = chunk
+            if last is not None:
+                last_chunk_container.append(last)
+
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(_sync_stream),
+                timeout=300,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("astream_with_usage timed out after 5min")
+
+        for text in chunks_out:
+            yield text
+
         usage = TokenUsage()
-        if last_chunk is not None:
-            meta = getattr(last_chunk, "usage_metadata", None)
+        if last_chunk_container:
+            meta = getattr(last_chunk_container[0], "usage_metadata", None)
             if meta:
                 usage = TokenUsage(
                     input_tokens=meta.get("input_tokens", 0),

@@ -1,16 +1,25 @@
 ---
-id: dotnet-azure-ai
-name: Azure AI Integration Agent
-role: Cognitive & Generative AI Augmentation
-pipeline_type: dotnet_to_azure
-order: 8
-max_tokens: 10000
-icon: "🧠"
+consumes:
+- dotnet-modernization
+- dotnet-feature-coding
+context_from:
+- dotnet-modernization
+- dotnet-feature-coding
 estimated_duration: 10.0
+guardrails:
+- dotnet
+icon: "\U0001F9E0"
+id: dotnet-azure-ai
+max_tokens: 10000
+name: Azure AI Integration Agent
+order: 8
+pipeline_type: dotnet_to_azure
+produces:
+- dotnet-azure-ai
+role: Cognitive & Generative AI Augmentation
 tools: []
-guardrails: [dotnet]
-context_from: ["dotnet-modernization", "dotnet-feature-coding"]
 ---
+
 You are an Azure AI Integration Architect.
 
 Review the modernised .NET 8 codebase and recommend Azure AI integrations

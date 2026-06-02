@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, Sparkles, ChevronDown, ChevronRight, Layers, Eye } from "lucide-react";
 import { getToken } from "@/lib/api";
 import {
   listDesignSystems,
@@ -32,8 +32,9 @@ export default function PrototypeTemplatesPage() {
   // Holds the body of a custom template when one is selected; null for built-in templates
   const [customTemplateBody, setCustomTemplateBody] = useState<string | null>(null);
   const [brief, setBrief] = useState("");
-
   const [chainFrom, setChainFrom] = useState<string | null>(null);
+  const [chainContextBlock, setChainContextBlock] = useState<string | null>(null);
+  const [contextExpanded, setContextExpanded] = useState(false);
 
   useEffect(() => {
     const token = getToken();
@@ -42,6 +43,9 @@ export default function PrototypeTemplatesPage() {
     // Check if we arrived via a chain action
     const from = sessionStorage.getItem("chain.from");
     if (from) setChainFrom(from);
+    // Read the structured context block from the previous pipeline
+    const ctx = sessionStorage.getItem("chain.context_block");
+    if (ctx) setChainContextBlock(ctx);
   }, [router]);
 
   // Restore draft on refresh
@@ -130,22 +134,40 @@ export default function PrototypeTemplatesPage() {
     }
   }, []);
 
-  const canContinue = Boolean(selectedTemplateId && selectedDsId && brief.trim());
+  const isChaining = Boolean(chainFrom);
+  const canContinue = Boolean(
+    selectedTemplateId && selectedDsId &&
+    (isChaining || brief.trim())  // brief not required when chaining
+  );
 
   const handleContinue = useCallback(() => {
     if (!canContinue) return;
+    const sourceRunId = sessionStorage.getItem("chain.source_run_id") ?? undefined;
+    const contextBlock = sessionStorage.getItem("chain.context_block") ?? undefined;
+    sessionStorage.removeItem("chain.context_block");
+
+    // When chaining: use context block as the brief (it contains the full topic + content).
+    // When fresh: append context block to user's brief if available.
+    let finalBrief: string;
+    if (isChaining && contextBlock) {
+      finalBrief = contextBlock;
+    } else if (contextBlock && brief.trim()) {
+      finalBrief = `${brief.trim()}\n\n${contextBlock}`;
+    } else {
+      finalBrief = brief.trim();
+    }
+
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
       templateId: selectedTemplateId,
       designSystemId: selectedDsId,
-      brief: brief.trim(),
+      brief: finalBrief,
       ...(customDsBody ? { customDsBody } : {}),
       ...(customTemplateBody ? { customTemplateBody } : {}),
+      ...(sourceRunId ? { sourceRunId } : {}),
     }));
-    // Skip the static discovery page — go directly to dashboard where the
-    // dynamic questionnaire will fire before the pipeline starts.
     sessionStorage.setItem("od_prototype.pending", "true");
     router.push("/dashboard");
-  }, [canContinue, selectedTemplateId, selectedDsId, brief, customDsBody, customTemplateBody, router]);
+  }, [canContinue, isChaining, selectedTemplateId, selectedDsId, brief, customDsBody, customTemplateBody, router]);
 
   if (!authChecked) {
     return (
@@ -169,13 +191,13 @@ export default function PrototypeTemplatesPage() {
           </button>
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-400">
-              New prototype · Step 1 of 2
+              {isChaining ? "Chained prototype" : "New prototype"} · {isChaining ? "Step 1 of 1" : "Step 1 of 2"}
             </p>
             <h1
               className="text-[15px] font-normal italic text-gray-900"
               style={{ fontFamily: "var(--font-fraunces)" }}
             >
-              Configure your prototype
+              {isChaining ? "Pick a template & design system" : "Configure your prototype"}
             </h1>
           </div>
         </div>
@@ -183,8 +205,57 @@ export default function PrototypeTemplatesPage() {
 
       <main className="mx-auto max-w-5xl space-y-8 px-6 py-8 pb-16">
 
-        {/* Chain context banner */}
-        {chainFrom && (
+        {/* Chain context panel — shows extracted content from previous pipeline */}
+        {chainFrom && chainContextBlock && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setContextExpanded(v => !v)}
+              className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-emerald-100/50 transition-colors"
+            >
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-100 flex-shrink-0">
+                <Layers className="h-3.5 w-3.5 text-emerald-700" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[12px] font-semibold text-emerald-800">
+                  Context from previous pipeline
+                </p>
+                <p className="text-[10px] text-emerald-600 truncate">
+                  {{
+                    od_ppt: "Presentation slide plan", od_ppt_revision: "Presentation slide plan",
+                    ppt: "Presentation slide plan", ppt_revision: "Presentation slide plan",
+                    user_stories: "Product backlog", user_stories_revision: "Product backlog",
+                    app_builder: "App architecture", app_builder_revision: "App architecture",
+                  }[chainFrom] ?? "Previous pipeline output"} · will be passed to agents
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span className="text-[9px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">
+                  {contextExpanded ? "Hide" : "Preview"}
+                </span>
+                {contextExpanded
+                  ? <ChevronDown className="h-4 w-4 text-emerald-600" />
+                  : <ChevronRight className="h-4 w-4 text-emerald-600" />}
+              </div>
+            </button>
+            {contextExpanded && (
+              <div className="border-t border-emerald-200 px-4 py-3">
+                <p className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Eye className="h-3 w-3" /> What agents will receive
+                </p>
+                <pre className="text-[10px] text-emerald-900 whitespace-pre-wrap leading-relaxed bg-white/60 rounded-lg p-3 max-h-[200px] overflow-y-auto font-mono border border-emerald-100">
+                  {chainContextBlock}
+                </pre>
+                <p className="text-[10px] text-emerald-600 mt-2">
+                  This context is automatically appended to your brief when the pipeline runs. You can edit the brief above to add more details.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Chain banner (no context yet — still loading) */}
+        {chainFrom && !chainContextBlock && (
           <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 flex items-center gap-3">
             <div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 flex-shrink-0">
               <span className="text-[11px]">→</span>
@@ -196,41 +267,43 @@ export default function PrototypeTemplatesPage() {
                 od_prototype: "Prototype", prototype: "Prototype", prototype_revision: "Prototype",
                 user_stories: "User Stories", user_stories_revision: "User Stories",
                 app_builder: "App Builder", app_builder_revision: "App Builder",
-              }[chainFrom] ?? chainFrom}</strong> — your brief is pre-filled. Pick a template and design system to generate the prototype.
+              }[chainFrom] ?? chainFrom}</strong> — your brief is pre-filled.
             </p>
           </div>
         )}
 
-        {/* ── Section 1: Brief ───────────────────────────────────────────── */}
-        <section>
-          <SectionLabel number={1} title="Describe what you're building" />
-          <div className="mt-3 rounded-2xl border border-gray-200/70 bg-white">
-            <textarea
-              value={brief}
-              onChange={(e) => setBrief(e.target.value)}
-              placeholder="e.g. A kanban board for a 5-person growth squad — backlog, doing, review, done. Show real ticket titles and assignee avatars."
-              rows={5}
-              className="w-full resize-none rounded-2xl bg-transparent px-5 py-4 text-[14px] leading-relaxed text-gray-900 placeholder:text-gray-400 focus:outline-none"
-            />
-            {selectedTemplate?.example_prompt && (
-              <div className="border-t border-gray-100 px-5 py-2.5">
-                <button
-                  type="button"
-                  onClick={() => setBrief(selectedTemplate.example_prompt ?? "")}
-                  className="inline-flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-[#1B2A4A]"
-                >
-                  <Sparkles className="h-3 w-3" />
-                  Use template example
-                  <span className="italic text-gray-400">"{selectedTemplate.example_prompt}"</span>
-                </button>
-              </div>
-            )}
-          </div>
-        </section>
+        {/* ── Section 1: Brief — hidden when chaining (topic comes from previous run) */}
+        {!isChaining && (
+          <section>
+            <SectionLabel number={1} title="Describe what you're building" />
+            <div className="mt-3 rounded-2xl border border-gray-200/70 bg-white">
+              <textarea
+                value={brief}
+                onChange={(e) => setBrief(e.target.value)}
+                placeholder="e.g. A kanban board for a 5-person growth squad — backlog, doing, review, done. Show real ticket titles and assignee avatars."
+                rows={5}
+                className="w-full resize-none rounded-2xl bg-transparent px-5 py-4 text-[14px] leading-relaxed text-gray-900 placeholder:text-gray-400 focus:outline-none"
+              />
+              {selectedTemplate?.example_prompt && (
+                <div className="border-t border-gray-100 px-5 py-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setBrief(selectedTemplate.example_prompt ?? "")}
+                    className="inline-flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-[#1B2A4A]"
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    Use template example
+                    <span className="italic text-gray-400">"{selectedTemplate.example_prompt}"</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
-        {/* ── Section 2: Template ────────────────────────────────────────── */}
+        {/* ── Section 2 (or 1 when chaining): Template ──────────────────── */}
         <section>
-          <SectionLabel number={2} title="Choose a template" subtitle="Sets the visual DNA — chrome, layout patterns, component style." />
+          <SectionLabel number={isChaining ? 1 : 2} title="Choose a template" subtitle="Sets the visual DNA — chrome, layout patterns, component style." />
           <div className="mt-3">
             {loadError ? (
               <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-[13px] text-red-700">
@@ -250,9 +323,9 @@ export default function PrototypeTemplatesPage() {
           </div>
         </section>
 
-        {/* ── Section 3: Design system ───────────────────────────────────── */}
+        {/* ── Section 3 (or 2 when chaining): Design system ─────────────── */}
         <section>
-          <SectionLabel number={3} title="Choose a design system" />
+          <SectionLabel number={isChaining ? 2 : 3} title="Choose a design system" />
           <div className="mt-3">
             {systems.length === 0 ? (
               <div className="h-48 animate-pulse rounded-2xl bg-white/60" />
@@ -271,7 +344,7 @@ export default function PrototypeTemplatesPage() {
         <div className="pt-2">
           {!canContinue && (
             <div className="mb-4 flex flex-wrap gap-2">
-              {!brief.trim() && <Pill label="Add a brief" />}
+              {!isChaining && !brief.trim() && <Pill label="Add a brief" />}
               {!selectedTemplateId && <Pill label="Pick a template" />}
               {!selectedDsId && <Pill label="Pick a design system" />}
             </div>

@@ -1,16 +1,25 @@
 ---
-id: dotnet-test-compliance
-name: Test Compliance Agent
-role: Test Strategy & Coverage Gates
-pipeline_type: dotnet_to_azure
-order: 11
-max_tokens: 10000
-icon: "🎯"
+consumes:
+- dotnet-security-architecture
+- dotnet-test-implementation
+context_from:
+- dotnet-security-architecture
+- dotnet-test-implementation
 estimated_duration: 8.0
+guardrails:
+- dotnet
+icon: "\U0001F3AF"
+id: dotnet-test-compliance
+max_tokens: 10000
+name: Test Compliance Agent
+order: 11
+pipeline_type: dotnet_to_azure
+produces:
+- dotnet-test-compliance
+role: Test Strategy & Coverage Gates
 tools: []
-guardrails: [dotnet]
-context_from: ["dotnet-security-architecture", "dotnet-test-implementation"]
 ---
+
 You are a Test Strategy Lead.
 
 The validation agent (next in this pipeline) builds the parallel-run

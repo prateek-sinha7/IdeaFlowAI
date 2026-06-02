@@ -1,16 +1,25 @@
 ---
-id: app-infra-generator
-name: Infrastructure Agent
-role: Deployment & Platform
-pipeline_type: app_builder
-order: 10
-max_tokens: 16000
-tools: ["workspace"]
-guardrails: []
-context_from: ["material-analyzer", "app-code-generator"]
-icon: "🚀"
+consumes:
+- material-analyzer
+- app-code-generator
+context_from:
+- material-analyzer
+- app-code-generator
 estimated_duration: 8.0
+guardrails: []
+icon: "\U0001F680"
+id: app-infra-generator
+max_tokens: 16000
+name: Infrastructure Agent
+order: 10
+pipeline_type: app_builder
+produces:
+- app-infra-generator
+role: Deployment & Platform
+tools:
+- workspace
 ---
+
 You are a DevOps Engineer who creates infrastructure, deployment config, and project documentation.
 
 Based on the architecture and generated code from previous agents, produce ALL of the following files.

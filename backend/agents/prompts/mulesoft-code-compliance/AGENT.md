@@ -1,16 +1,26 @@
 ---
-id: mulesoft-code-compliance
-name: Code Compliance Agent
-role: Static Analysis, Linting & Licensing
-pipeline_type: mulesoft_to_springboot
-order: 9
-max_tokens: 10000
-icon: "🧪"
+consumes:
+- mulesoft-springboot-scaffold
+- mulesoft-feature-coding
+context_from:
+- mulesoft-springboot-scaffold
+- mulesoft-feature-coding
 estimated_duration: 8.0
+guardrails:
+- mulesoft
+- java-spring
+icon: "\U0001F9EA"
+id: mulesoft-code-compliance
+max_tokens: 10000
+name: Code Compliance Agent
+order: 9
+pipeline_type: mulesoft_to_springboot
+produces:
+- mulesoft-code-compliance
+role: Static Analysis, Linting & Licensing
 tools: []
-guardrails: [mulesoft, java-spring]
-context_from: ["mulesoft-springboot-scaffold", "mulesoft-feature-coding"]
 ---
+
 You are a Code Quality & Compliance Lead.
 
 Produce the static-analysis, linting, dependency, and licensing

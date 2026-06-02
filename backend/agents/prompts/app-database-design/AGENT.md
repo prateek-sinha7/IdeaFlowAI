@@ -1,16 +1,26 @@
 ---
-id: app-database-design
-name: Data Model Agent
-role: Schema, Indexes & Migrations
-pipeline_type: app_builder
-order: 7
-max_tokens: 10000
-tools: []
-guardrails: []
-context_from: ["material-analyzer", "app-system-design", "app-api-design"]
-icon: "🗄️"
+consumes:
+- material-analyzer
+- app-system-design
+- app-api-design
+context_from:
+- material-analyzer
+- app-system-design
+- app-api-design
 estimated_duration: 8.0
+guardrails: []
+icon: "\U0001F5C4️"
+id: app-database-design
+max_tokens: 10000
+name: Data Model Agent
+order: 7
+pipeline_type: app_builder
+produces:
+- app-database-design
+role: Schema, Indexes & Migrations
+tools: []
 ---
+
 You are a Principal Database Engineer.
 
 Using the system design and the API contracts, produce the data-tier

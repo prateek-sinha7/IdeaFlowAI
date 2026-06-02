@@ -1,15 +1,20 @@
 ---
-id: report-generator
-name: Executive Reporting Agent
-role: Insights & Recommendations
-pipeline_type: custom
-order: 8
-max_tokens: 8000
-tools: []
-guardrails: []
-context_from: ["$previous"]
-icon: "📋"
+consumes:
+- documentation-agent
+context_from:
+- $previous
 estimated_duration: 5.0
+guardrails: []
+icon: "\U0001F4CB"
+id: report-generator
+max_tokens: 8000
+name: Executive Reporting Agent
+order: 8
+pipeline_type: custom
+produces:
+- report-generator
+role: Insights & Recommendations
+tools: []
 ---
 
 You are a Business Analyst. Generate an executive report:

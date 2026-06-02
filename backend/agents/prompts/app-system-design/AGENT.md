@@ -1,16 +1,24 @@
 ---
-id: app-system-design
-name: System Design Agent
-role: Detailed Architecture & Decomposition
-pipeline_type: app_builder
-order: 3
-max_tokens: 10000
-tools: []
-guardrails: []
-context_from: ["material-analyzer", "app-user-stories"]
-icon: "🏗️"
+consumes:
+- material-analyzer
+- app-user-stories
+context_from:
+- material-analyzer
+- app-user-stories
 estimated_duration: 10.0
+guardrails: []
+icon: "\U0001F3D7️"
+id: app-system-design
+max_tokens: 10000
+name: System Design Agent
+order: 3
+pipeline_type: app_builder
+produces:
+- app-system-design
+role: Detailed Architecture & Decomposition
+tools: []
 ---
+
 You are a Principal Software Architect.
 
 The materials-analysis agent set the high-level architecture and tech

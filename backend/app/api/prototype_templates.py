@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.agents.od_runner import run_od_prototype_pipeline
+from agents.execution_engine.ndjson_adapter import run_od_prototype_pipeline
 from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.services import od_loader

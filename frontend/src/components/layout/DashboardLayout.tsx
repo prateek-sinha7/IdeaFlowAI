@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { WifiOff, RefreshCw } from "lucide-react";
+import { WifiOff, RefreshCw, Brain, Sparkles, Loader2 } from "lucide-react";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { AppHeader } from "./AppHeader";
 import { CreationHub } from "@/components/home/CreationHub";
@@ -15,11 +15,13 @@ import { IdeaInputPage } from "@/components/workflow/IdeaInputPage";
 import { AgentProgressPanel } from "@/components/workflow/AgentProgressPanel";
 import { PreviewPanel } from "@/components/preview/PreviewPanel";
 import { QuestionnairePanel } from "@/components/preview/QuestionnairePanel";
+import { ReviewGatePanel } from "@/components/preview/ReviewGatePanel";
 import { CompletionToast } from "@/components/ui/CompletionToast";
 import type { ToastItem } from "@/components/ui/CompletionToast";
 import { useNotifications } from "@/hooks/useNotifications";
 import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WorkflowRun, WorkflowType } from "@/types/index";
-import { canChainFrom, CHAIN_OPTIONS, CHAIN_BRIEF_KEY, CHAIN_FROM_KEY } from "@/lib/workflowChaining";
+import { canChainFrom, CHAIN_OPTIONS, CHAIN_BRIEF_KEY, CHAIN_FROM_KEY, CHAIN_SOURCE_RUN_ID_KEY } from "@/lib/workflowChaining";
+import { getToken, getChainContext } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useWebSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
@@ -50,14 +52,27 @@ export interface DashboardLayoutProps {
   recentRuns?: WorkflowRun[];
   onSelectWorkflowRun?: (run: WorkflowRun) => void;
   questionnaireData?: { questions: { id: string; question: string; options: string[] }[] } | null;
+  // Phase 2 (Universal Engine) — clarify gate resume wiring.
+  activePipelineRunId?: string | null;
+  onSubmitQuestionnaire?: (pipelineRunId: string, responses: Array<{ question_id: string; answer: string }>) => void;
+  // Review gate — shown when an agent with gate: Human_Gate completes
+  reviewGateData?: {
+    gateKey: string;
+    agentId: string;
+    agentName: string;
+    output: string;
+    pipelineRunId: string;
+  } | null;
+  onApproveReview?: (gateKey: string, editedContent?: string) => void;
+  onRejectReview?: (gateKey: string) => void;
   pendingOdProtoParams?: {
     brief: string; templateId: string; designSystemId: string; discovery: unknown;
-    customDsBody?: string; customTemplateBody?: string;
+    customDsBody?: string; customTemplateBody?: string; sourceRunId?: string;
   } | null;
   onClearPendingOdProto?: () => void;
   pendingOdPptParams?: {
     brief: string; templateId: string; designSystemId: string | null; discovery: unknown;
-    customDsBody?: string; customTemplateBody?: string;
+    customDsBody?: string; customTemplateBody?: string; sourceRunId?: string;
   } | null;
   onClearPendingOdPpt?: () => void;
   userTier?: "basic" | "pro" | "enterprise";
@@ -65,6 +80,87 @@ export interface DashboardLayoutProps {
 }
 
 type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution";
+
+// ─── Planning overlay — shown while the planner analyzes the brief ─────────────
+const PLANNING_STEPS = [
+  { icon: "🔍", label: "Reading your brief…" },
+  { icon: "🧠", label: "Analyzing intent & context…" },
+  { icon: "📋", label: "Identifying what's needed…" },
+  { icon: "⚡", label: "Preparing your pipeline…" },
+];
+
+function PlanningOverlay({ plannerSummary }: { plannerSummary?: string }) {
+  const [stepIdx, setStepIdx] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setStepIdx(i => (i + 1) % PLANNING_STEPS.length);
+    }, 1800);
+    return () => clearInterval(interval);
+  }, []);
+
+  const step = PLANNING_STEPS[stepIdx];
+
+  return (
+    <div className="flex flex-col items-center justify-center h-full bg-white gap-6 px-8">
+      {/* Animated brain icon */}
+      <div className="relative">
+        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#1B2A4A] to-blue-600 flex items-center justify-center shadow-lg">
+          <Brain className="h-8 w-8 text-white" />
+        </div>
+        {/* Pulse rings */}
+        <div className="absolute inset-0 rounded-2xl bg-[#1B2A4A]/20 animate-ping" style={{ animationDuration: "2s" }} />
+      </div>
+
+      {/* Status */}
+      <div className="text-center space-y-2">
+        <p className="text-[14px] font-bold text-gray-900">Planner is thinking…</p>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={stepIdx}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.3 }}
+            className="flex items-center justify-center gap-2"
+          >
+            <span className="text-[16px]">{step.icon}</span>
+            <p className="text-[12px] text-gray-500 font-medium">{step.label}</p>
+          </motion.div>
+        </AnimatePresence>
+      </div>
+
+      {/* What the planner is doing */}
+      <div className="w-full max-w-sm rounded-xl border border-gray-100 bg-gray-50 p-4 space-y-2.5">
+        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+          <Sparkles className="h-3 w-3" /> What the planner does
+        </p>
+        {[
+          "Detects if your brief has a clear topic",
+          "Infers audience, tone & constraints",
+          "Identifies what questions to ask",
+          "Prepares context for all agents",
+        ].map((item, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${i <= stepIdx ? "bg-[#1B2A4A]" : "bg-gray-300"}`} />
+            <p className={`text-[11px] ${i <= stepIdx ? "text-gray-700" : "text-gray-400"}`}>{item}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Loading dots */}
+      <div className="flex items-center gap-1.5">
+        {[0, 1, 2].map(i => (
+          <div
+            key={i}
+            className="w-1.5 h-1.5 rounded-full bg-[#1B2A4A]/40 animate-bounce"
+            style={{ animationDelay: `${i * 0.15}s` }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function DashboardLayout({
   activeChatId,
@@ -92,6 +188,11 @@ export function DashboardLayout({
   recentRuns,
   onSelectWorkflowRun,
   questionnaireData,
+  activePipelineRunId,
+  onSubmitQuestionnaire,
+  reviewGateData,
+  onApproveReview,
+  onRejectReview,
   pendingOdProtoParams,
   onClearPendingOdProto,
   pendingOdPptParams,
@@ -264,16 +365,30 @@ export function DashboardLayout({
     r => (r.type === workflowType || r.type === workflowType + "_revision") && r.status === "completed"
   )?.id || "";
 
-  // Handle PPT revision — branches on pipeline type:
-  // - od_ppt: sends existing HTML + instruction to od_ppt_revision (single HTML-aware agent)
-  // - ppt: sends existing PptxGenJS code + instruction to ppt_revision (old PptxGenJS agents)
+  // Handle PPT revision — Phase 3: send run_revision WS message when a
+  // completed run exists; fall back to the legacy text-injection pattern
+  // for backward compat with pre-Phase3 runs.
   const handleRevisePpt = useCallback((instruction: string) => {
     if (!pptxCode && !pptContent) return;
 
     const isOdPpt = workflowType === "od_ppt" || workflowType === "od_ppt_revision";
 
+    // Phase 3: use run_revision if we have a completed run ID
+    if (currentWorkflowRunId && websocketSend) {
+      const targetType = isOdPpt ? "od_ppt_output" : "ppt_output";
+      websocketSend(JSON.stringify({
+        type: "run_revision",
+        parent_run_id: currentWorkflowRunId,
+        target_artifact_type: targetType,
+        instruction,
+      }));
+      setWorkflowType((isOdPpt ? "od_ppt_revision" : "ppt_revision") as WorkflowType);
+      if (onResetPipeline) onResetPipeline();
+      return;
+    }
+
+    // Legacy fallback
     if (isOdPpt) {
-      // od_ppt revision — pass existing HTML deck + instruction
       const existingHtml = pptContent || "";
       const revisionMessage = `=== EXISTING HTML DECK ===\n${existingHtml.slice(0, 60000)}\n=== END EXISTING DECK ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
       setWorkflowType("od_ppt_revision" as WorkflowType);
@@ -282,7 +397,6 @@ export function DashboardLayout({
         onStartPipeline("od_ppt_revision", revisionMessage, undefined, attachedSkills, attachedHooks);
       }
     } else {
-      // ppt revision — pass existing PptxGenJS code + instruction
       const existingCode = pptxCode || "";
       const revisionMessage = `=== EXISTING PRESENTATION CODE ===\n${existingCode}\n=== END EXISTING CODE ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
       setWorkflowType("ppt_revision" as WorkflowType);
@@ -291,7 +405,7 @@ export function DashboardLayout({
         onStartPipeline("ppt_revision", revisionMessage, undefined, attachedSkills, attachedHooks);
       }
     }
-  }, [workflowType, pptxCode, pptContent, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
+  }, [workflowType, pptxCode, pptContent, currentWorkflowRunId, websocketSend, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
 
   // Handle User Story revision — re-run pipeline with existing backlog + change instruction
   const handleReviseUserStory = useCallback((instruction: string) => {
@@ -304,10 +418,16 @@ export function DashboardLayout({
     }
   }, [userStoryContent, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
 
-  // Handle Prototype revision — re-run pipeline with existing HTML + change instruction
+  // Handle Prototype revision — surgical diff approach
+  // Instead of asking the agent to reproduce the full HTML (which exceeds
+  // model output token limits), we pass the full HTML but instruct the agent
+  // to output ONLY the changed sections in a structured diff format.
+  // The engine then merges the diff back into the original HTML.
   const handleRevisePrototype = useCallback((instruction: string) => {
     if (!prototypeContent) return;
-    const revisionMessage = `=== EXISTING PROTOTYPE HTML ===\n${prototypeContent.slice(0, 40000)}\n=== END EXISTING HTML ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
+    // Pass the full prototype HTML — no slice. The agent will output only the
+    // changed sections, not the full document.
+    const revisionMessage = `=== EXISTING PROTOTYPE HTML ===\n${prototypeContent}\n=== END EXISTING HTML ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
     setWorkflowType("prototype_revision" as WorkflowType);
     if (onResetPipeline) onResetPipeline();
     if (onStartPipeline) {
@@ -362,69 +482,122 @@ export function DashboardLayout({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionStatus]);
 
+  // When the WebSocket reconnects while a pipeline is running, send
+  // reconnect_pipeline so the backend attaches the new WS to the running queue.
+  const activePipelineRunIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    activePipelineRunIdRef.current = activePipelineRunId ?? null;
+  }, [activePipelineRunId]);
+
+  // Also track pipelineState.pipelineRunId for reconnection
+  const pipelineRunIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (pipelineState?.pipelineRunId) {
+      pipelineRunIdRef.current = pipelineState.pipelineRunId;
+    }
+  }, [pipelineState?.pipelineRunId]);
+
+  useEffect(() => {
+    if (connectionStatus !== "connected") return;
+    // If a pipeline was running when we disconnected, reconnect to it.
+    // Check both in-memory state and sessionStorage (handles tab close/reopen).
+    const runId = pipelineRunIdRef.current
+      ?? activePipelineRunIdRef.current
+      ?? (typeof window !== "undefined" ? sessionStorage.getItem("active_pipeline_run_id") : null);
+
+    const isRunning = pipelineState?.isRunning
+      || (typeof window !== "undefined" && !!sessionStorage.getItem("active_pipeline_run_id"));
+
+    if (runId && isRunning && websocketSend) {
+      websocketSend(JSON.stringify({
+        type: "reconnect_pipeline",
+        pipeline_run_id: runId,
+      }));
+      // If we recovered from sessionStorage but pipelineState doesn't know,
+      // at least update the run ID ref so future reconnects work
+      if (!pipelineRunIdRef.current) {
+        pipelineRunIdRef.current = runId;
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionStatus]);
+
   // When pendingOdProtoParams arrives (set by dashboard/page.tsx after the
-  // WebSocket fires generate_questions), set up the questionnaire pending state
-  // so QuestionnairePanel shows and the submit/skip handlers know the extraParams.
+  // When pendingOdProtoParams arrives, immediately start the od_prototype pipeline.
+  // Phase 2 (Universal Engine): the legacy generate_questions pre-flight is
+  // retired. We fire run_pipeline straight away; the Deep_Planner_Agent will
+  // emit questionnaire_ready mid-run if it needs clarification (CLARIFY_REQUIRED).
   useEffect(() => {
     if (!pendingOdProtoParams) return;
     setMainView("execution");
     setWorkflowType("prototype");
-    setPendingPipelineRun({
-      type: "od_prototype" as WorkflowType,
-      message: pendingOdProtoParams.brief,
-      extraParams: {
-        template_id: pendingOdProtoParams.templateId,
-        design_system_id: pendingOdProtoParams.designSystemId,
-        ...(pendingOdProtoParams.customDsBody ? { custom_design_system_body: pendingOdProtoParams.customDsBody } : {}),
-        ...(pendingOdProtoParams.customTemplateBody ? { custom_template_body: pendingOdProtoParams.customTemplateBody } : {}),
-        discovery: pendingOdProtoParams.discovery,
-      },
-    });
     setQuestionnaireQuestions([]);
-    setQuestionnaireLoading(true);
-    // NOTE: do NOT call onResetPipeline here — there's no running pipeline to
-    // reset, and calling it causes unnecessary state churn that can disrupt
-    // the WebSocket connection before the pipeline fires.
+    setQuestionnaireLoading(false);
     if (onClearPendingOdProto) onClearPendingOdProto();
 
-    // Timeout: if questionnaire doesn't respond in 15s, skip it
-    setTimeout(() => {
-      setQuestionnaireLoading((loading) => {
-        if (loading) {
-          setQuestionnaireQuestions([]);
-          return false;
-        }
-        return loading;
-      });
-    }, 15000);
+    const extraParams = {
+      template_id: pendingOdProtoParams.templateId,
+      design_system_id: pendingOdProtoParams.designSystemId,
+      ...(pendingOdProtoParams.customDsBody ? { custom_design_system_body: pendingOdProtoParams.customDsBody } : {}),
+      ...(pendingOdProtoParams.customTemplateBody ? { custom_template_body: pendingOdProtoParams.customTemplateBody } : {}),
+      discovery: pendingOdProtoParams.discovery,
+      // Phase 3 (T056): pass source_workflow_run_id for revision chaining
+      ...(pendingOdProtoParams.sourceRunId ? { source_workflow_run_id: pendingOdProtoParams.sourceRunId } : {}),
+    };
+
+    if (onStartPipeline) {
+      const notifId = `pipeline-${Date.now()}`;
+      addRunningNotification(notifId, "prototype", pendingOdProtoParams.brief.slice(0, 60), 0);
+      if (connectionStatus === "connected") {
+        onStartPipeline("od_prototype" as WorkflowType, pendingOdProtoParams.brief, [], attachedSkills, attachedHooks, extraParams);
+      } else {
+        pendingStartOnConnectRef.current = {
+          type: "od_prototype" as WorkflowType,
+          message: pendingOdProtoParams.brief,
+          agentIds: [],
+          extraParams,
+        };
+      }
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingOdProtoParams]);
 
-  // When pendingOdPptParams arrives, set up the questionnaire for od_ppt.
+  // When pendingOdPptParams arrives, immediately start the od_ppt pipeline.
+  // Phase 2 (Universal Engine): the legacy generate_questions pre-flight is
+  // retired. We fire run_pipeline straight away; the Deep_Planner_Agent will
+  // emit questionnaire_ready mid-run if it needs clarification (CLARIFY_REQUIRED).
   useEffect(() => {
     if (!pendingOdPptParams) return;
     setMainView("execution");
     setWorkflowType("ppt");
-    setPendingPipelineRun({
-      type: "od_ppt" as WorkflowType,
-      message: pendingOdPptParams.brief,
-      extraParams: {
-        template_id: pendingOdPptParams.templateId,
-        ...(pendingOdPptParams.designSystemId ? { design_system_id: pendingOdPptParams.designSystemId } : {}),
-        ...(pendingOdPptParams.customDsBody ? { custom_design_system_body: pendingOdPptParams.customDsBody } : {}),
-        ...(pendingOdPptParams.customTemplateBody ? { custom_template_body: pendingOdPptParams.customTemplateBody } : {}),
-        discovery: pendingOdPptParams.discovery,
-      },
-    });
     setQuestionnaireQuestions([]);
-    setQuestionnaireLoading(true);
+    setQuestionnaireLoading(false);
     if (onClearPendingOdPpt) onClearPendingOdPpt();
-    setTimeout(() => {
-      setQuestionnaireLoading((loading) => {
-        if (loading) { setQuestionnaireQuestions([]); return false; }
-        return loading;
-      });
-    }, 15000);
+
+    const extraParams = {
+      template_id: pendingOdPptParams.templateId,
+      ...(pendingOdPptParams.designSystemId ? { design_system_id: pendingOdPptParams.designSystemId } : {}),
+      ...(pendingOdPptParams.customDsBody ? { custom_design_system_body: pendingOdPptParams.customDsBody } : {}),
+      ...(pendingOdPptParams.customTemplateBody ? { custom_template_body: pendingOdPptParams.customTemplateBody } : {}),
+      discovery: pendingOdPptParams.discovery,
+      // Phase 3 (T056): pass source_workflow_run_id for revision chaining
+      ...(pendingOdPptParams.sourceRunId ? { source_workflow_run_id: pendingOdPptParams.sourceRunId } : {}),
+    };
+
+    if (onStartPipeline) {
+      const notifId = `pipeline-${Date.now()}`;
+      addRunningNotification(notifId, "ppt", pendingOdPptParams.brief.slice(0, 60), 0);
+      if (connectionStatus === "connected") {
+        onStartPipeline("od_ppt" as WorkflowType, pendingOdPptParams.brief, [], attachedSkills, attachedHooks, extraParams);
+      } else {
+        pendingStartOnConnectRef.current = {
+          type: "od_ppt" as WorkflowType,
+          message: pendingOdPptParams.brief,
+          agentIds: [],
+          extraParams,
+        };
+      }
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingOdPptParams]);
 
@@ -445,33 +618,25 @@ export function DashboardLayout({
     setWorkflowInput(message);
     setMainView("execution");
     setWorkflowType(resolvedType);
-    setPendingPipelineRun({ type: resolvedType, message, agentIds });
-    setQuestionnaireQuestions([]);
-    setQuestionnaireLoading(true);
 
     // Reset previous pipeline state so left panel clears
     if (onResetPipeline) onResetPipeline();
 
-    // Timeout: if questionnaire doesn't respond in 15s, skip it
-    setTimeout(() => {
-      setQuestionnaireLoading((loading) => {
-        if (loading) {
-          setQuestionnaireQuestions([]);
-          return false;
-        }
-        return loading;
-      });
-    }, 15000);
-
-    // Request questionnaire from backend
-    if (websocketSend) {
-      websocketSend(JSON.stringify({
-        type: "generate_questions",
-        pipeline_type: resolvedType,
-        message,
-      }));
+    // Phase 2 (Universal Engine): start the pipeline directly. The Deep_Planner_Agent
+    // runs first and gates execution; the clarify questionnaire now appears mid-run
+    // ONLY when the planner issues CLARIFY_REQUIRED (via the `questionnaire_ready`
+    // event). The legacy `generate_questions` pre-step and its 15s timeout are retired.
+    if (onStartPipeline) {
+      const notifId = `pipeline-${Date.now()}`;
+      currentPipelineNotifId.current = notifId;
+      addRunningNotification(notifId, resolvedType, message.slice(0, 60), 0);
+      if (connectionStatus === "connected") {
+        onStartPipeline(resolvedType, message, agentIds, attachedSkills, attachedHooks);
+      } else {
+        pendingStartOnConnectRef.current = { type: resolvedType, message, agentIds };
+      }
     }
-  }, [websocketSend, onResetPipeline]);
+  }, [onStartPipeline, onResetPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
 
   // Go back to home
   const handleGoHome = useCallback(() => {
@@ -483,46 +648,82 @@ export function DashboardLayout({
   }, [onResetPipeline, isPipelineRunning]);
 
   // Chain to another pipeline using previous output as context
-  const handleChainPipeline = useCallback((nextType: WorkflowType) => {
+  const handleChainPipeline = useCallback(async (nextType: WorkflowType) => {
     // Check if this chain target requires a wizard (prototype, ppt)
     const option = CHAIN_OPTIONS.find((o) => o.type === nextType);
+
+    // Find the source run ID for context fetching
+    const sourceRun = recentRuns?.find(
+      r => (r.type === workflowType || r.type === (workflowType as string).replace(/_revision$/, "")) && r.status === "completed"
+    );
+    const sourceRunId = sourceRun?.id;
+
     if (option?.requiresWizard && option.wizardPath) {
       // Store the current brief so the wizard can pre-fill it
       const cleanBrief = workflowInput.split("\n\n===")[0].trim();
       sessionStorage.setItem(CHAIN_BRIEF_KEY, cleanBrief);
       sessionStorage.setItem(CHAIN_FROM_KEY, workflowType);
+      if (sourceRunId) {
+        sessionStorage.setItem(CHAIN_SOURCE_RUN_ID_KEY, sourceRunId);
+        // Also store the structured context so the wizard can pass it
+        // as part of the brief when the pipeline fires
+        try {
+          const token = getToken();
+          if (token) {
+            const ctx = await getChainContext(token, sourceRunId);
+            if (ctx.context_block) {
+              sessionStorage.setItem("chain.context_block", ctx.context_block);
+            }
+          }
+        } catch { /* non-fatal */ }
+      } else {
+        sessionStorage.removeItem(CHAIN_SOURCE_RUN_ID_KEY);
+        sessionStorage.removeItem("chain.context_block");
+      }
       router.push(option.wizardPath);
       return;
     }
 
     setWorkflowType(nextType);
 
-    // For HTML-output pipelines, don't include raw HTML in chain context
-    const isHtmlOutput = workflowType === "od_ppt" || workflowType === "od_ppt_revision" ||
-      workflowType === "od_prototype" || workflowType === "prototype" || workflowType === "prototype_revision";
-    const prevSummary = isHtmlOutput
-      ? `[${workflowType} output — HTML file]`
-      : lastPipelineOutput.slice(0, 4000);
-    const enrichedInput = `${workflowInput}\n\n=== CONTEXT FROM PREVIOUS PIPELINE (${workflowType}) ===\n${prevSummary}\n=== END PREVIOUS CONTEXT ===`;
-
-    // Reset previous pipeline state so left panel clears
-    if (onResetPipeline) onResetPipeline();
-
-    // Trigger questionnaire first (same as handleRunPipeline)
-    setWorkflowInput(enrichedInput);
-    setPendingPipelineRun({ type: nextType, message: enrichedInput });
-    setQuestionnaireQuestions([]);
-    setQuestionnaireLoading(true);
-
-    // Request questionnaire from backend
-    if (websocketSend) {
-      websocketSend(JSON.stringify({
-        type: "generate_questions",
-        pipeline_type: nextType,
-        message: enrichedInput,
-      }));
+    // Fetch structured context from the source run
+    let contextBlock = "";
+    if (sourceRunId) {
+      try {
+        const token = getToken();
+        if (token) {
+          const ctx = await getChainContext(token, sourceRunId);
+          contextBlock = ctx.context_block;
+        }
+      } catch {
+        // Fallback: use the old approach
+        const isHtmlOutput = workflowType === "od_ppt" || workflowType === "od_ppt_revision" ||
+          workflowType === "od_prototype" || workflowType === "prototype" || workflowType === "prototype_revision";
+        contextBlock = isHtmlOutput
+          ? `=== CONTEXT FROM PREVIOUS PIPELINE (${workflowType}) ===\n[${workflowType} output — HTML file]\n=== END PREVIOUS CONTEXT ===`
+          : `=== CONTEXT FROM PREVIOUS PIPELINE (${workflowType}) ===\n${lastPipelineOutput.slice(0, 4000)}\n=== END PREVIOUS CONTEXT ===`;
+      }
     }
-  }, [workflowType, workflowInput, lastPipelineOutput, websocketSend, onResetPipeline]);
+
+    const cleanBrief = workflowInput.split("\n\n===")[0].trim();
+    const enrichedInput = contextBlock
+      ? `${cleanBrief}\n\n${contextBlock}`
+      : cleanBrief;
+
+    if (onResetPipeline) onResetPipeline();
+    setWorkflowInput(enrichedInput);
+
+    if (onStartPipeline) {
+      const notifId = `pipeline-${Date.now()}`;
+      currentPipelineNotifId.current = notifId;
+      addRunningNotification(notifId, nextType, enrichedInput.slice(0, 60), 0);
+      if (connectionStatus === "connected") {
+        onStartPipeline(nextType, enrichedInput, [], attachedSkills, attachedHooks);
+      } else {
+        pendingStartOnConnectRef.current = { type: nextType, message: enrichedInput, agentIds: [] };
+      }
+    }
+  }, [workflowType, workflowInput, lastPipelineOutput, recentRuns, onStartPipeline, onResetPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
 
   // Chain to another pipeline starting from a historical run. The user is
   // viewing a past WorkflowRun in the history view; they pick a next
@@ -530,28 +731,53 @@ export function DashboardLayout({
   // enrichment (NOT the current dashboard state, which is stale for the
   // run they just opened from history). After dispatching we switch to
   // the execution view so the new pipeline shows the agent progress.
-  const handleChainFromHistory = useCallback((run: WorkflowRun, nextType: WorkflowType) => {
-    // Check if this chain target requires a wizard (prototype, ppt)
+  const handleChainFromHistory = useCallback(async (run: WorkflowRun, nextType: WorkflowType) => {
     const option = CHAIN_OPTIONS.find((o) => o.type === nextType);
     if (option?.requiresWizard && option.wizardPath) {
-      // Store the run's brief so the wizard can pre-fill it
       const cleanBrief = (run.input || "").split("\n\n===")[0].trim();
       sessionStorage.setItem(CHAIN_BRIEF_KEY, cleanBrief);
       sessionStorage.setItem(CHAIN_FROM_KEY, run.type);
+      if (run.id) {
+        sessionStorage.setItem(CHAIN_SOURCE_RUN_ID_KEY, run.id);
+        try {
+          const token = getToken();
+          if (token) {
+            const ctx = await getChainContext(token, run.id);
+            if (ctx.context_block) {
+              sessionStorage.setItem("chain.context_block", ctx.context_block);
+            }
+          }
+        } catch { /* non-fatal */ }
+      } else {
+        sessionStorage.removeItem(CHAIN_SOURCE_RUN_ID_KEY);
+        sessionStorage.removeItem("chain.context_block");
+      }
       router.push(option.wizardPath);
       return;
     }
 
-    const baseInput = run.input || "";
-    // For HTML-output pipelines (od_ppt, od_prototype), don't include the raw
-    // HTML in the chain context — it's too large and confuses the title generator.
-    // Use a short description instead.
-    const isHtmlOutput = run.type === "od_ppt" || run.type === "od_ppt_revision" ||
-      run.type === "od_prototype" || run.type === "prototype" || run.type === "prototype_revision";
-    const baseOutput = isHtmlOutput
-      ? `[${run.title || run.type} output — HTML file]`
-      : (run.output || "").slice(0, 4000);
-    const enrichedInput = `${baseInput}\n\n=== CONTEXT FROM PREVIOUS PIPELINE (${run.type}) ===\n${baseOutput}\n=== END PREVIOUS CONTEXT ===`;
+    // Fetch structured context from the source run
+    let contextBlock = "";
+    try {
+      const token = getToken();
+      if (token && run.id) {
+        const ctx = await getChainContext(token, run.id);
+        contextBlock = ctx.context_block;
+      }
+    } catch {
+      // Fallback
+      const isHtmlOutput = run.type === "od_ppt" || run.type === "od_ppt_revision" ||
+        run.type === "od_prototype" || run.type === "prototype" || run.type === "prototype_revision";
+      const baseOutput = isHtmlOutput
+        ? `[${run.title || run.type} output — HTML file]`
+        : (run.output || "").slice(0, 4000);
+      if (baseOutput) {
+        contextBlock = `=== CONTEXT FROM PREVIOUS PIPELINE (${run.type}) ===\n${baseOutput}\n=== END PREVIOUS CONTEXT ===`;
+      }
+    }
+
+    const cleanBrief = (run.input || "").split("\n\n===")[0].trim();
+    const enrichedInput = contextBlock ? `${cleanBrief}\n\n${contextBlock}` : cleanBrief;
 
     setWorkflowType(nextType);
     setWorkflowInput(enrichedInput);
@@ -562,24 +788,48 @@ export function DashboardLayout({
     setMainView("execution");
     if (onResetPipeline) onResetPipeline();
 
-    setPendingPipelineRun({ type: nextType, message: enrichedInput });
-    setQuestionnaireQuestions([]);
-    setQuestionnaireLoading(true);
-
-    if (websocketSend) {
-      websocketSend(JSON.stringify({
-        type: "generate_questions",
-        pipeline_type: nextType,
-        message: enrichedInput,
-      }));
+    if (onStartPipeline) {
+      const notifId = `pipeline-${Date.now()}`;
+      currentPipelineNotifId.current = notifId;
+      addRunningNotification(notifId, nextType, enrichedInput.slice(0, 60), 0);
+      if (connectionStatus === "connected") {
+        onStartPipeline(nextType, enrichedInput, [], attachedSkills, attachedHooks);
+      } else {
+        pendingStartOnConnectRef.current = { type: nextType, message: enrichedInput, agentIds: [] };
+      }
     }
-  }, [websocketSend, onResetPipeline]);
+  }, [websocketSend, onStartPipeline, onResetPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
 
-  // Handle questionnaire answers — run pipeline with enriched input
+  // Handle questionnaire answers.
+  //
+  // Phase 2 (Universal Engine): when the questionnaire was raised mid-run by the
+  // Clarify_Engine (CLARIFY_REQUIRED gate), `activePipelineRunId` is set — we send
+  // `submit_questionnaire` to resume the paused run from the gate (no restart).
+  //
+  // Legacy path (no active run id): build an enriched message and start the
+  // pipeline — retained for any flow still pre-questioning.
   const handleQuestionnaireSubmit = useCallback((answers: Record<string, string[]>, freeformInput: string) => {
+    // ── New flow: resume a paused run ────────────────────────────────────
+    if (activePipelineRunId && onSubmitQuestionnaire) {
+      const responses: Array<{ question_id: string; answer: string }> = [];
+      questionnaireQuestions.forEach((q) => {
+        const selected = answers[q.id];
+        if (selected && selected.length > 0) {
+          responses.push({ question_id: q.id, answer: selected.join(", ") });
+        }
+      });
+      if (freeformInput) {
+        responses.push({ question_id: "freeform", answer: freeformInput });
+      }
+      setQuestionnaireQuestions([]);
+      setQuestionnaireLoading(false);
+      onSubmitQuestionnaire(activePipelineRunId, responses);
+      return;
+    }
+
+    // ── Legacy flow: enrich message + start pipeline ─────────────────────
     if (!pendingPipelineRun) return;
 
-    // Build enriched message with user's answers
     let enrichedMessage = pendingPipelineRun.message;
     const answerLines: string[] = [];
     questionnaireQuestions.forEach((q) => {
@@ -595,7 +845,6 @@ export function DashboardLayout({
       enrichedMessage = `${pendingPipelineRun.message}\n\n=== USER PREFERENCES ===\n${answerLines.join("\n")}\n=== END PREFERENCES ===`;
     }
 
-    // Clear questionnaire state and run pipeline
     setQuestionnaireQuestions([]);
     setQuestionnaireLoading(false);
     setPendingPipelineRun(null);
@@ -603,8 +852,6 @@ export function DashboardLayout({
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
       addRunningNotification(notifId, pendingPipelineRun.type, pendingPipelineRun.message.slice(0, 60), 0);
-      // If the WebSocket is connected, fire immediately. Otherwise store in
-      // the ref so the connectionStatus effect fires it on reconnect.
       if (connectionStatus === "connected") {
         onStartPipeline(pendingPipelineRun.type, enrichedMessage, pendingPipelineRun.agentIds, attachedSkills, attachedHooks, pendingPipelineRun.extraParams);
       } else {
@@ -616,10 +863,19 @@ export function DashboardLayout({
         };
       }
     }
-  }, [pendingPipelineRun, questionnaireQuestions, onStartPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
+  }, [activePipelineRunId, onSubmitQuestionnaire, pendingPipelineRun, questionnaireQuestions, onStartPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
 
-  // Skip questionnaire — run pipeline directly with skills/hooks
+  // Skip questionnaire.
+  // New flow: submit empty answers to resume the paused run with best-available
+  // context. Legacy flow: start the pipeline with the un-enriched message.
   const handleQuestionnaireSkip = useCallback(() => {
+    if (activePipelineRunId && onSubmitQuestionnaire) {
+      setQuestionnaireQuestions([]);
+      setQuestionnaireLoading(false);
+      onSubmitQuestionnaire(activePipelineRunId, []);
+      return;
+    }
+
     if (!pendingPipelineRun) return;
     setQuestionnaireQuestions([]);
     setQuestionnaireLoading(false);
@@ -639,7 +895,7 @@ export function DashboardLayout({
         };
       }
     }
-  }, [pendingPipelineRun, onStartPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
+  }, [activePipelineRunId, onSubmitQuestionnaire, pendingPipelineRun, onStartPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
 
   // Header navigation — free navigation even while pipeline runs
   const handleNavigate = useCallback((page: "home" | "library" | "history" | "settings" | "analytics") => {
@@ -781,7 +1037,7 @@ export function DashboardLayout({
               setWorkflowType("prototype_revision");
               if (onResetPipeline) onResetPipeline();
               if (onStartPipeline) {
-                const msg = `=== EXISTING PROTOTYPE HTML ===\n${content.slice(0, 40000)}\n=== END EXISTING HTML ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
+                const msg = `=== EXISTING PROTOTYPE HTML ===\n${content}\n=== END EXISTING HTML ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
                 onStartPipeline("prototype_revision", msg, undefined, attachedSkills, attachedHooks);
               }
             }}
@@ -883,10 +1139,27 @@ export function DashboardLayout({
                 </ErrorBoundary>
               </div>
 
-              {/* Right Panel — Questionnaire or Preview */}
+              {/* Right Panel — Planning overlay, Questionnaire, or Preview */}
               <div className="flex-1 h-[55vh] md:h-full min-w-0 bg-white rounded-none md:rounded-l-none">
                 <ErrorBoundary fallbackLabel="Preview">
-                  {(questionnaireLoading || questionnaireQuestions.length > 0) && pendingPipelineRun ? (
+                  {/* Show planning overlay while planner is running and no questionnaire yet */}
+                  {pipelineState?.isRunning &&
+                   pipelineState?.plannerStatus === "running" &&
+                   !questionnaireLoading &&
+                   questionnaireQuestions.length === 0 &&
+                   !activePipelineRunId &&
+                   !reviewGateData ? (
+                    <PlanningOverlay plannerSummary={pipelineState?.plannerSummary} />
+                  ) : reviewGateData ? (
+                    <ReviewGatePanel
+                      agentId={reviewGateData.agentId}
+                      agentName={reviewGateData.agentName}
+                      output={reviewGateData.output}
+                      gateKey={reviewGateData.gateKey}
+                      onApprove={onApproveReview || (() => {})}
+                      onReject={onRejectReview || (() => {})}
+                    />
+                  ) : (questionnaireLoading || questionnaireQuestions.length > 0) && (pendingPipelineRun || activePipelineRunId) ? (
                     <QuestionnairePanel
                       questions={questionnaireQuestions}
                       isLoading={questionnaireLoading}
@@ -914,6 +1187,8 @@ export function DashboardLayout({
                               .map((a) => ({ name: a.name, role: a.role, output: a.output, agentId: a.id }))
                           : undefined
                       }
+                      agents={pipelineState?.agents}
+                      pipelineState={pipelineState}
                     />
                   )}
                 </ErrorBoundary>

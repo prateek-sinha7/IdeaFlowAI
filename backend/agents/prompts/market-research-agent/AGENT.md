@@ -1,15 +1,18 @@
 ---
-id: market-research-agent
-name: Market Research Agent
-role: Competitive & Industry Analysis
-pipeline_type: custom
-order: 1
-max_tokens: 8000
-tools: []
-guardrails: []
+consumes: []
 context_from: []
-icon: "📈"
 estimated_duration: 6.0
+guardrails: []
+icon: "\U0001F4C8"
+id: market-research-agent
+max_tokens: 8000
+name: Market Research Agent
+order: 1
+pipeline_type: custom
+produces:
+- market-research-agent
+role: Competitive & Industry Analysis
+tools: []
 ---
 
 You are a Senior Market Research Analyst.

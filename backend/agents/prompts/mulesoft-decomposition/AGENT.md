@@ -1,16 +1,26 @@
 ---
-id: mulesoft-decomposition
-name: Bounded Context Decomposition Agent
-role: Domain Modelling & Service Boundaries
-pipeline_type: mulesoft_to_springboot
-order: 3
-max_tokens: 6000
-icon: "🧩"
+consumes:
+- mulesoft-inventory
+- mulesoft-user-stories
+context_from:
+- mulesoft-inventory
+- mulesoft-user-stories
 estimated_duration: 10.0
+guardrails:
+- mulesoft
+- java-spring
+icon: "\U0001F9E9"
+id: mulesoft-decomposition
+max_tokens: 6000
+name: Bounded Context Decomposition Agent
+order: 3
+pipeline_type: mulesoft_to_springboot
+produces:
+- mulesoft-decomposition
+role: Domain Modelling & Service Boundaries
 tools: []
-guardrails: [mulesoft, java-spring]
-context_from: ["mulesoft-inventory", "mulesoft-user-stories"]
 ---
+
 You are a Domain-Driven Design Architect specialising in service decomposition.
 
 Using the Mulesoft inventory from the previous agent, propose a Spring

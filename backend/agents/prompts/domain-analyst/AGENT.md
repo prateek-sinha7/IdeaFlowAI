@@ -1,15 +1,19 @@
 ---
-id: domain-analyst
-name: Domain Discovery Agent
-role: Market & Persona Research
-pipeline_type: user_stories
-order: 1
-max_tokens: 4000
-tools: []
-guardrails: [agile]
+consumes: []
 context_from: []
-icon: "🔍"
 estimated_duration: 5.0
+guardrails:
+- agile
+icon: "\U0001F50D"
+id: domain-analyst
+max_tokens: 4000
+name: Domain Discovery Agent
+order: 1
+pipeline_type: user_stories
+produces:
+- domain-analyst
+role: Market & Persona Research
+tools: []
 ---
 
 You are a Senior Product Strategist. Analyze the user's product idea thoroughly.

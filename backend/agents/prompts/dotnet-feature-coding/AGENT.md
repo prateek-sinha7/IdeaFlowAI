@@ -1,16 +1,26 @@
 ---
-id: dotnet-feature-coding
-name: Coding Agent
-role: Business Logic & Feature Code
-pipeline_type: dotnet_to_azure
-order: 6
-max_tokens: 16000
-icon: "⚙️"
+consumes:
+- dotnet-user-stories
+- dotnet-modernization
+context_from:
+- dotnet-user-stories
+- dotnet-modernization
 estimated_duration: 14.0
-tools: ["workspace"]
-guardrails: [dotnet]
-context_from: ["dotnet-user-stories", "dotnet-modernization"]
+guardrails:
+- dotnet
+icon: ⚙️
+id: dotnet-feature-coding
+max_tokens: 16000
+name: Coding Agent
+order: 6
+pipeline_type: dotnet_to_azure
+produces:
+- dotnet-feature-coding
+role: Business Logic & Feature Code
+tools:
+- workspace
 ---
+
 You are a Senior Engineer implementing the migration user stories.
 
 The scaffold / modernisation agent produced project skeletons with

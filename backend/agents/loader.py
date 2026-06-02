@@ -36,12 +36,14 @@ SUPPORTED_PIPELINE_TYPES: frozenset[str] = frozenset(
         "od_ppt_revision",
         "prototype",
         "prototype_revision",
+        "prototype_v1",          # retired Approach 1 agents — kept for reference
         "app_builder",
         "app_builder_revision",
         "mulesoft_to_springboot",
         "dotnet_to_azure",
         "reverse_engineer",
         "custom",
+        "spec_kit",
     }
 )
 
@@ -86,6 +88,14 @@ class AgentSpec:
     context_from: list[str] = field(default_factory=list)
     icon: str = "🤖"
     estimated_duration: float = 3.0
+
+    # ── Phase 1 extensions — Typed Produces/Consumes contract model ───────
+    # All optional with empty-list/None defaults for backward compatibility.
+    # Existing AGENT.md files without these fields load unchanged.
+    produces: list[str] = field(default_factory=list)   # Artifact_Types this agent produces
+    consumes: list[str] = field(default_factory=list)   # Artifact_Types this agent requires
+    gate: str | None = None                              # Human_Gate | Validation_Gate | None
+    injects: list[str] = field(default_factory=list)    # subset of [template, design_system, craft]
 
 
 class AgentSpecError(Exception):
@@ -302,6 +312,25 @@ def _build_spec(
         )
     estimated_duration: float = float(raw_duration)
 
+    # ── Phase 1 extensions: produces, consumes, gate, injects ────────────
+    produces = _optional_list_of_str(metadata, "produces", file_path_str, default=[])
+    consumes = _optional_list_of_str(metadata, "consumes", file_path_str, default=[])
+    injects = _optional_list_of_str(metadata, "injects", file_path_str, default=[])
+
+    raw_gate = metadata.get("gate", None)
+    if raw_gate is not None:
+        if not isinstance(raw_gate, str):
+            raise AgentSpecError(
+                f"Invalid field 'gate' in {file_path_str}: "
+                f"expected a string or null, got {type(raw_gate).__name__!r}"
+            )
+        if raw_gate not in ("Human_Gate", "Validation_Gate"):
+            raise AgentSpecError(
+                f"Invalid field 'gate' in {file_path_str}: "
+                f"must be 'Human_Gate', 'Validation_Gate', or absent/null — got {raw_gate!r}"
+            )
+    gate: str | None = raw_gate
+
     return AgentSpec(
         id=agent_id,
         name=name,
@@ -315,6 +344,10 @@ def _build_spec(
         context_from=context_from,
         icon=icon,
         estimated_duration=estimated_duration,
+        produces=produces,
+        consumes=consumes,
+        gate=gate,
+        injects=injects,
     )
 
 

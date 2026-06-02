@@ -1,15 +1,20 @@
 ---
-id: ppt-revision-assembler
-name: Deck Assembly Agent
-role: Revised Deck Compilation
-pipeline_type: ppt_revision
-order: 2
-max_tokens: 32000
-tools: []
-guardrails: []
-context_from: ["$previous"]
-icon: "📦"
+consumes:
+- ppt-revision-agent
+context_from:
+- $previous
 estimated_duration: 12.0
+guardrails: []
+icon: "\U0001F4E6"
+id: ppt-revision-assembler
+max_tokens: 32000
+name: Deck Assembly Agent
+order: 2
+pipeline_type: ppt_revision
+produces:
+- ppt-revision-assembler
+role: Revised Deck Compilation
+tools: []
 ---
 
 You are a Frontend Engineer who assembles the final presentation viewer.

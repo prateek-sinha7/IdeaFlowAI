@@ -1,16 +1,27 @@
 ---
-id: mulesoft-aws-infra
-name: AWS Landing Zone Agent
-role: Target Infrastructure on AWS
-pipeline_type: mulesoft_to_springboot
-order: 8
-max_tokens: 14000
-icon: "☁️"
+consumes:
+- mulesoft-decomposition
+- mulesoft-security-architecture
+context_from:
+- mulesoft-decomposition
+- mulesoft-security-architecture
 estimated_duration: 12.0
-tools: ["workspace"]
-guardrails: [mulesoft, java-spring]
-context_from: ["mulesoft-decomposition", "mulesoft-security-architecture"]
+guardrails:
+- mulesoft
+- java-spring
+icon: ☁️
+id: mulesoft-aws-infra
+max_tokens: 14000
+name: AWS Landing Zone Agent
+order: 8
+pipeline_type: mulesoft_to_springboot
+produces:
+- mulesoft-aws-infra
+role: Target Infrastructure on AWS
+tools:
+- workspace
 ---
+
 You are a Principal Cloud Architect for AWS landing zones.
 
 Produce Terraform (1.5+) for the target environment. For each

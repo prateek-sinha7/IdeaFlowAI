@@ -53,28 +53,38 @@ export default function DashboardPage() {
   // Staged od_prototype run — written when authenticated, consumed when connected.
   const pendingOdProtoRef = useRef<{
     templateId: string; designSystemId: string; brief: string; discovery: unknown;
-    customDsBody?: string;
-    customTemplateBody?: string;
+    customDsBody?: string; customTemplateBody?: string; sourceRunId?: string;
   } | null>(null);
 
   // Staged od_ppt run — written when authenticated, consumed when connected.
   const pendingOdPptRef = useRef<{
     templateId: string; designSystemId: string | null; brief: string; discovery: unknown;
-    customDsBody?: string; customTemplateBody?: string;
+    customDsBody?: string; customTemplateBody?: string; sourceRunId?: string;
   } | null>(null);
 
   // Workflow runs state (primary)
   const [recentRuns, setRecentRuns] = useState<WorkflowRun[]>([]);
-  const [questionnaireData, setQuestionnaireData] = useState<{ questions: { id: string; question: string; options: string[] }[] } | null>(null);
+  const [questionnaireData, setQuestionnaireData] = useState<{ questions: { id: string; question: string; options: string[]; answerType?: string }[] } | null>(null);
+  // Phase 2 — pipeline_run_id of the run currently paused at the clarify gate,
+  // used to address submit_questionnaire back to the correct paused run.
+  const [activePipelineRunId, setActivePipelineRunId] = useState<string | null>(null);
+  // Review gate state — set when review_gate_ready fires
+  const [reviewGateData, setReviewGateData] = useState<{
+    gateKey: string;
+    agentId: string;
+    agentName: string;
+    output: string;
+    pipelineRunId: string;
+  } | null>(null);
   // Pending od_prototype params — set when questionnaire is triggered, consumed by DashboardLayout
   const [pendingOdProtoParams, setPendingOdProtoParams] = useState<{
     brief: string; templateId: string; designSystemId: string; discovery: unknown;
-    customDsBody?: string; customTemplateBody?: string;
+    customDsBody?: string; customTemplateBody?: string; sourceRunId?: string;
   } | null>(null);
   // Pending od_ppt params
   const [pendingOdPptParams, setPendingOdPptParams] = useState<{
     brief: string; templateId: string; designSystemId: string | null; discovery: unknown;
-    customDsBody?: string; customTemplateBody?: string;
+    customDsBody?: string; customTemplateBody?: string; sourceRunId?: string;
   } | null>(null);
 
   // Auth check on mount — redirect if no token, otherwise fetch user profile.
@@ -103,7 +113,7 @@ export default function DashboardPage() {
     if (!pending) return;
     try {
       const draft = JSON.parse(sessionStorage.getItem("prototype.draft") ?? "{}") as {
-        templateId?: string; designSystemId?: string; brief?: string; customDsBody?: string; customTemplateBody?: string;
+        templateId?: string; designSystemId?: string; brief?: string; customDsBody?: string; customTemplateBody?: string; sourceRunId?: string;
       };
       const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
       if (!draft.templateId || !draft.designSystemId || !draft.brief) return;
@@ -114,6 +124,7 @@ export default function DashboardPage() {
         discovery,
         customDsBody: draft.customDsBody,
         customTemplateBody: draft.customTemplateBody,
+        sourceRunId: draft.sourceRunId,
       };
     } catch { /* ignore malformed session data */ }
   }, [isAuthenticated]);
@@ -129,7 +140,7 @@ export default function DashboardPage() {
     try {
       const draft = JSON.parse(sessionStorage.getItem("ppt.draft") ?? "{}") as {
         templateId?: string; designSystemId?: string | null; brief?: string;
-        customDsBody?: string; customTemplateBody?: string;
+        customDsBody?: string; customTemplateBody?: string; sourceRunId?: string;
       };
       if (!draft.templateId || !draft.brief) return;
       pendingOdPptRef.current = {
@@ -139,6 +150,7 @@ export default function DashboardPage() {
         discovery: null,
         customDsBody: draft.customDsBody,
         customTemplateBody: draft.customTemplateBody,
+        sourceRunId: draft.sourceRunId,
       };
     } catch { /* ignore malformed session data */ }
   }, [isAuthenticated]);
@@ -162,7 +174,26 @@ export default function DashboardPage() {
     // `pipelineState.isRunning` stuck true after Stop — the BE cancelled
     // and emitted the event, but the FE never transitioned out of the
     // running state.
-    const pipelineTypes = ["pipeline_start", "agent_start", "agent_thinking", "agent_chunk", "agent_complete", "agent_error", "pipeline_complete", "pipeline_cancelled"];
+    // Phase 2 (Universal Engine): planner_*/gate_status/clarification events
+    // are also routed to the workflow handler so the planning stage is visible.
+    const pipelineTypes = [
+      "pipeline_start", "agent_start", "agent_thinking", "agent_chunk",
+      "agent_complete", "agent_error", "pipeline_complete", "pipeline_cancelled",
+      "planner_start", "planner_complete", "planner_timeout", "planner_error",
+      "gate_status", "clarification_limit_reached",
+      // Phase 3 (T043/T044) — Thinking tab: agent_input carries inputPrompt +
+      // contextSources; tool_call/tool_result carry tool execution data;
+      // workflow_validated carries DAG edges for the dependency graph.
+      "agent_input", "tool_call", "tool_result", "workflow_validated",
+      // task_progress — prototype build agent reports per-task completion
+      "task_progress",
+      // task_loop_progress — engine-level build loop iteration counter
+      "task_loop_progress",
+      // pipeline_reconnected — backend confirmed reconnection to running pipeline
+      "pipeline_reconnected",
+      // Note: review_gate_ready and review_gate_approved are NOT here —
+      // they go through the switch statement below to update reviewGateData state.
+    ];
     if (pipelineTypes.includes(msg.type)) {
       handlePipelineMsgRef.current?.({
         type: msg.type,
@@ -193,6 +224,7 @@ export default function DashboardPage() {
             .catch(() => {});
         }
       }
+
       return;
     }
 
@@ -370,6 +402,59 @@ export default function DashboardPage() {
         break;
       }
 
+      case "questionnaire_ready": {
+        if (msg.data && "questions" in msg.data) {
+          const data = msg.data as {
+            pipeline_run_id?: string;
+            questions: Array<{ question_id: string; question_text: string; options?: string[] | null; answer_type?: string }>;
+          };
+          const mapped = (data.questions || []).map((q) => ({
+            id: q.question_id,
+            question: q.question_text,
+            options: q.options || [],
+            answerType: q.answer_type || "single_choice",
+          }));
+          setQuestionnaireData({ questions: mapped });
+          if (data.pipeline_run_id) {
+            setActivePipelineRunId(data.pipeline_run_id);
+          }
+        }
+        break;
+      }
+
+      case "questionnaire_complete": {
+        // Clarify gate resolved — clear the pending questionnaire UI.
+        setQuestionnaireData(null);
+        break;
+      }
+
+      case "review_gate_ready": {
+        // Agent completed and declared Human_Gate — pause for user review.
+        if (msg.data) {
+          const data = msg.data as {
+            gate_key: string;
+            agent_id: string;
+            agent_name: string;
+            output: string;
+            pipeline_run_id: string;
+          };
+          setReviewGateData({
+            gateKey: data.gate_key,
+            agentId: data.agent_id,
+            agentName: data.agent_name,
+            output: data.output,
+            pipelineRunId: data.pipeline_run_id,
+          });
+        }
+        break;
+      }
+
+      case "review_gate_approved": {
+        // User approved — clear the review gate UI and continue.
+        setReviewGateData(null);
+        break;
+      }
+
       case "step": {
         if (msg.data && "id" in msg.data && "status" in msg.data) {
           const stepData = msg.data as ProcessStep;
@@ -399,7 +484,7 @@ export default function DashboardPage() {
   });
 
   // Workflow pipeline state
-  const { pipelineState, startPipeline, resetPipeline, isRunning: isPipelineRunning, handleMessage: handlePipelineMsg } = useWorkflow(send);
+  const { pipelineState, startPipeline, resetPipeline, isRunning: isPipelineRunning, handleMessage: handlePipelineMsg, submitQuestionnaire } = useWorkflow(send);
 
   // Keep pipeline handler ref in sync
   useEffect(() => {
@@ -443,15 +528,10 @@ export default function DashboardPage() {
     pptContentRef.current = "";
     prototypeContentRef.current = "";
     userStoryContentRef.current = "";
-    if (send) {
-      send(JSON.stringify({
-        type: "generate_questions",
-        pipeline_type: "od_prototype",
-        message: pending.brief,
-        template_id: pending.templateId,
-        design_system_id: pending.designSystemId,
-      }));
-    }
+    // Phase 2 (Universal Engine): skip the legacy generate_questions pre-flight.
+    // The backend no longer handles that message type. The pipeline starts
+    // immediately via run_pipeline; the Deep_Planner_Agent will emit
+    // questionnaire_ready mid-run if clarification is needed.
     setPendingOdProtoParams({
       brief: pending.brief,
       templateId: pending.templateId,
@@ -459,6 +539,8 @@ export default function DashboardPage() {
       discovery: pending.discovery,
       customDsBody: pending.customDsBody,
       customTemplateBody: pending.customTemplateBody,
+      // Phase 3 (T056): pass source_workflow_run_id for revision chaining
+      ...(pending.sourceRunId ? { sourceRunId: pending.sourceRunId } : {}),
     });
   // send and connectionStatus drive the re-run.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -502,15 +584,10 @@ export default function DashboardPage() {
     pptContentRef.current = "";
     prototypeContentRef.current = "";
     userStoryContentRef.current = "";
-    if (send) {
-      send(JSON.stringify({
-        type: "generate_questions",
-        pipeline_type: "od_ppt",
-        message: pending.brief,
-        template_id: pending.templateId,
-        design_system_id: pending.designSystemId,
-      }));
-    }
+    // Phase 2 (Universal Engine): skip the legacy generate_questions pre-flight.
+    // The backend no longer handles that message type. The pipeline starts
+    // immediately via run_pipeline; the Deep_Planner_Agent will emit
+    // questionnaire_ready mid-run if clarification is needed.
     setPendingOdPptParams({
       brief: pending.brief,
       templateId: pending.templateId,
@@ -518,6 +595,8 @@ export default function DashboardPage() {
       discovery: pending.discovery,
       customDsBody: pending.customDsBody,
       customTemplateBody: pending.customTemplateBody,
+      // Phase 3 (T056): pass source_workflow_run_id for revision chaining
+      ...(pending.sourceRunId ? { sourceRunId: pending.sourceRunId } : {}),
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionStatus]);
@@ -820,6 +899,16 @@ export default function DashboardPage() {
       recentRuns={recentRuns}
       onSelectWorkflowRun={handleSelectWorkflowRun}
       questionnaireData={questionnaireData}
+      activePipelineRunId={activePipelineRunId}
+      onSubmitQuestionnaire={submitQuestionnaire}
+      reviewGateData={reviewGateData}
+      onApproveReview={(gateKey, editedContent) => {
+        send(JSON.stringify({ type: "approve_review", gate_key: gateKey, approved: true, edited_content: editedContent ?? null }));
+      }}
+      onRejectReview={(gateKey) => {
+        send(JSON.stringify({ type: "approve_review", gate_key: gateKey, approved: false }));
+        setReviewGateData(null);
+      }}
       pendingOdProtoParams={pendingOdProtoParams}
       onClearPendingOdProto={() => setPendingOdProtoParams(null)}
       pendingOdPptParams={pendingOdPptParams}

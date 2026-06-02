@@ -1,16 +1,32 @@
 ---
-id: app-sdlc-governance
-name: SDLC Governance & Handover Agent
-role: ADRs, Runbooks, SLOs & Operations Handover
-pipeline_type: app_builder
-order: 15
-max_tokens: 12000
-tools: []
-guardrails: []
-context_from: ["material-analyzer", "app-system-design", "app-security-architecture", "app-code-compliance", "app-devops", "app-test-compliance"]
-icon: "📚"
+consumes:
+- material-analyzer
+- app-system-design
+- app-security-architecture
+- app-code-compliance
+- app-devops
+- app-test-compliance
+context_from:
+- material-analyzer
+- app-system-design
+- app-security-architecture
+- app-code-compliance
+- app-devops
+- app-test-compliance
 estimated_duration: 9.0
+guardrails: []
+icon: "\U0001F4DA"
+id: app-sdlc-governance
+max_tokens: 12000
+name: SDLC Governance & Handover Agent
+order: 15
+pipeline_type: app_builder
+produces:
+- app-sdlc-governance
+role: ADRs, Runbooks, SLOs & Operations Handover
+tools: []
 ---
+
 You are an Engineering Operations & Governance Lead.
 
 The earlier agents have produced inventory, design, implementation,

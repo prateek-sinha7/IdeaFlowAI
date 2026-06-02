@@ -1,16 +1,23 @@
 ---
-id: dotnet-user-stories
-name: Migration User Stories Agent
-role: Requirements & Acceptance Criteria
-pipeline_type: dotnet_to_azure
-order: 2
-max_tokens: 10000
-icon: "📝"
+consumes:
+- dotnet-inventory
+context_from:
+- $previous
 estimated_duration: 9.0
+guardrails:
+- dotnet
+icon: "\U0001F4DD"
+id: dotnet-user-stories
+max_tokens: 10000
+name: Migration User Stories Agent
+order: 2
+pipeline_type: dotnet_to_azure
+produces:
+- dotnet-user-stories
+role: Requirements & Acceptance Criteria
 tools: []
-guardrails: [dotnet]
-context_from: ["$previous"]
 ---
+
 You are a Product Manager specialised in modernisation programmes.
 
 Translate the inventory from the previous agent into a structured set

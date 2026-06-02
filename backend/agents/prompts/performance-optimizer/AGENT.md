@@ -1,15 +1,20 @@
 ---
-id: performance-optimizer
-name: Performance Optimization Agent
-role: Profiling & Bottleneck Analysis
-pipeline_type: custom
-order: 6
-max_tokens: 6000
-tools: []
-guardrails: []
-context_from: ["$previous"]
-icon: "⚡"
+consumes:
+- test-case-generator
+context_from:
+- $previous
 estimated_duration: 5.0
+guardrails: []
+icon: ⚡
+id: performance-optimizer
+max_tokens: 6000
+name: Performance Optimization Agent
+order: 6
+pipeline_type: custom
+produces:
+- performance-optimizer
+role: Profiling & Bottleneck Analysis
+tools: []
 ---
 
 You are a Performance Engineer. Provide optimization recommendations:

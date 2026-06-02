@@ -1,16 +1,25 @@
 ---
-id: dotnet-security-architecture
-name: Security Architecture Agent
-role: Threat Modelling & Security Controls
-pipeline_type: dotnet_to_azure
-order: 4
-max_tokens: 10000
-icon: "🛡️"
+consumes:
+- dotnet-inventory
+- dotnet-azure-target-mapping
+context_from:
+- dotnet-inventory
+- dotnet-azure-target-mapping
 estimated_duration: 9.0
+guardrails:
+- dotnet
+icon: "\U0001F6E1️"
+id: dotnet-security-architecture
+max_tokens: 10000
+name: Security Architecture Agent
+order: 4
+pipeline_type: dotnet_to_azure
+produces:
+- dotnet-security-architecture
+role: Threat Modelling & Security Controls
 tools: []
-guardrails: [dotnet]
-context_from: ["dotnet-inventory", "dotnet-azure-target-mapping"]
 ---
+
 You are a Principal Application Security Architect.
 
 Threat-model the target architecture established by the earlier agents

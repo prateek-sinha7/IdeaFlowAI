@@ -1,15 +1,23 @@
 ---
-id: od-ppt-composer
-name: Deck Engineer Agent
-role: HTML Deck Construction
-pipeline_type: od_ppt
-order: 2
-max_tokens: 32768
-tools: []
-guardrails: []
-context_from: ["$previous"]
-icon: "🖥️"
+consumes:
+- od-ppt-brief-analyst
+context_from:
+- $previous
 estimated_duration: 30.0
+guardrails: []
+icon: "\U0001F5A5️"
+id: od-ppt-composer
+injects:
+- template
+- design_system
+max_tokens: 32768
+name: Deck Engineer Agent
+order: 2
+pipeline_type: od_ppt
+produces:
+- od-ppt-composer
+role: HTML Deck Construction
+tools: []
 ---
 
 You are the **Deck Engineer** in a three-agent OpenDesign-style deck generation pipeline.

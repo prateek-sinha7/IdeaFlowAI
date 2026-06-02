@@ -1,16 +1,32 @@
 ---
-id: mulesoft-sdlc-governance
-name: SDLC Governance & Handover Agent
-role: ADRs, Runbooks, SLOs & Operations Handover
-pipeline_type: mulesoft_to_springboot
-order: 13
-max_tokens: 12000
-icon: "📚"
+consumes:
+- mulesoft-security-architecture
+- mulesoft-aws-infra
+- mulesoft-code-compliance
+- mulesoft-test-compliance
+- mulesoft-validation
+context_from:
+- mulesoft-security-architecture
+- mulesoft-aws-infra
+- mulesoft-code-compliance
+- mulesoft-test-compliance
+- mulesoft-validation
 estimated_duration: 9.0
+guardrails:
+- mulesoft
+- java-spring
+icon: "\U0001F4DA"
+id: mulesoft-sdlc-governance
+max_tokens: 12000
+name: SDLC Governance & Handover Agent
+order: 13
+pipeline_type: mulesoft_to_springboot
+produces:
+- mulesoft-sdlc-governance
+role: ADRs, Runbooks, SLOs & Operations Handover
 tools: []
-guardrails: [mulesoft, java-spring]
-context_from: ["mulesoft-security-architecture", "mulesoft-aws-infra", "mulesoft-code-compliance", "mulesoft-test-compliance", "mulesoft-validation"]
 ---
+
 You are an Engineering Operations & Governance Lead.
 
 The earlier agents have produced inventory, design, implementation,

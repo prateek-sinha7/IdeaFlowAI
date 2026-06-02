@@ -2,12 +2,13 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Eye, FolderDown, PanelRightClose, Copy, Check, Download, ExternalLink, Loader2 } from "lucide-react";
+import { Eye, FolderDown, Brain, PanelRightClose, Copy, Check, Download, ExternalLink, Loader2 } from "lucide-react";
 import { UserStoryPreview } from "./UserStoryPreview";
 import { PPTPreview } from "./PPTPreview";
 import { PrototypePreview } from "./PrototypePreview";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { FilesTab } from "@/components/results/FilesTab";
+import { AgentThinkingTab } from "@/components/results/AgentThinkingTab";
 import { AppBuilderPreview, type ParsedFile } from "./AppBuilderPreview";
 import type { WorkflowType } from "@/types/index";
 import { getToken } from "@/lib/api";
@@ -144,7 +145,7 @@ function AppBuilderIDEPreview({
   return <AppBuilderPreview files={files} onRevise={onRevise} projectName={projectName} />;
 }
 
-type PanelTab = "preview" | "files";
+type PanelTab = "preview" | "files" | "thinking";
 
 interface PreviewPanelProps {
   userStoryContent?: string;
@@ -167,14 +168,19 @@ interface PreviewPanelProps {
   // out empty outputs itself, but skipping the prop until completion keeps
   // the live "Final output" header from appearing prematurely.
   agentOutputs?: import("@/components/results/FilesTab").AgentOutputItem[];
+  // Phase 3 (T045) — Thinking tab: live agent states with reasoning/tool data
+  agents?: import("@/types/index").AgentRunState[];
+  // Full pipeline state for the enhanced Thinking tab
+  pipelineState?: import("@/types/index").PipelineRunState;
 }
 
 const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
   { id: "preview", label: "Preview", icon: Eye },
   { id: "files", label: "Files", icon: FolderDown },
+  { id: "thinking", label: "Thinking", icon: Brain },
 ];
 
-export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs }: PreviewPanelProps) {
+export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>("preview");
   const [copied, setCopied] = useState(false);
 
@@ -310,6 +316,18 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, i
               className="absolute inset-0"
             >
               <FilesTab workflowType={renderType} userStoryContent={userStoryContent} pptContent={pptContent} prototypeContent={prototypeContent} agentOutputs={agentOutputs} />
+            </motion.div>
+          )}
+          {activeTab === "thinking" && (
+            <motion.div
+              key="thinking"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="absolute inset-0"
+            >
+              <AgentThinkingTab agents={agents || []} pipelineState={pipelineState} />
             </motion.div>
           )}
         </AnimatePresence>

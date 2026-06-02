@@ -1,16 +1,29 @@
 ---
-id: app-code-generator
-name: Code Generation Agent
-role: Full-Stack Code Generation
-pipeline_type: app_builder
-order: 8
-max_tokens: 32000
-tools: ["workspace"]
-guardrails: []
-context_from: ["material-analyzer", "app-system-design", "app-api-design", "app-database-design"]
-icon: "💻"
+consumes:
+- material-analyzer
+- app-system-design
+- app-api-design
+- app-database-design
+context_from:
+- material-analyzer
+- app-system-design
+- app-api-design
+- app-database-design
 estimated_duration: 15.0
+guardrails: []
+icon: "\U0001F4BB"
+id: app-code-generator
+max_tokens: 32000
+name: Code Generation Agent
+order: 8
+pipeline_type: app_builder
+produces:
+- app-code-generator
+role: Full-Stack Code Generation
+tools:
+- workspace
 ---
+
 You are a Senior Full-Stack Developer who generates production-ready code.
 
 Based on the architecture, system design, API contracts, and database schema from the previous agents, generate COMPLETE working code.

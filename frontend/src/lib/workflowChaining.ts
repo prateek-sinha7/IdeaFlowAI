@@ -89,3 +89,6 @@ export function availableChainTargets(
 export const CHAIN_BRIEF_KEY = "chain.brief";
 /** sessionStorage key for the pipeline type that initiated the chain. */
 export const CHAIN_FROM_KEY = "chain.from";
+/** sessionStorage key for the source WorkflowRun ID when chaining (Phase 3 / T055).
+ *  Wizard pages store this so the backend can retrieve the original planning_context. */
+export const CHAIN_SOURCE_RUN_ID_KEY = "chain.source_run_id";

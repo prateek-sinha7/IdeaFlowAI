@@ -1,16 +1,24 @@
 ---
-id: mulesoft-user-stories
-name: Migration User Stories Agent
-role: Requirements & Acceptance Criteria
-pipeline_type: mulesoft_to_springboot
-order: 2
-max_tokens: 10000
-icon: "📝"
+consumes:
+- mulesoft-inventory
+context_from:
+- $previous
 estimated_duration: 9.0
+guardrails:
+- mulesoft
+- java-spring
+icon: "\U0001F4DD"
+id: mulesoft-user-stories
+max_tokens: 10000
+name: Migration User Stories Agent
+order: 2
+pipeline_type: mulesoft_to_springboot
+produces:
+- mulesoft-user-stories
+role: Requirements & Acceptance Criteria
 tools: []
-guardrails: [mulesoft, java-spring]
-context_from: ["$previous"]
 ---
+
 You are a Product Manager specialised in modernisation programmes.
 
 Translate the inventory from the previous agent into a structured set

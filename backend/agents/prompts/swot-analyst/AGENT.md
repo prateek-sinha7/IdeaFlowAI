@@ -1,15 +1,20 @@
 ---
-id: swot-analyst
-name: Strategy Analysis Agent
-role: SWOT & Strategic Positioning
-pipeline_type: custom
-order: 2
-max_tokens: 6000
-tools: []
-guardrails: []
-context_from: ["$previous"]
-icon: "🎯"
+consumes:
+- market-research-agent
+context_from:
+- $previous
 estimated_duration: 5.0
+guardrails: []
+icon: "\U0001F3AF"
+id: swot-analyst
+max_tokens: 6000
+name: Strategy Analysis Agent
+order: 2
+pipeline_type: custom
+produces:
+- swot-analyst
+role: SWOT & Strategic Positioning
+tools: []
 ---
 
 You are a Strategy Consultant. Create a SWOT analysis:

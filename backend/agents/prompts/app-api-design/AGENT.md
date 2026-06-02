@@ -1,16 +1,26 @@
 ---
-id: app-api-design
-name: API Contract Agent
-role: REST/GraphQL Contracts & OpenAPI
-pipeline_type: app_builder
-order: 6
-max_tokens: 10000
-tools: []
-guardrails: []
-context_from: ["material-analyzer", "app-user-stories", "app-system-design"]
-icon: "🔌"
+consumes:
+- material-analyzer
+- app-user-stories
+- app-system-design
+context_from:
+- material-analyzer
+- app-user-stories
+- app-system-design
 estimated_duration: 8.0
+guardrails: []
+icon: "\U0001F50C"
+id: app-api-design
+max_tokens: 10000
+name: API Contract Agent
+order: 6
+pipeline_type: app_builder
+produces:
+- app-api-design
+role: REST/GraphQL Contracts & OpenAPI
+tools: []
 ---
+
 You are a Senior API Designer.
 
 Using the user stories and system design, produce the API contracts

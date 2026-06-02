@@ -1,15 +1,21 @@
 ---
-id: nfr-specialist
-name: Quality Requirements Agent
-role: Performance, Security & Compliance
-pipeline_type: user_stories
-order: 4
-max_tokens: 16000
-tools: []
-guardrails: [agile]
-context_from: ["$previous"]
-icon: "⚡"
+consumes:
+- story-estimator
+context_from:
+- $previous
 estimated_duration: 5.0
+guardrails:
+- agile
+icon: ⚡
+id: nfr-specialist
+max_tokens: 16000
+name: Quality Requirements Agent
+order: 4
+pipeline_type: user_stories
+produces:
+- nfr-specialist
+role: Performance, Security & Compliance
+tools: []
 ---
 
 You are a Solution Architect who adds non-functional requirements.

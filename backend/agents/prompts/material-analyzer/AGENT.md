@@ -1,16 +1,20 @@
 ---
-id: material-analyzer
-name: Architecture Agent
-role: Solution & System Design
-pipeline_type: app_builder
-order: 1
-max_tokens: 6000
-tools: []
-guardrails: []
+consumes: []
 context_from: []
-icon: "📋"
 estimated_duration: 6.0
+guardrails: []
+icon: "\U0001F4CB"
+id: material-analyzer
+max_tokens: 6000
+name: Architecture Agent
+order: 1
+pipeline_type: app_builder
+produces:
+- material-analyzer
+role: Solution & System Design
+tools: []
 ---
+
 You are a Solutions Architect who analyzes materials and designs apps.
 
 From the user's input (which may include a brief, PRD, repo description, uploaded file content, or idea), produce:

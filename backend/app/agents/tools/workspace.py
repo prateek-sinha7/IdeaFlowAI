@@ -63,18 +63,28 @@ class AgentWorkspace:
 
     # ── Output serialisation ─────────────────────────────────────────────
 
+    # Files written by the engine itself (planning artifacts) — excluded from
+    # the deliverable output so they don't pollute the FilesTab / AppBuilderPreview.
+    _INTERNAL_FILES = frozenset({"PLANNER.md"})
+
     def to_final_output(self) -> str:
-        """Serialise all files in the ``filename:`` block format that
-        the existing AppBuilderPreview and FilesTab parsers understand."""
-        if not self._files:
+        """Serialise deliverable files in the ``filename:`` block format that
+        the existing AppBuilderPreview and FilesTab parsers understand.
+
+        Internal planning files (PLANNER.md) are excluded — they are engine
+        artifacts, not agent deliverables.
+        """
+        deliverable = {p: c for p, c in self._files.items() if p not in self._INTERNAL_FILES}
+        if not deliverable:
             return "(no files written)"
         parts: list[str] = []
-        for path, content in sorted(self._files.items()):
+        for path, content in sorted(deliverable.items()):
             parts.append(f"```filename: {path}\n{content}\n```")
         return "\n\n".join(parts)
 
     def file_count(self) -> int:
-        return len(self._files)
+        """Return count of deliverable files (excludes internal planning files)."""
+        return sum(1 for p in self._files if p not in self._INTERNAL_FILES)
 
 
 # ---------------------------------------------------------------------------

@@ -16,11 +16,22 @@ interface PrototypePreviewProps {
 const ZOOM_LEVELS = [50, 67, 75, 90, 100, 110, 125, 150, 175, 200];
 const DEFAULT_ZOOM_INDEX = 4; // 100%
 
-/** Strip markdown fences and return clean HTML string. */
+/** Strip markdown fences and artifact tags, return clean HTML string. */
 function stripFences(raw: string): string {
   let s = raw.trim();
+  // Strip markdown fences
   if (s.startsWith("```")) {
     s = s.replace(/^```(?:html)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+  }
+  // Strip <artifact>...</artifact> wrapper (prototype finalizer wraps output in these)
+  const artifactMatch = s.match(/<artifact[^>]*>\s*([\s\S]*?)\s*<\/artifact>/i);
+  if (artifactMatch) {
+    s = artifactMatch[1].trim();
+  }
+  // Find HTML start if there's preamble text before <!DOCTYPE
+  const htmlStart = s.search(/<!DOCTYPE\s+html|<html[\s>]/i);
+  if (htmlStart > 0) {
+    s = s.slice(htmlStart);
   }
   return s;
 }

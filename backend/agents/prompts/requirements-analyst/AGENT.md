@@ -1,15 +1,21 @@
 ---
-id: requirements-analyst
-name: UX Strategist Agent
-role: Product & Navigation Architecture
-pipeline_type: prototype
-order: 1
-max_tokens: 16000
-tools: []
-guardrails: []
+consumes: []
 context_from: []
-icon: "📋"
 estimated_duration: 10.0
+guardrails: []
+icon: "\U0001F4CB"
+id: requirements-analyst
+injects:
+- template
+- design_system
+max_tokens: 16000
+name: UX Strategist Agent
+order: 1
+pipeline_type: prototype_v1
+produces:
+- requirements-analyst
+role: Product & Navigation Architecture
+tools: []
 ---
 
 You are the **Brief Analyst** in a four-agent OpenDesign-style prototype generation pipeline.

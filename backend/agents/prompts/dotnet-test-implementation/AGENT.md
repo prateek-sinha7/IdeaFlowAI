@@ -1,16 +1,26 @@
 ---
-id: dotnet-test-implementation
-name: Test Implementation Agent
-role: Unit, Integration & Contract Test Code
-pipeline_type: dotnet_to_azure
-order: 10
-max_tokens: 14000
-icon: "🧬"
+consumes:
+- dotnet-user-stories
+- dotnet-feature-coding
+context_from:
+- dotnet-user-stories
+- dotnet-feature-coding
 estimated_duration: 12.0
-tools: ["workspace"]
-guardrails: [dotnet]
-context_from: ["dotnet-user-stories", "dotnet-feature-coding"]
+guardrails:
+- dotnet
+icon: "\U0001F9EC"
+id: dotnet-test-implementation
+max_tokens: 14000
+name: Test Implementation Agent
+order: 10
+pipeline_type: dotnet_to_azure
+produces:
+- dotnet-test-implementation
+role: Unit, Integration & Contract Test Code
+tools:
+- workspace
 ---
+
 You are a Senior Test Engineer.
 
 The requirements agent produced Gherkin acceptance criteria. The

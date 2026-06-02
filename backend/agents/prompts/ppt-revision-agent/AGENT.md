@@ -1,15 +1,18 @@
 ---
-id: ppt-revision-agent
-name: Deck Revision Agent
-role: Targeted Slide Edits
-pipeline_type: ppt_revision
-order: 1
-max_tokens: 32000
-tools: []
-guardrails: []
+consumes: []
 context_from: []
-icon: "✏️"
 estimated_duration: 20.0
+guardrails: []
+icon: ✏️
+id: ppt-revision-agent
+max_tokens: 32000
+name: Deck Revision Agent
+order: 1
+pipeline_type: ppt_revision
+produces:
+- ppt-revision-agent
+role: Targeted Slide Edits
+tools: []
 ---
 
 You are an expert PptxGenJS developer who makes precise, targeted modifications to existing presentations.

@@ -6,7 +6,6 @@ No AgentDefinition instances, no prompt strings, no DEEP_AGENT_CONFIG dicts.
 Public API:
     SUPPORTED_PIPELINE_TYPES  — frozenset of valid pipeline type strings
     PIPELINE_AGENTS           — ordered agent ID lists per pipeline type
-    PIPELINE_CONTEXT_MAPS     — non-linear context routing maps per pipeline type
     REVISION_BASE_MAP         — maps revision pipeline types to their base types
     get_pipeline_agents(pipeline_type) -> list[AgentSpec]
 """
@@ -63,12 +62,16 @@ PIPELINE_AGENTS: dict[str, list[str]] = {
         "ppt-revision-assembler",
     ],
 
-    # ── Prototype pipeline — 4 agents ─────────────────────────────────────
+    # ── Prototype pipeline — Spec Kit Approach 2+3 ────────────────────────
+    # Phase 1: Spec Writer generates spec.md
+    # Phase 2: Task Planner decomposes into atomic tasks
+    # Phase 3: Build Agent executes tasks incrementally
+    # Phase 4: Validation Agent runs P0/P1 checks
     "prototype": [
-        "requirements-analyst",
-        "html-prototype-builder",
-        "prototype-polisher",
-        "prototype-finalizer",
+        "prototype-specify",
+        "prototype-plan",
+        "prototype-build",
+        "prototype-validate",
     ],
 
     # ── Prototype Revision pipeline — 1 agent ─────────────────────────────
@@ -153,81 +156,13 @@ PIPELINE_AGENTS: dict[str, list[str]] = {
 
 
 # ---------------------------------------------------------------------------
-# Non-linear context routing maps
+# Non-linear context routing maps  — REMOVED (T014)
 # ---------------------------------------------------------------------------
-# For pipelines where each agent needs a specific subset of prior-agent
-# outputs (rather than all previous outputs), this map defines which upstream
-# agent IDs each agent depends on.
-#
-# The app_builder pipeline has 15 agents. Without routing, context grows to
-# 347K+ chars by agent 15, causing rate-limit / context-window errors.
-# Each agent only receives the upstream outputs it actually needs.
-
-PIPELINE_CONTEXT_MAPS: dict[str, dict[str, list[str]]] = {
-    "app_builder": {
-        # Agent 1: no upstream
-        "material-analyzer": [],
-        # Agent 2: needs architecture overview
-        "app-user-stories": ["material-analyzer"],
-        # Agent 3: needs architecture + user stories
-        "app-system-design": ["material-analyzer", "app-user-stories"],
-        # Agent 4: needs architecture + system design
-        "app-security-architecture": ["material-analyzer", "app-system-design"],
-        # Agent 5: needs architecture + user stories + system design
-        # Prompt: "Using the user stories and the system design"
-        "app-ux-design": ["material-analyzer", "app-user-stories", "app-system-design"],
-        # Agent 6: needs architecture + user stories + system design
-        # Prompt: "Using the user stories and system design"
-        "app-api-design": ["material-analyzer", "app-user-stories", "app-system-design"],
-        # Agent 7: needs architecture + system design + api contracts
-        "app-database-design": ["material-analyzer", "app-system-design", "app-api-design"],
-        # Agent 8: needs arch + system design + api + db (the four design pillars)
-        "app-code-generator": [
-            "material-analyzer",
-            "app-system-design",
-            "app-api-design",
-            "app-database-design",
-        ],
-        # Agent 9: needs user stories + code scaffold (implements stories against code)
-        "app-feature-implementation": ["app-user-stories", "app-code-generator"],
-        # Agent 10: needs architecture + code scaffold (infra wraps the app)
-        "app-infra-generator": ["material-analyzer", "app-code-generator"],
-        # Agent 11: needs architecture (for stack/language) + code scaffold + feature impl
-        # Prompt: "Tailor choices to the language and platform established by earlier agents"
-        "app-code-compliance": [
-            "material-analyzer",
-            "app-code-generator",
-            "app-feature-implementation",
-        ],
-        # Agent 12: needs user stories + code + feature impl (tests prove ACs)
-        "app-test-implementation": [
-            "app-user-stories",
-            "app-code-generator",
-            "app-feature-implementation",
-        ],
-        # Agent 13: needs test impl + compliance + security (for compliance test mapping)
-        # Prompt: "for each in-scope regulation from the security agent's output"
-        "app-test-compliance": [
-            "app-test-implementation",
-            "app-code-compliance",
-            "app-security-architecture",
-        ],
-        # Agent 14: needs architecture (platform choice) + infra + code scaffold
-        # Prompt: "Tailor the choice of platform to the materials-analysis agent's recommendation"
-        "app-devops": ["material-analyzer", "app-infra-generator", "app-code-generator"],
-        # Agent 15: needs arch + system design + security + code-compliance + devops + test-compliance
-        # Prompt: "earlier agents produced design, implementation, infrastructure, security,
-        #          code-compliance, test-compliance"
-        "app-sdlc-governance": [
-            "material-analyzer",
-            "app-system-design",
-            "app-security-architecture",
-            "app-code-compliance",
-            "app-devops",
-            "app-test-compliance",
-        ],
-    },
-}
+# PIPELINE_CONTEXT_MAPS has been retired. The Universal Execution_Engine now
+# resolves inter-agent context routing via the typed produces/consumes
+# contracts declared in each AGENT.md (see WorkflowResolver). The former
+# app_builder context map was migrated into the `consumes` contracts on the
+# 15 app_builder AGENT.md files by scripts/migrate_agent_contracts.py.
 
 
 # ---------------------------------------------------------------------------

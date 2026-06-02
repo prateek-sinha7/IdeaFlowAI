@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowLeft, Mail, Lock, Eye, EyeOff, CheckCircle2, AlertCircle,
-  User, Zap, Check, Shield, Cpu,
+  User, Zap, Check, Shield, Cpu, FileText, Save, Trash2,
 } from "lucide-react";
 import { getToken, getMe, changePassword, getPreferences, updatePreferences } from "@/lib/api";
 import type { ModelOption } from "@/lib/api";
@@ -15,7 +15,7 @@ interface AccountSettingsProps {
   onBack: () => void;
 }
 
-type SettingsSection = "profile" | "model" | "limits";
+type SettingsSection = "profile" | "model" | "limits" | "constitution";
 
 // ─── Tier definitions ─────────────────────────────────────────────────────────
 const TIER_ORDER: Tier[] = ["basic", "pro", "enterprise"];
@@ -163,6 +163,7 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
     { id: "profile", label: "Profile", icon: User },
     { id: "model",   label: "AI Model", icon: Cpu },
     { id: "limits",  label: "Limits",  icon: Zap },
+    { id: "constitution", label: "Constitution", icon: FileText },
   ];
 
   return (
@@ -586,9 +587,150 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
               </motion.div>
             )}
 
+            {/* ── CONSTITUTION ── */}
+            {section === "constitution" && (
+              <ConstitutionSection />
+            )}
+
           </AnimatePresence>
         </div>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Constitution Section (T074b — FR-012)
+// ---------------------------------------------------------------------------
+
+function ConstitutionSection() {
+  const [content, setContent] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [status, setStatus] = useState<"idle" | "saved" | "deleted" | "error">("idle");
+
+  // Load current constitution on mount
+  useEffect(() => {
+    const token = getToken();
+    if (!token) { setLoading(false); return; }
+    fetch("/api/settings/constitution", {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((data) => { setContent(data.content || ""); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleSave = async () => {
+    const token = getToken();
+    if (!token || !content.trim()) return;
+    setSaving(true);
+    setStatus("idle");
+    try {
+      const r = await fetch("/api/settings/constitution", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ content: content.trim() }),
+      });
+      if (r.ok) setStatus("saved");
+      else setStatus("error");
+    } catch {
+      setStatus("error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    const token = getToken();
+    if (!token) return;
+    setDeleting(true);
+    setStatus("idle");
+    try {
+      const r = await fetch("/api/settings/constitution", {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (r.ok) { setContent(""); setStatus("deleted"); }
+      else setStatus("error");
+    } catch {
+      setStatus("error");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <motion.div
+      key="constitution"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+      transition={{ duration: 0.2 }}
+      className="p-6 space-y-5"
+    >
+      <div className="flex items-center gap-2 mb-1">
+        <FileText className="h-3.5 w-3.5 text-gray-400" />
+        <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+          My Constitution
+        </span>
+      </div>
+      <p className="text-[12px] text-gray-500 leading-relaxed">
+        Your Constitution is injected into every agent&apos;s system prompt as a governing guardrail.
+        Write your principles, constraints, and quality standards here — they apply to all pipelines.
+      </p>
+
+      {loading ? (
+        <div className="h-40 flex items-center justify-center">
+          <div className="h-4 w-4 border-2 border-gray-200 border-t-[#1B2A4A] rounded-full animate-spin" />
+        </div>
+      ) : (
+        <textarea
+          value={content}
+          onChange={(e) => { setContent(e.target.value); setStatus("idle"); }}
+          placeholder={"# My Constitution\n\n## Principle 1 — Quality First\nEvery output must be production-ready…\n\n## Principle 2 — Security\nNever expose secrets or PII…"}
+          className="w-full h-64 text-[12px] text-gray-800 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 resize-none focus:outline-none focus:border-[#1B2A4A] transition-colors font-mono leading-relaxed"
+        />
+      )}
+
+      {status === "saved" && (
+        <div className="flex items-center gap-1.5 text-[11px] text-emerald-600 bg-emerald-50 rounded-lg px-3 py-2">
+          <CheckCircle2 className="h-3.5 w-3.5" /> Constitution saved — active on all future runs.
+        </div>
+      )}
+      {status === "deleted" && (
+        <div className="flex items-center gap-1.5 text-[11px] text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+          <CheckCircle2 className="h-3.5 w-3.5" /> Constitution cleared.
+        </div>
+      )}
+      {status === "error" && (
+        <div className="flex items-center gap-1.5 text-[11px] text-red-600 bg-red-50 rounded-lg px-3 py-2">
+          <AlertCircle className="h-3.5 w-3.5" /> Failed to save. Please try again.
+        </div>
+      )}
+
+      <div className="flex items-center gap-2">
+        <button
+          onClick={handleSave}
+          disabled={saving || loading || !content.trim()}
+          className="flex items-center gap-1.5 rounded-xl bg-[#1B2A4A] px-4 py-2 text-[12px] font-semibold text-white hover:bg-[#2a3d5e] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          <Save className="h-3.5 w-3.5" />
+          {saving ? "Saving…" : "Save Constitution"}
+        </button>
+        {content && (
+          <button
+            onClick={handleDelete}
+            disabled={deleting || loading}
+            className="flex items-center gap-1.5 rounded-xl border border-gray-200 px-4 py-2 text-[12px] font-medium text-gray-500 hover:border-red-300 hover:text-red-600 disabled:opacity-50 transition-colors"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            {deleting ? "Clearing…" : "Clear"}
+          </button>
+        )}
+      </div>
+    </motion.div>
   );
 }

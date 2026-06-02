@@ -15,19 +15,13 @@ import { PrototypePreview } from "@/components/preview/PrototypePreview";
 import { MarkdownPreview } from "@/components/preview/MarkdownPreview";
 import { AppBuilderPreview, type ParsedFile } from "@/components/preview/AppBuilderPreview";
 import { FilesTab } from "@/components/results/FilesTab";
-import type { WorkflowRun, WorkflowType } from "@/types/index";
+import { AgentThinkingTab } from "@/components/results/AgentThinkingTab";
+import type { WorkflowRun, WorkflowType, AgentRunState } from "@/types/index";
 import { availableChainTargets } from "@/lib/workflowChaining";
 
 interface WorkflowHistoryProps {
   onBack: () => void;
-  // Optional: when set, the detail view shows a "Suggested next steps"
-  // panel that lets the user chain a follow-up pipeline using the
-  // historical run's input/output as context. The parent
-  // (DashboardLayout) wires this to handleChainFromHistory and switches
-  // into the execution view on click.
   onChainPipeline?: (run: WorkflowRun, nextType: WorkflowType) => void;
-  // Optional: revision callbacks — when set, revision buttons appear in
-  // the preview panel of the detail view, matching the execution page UX.
   onReviseUserStory?: (instruction: string, content: string) => void;
   onRevisePpt?: (instruction: string, content: string) => void;
   onRevisePrototype?: (instruction: string, content: string) => void;
@@ -116,7 +110,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [filterType, setFilterType] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [detailTab, setDetailTab] = useState<"preview" | "files">("preview");
+  const [detailTab, setDetailTab] = useState<"preview" | "files" | "thinking">("preview");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
@@ -168,8 +162,12 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   }, [deleteConfirmId, selectedRun]);
 
   const filteredRuns = runs.filter((r) => {
-    // Map od_prototype → prototype for filtering
-    const baseType = r.type === "od_prototype" ? "prototype" : r.type.replace("_revision", "");
+    // Normalize type for filtering: od_prototype→prototype, od_ppt→ppt, strip _revision suffix
+    const baseType = r.type === "od_prototype" ? "prototype"
+      : r.type === "od_ppt" ? "ppt"
+      : r.type === "od_ppt_revision" ? "ppt"
+      : r.type === "prototype_revision" ? "prototype"
+      : r.type.replace("_revision", "");
     const matchType = filterType === "all" || baseType === filterType || r.type === filterType;
     const matchSearch = !searchQuery || (r.title || "").toLowerCase().includes(searchQuery.toLowerCase());
     return matchType && matchSearch;
@@ -180,13 +178,34 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   const detailWorkflowType = (selectedRun?.type ?? "custom") as WorkflowType;
   const detailIsAppBuilder = detailWorkflowType === "app_builder" || detailWorkflowType === "app_builder_revision";
 
-  const detailAgentOutputs = useMemo<{ agent_id: string; name: string; role: string; icon: string; output: string; duration: number | null }[]>(() => {
+  const detailAgentOutputs = useMemo<{ agent_id: string; name: string; role: string; icon: string; output: string; duration: number | null; input_tokens?: number; output_tokens?: number; total_tokens?: number }[]>(() => {
     if (!selectedRun?.agentOutputs) return [];
     try {
       const raw = selectedRun.agentOutputs;
-      return typeof raw === "string"
-        ? JSON.parse(raw)
-        : (raw as { agent_id: string; name: string; role: string; icon: string; output: string; duration: number | null }[]);
+      const parsed = typeof raw === "string" ? JSON.parse(raw) : (raw as Record<string, unknown>[]);
+      // Deduplicate by agent_id — for build agents that run multiple times,
+      // keep the first unique entry and aggregate duration + tokens.
+      const seen = new Map<string, number>(); // agent_id → index in result
+      const deduped: typeof parsed = [];
+      for (const a of parsed) {
+        const aid = (a as Record<string, unknown>).agent_id as string;
+        if (seen.has(aid)) {
+          // Aggregate duration and tokens for repeated agents
+          const existing = deduped[seen.get(aid)!] as Record<string, unknown>;
+          const existingDur = (existing.duration as number | null) ?? 0;
+          const newDur = (a.duration as number | null) ?? 0;
+          existing.duration = existingDur + newDur;
+          existing.input_tokens = ((existing.input_tokens as number) || 0) + ((a.input_tokens as number) || 0);
+          existing.output_tokens = ((existing.output_tokens as number) || 0) + ((a.output_tokens as number) || 0);
+          existing.total_tokens = ((existing.total_tokens as number) || 0) + ((a.total_tokens as number) || 0);
+          // Keep the last output (most recent/final result)
+          if ((a.output as string)?.trim()) existing.output = a.output;
+        } else {
+          seen.set(aid, deduped.length);
+          deduped.push({ ...a });
+        }
+      }
+      return deduped as typeof parsed;
     } catch { return []; }
   }, [selectedRun]);
 
@@ -205,6 +224,26 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     if (selectedOutput) add(parseFilesForIDE(selectedOutput));
     return merged;
   }, [detailIsAppBuilder, detailAgentOutputs, selectedOutput]);
+
+  const thinkingAgents = useMemo<AgentRunState[]>(() => {
+    return detailAgentOutputs.map((a, idx) => ({
+      id: a.agent_id,
+      name: a.name,
+      role: a.role,
+      icon: a.icon || "",
+      status: "done" as const,
+      output: a.output || "",
+      thinking: "",
+      duration: a.duration,
+      error: null,
+      index: idx,
+      // Thinking tab fields from persisted agent_outputs (Phase 3)
+      inputPrompt: (a as Record<string, unknown>).input_prompt as string | undefined,
+      contextSources: (a as Record<string, unknown>).context_sources as import("@/types/index").ContextSource[] | undefined,
+      toolCalls: (a as Record<string, unknown>).tool_calls as import("@/types/index").ToolCallEntry[] | undefined,
+      thinkingText: (a as Record<string, unknown>).thinking_text as string | undefined,
+    }));
+  }, [detailAgentOutputs]);
 
   const ideProjectName = useMemo(() => {
     const arch = detailAgentOutputs.find(a => a.agent_id === "material-analyzer");
@@ -333,7 +372,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                 { bg: "#F0EEE8", text: "#5C5A2A" },
               ];
               const iconStyle = iconStyles[idx % iconStyles.length];
-              const initials = agent.name.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
+              const initials = (agent.name || "Agent").split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
               return (
                 <details key={idx} className="group rounded-xl border border-gray-100 bg-white overflow-hidden">
                   <summary className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors list-none">
@@ -351,6 +390,11 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                           {agent.duration != null && (
                             <span className="text-[9px] text-gray-400">{agent.duration.toFixed(0)}s</span>
                           )}
+                          {(agent as Record<string, unknown>).total_tokens ? (
+                            <span className="text-[9px] text-gray-400">
+                              {(((agent as Record<string, unknown>).total_tokens as number) / 1000).toFixed(1)}k tok
+                            </span>
+                          ) : null}
                           <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
                             DONE
                           </span>
@@ -361,9 +405,8 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                     <ChevronRight className="h-3 w-3 text-gray-300 group-open:rotate-90 transition-transform flex-shrink-0" />
                   </summary>
                   <div className="border-t border-gray-100 overflow-hidden" style={{ background: "#f7f6f3" }}>
-                    <pre className="text-[9px] text-gray-500 whitespace-pre-wrap leading-relaxed p-3 max-h-[120px] overflow-y-auto font-mono">
-                      {agent.output?.slice(0, 1200) || "No output"}
-                      {agent.output && agent.output.length > 1200 && "\n...[truncated]"}
+                    <pre className="text-[9px] text-gray-500 whitespace-pre-wrap leading-relaxed p-3 max-h-[300px] overflow-y-auto font-mono">
+                      {agent.output || "No output"}
                     </pre>
                   </div>
                 </details>
@@ -422,7 +465,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
           {/* Tabs + PPT action buttons */}
           <div className="flex items-center justify-between gap-2 px-5 py-3 border-b border-gray-100 bg-white flex-shrink-0">
             <div className="flex items-center gap-1">
-              {(["preview", "files"] as const).map((tab) => (
+              {(["preview", "files", "thinking"] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setDetailTab(tab)}
@@ -432,7 +475,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                       : "text-gray-400 hover:text-gray-700"
                   }`}
                 >
-                  {tab === "files" ? "Files" : "Preview"}
+                  {tab === "files" ? "Files" : tab === "thinking" ? "Thinking" : "Preview"}
                 </button>
               ))}
             </div>
@@ -515,6 +558,9 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                   )}
                 </div>
               )
+            ) : detailTab === "thinking" ? (
+              /* Thinking tab — populated from persisted agent_outputs (Phase 3) */
+              <AgentThinkingTab agents={thinkingAgents} />
             ) : (
               /* Files tab */
               <FilesTab

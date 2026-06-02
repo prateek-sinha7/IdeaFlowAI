@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -347,7 +347,7 @@ def update_workflow(
     return workflow_run
 
 
-@router.delete("/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 def delete_workflow(
     workflow_id: str,
     current_user: User = Depends(get_current_user),
@@ -373,3 +373,206 @@ def delete_workflow(
     db.commit()
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# Chain context endpoint — extracts structured text from a completed run
+# for use as context in the next chained pipeline.
+# ---------------------------------------------------------------------------
+
+class ChainContextResponse(BaseModel):
+    """Structured context extracted from a completed workflow run."""
+    workflow_id: str
+    pipeline_type: str
+    title: str
+    brief: str                          # Original user input
+    structured_summary: str             # Extracted text content (not HTML)
+    agent_summaries: list[dict]         # Per-agent key outputs
+    context_block: str                  # Ready-to-inject context string
+
+
+def _extract_chain_context(workflow_run: WorkflowRun) -> ChainContextResponse:
+    """Extract structured, chain-ready context from a completed WorkflowRun.
+
+    For each pipeline type, extracts the most useful text content:
+    - od_ppt / ppt: extracts the slide spec JSON from the brief-analyst output
+    - user_stories: extracts the backlog text from the compiler output
+    - od_prototype / prototype: extracts the component spec from the analyst
+    - app_builder: extracts the architecture summary from the system-design agent
+    - mulesoft / dotnet: extracts the migration plan from the inventory agent
+    - custom: extracts the final output text
+    """
+    import json as _json
+    import re as _re
+
+    pipeline_type = workflow_run.type
+    brief = workflow_run.input or ""
+    title = workflow_run.title or ""
+
+    # Parse agent_outputs JSON array
+    agent_outputs: list[dict] = []
+    if workflow_run.agent_outputs:
+        try:
+            agent_outputs = _json.loads(workflow_run.agent_outputs)
+        except Exception:
+            pass
+
+    # ── Pipeline-specific extraction ──────────────────────────────────────
+    agent_summaries: list[dict] = []
+    structured_summary = ""
+
+    # Helper: find agent output by ID
+    def get_agent_output(agent_id: str) -> str:
+        for a in agent_outputs:
+            if a.get("agent_id") == agent_id:
+                return a.get("output", "")
+        return ""
+
+    # Helper: extract <spec>...</spec> JSON from text
+    def extract_spec(text: str) -> str:
+        m = _re.search(r"<spec>([\s\S]*?)</spec>", text)
+        if m:
+            try:
+                spec = _json.loads(m.group(1))
+                # Format as readable text
+                lines = [f"Title: {spec.get('title', '')}"]
+                if spec.get("audience"):
+                    lines.append(f"Audience: {spec['audience']}")
+                if spec.get("tone"):
+                    lines.append(f"Tone: {spec['tone']}")
+                if spec.get("theme_choice"):
+                    lines.append(f"Theme: {spec['theme_choice']}")
+                slides = spec.get("slides", [])
+                if slides:
+                    lines.append(f"\nSlide Plan ({len(slides)} slides):")
+                    for s in slides:
+                        lines.append(f"  Slide {s.get('index', '?')}: {s.get('title', '')} [{s.get('type', '')}]")
+                        if s.get("content"):
+                            lines.append(f"    Content: {str(s['content'])[:200]}")
+                return "\n".join(lines)
+            except Exception:
+                return m.group(1)[:2000]
+        return ""
+
+    if pipeline_type in ("od_ppt", "ppt", "od_ppt_revision", "ppt_revision"):
+        # Extract slide spec from brief-analyst
+        analyst_output = get_agent_output("od-ppt-brief-analyst")
+        spec_text = extract_spec(analyst_output)
+        if spec_text:
+            structured_summary = f"Presentation Slide Plan:\n{spec_text}"
+            agent_summaries.append({"agent": "Presentation Strategist", "summary": spec_text[:500]})
+        elif analyst_output:
+            structured_summary = analyst_output[:3000]
+            agent_summaries.append({"agent": "Presentation Strategist", "summary": analyst_output[:500]})
+
+    elif pipeline_type in ("user_stories", "user_stories_revision"):
+        # Extract from backlog compiler (last agent)
+        compiler_output = get_agent_output("backlog-compiler")
+        if not compiler_output:
+            # Fall back to final output
+            compiler_output = workflow_run.output or ""
+        if compiler_output:
+            structured_summary = compiler_output[:4000]
+            agent_summaries.append({"agent": "Backlog Compiler", "summary": compiler_output[:500]})
+
+    elif pipeline_type in ("od_prototype", "prototype", "prototype_revision"):
+        # Extract from requirements analyst
+        analyst_output = get_agent_output("requirements-analyst")
+        if analyst_output:
+            structured_summary = analyst_output[:3000]
+            agent_summaries.append({"agent": "Requirements Analyst", "summary": analyst_output[:500]})
+
+    elif pipeline_type in ("app_builder", "app_builder_revision"):
+        # Extract from system design agent
+        design_output = get_agent_output("app-system-design")
+        stories_output = get_agent_output("app-user-stories")
+        parts = []
+        if stories_output:
+            parts.append(f"User Stories:\n{stories_output[:1500]}")
+            agent_summaries.append({"agent": "App User Stories", "summary": stories_output[:300]})
+        if design_output:
+            parts.append(f"System Design:\n{design_output[:1500]}")
+            agent_summaries.append({"agent": "System Design", "summary": design_output[:300]})
+        structured_summary = "\n\n".join(parts)
+
+    elif pipeline_type in ("mulesoft_to_springboot",):
+        inventory_output = get_agent_output("mulesoft-inventory")
+        decomp_output = get_agent_output("mulesoft-decomposition")
+        parts = []
+        if inventory_output:
+            parts.append(f"Mulesoft Inventory:\n{inventory_output[:2000]}")
+        if decomp_output:
+            parts.append(f"Migration Decomposition:\n{decomp_output[:2000]}")
+        structured_summary = "\n\n".join(parts)
+
+    elif pipeline_type in ("dotnet_to_azure",):
+        inventory_output = get_agent_output("dotnet-inventory")
+        mapping_output = get_agent_output("dotnet-azure-target-mapping")
+        parts = []
+        if inventory_output:
+            parts.append(f".NET Inventory:\n{inventory_output[:2000]}")
+        if mapping_output:
+            parts.append(f"Azure Target Mapping:\n{mapping_output[:2000]}")
+        structured_summary = "\n\n".join(parts)
+
+    else:
+        # Generic: use final output
+        structured_summary = (workflow_run.output or "")[:3000]
+
+    # Fallback: if no structured summary, use the final output
+    if not structured_summary and workflow_run.output:
+        output = workflow_run.output
+        # Skip HTML artifacts
+        if not _re.search(r"<!DOCTYPE|<html", output, _re.IGNORECASE):
+            structured_summary = output[:3000]
+
+    # Build the ready-to-inject context block
+    context_block = ""
+    if structured_summary:
+        context_block = (
+            f"=== CONTEXT FROM PREVIOUS PIPELINE ({pipeline_type}) ===\n"
+            f"Title: {title}\n"
+            f"Original Brief: {brief[:200]}\n\n"
+            f"{structured_summary}\n"
+            f"=== END PREVIOUS CONTEXT ==="
+        )
+
+    return ChainContextResponse(
+        workflow_id=str(workflow_run.id),
+        pipeline_type=pipeline_type,
+        title=title,
+        brief=brief,
+        structured_summary=structured_summary,
+        agent_summaries=agent_summaries,
+        context_block=context_block,
+    )
+
+
+@router.get("/{workflow_id}/chain-context", response_model=ChainContextResponse)
+def get_chain_context(
+    workflow_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Extract structured chain context from a completed workflow run.
+
+    Returns the key text content from the run's agent outputs, formatted
+    as a ready-to-inject context block for the next chained pipeline.
+    Only returns context for completed runs owned by the current user.
+    """
+    workflow_run = (
+        db.query(WorkflowRun)
+        .filter(
+            WorkflowRun.id == workflow_id,
+            WorkflowRun.user_id == current_user.id,
+            WorkflowRun.status == "completed",
+        )
+        .first()
+    )
+    if not workflow_run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow run not found or not completed",
+        )
+
+    return _extract_chain_context(workflow_run)

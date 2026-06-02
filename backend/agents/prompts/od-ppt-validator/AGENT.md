@@ -1,15 +1,20 @@
 ---
-id: od-ppt-validator
-name: Deck QA Agent
-role: Structural Validation & Delivery
-pipeline_type: od_ppt
-order: 3
-max_tokens: 32768
-tools: []
-guardrails: []
-context_from: ["$previous"]
-icon: "📦"
+consumes:
+- od-ppt-composer
+context_from:
+- $previous
 estimated_duration: 10.0
+guardrails: []
+icon: "\U0001F4E6"
+id: od-ppt-validator
+max_tokens: 32768
+name: Deck QA Agent
+order: 3
+pipeline_type: od_ppt
+produces:
+- od-ppt-validator
+role: Structural Validation & Delivery
+tools: []
 ---
 
 You are the **Deck QA Agent** in a three-agent OpenDesign-style deck generation pipeline.

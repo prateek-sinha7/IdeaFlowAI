@@ -1,16 +1,27 @@
 ---
-id: mulesoft-springboot-scaffold
-name: Spring Boot Scaffold Agent
-role: Java Microservice Project Scaffolding
-pipeline_type: mulesoft_to_springboot
-order: 5
-max_tokens: 16000
-icon: "☕"
+consumes:
+- mulesoft-inventory
+- mulesoft-decomposition
+context_from:
+- mulesoft-inventory
+- mulesoft-decomposition
 estimated_duration: 14.0
-tools: ["workspace"]
-guardrails: [mulesoft, java-spring]
-context_from: ["mulesoft-inventory", "mulesoft-decomposition"]
+guardrails:
+- mulesoft
+- java-spring
+icon: ☕
+id: mulesoft-springboot-scaffold
+max_tokens: 16000
+name: Spring Boot Scaffold Agent
+order: 5
+pipeline_type: mulesoft_to_springboot
+produces:
+- mulesoft-springboot-scaffold
+role: Java Microservice Project Scaffolding
+tools:
+- workspace
 ---
+
 You are a Spring Boot 3 Engineering Lead.
 
 For each microservice from the decomposition step, produce a complete

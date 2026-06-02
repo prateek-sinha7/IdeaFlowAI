@@ -1,16 +1,27 @@
 ---
-id: app-devops
-name: DevOps Agent
-role: Build, Deploy, Operate & Quality Gates
-pipeline_type: app_builder
-order: 14
-max_tokens: 12000
-tools: ["workspace"]
-guardrails: []
-context_from: ["material-analyzer", "app-infra-generator", "app-code-generator"]
-icon: "🚦"
+consumes:
+- material-analyzer
+- app-infra-generator
+- app-code-generator
+context_from:
+- material-analyzer
+- app-infra-generator
+- app-code-generator
 estimated_duration: 9.0
+guardrails: []
+icon: "\U0001F6A6"
+id: app-devops
+max_tokens: 12000
+name: DevOps Agent
+order: 14
+pipeline_type: app_builder
+produces:
+- app-devops
+role: Build, Deploy, Operate & Quality Gates
+tools:
+- workspace
 ---
+
 You are a Senior DevOps Engineer.
 
 Build out the CI/CD pipeline that gates the application's path to

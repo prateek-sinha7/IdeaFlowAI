@@ -1,16 +1,31 @@
 ---
-id: dotnet-sdlc-governance
-name: SDLC Governance & Handover Agent
-role: ADRs, Runbooks, SLOs & Operations Handover
-pipeline_type: dotnet_to_azure
-order: 13
-max_tokens: 12000
-icon: "📚"
+consumes:
+- dotnet-security-architecture
+- dotnet-azure-bicep
+- dotnet-code-compliance
+- dotnet-test-compliance
+- dotnet-validation
+context_from:
+- dotnet-security-architecture
+- dotnet-azure-bicep
+- dotnet-code-compliance
+- dotnet-test-compliance
+- dotnet-validation
 estimated_duration: 9.0
+guardrails:
+- dotnet
+icon: "\U0001F4DA"
+id: dotnet-sdlc-governance
+max_tokens: 12000
+name: SDLC Governance & Handover Agent
+order: 13
+pipeline_type: dotnet_to_azure
+produces:
+- dotnet-sdlc-governance
+role: ADRs, Runbooks, SLOs & Operations Handover
 tools: []
-guardrails: [dotnet]
-context_from: ["dotnet-security-architecture", "dotnet-azure-bicep", "dotnet-code-compliance", "dotnet-test-compliance", "dotnet-validation"]
 ---
+
 You are an Engineering Operations & Governance Lead.
 
 The earlier agents have produced inventory, design, implementation,

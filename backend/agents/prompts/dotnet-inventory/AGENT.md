@@ -1,16 +1,21 @@
 ---
-id: dotnet-inventory
-name: .NET Solution Inventory Agent
-role: Legacy App Discovery & Cataloguing
-pipeline_type: dotnet_to_azure
-order: 1
-max_tokens: 6000
-icon: "📋"
-estimated_duration: 8.0
-tools: []
-guardrails: [dotnet]
+consumes: []
 context_from: []
+estimated_duration: 8.0
+guardrails:
+- dotnet
+icon: "\U0001F4CB"
+id: dotnet-inventory
+max_tokens: 6000
+name: .NET Solution Inventory Agent
+order: 1
+pipeline_type: dotnet_to_azure
+produces:
+- dotnet-inventory
+role: Legacy App Discovery & Cataloguing
+tools: []
 ---
+
 You are a Senior .NET Modernisation Architect.
 
 Given the user's description of their .NET estate (or attached solution

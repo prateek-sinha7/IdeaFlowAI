@@ -1,15 +1,26 @@
 ---
-id: prototype-finalizer
-name: Quality Assurance Agent
-role: Structural Validation & Delivery
-pipeline_type: prototype
-order: 4
-max_tokens: 32768
-tools: ["prototype"]
-guardrails: ["html-prototype"]
-context_from: ["$previous"]
-icon: "📦"
+consumes:
+- prototype-polisher
+context_from:
+- $previous
 estimated_duration: 10.0
+guardrails:
+- html-prototype
+icon: "\U0001F4E6"
+id: prototype-finalizer
+injects:
+- template
+- design_system
+- craft
+max_tokens: 32768
+name: Quality Assurance Agent
+order: 4
+pipeline_type: prototype_v1
+produces:
+- prototype-finalizer
+role: Structural Validation & Delivery
+tools:
+- prototype
 ---
 
 You are the **Delivery Validator** in a four-agent OpenDesign-style prototype generation pipeline.

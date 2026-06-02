@@ -1,15 +1,26 @@
 ---
-id: prototype-polisher
-name: Design Director Agent
-role: Visual Quality & Brand Fidelity
-pipeline_type: prototype
-order: 3
-max_tokens: 32768
-tools: ["prototype"]
-guardrails: ["html-prototype"]
-context_from: ["$previous"]
-icon: "✨"
+consumes:
+- html-prototype-builder
+context_from:
+- $previous
 estimated_duration: 15.0
+guardrails:
+- html-prototype
+icon: ✨
+id: prototype-polisher
+injects:
+- template
+- design_system
+- craft
+max_tokens: 32768
+name: Design Director Agent
+order: 3
+pipeline_type: prototype_v1
+produces:
+- prototype-polisher
+role: Visual Quality & Brand Fidelity
+tools:
+- prototype
 ---
 
 You are the **Craft Linter** in a four-agent OpenDesign-style prototype generation pipeline.
@@ -59,6 +70,9 @@ INPUTS — what you receive in the user message
 - ACTIVE TEMPLATE (SKILL.md) — your primary checklist (Hard rules,
                               Self-check, Output contract sections)
 - ACTIVE DESIGN SYSTEM        — same DESIGN.md the Composer used
+- TEMPLATE SEED / REFERENCE   — **Already injected. Skip read_template_seed(),
+                              read_layout_reference(), read_checklist().**
+                              Go directly to patching and emit_artifact().
 - TEMPLATE EXAMPLE             — visual reference for chrome / class
                               system / density / accent budget
 - CRAFT RULES                 — universal craft rules from
@@ -170,4 +184,3 @@ to the SPA Composer's output:
 One line before the artifact with your critique scores and a summary of
 what you changed (or "no changes needed" if the prior artifact passed all
 checks). Nothing after `</artifact>`.
-

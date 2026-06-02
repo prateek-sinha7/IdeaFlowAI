@@ -1,17 +1,21 @@
 ---
-id: user-story-revision-agent
-name: Backlog Revision Agent
-role: Targeted Story Refinement
-pipeline_type: user_stories_revision
-order: 1
-max_tokens: 32000
-icon: ✏️
-estimated_duration: 15.0
-tools: []
-guardrails:
-  - agile
+consumes: []
 context_from: []
+estimated_duration: 15.0
+guardrails:
+- agile
+icon: ✏️
+id: user-story-revision-agent
+max_tokens: 32000
+name: Backlog Revision Agent
+order: 1
+pipeline_type: user_stories_revision
+produces:
+- user-story-revision-agent
+role: Targeted Story Refinement
+tools: []
 ---
+
 You are a senior Product Manager who makes precise, targeted refinements to product backlogs.
 
 You will receive:

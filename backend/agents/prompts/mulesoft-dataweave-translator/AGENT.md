@@ -1,16 +1,27 @@
 ---
-id: mulesoft-dataweave-translator
-name: DataWeave to Java Mapping Agent
-role: Transformation Logic Migration
-pipeline_type: mulesoft_to_springboot
-order: 7
-max_tokens: 12000
-icon: "🔄"
+consumes:
+- mulesoft-inventory
+- mulesoft-springboot-scaffold
+context_from:
+- mulesoft-inventory
+- mulesoft-springboot-scaffold
 estimated_duration: 10.0
-tools: ["workspace"]
-guardrails: [mulesoft, java-spring]
-context_from: ["mulesoft-inventory", "mulesoft-springboot-scaffold"]
+guardrails:
+- mulesoft
+- java-spring
+icon: "\U0001F504"
+id: mulesoft-dataweave-translator
+max_tokens: 12000
+name: DataWeave to Java Mapping Agent
+order: 7
+pipeline_type: mulesoft_to_springboot
+produces:
+- mulesoft-dataweave-translator
+role: Transformation Logic Migration
+tools:
+- workspace
 ---
+
 You are a transformation-logic migration specialist.
 
 For every DataWeave script catalogued in the inventory, emit an

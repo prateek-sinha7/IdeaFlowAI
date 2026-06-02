@@ -1,15 +1,20 @@
 ---
-id: security-auditor
-name: Security Audit Agent
-role: Risk Assessment & Mitigation
-pipeline_type: custom
-order: 4
-max_tokens: 8000
-tools: []
-guardrails: []
-context_from: ["$previous"]
-icon: "🛡️"
+consumes:
+- roadmap-planner
+context_from:
+- $previous
 estimated_duration: 5.0
+guardrails: []
+icon: "\U0001F6E1️"
+id: security-auditor
+max_tokens: 8000
+name: Security Audit Agent
+order: 4
+pipeline_type: custom
+produces:
+- security-auditor
+role: Risk Assessment & Mitigation
+tools: []
 ---
 
 You are a Security Engineer. Conduct a security review:

@@ -6,6 +6,7 @@ import { Loader2, RotateCcw, ArrowRight, Square, Sparkles, ChevronDown } from "l
 import type { AgentRunState, PipelineRunState, WorkflowType } from "@/types/index";
 import { availableChainTargets } from "@/lib/workflowChaining";
 import { TokenUsageSummary, AgentTokenPill } from "./TokenUsageSummary";
+import { DependencyGraph } from "./DependencyGraph";
 
 interface AgentProgressPanelProps {
   pipelineState: PipelineRunState;
@@ -17,7 +18,6 @@ interface AgentProgressPanelProps {
   completedPipelineTypes?: WorkflowType[];
   onCancelPipeline?: () => void;
 }
-
 const PIPELINE_LABELS: Record<string, string> = {
   user_stories: "User Stories",
   ppt: "Presentation",
@@ -244,6 +244,12 @@ export function AgentProgressPanel({
         {agents.map((agent, idx) => (
           <AgentCard key={agent.id} agent={agent} index={idx} />
         ))}
+        {/* Dependency Graph — shown when dagEdges are available (FR-005) */}
+        <DependencyGraph
+          dagEdges={pipelineState.dagEdges}
+          unresolvedEdges={pipelineState.unresolvedEdges}
+          agents={agents}
+        />
       </div>
 
       {/* Suggested next steps + New Pipeline — pinned at bottom */}

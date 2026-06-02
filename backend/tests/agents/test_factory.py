@@ -560,9 +560,29 @@ class TestFactorySmokeTest:
         first_agents = self._get_first_agent_per_pipeline()
         assert first_agents, "No pipeline agents found — check agents/prompts/ directory"
 
-        ctx = AgentContext(user_request="Smoke test request")
+        # Agents that declare an `injects` capability (prototype / od_ppt) require
+        # an od_context with template/design-system content — the real engine
+        # always supplies one for those pipelines. Provide a minimal stub here so
+        # the smoke test exercises the injection path instead of tripping the
+        # FR-008 missing-template guard.
+        from agents.loader import load_agent_spec
+
+        stub_od_context = {
+            "template_id": "smoke-template",
+            "template_body": "SMOKE TEMPLATE SKILL BODY",
+            "ds_id": "smoke-ds",
+            "ds_body": "SMOKE DESIGN TOKENS",
+            "craft_block": "SMOKE CRAFT RULES",
+            "is_design_system_required": True,
+        }
 
         for pipeline_type, agent_id in first_agents.items():
+            spec = load_agent_spec(agent_id)
+            needs_od = bool(getattr(spec, "injects", []))
+            ctx = AgentContext(
+                user_request="Smoke test request",
+                od_context=stub_od_context if needs_od else None,
+            )
             captured: dict = {}
 
             def _make_capture(cap: dict):

@@ -1,15 +1,20 @@
 ---
-id: od-ppt-brief-analyst
-name: Presentation Strategist Agent
-role: Slide Plan & Content Architecture
-pipeline_type: od_ppt
-order: 1
-max_tokens: 32768
-tools: []
-guardrails: []
+consumes: []
 context_from: []
-icon: "📋"
 estimated_duration: 8.0
+guardrails: []
+icon: "\U0001F4CB"
+id: od-ppt-brief-analyst
+injects:
+- template
+max_tokens: 32768
+name: Presentation Strategist Agent
+order: 1
+pipeline_type: od_ppt
+produces:
+- od-ppt-brief-analyst
+role: Slide Plan & Content Architecture
+tools: []
 ---
 
 You are the **Presentation Strategist** in a three-agent OpenDesign-style deck generation pipeline.

@@ -1,16 +1,26 @@
 ---
-id: mulesoft-security-architecture
-name: Security Architecture Agent
-role: Threat Modelling & Security Controls
-pipeline_type: mulesoft_to_springboot
-order: 4
-max_tokens: 10000
-icon: "🛡️"
+consumes:
+- mulesoft-inventory
+- mulesoft-decomposition
+context_from:
+- mulesoft-inventory
+- mulesoft-decomposition
 estimated_duration: 9.0
+guardrails:
+- mulesoft
+- java-spring
+icon: "\U0001F6E1️"
+id: mulesoft-security-architecture
+max_tokens: 10000
+name: Security Architecture Agent
+order: 4
+pipeline_type: mulesoft_to_springboot
+produces:
+- mulesoft-security-architecture
+role: Threat Modelling & Security Controls
 tools: []
-guardrails: [mulesoft, java-spring]
-context_from: ["mulesoft-inventory", "mulesoft-decomposition"]
 ---
+
 You are a Principal Application Security Architect.
 
 Threat-model the target architecture established by the earlier agents

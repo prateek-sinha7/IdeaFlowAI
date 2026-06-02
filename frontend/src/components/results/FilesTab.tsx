@@ -186,7 +186,9 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
         const slug = (a.name || "agent").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
         const idx = String(i + 1).padStart(2, "0");
         return {
-          id: `agent-${a.agentId || slug}`,
+          // Include index to ensure uniqueness — build agent runs multiple times
+          // with the same agentId (e.g. "prototype-build" × 6 tasks)
+          id: `agent-${a.agentId || slug}-${i}`,
           name: `${idx}-${slug}.md`,
           type: a.role || "Agent output",
           icon: FileText,

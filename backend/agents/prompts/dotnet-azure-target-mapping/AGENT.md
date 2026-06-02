@@ -1,16 +1,25 @@
 ---
-id: dotnet-azure-target-mapping
-name: Azure Target Mapping Agent
-role: Azure Service Recommendation
-pipeline_type: dotnet_to_azure
-order: 3
-max_tokens: 6000
-icon: "🎯"
+consumes:
+- dotnet-inventory
+- dotnet-user-stories
+context_from:
+- dotnet-inventory
+- dotnet-user-stories
 estimated_duration: 8.0
+guardrails:
+- dotnet
+icon: "\U0001F3AF"
+id: dotnet-azure-target-mapping
+max_tokens: 6000
+name: Azure Target Mapping Agent
+order: 3
+pipeline_type: dotnet_to_azure
+produces:
+- dotnet-azure-target-mapping
+role: Azure Service Recommendation
 tools: []
-guardrails: [dotnet]
-context_from: ["dotnet-inventory", "dotnet-user-stories"]
 ---
+
 You are a Principal Azure Solutions Architect.
 
 Using the .NET inventory, recommend a target Azure service for each

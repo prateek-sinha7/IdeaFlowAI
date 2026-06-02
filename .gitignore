@@ -51,3 +51,7 @@ CLAUDE.md
 # OS
 .DS_Store
 Thumbs.db
+
+# Generated ESLint output files
+frontend/eslint_code.txt
+frontend/eslint_out.txt

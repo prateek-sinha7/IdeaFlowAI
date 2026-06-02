@@ -108,6 +108,17 @@ async def lifespan(app: FastAPI):
             )
 
     logger.info("🟢 Backend ready — accepting connections")
+
+    # Phase 3 (T070): restore non-terminal WorkflowRuns on startup.
+    # Re-registers asyncio.Events for runs in waiting_for_user state so they
+    # can be resumed by user action (FR-011, SC-007 — within 30s of startup).
+    try:
+        from agents.execution_engine.engine import get_execution_engine
+        engine_instance = get_execution_engine()
+        await engine_instance.restore_non_terminal_runs()
+    except Exception as _startup_exc:
+        logger.warning("Startup restoration failed (non-fatal): %s", _startup_exc)
+
     yield
     logger.info("🔴 Shutting down...")
 
