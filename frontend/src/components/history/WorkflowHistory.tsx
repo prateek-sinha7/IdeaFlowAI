@@ -182,7 +182,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     if (!selectedRun?.agentOutputs) return [];
     try {
       const raw = selectedRun.agentOutputs;
-      const parsed = typeof raw === "string" ? JSON.parse(raw) : (raw as Record<string, unknown>[]);
+      const parsed = typeof raw === "string" ? JSON.parse(raw) : (raw as unknown as Record<string, unknown>[]);
       // Deduplicate by agent_id — for build agents that run multiple times,
       // keep the first unique entry and aggregate duration + tokens.
       const seen = new Map<string, number>(); // agent_id → index in result
