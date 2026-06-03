@@ -154,6 +154,12 @@ WORKDIR /app
 # ever changes). We deliberately do NOT copy backend/skills/ — that path
 # is a bind-mounted EBS volume in production (per-user agent state).
 COPY --chown=flowin:flowin app/ ./app/
+# agents/ is a second top-level package the app imports (folder-per-agent
+# architecture): app/main.py -> app.api.* -> `from agents.execution_engine...`.
+# It also holds runtime DATA the loader reads from disk (prompts/*/AGENT.md,
+# guardrails/*.md) — see the .dockerignore *.md re-include that keeps those in
+# the build context.
+COPY --chown=flowin:flowin agents/ ./agents/
 COPY --chown=flowin:flowin alembic/ ./alembic/
 COPY --chown=flowin:flowin alembic.ini ./alembic.ini
 

@@ -34,6 +34,9 @@ skills/
 # --- Documentation (the runtime image doesn't serve docs) ------------------
 *.md
 README*
+# ...EXCEPT agents/ AGENT.md + guardrail .md — these are runtime DATA the agent
+# loader reads from disk (not docs). Re-include so `COPY agents/` keeps them.
+!agents/**/*.md
 
 # --- Git metadata ----------------------------------------------------------
 .git/
