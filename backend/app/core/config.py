@@ -81,6 +81,26 @@ class Settings(BaseSettings):
     BEDROCK_CODING_MODEL_ID: str = ""
     AWS_REGION: str = "eu-central-1"
 
+    # ---- Output token ceiling (single source of truth) ----
+    # The Anthropic/Bedrock APIs REQUIRE a finite max_tokens on every call — it
+    # cannot be omitted — so "no capping" means "run every agent at the model's
+    # maximum" rather than truncating with small per-agent budgets. This value
+    # is applied uniformly to ALL agents by the factory, overriding the per-agent
+    # `max_tokens` declared in AGENT.md (which is retained only as documentation).
+    # 32768 is the largest value proven against the deployed Claude Haiku 4.5
+    # profile and is safe across the selectable Claude models (Opus 4.x caps at
+    # 32k output). Raise via the MAX_OUTPUT_TOKENS env var only after confirming
+    # the active model accepts it, or Bedrock returns a ValidationException.
+    MAX_OUTPUT_TOKENS: int = 32768
+
+    # ---- Per-LLM-call total timeout (seconds) ----
+    # Wraps one streaming LLM call inside DeepAgent. With MAX_OUTPUT_TOKENS lifted
+    # to the model ceiling a single full-length generation can run several minutes,
+    # so this must comfortably exceed it; the old 300s would truncate a max-length
+    # response. The botocore read_timeout (set where the Bedrock client is built)
+    # remains the lower-level guard against a genuinely hung socket.
+    LLM_CALL_TIMEOUT_SECONDS: int = 900
+
     # Base URL the IDE-side slash command and the MCP client use to reach
     # Flowin. Used to format the handoff URL returned by /api/handoff/receive.
     # Override in production to the public-facing URL (e.g. https://flowin.example).

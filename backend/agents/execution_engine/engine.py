@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from typing import AsyncGenerator
 
@@ -68,7 +69,7 @@ def _log_event(
     entry.update(extra)
     logger.info("LIFECYCLE %s", _json.dumps(entry))
 
-PLANNER_TIMEOUT_SECONDS = 20.0  # SmartPlanner: single call, 2-5s typical
+PLANNER_TIMEOUT_SECONDS = 120.0  # SmartPlanner: single call (generous — large chained prompts run slower). On timeout it defaults to PROCEED, so it never discards agent work.
 PLANNER_AGENT_ID = "deep-planner"
 
 # ── Human-in-the-loop: always ask clarifying questions ────────────────────────
@@ -81,6 +82,82 @@ ALWAYS_CLARIFY = True
 def _now() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()
+
+
+# ---------------------------------------------------------------------------
+# PPT carousel deck sanitizer (deterministic safety net)
+# ---------------------------------------------------------------------------
+
+_PPT_PIPELINE_TYPES = frozenset({"od_ppt", "od_ppt_revision", "ppt", "ppt_revision"})
+
+# Workspace filename the prototype-revision-agent reads + edits in place. The
+# engine seeds it with the current prototype before the agent runs and reads it
+# back as the deliverable afterwards (see execute()).
+REVISION_FILE_NAME = "prototype.html"
+
+
+def _sanitize_carousel_deck_html(html: str) -> str:
+    """Strip slide-hiding CSS that contradicts a horizontal translateX carousel deck.
+
+    The od_ppt composer LLM sometimes hallucinates ``.slide:not(.active){display:none}``
+    and ``.slide.active{display:...}`` (and occasionally a bare ``.slide{...display:none...}``)
+    on top of a pure-carousel template whose ``.stage`` navigates via
+    ``transform: translateX(-i*100vw)`` while every ``.slide`` stays ``display:grid``.
+    Those rules remove slides 2..N from layout, so only slide 1 ever renders.
+
+    This is a deterministic backstop — the composer prompt forbids these rules, but LLM
+    output is non-deterministic, so we also strip them here. We act ONLY when the deck is
+    clearly a horizontal carousel, and we remove ONLY the conflicting rules — never the
+    base ``.slide{display:grid}`` (the carousel relies on it) nor ``@media print`` rules
+    (those use ``display:block``/``!important``, not ``display:none``).
+
+    Returns the (possibly modified) HTML. No-op on non-carousel / non-HTML input.
+    Scope this strictly to ppt/od_ppt output — never call it on prototype HTML.
+    """
+    if not html or "<style" not in html.lower():
+        return html
+
+    # Detect a horizontal carousel: a translateX(...vw) transform driving the stage,
+    # plus the .stage/.slide structure it relies on. Whitespace-robust.
+    has_translate_vw = re.search(r"translateX\s*\(\s*[^)]*vw", html, re.IGNORECASE) is not None
+    has_stage_slide = (".stage" in html) and (".slide" in html)
+    if not (has_translate_vw and has_stage_slide):
+        return html
+
+    original = html
+
+    # 1) `.slide:not(.active) { ... }` — always a carousel-breaking hide rule. Remove it.
+    html = re.sub(
+        r"\.slide\s*:not\(\s*\.active\s*\)\s*\{[^}]*\}",
+        "",
+        html,
+        flags=re.IGNORECASE,
+    )
+
+    # 2) `.slide.active { ... }` ONLY when it overrides `display` (fights the carousel).
+    #    A cosmetic `.slide.active` rule (e.g. box-shadow) without `display` is left alone.
+    html = re.sub(
+        r"\.slide\.active\s*\{[^}]*\bdisplay\s*:[^}]*\}",
+        "",
+        html,
+        flags=re.IGNORECASE,
+    )
+
+    # 3) A bare `.slide { ... display:none ... }` hide rule — never legitimate for a
+    #    carousel (base is display:grid, print is display:block). The negative lookbehind
+    #    keeps us off `.slide-inner`, `.slide.dark`, `.slide.active`, `.slide:not(...)`, etc.
+    html = re.sub(
+        r"(?<![\w.\-:])\.slide\s*\{[^}]*?\bdisplay\s*:\s*none\b[^}]*\}",
+        "",
+        html,
+        flags=re.IGNORECASE,
+    )
+
+    if html != original:
+        # Tidy up runs of blank lines left where rules were removed (cosmetic only).
+        html = re.sub(r"[ \t]*\n([ \t]*\n){2,}", "\n\n", html)
+        logger.info("Sanitized carousel deck: removed slide-hiding CSS (%d → %d chars)", len(original), len(html))
+    return html
 
 
 class ExecutionEngine:
@@ -127,10 +204,40 @@ class ExecutionEngine:
         # Create a shared ArtifactStore for prototype pipelines.
         # All four prototype agents (builder, polisher, finalizer, etc.) share
         # the same store so emit_artifact() in one agent is readable by the next.
+        # od_prototype/prototype agents emit their HTML via emit_artifact() into a
+        # shared store. prototype_revision does NOT use it — that agent edits the
+        # prototype.html workspace file directly (seeded below) and the engine
+        # reads that file back as the deliverable.
         self._prototype_store = None
-        if pipeline_type in ("od_prototype", "prototype", "prototype_revision"):
+        if pipeline_type in ("od_prototype", "prototype"):
             from agents.prototype.artifact_store import PrototypeArtifactStore
             self._prototype_store = PrototypeArtifactStore()
+
+        # ── Prototype revision: seed the existing prototype as an editable file ──
+        # DELIBERATE EXCEPTION to the revision pattern used elsewhere. Every other
+        # revision pipeline (ppt/user_stories/app_builder) follows
+        # "existing artifact in the message → agent regenerates the COMPLETE
+        # artifact → engine takes the output". Prototype revision instead does a
+        # real coding-agent edit loop: the agent edits prototype.html in place via
+        # read_file/edit_file/write_file. This is chosen on purpose because a
+        # prototype is a single 60-100k char HTML file where surgical edits are
+        # far more reliable than re-emitting the whole document (the old approach
+        # here — a regex-merged structured diff — silently dropped edits to
+        # existing in-page JS such as the SPA route map). We drop the current HTML
+        # into the workspace and slim the prompt to just the instruction + a
+        # pointer, so the document isn't also duplicated into the agent's context.
+        self._revision_original_html = ""
+        if pipeline_type == "prototype_revision":
+            existing_html = self._extract_existing_prototype_html(user_message)
+            if existing_html:
+                self._revision_original_html = existing_html
+                workspace.write_file(REVISION_FILE_NAME, existing_html)
+                user_message = self._slim_revision_message(user_message)
+            else:
+                logger.warning(
+                    "prototype_revision: no existing HTML found in request — "
+                    "agent will work from the prompt only"
+                )
 
         # Load per-user disk skills for all agents (user → global → built-in).
         # Honours per-user SKILL.md overrides — replicates the behaviour of the
@@ -386,9 +493,27 @@ class ExecutionEngine:
         #   (app_builder, mulesoft, dotnet code pipelines).
         # - For PPT / prototype / text pipelines, the last agent's streamed output
         #   IS the deliverable — workspace.file_count() == 0 for these.
-        final_output = workspace.to_final_output() if workspace.file_count() > 0 else (
-            results[-1]["output"] if results else ""
-        )
+        if pipeline_type == "prototype_revision":
+            # The revision agent edited prototype.html in place — that file IS the
+            # deliverable. Read it back as raw HTML (not the ```filename:``` wrapper
+            # that to_final_output() would apply). Fall back without losing the
+            # prototype if the agent never wrote the file.
+            revised = workspace.read_file(REVISION_FILE_NAME)
+            if revised and not revised.startswith("File not found"):
+                final_output = revised
+            else:
+                streamed = (results[-1]["output"] if results else "").strip()
+                looks_like_html = streamed[:60].lower().lstrip().startswith(("<!doctype", "<html"))
+                final_output = streamed if looks_like_html else (self._revision_original_html or streamed)
+                logger.warning(
+                    "prototype_revision: %s not written by agent — fell back to %s",
+                    REVISION_FILE_NAME,
+                    "streamed HTML" if looks_like_html else "original HTML",
+                )
+        elif workspace.file_count() > 0:
+            final_output = workspace.to_final_output()
+        else:
+            final_output = results[-1]["output"] if results else ""
 
         # For prototype pipelines: prefer the shared ArtifactStore HTML if available
         # (it's the clean HTML without the "✓ Artifact stored..." confirmation text).
@@ -406,15 +531,23 @@ class ExecutionEngine:
             if m:
                 final_output = m.group(1).strip()
 
-        # ── Prototype revision: merge diff output back into original HTML ─
-        # The revision agent outputs a structured diff (not the full HTML)
-        # to stay within output token limits. We extract the original HTML
-        # from the user_message and apply the diff sections to it.
-        if pipeline_type == "prototype_revision" and final_output and "=== REVISION_DIFF ===" in final_output:
-            final_output = self._apply_revision_diff(
-                user_message=user_message,
-                diff_output=final_output,
-            )
+        # ── PPT carousel deck: strip slide-hiding CSS the composer may hallucinate ──
+        # A horizontal-carousel deck navigates by translating .stage; rules like
+        # `.slide:not(.active){display:none}` remove slides 2..N so only slide 1 shows.
+        # Deterministic backstop scoped strictly to ppt/od_ppt (never prototype HTML).
+        if pipeline_type in _PPT_PIPELINE_TYPES and final_output:
+            final_output = _sanitize_carousel_deck_html(final_output)
+
+        # (Prototype revisions are now produced by the agent editing
+        # prototype.html in the workspace directly — see the output-capture
+        # block above. The legacy REVISION_DIFF regex-merge has been removed.)
+        # Token totals for the frontend TokenUsageSummary card. The client RESETS
+        # its running totals on pipeline_complete, so they must be present here for
+        # EVERY pipeline (otherwise the card hides itself). Pricing matches the
+        # per-run persistence in websocket.py (Haiku: $0.25/M in, $1.25/M out).
+        from app.core.config import settings as _settings
+        _tok_in = sum(r.get("input_tokens", 0) or 0 for r in results)
+        _tok_out = sum(r.get("output_tokens", 0) or 0 for r in results)
         yield {
             "type": "pipeline_complete",
             "data": {
@@ -424,6 +557,11 @@ class ExecutionEngine:
                 "agents_completed": len(results),
                 "agents_total": len(ordered_agents),
                 "final_output": final_output,
+                "total_input_tokens": _tok_in,
+                "total_output_tokens": _tok_out,
+                "total_tokens": _tok_in + _tok_out,
+                "estimated_cost_usd": round((_tok_in * 0.00000025) + (_tok_out * 0.00000125), 6),
+                "model_id": model_id or _settings.BEDROCK_INFERENCE_PROFILE_ID,
             },
         }
 
@@ -606,21 +744,15 @@ class ExecutionEngine:
             output_chunks: list[str] = []
             use_deep = bool(spec.tools) and isinstance(agent, DeepAgent)
 
-            # Per-agent timeout: estimated_duration * 6, capped per agent type.
-            # Build agent: each task is one page, capped at 240s.
-            # Validate agent: reads full HTML + fixes, capped at 300s.
-            # Other tool agents: capped at 300s.
-            # Text-only agents (tools=[]): capped at 180s.
-            has_tools = bool(spec.tools)
-            if spec.id == "prototype-build":
-                agent_timeout = 240  # reads full HTML + fills one section, may take 2-3 min
-            elif spec.id == "prototype-validate":
-                agent_timeout = 300  # reads full HTML (60-80k), fixes all issues, emits
-            else:
-                agent_timeout = min(
-                    max(getattr(spec, "estimated_duration", 30) * 6, 60),
-                    300 if has_tools else 180,
-                )
+            # Per-agent timeouts are DISABLED for every pipeline — agents run to
+            # completion instead of being cut off mid-generation. Cutting an agent
+            # off silently fell back to the PREVIOUS agent's output, which corrupted
+            # results (e.g. a stalled backlog-compiler emitting the reviewer's
+            # critique as if it were the final backlog). asyncio.timeout(None) is a
+            # no-op deadline. The remaining guards are intentional: the Bedrock
+            # client's generous botocore read_timeout (set where the client is built)
+            # and the cooperative cancel_event (the Stop button), checked per chunk.
+            agent_timeout = None
 
             async def _stream_agent() -> list[str]:
                 chunks: list[str] = []
@@ -742,6 +874,14 @@ class ExecutionEngine:
                         spec.id, len(html_from_store), len(output),
                     )
                     output = html_from_store
+
+            # ── PPT carousel deck: strip slide-hiding CSS the composer may hallucinate ──
+            # Sanitize here (before storage/context) so the stored artifact, the
+            # downstream QA validator, and the final output all see a deck whose
+            # carousel renders all slides. Scoped strictly to ppt/od_ppt; no-op
+            # unless `output` is a horizontal-carousel deck (never prototype HTML).
+            if pipeline_type in _PPT_PIPELINE_TYPES and output:
+                output = _sanitize_carousel_deck_html(output)
 
             accumulated_outputs[spec.id] = output
 
@@ -1085,7 +1225,9 @@ class ExecutionEngine:
                 )
                 restored = 0
                 for wr in stuck_runs:
-                    pipeline_run_id = getattr(wr, "pipeline_run_id", None)
+                    # WorkflowRun.id is the single run identifier (the
+                    # pipeline_run_id column was dropped in migration 0013).
+                    pipeline_run_id = wr.id
                     if not pipeline_run_id:
                         continue
                     # Re-register the asyncio.Event so the run can be resumed
@@ -1550,107 +1692,43 @@ class ExecutionEngine:
 
         return "\n".join(parts)
 
-    def _apply_revision_diff(self, user_message: str, diff_output: str) -> str:
-        """Apply a structured revision diff back into the original HTML.
+    @staticmethod
+    def _extract_existing_prototype_html(user_message: str) -> str:
+        """Pull the current prototype HTML out of a revision request.
 
-        The revision agent outputs a diff (not the full HTML) to stay within
-        output token limits. This method:
-        1. Extracts the original HTML from the user_message
-        2. Parses REPLACE_SECTION, ADD_CSS, ADD_SCRIPT blocks from the diff
-        3. Applies each change to the original HTML
-        4. Returns the merged result
-
-        If parsing fails, falls back to returning whatever the agent output.
+        The frontend wraps it as:
+            === EXISTING PROTOTYPE HTML ===
+            <!doctype html> ...
+            === END EXISTING HTML ===
+        Returns "" if the markers are absent (defensive — the agent then works
+        from the prompt alone).
         """
         import re as _re
 
-        # ── Extract original HTML from user_message ───────────────────────
-        original_html = ""
-        html_match = _re.search(
+        m = _re.search(
             r"=== EXISTING PROTOTYPE HTML ===\s*([\s\S]*?)\s*=== END EXISTING HTML ===",
-            user_message, _re.IGNORECASE
+            user_message, _re.IGNORECASE,
         )
-        if html_match:
-            original_html = html_match.group(1).strip()
+        return m.group(1).strip() if m else ""
 
-        if not original_html:
-            # No original HTML found — return the diff output as-is
-            logger.warning("_apply_revision_diff: no original HTML found in user_message")
-            return diff_output
+    @staticmethod
+    def _slim_revision_message(user_message: str) -> str:
+        """Replace the inlined EXISTING HTML block with a pointer to the file.
 
-        # ── Parse the diff ────────────────────────────────────────────────
-        # Extract the content between === REVISION_DIFF === markers
-        diff_match = _re.search(
-            r"=== REVISION_DIFF ===([\s\S]*?)=== END_DIFF ===",
-            diff_output, _re.IGNORECASE
-        )
-        if not diff_match:
-            # Agent didn't follow the format — likely output full HTML anyway
-            # If it looks like HTML, use it directly; otherwise return original
-            stripped = diff_output.strip()
-            if stripped.lower().startswith("<!doctype") or stripped.startswith("<html"):
-                logger.info("_apply_revision_diff: agent output full HTML (not diff format) — using directly")
-                return stripped
-            logger.warning("_apply_revision_diff: no diff block found — returning original HTML")
-            return original_html
+        Once the current prototype lives in the workspace as prototype.html there
+        is no reason to also carry 60-100k chars of it in the agent's prompt. We
+        swap the HTML block for a one-line pointer and keep the
+        === REVISION REQUEST === section (the agent's actual instruction, also
+        used to title the run) intact.
+        """
+        import re as _re
 
-        diff_content = diff_match.group(1)
-        result_html = original_html
-
-        # ── Apply REPLACE_SECTION blocks ──────────────────────────────────
-        section_replacements = _re.findall(
-            r"=== REPLACE_SECTION:\s*([^\s=]+)\s*===\s*([\s\S]*?)=== END_SECTION ===",
-            diff_content, _re.IGNORECASE
-        )
-        for section_id, new_section_html in section_replacements:
-            section_id = section_id.strip()
-            new_section = new_section_html.strip()
-            # Find and replace the existing <section data-page="section_id">...</section>
-            # Use a regex that matches the section tag with its full content
-            pattern = (
-                r'<section[^>]+data-page=["\']' + _re.escape(section_id) + r'["\'][^>]*>'
-                r'[\s\S]*?'
-                r'</section>'
-            )
-            if _re.search(pattern, result_html, _re.IGNORECASE):
-                result_html = _re.sub(pattern, new_section, result_html, flags=_re.IGNORECASE)
-                logger.info("_apply_revision_diff: replaced section '%s' (%d chars)", section_id, len(new_section))
-            else:
-                # Section not found — append before </body>
-                result_html = result_html.replace("</body>", f"\n{new_section}\n</body>")
-                logger.info("_apply_revision_diff: section '%s' not found — appended before </body>", section_id)
-
-        # ── Apply ADD_CSS blocks ──────────────────────────────────────────
-        css_additions = _re.findall(
-            r"=== ADD_CSS ===([\s\S]*?)=== END_CSS ===",
-            diff_content, _re.IGNORECASE
-        )
-        for css_block in css_additions:
-            css = css_block.strip()
-            if css:
-                # Append before </style>
-                result_html = result_html.replace("</style>", f"\n/* Revision additions */\n{css}\n</style>", 1)
-                logger.info("_apply_revision_diff: added CSS (%d chars)", len(css))
-
-        # ── Apply ADD_SCRIPT blocks ───────────────────────────────────────
-        script_additions = _re.findall(
-            r"=== ADD_SCRIPT ===([\s\S]*?)=== END_SCRIPT ===",
-            diff_content, _re.IGNORECASE
-        )
-        for script_block in script_additions:
-            script = script_block.strip()
-            if script:
-                # Append before </script> (last one)
-                last_script = result_html.rfind("</script>")
-                if last_script >= 0:
-                    result_html = result_html[:last_script] + f"\n// Revision additions\n{script}\n" + result_html[last_script:]
-                    logger.info("_apply_revision_diff: added script (%d chars)", len(script))
-
-        logger.info(
-            "_apply_revision_diff: applied %d section(s), %d CSS block(s), %d script block(s) — result: %d chars",
-            len(section_replacements), len(css_additions), len(script_additions), len(result_html),
-        )
-        return result_html
+        return _re.sub(
+            r"=== EXISTING PROTOTYPE HTML ===[\s\S]*?=== END EXISTING HTML ===",
+            f"The current prototype is in the workspace file `{REVISION_FILE_NAME}`. "
+            "Call read_file to read it before editing.",
+            user_message, count=1, flags=_re.IGNORECASE,
+        ).strip()
 
     def _load_template_example(self, template_id: str) -> str | None:
         """Load the example.html for a template, or None if not available."""

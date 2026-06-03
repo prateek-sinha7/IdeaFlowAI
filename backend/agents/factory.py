@@ -84,6 +84,7 @@ def create_agent(agent_id: str, ctx: AgentContext):
     """
     from agents.loader import load_agent_spec
     from app.agents.deep_agent import DeepAgent
+    from app.core.config import settings
 
     spec = load_agent_spec(agent_id)
     system_prompt = _compose_system_prompt(spec, ctx)
@@ -92,16 +93,21 @@ def create_agent(agent_id: str, ctx: AgentContext):
     return DeepAgent(
         system_prompt=system_prompt,
         tools=tools,
-        max_tokens=spec.max_tokens,
+        # No per-agent output capping. Every agent runs at the global model
+        # ceiling (settings.MAX_OUTPUT_TOKENS); spec.max_tokens from AGENT.md is
+        # retained only as documentation and no longer truncates output.
+        max_tokens=settings.MAX_OUTPUT_TOKENS,
         # max_iterations per agent type:
         #   - prototype-build: 3 (think → report_task_complete → emit_artifact)
         #   - prototype-validate: 8 (needs to check all pages + fix + emit)
+        #   - prototype-revision-agent: 30 (read → many surgical edit_file calls)
         #   - other tool agents: 10
         #   - text-only agents (tools=[]): 1
         max_iterations=(
             3 if spec.id == "prototype-build"
             else (8 if spec.id == "prototype-validate"
-            else (10 if tools else 1))
+            else (30 if spec.id == "prototype-revision-agent"
+            else (10 if tools else 1)))
         ),
         model=ctx.model,
     )

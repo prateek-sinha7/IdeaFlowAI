@@ -1,6 +1,6 @@
 """Workflow run CRUD API endpoints."""
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -16,24 +16,6 @@ router = APIRouter(prefix="/api/workflows", tags=["workflows"])
 
 
 # --- Request/Response Schemas ---
-
-
-class CreateWorkflowRequest(BaseModel):
-    """Request body for creating a new workflow run."""
-
-    type: str  # "user_stories" | "ppt" | "prototype"
-    input: str
-    title: Optional[str] = None
-    agent_count: int = 12
-
-
-class UpdateWorkflowRequest(BaseModel):
-    """Request body for updating a workflow run status."""
-
-    status: Optional[str] = None  # "completed" | "failed" | "cancelled"
-    output: Optional[str] = None
-    duration: Optional[float] = None
-    error: Optional[str] = None
 
 
 class ExportPptxRequest(BaseModel):
@@ -93,42 +75,6 @@ class WorkflowRunResponse(BaseModel):
 
 
 # --- Endpoints ---
-
-
-@router.post("", response_model=WorkflowRunResponse, status_code=status.HTTP_201_CREATED)
-def create_workflow(
-    request: CreateWorkflowRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Create a new workflow run.
-
-    Called when a user starts a pipeline from the Creation Hub.
-    """
-    # Validate type
-    valid_types = ("user_stories", "ppt", "prototype")
-    if request.type not in valid_types:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid workflow type. Must be one of: {', '.join(valid_types)}",
-        )
-
-    # Generate title from input if not provided
-    title = request.title or request.input[:60].strip()
-
-    workflow_run = WorkflowRun(
-        user_id=current_user.id,
-        title=title,
-        type=request.type,
-        status="running",
-        input=request.input,
-        agent_count=request.agent_count,
-    )
-    db.add(workflow_run)
-    db.commit()
-    db.refresh(workflow_run)
-
-    return workflow_run
 
 
 @router.get("", response_model=list[WorkflowRunResponse])
@@ -305,48 +251,6 @@ def get_workflow(
     return workflow_run
 
 
-@router.patch("/{workflow_id}", response_model=WorkflowRunResponse)
-def update_workflow(
-    workflow_id: str,
-    request: UpdateWorkflowRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Update a workflow run (status, output, duration, error).
-
-    Used by the pipeline executor to mark completion or failure.
-    """
-    workflow_run = (
-        db.query(WorkflowRun)
-        .filter(WorkflowRun.id == workflow_id, WorkflowRun.user_id == current_user.id)
-        .first()
-    )
-    if not workflow_run:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Workflow run not found",
-        )
-
-    if request.status:
-        workflow_run.status = request.status
-        if request.status in ("completed", "failed"):
-            workflow_run.completed_at = datetime.now(timezone.utc)
-
-    if request.output is not None:
-        workflow_run.output = request.output
-
-    if request.duration is not None:
-        workflow_run.duration = request.duration
-
-    if request.error is not None:
-        workflow_run.error = request.error
-
-    db.commit()
-    db.refresh(workflow_run)
-
-    return workflow_run
-
-
 @router.delete("/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 def delete_workflow(
     workflow_id: str,
@@ -476,11 +380,17 @@ def _extract_chain_context(workflow_run: WorkflowRun) -> ChainContextResponse:
             agent_summaries.append({"agent": "Backlog Compiler", "summary": compiler_output[:500]})
 
     elif pipeline_type in ("od_prototype", "prototype", "prototype_revision"):
-        # Extract from requirements analyst
-        analyst_output = get_agent_output("requirements-analyst")
-        if analyst_output:
-            structured_summary = analyst_output[:3000]
-            agent_summaries.append({"agent": "Requirements Analyst", "summary": analyst_output[:500]})
+        # The spec writer (first agent) emits a Markdown spec wrapped in
+        # <spec>...</spec>. Read THAT — not the HTML deliverable, and not the
+        # retired "requirements-analyst" agent which isn't in this pipeline
+        # (the old lookup always returned "" → empty chain context). od_prototype
+        # resolves to the same prototype agents, so the IDs match for both.
+        spec_output = get_agent_output("prototype-specify") or get_agent_output("prototype-plan")
+        if spec_output:
+            m = _re.search(r"<spec>([\s\S]*?)</spec>", spec_output)
+            spec_text = (m.group(1).strip() if m else spec_output)
+            structured_summary = f"Prototype Specification:\n{spec_text[:3500]}"
+            agent_summaries.append({"agent": "Spec Writer", "summary": spec_text[:500]})
 
     elif pipeline_type in ("app_builder", "app_builder_revision"):
         # Extract from system design agent

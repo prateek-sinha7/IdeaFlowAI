@@ -53,11 +53,25 @@ NON-NEGOTIABLES
    Pick the palette once and use it consistently across all slides.
 
 2. **Slide structure**: Every slide from the spec MUST appear as a `<section class="slide">`.
-   The first slide gets `class="slide active"`. All others start hidden.
+   The first slide gets `class="slide active"`.
+   - On a CAROUSEL template (slides laid out side-by-side with `.slide { min-width: 100vw }`
+     inside a `.stage` that navigates via `stage.style.transform = translateX(...vw)`):
+     ALL slides stay `display: grid` (the value the template gives `.slide`). They are NOT
+     hidden — navigation works purely by translating the `.stage` horizontally. The `.active`
+     class is only a cosmetic/state marker; it does NOT control visibility. The "first slide
+     visible, others off-screen" effect comes from the translateX offset, NOT from hiding slides.
+   - **FORBIDDEN on carousel templates**: do NOT add `.slide { display: none }`,
+     `.slide:not(.active) { display: none }`, `.slide.active { display: ... }` overrides, or any
+     `opacity: 0` / `visibility: hidden` rule that hides non-active slides. These rules remove
+     slides 2..N from layout and break the carousel so only slide 1 ever shows. The template's
+     `example.html` has no such rule — match it. (Hide rules scoped inside `@media print` are fine.)
+   - Templates that genuinely use a fade/stack pattern (no horizontal translateX carousel) MAY
+     keep "all others start hidden"; this clause applies ONLY to such non-carousel templates.
 
 3. **Navigation script**: NEVER rewrite the navigation script from the template.
    Copy it verbatim — it solves 5 iframe-specific bugs (scroll, hash, touch, keyboard, fullscreen).
-   Only add per-slide interaction handlers on top of it.
+   Only add per-slide interaction handlers on top of it. Do NOT add CSS that contradicts how the
+   script navigates (e.g. hiding slides when the script relies on a translateX carousel).
 
 4. **Real content**: Every slide must contain the actual content from the spec.
    No placeholder text, no "Lorem ipsum", no empty slides.

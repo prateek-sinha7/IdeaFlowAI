@@ -515,8 +515,12 @@ class TestCreateAgentErrorPropagation:
         assert result is mock_instance
         MockDeepAgent.assert_called_once()
 
-    def test_create_agent_passes_max_tokens_to_deep_agent(self, tmp_agent_dir):
-        """create_agent passes spec.max_tokens to DeepAgent."""
+    def test_create_agent_applies_global_output_ceiling(self, tmp_agent_dir):
+        """No per-agent capping: create_agent passes settings.MAX_OUTPUT_TOKENS to
+        DeepAgent for every agent, ignoring the per-agent max_tokens in AGENT.md
+        (which is retained only as documentation)."""
+        from app.core.config import settings
+
         agent_id = "tokens-agent"
         content = make_agent_md(id=agent_id, max_tokens=8192, tools=[])
         create_agent_file(tmp_agent_dir, agent_id, content)
@@ -526,7 +530,8 @@ class TestCreateAgentErrorPropagation:
             create_agent(agent_id, ctx)
 
         call_kwargs = MockDeepAgent.call_args.kwargs
-        assert call_kwargs.get("max_tokens") == 8192
+        assert call_kwargs.get("max_tokens") == settings.MAX_OUTPUT_TOKENS
+        assert call_kwargs.get("max_tokens") != 8192  # per-agent value not used as a cap
 
 
 # ---------------------------------------------------------------------------

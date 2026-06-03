@@ -174,10 +174,12 @@ class SmartPlanner:
             from langchain_aws import ChatBedrockConverse
             from app.core.config import settings as s
             model = self.model_id or s.BEDROCK_INFERENCE_PROFILE_ID or s.BEDROCK_MODEL_ID
+            from botocore.config import Config
             return ChatBedrockConverse(
                 model=model,
                 region_name=s.AWS_REGION,
                 max_tokens=2048,
+                config=Config(read_timeout=600, connect_timeout=30, retries={"max_attempts": 5, "mode": "adaptive"}),
             )
 
     def _build_prompt(self, brief: str, pipeline_type: str) -> str:

@@ -51,6 +51,43 @@ class AgentWorkspace:
             return f"File not found: {path}. Available files:\n{self._list()}"
         return content
 
+    def edit_file(self, path: str, old_string: str, new_string: str) -> str:
+        """Replace an exact, unique occurrence of old_string with new_string.
+
+        This is a surgical edit: it changes only the matched span and leaves the
+        rest of the file byte-for-byte intact — the right primitive for revising
+        a large (60-100k char) document without re-emitting the whole thing.
+
+        Returns a clear, self-correcting error string (never raises) so the
+        agent's ReAct loop can recover: file-not-found lists available files;
+        no-match / not-unique tells the agent to widen or disambiguate the anchor.
+        """
+        path = _sanitize_path(path)
+        content = self._files.get(path)
+        if content is None:
+            return f"File not found: {path}. Available files:\n{self._list()}"
+        if old_string == new_string:
+            return "No change: old_string and new_string are identical."
+        count = content.count(old_string)
+        if count == 0:
+            return (
+                f"old_string not found in {path}. It must match the file exactly, "
+                "including whitespace and indentation. Read the file and copy the "
+                "exact text you want to replace."
+            )
+        if count > 1:
+            return (
+                f"old_string is not unique in {path} ({count} occurrences). Include "
+                "more surrounding context so it matches exactly one location, or make "
+                "one edit per occurrence."
+            )
+        self._files[path] = content.replace(old_string, new_string, 1)
+        delta = len(new_string) - len(old_string)
+        return (
+            f"✓ Edited {path} (1 replacement, {delta:+,} chars, "
+            f"now {len(self._files[path]):,} bytes)"
+        )
+
     def list_files(self) -> str:
         return self._list()
 
@@ -147,6 +184,26 @@ def make_workspace_tools(ws: AgentWorkspace) -> list:
         return ws.read_file(path)
 
     @tool
+    def edit_file(path: str, old_string: str, new_string: str) -> str:
+        """Make a surgical edit to an existing workspace file.
+
+        Replaces ONE exact occurrence of `old_string` with `new_string`, leaving
+        the rest of the file untouched. This is the preferred way to modify a
+        large existing file (e.g. a 60-100k char HTML prototype): you do not
+        re-emit the whole document, you change only what needs to change.
+
+        `old_string` must match the file EXACTLY — including whitespace and
+        indentation — and must be UNIQUE in the file. If it appears more than
+        once, include enough surrounding context to make it unique, or call
+        edit_file once per occurrence. To insert near an anchor, include the
+        anchor in both old_string and new_string.
+
+        Returns a confirmation, or a clear error you can act on (no match,
+        not unique, file not found).
+        """
+        return ws.edit_file(path, old_string, new_string)
+
+    @tool
     def list_workspace_files() -> str:
         """List all files currently in the workspace with their sizes.
 
@@ -155,4 +212,4 @@ def make_workspace_tools(ws: AgentWorkspace) -> list:
         """
         return ws.list_files()
 
-    return [write_file, read_file, list_workspace_files]
+    return [write_file, read_file, edit_file, list_workspace_files]

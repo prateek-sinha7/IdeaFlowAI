@@ -65,13 +65,18 @@ class DeepAgent:
         self,
         system_prompt: str,
         tools: list,
-        max_tokens: int = 60000,
+        max_tokens: int | None = None,
         max_iterations: int = 20,
         model: str | None = None,
     ) -> None:
         self.system_prompt = system_prompt
         self.tools = tools
         self.max_iterations = max_iterations
+        # No per-agent capping: default to the global model ceiling. Callers
+        # (the factory) pass settings.MAX_OUTPUT_TOKENS explicitly; this default
+        # only guards direct DeepAgent construction.
+        if max_tokens is None:
+            max_tokens = settings.MAX_OUTPUT_TOKENS
 
         if settings.ANTHROPIC_API_KEY:
             # Local dev — use Anthropic direct API
@@ -94,10 +99,20 @@ class DeepAgent:
                     "BEDROCK_INFERENCE_PROFILE_ID + AWS_REGION for production."
                 )
             self.model_id = model_id
+            from botocore.config import Config
             llm = ChatBedrockConverse(
                 model=model_id,
                 region_name=region,
                 max_tokens=max_tokens,
+                # Generous botocore timeouts so the HTTP layer never cuts a slow
+                # (slow-first-token) Bedrock stream now that per-agent timeouts are
+                # gone. read_timeout is per-read, so 600s mainly bounds time-to-
+                # first-token; adaptive retries absorb on-demand throttling.
+                config=Config(
+                    read_timeout=600,
+                    connect_timeout=30,
+                    retries={"max_attempts": 5, "mode": "adaptive"},
+                ),
             )
 
         # Bind tools to the LLM so the provider knows the function signatures
@@ -156,15 +171,24 @@ class DeepAgent:
             ai_message_container: list = []  # [ai_msg] or []
             error_container: list = []       # [exc] or []
             chunks_container: list = []      # [chunk_str, ...]
+            usage_container: list = []       # [usage_metadata] or []
 
             def _sync_llm_iteration(msgs: list) -> None:
                 """Run one LLM iteration synchronously in a thread."""
                 try:
                     ai_msg = None
+                    last_usage = None
                     for chunk in self.llm_with_tools.stream(msgs):
                         text = _extract_text(chunk.content)
                         if text:
                             chunks_container.append(text)
+                        # Capture usage_metadata straight off the chunk. Bedrock
+                        # attaches it to the final chunk, and the ai_msg "+" merge
+                        # below can silently drop it (except: pass) — which is why
+                        # some runs reported 0 tokens.
+                        cu = getattr(chunk, "usage_metadata", None)
+                        if cu:
+                            last_usage = cu
                         if ai_msg is None:
                             ai_msg = chunk
                         else:
@@ -174,6 +198,8 @@ class DeepAgent:
                                 pass  # some chunk types don't support +
                     if ai_msg is not None:
                         ai_message_container.append(ai_msg)
+                    if last_usage is not None:
+                        usage_container.append(last_usage)
                 except Exception as exc:
                     error_container.append(exc)
 
@@ -184,12 +210,14 @@ class DeepAgent:
             try:
                 await asyncio.wait_for(
                     asyncio.to_thread(_sync_llm_iteration, list(messages)),
-                    timeout=300,  # 5 min max per LLM call — enough for any size
+                    # Must exceed the time to stream a full MAX_OUTPUT_TOKENS
+                    # response so a long generation is never truncated.
+                    timeout=settings.LLM_CALL_TIMEOUT_SECONDS,
                 )
             except asyncio.TimeoutError:
                 logger.warning(
-                    "LLM call timed out (5min) on iteration %d — using partial output",
-                    iteration,
+                    "LLM call timed out (%ds) on iteration %d — using partial output",
+                    settings.LLM_CALL_TIMEOUT_SECONDS, iteration,
                 )
                 if full_output:
                     yield {"type": "done", "output": full_output}
@@ -216,7 +244,10 @@ class DeepAgent:
             messages.append(ai_message)
 
             # ── Emit token usage for this iteration ───────────────────────
-            meta = getattr(ai_message, "usage_metadata", None)
+            # Prefer usage captured directly off the stream chunks; fall back to
+            # the merged message's metadata (which the "+" merge may have dropped).
+            meta = (usage_container[0] if usage_container
+                    else getattr(ai_message, "usage_metadata", None))
             if meta:
                 yield {
                     "type": "usage",
@@ -300,10 +331,12 @@ class DeepAgent:
         try:
             await asyncio.wait_for(
                 asyncio.to_thread(_sync_stream),
-                timeout=300,
+                timeout=settings.LLM_CALL_TIMEOUT_SECONDS,
             )
         except asyncio.TimeoutError:
-            logger.warning("astream_with_usage timed out after 5min")
+            logger.warning(
+                "astream_with_usage timed out after %ds", settings.LLM_CALL_TIMEOUT_SECONDS
+            )
 
         for text in chunks_out:
             yield text

@@ -162,7 +162,16 @@ class BaseAgent:
                 "No LLM configured. Set ANTHROPIC_API_KEY for local dev or "
                 "BEDROCK_INFERENCE_PROFILE_ID + AWS_REGION for production."
             )
-        return ChatBedrockConverse(model=model_id, region_name=settings.AWS_REGION, max_tokens=max_tokens)
+        from botocore.config import Config
+        return ChatBedrockConverse(
+            model=model_id,
+            region_name=settings.AWS_REGION,
+            max_tokens=max_tokens,
+            # Generous botocore read_timeout so the HTTP layer doesn't cut slow
+            # Bedrock streams (per-agent timeouts are disabled); adaptive retries
+            # absorb on-demand throttling.
+            config=Config(read_timeout=600, connect_timeout=30, retries={"max_attempts": 5, "mode": "adaptive"}),
+        )
 
     @staticmethod
     def _extract_text(content) -> str:
