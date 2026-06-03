@@ -766,7 +766,11 @@ server {
 
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
     add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "DENY" always;
+    # SAMEORIGIN (not DENY): the prototype/ppt template + design-system galleries
+    # embed their own /api/.../preview endpoints in same-origin <iframe>s. DENY
+    # blocks all framing (incl. same-origin), which renders the previews blank.
+    # SAMEORIGIN keeps cross-origin clickjacking protection (CSP frame-src is 'self').
+    add_header X-Frame-Options "SAMEORIGIN" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; connect-src 'self' https://${DOMAIN} wss://${DOMAIN}; frame-src 'self' blob:" always;
 
