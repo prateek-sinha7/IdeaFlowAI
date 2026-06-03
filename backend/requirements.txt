@@ -8,7 +8,7 @@ alembic==1.14.0
 # Postgres driver — required for the production DATABASE_URL=postgresql://...
 # In dev with the SQLite default, this dependency is unused but harmless.
 psycopg2-binary==2.9.12
-pydantic[email]==2.10.4
+pydantic[email]==2.12.5
 pydantic-settings==2.7.1
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
