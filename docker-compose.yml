@@ -91,6 +91,11 @@ services:
       # agents/skills at runtime (see backend Dockerfile note: /app/skills
       # exists in the image as an empty mount target).
       - /opt/flowin/data/skills:/app/skills
+      # Per-user / per-run agent sandboxes (deepagents disk filesystem). Same EBS
+      # data volume so a paused run's files survive instance replacement and
+      # checkpoint-resume can read them back. RW; the backend creates
+      # <user>/<run>/ subdirs at runtime under RUNS_ROOT=/app/runs.
+      - /opt/flowin/data/runs:/app/runs
     healthcheck:
       # /health is implemented in app/main.py; the backend Dockerfile already
       # has a HEALTHCHECK directive but compose's healthcheck overrides it

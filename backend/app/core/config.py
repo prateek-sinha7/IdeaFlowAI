@@ -101,6 +101,20 @@ class Settings(BaseSettings):
     # remains the lower-level guard against a genuinely hung socket.
     LLM_CALL_TIMEOUT_SECONDS: int = 900
 
+    # ---- deepagents runtime ----
+    # Root of the per-user/per-run sandbox filesystem the deepagents disk backend
+    # writes into. In production this is the persistent runs volume bind-mounted
+    # from the host EBS (mirrors /app/skills). Off-container (local dev) override
+    # to a writable dir, e.g. RUNS_ROOT=/tmp/flowin-runs, since /app does not exist.
+    RUNS_ROOT: str = "/app/runs"
+    # Safety ceiling on one agent graph's model<->tool recursion. We DROP the old
+    # tight per-agent iteration caps (build 3 / validate 8 / …) in favour of letting
+    # agents explore + self-validate; this is only a runaway-loop backstop, not a
+    # quality knob. Maps to LangGraph's recursion_limit.
+    AGENT_RECURSION_LIMIT: int = 400
+    # Retention for a finished run's sandbox dir before the cleanup sweep removes it.
+    RUN_DIR_TTL_HOURS: int = 48
+
     # Base URL the IDE-side slash command and the MCP client use to reach
     # Flowin. Used to format the handoff URL returned by /api/handoff/receive.
     # Override in production to the public-facing URL (e.g. https://flowin.example).

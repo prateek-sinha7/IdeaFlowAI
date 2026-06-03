@@ -173,7 +173,7 @@ timedatectl set-timezone UTC
 # ── 4. Application user + directories ──────────────────────────────────
 id -u "$APP_USER" >/dev/null 2>&1 \
     || useradd -r -m -d /opt/flowin -s /usr/sbin/nologin "$APP_USER"
-mkdir -p /opt/flowin /opt/flowin/data/skills /var/log/flowin /etc/flowin
+mkdir -p /opt/flowin /opt/flowin/data/skills /opt/flowin/data/runs /var/log/flowin /etc/flowin
 chown -R "$APP_USER:$APP_USER" /opt/flowin /var/log/flowin
 chown root:"$APP_USER" /etc/flowin
 chmod 0750 /etc/flowin

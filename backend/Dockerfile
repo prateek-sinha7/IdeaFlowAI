@@ -130,6 +130,18 @@ RUN apt-get update \
 # Bring the pre-built venv across.
 COPY --from=builder /opt/venv /opt/venv
 
+# Headless Chromium for prototype render-validation (app/agents/render_check.py).
+# `playwright` (the Python package) arrived in the venv above; this fetches the
+# browser binary + its OS libraries. Run as root, BEFORE the USER switch, into a
+# fixed path the non-root runtime user can launch from (PLAYWRIGHT_BROWSERS_PATH).
+# Adds ~350 MB to the image — the cost of in-image headless validation.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+RUN apt-get update \
+    && playwright install --with-deps chromium \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && chown -R 10001:10001 /opt/playwright
+
 # Node 20 runtime binary, taken from the same official image used by the
 # pptx-builder stage so the ABI matches the node_modules copied below.
 # We need only the `node` binary itself — `npm` is not invoked at runtime;
@@ -167,10 +179,11 @@ COPY --chown=flowin:flowin alembic.ini ./alembic.ini
 # user can execute it.
 COPY --chown=flowin:flowin --chmod=0755 docker-entrypoint.sh ./docker-entrypoint.sh
 
-# Skills directory: clean target for the runtime bind-mount. Owned by the
-# non-root user so the volume mount is writable from inside the container.
-RUN mkdir -p /app/skills \
-    && chown -R flowin:flowin /app /app/skills
+# Bind-mount targets for the EBS data volume: per-user skills + per-run agent
+# sandboxes (the deepagents disk filesystem, RUNS_ROOT=/app/runs). Created empty
+# and owned by the non-root user so both mounts are writable inside the container.
+RUN mkdir -p /app/skills /app/runs \
+    && chown -R flowin:flowin /app /app/skills /app/runs
 
 USER 10001:10001
 
