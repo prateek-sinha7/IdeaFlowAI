@@ -378,6 +378,23 @@ for attempt in $(seq 1 10); do
         green "  Health:       https://$FQDN/health"
         green "  Instance:     $INSTANCE_ID ($REGION)"
         green ""
+        # ── Tag the deployed commit so each release is traceable in git ──
+        # ECR images are already tagged with the short SHA ($TAG); this adds a
+        # repo-visible annotated git tag pointing at the exact deployed commit.
+        # Skipped when the tree was dirty (there is no clean commit to point at).
+        if [[ "$TAG" == *-dirty-* ]]; then
+            yellow "  git deploy-tag skipped: working tree was dirty — commit for a traceable tag"
+        else
+            DEPLOY_TAG="deploy-${ENVIRONMENT}-$(date -u +%Y%m%d-%H%M%S)"
+            if git tag -a "$DEPLOY_TAG" \
+                -m "Deploy ${TAG} to ${ENVIRONMENT} (account ${ACCOUNT_ID}, region ${REGION}) by ${OWNER}" 2>/dev/null; then
+                if git push origin "$DEPLOY_TAG" >/dev/null 2>&1; then
+                    green "  git deploy-tag: $DEPLOY_TAG -> $TAG (pushed to origin)"
+                else
+                    yellow "  git deploy-tag: $DEPLOY_TAG created locally; push failed — run: git push origin $DEPLOY_TAG"
+                fi
+            fi
+        fi
         exit 0
     fi
     if [[ $attempt -lt 10 ]]; then
