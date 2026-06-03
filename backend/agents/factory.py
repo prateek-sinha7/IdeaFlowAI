@@ -57,6 +57,8 @@ class AgentContext:
     planning_context: dict | None = None
     # user_id: forwarded for Constitution injection from Workflow_Memory (T068)
     user_id: str | None = None
+    # run_id: per-run id; create_runner roots the RunSandbox at <user>/<run>/
+    run_id: str | None = None
     # prototype_store: shared ArtifactStore for prototype pipeline agents.
     # All four prototype agents share the same store so emit_artifact() in
     # one agent is readable by the next agent via the accumulated HTML.
@@ -110,6 +112,87 @@ def create_agent(agent_id: str, ctx: AgentContext):
             else (10 if tools else 1)))
         ),
         model=ctx.model,
+    )
+
+
+def create_runner(
+    agent_id: str,
+    ctx: AgentContext,
+    *,
+    checkpointer=None,
+    interrupt_on: dict | None = None,
+):
+    """Instantiate a DeepAgentRunner for the given agent ID and context.
+
+    Phase-2 ADDITIVE: the runner-world analog of :func:`create_agent`, built
+    ALONGSIDE it (not replacing it). It is wired NOWHERE yet — the live
+    factory/engine path still calls ``create_agent`` → legacy ``DeepAgent``
+    until the Phase 3 cutover (see specs/002-deepagents-migration/plan.md →
+    "Phase 2"/"Phase 3"). Mirrors ``create_agent``'s shape: it reuses
+    ``load_agent_spec`` + ``_compose_system_prompt`` verbatim, and resolves the
+    per-agent tool-set via ``_build_runner_tools`` (the runner-world analog of
+    ``_build_tools``).
+
+    The system prompt is composed by the SAME ``_compose_system_prompt`` as the
+    legacy path, so guardrails/skills/hooks/constitution/body all stay identical
+    — the only difference is the runtime (``DeepAgentRunner`` over a
+    ``deepagents`` graph) and the tool wiring (native disk fs tools + a
+    store-free ``report_task_complete`` instead of the custom tool sets).
+
+    Args:
+        agent_id: The agent to build (kebab-case folder/spec id).
+        ctx: Runtime context. ``ctx.user_id`` + ``ctx.run_id`` root the per-run
+            disk sandbox; ``ctx.model`` selects the chat model (``None`` ⇒
+            runner default via ``build_model``).
+        checkpointer: Optional LangGraph checkpointer forwarded to the runner.
+            Defaulted off in Phase 2; the Phase-3 engine populates it with the
+            per-run Postgres checkpointer (required for durable HITL/resume).
+        interrupt_on: Optional ``{tool_name: True | InterruptOnConfig}`` HITL
+            map forwarded to the runner. Defaulted off in Phase 2; the Phase-3
+            engine populates it from per-agent HITL gate selections.
+
+    Raises:
+        FileNotFoundError: propagated from the loader if agent_id is unknown.
+        AgentSpecError: propagated from the loader if AGENT.md is malformed.
+        ValueError: if spec.tools contains an unrecognized tool name (from
+            ``_build_runner_tools``).
+    """
+    # Lazy imports — match ``create_agent``'s style (keeps factory import light
+    # and avoids dragging in the heavy deepagents/langchain stack on import).
+    from agents.loader import load_agent_spec
+    from app.agents.deep_agent_runner import DeepAgentRunner
+    from app.agents.sandbox import RunSandbox
+
+    spec = load_agent_spec(agent_id)
+    # REUSE the exact legacy prompt composition — guardrails/skills/hooks/
+    # constitution/injection/body are identical to the live ``create_agent`` path.
+    system_prompt = _compose_system_prompt(spec, ctx)
+    custom_tools, exclude_builtin_tools = _build_runner_tools(spec, ctx)
+
+    # Per-run on-disk sandbox: <RUNS_ROOT>/<user>/<run>/. The runner roots its
+    # deepagents FilesystemBackend at ``sandbox.root`` (traversal-proof).
+    #   - Missing user_id ⇒ "anon" (RunSandbox additionally sanitises empty/
+    #     unsafe segments to its own "anonymous"/"run" fallbacks).
+    #   - Missing run_id ⇒ "adhoc": in Phase 2 ``run_id`` may be ``None`` (no
+    #     engine yet); the Phase-3 engine supplies the real pipeline run id at
+    #     the cutover. "adhoc" gives an isolated, deterministic dir for the
+    #     no-run-id case so the sandbox/thread_id stay coherent.
+    sandbox = RunSandbox(ctx.user_id or "anon", ctx.run_id or "adhoc")
+    sandbox.ensure()
+
+    # ``max_tokens`` is intentionally NOT passed: the runner's ``build_model``
+    # already defaults to ``settings.MAX_OUTPUT_TOKENS`` (the same ceiling
+    # ``create_agent`` passes explicitly), so leaving it unset yields the
+    # identical cap without duplicating the constant here.
+    return DeepAgentRunner(
+        system_prompt=system_prompt,
+        tools=custom_tools,
+        model=ctx.model,
+        run_sandbox=sandbox,
+        checkpointer=checkpointer,
+        thread_id=ctx.run_id,
+        interrupt_on=interrupt_on,
+        exclude_builtin_tools=exclude_builtin_tools,
     )
 
 
@@ -386,3 +469,77 @@ def _build_tools(spec, ctx: AgentContext) -> list:
             )
 
     return tools
+
+
+def _build_runner_tools(spec, ctx: AgentContext) -> tuple[list, bool]:
+    """Resolve spec.tools to the (custom_tools, exclude_builtin_tools) pair for
+    the `deepagents`-based DeepAgentRunner world.
+
+    Phase-2 ADDITIVE: this is the runner-world analog of `_build_tools`. It is
+    wired NOWHERE yet — the live factory/engine path still uses `_build_tools` +
+    `DeepAgent` until the Phase 3 cutover. #35 (`create_runner`) will call this
+    and pass `exclude_builtin_tools` to the runner.
+
+    The native `deepagents` filesystem tools (`write_file`/`read_file`/
+    `edit_file`/`ls`/`glob`/`grep`) and `write_todos` are the disk-backed
+    replacements for the custom `make_workspace_tools`/`todo_write`. Returning
+    `exclude_builtin_tools=False` keeps those native tools available; `True`
+    hides ALL native deepagents tools so the agent streams pure text (no tool
+    chips appear in the UI).
+
+    Tool-set mapping (mirrors `_build_tools`'s recognized names — see the Phase 2
+    section of specs/002-deepagents-migration/plan.md):
+      []                    → ([], True)  — pure text, no tool chips.
+      "workspace"           → exclude=False (no custom tool; native fs replaces
+                              `make_workspace_tools`; deliverables live on disk).
+      "prototype" /
+      "prototype_emit_only" → append `report_task_complete`, exclude=False (agent
+                              writes `prototype.html` via native write_file/
+                              edit_file; emit_artifact/todo_write/template-read
+                              tools are intentionally dropped — template content
+                              is already pre-injected into the system prompt).
+      "planning"            → extend with PLANNING_TOOLS (stub tools, no disk) —
+                              leave exclude as-is (True unless another tool
+                              flipped it).
+
+    Returns:
+        (custom_tools, exclude_builtin_tools)
+
+    Raises:
+        ValueError: if spec.tools contains an unrecognized tool name (mirrors
+            `_build_tools`).
+    """
+    # Lazy imports (match `_build_tools`'s style — keeps factory import light).
+    from agents.planner.tools import PLANNING_TOOLS
+    from app.agents.tools.runner_tools import report_task_complete
+
+    # Empty tool set ⇒ pure-text agent: no custom tools, hide all native tools.
+    if not spec.tools:
+        return ([], True)
+
+    custom: list = []
+    exclude = True
+
+    for tool_name in spec.tools:
+        if tool_name == "workspace":
+            # Native deepagents filesystem replaces make_workspace_tools — no
+            # custom tool to add; just keep the native tools available.
+            exclude = False
+        elif tool_name in ("prototype", "prototype_emit_only"):
+            # Agent writes prototype.html via native write_file/edit_file; the
+            # only surviving custom tool is the store-free report_task_complete.
+            # De-dup in case both prototype set names somehow co-occur.
+            if report_task_complete not in custom:
+                custom.append(report_task_complete)
+            exclude = False
+        elif tool_name == "planning":
+            # Planning agents need no disk — leave `exclude` as-is.
+            custom.extend(PLANNING_TOOLS)
+        else:
+            raise ValueError(
+                f"Unrecognized tool name '{tool_name}' in agent '{spec.id}'. "
+                f"Supported tool sets: 'workspace', 'prototype', "
+                f"'prototype_emit_only', 'planning'."
+            )
+
+    return (custom, exclude)
