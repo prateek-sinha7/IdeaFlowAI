@@ -22,8 +22,8 @@ class User(Base):
     # "revoke all this user's outstanding tokens" pattern. Nullable so users
     # who have never rotated their password have no blanket-revocation cutoff.
     password_changed_at = Column(DateTime, nullable=True)
-    tier = Column(String, nullable=False, default="basic")
-    is_admin = Column(Boolean, nullable=False, default=False)
+    tier = Column(String, nullable=False, default="basic", server_default="basic")
+    is_admin = Column(Boolean, nullable=False, default=False, server_default="0")
     preferred_model = Column(String, nullable=True, default=None)
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False

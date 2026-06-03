@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from app.models.database import Base
@@ -13,6 +13,7 @@ class WorkflowRun(Base):
     """Workflow run model — represents a single pipeline execution."""
 
     __tablename__ = "workflow_runs"
+    __table_args__ = (Index("ix_workflow_runs_parent", "parent_run_id"),)
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
@@ -35,13 +36,16 @@ class WorkflowRun(Base):
     )
     completed_at = Column(DateTime, nullable=True)
 
-    # Phase 3 columns (added by migration 0012)
+    # Phase 3 columns (added by migration 0012). NOTE: pipeline_run_id was dropped
+    # in migration 0013 — WorkflowRun.id is now the single run identifier used
+    # end-to-end by the engine, state machine, and artifact store.
     parent_run_id = Column(String, ForeignKey("workflow_runs.id"), nullable=True)
     session_id = Column(String, nullable=True)           # = user_id (JWT sub)
-    pipeline_run_id = Column(String, nullable=True)      # UUID per run
     execution_gate = Column(String, nullable=True)       # PROCEED | CLARIFY_REQUIRED
     execution_strategy = Column(String, nullable=True)   # sequential | parallel | conditional
-    planning_context_unavailable = Column(Boolean, nullable=True, default=False)
+    planning_context_unavailable = Column(
+        Boolean, nullable=True, default=False, server_default="0"
+    )
 
     user = relationship("User", back_populates="workflow_runs")
     parent_run = relationship("WorkflowRun", remote_side=[id])

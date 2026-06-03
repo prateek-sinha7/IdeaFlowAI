@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, String, Text
+from sqlalchemy import Column, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.orm import relationship
 
 from app.models.database import Base
@@ -19,6 +19,7 @@ class WorkflowDefinition(Base):
     """
 
     __tablename__ = "workflows"
+    __table_args__ = (Index("ix_workflows_user", "user_id"),)
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, ForeignKey("users.id"), nullable=False)

@@ -20,6 +20,8 @@ build/
 .hypothesis/
 .pytest_cache/
 *.db
+*.db.*
+*.bak
 
 # Virtual environments
 venv/

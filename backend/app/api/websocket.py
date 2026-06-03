@@ -567,6 +567,11 @@ async def websocket_chat(websocket: WebSocket):
                 _rev_db = _get_db()
                 try:
                     _rev_wr = WorkflowRun(
+                        # WorkflowRun.id is the single run identifier (see the main
+                        # pipeline path). The revision engine writes the new artifact
+                        # version with run_id == this id, and the state machine looks
+                        # the run up by id.
+                        id=_rev_pipeline_run_id,
                         user_id=user.id,
                         title=f"Revision: {_rev_instruction[:50]}",
                         type=f"{_rev_target_type}_revision",
@@ -997,18 +1002,33 @@ async def _handle_workflow_execution(
     monotonic_start = time.monotonic()
     db = _get_db()
     try:
+        # Only link parent_run_id if the source run actually exists. parent_run_id
+        # is an enforced FK (migration 0013), so a stale/foreign id would abort
+        # run creation — degrade gracefully to an unlinked run instead.
+        parent_run_id = None
+        if source_workflow_run_id:
+            _src = (
+                db.query(WorkflowRun.id)
+                .filter(WorkflowRun.id == source_workflow_run_id)
+                .first()
+            )
+            parent_run_id = source_workflow_run_id if _src else None
+
         workflow_run = WorkflowRun(
+            # WorkflowRun.id IS the run identifier used end-to-end (engine, state
+            # machine, and the workflow_artifacts FK). We generate it as a uuid4
+            # and set it as the PK so artifact writes resolve against this row.
+            id=pipeline_run_id,
             user_id=user.id,
             title=(_strip_pipeline_context(content) or content or "Untitled")[:60].strip(),
             type=pipeline_type,
             status="running",
             input=content or f"Run {pipeline_type} pipeline",
             agent_count=len(agents),
-            # Phase 3 (T072): persist session_id and pipeline_run_id for cross-restart resumability
+            # Phase 3 (T072): persist session_id for cross-restart resumability
             session_id=user.id,
-            pipeline_run_id=pipeline_run_id,
-            # Phase 3 (T056): revision chaining — link to the source run
-            parent_run_id=source_workflow_run_id or None,
+            # Phase 3 (T056): revision chaining — link to the source run (validated)
+            parent_run_id=parent_run_id,
         )
         db.add(workflow_run)
         db.commit()
@@ -1102,14 +1122,21 @@ async def _handle_workflow_execution(
                     current_agent["input_tokens"] = update["data"].get("input_tokens", 0)
                     current_agent["output_tokens"] = update["data"].get("output_tokens", 0)
                     current_agent["total_tokens"] = update["data"].get("total_tokens", 0)
-                    agent_outputs_collector.append(current_agent)
+                    # Only persist when this corresponds to a real agent_start.
+                    # A trailing agent_complete (e.g. validator-timeout path) can
+                    # fire after current_agent was already appended + reset to {},
+                    # which would otherwise append an orphan with no agent_id.
+                    if current_agent.get("agent_id"):
+                        agent_outputs_collector.append(current_agent)
                     current_agent = {}
                 elif utype == "agent_error":
                     any_agent_errored = True
                     if first_agent_error_msg is None:
                         first_agent_error_msg = update["data"].get("error") or "Agent execution error"
                     current_agent["error"] = update["data"].get("error")
-                    agent_outputs_collector.append(current_agent)
+                    # Same guard as agent_complete: skip an empty/reset current_agent.
+                    if current_agent.get("agent_id"):
+                        agent_outputs_collector.append(current_agent)
                     current_agent = {}
                 elif utype == "pipeline_complete":
                     final_output = update["data"].get("final_output", "")

@@ -112,7 +112,7 @@ class StateMachine:
 
             db = SessionLocal()
             try:
-                wr = db.query(WorkflowRun).filter(WorkflowRun.pipeline_run_id == run_id).first()
+                wr = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
                 if wr:
                     wr.status = new_state
                     db.commit()

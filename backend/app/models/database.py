@@ -1,6 +1,6 @@
 """Database engine, session, and base model configuration."""
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.core.config import settings
@@ -14,6 +14,18 @@ engine = create_engine(
     connect_args={"check_same_thread": False} if _sqlite else {},
     pool_pre_ping=True,
 )
+
+if _sqlite:
+    # SQLite disables foreign-key enforcement per connection by default, so a
+    # bad FK (e.g. a workflow_artifacts row pointing at a non-existent
+    # workflow_runs id) would silently succeed on SQLite while Postgres rejects
+    # it. Enable enforcement on every new connection so dev/SQLite matches
+    # prod/Postgres. (The PRAGMA is connection-scoped, hence the connect hook.)
+    @event.listens_for(engine, "connect")
+    def _sqlite_enable_foreign_keys(dbapi_connection, _connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 # expire_on_commit=False so detached instances (e.g. the User cached on the
 # WebSocket handler across multiple commits) keep their attributes readable
