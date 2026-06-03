@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | **Branch** | `deepagents-full-swap` (off `0e9c410`) |
-| **Status** | Phase 0 ✅ complete (commit `bfd573b`) · Phases 1–10 planned |
+| **Status** | Phases 0–1 ✅ complete (Phase 0 `bfd573b` · Phase 1 `666e531`) · Phases 2–10 planned |
 | **Created** | 2026-06-03 |
 | **Supersedes** | the custom `app/agents/deep_agent.py` ReAct loop (deleted in Phase 7) |
 
@@ -98,17 +98,96 @@ Additive scaffolding; nothing wired into the engine. Tasks #14–#23.
   (2+2 via tool-call; `interrupt_on` paused at `HumanInTheLoopMiddleware.after_model`;
   `Command(resume)` → 7).
 
-### Phase 1 — `DeepAgentRunner` adapter + stream mapping 🔜
-The heart of the swap. Wrap `create_deep_agent`; expose the engine's existing contract
-(`astream_events` yielding our event dicts, `run()`, `model_id`, `tools`). Map LangGraph
-events → ours (`on_chat_model_stream→chunk`, `…end.usage_metadata→usage`,
-`on_tool_start→tool_call`, `on_tool_end→tool_result` incl. the
-`tool=='report_task_complete'→task_progress` sentinel, graph end→`done`,
-`__interrupt__→gate`). Disable library sub-agents (`task`); enable disk filesystem +
-summarization; attach checkpointer.
-- **Verify gate**: event-parity test vs the current runtime for a scripted tool sequence
-  (must match before proceeding).
-- **UI**: unchanged (parity-gated).
+### Phase 1 — `DeepAgentRunner` adapter + stream mapping ✅ (commit `666e531`)
+
+**Landed.**
+- `app/agents/deep_agent_runner.py` — `DeepAgentRunner` wrapping `create_deep_agent`;
+  methods `astream_events` (emits `chunk`/`usage`/`tool_call`/`tool_result`/`done`/`gate`/
+  `error`), `astream_with_usage`, `astream`, `run`, plus `model_id` / `tools` accessors.
+- Library sub-agents off + built-in tool exclusion via a per-graph `_ToolFilterMiddleware`
+  (public `AgentMiddleware`/`ModelRequest.override` API), **not** `HarnessProfile`; the
+  `exclude_builtin_tools` flag gives `tools==[]` agents a pure-text stream (no tool chips).
+- Disk `FilesystemBackend(virtual_mode=True)` rooted at the Phase-0 `RunSandbox`;
+  checkpointer + `interrupt_on` plumbed; HITL `gate` detected post-loop via `aget_state`.
+- **Verify**: offline parity test (`tests/agents/test_deep_agent_runner_parity.py`) green —
+  event-type sequence + tool name/args/result + usage byte-match legacy; live HITL smoke
+  (`tests/agents/test_deep_agent_runner_hitl_live.py`, opt-in/SSO-gated) proven against
+  Bedrock Haiku (`gate` → `Command(resume)` → terminal).
+- **NOT** wired into the factory/engine yet (Phase 2/3).
+
+The heart of the swap. New module `app/agents/deep_agent_runner.py` wraps a
+`create_deep_agent` graph and re-exposes the **exact** contract the engine consumes from
+the legacy `DeepAgent` today, so Phase 3 can swap it in with one `isinstance`/dispatch
+change. **Built + parity-tested in isolation; NOT wired into the factory or engine yet**
+(the factory keeps returning `DeepAgent` until Phase 2).
+
+**Contract to reproduce** (verified against `app/agents/deep_agent.py` +
+`agents/execution_engine/engine.py:742–832, 1088–1098`). The engine consumes:
+- `agent.astream_events(msg)` → dicts: `chunk{chunk}`, `usage{input_tokens,output_tokens}`,
+  `tool_call{tool,args}`, `tool_result{tool,result}`, `done{output}`, `error{error}`.
+  Engine maps chunk→`agent_chunk`, sums `usage`, tool_call→`tool_call`, tool_result→
+  `tool_result` (and `tool=='report_task_complete'` → `task_progress` from `_prototype_store`).
+  Note: the engine loop does **not** read `done`/`error` (output is built from `chunk`s) —
+  parity is on the *streamed* event vocabulary, not on `done`.
+- `agent.astream_with_usage(msg)` → text chunks then a final `TokenUsage`
+  (`app/agents/base.py`) — used for text-only agents (`tools==[]`).
+- `agent.run(msg)` → `str`; plus `agent.model_id: str`, `agent.tools: list`.
+
+**Construction** (per §4): `create_deep_agent(model=build_model(model)|instance,
+tools=tools, system_prompt=system_prompt, backend=FilesystemBackend(root_dir=<RunSandbox.root>,
+virtual_mode=True), checkpointer=<Phase-0 factory>, subagents=None, interrupt_on=… )`,
+driven with `config={"configurable":{"thread_id":run_id}, "recursion_limit":AGENT_RECURSION_LIMIT}`.
+- **Library sub-agents OFF**: `subagents=None` + exclude the `task` tool
+  (`HarnessProfile.excluded_tools`) so the model can't spawn its own sub-agents (engine
+  orchestrates those in Phase 4).
+- **Disk filesystem ON**: `deepagents.backends.FilesystemBackend(virtual_mode=True)` rooted at
+  the Phase-0 `RunSandbox` dir (traversal-proof). `FilesystemMiddleware`/`SubAgentMiddleware`
+  are *mandatory* in `create_deep_agent` and cannot be excluded.
+- **Summarization ON** (base-stack default) — supersedes `summarizer.py` (deleted Phase 7).
+- **Text-only parity**: because the mandatory middleware injects file/todo tools + prompt
+  sections, `tools==[]` agents must additionally exclude the built-in tools
+  (`task,write_todos,ls,read_file,write_file,edit_file,glob,grep,execute`) via a lean
+  `HarnessProfile` so they stream **pure text** (no new tool chips appear in the UI).
+
+**LangGraph → our-events mapping** (`graph.astream_events(..., version="v2")`):
+
+| LangGraph event | Our event | Notes |
+|---|---|---|
+| `on_chat_model_stream` | `chunk{chunk}` | `_extract_text(data.chunk.content)`; accumulate `full_output` |
+| `on_chat_model_end` | `usage{input,output}` | read `data.output.usage_metadata` (reliable on Bedrock) |
+| `on_tool_start` | `tool_call{tool,args}` | `tool=event["name"]`, `args=data.input` |
+| `on_tool_end` | `tool_result{tool,result}` | `result=str(data.output)`; `report_task_complete` name passes through → engine sentinel fires |
+| stream end, no interrupt | `done{output}` | `output=full_output` |
+| pending interrupt | `gate{interrupt,thread_id}` | post-loop `await graph.aget_state(config)`; payload = HITL `ActionRequest` (consumed Phase 3) |
+| exception | `error{error}` | mirror legacy swallow; Phase 3 promotes to raise |
+
+**Tasks**
+1. `DeepAgentRunner.__init__` — build the graph (model via `build_model` or an injected
+   `BaseChatModel`; disk backend from `RunSandbox`; checkpointer; subagents off + `task`
+   excluded; summarization on; optional `interrupt_on`; recursion limit in config).
+2. Lean `HarnessProfile` for `tools==[]` → pure-text stream (verify exact built-in tool names).
+3. `astream_events()` — the mapping table above, `full_output` accumulation, error guard.
+4. Interrupt detection → `gate` event (post-loop `aget_state`; thread_id/config plumbing).
+5. `astream_with_usage()` — text chunks then one merged `TokenUsage`.
+6. `run()` + `model_id` / `tools` accessors.
+7. **Parity test** (offline, scripted fake model) — see verify gate.
+8. Live HITL smoke (opt-in, SSO-gated): real Bedrock Haiku, 1 tool call + 1 interrupt →
+   `gate` fires, `Command(resume)` → `done` (reuses the Phase-0 smoke pattern).
+
+- **Verify gate**: `tests/agents/test_deep_agent_runner_parity.py` drives BOTH the legacy
+  `DeepAgent` (fake llm patched onto `.llm_with_tools`) and the new `DeepAgentRunner`
+  (fake `BaseChatModel` injected) over the **same** scripted sequence (text → call
+  `report_task_complete` → result → final text) and asserts the ordered event-type stream
+  + tool name/args/result match; plus a `tools==[]` case asserting `astream_with_usage`
+  yields chunks then a `TokenUsage`. Parity is on event **type/semantics**, not byte-identical
+  chunking. Must be green before Phase 2.
+- **UI**: unchanged (adapter not wired; parity-gated).
+- **Phase-1 risks**: (a) interrupts aren't first-class in `astream_events` → post-loop
+  `aget_state`, fallback to `astream(stream_mode=["messages","updates","values"])`;
+  (b) mandatory middleware → text-only needs tool exclusion (task #2); (c) Bedrock async
+  streaming blocking the loop (why legacy used `to_thread`) → verify the native async path,
+  thread-offload if needed; (d) `usage_metadata` zeros (seen before) → read off
+  `on_chat_model_end`, fallback to last chunk.
 
 ### Phase 2 — Factory + tools on disk ⏳
 `factory.create_agent` → `DeepAgentRunner` (composed `system_prompt` + tools +
@@ -192,6 +271,8 @@ dev server is expected to be unhappy until Phase 1+ lands — that's accepted.
 ## 9. Open items
 
 - [x] #15 live Bedrock invoke + HITL pause/resume on 0.6.7 — ✅ verified 2026-06-03 (Haiku, eu-central-1).
+- [x] Phase-1 risks (a) interrupt detection in `astream_events` and (b) text-only tool exclusion — resolved 2026-06-03: post-loop `aget_state` `gate` detection + per-graph `_ToolFilterMiddleware`; both covered by the parity/HITL tests.
+- [ ] Wire the engine bridge (`gate` → `_run_review_gate` / `Command(resume)`) — carried forward to Phase 3 (the adapter emits `gate`; the engine does not yet consume it).
 - [ ] Confirm whether HITL should also support tool-level approvals (currently inter-agent only).
 - [ ] Decide stronger-model-for-executor-sub-agents (deferred; Haiku for now).
 
@@ -204,3 +285,8 @@ dev server is expected to be unhappy until Phase 1+ lands — that's accepted.
   in-image (over sidecar); install into global env (option A, no venv).
 - 2026-06-03 — Phase 0 landed (`bfd573b`).
 - 2026-06-03 — #15 live-verified: deepagents 0.6.7 Bedrock streaming + tool loop + HITL pause/resume all OK.
+- 2026-06-03 — Phase 1 landed — `DeepAgentRunner` adapter; parity test green; live HITL pause/resume proven on Bedrock Haiku.
+- 2026-06-03 — Tool exclusion via a per-graph `_ToolFilterMiddleware` (public `AgentMiddleware`/`ModelRequest.override` API) chosen over `HarnessProfile.excluded_tools` — the profile route is a global `provider:model`-keyed registry that can't express the per-agent text-only distinction and silently no-ops on a wrong key. `subagents=None` alone does NOT drop `task` (create_deep_agent auto-adds a general-purpose subagent that re-injects it).
+- 2026-06-03 — Built-in model-visible tool set verified (deepagents 0.6.7): `{write_todos, ls, read_file, write_file, edit_file, glob, grep, task}`; `execute` is created by FilesystemMiddleware but self-stripped unless the backend is a `SandboxBackendProtocol`. `exclude_builtin_tools=True, tools=[]` → 0 model-visible tools (pure text).
+- 2026-06-03 — HITL `gate` event payload = `{action_requests, review_configs, interrupt_ids, next}`; interrupt detected post-loop via `aget_state` (interrupts at `state.interrupts` / `state.tasks[*].interrupts`, `Interrupt.value` = the HITLRequest). Resume via `Command(resume={"decisions":[{"type":"approve"}]})` (one Decision per pending action_request).
+- 2026-06-03 — `on_tool_end` extracts `ToolMessage.content` (not `str(ToolMessage)`) so the UI `tool_result` text is byte-identical to legacy — honors the UI-identical invariant (found by the parity gate).
