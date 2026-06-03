@@ -18,10 +18,9 @@ from app.services import od_loader
 
 logger = logging.getLogger(__name__)
 
-# Root of the OpenDesign template folder
-_TEMPLATES_DIR = (
-    Path(__file__).resolve().parents[3] / "skills" / "opendesign" / "design-templates"
-)
+# Root of the OpenDesign template folder. Single source of truth is od_loader,
+# which resolves the dir across local-repo vs container layouts.
+_TEMPLATES_DIR = od_loader._TEMPLATES_DIR
 
 
 def load_prototype_context(

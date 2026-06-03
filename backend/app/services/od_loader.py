@@ -33,10 +33,26 @@ logger = logging.getLogger("app.services.od_loader")
 # Paths
 # ---------------------------------------------------------------------------
 
-# This file lives at <repo>/backend/app/services/od_loader.py — climb four
-# parents to reach the repo root, then descend into skills/opendesign.
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_OD_ROOT = _REPO_ROOT / "skills" / "opendesign"
+# OpenDesign assets (skills/opendesign) sit in different places by layout:
+#   * local repo:  backend/app/services/od_loader.py → skills/ at the repo root
+#                  (parents[3]).
+#   * container:   flattened to /app/app/services/… with the EBS skills volume
+#                  bind-mounted at /app/skills (parents[2]).
+# Hardcoding parents[3] resolved to /skills in the container and returned an
+# empty template gallery (regression vs the prior image, which resolved to
+# /app/skills). Resolve against whichever layout actually has the directory.
+def _resolve_od_root() -> Path:
+    here = Path(__file__).resolve()
+    for _up in (3, 2):
+        try:
+            cand = here.parents[_up] / "skills" / "opendesign"
+        except IndexError:
+            continue
+        if cand.is_dir():
+            return cand
+    return Path("/app/skills/opendesign")  # production bind-mount target
+
+_OD_ROOT = _resolve_od_root()
 _TEMPLATES_DIR = _OD_ROOT / "design-templates"
 _DESIGN_SYSTEMS_DIR = _OD_ROOT / "design-systems"
 _CRAFT_DIR = _OD_ROOT / "craft"
