@@ -20,7 +20,7 @@ import { CompletionToast } from "@/components/ui/CompletionToast";
 import type { ToastItem } from "@/components/ui/CompletionToast";
 import { useNotifications } from "@/hooks/useNotifications";
 import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WorkflowRun, WorkflowType } from "@/types/index";
-import { canChainFrom, CHAIN_OPTIONS, CHAIN_BRIEF_KEY, CHAIN_FROM_KEY, CHAIN_SOURCE_RUN_ID_KEY } from "@/lib/workflowChaining";
+import { canChainFrom, CHAIN_OPTIONS, CHAIN_BRIEF_KEY, CHAIN_FROM_KEY, CHAIN_SOURCE_RUN_ID_KEY, baseWorkflowType } from "@/lib/workflowChaining";
 import { getToken, getChainContext } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useWebSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
@@ -653,8 +653,13 @@ export function DashboardLayout({
     const option = CHAIN_OPTIONS.find((o) => o.type === nextType);
 
     // Find the source run ID for context fetching
+    // Match on the BASE pipeline type so a completed `od_ppt`/`od_prototype`
+    // run is found when chaining from the normalized `ppt`/`prototype` state
+    // (baseWorkflowType maps od_ppt→ppt, od_prototype→prototype, and strips
+    // the _revision suffix). Without this, the source run is never found and
+    // getChainContext is skipped, so the next pipeline starts with no context.
     const sourceRun = recentRuns?.find(
-      r => (r.type === workflowType || r.type === (workflowType as string).replace(/_revision$/, "")) && r.status === "completed"
+      r => baseWorkflowType(r.type as WorkflowType) === baseWorkflowType(workflowType) && r.status === "completed"
     );
     const sourceRunId = sourceRun?.id;
 

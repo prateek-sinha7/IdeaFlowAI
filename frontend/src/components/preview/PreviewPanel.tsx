@@ -300,7 +300,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, i
                       ? <AppBuilderIDEPreview content={userStoryContent} agentOutputs={agentOutputs} onRevise={onReviseAppBuilder} />
                       : <MarkdownPreview content={userStoryContent} />
                   )}
-                  {renderType === "ppt" && (pptContent || pptxCode) && <PPTPreview content={pptContent} isStreaming={isStreaming} pptxCode={pptxCode} onRevise={onRevisePpt} pipelineType={workflowType} />}
+                  {renderType === "ppt" && (pptContent || pptxCode) && <PPTPreview content={pptContent} isStreaming={isStreaming} pptxCode={pptxCode} onRevise={onRevisePpt} pipelineType={rawPipelineType || workflowType} />}
                   {renderType === "prototype" && prototypeContent && <PrototypePreview content={prototypeContent} isStreaming={isStreaming} onRevise={onRevisePrototype} />}
                 </>
               )}

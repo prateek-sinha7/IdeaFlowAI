@@ -299,20 +299,6 @@ function normalizeWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
   };
 }
 
-export async function createWorkflow(
-  token: string,
-  type: WorkflowType,
-  input: string,
-  title?: string
-): Promise<WorkflowRun> {
-  const raw = await request<RawWorkflowRun>("/api/workflows", {
-    method: "POST",
-    headers: authHeaders(token),
-    body: JSON.stringify({ type, input, title: title ?? null }),
-  });
-  return normalizeWorkflowRun(raw);
-}
-
 export async function getWorkflows(
   token: string,
   options?: { type?: WorkflowType; limit?: number }

@@ -332,11 +332,14 @@ export function handlePipelineMessage(
           totalDuration,
           agents: updated,
           completedCount: updated.filter((a) => a.status === "done").length,
-          totalInputTokens: (msg.total_input_tokens as number) || 0,
-          totalOutputTokens: (msg.total_output_tokens as number) || 0,
-          totalTokens: (msg.total_tokens as number) || 0,
-          estimatedCostUsd: (msg.estimated_cost_usd as number) || 0,
-          modelId: (msg.model_id as string) || undefined,
+          // Prefer the backend's authoritative totals, but fall back to the
+          // values accumulated from agent_complete so a missing field never
+          // wipes the token card to zero.
+          totalInputTokens: (msg.total_input_tokens as number) || prev.totalInputTokens || 0,
+          totalOutputTokens: (msg.total_output_tokens as number) || prev.totalOutputTokens || 0,
+          totalTokens: (msg.total_tokens as number) || prev.totalTokens || 0,
+          estimatedCostUsd: (msg.estimated_cost_usd as number) || prev.estimatedCostUsd || 0,
+          modelId: (msg.model_id as string) || prev.modelId || undefined,
         };
       });
       return true;

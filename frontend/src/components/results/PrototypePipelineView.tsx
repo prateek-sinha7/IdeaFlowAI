@@ -159,7 +159,7 @@ function PhaseCard({
         {/* Phase number + icon */}
         <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${
           status === "running" ? `${color.bg} ${color.text}` :
-          status === "done" ? "bg-emerald-50 text-emerald-600" :
+          status === "done" ? "bg-[#E8EDF5] text-[#1B2A4A]" :
           status === "error" ? "bg-red-50 text-red-500" :
           "bg-gray-100 text-gray-400"
         }`}>
@@ -206,7 +206,7 @@ function SpecVisualization({ spec }: { spec: ParsedSpec }) {
     <div className="px-4 py-3 space-y-3 bg-white">
       {/* Title */}
       <div className="flex items-center gap-2">
-        <FileText className="h-3.5 w-3.5 text-violet-500 flex-shrink-0" />
+        <FileText className="h-3.5 w-3.5 text-[#1B2A4A] flex-shrink-0" />
         <p className="text-[12px] font-bold text-gray-900">{spec.title}</p>
       </div>
 
@@ -226,19 +226,19 @@ function SpecVisualization({ spec }: { spec: ParsedSpec }) {
           </div>
           <div className="grid grid-cols-1 gap-1.5">
             {spec.pages.map((page, i) => (
-              <div key={i} className="flex items-start gap-2.5 rounded-lg bg-violet-50 border border-violet-100 px-3 py-2">
-                <div className="w-5 h-5 rounded-md bg-violet-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <Layout className="h-2.5 w-2.5 text-violet-600" />
+              <div key={i} className="flex items-start gap-2.5 rounded-lg bg-[#E8EDF5] border border-[#E8EDF5] px-3 py-2">
+                <div className="w-5 h-5 rounded-md bg-[#E8EDF5] flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <Layout className="h-2.5 w-2.5 text-[#1B2A4A]" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-semibold text-violet-900">{page.id}</span>
+                    <span className="text-[11px] font-semibold text-[#1B2A4A]">{page.id}</span>
                     {page.route && (
-                      <span className="text-[9px] font-mono text-violet-500 bg-violet-100 px-1.5 py-0.5 rounded">{page.route}</span>
+                      <span className="text-[9px] font-mono text-[#1B2A4A] bg-[#E8EDF5] px-1.5 py-0.5 rounded">{page.route}</span>
                     )}
                   </div>
                   {page.purpose && (
-                    <p className="text-[10px] text-violet-700 mt-0.5 leading-snug">{page.purpose}</p>
+                    <p className="text-[10px] text-[#1B2A4A] mt-0.5 leading-snug">{page.purpose}</p>
                   )}
                 </div>
               </div>
@@ -274,7 +274,7 @@ function TaskListVisualization({ tasks, currentTaskIndex, allDone }: {
   return (
     <div className="px-4 py-3 space-y-2 bg-white">
       <div className="flex items-center gap-1.5 mb-1">
-        <ListChecks className="h-3.5 w-3.5 text-blue-500" />
+        <ListChecks className="h-3.5 w-3.5 text-[#1B2A4A]" />
         <span className="text-[11px] font-bold text-gray-700">{tasks.length} Build Tasks</span>
         <span className="text-[9px] text-gray-400 ml-auto">
           {allDone ? `${tasks.length}/${tasks.length} done` : currentTaskIndex >= 0 ? `${currentTaskIndex}/${tasks.length} done` : ""}
@@ -287,27 +287,27 @@ function TaskListVisualization({ tasks, currentTaskIndex, allDone }: {
 
         return (
           <div key={i} className={`flex items-start gap-2.5 rounded-lg px-3 py-2 border transition-all ${
-            isDone ? "bg-emerald-50 border-emerald-100" :
-            isActive ? "bg-blue-50 border-blue-200 shadow-sm" :
+            isDone ? "bg-[#E8EDF5] border-[#E8EDF5]" :
+            isActive ? "bg-[#E8EDF5] border-[#1B2A4A]/20 shadow-sm" :
             "bg-gray-50 border-gray-100 opacity-60"
           }`}>
             <div className="flex-shrink-0 mt-0.5">
-              {isDone ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> :
-               isActive ? <Loader2 className="h-4 w-4 text-blue-500 animate-spin" /> :
+              {isDone ? <CheckCircle2 className="h-4 w-4 text-[#1B2A4A]" /> :
+               isActive ? <Loader2 className="h-4 w-4 text-[#1B2A4A] animate-spin" /> :
                <Circle className="h-4 w-4 text-gray-300" />}
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className={`text-[9px] font-bold uppercase tracking-wider ${
-                  isDone ? "text-emerald-600" : isActive ? "text-blue-600" : "text-gray-400"
+                  isDone ? "text-[#1B2A4A]" : isActive ? "text-[#1B2A4A]" : "text-gray-400"
                 }`}>Task {task.number}</span>
               </div>
               <p className={`text-[11px] font-semibold leading-snug ${
-                isDone ? "text-emerald-900" : isActive ? "text-blue-900" : "text-gray-500"
+                isDone ? "text-[#1B2A4A]" : isActive ? "text-[#1B2A4A]" : "text-gray-500"
               }`}>{task.title}</p>
               {task.goal && (
                 <p className={`text-[10px] mt-0.5 leading-snug ${
-                  isDone ? "text-emerald-700" : isActive ? "text-blue-700" : "text-gray-400"
+                  isDone ? "text-[#1B2A4A]" : isActive ? "text-[#1B2A4A]" : "text-gray-400"
                 }`}>{task.goal.slice(0, 100)}</p>
               )}
             </div>
@@ -378,9 +378,9 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <div className={`w-2 h-2 rounded-full ${
-              agents.some(a => a.status === "running" || a.status === "thinking") ? "bg-emerald-500 animate-pulse" :
+              agents.some(a => a.status === "running" || a.status === "thinking") ? "bg-[#1B2A4A] animate-pulse" :
               agents.some(a => a.status === "error") ? "bg-red-400" :
-              agents.some(a => a.status === "done") ? "bg-emerald-400" : "bg-gray-300"
+              agents.some(a => a.status === "done") ? "bg-[#1B2A4A]" : "bg-gray-300"
             }`} />
             <span className="text-[11px] font-semibold text-gray-700 uppercase tracking-wider">
               Spec Kit Pipeline
@@ -404,8 +404,8 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
         <div className="flex items-center gap-1">
           {[specStatus, planStatus, buildStatus, validateStatus].map((s, i) => (
             <div key={i} className={`h-1.5 flex-1 rounded-full transition-all ${
-              s === "done" ? "bg-emerald-500" :
-              s === "running" ? "bg-blue-400 animate-pulse" :
+              s === "done" ? "bg-[#1B2A4A]" :
+              s === "running" ? "bg-[#1B2A4A] animate-pulse" :
               s === "error" ? "bg-red-400" :
               "bg-gray-200"
             }`} />
@@ -421,14 +421,14 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
           number={1}
           icon={FileText}
           label="Spec Writer — Specification"
-          color={{ bg: "bg-violet-100", text: "text-violet-700", border: "border-violet-200" }}
+          color={{ bg: "bg-[#E8EDF5]", text: "text-[#1B2A4A]", border: "border-[#1B2A4A]/20" }}
           status={specStatus}
           defaultOpen={specStatus === "done" && !!spec}
         >
           {specStatus === "running" && (
-            <div className="px-4 py-3 bg-violet-50/50 flex items-center gap-2">
-              <Loader2 className="h-3.5 w-3.5 text-violet-500 animate-spin" />
-              <p className="text-[11px] text-violet-700">Analyzing brief and writing specification…</p>
+            <div className="px-4 py-3 bg-[#E8EDF5]/50 flex items-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 text-[#1B2A4A] animate-spin" />
+              <p className="text-[11px] text-[#1B2A4A]">Analyzing brief and writing specification…</p>
             </div>
           )}
           {spec && <SpecVisualization spec={spec} />}
@@ -450,14 +450,14 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
           number={2}
           icon={ListChecks}
           label="Task Planner — Build Decomposition"
-          color={{ bg: "bg-blue-100", text: "text-blue-700", border: "border-blue-200" }}
+          color={{ bg: "bg-[#E8EDF5]", text: "text-[#1B2A4A]", border: "border-[#1B2A4A]/20" }}
           status={planStatus}
           defaultOpen={planStatus === "done"}
         >
           {planStatus === "running" && (
-            <div className="px-4 py-3 bg-blue-50/50 flex items-center gap-2">
-              <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin" />
-              <p className="text-[11px] text-blue-700">Decomposing spec into atomic build tasks…</p>
+            <div className="px-4 py-3 bg-[#E8EDF5]/50 flex items-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 text-[#1B2A4A] animate-spin" />
+              <p className="text-[11px] text-[#1B2A4A]">Decomposing spec into atomic build tasks…</p>
             </div>
           )}
           {tasksData && (
@@ -492,15 +492,15 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
           number={3}
           icon={Hammer}
           label="Build Agent — Incremental Construction"
-          color={{ bg: "bg-amber-100", text: "text-amber-700", border: "border-amber-200" }}
+          color={{ bg: "bg-[#E8EDF5]", text: "text-[#1B2A4A]", border: "border-[#1B2A4A]/20" }}
           status={buildStatus}
           defaultOpen={buildStatus === "running" || buildStatus === "done"}
         >
           {buildStatus === "running" && tasksData && (
-            <div className="px-4 py-3 bg-amber-50/50 space-y-2">
+            <div className="px-4 py-3 bg-[#E8EDF5]/50 space-y-2">
               <div className="flex items-center gap-2">
-                <Loader2 className="h-3.5 w-3.5 text-amber-500 animate-spin" />
-                <p className="text-[11px] text-amber-700 font-medium">
+                <Loader2 className="h-3.5 w-3.5 text-[#1B2A4A] animate-spin" />
+                <p className="text-[11px] text-[#1B2A4A] font-medium">
                   {realtimeCompletedCount > 0
                     ? `Completed ${realtimeCompletedCount}/${tasksData.tasks.length} tasks…`
                     : "Building prototype…"}
@@ -508,11 +508,11 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
               </div>
               {/* Show current active task */}
               {tasksData.tasks[realtimeCompletedCount] && (
-                <div className="rounded-lg bg-amber-100 border border-amber-200 px-3 py-2">
-                  <p className="text-[10px] font-bold text-amber-800">
+                <div className="rounded-lg bg-[#E8EDF5] border border-[#1B2A4A]/20 px-3 py-2">
+                  <p className="text-[10px] font-bold text-[#1B2A4A]">
                     Task {tasksData.tasks[realtimeCompletedCount].number}: {tasksData.tasks[realtimeCompletedCount].title}
                   </p>
-                  <p className="text-[10px] text-amber-700 mt-0.5">
+                  <p className="text-[10px] text-[#1B2A4A] mt-0.5">
                     {tasksData.tasks[realtimeCompletedCount].goal.slice(0, 100)}
                   </p>
                 </div>
@@ -521,8 +521,8 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
               <div className="flex items-center gap-1.5">
                 {tasksData.tasks.map((_, i) => (
                   <div key={i} className={`h-1.5 flex-1 rounded-full ${
-                    i < realtimeCompletedCount ? "bg-emerald-400" :
-                    i === realtimeCompletedCount ? "bg-amber-400 animate-pulse" :
+                    i < realtimeCompletedCount ? "bg-[#1B2A4A]" :
+                    i === realtimeCompletedCount ? "bg-[#1B2A4A] animate-pulse" :
                     "bg-gray-200"
                   }`} />
                 ))}
@@ -532,24 +532,24 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
           {buildStatus === "done" && (
             <div className="px-4 py-3 bg-white">
               <div className="flex items-center gap-2 mb-2">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                <p className="text-[11px] font-semibold text-emerald-700">
+                <CheckCircle2 className="h-3.5 w-3.5 text-[#1B2A4A]" />
+                <p className="text-[11px] font-semibold text-[#1B2A4A]">
                   {tasksData ? `All ${tasksData.tasks.length} tasks completed` : "Build complete"}
                 </p>
               </div>
               {tasksData && (
                 <div className="flex gap-1">
                   {tasksData.tasks.map((_, i) => (
-                    <div key={i} className="h-1.5 flex-1 rounded-full bg-emerald-400" />
+                    <div key={i} className="h-1.5 flex-1 rounded-full bg-[#1B2A4A]" />
                   ))}
                 </div>
               )}
             </div>
           )}
           {buildStatus === "running" && !tasksData && (
-            <div className="px-4 py-3 bg-amber-50/50 flex items-center gap-2">
-              <Loader2 className="h-3.5 w-3.5 text-amber-500 animate-spin" />
-              <p className="text-[11px] text-amber-700">Building prototype…</p>
+            <div className="px-4 py-3 bg-[#E8EDF5]/50 flex items-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 text-[#1B2A4A] animate-spin" />
+              <p className="text-[11px] text-[#1B2A4A]">Building prototype…</p>
             </div>
           )}
         </PhaseCard>
@@ -567,18 +567,18 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
           number={4}
           icon={CheckCircle2}
           label="Validation Agent — P0/P1 Checks"
-          color={{ bg: "bg-emerald-100", text: "text-emerald-700", border: "border-emerald-200" }}
+          color={{ bg: "bg-[#E8EDF5]", text: "text-[#1B2A4A]", border: "border-[#1B2A4A]/20" }}
           status={validateStatus}
         >
           {validateStatus === "running" && (
-            <div className="px-4 py-3 bg-emerald-50/50 flex items-center gap-2">
-              <Loader2 className="h-3.5 w-3.5 text-emerald-500 animate-spin" />
-              <p className="text-[11px] text-emerald-700">Running P0/P1 structural validation…</p>
+            <div className="px-4 py-3 bg-[#E8EDF5]/50 flex items-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 text-[#1B2A4A] animate-spin" />
+              <p className="text-[11px] text-[#1B2A4A]">Running P0/P1 structural validation…</p>
             </div>
           )}
           {validateStatus === "done" && validateAgent?.output && (
             <div className="px-4 py-3 bg-white">
-              <p className="text-[11px] text-emerald-700 leading-relaxed">
+              <p className="text-[11px] text-[#1B2A4A] leading-relaxed">
                 {validateAgent.output.split("\n")[0]?.slice(0, 150) || "Validation complete."}
               </p>
             </div>
@@ -588,10 +588,10 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
         {/* Complete */}
         {validateStatus === "done" && (
           <div className="flex items-center gap-2 py-2 pl-4">
-            <div className="w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0">
+            <div className="w-6 h-6 rounded-full bg-[#1B2A4A] flex items-center justify-center flex-shrink-0">
               <CheckCircle2 className="h-3.5 w-3.5 text-white" />
             </div>
-            <span className="text-[11px] font-semibold text-emerald-700">
+            <span className="text-[11px] font-semibold text-[#1B2A4A]">
               Prototype complete — {totalDuration > 0 ? `${totalDuration.toFixed(0)}s` : ""}
             </span>
           </div>

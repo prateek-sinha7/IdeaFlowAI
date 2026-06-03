@@ -3,26 +3,29 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Brain, Wrench, ChevronDown, ChevronRight, Zap, CheckCircle2,
-  XCircle, Clock, Cpu, ArrowRight, FileText, Database,
+  XCircle, Clock, Cpu, FileText, Database,
   Layers, Activity, Eye, EyeOff, Copy, Check,
 } from "lucide-react";
 import type { AgentRunState, ContextSource, ToolCallEntry, PipelineRunState } from "@/types/index";
 import { PrototypePipelineView } from "./PrototypePipelineView";
+import { TokenUsageSummary } from "@/components/workflow/TokenUsageSummary";
 
 interface AgentThinkingTabProps {
   agents: AgentRunState[];
   pipelineState?: PipelineRunState;
 }
 
-// ─── Color palette per agent index ────────────────────────────────────────────
-const AGENT_COLORS = [
-  { bg: "bg-violet-100", text: "text-violet-700", border: "border-violet-200", dot: "bg-violet-500", glow: "shadow-violet-100" },
-  { bg: "bg-blue-100",   text: "text-blue-700",   border: "border-blue-200",   dot: "bg-blue-500",   glow: "shadow-blue-100"   },
-  { bg: "bg-emerald-100",text: "text-emerald-700",border: "border-emerald-200",dot: "bg-emerald-500",glow: "shadow-emerald-100" },
-  { bg: "bg-amber-100",  text: "text-amber-700",  border: "border-amber-200",  dot: "bg-amber-500",  glow: "shadow-amber-100"  },
-  { bg: "bg-rose-100",   text: "text-rose-700",   border: "border-rose-200",   dot: "bg-rose-500",   glow: "shadow-rose-100"   },
-  { bg: "bg-cyan-100",   text: "text-cyan-700",   border: "border-cyan-200",   dot: "bg-cyan-500",   glow: "shadow-cyan-100"   },
-];
+// ─── Agent accent — single on-brand color (design system navy #1B2A4A) ─────────
+// Replaces the former per-agent rainbow so the trace matches the rest of the app.
+// Status uses the same navy: in-progress and done are distinguished by icon
+// (pulse vs check) and fill, not hue. error=red, clarify=amber are kept separate.
+const AGENT_ACCENT = {
+  bg: "bg-[#E8EDF5]",
+  text: "text-[#1B2A4A]",
+  border: "border-[#1B2A4A]/20",
+  dot: "bg-[#1B2A4A]",
+  glow: "",
+};
 
 // ─── Empty state ──────────────────────────────────────────────────────────────
 function EmptyState() {
@@ -58,7 +61,7 @@ function PipelineHeader({ pipelineState }: { pipelineState?: PipelineRunState })
     <div className="flex-shrink-0 px-4 pt-4 pb-3 border-b border-gray-100 bg-white">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${isRunning ? "bg-emerald-500 animate-pulse" : hasErrors ? "bg-red-400" : "bg-emerald-400"}`} />
+          <div className={`w-2 h-2 rounded-full ${isRunning ? "bg-[#1B2A4A] animate-pulse" : hasErrors ? "bg-red-400" : "bg-[#1B2A4A]"}`} />
           <span className="text-[11px] font-semibold text-gray-700 uppercase tracking-wider">
             {isRunning ? "Pipeline Running" : hasErrors ? "Completed with errors" : "Pipeline Complete"}
           </span>
@@ -66,7 +69,7 @@ function PipelineHeader({ pipelineState }: { pipelineState?: PipelineRunState })
         <div className="flex items-center gap-3">
           {executionGate && (
             <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
-              executionGate === "PROCEED" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-amber-50 text-amber-700 border border-amber-200"
+              executionGate === "PROCEED" ? "bg-[#E8EDF5] text-[#1B2A4A] border border-[#1B2A4A]/20" : "bg-amber-50 text-amber-700 border border-amber-200"
             }`}>
               {executionGate === "PROCEED" ? "✓ PROCEED" : "⚡ CLARIFY"}
             </span>
@@ -108,26 +111,26 @@ function PlannerCard({ pipelineState }: { pipelineState: PipelineRunState }) {
       {/* Timeline dot */}
       <div className="absolute left-0 top-3 flex flex-col items-center">
         <div className={`w-6 h-6 rounded-full flex items-center justify-center border-2 z-10 ${
-          isRunning ? "border-violet-400 bg-violet-50 animate-pulse" :
-          isDone ? "border-violet-500 bg-violet-500" :
+          isRunning ? "border-[#1B2A4A]/40 bg-[#E8EDF5] animate-pulse" :
+          isDone ? "border-[#1B2A4A] bg-[#1B2A4A]" :
           "border-red-400 bg-red-50"
         }`}>
           {isDone ? <CheckCircle2 className="h-3 w-3 text-white" /> :
            isError ? <XCircle className="h-3 w-3 text-red-500" /> :
-           <Brain className="h-3 w-3 text-violet-500" />}
+           <Brain className="h-3 w-3 text-[#1B2A4A]" />}
         </div>
         <div className="w-px flex-1 bg-gray-200 mt-1" style={{ minHeight: 20 }} />
       </div>
 
       <div className={`rounded-xl border overflow-hidden transition-all ${
-        isRunning ? "border-violet-200 shadow-sm shadow-violet-50" : "border-gray-100"
+        isRunning ? "border-[#1B2A4A]/20 shadow-sm" : "border-gray-100"
       }`}>
         <button
           onClick={() => setExpanded(v => !v)}
           className="w-full flex items-center gap-3 px-4 py-3 bg-white hover:bg-gray-50/50 transition-colors text-left"
         >
-          <div className="w-7 h-7 rounded-lg bg-violet-100 flex items-center justify-center flex-shrink-0">
-            <Brain className="h-3.5 w-3.5 text-violet-600" />
+          <div className="w-7 h-7 rounded-lg bg-[#E8EDF5] flex items-center justify-center flex-shrink-0">
+            <Brain className="h-3.5 w-3.5 text-[#1B2A4A]" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
@@ -143,19 +146,19 @@ function PlannerCard({ pipelineState }: { pipelineState: PipelineRunState }) {
           <div className="flex items-center gap-2 flex-shrink-0">
             {executionGate && (
               <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
-                executionGate === "PROCEED" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+                executionGate === "PROCEED" ? "bg-[#E8EDF5] text-[#1B2A4A]" : "bg-amber-50 text-amber-700"
               }`}>
                 {executionGate}
               </span>
             )}
-            {isRunning && <Zap className="h-3.5 w-3.5 text-violet-500 animate-pulse" />}
+            {isRunning && <Zap className="h-3.5 w-3.5 text-[#1B2A4A] animate-pulse" />}
             <ChevronDown className={`h-3.5 w-3.5 text-gray-400 transition-transform ${expanded ? "rotate-180" : ""}`} />
           </div>
         </button>
 
         {expanded && plannerSummary && (
-          <div className="border-t border-gray-100 px-4 py-3 bg-gradient-to-b from-violet-50/30 to-white">
-            <p className="text-[10px] font-semibold text-violet-600 uppercase tracking-wider mb-1.5">Inferred Intent</p>
+          <div className="border-t border-gray-100 px-4 py-3 bg-gradient-to-b from-[#E8EDF5]/40 to-white">
+            <p className="text-[10px] font-semibold text-[#1B2A4A] uppercase tracking-wider mb-1.5">Inferred Intent</p>
             <p className="text-[11px] text-gray-700 leading-relaxed">{plannerSummary}</p>
           </div>
         )}
@@ -218,7 +221,7 @@ function ToolCallsSection({ toolCalls }: { toolCalls: ToolCallEntry[] }) {
               onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
               className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 transition-colors text-left"
             >
-              <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${tc.result != null ? "bg-emerald-400" : "bg-amber-400 animate-pulse"}`} />
+              <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${tc.result != null ? "bg-[#1B2A4A]" : "bg-amber-400 animate-pulse"}`} />
               <span className="text-[10px] font-mono font-semibold text-[#1B2A4A] flex-1 truncate">{tc.tool}</span>
               <span className="text-[9px] text-gray-400 truncate max-w-[120px]">
                 {Object.entries(tc.args || {}).map(([k, v]) => `${k}: ${String(v).slice(0, 20)}`).join(", ") || "no args"}
@@ -237,7 +240,7 @@ function ToolCallsSection({ toolCalls }: { toolCalls: ToolCallEntry[] }) {
                 )}
                 {tc.result != null && (
                   <div className="px-3 py-2">
-                    <p className="text-[9px] font-semibold text-emerald-600 uppercase tracking-wider mb-1">Result</p>
+                    <p className="text-[9px] font-semibold text-[#1B2A4A] uppercase tracking-wider mb-1">Result</p>
                     <pre className="text-[9px] text-gray-600 font-mono whitespace-pre-wrap leading-relaxed max-h-[80px] overflow-y-auto">
                       {tc.result.slice(0, 500)}{tc.result.length > 500 ? "\n…" : ""}
                     </pre>
@@ -276,7 +279,7 @@ function InputPromptSection({ prompt }: { prompt: string }) {
           <div className="flex items-center justify-between px-3 py-1.5 bg-gray-50 border-b border-gray-100">
             <span className="text-[9px] text-gray-400">{prompt.length.toLocaleString()} chars</span>
             <button onClick={handleCopy} className="flex items-center gap-1 text-[9px] text-gray-400 hover:text-gray-600 transition-colors">
-              {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+              {copied ? <Check className="h-3 w-3 text-[#1B2A4A]" /> : <Copy className="h-3 w-3" />}
               {copied ? "Copied" : "Copy"}
             </button>
           </div>
@@ -324,15 +327,14 @@ function OutputPreviewSection({ output, agentId }: { output: string; agentId: st
 // ─── Per-agent timeline card ──────────────────────────────────────────────────
 interface AgentCardProps {
   agent: AgentRunState;
-  index: number;
   isLast: boolean;
   isRunning: boolean;
   refCallback?: (el: HTMLDivElement | null) => void;
 }
 
-function AgentTimelineCard({ agent, index, isLast, isRunning, refCallback }: AgentCardProps) {
+function AgentTimelineCard({ agent, isLast, isRunning, refCallback }: AgentCardProps) {
   const [expanded, setExpanded] = useState(isRunning);
-  const color = AGENT_COLORS[index % AGENT_COLORS.length];
+  const color = AGENT_ACCENT;
   const isDone = agent.status === "done";
   const isError = agent.status === "error";
   const isIdle = agent.status === "idle";
@@ -357,7 +359,7 @@ function AgentTimelineCard({ agent, index, isLast, isRunning, refCallback }: Age
       <div className="absolute left-0 top-3">
         <div className={`w-6 h-6 rounded-full flex items-center justify-center border-2 z-10 transition-all ${
           isRunning ? `${color.border} ${color.bg} shadow-md ${color.glow}` :
-          isDone ? "border-emerald-400 bg-emerald-500" :
+          isDone ? "border-[#1B2A4A] bg-[#1B2A4A]" :
           isError ? "border-red-400 bg-red-50" :
           "border-gray-200 bg-white"
         }`}>
@@ -400,7 +402,7 @@ function AgentTimelineCard({ agent, index, isLast, isRunning, refCallback }: Age
                 </span>
               )}
               {isDone && (
-                <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-full">DONE</span>
+                <span className="text-[9px] font-bold text-[#1B2A4A] bg-[#E8EDF5] px-1.5 py-0.5 rounded-full">DONE</span>
               )}
               {isError && (
                 <span className="text-[9px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded-full">ERROR</span>
@@ -471,36 +473,8 @@ function AgentTimelineCard({ agent, index, isLast, isRunning, refCallback }: Age
   );
 }
 
-// ─── Token summary footer ─────────────────────────────────────────────────────
-function TokenSummary({ agents }: { agents: AgentRunState[] }) {
-  const doneAgents = agents.filter(a => a.status === "done" && (a.totalTokens ?? 0) > 0);
-  if (doneAgents.length === 0) return null;
-  const totalTokens = doneAgents.reduce((s, a) => s + (a.totalTokens ?? 0), 0);
-  const totalInput = doneAgents.reduce((s, a) => s + (a.inputTokens ?? 0), 0);
-  const totalOutput = doneAgents.reduce((s, a) => s + (a.outputTokens ?? 0), 0);
-
-  return (
-    <div className="flex-shrink-0 border-t border-gray-100 px-4 py-3 bg-gray-50/50">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <Cpu className="h-3 w-3 text-gray-400" />
-          <span className="text-[10px] font-semibold text-gray-500">Total Tokens</span>
-        </div>
-        <div className="flex items-center gap-3 text-[10px] text-gray-500">
-          <span className="flex items-center gap-1">
-            <ArrowRight className="h-2.5 w-2.5 text-blue-400" />
-            {(totalInput / 1000).toFixed(1)}k in
-          </span>
-          <span className="flex items-center gap-1">
-            <ArrowRight className="h-2.5 w-2.5 text-emerald-400 rotate-180" />
-            {(totalOutput / 1000).toFixed(1)}k out
-          </span>
-          <span className="font-semibold text-gray-700">{(totalTokens / 1000).toFixed(1)}k total</span>
-        </div>
-      </div>
-    </div>
-  );
-}
+// Token usage is rendered via the shared TokenUsageSummary card (see main export),
+// replacing the former bespoke TokenSummary so all pipelines use one component.
 
 // ─── Main export ──────────────────────────────────────────────────────────────
 export function AgentThinkingTab({ agents, pipelineState }: AgentThinkingTabProps) {
@@ -555,7 +529,6 @@ export function AgentThinkingTab({ agents, pipelineState }: AgentThinkingTabProp
             <AgentTimelineCard
               key={agent.id}
               agent={agent}
-              index={idx}
               isLast={idx === visibleAgents.length - 1}
               isRunning={isRunning}
               refCallback={isRunning ? (el) => { runningRef.current = el; } : undefined}
@@ -568,10 +541,10 @@ export function AgentThinkingTab({ agents, pipelineState }: AgentThinkingTabProp
           visibleAgents.every(a => a.status === "done" || a.status === "error") && (
           <div className="pl-8">
             <div className="flex items-center gap-2 py-2">
-              <div className="w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0">
+              <div className="w-6 h-6 rounded-full bg-[#1B2A4A] flex items-center justify-center flex-shrink-0">
                 <CheckCircle2 className="h-3.5 w-3.5 text-white" />
               </div>
-              <span className="text-[11px] font-semibold text-emerald-700">Pipeline complete</span>
+              <span className="text-[11px] font-semibold text-[#1B2A4A]">Pipeline complete</span>
               {pipelineState.totalDuration != null && (
                 <span className="text-[10px] text-gray-400">in {pipelineState.totalDuration.toFixed(1)}s</span>
               )}
@@ -580,7 +553,11 @@ export function AgentThinkingTab({ agents, pipelineState }: AgentThinkingTabProp
         )}
       </div>
 
-      <TokenSummary agents={agents} />
+      {pipelineState && (
+        <div className="flex-shrink-0 border-t border-gray-100 px-4 py-3">
+          <TokenUsageSummary pipelineState={pipelineState} modelId={pipelineState.modelId} />
+        </div>
+      )}
     </div>
   );
 }

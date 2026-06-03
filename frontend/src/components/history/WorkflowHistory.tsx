@@ -188,7 +188,11 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
       const seen = new Map<string, number>(); // agent_id → index in result
       const deduped: typeof parsed = [];
       for (const a of parsed) {
-        const aid = (a as Record<string, unknown>).agent_id as string;
+        const aid = (a as Record<string, unknown>).agent_id as string | undefined;
+        // Skip orphan entries with no agent_id (e.g. a trailing agent_complete
+        // appended after the collector was reset). They have no name either, so
+        // they render with key={undefined} and crash AgentTimelineCard at name.split().
+        if (!aid) continue;
         if (seen.has(aid)) {
           // Aggregate duration and tokens for repeated agents
           const existing = deduped[seen.get(aid)!] as Record<string, unknown>;
