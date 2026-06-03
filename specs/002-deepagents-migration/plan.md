@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | **Branch** | `deepagents-full-swap` (off `0e9c410`) |
-| **Status** | Phases 0–1 ✅ complete (Phase 0 `bfd573b` · Phase 1 `666e531`) · Phases 2–10 planned |
+| **Status** | Phases 0–2 ✅ complete (Phase 0 `bfd573b` · Phase 1 `666e531` · Phase 2 `0d09702`) · Phases 3–10 planned |
 | **Created** | 2026-06-03 |
 | **Supersedes** | the custom `app/agents/deep_agent.py` ReAct loop (deleted in Phase 7) |
 
@@ -189,19 +189,70 @@ driven with `config={"configurable":{"thread_id":run_id}, "recursion_limit":AGEN
   thread-offload if needed; (d) `usage_metadata` zeros (seen before) → read off
   `on_chat_model_end`, fallback to last chunk.
 
-### Phase 2 — Factory + tools on disk ⏳
-`factory.create_agent` → `DeepAgentRunner` (composed `system_prompt` + tools +
-`build_model(ctx.model)`); high `recursion_limit`; embed retries. Tools target the disk
-sandbox; keep `report_task_complete` (progress); `emit_artifact` → writes `prototype.html`.
-Retire `AgentWorkspace`/`PrototypeArtifactStore` usage (cross-agent handoff via files).
-- **UI**: unchanged.
+### Phase 2 — Runner factory + disk tool-sets (additive; wired NOWHERE) ✅ (commit `0d09702`)
 
-### Phase 3 — Engine dispatch + per-agent HITL + checkpointing ⏳
-Switch the engine to the runner directly (retire the `use_deep`/`astream_with_usage`
-split). Per-agent HITL: read per-run gate selections; pause after gated agents via
-checkpointer + `Command(resume)`; emit the **same** `review_gate_*` events; default =
-currently-gated agents pre-checked. Remove summarizer calls; token totals from adapter.
-- **UI**: unchanged (identical gate/usage events).
+**Landed.** `create_runner(agent_id, ctx)` + `_build_runner_tools(spec, ctx)` (per-agent tool-set
++ `exclude_builtin_tools`) in `agents/factory.py`; store-free `report_task_complete`
+(`app/agents/tools/runner_tools.py`); additive `AgentContext.run_id`. All additive, wired
+NOWHERE — `create_agent`/`DeepAgent`/engine byte-unchanged (independently audited GREEN).
+Isolation gate `tests/agents/test_create_runner.py` proves each class behaves: text-only→pure
+text (no tool chips); code-gen→file on the sandbox disk; prototype-build→`prototype.html` +
+`report_task_complete` event; planning→`PLANNING_TOOLS` only. Native `deepagents` tools
+(`FilesystemBackend` + `write_todos`) replace `AgentWorkspace`/`todo_write`/`emit_artifact`.
+
+**Re-scoped 2026-06-03**: the factory→runner and engine→runner switches are inseparable
+(shared `create_agent`; the `use_deep` `isinstance` gate at `engine.py:745`; no dual-path
+allowed), and AGENT.md prompt bodies are shared with the live path — so the breaking cutover
+moves entirely to Phase 3. Phase 2 builds the runner-construction path **additively** and
+verifies it in isolation (Phase-1 discipline); `create_agent`/`DeepAgent` stay live and
+untouched, the engine is unchanged, every commit stays green.
+- **`create_runner(agent_id, ctx)`** in `factory.py`, alongside (NOT replacing) `create_agent`:
+  reuses `_compose_system_prompt` verbatim; builds a `RunSandbox(ctx.user_id, ctx.run_id)`;
+  constructs a `DeepAgentRunner` (model `build_model(ctx.model)`, disk backend, `checkpointer`
+  + `interrupt_on` params plumbed but defaulted off, `recursion_limit` — retries/limits already
+  embedded by the runner in Phase 1).
+- **`_build_runner_tools(spec, ctx)`** — per-agent tool-set + `exclude_builtin_tools`, mapping
+  the native `deepagents` tools onto today's tool sets:
+  - text-only (`tools==[]`) → `([], exclude=True)` — pure text, no tool chips.
+  - code-gen (`workspace`) → `([], exclude=False)` — native `write_file`/`read_file`/`edit_file`/
+    `ls` replace `make_workspace_tools`; deliverables live on the sandbox disk.
+  - prototype build/validate (`prototype_emit_only`) & full (`prototype`) →
+    `([report_task_complete], exclude=False)`; `emit_artifact` dropped (agent writes
+    `prototype.html` via native `write_file`/`edit_file`), `todo_write`→native `write_todos`,
+    template-read tools **dropped** (already pre-injected into the prompt).
+  - planning (`planning`) → `(PLANNING_TOOLS, exclude=True)` — stub tools unchanged; no disk.
+- **Store-free `report_task_complete`** — a new runner tool that just returns a confirmation
+  (no `PrototypeArtifactStore`); Phase 3's engine derives `task_progress` from its tool events.
+- **`AgentContext.run_id`** (additive) so `create_runner` can root the sandbox per-run.
+- **Verify gate**: isolation test — `create_runner` for one agent of each class (text-only,
+  code-gen, prototype-build, planning) produces a correctly-configured runner that *behaves*
+  (scripted model + temp `RunSandbox`): text-only streams pure text; code-gen writes a file to
+  the sandbox disk; prototype-build writes `prototype.html` + emits a `report_task_complete`
+  tool_result with the right args; planning exposes `PLANNING_TOOLS` and no native fs tools.
+- **UI**: unchanged (nothing wired). **Out of scope → Phase 3**: the cutover, AGENT.md prompt
+  edits, reading outputs from disk, HITL, checkpointing.
+
+### Phase 3 — Atomic cutover: engine drives the runner + HITL + checkpointing 🔜 (next)
+The single breaking change — **all pipelines at once** (forced by shared `create_agent` + the
+no-dual-path invariant). Lands green-together:
+- **Flip**: the engine calls `create_runner` (or `create_agent` now returns the runner); delete
+  the `use_deep`/`astream_with_usage` split and drive `runner.astream_events` directly.
+- **Outputs from disk**: the engine reads the deliverable from the run sandbox — `prototype.html`
+  for prototype/od_prototype/revision; code-gen files serialized into the **same** `filename:`
+  block format `to_final_output()` produced (UI-identical). `task_progress` derived from
+  `report_task_complete` tool events (replacing `PrototypeArtifactStore.completed_tasks`);
+  revision seeds `prototype.html` into the sandbox instead of `AgentWorkspace`.
+- **AGENT.md prompt edits** (shared with the now-dead live path, so they land here): "call
+  `emit_artifact`" → "write `prototype.html`"; workspace-tool references → native fs tools.
+- **Per-agent HITL**: read per-run gate selections; keep emitting the **same** `review_gate_*`
+  events; durable via the checkpointer + `Command(resume)`; default = currently-gated agents
+  pre-checked. (Inter-agent gate stays engine-level; the runner's tool-level `gate` is the
+  future lever — open item.)
+- **Checkpointing**: real `get_checkpointer()` (Postgres) wired; `summarizer.py` calls removed
+  (library summarization); token totals from the adapter's `usage` events.
+- **Verify gate**: full WS event-parity capture (old vs new) across a text, code-gen, and
+  prototype run; checkpoint resume after a kill.
+- **UI**: unchanged (identical chunk/tool/usage/gate/progress events; deliverables byte-same).
 
 ### Phase 4 — Prototype: per-task sub-agent execute + Both validation ⏳
 Planner writes `tasks`/`spec`/`design` files to the run dir. Engine execute loop launches
@@ -290,3 +341,5 @@ dev server is expected to be unhappy until Phase 1+ lands — that's accepted.
 - 2026-06-03 — Built-in model-visible tool set verified (deepagents 0.6.7): `{write_todos, ls, read_file, write_file, edit_file, glob, grep, task}`; `execute` is created by FilesystemMiddleware but self-stripped unless the backend is a `SandboxBackendProtocol`. `exclude_builtin_tools=True, tools=[]` → 0 model-visible tools (pure text).
 - 2026-06-03 — HITL `gate` event payload = `{action_requests, review_configs, interrupt_ids, next}`; interrupt detected post-loop via `aget_state` (interrupts at `state.interrupts` / `state.tasks[*].interrupts`, `Interrupt.value` = the HITLRequest). Resume via `Command(resume={"decisions":[{"type":"approve"}]})` (one Decision per pending action_request).
 - 2026-06-03 — `on_tool_end` extracts `ToolMessage.content` (not `str(ToolMessage)`) so the UI `tool_result` text is byte-identical to legacy — honors the UI-identical invariant (found by the parity gate).
+- 2026-06-03 — Phase 2 re-scoped to **additive prep** (build `create_runner` + disk tool-sets, verified in isolation, wired nowhere); the inseparable factory+engine **cutover** moves entirely to Phase 3. Rationale: `create_agent` is shared by all pipelines, the engine's `use_deep` `isinstance` gate + the no-dual-path invariant forbid a bridge, and AGENT.md prompt bodies are shared with the live path — so the breaking change can't be additive and must land atomically. Keeps every commit green (Phase-1 discipline).
+- 2026-06-03 — Native `deepagents` tools replace the custom file tools: `FilesystemBackend` (`write_file`/`read_file`/`edit_file`/`ls`/`glob`/`grep`) replaces `AgentWorkspace`/`make_workspace_tools`; agent writes `prototype.html` via native `write_file` (replaces `emit_artifact`); native `write_todos` replaces `todo_write`. Survivors: `report_task_complete` (store-free, progress via tool events) and `PLANNING_TOOLS` (unchanged). Template-read tools **dropped** — content is already pre-injected into the system prompt.
