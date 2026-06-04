@@ -157,7 +157,40 @@ PIPELINE_AGENTS: dict[str, list[str]] = {
     # ── Reverse Engineer pipeline — agents TBD ────────────────────────────
     # (populated when AGENT.md files are created for this pipeline)
     "reverse_engineer": [],
+
+    # ── Free-chat pipeline — 7 agents (migration Phase 7b) ────────────────
+    # The conversational `user_message` path. Driven by the dedicated
+    # `ChatRunner` sequencer (app/agents/chat_runner.py), NOT the
+    # ExecutionEngine. Registered here so the chat pipeline has a single
+    # source of truth for its agent membership/ordering (consumed by
+    # `get_pipeline_agents("chat")`). The order below is the multi-phase
+    # sequence: Discovery → Requirements → UserStories/PPT/Prototype/UIDesign
+    # → Preview. This is an INTERNAL pipeline: it is intentionally excluded
+    # from `allowed_custom_agent_ids` (NOT a user-runnable `run_pipeline`
+    # pipeline — see the guard there).
+    "chat": [
+        "chat-discovery",
+        "chat-requirements",
+        "chat-user-stories",
+        "chat-ppt",
+        "chat-prototype",
+        "chat-ui-design",
+        "chat-preview",
+    ],
 }
+
+
+# ---------------------------------------------------------------------------
+# Internal (non-user-runnable) pipelines
+# ---------------------------------------------------------------------------
+#
+# Pipelines present in PIPELINE_AGENTS that are driven by a dedicated runtime
+# (NOT the user-facing `run_pipeline` WS path / the ExecutionEngine), and must
+# therefore never be selectable as a `run_pipeline` pipeline_type nor have their
+# agents accepted in `run_pipeline.agent_ids`. `allowed_custom_agent_ids` returns
+# ∅ for these (the security fallback), so any client supplying them is rejected.
+#   - "chat": the free-chat `user_message` path → ChatRunner (Phase 7b).
+_INTERNAL_PIPELINES: frozenset[str] = frozenset({"chat"})
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +364,15 @@ def allowed_custom_agent_ids(pipeline_type: str) -> set[str]:
     """
     # Resolve od_ aliases that are not real registry keys (od_prototype).
     pipeline_type = _OD_ALIAS_BASE.get(pipeline_type, pipeline_type)
+
+    # Internal pipelines (e.g. "chat") are driven by a dedicated runtime, never
+    # the user-facing run_pipeline path. They are present in PIPELINE_AGENTS
+    # (single source of truth for membership), so the generic "base pipeline"
+    # branch below would otherwise expose their agents as valid run_pipeline
+    # agent_ids. Short-circuit to ∅ (the security fallback) so no chat agent can
+    # be smuggled into a run_pipeline run.
+    if pipeline_type in _INTERNAL_PIPELINES:
+        return set()
 
     # Revision pipelines (tight): driven by the *_revision suffix so that BOTH
     # the REVISION_BASE_MAP entries AND od_ppt_revision (absent from that map)

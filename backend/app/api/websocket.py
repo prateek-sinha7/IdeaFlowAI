@@ -11,10 +11,10 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from jose import JWTError
 from sqlalchemy.orm import Session
 
-from app.agents.base import AgentConfigurationError
+from app.agents.chat_runner import ChatRunner
 from app.agents.llm_errors import map_exception as _map_llm_exception
+from app.agents.model_factory import ModelConfigurationError
 from app.agents.modes import get_mode_prompt
-from app.agents.orchestrator import AgentOrchestrator
 from app.core.config import settings
 from app.core.security import decode_access_token, is_token_revoked
 from app.models.chat import ChatSession, Message
@@ -297,7 +297,7 @@ async def websocket_chat(websocket: WebSocket):
 
     On successful auth, the connection enters a message loop where:
     - Client sends JSON messages with type, content, and chat_session_id
-    - Server routes to AgentOrchestrator and streams responses back
+    - Server routes to ChatRunner and streams responses back
     - Responses include phase_start, stream, phase_end, and complete messages
 
     Close codes:
@@ -802,8 +802,10 @@ async def websocket_chat(websocket: WebSocket):
             mode_prompt = get_mode_prompt(mode)
 
             try:
-                orchestrator = AgentOrchestrator()
-                async for stream_msg in orchestrator.astream_execute(
+                # Chat agents are text-only (no sandbox/tools); run_id is
+                # incidental but we pass chat_session_id for traceability.
+                runner = ChatRunner(user_id=user.id, run_id=chat_session_id)
+                async for stream_msg in runner.astream_execute(
                     user_message=content,
                     chat_session_id=chat_session_id,
                     mode=mode,
@@ -813,7 +815,7 @@ async def websocket_chat(websocket: WebSocket):
                         assistant_chunks.append(stream_msg["chunk"])
                     await websocket.send_json(stream_msg)
 
-            except AgentConfigurationError:
+            except ModelConfigurationError:
                 # Provider-config gap (Bedrock model id / region not set).
                 # Always non-recoverable.
                 logger.error("Agent configuration error during chat stream")

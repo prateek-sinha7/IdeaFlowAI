@@ -1,44 +1,19 @@
 """Base agent — auto-selects Anthropic (local dev) or Bedrock (production)."""
 
 import logging
-from dataclasses import dataclass
 from typing import AsyncGenerator, Union
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.core.config import settings
 
+# ``TokenUsage`` was relocated to ``app/agents/types.py`` (migration Phase 7b-3)
+# so the LIVE ``DeepAgentRunner`` keeps a stable import after this legacy module
+# is deleted in 7b-5. It is re-imported here for this module's own remaining
+# (soon-to-be-deleted) use; the canonical definition now lives in ``types.py``.
+from app.agents.types import TokenUsage  # noqa: F401 — re-exported for back-compat
+
 logger = logging.getLogger("app.agents.base")
-
-
-# ─── Token usage tracking ─────────────────────────────────────────────────────
-
-@dataclass
-class TokenUsage:
-    """Token usage for a single agent invocation."""
-    input_tokens: int = 0
-    output_tokens: int = 0
-    total_tokens: int = 0
-    cache_read_tokens: int = 0
-    cache_write_tokens: int = 0
-
-    def __add__(self, other: "TokenUsage") -> "TokenUsage":
-        return TokenUsage(
-            input_tokens=self.input_tokens + other.input_tokens,
-            output_tokens=self.output_tokens + other.output_tokens,
-            total_tokens=self.total_tokens + other.total_tokens,
-            cache_read_tokens=self.cache_read_tokens + other.cache_read_tokens,
-            cache_write_tokens=self.cache_write_tokens + other.cache_write_tokens,
-        )
-
-    def to_dict(self) -> dict:
-        return {
-            "input_tokens": self.input_tokens,
-            "output_tokens": self.output_tokens,
-            "total_tokens": self.total_tokens,
-            "cache_read_tokens": self.cache_read_tokens,
-            "cache_write_tokens": self.cache_write_tokens,
-        }
 
 
 # Cost rates per 1K tokens (USD) — covers all commonly used Bedrock models.

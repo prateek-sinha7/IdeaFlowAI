@@ -1,24 +1,10 @@
 # LangChain agent definitions
+#
+# The legacy free-chat stack (AgentOrchestrator + the 7 BaseAgent chat agents)
+# was deleted in migration Phase 7b-5; the free-chat path now runs on the
+# dedicated ``app.agents.chat_runner.ChatRunner`` over the deepagents runtime.
+# This package no longer re-exports any agent classes. ``BaseAgent`` survives in
+# ``app.agents.base`` solely for the live ``/flowin-handoff`` subsystem
+# (``app.agents.handoff.*``), which imports it directly from the module.
 
-from app.agents.base import BaseAgent, AgentConfigurationError
-from app.agents.discovery import DiscoveryAgent
-from app.agents.requirements import RequirementsAgent
-from app.agents.user_stories import UserStoryAgent
-from app.agents.ppt import PPTAgent
-from app.agents.prototype import PrototypeAgent
-from app.agents.ui_design import UIDesignAgent
-from app.agents.preview import PreviewAgent
-from app.agents.orchestrator import AgentOrchestrator
-
-__all__ = [
-    "BaseAgent",
-    "AgentConfigurationError",
-    "DiscoveryAgent",
-    "RequirementsAgent",
-    "UserStoryAgent",
-    "PPTAgent",
-    "PrototypeAgent",
-    "UIDesignAgent",
-    "PreviewAgent",
-    "AgentOrchestrator",
-]
+__all__: list[str] = []

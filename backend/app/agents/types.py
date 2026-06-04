@@ -1,10 +1,14 @@
 """app/agents/types.py — Shared type definitions for workflow execution.
 
-Centralises WorkflowState so it can be imported by both orchestrator_v2.py
-(legacy, until Phase 2 deletion) and the new execution_engine/engine.py
-without circular imports.
+Centralises ``WorkflowState`` and ``TokenUsage`` so they can be imported by the
+LIVE runtime (``app/agents/deep_agent_runner.py``, ``app/agents/chat_runner.py``)
+without depending on the soon-to-be-deleted legacy ``app/agents/base.py``.
 
-TokenUsage is defined in app.agents.base — import it from there.
+``TokenUsage`` was relocated here (migration Phase 7b-3) from ``base.py``: it is
+used by the LIVE ``DeepAgentRunner`` text-only path, so it must outlive the
+deletion of ``base.py`` in 7b-5. ``base.py`` now imports it FROM here (re-export)
+for its own remaining, soon-to-be-deleted use — so deleting ``base.py`` cannot
+affect the runner's ``TokenUsage``.
 """
 
 from __future__ import annotations
@@ -13,7 +17,39 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.agents.base import TokenUsage  # noqa: F401 — re-exported for convenience
+
+# ============================================================
+# TOKEN USAGE — per-invocation token accounting
+# ============================================================
+
+
+@dataclass
+class TokenUsage:
+    """Token usage for a single agent invocation."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+
+    def __add__(self, other: "TokenUsage") -> "TokenUsage":
+        return TokenUsage(
+            input_tokens=self.input_tokens + other.input_tokens,
+            output_tokens=self.output_tokens + other.output_tokens,
+            total_tokens=self.total_tokens + other.total_tokens,
+            cache_read_tokens=self.cache_read_tokens + other.cache_read_tokens,
+            cache_write_tokens=self.cache_write_tokens + other.cache_write_tokens,
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "total_tokens": self.total_tokens,
+            "cache_read_tokens": self.cache_read_tokens,
+            "cache_write_tokens": self.cache_write_tokens,
+        }
 
 
 # ============================================================

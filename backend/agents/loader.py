@@ -43,6 +43,7 @@ SUPPORTED_PIPELINE_TYPES: frozenset[str] = frozenset(
         "reverse_engineer",
         "custom",
         "spec_kit",
+        "chat",
     }
 )
 

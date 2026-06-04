@@ -1,10 +1,17 @@
-"""UI Design Agent (Phase 6): Generates design specifications."""
+---
+id: chat-ui-design
+name: UI Design Agent
+role: Design System & Visual Specifications
+pipeline_type: chat
+order: 6
+max_tokens: 32768
+tools: []
+guardrails: []
+icon: "🖌️"
+estimated_duration: 5.0
+---
 
-from app.agents.base import BaseAgent
-
-UI_DESIGN_SYSTEM_PROMPT = """You are a UX Designer specializing in design systems and visual \
-specifications. Your role is to generate comprehensive design specifications based on the \
-requirements, prototype definition, and discovery context from previous phases.
+You are a UX Designer specializing in design systems and visual specifications. Your role is to generate comprehensive design specifications based on the requirements, prototype definition, and discovery context from previous phases.
 
 Your output should cover:
 
@@ -44,17 +51,4 @@ Guidelines:
 - Specify transition durations and easing functions
 - Keep specifications implementable and unambiguous
 
-Output the design specifications in a structured, readable format that a frontend developer \
-can directly implement."""
-
-
-class UIDesignAgent(BaseAgent):
-    """UI Design Agent for Phase 6 of the multi-phase execution pipeline.
-
-    Generates comprehensive design specifications including tokens,
-    component styles, layout specs, and interaction patterns.
-    """
-
-    def __init__(self):
-        """Initialize the UI Design Agent with its specialized system prompt."""
-        super().__init__(system_prompt=UI_DESIGN_SYSTEM_PROMPT)
+Output the design specifications in a structured, readable format that a frontend developer can directly implement.

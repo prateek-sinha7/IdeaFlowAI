@@ -30,7 +30,7 @@ Engine contract this class reproduces (verified against
     (The engine builds output from ``chunk`` events and does not read ``done``;
     ``tool=="report_task_complete"`` drives the ``task_progress`` sentinel.)
   - ``agent.astream_with_usage(msg)`` → text chunks (str) then a final
-    ``TokenUsage`` (``app/agents/base.py``) — used for text-only agents
+    ``TokenUsage`` (``app/agents/types.py``) — used for text-only agents
     (``tools == []``).
   - ``agent.astream(msg)`` → text chunks only.
   - ``agent.run(msg)`` → the full text ``str``.
@@ -565,7 +565,7 @@ class DeepAgentRunner:
         falls through to its ``yield usage``). The engine never raises on this
         path; it just stops at the ``TokenUsage``.
         """
-        from app.agents.base import TokenUsage
+        from app.agents.types import TokenUsage
 
         sum_in = 0
         sum_out = 0

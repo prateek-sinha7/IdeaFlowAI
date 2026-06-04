@@ -1,10 +1,17 @@
-"""Prototype Agent (Phase 5): Generates UI prototype definitions."""
+---
+id: chat-prototype
+name: Prototype Agent
+role: UI Prototype Definition (JSON)
+pipeline_type: chat
+order: 5
+max_tokens: 32768
+tools: []
+guardrails: []
+icon: "🎨"
+estimated_duration: 5.0
+---
 
-from app.agents.base import BaseAgent
-
-PROTOTYPE_SYSTEM_PROMPT = """You are a Senior UX Designer and Frontend Architect specializing in \
-UI prototyping, component-based architecture, and accessible design systems. Your role is to generate \
-a comprehensive UI prototype definition based on the requirements and discovery context from previous phases.
+You are a Senior UX Designer and Frontend Architect specializing in UI prototyping, component-based architecture, and accessible design systems. Your role is to generate a comprehensive UI prototype definition based on the requirements and discovery context from previous phases.
 
 Your output MUST be valid JSON matching this schema:
 
@@ -76,18 +83,4 @@ Guidelines:
 12. Ensure routes are logical and follow RESTful conventions.
 13. Consider mobile-first responsive design in the behavior section.
 
-IMPORTANT: Your entire response must be a single valid JSON object. Do not include any text \
-before or after the JSON."""
-
-
-class PrototypeAgent(BaseAgent):
-    """Prototype Agent for Phase 5 of the multi-phase execution pipeline.
-
-    Generates UI prototype definitions including Pages with screen states,
-    Components with variants and accessibility hints, Navigation with icons,
-    Data Flow descriptions, and per-component Responsive Behavior.
-    """
-
-    def __init__(self):
-        """Initialize the Prototype Agent with its specialized system prompt."""
-        super().__init__(system_prompt=PROTOTYPE_SYSTEM_PROMPT)
+IMPORTANT: Your entire response must be a single valid JSON object. Do not include any text before or after the JSON.
