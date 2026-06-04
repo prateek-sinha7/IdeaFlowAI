@@ -11,14 +11,28 @@ This is the user-based workspace isolation requirement, implemented on real disk
 from __future__ import annotations
 
 import logging
+import os
 import re
 import shutil
 import time
+from collections.abc import Iterable
 from pathlib import Path
 
 from app.core.config import settings
 
 logger = logging.getLogger("app.agents.sandbox")
+
+# Default deliverable exclusion set — mirrors
+# ``AgentWorkspace._INTERNAL_FILES`` (``app/agents/tools/workspace.py``). The
+# engine writes ``PLANNER.md`` as an internal planning artifact, so it must not
+# appear in the deliverable string the FilesTab / AppBuilderPreview parse.
+_DELIVERABLE_EXCLUDE: frozenset[str] = frozenset({"PLANNER.md"})
+
+# Sentinel emitted when no deliverable files exist — byte-identical to
+# ``AgentWorkspace.to_final_output()`` so the Phase-3 engine produces the same
+# ``WorkflowRun.output`` whether deliverables came from the in-memory workspace
+# or the on-disk sandbox.
+_EMPTY_SENTINEL = "(no files written)"
 
 # Map any user/run identifier to ONE safe path segment. user_id is a UUID or an
 # email; run_id is a UUID. We allow [A-Za-z0-9._-] and replace everything else, so
@@ -107,3 +121,149 @@ def sweep_expired(*, ttl_hours: int | None = None, runs_root: str | None = None)
     if removed:
         logger.info("sandbox sweep: removed %d expired run dir(s) under %s", removed, root)
     return removed
+
+
+# ---------------------------------------------------------------------------
+# Deliverable serialisation — disk analogue of AgentWorkspace.to_final_output()
+# ---------------------------------------------------------------------------
+#
+# The legacy code-gen path collects every file an agent wrote into an in-memory
+# ``AgentWorkspace`` and, at pipeline completion, calls ``to_final_output()`` to
+# turn it into the ``WorkflowRun.output`` string the frontend FilesTab /
+# AppBuilderPreview parse: one ```` ```filename: <path>\n<content>\n``` ````
+# block per deliverable file, sorted by path, joined by a blank line, with the
+# sentinel ``"(no files written)"`` when empty (see
+# ``app/agents/tools/workspace.py``).
+#
+# In the Phase-3 cutover the native ``deepagents`` ``write_file`` tool lands
+# those same files on the run sandbox disk instead. These helpers walk that
+# directory and reproduce the SAME string BYTE-FOR-BYTE so the deliverable the
+# UI receives is unchanged. They are isolated and additive — Task #42 wires them
+# into the engine; nothing here imports the engine, factory, or workspace.
+
+
+def _collect_deliverable_relpaths(
+    root: Path, exclude: frozenset[str] | Iterable[str]
+) -> list[str]:
+    """Walk ``root`` and return the POSIX relative paths of deliverable files.
+
+    A *deliverable* is any regular file under ``root`` whose relative path is
+    NOT excluded. Exclusion matches BOTH the full POSIX relative path AND the
+    basename, so an excluded name (e.g. ``"PLANNER.md"``) is dropped wherever it
+    appears in the tree. The result is sorted by relative path.
+
+    Sort note: ``to_final_output()`` does ``sorted(deliverable.items())`` —
+    i.e. it sorts by its dict keys, which are sanitised relative paths (POSIX
+    separators, no leading slash). Sorting these relative-POSIX strings with the
+    same default ``str`` ordering yields the identical sequence (verified
+    empirically in the Task-#40 test for any set of paths that survive a
+    round-trip through the filesystem), so the emitted blocks are in the same
+    order as the in-memory path. ``os.walk`` order itself is irrelevant — we
+    always re-sort.
+    """
+    exclude_set = frozenset(exclude)
+    relpaths: list[str] = []
+    for dirpath, _dirnames, filenames in os.walk(root):
+        dir_ = Path(dirpath)
+        for name in filenames:
+            full = dir_ / name
+            # ``os.walk`` yields directory entries; only emit regular files
+            # (skip symlinks-to-dirs, FIFOs, sockets, dangling symlinks). This
+            # also means an excluded *directory* name is never matched here —
+            # exclusion is by file path/basename, exactly like the workspace.
+            if not full.is_file():
+                continue
+            relpath = full.relative_to(root).as_posix()
+            if relpath in exclude_set or name in exclude_set:
+                continue
+            relpaths.append(relpath)
+    relpaths.sort()
+    return relpaths
+
+
+def serialize_sandbox_deliverable(
+    root: str | Path,
+    *,
+    exclude: frozenset[str] | Iterable[str] = _DELIVERABLE_EXCLUDE,
+) -> str:
+    """Serialise the files written into a run sandbox as the deliverable string.
+
+    Disk analogue of ``AgentWorkspace.to_final_output()``: walks ``root``
+    recursively, collects every regular file as a path relative to ``root``
+    (POSIX separators), drops files matching ``exclude`` (by relative path AND
+    by basename), sorts by relative path, and returns each as a
+    ```` ```filename: {relpath}\n{content}\n``` ```` block joined by ``"\n\n"``.
+    Returns ``"(no files written)"`` when there are no deliverable files —
+    byte-identical to ``to_final_output()`` so the Phase-3 engine produces the
+    same ``WorkflowRun.output`` from disk that it does from the in-memory
+    workspace today (the UI-identical invariant).
+
+    Files are read as raw bytes and decoded as UTF-8 with newline translation
+    DISABLED (``Path.read_bytes().decode("utf-8")``, not ``Path.read_text``).
+    This is deliberate and load-bearing for byte-equivalence: ``read_text``
+    applies universal-newline translation on read (any ``\\r`` / ``\\r\\n`` →
+    ``\\n``), which would silently mutate a file whose content contains carriage
+    returns and diverge from the in-memory ``AgentWorkspace`` (which stores the
+    agent's string verbatim). Reading raw bytes reproduces exactly what was
+    written, so a CRLF-bearing deliverable round-trips byte-for-byte.
+
+    A file that cannot be decoded as UTF-8 (binary) or cannot be read at all
+    (e.g. a race-deleted file) is **skipped** — never raises, never emits a
+    partial/garbled block. The in-memory path only ever holds ``str`` content
+    written via the text-only ``write_file`` tool, so a well-formed code-gen run
+    never hits this branch; the guard is purely defensive for stray non-text
+    artifacts.
+
+    Args:
+        root: The sandbox run directory (``RunSandbox.root``). A non-existent or
+            empty directory yields the empty sentinel.
+        exclude: File names/relative paths to omit from the deliverable.
+            Defaults to ``{"PLANNER.md"}`` (the engine's internal planning
+            artifact), matching ``AgentWorkspace._INTERNAL_FILES``.
+
+    Returns:
+        The ``filename:``-block deliverable string, or ``"(no files written)"``.
+    """
+    root_path = Path(root)
+    if not root_path.is_dir():
+        return _EMPTY_SENTINEL
+
+    parts: list[str] = []
+    for relpath in _collect_deliverable_relpaths(root_path, exclude):
+        try:
+            # Raw bytes + explicit decode (NOT read_text): preserves \r / \r\n
+            # exactly, so the round-trip is byte-identical to the in-memory
+            # string. See the docstring's "Files are read as raw bytes" note.
+            content = (root_path / relpath).read_bytes().decode("utf-8")
+        except (OSError, ValueError, UnicodeDecodeError):
+            # Unreadable or non-UTF-8 (binary) file: skip gracefully rather than
+            # crash the whole deliverable or emit a corrupt block.
+            logger.warning(
+                "sandbox deliverable: skipping unreadable/non-UTF-8 file %r", relpath
+            )
+            continue
+        parts.append(f"```filename: {relpath}\n{content}\n```")
+
+    if not parts:
+        return _EMPTY_SENTINEL
+    return "\n\n".join(parts)
+
+
+def count_sandbox_deliverables(
+    root: str | Path,
+    *,
+    exclude: frozenset[str] | Iterable[str] = _DELIVERABLE_EXCLUDE,
+) -> int:
+    """Count deliverable files under ``root`` — disk analogue of ``file_count()``.
+
+    Counts regular files (excluding ``exclude``, by relative path AND basename),
+    matching ``AgentWorkspace.file_count()``. Unlike
+    :func:`serialize_sandbox_deliverable`, this does NOT read file contents, so
+    a binary/unreadable file is still counted (it exists as a deliverable);
+    ``file_count()`` likewise counts every non-internal key regardless of
+    content. A non-existent directory counts as 0.
+    """
+    root_path = Path(root)
+    if not root_path.is_dir():
+        return 0
+    return len(_collect_deliverable_relpaths(root_path, exclude))

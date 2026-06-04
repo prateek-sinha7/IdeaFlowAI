@@ -25,7 +25,7 @@ The current prototype is a single self-contained HTML file in your workspace nam
 - `read_file("prototype.html")` — read the current prototype. **Always do this first.**
 - `edit_file("prototype.html", old_string, new_string)` — make a surgical change. Replaces ONE exact, unique occurrence of `old_string`. This is your primary tool: it changes only what you target and leaves the rest of the file untouched, so you never have to re-emit the whole document.
 - `write_file("prototype.html", content)` — overwrite the entire file. Use this only for sweeping changes where editing piece-by-piece would be harder.
-- `list_workspace_files()` — see what's in the workspace.
+- `ls()` — see what's in the workspace.
 
 ## How to work
 

@@ -29,10 +29,12 @@ from typing import AsyncGenerator
 from agents.artifact_store.store import ArtifactStoreWriteError, get_artifact_store
 from agents.execution_engine.resolver import WorkflowResolver
 from agents.execution_engine.state_machine import get_state_machine
-from agents.factory import AgentContext, create_agent
-from app.agents.base import TokenUsage
-from app.agents.deep_agent import DeepAgent
-from app.agents.tools.workspace import AgentWorkspace
+from agents.factory import AgentContext, create_runner
+from app.agents.sandbox import (
+    RunSandbox,
+    count_sandbox_deliverables,
+    serialize_sandbox_deliverable,
+)
 
 logger = logging.getLogger("agents.execution_engine.engine")
 
@@ -180,6 +182,7 @@ class ExecutionEngine:
         attached_hooks: list[dict] | None = None,
         model_id: str | None = None,
         od_context: dict | None = None,
+        gate_agent_ids: list[str] | None = None,
     ) -> AsyncGenerator[dict, None]:
         """Execute a workflow end-to-end, yielding WebSocket events.
 
@@ -195,23 +198,69 @@ class ExecutionEngine:
             model_id: User-selected model override.
             od_context: For od_prototype/od_ppt — loaded template/design-system
                         content passed through to the factory `injects` composer.
+            gate_agent_ids: Per-run selection of which agents pause for the
+                        inter-agent Human review gate. The EXPLICIT set of agent
+                        IDs to gate for this run.
+                        - ``None`` (default / not specified) → fall back to the
+                          STATIC set: agents whose AGENT.md declares
+                          ``gate: Human_Gate``. This is exactly today's behavior,
+                          so existing clients (which never send the field) are
+                          unaffected.
+                        - a list → gate iff ``spec.id`` is in that list (so a
+                          statically-gated agent NOT in the list does NOT gate,
+                          and a non-statically-gated agent IN the list DOES).
+                        The Phase-6 UI sends this; the inter-agent gate itself
+                        stays engine-level (`_run_review_gate`) — this only
+                        selects which agents trigger it.
         """
         total_start = time.time()
-        workspace = AgentWorkspace()
+        # Per-run on-disk sandbox: <RUNS_ROOT>/<user>/<run>/. SHARED across every
+        # agent in this pipeline run, so files (prototype.html, code-gen outputs)
+        # written by one agent persist for the next. Keyed on pipeline_run_id so
+        # create_runner(agent_id, ctx) — which roots its RunSandbox at
+        # RunSandbox(ctx.user_id, ctx.run_id) — lands in this SAME directory and
+        # the engine reads its deliverables back from disk.
+        sandbox = RunSandbox(user_id or "anon", pipeline_run_id)
+        sandbox.ensure()
         self._od_context = od_context  # threaded into AgentContext per agent
         self._user_id = user_id
+        # Per-run gate selection (see docstring + _should_gate). None = use the
+        # static AGENT.md `gate: Human_Gate` set (today's behavior); a list =
+        # gate exactly those agent IDs. Stashed on self (like _od_context above)
+        # so the decision point inside _run_agent can read it without threading
+        # the param through _run_agent / _run_build_task_loop signatures.
+        self._gate_agent_ids = gate_agent_ids
 
-        # Create a shared ArtifactStore for prototype pipelines.
-        # All four prototype agents (builder, polisher, finalizer, etc.) share
-        # the same store so emit_artifact() in one agent is readable by the next.
-        # od_prototype/prototype agents emit their HTML via emit_artifact() into a
-        # shared store. prototype_revision does NOT use it — that agent edits the
-        # prototype.html workspace file directly (seeded below) and the engine
-        # reads that file back as the deliverable.
-        self._prototype_store = None
-        if pipeline_type in ("od_prototype", "prototype"):
-            from agents.prototype.artifact_store import PrototypeArtifactStore
-            self._prototype_store = PrototypeArtifactStore()
+        # ── Durable graph state: acquire the LangGraph checkpointer once per run ──
+        # get_checkpointer() is a process-wide CACHED SINGLETON (see
+        # app/agents/checkpointer.py): Postgres (AsyncPostgresSaver, owning a pool
+        # + .setup() table bootstrap) when DATABASE_URL is postgres, else an
+        # InMemorySaver dev fallback (no creds, no error). Because it is shared for
+        # the whole process, we acquire it here and thread it into every agent's
+        # create_runner — but we DELIBERATELY DO NOT close it per-run:
+        # close_checkpointer() tears down the shared pool/instance for the entire
+        # process (it sets the module singleton back to None), so closing it after
+        # one run would break every later run and is an app-SHUTDOWN concern, not a
+        # per-run one (the checkpointer.py docstring: "Wire get_checkpointer on
+        # startup and close_checkpointer on shutdown"). Each agent-invocation still
+        # gets its OWN unique thread_id below so per-agent graph states never
+        # collide on this shared checkpointer; the disk sandbox stays per-run/shared.
+        from app.agents.checkpointer import get_checkpointer
+        self._checkpointer = await get_checkpointer()
+
+        # ── Cumulative prototype task-completion list (run-level, run-shared) ──
+        # RESTORES the pre-cutover semantics of PrototypeArtifactStore, which was
+        # created ONCE per run and shared across every prototype-build invocation,
+        # so report_task_complete calls ACCUMULATED across tasks. After the Phase-3
+        # cutover, task_progress is derived from report_task_complete tool events in
+        # _run_agent; that list MUST live here (run-level) — not as a local inside
+        # _run_agent — because _run_build_task_loop calls _run_agent fresh ONCE PER
+        # TASK. A local list resets every task, so completed_count would be stuck at
+        # 1 and the frontend's protoCompletedTaskCount would go non-monotonic
+        # (0,1,1,1,2,1) instead of cumulative/monotonic (0,1,1,2,2,3) — a visible
+        # build-progress UI regression. Initialized once per run here, appended in
+        # _run_agent, emitted as completed_count=len(self._completed_tasks).
+        self._completed_tasks: list[dict] = []
 
         # ── Prototype revision: seed the existing prototype as an editable file ──
         # DELIBERATE EXCEPTION to the revision pattern used elsewhere. Every other
@@ -224,14 +273,14 @@ class ExecutionEngine:
         # far more reliable than re-emitting the whole document (the old approach
         # here — a regex-merged structured diff — silently dropped edits to
         # existing in-page JS such as the SPA route map). We drop the current HTML
-        # into the workspace and slim the prompt to just the instruction + a
+        # into the sandbox and slim the prompt to just the instruction + a
         # pointer, so the document isn't also duplicated into the agent's context.
         self._revision_original_html = ""
         if pipeline_type == "prototype_revision":
             existing_html = self._extract_existing_prototype_html(user_message)
             if existing_html:
                 self._revision_original_html = existing_html
-                workspace.write_file(REVISION_FILE_NAME, existing_html)
+                sandbox.write(REVISION_FILE_NAME, existing_html)
                 user_message = self._slim_revision_message(user_message)
             else:
                 logger.warning(
@@ -374,7 +423,7 @@ class ExecutionEngine:
                     if planning_context.get("domain_insights"):
                         planner_md_lines.append("\n**Domain Insights**:\n" +
                             "\n".join(f"- {i}" for i in planning_context["domain_insights"]))
-                    workspace.write_file("PLANNER.md", "\n".join(planner_md_lines))
+                    sandbox.write("PLANNER.md", "\n".join(planner_md_lines))
                 except Exception as _planner_md_exc:
                     logger.debug("PLANNER.md generation failed: %s", _planner_md_exc)
             async for event in self._emit_planner_events(
@@ -462,14 +511,14 @@ class ExecutionEngine:
                 if getattr(spec, "id", None) == "prototype-build":
                     async for event in self._run_build_task_loop(
                         spec, i, ordered_agents, user_message, accumulated_outputs,
-                        workspace, pipeline_run_id, pipeline_type, planning_context,
+                        sandbox, pipeline_run_id, pipeline_type, planning_context,
                         attached_skills, attached_hooks, model_id, results, cancel_event,
                     ):
                         yield event
                 else:
                     async for event in self._run_agent(
                         spec, i, ordered_agents, user_message, accumulated_outputs,
-                        workspace, pipeline_run_id, pipeline_type, planning_context,
+                        sandbox, pipeline_run_id, pipeline_type, planning_context,
                         attached_skills, attached_hooks, model_id, results, cancel_event,
                     ):
                         yield event
@@ -488,18 +537,20 @@ class ExecutionEngine:
             self._state_machine.transition(pipeline_run_id, "completed")
 
         # Determine final output:
-        # - workspace.file_count() now excludes internal planning files (PLANNER.md)
-        #   so it's > 0 only when domain agents actually wrote deliverable files
-        #   (app_builder, mulesoft, dotnet code pipelines).
+        # - count_sandbox_deliverables(sandbox.root) excludes internal planning
+        #   files (PLANNER.md) so it's > 0 only when domain agents actually wrote
+        #   deliverable files to the run sandbox (app_builder, mulesoft, dotnet
+        #   code pipelines).
         # - For PPT / prototype / text pipelines, the last agent's streamed output
-        #   IS the deliverable — workspace.file_count() == 0 for these.
+        #   IS the deliverable — count_sandbox_deliverables == 0 for these.
         if pipeline_type == "prototype_revision":
-            # The revision agent edited prototype.html in place — that file IS the
-            # deliverable. Read it back as raw HTML (not the ```filename:``` wrapper
-            # that to_final_output() would apply). Fall back without losing the
-            # prototype if the agent never wrote the file.
-            revised = workspace.read_file(REVISION_FILE_NAME)
-            if revised and not revised.startswith("File not found"):
+            # The revision agent edited prototype.html in place on the sandbox —
+            # that file IS the deliverable. Read it back as raw HTML (not the
+            # ```filename:``` wrapper that serialize_sandbox_deliverable() would
+            # apply). Fall back without losing the prototype if the agent never
+            # wrote the file (sandbox.read returns None for a missing file).
+            revised = sandbox.read(REVISION_FILE_NAME)
+            if revised:
                 final_output = revised
             else:
                 streamed = (results[-1]["output"] if results else "").strip()
@@ -510,19 +561,17 @@ class ExecutionEngine:
                     REVISION_FILE_NAME,
                     "streamed HTML" if looks_like_html else "original HTML",
                 )
-        elif workspace.file_count() > 0:
-            final_output = workspace.to_final_output()
+        elif count_sandbox_deliverables(sandbox.root) > 0:
+            final_output = serialize_sandbox_deliverable(sandbox.root)
         else:
             final_output = results[-1]["output"] if results else ""
 
-        # For prototype pipelines: prefer the shared ArtifactStore HTML if available
-        # (it's the clean HTML without the "✓ Artifact stored..." confirmation text).
-        # Also strip <artifact>...</artifact> wrapper tags if present.
-        proto_store = getattr(self, "_prototype_store", None)
-        if proto_store is not None and hasattr(proto_store, "is_set") and proto_store.is_set():
-            store_html = proto_store.html
-            if store_html and len(store_html) > len(final_output):
-                final_output = store_html
+        # For prototype pipelines: prefer the prototype.html the agent wrote to the
+        # sandbox if it's longer (the clean HTML, without any "✓ Artifact stored…"
+        # confirmation text). Also strip <artifact>...</artifact> wrapper tags below.
+        sandbox_html = sandbox.read("prototype.html")
+        if sandbox_html and len(sandbox_html) > len(final_output):
+            final_output = sandbox_html
 
         # Strip <artifact>...</artifact> wrapper if present (finalizer wraps output)
         if final_output and "<artifact" in final_output:
@@ -668,7 +717,7 @@ class ExecutionEngine:
         ordered_agents: list,
         user_message: str,
         accumulated_outputs: dict[str, str],
-        workspace: AgentWorkspace,
+        sandbox: RunSandbox,
         pipeline_run_id: str,
         pipeline_type: str,
         planning_context: dict,
@@ -732,17 +781,44 @@ class ExecutionEngine:
                 agent_outputs=self._filter_consumed_outputs(spec, ordered_agents, accumulated_outputs),
                 attached_skills=merged_skills,
                 attached_hooks=list(attached_hooks or []),
-                workspace=workspace,
                 model=model_id,
                 od_context=getattr(self, "_od_context", None),
                 planning_context=planning_context,
                 user_id=getattr(self, "_user_id", None),
-                prototype_store=getattr(self, "_prototype_store", None),
+                # run_id roots create_runner's RunSandbox at RunSandbox(user_id,
+                # pipeline_run_id) — the SAME per-run disk dir the engine reads
+                # deliverables back from (prototype.html / code-gen files).
+                run_id=pipeline_run_id,
             )
-            agent = create_agent(spec.id, ctx)
+
+            # ── Unique per-agent-invocation checkpoint thread_id ──────────────
+            # The LangGraph checkpoint thread_id isolates each agent's graph state
+            # and MUST be unique per agent-invocation, or sequential agents in the
+            # same run would collide on one checkpoint thread. (The disk sandbox is
+            # SEPARATE — it stays per-run/shared, keyed on pipeline_run_id, so files
+            # like prototype.html persist across the run's agents; see ctx.run_id
+            # above.) Base id = "<pipeline_run_id>:<spec.id>". The build loop runs
+            # the SAME spec.id ("prototype-build") once per task, so when a task
+            # number is present we append it ("<run>:<agent>:<task>") to keep each
+            # task on its own thread — _run_build_task_loop sets _build_task_number
+            # in accumulated_outputs before each call (and it is absent/"" for every
+            # other agent, which then uses the plain two-part id). interrupt_on is
+            # intentionally NOT passed (kept None) — gate-selection is Task #44 and
+            # the runner stays in non-gate mode so event shapes are unchanged.
+            task_num = accumulated_outputs.get("_build_task_number")
+            thread_id = (
+                f"{pipeline_run_id}:{spec.id}:{task_num}"
+                if task_num
+                else f"{pipeline_run_id}:{spec.id}"
+            )
+            agent = create_runner(
+                spec.id,
+                ctx,
+                thread_id=thread_id,
+                checkpointer=getattr(self, "_checkpointer", None),
+            )
 
             output_chunks: list[str] = []
-            use_deep = bool(spec.tools) and isinstance(agent, DeepAgent)
 
             # Per-agent timeouts are DISABLED for every pipeline — agents run to
             # completion instead of being cut off mid-generation. Cutting an agent
@@ -754,82 +830,70 @@ class ExecutionEngine:
             # and the cooperative cancel_event (the Stop button), checked per chunk.
             agent_timeout = None
 
-            async def _stream_agent() -> list[str]:
-                chunks: list[str] = []
-                if use_deep:
+            # Stream with live chunk events AND timeout guard. The runner unifies
+            # ALL agents through astream_events: text-only agents stream pure
+            # chunk+usage+done; tool agents additionally emit tool_call/tool_result.
+            # We map each event to the SAME yielded WS event the legacy use_deep
+            # branch produced (chunk→agent_chunk, usage→token accumulation,
+            # tool_call→tool_call, tool_result→tool_result).
+            timed_out = False
+            agent_input_tokens = 0
+            agent_output_tokens = 0
+            # Prototype task progress is derived from the report_task_complete
+            # tool events (the store-free runner_tools.report_task_complete no
+            # longer populates a PrototypeArtifactStore). We capture each call's
+            # args from the tool_call event and emit the SAME task_progress
+            # payload shape the engine emitted from proto_store.completed_tasks.
+            # The list is RUN-LEVEL (self._completed_tasks, initialized once per run
+            # in execute()), NOT a local — because the build loop calls _run_agent
+            # fresh once per task, so a local would reset every task and stick
+            # completed_count at 1 (the #46 regression). Accumulating on self mirrors
+            # the old run-shared PrototypeArtifactStore so completed_count grows
+            # cumulatively (1,2,3,…) across the build loop's per-task invocations.
+            try:
+                async with asyncio.timeout(agent_timeout):
                     async for event in agent.astream_events(context_message):
                         if cancel_event and cancel_event.is_set():
                             raise asyncio.CancelledError()
                         etype = event["type"]
                         if etype == "chunk":
-                            chunks.append(event["chunk"])
+                            output_chunks.append(event["chunk"])
+                            yield {"type": "agent_chunk", "data": {"agent_id": spec.id, "chunk": event["chunk"]}}
+                        elif etype == "usage":
+                            agent_input_tokens += event.get("input_tokens", 0)
+                            agent_output_tokens += event.get("output_tokens", 0)
                         elif etype == "tool_call":
-                            pass  # yielded below via separate path
+                            # ── Prototype task progress ──────────────────────────────
+                            # report_task_complete carries the task in its args; record
+                            # it (number/title/summary) so the task_progress event below
+                            # (fired on the matching tool_result) reflects every task.
+                            if event.get("tool") == "report_task_complete":
+                                args = event.get("args", {}) or {}
+                                self._completed_tasks.append({
+                                    "number": args.get("task_number"),
+                                    "title": args.get("task_title"),
+                                    "summary": args.get("summary", ""),
+                                })
+                            yield {"type": "tool_call", "data": {"agent_id": spec.id, "tool": event["tool"], "args": event.get("args", {})}}
                         elif etype == "tool_result":
-                            pass
-                    return chunks
-                else:
-                    async for item in agent.astream_with_usage(context_message):
-                        if cancel_event and cancel_event.is_set():
-                            raise asyncio.CancelledError()
-                        if isinstance(item, TokenUsage):
-                            break
-                        chunks.append(item)
-                    return chunks
-
-            # Stream with live chunk events AND timeout guard
-            timed_out = False
-            agent_input_tokens = 0
-            agent_output_tokens = 0
-            if use_deep:
-                try:
-                    async with asyncio.timeout(agent_timeout):
-                        async for event in agent.astream_events(context_message):
-                            if cancel_event and cancel_event.is_set():
-                                raise asyncio.CancelledError()
-                            etype = event["type"]
-                            if etype == "chunk":
-                                output_chunks.append(event["chunk"])
-                                yield {"type": "agent_chunk", "data": {"agent_id": spec.id, "chunk": event["chunk"]}}
-                            elif etype == "usage":
-                                agent_input_tokens += event.get("input_tokens", 0)
-                                agent_output_tokens += event.get("output_tokens", 0)
-                            elif etype == "tool_call":
-                                yield {"type": "tool_call", "data": {"agent_id": spec.id, "tool": event["tool"], "args": event.get("args", {})}}
-                            elif etype == "tool_result":
-                                yield {"type": "tool_result", "data": {"agent_id": spec.id, "tool": event["tool"], "result": str(event.get("result", ""))[:500]}}
-                                # ── Prototype task progress ──────────────────────────────
-                                # When report_task_complete() is called, emit a task_progress
-                                # event so the frontend can update the task checklist in real-time.
-                                if event.get("tool") == "report_task_complete":
-                                    proto_store = getattr(self, "_prototype_store", None)
-                                    if proto_store is not None:
-                                        yield {
-                                            "type": "task_progress",
-                                            "data": {
-                                                "agent_id": spec.id,
-                                                "pipeline_run_id": pipeline_run_id,
-                                                "completed_tasks": proto_store.completed_tasks,
-                                                "completed_count": proto_store.completed_task_count,
-                                                "timestamp": _now(),
-                                            },
-                                        }
-                except asyncio.TimeoutError:
-                    timed_out = True
-            else:
-                try:
-                    async with asyncio.timeout(agent_timeout):
-                        async for item in agent.astream_with_usage(context_message):
-                            if cancel_event and cancel_event.is_set():
-                                raise asyncio.CancelledError()
-                            if isinstance(item, TokenUsage):
-                                agent_input_tokens = item.input_tokens or 0
-                                agent_output_tokens = item.output_tokens or 0
-                                break
-                            output_chunks.append(item)
-                            yield {"type": "agent_chunk", "data": {"agent_id": spec.id, "chunk": item}}
-                except asyncio.TimeoutError:
-                    timed_out = True
+                            yield {"type": "tool_result", "data": {"agent_id": spec.id, "tool": event["tool"], "result": str(event.get("result", ""))[:500]}}
+                            # When report_task_complete() returns, emit a task_progress
+                            # event so the frontend can update the task checklist in
+                            # real-time — same payload shape as before, now sourced from
+                            # the tool events instead of the (removed) PrototypeArtifactStore.
+                            if event.get("tool") == "report_task_complete":
+                                yield {
+                                    "type": "task_progress",
+                                    "data": {
+                                        "agent_id": spec.id,
+                                        "pipeline_run_id": pipeline_run_id,
+                                        "completed_tasks": list(self._completed_tasks),
+                                        "completed_count": len(self._completed_tasks),
+                                        "timestamp": _now(),
+                                    },
+                                }
+            except asyncio.TimeoutError:
+                timed_out = True
 
             if timed_out:
                 logger.warning(
@@ -859,21 +923,21 @@ class ExecutionEngine:
 
             output = "".join(output_chunks)
 
-            # ── Prototype pipeline: read HTML from shared ArtifactStore ──────
-            # When a prototype agent calls emit_artifact(html=...), the HTML
-            # goes into the tool args (not the text stream). The text stream
-            # only gets "✓ Artifact stored: Prototype (X bytes)". We must read
-            # the actual HTML from the shared store and use it as the output
-            # so downstream agents receive the full HTML, not the confirmation.
-            proto_store = getattr(self, "_prototype_store", None)
-            if proto_store is not None and hasattr(proto_store, "is_set") and proto_store.is_set():
-                html_from_store = proto_store.html
-                if html_from_store and len(html_from_store) > len(output):
+            # ── Prototype pipeline: read HTML from the run sandbox ───────────
+            # A prototype agent writes its HTML to prototype.html on disk via the
+            # native deepagents write_file/edit_file tools (the text stream only
+            # carries the tool confirmation, not the HTML). Read the file back and
+            # prefer it over the streamed text so downstream agents receive the
+            # full HTML — same "prefer the deliverable over the confirmation" rule
+            # as the old shared-store path.
+            if pipeline_type in ("od_prototype", "prototype"):
+                html_from_disk = sandbox.read("prototype.html")
+                if html_from_disk and len(html_from_disk) > len(output):
                     logger.info(
-                        "Agent %s: using emit_artifact HTML (%d chars) instead of text output (%d chars)",
-                        spec.id, len(html_from_store), len(output),
+                        "Agent %s: using sandbox prototype.html (%d chars) instead of text output (%d chars)",
+                        spec.id, len(html_from_disk), len(output),
                     )
-                    output = html_from_store
+                    output = html_from_disk
 
             # ── PPT carousel deck: strip slide-hiding CSS the composer may hallucinate ──
             # Sanitize here (before storage/context) so the stored artifact, the
@@ -884,24 +948,6 @@ class ExecutionEngine:
                 output = _sanitize_carousel_deck_html(output)
 
             accumulated_outputs[spec.id] = output
-
-            # Summarize the agent output for use as downstream context (T075).
-            # The summary replaces the full output in context_message for downstream
-            # agents, reducing token usage while preserving all critical information.
-            try:
-                from app.agents.summarizer import summarize_agent_output
-                summary = await summarize_agent_output(
-                    agent_name=spec.name,
-                    agent_role=spec.role,
-                    pipeline_type=pipeline_type,
-                    output=output,
-                )
-                # Store summary separately — full output still used for DB persistence
-                if not hasattr(self, "_agent_summaries"):
-                    self._agent_summaries: dict[str, str] = {}
-                self._agent_summaries[spec.id] = summary
-            except Exception as _sum_exc:
-                logger.debug("Summarization failed for %s: %s", spec.id, _sum_exc)
 
             # Store the agent output as a typed artifact (if it produces any)
             for artifact_type in getattr(spec, "produces", []):
@@ -946,7 +992,11 @@ class ExecutionEngine:
             # and wait for the user to approve (possibly with edits).
             # On approve: continue with (possibly edited) output.
             # On reject: cancel the pipeline.
-            if getattr(spec, "gate", None) == "Human_Gate":
+            # Whether THIS agent gates is the effective per-run decision (default
+            # = today's static `gate: Human_Gate` set; see _should_gate / the
+            # `gate_agent_ids` param on execute()). The gate body below — the
+            # _run_review_gate call and its events — is unchanged.
+            if self._should_gate(spec):
                 async for gate_event in self._run_review_gate(
                     pipeline_run_id=pipeline_run_id,
                     agent_id=spec.id,
@@ -1009,7 +1059,7 @@ class ExecutionEngine:
         ordered_agents: list,
         user_message: str,
         accumulated_outputs: dict[str, str],
-        workspace,
+        sandbox,
         pipeline_run_id: str,
         pipeline_type: str,
         planning_context: dict,
@@ -1087,21 +1137,47 @@ class ExecutionEngine:
 
             async for event in self._run_agent(
                 spec, index, ordered_agents, user_message, accumulated_outputs,
-                workspace, pipeline_run_id, pipeline_type, planning_context,
+                sandbox, pipeline_run_id, pipeline_type, planning_context,
                 attached_skills, attached_hooks, model_id, results, cancel_event,
             ):
                 yield event
 
-            # After each task: update accumulated HTML from artifact store
-            proto_store = getattr(self, "_prototype_store", None)
-            if proto_store is not None and proto_store.is_set():
-                accumulated_outputs[spec.id] = proto_store.html
+            # After each task: update accumulated HTML from the run sandbox.
+            # The build agent edited prototype.html on disk this task; read it
+            # back so _build_context_message passes the current HTML into the
+            # next task's prompt.
+            task_html = sandbox.read("prototype.html")
+            if task_html:
+                accumulated_outputs[spec.id] = task_html
                 logger.info(
                     "Build task loop: task %d/%d done — HTML=%d chars",
-                    task_num, total_tasks, len(proto_store.html),
+                    task_num, total_tasks, len(task_html),
                 )
 
         logger.info("Build task loop: finished %d tasks for pipeline=%s", total_tasks, pipeline_run_id)
+
+    # ------------------------------------------------------------------
+    # Gate selection — which agents pause for the inter-agent Human gate
+    # ------------------------------------------------------------------
+
+    def _should_gate(self, spec) -> bool:
+        """Decide whether ``spec`` pauses for the inter-agent Human review gate.
+
+        Effective set = the per-run ``gate_agent_ids`` passed to ``execute()``
+        (stashed as ``self._gate_agent_ids``) when given, else the STATIC set.
+
+        - ``self._gate_agent_ids is not None``  → gate iff ``spec.id`` is in it.
+        - else (default; field absent / client didn't send it) → gate iff the
+          AGENT.md frontmatter declares ``gate: Human_Gate`` — **exactly today's
+          static rule**, so behavior is byte-identical unless a client opts in.
+
+        Only selects *which* agents trigger the gate; the gate itself
+        (``_run_review_gate`` + its ``review_gate_*`` events) is unchanged.
+        """
+        gate_ids = getattr(self, "_gate_agent_ids", None)
+        if gate_ids is not None:
+            return spec.id in set(gate_ids)
+        return getattr(spec, "gate", None) == "Human_Gate"
 
     # ------------------------------------------------------------------
     # Review_Gate — Human review/edit/approve gate between agents

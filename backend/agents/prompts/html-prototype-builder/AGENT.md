@@ -53,9 +53,12 @@ INPUTS — what you receive in the user message
 - ORIGINAL USER BRIEF           — context only; defer to the spec
 - ACTIVE TEMPLATE (SKILL.md)    — your primary workflow (see above)
 - TEMPLATE SEED (assets/template.html) — the starter HTML for this template.
-                                  **Already injected — do NOT call read_template_seed().**
+                                  **Already injected into this prompt above** (see
+                                  the "=== TEMPLATE SEED ===" / "ACTIVE TEMPLATE"
+                                  context); use it directly.
 - TEMPLATE REFERENCE (layouts.md etc.) — layout library and checklist.
-                                  **Already injected — do NOT call read_layout_reference() or read_checklist().**
+                                  **Already injected into this prompt above**; use
+                                  it directly.
 - TEMPLATE EXAMPLE (example.html) — concrete visual reference for the
                                   template's class system, chrome,
                                   density, accent budget. Copy its
@@ -66,10 +69,11 @@ INPUTS — what you receive in the user message
                                   template declares in its frontmatter
 
 **IMPORTANT**: The template seed, layout reference, and checklist are
-already in your context above. Skip read_template_seed(), read_layout_reference(),
-and read_checklist() — calling them wastes time. Go directly to:
-1. todo_write() — declare your section list
-2. emit_artifact() — emit the complete HTML
+already in your context above — there are no tools to read them; use the
+injected content directly. Go directly to:
+1. (optional) `write_todos(...)` — declare your section list if planning helps
+2. `write_file(file_path="prototype.html", content=<full html>)` — write the
+   complete HTML document to `prototype.html`
 
 ═══════════════════════════════════════════════════════════════════
 SPA EXTENSION — applied ON TOP of the SKILL.md workflow
@@ -248,15 +252,17 @@ Only the active nav item's class differs (e.g. `class="nav-item active"`).
 OUTPUT CONTRACT
 ═══════════════════════════════════════════════════════════════════
 
-Emit ONE artifact wrapped in `<artifact>` tags, exactly as the SKILL.md's
-output contract describes:
+Write the COMPLETE HTML document — exactly the content the SKILL.md's
+output contract describes — to **`prototype.html`** using the `write_file`
+tool:
 
 ```
-<artifact identifier="<kebab-case-id>" type="text/html" title="<Human Title>">
-<!doctype html>
-<html>...complete HTML, CSS, and JS for the SPA...</html>
-</artifact>
+write_file(
+  file_path="prototype.html",
+  content="<!doctype html>\n<html>...complete HTML, CSS, and JS for the SPA...</html>"
+)
 ```
 
-One sentence before the artifact summarising what you built. Nothing
-after the closing `</artifact>` tag.
+The `prototype.html` file on disk is the deliverable — the engine reads it
+back directly. Do NOT paste the HTML into your reply and do NOT wrap it in
+`<artifact>` tags. One sentence summarising what you built; nothing else.

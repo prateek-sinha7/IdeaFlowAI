@@ -121,6 +121,7 @@ def create_runner(
     *,
     checkpointer=None,
     interrupt_on: dict | None = None,
+    thread_id: str | None = None,
 ):
     """Instantiate a DeepAgentRunner for the given agent ID and context.
 
@@ -139,17 +140,40 @@ def create_runner(
     ``deepagents`` graph) and the tool wiring (native disk fs tools + a
     store-free ``report_task_complete`` instead of the custom tool sets).
 
+    **Sandbox (per-run, SHARED) vs checkpoint thread (per-agent, UNIQUE).**
+    These two identifiers are split (Phase 3, plan §10 decision 2026-06-04 (b)):
+
+    - The on-disk ``RunSandbox`` is rooted at ``<RUNS_ROOT>/<user>/<run>/`` from
+      ``ctx.user_id`` + ``ctx.run_id`` and is **shared across every agent in a
+      pipeline run** — that is how files like ``prototype.html`` (and code-gen
+      deliverables) written by one agent persist for the next agent to read. It
+      is deliberately keyed on ``ctx.run_id`` ONLY (never on ``thread_id``), so
+      passing a per-agent ``thread_id`` does NOT fork the sandbox.
+    - The LangGraph checkpoint ``thread_id`` isolates each agent's graph state
+      and must be **unique per agent-invocation**, or sequential agents in the
+      same run would collide on one checkpoint thread. The caller (the Phase-3
+      engine) supplies a distinct id per agent (e.g.
+      ``f"{pipeline_run_id}:{agent_id}"``); when omitted it falls back to
+      ``ctx.run_id`` — preserving the Phase-2 single-thread behavior and the
+      isolation test.
+
     Args:
         agent_id: The agent to build (kebab-case folder/spec id).
         ctx: Runtime context. ``ctx.user_id`` + ``ctx.run_id`` root the per-run
-            disk sandbox; ``ctx.model`` selects the chat model (``None`` ⇒
-            runner default via ``build_model``).
+            (shared) disk sandbox; ``ctx.model`` selects the chat model
+            (``None`` ⇒ runner default via ``build_model``).
         checkpointer: Optional LangGraph checkpointer forwarded to the runner.
             Defaulted off in Phase 2; the Phase-3 engine populates it with the
             per-run Postgres checkpointer (required for durable HITL/resume).
         interrupt_on: Optional ``{tool_name: True | InterruptOnConfig}`` HITL
             map forwarded to the runner. Defaulted off in Phase 2; the Phase-3
             engine populates it from per-agent HITL gate selections.
+        thread_id: Optional caller-controlled LangGraph checkpoint thread id
+            (per agent-invocation). Forwarded to the runner so each agent's
+            graph state stays isolated; the disk sandbox is unaffected (it is
+            per-run, keyed on ``ctx.run_id``). When ``None`` it falls back to
+            ``ctx.run_id`` — preserving Phase-2 behavior. The Phase-3 engine
+            passes a unique per-agent id (e.g. ``f"{pipeline_run_id}:{agent_id}"``).
 
     Raises:
         FileNotFoundError: propagated from the loader if agent_id is unknown.
@@ -169,14 +193,17 @@ def create_runner(
     system_prompt = _compose_system_prompt(spec, ctx)
     custom_tools, exclude_builtin_tools = _build_runner_tools(spec, ctx)
 
-    # Per-run on-disk sandbox: <RUNS_ROOT>/<user>/<run>/. The runner roots its
-    # deepagents FilesystemBackend at ``sandbox.root`` (traversal-proof).
+    # Per-run on-disk sandbox: <RUNS_ROOT>/<user>/<run>/. SHARED across every
+    # agent in the pipeline run, so files (prototype.html, code-gen outputs)
+    # written by one agent persist for the next — hence keyed on ctx.run_id
+    # ONLY (NOT on the per-agent ``thread_id``). The runner roots its deepagents
+    # FilesystemBackend at ``sandbox.root`` (traversal-proof).
     #   - Missing user_id ⇒ "anon" (RunSandbox additionally sanitises empty/
     #     unsafe segments to its own "anonymous"/"run" fallbacks).
     #   - Missing run_id ⇒ "adhoc": in Phase 2 ``run_id`` may be ``None`` (no
     #     engine yet); the Phase-3 engine supplies the real pipeline run id at
     #     the cutover. "adhoc" gives an isolated, deterministic dir for the
-    #     no-run-id case so the sandbox/thread_id stay coherent.
+    #     no-run-id case.
     sandbox = RunSandbox(ctx.user_id or "anon", ctx.run_id or "adhoc")
     sandbox.ensure()
 
@@ -190,7 +217,12 @@ def create_runner(
         model=ctx.model,
         run_sandbox=sandbox,
         checkpointer=checkpointer,
-        thread_id=ctx.run_id,
+        # Checkpoint thread is per agent-invocation (caller-controlled): the
+        # Phase-3 engine passes a unique id per agent so graph states never
+        # collide. Falls back to the per-run ctx.run_id (Phase-2 behavior) when
+        # omitted. NOTE: the sandbox above is intentionally NOT keyed on this —
+        # it stays per-run/shared so files persist across the run's agents.
+        thread_id=(thread_id or ctx.run_id),
         interrupt_on=interrupt_on,
         exclude_builtin_tools=exclude_builtin_tools,
     )

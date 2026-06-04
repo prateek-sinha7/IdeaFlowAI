@@ -400,6 +400,12 @@ async def websocket_chat(websocket: WebSocket):
                 agent_ids = message_data.get("agent_ids")  # Optional custom agent list
                 attached_skills = message_data.get("attached_skills") or []  # UI-selected skills
                 attached_hooks = message_data.get("attached_hooks") or []    # UI-selected hooks
+                # Optional per-run Human-gate selection (Phase 6 UI sends this).
+                # Absent / None → engine falls back to today's static gate set,
+                # so existing clients are unaffected. A list of agent IDs = gate
+                # exactly those agents this run. We pass it through verbatim
+                # (None when absent) and let the engine apply the semantics.
+                gate_agent_ids = message_data.get("gate_agent_ids")
 
                 # Tier gate — map od_* aliases to their base type for the check
                 from app.core.entitlements import can_run_pipeline
@@ -424,6 +430,7 @@ async def websocket_chat(websocket: WebSocket):
                         chat_session_id, token, user, agent_ids=agent_ids,
                         attached_skills=attached_skills,
                         attached_hooks=attached_hooks,
+                        gate_agent_ids=gate_agent_ids,
                         template_id=message_data.get("template_id"),
                         design_system_id=message_data.get("design_system_id"),
                         discovery=message_data.get("discovery"),
@@ -881,6 +888,7 @@ async def _handle_workflow_execution(
     agent_ids: list[str] | None = None,
     attached_skills: list[dict] | None = None,
     attached_hooks: list[dict] | None = None,
+    gate_agent_ids: list[str] | None = None,
     template_id: str | None = None,
     design_system_id: str | None = None,
     discovery: dict | None = None,
@@ -1084,6 +1092,7 @@ async def _handle_workflow_execution(
                 attached_hooks=attached_hooks or [],
                 model_id=getattr(user, "preferred_model", None) or None,
                 od_context=od_context,
+                gate_agent_ids=gate_agent_ids,
             ):
                 await event_queue.put({"type": update["type"], "data": update.get("data", {})})
                 # Track state for DB persistence

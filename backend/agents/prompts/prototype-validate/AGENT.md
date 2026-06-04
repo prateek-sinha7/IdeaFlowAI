@@ -119,7 +119,13 @@ When you find an empty `<section data-page="{id}">`, fill it using the template'
 
 ## OUTPUT CONTRACT
 
-`emit_artifact(html=final_html, title="Prototype Title")`
+The prototype is on disk as `prototype.html`. Start by reading it with
+`read_file(file_path="prototype.html")`, then apply every fix in place:
+prefer `edit_file(file_path="prototype.html", old_string=..., new_string=...)`
+for targeted fixes (so working content stays byte-identical); use
+`write_file(file_path="prototype.html", content=final_html)` only for a
+sweeping rewrite. The `prototype.html` file on disk is the deliverable —
+the engine reads it back directly; do NOT paste the HTML into your reply.
 
-One sentence before: "Validated — {N pages checked, DS tokens applied, what was fixed}."
-Nothing after.
+One sentence after the file is written: "Validated — {N pages checked, DS
+tokens applied, what was fixed}." Nothing after.

@@ -66,13 +66,17 @@ before you emit.
 INPUTS — what you receive in the user message
 ═══════════════════════════════════════════════════════════════════
 
-- PRIOR ARTIFACT             — the full HTML from the SPA Composer
+- PRIOR ARTIFACT             — the full HTML from the SPA Composer, on disk as
+                              `prototype.html`; read it with
+                              `read_file(file_path="prototype.html")` first
 - ACTIVE TEMPLATE (SKILL.md) — your primary checklist (Hard rules,
                               Self-check, Output contract sections)
 - ACTIVE DESIGN SYSTEM        — same DESIGN.md the Composer used
-- TEMPLATE SEED / REFERENCE   — **Already injected. Skip read_template_seed(),
-                              read_layout_reference(), read_checklist().**
-                              Go directly to patching and emit_artifact().
+- TEMPLATE SEED / REFERENCE   — **Already injected into this prompt above**
+                              (the "=== TEMPLATE SEED ===" / "ACTIVE TEMPLATE"
+                              context); there are no tools to read them — use the
+                              injected content directly. Go straight to patching
+                              `prototype.html`.
 - TEMPLATE EXAMPLE             — visual reference for chrome / class
                               system / density / accent budget
 - CRAFT RULES                 — universal craft rules from
@@ -143,9 +147,8 @@ You receive the SPA Composer's HTML. Your job is surgical patching, not rewritin
 
 For each violation found:
 1. Identify the exact element or block causing the violation
-2. Apply the minimal fix in-place
+2. Apply the minimal fix in-place with `edit_file(file_path="prototype.html", old_string=..., new_string=...)`
 3. Do NOT change anything that is not a violation
-4. Emit the corrected artifact inside `<artifact>` tags
 
 ═══════════════════════════════════════════════════════════════════
 NAVIGATION INTEGRITY CHECK (run before emitting)
@@ -171,16 +174,14 @@ emitting, verify these are intact:
 OUTPUT CONTRACT
 ═══════════════════════════════════════════════════════════════════
 
-Emit the corrected HTML wrapped in `<artifact>` tags, identical shape
-to the SPA Composer's output:
+Apply your fixes to `prototype.html` in place. Because your job is surgical
+patching, prefer `edit_file(file_path="prototype.html", old_string=..., new_string=...)`
+— one call per fix — so untouched sections, the router, and `routes` entries
+stay byte-identical. Use `write_file(file_path="prototype.html", content=<full html>)`
+only when a fix is too sweeping to express as targeted edits. If the prior
+artifact has NO violations, leave `prototype.html` unchanged (make no edits).
 
-```
-<artifact identifier="<same-id>" type="text/html" title="<same title>">
-<!doctype html>
-<html>...patched HTML...</html>
-</artifact>
-```
-
-One line before the artifact with your critique scores and a summary of
-what you changed (or "no changes needed" if the prior artifact passed all
-checks). Nothing after `</artifact>`.
+The patched `prototype.html` on disk is the deliverable — the engine reads it
+back directly. Do NOT paste the HTML into your reply and do NOT wrap it in
+`<artifact>` tags. One line with your critique scores and a summary of what you
+changed (or "no changes needed" if it passed all checks). Nothing after.
