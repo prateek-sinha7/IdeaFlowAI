@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | **Branch** | `deepagents-full-swap` (off `0e9c410`) |
-| **Status** | Phases 0–5 ✅ complete (Phase 0 `bfd573b` · Phase 1 `666e531` · Phase 2 `0d09702` · Phase 3 `030820b` · Phase 4 `218582d` · Phase 5 `8819f40`) · Phases 6–10 planned |
+| **Status** | Phases 0–6 ✅ complete (Phase 0 `bfd573b` · Phase 1 `666e531` · Phase 2 `0d09702` · Phase 3 `030820b` · Phase 4 `218582d` · Phase 5 `8819f40` · Phase 6 `01c183f`) · Phases 7–10 planned |
 | **Created** | 2026-06-03 |
 | **Supersedes** | the custom `app/agents/deep_agent.py` ReAct loop (deleted in Phase 7) |
 
@@ -16,10 +16,11 @@
 ## Current state — START HERE (resume point)
 
 **As of 2026-06-04.** Phases **0–5 complete & committed locally** on `deepagents-full-swap`;
-**Phase 6 (frontend additive HITL toggle) is next**. The deepagents runtime is **live across all
+**Phase 7 (excise legacy — explicit, no shims) is next.** The deepagents runtime is **live across all
 pipelines** (Phase 3); the prototype build runs the **per-task sub-agent + Both-validation** model
-(Phase 4); and **prototype revision** now runs the same validation + seeds the parent run's
-spec/design (Phase 5). The WebSocket/UI event contract is **byte-identical to pre-migration**
+(Phase 4); **prototype revision** runs the same validation + seeds the parent run's spec/design
+(Phase 5); and the agent registries are **reconciled to a single source of truth** with a per-agent HITL
+gate toggle live (Phase 6). The WebSocket/UI event contract is **byte-identical to pre-migration**
 (audited GREEN each phase).
 
 **What works now:** every pipeline agent runs as a `DeepAgentRunner` (a deepagents
@@ -30,8 +31,9 @@ Postgres/InMemory checkpointer with per-agent threads; prototype build = one iso
 task (reads `spec.md`/`design.md` + an injected `=== CURRENT TASK ===` block) with per-task
 static+render validation and a bounded **internal** fix-loop.
 
-**⚠️ Unpushed:** the branch is **7 commits ahead of `origin`** — `030820b`,`017c241` (Phase 3) +
-`218582d`,`9349328` (Phase 4) + `171160c` (resume-doc) + `8819f40` (Phase 5 feat) + this Phase 5 docs commit. **Push is blocked on GitLab auth** (git-credential-manager hangs /
+**⚠️ Unpushed:** the branch is **9 commits ahead of `origin`** — Phase 3 (`030820b`,`017c241`) + Phase 4
+(`218582d`,`9349328`) + resume-doc (`171160c`) + Phase 5 (`8819f40`,`4f2e6d6`) + Phase 6 (`01c183f` +
+this docs commit). **Push is blocked on GitLab auth** (git-credential-manager hangs /
 `HTTP Basic: Access denied`; earlier-session pushes worked, so the credential lapsed — likely
 GlobalProtect VPN must be **off**, or refresh the GCM token). `git push origin HEAD` ships all 4
 once auth is fixed. **Commits are local — nothing is lost.**
@@ -445,10 +447,119 @@ same file; tasks 3/4/5 touch different files → parallel-safe):
   currently emits a placeholder artifact. PPT isn't a prototype/deepagents concern → flagged for a
   separate fix, not Phase 5 (added to §9).
 
-### Phase 6 — Frontend: additive HITL toggle ⏳
-Add a per-agent check/uncheck HITL control at submit (pre-checked = today's gated agents),
-styled to the design system. Nothing existing changed or removed.
-- **UI**: enhanced (additive only) — verified no existing component/behavior changed.
+### Phase 6 — Registry reconciliation + per-agent HITL gate toggle ✅ (commit `01c183f`)
+
+**Landed.** Reconciled the two diverged agent registries to a single source of truth (engine
+`agents.registry` + loader) and added the per-agent HITL gate toggle. `loader.py`: optional
+`description` (role fallback). `agents/registry.py`: `get_all_agents_flat`/`get_agent_by_id`/
+`allowed_custom_agent_ids` (+ `od_prototype`/`od_ppt`/`od_ppt_revision` handling). `app/api/agents.py`
++ `websocket.py` repointed to the real registry; `AgentResponse` exposes `gate`+`description`. Frontend
+`AgentLibraryData.ts` regenerated to real ids + `gate` (`AgentDef.gate` added). `ReviewGatesSection.tsx`
+(inline expandable; pre-checks `gate==="Human_Gate"`; `touched` flag) placed in `IdeaInputPage` **and**
+the prototype/ppt templates wizard; `gate_agent_ids` rides the existing `extraParams`/`context` channel
+(untouched ⇒ omit ⇒ backend static default **byte-identical**; touched ⇒ explicit array, incl. `[]` = no
+gates). **Fixed two latent bugs**: (1) custom-selected prototype runs no longer validate+load the retired
+`prototype_v1` agents (now the real spec-kit ids); (2) `allowed_custom_agent_ids("od_ppt")` was ∅ →
+non-empty. **Independently audited GREEN** — engine ↔ API ↔ validation ↔ frontend agree; agreeing
+pipelines (`user_stories`/`app_builder`/revisions) byte-identical; exact scope (legacy
+`app/agents/registry.py` untouched); no Phase-6-caused test failures. Tests: 90 backend
+(`test_registry_helpers` + `test_agents_api_real_registry` + `test_phase6_frontend_consistency`) + 19
+frontend (`ReviewGatesSection.test.tsx`). **Pending → Phase 7**: delete legacy `app/agents/registry.py`
++ rewrite `test_run_pipeline_validation.py`; migrate the frontend to a live `/api/agents` fetch.
+**Noted (pre-existing, report-only)**: `get_pipeline_agents("ppt")==[]` (the od-ppt AGENT.md declare
+`pipeline_type: od_ppt`) — harmless here (frontend uses the static regenerated data, never fetches the
+`ppt` endpoint); matters only for the future live-fetch migration (pinned by a characterization test).
+
+Re-scoped after a prep finding: a gate toggle needs the **real** per-pipeline agents + gate, but the
+`/api/agents` endpoint, the `agent_ids` validation, and the frontend `LIBRARY_AGENTS` all read the
+**legacy `app.agents.registry`**, which has **diverged** from the engine's `agents.registry` for
+**`prototype`** and **`ppt`** (only those two; `user_stories`/`app_builder`/all revisions agree). So
+Phase 6 = **6a reconcile the registries** (single source of truth = the engine's `agents.registry` +
+loader, with `gate` exposed) **then 6b the gate toggle** on top. **User decision (2026-06-04): reconcile
+first.**
+
+**Two latent bugs the reconciliation fixes** (found during prep): (1) a **custom-selected** prototype
+run sends the stale frontend ids → they pass the stale `allowed_custom_agent_ids` → the engine then
+`load_agent_spec`s the **retired `prototype_v1` agents** (`requirements-analyst`/…) and runs the WRONG
+pipeline (a *default* prototype run is fine — empty `agent_ids` → real registry). (2)
+`allowed_custom_agent_ids("od_ppt")` returns `∅` → any `od_ppt` run that supplies `agent_ids` is rejected.
+
+**Grounded facts (reconciliation survey):**
+- **Blast radius = 2 production files**: `app/api/agents.py` (imports `get_pipeline_agents`/
+  `get_all_agents_flat`/`get_agent_by_id`) + `websocket.py:979` (`allowed_custom_agent_ids`). Everything
+  else already uses the real registry.
+- **One field gap**: the real loader `AgentSpec` has `id/name/role/pipeline_type/order/icon/
+  estimated_duration/tools/gate` but **no `description`** (it has `prompt_body`); `AgentResponse` + the
+  frontend `AgentDef` need `description`.
+- Real registry lacks `get_all_agents_flat`/`get_agent_by_id`/`allowed_custom_agent_ids` (build against
+  `PIPELINE_AGENTS` + the loader). **`CUSTOM_AGENTS` are loader-backed** (real `"custom"` pipeline) —
+  nothing legacy-only to preserve.
+- Only **`prototype`** (real: `specify/plan/build/validate`) and **`ppt`** (real:
+  `od-ppt-brief-analyst/composer/validator`) diverge. `od_` resolution lives in `websocket.py`
+  (`od_prototype→prototype`; `od_ppt` stays), not the registries.
+
+**Locked decisions (Q&A 2026-06-04):**
+- **Reconcile first**, then toggle.
+- **`description`**: add an **optional** `description` to the loader `AgentSpec` (frontmatter) with a
+  **fallback to `role`** when absent — **no mass backfill** of the ~27 AGENT.md files now.
+- **Repoint, don't delete**: the 2 consumers import the rebuilt helpers from the real `agents.registry`;
+  the legacy `app.agents.registry` file is left in place (now dead for listing/validation) for **Phase 7**
+  to delete. (`tests/unit/test_run_pipeline_validation.py` still imports legacy symbols → keeps passing but
+  now covers dead code; the verify task adds coverage for the real validation.)
+- **Frontend fold-in = regenerate the static `AgentLibraryData.ts`** (not fetch): rewrite it to the real
+  registry (prototype/ppt ids + names/roles/icons/`gate` from the real AGENT.md frontmatter; fix
+  `PIPELINE_CATEGORIES` counts ppt 4→3, all 55→54). Fixes all 4 consumers + the custom-prototype bug at
+  once; stays static (future live-fetch migration noted → Phase 7/later).
+- **Gate toggle (earlier round)**: **all pipelines**; **all agents listed, default-gated pre-checked**;
+  **inline expandable "Review gates" section** beside Skills/Hooks.
+
+**Gate mechanism (grounded):**
+- `_should_gate` (`engine.py:1781`): `gate_agent_ids is not None` → gate iff `spec.id ∈ set`; else the
+  static `gate: Human_Gate` set (real default = `prototype-specify`/`prototype-plan`).
+- `gate_agent_ids` rides the **existing** `extraParams`/`context` channel (Phase 5's
+  `source_workflow_run_id` path): `onStartPipeline(…,extraParams)` → `startPipeline(…,context)` →
+  `Object.assign(payload,context)` (`useWorkflow.ts`) — bypasses the `if length>0` guards, so `[]` is sent
+  verbatim. **Untouched ⇒ omit** (backend `None` → static default, byte-identical); **touched ⇒ send the
+  explicit array (even `[]` = no gates)**; a `touched` flag distinguishes them.
+- The regenerated `LIBRARY_AGENTS` now carries real ids + `gate`, so the toggle reads the **same** static
+  data as the agent-selector (consistent; no separate fetch). For prototype/ppt the submit UI is the
+  **templates flow** — the section goes wherever Skills/Hooks already render in each pipeline's submit step.
+
+**Tasks** (one Opus-4.8 max-effort sub-agent each; 6a before 6b):
+*6a — reconciliation:*
+1. **Loader `description`** (`backend/agents/loader.py`) — optional frontmatter `description` on
+   `AgentSpec`, fallback to `role` (or first prompt line) when absent. + test.
+2. **Real-registry helpers** (`backend/agents/registry.py`) — add `get_all_agents_flat()`,
+   `get_agent_by_id()` (loader-guarded → `None` on miss), `allowed_custom_agent_ids()` (legacy
+   branch-semantics, sourced from `PIPELINE_AGENTS` + `custom`; **add `od_ppt`/`od_ppt_revision`/
+   `od_prototype`** → fixes bug 2). + tests incl. allow-list parity vs legacy for the agreeing pipelines.
+3. **Repoint consumers + expose gate/description** (`backend/app/api/agents.py` + `app/api/websocket.py`)
+   — import the helpers from `agents.registry`; add `gate` + `description` to `AgentResponse`;
+   `websocket.py` imports the real `allowed_custom_agent_ids`. + endpoint test (real prototype ids; gate
+   values; `od_ppt` allow-list non-empty).
+4. **Regenerate `AgentLibraryData.ts`** (`frontend/.../AgentLibraryData.ts` + `AgentDef` in
+   `types/index.ts`) — real prototype/ppt ids + metadata + `gate?`; fix `PIPELINE_CATEGORIES` counts.
+   (Fixes the custom-prototype bug + the selector staleness across all 4 consumers.)
+*6b — gate toggle:*
+5. **"Review gates" section** — inline expandable (Tailwind, `ReviewGatePanel` palette); reads the
+   now-real agents+gate; checkbox per agent, pre-checked iff `gate==="Human_Gate"`; selection + `touched`.
+   Placed beside Skills/Hooks in each submit UI (incl. the prototype/ppt templates step).
+6. **Wire `gate_agent_ids`** into `run_pipeline` via `extraParams`/`context` (the `IdeaInputPage` path +
+   the `od_prototype`/`od_ppt` template paths); untouched-omit / touched-send-even-empty.
+*gates:*
+7. **Verify gate** — backend pytest (helper/validation parity + `od_ppt` fix + endpoint gate/description);
+   frontend typecheck/lint + a JS unit test (untouched ⇒ omit; toggling ⇒ real ids; `[]` ⇒ no gates;
+   regenerated data matches the real registry).
+8. **Independent read-only audit** — reconciliation correctness (engine + API + validation + frontend all
+   agree; both latent bugs fixed; agreeing pipelines unchanged); gate additive-only; exact file scope; run
+   all tests; flag regressions.
+
+- **UI**: enhanced. The agent-selector now shows the **real** agents (a bug fix — prototype/ppt names
+  change); the gate section is new + additive (untouched ⇒ wire byte-identical). No agent-selection
+  *behavior* removed.
+- **Out of scope → Phase 7**: delete the legacy `app.agents.registry` + rewrite
+  `test_run_pipeline_validation.py`; migrate the frontend from static `AgentLibraryData.ts` to live
+  `/api/agents` fetch (noted).
 
 ### Phase 7 — Excise legacy (explicit, no shims) ⏳
 **Delete** the hand-rolled `DeepAgent` loop, `summarizer.py`, `AgentWorkspace`,
@@ -514,6 +625,7 @@ dev server is expected to be unhappy until Phase 1+ lands — that's accepted.
 - **Frontend per-agent HITL toggle UI** → **Phase 6**: the backend already accepts `gate_agent_ids` (Phase 3); Phase 6 adds the submit-time check/uncheck control (pre-checked = static `Human_Gate` set).
 - **Per-task sub-agents for code-gen** (`app_builder` / `mulesoft_to_springboot` / `dotnet_to_azure` + revisions; validation = build/lint in the sandbox) → **Phase 10** (after the prototype model is proven).
 - **PPT revision is a non-agentic stub** (discovered during Phase 5 planning): the `run_revision` WS path → `_handle_revision` (`engine.py:1682`) stores the instruction text as the new artifact and runs **no agent** ("In a full implementation, this would run a DeepAgent revision loop"). So a PPT revision via the Phase-3-preferred `run_revision` path yields a placeholder, not a revised deck (the legacy `run_pipeline(ppt_revision)` fallback still runs the real agent when no completed run id exists). NOT a prototype/deepagents concern → **separate fix, out of Phase 5**.
+- **Frontend `LIBRARY_AGENTS` is stale vs. the backend registry** (discovered during Phase 6 planning): `frontend/src/components/workflow/AgentLibraryData.ts` lists pre-migration agent ids (prototype → `requirements-analyst`/`html-prototype-builder`/`prototype-polisher`/`prototype-finalizer`) instead of the real `prototype-specify`/`prototype-plan`/`prototype-build`/`prototype-validate`. The pre-submit agent-selection UI thus shows fictional agents (the RUN is unaffected — runtime uses the real ids from `pipeline_start` events). Phase 6's gate section **sidesteps** this by fetching real agents from `GET /api/agents/pipelines/{type}`. Aligning the agent-selection UI to the same endpoint is a **separate fix** (candidate for Phase 7 or a standalone task).
 
 **Still-open design levers** (no stage committed):
 - [ ] Tool-level HITL approvals — the runner CAN emit a tool-level `gate` (built + tested in Phase 1, dormant; inter-agent gating is engine-level). Decide if/when to surface tool approvals.
@@ -541,6 +653,9 @@ dev server is expected to be unhappy until Phase 1+ lands — that's accepted.
 - 2026-06-04 — Phase 4 landed (`218582d`) — per-task sub-agents + Both-validation; audited GREEN (event vocabulary identical, exact 6-file scope). `static_check.py` (stdlib) added. Live E2E deferred to Phase 8.
 - 2026-06-04 — Phase 5 planned (decisions Q&A). Scope = `prototype_revision` ONLY — "chaining via files" is already realized (Phase 3/4: engine writes spec/design/tasks; build reads them; the revision agent already has native ls/grep/read). (a) **Validation = smart hybrid**: after the revision edits prototype.html, auto-fix regressions (NEW static/render issues vs. a baseline computed on the seeded original) ∪ hard render-breakage regardless of baseline (page errors, dead nav, blank render — "html won't display proper content"), while ignoring pre-existing static nits / benign pre-existing console noise; the fix prompt re-injects the user's instruction; bounded N=2, never blocks. (b) **Seed parent spec/design**: frontend sends `source_workflow_run_id` (existing field) → backend threads `parent_run_id` into `execute()` → reads spec.md/design.md/tasks.md from the **parent run's sandbox** (`RunSandbox(user_id, parent_run_id)`; no new persistence — the build wrote them, sandboxes survive to the 48h TTL) → seeds the revision sandbox; graceful degrade if absent. (c) `_run_validation_fix_loop` generalized (`agent_id` + baseline + user_instruction; **empty baseline = build path byte-identical**). UI unchanged (fix is internal/non-yielding; only an already-accepted WS field is added). Grounded refs: seed/slim `engine.py:279-289`, read-back `546-563`, fix-loop `1292`, `_write_build_reference_files` `1219`, parent_run_id resolution `websocket.py:1016-1023`, frontend `handleRevisePrototype` `DashboardLayout.tsx:426` + `extraParams` forward `dashboard/page.tsx:884-896`. Discovered out-of-scope: `_handle_revision` (PPT `run_revision`) is a non-agentic stub (§9).
 - 2026-06-04 — Phase 5 landed (`8819f40`). Generalized `_run_validation_fix_loop` (build **byte-identical**, proven exhaustively over 108 selection cases) + `execute(parent_run_id)` parent spec/design/tasks seeding (graceful degrade) + post-revision **smart-hybrid** fix-loop (regressions vs. a pre-edit baseline ∪ hard render-breakage; ignore pre-existing nits; re-inject user instruction; bounded N=2; internal/non-yielding; never blocks). Executed as 7 tasks via Opus-4.8 agents (2 sequential `engine.py`, 3 parallel: `websocket.py`/`DashboardLayout.tsx`/`AGENT.md`, verify-gate test, independent read-only audit). **Audited GREEN** — exact 6-file scope, all locked decisions + invariants verified at file:line, no new WS event types / no phantom 2nd agent. Tests: `test_phase5_fixloop_selection.py` (17) + `test_phase5_revision_validation.py` (8); full agent net 83 passed. Live Bedrock E2E → Phase 8.
+- 2026-06-04 — Phase 6 planned (decisions Q&A): scope = **ALL pipelines**; granularity = **all agents listed, default-gated pre-checked**; UI = **inline expandable "Review gates" section** (beside Skills/Hooks). Forced design: source the agent list + gate status from the backend `GET /api/agents/pipelines/{type}` endpoint (add an additive `gate` field) — NOT the stale `LIBRARY_AGENTS` (a front/back drift: prototype shows `requirements-analyst`/… vs. the real `prototype-specify`/`plan`/`build`/`validate`; emitting wrong ids in a non-null `gate_agent_ids` would DISABLE the real default gates). `gate_agent_ids` rides the EXISTING `extraParams`/`context` channel (no new plumbing); untouched ⇒ omit (backend static default), touched ⇒ send the explicit array (even `[]` = no gates). Grounded refs: `_should_gate` `engine.py:1781`, gate frontmatter `prototype-specify`/`prototype-plan`, endpoint `app/api/agents.py:83-112`, payload merge `useWorkflow.ts`, submit UI `IdeaInputPage.tsx`, gate palette `ReviewGatePanel.tsx`. Discovered: stale `LIBRARY_AGENTS` is a pre-existing bug (§9).
+- 2026-06-04 — Phase 6 **re-scoped** (deeper finding supersedes the prior entry's "fetch from endpoint" premise): the `/api/agents` endpoint AND `allowed_custom_agent_ids` validation read the **legacy `app.agents.registry`**, which has diverged from the engine's `agents.registry` for **prototype + ppt only** (user_stories/app_builder/all revisions agree) — so the endpoint is *also* stale, not just `LIBRARY_AGENTS`. Two latent bugs found: (1) custom-selected prototype runs `load_agent_spec` the **retired `prototype_v1`** agents (wrong pipeline); (2) `allowed_custom_agent_ids("od_ppt")` = ∅ rejects od_ppt custom runs. **User chose: reconcile registries first, then the toggle.** Phase 6 = **6a** (loader optional `description` w/ role fallback; build `get_all_agents_flat`/`get_agent_by_id`/`allowed_custom_agent_ids` on the REAL registry + od_ handling; repoint `app/api/agents.py` + `websocket.py:979` to the real registry; add `gate`+`description` to `AgentResponse`; **regenerate** `AgentLibraryData.ts` → real ids/metadata/gate + fix category counts) + **6b** (inline "Review gates" section + `gate_agent_ids` wiring via the existing extraParams/context channel). Legacy `app.agents.registry` left for **Phase 7** deletion (a test still imports it). Survey: real `AgentSpec` lacks only `description` (`loader.py:64-98`); just **2** prod consumers of the legacy registry; `CUSTOM_AGENTS` are loader-backed.
+- 2026-06-04 — Phase 6 landed (`01c183f`). 6a reconciliation (loader optional `description`; real-registry `get_all_agents_flat`/`get_agent_by_id`/`allowed_custom_agent_ids` + od_ handling; repoint `app/api/agents.py` + `websocket.py`; `AgentResponse` gets `gate`+`description`; regenerate `AgentLibraryData.ts`) + 6b gate toggle (`ReviewGatesSection` in `IdeaInputPage` + the prototype/ppt templates wizard; `gate_agent_ids` via the existing extraParams/context channel; untouched ⇒ omit, byte-identical). Executed as T1–T5b + verify-gate + independent audit via Opus-4.8 agents. **Audited GREEN** — engine ↔ API ↔ validation ↔ frontend agree; agreeing pipelines byte-identical (real-vs-legacy parity table); **2 latent bugs fixed** (custom-prototype runs now use the real spec-kit agents, not retired `prototype_v1`; `od_ppt` allow-list non-empty); exact scope (legacy `app/agents/registry.py` untouched). Tests: 90 backend + 19 frontend; no Phase-6-caused failures (the 25+9 backend / 7 frontend reds are pre-existing legacy/env/SSO). Scope grew mid-flight by user choice: added the **wizard gate UI** (T5b) so prototype/ppt gates are customizable (not just IdeaInputPage). Deferred → Phase 7: delete legacy registry + rewrite `test_run_pipeline_validation.py`; live `/api/agents` fetch. Report-only: `get_pipeline_agents("ppt")==[]` (od-ppt frontmatter) — harmless (static frontend data).
 
 ## 11. Code map — what exists now (post Phase 4)
 
