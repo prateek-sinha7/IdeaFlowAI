@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | **Branch** | `deepagents-full-swap` (off `0e9c410`) |
-| **Status** | Phases 0–2 ✅ complete (Phase 0 `bfd573b` · Phase 1 `666e531` · Phase 2 `0d09702`) · Phases 3–10 planned |
+| **Status** | Phases 0–3 ✅ complete (Phase 0 `bfd573b` · Phase 1 `666e531` · Phase 2 `0d09702` · Phase 3 `030820b`) · Phases 4–10 planned |
 | **Created** | 2026-06-03 |
 | **Supersedes** | the custom `app/agents/deep_agent.py` ReAct loop (deleted in Phase 7) |
 
@@ -232,7 +232,20 @@ untouched, the engine is unchanged, every commit stays green.
 - **UI**: unchanged (nothing wired). **Out of scope → Phase 3**: the cutover, AGENT.md prompt
   edits, reading outputs from disk, HITL, checkpointing.
 
-### Phase 3 — Atomic cutover: engine drives the runner + HITL + checkpointing 🔜 (next)
+### Phase 3 — Atomic cutover: engine drives the runner + HITL + checkpointing ✅ (commit `030820b`)
+
+**Landed.** Engine flipped to `create_runner` + a single `astream_events` loop (`use_deep`/`astream_with_usage`
+deleted); deliverables read from the per-run sandbox (`prototype.html`; code-gen via `serialize_sandbox_deliverable`,
+byte-matching `to_final_output`); `task_progress` derived from `report_task_complete` events (run-level/cumulative);
+Postgres/InMemory checkpointer wired with per-agent `thread_id`s; per-run HITL gate-selection (default = static
+`Human_Gate` set; `review_gate_*` events unchanged); dead cross-agent summarizer removed; 4 prototype prompts
+rewired to `write_file("prototype.html")`. **Independently audited GREEN** — WS event-type set identical (22 types),
+payload shapes byte-equal, no dual-path/shims, exact scope. The verify gate caught + fixed a per-task `task_progress`
+count regression (now cumulative). **Pending → Phase 8**: live Bedrock runs (SSO) + cross-process resume-after-kill
+(Postgres). Accepted cosmetic deltas: native `write_file` result text + LangGraph tool-event interleave order (the
+UI keys on event type + `data`, so it's unaffected). `DeepAgent`/`summarizer.py` remain dead until Phase 7.
+
+The single breaking change — **all pipelines at once** (forced by shared `create_agent` + the
 The single breaking change — **all pipelines at once** (forced by shared `create_agent` + the
 no-dual-path invariant). Lands green-together:
 - **Flip**: the engine calls `create_runner` (or `create_agent` now returns the runner); delete
@@ -254,7 +267,7 @@ no-dual-path invariant). Lands green-together:
   prototype run; checkpoint resume after a kill.
 - **UI**: unchanged (identical chunk/tool/usage/gate/progress events; deliverables byte-same).
 
-### Phase 4 — Prototype: per-task sub-agent execute + Both validation ⏳
+### Phase 4 — Prototype: per-task sub-agent execute + Both validation 🔜 (next)
 Planner writes `tasks`/`spec`/`design` files to the run dir. Engine execute loop launches
 ONE isolated sub-agent per task, forced to read task + spec + design before editing
 `prototype.html`; validate = static checks **+** sandbox headless render (`render_check`),
@@ -343,3 +356,4 @@ dev server is expected to be unhappy until Phase 1+ lands — that's accepted.
 - 2026-06-03 — `on_tool_end` extracts `ToolMessage.content` (not `str(ToolMessage)`) so the UI `tool_result` text is byte-identical to legacy — honors the UI-identical invariant (found by the parity gate).
 - 2026-06-03 — Phase 2 re-scoped to **additive prep** (build `create_runner` + disk tool-sets, verified in isolation, wired nowhere); the inseparable factory+engine **cutover** moves entirely to Phase 3. Rationale: `create_agent` is shared by all pipelines, the engine's `use_deep` `isinstance` gate + the no-dual-path invariant forbid a bridge, and AGENT.md prompt bodies are shared with the live path — so the breaking change can't be additive and must land atomically. Keeps every commit green (Phase-1 discipline).
 - 2026-06-03 — Native `deepagents` tools replace the custom file tools: `FilesystemBackend` (`write_file`/`read_file`/`edit_file`/`ls`/`glob`/`grep`) replaces `AgentWorkspace`/`make_workspace_tools`; agent writes `prototype.html` via native `write_file` (replaces `emit_artifact`); native `write_todos` replaces `todo_write`. Survivors: `report_task_complete` (store-free, progress via tool events) and `PLANNING_TOOLS` (unchanged). Template-read tools **dropped** — content is already pre-injected into the system prompt.
+- 2026-06-04 — Phase 3 scope = **FULL** (user choice over the minimal-cutover recommendation): the all-pipelines runtime flip PLUS per-run HITL gate-selection, Postgres checkpointing + resume, and cross-agent summarizer removal — all in one cutover. Baked-in findings: (a) the cross-agent summarizer is **dead** — `_agent_summaries` is written (`engine.py:900-902`) but never read; downstream context already uses the full `accumulated_outputs`, so removal is behavior-neutral and drops a wasted per-agent LLM call; (b) the sandbox is **per-pipeline-run** (shared, so `prototype.html`/code files persist across agents) while the checkpoint `thread_id` is **per-agent-invocation** (unique); (c) the inter-agent gate stays engine-level (`_run_review_gate`) — Phase 3 adds per-run *selection* of which agents gate (toggle UI in Phase 6); (d) only 4 prototype AGENT.md files reference `emit_artifact`/template tools.
