@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | **Branch** | `deepagents-full-swap` (off `0e9c410`) |
-| **Status** | Phases 0–4 ✅ complete (Phase 0 `bfd573b` · Phase 1 `666e531` · Phase 2 `0d09702` · Phase 3 `030820b` · Phase 4 `218582d`) · Phases 5–10 planned |
+| **Status** | Phases 0–5 ✅ complete (Phase 0 `bfd573b` · Phase 1 `666e531` · Phase 2 `0d09702` · Phase 3 `030820b` · Phase 4 `218582d` · Phase 5 `8819f40`) · Phases 6–10 planned |
 | **Created** | 2026-06-03 |
 | **Supersedes** | the custom `app/agents/deep_agent.py` ReAct loop (deleted in Phase 7) |
 
@@ -15,11 +15,12 @@
 
 ## Current state — START HERE (resume point)
 
-**As of 2026-06-04.** Phases **0–4 complete & committed locally** on `deepagents-full-swap`;
-**Phase 5 (Revision on disk + chaining) is next**. The deepagents runtime is **live across all
-pipelines** (Phase 3) and the prototype build runs the **per-task sub-agent + Both-validation**
-model (Phase 4). The WebSocket/UI event contract is **byte-identical to pre-migration** (audited
-GREEN each phase).
+**As of 2026-06-04.** Phases **0–5 complete & committed locally** on `deepagents-full-swap`;
+**Phase 6 (frontend additive HITL toggle) is next**. The deepagents runtime is **live across all
+pipelines** (Phase 3); the prototype build runs the **per-task sub-agent + Both-validation** model
+(Phase 4); and **prototype revision** now runs the same validation + seeds the parent run's
+spec/design (Phase 5). The WebSocket/UI event contract is **byte-identical to pre-migration**
+(audited GREEN each phase).
 
 **What works now:** every pipeline agent runs as a `DeepAgentRunner` (a deepagents
 `create_deep_agent` graph) built by `create_runner`, driven by the engine through ONE
@@ -29,8 +30,8 @@ Postgres/InMemory checkpointer with per-agent threads; prototype build = one iso
 task (reads `spec.md`/`design.md` + an injected `=== CURRENT TASK ===` block) with per-task
 static+render validation and a bounded **internal** fix-loop.
 
-**⚠️ Unpushed:** the branch is **4 commits ahead of `origin`** — `030820b`,`017c241` (Phase 3) +
-`218582d`,`9349328` (Phase 4). **Push is blocked on GitLab auth** (git-credential-manager hangs /
+**⚠️ Unpushed:** the branch is **7 commits ahead of `origin`** — `030820b`,`017c241` (Phase 3) +
+`218582d`,`9349328` (Phase 4) + `171160c` (resume-doc) + `8819f40` (Phase 5 feat) + this Phase 5 docs commit. **Push is blocked on GitLab auth** (git-credential-manager hangs /
 `HTTP Basic: Access denied`; earlier-session pushes worked, so the credential lapsed — likely
 GlobalProtect VPN must be **off**, or refresh the GCM token). `git push origin HEAD` ships all 4
 once auth is fixed. **Commits are local — nothing is lost.**
@@ -343,11 +344,106 @@ gate (multi-task build renders + nav works; an injected defect is caught+fixed; 
 offline + live-if-SSO); (5) independent audit; (6) plan update + commit + push.
 - **UI**: unchanged (same progress events).
 
-### Phase 5 — Revision on disk + chaining 🔜 (next)
-Revision seeds `prototype.html` into the run dir; the revision sub-agent reads spec +
-edits + runs the same validation. Cross-agent chaining via files the next agent reads;
-agents may `ls/grep/read` to explore.
-- **UI**: unchanged.
+### Phase 5 — Revision: validation + parent-context seeding ✅ (commit `8819f40`)
+
+**Landed.** Revision now runs the build's Both-validation as a **smart-hybrid policy**, and the
+revision agent can consult the parent run's spec/design. `_run_validation_fix_loop` generalized
+(`agent_id`/`baseline_static`/`baseline_console`/`user_instruction`/`label`; **empty baseline +
+no instruction + `label=""` ⇒ build path byte-identical**) with module-level helpers
+`_static_issue_sigs`/`_console_sigs`/`_select_issues_to_fix`. `execute(parent_run_id=…)` seeds
+`spec.md`/`design.md`/`tasks.md` from the parent sandbox (`RunSandbox(user_id, parent_run_id)`;
+graceful degrade), baselines the seeded original **pre-edit**, and after the revision agent runs
+invokes the fix-loop (`agent_id="prototype-revision-agent"`, `label="revision"`) **before** read-back
+— **internal/non-yielding** (emits no events), **never blocks**. Frontend sends
+`source_workflow_run_id`; websocket threads `parent_run_id` into `execute()`. **Independently audited
+GREEN** — exact 6-file scope; all 3 locked decisions + invariants verified at file:line; build
+byte-identity proven exhaustively (108 selection cases, 0 mismatches); no new WS event types / no
+phantom 2nd agent. Tests: `test_phase5_fixloop_selection.py` (17) + `test_phase5_revision_validation.py`
+(8); full agent net **83 passed**. **Pending → Phase 8**: live Bedrock end-to-end.
+
+Scope = the **`prototype_revision`** pipeline (ONE agent, `prototype-revision-agent`, editing
+`prototype.html` in place). **"Chaining via files" is already realized** (Phase 3/4: the engine writes
+`spec.md`/`design.md`/`tasks.md`; the build reads them; the revision agent already has native
+`ls`/`grep`/`read_file`), so Phase 5 = **(1)** a programmatic post-revision validation + bounded
+fix-loop and **(2)** seeding the parent run's spec/design into the revision sandbox. **Build loop
+unchanged.**
+
+**Already done (Phase 3):** `execute()` seeds the inlined HTML as `prototype.html` in the run sandbox,
+slims the prompt to a file-pointer (`engine.py:279-289`), runs `prototype-revision-agent`, and reads
+the edited file back as the deliverable (`546-563`). The agent's prompt already enforces
+route/section/handler wiring + a re-read-before-finish self-check.
+
+**The gap:** no *programmatic* validation runs after a revision (Phase-4's `_run_validation_fix_loop`
+is hardcoded to `prototype-build`/"task N of M" and only called in the build loop), and the revision
+agent can't consult the original spec/design.
+
+**Locked decisions (Q&A 2026-06-04):**
+- **Validation = smart hybrid** (NOT "fix-all", NOT "log-only" — the user's words: *"fix everything it
+  broke … focus on what the user said … and if there is an issue that needs fixing otherwise the html
+  won't work / won't display proper content, fix that too"*). After the revision edits `prototype.html`,
+  auto-fix (bounded, internal):
+  - **regressions** — static/render issues that are NEW vs. a **baseline** computed on the seeded
+    original *before* the agent edits; PLUS
+  - **hard render-breakage regardless of baseline** — uncaught page errors, dead nav links (a click
+    activates no `<section data-page>` → blank page), blank/empty render (the "won't display proper
+    content" class);
+  - while **ignoring pre-existing static nits / benign pre-existing console noise** the revision did
+    NOT introduce and that don't break rendering.
+  - The fix prompt re-injects the **original revision instruction** (stay focused on what the user
+    asked) and says "fix ONLY the listed issues, keep the requested change intact, touch nothing else."
+    Bounded **N=2**, then log residual + continue — **never blocks**.
+- **Seed parent spec/design = YES.** The frontend sends `source_workflow_run_id` for prototype revision
+  (the field already exists — od_prototype uses it); the backend threads it as `parent_run_id` into
+  `execute()`; for `prototype_revision` the engine reads `spec.md`/`design.md`/`tasks.md` from the
+  **parent run's sandbox** (`RunSandbox(user_id, parent_run_id)` — the build wrote them there and
+  sandboxes survive to the 48h TTL, no run-end `cleanup()`) and writes them into the revision sandbox.
+  **Graceful degrade** (log + proceed on HTML+instruction only) if the parent files are gone.
+- **Chaining = revision-only** — NO specify→plan→build handoff refactor.
+
+**Mechanism (grounded):**
+- `execute(… , parent_run_id: str | None = None)` (additive). `websocket._run_pipeline_to_queue`
+  passes the already-resolved `parent_run_id` (`websocket.py:1016-1023`) into `engine.execute(…)`
+  (today it's used only for the `WorkflowRun` row).
+- Generalize `_run_validation_fix_loop`: add `agent_id` (default `"prototype-build"` → build path
+  unchanged; revision passes `"prototype-revision-agent"`), `baseline_static`/`baseline_console` sets,
+  and a `user_instruction` for the fix prompt. **Empty baseline → byte-identical to today's build
+  behavior** (fix-all). The fix sub-agent runs on a `…:revision:fix{n}` thread, consumed **internally**
+  (non-yielding) → **UI unchanged**.
+- Invoke order for revision: seed parent files + compute baseline (right after seeding `prototype.html`,
+  `engine.py:283`) → run `prototype-revision-agent` (visible, as today) → generalized fix-loop
+  (internal) → read back `prototype.html`.
+
+**Tasks** (one Opus-4.8 max-effort sub-agent each; the two `engine.py` tasks 1→2 run **sequentially**,
+same file; tasks 3/4/5 touch different files → parallel-safe):
+1. **Generalize `_run_validation_fix_loop`** (`engine.py`) — `agent_id` + baseline + `user_instruction`
+   params; regression ∪ hard-render-break selection; build path byte-identical (empty baseline). Unit
+   test: build mode unchanged; revision mode fixes a regression + a render-break, ignores a pre-existing
+   static nit.
+2. **Post-revision validation + parent seeding** (`engine.py`) — add `parent_run_id` to `execute()`;
+   for `prototype_revision`: baseline the seeded original, seed parent `spec.md`/`design.md`/`tasks.md`
+   (graceful degrade), then run the generalized fix-loop (`agent_id="prototype-revision-agent"` +
+   instruction) before reading back `prototype.html`.
+3. **Thread `parent_run_id` through the WS** (`websocket.py`) — pass it into `engine.execute(…)`.
+4. **Frontend** (`DashboardLayout.tsx`) — `handleRevisePrototype` passes
+   `{ source_workflow_run_id: currentWorkflowRunId }` as `extraParams` when a completed parent exists.
+5. **Revision agent prompt** (`prototype-revision-agent/AGENT.md`) — note `spec.md`/`design.md` are
+   readable for the original requirements + design system; reinforce the post-edit self-check.
+6. **Verify gate** — durable offline test (`test_phase5_revision_validation.py`): scripted
+   `prototype_revision` end-to-end (original carries a pre-existing static nit; the agent introduces a
+   render-break/regression) → the fix-loop fixes the regression + render-break, LEAVES the pre-existing
+   nit, deliverable = validated HTML; parent seeding from a fake parent sandbox populates
+   `spec.md`/`design.md`; degrade-gracefully with no parent; WS event vocabulary unchanged.
+7. **Independent read-only audit** — a fresh agent verifies the diff matches the tasks + locked
+   decisions + invariants (UI unchanged, no dual-path, exact scope), greps for regressions, runs the
+   tests. Must be GREEN before commit.
+
+- **UI**: unchanged — validation/fix is internal (non-yielding); seeding is server-side; the only
+  client delta is sending an already-accepted field. Event vocabulary identical.
+- **Discovered, OUT OF SCOPE:** `_handle_revision` (`engine.py:1682`, the `run_revision` path used by
+  **PPT** revision) is a non-agentic stub ("In a full implementation, this would run a DeepAgent
+  revision loop" — it stores the instruction as the artifact and runs no agent), so PPT "revision"
+  currently emits a placeholder artifact. PPT isn't a prototype/deepagents concern → flagged for a
+  separate fix, not Phase 5 (added to §9).
 
 ### Phase 6 — Frontend: additive HITL toggle ⏳
 Add a per-agent check/uncheck HITL control at submit (pre-checked = today's gated agents),
@@ -417,6 +513,7 @@ dev server is expected to be unhappy until Phase 1+ lands — that's accepted.
 - **`backend/CLAUDE.md` is stale** (describes the pre-migration architecture: `orchestrator_v2.py`, `deep_agent.py`, `emit_artifact`, old prototype tools) → refresh in **Phase 7**.
 - **Frontend per-agent HITL toggle UI** → **Phase 6**: the backend already accepts `gate_agent_ids` (Phase 3); Phase 6 adds the submit-time check/uncheck control (pre-checked = static `Human_Gate` set).
 - **Per-task sub-agents for code-gen** (`app_builder` / `mulesoft_to_springboot` / `dotnet_to_azure` + revisions; validation = build/lint in the sandbox) → **Phase 10** (after the prototype model is proven).
+- **PPT revision is a non-agentic stub** (discovered during Phase 5 planning): the `run_revision` WS path → `_handle_revision` (`engine.py:1682`) stores the instruction text as the new artifact and runs **no agent** ("In a full implementation, this would run a DeepAgent revision loop"). So a PPT revision via the Phase-3-preferred `run_revision` path yields a placeholder, not a revised deck (the legacy `run_pipeline(ppt_revision)` fallback still runs the real agent when no completed run id exists). NOT a prototype/deepagents concern → **separate fix, out of Phase 5**.
 
 **Still-open design levers** (no stage committed):
 - [ ] Tool-level HITL approvals — the runner CAN emit a tool-level `gate` (built + tested in Phase 1, dormant; inter-agent gating is engine-level). Decide if/when to surface tool approvals.
@@ -442,6 +539,8 @@ dev server is expected to be unhappy until Phase 1+ lands — that's accepted.
 - 2026-06-04 — Phase 3 landed (`030820b`) — atomic cutover; offline old-vs-new WS event-parity GREEN (22 event types identical); verify gate caught + fixed a per-task `task_progress` count regression (made cumulative/run-level). Live runs + cross-process resume deferred to Phase 8.
 - 2026-06-04 — Phase 4 decisions (Q&A): context = **Both** (inject current task + write `spec.md`/`design.md` to the sandbox); validation = **Both, every task** (static_check + render_check; feasible because the planner builds the full shell — all sections + nav — in Task 1); fix-loop = **re-invoke the same sub-agent, bounded N=2, INTERNAL** (a non-yielding coroutine → no UI events); executor model = **run-selected (Haiku default)**; engine writes the spec/design/tasks files (no specify/plan prompt change).
 - 2026-06-04 — Phase 4 landed (`218582d`) — per-task sub-agents + Both-validation; audited GREEN (event vocabulary identical, exact 6-file scope). `static_check.py` (stdlib) added. Live E2E deferred to Phase 8.
+- 2026-06-04 — Phase 5 planned (decisions Q&A). Scope = `prototype_revision` ONLY — "chaining via files" is already realized (Phase 3/4: engine writes spec/design/tasks; build reads them; the revision agent already has native ls/grep/read). (a) **Validation = smart hybrid**: after the revision edits prototype.html, auto-fix regressions (NEW static/render issues vs. a baseline computed on the seeded original) ∪ hard render-breakage regardless of baseline (page errors, dead nav, blank render — "html won't display proper content"), while ignoring pre-existing static nits / benign pre-existing console noise; the fix prompt re-injects the user's instruction; bounded N=2, never blocks. (b) **Seed parent spec/design**: frontend sends `source_workflow_run_id` (existing field) → backend threads `parent_run_id` into `execute()` → reads spec.md/design.md/tasks.md from the **parent run's sandbox** (`RunSandbox(user_id, parent_run_id)`; no new persistence — the build wrote them, sandboxes survive to the 48h TTL) → seeds the revision sandbox; graceful degrade if absent. (c) `_run_validation_fix_loop` generalized (`agent_id` + baseline + user_instruction; **empty baseline = build path byte-identical**). UI unchanged (fix is internal/non-yielding; only an already-accepted WS field is added). Grounded refs: seed/slim `engine.py:279-289`, read-back `546-563`, fix-loop `1292`, `_write_build_reference_files` `1219`, parent_run_id resolution `websocket.py:1016-1023`, frontend `handleRevisePrototype` `DashboardLayout.tsx:426` + `extraParams` forward `dashboard/page.tsx:884-896`. Discovered out-of-scope: `_handle_revision` (PPT `run_revision`) is a non-agentic stub (§9).
+- 2026-06-04 — Phase 5 landed (`8819f40`). Generalized `_run_validation_fix_loop` (build **byte-identical**, proven exhaustively over 108 selection cases) + `execute(parent_run_id)` parent spec/design/tasks seeding (graceful degrade) + post-revision **smart-hybrid** fix-loop (regressions vs. a pre-edit baseline ∪ hard render-breakage; ignore pre-existing nits; re-inject user instruction; bounded N=2; internal/non-yielding; never blocks). Executed as 7 tasks via Opus-4.8 agents (2 sequential `engine.py`, 3 parallel: `websocket.py`/`DashboardLayout.tsx`/`AGENT.md`, verify-gate test, independent read-only audit). **Audited GREEN** — exact 6-file scope, all locked decisions + invariants verified at file:line, no new WS event types / no phantom 2nd agent. Tests: `test_phase5_fixloop_selection.py` (17) + `test_phase5_revision_validation.py` (8); full agent net 83 passed. Live Bedrock E2E → Phase 8.
 
 ## 11. Code map — what exists now (post Phase 4)
 
