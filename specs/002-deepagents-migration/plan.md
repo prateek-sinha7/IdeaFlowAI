@@ -564,7 +564,18 @@ pipeline (a *default* prototype run is fine — empty `agent_ids` → real regis
   `test_run_pipeline_validation.py`; migrate the frontend from static `AgentLibraryData.ts` to live
   `/api/agents` fetch (noted).
 
-### Phase 7 — Excise legacy + migrate the chat subsystem 🔜 (re-scoped & planned; decisions locked 2026-06-04)
+### Phase 7 — Excise legacy + migrate the chat subsystem 🔜 (7a ✅ `424765e` · 7b planned)
+
+**7a LANDED (`424765e`, net −6,091 lines).** Excised the genuinely-dead pipeline-legacy +
+migrated title-gen off `DeepAgent`: deleted `create_agent`/`_build_tools` (+ max_iterations map) from
+`factory.py`, `summarizer.py`, `tools/workspace.py`, `tools/prototype.py`, `prototype/tools.py`,
+`prototype/artifact_store.py`, the legacy `app/agents/registry.py`, `PROTOTYPE_AGENTS_V1` + the 4
+`prototype_v1` AGENT.md folders; title-gen (chat + run) now uses `build_model().ainvoke`; rewrote the
+legacy tests (incl. **inlining the sandbox byte-oracle** + repointing the phase3/4/5 tests to a new
+`_scripted_model.py`); refreshed `CLAUDE.md`. **Independently audited GREEN** — grep-zero for the dead
+symbols, live stack imports, full suite identical to baseline (no new reds), byte-oracle + title-gen
+events/persistence preserved. `DeepAgent`/`BaseAgent`/`AgentOrchestrator` deliberately KEPT for 7b.
+**7b (chat-subsystem migration) is next** — the plan below.
 
 Re-scoped after two prep audits found the original "delete it all" framing **wrong**: **`DeepAgent` and
 `BaseAgent` are LIVE** — the migration only ever swapped the *pipeline* runtime. `DeepAgent` powers title
