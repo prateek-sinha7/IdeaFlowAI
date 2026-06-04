@@ -3,10 +3,9 @@ runtime cutover (custom ``DeepAgent`` → LangChain ``deepagents`` via
 ``create_runner`` + the engine's single ``astream_events`` loop).
 
 This module is the COMMITTED regression net. The full old-vs-new WS event-parity
-capture (P1) is performed out-of-process by ``_parity_driver.py`` driven from a
-``git worktree`` at the pre-cutover HEAD vs the working tree; that harness is
-transient (the OLD engine is deleted in Phase 7). The tests HERE are the durable
-guards that survive that deletion:
+capture (P1) was a transient harness (a ``git worktree`` at the pre-cutover HEAD
+vs the working tree); it + the OLD engine were removed in Phase 7a. The tests
+HERE are the durable guards that survive that deletion:
 
   1. ``TestCheckpointResume`` — P3. With the dev checkpointer (``InMemorySaver``)
      and a scripted model, a ``DeepAgentRunner`` armed with ``interrupt_on`` PAUSES
@@ -25,7 +24,7 @@ guards that survive that deletion:
      silently adding/dropping an event type or reshaping a payload the UI relies on.
 
 The scripted-model recipe + the offline ``engine.execute()`` driver live in
-``tests/agents/_parity_driver.py`` (imported here) so the harness and the durable
+``tests/agents/_scripted_model.py`` (imported here) so the harness and the durable
 guards share one source of truth.
 """
 
@@ -38,7 +37,7 @@ from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
-from tests.agents._parity_driver import ScriptedFakeChatModel, _ScriptedTurn, _drive
+from tests.agents._scripted_model import ScriptedFakeChatModel, _ScriptedTurn, _drive
 
 
 # ===========================================================================
@@ -319,7 +318,7 @@ class TestCumulativeTaskProgress:
     This test drives ``_run_build_task_loop`` directly (engine-level, scripted
     model, temp sandbox) for a 3-task and a 1-task build and asserts the emitted
     ``completed_count`` sequence is cumulative+monotonic. It survives the Phase-7
-    deletion of the old engine + the transient ``_parity_driver`` worktree.
+    deletion of the old engine + the transient old-vs-new worktree parity harness.
     """
 
     @pytest.mark.asyncio
@@ -400,7 +399,7 @@ class TestCumulativeTaskProgress:
 
         # Artifact store writes → no-op (the fake run_id has no workflow_runs row,
         # so a real INSERT fails the FK and would abort the loop). Same neutralizer
-        # the _parity_driver applies; orthogonal to the count being tested.
+        # the _scripted_model driver applies; orthogonal to the count being tested.
         async def _noop_store(*a, **k):
             return "artifact-id"
 

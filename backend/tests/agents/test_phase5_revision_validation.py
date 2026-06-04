@@ -35,7 +35,7 @@ agent and the fix sub-agent must use ``edit_file`` (native ``write_file`` REFUSE
 to overwrite an existing file; see ``test_phase4_build_loop.py``'s protocol note).
 
 The model is a STATEFUL scripted ``BaseChatModel`` (the proven
-``_parity_driver.ScriptedFakeChatModel`` recipe) whose turns are chosen by the
+``_scripted_model.ScriptedFakeChatModel`` recipe) whose turns are chosen by the
 factory per invocation. The deepagents loop calls the model, and the fix-loop
 re-invokes a FRESH ``create_runner`` (a NEW model instance) on a distinct
 ``…:revision:fix{n}`` thread, so we cannot use one mutable counter safely across
@@ -73,7 +73,7 @@ from app.agents.deep_agent_runner import DeepAgentRunner
 from app.agents.sandbox import RunSandbox
 from app.agents.static_check import static_check
 from app.agents.tools.runner_tools import report_task_complete
-from tests.agents._parity_driver import ScriptedFakeChatModel, _ScriptedTurn
+from tests.agents._scripted_model import ScriptedFakeChatModel, _ScriptedTurn
 from tests.agents.test_phase3_cutover_verify import (
     _DOCUMENTED_EVENT_TYPES,
     _REQUIRED_DATA_KEYS,

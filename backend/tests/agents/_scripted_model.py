@@ -1,60 +1,59 @@
-"""Shared offline parity driver for the Phase-3 verify gate (task #46).
+"""Shared offline test harness — the scripted ``BaseChatModel`` recipe + the
+end-to-end ``ExecutionEngine.execute()`` driver used by the durable Phase-3/4/5
+verify-gate tests.
 
-Runs ``ExecutionEngine.execute()`` end-to-end OFFLINE (no network, no real
-Bedrock) against a *scripted* ``BaseChatModel`` and prints the ordered list of
-yielded engine event dicts as JSON Lines to stdout. The SAME file is dropped
-into BOTH worktrees:
+This module is the SURVIVING, post-cutover subset of what used to live in
+``tests/agents/_parity_driver.py`` (deleted in the Phase-7a legacy excision).
+The old-vs-new *worktree parity* harness (a ``git worktree`` at HEAD running the
+pre-cutover ``create_agent`` engine, plus its ``main()`` / ``_serialize`` JSON
+emitter) was migration-only scaffolding and is gone. What remains here is the
+reusable machinery the live tests still depend on:
 
-  * the working tree  → the NEW (post-cutover, ``create_runner``) engine;
-  * a ``git worktree`` at HEAD → the OLD (pre-cutover, ``create_agent``) engine.
-
-The parity test (`test_engine_ws_event_parity.py`) invokes this driver in a
-subprocess per (engine, pipeline) so two incompatible copies of
-``agents.execution_engine.engine`` never share one interpreter, then diffs the
-two event streams.
-
-WHY A FULL ``execute()`` RUN (not an internal method): the WS contract is
-exactly what the engine *yields* — the websocket drainer
-(``app/api/websocket.py`` ~1277) forwards ``event["type"]`` + ``event["data"]``
-verbatim into the ``{type, chunk, section, data}`` envelope. Driving the public
-``execute()`` therefore captures the real, end-to-end outbound event vocabulary.
+  * ``ScriptedFakeChatModel`` + ``_ScriptedTurn`` — the proven scripted-model
+    recipe (a minimal ``BaseChatModel`` whose ``_stream`` yields real
+    ``AIMessageChunk``s with ``tool_call_chunks`` + ``usage_metadata`` and a
+    no-op ``bind_tools``). The stock LangChain fakes do NOT drive the deepagents
+    loop, so this hand-rolled model is the canonical way to script the runtime
+    offline (plan §12 "Scripted-model test recipe").
+  * ``_scripts_for(agent_id)`` — a per-agent script registry for the LIVE
+    (``create_runner``) engine, so a whole pipeline can be driven deterministically.
+  * ``_drive(pipeline_type)`` — runs the public ``ExecutionEngine.execute()``
+    end-to-end OFFLINE (no network / no Bedrock) against per-agent scripted
+    models and returns the ordered list of yielded engine event dicts. Driving
+    the public ``execute()`` captures the real outbound WS event vocabulary
+    (the websocket drainer forwards ``event["type"]`` + ``event["data"]``
+    verbatim).
 
 OFFLINE SCAFFOLDING (test-only monkeypatches; NO production code changed):
-  * Scripted model injected as ``model_id`` (NEW: used as-is by the runner;
-    OLD: a ``create_agent`` wrapper sets ``agent.llm_with_tools = <fake>`` — the
-    proven Phase-1 recipe, since legacy ``DeepAgent`` treats ``model`` as a str).
-  * ``_run_planner`` → returns a default PROCEED context (the planner makes a
-    real LLM call; prototype pipelines skip it anyway).
+  * Scripted model injected as ``ctx.model`` (used as-is by the runner).
+  * ``_run_planner`` → default PROCEED context (the planner makes a real LLM
+    call; prototype pipelines skip it anyway).
   * ``ALWAYS_CLARIFY`` forced False (the clarifier needs live WS round-trips).
   * ``ArtifactStore.store`` → async no-op (avoids DB coupling; deterministic).
-  * ``_run_review_gate`` → no-op async-gen (the inter-agent gate is engine-level
-    and byte-identical across both engines — proven separately by the P2 static
-    event-type diff; suppressing it keeps the agent-streaming parity clean and
-    non-blocking, since gated text agents would otherwise ``await event.wait()``).
+  * ``_run_review_gate`` → no-op async-gen (the inter-agent gate is engine-level;
+    suppressing it keeps the agent-streaming capture non-blocking).
   * ``RUNS_ROOT`` → a fresh temp dir (the real default ``/app/runs`` is absent
     locally); the per-run sandbox lands there so disk deliverables work.
 """
 
 from __future__ import annotations
 
-import asyncio
-import json
 import os
 import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Iterator
 
-# ── Make the backend package root importable (tests/agents/_parity_driver.py →
+# ── Make the backend package root importable (tests/agents/_scripted_model.py →
 #    backend/). Works whether run as a script or imported. ───────────────────
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
 # ── RUNS_ROOT must be set BEFORE app.core.config / sandbox import it ──────────
-_RUNS_ROOT = os.environ.get("PARITY_RUNS_ROOT") or tempfile.mkdtemp(prefix="parity-runs-")
+_RUNS_ROOT = os.environ.get("PARITY_RUNS_ROOT") or tempfile.mkdtemp(prefix="harness-runs-")
 os.environ["RUNS_ROOT"] = _RUNS_ROOT
-# Force the InMemory checkpointer + sqlite (no Postgres / no creds needed).
+# Force the InMemory checkpointer (no Postgres / no creds needed).
 os.environ.setdefault("ENV", "development")
 
 from langchain_core.language_models import BaseChatModel  # noqa: E402
@@ -68,8 +67,7 @@ from langchain_core.outputs import (  # noqa: E402
 
 
 # ===========================================================================
-# Scripted fake chat model — the proven Phase-1 recipe (see
-# tests/agents/test_deep_agent_runner_parity.py module docstring).
+# Scripted fake chat model — the proven recipe (plan §12).
 # ===========================================================================
 
 
@@ -159,17 +157,13 @@ class ScriptedFakeChatModel(BaseChatModel):
 
 # ===========================================================================
 # Per-agent script registry — keyed by agent id, returns the scripted turns
-# for THAT agent. The engine builds one agent per spec and runs it once (the
-# build agent runs once per task), so each agent's model consumes its own turns.
-#
-# Tool-call args differ by engine "world" (the migration deliberately swapped
-# emit_artifact→native write_file, workspace.write_file(path=)→native
-# write_file(file_path=)); the event-TYPE sequence is what must match. The
-# ``world`` arg ("old"|"new") selects the right tool name/args per agent.
+# for THAT agent in the LIVE (create_runner) world. The engine builds one agent
+# per spec and runs it once (the build agent runs once per task), so each
+# agent's model consumes its own turns.
 # ===========================================================================
 
 
-def _scripts_for(agent_id: str, world: str) -> list[_ScriptedTurn]:
+def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
     import json as _j
 
     # ── Text-only agents (tools=[]): one turn, text + usage, no tool calls. ──
@@ -216,26 +210,10 @@ def _scripts_for(agent_id: str, world: str) -> list[_ScriptedTurn]:
         return [_ScriptedTurn(texts=[f"{agent_id} output line one. ", "line two."], usage=(12, 7))]
 
     # ── prototype-build (tools=prototype_emit_only): runs once per task. ──────
-    # OLD world: emit_artifact(html=…) + report_task_complete(...).
     # NEW world: write_file(file_path="prototype.html", content=…) +
-    #            report_task_complete(...).
-    # Both worlds call report_task_complete with task_number/task_title/summary
-    # (the engine reads those args for task_progress in BOTH).
+    #            report_task_complete(task_number/task_title/summary).
     if agent_id == "prototype-build":
         html = "<!doctype html><html><body><section data-page='dashboard'>hi</section></body></html>"
-        if world == "old":
-            return [
-                _ScriptedTurn(
-                    texts=["Building the page. "],
-                    tool_calls=[
-                        ("emit_artifact", _j.dumps({"html": html, "title": "Prototype"}), "c_emit"),
-                        ("report_task_complete", _j.dumps({"task_number": 1, "task_title": "Build shell", "summary": "did it"}), "c_rtc"),
-                    ],
-                    usage=(50, 20),
-                ),
-                _ScriptedTurn(texts=["Done."], usage=(10, 5)),
-            ]
-        # new world
         return [
             _ScriptedTurn(
                 texts=["Building the page. "],
@@ -255,13 +233,10 @@ def _scripts_for(agent_id: str, world: str) -> list[_ScriptedTurn]:
         return [_ScriptedTurn(texts=["Validation passed. No P0 issues."], usage=(20, 10))]
 
     # ── Code-gen agents (tools=workspace): write 2 files then a final text. ───
-    # OLD world: workspace write_file(path=…, content=…).
     # NEW world: native write_file(file_path=…, content=…).
     if agent_id in ("app-code-generator", "prototype-revision-agent"):
         def mk(p, c):
-            # OLD world uses path=; NEW world uses native write_file's file_path=.
-            key = "path" if world == "old" else "file_path"
-            return ("write_file", _j.dumps({key: p, "content": c}), f"c_{p}")
+            return ("write_file", _j.dumps({"file_path": p, "content": c}), f"c_{p}")
         if agent_id == "prototype-revision-agent":
             # Revision edits prototype.html in place.
             return [
@@ -289,11 +264,24 @@ def _scripts_for(agent_id: str, world: str) -> list[_ScriptedTurn]:
 
 
 # ===========================================================================
-# Engine driver
+# Engine driver (LIVE create_runner path only).
 # ===========================================================================
 
 
-async def _drive(pipeline_type: str, world: str) -> list[dict]:
+async def _drive(pipeline_type: str, world: str = "new") -> list[dict]:
+    """Run ``ExecutionEngine.execute()`` end-to-end offline and return the
+    ordered list of yielded engine event dicts.
+
+    Only the LIVE (``create_runner``) world is supported — the pre-cutover
+    ``create_agent`` path was deleted in Phase 7a. ``world`` is retained for
+    call-site compatibility; any value other than ``"new"`` is rejected.
+    """
+    if world != "new":
+        raise ValueError(
+            f"_drive only supports the live 'new' engine world; got {world!r}. "
+            "The pre-cutover 'old' (create_agent) path was removed in Phase 7a."
+        )
+
     import agents.execution_engine.engine as engine_mod
     from agents.execution_engine.engine import ExecutionEngine
     from agents.registry import get_pipeline_agents
@@ -312,40 +300,24 @@ async def _drive(pipeline_type: str, world: str) -> list[dict]:
     specs = get_pipeline_agents(pipeline_type)
 
     # ── Per-agent scripted model factory ──────────────────────────────────────
-    # The engine creates one agent per spec via create_agent (OLD) / create_runner
-    # (NEW). We inject a per-agent scripted model so each agent consumes its own
-    # script. For NEW: the model instance flows in as ctx.model and is used as-is.
-    # For OLD: legacy DeepAgent treats `model` as a str, so we wrap create_agent
-    # to overwrite `.llm_with_tools` with the fake (the proven Phase-1 recipe).
-
+    # The engine creates one agent per spec via create_runner. We inject a
+    # per-agent scripted model so each agent consumes its own script; the model
+    # instance flows in as ctx.model and is used as-is by the runner.
     import agents.factory as factory_mod
 
     # Snapshot the originals so we can RESTORE them in finally (the engine is run
     # repeatedly in one pytest process across parametrized tests — leaking a
     # nested wrapper or a stale patch would corrupt later runs).
     _orig_create_runner = factory_mod.create_runner
-    _orig_create_agent = factory_mod.create_agent
     _orig_engine_create_runner = getattr(engine_mod, "create_runner", None)
-    _orig_engine_create_agent = getattr(engine_mod, "create_agent", None)
 
-    if world == "new":
+    def _patched_create_runner(agent_id, ctx, **kw):
+        ctx.model = ScriptedFakeChatModel(_scripts_for(agent_id))
+        return _orig_create_runner(agent_id, ctx, **kw)
 
-        def _patched_create_runner(agent_id, ctx, **kw):
-            ctx.model = ScriptedFakeChatModel(_scripts_for(agent_id, world))
-            return _orig_create_runner(agent_id, ctx, **kw)
-
-        factory_mod.create_runner = _patched_create_runner
-        # The engine imported create_runner by name at module load.
-        engine_mod.create_runner = _patched_create_runner
-    else:
-
-        def _patched_create_agent(agent_id, ctx):
-            agent = _orig_create_agent(agent_id, ctx)
-            agent.llm_with_tools = ScriptedFakeChatModel(_scripts_for(agent_id, world))
-            return agent
-
-        factory_mod.create_agent = _patched_create_agent
-        engine_mod.create_agent = _patched_create_agent
+    factory_mod.create_runner = _patched_create_runner
+    # The engine imported create_runner by name at module load.
+    engine_mod.create_runner = _patched_create_runner
 
     engine = ExecutionEngine()
 
@@ -361,8 +333,7 @@ async def _drive(pipeline_type: str, world: str) -> list[dict]:
 
     engine._store.store = _noop_store  # type: ignore[assignment]
 
-    # ── Inter-agent review gate → no-op (engine-level, identical across engines;
-    # proven by the P2 static type diff). Keeps the parity capture non-blocking. ─
+    # ── Inter-agent review gate → no-op (engine-level; keeps capture non-blocking). ─
     async def _noop_gate(*a, **k):
         return
         yield  # pragma: no cover — make it an async generator
@@ -375,12 +346,12 @@ async def _drive(pipeline_type: str, world: str) -> list[dict]:
     import uuid as _uuid
 
     events: list[dict] = []
-    run_id = f"parity-{pipeline_type}-{world}-{_uuid.uuid4().hex[:8]}"
+    run_id = f"harness-{pipeline_type}-{_uuid.uuid4().hex[:8]}"
 
     # Prototype agents declare injects=['template', 'design_system', ...]; the
     # factory raises TemplateMissingError without a template body. Supply a
     # minimal od_context so injection succeeds and the build/task_progress path
-    # actually runs. (Same od_context is fed to BOTH engines.)
+    # actually runs.
     od_context = None
     if pipeline_type in ("prototype", "od_prototype"):
         od_context = {
@@ -392,77 +363,23 @@ async def _drive(pipeline_type: str, world: str) -> list[dict]:
             "is_design_system_required": True,
         }
 
-    # NEW execute() accepts gate_agent_ids; OLD does not. Build kwargs accordingly.
     kwargs: dict[str, Any] = dict(
         agents=list(specs),
         user_message="Build me a thing for managing tasks.",
         pipeline_run_id=run_id,
         pipeline_type=pipeline_type,
-        user_id="parity-user",
+        user_id="harness-user",
         od_context=od_context,
+        gate_agent_ids=[],  # suppress all gates
     )
-    import inspect
-
-    if "gate_agent_ids" in inspect.signature(engine.execute).parameters:
-        kwargs["gate_agent_ids"] = []  # suppress all gates (NEW engine)
 
     try:
         async for ev in engine.execute(**kwargs):
-            # Keep only what parity asserts on: the type and the data KEY SHAPE.
             events.append(ev)
     finally:
         # Restore the factory/engine globals so repeated _drive() calls in one
         # process (parametrized pytest) never accumulate patches.
         factory_mod.create_runner = _orig_create_runner
-        factory_mod.create_agent = _orig_create_agent
         if _orig_engine_create_runner is not None:
             engine_mod.create_runner = _orig_engine_create_runner
-        if _orig_engine_create_agent is not None:
-            engine_mod.create_agent = _orig_engine_create_agent
     return events
-
-
-def _serialize(events: list[dict]) -> list[dict]:
-    """Reduce each event to {type, data_keys, extra} — JSON-safe, value-agnostic.
-
-    Parity is on the ordered event TYPE sequence and each event's DATA KEY SHAPE
-    (not volatile values like timestamps/durations). We also surface a few
-    load-bearing values the task calls out: tool names, task_progress counts/keys.
-    """
-    out: list[dict] = []
-    for ev in events:
-        t = ev.get("type")
-        data = ev.get("data", {}) if isinstance(ev.get("data"), dict) else {}
-        rec: dict[str, Any] = {"type": t, "data_keys": sorted(data.keys())}
-        # Load-bearing detail per the task's P1 checklist:
-        if t == "tool_call":
-            rec["tool"] = data.get("tool")
-        elif t == "tool_result":
-            rec["tool"] = data.get("tool")
-            rec["result_text"] = str(data.get("result", ""))
-        elif t == "task_progress":
-            rec["completed_count"] = data.get("completed_count")
-            ct = data.get("completed_tasks") or []
-            rec["completed_task_keys"] = sorted(ct[0].keys()) if ct else []
-            rec["completed_tasks"] = ct
-        elif t == "agent_complete":
-            rec["token_keys"] = sorted(
-                k for k in data.keys() if "token" in k
-            )
-        out.append(rec)
-    return out
-
-
-def main() -> None:
-    pipeline_type = sys.argv[1]
-    world = sys.argv[2]  # "old" | "new"
-    events = asyncio.run(_drive(pipeline_type, world))
-    serialized = _serialize(events)
-    # Emit a single JSON object so the parent can json.loads it cleanly.
-    print("PARITY_RESULT_JSON_START")
-    print(json.dumps({"raw_types": [e.get("type") for e in events], "events": serialized}))
-    print("PARITY_RESULT_JSON_END")
-
-
-if __name__ == "__main__":
-    main()

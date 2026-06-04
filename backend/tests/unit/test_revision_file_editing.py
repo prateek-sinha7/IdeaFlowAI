@@ -1,71 +1,22 @@
-"""Unit tests for the direct-file-editing prototype revision flow.
+"""Unit tests for the engine-side prototype revision prompt helpers.
 
-Covers the two pieces that replaced the legacy REVISION_DIFF regex-merge:
-  1. AgentWorkspace.edit_file — the surgical str_replace primitive the
-     prototype-revision-agent uses to edit prototype.html in place.
-  2. ExecutionEngine._extract_existing_prototype_html / _slim_revision_message —
-     how the engine seeds the workspace and trims the prompt.
+Covers ``ExecutionEngine._extract_existing_prototype_html`` /
+``_slim_revision_message`` — how the engine extracts the inlined original HTML
+from a revision request and trims the prompt down to a file-pointer (the HTML is
+seeded into the run sandbox as ``prototype.html`` and the agent edits it there).
+
+SOURCE-OF-TRUTH NOTE (Phase 7a rewrite)
+---------------------------------------
+This file previously also had a ``TestEditFile`` block exercising
+``AgentWorkspace.edit_file`` (the surgical str_replace primitive). The in-memory
+``AgentWorkspace`` (``app/agents/tools/workspace.py``) is dead pipeline-legacy
+removed in Phase 7a — revisions now edit ``prototype.html`` on the per-run disk
+sandbox via the native ``deepagents`` ``edit_file`` tool. That dead block (and
+its ``AgentWorkspace`` / ``make_workspace_tools`` import) was dropped. The LIVE
+engine helper tests below are retained unchanged.
 """
 
 from __future__ import annotations
-
-from app.agents.tools.workspace import AgentWorkspace, make_workspace_tools
-
-
-# ---------------------------------------------------------------------------
-# edit_file — surgical, exact, unique, self-correcting
-# ---------------------------------------------------------------------------
-
-
-class TestEditFile:
-    def test_workspace_toolset_exposes_edit_file(self):
-        ws = AgentWorkspace()
-        names = {t.name for t in make_workspace_tools(ws)}
-        assert names == {"write_file", "read_file", "edit_file", "list_workspace_files"}
-
-    def test_surgical_replace_changes_only_the_target(self):
-        ws = AgentWorkspace()
-        ws.write_file("p.html", "<a>one</a><b>keep</b><a>two</a>")
-        result = ws.edit_file("p.html", "<a>one</a>", "<a>ONE</a>")
-        assert "✓ Edited" in result
-        assert ws.read_file("p.html") == "<a>ONE</a><b>keep</b><a>two</a>"
-
-    def test_missing_file_returns_actionable_error(self):
-        ws = AgentWorkspace()
-        result = ws.edit_file("nope.html", "x", "y")
-        assert "File not found" in result
-
-    def test_no_match_returns_actionable_error_and_no_change(self):
-        ws = AgentWorkspace()
-        ws.write_file("p.html", "hello world")
-        result = ws.edit_file("p.html", "ABSENT", "z")
-        assert "not found" in result
-        assert ws.read_file("p.html") == "hello world"  # unchanged
-
-    def test_non_unique_match_refuses_and_no_change(self):
-        ws = AgentWorkspace()
-        ws.write_file("p.html", "<li>x</li><li>x</li>")
-        result = ws.edit_file("p.html", "<li>x</li>", "<li>y</li>")
-        assert "not unique" in result
-        assert "2 occurrences" in result
-        assert ws.read_file("p.html") == "<li>x</li><li>x</li>"  # unchanged
-
-    def test_identical_strings_is_a_noop(self):
-        ws = AgentWorkspace()
-        ws.write_file("p.html", "same")
-        result = ws.edit_file("p.html", "same", "same")
-        assert "No change" in result
-
-    def test_insert_near_anchor_via_context(self):
-        """The agent inserts a route by including the anchor in both strings."""
-        ws = AgentWorkspace()
-        ws.write_file("p.html", "const routes = {'/a': 'a'};")
-        ws.edit_file(
-            "p.html",
-            "const routes = {'/a': 'a'",
-            "const routes = {'/a': 'a', '/b': 'b'",
-        )
-        assert ws.read_file("p.html") == "const routes = {'/a': 'a', '/b': 'b'};"
 
 
 # ---------------------------------------------------------------------------

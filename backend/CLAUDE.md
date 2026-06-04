@@ -1,10 +1,13 @@
 # Backend Architecture Guide
 
-> Principal-engineer reference for the IdeaFlowAI backend.  
-> Covers the folder-per-agent architecture, extension patterns, testing, and commit conventions.
+> Principal-engineer reference for the IdeaFlowAI backend.
+> Covers the deepagents-based agent runtime, the folder-per-agent configuration layer,
+> extension patterns, testing, and commit conventions.
 
 <!-- SPECKIT START -->
-**Active Feature Plan**: [specs/001-ai-workflow-os/plan.md](../specs/001-ai-workflow-os/plan.md) (v3.0 — Universal Workflow Orchestration Engine)
+**Active Feature Plans**:
+- [specs/001-ai-workflow-os/plan.md](../specs/001-ai-workflow-os/plan.md) (v3.0 — Universal Workflow Orchestration Engine)
+- [specs/002-deepagents-migration/plan.md](../specs/002-deepagents-migration/plan.md) — **in progress**: the migration of the agent runtime onto the LangChain `deepagents` library. This guide describes the **post-migration (live) pipeline runtime** that plan landed (Phases 0–6 complete). The free-chat subsystem is mid-migration (Phase 7b) — see [The free-chat path](#the-free-chat-path).
 <!-- SPECKIT END -->
 
 ---
@@ -15,92 +18,151 @@
 2. [Adding an Agent](#adding-an-agent)
 3. [Adding a Pipeline](#adding-a-pipeline)
 4. [Adding a Guardrail](#adding-a-guardrail)
-5. [Adding a Tool Set](#adding-a-tool-set)
+5. [Tool Sets](#tool-sets)
 6. [Skills vs Guardrails vs Hooks](#skills-vs-guardrails-vs-hooks)
-7. [Testing](#testing)
-8. [Commit Conventions](#commit-conventions)
+7. [The free-chat path](#the-free-chat-path)
+8. [Testing](#testing)
+9. [Commit Conventions](#commit-conventions)
 
 ---
 
 ## Architecture Overview
 
+The backend runs every **pipeline** agent as a LangChain **`deepagents`** graph, sequenced
+deterministically by the **`ExecutionEngine`**. The engine decides *which* agent runs next
+(reading the pipeline registry); the LLM never does. Each agent is a `create_deep_agent`
+graph wrapped by a thin `DeepAgentRunner` adapter that maps the LangGraph event stream onto
+the WebSocket event vocabulary the frontend already consumes — so the runtime was swapped
+under the hood with the UI unchanged.
+
 ### Directory Layout
 
 ```
 backend/
-├── agents/                             # Agent configuration layer
-│   ├── prompts/                        # One folder per agent (85 total)
+├── agents/                             # Agent configuration + execution layer
+│   ├── prompts/                        # One folder per agent (~80 total)
 │   │   ├── domain-analyst/
-│   │   │   └── AGENT.md               # Metadata + system prompt
-│   │   ├── epic-architect/
+│   │   │   └── AGENT.md                # Frontmatter metadata + system prompt body
+│   │   ├── prototype-build/
 │   │   │   └── AGENT.md
 │   │   └── ... (one folder per agent)
-│   ├── guardrails/                     # Shared, injectable rule sets
-│   │   ├── agile.md
-│   │   ├── typescript.md
-│   │   ├── react.md
-│   │   ├── accessibility.md
-│   │   ├── html-prototype.md
-│   │   ├── openapi.md
-│   │   ├── java-spring.md
-│   │   ├── mulesoft.md
-│   │   └── dotnet.md
-│   ├── loader.py                       # Reads + parses AGENT.md files
-│   ├── factory.py                      # create_agent() entry point
-│   ├── registry.py                     # Pipeline-to-ID maps only
-│   └── __init__.py
-├── app/
-│   └── agents/
-│       ├── deep_agent.py               # LangGraph ReAct executor (unchanged)
-│       ├── orchestrator_v2.py          # Deterministic pipeline sequencer
-│       ├── skills.py                   # Skill loading utilities
-│       ├── tools/
-│       │   ├── workspace.py            # write_file, read_file, list_workspace_files
-│       │   └── prototype.py            # read_template_seed, read_layout_reference,
-│       │                               # read_checklist, todo_write, emit_artifact
-│       └── od_runner.py                # Non-prompt orchestration logic (retained)
-└── CLAUDE.md                           # This file
+│   ├── guardrails/                     # Shared, injectable rule sets (9 files)
+│   │   ├── agile.md   typescript.md   react.md   accessibility.md
+│   │   ├── html-prototype.md   openapi.md   java-spring.md
+│   │   ├── mulesoft.md   dotnet.md
+│   ├── loader.py                       # Reads + parses AGENT.md → AgentSpec
+│   ├── factory.py                      # create_runner() + AgentContext + prompt/tool composition
+│   ├── registry.py                     # PIPELINE_AGENTS + helpers (single source of truth)
+│   ├── planner/tools.py                # PLANNING_TOOLS (deep-planner stub tools)
+│   └── execution_engine/
+│       ├── engine.py                   # ExecutionEngine — the deterministic sequencer
+│       ├── resolver.py                 # WorkflowResolver (DAG validation)
+│       └── state_machine.py
+└── app/
+    └── agents/
+        ├── deep_agent_runner.py        # DeepAgentRunner — adapter over a deepagents graph
+        ├── model_factory.py            # build_model() — provider select + botocore retries
+        ├── sandbox.py                  # RunSandbox + serialize_sandbox_deliverable()
+        ├── checkpointer.py             # get_checkpointer() (Postgres / InMemory dev)
+        ├── render_check.py             # render_check() — headless Chromium validation
+        ├── static_check.py             # static_check() — stdlib structural validation
+        └── tools/
+            └── runner_tools.py         # report_task_complete (store-free runner tool)
 ```
+
+> Note: `app/agents/` still contains the **legacy free-chat stack** (`orchestrator.py`,
+> `base.py`, `deep_agent.py`, the chat agents) and some dead pipeline-legacy modules
+> (`tools/workspace.py`, `tools/prototype.py`, `summarizer.py`, `agents/prototype/*`).
+> These are **not on the live pipeline path** — they are being excised / migrated in
+> migration Phase 7. Do not extend them; see [The free-chat path](#the-free-chat-path).
 
 ### Module Responsibilities
 
 | Module | Responsibility |
 |--------|---------------|
-| `agents/loader.py` | Read `AGENT.md` files from disk, parse YAML frontmatter, validate all fields, cache results in `_SPEC_CACHE`, expose `load_agent_spec()` and `list_agent_ids()` |
-| `agents/factory.py` | Compose system prompts (guardrails → skills → hooks → body), build tool lists, instantiate `DeepAgent`, expose `create_agent()` and `AgentContext` |
-| `agents/registry.py` | Hold `PIPELINE_AGENTS`, `PIPELINE_CONTEXT_MAPS`, `SUPPORTED_PIPELINE_TYPES`, `REVISION_BASE_MAP`; expose `get_pipeline_agents()` |
-| `app/agents/orchestrator_v2.py` | Deterministic pipeline sequencer; reads registry for agent order; calls `create_agent()` per agent; streams WebSocket events |
+| `agents/loader.py` | Read `AGENT.md` files, parse YAML frontmatter, validate all fields, cache results in `_SPEC_CACHE`; expose `AgentSpec`, `load_agent_spec()`, `list_agent_ids()`, `SUPPORTED_PIPELINE_TYPES` |
+| `agents/registry.py` | Hold `PIPELINE_AGENTS` + `REVISION_BASE_MAP`; expose `get_pipeline_agents()`, `get_all_agents_flat()`, `get_agent_by_id()`, `allowed_custom_agent_ids()` — the single source of truth for agent membership/ordering |
+| `agents/factory.py` | `create_runner(agent_id, ctx)` — the **live** entry point; composes the system prompt (`_compose_system_prompt`), resolves tools (`_build_runner_tools`), builds the per-run `RunSandbox`, and constructs a `DeepAgentRunner`. Owns `AgentContext`. |
+| `agents/execution_engine/engine.py` | `ExecutionEngine` — the deterministic sequencer. `execute()` drives the pipeline; `_run_agent` runs one agent via a single `astream_events` loop; per-agent HITL gates; prototype per-task sub-agent build loop + validation |
+| `app/agents/deep_agent_runner.py` | `DeepAgentRunner` — wraps a `deepagents.create_deep_agent` graph; `astream_events()` maps LangGraph events → engine events; disk filesystem backend; HITL `gate` detection |
+| `app/agents/model_factory.py` | `build_model()` — Bedrock/Anthropic provider select + botocore timeouts/retries (one place) |
+| `app/agents/sandbox.py` | `RunSandbox(user_id, run_id)` — per-user/per-run disk dir (traversal-proof, TTL sweep); `serialize_sandbox_deliverable()` turns written files into the `filename:`-block deliverable string |
+| `app/agents/render_check.py` / `static_check.py` | Per-task prototype validation (headless render + stdlib structural checks) |
 | `agents/guardrails/*.md` | Terse, prompt-injectable rule sets; injected verbatim by the factory before the prompt body |
-| `agents/prompts/{id}/AGENT.md` | Single source of truth for each agent's identity, metadata, and system prompt body |
+| `agents/prompts/{id}/AGENT.md` | Single source of truth for each agent's identity, metadata, and system-prompt body |
 
-### Data Flow
+### Data Flow (pipeline `run_pipeline`)
 
 ```
-WebSocket request
+WebSocket "run_pipeline" message  (app/api/websocket.py)
       │
       ▼
-orchestrator_v2.execute(user_message, pipeline_type)
+ExecutionEngine.execute(agents, user_message, pipeline_run_id, pipeline_type, …,
+                        gate_agent_ids=…, parent_run_id=…)
+      │   agents = registry.get_pipeline_agents(pipeline_type)   ← ordered list[AgentSpec]
+      │   await get_checkpointer()                               ← Postgres / InMemory
+      │   RunSandbox(user_id, pipeline_run_id)                   ← per-run disk dir
       │
-      ├─► registry.get_pipeline_agents(pipeline_type)
-      │         │
-      │         └─► loader.list_agent_ids(pipeline_type)   ← scans agents/prompts/
-      │         └─► loader.load_agent_spec(id) × N         ← reads + caches AGENT.md
-      │
-      └─► for each AgentSpec (in order):
+      └─► for each AgentSpec (in registry order):
                │
-               ├─► build AgentContext (driven by spec.context_from)
-               ├─► factory.create_agent(agent_id, ctx)
+               ├─► build AgentContext (skills/hooks/od_context/run_id=pipeline_run_id)
+               ├─► _should_gate(spec)?  → _run_review_gate (HITL pause/resume between agents)
+               ├─► create_runner(agent_id, ctx, thread_id="<run>:<agent>", checkpointer=…)
                │         │
-               │         ├─► loader.load_agent_spec(agent_id)   ← cache hit
-               │         ├─► _compose_system_prompt()           ← guardrails + skills + hooks + body
-               │         └─► _build_tools()                     ← workspace / prototype / []
+               │         ├─► load_agent_spec(agent_id)            ← cache hit
+               │         ├─► _compose_system_prompt()             ← injects + guardrails + skills + hooks + constitution + body
+               │         ├─► _build_runner_tools()                ← (custom_tools, exclude_builtin)
+               │         └─► DeepAgentRunner(... model=build_model(ctx.model), run_sandbox=…)
+               │                   └─► create_deep_agent(graph): native fs tools + report_task_complete
                │
-               └─► DeepAgent.astream_events(context_message)
-                         │
-                         └─► WebSocket events → client
+               └─► async for event in runner.astream_events(context_message):
+                         chunk      → agent_chunk
+                         usage      → token accumulation
+                         tool_call  → tool_call   (report_task_complete → records task)
+                         tool_result→ tool_result (report_task_complete → task_progress)
+                         (gate)     → HITL interrupt
+                   deliverable read back from the RunSandbox disk:
+                     - prototype/revision: prototype.html
+                     - code-gen: serialize_sandbox_deliverable(root) → `filename:` blocks
 ```
 
-The Python orchestrator is the **deterministic sequencer** — it reads `PIPELINE_AGENTS[pipeline_type]` to get an ordered list of IDs and calls `create_agent()` for each. The LLM never decides which agent runs next.
+The engine is the **deterministic sequencer** — it reads `PIPELINE_AGENTS[pipeline_type]`
+(via `get_pipeline_agents`) for the ordered agent list and calls `create_runner()` for each.
+Deliverables live on the **per-run disk sandbox** (shared across the run's agents, so files
+one agent writes persist for the next); the engine reads them back at the end of each agent.
+Token totals come from the runner's `usage` events; library auto-summarization replaces the
+old cross-agent summarizer.
+
+### Prototype build: per-task sub-agents + validation
+
+For the `prototype` pipeline, the `build` step does **not** run the build agent once. The
+engine writes `spec.md` / `design.md` / `tasks.md` into the run sandbox, then launches **one
+isolated sub-agent per task** (`_run_build_task_loop`): each invocation gets its task injected
+under a `=== CURRENT TASK ===` block (and may `read_file` the spec/design for detail), writes/
+edits `prototype.html` via the native filesystem tools, and calls `report_task_complete`. After
+each task the engine runs **Both-validation** — `static_check` (stdlib: routes↔sections, routes
+map, handlers, is-active) **+** `render_check` (headless Chromium: nav switches, no console
+errors) — with a bounded **N=2 internal fix-loop** (`_run_validation_fix_loop`, a non-yielding
+coroutine, so no extra UI events). Prototype **revision** runs the same validation as a
+smart-hybrid policy and seeds the parent run's spec/design (via `parent_run_id`).
+
+### Runtime essentials
+
+- **Model**: `build_model(ctx.model)` selects ChatAnthropic (local, `ANTHROPIC_API_KEY`) or
+  `ChatBedrockConverse` (prod). Model is **user-selected** (Haiku default). Botocore
+  read-timeout + adaptive retries are embedded here.
+- **Sandbox vs checkpoint thread**: the `RunSandbox` is keyed on `ctx.run_id` and **shared**
+  across the run's agents (files persist agent-to-agent). The LangGraph checkpoint `thread_id`
+  is **per agent-invocation** (`f"{run_id}:{agent_id}"`, plus `:task` in the build loop) so
+  agents never collide on one checkpoint thread.
+- **No per-agent iteration cap**: `recursion_limit = settings.AGENT_RECURSION_LIMIT` (400) is
+  the backstop; the old per-agent `max_iterations` map is gone.
+- **HITL**: `gate_agent_ids` (per-run) selects which agents pause for the inter-agent Human
+  review gate; default = the static set (agents whose `AGENT.md` declares `gate: Human_Gate`,
+  e.g. `prototype-specify`, `prototype-plan`). Durable via the checkpointer; `_run_review_gate`
+  emits the `review_gate_*` events.
+- **`write_file` won't overwrite** (deepagents `FilesystemBackend`): prototype Task 1 uses
+  `write_file`, all later tasks + fixes use `edit_file` — enforced by the prompt and fix-loop.
 
 ---
 
@@ -112,7 +174,8 @@ The Python orchestrator is the **deterministic sequencer** — it reads `PIPELIN
 backend/agents/prompts/{your-agent-id}/AGENT.md
 ```
 
-Use kebab-case for the folder name. The `id` field in the frontmatter must match the folder name exactly.
+Use kebab-case for the folder name. The `id` field in the frontmatter must match the folder
+name exactly.
 
 ### Step 2 — Write the AGENT.md
 
@@ -136,7 +199,8 @@ You are a [role]. [System prompt body here...]
 
 ### Step 3 — Add the agent ID to PIPELINE_AGENTS
 
-Open `agents/registry.py` and add the agent ID to the correct pipeline list in the correct position:
+Open `agents/registry.py` and add the agent ID to the correct pipeline list at the correct
+position:
 
 ```python
 PIPELINE_AGENTS: dict[str, list[str]] = {
@@ -153,14 +217,19 @@ PIPELINE_AGENTS: dict[str, list[str]] = {
 }
 ```
 
+`get_pipeline_agents()` discovers agents by scanning `agents/prompts/` for files whose
+`pipeline_type` matches, then sorts by `order`; `PIPELINE_AGENTS` is the canonical ordered
+membership list the engine drives and the `/api/agents` endpoint reads.
+
 ### Step 4 — Verify
 
 ```bash
 cd backend
-python -m pytest tests/agents/test_loader.py -k "schema_validation" -v
+python3.11 -m pytest tests/agents/test_loader.py -k "schema_validation" -v
 ```
 
-The schema validation test calls `load_agent_spec` for every agent in `agents/prompts/` and will catch any missing or invalid fields.
+The schema-validation test calls `load_agent_spec` for every agent in `agents/prompts/` and
+will catch any missing or invalid fields.
 
 ### AGENT.md Schema
 
@@ -171,70 +240,45 @@ The schema validation test calls `load_agent_spec` for every agent in `agents/pr
 | `role` | string | *(required)* | Short role description shown in the UI progress panel |
 | `pipeline_type` | string | *(required)* | Pipeline this agent belongs to; must be one of `SUPPORTED_PIPELINE_TYPES` |
 | `order` | integer | *(required)* | Execution position within the pipeline (ascending, unique per pipeline) |
-| `max_tokens` | integer | *(required)* | Maximum output tokens for this agent (1–32768 inclusive) |
-| `tools` | list[str] | `[]` | Tool sets to bind: `"workspace"`, `"prototype"`, or both |
-| `guardrails` | list[str] | `[]` | Guardrail file names (without `.md`) to inject before the prompt body |
-| `context_from` | list[str] | `[]` | Prior-agent output routing (see [context_from examples](#context_from-examples) below) |
+| `max_tokens` | integer | *(required)* | Documented per-agent output ceiling (1–32768). Retained for the UI/spec; the runtime caps every agent at `settings.MAX_OUTPUT_TOKENS`, not this value |
+| `tools` | list[str] | `[]` | Tool sets to bind: `"workspace"`, `"prototype"`, `"prototype_emit_only"`, `"planning"` (see [Tool Sets](#tool-sets)) |
+| `guardrails` | list[str] | `[]` | Guardrail file names (without `.md`) injected before the prompt body |
+| `context_from` | list[str] | `[]` | Prior-agent output routing (see [context_from examples](#context_from-examples)) |
 | `icon` | string | `"🤖"` | Emoji icon displayed in the UI pipeline progress panel |
-| `estimated_duration` | float | `3.0` | Estimated run time in seconds used for UI progress animation |
-
-### Complete Example AGENT.md
-
-```markdown
----
-id: story-estimator
-name: Story Estimation Agent
-role: Effort & Complexity Scoring
-pipeline_type: user_stories
-order: 3
-max_tokens: 4000
-tools: []
-guardrails: [agile]
-context_from: ["$previous"]
-icon: "📊"
-estimated_duration: 4.0
----
-
-You are a Senior Agile Coach. Estimate the effort and complexity of each user story.
-
-For every story produced by the previous agent, output:
-
-- **Story ID**: Reference the story title
-- **Story Points**: Fibonacci scale (1, 2, 3, 5, 8, 13)
-- **Complexity**: Low / Medium / High
-- **Rationale**: One sentence explaining the estimate
-
-RULES:
-- Use only Fibonacci story points
-- Flag any story estimated at 13 points as a candidate for splitting
-- Keep total response under 600 words
-```
+| `estimated_duration` | float | `3.0` | Estimated run time (seconds) used for UI progress animation |
+| `description` | string | *(falls back to `role`)* | Longer UI/API blurb; absence never errors (loader falls back to `role`) |
+| `gate` | string\|null | `null` | `Human_Gate` puts the agent in the default review-gate set; `Validation_Gate`; or absent |
+| `injects` | list[str] | `[]` | For od_prototype/od_ppt agents: any of `[template, design_system, craft]` (composed into the prompt by `_compose_injection`) |
+| `produces` / `consumes` | list[str] | `[]` | Typed artifact contracts read by `WorkflowResolver` for DAG validation |
 
 ### `context_from` Examples
 
-**Example 1 — Agent receives only the user brief (no prior output)**
+**Example 1 — only the user brief (no prior output)**
 
 ```yaml
 context_from: []
 ```
 
-The orchestrator sets `agent_outputs = {}`. Use this for the first agent in a pipeline or any agent that should work only from the original user request.
+The engine builds the context message from the user request alone. Use for the first agent in
+a pipeline.
 
-**Example 2 — Agent receives the immediately preceding agent's output**
+**Example 2 — the immediately preceding agent's output**
 
 ```yaml
 context_from: ["$previous"]
 ```
 
-The orchestrator sets `agent_outputs = {prev_agent_id: prev_output}`. The special token `"$previous"` always resolves to the agent that ran immediately before this one. If this agent is first in the pipeline, `agent_outputs` is `{}`.
+The special token `"$previous"` always resolves to the agent that ran immediately before this
+one. If this agent is first, no prior output is included.
 
-**Example 3 — Agent receives the outputs of exactly two named agents**
+**Example 3 — the outputs of exactly two named agents**
 
 ```yaml
 context_from: ["agent-a", "agent-b"]
 ```
 
-The orchestrator sets `agent_outputs = {"agent-a": output_a, "agent-b": output_b}`. Any named agent whose output is not yet available is silently omitted. Use explicit IDs when an agent needs non-adjacent upstream context (common in the `app_builder` pipeline).
+The engine includes the named agents' outputs; any whose output is not yet available is
+silently omitted. Use explicit IDs for non-adjacent upstream context (common in `app_builder`).
 
 ---
 
@@ -254,7 +298,8 @@ SUPPORTED_PIPELINE_TYPES: frozenset[str] = frozenset({
 
 ### Step 2 — Create AGENT.md files for each agent in the pipeline
 
-Follow the steps in [Adding an Agent](#adding-an-agent). Set `pipeline_type` to your new pipeline type string and assign sequential `order` values starting at 1.
+Follow [Adding an Agent](#adding-an-agent). Set `pipeline_type` to your new type string and
+assign sequential `order` values starting at 1.
 
 ### Step 3 — Add the pipeline entry to PIPELINE_AGENTS
 
@@ -271,24 +316,7 @@ PIPELINE_AGENTS: dict[str, list[str]] = {
 }
 ```
 
-### Step 4 — (Optional) Add a PIPELINE_CONTEXT_MAPS entry
-
-If your pipeline has non-linear context routing (agents that need specific subsets of prior outputs rather than just `$previous`), add an entry to `PIPELINE_CONTEXT_MAPS`:
-
-```python
-PIPELINE_CONTEXT_MAPS: dict[str, dict[str, list[str]]] = {
-    ...
-    "your_new_pipeline": {
-        "first-agent-id": [],
-        "second-agent-id": ["first-agent-id"],
-        "third-agent-id": ["first-agent-id", "second-agent-id"],
-    },
-}
-```
-
-If all agents use `context_from: ["$previous"]` or `context_from: []`, you do not need a `PIPELINE_CONTEXT_MAPS` entry.
-
-### Step 5 — (Optional) Add a REVISION_BASE_MAP entry
+### Step 4 — (Optional) Add a REVISION_BASE_MAP entry
 
 If this pipeline has a corresponding revision pipeline:
 
@@ -299,11 +327,16 @@ REVISION_BASE_MAP: dict[str, str] = {
 }
 ```
 
+> Inter-agent context routing is driven by each agent's `context_from` (and the typed
+> `produces`/`consumes` contracts via `WorkflowResolver`) — there is no separate context-map
+> table to maintain.
+
 ---
 
 ## Adding a Guardrail
 
-A guardrail is a terse, reusable rule set injected verbatim into any agent's system prompt before the prompt body.
+A guardrail is a terse, reusable rule set injected verbatim into an agent's system prompt
+before the prompt body.
 
 ### Step 1 — Create the guardrail file
 
@@ -340,15 +373,18 @@ guardrails: [agile, typescript]
 ### Guardrail Injection Mechanism
 
 - **File path pattern**: `agents/guardrails/{name}.md`
-- **Injection order**: Guardrails are injected before skills, hooks, and the prompt body. Multiple guardrails are injected in the order they appear in the `guardrails` list.
-- **Section heading**: Each guardrail block is preceded by `## Guardrail: {name}` in the composed system prompt.
-- **Fallback behavior**: If a referenced guardrail file does not exist, the factory logs a warning (`"Guardrail file not found: agents/guardrails/{name}.md — skipping"`) and uses an empty string for that block. The agent still runs with the remaining guardrails and prompt body intact.
+- **Injection order**: Guardrails are injected before skills, hooks, the constitution, and the
+  prompt body. Multiple guardrails are injected in list order.
+- **Section heading**: Each guardrail block is preceded by `## Guardrail: {name}` in the
+  composed system prompt.
+- **Fallback behavior**: A missing guardrail file logs a warning and uses an empty block — the
+  agent still runs with the remaining guardrails and prompt body intact.
 
 ### Available Guardrails
 
 | Name | File | Use for |
 |------|------|---------|
-| `agile` | `agile.md` | User story format, acceptance criteria, story point estimation |
+| `agile` | `agile.md` | User story format, acceptance criteria, story-point estimation |
 | `typescript` | `typescript.md` | TypeScript strict mode, type safety, module conventions |
 | `react` | `react.md` | React component patterns, hooks, accessibility in JSX |
 | `accessibility` | `accessibility.md` | WCAG 2.1 AA compliance, ARIA, keyboard navigation |
@@ -360,114 +396,71 @@ guardrails: [agile, typescript]
 
 ---
 
-## Adding a Tool Set
+## Tool Sets
 
-A tool set is a named group of LangChain tools that agents can request via the `tools` field in their `AGENT.md`.
+Agents request tools via the `tools` field in `AGENT.md`. Under the `deepagents` runtime, the
+heavy lifting is done by the library's **native filesystem tools** (`write_file`, `read_file`,
+`edit_file`, `ls`, `glob`, `grep`) plus `write_todos` — these write to the per-run `RunSandbox`
+disk. `agents/factory.py::_build_runner_tools(spec, ctx)` maps each declared tool-set name onto
+`(custom_tools, exclude_builtin_tools)`:
 
-### Step 1 — Implement the tool factory in `app/agents/tools/`
+| `tools` value | What the agent gets | Notes |
+|---|---|---|
+| `[]` (text-only) | `([], exclude_builtin=True)` | Pure-text stream, **no** tool chips in the UI. The library's built-in tools are excluded entirely. |
+| `"workspace"` | `([], exclude_builtin=False)` | Code-gen agents. Native fs tools write deliverables to the sandbox; `serialize_sandbox_deliverable()` turns them into the `filename:`-block output the frontend FilesTab/AppBuilderPreview parse. |
+| `"prototype"` / `"prototype_emit_only"` | `([report_task_complete], exclude_builtin=False)` | Prototype agents write `prototype.html` via native `write_file`/`edit_file` and call `report_task_complete` (drives `task_progress`). |
+| `"planning"` | `(PLANNING_TOOLS, exclude_builtin=True)` | Stub planning tools (`agents/planner/tools.py`); no disk access. Used by the deep-planner. |
 
-Create a new file (e.g., `app/agents/tools/analytics.py`) that exposes a `make_*_tools()` factory function returning a list of LangChain tool objects:
+The **library sub-agent dispatch tool (`task`) is always excluded** so the model cannot spawn
+its own sub-agents — the engine orchestrates per-task sub-agents itself (prototype build loop).
+Tool exclusion is enforced by a per-graph `_ToolFilterMiddleware` inside `DeepAgentRunner`
+(built on the public `AgentMiddleware` / `ModelRequest.override` API).
 
-```python
-# app/agents/tools/analytics.py
-from langchain_core.tools import tool
+`report_task_complete` (`app/agents/tools/runner_tools.py`) is **store-free**: it just returns a
+confirmation string. The engine derives `task_progress` from the tool's call/result events
+(reading `task_number`/`task_title` from the args) — it records nothing itself.
 
-@tool
-def query_metrics(metric_name: str) -> str:
-    """Query a named metric from the analytics store."""
-    ...
+### Adding a custom runner tool
 
-@tool
-def list_dashboards() -> str:
-    """List all available analytics dashboards."""
-    ...
-
-def make_analytics_tools() -> list:
-    return [query_metrics, list_dashboards]
-```
-
-### Step 2 — Register the tool set in `agents/factory.py`
-
-Open `agents/factory.py` and add a branch to `_build_tools()`:
-
-```python
-def _build_tools(spec, ctx: AgentContext) -> list:
-    from app.agents.tools.analytics import make_analytics_tools  # ← add import
-
-    tools: list = []
-    for tool_name in spec.tools:
-        if tool_name == "workspace":
-            ...
-        elif tool_name == "prototype":
-            ...
-        elif tool_name == "analytics":                    # ← add branch
-            tools.extend(make_analytics_tools())
-        else:
-            raise ValueError(
-                f"Unrecognized tool name '{tool_name}' in agent '{spec.id}'. "
-                f"Supported tool sets: 'workspace', 'prototype', 'analytics'."
-            )
-    return tools
-```
-
-### Step 3 — Use the tool set in an AGENT.md
-
-```yaml
-tools: ["analytics"]
-```
-
-### Existing Tool Sets
-
-**`workspace`** — file I/O for code-generating agents
-
-| Tool | Purpose |
-|------|---------|
-| `write_file` | Write content to a file in the agent workspace |
-| `read_file` | Read the content of a file from the agent workspace |
-| `list_workspace_files` | List all files currently in the agent workspace |
-
-**`prototype`** — HTML prototype generation
-
-| Tool | Purpose |
-|------|---------|
-| `read_template_seed` | Read the base HTML template seed for the prototype |
-| `read_layout_reference` | Read the layout reference document |
-| `read_checklist` | Read the prototype quality checklist |
-| `todo_write` | Write a TODO item to the prototype task list |
-| `emit_artifact` | Emit a completed artifact (HTML file) to the artifact store |
+1. Implement a LangChain `@tool` (e.g. in `app/agents/tools/`) returning a string result.
+2. Add a branch to `_build_runner_tools(spec, ctx)` in `agents/factory.py` that appends your
+   tool for the new tool-set name (and sets `exclude_builtin` appropriately — `False` if the
+   agent also needs the native fs tools, `True` for a no-disk tool-only agent). An unrecognized
+   tool-set name raises `ValueError` naming the tool and the agent ID.
+3. Declare it in the agent's `AGENT.md`: `tools: ["your_set"]`.
 
 ---
 
 ## Skills vs Guardrails vs Hooks
 
-These three mechanisms all inject content into an agent's system prompt, but they serve different purposes and come from different sources.
+These three mechanisms all inject content into an agent's system prompt (via
+`_compose_system_prompt` in `agents/factory.py`), but they come from different sources and
+inject in a fixed order: **injects → guardrails → skills → hooks → constitution → prompt body**.
 
 ### Guardrails
 
-- **What**: Terse, platform-specific rule sets stored as markdown files in `agents/guardrails/`.
-- **Source**: Filesystem — authored by engineers, version-controlled alongside the codebase.
-- **Scope**: Reusable across many agents. A single guardrail file can be referenced by dozens of agents.
+- **What**: Terse, platform-specific rule sets stored as markdown in `agents/guardrails/`.
+- **Source**: Filesystem — authored by engineers, version-controlled.
+- **Scope**: Reusable across many agents.
 - **Declared in**: The `guardrails` list in `AGENT.md` frontmatter.
-- **Injection position**: First — before skills, hooks, and the prompt body.
-- **When to use**: When you want to enforce consistent platform conventions (e.g., "all TypeScript agents must follow strict mode") across a group of agents without duplicating the rules in every prompt.
+- **When to use**: Consistent platform conventions across a group of agents.
 
 ### Skills
 
 - **What**: User-attached capability documents provided at runtime through the UI.
-- **Source**: Runtime — attached by the end user when submitting a request (e.g., "use our internal design system").
-- **Scope**: Session-scoped. Skills are passed in `AgentContext.attached_skills` and apply only to the current pipeline run.
-- **Declared in**: Not in `AGENT.md` — passed via `AgentContext` by the orchestrator.
-- **Injection position**: Second — after guardrails, before hooks and the prompt body.
-- **When to use**: When users need to inject project-specific context (brand guidelines, coding standards, domain knowledge) that varies per request.
+- **Source**: Runtime — attached by the end user per request.
+- **Scope**: Session-scoped — passed in `AgentContext.attached_skills`, applies only to the
+  current run.
+- **When to use**: Project-specific context (brand guidelines, coding standards) that varies
+  per request.
 
 ### Hooks
 
-- **What**: Event-driven guideline blocks attached by the user at runtime.
-- **Source**: Runtime — attached by the end user (e.g., "always output a summary section at the end").
-- **Scope**: Session-scoped. Hooks are passed in `AgentContext.attached_hooks` and apply only to the current pipeline run.
-- **Declared in**: Not in `AGENT.md` — passed via `AgentContext` by the orchestrator.
-- **Injection position**: Third — after guardrails and skills, immediately before the prompt body.
-- **When to use**: When users need to add output format requirements or post-processing instructions that apply to every agent in a run.
+- **What**: Event-driven behavioral guideline blocks attached by the user at runtime.
+- **Source**: Runtime — attached by the end user.
+- **Scope**: Session-scoped — passed in `AgentContext.attached_hooks`. The factory synthesizes
+  an "Active Behavioral Hooks" block from each hook's name/event/description.
+- **When to use**: Output-format or post-processing instructions applied to every agent in a run.
 
 ### Summary
 
@@ -475,115 +468,127 @@ These three mechanisms all inject content into an agent's system prompt, but the
 |---|---|---|---|
 | Source | Filesystem (version-controlled) | Runtime (user-attached) | Runtime (user-attached) |
 | Scope | Reusable across agents | Per-session | Per-session |
-| Declared in | `AGENT.md` frontmatter | `AgentContext` | `AgentContext` |
-| Injection order | 1st | 2nd | 3rd |
-| Best for | Platform conventions | Project-specific context | Output format requirements |
+| Declared in | `AGENT.md` frontmatter | `AgentContext.attached_skills` | `AgentContext.attached_hooks` |
+| Injection order | after `injects` | after guardrails | after skills (before constitution + body) |
+| Best for | Platform conventions | Project-specific context | Output-format requirements |
+
+> A per-user **Constitution** (from Workflow_Memory) is injected last, just before the prompt
+> body, by `_inject_constitution`. `injects` (template / design system / craft, for the
+> od_prototype/od_ppt agents) is composed first by `_compose_injection`.
+
+---
+
+## The free-chat path
+
+The conversational **`user_message`** WebSocket path is a **separate subsystem** from the
+pipeline runtime above. It currently runs on the legacy `AgentOrchestrator` / `BaseAgent` stack
+(`app/agents/orchestrator.py`, `app/agents/base.py`) — a multi-phase generator
+(Discovery → Requirements → UserStories/PPT/Prototype/UIDesign → Preview) with its own event
+vocabulary (`phase_start` / `stream` / `phase_end` / `complete`). This stack is **being migrated
+onto the new runtime as a dedicated `ChatRunner` in migration Phase 7b**
+([specs/002-deepagents-migration/plan.md](../specs/002-deepagents-migration/plan.md)); do not
+extend it. The legacy `app/agents/deep_agent.py` (`DeepAgent`) is similarly transitional — it
+powers title generation only and is being replaced by a direct `build_model().ainvoke` one-shot.
 
 ---
 
 ## Testing
 
+Tests live under `backend/tests/`, split into:
+- `tests/agents/` — the agent runtime: loader, registry, factory, guardrails, the deepagents
+  runner/sandbox/static-check, and the migration's verify-gate tests.
+- `tests/unit/` — engine, API, registry-consumer, resolver, workflow-memory, and other
+  unit-level suites.
+- `tests/integration/`, `tests/properties/`, `tests/fixtures/` — integration, Hypothesis
+  property tests, and shared fixtures.
+
 ### Running the Test Suite
+
+Use the project Python (`python3.11`, no venv — see the dev-runtime memory note):
 
 ```bash
 cd backend
 
-# Run all agent tests
-python -m pytest tests/agents/ -v
+# Agent-runtime tests
+python3.11 -m pytest tests/agents/ -v
 
-# Run a specific test file
-python -m pytest tests/agents/test_loader.py -v
-python -m pytest tests/agents/test_factory.py -v
-python -m pytest tests/agents/test_registry.py -v
-python -m pytest tests/agents/test_guardrails.py -v
-python -m pytest tests/agents/test_orchestrator.py -v
+# Specific files
+python3.11 -m pytest tests/agents/test_loader.py -v
+python3.11 -m pytest tests/agents/test_registry.py -v
+python3.11 -m pytest tests/agents/test_create_runner.py -v
+python3.11 -m pytest tests/agents/test_static_check.py -v
 
-# Run property-based tests only (Hypothesis)
-python -m pytest tests/agents/ -k "property" -v
+# Unit suites
+python3.11 -m pytest tests/unit/ -v
 
-# Run with coverage
-python -m pytest tests/agents/ --cov=agents --cov-report=term-missing
+# Property-based tests (Hypothesis)
+python3.11 -m pytest tests/properties/ -v
 ```
 
 ### Test Categories
 
-#### Schema Validation Tests (`test_loader.py`)
+#### Loader / schema tests (`tests/agents/test_loader.py`)
 
-Calls `load_agent_spec` for every agent ID discoverable in `agents/prompts/` and asserts:
-- Each returns a valid `AgentSpec` with no missing required fields.
-- `spec.id` matches the directory name.
-- All field values satisfy their constraints (`max_tokens` in 1–32768, `order` positive integer, etc.).
+Calls `load_agent_spec` for every agent ID in `agents/prompts/` and asserts each returns a valid
+`AgentSpec` (no missing required fields, `spec.id` matches the directory, `max_tokens` in
+1–32768, `order` a positive integer, etc.). Also covers error conditions (unknown ID →
+`FileNotFoundError`; duplicate `order` within a pipeline → `AgentSpecError`; caching).
 
-Run these after adding or editing any `AGENT.md` file.
+#### Registry tests (`tests/agents/test_registry.py`, `tests/agents/test_registry_helpers.py`)
 
-#### Loader Unit Tests (`test_loader.py`)
+`get_pipeline_agents` ordering (strictly ascending `order`, no duplicates) and the flat-list /
+by-id / `allowed_custom_agent_ids` helpers (including the od_ pipeline handling).
 
-Tests for specific loader behaviors and error conditions:
-- `load_agent_spec` with a non-existent agent ID → `FileNotFoundError` with path in message.
-- `load_agent_spec` with an unreadable file → `PermissionError` with path in message.
-- `load_agent_spec` called twice for the same ID → second call returns the cached instance.
-- `list_agent_ids` with an unknown pipeline type → returns `[]`.
-- Duplicate `order` within a pipeline → `AgentSpecError` naming both conflicting agent IDs.
+#### Runner / sandbox tests (`tests/agents/test_create_runner.py`, `test_sandbox_deliverable.py`)
 
-#### Factory Unit Tests (`test_factory.py`)
+`create_runner` for one agent of each class behaves correctly against a scripted model + a temp
+`RunSandbox`: text-only streams pure text (no tool chips); code-gen writes a file to the sandbox
+disk; prototype-build writes `prototype.html` + emits a `report_task_complete` event; planning
+exposes `PLANNING_TOOLS`. `serialize_sandbox_deliverable` is byte-checked against the
+`filename:`-block format the UI expects.
 
-Tests for tool resolution and prompt composition:
-- `create_agent` with `tools: []` → `DeepAgent` has an empty tools list.
-- `create_agent` with `tools: ["workspace"]` → workspace tools only.
-- `create_agent` with `tools: ["prototype"]` → prototype tools only.
-- `create_agent` with `tools: ["workspace", "prototype"]` → union of both sets.
-- `create_agent` with an unknown tool name → `ValueError` with tool name and agent ID.
-- `create_agent` with an unknown agent ID → `FileNotFoundError` propagated.
-- Missing guardrail file → warning logged, agent still runs with empty guardrail block.
+#### Validation tests (`tests/agents/test_static_check.py`, `test_phase4_build_loop.py`, `test_phase5_*`)
 
-#### Factory Smoke Tests (`test_factory.py`)
+`static_check` structural checks; the prototype per-task build loop (Both-validation + bounded
+fix-loop); the revision smart-hybrid fix-loop selection + parent-context seeding.
 
-For the first agent (by `order`) of each pipeline type, calls `create_agent` and asserts the returned `DeepAgent` has a non-empty `system_prompt`. Catches wiring regressions across all pipelines.
+#### Cutover tests (`tests/agents/test_phase3_cutover_verify.py`)
 
-#### Registry Unit Tests (`test_registry.py`)
+The engine→runner cutover and the runner's event-stream behavior.
+`test_deep_agent_runner_hitl_live.py` is opt-in / SSO-gated (real Bedrock); scripted-model
+helpers live in `tests/agents/_scripted_model.py`.
 
-- `get_pipeline_agents` with an unsupported pipeline type → returns `[]`.
-- `get_pipeline_agents` propagates `FileNotFoundError` from the loader.
-- `get_pipeline_agents` propagates `AgentSpecError` from the loader.
-- Registry contains no `AgentDefinition` instances or prompt strings.
+#### Guardrail tests (`tests/agents/test_guardrails.py`)
 
-#### Pipeline Ordering Tests (`test_registry.py`)
+All nine guardrail files satisfy the structural constraints; a guardrail's content appears
+verbatim in the composed system prompt.
 
-Calls `list_agent_ids(pipeline_type)` for every pipeline type and asserts the returned IDs are in strictly ascending `order` sequence with no duplicates.
+#### Engine / API unit tests (`tests/unit/`)
 
-#### Guardrail Tests (`test_guardrails.py`)
+`test_execution_engine.py`, `test_run_pipeline_validation.py`, `test_agents_api_real_registry.py`,
+`test_workflow_resolver.py`, `test_resumability.py`, `test_revision_*`, etc.
 
-- All nine guardrail files satisfy structural constraints: fewer than 60 lines, no fenced code blocks, no YAML frontmatter.
-- `create_agent` for an agent that declares at least one guardrail → the guardrail file's full content appears verbatim in the `DeepAgent`'s `system_prompt`.
+### Test recipe notes (deepagents)
 
-#### Orchestrator Tests (`test_orchestrator.py`)
+- **Scripted models**: stock LangChain fakes do **not** drive the deepagents loop. Use a minimal
+  `BaseChatModel` whose `_stream` yields `AIMessageChunk`s with `tool_call_chunks` +
+  `usage_metadata` and a no-op `bind_tools`; inject the instance as `model_id` (→ `ctx.model`).
+- **`RUNS_ROOT`**: defaults to `/app/runs` (not writable locally) — monkeypatch it to a temp dir
+  before `create_runner`.
+- **`render_check`**: Chromium runs for real locally and degrades to a *skip* if unavailable.
 
-- `user_stories` pipeline executed end-to-end with a mocked LLM → all 6 agents fire in correct order, `len(WorkflowState.agent_outputs) == 6`.
-- If `create_agent` raises for one agent → `agent_error` event emitted, pipeline halts.
-- Context routing: `context_from: []` → `agent_outputs == {}`; `context_from: ["$previous"]` → exactly one key; explicit IDs → exactly those keys.
-
-#### Property-Based Tests (Hypothesis)
-
-Property tests use `@given` + `@settings(max_examples=100)` and are tagged with the property they validate:
-
-| Property | What it tests |
-|----------|--------------|
-| Property 1: AgentSpec round-trip | Serialize a random valid `AgentSpec` to `AGENT.md`, parse back, assert all fields match |
-| Property 2: Invalid AGENT.md raises AgentSpecError | Any `AGENT.md` with a missing/invalid required field always raises `AgentSpecError` with field name and path |
-| Property 3: Duplicate order raises AgentSpecError | Two agents sharing the same `order` in a pipeline always raises `AgentSpecError` |
-| Property 4: list_agent_ids strictly ascending | `list_agent_ids` always returns IDs in strictly ascending `order` with no duplicates |
-| Property 5: context_from routing | `AgentContext.agent_outputs` contains exactly the keys specified by `context_from` |
-| Property 6: System prompt composition order | Guardrails always precede skills, skills precede hooks, hooks precede prompt body |
-| Property 7: Guardrail content verbatim | Guardrail file content always appears verbatim (unmodified) in the composed system prompt |
-| Property 8: Guardrail structural constraints | All nine guardrail files satisfy line count, no code blocks, no frontmatter |
-| Property 9: All AGENT.md files valid | Every discoverable `AGENT.md` produces a valid `AgentSpec` with `spec.id == directory_name` |
-| Property 10: WebSocket events complete | Any pipeline run with a mocked LLM emits all required event types with required fields |
+> Migration Phase 7 is excising the dead pipeline-legacy and free-chat code, so some suites
+> are being rewritten/removed alongside it (e.g. the old `test_factory.py` covering the deleted
+> `create_agent`/`_build_tools` path). The live pipeline contract is covered by the
+> `tests/agents/` runner/registry/loader/static-check suites and the `tests/unit/` engine/API
+> suites above.
 
 ---
 
 ## Commit Conventions
 
-All commits to this repository must use a scoped prefix that identifies the subsystem being changed. This makes the git log scannable and enables automated changelog generation.
+All commits use a scoped prefix identifying the subsystem being changed, so the git log is
+scannable and changelog generation is possible.
 
 ### Required Prefix Format
 
@@ -598,32 +603,33 @@ All commits to this repository must use a scoped prefix that identifies the subs
 | Scope | Use for |
 |-------|---------|
 | `agents` | New or modified `AGENT.md` files, new agent folders |
-| `orchestrator` | Changes to `orchestrator_v2.py` |
-| `prompts` | Bulk prompt edits, prompt body rewrites |
+| `engine` | Changes to `agents/execution_engine/` (the `ExecutionEngine` sequencer) |
+| `runner` | Changes to `app/agents/deep_agent_runner.py` (the deepagents adapter) |
+| `prompts` | Bulk prompt edits, prompt-body rewrites |
 | `guardrails` | New or modified guardrail files in `agents/guardrails/` |
 | `loader` | Changes to `agents/loader.py` |
-| `factory` | Changes to `agents/factory.py` |
+| `factory` | Changes to `agents/factory.py` (`create_runner` / prompt + tool composition) |
 | `registry` | Changes to `agents/registry.py` |
-| `tools` | Changes to `app/agents/tools/` |
+| `tools` | Changes to runner tools (`app/agents/tools/`) |
+| `sandbox` | Changes to `app/agents/sandbox.py` / `model_factory.py` / `checkpointer.py` |
 | `tests` | New or modified test files |
 
 ### Examples
 
 ```
 feat(agents): add story-estimator agent to user_stories pipeline
-fix(orchestrator): preserve retry logic for ThrottlingException
-chore(prompts): rewrite app-code-generator prompt body for clarity
-feat(guardrails): add openapi guardrail for API design agents
+fix(engine): make prototype task_progress count cumulative across the build loop
+refactor(factory): drop the per-agent max_iterations map (recursion_limit backstop)
+feat(runner): map LangGraph interrupt to a gate event via post-loop aget_state
+feat(guardrails): add openapi guardrail for API-design agents
 fix(loader): raise AgentSpecError when max_tokens exceeds 32768
-feat(factory): add analytics tool set registration
-test(agents): add property test for AgentSpec round-trip (Property 1)
-docs(agents): update CLAUDE.md with reverse_engineer pipeline steps
-refactor(registry): remove legacy AgentDefinition references
+test(agents): add create_runner isolation test for the prototype-build class
+docs(agents): refresh CLAUDE.md to the deepagents runtime
 ```
 
 ### Rules
 
 - Keep the subject line under 72 characters.
-- Use the imperative mood ("add", "fix", "remove" — not "added", "fixes", "removed").
-- Reference the relevant requirement ID in the commit body when applicable (e.g., `Implements: Requirement 8.1`).
+- Use the imperative mood ("add", "fix", "remove").
+- Reference the relevant requirement/plan ID in the commit body when applicable.
 - Never commit directly to `main`. Open a pull request and request review.

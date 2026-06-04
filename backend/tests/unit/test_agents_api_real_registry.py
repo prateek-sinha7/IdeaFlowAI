@@ -19,8 +19,9 @@ the two latent bugs the repoint fixes:
 The endpoint tests use a FastAPI ``TestClient`` with ``get_current_user``
 overridden (the same pattern as ``test_skill_content_guard.py``); the
 allow-list tests drive the real registry helper directly (policy decisions
-belong at the unit layer — see ``test_run_pipeline_validation.py``, which still
-covers the now-dead *legacy* helper and is intentionally left untouched).
+belong at the unit layer — see ``test_run_pipeline_validation.py``, which after
+the Phase-7a legacy excision also drives the REAL ``agents.registry`` helper +
+``agents.loader.SUPPORTED_PIPELINE_TYPES``).
 """
 
 from __future__ import annotations
@@ -266,16 +267,33 @@ class TestRealAllowedCustomAgentIds:
         # The retired Approach-1 id must NOT be accepted any more.
         assert "requirements-analyst" not in allowed
 
-    def test_websocket_imports_the_real_helper(self):
+    def test_websocket_binds_the_real_helper(self):
         """Belt-and-braces: the symbol the repointed websocket handler binds is
-        the REAL registry's helper, not the legacy one. (The import is lazy, so
-        we resolve it the same way the handler does.)
-        """
-        from agents.registry import allowed_custom_agent_ids as real_helper
+        the REAL registry's helper (``agents.registry``), resolved the same way
+        the handler does (a lazy import at ``websocket.py:1002``).
 
-        # Importing from the legacy module must yield a *different* object.
-        from app.agents.registry import (
-            allowed_custom_agent_ids as legacy_helper,
+        Phase 7a removed the legacy ``app.agents.registry`` module, so there is
+        no longer a second helper to contrast against. Instead we pin the REAL
+        helper's behavior with hard-coded expected sets (so the coverage the old
+        ``is not legacy_helper`` parity arm gave — "the right callable is wired"
+        — is preserved without the dead import).
+        """
+        from agents.registry import (
+            PIPELINE_AGENTS,
+            allowed_custom_agent_ids as real_helper,
         )
 
-        assert real_helper is not legacy_helper
+        # The handler imports the helper from ``agents.registry`` (NOT the
+        # deleted ``app.agents.registry``); this resolves to the live callable.
+        import agents.registry as real_registry_mod
+        assert real_helper is real_registry_mod.allowed_custom_agent_ids
+
+        # And it returns the REAL, tight allow-lists (the values the repointed
+        # handler now enforces) — pinned without any legacy reference:
+        custom_pool = set(PIPELINE_AGENTS["custom"])
+        # ppt → real od-ppt agents ∪ custom pool.
+        assert real_helper("ppt") == set(PIPELINE_AGENTS["ppt"]) | custom_pool
+        # prototype → real Spec-Kit agents ∪ custom pool.
+        assert real_helper("prototype") == set(PIPELINE_AGENTS["prototype"]) | custom_pool
+        # custom → the tight utility pool only (NOT the legacy union-of-all).
+        assert real_helper("custom") == custom_pool

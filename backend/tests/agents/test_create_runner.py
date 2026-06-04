@@ -32,9 +32,10 @@ assert each produces a correctly-configured runner that *behaves*:
 
 THE SCRIPTED FAKE MODEL
 -----------------------
-Reuses the proven recipe from ``tests/agents/test_deep_agent_runner_parity.py`` (the stock
-``GenericFakeChatModel``/``FakeMessagesListChatModel`` do NOT work — they raise on
-``bind_tools`` and drop ``tool_calls``/``usage_metadata``). :class:`_ScriptedFakeChatModel`
+Reuses the proven recipe (the stock ``GenericFakeChatModel``/
+``FakeMessagesListChatModel`` do NOT work — they raise on ``bind_tools`` and drop
+``tool_calls``/``usage_metadata``; the shared recipe now lives in
+``tests/agents/_scripted_model.py``). :class:`_ScriptedFakeChatModel`
 is a minimal ``BaseChatModel`` that:
   * streams a different scripted turn per successive invocation (tracked by an internal
     cursor) so a multi-turn tool sequence (write → report → final text) plays out;
@@ -109,9 +110,9 @@ class _ScriptedFakeChatModel(BaseChatModel):
     """Minimal ``BaseChatModel`` that streams a different scripted turn per call and
     records the tools it is offered on each ``bind_tools`` call.
 
-    See ``tests/agents/test_deep_agent_runner_parity.py`` for why the stock LangChain
-    fakes are unusable and why ``chunk_position="last"`` on each turn's final chunk is
-    required.
+    See ``tests/agents/_scripted_model.py`` for the shared recipe and why the stock
+    LangChain fakes are unusable (and why ``chunk_position="last"`` on each turn's
+    final chunk is required).
     """
 
     # We stash non-pydantic call state via object.__setattr__, so allow it.

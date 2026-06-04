@@ -5,7 +5,7 @@ import json
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from jose import JWTError
@@ -53,6 +53,25 @@ def _cleanup_pipeline(pipeline_run_id: str) -> None:
 def _get_db() -> Session:
     """Create a new database session for WebSocket use."""
     return SessionLocal()
+
+
+def _extract_message_text(content: Any) -> str:
+    """Pull plain text out of a chat-model response ``content`` payload.
+
+    Anthropic returns a ``str``; Bedrock returns a list of content blocks
+    (e.g. ``[{"type": "text", "text": "..."}]``). Mirrors the
+    ``_extract_text`` helper used by the agent runtime so one-shot calls here
+    decode model output identically.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            block.get("text", "")
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+    return ""
 
 
 def _authenticate_token(token: str, db: Session) -> User | None:
@@ -210,24 +229,25 @@ async def _generate_workflow_title(
     if not clean_content:
         return
     try:
-        from app.agents.deep_agent import DeepAgent
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        from app.agents.model_factory import build_model
 
         hint = _WORKFLOW_TITLE_PIPELINE_HINTS.get(pipeline_type, "AI workflow")
-        # tools=[] intentional: title generation is a single-call utility,
-        # not a pipeline agent (constitution §II — no BaseAgent).
-        title_agent = DeepAgent(
-            system_prompt=(
+        # Direct one-shot model call: title generation is a single-call
+        # utility, not a pipeline agent (constitution §II — no BaseAgent).
+        llm = build_model(max_tokens=64)
+        resp = await llm.ainvoke([
+            SystemMessage(content=(
                 "Generate a short, professional title (3-7 words) for a "
                 f"workflow that produces a {hint} based on the user's input. "
                 "The title should describe the topic of the deliverable, "
                 "not the workflow type itself. Return ONLY the title text "
                 "— no quotes, no trailing punctuation, no explanation."
-            ),
-            tools=[],
-            max_tokens=64,
-            max_iterations=1,
-        )
-        generated_title = await title_agent.run(clean_content)
+            )),
+            HumanMessage(content=clean_content),
+        ])
+        generated_title = _extract_message_text(resp.content)
         generated_title = generated_title.strip().strip('"').strip("'").strip(".")[:80]
         if not generated_title:
             return
@@ -736,19 +756,22 @@ async def websocket_chat(websocket: WebSocket):
             # Auto-generate chat title from first message (like ChatGPT)
             if needs_title:
                 try:
-                    from app.agents.deep_agent import DeepAgent
-                    # tools=[] intentional: chat-title generation is a single-call
-                    # utility, not a pipeline agent (constitution §II — no BaseAgent).
-                    title_agent = DeepAgent(
-                        system_prompt=(
+                    from langchain_core.messages import HumanMessage, SystemMessage
+
+                    from app.agents.model_factory import build_model
+                    # Direct one-shot model call: chat-title generation is a
+                    # single-call utility, not a pipeline agent (constitution
+                    # §II — no BaseAgent).
+                    llm = build_model(max_tokens=64)
+                    resp = await llm.ainvoke([
+                        SystemMessage(content=(
                             "Generate a very short title (3-5 words max) for a chat conversation "
                             "based on the user's first message. Return ONLY the title text, nothing else. "
                             "No quotes, no punctuation at the end, no explanation. Just the title."
-                        ),
-                        tools=[],
-                        max_iterations=1,
-                    )
-                    generated_title = await title_agent.run(content)
+                        )),
+                        HumanMessage(content=content),
+                    ])
+                    generated_title = _extract_message_text(resp.content)
                     # Clean up the title
                     generated_title = generated_title.strip().strip('"').strip("'").strip(".")[:60]
                     if generated_title:

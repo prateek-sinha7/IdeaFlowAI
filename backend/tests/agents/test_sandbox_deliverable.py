@@ -1,27 +1,31 @@
-"""Task #40 verify gate — byte-equivalence of the on-disk deliverable serialiser.
+"""Verify gate — byte-equivalence of the on-disk deliverable serialiser.
 
 WHAT THIS PROVES
 ----------------
-Phase 3 (Task #42) will read code-gen deliverables from the per-run disk sandbox
-(written by the native ``deepagents`` ``write_file`` tool) instead of the
-in-memory ``AgentWorkspace``. The engine currently turns the workspace into the
-``WorkflowRun.output`` string via ``AgentWorkspace.to_final_output()`` —
+The engine reads code-gen deliverables from the per-run disk sandbox (written by
+the native ``deepagents`` ``write_file`` tool) and serialises them into the
+``WorkflowRun.output`` string via
+``app.agents.sandbox.serialize_sandbox_deliverable(root)`` —
 ````` ```filename: <path>\n<content>\n``` ````` blocks, sorted by path, joined by
 a blank line, with the ``"(no files written)"`` sentinel when empty — which the
 frontend FilesTab / AppBuilderPreview parse.
 
-``app.agents.sandbox.serialize_sandbox_deliverable(root)`` is the additive,
-isolated disk analogue. The acceptance bar (this module): for any realistic set
-of ``(path, content)`` pairs, writing them into a temp dir and serialising it
-must return a string **byte-identical** to building an ``AgentWorkspace``,
-``write_file``-ing the same pairs, and calling ``.to_final_output()`` (for the
-non-internal files, in sorted order).
+The acceptance bar (this module): for any realistic set of ``(path, content)``
+pairs, writing them into a temp dir and serialising it must return a string
+**byte-identical** to the pre-migration in-memory serialiser
+(``AgentWorkspace.to_final_output()``), for the non-internal files in sorted
+order. That legacy oracle's module (``app/agents/tools/workspace.py``) is dead
+pipeline-legacy removed in Phase 7a, so the oracle is now **inlined** below as a
+faithful, dependency-free reimplementation of its exact algorithm, and each
+fixture test additionally pins the expected output as a string LITERAL captured
+from the real oracle pre-deletion (so the golden bytes are independent of both
+the inlined oracle and the live serialiser, which stays fully covered).
 
 THE ONE FILESYSTEM CAVEAT (documented, not a deviation)
 -------------------------------------------------------
-``to_final_output()`` sorts an in-memory dict whose keys are case-SENSITIVE; a
-real filesystem on macOS/Windows is case-INSENSITIVE, so writing both ``A/x``
-and ``a/x`` would collapse to one file on disk and the directory casing would be
+The oracle sorts an in-memory dict whose keys are case-SENSITIVE; a real
+filesystem on macOS/Windows is case-INSENSITIVE, so writing both ``A/x`` and
+``a/x`` would collapse to one file on disk and the directory casing would be
 normalised — diverging the disk walk from the in-memory dict purely as a
 filesystem property, not an algorithm bug. Code-gen agents never emit two paths
 that differ only by case, so every test set here (incl. the Hypothesis strategy)
@@ -41,7 +45,56 @@ from app.agents.sandbox import (
     count_sandbox_deliverables,
     serialize_sandbox_deliverable,
 )
-from app.agents.tools.workspace import AgentWorkspace
+
+# ---------------------------------------------------------------------------
+# Inlined byte-oracle (the formerly-imported AgentWorkspace.to_final_output)
+# ---------------------------------------------------------------------------
+#
+# This module is the byte-equivalence verify gate for the LIVE
+# ``serialize_sandbox_deliverable`` / ``count_sandbox_deliverables``. Before the
+# Phase-7a legacy excision it imported ``app.agents.tools.workspace.AgentWorkspace``
+# and used ``AgentWorkspace.to_final_output()`` (+ ``file_count()``) as the oracle.
+# ``workspace.py`` is dead pipeline-legacy (deleted in 7a-4), so the oracle is now
+# INLINED here as a faithful, dependency-free reimplementation of the exact
+# ``to_final_output`` algorithm it replaced:
+#
+#     deliverable = {p: c for p, c in files.items() if p not in INTERNAL}
+#     if not deliverable: return "(no files written)"
+#     "\n\n".join(f"```filename: {path}\n{content}\n```"
+#                 for path, content in sorted(deliverable.items()))
+#
+# (verbatim from ``AgentWorkspace.to_final_output`` /
+# ``AgentWorkspace.file_count``; ``_INTERNAL_FILES == {"PLANNER.md"}``). The
+# individual fixture tests below ALSO assert the exact expected bytes as inline
+# string LITERALS (captured by running the real ``AgentWorkspace`` oracle once,
+# pre-deletion), so the golden output is pinned independently of this oracle and
+# the live serialiser stays fully covered.
+
+_INTERNAL_FILES = frozenset({"PLANNER.md"})
+_EMPTY_SENTINEL = "(no files written)"
+
+
+def _oracle_output(pairs: dict[str, str], *, internal=_INTERNAL_FILES) -> str:
+    """Reference serialisation — the inlined ``AgentWorkspace.to_final_output``.
+
+    Byte-faithful reimplementation of the legacy oracle: filter the internal
+    set, sort by path, emit one ``filename:`` block per file joined by ``\\n\\n``,
+    with the empty sentinel when nothing remains. ``pairs`` is the in-memory
+    ``{relpath: content}`` map the agent "wrote" (the workspace dict analogue).
+    """
+    deliverable = {p: c for p, c in pairs.items() if p not in internal}
+    if not deliverable:
+        return _EMPTY_SENTINEL
+    parts = [
+        f"```filename: {path}\n{content}\n```"
+        for path, content in sorted(deliverable.items())
+    ]
+    return "\n\n".join(parts)
+
+
+def _oracle_count(pairs: dict[str, str], *, internal=_INTERNAL_FILES) -> int:
+    """Reference deliverable count — the inlined ``AgentWorkspace.file_count``."""
+    return sum(1 for p in pairs if p not in internal)
 
 
 # ---------------------------------------------------------------------------
@@ -57,20 +110,12 @@ def _write_to_disk(root: Path, pairs: dict[str, str]) -> None:
         fp.write_text(content, encoding="utf-8")
 
 
-def _workspace_output(pairs: dict[str, str]) -> str:
-    """Build an ``AgentWorkspace`` from the pairs and return ``to_final_output()``."""
-    ws = AgentWorkspace()
-    for path, content in pairs.items():
-        ws.write_file(path, content)
-    return ws.to_final_output()
-
-
 def _assert_byte_identical(tmp_path: Path, pairs: dict[str, str]) -> str:
-    """Core assertion: disk serialiser == workspace ``to_final_output`` (bytes)."""
+    """Core assertion: disk serialiser == the inlined oracle (byte-for-byte)."""
     _write_to_disk(tmp_path, pairs)
     disk = serialize_sandbox_deliverable(tmp_path)
-    mem = _workspace_output(pairs)
-    assert disk == mem, f"diverged:\n--- disk ---\n{disk!r}\n--- mem ---\n{mem!r}"
+    mem = _oracle_output(pairs)
+    assert disk == mem, f"diverged:\n--- disk ---\n{disk!r}\n--- oracle ---\n{mem!r}"
     # Byte-level identity (encode to be unambiguous about "byte-identical").
     assert disk.encode("utf-8") == mem.encode("utf-8")
     return disk
@@ -130,6 +175,17 @@ def test_multiple_nested_files_sorted(tmp_path: Path) -> None:
         f"```filename: {p}\n{pairs[p]}\n```" for p in sorted(pairs)
     )
     assert out == expected
+    # And pin the FULL golden string as a literal (captured from the real
+    # AgentWorkspace.to_final_output oracle pre-deletion) — independent of the
+    # inlined oracle above.
+    assert out == (
+        "```filename: README.md\n# Project\n\n```\n\n"
+        "```filename: a/b/c.txt\ndeeply nested\n\n```\n\n"
+        '```filename: package.json\n{\n  "name": "x"\n}\n\n```\n\n'
+        "```filename: src/app.py\nprint('hi')\n\n```\n\n"
+        "```filename: src/components/Dashboard.tsx\n"
+        "export const Dashboard = () => null;\n\n```"
+    )
     # Ordering sanity: README.md (uppercase R, 0x52) sorts before lowercase dirs.
     assert out.index("README.md") < out.index("a/b/c.txt")
     assert out.index("a/b/c.txt") < out.index("package.json")
@@ -153,6 +209,12 @@ def test_planner_md_excluded_root(tmp_path: Path) -> None:
     assert "docs/guide.md" in out
     # Exactly the two deliverable files appear.
     assert out.count("```filename:") == 2
+    # Golden literal (captured from the real AgentWorkspace oracle pre-deletion):
+    # PLANNER.md filtered, the two survivors path-sorted (docs/ < src/).
+    assert out == (
+        "```filename: docs/guide.md\n# Guide\n\n```\n\n"
+        "```filename: src/main.py\nx = 1\n\n```"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -171,16 +233,31 @@ def test_content_with_fences_and_blank_lines(tmp_path: Path) -> None:
         "unicode.txt": "café — naïve — 🚀\n",
         "no_newline.py": "x = 1",  # deliberately no trailing newline
     }
-    _assert_byte_identical(tmp_path, pairs)
+    out = _assert_byte_identical(tmp_path, pairs)
+    # Golden literal (captured from the real AgentWorkspace oracle pre-deletion).
+    # Note the nested ```python fence inside guide.md round-trips verbatim, and
+    # the no-trailing-newline file emits ``x = 1\n``` `` (one \n from the format).
+    assert out == (
+        "```filename: guide.md\n# Title\n\n```python\nprint('x')\n```\n\nDone.\n```\n\n"
+        "```filename: no_newline.py\nx = 1\n```\n\n"
+        "```filename: unicode.txt\ncafé — naïve — 🚀\n\n```\n\n"
+        "```filename: weird.txt\n\n\nleading blank lines and trailing spaces   \n\n```"
+    )
 
 
 def test_empty_content_file(tmp_path: Path) -> None:
     # A zero-byte file must serialise identically (``...\n\n``` `` `` `).
-    _assert_byte_identical(tmp_path, {"empty.txt": "", "real.txt": "data\n"})
+    out = _assert_byte_identical(tmp_path, {"empty.txt": "", "real.txt": "data\n"})
+    # Golden literal: empty.txt → ``...\n\n``` `` (the format's two \n surround the
+    # empty content); real.txt follows after the ``\n\n`` block join.
+    assert out == (
+        "```filename: empty.txt\n\n```\n\n"
+        "```filename: real.txt\ndata\n\n```"
+    )
 
 
 # ---------------------------------------------------------------------------
-# 6. count_sandbox_deliverables mirrors AgentWorkspace.file_count()
+# 6. count_sandbox_deliverables mirrors the inlined file_count() oracle
 # ---------------------------------------------------------------------------
 
 
@@ -192,10 +269,9 @@ def test_count_matches_file_count(tmp_path: Path) -> None:
         "README.md": "r\n",
     }
     _write_to_disk(tmp_path, pairs)
-    ws = AgentWorkspace()
-    for p, c in pairs.items():
-        ws.write_file(p, c)
-    assert count_sandbox_deliverables(tmp_path) == ws.file_count() == 3
+    # 3 deliverables (PLANNER.md excluded) — matches the inlined file_count oracle
+    # AND the literal 3 captured from the real AgentWorkspace.file_count().
+    assert count_sandbox_deliverables(tmp_path) == _oracle_count(pairs) == 3
 
 
 def test_count_empty_and_only_internal(tmp_path: Path) -> None:

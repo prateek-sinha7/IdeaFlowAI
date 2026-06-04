@@ -42,14 +42,6 @@ PROTOTYPE_AGENTS_V2: list[str] = [
     "prototype-validate",  # Phase 4: P0/P1 structural validation
 ]
 
-#: Approach 1 — legacy single-shot (kept for reference, not used).
-PROTOTYPE_AGENTS_V1: list[str] = [
-    "requirements-analyst",
-    "html-prototype-builder",
-    "prototype-polisher",
-    "prototype-finalizer",
-]
-
 #: Revision pipeline — single agent.
 PROTOTYPE_REVISION_AGENTS: list[str] = [
     "prototype-revision-agent",

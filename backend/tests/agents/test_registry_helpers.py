@@ -2,10 +2,13 @@
 added to the REAL ``agents.registry``.
 
 Covers (per the Phase 6 plan, §5 T2 verify gate):
-  (a) allow-list PARITY vs the legacy ``app.agents.registry`` for the pipelines
-      that agree (user_stories, app_builder, and every *_revision).
+  (a) the allow-list shape for the (formerly legacy-parity) agreeing pipelines —
+      user_stories, app_builder, and every *_revision. The legacy
+      ``app.agents.registry`` was deleted in Phase 7a, so this is now pinned with
+      hard-coded expectations derived from the real ``PIPELINE_AGENTS`` rather
+      than compared against the legacy helper.
   (b) the REAL prototype ids surface for ``prototype`` and ``od_ppt`` is
-      NON-empty (the legacy ``od_ppt → ∅`` bug fix).
+      NON-empty (the formerly-``∅`` od_ppt bug fix, pinned directly).
   (c) ``get_agent_by_id`` returns a spec for a real id and ``None`` for a bogus
       id.
   (d) ``get_all_agents_flat`` returns de-duplicated AgentSpecs covering the
@@ -27,37 +30,45 @@ from agents.registry import (
     get_all_agents_flat,
 )
 
-# Legacy registry (the source we replicate for the agreeing pipelines).
-from app.agents.registry import (
-    allowed_custom_agent_ids as legacy_allowed_custom_agent_ids,
-)
-
-
-# Pipelines whose agent membership AGREES between the legacy and real
-# registries (confirmed by survey): user_stories, app_builder, and every
-# revision pipeline that exists in both. NOTE: prototype + ppt diverge (the
-# whole reason for the reconciliation) and ``custom`` is deliberately tightened
-# (real => the custom pool only; legacy => union of all agents), so none of
-# those three are parity-tested here.
+# Phase 7a removed the legacy ``app.agents.registry``. The original T2 verify
+# gate parity-tested YOUR allow-list against the legacy helper for the pipelines
+# that agreed (user_stories, app_builder, every revision). The legacy module is
+# gone, so that parity is now re-expressed as hard-coded expectations DERIVED
+# from the single source of truth (``PIPELINE_AGENTS``): a base pipeline's
+# allow-list = its own agents ∪ the custom pool; a revision pipeline's = its own
+# agents only. (prototype + ppt diverged from legacy by design, and ``custom`` is
+# deliberately tightened — those were never part of the parity guarantee.)
 _AGREEING_REVISION_PIPELINES = sorted(REVISION_BASE_MAP.keys())  # excludes od_ppt_revision
-_AGREEING_PIPELINES = ["user_stories", "app_builder", *_AGREEING_REVISION_PIPELINES]
+_AGREEING_BASE_PIPELINES = ["user_stories", "app_builder"]
+_CUSTOM_POOL = set(PIPELINE_AGENTS["custom"])
 
 
 # ---------------------------------------------------------------------------
-# (a) Parity vs legacy for the agreeing pipelines
+# (a) Allow-list shape for the (formerly legacy-parity) agreeing pipelines
 # ---------------------------------------------------------------------------
 
 
-class TestAllowListLegacyParity:
-    """For the pipelines that agree, YOUR allow-list must equal legacy's."""
+class TestAllowListAgreeingPipelines:
+    """The allow-list for the pipelines that used to be legacy-parity-tested now
+    matches hard-coded expectations derived from the real registry."""
 
-    @pytest.mark.parametrize("pipeline_type", _AGREEING_PIPELINES)
-    def test_allow_list_equals_legacy(self, pipeline_type: str):
+    @pytest.mark.parametrize("pipeline_type", _AGREEING_BASE_PIPELINES)
+    def test_base_allow_list_is_own_agents_plus_custom_pool(self, pipeline_type: str):
         real = allowed_custom_agent_ids(pipeline_type)
-        legacy = legacy_allowed_custom_agent_ids(pipeline_type)
-        assert real == legacy, (
+        expected = set(PIPELINE_AGENTS[pipeline_type]) | _CUSTOM_POOL
+        assert real == expected, (
             f"allow-list mismatch for {pipeline_type!r}: "
-            f"real-only={real - legacy}, legacy-only={legacy - real}"
+            f"unexpected={real - expected}, missing={expected - real}"
+        )
+        assert real, f"expected a non-empty allow-list for {pipeline_type!r}"
+
+    @pytest.mark.parametrize("pipeline_type", _AGREEING_REVISION_PIPELINES)
+    def test_revision_allow_list_is_own_agents_only(self, pipeline_type: str):
+        real = allowed_custom_agent_ids(pipeline_type)
+        expected = set(PIPELINE_AGENTS[pipeline_type])
+        assert real == expected, (
+            f"allow-list mismatch for {pipeline_type!r}: "
+            f"unexpected={real - expected}, missing={expected - real}"
         )
         assert real, f"expected a non-empty allow-list for {pipeline_type!r}"
 
@@ -110,14 +121,13 @@ class TestAllowListRealIdsAndOdFix:
         )
 
     def test_od_ppt_is_non_empty_bug_fix(self):
-        """The legacy ``od_ppt → ∅`` bug rejected every od_ppt custom run.
-        The fix treats od_ppt as a base pipeline: own agents ∪ custom pool."""
+        """The legacy ``od_ppt → ∅`` bug rejected every od_ppt custom run. The
+        fix treats od_ppt as a base pipeline: own agents ∪ custom pool. (The
+        legacy registry that returned ``∅`` here was deleted in Phase 7a; the
+        intended NON-empty result is pinned directly.)"""
         allowed = allowed_custom_agent_ids("od_ppt")
         assert allowed, "od_ppt allow-list must be non-empty (bug fix)"
         assert allowed == set(PIPELINE_AGENTS["od_ppt"]) | set(PIPELINE_AGENTS["custom"])
-        # Legacy returned empty — prove we diverge in the intended direction.
-        assert allowed != legacy_allowed_custom_agent_ids("od_ppt")
-        assert legacy_allowed_custom_agent_ids("od_ppt") == set()
 
     def test_od_ppt_revision_is_tight(self):
         """od_ppt_revision is a revision (not in REVISION_BASE_MAP, caught by the

@@ -22,16 +22,16 @@ from app.core.config import settings
 
 logger = logging.getLogger("app.agents.sandbox")
 
-# Default deliverable exclusion set — mirrors
-# ``AgentWorkspace._INTERNAL_FILES`` (``app/agents/tools/workspace.py``). The
-# engine writes ``PLANNER.md`` as an internal planning artifact, so it must not
-# appear in the deliverable string the FilesTab / AppBuilderPreview parse.
+# Default deliverable exclusion set — the engine writes ``PLANNER.md`` as an
+# internal planning artifact, so it must not appear in the deliverable string
+# the FilesTab / AppBuilderPreview parse. (Mirrors the now-removed legacy
+# ``AgentWorkspace._INTERNAL_FILES``; the byte-oracle for this serialisation is
+# pinned by ``tests/agents/test_sandbox_deliverable.py``.)
 _DELIVERABLE_EXCLUDE: frozenset[str] = frozenset({"PLANNER.md"})
 
-# Sentinel emitted when no deliverable files exist — byte-identical to
-# ``AgentWorkspace.to_final_output()`` so the Phase-3 engine produces the same
-# ``WorkflowRun.output`` whether deliverables came from the in-memory workspace
-# or the on-disk sandbox.
+# Sentinel emitted when no deliverable files exist — kept byte-identical to the
+# legacy deliverable format so the engine produces the same ``WorkflowRun.output``
+# string from the on-disk sandbox.
 _EMPTY_SENTINEL = "(no files written)"
 
 # Map any user/run identifier to ONE safe path segment. user_id is a UUID or an
@@ -124,16 +124,15 @@ def sweep_expired(*, ttl_hours: int | None = None, runs_root: str | None = None)
 
 
 # ---------------------------------------------------------------------------
-# Deliverable serialisation — disk analogue of AgentWorkspace.to_final_output()
+# Deliverable serialisation — the disk deliverable format
 # ---------------------------------------------------------------------------
 #
-# The legacy code-gen path collects every file an agent wrote into an in-memory
-# ``AgentWorkspace`` and, at pipeline completion, calls ``to_final_output()`` to
-# turn it into the ``WorkflowRun.output`` string the frontend FilesTab /
+# The deliverable is the ``WorkflowRun.output`` string the frontend FilesTab /
 # AppBuilderPreview parse: one ```` ```filename: <path>\n<content>\n``` ````
 # block per deliverable file, sorted by path, joined by a blank line, with the
-# sentinel ``"(no files written)"`` when empty (see
-# ``app/agents/tools/workspace.py``).
+# sentinel ``"(no files written)"`` when empty. This reproduces the legacy
+# (now-removed) in-memory code-gen serialiser BYTE-FOR-BYTE; the byte-oracle is
+# pinned by ``tests/agents/test_sandbox_deliverable.py``.
 #
 # In the Phase-3 cutover the native ``deepagents`` ``write_file`` tool lands
 # those same files on the run sandbox disk instead. These helpers walk that

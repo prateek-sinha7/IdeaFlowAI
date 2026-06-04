@@ -36,7 +36,6 @@ SUPPORTED_PIPELINE_TYPES: frozenset[str] = frozenset(
         "od_ppt_revision",
         "prototype",
         "prototype_revision",
-        "prototype_v1",          # retired Approach 1 agents — kept for reference
         "app_builder",
         "app_builder_revision",
         "mulesoft_to_springboot",

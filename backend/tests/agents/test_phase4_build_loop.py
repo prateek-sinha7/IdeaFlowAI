@@ -11,12 +11,12 @@ bounded ``N=2`` same-sub-agent INTERNAL fix-loop. The migration's invariant is
 **UI-identical** — the user sees exactly ONE build per task; the validation +
 fix is "richer build underneath". This module is the COMMITTED guard for that
 contract (it survives the Phase-7 deletion of the legacy runtime + the transient
-``_parity_driver`` worktree harness).
+old-vs-new worktree parity harness).
 
 It drives the REAL ``_run_build_task_loop`` (engine-level, offline) with a
 controllable ``create_runner`` that hands each per-task / per-fix sub-agent a
 *scripted* ``BaseChatModel`` (the proven ``ScriptedFakeChatModel`` recipe from
-``tests/agents/_parity_driver.py``) over a REAL ``DeepAgentRunner`` + a temp
+``tests/agents/_scripted_model.py``) over a REAL ``DeepAgentRunner`` + a temp
 ``RunSandbox`` — so the native ``deepagents`` filesystem tools, the real
 validators, and the real fix-loop all execute. No network, no Bedrock.
 
@@ -66,7 +66,7 @@ from app.agents.deep_agent_runner import DeepAgentRunner
 from app.agents.sandbox import RunSandbox
 from app.agents.static_check import static_check
 from app.agents.tools.runner_tools import report_task_complete
-from tests.agents._parity_driver import ScriptedFakeChatModel, _ScriptedTurn, _drive
+from tests.agents._scripted_model import ScriptedFakeChatModel, _ScriptedTurn, _drive
 from tests.agents.test_phase3_cutover_verify import (
     _DOCUMENTED_EVENT_TYPES,
     _REQUIRED_DATA_KEYS,
@@ -166,7 +166,7 @@ _OD_CONTEXT = {
 def _fresh_engine(monkeypatch, tmp_path):
     """An ``ExecutionEngine`` wired for an offline ``_run_build_task_loop`` run.
 
-    Mirrors the neutralizers ``_parity_driver`` / ``TestCumulativeTaskProgress``
+    Mirrors the neutralizers ``_scripted_model`` / ``TestCumulativeTaskProgress``
     apply: a temp ``RUNS_ROOT`` (the real ``/app/runs`` is absent locally), a
     no-op artifact store (the fake run_id has no ``workflow_runs`` row), the
     cumulative-task list + checkpointer/skills/gate fields ``execute()`` sets per
@@ -491,7 +491,7 @@ class TestAccumulationAndEvents:
         """The full streamed event-type set for a Phase-4 prototype build equals the
         documented pre-Phase-4 prototype vocabulary (no type added/dropped/reshaped).
 
-        Reuses ``_parity_driver._drive`` (the same end-to-end ``engine.execute()``
+        Reuses ``_scripted_model._drive`` (the same end-to-end ``engine.execute()``
         offline driver the Phase-3 gate uses) so this asserts the REAL outbound WS
         vocabulary, then checks it against the documented contract (the set the
         ``websocket.py`` drainer forwards verbatim) imported from the Phase-3 guard.
