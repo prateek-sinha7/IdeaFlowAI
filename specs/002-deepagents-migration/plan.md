@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | **Branch** | `deepagents-full-swap` (off `0e9c410`) |
-| **Status** | Phases 0–3 ✅ complete (Phase 0 `bfd573b` · Phase 1 `666e531` · Phase 2 `0d09702` · Phase 3 `030820b`) · Phases 4–10 planned |
+| **Status** | Phases 0–4 ✅ complete (Phase 0 `bfd573b` · Phase 1 `666e531` · Phase 2 `0d09702` · Phase 3 `030820b` · Phase 4 `218582d`) · Phases 5–10 planned |
 | **Created** | 2026-06-03 |
 | **Supersedes** | the custom `app/agents/deep_agent.py` ReAct loop (deleted in Phase 7) |
 
@@ -267,14 +267,54 @@ no-dual-path invariant). Lands green-together:
   prototype run; checkpoint resume after a kill.
 - **UI**: unchanged (identical chunk/tool/usage/gate/progress events; deliverables byte-same).
 
-### Phase 4 — Prototype: per-task sub-agent execute + Both validation 🔜 (next)
-Planner writes `tasks`/`spec`/`design` files to the run dir. Engine execute loop launches
-ONE isolated sub-agent per task, forced to read task + spec + design before editing
-`prototype.html`; validate = static checks **+** sandbox headless render (`render_check`),
-bounded fix-loop. Same `task_loop_progress`/`task_progress` events.
-- **UI**: unchanged (same progress events; richer build underneath).
+### Phase 4 — Prototype: per-task sub-agent execute + Both validation ✅ (commit `218582d`)
 
-### Phase 5 — Revision on disk + chaining ⏳
+**Landed.** Prototype build runs an isolated sub-agent per task: the engine writes
+`spec.md`/`design.md`/`tasks.md` to the run sandbox, injects the current `## Task N:` block under
+`=== CURRENT TASK ===`, and after each task runs Both-validation (`static_check` + `render_check`)
+with a bounded **N=2, same-sub-agent, INTERNAL fix-loop** (a non-yielding coroutine → UI events
+unchanged). `static_check` (stdlib: routes↔sections / routes-map / handlers / is-active) added as a
+sibling to `render_check`. **Independently audited GREEN** — 11/11 checks, event vocabulary
+identical, executor on the run-selected model, exact 6-file scope. Durable tests:
+`test_phase4_build_loop.py` (8) + `test_static_check.py` (25). **Pending → Phase 8**: live Bedrock
+end-to-end (SSO). Note: `backend/CLAUDE.md` is stale (pre-migration) — refresh in Phase 7.
+
+
+Replace `_run_build_task_loop`'s "call prototype-build N times with injected context" with an
+**isolated sub-agent per task + per-task Both-validation + bounded fix-loop**, building on the
+Phase-3 per-task `create_runner` loop. Scope = the **`prototype`** pipeline (specify → plan →
+build → validate); `od_prototype` isn't registered; code-gen sub-agents are Phase 10.
+
+**Pipeline facts:** `prototype-specify` ("Specification & Architecture") emits `<spec>` (spec +
+Template/Design-System section); `prototype-plan` emits `<tasks>` as **Task 1 = full HTML shell**
+(every empty `<section data-page>` + nav chrome + routes map + DS tokens) · **Tasks 2..N = one page
+each** · **Task N+1 = validation**. Because the shell is built first, render+nav checks are
+meaningful after EVERY task.
+
+**Locked decisions (2026-06-04 Q&A):**
+- **Context = Both**: the engine writes `spec.md` (specify's `<spec>`), `design.md` (active template
+  SKILL.md + DESIGN.md from `od_context`), and `tasks.md` to the run sandbox; each per-task sub-agent
+  gets its **current task injected** AND is told it may `read_file` spec/design for deeper detail.
+- **Validation = Both, every task**: after each task — static check (routes↔sections resolve, routes
+  map complete, every handler/onclick defined, no dead refs) **+** `render_check` (headless Chromium:
+  nav switches, no console errors).
+- **Fix-loop**: on failure, re-invoke the **same** task sub-agent with the validation errors + current
+  `prototype.html`; **bounded N=2**, then log + continue (never block the whole build).
+- **Executor model**: the run's **user-selected model (Haiku default)**; planner/validator too.
+- **Engine-orchestrated**: the engine writes the spec/design/tasks files (no specify/plan prompt
+  change); `report_task_complete`/`task_loop_progress`/`task_progress` events **unchanged** (UI
+  identical, richer build underneath). The planner's final "validation task" stays a normal task —
+  the engine's programmatic Both-validation is the real gate.
+
+**Tasks:** (1) `app/agents/static_check.py` — no-browser routes↔sections/handlers validator + test;
+(2) `prototype-build` prompt: add the read-`spec.md`/`design.md`-first framing for a per-task
+sub-agent; (3) engine build-loop rewrite — write spec/design/tasks to the sandbox + isolated per-task
+sub-agent (current-task injection) + Both-validation (static + render) + bounded fix-loop; (4) verify
+gate (multi-task build renders + nav works; an injected defect is caught+fixed; events unchanged;
+offline + live-if-SSO); (5) independent audit; (6) plan update + commit + push.
+- **UI**: unchanged (same progress events).
+
+### Phase 5 — Revision on disk + chaining 🔜 (next)
 Revision seeds `prototype.html` into the run dir; the revision sub-agent reads spec +
 edits + runs the same validation. Cross-agent chaining via files the next agent reads;
 agents may `ls/grep/read` to explore.
