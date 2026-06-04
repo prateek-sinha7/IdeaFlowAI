@@ -13,6 +13,35 @@
 
 ---
 
+## Current state — START HERE (resume point)
+
+**As of 2026-06-04.** Phases **0–4 complete & committed locally** on `deepagents-full-swap`;
+**Phase 5 (Revision on disk + chaining) is next**. The deepagents runtime is **live across all
+pipelines** (Phase 3) and the prototype build runs the **per-task sub-agent + Both-validation**
+model (Phase 4). The WebSocket/UI event contract is **byte-identical to pre-migration** (audited
+GREEN each phase).
+
+**What works now:** every pipeline agent runs as a `DeepAgentRunner` (a deepagents
+`create_deep_agent` graph) built by `create_runner`, driven by the engine through ONE
+`astream_events` loop; deliverables are read from a per-run disk **sandbox** (`prototype.html` /
+code-gen `filename:` blocks); per-run HITL gate-selection (default = static `Human_Gate`);
+Postgres/InMemory checkpointer with per-agent threads; prototype build = one isolated sub-agent per
+task (reads `spec.md`/`design.md` + an injected `=== CURRENT TASK ===` block) with per-task
+static+render validation and a bounded **internal** fix-loop.
+
+**⚠️ Unpushed:** the branch is **4 commits ahead of `origin`** — `030820b`,`017c241` (Phase 3) +
+`218582d`,`9349328` (Phase 4). **Push is blocked on GitLab auth** (git-credential-manager hangs /
+`HTTP Basic: Access denied`; earlier-session pushes worked, so the credential lapsed — likely
+GlobalProtect VPN must be **off**, or refresh the GCM token). `git push origin HEAD` ships all 4
+once auth is fixed. **Commits are local — nothing is lost.**
+
+**Map of this doc:** per-phase outcomes are in §5 (each ✅ phase has a **Landed** note); all
+deferred/carried-forward items are in **§9**; the **code map** (new modules + key functions + tests)
+is **§11**; the **working method** (how phases are executed + the test recipe + dev-runtime gotchas)
+is **§12**.
+
+---
+
 ## 1. Goal & scope
 
 Replace the bespoke `DeepAgent` (a hand-rolled `for i in range(max_iterations)` loop
@@ -372,13 +401,26 @@ not deployed until green. Rollback = don't merge / revert the merge / redeploy t
 image tag. The Phase 0 deps install upgrades the shared local env, so the legacy `:8000`
 dev server is expected to be unhappy until Phase 1+ lands — that's accepted.
 
-## 9. Open items
+## 9. Open items & deferred (carried-forward)
 
-- [x] #15 live Bedrock invoke + HITL pause/resume on 0.6.7 — ✅ verified 2026-06-03 (Haiku, eu-central-1).
-- [x] Phase-1 risks (a) interrupt detection in `astream_events` and (b) text-only tool exclusion — resolved 2026-06-03: post-loop `aget_state` `gate` detection + per-graph `_ToolFilterMiddleware`; both covered by the parity/HITL tests.
-- [ ] Wire the engine bridge (`gate` → `_run_review_gate` / `Command(resume)`) — carried forward to Phase 3 (the adapter emits `gate`; the engine does not yet consume it).
-- [ ] Confirm whether HITL should also support tool-level approvals (currently inter-agent only).
-- [ ] Decide stronger-model-for-executor-sub-agents (deferred; Haiku for now).
+**Resolved:**
+- [x] #15 live Bedrock invoke + HITL pause/resume on 0.6.7 — verified 2026-06-03 (Haiku, eu-central-1).
+- [x] Phase-1 risks: interrupt detection (post-loop `aget_state`) + text-only tool exclusion (per-graph `_ToolFilterMiddleware`) — covered by tests.
+- [x] Engine HITL bridge — Phase 3 added per-run gate-selection via the existing `_run_review_gate` (the runner's tool-level `gate` stays dormant — see levers below).
+
+**Deferred to a specific later stage** (a fresh session must NOT assume these are done):
+- **Push the 4 queued commits** — as soon as GitLab auth works (VPN off / refresh GCM token): `git push origin HEAD`.
+- **Live Bedrock end-to-end runs** (prototype / app_builder / user_stories / prototype_revision) → **Phase 8**. All verification so far is offline (scripted models + real validators). Needs `aws sso login --profile personal-sso` (SSO keeps expiring between sessions).
+- **Cross-process checkpoint resume-after-kill** → **Phase 8**. In-process graph-level resume is proven; true crash-recovery needs Postgres (dev falls back to `InMemorySaver`).
+- **Excise legacy / dead code** → **Phase 7**: `app/agents/deep_agent.py` (`DeepAgent`), `app/agents/summarizer.py`, `AgentWorkspace`, `PrototypeArtifactStore`, `emit_artifact`, the per-agent `max_iterations` map, and `create_agent` + `_build_tools` (all DEAD since the Phase-3 cutover — the engine calls `create_runner`). Grep-assert zero refs after deletion.
+- **7 pre-existing `test_factory.py` reds** (`TestCreateAgentToolWiring`/`TestBuildTools` prototype tool-wiring + `TestComposeSystemPrompt` hook composition) → **Phase 7**: they test the now-dead `create_agent`/`_build_tools` path; they fail identically at every commit incl. HEAD (unrelated to the migration). Delete/rewrite with that code.
+- **`backend/CLAUDE.md` is stale** (describes the pre-migration architecture: `orchestrator_v2.py`, `deep_agent.py`, `emit_artifact`, old prototype tools) → refresh in **Phase 7**.
+- **Frontend per-agent HITL toggle UI** → **Phase 6**: the backend already accepts `gate_agent_ids` (Phase 3); Phase 6 adds the submit-time check/uncheck control (pre-checked = static `Human_Gate` set).
+- **Per-task sub-agents for code-gen** (`app_builder` / `mulesoft_to_springboot` / `dotnet_to_azure` + revisions; validation = build/lint in the sandbox) → **Phase 10** (after the prototype model is proven).
+
+**Still-open design levers** (no stage committed):
+- [ ] Tool-level HITL approvals — the runner CAN emit a tool-level `gate` (built + tested in Phase 1, dormant; inter-agent gating is engine-level). Decide if/when to surface tool approvals.
+- [ ] Stronger model for executor sub-agents — deferred; executors use the run-selected model (Haiku default). Revisit if per-page prototype quality needs it.
 
 ## 10. Decision log
 
@@ -397,3 +439,70 @@ dev server is expected to be unhappy until Phase 1+ lands — that's accepted.
 - 2026-06-03 — Phase 2 re-scoped to **additive prep** (build `create_runner` + disk tool-sets, verified in isolation, wired nowhere); the inseparable factory+engine **cutover** moves entirely to Phase 3. Rationale: `create_agent` is shared by all pipelines, the engine's `use_deep` `isinstance` gate + the no-dual-path invariant forbid a bridge, and AGENT.md prompt bodies are shared with the live path — so the breaking change can't be additive and must land atomically. Keeps every commit green (Phase-1 discipline).
 - 2026-06-03 — Native `deepagents` tools replace the custom file tools: `FilesystemBackend` (`write_file`/`read_file`/`edit_file`/`ls`/`glob`/`grep`) replaces `AgentWorkspace`/`make_workspace_tools`; agent writes `prototype.html` via native `write_file` (replaces `emit_artifact`); native `write_todos` replaces `todo_write`. Survivors: `report_task_complete` (store-free, progress via tool events) and `PLANNING_TOOLS` (unchanged). Template-read tools **dropped** — content is already pre-injected into the system prompt.
 - 2026-06-04 — Phase 3 scope = **FULL** (user choice over the minimal-cutover recommendation): the all-pipelines runtime flip PLUS per-run HITL gate-selection, Postgres checkpointing + resume, and cross-agent summarizer removal — all in one cutover. Baked-in findings: (a) the cross-agent summarizer is **dead** — `_agent_summaries` is written (`engine.py:900-902`) but never read; downstream context already uses the full `accumulated_outputs`, so removal is behavior-neutral and drops a wasted per-agent LLM call; (b) the sandbox is **per-pipeline-run** (shared, so `prototype.html`/code files persist across agents) while the checkpoint `thread_id` is **per-agent-invocation** (unique); (c) the inter-agent gate stays engine-level (`_run_review_gate`) — Phase 3 adds per-run *selection* of which agents gate (toggle UI in Phase 6); (d) only 4 prototype AGENT.md files reference `emit_artifact`/template tools.
+- 2026-06-04 — Phase 3 landed (`030820b`) — atomic cutover; offline old-vs-new WS event-parity GREEN (22 event types identical); verify gate caught + fixed a per-task `task_progress` count regression (made cumulative/run-level). Live runs + cross-process resume deferred to Phase 8.
+- 2026-06-04 — Phase 4 decisions (Q&A): context = **Both** (inject current task + write `spec.md`/`design.md` to the sandbox); validation = **Both, every task** (static_check + render_check; feasible because the planner builds the full shell — all sections + nav — in Task 1); fix-loop = **re-invoke the same sub-agent, bounded N=2, INTERNAL** (a non-yielding coroutine → no UI events); executor model = **run-selected (Haiku default)**; engine writes the spec/design/tasks files (no specify/plan prompt change).
+- 2026-06-04 — Phase 4 landed (`218582d`) — per-task sub-agents + Both-validation; audited GREEN (event vocabulary identical, exact 6-file scope). `static_check.py` (stdlib) added. Live E2E deferred to Phase 8.
+
+## 11. Code map — what exists now (post Phase 4)
+
+**New runtime modules** (`backend/app/agents/`):
+- `deep_agent_runner.py` — `DeepAgentRunner`: wraps a `create_deep_agent` graph; `astream_events`
+  (chunk/usage/tool_call/tool_result/done/gate/error), `astream_with_usage`, `astream`, `run`,
+  `model_id`/`tools`. Tool exclusion via a per-graph `_ToolFilterMiddleware`; `exclude_builtin_tools`
+  → pure text. Disk `FilesystemBackend(virtual_mode=True)` rooted at the run sandbox; HITL `gate`
+  via post-loop `aget_state`; `on_tool_end` extracts `ToolMessage.content`.
+- `model_factory.py` — `build_model(model, max_tokens)` (Bedrock/Anthropic select + botocore retries).
+- `sandbox.py` — `RunSandbox(user_id, run_id)` (per-user/run dir, traversal-proof, TTL sweep) +
+  `serialize_sandbox_deliverable(root)` / `count_sandbox_deliverables(root)` (byte-match `to_final_output`).
+- `checkpointer.py` — `get_checkpointer()` (AsyncPostgresSaver singleton / InMemory dev) + `close_checkpointer()`.
+- `render_check.py` — `async render_check(path)` (headless Chromium: console errors + nav assertions; graceful skip).
+- `static_check.py` — `static_check(html|path)` (stdlib: routes↔sections / routes-map / handlers / is-active).
+- `tools/runner_tools.py` — store-free `report_task_complete` (+ `make_runner_prototype_tools`).
+
+**Factory** (`backend/agents/factory.py`):
+- `create_runner(agent_id, ctx, *, checkpointer=None, interrupt_on=None, thread_id=None)` — the LIVE
+  path (reuses `_compose_system_prompt`; builds the per-run `RunSandbox`; constructs `DeepAgentRunner`).
+- `_build_runner_tools(spec, ctx) -> (tools, exclude_builtin)` — maps tool-sets onto native tools.
+- `AgentContext.run_id` (additive). `create_agent`/`_build_tools` remain but are DEAD (Phase 7 deletes).
+
+**Engine** (`backend/agents/execution_engine/engine.py`):
+- `execute()` — per-run `RunSandbox` + `await get_checkpointer()`; `gate_agent_ids` param; sets `ctx.run_id=pipeline_run_id`.
+- `_run_agent` — single `astream_events` loop (no `use_deep`/`astream_with_usage`); `create_runner` with a
+  unique per-agent `thread_id`; `task_progress` from `report_task_complete` events (cumulative `self._completed_tasks`);
+  reads the deliverable from the sandbox; `_should_gate(spec)`.
+- `_run_build_task_loop` (prototype) — `_write_build_reference_files` (spec.md/design.md/tasks.md) +
+  `_extract_task_block` + `=== CURRENT TASK ===` injection (via `_build_context_message`) +
+  `_run_validation_fix_loop` (static+render, bounded N=2 INTERNAL fix — a non-yielding coroutine).
+
+**Tests** (`backend/tests/agents/`): `test_deep_agent_runner_parity.py`, `test_deep_agent_runner_hitl_live.py`
+(opt-in, SSO), `test_create_runner.py`, `test_sandbox_deliverable.py`, `test_phase3_cutover_verify.py`,
+`test_static_check.py`, `test_phase4_build_loop.py`, `_parity_driver.py` (old-vs-new harness). Pre-existing
+reds: 7 in `test_factory.py` (legacy; Phase 7).
+
+**Deps** (`backend/requirements.txt`): `deepagents==0.6.7`, `langgraph-checkpoint-postgres==3.1.0`,
+`playwright==1.60.0`; langchain 1.3.4 / langchain-core 1.4.0 / langgraph 1.2.4. Backend image bundles
+Chromium; `/app/runs` on the EBS data volume.
+
+## 12. Working method (how phases are executed)
+
+Each phase: **lock decisions via Q&A → break into tasks → one Opus-4.8 max-effort sub-agent per task**
+(each handed the full plan + grounding + its task; tasks sharing a file run sequentially, independent
+files in parallel). Every phase ends with a **verify gate** (a durable committed test) + an
+**independent read-only audit** agent (must be GREEN before commit). Git stays with the orchestrator:
+a `feat(agents)` code commit + a `docs(agents)` plan commit referencing the code SHA (the
+`<pending>`→SHA two-commit pattern).
+
+**Facts a fresh session needs:**
+- **Dev runtime**: homebrew `python3.11`, NO venv; tests via `python3.11 -m pytest`; `ruff` is on PATH.
+- **Scripted-model test recipe**: the stock LangChain fakes do NOT drive the deepagents loop (they raise
+  on `bind_tools` and drop `tool_calls`/`usage_metadata`). Use a minimal `BaseChatModel` whose `_stream`
+  yields real `AIMessageChunk`s with `tool_call_chunks` + `usage_metadata`, and a no-op `bind_tools`.
+  Inject it into the engine by passing the INSTANCE as `model_id` (→ `ctx.model` → `create_runner`).
+- **Tests + `RUNS_ROOT`**: `settings.RUNS_ROOT` defaults to `/app/runs` (not writable locally) —
+  monkeypatch it to a temp dir before `create_runner`. Stub the artifact-store DB write (no `workflow_runs`
+  row in tests) and, pre-Phase-7, the summarizer.
+- **`render_check` Chromium IS available locally** (renders for real); degrades to a skip if absent.
+- **`write_file` won't overwrite** (deepagents `FilesystemBackend`) — prototype Task 1 uses `write_file`,
+  tasks 2+ and ALL fixes use `edit_file`. The prototype-build prompt + the fix-loop message enforce this.
+- **Old-vs-new parity**: `HEAD` is the pre-cutover engine; `tests/agents/_parity_driver.py` drives BOTH
+  the old (worktree at HEAD) and new (working tree) engines with the same scripted model.
