@@ -16,8 +16,11 @@
 ## Current state — START HERE (resume point)
 
 **As of 2026-06-04.** Phases **0–5 complete & committed locally** on `deepagents-full-swap`;
-**Phase 7 (excise legacy — explicit, no shims) is next.** The deepagents runtime is **live across all
-pipelines** (Phase 3); the prototype build runs the **per-task sub-agent + Both-validation** model
+**Phase 7 (excise legacy + migrate the chat subsystem) is fully planned — re-scoped & decisions locked
+(§5) — and ready to execute** (not yet started; runs as **7a** dead-code excision + title-gen migration,
+then **7b** chat-orchestrator migration — the largest phase; prep found `DeepAgent`/`BaseAgent` are LIVE
+for free-chat + title-gen, so they're migrated, not just deleted). The deepagents runtime is **live across
+all pipelines** (Phase 3); the prototype build runs the **per-task sub-agent + Both-validation** model
 (Phase 4); **prototype revision** runs the same validation + seeds the parent run's spec/design
 (Phase 5); and the agent registries are **reconciled to a single source of truth** with a per-agent HITL
 gate toggle live (Phase 6). The WebSocket/UI event contract is **byte-identical to pre-migration**
@@ -561,12 +564,77 @@ pipeline (a *default* prototype run is fine — empty `agent_ids` → real regis
   `test_run_pipeline_validation.py`; migrate the frontend from static `AgentLibraryData.ts` to live
   `/api/agents` fetch (noted).
 
-### Phase 7 — Excise legacy (explicit, no shims) ⏳
-**Delete** the hand-rolled `DeepAgent` loop, `summarizer.py`, `AgentWorkspace`,
-`PrototypeArtifactStore`, the per-agent `max_iterations` map, `emit_artifact`, the
-`astream_with_usage` path, and any `BaseAgent`-for-execution. Grep-assert zero references
-remain. No fallback left in the tree.
-- **UI**: unchanged (pure dead-code removal).
+### Phase 7 — Excise legacy + migrate the chat subsystem 🔜 (re-scoped & planned; decisions locked 2026-06-04)
+
+Re-scoped after two prep audits found the original "delete it all" framing **wrong**: **`DeepAgent` and
+`BaseAgent` are LIVE** — the migration only ever swapped the *pipeline* runtime. `DeepAgent` powers title
+generation; `AgentOrchestrator` + 7 `BaseAgent` chat agents power the **free-chat `user_message`** path (a
+full multi-phase generator: Discovery → Requirements → UserStories/PPT/Prototype/UIDesign → Preview).
+**User decision (2026-06-04): true zero-legacy** — excise the genuinely-dead pipeline-legacy AND migrate
+the chat subsystem onto the new stack, then delete `DeepAgent`/`BaseAgent`/`AgentOrchestrator`. Two parts:
+**7a** excise dead pipeline-legacy + migrate title-gen (well-mapped; clears the known reds); **7b** migrate
+the chat orchestrator (a live-subsystem migration — the biggest single piece in the whole effort).
+
+**Corrected DEAD vs LIVE (prep audits):**
+- **Genuinely dead** (engine uses `create_runner`; nothing live touches): `factory.create_agent`+`_build_tools`
+  (+ their inline `max_iterations` map), `summarizer.py` (zero importers), `app/agents/tools/workspace.py`
+  (`AgentWorkspace`/`make_workspace_tools`), `app/agents/tools/prototype.py` (shim), `agents/prototype/tools.py`
+  (`emit_artifact`/`read_template_seed`/…), `agents/prototype/artifact_store.py` (`PrototypeArtifactStore`),
+  `PROTOTYPE_AGENTS_V1` + the 4 retired `prototype_v1` AGENT.md folders, the legacy `app/agents/registry.py`
+  (only 3 tests import it post-Phase-6), `astream_with_usage` (only the parity test calls it).
+- **LIVE until 7b migrates them** (do NOT pre-delete): `DeepAgent` (`deep_agent.py` — title-gen),
+  `BaseAgent`/`base.py` + `AgentOrchestrator`/`orchestrator.py` + the 7 chat agents + `app/agents/__init__.py`
+  (free-chat); and **`TokenUsage`** (in `base.py`, **used by the live `DeepAgentRunner`** — relocate, don't delete).
+- `orchestrator_v2.py`/`od_runner.py` don't exist (stale `CLAUDE.md` prose only).
+
+**🔑 Biggest traps:** (1) `test_sandbox_deliverable.py` uses dead `AgentWorkspace.to_final_output()` as the
+**byte-oracle for the LIVE `serialize_sandbox_deliverable`** — inline the expected bytes before deleting
+`workspace.py`. (2) **The chat WS event contract** must be reproduced byte-for-byte — `phase_start{phase,name}`
+/ `stream{chunk,section}` / `phase_end{phase}` / `error` / trailing `complete{10-key FinalOutputModel}` +
+side-channel `title_update`, the `{type,chunk,section,data}` shape, the per-`section` routing
+(discovery/requirements/user_stories/ppt/prototype/ui_design/ui_preview) — any drift sends messages into the
+FE *pipeline* handler and silently breaks the chat bubble. (3) `TokenUsage` relocation. (4) The 5 chat **modes**
++ the runtime **output-selection** (`_parse_output_selection` of the discovery prose) have **zero tests** —
+characterize first.
+
+**Locked decisions (2026-06-04):**
+- **True zero-legacy** (migrate chat, don't keep it).
+- **Dedicated chat sequencer (`ChatRunner`)**, NOT the `ExecutionEngine` (it can't model the chat's runtime
+  multi-output selection or its distinct event vocabulary). It reuses `create_runner` (text-only) for the 7
+  agents but keeps the legacy sequencing + `_parse_output_selection`/`_determine_active_phases`/
+  `_compile_final_output` + event emission **verbatim**.
+- **7 chat agents → `tools:[]` AGENT.md specs** under a NEW `"chat"` pipeline_type (added to
+  `SUPPORTED_PIPELINE_TYPES`), bodies = the inline prompts verbatim.
+- **Keep the chat `prototype`/`ppt` phases as independent single-agent prompts** (their JSON/text output is
+  what the chat FE expects) — do NOT cross-wire to the real prototype/ppt pipelines (would change the FE
+  artifact type → violates the UI invariant). Note the redundancy for a future product call.
+- **Relocate `TokenUsage`** out of `base.py` to a live module before deleting `base.py`.
+- **Title-gen** → direct `build_model().ainvoke` one-shot (both sites); then `DeepAgent` is deletable.
+- **Chat persistence unchanged**: keep writing `Message` rows + `ChatSession.final_output` (NOT `WorkflowRun`).
+- **Repoint, then delete**: land green, then delete the legacy files; grep-assert zero refs; widen
+  `test_no_baseagent.py` to the whole tree.
+
+**Tasks** (Opus-4.8 agents; 7a before 7b; EACH part ends with verify + independent audit + commit):
+
+*7a — excision + title-gen (dead importers removed before the code):*
+1. **Migrate title-gen** off `DeepAgent` (chat-title `websocket.py:~742` + run-title `~218`) → `build_model().ainvoke` one-shot; keep `title_update`/`workflow_title_update` events identical.
+2. **Tests first** — delete `test_factory.py`; rewrite `test_guardrails.py` → `_compose_system_prompt`; rewrite `test_run_pipeline_validation.py` → real `agents.registry`/`loader`; trim legacy-import lines from `test_agents_api_real_registry.py` + `test_registry_helpers.py`; rewrite `test_revision_file_editing.py` (drop the `AgentWorkspace` block) and **`test_sandbox_deliverable.py` (inline the byte-oracle)**; delete `_parity_driver.py` + `test_deep_agent_runner_parity.py`.
+3. **Delete dead factory entry points** — `create_agent` + `_build_tools` (+ `max_iterations` map) from `factory.py` (keep the live `create_runner`/`AgentContext`/`_compose_system_prompt`/`_build_runner_tools`).
+4. **Delete dead modules** (order: `summarizer.py` → `tools/workspace.py`, `tools/prototype.py`, `prototype/tools.py` → `prototype/artifact_store.py`); trim `agents/prototype/__init__.py` docstrings.
+5. **Delete dead config/folders** — `PROTOTYPE_AGENTS_V1` (`prototype/pipeline.py`); the 4 `prototype_v1` AGENT.md folders; `"prototype_v1"` from `loader.py`.
+6. **Refresh `backend/CLAUDE.md`** to the post-migration architecture; purge `orchestrator_v2`/`create_agent`/`emit_artifact` from stale docstrings.
+7. **7a verify** (grep-zero for the dead symbols; full suite green — the legacy reds disappear; sandbox byte-oracle preserved) → **independent audit → commit.**
+
+*7b — chat migration:*
+8. **Characterization test** — capture the legacy `AgentOrchestrator.astream_execute` event sequence (mocked LLM): per-phase `phase_start`/`stream`/`phase_end`, the runtime `_parse_output_selection`, the trailing `complete{10-key}`, the 5 modes. Locks the contract before cutover.
+9. **7 chat AGENT.md specs** under `"chat"` (add to `SUPPORTED_PIPELINE_TYPES`): `chat-discovery`/`chat-requirements`/`chat-user-stories`/`chat-ppt`/`chat-prototype`/`chat-ui-design`/`chat-preview` — bodies = the inline prompts verbatim.
+10. **`ChatRunner` sequencer** — `create_runner` per agent (text-only); reproduce `_parse_output_selection`/`_determine_active_phases`/`_compile_final_output` verbatim; thread context (flatten prior outputs into the message); prepend `mode_prompt`; emit the legacy events; relocate `TokenUsage`; reconcile the `AgentConfigurationError` catch.
+11. **Repoint `websocket.py`** `user_message` handler → `ChatRunner` (keep the `Message`/`ChatSession.final_output` persistence block as-is).
+12. **Delete the legacy chat stack** — `orchestrator.py`, the 7 chat agents, `base.py` (after `TokenUsage` moved), `deep_agent.py` (now unused), `modes.py` if folded in; clean `app/agents/__init__.py`; widen `test_no_baseagent.py`; grep-assert zero `BaseAgent`/`DeepAgent`/`AgentOrchestrator`.
+13. **7b verify** (characterization test passes against `ChatRunner` — event-parity old↔new; modes + output-selection + persistence covered; full suite + grep-zero green) → **independent audit → commit.**
+
+- **UI**: unchanged — 7a is dead-code removal; 7b reproduces the chat WS event contract byte-for-byte (the FE chat handler is untouched), enforced by the characterization/event-parity test.
+- **Scale note**: the largest phase — 7b alone is comparable to the pipeline migration; runs as **two commit-pairs** (7a, then 7b).
 
 ### Phase 8 — Verify (Bedrock Haiku, local) ⏳
 Prototype end-to-end (plan → per-task sub-agents → validate); HITL on/off; **checkpoint
@@ -656,6 +724,7 @@ dev server is expected to be unhappy until Phase 1+ lands — that's accepted.
 - 2026-06-04 — Phase 6 planned (decisions Q&A): scope = **ALL pipelines**; granularity = **all agents listed, default-gated pre-checked**; UI = **inline expandable "Review gates" section** (beside Skills/Hooks). Forced design: source the agent list + gate status from the backend `GET /api/agents/pipelines/{type}` endpoint (add an additive `gate` field) — NOT the stale `LIBRARY_AGENTS` (a front/back drift: prototype shows `requirements-analyst`/… vs. the real `prototype-specify`/`plan`/`build`/`validate`; emitting wrong ids in a non-null `gate_agent_ids` would DISABLE the real default gates). `gate_agent_ids` rides the EXISTING `extraParams`/`context` channel (no new plumbing); untouched ⇒ omit (backend static default), touched ⇒ send the explicit array (even `[]` = no gates). Grounded refs: `_should_gate` `engine.py:1781`, gate frontmatter `prototype-specify`/`prototype-plan`, endpoint `app/api/agents.py:83-112`, payload merge `useWorkflow.ts`, submit UI `IdeaInputPage.tsx`, gate palette `ReviewGatePanel.tsx`. Discovered: stale `LIBRARY_AGENTS` is a pre-existing bug (§9).
 - 2026-06-04 — Phase 6 **re-scoped** (deeper finding supersedes the prior entry's "fetch from endpoint" premise): the `/api/agents` endpoint AND `allowed_custom_agent_ids` validation read the **legacy `app.agents.registry`**, which has diverged from the engine's `agents.registry` for **prototype + ppt only** (user_stories/app_builder/all revisions agree) — so the endpoint is *also* stale, not just `LIBRARY_AGENTS`. Two latent bugs found: (1) custom-selected prototype runs `load_agent_spec` the **retired `prototype_v1`** agents (wrong pipeline); (2) `allowed_custom_agent_ids("od_ppt")` = ∅ rejects od_ppt custom runs. **User chose: reconcile registries first, then the toggle.** Phase 6 = **6a** (loader optional `description` w/ role fallback; build `get_all_agents_flat`/`get_agent_by_id`/`allowed_custom_agent_ids` on the REAL registry + od_ handling; repoint `app/api/agents.py` + `websocket.py:979` to the real registry; add `gate`+`description` to `AgentResponse`; **regenerate** `AgentLibraryData.ts` → real ids/metadata/gate + fix category counts) + **6b** (inline "Review gates" section + `gate_agent_ids` wiring via the existing extraParams/context channel). Legacy `app.agents.registry` left for **Phase 7** deletion (a test still imports it). Survey: real `AgentSpec` lacks only `description` (`loader.py:64-98`); just **2** prod consumers of the legacy registry; `CUSTOM_AGENTS` are loader-backed.
 - 2026-06-04 — Phase 6 landed (`01c183f`). 6a reconciliation (loader optional `description`; real-registry `get_all_agents_flat`/`get_agent_by_id`/`allowed_custom_agent_ids` + od_ handling; repoint `app/api/agents.py` + `websocket.py`; `AgentResponse` gets `gate`+`description`; regenerate `AgentLibraryData.ts`) + 6b gate toggle (`ReviewGatesSection` in `IdeaInputPage` + the prototype/ppt templates wizard; `gate_agent_ids` via the existing extraParams/context channel; untouched ⇒ omit, byte-identical). Executed as T1–T5b + verify-gate + independent audit via Opus-4.8 agents. **Audited GREEN** — engine ↔ API ↔ validation ↔ frontend agree; agreeing pipelines byte-identical (real-vs-legacy parity table); **2 latent bugs fixed** (custom-prototype runs now use the real spec-kit agents, not retired `prototype_v1`; `od_ppt` allow-list non-empty); exact scope (legacy `app/agents/registry.py` untouched). Tests: 90 backend + 19 frontend; no Phase-6-caused failures (the 25+9 backend / 7 frontend reds are pre-existing legacy/env/SSO). Scope grew mid-flight by user choice: added the **wizard gate UI** (T5b) so prototype/ppt gates are customizable (not just IdeaInputPage). Deferred → Phase 7: delete legacy registry + rewrite `test_run_pipeline_validation.py`; live `/api/agents` fetch. Report-only: `get_pipeline_agents("ppt")==[]` (od-ppt frontmatter) — harmless (static frontend data).
+- 2026-06-04 — Phase 7 planned (re-scoped via 2 prep audits). **Key correction:** the original "delete DeepAgent + BaseAgent" was WRONG — both are LIVE (`DeepAgent` = title-gen `websocket.py:218/742`; `AgentOrchestrator` + 7 `BaseAgent` agents = the free-chat `user_message` multi-phase generator `orchestrator.py:293`, Discovery→Requirements→UserStories/PPT/Prototype/UIDesign→Preview). The pipeline migration never touched free-chat. **User chose TRUE zero-legacy.** **7a** excise the genuinely-dead pipeline-legacy (`create_agent`/`_build_tools` + max_iterations map, `summarizer.py`, `workspace.py`/`tools/prototype.py`/`prototype/tools.py`/`artifact_store.py`, `PROTOTYPE_AGENTS_V1` + 4 `prototype_v1` folders, legacy `app/agents/registry.py`, `astream_with_usage`) + migrate title-gen → `build_model`; **7b** migrate the chat subsystem to a dedicated **`ChatRunner`** (`create_runner` text-only per agent + 7 `"chat"` AGENT.md specs; reproduce `_parse_output_selection`/`_determine_active_phases`/`_compile_final_output` + the `phase_start`/`stream`/`phase_end`/`complete` WS event contract VERBATIM; relocate `TokenUsage` out of `base.py`; preserve the 5 modes + `Message`/`ChatSession` persistence), then delete `orchestrator.py`/`base.py`/`deep_agent.py`/the 7 chat agents. **Decisions:** dedicated sequencer (NOT the engine — it can't model the chat's runtime multi-output selection / distinct events); keep chat prototype/ppt as independent prompts (their JSON/text is what the FE expects — no cross-wire); repoint-then-delete + grep-zero + widen `test_no_baseagent.py`. **Traps:** `test_sandbox_deliverable` uses dead `AgentWorkspace.to_final_output()` as the byte-oracle for the LIVE `serialize_sandbox_deliverable` (inline before deleting); chat event-contract drift → FE *pipeline* handler; **zero existing chat tests** (characterize first). Largest phase — runs as two commit-pairs.
 
 ## 11. Code map — what exists now (post Phase 4)
 
