@@ -17,10 +17,31 @@ import logging
 import re
 from typing import Any
 
-from app.agents.base import BaseAgent
+from langchain_core.messages import HumanMessage, SystemMessage
+
+from app.agents.model_factory import build_model
 from app.core.config import settings
 
 logger = logging.getLogger("app.agents.handoff.coding")
+
+
+def _extract_text(content: Any) -> str:
+    """Pull plain text out of a chat-model response ``content`` payload.
+
+    Anthropic returns a ``str``; Bedrock returns a list of content blocks
+    (e.g. ``[{"type": "text", "text": "..."}]``). Mirrors
+    ``app.agents.deep_agent_runner._extract_text`` so this one-shot call decodes
+    model output identically to the agent runtime.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            block.get("text", "")
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+    return ""
 
 
 _CODING_SYSTEM_PROMPT = """You are a senior software engineer producing a single, focused code change.
@@ -109,7 +130,7 @@ def _extract_json(raw: str) -> dict[str, Any]:
     return json.loads(match.group(0))
 
 
-class CodingAgent(BaseAgent):
+class CodingAgent:
     """Coding agent — Sonnet-preferred, structured edit-plan output."""
 
     def __init__(self) -> None:
@@ -117,12 +138,9 @@ class CodingAgent(BaseAgent):
         # if set, otherwise fall back to the default profile (which is Haiku in
         # the shipped config). This lets operators promote Sonnet without code
         # changes — see app.core.config.Settings.BEDROCK_CODING_MODEL_ID.
-        model_override = (settings.BEDROCK_CODING_MODEL_ID or "").strip() or None
-        super().__init__(
-            system_prompt=_CODING_SYSTEM_PROMPT,
-            max_tokens=16000,
-            model=model_override,
-        )
+        self._model_override = (settings.BEDROCK_CODING_MODEL_ID or "").strip() or None
+        self._max_tokens = 16000
+        self.system_prompt = _CODING_SYSTEM_PROMPT
 
     async def propose_edits(
         self,
@@ -143,7 +161,14 @@ class CodingAgent(BaseAgent):
             context_lines.append(f"\n=== FILE: {path} ===\n{snippet}")
 
         user_message = "\n".join(context_lines)
-        raw = await self.run(user_message)
+        llm = build_model(model=self._model_override, max_tokens=self._max_tokens)
+        resp = await llm.ainvoke(
+            [
+                SystemMessage(content=self.system_prompt),
+                HumanMessage(content=user_message),
+            ]
+        )
+        raw = _extract_text(resp.content)
         try:
             plan = _extract_json(raw)
         except (json.JSONDecodeError, ValueError) as exc:

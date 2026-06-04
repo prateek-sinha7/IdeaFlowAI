@@ -235,7 +235,7 @@ async def _generate_workflow_title(
 
         hint = _WORKFLOW_TITLE_PIPELINE_HINTS.get(pipeline_type, "AI workflow")
         # Direct one-shot model call: title generation is a single-call
-        # utility, not a pipeline agent (constitution §II — no BaseAgent).
+        # utility, not a pipeline agent (constitution §II).
         llm = build_model(max_tokens=64)
         resp = await llm.ainvoke([
             SystemMessage(content=(
@@ -761,7 +761,7 @@ async def websocket_chat(websocket: WebSocket):
                     from app.agents.model_factory import build_model
                     # Direct one-shot model call: chat-title generation is a
                     # single-call utility, not a pipeline agent (constitution
-                    # §II — no BaseAgent).
+                    # §II).
                     llm = build_model(max_tokens=64)
                     resp = await llm.ainvoke([
                         SystemMessage(content=(
