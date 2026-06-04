@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Sparkles, ChevronDown, ChevronRight, Layers, Eye } from "lucide-react";
 import { getToken } from "@/lib/api";
@@ -8,8 +8,11 @@ import { listPPTTemplates, type PPTTemplate } from "@/lib/ppt-api";
 import { listDesignSystems, type DesignSystemListItem } from "@/lib/prototype-api";
 import { PPTTemplateGallery } from "@/components/workflow/ppt/PPTTemplateGallery";
 import { DesignSystemPicker } from "@/components/workflow/prototype/DesignSystemPicker";
+import { ReviewGatesSection } from "@/components/workflow/ReviewGatesSection";
+import { LIBRARY_AGENTS } from "@/components/workflow/AgentLibraryData";
 import type { CustomDesignSystem } from "@/components/workflow/prototype/CustomDesignSystemModal";
 import type { CustomTemplate } from "@/components/workflow/prototype/CustomTemplateModal";
+import type { AgentDef } from "@/types/index";
 
 const STORAGE_KEY = "ppt.draft";
 
@@ -95,6 +98,24 @@ export default function PPTTemplatesPage() {
   // Design system is only required for templates that declare it
   const dsRequired = selectedTemplate?.design_system?.requires === true;
 
+  // PPT pipeline agents, in run order — drives the Review-gates section.
+  // Sourced from the static LIBRARY_AGENTS (real od_ppt agents post-T4);
+  // none are statically gated, so all checkboxes start unchecked.
+  const pipelineAgents = useMemo<AgentDef[]>(
+    () => LIBRARY_AGENTS.filter((a) => a.pipeline_type === "ppt").sort((a, b) => a.order - b.order),
+    [],
+  );
+
+  // Per-run Human-review gate selection, surfaced by <ReviewGatesSection>.
+  // Held in a ref so the section reporting its state doesn't re-render this page
+  // and so `handleContinue` always reads the latest value. Untouched ⇒ we omit
+  // the gate field from the draft (backend keeps its static default → byte-identical);
+  // touched ⇒ we persist the explicit array (even empty = "no gates").
+  const gateSelectionRef = useRef<{ ids: string[]; touched: boolean }>({ ids: [], touched: false });
+  const handleGatesChange = useCallback((ids: string[], touched: boolean) => {
+    gateSelectionRef.current = { ids, touched };
+  }, []);
+
   const handleSelectCustomDs = useCallback((ds: CustomDesignSystem | null) => {
     if (ds) { setSelectedDsId(ds.id); setCustomDsBody(ds.body); }
     else { setCustomDsBody(null); }
@@ -133,6 +154,13 @@ export default function PPTTemplatesPage() {
       finalBrief = brief.trim();
     }
 
+    // Per-run gate selection: persist `gateAgentIds` into the draft ONLY when the
+    // user touched the Review-gates section. Untouched ⇒ the field is omitted, the
+    // dashboard leaves `pendingOdPptParams.gateAgentIds` undefined, and
+    // DashboardLayout drops `gate_agent_ids` → backend static default (byte-identical
+    // to before this feature). Touched ⇒ the explicit array (even []) flows through.
+    const { ids: gateAgentIds, touched: gatesTouched } = gateSelectionRef.current;
+
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
       templateId: selectedTemplateId,
       designSystemId: dsRequired ? selectedDsId : null,
@@ -140,6 +168,7 @@ export default function PPTTemplatesPage() {
       ...(customDsBody ? { customDsBody } : {}),
       ...(customTemplateBody ? { customTemplateBody } : {}),
       ...(sourceRunId ? { sourceRunId } : {}),
+      ...(gatesTouched ? { gateAgentIds } : {}),
     }));
     sessionStorage.setItem("od_ppt.pending", "true");
     router.push("/dashboard");
@@ -308,6 +337,19 @@ export default function PPTTemplatesPage() {
             </div>
           </section>
         )}
+
+        {/* Review gates — section number follows the visible sections above
+            (brief unless chaining, template, design system only when required). */}
+        <section>
+          <SectionLabel
+            number={(isChaining ? 1 : 2) + (dsRequired ? 1 : 0)}
+            title="Review gates"
+            subtitle="Optionally pause the pipeline for your review after specific agents."
+          />
+          <div className="mt-3">
+            <ReviewGatesSection agents={pipelineAgents} onChange={handleGatesChange} />
+          </div>
+        </section>
 
         {/* Continue */}
         <div className="pt-2">

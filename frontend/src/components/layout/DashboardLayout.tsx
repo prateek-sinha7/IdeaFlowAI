@@ -68,11 +68,16 @@ export interface DashboardLayoutProps {
   pendingOdProtoParams?: {
     brief: string; templateId: string; designSystemId: string; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string;
+    // Phase 6 — per-run Human-review gate selection. Present only when the user
+    // explicitly chose gates (touched); absent ⇒ omitted ⇒ backend static default.
+    gateAgentIds?: string[];
   } | null;
   onClearPendingOdProto?: () => void;
   pendingOdPptParams?: {
     brief: string; templateId: string; designSystemId: string | null; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string;
+    // Phase 6 — see pendingOdProtoParams.gateAgentIds.
+    gateAgentIds?: string[];
   } | null;
   onClearPendingOdPpt?: () => void;
   userTier?: "basic" | "pro" | "enterprise";
@@ -546,6 +551,10 @@ export function DashboardLayout({
       discovery: pendingOdProtoParams.discovery,
       // Phase 3 (T056): pass source_workflow_run_id for revision chaining
       ...(pendingOdProtoParams.sourceRunId ? { source_workflow_run_id: pendingOdProtoParams.sourceRunId } : {}),
+      // Phase 6: per-run gate selection. Only when explicitly provided (touched);
+      // an empty array is a valid "no gates" choice, so guard on presence (!== undefined),
+      // NOT truthiness. Absent ⇒ omitted ⇒ backend static default (byte-identical).
+      ...(pendingOdProtoParams.gateAgentIds !== undefined ? { gate_agent_ids: pendingOdProtoParams.gateAgentIds } : {}),
     };
 
     if (onStartPipeline) {
@@ -585,6 +594,9 @@ export function DashboardLayout({
       discovery: pendingOdPptParams.discovery,
       // Phase 3 (T056): pass source_workflow_run_id for revision chaining
       ...(pendingOdPptParams.sourceRunId ? { source_workflow_run_id: pendingOdPptParams.sourceRunId } : {}),
+      // Phase 6: per-run gate selection. Only when explicitly provided (touched);
+      // empty array = valid "no gates" → guard on presence, not truthiness.
+      ...(pendingOdPptParams.gateAgentIds !== undefined ? { gate_agent_ids: pendingOdPptParams.gateAgentIds } : {}),
     };
 
     if (onStartPipeline) {
@@ -617,7 +629,7 @@ export function DashboardLayout({
   // Spring Boot or .NET→Azure) before invoking us. We sync `workflowType`
   // here so downstream effects (chaining, sidebar labels, completion
   // tracking) see the real pipeline.
-  const handleRunPipeline = useCallback((message: string, agentIds: string[], resolvedType: WorkflowType) => {
+  const handleRunPipeline = useCallback((message: string, agentIds: string[], resolvedType: WorkflowType, extraParams?: Record<string, unknown>) => {
     setWorkflowInput(message);
     setMainView("execution");
     setWorkflowType(resolvedType);
@@ -629,14 +641,19 @@ export function DashboardLayout({
     // runs first and gates execution; the clarify questionnaire now appears mid-run
     // ONLY when the planner issues CLARIFY_REQUIRED (via the `questionnaire_ready`
     // event). The legacy `generate_questions` pre-step and its 15s timeout are retired.
+    //
+    // `extraParams` (Phase 6) carries the per-run Human-review gate selection as
+    // `{ gate_agent_ids: string[] }` — but ONLY when the user touched the
+    // Review-gates section in IdeaInputPage. When undefined we pass nothing, so
+    // the run_pipeline payload is byte-identical to before this feature.
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
       addRunningNotification(notifId, resolvedType, message.slice(0, 60), 0);
       if (connectionStatus === "connected") {
-        onStartPipeline(resolvedType, message, agentIds, attachedSkills, attachedHooks);
+        onStartPipeline(resolvedType, message, agentIds, attachedSkills, attachedHooks, extraParams);
       } else {
-        pendingStartOnConnectRef.current = { type: resolvedType, message, agentIds };
+        pendingStartOnConnectRef.current = { type: resolvedType, message, agentIds, extraParams };
       }
     }
   }, [onStartPipeline, onResetPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);

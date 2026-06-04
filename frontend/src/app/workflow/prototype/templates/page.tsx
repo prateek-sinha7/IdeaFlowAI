@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Sparkles, ChevronDown, ChevronRight, Layers, Eye } from "lucide-react";
 import { getToken } from "@/lib/api";
@@ -12,8 +12,11 @@ import {
 } from "@/lib/prototype-api";
 import { TemplateGallery } from "@/components/workflow/prototype/TemplateGallery";
 import { DesignSystemPicker } from "@/components/workflow/prototype/DesignSystemPicker";
+import { ReviewGatesSection } from "@/components/workflow/ReviewGatesSection";
+import { LIBRARY_AGENTS } from "@/components/workflow/AgentLibraryData";
 import type { CustomDesignSystem } from "@/components/workflow/prototype/CustomDesignSystemModal";
 import type { CustomTemplate } from "@/components/workflow/prototype/CustomTemplateModal";
+import type { AgentDef } from "@/types/index";
 
 const STORAGE_KEY = "prototype.draft";
 
@@ -110,6 +113,24 @@ export default function PrototypeTemplatesPage() {
     [templates, selectedTemplateId],
   );
 
+  // Prototype pipeline agents, in run order — drives the Review-gates section.
+  // Sourced from the static LIBRARY_AGENTS (real spec-kit agents post-T4);
+  // pre-checks = those with gate === "Human_Gate" (prototype-specify/plan).
+  const pipelineAgents = useMemo<AgentDef[]>(
+    () => LIBRARY_AGENTS.filter((a) => a.pipeline_type === "prototype").sort((a, b) => a.order - b.order),
+    [],
+  );
+
+  // Per-run Human-review gate selection, surfaced by <ReviewGatesSection>.
+  // Held in a ref so the section reporting its state doesn't re-render this page
+  // and so `handleContinue` always reads the latest value. Untouched ⇒ we omit
+  // the gate field from the draft (backend keeps its static default → byte-identical);
+  // touched ⇒ we persist the explicit array (even empty = "no gates").
+  const gateSelectionRef = useRef<{ ids: string[]; touched: boolean }>({ ids: [], touched: false });
+  const handleGatesChange = useCallback((ids: string[], touched: boolean) => {
+    gateSelectionRef.current = { ids, touched };
+  }, []);
+
   const handleSelectCustomDs = useCallback((ds: CustomDesignSystem | null) => {
     if (ds) {
       setSelectedDsId(ds.id);
@@ -157,6 +178,13 @@ export default function PrototypeTemplatesPage() {
       finalBrief = brief.trim();
     }
 
+    // Per-run gate selection: persist `gateAgentIds` into the draft ONLY when the
+    // user touched the Review-gates section. Untouched ⇒ the field is omitted, the
+    // dashboard leaves `pendingOdProtoParams.gateAgentIds` undefined, and
+    // DashboardLayout drops `gate_agent_ids` → backend static default (byte-identical
+    // to before this feature). Touched ⇒ the explicit array (even []) flows through.
+    const { ids: gateAgentIds, touched: gatesTouched } = gateSelectionRef.current;
+
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
       templateId: selectedTemplateId,
       designSystemId: selectedDsId,
@@ -164,6 +192,7 @@ export default function PrototypeTemplatesPage() {
       ...(customDsBody ? { customDsBody } : {}),
       ...(customTemplateBody ? { customTemplateBody } : {}),
       ...(sourceRunId ? { sourceRunId } : {}),
+      ...(gatesTouched ? { gateAgentIds } : {}),
     }));
     sessionStorage.setItem("od_prototype.pending", "true");
     router.push("/dashboard");
@@ -337,6 +366,18 @@ export default function PrototypeTemplatesPage() {
                 onSelectCustom={handleSelectCustomDs}
               />
             )}
+          </div>
+        </section>
+
+        {/* ── Section 4 (or 3 when chaining): Review gates ──────────────── */}
+        <section>
+          <SectionLabel
+            number={isChaining ? 3 : 4}
+            title="Review gates"
+            subtitle="Optionally pause the pipeline for your review after specific agents. Pre-set to the recommended defaults."
+          />
+          <div className="mt-3">
+            <ReviewGatesSection agents={pipelineAgents} onChange={handleGatesChange} />
           </div>
         </section>
 

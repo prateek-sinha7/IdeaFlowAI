@@ -976,7 +976,7 @@ async def _handle_workflow_execution(
 
     # ── Resolve agents ────────────────────────────────────────────────────
     if agent_ids:
-        from app.agents.registry import allowed_custom_agent_ids
+        from agents.registry import allowed_custom_agent_ids
         allowed_ids = allowed_custom_agent_ids(base_pipeline_type)
         rejected = [aid for aid in agent_ids if aid not in allowed_ids]
         if rejected:

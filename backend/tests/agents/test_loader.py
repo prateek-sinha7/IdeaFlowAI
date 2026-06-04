@@ -3,6 +3,7 @@
 Tests cover:
   - Successful parsing of a valid AGENT.md
   - Default values for optional fields
+  - Optional `description` (explicit verbatim / absent → fallback to role)
   - FileNotFoundError for missing directory / file
   - PermissionError for unreadable file
   - AgentSpecError for each invalid/missing required field
@@ -105,6 +106,73 @@ class TestLoadAgentSpecValid:
             _write_agent(tmp_agent_dir, agent_id, pipeline_type=pt, order=i)
             spec = load_agent_spec(agent_id)
             assert spec.pipeline_type == pt
+
+
+# ---------------------------------------------------------------------------
+# Optional `description` field (frontmatter; falls back to `role` when absent)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadAgentSpecDescription:
+    def test_description_absent_falls_back_to_role(self, tmp_agent_dir):
+        """The common case: no `description:` frontmatter key → spec.description == spec.role."""
+        _write_agent(
+            tmp_agent_dir,
+            "no-desc-agent",
+            role="Market Research",
+        )
+        spec = load_agent_spec("no-desc-agent")
+
+        # The generated AGENT.md has no `description` key at all.
+        assert spec.description == "Market Research"
+        assert spec.description == spec.role
+
+    def test_explicit_description_used_verbatim(self, tmp_agent_dir):
+        """An explicit `description:` frontmatter value is used verbatim (not the role)."""
+        explicit = "Researches the target market and surfaces competitor gaps."
+        _write_agent(
+            tmp_agent_dir,
+            "desc-agent",
+            role="Market Research",
+            extra_fields={"description": explicit},
+        )
+        spec = load_agent_spec("desc-agent")
+
+        assert spec.description == explicit
+        assert spec.description != spec.role
+
+    def test_blank_description_falls_back_to_role(self, tmp_agent_dir):
+        """A present-but-blank/whitespace `description` falls back to `role`."""
+        content = make_agent_md(id="blank-desc", role="Effort Scoring")
+        # Inject an empty-quoted description into the frontmatter.
+        content = content.replace(
+            "estimated_duration: 3.0",
+            'estimated_duration: 3.0\ndescription: "   "',
+        )
+        create_agent_file(tmp_agent_dir, "blank-desc", content)
+
+        spec = load_agent_spec("blank-desc")
+        assert spec.description == "Effort Scoring"
+        assert spec.description == spec.role
+
+    def test_non_string_description_raises_spec_error(self, tmp_agent_dir):
+        """A non-string `description` (absence never raises, but a wrong type does)."""
+        content = make_agent_md(id="bad-desc")
+        content = content.replace(
+            "estimated_duration: 3.0",
+            "estimated_duration: 3.0\ndescription: 42",
+        )
+        create_agent_file(tmp_agent_dir, "bad-desc", content)
+
+        with pytest.raises(AgentSpecError) as exc_info:
+            load_agent_spec("bad-desc")
+        assert "description" in str(exc_info.value)
+
+    def test_default_description_is_role_for_minimal_agent(self, tmp_agent_dir):
+        """A minimal agent (only required fields) gets description == role."""
+        _write_agent(tmp_agent_dir, "minimal-desc-agent", role="Testing")
+        spec = load_agent_spec("minimal-desc-agent")
+        assert spec.description == spec.role == "Testing"
 
 
 # ---------------------------------------------------------------------------
@@ -404,6 +472,23 @@ class TestSchemaValidationAllAgents:
                 f"Agent {agent_id!r}: spec.max_tokens={spec.max_tokens} out of range 1–32768"
             )
             assert spec.prompt_body.strip(), f"Agent {agent_id!r}: spec.prompt_body is blank"
+            # description is always non-empty (explicit value, or the role fallback).
+            assert spec.description, f"Agent {agent_id!r}: spec.description is empty"
+
+    def test_all_agents_description_defaults_to_role(self):
+        """No real AGENT.md declares `description` today, so every spec.description
+        must equal spec.role (the loader fallback). Guards the no-backfill decision +
+        the description-is-always-present invariant the API endpoint relies on."""
+        agent_ids = self._discover_agent_ids()
+        assert agent_ids, "No agent directories found"
+
+        for agent_id in agent_ids:
+            spec = load_agent_spec(agent_id)
+            assert spec.description == spec.role, (
+                f"Agent {agent_id!r}: spec.description={spec.description!r} "
+                f"!= spec.role={spec.role!r} (expected the role fallback — has a real "
+                f"AGENT.md added an explicit `description`? update this test if so)"
+            )
 
     def test_all_agents_id_matches_directory_name(self):
         """Requirement 2.8: spec.id must equal the directory name for every agent."""

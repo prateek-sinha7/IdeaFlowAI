@@ -237,6 +237,10 @@ export interface AgentDef {
   icon: string;
   estimated_duration: number;
   has_skill: boolean;
+  /** Static HITL gate from the agent's AGENT.md frontmatter: "Human_Gate"
+   *  (default-gated, pre-checked in the Review-gates toggle), a "Validation_Gate",
+   *  or null/absent (no static gate). Sourced from the real backend registry. */
+  gate?: string | null;
 }
 
 export interface PipelineConfig {

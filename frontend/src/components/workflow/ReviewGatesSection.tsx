@@ -1,0 +1,159 @@
+"use client";
+
+/**
+ * ReviewGatesSection — inline, expandable "Review gates" control.
+ *
+ * Lists every agent in the current pipeline as a checkbox. A checked agent
+ * pauses the pipeline for a Human review gate after it completes (the same
+ * `review_gate_*` flow `ReviewGatePanel` renders). Each agent is pre-checked
+ * iff its static frontmatter declares `gate === "Human_Gate"` — i.e. the
+ * section opens reflecting exactly the backend's static default.
+ *
+ * Wiring contract (see plan.md §5 "Gate mechanism"):
+ *   - `onChange(gateAgentIds, touched)` fires whenever the selection or the
+ *     touched flag changes. `gateAgentIds` is the ids of the currently-checked
+ *     agents (possibly empty); `touched` is true once the user toggles anything.
+ *   - The caller MUST send `gate_agent_ids` ONLY when `touched` is true (even if
+ *     the array is empty — `[]` means "no gates"). When untouched it omits the
+ *     field entirely, so the backend uses its static default (byte-identical to
+ *     today). `onChange` must be a stable reference (wrap in `useCallback`).
+ *
+ * Styled to the design system / `ReviewGatePanel` palette: navy `#1B2A4A`,
+ * `text-[11px]` labels, `rounded-lg`.
+ *
+ * Graceful: renders nothing when the agent list is empty.
+ */
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronRight, ShieldCheck, Check } from "lucide-react";
+import type { AgentDef } from "@/types/index";
+
+interface ReviewGatesSectionProps {
+  /** The current pipeline's agents (e.g. LIBRARY_AGENTS filtered by type). */
+  agents: AgentDef[];
+  /** Reports the checked agent ids + whether the user has touched the control. */
+  onChange: (gateAgentIds: string[], touched: boolean) => void;
+}
+
+const isDefaultGated = (a: AgentDef): boolean => a.gate === "Human_Gate";
+
+export function ReviewGatesSection({ agents, onChange }: ReviewGatesSectionProps) {
+  const [expanded, setExpanded] = useState(false);
+  const [touched, setTouched] = useState(false);
+
+  // Identity-stable key of the incoming agent set, used to (re)seed the
+  // default selection when the pipeline (and thus its agents) changes.
+  const agentsKey = useMemo(() => agents.map((a) => a.id).join("|"), [agents]);
+
+  // Selected (checked) agent ids. Seeded from the static defaults; re-seeds and
+  // clears `touched` whenever the underlying agent set changes (pipeline switch).
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(
+    () => new Set(agents.filter(isDefaultGated).map((a) => a.id)),
+  );
+
+  // Re-seed the selection to the new defaults (and clear `touched`) whenever the
+  // underlying agent set changes — e.g. the user switches pipeline or customizes
+  // the lineup. Keyed on the agent-id list so it fires only on real changes.
+  useEffect(() => {
+    setCheckedIds(new Set(agents.filter(isDefaultGated).map((a) => a.id)));
+    setTouched(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentsKey]);
+
+  // Report the current selection + touched flag upward. Runs on mount and on
+  // every change; the initial (untouched) report is harmless because the caller
+  // omits `gate_agent_ids` whenever `touched` is false. `onChange` is expected
+  // to be stable (useCallback) so this effect does not loop.
+  useEffect(() => {
+    // Preserve pipeline order in the reported array (deterministic payload).
+    const ordered = agents.filter((a) => checkedIds.has(a.id)).map((a) => a.id);
+    onChange(ordered, touched);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkedIds, touched, agentsKey]);
+
+  const toggle = useCallback((id: string) => {
+    setTouched(true);
+    setCheckedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Graceful: nothing to gate.
+  if (agents.length === 0) return null;
+
+  const gatedCount = checkedIds.size;
+
+  return (
+    <div className="w-full rounded-lg border border-gray-200/80 bg-white overflow-hidden">
+      {/* Header — inline expandable */}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-[#F1F4FB]"
+        aria-expanded={expanded}
+      >
+        <ShieldCheck className="h-3.5 w-3.5 text-[#1B2A4A] flex-shrink-0" />
+        <span className="text-[11px] font-semibold text-[#1B2A4A]">Review gates</span>
+        <span className="text-[11px] text-gray-400">
+          {gatedCount === 0
+            ? "no gates"
+            : `${gatedCount} agent${gatedCount !== 1 ? "s" : ""} pause for review`}
+        </span>
+        <span className="ml-auto text-gray-400">
+          {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        </span>
+      </button>
+
+      {/* Body — one checkbox per agent */}
+      {expanded && (
+        <div className="border-t border-gray-100 px-3 py-2.5 space-y-1">
+          <p className="text-[10px] text-gray-400 leading-relaxed mb-1.5">
+            Checked agents pause the pipeline for your review after they finish. Pre-set to the
+            recommended defaults — adjust as needed.
+          </p>
+          {agents.map((agent) => {
+            const checked = checkedIds.has(agent.id);
+            return (
+              <label
+                key={agent.id}
+                className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 cursor-pointer transition-colors hover:bg-[#F1F4FB]"
+              >
+                <span
+                  className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border transition-colors ${
+                    checked
+                      ? "border-[#1B2A4A] bg-[#1B2A4A]"
+                      : "border-gray-300 bg-white"
+                  }`}
+                >
+                  {checked && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
+                </span>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggle(agent.id)}
+                  className="sr-only"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[11px] font-medium text-gray-900 leading-tight truncate">
+                    {agent.name}
+                  </span>
+                  <span className="block text-[10px] text-gray-400 leading-tight truncate">
+                    {agent.role}
+                  </span>
+                </span>
+                {isDefaultGated(agent) && (
+                  <span className="flex-shrink-0 rounded-full bg-[#1B2A4A]/10 px-1.5 py-0.5 text-[9px] font-medium text-[#1B2A4A]">
+                    default
+                  </span>
+                )}
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}

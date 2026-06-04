@@ -7,6 +7,7 @@ import {
   Presentation, Layout, Settings2, Mic, MicOff, GitBranch,
 } from "lucide-react";
 import { AgentsPopup } from "./AgentsPopup";
+import { ReviewGatesSection } from "./ReviewGatesSection";
 import { LIBRARY_AGENTS } from "./AgentLibraryData";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
@@ -34,7 +35,11 @@ interface IdeaInputPageProps {
   // `resolvedType` is the concrete pipeline the backend should dispatch.
   // For all standard workflows it equals `workflowType`; for the `migration`
   // meta-pipeline it is the sub-pipeline the user picked in the tile selector.
-  onRun: (message: string, agentIds: string[], resolvedType: WorkflowType) => void;
+  // `extraParams` carries the run-level `context` (merged at the top level of the
+  // run_pipeline payload by useWorkflow). Currently used only for the per-run
+  // `gate_agent_ids` toggle — present only when the user touches the Review-gates
+  // section; omitted otherwise so the backend uses its static default.
+  onRun: (message: string, agentIds: string[], resolvedType: WorkflowType, extraParams?: Record<string, unknown>) => void;
 }
 
 const TYPE_CONFIG: Record<WorkflowType, {
@@ -173,6 +178,16 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
 
   const { attachedSkills, attachedHooks } = useSkillsHooks();
 
+  // Per-run Human-review gate selection, surfaced by <ReviewGatesSection>.
+  // Held in a ref so the section reporting its state doesn't re-render this page
+  // and so `handleRun` always reads the latest value. Untouched ⇒ we omit
+  // `gate_agent_ids` (backend uses its static default); touched ⇒ we send the
+  // explicit array (even when empty = "no gates").
+  const gateSelectionRef = useRef<{ ids: string[]; touched: boolean }>({ ids: [], touched: false });
+  const handleGatesChange = useCallback((ids: string[], touched: boolean) => {
+    gateSelectionRef.current = { ids, touched };
+  }, []);
+
   useEffect(() => {
     setPipelineAgents(LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).sort((a, b) => a.order - b.order));
   }, [effectiveType]);
@@ -194,7 +209,12 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
     if (!ideaInput.trim() || pipelineAgents.length === 0) return;
     // For the migration meta-type, Run is gated on a sub-pipeline being chosen.
     if (isMigrationMeta && !migrationChoice) return;
-    onRun(ideaInput.trim(), pipelineAgents.map((a) => a.id), effectiveType);
+    // Only attach gate_agent_ids when the user actually touched the Review-gates
+    // section; otherwise omit it entirely so the backend keeps its static default
+    // (the run_pipeline payload is byte-identical to before this feature).
+    const { ids, touched } = gateSelectionRef.current;
+    const extraParams = touched ? { gate_agent_ids: ids } : undefined;
+    onRun(ideaInput.trim(), pipelineAgents.map((a) => a.id), effectiveType, extraParams);
   };
 
   const defaultAgentIds = new Set(LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).map((a) => a.id));
@@ -423,6 +443,20 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
             </span>
           </button>
         </motion.div>
+
+        {/* Review gates — inline expandable, sits beside the Skills/Hooks
+            ("Advanced") controls. Self-hides when there are no agents (e.g. the
+            migration meta-type before a sub-pipeline is chosen). */}
+        {(!isMigrationMeta || migrationChoice) && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.24 }}
+            className="w-full mt-3"
+          >
+            <ReviewGatesSection agents={pipelineAgents} onChange={handleGatesChange} />
+          </motion.div>
+        )}
 
       </div>
 

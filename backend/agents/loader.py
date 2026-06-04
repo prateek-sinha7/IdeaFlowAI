@@ -88,6 +88,10 @@ class AgentSpec:
     context_from: list[str] = field(default_factory=list)
     icon: str = "🤖"
     estimated_duration: float = 3.0
+    # Longer UI-facing blurb (API/frontend agent listings). Optional in the
+    # frontmatter; when absent (the common case — most AGENT.md files omit it)
+    # the loader falls back to `role` so this is always a non-empty string.
+    description: str = ""
 
     # ── Phase 1 extensions — Typed Produces/Consumes contract model ───────
     # All optional with empty-list/None defaults for backward compatibility.
@@ -312,6 +316,24 @@ def _build_spec(
         )
     estimated_duration: float = float(raw_duration)
 
+    # ── description (optional) ────────────────────────────────────────────
+    # Longer UI-facing blurb. Optional; if present it must be a string, but
+    # absence must NEVER raise (no required-field validation). When absent or
+    # blank, fall back to `role` — the existing required field — so callers
+    # (API / frontend) always get a non-empty description without a mass
+    # backfill of the existing AGENT.md files.
+    raw_description = metadata.get("description")
+    if raw_description is not None and not isinstance(raw_description, str):
+        raise AgentSpecError(
+            f"Invalid field 'description' in {file_path_str}: "
+            f"expected a string or null, got {type(raw_description).__name__!r}"
+        )
+    description: str = (
+        raw_description.strip()
+        if isinstance(raw_description, str) and raw_description.strip()
+        else role
+    )
+
     # ── Phase 1 extensions: produces, consumes, gate, injects ────────────
     produces = _optional_list_of_str(metadata, "produces", file_path_str, default=[])
     consumes = _optional_list_of_str(metadata, "consumes", file_path_str, default=[])
@@ -344,6 +366,7 @@ def _build_spec(
         context_from=context_from,
         icon=icon,
         estimated_duration=estimated_duration,
+        description=description,
         produces=produces,
         consumes=consumes,
         gate=gate,

@@ -10,12 +10,17 @@ Public API:
     get_pipeline_agents(pipeline_type) -> list[AgentSpec]
 """
 
+import logging
+
 from agents.loader import (
     AgentSpec,
+    AgentSpecError,
     SUPPORTED_PIPELINE_TYPES,
     list_agent_ids,
     load_agent_spec,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Pipeline-to-agent-ID mappings
@@ -203,3 +208,146 @@ def get_pipeline_agents(pipeline_type: str) -> list[AgentSpec]:
     ids = list_agent_ids(pipeline_type)
     specs = [load_agent_spec(aid) for aid in ids]
     return sorted(specs, key=lambda s: s.order)
+
+
+# ---------------------------------------------------------------------------
+# Flat-list / by-id / allow-list helpers
+# ---------------------------------------------------------------------------
+#
+# These three helpers replicate the contract the legacy
+# ``app.agents.registry`` provided (``get_agent_by_id`` /
+# ``get_all_agents_flat`` / ``allowed_custom_agent_ids``) but source their
+# data from the REAL pipeline-to-ID maps above + the on-disk AGENT.md files
+# (via the loader), so there is a single source of truth. Phase 6 (T3)
+# repoints ``app/api/agents.py`` and ``app/api/websocket.py`` here.
+
+# od_* pipeline aliases that are NOT real PIPELINE_AGENTS keys and must
+# resolve to a base pipeline before the allow-list logic runs. (Mirrors the
+# resolution in app/api/websocket.py — od_prototype→prototype; od_ppt and
+# od_ppt_revision ARE real registry keys, so they are handled by the general
+# base/revision logic below, not here.)
+_OD_ALIAS_BASE: dict[str, str] = {
+    "od_prototype": "prototype",
+}
+
+
+def get_agent_by_id(agent_id: str) -> AgentSpec | None:
+    """Return the AgentSpec for ``agent_id``, or ``None`` if it does not exist.
+
+    Thin guard around ``load_agent_spec``: a missing agent directory/AGENT.md
+    (``FileNotFoundError``) or a malformed AGENT.md (``AgentSpecError``) yields
+    ``None`` rather than propagating. Matches the legacy contract used by
+    ``app/api/agents.py`` (POST /skills) to validate that a client-supplied
+    agent id actually exists.
+
+    Note: ``PermissionError`` is intentionally NOT swallowed — an unreadable
+    file is an operational fault, not a "no such agent" answer.
+    """
+    try:
+        return load_agent_spec(agent_id)
+    except (FileNotFoundError, AgentSpecError):
+        return None
+
+
+def get_all_agents_flat() -> list[AgentSpec]:
+    """Return every pipeline agent as a flat, de-duplicated list of AgentSpecs.
+
+    Iterates every pipeline in ``PIPELINE_AGENTS`` (base + revision + custom),
+    loads each agent id via ``load_agent_spec``, and de-duplicates by ``id``
+    (an agent may appear in more than one pipeline — e.g. the od-ppt agents are
+    shared by the ``ppt`` and ``od_ppt`` pipelines). This spans ALL pipelines
+    to match the intent of the legacy flat list (the full agent pool).
+
+    Ordering is stable and deterministic: pipeline insertion order in
+    ``PIPELINE_AGENTS``, then ascending ``order`` within each pipeline; the
+    first pipeline to contribute a given id fixes that id's position.
+
+    An id present in ``PIPELINE_AGENTS`` whose AGENT.md is missing or malformed
+    is skipped with a warning (it cannot appear in a list of specs); this
+    mirrors the loader's own tolerant scan in ``list_agent_ids``.
+    """
+    specs: list[AgentSpec] = []
+    seen: set[str] = set()
+
+    for pipeline_type, agent_ids in PIPELINE_AGENTS.items():
+        # Load + sort this pipeline's agents by order for a stable contribution.
+        pipeline_specs: list[AgentSpec] = []
+        for agent_id in agent_ids:
+            if agent_id in seen:
+                continue
+            try:
+                pipeline_specs.append(load_agent_spec(agent_id))
+            except (FileNotFoundError, AgentSpecError):
+                logger.warning(
+                    "get_all_agents_flat: skipping agent %r in pipeline %r "
+                    "(load failed)",
+                    agent_id,
+                    pipeline_type,
+                )
+                continue
+
+        for spec in sorted(pipeline_specs, key=lambda s: s.order):
+            if spec.id in seen:
+                continue
+            seen.add(spec.id)
+            specs.append(spec)
+
+    return specs
+
+
+def allowed_custom_agent_ids(pipeline_type: str) -> set[str]:
+    """Return the agent IDs a client may legitimately supply in
+    ``run_pipeline.agent_ids`` for ``pipeline_type``.
+
+    Replicates the legacy ``app.agents.registry.allowed_custom_agent_ids``
+    branch semantics, but sourced from the REAL ``PIPELINE_AGENTS`` + the real
+    ``"custom"`` pipeline, and with the od_ gaps fixed. The branch partition is
+    DERIVED from the registry (revision = ``*_revision`` suffix; base = the
+    remaining non-empty, non-custom pipelines) rather than a hand-maintained
+    list, so adding/removing a pipeline does not require editing this function.
+
+    Branches:
+      * od_ alias (``od_prototype``) → resolved to its base pipeline
+        (``prototype``) and re-evaluated.
+      * base pipeline (real equivalents of user_stories / ppt / prototype /
+        app_builder / mulesoft_to_springboot / dotnet_to_azure, AND ``od_ppt``):
+        ``set(PIPELINE_AGENTS[base]) | set(PIPELINE_AGENTS["custom"])`` — the
+        pipeline's own agents plus the custom-utility pool the UI exposes.
+        Treating ``od_ppt`` as a base pipeline FIXES the legacy ``od_ppt → ∅``
+        bug that rejected every od_ppt run supplying ``agent_ids``.
+      * revision pipeline (any ``*_revision`` — incl. ``od_ppt_revision``):
+        ``set(PIPELINE_AGENTS[that_revision])`` only. Revisions are
+        intentionally tight (the revision flow assumes a fixed agent shape and
+        the UI does not let the user inject agents into a revision run).
+      * ``"custom"``: ``set(PIPELINE_AGENTS["custom"])`` — the custom-utility
+        pool. (NOTE: the legacy implementation returned the union of ALL agents
+        across ALL pipelines here; Phase 6 deliberately tightens this to the
+        real ``custom`` pipeline per the migration spec. ``custom`` is therefore
+        NOT part of the legacy-parity guarantee — base + revision pipelines are.)
+      * unknown / unsupported (incl. the empty ``reverse_engineer`` pipeline):
+        ``set()`` — the security fallback. The caller is still expected to
+        reject unknown pipeline types up-front; this empty-set guarantees no
+        agent_ids can be smuggled through under an unrecognized type.
+    """
+    # Resolve od_ aliases that are not real registry keys (od_prototype).
+    pipeline_type = _OD_ALIAS_BASE.get(pipeline_type, pipeline_type)
+
+    # Revision pipelines (tight): driven by the *_revision suffix so that BOTH
+    # the REVISION_BASE_MAP entries AND od_ppt_revision (absent from that map)
+    # are covered. Their own agents only.
+    if pipeline_type.endswith("_revision"):
+        return set(PIPELINE_AGENTS.get(pipeline_type, []))
+
+    if pipeline_type == "custom":
+        return set(PIPELINE_AGENTS.get("custom", []))
+
+    # Base pipelines (own agents ∪ custom pool). Derived: a present,
+    # non-revision, non-custom, NON-EMPTY pipeline. The non-empty guard keeps
+    # the agentless reverse_engineer pipeline out (→ falls through to ∅,
+    # matching the legacy security fallback). od_ppt naturally lands here.
+    base_agents = PIPELINE_AGENTS.get(pipeline_type)
+    if base_agents:  # present and non-empty
+        return set(base_agents) | set(PIPELINE_AGENTS.get("custom", []))
+
+    # Unknown / unsupported / empty → security fallback.
+    return set()

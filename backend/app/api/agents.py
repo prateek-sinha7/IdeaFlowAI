@@ -16,7 +16,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from app.agents.registry import get_pipeline_agents, get_all_agents_flat, get_agent_by_id
+from agents.registry import get_pipeline_agents, get_all_agents_flat, get_agent_by_id
 from app.agents.skills import (
     MAX_SKILL_BYTES,
     delete_custom_skill,
@@ -45,6 +45,11 @@ class AgentResponse(BaseModel):
     icon: str
     estimated_duration: float
     has_skill: bool
+    # Static HITL review-gate marker from the agent's AGENT.md frontmatter
+    # ("Human_Gate" / "Validation_Gate" / None). Surfaced so the frontend's
+    # per-agent review-gate toggle (Phase 6b) can pre-check the default-gated
+    # agents. ``None`` means the agent is not gated by default.
+    gate: str | None = None
 
 
 class PipelineResponse(BaseModel):
@@ -99,6 +104,7 @@ def get_pipeline(
             icon=a.icon,
             estimated_duration=a.estimated_duration,
             has_skill=_agent_has_resolvable_skill(a.id, current_user.id),
+            gate=a.gate,
         )
         for a in agents
     ]
@@ -131,6 +137,7 @@ def get_agent_library(
                 "icon": a.icon,
                 "estimated_duration": a.estimated_duration,
                 "has_skill": _agent_has_resolvable_skill(a.id, current_user.id),
+                "gate": a.gate,
             }
             for a in all_agents
         ],
