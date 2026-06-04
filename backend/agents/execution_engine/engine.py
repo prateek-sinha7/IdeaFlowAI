@@ -1069,23 +1069,35 @@ class ExecutionEngine:
         results: list[dict],
         cancel_event,
     ):
-        """Counter-based build loop: calls prototype-build once per task.
+        """Per-task isolated sub-agent build loop with Both-validation (Phase 4).
 
-        Extracts the task count from the planner output, then calls the
-        build agent N times — once per task — passing the current task number
-        and total count each time.
+        Replaces the pre-Phase-4 "call prototype-build N times with injected
+        context" with: write the shared reference files (spec.md / design.md /
+        tasks.md) to the run sandbox ONCE, then run ONE isolated sub-agent per
+        task (the SAME create_runner per-task loop as Phase 3 — current task
+        injected via `=== CURRENT TASK ===`), and after each task run
+        Both-validation (static_check + render_check) with a bounded internal
+        fix-loop. The UI event contract is UNCHANGED: task_loop_progress (here)
+        + task_progress (from _run_agent's report_task_complete events) keep
+        their shapes, and the validation/fix is "richer build underneath" — the
+        fix sub-agent's stream is consumed INTERNALLY and never re-emitted, so
+        the user still sees exactly ONE build per task.
         """
         import re as _re
 
         plan_output = accumulated_outputs.get("prototype-plan", "")
 
-        # Count tasks from the planner output (## Task N: headers)
+        # Count tasks from the planner output (## Task N: headers). If the planner
+        # wrapped them in <tasks>…</tasks>, look inside that. We keep the resolved
+        # task-source text so we can extract each `## Task N:` block for injection.
         task_matches = _re.findall(r"^##\s+Task\s+(\d+)", plan_output, _re.MULTILINE)
+        task_source = plan_output
         if not task_matches:
             # Fallback: try <tasks> wrapper
             tasks_section = _re.search(r"<tasks>([\s\S]*?)</tasks>", plan_output, _re.IGNORECASE)
             if tasks_section:
-                task_matches = _re.findall(r"^##\s+Task\s+(\d+)", tasks_section.group(1), _re.MULTILINE)
+                task_source = tasks_section.group(1)
+                task_matches = _re.findall(r"^##\s+Task\s+(\d+)", task_source, _re.MULTILINE)
 
         total_tasks = len(task_matches)
         if total_tasks == 0:
@@ -1099,6 +1111,15 @@ class ExecutionEngine:
             "Build task loop: %d tasks for pipeline=%s",
             total_tasks, pipeline_run_id,
         )
+
+        # ── (A) Write the shared reference files to the run sandbox ONCE ──────────
+        # The sandbox is per-run/SHARED, so every per-task sub-agent (and every
+        # internal fix sub-agent) sees the same spec.md / design.md / tasks.md and
+        # reads them with read_file for deeper detail than the injected task block.
+        # spec.md  = the spec writer's <spec> text; tasks.md = the planner's <tasks>;
+        # design.md = ACTIVE TEMPLATE (SKILL.md) + ACTIVE DESIGN SYSTEM (DESIGN.md)
+        # from self._od_context. Missing keys are handled gracefully (skip a header).
+        self._write_build_reference_files(sandbox, accumulated_outputs)
 
         for task_num in range(1, total_tasks + 1):
             if cancel_event and cancel_event.is_set():
@@ -1122,6 +1143,11 @@ class ExecutionEngine:
             # Inject task number so _build_context_message can pass it to the agent
             accumulated_outputs["_build_task_number"] = str(task_num)
             accumulated_outputs["_build_task_total"] = str(total_tasks)
+
+            # ── (B) Stash THIS task's `## Task N:` block for injection ───────────
+            # _build_context_message reads self._current_task_block and emits it
+            # inside the `=== CURRENT TASK ===` marker the #51 prompt looks for.
+            self._current_task_block = self._extract_task_block(task_source, task_num)
 
             # Emit loop progress so frontend knows which task is running
             yield {
@@ -1154,7 +1180,252 @@ class ExecutionEngine:
                     task_num, total_tasks, len(task_html),
                 )
 
+            # ── (C) Both-validation + bounded internal fix-loop ──────────────────
+            # Static check (sync) + headless render (async). On failure, re-invoke
+            # the SAME sub-agent internally (≤2 attempts) with the errors injected;
+            # the fix stream is consumed but NOT re-emitted (one build per task in
+            # the UI). Never blocks the whole build — logs + continues after N.
+            if cancel_event and cancel_event.is_set():
+                break
+            await self._run_validation_fix_loop(
+                ctx=AgentContext(
+                    user_request=user_message,
+                    attached_skills=list(attached_skills or []),
+                    attached_hooks=list(attached_hooks or []),
+                    model=model_id,
+                    od_context=getattr(self, "_od_context", None),
+                    planning_context=planning_context,
+                    user_id=getattr(self, "_user_id", None),
+                    run_id=pipeline_run_id,
+                ),
+                sandbox=sandbox,
+                pipeline_run_id=pipeline_run_id,
+                task_num=task_num,
+                total_tasks=total_tasks,
+                cancel_event=cancel_event,
+            )
+            # The fix-loop may have edited prototype.html — refresh the accumulated
+            # HTML so the NEXT task's sub-agent sees the corrected document.
+            fixed_html = sandbox.read("prototype.html")
+            if fixed_html:
+                accumulated_outputs[spec.id] = fixed_html
+
         logger.info("Build task loop: finished %d tasks for pipeline=%s", total_tasks, pipeline_run_id)
+
+    # ------------------------------------------------------------------
+    # Phase 4 helpers — reference files, task-block extraction, validation
+    # ------------------------------------------------------------------
+
+    def _write_build_reference_files(
+        self, sandbox: RunSandbox, accumulated_outputs: dict[str, str]
+    ) -> None:
+        """Write spec.md / design.md / tasks.md into the run sandbox (Region A).
+
+        Called ONCE before the per-task loop. The per-task sub-agents read these
+        with ``read_file`` for the full spec / template / design-system / task
+        list. The sandbox is per-run/shared so every task (and fix) sub-agent
+        sees the same files. Missing inputs degrade gracefully:
+          * ``spec.md``  ← ``accumulated_outputs["prototype-specify"]`` (the
+            ``<spec>`` text). Skipped if absent.
+          * ``tasks.md`` ← ``accumulated_outputs["prototype-plan"]`` (the
+            ``<tasks>`` text). Skipped if absent.
+          * ``design.md`` ← ``od_context["template_body"]`` (ACTIVE TEMPLATE) +
+            ``od_context["ds_body"]`` (ACTIVE DESIGN SYSTEM) under clear headers;
+            each header is included only if its body is present (so a run with no
+            DS still gets a template-only design.md, and vice versa).
+        """
+        spec_text = accumulated_outputs.get("prototype-specify", "")
+        tasks_text = accumulated_outputs.get("prototype-plan", "")
+        od = getattr(self, "_od_context", None) or {}
+        template_body = od.get("template_body") or ""
+        ds_body = od.get("ds_body") or ""
+
+        try:
+            if spec_text:
+                sandbox.write("spec.md", spec_text)
+            if tasks_text:
+                sandbox.write("tasks.md", tasks_text)
+
+            design_sections: list[str] = []
+            if template_body:
+                template_id = od.get("template_id", "") or ""
+                hdr = f"# ACTIVE TEMPLATE{f' ({template_id})' if template_id else ''}"
+                design_sections.append(f"{hdr}\n\n{template_body}")
+            if ds_body:
+                ds_id = od.get("ds_id", "") or ""
+                hdr = f"# ACTIVE DESIGN SYSTEM{f' ({ds_id})' if ds_id else ''}"
+                design_sections.append(f"{hdr}\n\n{ds_body}")
+            if design_sections:
+                sandbox.write("design.md", "\n\n".join(design_sections))
+
+            logger.info(
+                "Build task loop: wrote reference files (spec.md=%s, design.md=%s, tasks.md=%s)",
+                bool(spec_text), bool(design_sections), bool(tasks_text),
+            )
+        except Exception as exc:  # noqa: BLE001 — never let a write failure abort the build
+            logger.warning("Build task loop: failed writing reference files: %s", exc)
+
+    @staticmethod
+    def _extract_task_block(task_source: str, task_num: int) -> str:
+        """Return the full ``## Task {n}: …`` block (header + body) from the plan.
+
+        The block runs from its ``## Task {n}:`` header up to (but not including)
+        the next ``## Task`` / ``## `` header or end-of-text. Returns ``""`` when
+        the numbered task can't be located (the caller then falls back to the
+        generic "execute this task" instruction in ``_build_context_message``).
+        """
+        import re as _re
+
+        m = _re.search(
+            rf"^##\s+Task\s+{task_num}\b.*$",
+            task_source or "",
+            _re.MULTILINE,
+        )
+        if not m:
+            return ""
+        start = m.start()
+        # End at the next top-level "## " heading (the next task or any ## section).
+        nxt = _re.search(r"^##\s+", task_source[m.end():], _re.MULTILINE)
+        end = m.end() + nxt.start() if nxt else len(task_source)
+        return task_source[start:end].strip()
+
+    async def _run_validation_fix_loop(
+        self,
+        *,
+        ctx: "AgentContext",
+        sandbox: RunSandbox,
+        pipeline_run_id: str,
+        task_num: int,
+        total_tasks: int,
+        cancel_event,
+        max_attempts: int = 2,
+    ) -> None:
+        """Both-validation + bounded INTERNAL fix-loop for one build task (Region C).
+
+        Reads ``prototype.html`` from the sandbox and runs static_check (sync) +
+        render_check (async). The task is FAILING iff ``not static.ok`` OR
+        (render available AND ``not render.ok``); a render where
+        ``available is False`` (Chromium missing) is treated as SKIPPED, never a
+        failure. While failing and ``attempts < max_attempts``, re-invoke the
+        SAME ``prototype-build`` sub-agent (a fresh ``create_runner`` on a
+        distinct ``…:fix{n}`` thread) with the combined errors injected under
+        ``=== VALIDATION ERRORS (fix prototype.html) ===``, telling it to read +
+        ``edit_file`` ONLY those issues. The fix sub-agent's ``astream_events``
+        is consumed INTERNALLY (the runner persists prototype.html to disk as a
+        side effect) and NOTHING is re-emitted to the caller — so the UI shows
+        ONE build per task, identical to today. After ``max_attempts`` still
+        failing → ``logger.warning`` with the residual issues and return (the
+        build always continues; validation never blocks it).
+        """
+        from app.agents.render_check import render_check
+        from app.agents.static_check import static_check
+
+        html_path = sandbox.path_for("prototype.html")
+        if not html_path.is_file():
+            logger.warning(
+                "Validation: task %d/%d wrote no prototype.html — skipping validation",
+                task_num, total_tasks,
+            )
+            return
+
+        attempt = 0
+        while True:
+            if cancel_event and cancel_event.is_set():
+                return
+
+            sres = static_check(html_path)
+            try:
+                rres = await render_check(html_path)
+            except Exception as exc:  # noqa: BLE001 — render harness must never crash the build
+                logger.warning("Validation: render_check raised (%s) — treating as skipped", exc)
+                from app.agents.render_check import RenderResult
+                rres = RenderResult(ok=True, available=False, note=f"render_check error: {exc}")
+
+            render_skipped = not rres.available
+            render_failed = rres.available and not rres.ok
+            failing = (not sres.ok) or render_failed
+
+            logger.info(
+                "Validation: task %d/%d attempt %d — static=%s render=%s%s",
+                task_num, total_tasks, attempt,
+                sres.summary(), rres.summary(),
+                " (render skipped)" if render_skipped else "",
+            )
+
+            if not failing:
+                return  # passed (render may be skipped — that's a pass, not a fail)
+
+            if attempt >= max_attempts:
+                residual: list[str] = list(sres.issues)
+                if render_failed:
+                    residual.append(f"render: {rres.summary()}")
+                    residual.extend(rres.console_errors)
+                    residual.extend(rres.page_errors)
+                    residual.extend(
+                        f"dead nav link: {n.href} (no section activated)"
+                        for n in rres.nav_results if not n.ok
+                    )
+                logger.warning(
+                    "Validation: task %d/%d still failing after %d fix attempt(s) — "
+                    "continuing build. Residual issues: %s",
+                    task_num, total_tasks, max_attempts, "; ".join(residual) or "(none)",
+                )
+                return
+
+            attempt += 1
+            # Build the fix instruction (combined static + render errors).
+            error_lines: list[str] = list(sres.issues)
+            if render_failed:
+                if rres.console_errors:
+                    error_lines.extend(f"console error: {e}" for e in rres.console_errors)
+                if rres.page_errors:
+                    error_lines.extend(f"uncaught exception: {e}" for e in rres.page_errors)
+                error_lines.extend(
+                    f"dead nav link: clicking '{n.href}' activated no <section data-page>"
+                    for n in rres.nav_results if not n.ok
+                )
+            fix_message = (
+                f"=== VALIDATION ERRORS (fix prototype.html) ===\n"
+                f"The prototype you built for task {task_num} of {total_tasks} failed "
+                f"validation. Read the current prototype.html with "
+                f"read_file(file_path=\"prototype.html\") and apply MINIMAL "
+                f"edit_file(file_path=\"prototype.html\", ...) changes to fix ONLY "
+                f"the issues listed below. Do NOT rebuild the document, do NOT add "
+                f"new pages, do NOT touch anything unrelated to these errors. You "
+                f"may read_file(\"spec.md\") / read_file(\"design.md\") for reference.\n\n"
+                + "\n".join(f"- {e}" for e in error_lines)
+                + "\n=== END VALIDATION ERRORS ==="
+            )
+
+            logger.info(
+                "Validation: task %d/%d FAILING — internal fix attempt %d/%d (%d issue(s))",
+                task_num, total_tasks, attempt, max_attempts, len(error_lines),
+            )
+
+            # Re-invoke the SAME sub-agent on a distinct fix thread; drive its
+            # stream INTERNALLY (apply edits as a side effect) and re-emit NOTHING.
+            try:
+                fix_thread = f"{pipeline_run_id}:prototype-build:{task_num}:fix{attempt}"
+                fix_agent = create_runner(
+                    "prototype-build",
+                    ctx,
+                    thread_id=fix_thread,
+                    checkpointer=getattr(self, "_checkpointer", None),
+                )
+                async for _ev in fix_agent.astream_events(fix_message):
+                    if cancel_event and cancel_event.is_set():
+                        return
+                    # INTERNAL: consume only — do NOT yield. The runner writes
+                    # prototype.html to disk via its tool calls; we just need the
+                    # stream to drain so those edits are applied.
+                    continue
+            except Exception as exc:  # noqa: BLE001 — a fix failure must not abort the build
+                logger.warning(
+                    "Validation: task %d/%d fix attempt %d errored (%s) — continuing",
+                    task_num, total_tasks, attempt, exc,
+                )
+                return
+            # Loop back to re-validate the (possibly) fixed prototype.html.
 
     # ------------------------------------------------------------------
     # Gate selection — which agents pause for the inter-agent Human gate
@@ -1730,16 +2001,28 @@ class ExecutionEngine:
             label = f"{prev.name} ({prev.role})" if prev else aid
             parts.append(f"\n--- Output from {label} ---\n{output}")
 
-        # For the build agent: inject the current task number and current HTML.
-        # The agent reads === CURRENT TASK === to find its assigned task.
+        # For the build agent: inject the current task block + current HTML.
+        # The #51 prototype-build prompt reads `=== CURRENT TASK ===` to find its
+        # authoritative scope. The Phase-4 build loop (_run_build_task_loop) writes
+        # spec.md / design.md / tasks.md to the sandbox (the sub-agent reads them
+        # with read_file for deeper detail) and stashes THIS task's full `## Task N:`
+        # block on `self._current_task_block` before each _run_agent call — we emit
+        # that block inside the marker so the sub-agent's scope is the exact planner
+        # task text, not just "Task N of M". (The Both-validation fix re-run is driven
+        # INTERNALLY by the loop with its own constructed message — see
+        # _run_validation_fix_loop — so it does NOT pass through here.)
         if spec.id == "prototype-build":
             task_num_str = accumulated_outputs.get("_build_task_number", "")
             total_str = accumulated_outputs.get("_build_task_total", "")
             if task_num_str:
+                task_block = getattr(self, "_current_task_block", "") or ""
+                body = task_block.strip() if task_block.strip() else (
+                    "Execute ONLY this task from the task list above."
+                )
                 parts.append(
                     f"\n=== CURRENT TASK ===\n"
                     f"Task {task_num_str} of {total_str}\n"
-                    f"Execute ONLY this task from the task list above.\n"
+                    f"{body}\n"
                     f"=== END CURRENT TASK ==="
                 )
 
