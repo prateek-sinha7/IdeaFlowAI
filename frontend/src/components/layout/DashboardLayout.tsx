@@ -431,9 +431,12 @@ export function DashboardLayout({
     setWorkflowType("prototype_revision" as WorkflowType);
     if (onResetPipeline) onResetPipeline();
     if (onStartPipeline) {
-      onStartPipeline("prototype_revision", revisionMessage, undefined, attachedSkills, attachedHooks);
+      // Phase 5: send source_workflow_run_id so the backend can seed the
+      // original run's spec/design into the revision sandbox. Only sent when a
+      // completed parent run exists (currentWorkflowRunId falls back to "").
+      onStartPipeline("prototype_revision", revisionMessage, undefined, attachedSkills, attachedHooks, currentWorkflowRunId ? { source_workflow_run_id: currentWorkflowRunId } : undefined);
     }
-  }, [prototypeContent, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
+  }, [prototypeContent, currentWorkflowRunId, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
 
   // Handle App Builder revision — re-run pipeline with existing blueprint + change instruction
   const handleReviseAppBuilder = useCallback((instruction: string) => {

@@ -1093,6 +1093,7 @@ async def _handle_workflow_execution(
                 model_id=getattr(user, "preferred_model", None) or None,
                 od_context=od_context,
                 gate_agent_ids=gate_agent_ids,
+                parent_run_id=parent_run_id,
             ):
                 await event_queue.put({"type": update["type"], "data": update.get("data", {})})
                 # Track state for DB persistence

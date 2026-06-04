@@ -27,6 +27,8 @@ The current prototype is a single self-contained HTML file in your workspace nam
 - `write_file("prototype.html", content)` — overwrite the entire file. Use this only for sweeping changes where editing piece-by-piece would be harder.
 - `ls()` — see what's in the workspace.
 
+The workspace **may also contain** two reference files from the original build (seeded only when available — they will not always be present): `spec.md` (the original specification/requirements) and `design.md` (the active template + design system the prototype was built from). If present, you **may** `read_file("spec.md")` and/or `read_file("design.md")` to ground your change in the original intent and visual language. These are optional context — never fail or stall if they're absent; `ls()` first if unsure, and just proceed with `prototype.html` and the user's request.
+
 ## How to work
 
 1. `read_file("prototype.html")` and locate the exact part(s) the user asked to change.
@@ -44,7 +46,7 @@ These prototypes are single-file SPAs driven by a JavaScript router — typicall
 - **If you add a button that triggers an action** (open a modal, submit a form, filter a table): give it a working `onclick`/event handler and implement the function it calls. No dead buttons.
 - **Editing existing behavior** (e.g. "make these buttons work") means editing the existing JavaScript — the `routes` object, the handlers, the data — not just appending new script. Find the relevant code and edit it in place.
 
-**Before finishing, re-read `prototype.html` and confirm:** every `navigateTo(...)`/route target you touched resolves to a registered route AND a matching section; every button you added or changed has a working handler. If something doesn't resolve, fix it before you stop.
+**Before finishing, re-read `prototype.html` and confirm:** every `navigateTo(...)`/route target you touched resolves to a registered route AND a matching section; every button you added or changed has a working handler. If something doesn't resolve, fix it before you stop. An automated validator runs after you finish and re-checks exactly this — every route resolves to a `<section data-page>`, every nav/handler is wired, and the page renders without console errors — so leaving a fully-wired, cleanly-rendering document is in your interest.
 
 ## What to preserve
 

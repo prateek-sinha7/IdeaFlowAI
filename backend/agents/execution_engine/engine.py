@@ -98,6 +98,125 @@ _PPT_PIPELINE_TYPES = frozenset({"od_ppt", "od_ppt_revision", "ppt", "ppt_revisi
 REVISION_FILE_NAME = "prototype.html"
 
 
+# ---------------------------------------------------------------------------
+# Validation fix-loop — pure, unit-testable issue selection (Phase 4 + 5)
+# ---------------------------------------------------------------------------
+#
+# These module-level helpers are the SINGLE source of truth for how a
+# StaticCheckResult + RenderResult are normalized into stable "signatures" and
+# into the ordered list of issues the internal fix-loop feeds back to the
+# sub-agent. They are deliberately pure (no agent, no I/O, no engine state) so
+# both ``_run_validation_fix_loop`` AND its tests — and the Phase-5 revision
+# task (T2) — import and reuse the *same* normalization.
+#
+# Selection policy (locked Phase-5 decision):
+#   * Static REGRESSIONS — static issues whose signature is NOT in
+#     ``baseline_static``. An empty/None baseline ⇒ ALL static issues (this is
+#     today's build behavior — fix everything static_check reports).
+#   * Hard render-breakage, ALWAYS included regardless of baseline — uncaught
+#     page errors and dead nav links (a click activates no <section data-page>
+#     ⇒ blank page / "won't display proper content"). render_check exposes no
+#     dedicated blank/empty-render field beyond these; a dead nav IS the
+#     blank-render signal.
+#   * Console errors — those whose signature is NOT in ``baseline_console``
+#     (empty/None baseline ⇒ all, = today).
+#   * Render contributes ONLY when ``rres.available`` — a skipped render
+#     (Chromium absent) never adds issues, exactly as today.
+#
+# Line WORDING + ORDER mirror today's build ``error_lines`` assembly EXACTLY
+# (static issues, then console errors, then uncaught exceptions, then dead nav
+# links) so that with empty baselines the build fix-message is byte-identical.
+
+
+def _static_issue_sigs(sres) -> set[str]:
+    """Signatures of a StaticCheckResult's fatal issues (for baseline diffing).
+
+    A static issue's signature is its message string verbatim — ``static_check``
+    already emits precise, stable, position-independent messages (e.g. ``dead
+    nav link: href '#/x' has no matching <section data-page="x">``), so the raw
+    text is a reliable identity for "the same defect before vs. after an edit".
+    """
+    return set(getattr(sres, "issues", None) or [])
+
+
+def _console_sigs(rres) -> set[str]:
+    """Signatures of a RenderResult's console errors (for baseline diffing).
+
+    Only meaningful when the render actually ran (``rres.available``); a skipped
+    render yields no console signatures. The signature is the console message
+    text verbatim — the same identity the baseline is computed from.
+    """
+    if not getattr(rres, "available", False):
+        return set()
+    return set(getattr(rres, "console_errors", None) or [])
+
+
+def _select_issues_to_fix(
+    sres,
+    rres,
+    baseline_static: "set[str] | None" = None,
+    baseline_console: "set[str] | None" = None,
+) -> list[str]:
+    """Ordered, de-duplicated fix-list for the internal validation fix-loop.
+
+    Pure function over a :class:`~app.agents.static_check.StaticCheckResult`
+    (``sres``) and a :class:`~app.agents.render_check.RenderResult` (``rres``),
+    applying the locked Phase-5 selection policy (see the module comment above).
+
+    With ``baseline_static`` and ``baseline_console`` both empty/None the result
+    is EXACTLY today's build ``error_lines`` (all static issues, then all
+    console errors, then page errors, then dead nav links) — so the build path
+    stays byte-identical. With populated baselines (revision) only NEW static
+    issues + NEW console errors are selected, while hard render-breakage (page
+    errors, dead nav links) is ALWAYS included regardless of baseline.
+
+    The returned strings are exactly the lines fed into the fix prompt; the
+    caller builds the failing-decision from ``bool(...)`` of this list.
+    """
+    base_static = baseline_static or set()
+    base_console = baseline_console or set()
+
+    selected: list[str] = []
+
+    # (1) Static regressions — issues not present on the baseline. Empty
+    #     baseline ⇒ every static issue (today's build behavior). Preserve the
+    #     emission order static_check produced.
+    for issue in getattr(sres, "issues", None) or []:
+        if issue not in base_static:
+            selected.append(issue)
+
+    # Render contributes only when the headless render actually ran.
+    if getattr(rres, "available", False):
+        # (2) New console errors — filtered by the console baseline (empty ⇒
+        #     all, = today). Prefixed exactly as today's error_lines.
+        for err in getattr(rres, "console_errors", None) or []:
+            if err not in base_console:
+                selected.append(f"console error: {err}")
+
+        # (3) Hard render-breakage, ALWAYS included regardless of baseline:
+        #     uncaught page exceptions …
+        for err in getattr(rres, "page_errors", None) or []:
+            selected.append(f"uncaught exception: {err}")
+
+        # … and dead nav links (click activates no <section data-page> ⇒ blank
+        #     page). Mirrors today's wording verbatim.
+        for nav in getattr(rres, "nav_results", None) or []:
+            if not getattr(nav, "ok", True):
+                selected.append(
+                    f"dead nav link: clicking '{nav.href}' activated no "
+                    f"<section data-page>"
+                )
+
+    # De-duplicate while preserving first-seen order.
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for line in selected:
+        if line not in seen:
+            seen.add(line)
+            deduped.append(line)
+    return deduped
+
+
 def _sanitize_carousel_deck_html(html: str) -> str:
     """Strip slide-hiding CSS that contradicts a horizontal translateX carousel deck.
 
@@ -183,6 +302,7 @@ class ExecutionEngine:
         model_id: str | None = None,
         od_context: dict | None = None,
         gate_agent_ids: list[str] | None = None,
+        parent_run_id: str | None = None,
     ) -> AsyncGenerator[dict, None]:
         """Execute a workflow end-to-end, yielding WebSocket events.
 
@@ -212,6 +332,19 @@ class ExecutionEngine:
                         The Phase-6 UI sends this; the inter-agent gate itself
                         stays engine-level (`_run_review_gate`) — this only
                         selects which agents trigger it.
+            parent_run_id: For ``prototype_revision`` — the pipeline_run_id of the
+                        ORIGINAL run that produced the prototype being revised
+                        (the frontend's ``source_workflow_run_id``, already
+                        resolved by the WS layer). When set, the engine seeds the
+                        parent run's ``spec.md`` / ``design.md`` / ``tasks.md``
+                        (read from ``RunSandbox(<same user>, parent_run_id)`` — the
+                        build wrote them there; sandboxes survive to the 48h TTL)
+                        into this run's sandbox so the revision agent (and its
+                        internal fix sub-agent) can consult the original
+                        requirements + design system. Graceful degrade: a missing
+                        / TTL-swept parent only logs a warning and proceeds on the
+                        HTML + instruction. ``None`` (default) → no seeding, exactly
+                        today's behavior.
         """
         total_start = time.time()
         # Per-run on-disk sandbox: <RUNS_ROOT>/<user>/<run>/. SHARED across every
@@ -230,6 +363,11 @@ class ExecutionEngine:
         # so the decision point inside _run_agent can read it without threading
         # the param through _run_agent / _run_build_task_loop signatures.
         self._gate_agent_ids = gate_agent_ids
+        # Parent run id (prototype_revision only) — used below to seed the parent
+        # run's spec.md/design.md/tasks.md into THIS run's sandbox. Stashed on
+        # self (like _od_context / _gate_agent_ids) so the post-revision fix-loop
+        # can read it without threading the param through every signature.
+        self._parent_run_id = parent_run_id
 
         # ── Durable graph state: acquire the LangGraph checkpointer once per run ──
         # get_checkpointer() is a process-wide CACHED SINGLETON (see
@@ -276,12 +414,119 @@ class ExecutionEngine:
         # into the sandbox and slim the prompt to just the instruction + a
         # pointer, so the document isn't also duplicated into the agent's context.
         self._revision_original_html = ""
+        # Phase-5 revision state consumed by the post-revision fix-loop (below,
+        # just before the read-back). Safe defaults so the fix-loop degrades to a
+        # no-baseline / no-instruction run (or is skipped) when this is not a
+        # prototype_revision, or when no existing HTML was found.
+        #   _revision_instruction       — the user's revision request, re-injected
+        #                                  into the fix prompt (None ⇒ build-style
+        #                                  wording; we set it to the slimmed message
+        #                                  as a fallback so it's never None here).
+        #   _revision_baseline_static   — static-issue signatures of the seeded
+        #                                  ORIGINAL prototype.html (pre-edit), so
+        #                                  the fix-loop only treats NEW static
+        #                                  issues as regressions.
+        #   _revision_baseline_console  — console-error signatures of that same
+        #                                  pre-edit render (empty when render is
+        #                                  unavailable).
+        self._revision_instruction = None
+        self._revision_baseline_static: set[str] = set()
+        self._revision_baseline_console: set[str] = set()
         if pipeline_type == "prototype_revision":
             existing_html = self._extract_existing_prototype_html(user_message)
             if existing_html:
                 self._revision_original_html = existing_html
                 sandbox.write(REVISION_FILE_NAME, existing_html)
+
+                # ── Capture the user's revision instruction (for the fix prompt) ──
+                # The frontend wraps it as
+                #   === REVISION REQUEST ===\n{instruction}\n=== END REQUEST ===
+                # Extract it verbatim; fall back to the slimmed user_message if the
+                # markers are absent so the fix prompt always has SOMETHING to
+                # re-inject (the slimmed message still contains the request).
+                _req_match = re.search(
+                    r"=== REVISION REQUEST ===\s*([\s\S]*?)\s*=== END REQUEST ===",
+                    user_message, re.IGNORECASE,
+                )
                 user_message = self._slim_revision_message(user_message)
+                self._revision_instruction = (
+                    _req_match.group(1).strip() if _req_match else user_message
+                )
+
+                # ── Seed the parent run's spec.md / design.md / tasks.md ──────────
+                # The original build wrote these to its OWN run sandbox
+                # (RunSandbox(<user>, parent_run_id)) and sandboxes survive to the
+                # 48h TTL (no run-end cleanup), so we can read them back and copy
+                # them into THIS revision sandbox — giving the revision agent (and
+                # its internal fix sub-agent) the original requirements + design
+                # system via read_file. Build the parent sandbox the SAME way the
+                # engine built its own (line above: RunSandbox(user_id or "anon",
+                # pipeline_run_id)) but keyed on parent_run_id. Graceful degrade:
+                # ANY failure (no parent_run_id, TTL-swept dir, unreadable file)
+                # only logs a warning — a missing parent must never break a revision.
+                if parent_run_id:
+                    try:
+                        parent_sb = RunSandbox(user_id or "anon", parent_run_id)
+                        seeded: list[str] = []
+                        for _name in ("spec.md", "design.md", "tasks.md"):
+                            try:
+                                _content = parent_sb.read(_name)
+                            except Exception as _read_exc:  # noqa: BLE001
+                                logger.warning(
+                                    "prototype_revision: could not read parent %s "
+                                    "(%s) — skipping",
+                                    _name, _read_exc,
+                                )
+                                continue
+                            if _content:
+                                sandbox.write(_name, _content)
+                                seeded.append(_name)
+                        logger.info(
+                            "prototype_revision: seeded parent reference files "
+                            "from run %s: %s",
+                            parent_run_id, ", ".join(seeded) or "(none found)",
+                        )
+                    except Exception as _seed_exc:  # noqa: BLE001 — never break a revision
+                        logger.warning(
+                            "prototype_revision: parent reference seeding from run "
+                            "%s failed (%s) — proceeding on HTML + instruction only",
+                            parent_run_id, _seed_exc,
+                        )
+
+                # ── Baseline on the seeded ORIGINAL prototype.html (PRE-edit) ─────
+                # Compute static + render signatures of the prototype BEFORE the
+                # revision agent edits it, using the SAME T1 module-level helpers
+                # the fix-loop uses — so the signatures line up and the fix-loop
+                # treats only NEW static/console issues as regressions (hard
+                # render-breakage is always fixed regardless of baseline). Render
+                # is best-effort: an unavailable/erroring Chromium yields an empty
+                # console baseline (a skipped render contributes no signatures),
+                # exactly as _console_sigs handles it.
+                from app.agents.static_check import static_check
+                _orig_path = sandbox.path_for(REVISION_FILE_NAME)
+                _sres0 = static_check(_orig_path)
+                self._revision_baseline_static = _static_issue_sigs(_sres0)
+                try:
+                    from app.agents.render_check import render_check
+                    _rres0 = await render_check(_orig_path)
+                except Exception as _render_exc:  # noqa: BLE001 — render unavailable ⇒ no baseline
+                    logger.warning(
+                        "prototype_revision: baseline render_check raised (%s) — "
+                        "treating as unavailable (no console baseline)",
+                        _render_exc,
+                    )
+                    from app.agents.render_check import RenderResult
+                    _rres0 = RenderResult(
+                        ok=True, available=False,
+                        note=f"render_check error: {_render_exc}",
+                    )
+                self._revision_baseline_console = _console_sigs(_rres0)
+                logger.info(
+                    "prototype_revision: pre-edit baseline — %d static issue(s), "
+                    "%d console error(s)",
+                    len(self._revision_baseline_static),
+                    len(self._revision_baseline_console),
+                )
             else:
                 logger.warning(
                     "prototype_revision: no existing HTML found in request — "
@@ -543,6 +788,66 @@ class ExecutionEngine:
         #   code pipelines).
         # - For PPT / prototype / text pipelines, the last agent's streamed output
         #   IS the deliverable — count_sandbox_deliverables == 0 for these.
+
+        # ── Prototype revision: programmatic post-revision validation + fix ──────
+        # After the visible prototype-revision-agent has edited prototype.html, run
+        # the generalized (T1) Both-validation + bounded INTERNAL fix-loop on the
+        # revision sandbox BEFORE reading the file back as the deliverable. With the
+        # pre-edit baseline (computed in the seeding block above) the fix-loop fixes
+        # only NEW static/console regressions PLUS hard render-breakage (page
+        # errors, dead nav, blank render), re-injecting the user's instruction and
+        # leaving pre-existing nits alone. This is NON-YIELDING: the fix sub-agent's
+        # stream is consumed internally (it persists prototype.html to disk as a
+        # side effect) and NOTHING is re-emitted — the WS/UI event contract is
+        # byte-identical (no new events). It NEVER aborts the revision (try/except),
+        # and only runs when the agent actually produced a prototype.html.
+        if (
+            pipeline_type == "prototype_revision"
+            and sandbox.path_for("prototype.html").is_file()
+        ):
+            try:
+                # Mirror _run_agent's AgentContext construction for the SAME agent:
+                #  - disk-skill merge keyed on the literal agent id (== spec.id),
+                #  - agent_outputs={} (prototype-revision-agent declares consumes:[]
+                #    so _filter_consumed_outputs returns {} — set directly here),
+                #  - run_id=pipeline_run_id + user_id=self._user_id so create_runner
+                #    (inside the fix-loop) roots the fix sub-agent's RunSandbox at
+                #    RunSandbox(ctx.user_id or "anon", ctx.run_id) — the SAME revision
+                #    dir holding prototype.html — so its edits are NOT lost.
+                _rev_skills: list[dict] = list(attached_skills or [])
+                _disk_skills = getattr(self, "_disk_skills", {})
+                if "prototype-revision-agent" in _disk_skills:
+                    _rev_skills.append({"content": _disk_skills["prototype-revision-agent"]})
+                rev_ctx = AgentContext(
+                    user_request=user_message,
+                    agent_outputs={},
+                    attached_skills=_rev_skills,
+                    attached_hooks=list(attached_hooks or []),
+                    model=model_id,
+                    od_context=getattr(self, "_od_context", None),
+                    planning_context=planning_context,
+                    user_id=getattr(self, "_user_id", None),
+                    run_id=pipeline_run_id,
+                )
+                await self._run_validation_fix_loop(
+                    ctx=rev_ctx,
+                    sandbox=sandbox,
+                    pipeline_run_id=pipeline_run_id,
+                    task_num=1,
+                    total_tasks=1,
+                    cancel_event=cancel_event,
+                    agent_id="prototype-revision-agent",
+                    baseline_static=getattr(self, "_revision_baseline_static", None),
+                    baseline_console=getattr(self, "_revision_baseline_console", None),
+                    user_instruction=getattr(self, "_revision_instruction", None),
+                    label="revision",
+                )
+            except Exception as exc:  # noqa: BLE001 — never let validation abort the revision
+                logger.warning(
+                    "prototype_revision: post-revision validation errored (%s) — continuing",
+                    exc,
+                )
+
         if pipeline_type == "prototype_revision":
             # The revision agent edited prototype.html in place on the sandbox —
             # that file IS the deliverable. Read it back as raw HTML (not the
@@ -1299,23 +1604,37 @@ class ExecutionEngine:
         total_tasks: int,
         cancel_event,
         max_attempts: int = 2,
+        agent_id: str = "prototype-build",
+        baseline_static: "set[str] | None" = None,
+        baseline_console: "set[str] | None" = None,
+        user_instruction: str | None = None,
+        label: str = "",
     ) -> None:
-        """Both-validation + bounded INTERNAL fix-loop for one build task (Region C).
+        """Both-validation + bounded INTERNAL fix-loop (Region C — build & revision).
 
         Reads ``prototype.html`` from the sandbox and runs static_check (sync) +
-        render_check (async). The task is FAILING iff ``not static.ok`` OR
-        (render available AND ``not render.ok``); a render where
-        ``available is False`` (Chromium missing) is treated as SKIPPED, never a
-        failure. While failing and ``attempts < max_attempts``, re-invoke the
-        SAME ``prototype-build`` sub-agent (a fresh ``create_runner`` on a
-        distinct ``…:fix{n}`` thread) with the combined errors injected under
-        ``=== VALIDATION ERRORS (fix prototype.html) ===``, telling it to read +
-        ``edit_file`` ONLY those issues. The fix sub-agent's ``astream_events``
-        is consumed INTERNALLY (the runner persists prototype.html to disk as a
-        side effect) and NOTHING is re-emitted to the caller — so the UI shows
-        ONE build per task, identical to today. After ``max_attempts`` still
-        failing → ``logger.warning`` with the residual issues and return (the
-        build always continues; validation never blocks it).
+        render_check (async), then asks :func:`_select_issues_to_fix` which issues
+        to feed back. The page is FAILING iff that selection is non-empty. With
+        ``baseline_static``/``baseline_console`` empty (the BUILD defaults) the
+        selection is every static issue + every render-break/console line, so
+        ``failing`` reduces to EXACTLY today's ``(not sres.ok) or render_failed``
+        (proof: ``not sres.ok`` ⇔ ``sres.issues`` non-empty ⇔ a static line is
+        selected; ``render_failed`` ⇔ render available AND a console/page/dead-nav
+        line exists ⇔ a render line is selected; an unavailable render contributes
+        nothing in both — so ``bool(selected) == failing_today``). With populated
+        baselines (REVISION) only NEW static/console issues are selected, while
+        hard render-breakage (page errors, dead nav) is always included.
+
+        While failing and ``attempts < max_attempts``, re-invoke the ``agent_id``
+        sub-agent (a fresh ``create_runner`` on a distinct ``…:fix{n}`` thread)
+        with the selected issues injected. When ``user_instruction`` is ``None``
+        (build) the message keeps TODAY'S exact wording; when set (revision) it is
+        revision-framed around the user's instruction. The fix sub-agent's
+        ``astream_events`` is consumed INTERNALLY (the runner persists
+        prototype.html to disk as a side effect) and NOTHING is re-emitted — the
+        UI shows ONE build per task, identical to today. After ``max_attempts``
+        still failing → ``logger.warning`` with the residual issues and return
+        (the loop always continues; validation never blocks).
         """
         from app.agents.render_check import render_check
         from app.agents.static_check import static_check
@@ -1343,7 +1662,13 @@ class ExecutionEngine:
 
             render_skipped = not rres.available
             render_failed = rres.available and not rres.ok
-            failing = (not sres.ok) or render_failed
+            # The fix-list (pure selection). With empty baselines this is byte-
+            # identical to today's build ``error_lines`` and ``bool(...)`` of it
+            # equals today's ``(not sres.ok) or render_failed`` (see docstring).
+            error_lines = _select_issues_to_fix(
+                sres, rres, baseline_static, baseline_console
+            )
+            failing = bool(error_lines)
 
             logger.info(
                 "Validation: task %d/%d attempt %d — static=%s render=%s%s",
@@ -1356,15 +1681,20 @@ class ExecutionEngine:
                 return  # passed (render may be skipped — that's a pass, not a fail)
 
             if attempt >= max_attempts:
-                residual: list[str] = list(sres.issues)
-                if render_failed:
-                    residual.append(f"render: {rres.summary()}")
-                    residual.extend(rres.console_errors)
-                    residual.extend(rres.page_errors)
-                    residual.extend(
-                        f"dead nav link: {n.href} (no section activated)"
-                        for n in rres.nav_results if not n.ok
-                    )
+                if user_instruction is None:
+                    # BUILD residual — byte-identical to today's assembly.
+                    residual: list[str] = list(sres.issues)
+                    if render_failed:
+                        residual.append(f"render: {rres.summary()}")
+                        residual.extend(rres.console_errors)
+                        residual.extend(rres.page_errors)
+                        residual.extend(
+                            f"dead nav link: {n.href} (no section activated)"
+                            for n in rres.nav_results if not n.ok
+                        )
+                else:
+                    # REVISION residual — the selected (still-unfixed) issues.
+                    residual = list(error_lines)
                 logger.warning(
                     "Validation: task %d/%d still failing after %d fix attempt(s) — "
                     "continuing build. Residual issues: %s",
@@ -1373,41 +1703,58 @@ class ExecutionEngine:
                 return
 
             attempt += 1
-            # Build the fix instruction (combined static + render errors).
-            error_lines: list[str] = list(sres.issues)
-            if render_failed:
-                if rres.console_errors:
-                    error_lines.extend(f"console error: {e}" for e in rres.console_errors)
-                if rres.page_errors:
-                    error_lines.extend(f"uncaught exception: {e}" for e in rres.page_errors)
-                error_lines.extend(
-                    f"dead nav link: clicking '{n.href}' activated no <section data-page>"
-                    for n in rres.nav_results if not n.ok
+            # Build the fix instruction from the selected issues.
+            if user_instruction is None:
+                # BUILD — preserve today's exact wording verbatim.
+                fix_message = (
+                    f"=== VALIDATION ERRORS (fix prototype.html) ===\n"
+                    f"The prototype you built for task {task_num} of {total_tasks} failed "
+                    f"validation. Read the current prototype.html with "
+                    f"read_file(file_path=\"prototype.html\") and apply MINIMAL "
+                    f"edit_file(file_path=\"prototype.html\", ...) changes to fix ONLY "
+                    f"the issues listed below. Do NOT rebuild the document, do NOT add "
+                    f"new pages, do NOT touch anything unrelated to these errors. You "
+                    f"may read_file(\"spec.md\") / read_file(\"design.md\") for reference.\n\n"
+                    + "\n".join(f"- {e}" for e in error_lines)
+                    + "\n=== END VALIDATION ERRORS ==="
                 )
-            fix_message = (
-                f"=== VALIDATION ERRORS (fix prototype.html) ===\n"
-                f"The prototype you built for task {task_num} of {total_tasks} failed "
-                f"validation. Read the current prototype.html with "
-                f"read_file(file_path=\"prototype.html\") and apply MINIMAL "
-                f"edit_file(file_path=\"prototype.html\", ...) changes to fix ONLY "
-                f"the issues listed below. Do NOT rebuild the document, do NOT add "
-                f"new pages, do NOT touch anything unrelated to these errors. You "
-                f"may read_file(\"spec.md\") / read_file(\"design.md\") for reference.\n\n"
-                + "\n".join(f"- {e}" for e in error_lines)
-                + "\n=== END VALIDATION ERRORS ==="
-            )
+            else:
+                # REVISION — re-inject the user's instruction; keep the requested
+                # change intact and fix ONLY the listed (introduced/breaking) issues.
+                fix_message = (
+                    f"=== VALIDATION ERRORS (fix prototype.html) ===\n"
+                    f"The user asked you to revise this prototype:\n"
+                    f"\"{user_instruction}\"\n\n"
+                    f"You revised this prototype to satisfy that request — keep that "
+                    f"change intact. Now fix ONLY the issues listed below (they were "
+                    f"introduced by your edit, or they stop the page rendering / "
+                    f"displaying content); do not touch anything unrelated.\n\n"
+                    f"Read the current prototype.html with "
+                    f"read_file(file_path=\"prototype.html\") and apply MINIMAL "
+                    f"edit_file(file_path=\"prototype.html\", ...) changes. Do NOT "
+                    f"rebuild the document and do NOT undo the requested change. You "
+                    f"may read_file(\"spec.md\") / read_file(\"design.md\") for the "
+                    f"original requirements + design system if present.\n\n"
+                    + "\n".join(f"- {e}" for e in error_lines)
+                    + "\n=== END VALIDATION ERRORS ==="
+                )
 
             logger.info(
                 "Validation: task %d/%d FAILING — internal fix attempt %d/%d (%d issue(s))",
                 task_num, total_tasks, attempt, max_attempts, len(error_lines),
             )
 
-            # Re-invoke the SAME sub-agent on a distinct fix thread; drive its
-            # stream INTERNALLY (apply edits as a side effect) and re-emit NOTHING.
+            # Re-invoke the sub-agent on a distinct fix thread; drive its stream
+            # INTERNALLY (apply edits as a side effect) and re-emit NOTHING.
             try:
-                fix_thread = f"{pipeline_run_id}:prototype-build:{task_num}:fix{attempt}"
+                if label == "":
+                    # BUILD — preserve today's exact thread-id (agent_id defaults
+                    # to "prototype-build", so this is byte-identical).
+                    fix_thread = f"{pipeline_run_id}:{agent_id}:{task_num}:fix{attempt}"
+                else:
+                    fix_thread = f"{pipeline_run_id}:{agent_id}:{label}:fix{attempt}"
                 fix_agent = create_runner(
-                    "prototype-build",
+                    agent_id,
                     ctx,
                     thread_id=fix_thread,
                     checkpointer=getattr(self, "_checkpointer", None),
