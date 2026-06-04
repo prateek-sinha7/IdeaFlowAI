@@ -747,18 +747,19 @@ dev server is expected to be unhappy until Phase 1+ lands — that's accepted.
 - [x] #15 live Bedrock invoke + HITL pause/resume on 0.6.7 — verified 2026-06-03 (Haiku, eu-central-1).
 - [x] Phase-1 risks: interrupt detection (post-loop `aget_state`) + text-only tool exclusion (per-graph `_ToolFilterMiddleware`) — covered by tests.
 - [x] Engine HITL bridge — Phase 3 added per-run gate-selection via the existing `_run_review_gate` (the runner's tool-level `gate` stays dormant — see levers below).
+- [x] **Frontend per-agent HITL toggle UI** — DONE Phase 6 (`01c183f`): inline "Review gates" section (IdeaInputPage + the prototype/ppt templates wizard).
+- [x] **Frontend `LIBRARY_AGENTS` staleness** — DONE Phase 6: regenerated to the real registry (real prototype/ppt ids + `gate`). (A live `/api/agents` fetch instead of static data remains an optional nicety — see levers.)
+- [x] **Excise legacy / dead code** — DONE Phase 7a/7b/7c: `deep_agent.py`/`DeepAgent`, `base.py`/`BaseAgent`, `orchestrator.py`/the 7 chat agents, `summarizer.py`, `AgentWorkspace`/`PrototypeArtifactStore`/`emit_artifact`, `create_agent`/`_build_tools`, the legacy `app/agents/registry.py`, `prototype_v1` — all deleted; grep-zero tree-wide. **🎉 true zero-legacy.**
+- [x] **7 `test_factory.py` reds** — DONE 7a: `test_factory.py` deleted (the `create_agent`/`_build_tools` it tested are gone); the chat `test_base_agent.py` reds also gone (7b).
+- [x] **`backend/CLAUDE.md` stale** — DONE 7a-3: refreshed to the live deepagents architecture.
 
 **Deferred to a specific later stage** (a fresh session must NOT assume these are done):
-- **Push the 4 queued commits** — as soon as GitLab auth works (VPN off / refresh GCM token): `git push origin HEAD`.
+- **Push the ~16 queued commits** — as soon as GitLab auth works (VPN off / refresh GCM token): `git push origin HEAD`.
 - **Live Bedrock end-to-end runs** (prototype / app_builder / user_stories / prototype_revision) → **Phase 8**. All verification so far is offline (scripted models + real validators). Needs `aws sso login --profile personal-sso` (SSO keeps expiring between sessions).
 - **Cross-process checkpoint resume-after-kill** → **Phase 8**. In-process graph-level resume is proven; true crash-recovery needs Postgres (dev falls back to `InMemorySaver`).
-- **Excise legacy / dead code** → **Phase 7**: `app/agents/deep_agent.py` (`DeepAgent`), `app/agents/summarizer.py`, `AgentWorkspace`, `PrototypeArtifactStore`, `emit_artifact`, the per-agent `max_iterations` map, and `create_agent` + `_build_tools` (all DEAD since the Phase-3 cutover — the engine calls `create_runner`). Grep-assert zero refs after deletion.
-- **7 pre-existing `test_factory.py` reds** (`TestCreateAgentToolWiring`/`TestBuildTools` prototype tool-wiring + `TestComposeSystemPrompt` hook composition) → **Phase 7**: they test the now-dead `create_agent`/`_build_tools` path; they fail identically at every commit incl. HEAD (unrelated to the migration). Delete/rewrite with that code.
-- **`backend/CLAUDE.md` is stale** (describes the pre-migration architecture: `orchestrator_v2.py`, `deep_agent.py`, `emit_artifact`, old prototype tools) → refresh in **Phase 7**.
-- **Frontend per-agent HITL toggle UI** → **Phase 6**: the backend already accepts `gate_agent_ids` (Phase 3); Phase 6 adds the submit-time check/uncheck control (pre-checked = static `Human_Gate` set).
 - **Per-task sub-agents for code-gen** (`app_builder` / `mulesoft_to_springboot` / `dotnet_to_azure` + revisions; validation = build/lint in the sandbox) → **Phase 10** (after the prototype model is proven).
 - **PPT revision is a non-agentic stub** (discovered during Phase 5 planning): the `run_revision` WS path → `_handle_revision` (`engine.py:1682`) stores the instruction text as the new artifact and runs **no agent** ("In a full implementation, this would run a DeepAgent revision loop"). So a PPT revision via the Phase-3-preferred `run_revision` path yields a placeholder, not a revised deck (the legacy `run_pipeline(ppt_revision)` fallback still runs the real agent when no completed run id exists). NOT a prototype/deepagents concern → **separate fix, out of Phase 5**.
-- **Frontend `LIBRARY_AGENTS` is stale vs. the backend registry** (discovered during Phase 6 planning): `frontend/src/components/workflow/AgentLibraryData.ts` lists pre-migration agent ids (prototype → `requirements-analyst`/`html-prototype-builder`/`prototype-polisher`/`prototype-finalizer`) instead of the real `prototype-specify`/`prototype-plan`/`prototype-build`/`prototype-validate`. The pre-submit agent-selection UI thus shows fictional agents (the RUN is unaffected — runtime uses the real ids from `pipeline_start` events). Phase 6's gate section **sidesteps** this by fetching real agents from `GET /api/agents/pipelines/{type}`. Aligning the agent-selection UI to the same endpoint is a **separate fix** (candidate for Phase 7 or a standalone task).
+- **Frontend live `/api/agents` fetch** (optional nicety — the `LIBRARY_AGENTS` staleness itself is RESOLVED, Phase 6): post-Phase-6 the gate section + agent-selector read the regenerated static `AgentLibraryData.ts` (correct real ids + `gate`). Migrating to a live `GET /api/agents/pipelines/{type}` fetch (single source of truth, no future static drift) is optional — not scheduled.
 - **✅ RESOLVED (Phase 7c `92bd531`) — `/flowin-handoff` was the last live `BaseAgent` user** (discovered Phase 7b-5): the IDE-to-PR handoff subsystem (`app/agents/handoff/{classifier,coding_agent,test_agent,compliance_agent}.py`, wired via `app/main.py` → `app.api.handoff`/`websocket_handoff` → `app.services.handoff_pipeline`) subclasses/uses `BaseAgent`, so `base.py` could NOT be deleted in Phase 7 (`test_no_baseagent.py` exempts `base.py` + `handoff/`, self-guarded). To reach **true zero-`BaseAgent`/zero-legacy**, the handoff subsystem must be migrated onto the new stack (`create_runner`/`build_model`) — a fresh live-subsystem migration (its own design + agents + verification, like the chat one). **Decide: migrate handoff (new phase) now, or defer + accept `BaseAgent`-for-handoff.**
 
 **Still-open design levers** (no stage committed):
@@ -794,7 +795,15 @@ dev server is expected to be unhappy until Phase 1+ lands — that's accepted.
 - 2026-06-04 — Phase 7 landed (7a `424765e`, 7b `e973cf0`). 7a excised the dead pipeline-legacy (`create_agent`/`_build_tools`, `summarizer.py`, `workspace.py`/prototype-tools/`artifact_store.py`, the legacy `app/agents/registry.py`, `prototype_v1`; net −6,091) + moved title-gen → `build_model`. 7b migrated free-chat → **`ChatRunner`** (7 `chat-*` specs + ported sequencing; byte-for-byte event contract via a frozen golden) + deleted `orchestrator.py`/the 7 chat agents/`deep_agent.py`/`test_base_agent.py`; `TokenUsage` → `types.py`. Both audited GREEN; suite 493 passed (only pre-existing env reds: logout/cancel). **Key discovery (7b-5):** a SECOND live `BaseAgent` consumer — the **`/flowin-handoff`** subsystem (`app/agents/handoff/*` via `app/main.py`) — so `base.py` was KEPT (deleting it breaks `import app.main`); `test_no_baseagent.py` widened with self-guarded exemptions for `base.py` + `handoff/`. Chat + pipeline runtimes are zero-legacy; **true zero-`BaseAgent` needs a handoff migration (§9 open).**
 - 2026-06-05 — Phase 7c landed (`92bd531`) — **🎉 true zero-legacy reached.** Migrated the 4 `/flowin-handoff` agents (the last live `BaseAgent` users) off `BaseAgent` → `build_model().ainvoke` (survey found them pure-text/one-shot/no-tools — a small migration; prompts/config/`BEDROCK_CODING_MODEL_ID` override/JSON-extract/`setdefault`/classifier-fallback byte-preserved; public API unchanged so `handoff_pipeline.py`/`handoff_github.py`/REST/WS untouched), then **deleted `base.py`**. Characterized first (frozen golden over the real `run_handoff_pipeline` — WS contract + `pipeline_output`, coding + test modes; mocks agents at the pipeline boundary + `handoff_github`). `test_no_baseagent.py` widened tree-wide, no exemptions. Audited GREEN — zero `BaseAgent`/`DeepAgent`/`AgentOrchestrator` code tokens tree-wide; `import app.main` OK; suite 583 passed (only pre-existing env reds: logout/handoff_api self-registration-disabled, cancel timing). 5 tasks via Opus-4.8 agents (characterize ∥ rewrite → delete → verify → audit).
 
-## 11. Code map — what exists now (post Phase 4)
+## 11. Code map — what exists now (post Phase 7)
+
+> **Added since Phase 4:** `chat_runner.py` (`ChatRunner` — free-chat on `create_runner`) + 7 `chat-*`
+> AGENT.md specs (the `"chat"` pipeline); the `/flowin-handoff` agents now on `build_model().ainvoke`
+> (`app/agents/handoff/*`); `TokenUsage` moved to `app/agents/types.py`. **Deleted (Phase 7 — true
+> zero-legacy):** `deep_agent.py`/`base.py`/`orchestrator.py`/the 7 chat agents/`summarizer.py`/
+> `tools/workspace.py`/`tools/prototype.py`/`prototype/{tools,artifact_store}.py`/the legacy
+> `app/agents/registry.py`/`create_agent`+`_build_tools`/`prototype_v1`. No `BaseAgent`/`DeepAgent`/
+> `AgentOrchestrator` remain.
 
 **New runtime modules** (`backend/app/agents/`):
 - `deep_agent_runner.py` — `DeepAgentRunner`: wraps a `create_deep_agent` graph; `astream_events`
@@ -814,7 +823,7 @@ dev server is expected to be unhappy until Phase 1+ lands — that's accepted.
 - `create_runner(agent_id, ctx, *, checkpointer=None, interrupt_on=None, thread_id=None)` — the LIVE
   path (reuses `_compose_system_prompt`; builds the per-run `RunSandbox`; constructs `DeepAgentRunner`).
 - `_build_runner_tools(spec, ctx) -> (tools, exclude_builtin)` — maps tool-sets onto native tools.
-- `AgentContext.run_id` (additive). `create_agent`/`_build_tools` remain but are DEAD (Phase 7 deletes).
+- `AgentContext.run_id`. (`create_agent`/`_build_tools` were DELETED in Phase 7a — `create_runner` is the only entry point.)
 
 **Engine** (`backend/agents/execution_engine/engine.py`):
 - `execute()` — per-run `RunSandbox` + `await get_checkpointer()`; `gate_agent_ids` param; sets `ctx.run_id=pipeline_run_id`.
@@ -825,10 +834,15 @@ dev server is expected to be unhappy until Phase 1+ lands — that's accepted.
   `_extract_task_block` + `=== CURRENT TASK ===` injection (via `_build_context_message`) +
   `_run_validation_fix_loop` (static+render, bounded N=2 INTERNAL fix — a non-yielding coroutine).
 
-**Tests** (`backend/tests/agents/`): `test_deep_agent_runner_parity.py`, `test_deep_agent_runner_hitl_live.py`
-(opt-in, SSO), `test_create_runner.py`, `test_sandbox_deliverable.py`, `test_phase3_cutover_verify.py`,
-`test_static_check.py`, `test_phase4_build_loop.py`, `_parity_driver.py` (old-vs-new harness). Pre-existing
-reds: 7 in `test_factory.py` (legacy; Phase 7).
+**Tests**: `test_deep_agent_runner_hitl_live.py` (opt-in, SSO), `test_create_runner.py`,
+`test_sandbox_deliverable.py` (inlined byte-oracle), `test_phase3_cutover_verify.py`, `test_static_check.py`,
+`test_phase4_build_loop.py`, `test_phase5_*`, `test_registry_helpers.py`, `unit/test_agents_api_real_registry.py`,
+`unit/test_chat_contract.py` + `unit/test_chat_runner.py` (chat golden), `integration/test_handoff_contract.py`
++ `unit/test_handoff_agents.py` (handoff golden), `unit/test_no_baseagent.py` (whole-tree, NO exemptions). The
+reusable scripted `BaseChatModel` is `tests/agents/_scripted_model.py` (was `_parity_driver.py`). Known
+pre-existing reds (NOT migration-caused): env-gated `test_logout`/`test_handoff_api` (self-registration disabled)
++ `test_pipeline_cancel` (timing). [`test_factory.py`/`test_deep_agent_runner_parity.py`/`test_base_agent.py`
+were deleted in Phase 7.]
 
 **Deps** (`backend/requirements.txt`): `deepagents==0.6.7`, `langgraph-checkpoint-postgres==3.1.0`,
 `playwright==1.60.0`; langchain 1.3.4 / langchain-core 1.4.0 / langgraph 1.2.4. Backend image bundles
@@ -851,9 +865,12 @@ a `feat(agents)` code commit + a `docs(agents)` plan commit referencing the code
   Inject it into the engine by passing the INSTANCE as `model_id` (→ `ctx.model` → `create_runner`).
 - **Tests + `RUNS_ROOT`**: `settings.RUNS_ROOT` defaults to `/app/runs` (not writable locally) —
   monkeypatch it to a temp dir before `create_runner`. Stub the artifact-store DB write (no `workflow_runs`
-  row in tests) and, pre-Phase-7, the summarizer.
+  row in tests).
 - **`render_check` Chromium IS available locally** (renders for real); degrades to a skip if absent.
 - **`write_file` won't overwrite** (deepagents `FilesystemBackend`) — prototype Task 1 uses `write_file`,
   tasks 2+ and ALL fixes use `edit_file`. The prototype-build prompt + the fix-loop message enforce this.
-- **Old-vs-new parity**: `HEAD` is the pre-cutover engine; `tests/agents/_parity_driver.py` drives BOTH
-  the old (worktree at HEAD) and new (working tree) engines with the same scripted model.
+- **Contract characterization** (the chat/handoff migrations): freeze the live event contract as a GOLDEN
+  (`unit/test_chat_contract.py`, `integration/test_handoff_contract.py`) — a scripted model + mocked
+  side-effects drive the REAL runner/pipeline, and the migrated impl must reproduce the golden byte-for-byte.
+  The old worktree-at-HEAD parity harness was retired in Phase 7a; the reusable scripted `BaseChatModel`
+  survives as `tests/agents/_scripted_model.py`.
