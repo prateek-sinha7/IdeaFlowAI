@@ -15,7 +15,7 @@
 
 ## Current state — START HERE (resume point)
 
-**As of 2026-06-04.** Phases **0–5 complete & committed locally** on `deepagents-full-swap`;
+**As of 2026-06-05.** Phases **0–7c complete & committed locally** on `deepagents-full-swap`;
 **Phase 8 (verify — Bedrock Haiku, local) is next.** Phase 7 is fully landed and **the codebase is now
 true zero-legacy** — no `BaseAgent`/`DeepAgent`/`AgentOrchestrator` anywhere: **7a** excised the dead
 pipeline-legacy + moved title-gen off `DeepAgent`; **7b** migrated free-chat onto `ChatRunner` (deleted
@@ -34,12 +34,12 @@ Postgres/InMemory checkpointer with per-agent threads; prototype build = one iso
 task (reads `spec.md`/`design.md` + an injected `=== CURRENT TASK ===` block) with per-task
 static+render validation and a bounded **internal** fix-loop.
 
-**⚠️ Unpushed:** the branch is **9 commits ahead of `origin`** — Phase 3 (`030820b`,`017c241`) + Phase 4
-(`218582d`,`9349328`) + resume-doc (`171160c`) + Phase 5 (`8819f40`,`4f2e6d6`) + Phase 6 (`01c183f` +
-this docs commit). **Push is blocked on GitLab auth** (git-credential-manager hangs /
-`HTTP Basic: Access denied`; earlier-session pushes worked, so the credential lapsed — likely
-GlobalProtect VPN must be **off**, or refresh the GCM token). `git push origin HEAD` ships all 4
-once auth is fixed. **Commits are local — nothing is lost.**
+**⚠️ Unpushed:** the branch is **17 commits ahead of `origin/deepagents-full-swap`** (its upstream was
+last pushed 2026-06-03 at Phase 2 `b306ecc`) — everything Phase 3 → Phase 7c + their docs commits + this
+refresh. **Push is blocked on GitLab auth** (git-credential-manager hangs / `HTTP Basic: Access denied`;
+earlier-session pushes worked, so the credential lapsed — likely GlobalProtect VPN must be **off**, or
+refresh the GCM token). `git push origin HEAD` ships them all once auth is fixed. **Commits are local —
+nothing is lost.**
 
 **Map of this doc:** per-phase outcomes are in §5 (each ✅ phase has a **Landed** note); all
 deferred/carried-forward items are in **§9**; the **code map** (new modules + key functions + tests)
@@ -701,9 +701,83 @@ edits via a validated traversal-guarded `_apply_edits` trust boundary — do NOT
 
 - **UI**: unchanged — the WS/REST handoff contract is reproduced (characterization-gated); only the agents' internal LLM-call mechanism changes.
 
-### Phase 8 — Verify (Bedrock Haiku, local) ⏳
-Prototype end-to-end (plan → per-task sub-agents → validate); HITL on/off; **checkpoint
-resume after a kill**; revision; full **WS event-parity capture**; cost watch.
+### Phase 8 — Verify (live Bedrock Haiku, local) ⏳ PLANNED (2026-06-05)
+
+**Goal:** prove the migrated runtime works end-to-end against the **real** model (not scripted) across
+**every** pipeline, with a **committed, repeatable harness** — then run it live. All prior verification is
+offline (scripted models + real validators); this closes the live gap before deploy (Phase 9).
+
+**Locked decisions (Q&A 2026-06-05):**
+- **Model = AWS Bedrock Haiku 4.5 via the DEFAULT profile** (NOT `personal-sso`). `build_model()` →
+  `ChatBedrockConverse` `eu.anthropic.claude-haiku-4-5-20251001-v1:0` (eu-central-1) when
+  `ANTHROPIC_API_KEY` is empty. Opt-in via `RUN_LIVE_BEDROCK=1` + the existing STS preflight
+  (`test_deep_agent_runner_hitl_live.py`). **Verified feasible now:** the default profile resolves
+  (`ImranY@hexaware.com`, acct `473293451041`, SSO-backed, currently valid) and Bedrock Haiku 4.5 is
+  accessible in eu-central-1.
+- **Scope = ALL pipelines** — the 6 headline (`prototype` build+revision, `app_builder`, `user_stories`,
+  `ppt`/od_ppt, free-`chat`, `/flowin-handoff`) + the rest of the registered set the harness can drive
+  with a synthetic brief (repo-input code-gen pipelines get a minimal fixture or are flagged in the playbook).
+- **Resume-after-kill = NOW, with local Postgres** (docker — native pg absent; docker IS running;
+  `langgraph-checkpoint-postgres`+`psycopg`+`psycopg_pool` installed). True cross-process crash recovery.
+- **Structure = automated committed harness**, proven offline first (scripted model → **zero Bedrock
+  cost**), then flipped live.
+
+**Grounded facts (Phase-8 survey):**
+- **No headless runner exists** — but `tests/agents/_scripted_model.py::_drive(pipeline_type)` already
+  drives the REAL `engine.execute()` (`engine.py:292`; `get_pipeline_agents(pipeline_type)` →
+  `engine.execute(agents=…, pipeline_type=…, gate_agent_ids=…, od_context=…)`) by patching `ctx.model`.
+  The live harness = `_drive` **with the model patch removed** (let `create_runner`→`build_model()` build
+  real Bedrock) + the real planner.
+- **Three drive worlds** (not all go through the engine): engine pipelines via `engine.execute()`;
+  **free-chat** via `ChatRunner.astream_execute()`; **handoff** via `run_handoff_pipeline()` (real agents +
+  **mocked `handoff_github`** + a temp local git repo — never hit real GitHub). Chat/handoff already have
+  offline goldens (`test_chat_contract.py` / `test_handoff_contract.py`) to extend.
+- **Live text is nondeterministic** → assertions are **content-agnostic**: event types/ordering/required
+  keys, non-zero token usage, and **deliverable validity** (prototype.html passes `static_check`+
+  `render_check`; code-gen has `filename:` blocks; chat has the 10-key `FinalOutputModel`; handoff has the
+  `pipeline_output` shape) — NOT exact text.
+- **Cost watch** — accumulate the runner's `usage` events; Haiku pricing already encoded ($0.25/M in,
+  $1.25/M out, `websocket.py:1207`).
+- **Resume** — same `pipeline_run_id` → same per-agent `thread_id=f"{run}:{spec.id}"`; Postgres
+  `AsyncPostgresSaver.setup()` persists state across a process kill.
+- **Planner nuance** — engine pipelines run the real planner live with `ALWAYS_CLARIFY=False` +
+  PROCEED-friendly briefs; if it clarifies, the harness auto-proceeds (no WS round-trip needed).
+
+**Build / run split:** the BUILD tasks (harness, validators, tests, playbook) are agent-built and
+**offline-proven with the scripted model → zero live cost**, committed green. The LIVE RUN (flip
+`RUN_LIVE_BEDROCK=1`) is executed separately — the verify gate runs **one cheap live smoke** + the resume
+test; the full all-pipelines sweep is run from the playbook (cost reported).
+
+**Tasks** (Opus-4.8 agents; T1 first — foundation; then T2/T4/T5 parallel; T3 after T2; T6→T7 gates):
+1. **Harness core** (`backend/tests/agents/live_harness.py`, NEW) — a generic driver for the 3 worlds
+   (engine/chat/handoff): builds the REAL model via `build_model()` (default-profile Bedrock Haiku), runs
+   the real planner (`ALWAYS_CLARIFY` off), captures the ordered event stream, accumulates per-agent +
+   cumulative tokens, controls gates (on/off), carries the `RUN_LIVE_BEDROCK` guard + STS preflight.
+   **Offline self-test** drives it with `ScriptedFakeChatModel` (zero Bedrock) to prove the machinery.
+2. **Contract validator + cost watcher** (`backend/tests/agents/live_contract.py`, NEW) — content-agnostic
+   per-world assertions (event vocab/order/keys, non-zero tokens, deliverable validity) + a token/cost
+   summary printer with a soft ceiling. Built on T1's capture format.
+3. **Per-pipeline live suite + HITL on/off** (`backend/tests/agents/test_phase8_live.py`, NEW,
+   `RUN_LIVE_BEDROCK`-gated) — one live case per pipeline (prototype build+revision, app_builder,
+   user_stories, ppt, chat, handoff) wiring T1+T2; plus gate-on (pause → `Command(resume)` → complete) vs
+   gates-off scenarios. Mocks only side-effects (handoff git/GitHub, artifact-store DB), **never the model**.
+4. **Cross-process resume-after-kill** (`backend/tests/agents/test_phase8_resume.py` + a subprocess runner,
+   NEW) — spin up docker Postgres, `DATABASE_URL`→it, run a pipeline to a gate in a child process, **kill
+   it**, start a fresh process, resume from the checkpoint (same run_id), assert completion + state continuity.
+5. **Live-verify playbook** (`specs/002-deepagents-migration/PHASE8_VERIFY.md`, NEW) — exact env + commands
+   (default profile, `RUN_LIVE_BEDROCK=1`, the Bedrock id), per-pipeline invocations, expected outputs, the
+   docker-Postgres resume recipe, cost guidance, SSO-refresh troubleshooting.
+6. **Verify gate** — full offline suite green (harness self-tests + validators, scripted model, no creds) +
+   **one cheap live smoke** (a single prototype run against real Bedrock, cost reported) + the resume test
+   against docker Postgres.
+7. **Independent read-only audit** — confirm the live path uses the REAL stack (no scripted model leaks into
+   the live path), assertions are meaningful + content-agnostic, **no production code changed** (verify-only:
+   harness/tests/docs only), resume is genuinely cross-process, playbook commands are accurate. GREEN before commit.
+
+- **UI**: unchanged — Phase 8 adds **no production code** (harness + tests + a playbook doc only); it
+  verifies the existing contract, doesn't alter it.
+- **Out of scope:** the full all-pipelines live sweep cost (run from the playbook); deploy (Phase 9);
+  code-gen per-task sub-agents (Phase 10).
 
 ### Phase 9 — Deploy ⏳
 Ship the Chromium/sandbox image; deploy the branch; monitor token/compute. Rollback =
@@ -794,6 +868,7 @@ dev server is expected to be unhappy until Phase 1+ lands — that's accepted.
 - 2026-06-04 — Phase 7 planned (re-scoped via 2 prep audits). **Key correction:** the original "delete DeepAgent + BaseAgent" was WRONG — both are LIVE (`DeepAgent` = title-gen `websocket.py:218/742`; `AgentOrchestrator` + 7 `BaseAgent` agents = the free-chat `user_message` multi-phase generator `orchestrator.py:293`, Discovery→Requirements→UserStories/PPT/Prototype/UIDesign→Preview). The pipeline migration never touched free-chat. **User chose TRUE zero-legacy.** **7a** excise the genuinely-dead pipeline-legacy (`create_agent`/`_build_tools` + max_iterations map, `summarizer.py`, `workspace.py`/`tools/prototype.py`/`prototype/tools.py`/`artifact_store.py`, `PROTOTYPE_AGENTS_V1` + 4 `prototype_v1` folders, legacy `app/agents/registry.py`, `astream_with_usage`) + migrate title-gen → `build_model`; **7b** migrate the chat subsystem to a dedicated **`ChatRunner`** (`create_runner` text-only per agent + 7 `"chat"` AGENT.md specs; reproduce `_parse_output_selection`/`_determine_active_phases`/`_compile_final_output` + the `phase_start`/`stream`/`phase_end`/`complete` WS event contract VERBATIM; relocate `TokenUsage` out of `base.py`; preserve the 5 modes + `Message`/`ChatSession` persistence), then delete `orchestrator.py`/`base.py`/`deep_agent.py`/the 7 chat agents. **Decisions:** dedicated sequencer (NOT the engine — it can't model the chat's runtime multi-output selection / distinct events); keep chat prototype/ppt as independent prompts (their JSON/text is what the FE expects — no cross-wire); repoint-then-delete + grep-zero + widen `test_no_baseagent.py`. **Traps:** `test_sandbox_deliverable` uses dead `AgentWorkspace.to_final_output()` as the byte-oracle for the LIVE `serialize_sandbox_deliverable` (inline before deleting); chat event-contract drift → FE *pipeline* handler; **zero existing chat tests** (characterize first). Largest phase — runs as two commit-pairs.
 - 2026-06-04 — Phase 7 landed (7a `424765e`, 7b `e973cf0`). 7a excised the dead pipeline-legacy (`create_agent`/`_build_tools`, `summarizer.py`, `workspace.py`/prototype-tools/`artifact_store.py`, the legacy `app/agents/registry.py`, `prototype_v1`; net −6,091) + moved title-gen → `build_model`. 7b migrated free-chat → **`ChatRunner`** (7 `chat-*` specs + ported sequencing; byte-for-byte event contract via a frozen golden) + deleted `orchestrator.py`/the 7 chat agents/`deep_agent.py`/`test_base_agent.py`; `TokenUsage` → `types.py`. Both audited GREEN; suite 493 passed (only pre-existing env reds: logout/cancel). **Key discovery (7b-5):** a SECOND live `BaseAgent` consumer — the **`/flowin-handoff`** subsystem (`app/agents/handoff/*` via `app/main.py`) — so `base.py` was KEPT (deleting it breaks `import app.main`); `test_no_baseagent.py` widened with self-guarded exemptions for `base.py` + `handoff/`. Chat + pipeline runtimes are zero-legacy; **true zero-`BaseAgent` needs a handoff migration (§9 open).**
 - 2026-06-05 — Phase 7c landed (`92bd531`) — **🎉 true zero-legacy reached.** Migrated the 4 `/flowin-handoff` agents (the last live `BaseAgent` users) off `BaseAgent` → `build_model().ainvoke` (survey found them pure-text/one-shot/no-tools — a small migration; prompts/config/`BEDROCK_CODING_MODEL_ID` override/JSON-extract/`setdefault`/classifier-fallback byte-preserved; public API unchanged so `handoff_pipeline.py`/`handoff_github.py`/REST/WS untouched), then **deleted `base.py`**. Characterized first (frozen golden over the real `run_handoff_pipeline` — WS contract + `pipeline_output`, coding + test modes; mocks agents at the pipeline boundary + `handoff_github`). `test_no_baseagent.py` widened tree-wide, no exemptions. Audited GREEN — zero `BaseAgent`/`DeepAgent`/`AgentOrchestrator` code tokens tree-wide; `import app.main` OK; suite 583 passed (only pre-existing env reds: logout/handoff_api self-registration-disabled, cancel timing). 5 tasks via Opus-4.8 agents (characterize ∥ rewrite → delete → verify → audit).
+- 2026-06-05 — Phase 8 planned (decisions Q&A): model = **Bedrock Haiku 4.5 via the AWS default profile** (NOT personal-sso; verified resolving now — `ImranY@hexaware.com`/acct 473293451041 — + Bedrock Haiku 4.5 access confirmed in eu-central-1); scope = **ALL pipelines**; resume-after-kill = **now, via docker Postgres** (native pg absent, docker running, langgraph-postgres+psycopg installed); structure = **committed automated harness** (offline-proven with the scripted model → zero live cost, then flipped live via `RUN_LIVE_BEDROCK=1`). Grounded: `_scripted_model._drive` already drives the REAL `engine.execute()` (`engine.py:292`) by patching `ctx.model` → the live harness is `_drive` MINUS the model patch + the real planner (`ALWAYS_CLARIFY=False`); **3 drive worlds** (engine `execute()` / `ChatRunner.astream_execute` / `run_handoff_pipeline` with mocked `handoff_github` + temp git repo); **content-agnostic assertions** (event types/order/keys + non-zero tokens + deliverable validity: static_check+render_check / `filename:` blocks / 10-key FinalOutputModel / pipeline_output), NOT exact text; cost via `usage` events (Haiku $0.25/$1.25 per M). 7 tasks: T1 harness core → (T2 validator ∥ T4 resume-after-kill ∥ T5 playbook) → T3 per-pipeline live suite + HITL on/off → T6 verify gate (offline green + 1 cheap live smoke + docker-pg resume) → T7 independent audit. **Verify-only — no production code touched** (harness/tests/`PHASE8_VERIFY.md` only).
 
 ## 11. Code map — what exists now (post Phase 7)
 
