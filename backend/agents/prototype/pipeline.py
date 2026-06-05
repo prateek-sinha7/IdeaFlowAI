@@ -52,12 +52,15 @@ PROTOTYPE_REVISION_AGENTS: list[str] = [
 # ---------------------------------------------------------------------------
 
 #: When True, the SmartPlanner + ClarifyEngine are skipped for prototype
-#: pipelines. The prototype-specify agent handles planning and clarification
-#: as part of its spec generation phase.
+#: pipelines (the prototype-specify agent handles planning/clarification in its
+#: spec phase). When False, the planner + clarifier run before the prototype
+#: agents — exactly like every other pipeline — so the user gets the clarifying
+#: questionnaire up front (with ALWAYS_CLARIFY=True in the engine, on every run).
 #:
-#: True = Approach 2+3 active (spec-kit style, no planner/clarifier).
-#: False = Approach 1 (planner + clarifier run before agents).
-SKIP_PLANNER_FOR_PROTOTYPE = True
+#: NOTE: this flag ONLY controls the front-end planner/clarifier. The prototype
+#: agents themselves are always Approach 2+3 / spec-kit (specify → plan → build →
+#: validate) regardless of this value.
+SKIP_PLANNER_FOR_PROTOTYPE = False
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -44,8 +44,11 @@ Phase 3: prototype-builder  → HTML (one task at a time, workspace tools)
 Phase 4: prototype-validate → final HTML (P0 checks)
 ```
 
-Set `SKIP_PLANNER_FOR_PROTOTYPE = True` in `pipeline.py` when Approach 2+3
-is active — the prototype-specify agent handles planning and clarification.
+`SKIP_PLANNER_FOR_PROTOTYPE` in `pipeline.py` toggles the front-end
+SmartPlanner + ClarifyEngine. Currently `False`: the planner + clarifier run
+before the agents, so the user answers a clarifying questionnaire first, then the
+spec-kit agents (specify → plan → build → validate) run. Set it `True` to skip
+them and let prototype-specify handle planning/clarification itself.
 
 ## Key Files Outside This Module
 
