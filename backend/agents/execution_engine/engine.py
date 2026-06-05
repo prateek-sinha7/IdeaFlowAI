@@ -92,6 +92,18 @@ def _now() -> str:
 
 _PPT_PIPELINE_TYPES = frozenset({"od_ppt", "od_ppt_revision", "ppt", "ppt_revision"})
 
+# Pipelines whose single deliverable is the ``prototype.html`` built on the run
+# sandbox disk (NOT a serialized multi-file bundle, NOT a streamed text answer).
+# ``od_prototype`` is the OpenDesign-context alias of ``prototype`` (same agents,
+# plus a selected template + design system). It is never a registered pipeline,
+# but BOTH entry surfaces — the WebSocket ``run_pipeline`` handler and the NDJSON
+# ``/api/prototype/run`` adapter — forward the label ``od_prototype`` to the engine
+# UNALIASED (the WS handler resolves the alias only for agent lookup, not for the
+# value it passes to execute()), so the engine must accept both spellings.
+# ``prototype_revision`` is deliberately excluded: it has its own deliverable
+# resolution (original-HTML fallback) in :func:`_resolve_final_output`.
+_PROTOTYPE_PIPELINE_TYPES = frozenset({"prototype", "od_prototype"})
+
 # Workspace filename the prototype-revision-agent reads + edits in place. The
 # engine seeds it with the current prototype before the agent runs and reads it
 # back as the deliverable afterwards (see execute()).
@@ -279,6 +291,110 @@ def _sanitize_carousel_deck_html(html: str) -> str:
         html = re.sub(r"[ \t]*\n([ \t]*\n){2,}", "\n\n", html)
         logger.info("Sanitized carousel deck: removed slide-hiding CSS (%d → %d chars)", len(original), len(html))
     return html
+
+
+def _unwrap_artifact(text: str) -> str:
+    """Return the inner content of a single ``<artifact>…</artifact>`` wrapper.
+
+    Some text agents (the PPT composer) emit their deliverable wrapped in an
+    ``<artifact>`` tag. Return the unwrapped inner content; return ``text``
+    unchanged when there is no wrapper.
+
+    This is applied ONLY to a streamed-text deliverable — NEVER to a serialized
+    code-gen bundle or a prototype's raw HTML, both of which can legitimately
+    contain the literal substring ``<artifact>`` inside a file (e.g. an
+    ``<artifact>`` *example* printed inside design.md). Stripping over those
+    would extract the example and discard the real deliverable.
+    """
+    if text and "<artifact" in text:
+        m = re.search(r"<artifact[^>]*>\s*([\s\S]*?)\s*</artifact>", text, re.IGNORECASE)
+        if m:
+            return m.group(1).strip()
+    return text
+
+
+def _resolve_final_output(
+    pipeline_type: str,
+    sandbox: RunSandbox,
+    results: list[dict],
+    *,
+    revision_original_html: str | None = None,
+) -> str:
+    """Resolve the run's deliverable (``WorkflowRun.output``) from the sandbox.
+
+    The deliverable is chosen by *pipeline class* — never by blindly serializing
+    every file on the run sandbox. The prototype build loop writes ``spec.md`` /
+    ``design.md`` / ``tasks.md`` into the SAME sandbox as build-agent reference
+    scaffolding; those are NOT deliverables and must never leak into the output
+    (``design.md`` even carries a literal ``<artifact>`` *example*, so an
+    indiscriminate serialize-then-strip would surface that example as a tiny
+    "deliverable" and discard the real prototype):
+
+      * ``prototype_revision`` — the revision agent edited ``prototype.html`` in
+        place; that single file IS the deliverable. Fall back to the streamed
+        HTML, or the pre-revision original, only when the file is missing.
+      * ``prototype`` / ``od_prototype`` — the build loop wrote ``prototype.html``
+        incrementally; that single file IS the deliverable. Fall back to the last
+        streamed output (NEVER serialize the sandbox) when the file is missing.
+      * code-gen (``app_builder`` / ``mulesoft_to_springboot`` / ``dotnet_to_azure``
+        and their revisions) — multiple deliverable files; serialize them to the
+        ``filename:``-block bundle the UI's FilesTab/AppBuilderPreview parse.
+      * text / PPT — the last agent's streamed output IS the deliverable; an
+        ``<artifact>`` wrapper (the PPT composer) is unwrapped.
+
+    Args:
+        pipeline_type: The run's pipeline type (resolved, e.g. ``"prototype"``).
+        sandbox: The per-run :class:`RunSandbox` the agents wrote to.
+        results: Per-agent result dicts (each with an ``"output"`` key); the last
+            one's output is the streamed deliverable for the text/PPT class.
+        revision_original_html: The pre-revision HTML, used only as the last-ditch
+            fallback when a ``prototype_revision`` agent never wrote the file.
+
+    Returns:
+        The ``WorkflowRun.output`` string for this run.
+    """
+    last_streamed = results[-1]["output"] if results else ""
+
+    if pipeline_type == "prototype_revision":
+        # The revision agent edited prototype.html in place — that file IS the
+        # deliverable (raw HTML, never the ```filename:``` wrapper). Fall back
+        # without losing the prototype when the agent never wrote the file.
+        revised = sandbox.read(REVISION_FILE_NAME)
+        if revised:
+            return revised
+        streamed = last_streamed.strip()
+        looks_like_html = streamed[:60].lower().lstrip().startswith(("<!doctype", "<html"))
+        chosen = streamed if looks_like_html else (revision_original_html or streamed)
+        logger.warning(
+            "prototype_revision: %s not written by agent — fell back to %s",
+            REVISION_FILE_NAME,
+            "streamed HTML" if looks_like_html else "original HTML",
+        )
+        return _unwrap_artifact(chosen)
+
+    if pipeline_type in _PROTOTYPE_PIPELINE_TYPES:
+        # Forward prototype: the per-task build loop wrote prototype.html on disk.
+        # That single file is the deliverable — never serialize the sandbox (which
+        # bundles the spec.md/design.md/tasks.md reference scaffolding).
+        built = sandbox.read(REVISION_FILE_NAME)
+        if built:
+            return built
+        logger.warning(
+            "%s: %s not written by build loop — fell back to streamed output",
+            pipeline_type,
+            REVISION_FILE_NAME,
+        )
+        return last_streamed
+
+    if count_sandbox_deliverables(sandbox.root) > 0:
+        # Code-gen: multiple deliverable files → the ```filename:```-block bundle.
+        # No <artifact> unwrap here — a serialized file may legitimately contain
+        # the literal text "<artifact>" (this is the bug the prototype branch above
+        # also guards against).
+        return serialize_sandbox_deliverable(sandbox.root)
+
+    # Text / PPT: the streamed output IS the deliverable; unwrap an <artifact> tag.
+    return _unwrap_artifact(last_streamed)
 
 
 class ExecutionEngine:
@@ -781,13 +897,10 @@ class ExecutionEngine:
         if current_state not in ("cancelled", "failed"):
             self._state_machine.transition(pipeline_run_id, "completed")
 
-        # Determine final output:
-        # - count_sandbox_deliverables(sandbox.root) excludes internal planning
-        #   files (PLANNER.md) so it's > 0 only when domain agents actually wrote
-        #   deliverable files to the run sandbox (app_builder, mulesoft, dotnet
-        #   code pipelines).
-        # - For PPT / prototype / text pipelines, the last agent's streamed output
-        #   IS the deliverable — count_sandbox_deliverables == 0 for these.
+        # Determine the final deliverable below, by pipeline class, via
+        # _resolve_final_output (prototype.html for prototype/revision; serialized
+        # sandbox for code-gen; streamed+unwrapped output for text/PPT). The
+        # revision branch first runs the post-revision validation fix-loop.
 
         # ── Prototype revision: programmatic post-revision validation + fix ──────
         # After the visible prototype-revision-agent has edited prototype.html, run
@@ -848,42 +961,19 @@ class ExecutionEngine:
                     exc,
                 )
 
-        if pipeline_type == "prototype_revision":
-            # The revision agent edited prototype.html in place on the sandbox —
-            # that file IS the deliverable. Read it back as raw HTML (not the
-            # ```filename:``` wrapper that serialize_sandbox_deliverable() would
-            # apply). Fall back without losing the prototype if the agent never
-            # wrote the file (sandbox.read returns None for a missing file).
-            revised = sandbox.read(REVISION_FILE_NAME)
-            if revised:
-                final_output = revised
-            else:
-                streamed = (results[-1]["output"] if results else "").strip()
-                looks_like_html = streamed[:60].lower().lstrip().startswith(("<!doctype", "<html"))
-                final_output = streamed if looks_like_html else (self._revision_original_html or streamed)
-                logger.warning(
-                    "prototype_revision: %s not written by agent — fell back to %s",
-                    REVISION_FILE_NAME,
-                    "streamed HTML" if looks_like_html else "original HTML",
-                )
-        elif count_sandbox_deliverables(sandbox.root) > 0:
-            final_output = serialize_sandbox_deliverable(sandbox.root)
-        else:
-            final_output = results[-1]["output"] if results else ""
-
-        # For prototype pipelines: prefer the prototype.html the agent wrote to the
-        # sandbox if it's longer (the clean HTML, without any "✓ Artifact stored…"
-        # confirmation text). Also strip <artifact>...</artifact> wrapper tags below.
-        sandbox_html = sandbox.read("prototype.html")
-        if sandbox_html and len(sandbox_html) > len(final_output):
-            final_output = sandbox_html
-
-        # Strip <artifact>...</artifact> wrapper if present (finalizer wraps output)
-        if final_output and "<artifact" in final_output:
-            import re as _re
-            m = _re.search(r"<artifact[^>]*>\s*([\s\S]*?)\s*</artifact>", final_output, _re.IGNORECASE)
-            if m:
-                final_output = m.group(1).strip()
+        # ── Resolve the deliverable (WorkflowRun.output) by pipeline class ──────
+        # Single source of truth: _resolve_final_output reads prototype.html for
+        # prototype / od_prototype / revision, serializes the sandbox for code-gen,
+        # and uses the streamed output (with <artifact> unwrapped) for text/PPT. So
+        # the build's reference scaffolding (spec.md/design.md/tasks.md) can never be
+        # serialized into the output, and design.md's <artifact> example can never be
+        # mis-extracted as the deliverable.
+        final_output = _resolve_final_output(
+            pipeline_type,
+            sandbox,
+            results,
+            revision_original_html=getattr(self, "_revision_original_html", None),
+        )
 
         # ── PPT carousel deck: strip slide-hiding CSS the composer may hallucinate ──
         # A horizontal-carousel deck navigates by translating .stage; rules like
@@ -1388,23 +1478,14 @@ class ExecutionEngine:
         fix sub-agent's stream is consumed INTERNALLY and never re-emitted, so
         the user still sees exactly ONE build per task.
         """
-        import re as _re
-
         plan_output = accumulated_outputs.get("prototype-plan", "")
 
-        # Count tasks from the planner output (## Task N: headers). If the planner
-        # wrapped them in <tasks>…</tasks>, look inside that. We keep the resolved
-        # task-source text so we can extract each `## Task N:` block for injection.
-        task_matches = _re.findall(r"^##\s+Task\s+(\d+)", plan_output, _re.MULTILINE)
-        task_source = plan_output
-        if not task_matches:
-            # Fallback: try <tasks> wrapper
-            tasks_section = _re.search(r"<tasks>([\s\S]*?)</tasks>", plan_output, _re.IGNORECASE)
-            if tasks_section:
-                task_source = tasks_section.group(1)
-                task_matches = _re.findall(r"^##\s+Task\s+(\d+)", task_source, _re.MULTILINE)
-
-        total_tasks = len(task_matches)
+        # Count the planner's tasks (## Task N: headers, or inside a <tasks>
+        # wrapper) via the pure, unit-tested _count_plan_tasks seam. A count of 0
+        # means the planner did NOT emit a task plan — the regression where it
+        # built HTML/<artifact> instead of planning (now guarded by the
+        # prototype-plan plan-only preamble); fall back to a single build pass.
+        total_tasks, task_source = self._count_plan_tasks(plan_output)
         if total_tasks == 0:
             logger.warning(
                 "Build task loop: no tasks found in plan output (%d chars) — running once",
@@ -1569,6 +1650,34 @@ class ExecutionEngine:
             )
         except Exception as exc:  # noqa: BLE001 — never let a write failure abort the build
             logger.warning("Build task loop: failed writing reference files: %s", exc)
+
+    @staticmethod
+    def _count_plan_tasks(plan_output: str) -> tuple[int, str]:
+        """Count ``## Task N:`` headers in the planner output → ``(count, task_source)``.
+
+        Looks for top-level ``## Task N:`` headers directly; if none are present,
+        falls back to the content inside a ``<tasks>…</tasks>`` wrapper and counts
+        there. The returned ``count`` is the RAW number of task headers found —
+        ``0`` means the planner did NOT emit a task plan (e.g. it built an HTML
+        ``<artifact>`` instead of planning, the regression guarded by the
+        prototype-plan plan-only preamble). The caller decides how to treat 0 (the
+        build loop runs a single pass). ``task_source`` is the text the headers
+        were found in (the whole output, or the unwrapped ``<tasks>`` body) so
+        :meth:`_extract_task_block` slices each ``## Task N:`` block from the right
+        text.
+
+        Pure (no I/O, no engine state) so the build loop AND its tests share the
+        exact same task-detection logic — mirrors :meth:`_extract_task_block`.
+        """
+        text = plan_output or ""
+        task_matches = re.findall(r"^##\s+Task\s+(\d+)", text, re.MULTILINE)
+        task_source = text
+        if not task_matches:
+            tasks_section = re.search(r"<tasks>([\s\S]*?)</tasks>", text, re.IGNORECASE)
+            if tasks_section:
+                task_source = tasks_section.group(1)
+                task_matches = re.findall(r"^##\s+Task\s+(\d+)", task_source, re.MULTILINE)
+        return len(task_matches), task_source
 
     @staticmethod
     def _extract_task_block(task_source: str, task_num: int) -> str:
@@ -2312,7 +2421,13 @@ class ExecutionEngine:
                 )
                 # Also inject example.html if available — gives the agent a concrete
                 # visual reference for the template's class system and layout patterns.
-                example_html = self._load_template_example(template_id)
+                # Inject example.html ONLY for the BUILD agent (it needs a concrete
+                # reference for the template's class system). Planning agents
+                # (prototype-specify / prototype-plan, tools=[]) must NOT see a full
+                # working HTML doc — it nudges them to copy/continue it instead of
+                # writing the spec / decomposing into tasks.
+                _is_builder = bool(set(getattr(spec, "tools", []) or []) & {"prototype_emit_only", "prototype"})
+                example_html = self._load_template_example(template_id) if _is_builder else None
                 if example_html:
                     parts.append(
                         f"=== TEMPLATE EXAMPLE (example.html): {template_id} ===\n"
