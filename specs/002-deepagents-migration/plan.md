@@ -701,7 +701,7 @@ edits via a validated traversal-guarded `_apply_edits` trust boundary — do NOT
 
 - **UI**: unchanged — the WS/REST handoff contract is reproduced (characterization-gated); only the agents' internal LLM-call mechanism changes.
 
-### Phase 8 — Verify (live Bedrock Haiku, local) ⏳ harness landed · live runs in progress
+### Phase 8 — Verify (live Bedrock Haiku, local) ⏳ harness landed · 7/10 pipelines live-verified · 3 code-gen pending
 
 **BUILD LANDED (`d2cd9a5`, verify-only — NO production code changed).** The committed harness + tests +
 playbook are in and **independently audited GREEN**: `live_harness.py` (3-world driver + `CaptureResult`),
@@ -719,6 +719,20 @@ questionnaire answer that never comes headlessly (hung ~1h52m) → `drive_engine
 **auto-answers `questionnaire_ready`** with each question's recommended default; (2) the validator's engine
 vocabulary was missing the clarify events → added. **Next: the full all-pipelines live sweep** (flip
 `RUN_LIVE_BEDROCK=1`, default profile).
+
+**LIVE SWEEP — PARTIAL (2026-06-05, stopped to resume later).** **7 of 10 pipelines now live-verified
+`CONTRACT: PASS`** on Bedrock Haiku (default profile): `user_stories`, `prototype` ($0.25 / 883k tok /
+171s), `prototype_revision` (reused the parent run_id — $0.006 / 6s), `od_ppt` ($0.019 / 68s), `chat`
+($0.006 / 14s), `handoff_coding` + `handoff_test` ($0 — one-shot agents, validity by `pipeline_output`).
+Tracked spend ≈ **$0.34**. The **3 big code-gen pipelines** — `app_builder` (15 agents),
+`mulesoft_to_springboot` + `dotnet_to_azure` (13 each) — **exceeded the sweep's 12-min/pipeline guard →
+TIMEOUT** (`dotnet` was killed mid-run when the sweep was stopped). Almost certainly **slow, not stuck**
+(prototype alone burned 883k tokens through its per-task sub-agents → a 13–15-agent code-gen flow
+legitimately takes 20–40 min live), but **UNCONFIRMED**. **▶ TODO (later): re-run the 3 code-gen
+pipelines individually with a longer guard (≈40 min) + per-agent visibility** to confirm slow-vs-stuck —
+e.g. `RUN_LIVE_BEDROCK=1 python3.11 -m pytest tests/agents/test_phase8_live.py -k 'app_builder or mulesoft or dotnet' -v -s`
+(or per `PHASE8_VERIFY.md`). The harness + validator are proven; no code change needed — just let the big
+ones run to completion.
 
 **Goal:** prove the migrated runtime works end-to-end against the **real** model (not scripted) across
 **every** pipeline, with a **committed, repeatable harness** — then run it live. All prior verification is
@@ -888,6 +902,7 @@ dev server is expected to be unhappy until Phase 1+ lands — that's accepted.
 - 2026-06-05 — Phase 8 planned (decisions Q&A): model = **Bedrock Haiku 4.5 via the AWS default profile** (NOT personal-sso; verified resolving now — `ImranY@hexaware.com`/acct 473293451041 — + Bedrock Haiku 4.5 access confirmed in eu-central-1); scope = **ALL pipelines**; resume-after-kill = **now, via docker Postgres** (native pg absent, docker running, langgraph-postgres+psycopg installed); structure = **committed automated harness** (offline-proven with the scripted model → zero live cost, then flipped live via `RUN_LIVE_BEDROCK=1`). Grounded: `_scripted_model._drive` already drives the REAL `engine.execute()` (`engine.py:292`) by patching `ctx.model` → the live harness is `_drive` MINUS the model patch + the real planner (`ALWAYS_CLARIFY=False`); **3 drive worlds** (engine `execute()` / `ChatRunner.astream_execute` / `run_handoff_pipeline` with mocked `handoff_github` + temp git repo); **content-agnostic assertions** (event types/order/keys + non-zero tokens + deliverable validity: static_check+render_check / `filename:` blocks / 10-key FinalOutputModel / pipeline_output), NOT exact text; cost via `usage` events (Haiku $0.25/$1.25 per M). 7 tasks: T1 harness core → (T2 validator ∥ T4 resume-after-kill ∥ T5 playbook) → T3 per-pipeline live suite + HITL on/off → T6 verify gate (offline green + 1 cheap live smoke + docker-pg resume) → T7 independent audit. **Verify-only — no production code touched** (harness/tests/`PHASE8_VERIFY.md` only).
 - 2026-06-05 — Phase 8 **build landed** (`d2cd9a5`, verify-only — 0 production edits). Harness `live_harness.py` (3-world driver engine/chat/handoff + `CaptureResult`) + validator `live_contract.py` (content-agnostic per-world rules + cost watcher) + per-pipeline LIVE suite & HITL on/off `test_phase8_live.py` + **cross-process resume-after-kill** `test_phase8_resume.py`/`_resume_child.py` (proven on real **docker Postgres**, incl. a **SIGKILL** crash variant + an InMemory-fails contrast — the production checkpointer commits the interrupt before the gate event, so resume survives a hard kill) + offline self-tests (14 + 29) + playbook `PHASE8_VERIFY.md`. Executed as 7 Opus-4.8 agents (T1 → T2 ∥ T4 ∥ T5 → T3 → independent audit). **Audited GREEN** — verify-only scope honoured, `tests/agents` **238 passed / 17 skipped / 0 failed**, live path uses the real stack (no scripted leak; default AWS profile → Bedrock Haiku), assertions bite, resume genuinely cross-process. **Live Bedrock sweep runs separately** (in progress / first smoke being debugged).
 - 2026-06-05 — Phase 8 **first live smoke PASSED** (`72de9e1`). `user_stories` end-to-end on real Bedrock Haiku 4.5 (default profile): **`CONTRACT: PASS`**, clarify auto-answered, 6 agents, ~$0.04 / 77k tokens / ~170s. The live run caught **two harness gaps offline missed** (the faked planner never clarifies): (1) the REAL planner returned `CLARIFY_REQUIRED` → `ClarifyEngine` awaited a human questionnaire answer that never comes headlessly → ~1h52m hang (1.99s CPU = pure blocked-wait, NOT a loop; a hung Bedrock call would've hit the 600s botocore timeout); fixed by `drive_engine_pipeline` **auto-answering `questionnaire_ready`** with each question's recommended default (mirrors auto-resume-gates) + a `planner_result` override for deterministic offline clarify testing. (2) the validator flagged `questionnaire_ready`/`questionnaire_complete` as UNKNOWN → added the clarify events (+ `clarification_limit_reached`) to the engine vocabulary. Both regression-tested (offline **45 passed**, ruff clean). **Not a product bug** — a verify-harness gap (prod has a real client to answer clarify). **Next: the full all-pipelines live sweep.**
+- 2026-06-05 — Phase 8 live sweep **PARTIAL** (stopped to resume later). **7/10 pipelines live-verified `CONTRACT: PASS`** on Bedrock Haiku (default profile): user_stories, prototype ($0.25 / 883k tok / 171s), prototype_revision (reused parent run_id — $0.006 / 6s), od_ppt ($0.019 / 68s), chat ($0.006 / 14s), handoff_coding + handoff_test ($0 — one-shot agents, validity by `pipeline_output`). Tracked ≈ **$0.34** (+ untracked partial tokens on the killed big runs). The 3 big code-gen pipelines (`app_builder` 15 agents, `mulesoft_to_springboot` + `dotnet_to_azure` 13 each) **exceeded the 12-min/pipeline sweep guard → TIMEOUT** (slow-not-confirmed-stuck; `dotnet` killed mid-run on stop). **TODO: re-run those 3 individually with a ≈40-min guard + per-agent visibility** to confirm they complete (`-k 'app_builder or mulesoft or dotnet'`). Harness + validator proven; **no code change needed** for the re-run. Sweep driver kept at `/tmp/phase8_sweep.py` (ephemeral) — the durable entry is `tests/agents/test_phase8_live.py` + `PHASE8_VERIFY.md`.
 
 ## 11. Code map — what exists now (post Phase 7)
 
