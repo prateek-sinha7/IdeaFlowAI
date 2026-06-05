@@ -147,6 +147,11 @@ _ENGINE_EVENT_TYPES: frozenset[str] = frozenset(
         "agent_complete",
         "review_gate_ready",
         "review_gate_approved",
+        # Clarify (Human_Gate) — emitted by ClarifyEngine when the planner returns
+        # CLARIFY_REQUIRED (a live run; the harness auto-answers questionnaire_ready).
+        "questionnaire_ready",
+        "questionnaire_complete",
+        "clarification_limit_reached",
         "pipeline_complete",
         "pipeline_cancelled",
         "agent_error",

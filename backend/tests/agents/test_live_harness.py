@@ -433,3 +433,43 @@ class TestOptInAndCost:
         assert cost_usd({"input": 1_000_000, "output": 0}) == pytest.approx(0.25)
         assert cost_usd({"input": 0, "output": 1_000_000}) == pytest.approx(1.25)
         assert cost_usd(TokenTotals()) == 0.0
+
+
+# ===========================================================================
+# Regression — a CLARIFY_REQUIRED planner is auto-answered headlessly (no hang).
+# This guards the exact failure the first live smoke surfaced: the REAL planner
+# returned CLARIFY_REQUIRED, the engine ran ClarifyEngine, and (with no headless
+# answerer) it blocked on the resume event for ~2h. drive_engine_pipeline now
+# auto-answers questionnaire_ready with each question's recommended default.
+# ===========================================================================
+
+
+class TestClarifyAutoAnswerOffline:
+    @pytest.mark.asyncio
+    async def test_planner_clarify_required_is_auto_answered(self) -> None:
+        """A forced CLARIFY_REQUIRED planner verdict is auto-answered → the run
+        proceeds to completion instead of blocking on ClarifyEngine's resume
+        event (deterministic, scripted model, zero Bedrock)."""
+        from agents.execution_engine.engine import ExecutionEngine
+
+        ctx = ExecutionEngine()._default_planning_context(
+            "Build user stories for a task-management web app."
+        )
+        ctx["pipeline_type"] = "user_stories"
+        ctx["execution_gate"] = "CLARIFY_REQUIRED"
+        ctx["missing_information"] = ["topic", "target_audience"]
+
+        result = await drive_engine_pipeline(
+            "user_stories",
+            model=lambda aid: ScriptedFakeChatModel(_scripts_for(aid)),
+            planner_result=(ctx, "CLARIFY_REQUIRED"),
+            auto_answer_clarify=True,
+        )
+
+        types = result.event_types()
+        # Clarify actually fired AND was auto-answered (not skipped, not hung).
+        assert "questionnaire_ready" in types, "clarify did not trigger"
+        assert "questionnaire_complete" in types, "clarify was not auto-answered"
+        # And the pipeline proceeded past the gate to completion.
+        assert result.completed is True, f"run did not complete (error={result.error})"
+        assert result.deliverable

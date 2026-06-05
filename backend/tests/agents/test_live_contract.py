@@ -582,3 +582,33 @@ class TestCostWatcher:
         assert result.tokens == TokenTotals()
         table = summarize_cost(result)
         assert "$   0.0000" in table or "$0.0000" in table
+
+
+class TestClarifyVocabularyOffline:
+    """Regression: a live planner may return CLARIFY_REQUIRED → the engine emits
+    questionnaire_ready/questionnaire_complete. Those are legitimate engine events;
+    the validator must NOT flag them as UNKNOWN. (The first live smoke surfaced this
+    gap — offline never emitted clarify events because the planner was faked.)"""
+
+    @pytest.mark.asyncio
+    async def test_clarify_events_validate_clean(self) -> None:
+        from agents.execution_engine.engine import ExecutionEngine
+
+        ctx = ExecutionEngine()._default_planning_context(
+            "Build user stories for a web app."
+        )
+        ctx["pipeline_type"] = "user_stories"
+        ctx["execution_gate"] = "CLARIFY_REQUIRED"
+        ctx["missing_information"] = ["topic", "target_audience"]
+
+        result = await drive_engine_pipeline(
+            "user_stories",
+            model=lambda aid: ScriptedFakeChatModel(_scripts_for(aid)),
+            planner_result=(ctx, "CLARIFY_REQUIRED"),
+        )
+        # Clarify actually happened in this capture ...
+        assert "questionnaire_ready" in result.event_types()
+        assert "questionnaire_complete" in result.event_types()
+        # ... and the validator accepts the clarify events (no UNKNOWN-type failures).
+        failures = validate_capture(result, require_tokens=False)
+        assert failures == [], f"validator flagged clarify events: {failures}"

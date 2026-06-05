@@ -432,6 +432,32 @@ async def _apply_gate(store: Any, approver: GateApprover, gate_key: str, data: d
     await store.set_review_response(gate_key, approved=approved, edited_content=edited)
 
 
+async def _answer_clarify(store: Any, run_id: str, data: dict) -> None:
+    """Headless auto-answer for a ClarifyEngine questionnaire.
+
+    A LIVE run's REAL planner may return ``CLARIFY_REQUIRED`` → the engine emits
+    ``questionnaire_ready`` and ``ClarifyEngine.run`` BLOCKS on
+    ``get_resume_event(run_id).wait()`` waiting for a human. Headless, nobody
+    answers, so the run hangs forever. We pick each question's
+    ``recommended_answer`` (the engine's own default) and submit it via
+    ``set_questionnaire_responses`` (which also sets the resume event), so the
+    pipeline proceeds — the "auto-proceed on clarify" the Phase-8 plan calls for,
+    while still exercising the real planner + clarify question generation. Runs as
+    a concurrent task (like :func:`_apply_gate`) so the next ``await`` in the
+    drive's ``async for`` lets the blocked engine resume.
+    """
+    questions = data.get("questions") or []
+    responses = [
+        {
+            "question_id": q.get("question_id"),
+            "answer": q.get("recommended_answer")
+            or (q.get("options") or ["No preference"])[-1],
+        }
+        for q in questions
+    ]
+    await store.set_questionnaire_responses(run_id, responses)
+
+
 async def manual_resume_engine_gate(
     gate_key: str, *, approved: bool = True, edited_content: str | None = None
 ) -> None:
@@ -464,6 +490,8 @@ async def drive_engine_pipeline(
     od_context: dict | None = None,
     parent_run_id: str | None = None,
     fake_planner: bool = False,
+    planner_result: "tuple[dict, str] | None" = None,
+    auto_answer_clarify: bool = True,
     auto_resume_gates: bool = True,
     gate_approver: GateApprover | None = None,
     user_id: str = "harness-user",
@@ -519,7 +547,8 @@ async def drive_engine_pipeline(
     _orig_runs_root = _settings.RUNS_ROOT
     _settings.RUNS_ROOT = _RUNS_ROOT
 
-    # ── Disable the clarifier (needs live WS round-trips). ───────────────────
+    # ── Don't FORCE clarify; if the real planner still returns CLARIFY_REQUIRED,
+    #    the event loop auto-answers questionnaire_ready (auto_answer_clarify). ──
     _orig_always_clarify = engine_mod.ALWAYS_CLARIFY
     engine_mod.ALWAYS_CLARIFY = False
 
@@ -570,7 +599,18 @@ async def drive_engine_pipeline(
 
     # ── Planner: real by default; default-PROCEED stub only if requested. ────
     _orig_run_planner = engine._run_planner
-    if fake_planner:
+    if planner_result is not None:
+        # Force a specific (planning_context, gate_verdict) — used offline to
+        # exercise the CLARIFY_REQUIRED → auto-answer path deterministically.
+        _forced_ctx, _forced_verdict = planner_result
+
+        async def _forced_run_planner(
+            user_message, pipeline_run_id, model_id, cancel_event, ptype="custom"
+        ):
+            return dict(_forced_ctx), _forced_verdict
+
+        engine._run_planner = _forced_run_planner  # type: ignore[assignment]
+    elif fake_planner:
 
         async def _fake_run_planner(
             user_message, pipeline_run_id, model_id, cancel_event, ptype="custom"
@@ -647,6 +687,16 @@ async def drive_engine_pipeline(
                     # `async for` is about to make) lets the engine resume.
                     _pending_resume_tasks.append(
                         asyncio.create_task(_apply_gate(store, approver, gate_key, dict(data)))
+                    )
+
+            elif etype == "questionnaire_ready":
+                # The REAL planner asked to clarify; auto-answer headlessly so the
+                # run proceeds. The engine is BLOCKED on the resume event inside
+                # this same generator, so answer from a CONCURRENT task (like the
+                # review gate above) — the next `await` lets the engine resume.
+                if auto_answer_clarify:
+                    _pending_resume_tasks.append(
+                        asyncio.create_task(_answer_clarify(store, run_id, dict(data)))
                     )
 
             elif etype == "pipeline_complete":
