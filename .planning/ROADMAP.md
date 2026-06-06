@@ -41,7 +41,7 @@ The plan sub-phases (0A/0B/0C, 1A/1B/1C, 4A/4B) are mapped to sequential GSD pha
 **Plans**: 4 plans (3 waves)
 
 Plans:
-- [ ] 01-01-PLAN.md — Extend `_scripts_for` (PPT) + deliverable byte-snapshot characterization tests for 5 pipelines (SAFE-01) [wave 1]
+- [x] 01-01-PLAN.md — Extend `_scripts_for` (PPT) + deliverable byte-snapshot characterization tests for 5 pipelines (SAFE-01) [wave 1] ✅ 2026-06-06
 - [ ] 01-02-PLAN.md — `_normalize()` + semantic event-stream snapshots + contiguous `seq` assertion (SAFE-02, SAFE-03) [wave 2]
 - [ ] 01-03-PLAN.md — `migration-ledger.md` mirror of §31 + `test_migration_ledger.py` ratchet (DEL-01..04, SAFE-04) [wave 1]
 - [ ] 01-04-PLAN.md — import-linter + vulture (SAFE-05) + banned-pattern gate (SAFE-06) + CI wiring (SAFE-07) [wave 3]
@@ -246,7 +246,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Safety Net + Deletion Guard [0A] | 0/4 | Planned | - |
+| 1. Safety Net + Deletion Guard [0A] | 1/4 | In progress | - |
 | 2. ExecutionContext + Ownership [0B] | 0/3 | Not started | - |
 | 3. Token-Trim [0C] | 0/2 | Not started | - |
 | 4. Manifest + Compiler [1A] | 0/4 | Not started | - |
