@@ -12,8 +12,8 @@
 ### Safety Net & Migration Discipline (Phase 0A)
 
 - [x] **SAFE-01**: Characterization tests record deliverable byte-snapshots (deterministic output) for `prototype`, `od_prototype`, `prototype_revision`, `ppt`/`od_ppt`, and one code-gen pipeline, driven by a scripted model (`tests/agents/_scripted_model.py`) (§24) ✅ 01-01
-- [ ] **SAFE-02**: Semantic event-stream snapshots assert event types, order, required fields, and final result, with volatile fields normalized out (timestamps, chunk boundaries, generated IDs, token/usage counts, durations) (INV-3 / §24)
-- [ ] **SAFE-03**: Monotonic per-run event `seq` is asserted contiguous (not by absolute value) in snapshots (§21/§24)
+- [x] **SAFE-02**: Semantic event-stream snapshots assert event types, order, required fields, and final result, with volatile fields normalized out (timestamps, chunk boundaries, generated IDs, token/usage counts, durations) (INV-3 / §24)
+- [x] **SAFE-03**: Monotonic per-run event `seq` is asserted contiguous (not by absolute value) in snapshots (§21/§24)
 - [x] **SAFE-04**: Migration-ledger CI guard `tests/test_migration_ledger.py` asserts each `☑` ledger item's banned grep-pattern returns 0 (§31)
 - [ ] **SAFE-05**: Import-linter contract enforces the kernel imports only capability ports — never legacy `engine`/`factory` internals (§31/§32)
 - [ ] **SAFE-06**: Banned-pattern CI gate blocks hand-rolled deep agents — `class DeepAgent` / `def deep_agent` / a new `deepagents`/`langchain_deepagents` module / bespoke `for _ in range(max_iterations)` loops outside the adapter (INV-13 / R15)
@@ -251,6 +251,7 @@ Each v1 requirement maps to exactly one phase. Phases are GSD integers 1–12, m
 | RESUME-02, RESUME-03, RESUME-04 | Phase 12 [6] | Pending |
 
 **Coverage:**
+
 - v1 requirements: 117 total
 - Mapped to phases: 117
 - Unmapped: 0 ✓

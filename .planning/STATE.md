@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-06T21:43:48Z"
+last_updated: "2026-06-06T22:00:51.478Z"
 last_activity: 2026-06-06 -- Completed 01-03-PLAN.md (migration ledger + deletion-guard ratchet)
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 4
-  completed_plans: 2
-  percent: 50
+  completed_plans: 3
+  percent: 0
 ---
 
 # Project State
@@ -25,8 +25,8 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 ## Current Position
 
 Phase: 1 (Safety Net + Deletion Guard [0A]) — EXECUTING
-Plan: 3 of 4
-Status: Executing Phase 1 (plans 01-01, 01-03 complete)
+Plan: 4 of 4
+Status: Ready to execute
 Last activity: 2026-06-06 -- Completed 01-03-PLAN.md (migration ledger + deletion-guard ratchet)
 
 Progress: [█████░░░░░] 50%
@@ -51,6 +51,7 @@ Progress: [█████░░░░░] 50%
 - Trend: —
 
 *Updated after each plan completion*
+| Phase 01 P02 | ~12 min | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -62,6 +63,7 @@ Recent decisions affecting current work:
 - Init: Granularity=fine → 12 sequential phases mapped 1:1 to plan §25 sub-phases (0A…6); ECS (plan Phase 7) deferred to v2
 - Init: Research skipped — plan.md is the authoritative complete spec (plan-ingestion preference)
 - Init: Models=quality (Opus); execution=sequential (strangler safety); git tracking=on
+- [Phase ?]: 01-02: event-snapshot is an order-canonical multiset (build-loop interleaving is nondeterministic); strict order covered by assert_seq_contiguous + phase3/01-01 sequence tests. VOLATILE_SENTINEL='<normalized>'; contract dicts imported from phase3 verify (no divergence).
 
 ### Pending Todos
 
