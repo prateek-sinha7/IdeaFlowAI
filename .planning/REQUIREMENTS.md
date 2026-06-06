@@ -14,7 +14,7 @@
 - [x] **SAFE-01**: Characterization tests record deliverable byte-snapshots (deterministic output) for `prototype`, `od_prototype`, `prototype_revision`, `ppt`/`od_ppt`, and one code-gen pipeline, driven by a scripted model (`tests/agents/_scripted_model.py`) (§24) ✅ 01-01
 - [ ] **SAFE-02**: Semantic event-stream snapshots assert event types, order, required fields, and final result, with volatile fields normalized out (timestamps, chunk boundaries, generated IDs, token/usage counts, durations) (INV-3 / §24)
 - [ ] **SAFE-03**: Monotonic per-run event `seq` is asserted contiguous (not by absolute value) in snapshots (§21/§24)
-- [ ] **SAFE-04**: Migration-ledger CI guard `tests/test_migration_ledger.py` asserts each `☑` ledger item's banned grep-pattern returns 0 (§31)
+- [x] **SAFE-04**: Migration-ledger CI guard `tests/test_migration_ledger.py` asserts each `☑` ledger item's banned grep-pattern returns 0 (§31)
 - [ ] **SAFE-05**: Import-linter contract enforces the kernel imports only capability ports — never legacy `engine`/`factory` internals (§31/§32)
 - [ ] **SAFE-06**: Banned-pattern CI gate blocks hand-rolled deep agents — `class DeepAgent` / `def deep_agent` / a new `deepagents`/`langchain_deepagents` module / bespoke `for _ in range(max_iterations)` loops outside the adapter (INV-13 / R15)
 - [ ] **SAFE-07**: Ledger guard + import-linter + banned-pattern gates run in CI and start green/empty, tightening as items delete (§31)
@@ -172,10 +172,10 @@
 
 ### Anti-Duplication & Deletion Ledger (cross-cutting, INV-12/§31)
 
-- [ ] **DEL-01**: Every legacy element follows wrap → rewire call-sites → delete, completed within the phase that supersedes it; one implementation per behavior (INV-12)
-- [ ] **DEL-02**: Each phase ships a banned-pattern test (grep → 0 for deleted symbols/branches), a dead-code scan (ruff/vulture), and the import-linter rule as exit gates; Definition of Done = behavior moved + call-sites rewired + legacy deleted + gates green + snapshots green (§31)
-- [ ] **DEL-03**: Banned-pattern tests are ratchets — a deleted symbol's reintroduction fails CI (§31)
-- [ ] **DEL-04**: The `specs/003-…/migration-ledger.md` mirrors the §31 ledger operationally (L1–L16, F1–F5, D1) with status + deleting commit SHA, asserted by CI (§31)
+- [x] **DEL-01**: Every legacy element follows wrap → rewire call-sites → delete, completed within the phase that supersedes it; one implementation per behavior (INV-12)
+- [ ] **DEL-02**: Each phase ships a banned-pattern test (grep → 0 for deleted symbols/branches), a dead-code scan (ruff/vulture), and the import-linter rule as exit gates; Definition of Done = behavior moved + call-sites rewired + legacy deleted + gates green + snapshots green (§31) — _ledger ratchet done (01-03); dead-code scan + import-linter pending (01-04)_
+- [x] **DEL-03**: Banned-pattern tests are ratchets — a deleted symbol's reintroduction fails CI (§31)
+- [x] **DEL-04**: The `specs/003-…/migration-ledger.md` mirrors the §31 ledger operationally (L1–L16, F1–F5, D1) with status + deleting commit SHA, asserted by CI (§31)
 
 ## v2 Requirements
 
@@ -215,8 +215,10 @@ Each v1 requirement maps to exactly one phase. Phases are GSD integers 1–12, m
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SAFE-01, SAFE-02, SAFE-03, SAFE-04, SAFE-05, SAFE-06, SAFE-07 | Phase 1 [0A] | Pending |
-| DEL-01, DEL-02, DEL-03, DEL-04 | Phase 1 [0A] | Pending |
+| SAFE-01, SAFE-02, SAFE-03, SAFE-05, SAFE-06, SAFE-07 | Phase 1 [0A] | Pending |
+| SAFE-04 | Phase 1 [0A] | Done (01-03) |
+| DEL-02 | Phase 1 [0A] | Partial (ledger ratchet done 01-03; scans pending 01-04) |
+| DEL-01, DEL-03, DEL-04 | Phase 1 [0A] | Done (01-03) |
 | CTX-01, CTX-02, CTX-03, CTX-04, CTX-05 | Phase 2 [0B] | Pending |
 | COMPACT-01, COMPACT-02, COMPACT-03 | Phase 3 [0C] | Pending |
 | MAN-01, MAN-02, MAN-03, MAN-04, MAN-05 | Phase 4 [1A] | Pending |
