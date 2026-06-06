@@ -173,7 +173,7 @@
 ### Anti-Duplication & Deletion Ledger (cross-cutting, INV-12/§31)
 
 - [x] **DEL-01**: Every legacy element follows wrap → rewire call-sites → delete, completed within the phase that supersedes it; one implementation per behavior (INV-12)
-- [ ] **DEL-02**: Each phase ships a banned-pattern test (grep → 0 for deleted symbols/branches), a dead-code scan (ruff/vulture), and the import-linter rule as exit gates; Definition of Done = behavior moved + call-sites rewired + legacy deleted + gates green + snapshots green (§31) — _ledger ratchet done (01-03); dead-code scan + import-linter pending (01-04)_
+- [x] **DEL-02**: Each phase ships a banned-pattern test (grep → 0 for deleted symbols/branches), a dead-code scan (ruff/vulture), and the import-linter rule as exit gates; Definition of Done = behavior moved + call-sites rewired + legacy deleted + gates green + snapshots green (§31) — _ledger ratchet (01-03) + banned-pattern test + vulture dead-code scan + import-linter contract (01-04) all shipped and green_
 - [x] **DEL-03**: Banned-pattern tests are ratchets — a deleted symbol's reintroduction fails CI (§31)
 - [x] **DEL-04**: The `specs/003-…/migration-ledger.md` mirrors the §31 ledger operationally (L1–L16, F1–F5, D1) with status + deleting commit SHA, asserted by CI (§31)
 
