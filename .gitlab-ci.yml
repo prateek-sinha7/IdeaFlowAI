@@ -33,9 +33,50 @@ backend:lint:
     paths: [.pip-cache/]
   before_script:
     - pip install --cache-dir .pip-cache -r backend/requirements.txt
-    - pip install --cache-dir .pip-cache ruff==0.7.4
+    # Dev tooling (pinned): ruff + import-linter + vulture. Installing the dev
+    # file (instead of a one-off ruff pin) brings the import-boundary +
+    # dead-code gates into CI with the SAME versions devs run locally. (003 §31
+    # / SAFE-05 / D-11 / D-13 / D-17)
+    - pip install --cache-dir .pip-cache -r backend/requirements-dev.txt
   script:
     - cd backend && ruff check app/
+    # import-linter: kernel import-boundary contract (reads pyproject
+    # [tool.importlinter]; green scaffold today, tightens in Phase 7/8).
+    - cd backend && lint-imports
+    # vulture: dead-code / orphaned-symbol scan (reads pyproject [tool.vulture];
+    # allow-listed so framework entrypoints do not false-fail).
+    - cd backend && vulture app/ agents/
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+
+# Offline safety-net ratchets (003 SAFE-07 / D-16 / D-17). CRITICAL: the
+# existing backend:test runs ONLY tests/unit, so the tests/agents
+# characterization, migration-ledger, and banned-pattern gates are NOT run in
+# CI without this job — the entire Phase-1 safety net would be false-green.
+# This job is fully OFFLINE (no DB / API key / Bedrock vars): the scripted-model
+# harness drives the engine end-to-end without network. Kept in the `test`
+# stage so the ledger + banned-pattern tests act as hard ratchets.
+backend:characterization:
+  stage: test
+  image: python:3.13-slim
+  cache:
+    key: pip-py313
+    paths: [.pip-cache/]
+  variables:
+    ENV: "test"
+  before_script:
+    - pip install --cache-dir .pip-cache -r backend/requirements.txt
+  script:
+    - cd backend && python -m pytest
+        tests/agents/test_characterization_prototype.py
+        tests/agents/test_characterization_od_prototype.py
+        tests/agents/test_characterization_prototype_revision.py
+        tests/agents/test_characterization_od_ppt.py
+        tests/agents/test_characterization_app_builder.py
+        tests/agents/test_migration_ledger.py
+        tests/agents/test_banned_patterns.py
+        -q
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "main"
