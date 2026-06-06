@@ -209,6 +209,60 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
             ]
         return [_ScriptedTurn(texts=[f"{agent_id} output line one. ", "line two."], usage=(12, 7))]
 
+    # ── od_ppt / ppt agents (tools=[], text-only). ───────────────────────────
+    # The three deck agents (od-ppt-brief-analyst / od-ppt-composer /
+    # od-ppt-validator) are text-only (no filesystem tools), so the deck is a
+    # streamed-text deliverable — NOT a file on disk. _resolve_final_output's
+    # text/PPT branch takes the LAST agent's streamed output as the deliverable
+    # (the validator here), unwrapping a single <artifact>…</artifact> wrapper.
+    # So the deck the characterization test snapshots is whatever the VALIDATOR
+    # streams. Keep each turn's text + usage FIXED for determinism.
+    #
+    # od-ppt-brief-analyst declares injects=['template'] and od-ppt-composer
+    # declares injects=['template','design_system']; _drive seeds an od_context
+    # for od_ppt/ppt (below) so _compose_injection does not raise
+    # TemplateMissingError. (D-02 / PATTERNS S2.)
+    if agent_id == "od-ppt-brief-analyst":
+        return [
+            _ScriptedTurn(
+                texts=[
+                    "## Slide Plan\n",
+                    "1. Title slide. 2. Problem. 3. Solution. 4. Closing.\n",
+                ],
+                usage=(18, 12),
+            )
+        ]
+    if agent_id == "od-ppt-composer":
+        # The composer narrates building the deck; its text is consumed by the
+        # validator (last agent), whose output is the actual deliverable.
+        return [
+            _ScriptedTurn(
+                texts=["Composing the 4-slide deck per the strategist plan."],
+                usage=(40, 30),
+            )
+        ]
+    if agent_id == "od-ppt-validator":
+        # LAST agent → its streamed output IS the deliverable (text/PPT class).
+        # Emit the final deck wrapped in a single <artifact> tag so
+        # _resolve_final_output unwraps it to the raw deck HTML (deterministic,
+        # non-empty). Plain markup (no translateX/vw + .stage/.slide) so the
+        # engine's carousel sanitizer passes it through unchanged.
+        deck = (
+            "<!doctype html><html><head><title>Deck</title></head>"
+            "<body>"
+            "<section class='deck-slide'>Title</section>"
+            "<section class='deck-slide'>Problem</section>"
+            "<section class='deck-slide'>Solution</section>"
+            "<section class='deck-slide'>Closing</section>"
+            "</body></html>"
+        )
+        return [
+            _ScriptedTurn(
+                texts=[f"Validation passed. No P0 issues.\n<artifact>{deck}</artifact>"],
+                usage=(22, 14),
+            )
+        ]
+
     # ── prototype-build (tools=prototype_emit_only): runs once per task. ──────
     # NEW world: write_file(file_path="prototype.html", content=…) +
     #            report_task_complete(task_number/task_title/summary).
@@ -286,6 +340,20 @@ async def _drive(pipeline_type: str, world: str = "new") -> list[dict]:
     from agents.execution_engine.engine import ExecutionEngine
     from agents.registry import get_pipeline_agents
 
+    # ── Resolve od_ aliases for AGENT LOOKUP ONLY (mirrors the WS handler). ────
+    # ``od_prototype`` is an OpenDesign-context alias of ``prototype``: it has NO
+    # AGENT.md of its own (the prototype agents declare ``pipeline_type:
+    # prototype``), so ``get_pipeline_agents("od_prototype")`` returns ∅ and the
+    # resolver rejects the run ("must contain at least 1 agent"). The production
+    # WS ``run_pipeline`` handler resolves the alias for the agent lookup but
+    # forwards the UNALIASED label to ``execute()`` (engine.py keeps both
+    # spellings on the prototype deliverable path — see _PROTOTYPE_PIPELINE_TYPES).
+    # We replicate exactly that: look up specs under the base, drive under the
+    # original label. ``ppt`` is likewise an alias of ``od_ppt`` (the deck agents
+    # declare ``pipeline_type: od_ppt``); ``od_ppt`` itself IS a real registry key.
+    _OD_ALIAS_FOR_LOOKUP = {"od_prototype": "prototype", "ppt": "od_ppt"}
+    _lookup_type = _OD_ALIAS_FOR_LOOKUP.get(pipeline_type, pipeline_type)
+
     # ── Force RUNS_ROOT to our temp dir at RUNTIME ────────────────────────────
     # The env var is set at import, but ``app.core.config.settings`` may have been
     # loaded earlier (e.g. by another test / conftest) with the default ``/app/runs``
@@ -297,7 +365,7 @@ async def _drive(pipeline_type: str, world: str = "new") -> list[dict]:
     # ── Disable ALWAYS_CLARIFY (the clarifier needs live WS round-trips). ─────
     engine_mod.ALWAYS_CLARIFY = False
 
-    specs = get_pipeline_agents(pipeline_type)
+    specs = get_pipeline_agents(_lookup_type)
 
     # ── Per-agent scripted model factory ──────────────────────────────────────
     # The engine creates one agent per spec via create_runner. We inject a
@@ -353,7 +421,7 @@ async def _drive(pipeline_type: str, world: str = "new") -> list[dict]:
     # minimal od_context so injection succeeds and the build/task_progress path
     # actually runs.
     od_context = None
-    if pipeline_type in ("prototype", "od_prototype"):
+    if pipeline_type in ("prototype", "od_prototype", "od_ppt", "ppt"):
         od_context = {
             "template_body": "## Workflow\nUse .card and .grid classes. Build pages into <section data-page>.",
             "template_id": "web-prototype",
