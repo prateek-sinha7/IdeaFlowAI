@@ -1,0 +1,9 @@
+```filename: README.md
+# Generated App
+
+```
+
+```filename: src/app.py
+print('hello')
+
+```
