@@ -37,3 +37,21 @@ pyright==1.1.391
 # Pre-commit framework. Run `pre-commit install` once after installing.
 # Hooks live in /.pre-commit-config.yaml at the repo root.
 pre-commit==4.0.1
+
+# Import-boundary enforcement (Ports & Adapters / hexagonal — 003 §31, D-11).
+# Configured in pyproject.toml under [tool.importlinter]. Asserts the kernel
+# module depends only on capability ports, never legacy engine/factory
+# internals. In Phase 1 this is a GREEN SCAFFOLD (D-12): the kernel is still
+# engine.py and the contract holds on the current tree; Phase 7/8 only TIGHTENS
+# it (adds forbidden modules once kernel.py + capabilities/base.py land) —
+# never rewrites it. Run with `cd backend && lint-imports`.
+import-linter==2.11
+
+# Dead-code / orphaned-function detection (the §31 "ruff / vulture" dead-code
+# gate, D-13). Ruff already catches F401/F811 (unused-in-file); vulture finds
+# whole functions/classes/vars that are never referenced anywhere — the kind of
+# orphan a refactor leaves behind. Configured in pyproject.toml under
+# [tool.vulture] and allow-listed (framework entrypoints: FastAPI routes,
+# pytest fixtures, registry self-registration) to avoid false positives.
+# Run with `cd backend && vulture app/ agents/`.
+vulture==2.16

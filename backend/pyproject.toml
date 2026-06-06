@@ -84,3 +84,108 @@ ignore = [
 "alembic/env.py" = ["F401"]
 # __init__.py files re-export symbols; that's not "unused".
 "**/__init__.py" = ["F401"]
+
+# ---------------------------------------------------------------------------
+# import-linter — import-boundary enforcement (Ports & Adapters / hexagonal).
+#
+# 003 §31 / D-11 / D-12. The kernel of the workflow runtime must depend ONLY
+# on capability ports — never on legacy engine/factory internals or on
+# workflow-specific code. Ruff/pyright cannot express "module A must not import
+# module B"; import-linter can. Run with `cd backend && lint-imports`.
+#
+# GREEN SCAFFOLD (D-12) — read before tightening:
+#   Today the "kernel" is still the monolithic `agents.execution_engine.engine`
+#   module (the split into `kernel.py` + `capabilities/base.py` lands in
+#   Phase 2/8). So we cannot yet author the FINAL contract ("kernel must not
+#   import factory/engine internals") — those target modules don't exist as a
+#   separable layer yet. Instead we ship a contract that:
+#     1. HOLDS on the current tree (exit 0 — no false red on day one), and
+#     2. is shaped so Phase 7/8 only ADDS forbidden modules / promotes layers,
+#        never rewrites the block.
+#
+#   INTENDED FINAL FORM (Phase 7/8 — do NOT add yet; documented so the tighten
+#   is a diff, not a rewrite). Once kernel.py + capabilities/base.py exist, the
+#   contract below simply ADDS the kernel as a source and the legacy internals
+#   as forbidden targets — same `forbidden` type, same `root_packages`:
+#     [[tool.importlinter.contracts]]
+#     name = "kernel imports only capability ports"
+#     type = "forbidden"
+#     source_modules = ["agents.kernel"]
+#     forbidden_modules = [
+#         "agents.factory",                  # kernel must not reach into the factory
+#         "agents.execution_engine.engine",  # nor the legacy monolith
+#         "app.api",                         # (already enforced by the scaffold below)
+#     ]
+#   When `agents.kernel` lands, point `source_modules` at it and populate
+#   `forbidden_modules`. The scaffold below is the same contract type so the
+#   migration is purely additive.
+#
+# NOTE on contract shape (D-12 fallback applied): every `agents.*` subpackage is
+# transitively reachable from engine.py today (engine -> factory -> ~everything),
+# so a `forbidden` rule naming any `agents.*` target would be BROKEN on the
+# current tree. We therefore anchor the scaffold on a boundary that IS already
+# respected: the kernel must never import the web/API layer (`app.api.*`). The
+# API layer calls INTO the kernel (run_pipeline), never the reverse — classic
+# dependency inversion. This requires widening root to both `agents` and `app`.
+# ---------------------------------------------------------------------------
+[tool.importlinter]
+root_packages = ["agents", "app"]
+
+[[tool.importlinter.contracts]]
+name = "kernel imports only capability ports (scaffold)"
+type = "forbidden"
+# The kernel (today = engine.py) must NOT import the web/API layer. The HTTP /
+# WebSocket layer (`app.api.*`) is the caller — it invokes the engine via
+# `run_pipeline`; the engine must never reach back up into it. This is a REAL,
+# already-respected boundary (verified: engine.py reaches app.agents/core/
+# models/services but NEVER app.api), so the contract is NON-VACUOUS yet exits 0
+# on the current tree. It is the green scaffold for D-12 — Phase 7/8 promotes it
+# to the INTENDED FINAL FORM documented above by adding the kernel source +
+# legacy-internals targets (additive tighten, never a rewrite).
+source_modules = ["agents.execution_engine.engine"]
+forbidden_modules = ["app.api"]
+
+# ---------------------------------------------------------------------------
+# vulture — dead-code / orphaned-symbol detection (D-13).
+#
+# Complements ruff (which only flags unused-WITHIN-a-file F401/F811) by finding
+# functions/classes/attributes that are defined but referenced NOWHERE in the
+# scanned packages — the orphans a refactor leaves behind. Run with
+# `cd backend && vulture app/ agents/`.
+#
+# Allow-list strategy (D-13): vulture cannot see dynamic/framework use, so it
+# false-positives on FastAPI route handlers, pydantic models, pytest fixtures,
+# `@tool`-decorated stub params (the LLM populates them — the signature IS the
+# tool schema), and TYPE_CHECKING-only imports used solely in STRING
+# annotations (vulture does not resolve forward-ref strings). We:
+#   - exclude generated/vendored trees (alembic + any migrations),
+#   - raise min_confidence to 80 (only high-signal dead code),
+#   - ignore framework decorators (routes/fixtures/tools/validators), and
+#   - ignore the specific names that are dynamically/annotation-only used.
+# Keeping the allow-list as in-repo pyproject config (not ad-hoc CLI flags) is
+# the D-13 mandate, so the bare `vulture app/ agents/` invocation (the same one
+# CI runs) is green WITHOUT touching any runtime code. Each ignore_name below is
+# a verified false positive, NOT real dead code — re-audit before removing.
+# ---------------------------------------------------------------------------
+[tool.vulture]
+paths = ["app", "agents"]
+min_confidence = 80
+exclude = ["alembic/versions/", "*/migrations/*"]
+ignore_decorators = ["@app.*", "@router.*", "@pytest.fixture", "@tool", "@field_validator", "@validator", "@property"]
+ignore_names = [
+    # Pydantic dynamic config attrs.
+    "model_config",
+    "Config",
+    # TYPE_CHECKING-only imports used solely in string ("forward ref")
+    # annotations — vulture cannot see usage inside quoted type hints.
+    "ModelRequest",
+    "ModelResponse",
+    "BaseChatModel",
+    # `@tool` stub-tool parameters: the LLM fills these; the signature is the
+    # tool's input schema, so the params are "unused" only to static analysis
+    # (agents/planner/tools.py infer_constraints / assess_readiness).
+    "stated_goal",
+    "explicit_constraints",
+    "implicit_constraints",
+    "missing_information",
+]
