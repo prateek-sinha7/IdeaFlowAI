@@ -2,166 +2,263 @@
 
 ## Overview
 
-A strangler migration (Q39) that turns the prototype-coupled `ExecutionEngine` into a workflow-agnostic kernel
-driven by declarative manifests. Each phase is independently shippable and keeps `prototype` working throughout.
-**Phase 0** lays the safety net (characterization snapshots + deletion ledger) and extracts per-run state with no
-behavior change. **Phase 1** adds manifests, typed artifacts + persistence, and model policy. **Phase 2** proves the
-decoupling by re-expressing prototype as a manifest and deleting the L1–L16 kernel branches (SC-001). **Phase 3**
-hardens the capability layer (registry, gates, tool permissions, runtime adapter). **Phase 4** adds the local
-Workspace runtime and brownfield repo workflows (then gated exec). **Phases 5–6** add engine-owned fan-out/merge and
-the wave scheduler with durable resume. **Phase 7** (ECS) is deferred to a separate spec. The dynamic API/frontend
-contract (§22) is a parallel track touched every phase.
+A strangler/incremental migration (Q39) that turns the prototype-coupled `ExecutionEngine` into a workflow-agnostic kernel driven by declarative manifests. Each phase is independently shippable and **keeps prototype working throughout** — abstractions are introduced behind existing behavior, prototype is migrated to declarations, then hardcoded leaks are deleted. The journey: lock behavior with characterization tests → lift per-run state into `ExecutionContext` → trim tokens → introduce manifests/compiler → typed artifacts + persistence + ownership → model policy → **prove parity (SC-001) by re-expressing prototype as a manifest and deleting L1–L12** → harden the capability registry, gates, tool-permissions, runtime adapter (delete F1–F5) → local Workspace runtime + repo workflows → safe gated exec → engine-owned fan-out + merge → wave scheduler + durable resume. ECS/EC2 (plan Phase 7) is deferred to a separate spec.
 
-> **Definition of Done includes deletion (INV-12 / §31):** a phase that adds an abstraction without deleting the code
-> it supersedes — and proving it via the grep/dead-code/import-linter gate — is **not done**.
+The plan sub-phases (0A/0B/0C, 1A/1B/1C, 4A/4B) are mapped to sequential GSD phases 1–12; each phase name carries its plan id `[0A]…[6]` so it traces directly to `specs/003-workflow-engine-decoupling/plan.md §25`.
+
+**Global invariants (success constraints on every phase):** INV-1 (kernel knows no workflow by name) · INV-2 (no per-run state on the singleton) · INV-3 (semantic event parity; deliverables byte-identical where deterministic) · INV-12 (move-don't-copy; deletion is an exit gate) · INV-13 (LangChain `deepagents` only — never hand-rolled).
 
 ## Phases
 
-**Phase Numbering:**
-- Integer phases (0, 1, 2…): planned milestone work (Phase 0 = pre-refactor foundations, no behavior change)
-- Plan letters from the source doc (0A/0B/0C, 1A/1B/1C, 4A/4B) map to GSD plan numbers (00-01/02/03, etc.)
+**Phase Numbering:** Integer phases map 1:1 to the plan's §25 sub-phases. Strangler order is strictly sequential — each phase depends on the prior.
 
-- [ ] **Phase 0: Decouple Foundations** - Safety net + `ExecutionContext` + token-trim (no behavior change)
-- [ ] **Phase 1: Manifest, Typed Artifacts & Model Policy** - Declarative plans, lineage-tracked artifacts, model resolution
-- [ ] **Phase 2: Prototype as Manifest (Parity Proof)** - SC-001; delete L1–L16 kernel branches
-- [ ] **Phase 3: Capabilities Hardened** - Registry + gates + tool permissions + runtime adapter
-- [ ] **Phase 4: Local Workspace Runtime & Repo Workflows** - Brownfield repos (no exec), then safe gated exec
-- [ ] **Phase 5: Engine-Owned Fan-Out & Merge** - `spawn_subagents` + isolation + merge-conflict flow + budgets
-- [ ] **Phase 6: Wave Scheduler & Durable Resume** - Parallel waves + cancellation/retry/resume
-- [ ] **Phase 7: ECS/EC2 Runtime (Deferred)** - Remote runtime behind the unchanged port — separate spec
+- [ ] **Phase 1: [0A] Safety Net + Deletion Guard** - Characterization snapshots + ledger/import-linter/banned-pattern CI gates; no behavior change
+- [ ] **Phase 2: [0B] ExecutionContext + Ownership** - Lift all `self._*` run state into a per-run `ExecutionContext`; explicit parent-run ownership check; no behavior change
+- [ ] **Phase 3: [0C] Token-Trim (measured change)** - Wire the dead `_extract_html_skeleton` as build compaction; gated on semantic snapshot + measured token delta
+- [ ] **Phase 4: [1A] Manifest + Compiler** - File-backed manifests → thin compiler → typed `CompiledWorkflow`; pipelines run from compiled plans
+- [ ] **Phase 5: [1B] Typed Artifacts + Persistence + Ownership** - `ArtifactGraph`/`ArtifactRef` + schema (§18); dual-write then delete the legacy mirror; authz denial tests
+- [ ] **Phase 6: [1C] Model Policy** - `ModelResolver` (resolution order + fallback + cost_class) + `ModelCatalog` + per-agent overrides
+- [ ] **Phase 7: [2] Prototype as Manifest — Parity Proof (SC-001)** - Strategies/resolvers/providers/parsers/compaction; delete kernel leaks L1–L12; zero name/id branches
+- [ ] **Phase 8: [3] Capabilities Hardened — Registry, Gates, Tool Perms, Runtime** - CapabilityRegistry + trust; gate registry; least-privilege; AgentRuntimeAdapter + PromptAssemblyPolicy; delete F1–F5
+- [ ] **Phase 9: [4A] Local Workspace Runtime + Repo Workflows (no exec)** - `RuntimeEnvironment` port + `LocalSandboxRuntime`; repo inventory/index/context-pack + `repo_diff`; MCP client + integrations
+- [ ] **Phase 10: [4B] Safe Local Exec (gated on N3)** - Constrained `exec` behind the `security` gate + `ExecutionPolicy`; compile/test/lint validators
+- [ ] **Phase 11: [5] Engine-Owned Fan-Out + Merge** - `spawn_subagents` + kernel `run_fanout`; isolation + merge-conflict flow; `BudgetManager`; subagent persistence
+- [ ] **Phase 12: [6] Wave Scheduler + Durable Resume** - Topo wave scheduler; `wave_runs`; resume mid-wave; prototype stays sequential
+
+> **Deferred (plan Phase 7, OUT OF SCOPE this milestone):** ECS/EC2 runtime behind the unchanged `RuntimeEnvironment` port — a separate spec (§27). Tracked as v2 in REQUIREMENTS.md (ECS-01/02).
 
 ## Phase Details
 
-### Phase 0: Decouple Foundations
-**Goal**: Establish the migration safety net and extract all per-run state into `ExecutionContext`, with no behavior change (deliverables byte-identical), so the refactor can proceed safely.
+### Phase 1: [0A] Safety Net + Deletion Guard
+**Goal**: Lock current behavior with characterization snapshots and stand up the CI gates that enforce the migration discipline — before any refactor touches the engine.
+**Mode:** mvp
 **Depends on**: Nothing (first phase)
-**Requirements**: MIG-01, MIG-02, MIG-03, KERN-02, AUTH-02, AUTH-03, CAP-06, RUN-01
+**Requirements**: SAFE-01, SAFE-02, SAFE-03, SAFE-04, SAFE-05, SAFE-06, SAFE-07, DEL-01, DEL-02, DEL-03, DEL-04
 **Success Criteria** (what must be TRUE):
-  1. Characterization snapshots (deliverable + semantic-event) recorded and green for prototype/od_/revision/ppt/code-gen
-  2. The migration-ledger CI guard (`test_migration_ledger.py`) + import-linter contract run in CI (start green/empty)
-  3. The kernel has no per-run attributes (NFR-001) — all `self._*` run state moved to `ExecutionContext`
-  4. Cross-owner `parent_run` seeding is rejected by an explicit ownership check
-  5. Token-trim (`html_skeleton` compaction) shows a measured token reduction with equal-or-better validation pass rate
-**Plans**: 3 plans
+  1. Deliverable byte-snapshots + semantic event snapshots recorded and green for prototype, od_prototype, prototype_revision, ppt/od_ppt, and one code-gen pipeline (driven by the scripted model)
+  2. The migration-ledger CI guard, import-linter contract, and hand-rolled-deep-agent banned-pattern gate all run in CI (start green/empty, tighten as items delete)
+  3. Per-run event `seq` asserted contiguous; no runtime behavior change
+**Plans**: TBD
 
 Plans:
-- [ ] 00-01: 0A — Safety net + deletion guard (characterization snapshots + ledger CI guard + import-linter; no runtime change)
-- [ ] 00-02: 0B — `ExecutionContext` + ownership (extract `self._*` run state [L14]; explicit `parent_run` ownership check [L16]; delete dead `_handle_revision` [D1])
-- [ ] 00-03: 0C — Token-trim (wire the dead `_extract_html_skeleton` as build-task-2+ compaction; gated on semantic snapshot + measured token delta)
+- [ ] 01-01: Scripted model harness + deliverable byte-snapshot characterization tests (5 pipelines)
+- [ ] 01-02: Semantic event-stream snapshots with volatile-field normalization + contiguous `seq` assertion
+- [ ] 01-03: Migration-ledger CI guard (`test_migration_ledger.py`) + `migration-ledger.md` mirror (L1–L16/F1–F5/D1)
+- [ ] 01-04: Import-linter contract (kernel → ports only) + banned-pattern gate (INV-13/R15)
 
-### Phase 1: Manifest, Typed Artifacts & Model Policy
-**Goal**: Introduce file-backed manifests + a thin compiler, a typed lineage-tracked artifact graph with persistence (dual-write), and the model-resolution policy — running every existing pipeline from a compiled plan.
-**Depends on**: Phase 0
-**Requirements**: MANI-01, MANI-02, MANI-03, ART-01, ART-02, PERS-01, PERS-02, PERS-03, AUTH-01, MODL-01, MODL-02, MODL-03
-**Success Criteria** (what must be TRUE):
-  1. Every current pipeline runs from a compiled `ExecutionPlan` (snapshots green)
-  2. Artifacts are typed, lineage-tracked, and persisted; the `accumulated_outputs` mirror is deleted once reads migrate
-  3. Authz cross-owner denial tests pass (artifact/run reads go through the scoped store layer)
-  4. Per-step / per-workflow model selection is honored; the global default (Haiku) is unchanged
-  5. Per-agent `model_overrides` apply at the top of the resolution order and persist per run
-**Plans**: 3 plans
-
-Plans:
-- [ ] 01-01: 1A — `WorkflowManifest` (hand-authored) + `WorkflowCompiler` → `CompiledWorkflow`; pipelines run from compiled plans via the legacy `accumulated_outputs` mirror
-- [ ] 01-02: 1B — `ArtifactGraph`/`ArtifactRef` + persistence schema (§18); dual-write then delete the mirror [L15]; `run_events`/`run_capabilities`/`hook_runs`; authz denial tests
-- [ ] 01-03: 1C — `ModelResolver` (order + fallback + cost_class) + `ModelCatalog` + per-agent `model_overrides`
-
-### Phase 2: Prototype as Manifest (Parity Proof)
-**Goal**: Re-express prototype/od_/revision/ppt/code-gen as manifests using `single_shot` + `task_loop` strategies, deliverable resolvers, the `opendesign` provider, `seed_files`, the `heading_tasks` parser, and `html_skeleton` compaction — and delete the L1–L16 kernel branches. This is the SC-001 success test.
+### Phase 2: [0B] ExecutionContext + Ownership
+**Goal**: Extract every per-run `self._*` attribute into a per-run `ExecutionContext`, make the kernel singleton stateless/immutable, and add the explicit parent-run ownership check — with no behavior change.
+**Mode:** mvp
 **Depends on**: Phase 1
-**Requirements**: KERN-01, KERN-03, KERN-04, CAP-02, CAP-03, CAP-04, CAP-05, CAP-07
+**Requirements**: CTX-01, CTX-02, CTX-03, CTX-04, CTX-05
 **Success Criteria** (what must be TRUE):
-  1. `prototype` is reproduced by manifest + AGENT.md only, with zero engine edits (SC-001)
-  2. prototype/od_/revision/ppt/code-gen hold deliverable parity + semantic event parity vs the post-0C baseline
-  3. The kernel has zero name/id behavior branches (grep gate, INV-1)
-  4. L1–L16 are deleted from the kernel and their banned-pattern gates return 0
-**Plans**: 1 plan
+  1. All `self._*` run state (`_od_context`/`_completed_tasks`/`_current_task_block`/`_revision_*`/`_gate_agent_ids`/`_user_id`/`_checkpointer`) lives on `ExecutionContext`; kernel has no per-run attributes (NFR-001); ledger L14 grep gate returns 0
+  2. Cross-owner `parent_run` seeding is rejected by an explicit ownership check (L16 denial test passes)
+  3. Dead `_handle_revision` deleted (D1); deliverable snapshots byte-identical and event snapshots at semantic parity
+**Plans**: TBD
 
 Plans:
-- [ ] 02-01: Prototype family as manifests + `single_shot`/`task_loop` strategies + `single_file`/`serialized_sandbox`/`streamed_text` resolvers + `opendesign` provider + `seed_files` + `heading_tasks` parser + `html_skeleton` compaction; delete L1–L16
+- [ ] 02-01: Introduce `ExecutionContext` (context.py) + thread it through `execute()`
+- [ ] 02-02: Migrate all `self._*` reads/writes; assert kernel statelessness; delete `_handle_revision`
+- [ ] 02-03: Explicit parent-run ownership check at the seed/store boundary + denial test
 
-### Phase 3: Capabilities Hardened
-**Goal**: Formalize the `CapabilityRegistry` + trust flags, the gate registry (`human`/`validation`/`approval`/`security`, making `Validation_Gate` real), least-privilege `ToolPermissions` enforcement, the `AgentRuntimeAdapter` + `PromptAssemblyPolicy`, and migrated validators + generic fix-loop + severity mapping.
+### Phase 3: [0C] Token-Trim (measured change)
+**Goal**: Wire the dead `_extract_html_skeleton` as build-task-2+ context compaction (Tier#1) — the one sanctioned non-byte-identity change, gated on the semantic snapshot plus a measured token reduction.
+**Mode:** mvp
 **Depends on**: Phase 2
-**Requirements**: CAP-01, GATE-01, GATE-02, GATE-03, GATE-04, GATE-05, SEC-01, SEC-03, RUN-02, RUN-03, RUN-04
+**Requirements**: COMPACT-01, COMPACT-02, COMPACT-03
 **Success Criteria** (what must be TRUE):
-  1. Validators and gates are registry-driven; `Validation_Gate` is implemented and fires
-  2. Least-privilege tool permissions are enforced at `factory._build_runner_tools` (exec/net/secrets/spawn default OFF)
-  3. The `AgentRuntimeAdapter` wraps `create_deep_agent` [F5] and `PromptAssemblyPolicy` replaces the inline block order [F1]
-  4. Constitution injection works in production (R12/F4 fixed)
-  5. Tier #4/#5/#6 land as registered validators; executable hooks (incl. `secret_scan`) fire and persist
-**Plans**: 3 plans
+  1. `_extract_html_skeleton` is wired into build-task-2+ prompts (L13 now live)
+  2. Semantic snapshot holds (same pages/routes, equal-or-better validation pass rate) — gated on semantics, not byte-identity
+  3. A measured token/cost reduction is demonstrated on a multi-task build
+**Plans**: TBD
 
 Plans:
-- [ ] 03-01: `CapabilityRegistry` + trust flags (§7) + `GateHandler` registry (human/validation/approval/security; make `Validation_Gate` real)
-- [ ] 03-02: `ToolPermissions` enforcement (§8) + `AgentRuntimeAdapter` + `PromptAssemblyPolicy` + constitution fix [F1–F5]; executable hooks + `secret_scan` + `hook_runs`
-- [ ] 03-03: Migrate `html_static`/`html_render` validators + generic fix-loop + severity mapping + Tier #4/#5/#6 validators
+- [ ] 03-01: Wire skeleton compaction into the build loop + token-delta measurement
+- [ ] 03-02: Re-baseline semantic snapshots; assert equal-or-better validation pass
 
-### Phase 4: Local Workspace Runtime & Repo Workflows
-**Goal**: Add the `RuntimeEnvironment`/`Workspace` ports + `LocalSandboxRuntime`, repo inventory/index/context-pack, and the `repo_diff` resolver for a brownfield workflow end-to-end locally **without exec**; then enable a safe, gated `exec` profile after the N3 threat model.
+### Phase 4: [1A] Manifest + Compiler
+**Goal**: Introduce hand-authored file-backed workflow manifests and a thin compiler (no DSL) that produces a typed `CompiledWorkflow`; run every existing pipeline from a compiled plan while artifacts still flow via the legacy mirror.
+**Mode:** mvp
 **Depends on**: Phase 3
-**Requirements**: RUNT-01, RUNT-02, RUNT-03, RUNT-04, SEC-02, RUN-05
+**Requirements**: MAN-01, MAN-02, MAN-03, MAN-04, MAN-05, API-01
 **Success Criteria** (what must be TRUE):
-  1. A sample repo workflow produces a diff locally (clone → branch → inventory → read/edit/search → diff) with no `exec`
-  2. `prototype` is unaffected (snapshots still green)
-  3. `exec` runs only under the `security` gate + `ExecutionPolicy`; outbound network is denied by default
-  4. A sample compile/test/lint validator passes under the gated exec profile
-  5. An `McpClientAdapter` connects to an allow-listed server with scoped per-owner creds
-**Plans**: 2 plans
+  1. `WorkflowManifest` (schema + loader/validator) and `WorkflowCompiler` compile a YAML manifest to a validated typed `CompiledWorkflow`/`ExecutionPlan` with no control flow in manifests (INV-5)
+  2. Every current pipeline runs from a compiled plan; snapshots green; `accumulated_outputs` mirror still used (no schema change yet)
+  3. Compiler rejects unknown/not-allowed capability references (INV-4); `GET /api/workflows[/{id}]` returns manifest-derived metadata
+**Plans**: TBD
 
 Plans:
-- [ ] 04-01: 4A — `RuntimeEnvironment` + `LocalSandboxRuntime` + `Workspace`/`ExecutionPolicy` (exec off) + `repositories`/`workspaces` rows + repo inventory/index/context-pack + `repo_diff` (no exec)
-- [ ] 04-02: 4B — Safe local `exec` behind the `security` gate (N3: command allow/deny, egress default-deny, resource caps, ephemeral creds) + compile/test/lint validators; MCP client + catalog
+- [ ] 04-01: `manifest.py` schema + loader/validator; hand-author built-in `workflow.yaml` per pipeline
+- [ ] 04-02: `compiler.py` + `plan.py` (CompiledWorkflow/Step/Task) — name→capability resolution + validation
+- [ ] 04-03: Route the engine to execute from the compiled plan (legacy mirror retained)
+- [ ] 04-04: `/api/workflows` + `/api/workflows/{id}` endpoints
 
-### Phase 5: Engine-Owned Fan-Out & Merge
-**Goal**: Add the gated `spawn_subagents` tool + kernel `run_fanout`, `IsolationProvider` (sub_sandbox/worktree) + `MergeStrategy` + the merge-conflict flow, the `BudgetManager` with depth/concurrency caps, `subagent_runs` persistence, and cancellation propagation.
+### Phase 5: [1B] Typed Artifacts + Persistence + Ownership
+**Goal**: Replace the untyped `accumulated_outputs` handoff with a typed, content-addressed, owner-scoped `ArtifactGraph`; land the persistence schema (§18) and default-deny ownership enforcement; dual-write then delete the legacy mirror.
+**Mode:** mvp
 **Depends on**: Phase 4
-**Requirements**: FANO-01, FANO-02, FANO-03
+**Requirements**: ART-01, ART-02, ART-03, ART-04, PERSIST-01, PERSIST-02, PERSIST-03, AUTHZ-01, AUTHZ-02, AUTHZ-03, AUTHZ-04, CAPRUN-01, API-04, API-05
 **Success Criteria** (what must be TRUE):
-  1. An agent fans out N workers under enforced caps (subagents/concurrency/tokens/cost/depth/wall-clock)
-  2. Results merge deterministically; conflicts follow the step's `on_conflict` policy
-  3. Budgets abort gracefully and surface partial results; cancellation propagates to children
-**Plans**: 1 plan
+  1. Artifacts are typed + lineage-tracked (producer step/agent/task, content hash, version, parents, visibility, retention) and persisted; the `accumulated_outputs` mirror is deleted (L15 gate; only typed reads remain)
+  2. Additive migrations add `artifact_refs`, extend `workflow_runs`, add `workspaces`/`run_events`/`run_capabilities`; every table carries `owner_id` + `workspace_id`
+  3. Default-deny store-layer scoping enforced; cross-owner authz denial tests pass; `anon:<session_id>` owner used for unauthenticated runs; snapshots green
+  4. `GET /api/runs/{id}/artifacts` returns the typed lineage tree; `GET /api/runs/{id}/events?after=<seq>` replays the durable log
+**Plans**: TBD
 
 Plans:
-- [ ] 05-01: `spawn_subagents` (gated) + `run_fanout` + `IsolationProvider` + `MergeStrategy` + merge-conflict flow (§13) + `BudgetManager` + `subagent_runs` + cancellation propagation
+- [ ] 05-01: `ArtifactGraph`/`ArtifactRef` (artifacts/) + typed produces/consumes routing
+- [ ] 05-02: Migrations §18 (artifact_refs, workflow_runs extend, workspaces, run_events, run_capabilities)
+- [ ] 05-03: `authz.py` ownership-scoped store helper (default-deny) + denial tests
+- [ ] 05-04: Dual-write → migrate reads → delete `accumulated_outputs` mirror
+- [ ] 05-05: `run_capabilities` persistence + `/api/runs/{id}/artifacts` + events replay endpoint
 
-### Phase 6: Wave Scheduler & Durable Resume
-**Goal**: Add the `wave_scheduler` strategy (topo-sort by `depends_on` + `conflict_keys` into waves, run each wave via fan-out), `wave_runs` persistence, and resume mid-wave — enabled for multi-file workflows while prototype stays sequential.
+### Phase 6: [1C] Model Policy
+**Goal**: Implement model resolution with the full precedence order, fallback chains, cost classes, a `ModelCatalog`, and persisted per-agent overrides — global default stays Haiku.
+**Mode:** mvp
 **Depends on**: Phase 5
-**Requirements**: WAVE-01, WAVE-02
+**Requirements**: MODEL-01, MODEL-02, MODEL-03, MODEL-04, MODEL-05
 **Success Criteria** (what must be TRUE):
-  1. A multi-file workflow runs disjoint tasks in parallel waves
-  2. A server restart resumes the run mid-wave (durable step/subagent/wave records + event replay by `seq`)
-  3. `prototype` stays sequential; the CP-SAT seam is left for later (Q32)
-**Plans**: 1 plan
+  1. `ModelResolver` applies user-override > step > agent > workflow > global(Haiku); per-step/workflow model honored; global default unchanged
+  2. `ModelPolicy` (model id, max_tokens doc-only, cost_class, ordered fallback) drives `model_factory.build_model`; fallback fires on throttle/error
+  3. `ModelCatalog` capability lists selectable models (label/provider/cost_class/window/user_allowed); per-agent `model_overrides` applied at the top of the order and persisted per run
+**Plans**: TBD
 
 Plans:
-- [ ] 06-01: `wave_scheduler` strategy + `wave_runs` persistence + mid-wave durable resume + cancellation/retry hardening
+- [ ] 06-01: `ModelResolver` + resolution order on `ExecutionContext`
+- [ ] 06-02: `ModelCatalog` capability + fallback chain + cost_class budget tie-in
+- [ ] 06-03: Per-agent `model_overrides` in the run payload, persisted to `run_capabilities`
 
-### Phase 7: ECS/EC2 Runtime (Deferred)
-**Goal**: Implement a remote `EcsRuntime` behind the unchanged `RuntimeEnvironment` port. **Deferred to a separate spec** (§27) — designed-for here via the port, not built.
-**Depends on**: Phase 4 (the runtime port)
-**Requirements**: INFRA-01 (v2)
+### Phase 7: [2] Prototype as Manifest — Parity Proof (SC-001)
+**Goal**: Re-express prototype/od_/revision entirely as manifests backed by registered capabilities, then delete the hardcoded kernel leaks L1–L12 — proving the kernel knows no workflow by name. **This is the core-value proof.**
+**Mode:** mvp
+**Depends on**: Phase 6
+**Requirements**: PARITY-01, PARITY-02, PARITY-03, PARITY-04, PARITY-05, PARITY-06, PARITY-07, PARITY-08, PARITY-09
 **Success Criteria** (what must be TRUE):
-  1. A remote runtime backs a `Workspace` with no kernel/engine changes (pure backend swap)
-**Plans**: TBD (separate spec)
+  1. `single_shot` + `task_loop` strategies, `single_file`/`serialized_sandbox`/`streamed_text` + `ppt` resolvers, `opendesign` provider, declared `seed_files`, `heading_tasks` parser, and `html_skeleton` `CompactionStrategy` all implemented and registered
+  2. prototype, od_prototype (alias), and prototype_revision (from_run + previous_run + post-edit validation gate) run purely from manifests
+  3. Kernel leaks L1–L12 deleted; grep gate for `if pipeline_type`/`spec.id ==` and the L1/L2/L5/L6/L7/L10/L11/L12 patterns return 0 (INV-1)
+  4. prototype/od_/revision/ppt/code-gen at deliverable parity + semantic event parity vs the post-0C baseline
+**Plans**: TBD
 
 Plans:
-- [ ] 07-01: (Deferred — tracked in a future spec)
+- [ ] 07-01: `single_shot` + `task_loop` strategies + `heading_tasks` parser
+- [ ] 07-02: Deliverable resolvers (single_file/serialized_sandbox/streamed_text/ppt) + `opendesign` context provider + seed_files
+- [ ] 07-03: `html_skeleton` CompactionStrategy (re-express 0C behind the capability)
+- [ ] 07-04: prototype/od_prototype/prototype_revision manifests + parity verification
+- [ ] 07-05: Delete L1–L12 kernel branches; ledger gates green; INV-1 grep gate
+
+### Phase 8: [3] Capabilities Hardened — Registry, Gates, Tool Perms, Runtime
+**Goal**: Formalize the capability registry + trust flags, make gates first-class (incl. a real `validation` gate), enforce least-privilege tool permissions, and lift the factory's hardcoded runtime/tools/prompt-order into adapters/registries/policy — deleting F1–F5 and fixing the constitution no-op (R12).
+**Mode:** mvp
+**Depends on**: Phase 7
+**Requirements**: CAP-01, CAP-02, CAP-03, GATE-01, GATE-02, GATE-03, TOOLPERM-01, TOOLPERM-02, TOOLPERM-03, VALID-01, VALID-02, VALID-03, VALID-04, VALID-05, AGENTRT-01, AGENTRT-02, AGENTRT-03, AGENTRT-04, AGENTRT-05, AGENTRT-06, SKILL-01, HOOK-01, HOOK-02, HOOK-03, HOOK-04, OBS-02, API-02, API-03, API-06
+**Success Criteria** (what must be TRUE):
+  1. `CapabilityRegistry` (self-registering, trust flags) drives all capability lookups; `GateHandler` registry implements human/validation/approval/security and makes `Validation_Gate` real
+  2. `ToolPermissions` enforced at `factory._build_runner_tools` + `ExecutionPolicy` (least-privilege; exec/network/secrets/spawn default OFF); validators + generic fix-loop + P0–P3→severity mapping migrated; Tier#4/5/6 validators land
+  3. `AgentRuntimeAdapter` (`langchain_deepagents`), `PromptAssemblyPolicy`, `tool_provider`/`skill_provider`/`hook_provider` replace the inline factory code; F1–F5 deleted; constitution-injected-in-prod test passes (R12)
+  4. Executable lifecycle hooks (secret_scan/otel_tracing/pre-post_commit/post_task) fire and persist to `hook_runs`; `/api/capabilities` returns the dynamic palette; new validator/gate events surface at semantic parity for existing workflows
+**Plans**: TBD
+
+Plans:
+- [ ] 08-01: `CapabilityRegistry` (registry.py) + `base.py` ports + self-registering `discover()` + trust flags
+- [ ] 08-02: `GateHandler` registry (human/validation/approval/security); make `Validation_Gate` real
+- [ ] 08-03: `ToolPermissions` resolution + enforcement (factory + ExecutionPolicy); delete F2 switch
+- [ ] 08-04: Validator registry + generic fix-loop + severity mapping + Tier#4/5/6 validators (migrate html_static/html_render)
+- [ ] 08-05: `AgentRuntimeAdapter` + `PromptAssemblyPolicy`; delete F1/F5; skill_provider/hook_provider (delete F3)
+- [ ] 08-06: Fix constitution no-op (F4/R12, sync-safe load)
+- [ ] 08-07: Executable `HookHandler` framework + canonical hooks + `hook_runs`; otel tracing hook
+- [ ] 08-08: `/api/capabilities` palette + dynamic composer/model-picker/validator-panel wiring
+
+### Phase 9: [4A] Local Workspace Runtime + Repo Workflows (no exec)
+**Goal**: Introduce the `RuntimeEnvironment`/`Workspace` ports with a `LocalSandboxRuntime`, and deliver the first brownfield repo workflow end-to-end locally without execution (clone → branch → inventory → read/edit/search → diff) — plus the MCP client and integration providers.
+**Mode:** mvp
+**Depends on**: Phase 8
+**Requirements**: RUNTIME-01, RUNTIME-02, RUNTIME-03, REPO-01, REPO-02, REPO-03, REPO-04, REPO-05, MCP-01, MCP-02, MCP-03, MCP-04, INTEG-01, INTEG-02
+**Success Criteria** (what must be TRUE):
+  1. `RuntimeEnvironment` port + `LocalSandboxRuntime`; one `Workspace` abstraction (prototype = `has_git=False, exec=off`) with no engine fork repo-vs-artifact; `repositories`/`workspaces` rows persisted
+  2. `RepoInventory` (tree/lang/deps/ignore-rules/binary-skip/summaries), optional `RepoIndex`, and per-task `ContextPack` produced; `repo_diff` resolver yields a file tree + per-file diff
+  3. A sample repo workflow runs end-to-end locally with **no exec** and surfaces a diff; prototype unaffected
+  4. `McpClientAdapter` + allow-listed famous-server catalog (scoped per-owner creds, security-gated for powerful servers); compiler validates `tools.mcp`; integration providers reachable from the unified runner path
+**Plans**: TBD
+
+Plans:
+- [ ] 09-01: `RuntimeEnvironment`/`Workspace`/`ExecutionPolicy` ports (runtime/base.py) + `LocalSandboxRuntime` (local.py)
+- [ ] 09-02: `repositories`/`workspaces` rows; RunSandbox → git-off Workspace
+- [ ] 09-03: `RepoInventory` + `RepoIndex` (grep default) + `ContextPack` + `repo` context provider
+- [ ] 09-04: `repo_diff` deliverable resolver + sample brownfield workflow (no exec)
+- [ ] 09-05: `McpClientAdapter` + server catalog + `McpCapabilityRegistry` validation
+- [ ] 09-06: `integration_provider` capabilities (gitlab/github/jira/slack) + `integrations` scopes
+
+### Phase 10: [4B] Safe Local Exec (gated on N3)
+**Goal**: After the N3 threat model is decided, enable a constrained `exec` profile behind the `security` gate with command allow/deny, default-deny egress, resource caps, and ephemeral creds — plus compile/test/lint validators.
+**Mode:** mvp
+**Depends on**: Phase 9 (and the N3 threat-model decision)
+**Requirements**: EXEC-01, EXEC-02
+**Success Criteria** (what must be TRUE):
+  1. `exec` runs only under the `security` gate + `ExecutionPolicy` (command allow/deny, resource caps, ephemeral creds); network egress denied by default
+  2. compile/test/lint validators land and a sample compile/test validator passes
+**Plans**: TBD
+
+Plans:
+- [ ] 10-01: Resolve N3 threat model; constrained `exec` profile behind the security gate
+- [ ] 10-02: compile/test/lint validators using gated exec
+
+### Phase 11: [5] Engine-Owned Fan-Out + Merge
+**Goal**: Implement engine-owned fan-out (declarative + `spawn_subagents` tool) with isolation, merge-conflict handling, budgets, depth/concurrency caps, subagent persistence, and cancellation propagation — the engine alone decides isolation/caps/merge (INV-7).
+**Mode:** mvp
+**Depends on**: Phase 9
+**Requirements**: FANOUT-01, FANOUT-02, FANOUT-03, FANOUT-04, FANOUT-05, FANOUT-06, FANOUT-07, FANOUT-08, FANOUT-09, FANOUT-10, FANOUT-11, OBS-01, RESUME-01
+**Success Criteria** (what must be TRUE):
+  1. A granted step fans out N workers (self-copies or named workers) under `max_concurrency`, parallel or sequential; both declarative and tool entry points funnel through kernel `run_fanout`
+  2. `IsolationProvider` (shared_read/sub_sandbox/worktree, writes isolated) + `MergeStrategy` merge fragments deterministically; conflicts follow `on_conflict` (human_gate/merge_agent/partial/abort) with a `merge_conflict` artifact + event
+  3. `BudgetManager` reserves-before-spawn and enforces subagents/concurrency/tokens/cost/wall-clock/depth (per-run + per-workspace); `BudgetExceeded` aborts gracefully with partial results; cancellation propagates to children
+  4. Each child → a `subagent_runs` row; `subagent_*`/`merge_*` events emitted
+**Plans**: TBD
+
+Plans:
+- [ ] 11-01: Kernel `run_fanout` (fanout.py) + `spawn_subagents` tool (gated) + declarative `step.fanout`
+- [ ] 11-02: `IsolationProvider` (sub_sandbox/worktree) + worker selection + parallel/sequential modes
+- [ ] 11-03: `MergeStrategy` + merge-conflict flow (§13) + `on_conflict` policies
+- [ ] 11-04: `BudgetManager` (budget.py) caps + reserve-before-spawn + graceful abort
+- [ ] 11-05: `subagent_runs` persistence + `subagent_*`/`merge_*` events + cancellation propagation
+
+### Phase 12: [6] Wave Scheduler + Durable Resume
+**Goal**: Add a deterministic topological wave scheduler that runs disjoint tasks in parallel waves via fan-out, with durable mid-wave resume; prototype stays sequential and a CP-SAT seam is left.
+**Mode:** mvp
+**Depends on**: Phase 11
+**Requirements**: WAVE-01, WAVE-02, WAVE-03, RESUME-02, RESUME-03, RESUME-04
+**Success Criteria** (what must be TRUE):
+  1. `wave_scheduler` strategy topo-sorts by `depends_on` + `conflict_keys` into waves and runs each wave via fan-out; a multi-file workflow runs disjoint tasks in parallel waves; prototype stays sequential; CP-SAT seam left
+  2. `wave_runs` persisted; a server restart resumes mid-wave via `subagent_runs`/`wave_runs`; idempotent step retry reuses artifacts on content-hash match
+  3. Reconnect replays from the durable `run_events` log (`after=<seq>`, idempotent by `event_id`); `restore_non_terminal_runs` resumes at step granularity (waiting_for_user gates resume on user action)
+**Plans**: TBD
+
+Plans:
+- [ ] 12-01: `wave_scheduler` strategy (topo by depends_on + conflict_keys) + `wave_runs` persistence
+- [ ] 12-02: Idempotent step retry (content-hash keyed) + mid-wave resume
+- [ ] 12-03: Durable event replay + step-granular `restore_non_terminal_runs`
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 0 → 1 → 2 → 3 → 4 → 5 → 6 → (7 deferred)
+Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 0. Decouple Foundations | 0/3 | Not started | - |
-| 1. Manifest, Typed Artifacts & Model Policy | 0/3 | Not started | - |
-| 2. Prototype as Manifest (Parity Proof) | 0/1 | Not started | - |
-| 3. Capabilities Hardened | 0/3 | Not started | - |
-| 4. Local Workspace Runtime & Repo Workflows | 0/2 | Not started | - |
-| 5. Engine-Owned Fan-Out & Merge | 0/1 | Not started | - |
-| 6. Wave Scheduler & Durable Resume | 0/1 | Not started | - |
-| 7. ECS/EC2 Runtime | 0/1 | Deferred | - |
+| 1. [0A] Safety Net + Deletion Guard | 0/4 | Not started | - |
+| 2. [0B] ExecutionContext + Ownership | 0/3 | Not started | - |
+| 3. [0C] Token-Trim | 0/2 | Not started | - |
+| 4. [1A] Manifest + Compiler | 0/4 | Not started | - |
+| 5. [1B] Typed Artifacts + Persistence | 0/5 | Not started | - |
+| 6. [1C] Model Policy | 0/3 | Not started | - |
+| 7. [2] Prototype as Manifest (Parity Proof) | 0/5 | Not started | - |
+| 8. [3] Capabilities Hardened | 0/8 | Not started | - |
+| 9. [4A] Local Runtime + Repo (no exec) | 0/6 | Not started | - |
+| 10. [4B] Safe Local Exec | 0/2 | Not started | - |
+| 11. [5] Fan-Out + Merge | 0/5 | Not started | - |
+| 12. [6] Wave Scheduler + Resume | 0/3 | Not started | - |
+
+---
+*Roadmap created: 2026-06-06*
+*Source: specs/003-workflow-engine-decoupling/plan.md §25 (12 active phases; plan Phase 7 / ECS deferred to v2)*

@@ -211,16 +211,50 @@ Explicitly excluded this milestone (designed-for via interfaces, not built).
 
 ## Traceability
 
-Populated during roadmap creation (maps each requirement to exactly one phase).
+Each v1 requirement maps to exactly one phase. Phases are GSD integers 1–12, mapped 1:1 to plan §25 sub-phases (`[0A]…[6]`). v2 / Out-of-Scope items are intentionally unmapped.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (pending roadmap) | — | Pending |
+| SAFE-01, SAFE-02, SAFE-03, SAFE-04, SAFE-05, SAFE-06, SAFE-07 | Phase 1 [0A] | Pending |
+| DEL-01, DEL-02, DEL-03, DEL-04 | Phase 1 [0A] | Pending |
+| CTX-01, CTX-02, CTX-03, CTX-04, CTX-05 | Phase 2 [0B] | Pending |
+| COMPACT-01, COMPACT-02, COMPACT-03 | Phase 3 [0C] | Pending |
+| MAN-01, MAN-02, MAN-03, MAN-04, MAN-05 | Phase 4 [1A] | Pending |
+| API-01 | Phase 4 [1A] | Pending |
+| ART-01, ART-02, ART-03, ART-04 | Phase 5 [1B] | Pending |
+| PERSIST-01, PERSIST-02, PERSIST-03 | Phase 5 [1B] | Pending |
+| AUTHZ-01, AUTHZ-02, AUTHZ-03, AUTHZ-04 | Phase 5 [1B] | Pending |
+| CAPRUN-01 | Phase 5 [1B] | Pending |
+| API-04, API-05 | Phase 5 [1B] | Pending |
+| MODEL-01, MODEL-02, MODEL-03, MODEL-04, MODEL-05 | Phase 6 [1C] | Pending |
+| PARITY-01, PARITY-02, PARITY-03, PARITY-04, PARITY-05, PARITY-06, PARITY-07, PARITY-08, PARITY-09 | Phase 7 [2] | Pending |
+| CAP-01, CAP-02, CAP-03 | Phase 8 [3] | Pending |
+| GATE-01, GATE-02, GATE-03 | Phase 8 [3] | Pending |
+| TOOLPERM-01, TOOLPERM-02, TOOLPERM-03 | Phase 8 [3] | Pending |
+| VALID-01, VALID-02, VALID-03, VALID-04, VALID-05 | Phase 8 [3] | Pending |
+| AGENTRT-01, AGENTRT-02, AGENTRT-03, AGENTRT-04, AGENTRT-05, AGENTRT-06 | Phase 8 [3] | Pending |
+| SKILL-01 | Phase 8 [3] | Pending |
+| HOOK-01, HOOK-02, HOOK-03, HOOK-04 | Phase 8 [3] | Pending |
+| OBS-02 | Phase 8 [3] | Pending |
+| API-02, API-03, API-06 | Phase 8 [3] | Pending |
+| RUNTIME-01, RUNTIME-02, RUNTIME-03 | Phase 9 [4A] | Pending |
+| REPO-01, REPO-02, REPO-03, REPO-04, REPO-05 | Phase 9 [4A] | Pending |
+| MCP-01, MCP-02, MCP-03, MCP-04 | Phase 9 [4A] | Pending |
+| INTEG-01, INTEG-02 | Phase 9 [4A] | Pending |
+| EXEC-01, EXEC-02 | Phase 10 [4B] | Pending |
+| FANOUT-01, FANOUT-02, FANOUT-03, FANOUT-04, FANOUT-05, FANOUT-06, FANOUT-07, FANOUT-08, FANOUT-09, FANOUT-10, FANOUT-11 | Phase 11 [5] | Pending |
+| OBS-01 | Phase 11 [5] | Pending |
+| RESUME-01 | Phase 11 [5] | Pending |
+| WAVE-01, WAVE-02, WAVE-03 | Phase 12 [6] | Pending |
+| RESUME-02, RESUME-03, RESUME-04 | Phase 12 [6] | Pending |
 
 **Coverage:**
-- v1 requirements: see roadmap traceability
-- Mapped to phases: pending
-- Unmapped: pending ⚠️
+- v1 requirements: 117 total
+- Mapped to phases: 117
+- Unmapped: 0 ✓
+- v2 (deferred, intentionally unmapped): ECS-01, ECS-02, SCHED-01, MERGE-01, GIT-01, WF-DB-01
+
+**Per-phase counts:** P1=11 · P2=5 · P3=3 · P4=6 · P5=14 · P6=5 · P7=9 · P8=29 · P9=14 · P10=2 · P11=13 · P12=6 (= 117)
 
 ---
 *Requirements defined: 2026-06-06*
