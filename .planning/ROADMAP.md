@@ -12,7 +12,7 @@ The plan sub-phases (0A/0B/0C, 1A/1B/1C, 4A/4B) are mapped to sequential GSD pha
 
 **Phase Numbering:** Integer phases map 1:1 to the plan's §25 sub-phases. Strangler order is strictly sequential — each phase depends on the prior.
 
-- [ ] **Phase 1: Safety Net + Deletion Guard [0A]** - Characterization snapshots + ledger/import-linter/banned-pattern CI gates; no behavior change
+- [x] **Phase 1: Safety Net + Deletion Guard [0A]** - Characterization snapshots + ledger/import-linter/banned-pattern CI gates; no behavior change (completed 2026-06-06)
 - [ ] **Phase 2: ExecutionContext + Ownership [0B]** - Lift all `self._*` run state into a per-run `ExecutionContext`; explicit parent-run ownership check; no behavior change
 - [ ] **Phase 3: Token-Trim (measured change) [0C]** - Wire the dead `_extract_html_skeleton` as build compaction; gated on semantic snapshot + measured token delta
 - [ ] **Phase 4: Manifest + Compiler [1A]** - File-backed manifests → thin compiler → typed `CompiledWorkflow`; pipelines run from compiled plans
@@ -48,7 +48,7 @@ Plans:
 - [x] 01-01-PLAN.md — Extend `_scripts_for` (PPT) + deliverable byte-snapshot characterization tests for 5 pipelines (SAFE-01) [wave 1] ✅ 2026-06-06
 - [x] 01-02-PLAN.md — `_normalize()` + semantic event-stream snapshots + contiguous `seq` assertion (SAFE-02, SAFE-03) [wave 2]
 - [x] 01-03-PLAN.md — `migration-ledger.md` mirror of §31 + `test_migration_ledger.py` ratchet (DEL-01..04, SAFE-04) [wave 1] ✅ 2026-06-06
-- [ ] 01-04-PLAN.md — import-linter + vulture (SAFE-05) + banned-pattern gate (SAFE-06) + CI wiring (SAFE-07) [wave 3]
+- [x] 01-04-PLAN.md — import-linter + vulture (SAFE-05) + banned-pattern gate (SAFE-06) + CI wiring (SAFE-07) [wave 3]
 
 ### Phase 2: ExecutionContext + Ownership [0B]
 
@@ -294,7 +294,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Safety Net + Deletion Guard [0A] | 3/4 | In Progress|  |
+| 1. Safety Net + Deletion Guard [0A] | 4/4 | Complete   | 2026-06-06 |
 | 2. ExecutionContext + Ownership [0B] | 0/3 | Not started | - |
 | 3. Token-Trim [0C] | 0/2 | Not started | - |
 | 4. Manifest + Compiler [1A] | 0/4 | Not started | - |

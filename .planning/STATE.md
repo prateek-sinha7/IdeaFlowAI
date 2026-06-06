@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-06-06T22:00:51.478Z"
-last_activity: 2026-06-06 -- Completed 01-03-PLAN.md (migration ledger + deletion-guard ratchet)
+status: verifying
+last_updated: "2026-06-06T22:12:43.506Z"
+last_activity: 2026-06-06 -- Completed 01-04-PLAN.md (static gates armed + wired into CI — Phase 1 complete)
 progress:
   total_phases: 12
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 4
-  completed_plans: 3
-  percent: 0
+  completed_plans: 4
+  percent: 8
 ---
 
 # Project State
@@ -26,10 +26,10 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 
 Phase: 1 (Safety Net + Deletion Guard [0A]) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
-Last activity: 2026-06-06 -- Completed 01-03-PLAN.md (migration ledger + deletion-guard ratchet)
+Status: Phase complete — ready for verification
+Last activity: 2026-06-06 -- Completed 01-04-PLAN.md (static gates armed + wired into CI — Phase 1 complete)
 
-Progress: [█████░░░░░] 50%
+Progress: [██████████] 100% (Phase 1 plans 4/4 complete)
 
 ## Performance Metrics
 
@@ -52,6 +52,7 @@ Progress: [█████░░░░░] 50%
 
 *Updated after each plan completion*
 | Phase 01 P02 | ~12 min | 2 tasks | 11 files |
+| Phase 01 P04 | ~9 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -64,6 +65,7 @@ Recent decisions affecting current work:
 - Init: Research skipped — plan.md is the authoritative complete spec (plan-ingestion preference)
 - Init: Models=quality (Opus); execution=sequential (strangler safety); git tracking=on
 - [Phase ?]: 01-02: event-snapshot is an order-canonical multiset (build-loop interleaving is nondeterministic); strict order covered by assert_seq_contiguous + phase3/01-01 sequence tests. VOLATILE_SENTINEL='<normalized>'; contract dicts imported from phase3 verify (no divergence).
+- [Phase ?]: 01-04: import-linter scaffold anchored on kernel→app.api boundary (non-vacuous, green); vulture allow-listed in pyproject; banned-pattern gate single-file allow-list + injected-fixture non-vacuity; tests/agents now run in CI (offline backend:characterization) — closes D-16 false-green.
 
 ### Pending Todos
 
@@ -88,4 +90,4 @@ Open decision records to confirm before their phase (from plan §26):
 - CP-SAT scheduling · single-file fragment-merge · PR/commit push · DB-backed user workflows (REQUIREMENTS.md v2 / Out of Scope).
 
 ---
-*Last updated: 2026-06-06 after completing plan 01-03*
+*Last updated: 2026-06-06 after completing plan 01-04 (Phase 1 complete — all four safety-net gate families armed and running in CI)*
