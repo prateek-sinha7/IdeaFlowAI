@@ -38,13 +38,13 @@ The plan sub-phases (0A/0B/0C, 1A/1B/1C, 4A/4B) are mapped to sequential GSD pha
   1. Deliverable byte-snapshots + semantic event snapshots recorded and green for prototype, od_prototype, prototype_revision, ppt/od_ppt, and one code-gen pipeline (driven by the scripted model)
   2. The migration-ledger CI guard, import-linter contract, and hand-rolled-deep-agent banned-pattern gate all run in CI (start green/empty, tighten as items delete)
   3. Per-run event `seq` asserted contiguous; no runtime behavior change
-**Plans**: TBD
+**Plans**: 4 plans (3 waves)
 
 Plans:
-- [ ] 01-01: Scripted model harness + deliverable byte-snapshot characterization tests (5 pipelines)
-- [ ] 01-02: Semantic event-stream snapshots with volatile-field normalization + contiguous `seq` assertion
-- [ ] 01-03: Migration-ledger CI guard (`test_migration_ledger.py`) + `migration-ledger.md` mirror (L1–L16/F1–F5/D1)
-- [ ] 01-04: Import-linter contract (kernel → ports only) + banned-pattern gate (INV-13/R15)
+- [ ] 01-01-PLAN.md — Extend `_scripts_for` (PPT) + deliverable byte-snapshot characterization tests for 5 pipelines (SAFE-01) [wave 1]
+- [ ] 01-02-PLAN.md — `_normalize()` + semantic event-stream snapshots + contiguous `seq` assertion (SAFE-02, SAFE-03) [wave 2]
+- [ ] 01-03-PLAN.md — `migration-ledger.md` mirror of §31 + `test_migration_ledger.py` ratchet (DEL-01..04, SAFE-04) [wave 1]
+- [ ] 01-04-PLAN.md — import-linter + vulture (SAFE-05) + banned-pattern gate (SAFE-06) + CI wiring (SAFE-07) [wave 3]
 
 ### Phase 2: [0B] ExecutionContext + Ownership
 **Goal**: Extract every per-run `self._*` attribute into a per-run `ExecutionContext`, make the kernel singleton stateless/immutable, and add the explicit parent-run ownership check — with no behavior change.
@@ -246,7 +246,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. [0A] Safety Net + Deletion Guard | 0/4 | Not started | - |
+| 1. [0A] Safety Net + Deletion Guard | 0/4 | Planned | - |
 | 2. [0B] ExecutionContext + Ownership | 0/3 | Not started | - |
 | 3. [0C] Token-Trim | 0/2 | Not started | - |
 | 4. [1A] Manifest + Compiler | 0/4 | Not started | - |
