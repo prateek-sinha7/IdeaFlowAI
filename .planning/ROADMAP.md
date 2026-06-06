@@ -63,12 +63,22 @@ Plans:
   3. Dead `_handle_revision` deleted (D1); deliverable snapshots byte-identical and event snapshots at semantic parity
 
 **Plans**: 3 plans (3 waves — strangler chain, each wave leaves the 0A suite green)
-
 Plans:
+**Wave 1**
 
 - [ ] 02-01-PLAN.md — Introduce `ExecutionContext` (context.py, D-01 field set) + relocate all `self._*` per-run state onto it + thread `ectx` through the 6 read-sites; kernel stateless; L14 grep → 0 (CTX-01, CTX-02, CTX-05) [wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 02-02-PLAN.md — Delete dead `_handle_revision` (D1) + flip migration-ledger rows L14 + D1 to ☑ (arm the grep ratchets) (CTX-04, CTX-05) [wave 2]
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 02-03-PLAN.md — `assert_owns` ownership helper (authz.py) + explicit cross-owner check above the seed try/except + denial/degrade/anon tests + record L16 (CTX-03, CTX-05) [wave 3]
+
+**Cross-cutting constraints:**
+
+- Phase 0A characterization snapshots stay byte-identical and at semantic-event parity
 
 ### Phase 3: Token-Trim (measured change) [0C]
 
