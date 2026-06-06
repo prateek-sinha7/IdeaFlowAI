@@ -33,91 +33,203 @@ corruption bug and a hard blocker for fan-out / parallel waves / multi-tenant ru
 
 **Goal.** A workflow-agnostic kernel + declarative capabilities such that:
 
-1. **Parity by declaration** — `prototype` is re-expressed as a manifest; the engine contains **no**
-   `if pipeline_type == "prototype"` / `if spec.id == "prototype-build"` branches; the deliverable is
-   **identical where deterministic** and the event stream is at **semantic parity** (SC-001, INV-3).
-2. **Reusable powers** — per-task loop, fan-out, validation+fix, deliverable strategies, context providers,
-   reference-file seeding, planner/clarify config, context compaction are **first-class declared capabilities**
-   (Q36: all of them).
-3. **Per-run isolation** — all run state lives in a per-run `ExecutionContext`; the kernel singleton is stateless (NFR-001).
-4. **Workspace-ready** — engine talks to a `Workspace`/`RuntimeEnvironment` port; **local impl now**, ECS later as a backend swap, no engine rewrite (Q-N1).
-5. **Agent-initiated fan-out** — any allowed agent can request sub-agent fan-out via an **engine-owned** tool; the engine (not the prompt) owns isolation, caps, routing, merge, events.
-6. **Safe multi-tenant by construction** — every workflow, run, artifact, workspace, and repository is **owner-scoped** (INV-8); every step runs **least-privilege** tools (INV-9); every artifact is **lineage-tracked** (INV-10); gates are first-class (§9).
+# Workflow Refactor — Final Q&A Decisions
 
-**In scope:** Phases 0–6 below + the Workspace/Runtime layer **as interfaces with a local implementation** +
-the foundational platform contracts the review surfaced (typed artifacts & lineage §17, persistence §18,
-authorization §19, tool-permission policy §8, gate registry §9, model policy §20, cancellation/retry/resume §21,
-and the dynamic API/frontend contract §22 as a parallel track).
-**Runtime mandate:** every agent — in every workflow, prototype and custom alike — runs on the **LangChain `deepagents` library** (`create_deep_agent`), the same runtime the prototype pipeline uses today; **never a hand-rolled "deep agent"** (INV-13).
-**Out of scope (this spec):** ECS/EC2 provisioning, warm/dedicated containers, container networking/secrets,
-CP-SAT scheduling, single-file fragment-merge parallelism, untrusted end-user code execution. These are
-**designed-for** (interfaces exist) but **deferred** (§27), and code-execution security gets its **own gated spec** (§26 N3).
+Framing & terminology
 
-## 2. Firm decisions (locked via Q&A — Q1–Q45 + N1)
+### Q1. Vocabulary: should we rename `pipeline/pipeline_type` to `workflow` everywhere?
+**Answer:** Unify on **`workflow`** as the primary term. Keep `pipeline_type` only as a temporary migration alias until callers move.
 
-Terminology & framing
-- **Q1** Unify on **`workflow`**; keep `pipeline_type` as a **migration alias** until callers move.
-- **Q2** **Engineer-registered capabilities, user-composable manifests** (trust boundary). Internally start trusted (A).
-- **Q3** **Preserve existing workflows exactly** during migration (characterization-tested, byte-identical).
-- **Q4** Success = **prototype parity by manifest/config only, zero engine edits**.
+### Q2. Who authors a custom workflow?
+**Answer:** Use **engineer-registered capabilities with user-composable manifests**. Internally, v1 can start with trusted engineer-authored workflows, but the model should support a trust boundary for future user-authored workflows.
 
-Definition model
-- **Q5** **File-backed built-in manifests now**; **DB-backed user workflow definitions later** (D).
-- **Q6** **Agents declare what they do; workflows declare orchestration** (strict split).
-- **Q7** **Migrate prototype to the same mechanism** (dogfood; no privileged path).
+### Q3. What is the backward-compatibility bar?
+**Answer:** Preserve existing workflows exactly during migration, backed by characterization tests. Existing prototype, `od_*`, PPT, and code-gen behavior should remain byte-identical where deterministic.
+
+### Q4. What is the primary success test of the refactor?
+**Answer:** Success means **prototype parity by manifest/config only**, with zero engine edits. The prototype workflow should be reproducible through declarations rather than hardcoded engine branches.
+
+---
+
+Workflow-definition model
+
+### Q5. What is a workflow concretely?
+**Answer:** Built-in workflows use **file-backed manifests now**. User-authored workflow definitions can become **DB-backed later**.
+
+### Q6. Where do capability declarations attach?
+**Answer:** Use a strict split: **agents declare what they do**, while **workflows declare orchestration**.
+
+### Q7. Should built-in and custom workflows use the same definition mechanism?
+**Answer:** Yes. Migrate prototype to the same manifest mechanism so the system dogfoods its own workflow model and avoids privileged built-in paths.
+
+---
 
 Execution strategies
-- **Q8** **ExecutionStrategy registry** (`single_shot`, `task_loop`, `fanout_batch`, `wave_scheduler`).
-- **Q9** **Workflow step chooses strategy; agent may provide a default.**
-- **Q10** **All four** become declarative: task-source agent, task parser, seed files, deliverable path.
-- **Q11** **Canonical `Task` schema + adapters** (heading/JSON/`[P]` parsers feed one schema).
 
-Fan-out & sub-agents
-- **Q12** **Both** declarative fan-out **and** runtime fan-out.
-- **Q13** **Engine-owned `spawn_subagents` tool** (never raw library `task`).
-- **Q14** **Caller chooses** same agent (N copies) or a **named worker from the allowed registry**.
-- **Q15** **Configurable** parallel/sequential **with concurrency caps**.
-- **Q16** **Files/artifacts + structured summary** returned to caller (D).
-- **Q17** **Nested fan-out allowed, strict depth cap.**
-- **Q18** Engine caps: **subagents, concurrency, tokens, cost, wall-clock, recursion/depth.**
-- **Q19** **Separate** fan-out from **real code-execution sandboxing** (C) — fan-out now, code-exec its own track.
-- **Q20** **Per-workflow isolation choice**; default **isolated sub-sandbox/worktree for writes**, shared only for safe reads.
+### Q8. Should “how a step runs” be modeled as named execution strategies?
+**Answer:** Yes. Introduce an `ExecutionStrategy` registry with strategies such as `single_shot`, `task_loop`, `fanout_batch`, and `wave_scheduler`.
 
-Validation
-- **Q21** **Validator registry**; workflow lists validators.
-- **Q22** Validator receives a **`DeliverableContext`** and may request **browser/compile/test/static-analysis** resources.
-- **Q23** **Generic fix-loop** (deliverable name + max-attempts + fix-prompt template from config).
-- **Q24** **Internal `P0/P1/P2/P3`** (matches existing prototype prose); **map to `CRITICAL/HIGH/MEDIUM/LOW`** externally.
-- **Q25** **Configurable policy; default: warn on non-critical, block on critical**, bounded attempts, then surface `validation_warning`.
+### Q9. What selects the execution strategy for a step?
+**Answer:** The workflow step chooses the strategy. An agent may provide a default, but the workflow owns orchestration.
 
-Deliverables & context
-- **Q26** **Deliverable-strategy enum + registered custom resolvers.**
-- **Q27** **Engineers register resolvers; users select safe ones.**
-- **Q28** **Context-provider registry** (`opendesign`, `repo`, `previous_run`, `uploaded_files`, `memory`, …).
-- **Q29** **Seed files declared in the workflow manifest.**
-- **Q30** **Planner/clarify config in the workflow manifest** (`planner: skip|run`, `clarify: always|gated|off`, `clarify_defaults`).
+### Q10. What parts of the current per-task loop should become declarative?
+**Answer:** All four should become declarative: task-source agent, task parser, seed files, and deliverable path.
 
-Parallel waves & isolation
-- **Q31** **Decouple first; waves are a registered strategy added after.**
-- **Q32** **Deterministic topo wave-builder now; seam for smarter (CP-SAT) later.**
-- **Q33** **Prototype stays sequential**; single-file fragment-merge is **later & opt-in**.
-- **Q34** **Sub-directory isolation in the run sandbox first**; **real git worktrees** for brownfield repo workflows.
+### Q11. Should task format be canonical or parser-specific?
+**Answer:** Define a canonical `Task` schema, with adapters for heading-based tasks, JSON tasks, `[P]` task lines, and future formats.
 
-Tier improvements
-- **Q35** Token-trim = a **context-compaction strategy**; HTML skeleton is one implementation.
-- **Q36** **All** major powers are declared capabilities.
-- **Q37** Prompt-content changes (constitution/clarify-writeback/spec-behavior) are a **separate PR after decoupling**; the **HTML-skeleton token fix lands early**.
-- **Q38** Analyze gate / done-when / design checks become **validators/gates in the framework**.
+---
 
-Migration & non-functionals
-- **Q39** **Strangler / incremental** (prototype works throughout).
-- **Q40** **Characterization tests first.**
-- **Q41** Order: **token-trim → manifest/config → strategies → validators/deliverables/context-providers → fan-out → waves.**
-- **Q42** **Decouple & generalize now; design fan-out/code-exec interfaces now, build fan-out next milestone.**
-- **Q43** **New event vocabulary** for fan-out, waves, validators, merge, budgets.
-- **Q44** **Per-run and per-workspace budget enforcement.**
-- **Q45 / "What Must Be Added"** Explicit models for **workspace/project/repo/worktree, trust/security, durable resume, typed artifact references, merge policy, per-run execution state.**
-- **N1** **Delay ECS/EC2**; build `Workspace` + `RuntimeEnvironment` interface + `LocalSandboxRuntime` now.
+Dynamic fan-out and sub-agent spawning
+
+### Q12. Static or dynamic fan-out?
+**Answer:** Support both: declarative fan-out for known decompositions, and runtime fan-out for agent-initiated decomposition.
+
+### Q13. What interface should an agent use to request fan-out?
+**Answer:** Provide an engine-owned `spawn_subagents` tool. Agents should never call the raw underlying library task mechanism directly.
+
+### Q14. Who runs fanned-out sub-agents?
+**Answer:** The caller chooses either the same agent copied N times or a named worker agent from the allowed registry.
+
+### Q15. What execution mode should fan-out support?
+**Answer:** Fan-out execution should be configurable: parallel or sequential, always governed by concurrency caps.
+
+### Q16. How should sub-agent results return to the caller?
+**Answer:** Return both files/artifacts and a structured summary to the caller.
+
+### Q17. Can a fanned-out sub-agent itself fan out?
+**Answer:** Yes, but only with a strict maximum depth cap.
+
+### Q18. What fan-out guardrails should the engine enforce?
+**Answer:** The engine should enforce caps for total subagents, concurrency, tokens, cost, wall-clock time, recursion, and fan-out depth.
+
+### Q19. What does “code execution” mean?
+**Answer:** Separate agent fan-out from real code-execution sandboxing. Fan-out is in scope conceptually; real code execution requires its own gated security track.
+
+### Q20. What isolation level should parallel sub-agents use?
+**Answer:** Make isolation a per-workflow choice. Default to isolated sub-sandboxes or worktrees for writes, with shared access only for safe reads.
+
+---
+
+ Validation framework
+
+### Q21. How should validators be registered and declared?
+**Answer:** Use a validator registry. Workflows list validators declaratively.
+
+### Q22. What should the validator interface receive and return?
+**Answer:** Validators receive a `DeliverableContext` and return structured issues. Validators may also request resources such as browser rendering, compilation, tests, or static analysis.
+
+### Q23. How should the fix-loop be generalized?
+**Answer:** Implement a generic fix-loop where deliverable name, max attempts, and fix-prompt template come from workflow or strategy config.
+
+### Q24. What severity taxonomy should be standardized?
+**Answer:** Use internal `P0/P1/P2/P3` severities to match existing prototype prose. Map these externally to `CRITICAL/HIGH/MEDIUM/LOW`.
+
+### Q25. What should the validator failure policy be?
+**Answer:** Make policy configurable. Default behavior: warn on non-critical issues, block on critical issues, use bounded fix attempts, then surface a `validation_warning`.
+
+---
+
+Deliverable resolution
+
+### Q26. What should replace hardcoded final-output resolution?
+**Answer:** Use a deliverable-strategy model: an enum of common strategies plus registered custom resolvers.
+
+### Q27. Should workflows support custom resolver functions?
+**Answer:** Engineers can register custom resolvers. Users can only select from safe, approved resolver options.
+
+---
+
+Context injection and providers
+
+### Q28. Should `od_context` generalize into context providers?
+**Answer:** Yes. Introduce a context-provider registry, including providers such as `opendesign`, `repo`, `previous_run`, `uploaded_files`, and `memory`.
+
+### Q29. How should reference-file seeding be declared?
+**Answer:** Seed files should be declared in the workflow manifest.
+
+### Q30. Where should planner and clarify behavior live?
+**Answer:** Move planner and clarify configuration into the workflow manifest, including `planner: skip|run`, `clarify: always|gated|off`, and `clarify_defaults`.
+
+---
+
+Parallel waves and filesystem isolation
+
+### Q31. Should the wave scheduler be built now?
+**Answer:** Decouple first. Add waves later as a registered execution strategy so it remains pluggable rather than core engine logic.
+
+### Q32. How sophisticated should the scheduler be initially?
+**Answer:** Start with a deterministic topological wave-builder. Leave a seam for smarter scheduling, such as CP-SAT, later.
+
+### Q33. How should prototype handle single-file parallelism?
+**Answer:** Keep prototype sequential. Single-file fragment merge should be later and opt-in.
+
+### Q34. What filesystem isolation primitive should be used?
+**Answer:** Use per-sub-agent subdirectories in the run sandbox first. Use real git worktrees for brownfield repository workflows.
+
+---
+
+Tier 1/2/3 improvements
+
+### Q35. Is token trimming prototype-specific or general?
+**Answer:** Generalize it as a context-compaction strategy. HTML skeleton extraction is one implementation.
+
+### Q36. Which capabilities must be reusable by custom workflows?
+**Answer:** All major powers should be first-class declared capabilities: per-task loop, dynamic fan-out, validation and fix-loop, pluggable validators, deliverable strategies, context providers, reference-file seeding, planner/clarify config, parallel waves, and context compaction.
+
+### Q37. Should prompt-content changes be part of this refactor?
+**Answer:** Keep constitution consolidation, clarify write-back, recommended defaults, and spec behavior changes as a separate content PR after decoupling. The HTML-skeleton token fix can land early.
+
+### Q38. Should analyze gates, done-when checks, and design-quality checks be framework features or prototype one-offs?
+**Answer:** Implement them as validators and gates in the new framework so they prove the framework and remain reusable.
+
+---
+
+Migration, sequencing, testing, and risk
+
+### Q39. What refactor approach should be used?
+**Answer:** Use a strangler/incremental approach. Introduce abstractions behind existing behavior, migrate prototype to declarations, then delete hardcoded leaks while prototype continues to work throughout.
+
+### Q40. Should characterization tests come first?
+**Answer:** Yes. Add golden-output and event-stream snapshot tests before refactoring.
+
+### Q41. What rollout order should be followed?
+**Answer:** Roll out in this order: token-trim, manifest/config, strategies, validators/deliverables/context-providers, fan-out, then waves.
+
+### Q42. Is dynamic fan-out and code execution in scope for this refactor?
+**Answer:** Decouple and generalize the existing capabilities now. Design fan-out and code-execution interfaces now, build fan-out as the next milestone, and keep real code execution as its own gated spec.
+
+---
+
+Non-functionals
+
+### Q43. What new observability should be surfaced?
+**Answer:** Add a new event vocabulary for fan-out, waves, validators, merge operations, and budgets.
+
+### Q44. Should the engine enforce cost controls?
+**Answer:** Yes. Enforce per-run and per-workspace budgets.
+
+### Q45. What additional foundational models must be added?
+**Answer:** Add explicit models for workspace, project, repository, worktree, trust/security, durable resume, typed artifact references, merge policy, and per-run execution state.
+
+---
+
+## Additional Locked Runtime and Scope Decisions
+
+### Runtime mandate
+**Answer:** Every agent in every workflow, including prototype and custom workflows, must run on the LangChain `deepagents` library via `create_deep_agent`. The system must never use a hand-rolled “deep agent.”
+
+### Workspace/runtime mandate
+**Answer:** Delay ECS/EC2 infrastructure. Build a `Workspace` and `RuntimeEnvironment` interface now, with a `LocalSandboxRuntime` implementation. ECS or other remote runtimes should be backend swaps later, not engine rewrites.
+
+### In-scope for this specification
+**Answer:** Include phases 0–6, the Workspace/Runtime interface with local implementation, typed artifacts and lineage, persistence, authorization, tool-permission policy, gate registry, model policy, cancellation/retry/resume, and the dynamic API/frontend contract as a parallel track.
+
+### Out of scope for this specification
+**Answer:** Defer ECS/EC2 provisioning, warm or dedicated containers, container networking and secrets, CP-SAT scheduling, single-file fragment-merge parallelism, and untrusted end-user code execution. These should be designed for through interfaces but not implemented in this spec.
+
+### Core invariants
+**Answer:** The engine must have no `if pipeline_type == "prototype"` or `if spec.id == "prototype-build"` branches. All run state must live in a per-run `ExecutionContext`; the kernel singleton must remain stateless. Every workflow, run, artifact, workspace, and repository must be owner-scoped. Every step must run with least-privilege tools. Every artifact must be lineage-tracked.
 
 **Locked additions (post-review, 2026-06-06)** — promoted from "risks/notes" to first-class requirements:
 - **A1** **Dynamic API/frontend contract** is a deliverable, not a risk (§22). The composer fetches workflow metadata + capabilities + event types + artifact/diff trees dynamically; no hardcoded workflow types.
