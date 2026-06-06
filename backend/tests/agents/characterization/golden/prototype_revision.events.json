@@ -1,0 +1,136 @@
+[
+  {
+    "data": {
+      "agent_count": 1,
+      "agents": [
+        {
+          "icon": "✏️",
+          "id": "prototype-revision-agent",
+          "name": "Revision Specialist Agent",
+          "order": 1,
+          "role": "Targeted UI Refinement"
+        }
+      ],
+      "pipeline_type": "prototype_revision"
+    },
+    "type": "pipeline_start"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-agent",
+      "args": {
+        "content": "<!doctype html><html><body>revised</body></html>",
+        "file_path": "prototype.html"
+      },
+      "tool": "write_file"
+    },
+    "type": "tool_call"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-agent",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-agent",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-agent",
+      "duration": "<normalized>",
+      "index": 0,
+      "input_tokens": "<normalized>",
+      "name": "Revision Specialist Agent",
+      "output_length": 28,
+      "output_tokens": "<normalized>",
+      "total": 1,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-agent",
+      "icon": "✏️",
+      "index": 0,
+      "name": "Revision Specialist Agent",
+      "role": "Targeted UI Refinement",
+      "total": 1
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-agent",
+      "result": "Updated file /prototype.html",
+      "tool": "write_file"
+    },
+    "type": "tool_result"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-agent",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agents_completed": 1,
+      "agents_total": 1,
+      "final_output": "<!doctype html><html><body>revised</body></html>",
+      "pipeline_type": "prototype_revision",
+      "total_input_tokens": "<normalized>",
+      "total_output_tokens": "<normalized>",
+      "total_tokens": "<normalized>"
+    },
+    "type": "pipeline_complete"
+  },
+  {
+    "data": {
+      "dag_edges": [],
+      "satisfiable": true,
+      "unresolved_edges": []
+    },
+    "type": "workflow_validated"
+  },
+  {
+    "data": {
+      "execution_gate": "PROCEED",
+      "planning_context": {
+        "domain_insights": [],
+        "execution_gate": "PROCEED",
+        "execution_strategy": "sequential",
+        "explicit_constraints": [],
+        "has_topic": true,
+        "implicit_constraints": [],
+        "inferred_intent": "Build me a thing for managing tasks.",
+        "inferred_nfrs": [],
+        "inferred_personas": [],
+        "missing_information": [],
+        "planner_timed_out": false,
+        "quality_targets": [],
+        "topic": null
+      }
+    },
+    "type": "planner_complete"
+  },
+  {
+    "data": {
+      "pipeline_type": "prototype_revision"
+    },
+    "type": "planner_start"
+  },
+  {
+    "data": {
+      "verdict": "PROCEED"
+    },
+    "type": "gate_status"
+  }
+]

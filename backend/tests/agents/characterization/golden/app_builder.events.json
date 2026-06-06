@@ -1,0 +1,1098 @@
+[
+  {
+    "data": {
+      "agent_count": 15,
+      "agents": [
+        {
+          "icon": "📋",
+          "id": "material-analyzer",
+          "name": "Architecture Agent",
+          "order": 1,
+          "role": "Solution & System Design"
+        },
+        {
+          "icon": "📝",
+          "id": "app-user-stories",
+          "name": "User Stories Agent",
+          "order": 2,
+          "role": "Requirements & Acceptance Criteria"
+        },
+        {
+          "icon": "🏗️",
+          "id": "app-system-design",
+          "name": "System Design Agent",
+          "order": 3,
+          "role": "Detailed Architecture & Decomposition"
+        },
+        {
+          "icon": "🛡️",
+          "id": "app-security-architecture",
+          "name": "Security Architecture Agent",
+          "order": 4,
+          "role": "Threat Modelling & Security Controls"
+        },
+        {
+          "icon": "🎨",
+          "id": "app-ux-design",
+          "name": "UX & UI Design Agent",
+          "order": 5,
+          "role": "User Journeys, Wireframes & Design System"
+        },
+        {
+          "icon": "🔌",
+          "id": "app-api-design",
+          "name": "API Contract Agent",
+          "order": 6,
+          "role": "REST/GraphQL Contracts & OpenAPI"
+        },
+        {
+          "icon": "🗄️",
+          "id": "app-database-design",
+          "name": "Data Model Agent",
+          "order": 7,
+          "role": "Schema, Indexes & Migrations"
+        },
+        {
+          "icon": "💻",
+          "id": "app-code-generator",
+          "name": "Code Generation Agent",
+          "order": 8,
+          "role": "Full-Stack Code Generation"
+        },
+        {
+          "icon": "⚙️",
+          "id": "app-feature-implementation",
+          "name": "Feature Implementation Agent",
+          "order": 9,
+          "role": "Business Logic per User Story"
+        },
+        {
+          "icon": "🚀",
+          "id": "app-infra-generator",
+          "name": "Infrastructure Agent",
+          "order": 10,
+          "role": "Deployment & Platform"
+        },
+        {
+          "icon": "🧪",
+          "id": "app-code-compliance",
+          "name": "Code Compliance Agent",
+          "order": 11,
+          "role": "Static Analysis, Linting & Licensing"
+        },
+        {
+          "icon": "🧬",
+          "id": "app-test-implementation",
+          "name": "Test Implementation Agent",
+          "order": 12,
+          "role": "Unit, Integration & Contract Test Code"
+        },
+        {
+          "icon": "🚦",
+          "id": "app-devops",
+          "name": "DevOps Agent",
+          "order": 14,
+          "role": "Build, Deploy, Operate & Quality Gates"
+        },
+        {
+          "icon": "🎯",
+          "id": "app-test-compliance",
+          "name": "Test Compliance Agent",
+          "order": 13,
+          "role": "Test Strategy & Coverage Gates"
+        },
+        {
+          "icon": "📚",
+          "id": "app-sdlc-governance",
+          "name": "SDLC Governance & Handover Agent",
+          "order": 15,
+          "role": "ADRs, Runbooks, SLOs & Operations Handover"
+        }
+      ],
+      "pipeline_type": "app_builder"
+    },
+    "type": "pipeline_start"
+  },
+  {
+    "data": {
+      "agent_id": "app-api-design",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-api-design",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-api-design",
+      "duration": "<normalized>",
+      "index": 5,
+      "input_tokens": "<normalized>",
+      "name": "API Contract Agent",
+      "output_length": 41,
+      "output_tokens": "<normalized>",
+      "total": 15,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "app-api-design",
+      "icon": "🔌",
+      "index": 5,
+      "name": "API Contract Agent",
+      "role": "REST/GraphQL Contracts & OpenAPI",
+      "total": 15
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "app-api-design",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "app-code-compliance",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-code-compliance",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-code-compliance",
+      "duration": "<normalized>",
+      "index": 10,
+      "input_tokens": "<normalized>",
+      "name": "Code Compliance Agent",
+      "output_length": 46,
+      "output_tokens": "<normalized>",
+      "total": 15,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "app-code-compliance",
+      "icon": "🧪",
+      "index": 10,
+      "name": "Code Compliance Agent",
+      "role": "Static Analysis, Linting & Licensing",
+      "total": 15
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "app-code-compliance",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "app-code-generator",
+      "args": {
+        "content": "# Generated App\n",
+        "file_path": "README.md"
+      },
+      "tool": "write_file"
+    },
+    "type": "tool_call"
+  },
+  {
+    "data": {
+      "agent_id": "app-code-generator",
+      "args": {
+        "content": "print('hello')\n",
+        "file_path": "src/app.py"
+      },
+      "tool": "write_file"
+    },
+    "type": "tool_call"
+  },
+  {
+    "data": {
+      "agent_id": "app-code-generator",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-code-generator",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-code-generator",
+      "duration": "<normalized>",
+      "index": 7,
+      "input_tokens": "<normalized>",
+      "name": "Code Generation Agent",
+      "output_length": 36,
+      "output_tokens": "<normalized>",
+      "total": 15,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "app-code-generator",
+      "icon": "💻",
+      "index": 7,
+      "name": "Code Generation Agent",
+      "role": "Full-Stack Code Generation",
+      "total": 15
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "app-code-generator",
+      "result": "Updated file /README.md",
+      "tool": "write_file"
+    },
+    "type": "tool_result"
+  },
+  {
+    "data": {
+      "agent_id": "app-code-generator",
+      "result": "Updated file /src/app.py",
+      "tool": "write_file"
+    },
+    "type": "tool_result"
+  },
+  {
+    "data": {
+      "agent_id": "app-code-generator",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "app-database-design",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-database-design",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-database-design",
+      "duration": "<normalized>",
+      "index": 6,
+      "input_tokens": "<normalized>",
+      "name": "Data Model Agent",
+      "output_length": 46,
+      "output_tokens": "<normalized>",
+      "total": 15,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "app-database-design",
+      "icon": "🗄️",
+      "index": 6,
+      "name": "Data Model Agent",
+      "role": "Schema, Indexes & Migrations",
+      "total": 15
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "app-database-design",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "app-devops",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-devops",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-devops",
+      "duration": "<normalized>",
+      "index": 12,
+      "input_tokens": "<normalized>",
+      "name": "DevOps Agent",
+      "output_length": 37,
+      "output_tokens": "<normalized>",
+      "total": 15,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "app-devops",
+      "icon": "🚦",
+      "index": 12,
+      "name": "DevOps Agent",
+      "role": "Build, Deploy, Operate & Quality Gates",
+      "total": 15
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "app-devops",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "app-feature-implementation",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-feature-implementation",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-feature-implementation",
+      "duration": "<normalized>",
+      "index": 8,
+      "input_tokens": "<normalized>",
+      "name": "Feature Implementation Agent",
+      "output_length": 53,
+      "output_tokens": "<normalized>",
+      "total": 15,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "app-feature-implementation",
+      "icon": "⚙️",
+      "index": 8,
+      "name": "Feature Implementation Agent",
+      "role": "Business Logic per User Story",
+      "total": 15
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "app-feature-implementation",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "app-infra-generator",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-infra-generator",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-infra-generator",
+      "duration": "<normalized>",
+      "index": 9,
+      "input_tokens": "<normalized>",
+      "name": "Infrastructure Agent",
+      "output_length": 46,
+      "output_tokens": "<normalized>",
+      "total": 15,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "app-infra-generator",
+      "icon": "🚀",
+      "index": 9,
+      "name": "Infrastructure Agent",
+      "role": "Deployment & Platform",
+      "total": 15
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "app-infra-generator",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "app-sdlc-governance",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-sdlc-governance",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-sdlc-governance",
+      "duration": "<normalized>",
+      "index": 14,
+      "input_tokens": "<normalized>",
+      "name": "SDLC Governance & Handover Agent",
+      "output_length": 46,
+      "output_tokens": "<normalized>",
+      "total": 15,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "app-sdlc-governance",
+      "icon": "📚",
+      "index": 14,
+      "name": "SDLC Governance & Handover Agent",
+      "role": "ADRs, Runbooks, SLOs & Operations Handover",
+      "total": 15
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "app-sdlc-governance",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "app-security-architecture",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-security-architecture",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-security-architecture",
+      "duration": "<normalized>",
+      "index": 3,
+      "input_tokens": "<normalized>",
+      "name": "Security Architecture Agent",
+      "output_length": 52,
+      "output_tokens": "<normalized>",
+      "total": 15,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "app-security-architecture",
+      "icon": "🛡️",
+      "index": 3,
+      "name": "Security Architecture Agent",
+      "role": "Threat Modelling & Security Controls",
+      "total": 15
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "app-security-architecture",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "app-system-design",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-system-design",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-system-design",
+      "duration": "<normalized>",
+      "index": 2,
+      "input_tokens": "<normalized>",
+      "name": "System Design Agent",
+      "output_length": 44,
+      "output_tokens": "<normalized>",
+      "total": 15,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "app-system-design",
+      "icon": "🏗️",
+      "index": 2,
+      "name": "System Design Agent",
+      "role": "Detailed Architecture & Decomposition",
+      "total": 15
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "app-system-design",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "app-test-compliance",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-test-compliance",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-test-compliance",
+      "duration": "<normalized>",
+      "index": 13,
+      "input_tokens": "<normalized>",
+      "name": "Test Compliance Agent",
+      "output_length": 46,
+      "output_tokens": "<normalized>",
+      "total": 15,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "app-test-compliance",
+      "icon": "🎯",
+      "index": 13,
+      "name": "Test Compliance Agent",
+      "role": "Test Strategy & Coverage Gates",
+      "total": 15
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "app-test-compliance",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "app-test-implementation",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-test-implementation",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-test-implementation",
+      "duration": "<normalized>",
+      "index": 11,
+      "input_tokens": "<normalized>",
+      "name": "Test Implementation Agent",
+      "output_length": 50,
+      "output_tokens": "<normalized>",
+      "total": 15,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "app-test-implementation",
+      "icon": "🧬",
+      "index": 11,
+      "name": "Test Implementation Agent",
+      "role": "Unit, Integration & Contract Test Code",
+      "total": 15
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "app-test-implementation",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "app-user-stories",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-user-stories",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-user-stories",
+      "duration": "<normalized>",
+      "index": 1,
+      "input_tokens": "<normalized>",
+      "name": "User Stories Agent",
+      "output_length": 43,
+      "output_tokens": "<normalized>",
+      "total": 15,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "app-user-stories",
+      "icon": "📝",
+      "index": 1,
+      "name": "User Stories Agent",
+      "role": "Requirements & Acceptance Criteria",
+      "total": 15
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "app-user-stories",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "app-ux-design",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-ux-design",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "app-ux-design",
+      "duration": "<normalized>",
+      "index": 4,
+      "input_tokens": "<normalized>",
+      "name": "UX & UI Design Agent",
+      "output_length": 40,
+      "output_tokens": "<normalized>",
+      "total": 15,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "app-ux-design",
+      "icon": "🎨",
+      "index": 4,
+      "name": "UX & UI Design Agent",
+      "role": "User Journeys, Wireframes & Design System",
+      "total": 15
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "app-ux-design",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "material-analyzer",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "material-analyzer",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "material-analyzer",
+      "duration": "<normalized>",
+      "index": 0,
+      "input_tokens": "<normalized>",
+      "name": "Architecture Agent",
+      "output_length": 44,
+      "output_tokens": "<normalized>",
+      "total": 15,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "material-analyzer",
+      "icon": "📋",
+      "index": 0,
+      "name": "Architecture Agent",
+      "role": "Solution & System Design",
+      "total": 15
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "material-analyzer",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agents_completed": 15,
+      "agents_total": 15,
+      "final_output": "```filename: README.md\n# Generated App\n\n```\n\n```filename: src/app.py\nprint('hello')\n\n```",
+      "pipeline_type": "app_builder",
+      "total_input_tokens": "<normalized>",
+      "total_output_tokens": "<normalized>",
+      "total_tokens": "<normalized>"
+    },
+    "type": "pipeline_complete"
+  },
+  {
+    "data": {
+      "dag_edges": [
+        {
+          "artifact_type": "material-analyzer",
+          "from": "material-analyzer",
+          "to": "app-user-stories"
+        },
+        {
+          "artifact_type": "material-analyzer",
+          "from": "material-analyzer",
+          "to": "app-system-design"
+        },
+        {
+          "artifact_type": "app-user-stories",
+          "from": "app-user-stories",
+          "to": "app-system-design"
+        },
+        {
+          "artifact_type": "material-analyzer",
+          "from": "material-analyzer",
+          "to": "app-security-architecture"
+        },
+        {
+          "artifact_type": "app-system-design",
+          "from": "app-system-design",
+          "to": "app-security-architecture"
+        },
+        {
+          "artifact_type": "material-analyzer",
+          "from": "material-analyzer",
+          "to": "app-ux-design"
+        },
+        {
+          "artifact_type": "app-user-stories",
+          "from": "app-user-stories",
+          "to": "app-ux-design"
+        },
+        {
+          "artifact_type": "app-system-design",
+          "from": "app-system-design",
+          "to": "app-ux-design"
+        },
+        {
+          "artifact_type": "material-analyzer",
+          "from": "material-analyzer",
+          "to": "app-api-design"
+        },
+        {
+          "artifact_type": "app-user-stories",
+          "from": "app-user-stories",
+          "to": "app-api-design"
+        },
+        {
+          "artifact_type": "app-system-design",
+          "from": "app-system-design",
+          "to": "app-api-design"
+        },
+        {
+          "artifact_type": "material-analyzer",
+          "from": "material-analyzer",
+          "to": "app-database-design"
+        },
+        {
+          "artifact_type": "app-system-design",
+          "from": "app-system-design",
+          "to": "app-database-design"
+        },
+        {
+          "artifact_type": "app-api-design",
+          "from": "app-api-design",
+          "to": "app-database-design"
+        },
+        {
+          "artifact_type": "material-analyzer",
+          "from": "material-analyzer",
+          "to": "app-code-generator"
+        },
+        {
+          "artifact_type": "app-system-design",
+          "from": "app-system-design",
+          "to": "app-code-generator"
+        },
+        {
+          "artifact_type": "app-api-design",
+          "from": "app-api-design",
+          "to": "app-code-generator"
+        },
+        {
+          "artifact_type": "app-database-design",
+          "from": "app-database-design",
+          "to": "app-code-generator"
+        },
+        {
+          "artifact_type": "app-user-stories",
+          "from": "app-user-stories",
+          "to": "app-feature-implementation"
+        },
+        {
+          "artifact_type": "app-code-generator",
+          "from": "app-code-generator",
+          "to": "app-feature-implementation"
+        },
+        {
+          "artifact_type": "material-analyzer",
+          "from": "material-analyzer",
+          "to": "app-infra-generator"
+        },
+        {
+          "artifact_type": "app-code-generator",
+          "from": "app-code-generator",
+          "to": "app-infra-generator"
+        },
+        {
+          "artifact_type": "material-analyzer",
+          "from": "material-analyzer",
+          "to": "app-code-compliance"
+        },
+        {
+          "artifact_type": "app-code-generator",
+          "from": "app-code-generator",
+          "to": "app-code-compliance"
+        },
+        {
+          "artifact_type": "app-feature-implementation",
+          "from": "app-feature-implementation",
+          "to": "app-code-compliance"
+        },
+        {
+          "artifact_type": "app-user-stories",
+          "from": "app-user-stories",
+          "to": "app-test-implementation"
+        },
+        {
+          "artifact_type": "app-code-generator",
+          "from": "app-code-generator",
+          "to": "app-test-implementation"
+        },
+        {
+          "artifact_type": "app-feature-implementation",
+          "from": "app-feature-implementation",
+          "to": "app-test-implementation"
+        },
+        {
+          "artifact_type": "app-test-implementation",
+          "from": "app-test-implementation",
+          "to": "app-test-compliance"
+        },
+        {
+          "artifact_type": "app-code-compliance",
+          "from": "app-code-compliance",
+          "to": "app-test-compliance"
+        },
+        {
+          "artifact_type": "app-security-architecture",
+          "from": "app-security-architecture",
+          "to": "app-test-compliance"
+        },
+        {
+          "artifact_type": "material-analyzer",
+          "from": "material-analyzer",
+          "to": "app-devops"
+        },
+        {
+          "artifact_type": "app-infra-generator",
+          "from": "app-infra-generator",
+          "to": "app-devops"
+        },
+        {
+          "artifact_type": "app-code-generator",
+          "from": "app-code-generator",
+          "to": "app-devops"
+        },
+        {
+          "artifact_type": "material-analyzer",
+          "from": "material-analyzer",
+          "to": "app-sdlc-governance"
+        },
+        {
+          "artifact_type": "app-system-design",
+          "from": "app-system-design",
+          "to": "app-sdlc-governance"
+        },
+        {
+          "artifact_type": "app-security-architecture",
+          "from": "app-security-architecture",
+          "to": "app-sdlc-governance"
+        },
+        {
+          "artifact_type": "app-code-compliance",
+          "from": "app-code-compliance",
+          "to": "app-sdlc-governance"
+        },
+        {
+          "artifact_type": "app-devops",
+          "from": "app-devops",
+          "to": "app-sdlc-governance"
+        },
+        {
+          "artifact_type": "app-test-compliance",
+          "from": "app-test-compliance",
+          "to": "app-sdlc-governance"
+        }
+      ],
+      "satisfiable": true,
+      "unresolved_edges": []
+    },
+    "type": "workflow_validated"
+  },
+  {
+    "data": {
+      "execution_gate": "PROCEED",
+      "planning_context": {
+        "domain_insights": [],
+        "execution_gate": "PROCEED",
+        "execution_strategy": "sequential",
+        "explicit_constraints": [],
+        "has_topic": true,
+        "implicit_constraints": [],
+        "inferred_intent": "Build me a thing for managing tasks.",
+        "inferred_nfrs": [],
+        "inferred_personas": [],
+        "missing_information": [],
+        "planner_timed_out": false,
+        "quality_targets": [],
+        "topic": null
+      }
+    },
+    "type": "planner_complete"
+  },
+  {
+    "data": {
+      "pipeline_type": "app_builder"
+    },
+    "type": "planner_start"
+  },
+  {
+    "data": {
+      "verdict": "PROCEED"
+    },
+    "type": "gate_status"
+  }
+]

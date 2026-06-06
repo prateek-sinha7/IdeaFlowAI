@@ -1,0 +1,451 @@
+[
+  {
+    "data": {
+      "agent_count": 4,
+      "agents": [
+        {
+          "icon": "📋",
+          "id": "prototype-specify",
+          "name": "Spec Writer Agent",
+          "order": 1,
+          "role": "Specification & Architecture"
+        },
+        {
+          "icon": "🗂️",
+          "id": "prototype-plan",
+          "name": "Task Planner Agent",
+          "order": 2,
+          "role": "Build Planning & Task Decomposition"
+        },
+        {
+          "icon": "🏗️",
+          "id": "prototype-build",
+          "name": "Build Agent",
+          "order": 3,
+          "role": "Incremental HTML Construction"
+        },
+        {
+          "icon": "✅",
+          "id": "prototype-validate",
+          "name": "Validation Agent",
+          "order": 4,
+          "role": "Structural Validation & Delivery"
+        }
+      ],
+      "pipeline_type": "prototype"
+    },
+    "type": "pipeline_start"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "args": {
+        "content": "<!doctype html><html><body><section data-page='dashboard'>hi</section></body></html>",
+        "file_path": "prototype.html"
+      },
+      "tool": "write_file"
+    },
+    "type": "tool_call"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "args": {
+        "content": "<!doctype html><html><body><section data-page='dashboard'>hi</section></body></html>",
+        "file_path": "prototype.html"
+      },
+      "tool": "write_file"
+    },
+    "type": "tool_call"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "args": {
+        "summary": "did it",
+        "task_number": 1,
+        "task_title": "Build shell"
+      },
+      "tool": "report_task_complete"
+    },
+    "type": "tool_call"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "args": {
+        "summary": "did it",
+        "task_number": 1,
+        "task_title": "Build shell"
+      },
+      "tool": "report_task_complete"
+    },
+    "type": "tool_call"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "completed_count": 1,
+      "completed_tasks": [
+        {
+          "number": 1,
+          "summary": "did it",
+          "title": "Build shell"
+        }
+      ]
+    },
+    "type": "task_progress"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "completed_count": 2,
+      "completed_tasks": [
+        {
+          "number": 1,
+          "summary": "did it",
+          "title": "Build shell"
+        },
+        {
+          "number": 1,
+          "summary": "did it",
+          "title": "Build shell"
+        }
+      ]
+    },
+    "type": "task_progress"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "duration": "<normalized>",
+      "index": 2,
+      "input_tokens": "<normalized>",
+      "name": "Build Agent",
+      "output_length": 84,
+      "output_tokens": "<normalized>",
+      "total": 4,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "duration": "<normalized>",
+      "index": 2,
+      "input_tokens": "<normalized>",
+      "name": "Build Agent",
+      "output_length": 84,
+      "output_tokens": "<normalized>",
+      "total": 4,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "icon": "🏗️",
+      "index": 2,
+      "name": "Build Agent",
+      "role": "Incremental HTML Construction",
+      "total": 4
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "icon": "🏗️",
+      "index": 2,
+      "name": "Build Agent",
+      "role": "Incremental HTML Construction",
+      "total": 4
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "result": "Cannot write to /prototype.html because it already exists. Read and then make an edit, or write to a new path.",
+      "tool": "write_file"
+    },
+    "type": "tool_result"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "result": "Updated file /prototype.html",
+      "tool": "write_file"
+    },
+    "type": "tool_result"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "result": "✓ Task 1 complete: Build shell",
+      "tool": "report_task_complete"
+    },
+    "type": "tool_result"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "result": "✓ Task 1 complete: Build shell",
+      "tool": "report_task_complete"
+    },
+    "type": "tool_result"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "task_number": 1,
+      "total_tasks": 2
+    },
+    "type": "task_loop_progress"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "task_number": 2,
+      "total_tasks": 2
+    },
+    "type": "task_loop_progress"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-build",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-plan",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-plan",
+      "duration": "<normalized>",
+      "index": 1,
+      "input_tokens": "<normalized>",
+      "name": "Task Planner Agent",
+      "output_length": 125,
+      "output_tokens": "<normalized>",
+      "total": 4,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-plan",
+      "icon": "🗂️",
+      "index": 1,
+      "name": "Task Planner Agent",
+      "role": "Build Planning & Task Decomposition",
+      "total": 4
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-plan",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-specify",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-specify",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-specify",
+      "duration": "<normalized>",
+      "index": 0,
+      "input_tokens": "<normalized>",
+      "name": "Spec Writer Agent",
+      "output_length": 44,
+      "output_tokens": "<normalized>",
+      "total": 4,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-specify",
+      "icon": "📋",
+      "index": 0,
+      "name": "Spec Writer Agent",
+      "role": "Specification & Architecture",
+      "total": 4
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-specify",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-validate",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-validate",
+      "duration": "<normalized>",
+      "index": 3,
+      "input_tokens": "<normalized>",
+      "name": "Validation Agent",
+      "output_length": 84,
+      "output_tokens": "<normalized>",
+      "total": 4,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-validate",
+      "icon": "✅",
+      "index": 3,
+      "name": "Validation Agent",
+      "role": "Structural Validation & Delivery",
+      "total": 4
+    },
+    "type": "agent_start"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-validate",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agents_completed": 5,
+      "agents_total": 4,
+      "final_output": "<!doctype html><html><body><section data-page='dashboard'>hi</section></body></html>",
+      "pipeline_type": "prototype",
+      "total_input_tokens": "<normalized>",
+      "total_output_tokens": "<normalized>",
+      "total_tokens": "<normalized>"
+    },
+    "type": "pipeline_complete"
+  },
+  {
+    "data": {
+      "dag_edges": [
+        {
+          "artifact_type": "prototype-specify",
+          "from": "prototype-specify",
+          "to": "prototype-plan"
+        },
+        {
+          "artifact_type": "prototype-plan",
+          "from": "prototype-plan",
+          "to": "prototype-build"
+        },
+        {
+          "artifact_type": "prototype-build",
+          "from": "prototype-build",
+          "to": "prototype-validate"
+        }
+      ],
+      "satisfiable": true,
+      "unresolved_edges": []
+    },
+    "type": "workflow_validated"
+  },
+  {
+    "data": {
+      "execution_gate": "PROCEED",
+      "planning_context": {
+        "domain_insights": [],
+        "execution_gate": "PROCEED",
+        "execution_strategy": "sequential",
+        "explicit_constraints": [],
+        "has_topic": true,
+        "implicit_constraints": [],
+        "inferred_intent": "Build me a thing for managing tasks.",
+        "inferred_nfrs": [],
+        "inferred_personas": [],
+        "missing_information": [],
+        "planner_timed_out": false,
+        "quality_targets": [],
+        "topic": null
+      }
+    },
+    "type": "planner_complete"
+  },
+  {
+    "data": {
+      "pipeline_type": "prototype"
+    },
+    "type": "planner_start"
+  },
+  {
+    "data": {
+      "verdict": "PROCEED"
+    },
+    "type": "gate_status"
+  }
+]

@@ -15,9 +15,24 @@ event vocabulary) and ``_REQUIRED_DATA_KEYS`` (the load-bearing per-type data ke
 frontend reducer reads). Those dicts are IMPORTED here (not copied) so this module can never
 silently diverge from the documented contract (T-02-01 mitigation).
 
+ORDERING NOTE (why the snapshot is an order-canonical MULTISET, not a raw sequence):
+The engine's prototype/app build loop interleaves ``tool_result`` / ``task_progress`` /
+retry ``tool_call`` events from the per-task sub-agent loop in an order that is NOT stable
+run-to-run (an async-interleaving artifact — the final deliverable is byte-stable, but the
+intermediate tool/progress events swap adjacent positions). A raw positional snapshot would
+therefore be FLAKY (it failed across two clean runs of the unchanged engine). So the
+event-snapshot is compared as an **order-canonical multiset**: ``_canonical_order()`` sorts
+the normalized events by their canonical JSON, pinning the event *vocabulary*, per-type
+*required keys*, the full *multiset of events*, and the *final result* — robust to legitimate
+interleaving and 0C text drift, yet still failing on a dropped event, a new undocumented
+type, or a lost required key. Strict emission ORDER is covered separately by
+``assert_seq_contiguous()`` (when the engine stamps ``seq``) and the existing positional
+sequence assertions in ``test_phase3_cutover_verify.py`` / the 01-01 suite.
+
 Public surface:
     VOLATILE_SENTINEL            — the named replacement VALUE for volatile-but-required keys.
     _normalize(events)           — return a normalized copy of the event list (D-06).
+    _canonical_order(events)     — stable order-canonical sort of normalized events (multiset).
     assert_seq_contiguous(events)— assert per-run ``seq`` (where present) has no gaps (SAFE-03).
     load_events_golden(name)     — read a committed ``golden/<name>`` as parsed JSON (or None).
     write_events_golden(name, d) — write canonical JSON to ``golden/<name>`` (SNAPSHOT_UPDATE only).
@@ -45,6 +60,7 @@ from tests.agents.test_phase3_cutover_verify import (  # noqa: E402
 __all__ = [
     "VOLATILE_SENTINEL",
     "_normalize",
+    "_canonical_order",
     "assert_seq_contiguous",
     "load_events_golden",
     "write_events_golden",
@@ -144,6 +160,22 @@ def _normalize(events: list[dict]) -> list[dict]:
     Returns a NEW list of NEW dicts; the input is never mutated.
     """
     return [_normalize_event(e) for e in events]
+
+
+def _canonical_order(events: list[dict]) -> list[dict]:
+    """Return the normalized events in a stable, order-canonical order (a multiset).
+
+    The engine's build loop interleaves ``tool_result`` / ``task_progress`` / retry
+    ``tool_call`` events nondeterministically across runs (see the module ORDERING
+    NOTE), so a raw positional snapshot is flaky. Sorting by each event's canonical
+    JSON yields a deterministic order that pins the event *multiset* (types +
+    required keys + values + final result) while tolerating legitimate interleaving.
+    Input must already be ``_normalize()``-d so volatile values do not perturb the sort.
+    """
+    return sorted(
+        events,
+        key=lambda e: json.dumps(e, sort_keys=True, ensure_ascii=False),
+    )
 
 
 def assert_seq_contiguous(events: list[dict]) -> None:
