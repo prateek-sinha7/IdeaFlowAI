@@ -1,6 +1,10 @@
 ---
-gsd_state_version: '1.0'
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
 status: planning
+last_updated: "2026-06-06T20:52:47.888Z"
+last_activity: 2026-06-06 — Project initialized from specs/003-workflow-engine-decoupling/plan.md (PROJECT, REQUIREMENTS, ROADMAP created)
 progress:
   total_phases: 12
   completed_phases: 0
@@ -30,6 +34,7 @@ Progress: [░░░░░░░░░░] 0%
 ## Performance Metrics
 
 **Velocity:**
+
 - Total plans completed: 0
 - Average duration: — min
 - Total execution time: 0 hours
@@ -41,6 +46,7 @@ Progress: [░░░░░░░░░░] 0%
 | - | - | - | - |
 
 **Recent Trend:**
+
 - Last 5 plans: —
 - Trend: —
 
@@ -64,6 +70,7 @@ None yet.
 ### Blockers/Concerns
 
 Open decision records to confirm before their phase (from plan §26):
+
 - **N3 (Phase 10/[4B]) ⚠️ highest risk** — local `exec` security threat model; code-exec stays disabled (security gate) until set
 - **N2 (Phase 9)** — isolation granularity MVP (ephemeral per-run local)
 - **N4 (Phase 9+)** — git hosting scope/order (GitLab vs GitHub; repo is GitLab `hexaware-uki/flowin`)
