@@ -14,7 +14,7 @@
 | **Branch** | `feature/003-workflow-engine-decoupling` (off `deepagents-full-swap`) |
 | **Status** | 📋 Planned — Phase 0 next. No code landed yet. |
 | **Created** | 2026-06-06 |
-| **Revised** | 2026-06-06 (r1) review additions §8–§22 + INV-8…10 · 2026-06-06 (r2) phase splits (0A/B/C · 1A/B/C · 4A/B), semantic event parity (INV-3), synthetic `anon:<session_id>` owner, hand-authored manifests, durable event `seq`/replay cursor · 2026-06-06 (r3) agent-runtime/skills/hooks/MCP/integration capability layer (§30, INV-11) · 2026-06-06 (r4) executable lifecycle hooks (N12 ✅) + MCP client / all famous servers (N13 ✅) · 2026-06-06 (r5) code-deletion / anti-duplication ledger (§31, INV-12) |
+| **Revised** | 2026-06-06 (r1) review additions §8–§22 + INV-8…10 · 2026-06-06 (r2) phase splits (0A/B/C · 1A/B/C · 4A/B), semantic event parity (INV-3), synthetic `anon:<session_id>` owner, hand-authored manifests, durable event `seq`/replay cursor · 2026-06-06 (r3) agent-runtime/skills/hooks/MCP/integration capability layer (§30, INV-11) · 2026-06-06 (r4) executable lifecycle hooks (N12 ✅) + MCP client / all famous servers (N13 ✅) · 2026-06-06 (r5) code-deletion / anti-duplication ledger (§31, INV-12) · 2026-06-06 (r6) per-agent model selection (§20, A12) + target directory structure & patterns (§32) + ledger CI guard in Phase 0A + LangChain `deepagents` mandated throughout (INV-13) |
 | **Builds on** | [002-deepagents-migration](../002-deepagents-migration/plan.md) (the deepagents runtime this refactor restructures) |
 | **Supersedes** | the hardcoded `pipeline_type`/`spec.id == "prototype-build"` branches in `agents/execution_engine/engine.py` |
 
@@ -48,6 +48,7 @@ corruption bug and a hard blocker for fan-out / parallel waves / multi-tenant ru
 the foundational platform contracts the review surfaced (typed artifacts & lineage §17, persistence §18,
 authorization §19, tool-permission policy §8, gate registry §9, model policy §20, cancellation/retry/resume §21,
 and the dynamic API/frontend contract §22 as a parallel track).
+**Runtime mandate:** every agent — in every workflow, prototype and custom alike — runs on the **LangChain `deepagents` library** (`create_deep_agent`), the same runtime the prototype pipeline uses today; **never a hand-rolled "deep agent"** (INV-13).
 **Out of scope (this spec):** ECS/EC2 provisioning, warm/dedicated containers, container networking/secrets,
 CP-SAT scheduling, single-file fragment-merge parallelism, untrusted end-user code execution. These are
 **designed-for** (interfaces exist) but **deferred** (§27), and code-execution security gets its **own gated spec** (§26 N3).
@@ -130,6 +131,7 @@ Migration & non-functionals
 - **A9** **Cancellation / retry / resume** (§21): defined cancellation semantics, idempotent step retry, durable reconnect/restart resume.
 - **A10** **Model policy** (§20): per-workflow/per-step model, max tokens, cost class, fallback chain.
 - **A11** **Agent-runtime & integration capability layer** (§30, INV-11): `agent_runtime` / `skill_provider` / `hook_provider` / `tool_provider` / `mcp_server` / `integration_provider` are **registered, owned, allow-listed, permissioned** capabilities — not free-form prompt text or unconstrained tools. Adds `AgentRuntimeAdapter` + `PromptAssemblyPolicy` (§6).
+- **A12** **User per-agent model selection** (§20): the user can visually pick **any allowed model for any agent** in the composer; `model_overrides: {agent_id → model_id}` is applied at the **top** of the model-resolution order and persisted per run.
 
 ## 3. Hard invariants (apply to every phase)
 
@@ -145,6 +147,7 @@ Migration & non-functionals
 - **INV-10 Every artifact is lineage-tracked.** No anonymous deliverables: producer step/agent/task, content hash, version, parents, visibility, retention are recorded at write time (§17).
 - **INV-11 Runtime/skills/hooks/MCP/integrations are capabilities, not free text.** The agent runtime, skills, hooks, MCP servers, and integrations are registered, owned (INV-8), allow-listed (§7), and permissioned (§8/§9) — never arbitrary prompt text or unconstrained tools (§30). The prompt-assembly order is a declared `PromptAssemblyPolicy`, not hardcoded.
 - **INV-12 Move, don't copy (single implementation).** Every capability extraction **moves** existing logic behind its interface and **deletes** the inline original in the **same phase** — no behavior has two implementations, no legacy branch survives its phase. Enforced by per-phase **deletion gates** (grep banned-patterns + dead-code scan + import-linter) and the **migration ledger** (§31). The only sanctioned temporary coexistence is the `accumulated_outputs` legacy mirror, removed in Phase 1B.
+- **INV-13 Use LangChain `deepagents` — never hand-roll.** The agent runtime is the **LangChain `deepagents` library** (`deepagents.create_deep_agent`, pinned `deepagents==0.6.7` per [002](../002-deepagents-migration/plan.md)), wrapped by `DeepAgentRunner` behind the `deepagents_langchain` `AgentRuntimeAdapter` (§6/§30). **No module may define its own `DeepAgent`/`deep_agent` class/function or re-implement the agent loop** — always import the library. Any other runtime (`claude_code_cli`, …) is an *additional* adapter, never an excuse to reinvent. Enforced by a banned-pattern CI gate (R15).
 
 ## 4. The problem — current coupling (the "as-is" leak map)
 
@@ -221,7 +224,8 @@ class ExecutionContext:
     workspace: Workspace
     artifacts: ArtifactGraph             # typed + lineage (§17)
     budget: BudgetManager
-    models: ModelResolver                # §20 resolution order
+    models: ModelResolver                # §20 — user per-agent override > step > agent > workflow > global
+    model_overrides: dict = field(default_factory=dict)  # {agent_id -> model_id} from the UI (§20/A12)
     planning_context: dict
     cancel_event: asyncio.Event
     parent_run_id: str | None            # ownership-checked before use (INV-8/L16)
@@ -378,8 +382,8 @@ class BudgetManager:                # Q18/Q44 — tokens, cost, subagents, depth
     def spent(self) -> "BudgetSnapshot": ...
 
 # --- agent runtime & prompt assembly (§30) ---
-class AgentRuntimeAdapter(Protocol):        # net-new; runtime hardcoded today (deep_agent_runner.py:240)
-    name: str                               # deepagents_langchain | claude_code_cli | custom_runner
+class AgentRuntimeAdapter(Protocol):        # today: deepagents_langchain wraps LangChain deepagents.create_deep_agent (INV-13)
+    name: str                               # deepagents_langchain (MANDATED) | claude_code_cli | custom_runner
     async def run(self, prompt: str, tools: list, ctx: ExecutionContext) -> AsyncIterator[dict]: ...
 
 @dataclass
@@ -594,7 +598,7 @@ New/extended tables (all carry `owner_id` + `workspace_id`; additive migrations 
 | `validation_results` | id, run_id, step, validator, severity, code, message, target, attempt, created |
 | `gate_events` | id, run_id, step, gate_kind, outcome, actor, created |
 | `run_events` | id, run_id, **seq** (monotonic per run), event_id, type, payload_json, created; idx (run_id, seq) — durable event log for replay/resume (§21/§22) |
-| `run_capabilities` | id, run_id, runtime, skills[], hooks[], integrations[], mcp_servers[], versions — **what was active** for replay/debug (§30); **nothing recorded today** |
+| `run_capabilities` | id, run_id, runtime, **model_overrides{agent→model}** (§20), skills[], hooks[], integrations[], mcp_servers[], versions — **what was active** for replay/debug (§30); **nothing recorded today** |
 | `hook_runs` | id, run_id, step, hook, event, outcome(`continue`/`warn`/`block`), blocking, detail, created — executable-hook firings (§30) |
 
 Migrations live in the existing migrations dir (002 referenced migration 0013). A retention sweep aligns
@@ -613,14 +617,13 @@ Migrations live in the existing migrations dir (002 referenced migration 0013). 
 - **Anonymous runs are allowed but never `None`-owned:** an unauthenticated run gets a synthetic owner `anon:<session_id>` so every scope check has a real principal and artifacts/workspaces stay isolated per session.
 - **User-authored workflows** (later): may only reference owned repos/workspaces + user-allowed capabilities (§7/§8).
 
-## 20. Model policy (A10)
+## 20. Model policy + per-agent model selection (A10 / A12)
 
-- **Resolution order:** `step.model` > agent default (AGENT.md) > `workflow.model` > global default (Haiku).
-  A `ModelResolver` on `ExecutionContext` applies it per agent invocation via `model_factory.build_model`.
-- **Fields:** model id, `max_tokens` (doc-only; runtime caps at `MAX_OUTPUT_TOKENS`), `cost_class`
-  (`cheap`/`standard`/`premium`), ordered `fallback` chain (on provider throttle/error → next model).
-- **Budget tie-in:** `cost_class` informs `BudgetManager`; a `premium` workflow can use a stronger executor
-  (the noted future lever from 002) without code changes. Per-step override lets one expensive step upgrade.
+- **Resolution order (highest wins):** **user per-agent override (UI)** > `step.model` > agent default (AGENT.md) > `workflow.model` > global default (Haiku). A `ModelResolver` on `ExecutionContext` applies it per agent invocation via `model_factory.build_model`.
+- **User picks any model for any agent (A12).** The composer shows every agent in the workflow with a **model dropdown** drawn from the allowed **`ModelCatalog`**; the chosen map `model_overrides: {agent_id → model_id}` rides in the run payload (extends today's single session-level `model_id`), is applied at the **top** of the resolution order, and is **persisted per run** (`run_capabilities`, §18) for replay. Selection is from the allow-listed catalog (Q2 trust), never arbitrary strings.
+- **`ModelCatalog`** — a registered capability listing selectable models with `label`, `provider`, `cost_class` (`cheap`/`standard`/`premium`), context window, and `user_allowed`. Surfaced via `/api/capabilities` (§22) so the UI renders real options (no hardcoded list).
+- **Fields (per `ModelPolicy`):** model id, `max_tokens` (doc-only; runtime caps at `MAX_OUTPUT_TOKENS`), `cost_class`, ordered `fallback` chain (on provider throttle/error → next model).
+- **Budget tie-in:** `cost_class` informs `BudgetManager`; a `premium` choice on one agent upgrades just that step. (Resolves/extends N11.)
 
 ## 21. Cancellation, retry & resume (A9)
 
@@ -643,14 +646,14 @@ The composer must become **dynamic** — no hardcoded workflow types or flat age
 
 - `GET /api/workflows` → list + metadata (id, name, description, step summary).
 - `GET /api/workflows/{id}` → full step configs, gates, validators, deliverable, declared capabilities.
-- `GET /api/capabilities` → registry (kind, name, `user_allowed`, config schema) — the composer **palette** (§7), incl. **runtimes, skills, hooks, MCP servers, integration tools** with their **required auth + permission scopes** (§30).
+- `GET /api/capabilities` → registry (kind, name, `user_allowed`, config schema) — the composer **palette** (§7), incl. **runtimes, skills, hooks, MCP servers, integration tools, the model catalog (§20)** with their **required auth + permission scopes** (§30).
 - run stream (WS/ndjson) → existing events **+** new (Q43): `subagent_*`, `wave_*`, `validator_result`,
   `validation_warning`, `merge_*`, `budget_warning`, `gate_*`.
 - `GET /api/runs/{id}/artifacts` → typed artifact tree (lineage); `GET /api/runs/{id}/diff` → repo diff.
 - `GET /api/runs/{id}/events?after=<seq>` → **durable event replay** (each event carries a monotonic `seq` + `event_id`; §18 `run_events`, §21) for reconnect/resume.
 - subagent tree + wave view derived from events / `subagent_runs` / `wave_runs`.
 
-**Frontend track (parallel, flagged per phase):** dynamic composer + capability palette; validator/issue panel;
+**Frontend track (parallel, flagged per phase):** dynamic composer + capability palette + **per-agent model picker (§20)**; validator/issue panel;
 subagent + wave tree; artifact/diff viewer (**reuse the app-builder `FilesTab`/`AppBuilderPreview`** for
 `repo_diff`/`file_bundle`). The event contract for **existing** workflows stays at **semantic parity** (INV-3); all new
 panels are additive. Risk R6 is now this section, not a footnote.
@@ -681,8 +684,8 @@ panels are additive. Risk R6 is now this section, not a footnote.
 > Strangler migration (Q39). Each phase is independently shippable and keeps prototype working.
 > **Definition of Done includes deletion (INV-12 / §31):** a phase that adds an abstraction without deleting the code it supersedes — and proving it via the grep/dead-code gate — is **not done**. The §31 ledger tracks every legacy element → new home → phase → deletion gate → status.
 
-**Phase 0A — Safety net.** Characterization tests only (§24) — deliverable + semantic-event snapshots for
-prototype/od_/revision/ppt/code-gen. No source changes. *Accept:* snapshots recorded + green on current behavior.
+**Phase 0A — Safety net + deletion guard.** Characterization tests (§24) — deliverable + semantic-event snapshots for
+prototype/od_/revision/ppt/code-gen — **plus the §31 migration-ledger CI guard**: `tests/test_migration_ledger.py` (asserts each `☑` item's banned grep-pattern returns 0) + the **import-linter** contract (kernel imports only ports). Both start green/empty and tighten as items are deleted; no runtime behavior change. *Accept:* snapshots recorded + green; ledger guard + import-linter run in CI.
 
 **Phase 0B — `ExecutionContext` + ownership.** Extract all `self._*` run state into `ExecutionContext` (L14);
 add the **explicit ownership check** on `parent_run` seeding (L16/INV-8). **No behavior change.** *Accept:*
@@ -801,6 +804,7 @@ All sit behind interfaces defined in this spec so each is a **backend swap, not 
 - **R12 Constitution injection no-op (existing bug)** — `_inject_constitution` reads only the in-process `_mem` dict when an event loop is running (`factory.py:282-290`), so a Postgres-stored Constitution is **silently NOT injected** in production. *Mitigation:* fix in Phase 3 (sync-safe await / pre-warm the cache); until then the "supreme authority" claim (§19) is unenforced.
 - **R13 Capability auth & secrets (MCP / integrations / executable hooks)** — external MCP servers, integrations, and executable hooks (esp. those with `exec`/`network`/`secrets`) widen the attack surface and need scoped, per-owner credentials (the GitHub-PAT precedent, `handoff.py:40`). *Mitigation:* `secrets`/`integrations`/`mcp` permissions (§9) + scoped creds + the `security` gate + a **`secret_scan`** hook (§30); powerful MCP servers (filesystem/postgres) and executable hooks are engineer-registered + allow-listed, never user-grantable until reviewed (§7/§30).
 - **R14 Duplication / dead-code drift** — the migration could leave new capabilities *beside* the old branches → two code paths, the exact "duplicate code all over" failure. *Mitigation:* INV-12 (move-don't-copy) + the §31 deletion ledger + per-phase grep banned-pattern gates + a dead-code scan + an import-linter (kernel imports only ports, never legacy `engine`/`factory` internals); a phase is not done until its ledger deletions are proven.
+- **R15 Hand-rolled / hallucinated "deep agent"** — an implementer (human or LLM) defines a custom `DeepAgent` class or re-implements the agent loop instead of using the LangChain `deepagents` library (the exact regression 002 fixed). *Mitigation:* INV-13 + a permanent **banned-pattern CI gate** (`class DeepAgent` / `def deep_agent` / bespoke `for _ in range(max_iterations)` agent loops outside the `deepagents_langchain` adapter → fail) + the import-linter (only `app/agents/runtime` + that adapter may import `deepagents`).
 
 ## 30. Agent runtime, skills, hooks, MCP & integrations (A11 / INV-11)
 
@@ -812,7 +816,7 @@ Skills, hooks, the agent runtime, MCP, and external integrations are **first-cla
 
 | Kind | Examples | Current state (`file:line`) |
 |---|---|---|
-| `agent_runtime` | `deepagents_langchain` (today) · `claude_code_cli` · `custom_runner` | **Hardcoded** — `create_deep_agent` is called in exactly one module (`deep_agent_runner.py:240`); `create_runner` always builds a `DeepAgentRunner` (`factory.py:152`). No selection seam → `AgentRuntimeAdapter` **net-new**. |
+| `agent_runtime` | **`deepagents_langchain`** = LangChain `deepagents` (`create_deep_agent`, pinned `0.6.7`, per 002) — the **MANDATED** runtime (INV-13); future `claude_code_cli`/`custom_runner` are *added* adapters | **Hardcoded** — `create_deep_agent` is called in exactly one module (`deep_agent_runner.py:240`); `create_runner` always builds a `DeepAgentRunner` (`factory.py:152`). No selection seam → `AgentRuntimeAdapter` **net-new** (wraps the library; never replaces/​reinvents it). |
 | `skill_provider` | UI skills · disk `SKILL.md` (user→global→built-in) · template/repo skills | **Partially exists** — disk hierarchy `skills.py:320` (`get_skill_content`), loaded `engine.py:655`; UI via `AgentContext.attached_skills` (`factory.py:42`, WS `websocket.py:421`); merged UI-first/disk-last `engine.py:1167-1172`; both flattened into one `content` list (no provider interface, no versioning). |
 | `hook_provider` | **executable** — secret-scan · logging/tracing · pre/post-commit · post-task · before/after-write · before/after-step (+ legacy behavioral/prompt hooks) | **Today: prompt-only** — `attached_hooks` (`factory.py:43`) synthesized into a bullet list under `## Active Behavioral Hooks` (`factory.py:230-245`); runtime-only, no REST/DB, not executed. **Target: EXECUTABLE** (see "Executable hooks" below; N12 ✅). |
 | `tool_provider` | deepagents native FS · `report_task_complete` · `PLANNING_TOOLS` · repo tools · fan-out | **Closed enum** — `_build_runner_tools` name→toolset switch that **raises on unknown** (`factory.py:384-446`); `task` force-excluded via `_ToolFilterMiddleware` (`deep_agent_runner.py:118-157,227`). |
@@ -908,6 +912,79 @@ The strangler migration **moves** code; it never copies it. For every legacy ele
 
 > The ledger is the single source of truth for "what still needs refactoring." A standalone `specs/003-…/migration-ledger.md` (asserted by the banned-pattern test) may mirror it operationally so CI fails if any `☑` item's pattern reappears.
 
+## 32. Target directory structure & engineering patterns
+
+Structure follows **Ports & Adapters (hexagonal)**: the **kernel** depends only on capability **ports** (Protocols); concrete capabilities are **adapters** that **self-register** into the `CapabilityRegistry` at startup. Adding a capability = add a module + register it — **no kernel edit** (Open-Closed). The agent runtime is the **LangChain `deepagents` library** behind the `deepagents_langchain` adapter (INV-13). The import-linter (§31) enforces the dependency direction.
+
+### Target layout
+
+```
+backend/
+├── agents/
+│   ├── prompts/<agent>/AGENT.md            # agent identity + system-prompt body (unchanged)
+│   ├── guardrails/*.md                      # injectable rule sets (unchanged)
+│   ├── workflows/                           # ✦ declarative workflows (DATA, not code)
+│   │   ├── <id>/workflow.yaml               #   hand-authored manifest (one per workflow)
+│   │   ├── manifest.py                      #   schema + loader/validator
+│   │   ├── compiler.py                      #   manifest → CompiledWorkflow (thin, no DSL — INV-5)
+│   │   └── plan.py                          #   ExecutionPlan / Step / Task dataclasses
+│   ├── capabilities/                        # ✦ the registry + every capability kind
+│   │   ├── base.py                          #   the PORTS (Protocols): Strategy, Validator, Deliverable,
+│   │   │                                    #   ContextProvider, GateHandler, HookHandler, MergeStrategy,
+│   │   │                                    #   IsolationProvider, TaskParser, AgentRuntimeAdapter, …
+│   │   ├── registry.py                      #   CapabilityRegistry((kind,name)→impl) + trust flags (§7)
+│   │   ├── strategies/                      #   single_shot · task_loop · fanout_batch · wave_scheduler
+│   │   ├── validators/                      #   spec_plan_coverage · task_done_when · design_quality (pure)
+│   │   ├── deliverables/                    #   single_file · serialized_sandbox · streamed_text · repo_diff
+│   │   ├── context_providers/               #   opendesign · repo · previous_run · uploaded_files · memory
+│   │   ├── gates/                           #   human · validation · approval · security
+│   │   ├── hooks/                           #   secret_scan · otel_tracing · pre/post_commit · post_task · behavioral
+│   │   ├── runtimes/                        #   deepagents_langchain (wraps LangChain deepagents) · [claude_code_cli]
+│   │   ├── skills/                          #   providers: ui · disk · template · repo
+│   │   ├── integrations/                    #   base + github · gitlab · jira · slack · …
+│   │   ├── mcp/                             #   client adapter + server catalog + per-server config
+│   │   ├── isolation/                       #   shared_read · sub_sandbox · worktree
+│   │   ├── merge/                           #   copy_disjoint · git_3way · json · html_fragment
+│   │   ├── task_parsers/                    #   heading_tasks · json_tasks · bracket_p
+│   │   ├── compaction/                      #   html_skeleton · repo_context_pack
+│   │   ├── models/                          #   ModelCatalog · ModelResolver (§20)
+│   │   └── policy/                          #   tool_permissions · prompt_assembly (§8/§30)
+│   ├── execution_engine/                    # ✦ the KERNEL — workflow-agnostic (INV-1)
+│   │   ├── kernel.py                        #   was engine.py: pure sequencer (imports only ports)
+│   │   ├── context.py                       #   ExecutionContext (per-run state, INV-2)
+│   │   ├── fanout.py                        #   run_fanout (engine-owned, INV-7)
+│   │   ├── budget.py                        #   BudgetManager
+│   │   ├── resolver.py · state_machine.py   #   DAG validation · run lifecycle
+│   ├── artifacts/                           # ✦ ArtifactGraph + ArtifactRef (typed, lineage — §17)
+│   ├── authz.py                             # ✦ ownership-scoped query/seed helpers (INV-8)
+│   ├── loader.py · registry.py · planner/   #   agent loader · agent registry · deep-planner
+└── app/
+    └── agents/
+        ├── runtime/                         # ✦ RuntimeEnvironment/Workspace PORTS + impls
+        │   ├── base.py · local.py · [ecs.py]
+        ├── deep_agent_runner.py             #   deepagents_langchain impl — wraps LangChain create_deep_agent (INV-13)
+        ├── model_factory.py · sandbox.py · checkpointer.py
+        ├── validators/                      #   static_check.py · render_check.py (heavy deps; registered as Validators)
+        └── tools/                           #   runner_tools.py · fanout.py · mcp_tools.py
+    ├── models/                              #   workflow · artifact_ref · workspace · repository · subagent_run ·
+    │                                        #   wave_run · validation_result · gate_event · hook_run · run_event · run_capabilities
+    └── api/                                 #   workflows.py · capabilities.py · runs.py · …
+```
+`✦` = new. Heavy-dependency impls (the LangChain `deepagents` runtime, the Chromium `render_check`) stay under `app/agents/` near their deps but **register into the registry** — so the kernel still imports only `capabilities.base` ports.
+
+### Best patterns
+- **Ports & Adapters / Dependency Inversion** — kernel → `capabilities.base` Protocols only; impls depend inward, never the reverse. Enforced by import-linter (§31).
+- **Self-registering plugins** — each impl does `@register("validator", "html_static")`; a startup `discover()` imports all capability packages (no central if/elif).
+- **Strategy / registry over conditionals** — every former `if pipeline_type`/`if spec.id` becomes a registry lookup by declared name (INV-1).
+- **Declarative data, thin compiler** — manifests are YAML data; logic lives in strategies; the compiler only validates + resolves names → impls (INV-5).
+- **Use the library, never hand-roll the agent loop (INV-13)** — `deepagents_langchain` wraps LangChain `create_deep_agent`; new runtimes are added adapters, not bespoke loops.
+- **Immutable kernel + per-run `ExecutionContext`** (INV-2) — safe concurrency/fan-out.
+- **Typed seams** — `@dataclass`/`Protocol` at every boundary; typed `ArtifactRef` handoff, not `dict[str,str]`.
+- **One name everywhere** — capability `name` == registry key == manifest reference (consistent snake_case).
+- **Open-Closed** — new workflow = new `workflow.yaml`; new power = new capability module + register; kernel untouched (the success test, SC-001).
+- **Move-don't-copy + ledger gates** (INV-12/§31) keep the tree free of dead/duplicate code as it grows.
+- **Test pyramid** — pure unit tests per capability · characterization snapshots (§24) · the ledger CI guard + import-linter · authz-denial tests.
+
 ---
 
 *Decision log: append dated entries here as phases land.*
@@ -916,3 +993,4 @@ The strangler migration **moves** code; it never copies it. For every legacy ele
 - **2026-06-06 (r3)** — added the **agent-runtime / skills / hooks / MCP / integrations capability layer** (§30, A11, INV-11), grounded in the current code (prompt-assembly order `factory.py:174-255`; runtime hardcoded `deep_agent_runner.py:240`; skills `skills.py:320` + `engine.py:1167`; hooks ephemeral/prompt-only `factory.py:230-245`; tools closed-enum `factory.py:384`; MCP inbound-server-only `mcp.py:48`; GitHub in the parallel handoff pipeline `coding_agent.py:164`). Added `AgentRuntimeAdapter` + `PromptAssemblyPolicy` (§6), `mcp`/`integrations` tool permissions (§9), `run_capabilities` persistence (§18), `/api/capabilities` expansion (§22), N12/N13, R12/R13. Flagged the **constitution-injection no-op** (R12) and **hooks-not-persisted/not-executable** gaps.
 - **2026-06-06 (r4)** — owner clarifications: **hooks are executable lifecycle/tool-call hooks** (secret-scan, logging/tracing, pre/post-commit, post-task, before/after-write, …) → **N12 ✅**; **integrate all famous MCP servers** via an MCP client + allow-listed catalog → **N13 ✅**. Added `HookHandler` + `McpClientAdapter` (§6), the lifecycle taxonomy + MCP catalog (§30), `hook_runs` persistence (§18), logging/tracing-hook observability (§23); extended R13 to the executable-hook/MCP attack surface (with `secret_scan` as a mitigation).
 - **2026-06-06 (r5)** — added **code-deletion / anti-duplication discipline**: INV-12 (move-don't-copy, single implementation), the §31 **migration & deletion ledger** (every L#/F#/D# legacy element → new home → phase → deletion grep-gate → status), per-phase deletion gates + dead-code scan + import-linter folded into each phase's Definition of Done, and R14 (duplication/dead-code drift). Strengthened INV-3 (no dual *implementation*, not just no flags). Answers the "don't leave duplicate code all over" concern.
+- **2026-06-06 (r6)** — owner asks: **ledger CI guard into Phase 0A** (`test_migration_ledger.py` + import-linter); **user per-agent model selection** (§20/A12 — `model_overrides` at the top of the resolution order + `ModelCatalog`, persisted); **target directory structure & engineering patterns** (§32, ports-and-adapters / self-registering capabilities); and **LangChain `deepagents` mandated project-wide** (INV-13 + R15 + scope mandate + §30/§32) — never a hand-rolled deep agent.

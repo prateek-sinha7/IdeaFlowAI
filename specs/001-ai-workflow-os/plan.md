@@ -2,6 +2,8 @@
 
 **Branch**: `001-ai-workflow-os` | **Date**: 2026-05-29 | **Spec**: [spec.md](spec.md) | **Version**: 3.0
 
+> **Runtime note (added 2026-06-06):** the agent runtime is the **LangChain `deepagents` library** (`create_deep_agent`), adopted in [002](../002-deepagents-migration/plan.md) and carried forward by [003](../003-workflow-engine-decoupling/plan.md). Every agent in every workflow runs on it — **never a hand-rolled "deep agent" class/loop** (003 INV-13).
+
 ---
 
 ## Summary
