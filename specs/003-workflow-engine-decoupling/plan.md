@@ -14,7 +14,7 @@
 | **Branch** | `feature/003-workflow-engine-decoupling` (off `deepagents-full-swap`) |
 | **Status** | 📋 Planned — Phase 0 next. No code landed yet. |
 | **Created** | 2026-06-06 |
-| **Revised** | 2026-06-06 (r1) review additions §8–§22 + INV-8…10 · 2026-06-06 (r2) phase splits (0A/B/C · 1A/B/C · 4A/B), semantic event parity (INV-3), synthetic `anon:<session_id>` owner, hand-authored manifests, durable event `seq`/replay cursor |
+| **Revised** | 2026-06-06 (r1) review additions §8–§22 + INV-8…10 · 2026-06-06 (r2) phase splits (0A/B/C · 1A/B/C · 4A/B), semantic event parity (INV-3), synthetic `anon:<session_id>` owner, hand-authored manifests, durable event `seq`/replay cursor · 2026-06-06 (r3) agent-runtime/skills/hooks/MCP/integration capability layer (§30, INV-11) |
 | **Builds on** | [002-deepagents-migration](../002-deepagents-migration/plan.md) (the deepagents runtime this refactor restructures) |
 | **Supersedes** | the hardcoded `pipeline_type`/`spec.id == "prototype-build"` branches in `agents/execution_engine/engine.py` |
 
@@ -129,6 +129,7 @@ Migration & non-functionals
 - **A8** **Artifact lineage** (INV-10, §17): producer step/agent/task, content hash, path, version, visibility, retention, parents.
 - **A9** **Cancellation / retry / resume** (§21): defined cancellation semantics, idempotent step retry, durable reconnect/restart resume.
 - **A10** **Model policy** (§20): per-workflow/per-step model, max tokens, cost class, fallback chain.
+- **A11** **Agent-runtime & integration capability layer** (§30, INV-11): `agent_runtime` / `skill_provider` / `hook_provider` / `tool_provider` / `mcp_server` / `integration_provider` are **registered, owned, allow-listed, permissioned** capabilities — not free-form prompt text or unconstrained tools. Adds `AgentRuntimeAdapter` + `PromptAssemblyPolicy` (§6).
 
 ## 3. Hard invariants (apply to every phase)
 
@@ -142,6 +143,7 @@ Migration & non-functionals
 - **INV-8 Ownership everywhere (default-deny).** Every workflow, run, artifact, workspace, repository, and parent/source run is scoped to `(owner_id, workspace_id)`. No cross-owner read/write; parent-run/source-run seeding and artifact retrieval are ownership-checked at the store layer (§19).
 - **INV-9 Least-privilege tools.** A step gets only the tool permissions its manifest grants (read/write/exec/git/network/secrets/spawn). `exec`/`network`/`secrets`/`spawn_subagents` default **OFF**. A capability the workflow's owner isn't allowed → compile error (§8).
 - **INV-10 Every artifact is lineage-tracked.** No anonymous deliverables: producer step/agent/task, content hash, version, parents, visibility, retention are recorded at write time (§17).
+- **INV-11 Runtime/skills/hooks/MCP/integrations are capabilities, not free text.** The agent runtime, skills, hooks, MCP servers, and integrations are registered, owned (INV-8), allow-listed (§7), and permissioned (§8/§9) — never arbitrary prompt text or unconstrained tools (§30). The prompt-assembly order is a declared `PromptAssemblyPolicy`, not hardcoded.
 
 ## 4. The problem — current coupling (the "as-is" leak map)
 
@@ -312,6 +314,8 @@ class ToolPermissions:                      # least-privilege grant set (INV-9)
     git: bool = False
     network: bool = False                   # default OFF
     secrets: list[str] = field(default_factory=list)     # named, scoped; default none
+    mcp: list[str] = field(default_factory=list)          # allowed MCP tool names (§30); default none
+    integrations: list[str] = field(default_factory=list) # allowed integration scopes (§30); default none
     spawn_subagents: bool = False
 
 @dataclass
@@ -371,6 +375,16 @@ class MergeStrategy(Protocol):      # §13
 class BudgetManager:                # Q18/Q44 — tokens, cost, subagents, depth, concurrency, wall-clock
     def reserve(self, *, tokens=0, subagents=0) -> None: ...   # raises BudgetExceeded
     def spent(self) -> "BudgetSnapshot": ...
+
+# --- agent runtime & prompt assembly (§30) ---
+class AgentRuntimeAdapter(Protocol):        # net-new; runtime hardcoded today (deep_agent_runner.py:240)
+    name: str                               # deepagents_langchain | claude_code_cli | custom_runner
+    async def run(self, prompt: str, tools: list, ctx: ExecutionContext) -> AsyncIterator[dict]: ...
+
+@dataclass
+class PromptAssemblyPolicy:                  # declared block order (today hardcoded in factory.py:174-255)
+    order: list[str] = field(default_factory=lambda: [
+        "injects", "guardrails", "skills", "hooks", "constitution", "prompt_body"])
 ```
 
 **Fan-out (engine-owned, INV-7).** A runner tool `spawn_subagents(tasks=[{agent, input}], mode=…)` is bound
@@ -382,7 +396,8 @@ cap, run via `asyncio.gather` (parallel, capped) or sequentially, route outputs 
 ## 7. Capability registry & trust model (Q2, Q27, INV-4)
 
 - One `CapabilityRegistry` keyed by `(kind, name)` for: strategies, validators, deliverable resolvers,
-  context providers, gate handlers, isolation providers, merge strategies, task parsers, worker agents.
+  context providers, gate handlers, isolation providers, merge strategies, task parsers, worker agents,
+  **agent runtimes, skill providers, hook providers, tool providers, MCP servers, integration providers** (§30).
 - **Engineers register** capabilities in code at startup. **Manifests reference by name.**
 - **Trust:** built-in/file manifests may reference any registered capability. **User/DB manifests** (later)
   are validated against a per-capability **`user_allowed: bool`** flag + the owner's allow-list — unknown,
@@ -402,6 +417,8 @@ Step-level permissions, enforced **before** brownfield/exec work exists so nothi
 | `network` | outbound network from a step/exec | **OFF** |
 | `secrets` | named, scoped secret access | **none** |
 | `spawn_subagents` | request engine fan-out (§6) | OFF |
+| `mcp` | named MCP tools from allowed servers (§30) | **none** |
+| `integrations` | named integration scopes (§30), e.g. `gitlab_read`, `jira_read` | **none** |
 
 - **Resolution:** effective = `intersection(owner_allow_list, workflow_ceiling, step_grant)`. An agent's
   AGENT.md may declare a **default it can only lower**, never raise.
@@ -565,6 +582,7 @@ New/extended tables (all carry `owner_id` + `workspace_id`; additive migrations 
 | `validation_results` | id, run_id, step, validator, severity, code, message, target, attempt, created |
 | `gate_events` | id, run_id, step, gate_kind, outcome, actor, created |
 | `run_events` | id, run_id, **seq** (monotonic per run), event_id, type, payload_json, created; idx (run_id, seq) — durable event log for replay/resume (§21/§22) |
+| `run_capabilities` | id, run_id, runtime, skills[], hooks[], integrations[], mcp_servers[], versions — **what was active** for replay/debug (§30); **nothing recorded today** |
 
 Migrations live in the existing migrations dir (002 referenced migration 0013). A retention sweep aligns
 `artifact_refs`/`workspaces` with the sandbox TTL.
@@ -612,7 +630,7 @@ The composer must become **dynamic** — no hardcoded workflow types or flat age
 
 - `GET /api/workflows` → list + metadata (id, name, description, step summary).
 - `GET /api/workflows/{id}` → full step configs, gates, validators, deliverable, declared capabilities.
-- `GET /api/capabilities` → registry (kind, name, `user_allowed`, config schema) — the composer **palette** (§7).
+- `GET /api/capabilities` → registry (kind, name, `user_allowed`, config schema) — the composer **palette** (§7), incl. **runtimes, skills, hooks, MCP servers, integration tools** with their **required auth + permission scopes** (§30).
 - run stream (WS/ndjson) → existing events **+** new (Q43): `subagent_*`, `wave_*`, `validator_result`,
   `validation_warning`, `merge_*`, `budget_warning`, `gate_*`.
 - `GET /api/runs/{id}/artifacts` → typed artifact tree (lineage); `GET /api/runs/{id}/diff` → repo diff.
@@ -725,6 +743,8 @@ in parallel waves; a restart resumes mid-wave; CP-SAT seam left (Q32).
 - **N9 (Phase 1)** — Artifact **retention** default. *Proposed:* `run_ttl` (= 48h sandbox TTL); `keep` for deliverables surfaced to the user. **Confirm.**
 - **N10 (Phase 4)** — `RepoIndex` approach for large repos: grep-only vs symbol index vs embeddings (tied to N6). **Confirm when N6 known.**
 - **N11 (Phase 1)** — Model policy: global default (Haiku) + whether `premium` models are allowed per workflow, and the default fallback chain. **Confirm.**
+- **N12 (Phase 3)** — Hooks: keep as **prompt-only behavioral guidance** (today's model, `factory.py:230-245`) or build **executable lifecycle/tool-call hooks** (a new mechanism)? *Proposed:* prompt-only now; executable later. **Confirm.**
+- **N13 (Phase 4+)** — MCP client adoption: add `langchain-mcp-adapters` + which servers are user-allowed (none today — backend is an inbound MCP *server* only, `mcp.py:48`). *Proposed:* defer until a concrete server is needed. **Confirm.**
 
 ## 27. Non-goals / deferred (designed-for, not built here)
 
@@ -763,9 +783,58 @@ All sit behind interfaces defined in this spec so each is a **backend swap, not 
 - **R9 Persistence migration risk** — *Mitigation:* additive migrations only (Q3); back-compat columns; staged rollout.
 - **R10 Model cost / throttle** — *Mitigation:* `cost_class` + `BudgetManager` + fallback chain (§20).
 - **R11 Merge-conflict oscillation** — *Mitigation:* bounded `merge_agent` attempts; `on_conflict` policy; human gate fallback (§13).
+- **R12 Constitution injection no-op (existing bug)** — `_inject_constitution` reads only the in-process `_mem` dict when an event loop is running (`factory.py:282-290`), so a Postgres-stored Constitution is **silently NOT injected** in production. *Mitigation:* fix in Phase 3 (sync-safe await / pre-warm the cache); until then the "supreme authority" claim (§19) is unenforced.
+- **R13 Capability auth & secrets (MCP/integrations)** — external MCP servers + integrations need scoped, per-owner credentials (the GitHub-PAT precedent, `handoff.py:40`). *Mitigation:* `secrets`/`integrations`/`mcp` permissions (§9) + scoped creds + the `security` gate; never user-grantable until reviewed (§7/§30).
+
+## 30. Agent runtime, skills, hooks, MCP & integrations (A11 / INV-11)
+
+Skills, hooks, the agent runtime, MCP, and external integrations are **first-class, owned, allow-listed, permissioned capabilities** — **not** arbitrary prompt text or unconstrained tools. The kernel is unchanged; the `CapabilityRegistry` (§7) gains these kinds.
+
+> **The rule:** MCP, integrations, skills, and hooks are **capabilities with ownership (INV-8), allow-lists (§7 trust), and permissions (§8/§9)** — never free-form prompt text or arbitrary tools.
+
+### Capability kinds — current state (grounded in code)
+
+| Kind | Examples | Current state (`file:line`) |
+|---|---|---|
+| `agent_runtime` | `deepagents_langchain` (today) · `claude_code_cli` · `custom_runner` | **Hardcoded** — `create_deep_agent` is called in exactly one module (`deep_agent_runner.py:240`); `create_runner` always builds a `DeepAgentRunner` (`factory.py:152`). No selection seam → `AgentRuntimeAdapter` **net-new**. |
+| `skill_provider` | UI skills · disk `SKILL.md` (user→global→built-in) · template/repo skills | **Partially exists** — disk hierarchy `skills.py:320` (`get_skill_content`), loaded `engine.py:655`; UI via `AgentContext.attached_skills` (`factory.py:42`, WS `websocket.py:421`); merged UI-first/disk-last `engine.py:1167-1172`; both flattened into one `content` list (no provider interface, no versioning). |
+| `hook_provider` | behavioral · lifecycle · tool-call · validation hooks | **Thinnest** — `attached_hooks` (`factory.py:43`) synthesized into a prompt bullet list under `## Active Behavioral Hooks` (`factory.py:230-245`); **runtime-only, no REST, no DB**; hooks are *prompt text, not executed events*. |
+| `tool_provider` | deepagents native FS · `report_task_complete` · `PLANNING_TOOLS` · repo tools · fan-out | **Closed enum** — `_build_runner_tools` name→toolset switch that **raises on unknown** (`factory.py:384-446`); `task` force-excluded via `_ToolFilterMiddleware` (`deep_agent_runner.py:118-157,227`). |
+| `mcp_server` | named MCP connector + its allowed tools/resources | **Net-new (consumer)** — backend is an *inbound* MCP **server** only (`mcp.py:48`, `/flowin-handoff`); there is **no MCP client** and `langchain-mcp-adapters` is not a dependency. |
+| `integration_provider` | GitHub · GitLab · Jira · Slack · Confluence · Figma · OpenDesign | **Partially exists** — GitHub via the **separate handoff pipeline** (`handoff_github.py`; scoped PAT `handoff.py:40`; REST `settings.py:125`) which **bypasses the deepagents runtime** (`coding_agent.py:164`); OpenDesign via `od_context`/`injects` (`od_loader.py`, `factory.py:309`). All others absent. |
+
+### Declared per step (manifest)
+
+```yaml
+runtime: deepagents_langchain
+skills: [opendesign_template, repo_conventions]      # skill_provider names
+hooks: [before_write_safety, after_validation_summary]
+integrations: [gitlab_read]                          # scoped integration capabilities
+mcp_servers: [jira_readonly]                          # named server + its allowed tools
+tools: { read_files: true, write_files: true, spawn_subagents: false,
+         mcp: ["jira.search", "confluence.read"], integrations: ["gitlab_read"] }
+```
+
+### The 6 expected changes (where they land)
+
+1. **`AgentRuntimeAdapter`** (§6) — wraps today's `create_deep_agent`; lets `claude_code_cli`/`custom_runner` slot in without touching the kernel. **Phase 3.**
+2. **`PromptAssemblyPolicy`** (§6) — block order is hardcoded inline (`factory.py:174-255`: injects→guardrails→skills→hooks→constitution→body, joined `\n\n`). Promote to a declared, registry-resolved policy. **Phase 3.**
+3. **`McpCapabilityRegistry`** — registers MCP servers + exposed tools/resources/prompts; the compiler validates **which step may reach which server/tool** (trust §7). Requires adding an MCP **client** (e.g. `langchain-mcp-adapters`). **Phase 4+ / N13.**
+4. **Extend `ToolPermissions`** (§6/§9) — `mcp` (allowed tool names) + `integrations` (allowed scopes); skills/hooks are likewise allow-listed, not free text. exec/network/secrets/mcp/integrations default **OFF/none**.
+5. **Per-run capability persistence** (§18 `run_capabilities`) — record the active runtime + resolved skill/hook/integration/MCP **names + versions** per run (today **nothing** is recorded — `WorkflowRun` `workflow.py:12-53`). Needed for replay/debug. **Phase 1B.**
+6. **Frontend `/api/capabilities`** (§22) — return runtimes, skills, hooks, MCP servers, integration tools + **required auth + permission scopes**, so the composer renders them dynamically. **Parallel track.**
+
+### Current-state gaps the spec must fix (from the code investigation)
+
+- **Constitution injection is a no-op in production** (`factory.py:282-290`) → **R12**; fixed in Phase 3 when prompt-assembly becomes a policy.
+- **Hooks aren't persisted or executable** — they vanish after the run and only shape the prompt. True lifecycle/tool-call hooks are a new execution mechanism → **N12**.
+- **MCP is backwards** — inbound server, no client → adopting it means adding a client + dependency → **N13**.
+- **Runtime, tool set, and prompt order are all hardcoded** (`deep_agent_runner.py:240`, `factory.py:384-446`, `factory.py:174-255`) — the factory-side analog of the engine leak map (§4); they move to adapters/registries/policy in **Phase 3**.
+- **GitHub support bypasses the main runtime** (`coding_agent.py:164`) — the `integration_provider` capability should make repo/GitHub reachable from the unified `create_runner` path, not only the handoff pipeline.
 
 ---
 
 *Decision log: append dated entries here as phases land.*
 
 - **2026-06-06 (r2)** — review tweaks: split Phase 0→0A/0B/0C, 1→1A/1B/1C, 4→4A/4B; **INV-3 relaxed to semantic event parity** (deliverables byte-identical only where deterministic; Phase 0C is the sanctioned context-change exception); **anonymous runs use a synthetic `anon:<session_id>` owner** (never None); **built-in manifests are hand-authored** (generated index optional later); added a **durable event `seq` + replay cursor** (`run_events` §18, resume §21, `GET /runs/{id}/events?after=` §22); Phase 4 exec split out behind N3.
+- **2026-06-06 (r3)** — added the **agent-runtime / skills / hooks / MCP / integrations capability layer** (§30, A11, INV-11), grounded in the current code (prompt-assembly order `factory.py:174-255`; runtime hardcoded `deep_agent_runner.py:240`; skills `skills.py:320` + `engine.py:1167`; hooks ephemeral/prompt-only `factory.py:230-245`; tools closed-enum `factory.py:384`; MCP inbound-server-only `mcp.py:48`; GitHub in the parallel handoff pipeline `coding_agent.py:164`). Added `AgentRuntimeAdapter` + `PromptAssemblyPolicy` (§6), `mcp`/`integrations` tool permissions (§9), `run_capabilities` persistence (§18), `/api/capabilities` expansion (§22), N12/N13, R12/R13. Flagged the **constitution-injection no-op** (R12) and **hooks-not-persisted/not-executable** gaps.
