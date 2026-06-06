@@ -62,13 +62,13 @@ Plans:
   2. Cross-owner `parent_run` seeding is rejected by an explicit ownership check (L16 denial test passes)
   3. Dead `_handle_revision` deleted (D1); deliverable snapshots byte-identical and event snapshots at semantic parity
 
-**Plans**: TBD
+**Plans**: 3 plans (3 waves — strangler chain, each wave leaves the 0A suite green)
 
 Plans:
 
-- [ ] 02-01: Introduce `ExecutionContext` (context.py) + thread it through `execute()`
-- [ ] 02-02: Migrate all `self._*` reads/writes; assert kernel statelessness; delete `_handle_revision`
-- [ ] 02-03: Explicit parent-run ownership check at the seed/store boundary + denial test
+- [ ] 02-01-PLAN.md — Introduce `ExecutionContext` (context.py, D-01 field set) + relocate all `self._*` per-run state onto it + thread `ectx` through the 6 read-sites; kernel stateless; L14 grep → 0 (CTX-01, CTX-02, CTX-05) [wave 1]
+- [ ] 02-02-PLAN.md — Delete dead `_handle_revision` (D1) + flip migration-ledger rows L14 + D1 to ☑ (arm the grep ratchets) (CTX-04, CTX-05) [wave 2]
+- [ ] 02-03-PLAN.md — `assert_owns` ownership helper (authz.py) + explicit cross-owner check above the seed try/except + denial/degrade/anon tests + record L16 (CTX-03, CTX-05) [wave 3]
 
 ### Phase 3: Token-Trim (measured change) [0C]
 
@@ -295,7 +295,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Safety Net + Deletion Guard [0A] | 4/4 | Complete   | 2026-06-06 |
-| 2. ExecutionContext + Ownership [0B] | 0/3 | Not started | - |
+| 2. ExecutionContext + Ownership [0B] | 0/3 | Planned | - |
 | 3. Token-Trim [0C] | 0/2 | Not started | - |
 | 4. Manifest + Compiler [1A] | 0/4 | Not started | - |
 | 5. Typed Artifacts + Persistence [1B] | 0/5 | Not started | - |
