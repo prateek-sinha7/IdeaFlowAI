@@ -270,6 +270,35 @@ def get_template_preview_path(template_id: str) -> Path | None:
     return _TEMPLATES_DIR / template_id / "example.html"
 
 
+def get_template_asset_path(template_id: str, asset_relpath: str) -> Path | None:
+    """Filesystem path to a file inside a template's ``assets/`` dir, or ``None``.
+
+    A template's ``example.html`` preview may reference sibling files with
+    relative URLs (e.g. ``<iframe src="./assets/template.html">`` or
+    ``<script src="assets/deck-stage.js">``). The browser resolves those against
+    the preview path, so they arrive as ``/templates/<id>/assets/<relpath>`` and
+    must be served from disk.
+
+    Resolves ``<TEMPLATES_DIR>/<template_id>/assets/<asset_relpath>`` and verifies
+    the resolved path stays WITHIN that template's ``assets/`` directory. A
+    ``..`` traversal, an absolute ``asset_relpath``, a separator/traversal in
+    ``template_id``, or a symlink escaping the dir all yield ``None`` rather than
+    a path outside the assets sandbox. Returns ``None`` for a missing file or a
+    non-regular file. Mirrors the containment check in ``RunSandbox.path_for``.
+    """
+    # template_id is a single path segment — reject anything that could escape it.
+    if not template_id or template_id in (".", "..") or "/" in template_id or "\\" in template_id:
+        return None
+    base = (_TEMPLATES_DIR / template_id / "assets").resolve()
+    candidate = (base / str(asset_relpath).lstrip("/")).resolve()
+    # Defence in depth: the resolved file MUST stay within the template assets dir.
+    if candidate != base and base not in candidate.parents:
+        return None
+    if not candidate.is_file():
+        return None
+    return candidate
+
+
 # ---------------------------------------------------------------------------
 # Design systems
 # ---------------------------------------------------------------------------

@@ -126,6 +126,38 @@ def get_template_preview(template_id: str) -> FileResponse:
 
 
 @router.get(
+    "/templates/{template_id}/assets/{asset_path:path}",
+    summary="Serve a template preview asset (e.g. assets/template.html) for the iframe",
+    response_class=FileResponse,
+)
+def get_template_asset(template_id: str, asset_path: str) -> FileResponse:
+    """Serve a static file from a template's ``assets/`` directory.
+
+    A template's ``example.html`` (served at ``/preview``) may be a thin wrapper
+    that references sibling assets with relative URLs — e.g.
+    ``<iframe src="./assets/template.html">`` or ``<script src="assets/deck-stage.js">``.
+    The browser resolves those against the preview path, so they land here.
+
+    Intentionally unauthenticated (like ``/preview``) so the sandboxed iframe can
+    load the asset without propagating the JWT into static requests. Read-only and
+    strictly confined to the template's ``assets/`` dir — ``od_loader.get_template_asset_path``
+    rejects any path-traversal, so there is no escape surface. The media type is
+    inferred from the filename by ``FileResponse``.
+    """
+    path = od_loader.get_template_asset_path(template_id, asset_path)
+    if path is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Asset '{asset_path}' not found for template '{template_id}'",
+        )
+    return FileResponse(
+        path=path,
+        # Cache aggressively — content only changes when we redeploy.
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@router.get(
     "/design-systems",
     response_model=list[DesignSystemListItem],
     summary="List OpenDesign design systems (152 brands)",
