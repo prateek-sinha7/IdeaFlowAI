@@ -14,7 +14,7 @@
 | **Branch** | `feature/003-workflow-engine-decoupling` (off `deepagents-full-swap`) |
 | **Status** | 📋 Planned — Phase 0 next. No code landed yet. |
 | **Created** | 2026-06-06 |
-| **Revised** | 2026-06-06 (r1) review additions §8–§22 + INV-8…10 · 2026-06-06 (r2) phase splits (0A/B/C · 1A/B/C · 4A/B), semantic event parity (INV-3), synthetic `anon:<session_id>` owner, hand-authored manifests, durable event `seq`/replay cursor · 2026-06-06 (r3) agent-runtime/skills/hooks/MCP/integration capability layer (§30, INV-11) · 2026-06-06 (r4) executable lifecycle hooks (N12 ✅) + MCP client / all famous servers (N13 ✅) |
+| **Revised** | 2026-06-06 (r1) review additions §8–§22 + INV-8…10 · 2026-06-06 (r2) phase splits (0A/B/C · 1A/B/C · 4A/B), semantic event parity (INV-3), synthetic `anon:<session_id>` owner, hand-authored manifests, durable event `seq`/replay cursor · 2026-06-06 (r3) agent-runtime/skills/hooks/MCP/integration capability layer (§30, INV-11) · 2026-06-06 (r4) executable lifecycle hooks (N12 ✅) + MCP client / all famous servers (N13 ✅) · 2026-06-06 (r5) code-deletion / anti-duplication ledger (§31, INV-12) |
 | **Builds on** | [002-deepagents-migration](../002-deepagents-migration/plan.md) (the deepagents runtime this refactor restructures) |
 | **Supersedes** | the hardcoded `pipeline_type`/`spec.id == "prototype-build"` branches in `agents/execution_engine/engine.py` |
 
@@ -135,7 +135,7 @@ Migration & non-functionals
 
 - **INV-1 Kernel knows no workflow by name.** No `if pipeline_type in {...}` / `if spec.id == "..."` for behavior selection anywhere in the kernel. Grep gate: the only place a workflow id appears is the manifest loader.
 - **INV-2 No per-run state on the singleton.** All mutable run state is on `ExecutionContext`. Kernel instances are immutable after construction.
-- **INV-3 Semantic-compatible migration.** Each phase preserves the **deliverable byte-for-byte where the output is deterministic**, and the WS event stream at **semantic parity** — same event *types*, order, and required fields, and the same final result. Volatile fields (timestamps, streamed-text chunk boundaries, generated IDs, token/usage counts, durations) are **normalized out** of the snapshot. The one sanctioned exception is an intentional context/compaction change (e.g. Phase 0C), gated on the semantic snapshot + a measured token delta — not byte-identity. No feature-flag dual-paths left after a phase lands.
+- **INV-3 Semantic-compatible migration.** Each phase preserves the **deliverable byte-for-byte where the output is deterministic**, and the WS event stream at **semantic parity** — same event *types*, order, and required fields, and the same final result. Volatile fields (timestamps, streamed-text chunk boundaries, generated IDs, token/usage counts, durations) are **normalized out** of the snapshot. The one sanctioned exception is an intentional context/compaction change (e.g. Phase 0C), gated on the semantic snapshot + a measured token delta — not byte-identity. No feature-flag dual-paths **and no dual *implementation*** left after a phase lands — the legacy code a phase supersedes is **deleted in that same phase** (INV-12 / §31), never left beside the new capability.
 - **INV-4 Capabilities are registered, manifests reference by name.** Engineers register; manifest validation rejects any unknown/​not-allowed capability name (trust boundary, Q2).
 - **INV-5 Thin compiler, no DSL.** A manifest compiles to a validated `ExecutionPlan`. No control flow (`if`/`while`/expressions) in manifests — loops/conditionals live inside strategies.
 - **INV-6 Ports, not implementations.** Engine depends on `Workspace`/`RuntimeEnvironment`/`Validator`/`Strategy`/`DeliverableResolver`/`ContextProvider`/`IsolationProvider`/`MergeStrategy`/`GateHandler` **interfaces**; concrete impls are injected/registered.
@@ -144,6 +144,7 @@ Migration & non-functionals
 - **INV-9 Least-privilege tools.** A step gets only the tool permissions its manifest grants (read/write/exec/git/network/secrets/spawn). `exec`/`network`/`secrets`/`spawn_subagents` default **OFF**. A capability the workflow's owner isn't allowed → compile error (§8).
 - **INV-10 Every artifact is lineage-tracked.** No anonymous deliverables: producer step/agent/task, content hash, version, parents, visibility, retention are recorded at write time (§17).
 - **INV-11 Runtime/skills/hooks/MCP/integrations are capabilities, not free text.** The agent runtime, skills, hooks, MCP servers, and integrations are registered, owned (INV-8), allow-listed (§7), and permissioned (§8/§9) — never arbitrary prompt text or unconstrained tools (§30). The prompt-assembly order is a declared `PromptAssemblyPolicy`, not hardcoded.
+- **INV-12 Move, don't copy (single implementation).** Every capability extraction **moves** existing logic behind its interface and **deletes** the inline original in the **same phase** — no behavior has two implementations, no legacy branch survives its phase. Enforced by per-phase **deletion gates** (grep banned-patterns + dead-code scan + import-linter) and the **migration ledger** (§31). The only sanctioned temporary coexistence is the `accumulated_outputs` legacy mirror, removed in Phase 1B.
 
 ## 4. The problem — current coupling (the "as-is" leak map)
 
@@ -678,6 +679,7 @@ panels are additive. Risk R6 is now this section, not a footnote.
 ## 25. Phase plan
 
 > Strangler migration (Q39). Each phase is independently shippable and keeps prototype working.
+> **Definition of Done includes deletion (INV-12 / §31):** a phase that adds an abstraction without deleting the code it supersedes — and proving it via the grep/dead-code gate — is **not done**. The §31 ledger tracks every legacy element → new home → phase → deletion gate → status.
 
 **Phase 0A — Safety net.** Characterization tests only (§24) — deliverable + semantic-event snapshots for
 prototype/od_/revision/ppt/code-gen. No source changes. *Accept:* snapshots recorded + green on current behavior.
@@ -798,6 +800,7 @@ All sit behind interfaces defined in this spec so each is a **backend swap, not 
 - **R11 Merge-conflict oscillation** — *Mitigation:* bounded `merge_agent` attempts; `on_conflict` policy; human gate fallback (§13).
 - **R12 Constitution injection no-op (existing bug)** — `_inject_constitution` reads only the in-process `_mem` dict when an event loop is running (`factory.py:282-290`), so a Postgres-stored Constitution is **silently NOT injected** in production. *Mitigation:* fix in Phase 3 (sync-safe await / pre-warm the cache); until then the "supreme authority" claim (§19) is unenforced.
 - **R13 Capability auth & secrets (MCP / integrations / executable hooks)** — external MCP servers, integrations, and executable hooks (esp. those with `exec`/`network`/`secrets`) widen the attack surface and need scoped, per-owner credentials (the GitHub-PAT precedent, `handoff.py:40`). *Mitigation:* `secrets`/`integrations`/`mcp` permissions (§9) + scoped creds + the `security` gate + a **`secret_scan`** hook (§30); powerful MCP servers (filesystem/postgres) and executable hooks are engineer-registered + allow-listed, never user-grantable until reviewed (§7/§30).
+- **R14 Duplication / dead-code drift** — the migration could leave new capabilities *beside* the old branches → two code paths, the exact "duplicate code all over" failure. *Mitigation:* INV-12 (move-don't-copy) + the §31 deletion ledger + per-phase grep banned-pattern gates + a dead-code scan + an import-linter (kernel imports only ports, never legacy `engine`/`factory` internals); a phase is not done until its ledger deletions are proven.
 
 ## 30. Agent runtime, skills, hooks, MCP & integrations (A11 / INV-11)
 
@@ -867,6 +870,44 @@ Flowin will **consume external MCP servers** (not just expose the inbound `/flow
 - **Runtime, tool set, and prompt order are all hardcoded** (`deep_agent_runner.py:240`, `factory.py:384-446`, `factory.py:174-255`) — the factory-side analog of the engine leak map (§4); they move to adapters/registries/policy in **Phase 3**.
 - **GitHub support bypasses the main runtime** (`coding_agent.py:164`) — the `integration_provider` capability should make repo/GitHub reachable from the unified `create_runner` path, not only the handoff pipeline.
 
+## 31. Code deletion, migration ledger & anti-duplication (INV-12)
+
+The strangler migration **moves** code; it never copies it. For every legacy element the sequence is **wrap → rewire call-sites → delete**, completed **within the phase that supersedes it**. A phase that adds a capability while leaving the old branch in place is **not done**. This section is the **living ledger** the planning phase produces and the execution phase ticks off — so every function that must be refactored is *logged*, and each is proven *moved (not duplicated)* before deletion. This is the explicit answer to "don't leave duplicate code all over."
+
+### Rules
+- **One implementation per behavior.** After a leak's phase, its logic exists **only** behind the capability/port; the inline original is gone.
+- **Deletion is an exit gate.** Each phase ships a **banned-pattern test** (grep → 0 for the deleted symbols/branches), a **dead-code scan** (ruff / vulture: no orphaned legacy functions), and an **import-linter** rule (the `kernel` imports only ports/capabilities — never legacy `engine`/`factory` internals). **Definition of Done = behavior moved + call-sites rewired + legacy deleted + gates green + snapshots green (§24).**
+- **Ratchet.** Once deleted, the banned-pattern test stays — reintroducing a symbol fails CI (complements INV-1's `if pipeline_type` / `spec.id ==` gate).
+- **One sanctioned temporary duplication:** the `accumulated_outputs` legacy mirror coexists with `ArtifactGraph` from Phase 1A and is **deleted in Phase 1B** once reads migrate (L15). No other dual-state is permitted.
+
+### Migration & deletion ledger
+`☐` pending · `☑` done — updated (status + deleting commit SHA) as phases land, like the decision log. `L#` = engine leak (§4); `F#` = factory/runtime; `D#` = dead code.
+
+| Item | Legacy (`file:line`) | New home | Phase | Deletion gate (grep → 0 / check) | Status |
+|---|---|---|---|---|---|
+| L14 | `self._od_context/_completed_tasks/_current_task_block/_revision_*/_gate_agent_ids` (engine, throughout) | `ExecutionContext` (§6) | 0B | `self\._(od_context\|completed_tasks\|current_task_block\|revision_\|gate_agent_ids)` | ☐ |
+| L16 | unchecked `parent_run` seed `engine.py:583-610` | authz store check (§19) | 0B | cross-owner denial test passes | ☐ |
+| D1 | dead `_handle_revision` `engine.py:2138-2251` | delete (superseded by inline revision) | 0B | `_handle_revision` | ☐ |
+| L13 | `_extract_html_skeleton` wired inline in 0C `engine.py:2565` | `CompactionStrategy(html_skeleton)` (§30) | 0C→2 | inline copy removed; only the strategy remains | ☐ |
+| L1 | `_PPT_PIPELINE_TYPES`/`_PROTOTYPE_PIPELINE_TYPES`/`REVISION_FILE_NAME` `engine.py:93-110` | manifest `deliverable`/`seed_files` | 2 | `_PROTOTYPE_PIPELINE_TYPES\|_PPT_PIPELINE_TYPES` | ☐ |
+| L2/L9 | `_resolve_final_output` `engine.py:316-397` | `DeliverableResolver` registry | 2 | `_resolve_final_output` | ☐ |
+| L3 | `_sanitize_carousel_deck_html`/`_unwrap_artifact` `engine.py:232-313` | `ppt` resolver/transform capability | 2 | both names absent from the kernel | ☐ |
+| L4/L8 | `prototype_revision` seeding + post-fix `engine.py:519-650,917-962` | `seed_files.from_run` + `previous_run` provider + `validation` gate | 2 | revision block absent from `execute()` | ☐ |
+| L5 | `SKIP_PLANNER_FOR_PROTOTYPE` `engine.py:704-712` | manifest `planner` | 2 | `SKIP_PLANNER_FOR_PROTOTYPE` | ☐ |
+| L6 | `ALWAYS_CLARIFY` defaults dict `engine.py:733-743` | manifest `clarify.defaults` | 2 | the per-pipeline defaults dict | ☐ |
+| L7 | `spec.id == "prototype-build"` dispatch `engine.py:872` | `strategy: task_loop` (§8/§9) | 2 | `spec.id == "prototype-build"` (INV-1) | ☐ |
+| L10 | `pipeline_type in ("od_prototype","prototype")` HTML readback `engine.py:1328-1335` | `task_loop` reads `deliverable.name` | 2 | that branch | ☐ |
+| L11 | build-loop internals `engine.py:1450-1704,2554-2563` | `TaskLoopStrategy`+`TaskParser`+validators+fix-loop+`seed_files` | 2 | `_run_build_task_loop\|_write_build_reference_files\|_count_plan_tasks\|_extract_task_block\|_run_validation_fix_loop\|_load_template_example` | ☐ |
+| L12 | `_build_context_message` od/ppt/build injection `engine.py:2378-2512` | `ContextProvider` + generic injector | 2 | per-pipeline branches in `_build_context_message` | ☐ |
+| L15 | `accumulated_outputs: dict[str,str]` mirror (throughout) | `ArtifactGraph`/`ArtifactRef` (§17) | 1A→**1B (delete mirror)** | mirror reads removed; typed-artifact reads only | ☐ |
+| F1 | prompt-assembly inline order `factory.py:174-255` | `PromptAssemblyPolicy` (§6/§30) | 3 | inline `blocks.append` ordering replaced by the policy | ☐ |
+| F2 | `_build_runner_tools` closed switch `factory.py:384-446` | `tool_provider` registry (§30) | 3 | the `if/elif` tool-set switch | ☐ |
+| F3 | inline skills/hooks injection `factory.py:220-245` | `skill_provider` / `hook_provider` (§30) | 3 | inline skill/hook blocks (behavioral hook → provider) | ☐ |
+| F4 | `_inject_constitution` async no-op `factory.py:258-306` (R12) | sync-safe load via `PromptAssemblyPolicy` | 3 | constitution-injected-in-prod test passes | ☐ |
+| F5 | `create_deep_agent` hardcoded `deep_agent_runner.py:240` | `AgentRuntimeAdapter` (§6/§30) | 3 | `create_deep_agent` called only inside the `deepagents_langchain` adapter | ☐ |
+
+> The ledger is the single source of truth for "what still needs refactoring." A standalone `specs/003-…/migration-ledger.md` (asserted by the banned-pattern test) may mirror it operationally so CI fails if any `☑` item's pattern reappears.
+
 ---
 
 *Decision log: append dated entries here as phases land.*
@@ -874,3 +915,4 @@ Flowin will **consume external MCP servers** (not just expose the inbound `/flow
 - **2026-06-06 (r2)** — review tweaks: split Phase 0→0A/0B/0C, 1→1A/1B/1C, 4→4A/4B; **INV-3 relaxed to semantic event parity** (deliverables byte-identical only where deterministic; Phase 0C is the sanctioned context-change exception); **anonymous runs use a synthetic `anon:<session_id>` owner** (never None); **built-in manifests are hand-authored** (generated index optional later); added a **durable event `seq` + replay cursor** (`run_events` §18, resume §21, `GET /runs/{id}/events?after=` §22); Phase 4 exec split out behind N3.
 - **2026-06-06 (r3)** — added the **agent-runtime / skills / hooks / MCP / integrations capability layer** (§30, A11, INV-11), grounded in the current code (prompt-assembly order `factory.py:174-255`; runtime hardcoded `deep_agent_runner.py:240`; skills `skills.py:320` + `engine.py:1167`; hooks ephemeral/prompt-only `factory.py:230-245`; tools closed-enum `factory.py:384`; MCP inbound-server-only `mcp.py:48`; GitHub in the parallel handoff pipeline `coding_agent.py:164`). Added `AgentRuntimeAdapter` + `PromptAssemblyPolicy` (§6), `mcp`/`integrations` tool permissions (§9), `run_capabilities` persistence (§18), `/api/capabilities` expansion (§22), N12/N13, R12/R13. Flagged the **constitution-injection no-op** (R12) and **hooks-not-persisted/not-executable** gaps.
 - **2026-06-06 (r4)** — owner clarifications: **hooks are executable lifecycle/tool-call hooks** (secret-scan, logging/tracing, pre/post-commit, post-task, before/after-write, …) → **N12 ✅**; **integrate all famous MCP servers** via an MCP client + allow-listed catalog → **N13 ✅**. Added `HookHandler` + `McpClientAdapter` (§6), the lifecycle taxonomy + MCP catalog (§30), `hook_runs` persistence (§18), logging/tracing-hook observability (§23); extended R13 to the executable-hook/MCP attack surface (with `secret_scan` as a mitigation).
+- **2026-06-06 (r5)** — added **code-deletion / anti-duplication discipline**: INV-12 (move-don't-copy, single implementation), the §31 **migration & deletion ledger** (every L#/F#/D# legacy element → new home → phase → deletion grep-gate → status), per-phase deletion gates + dead-code scan + import-linter folded into each phase's Definition of Done, and R14 (duplication/dead-code drift). Strengthened INV-3 (no dual *implementation*, not just no flags). Answers the "don't leave duplicate code all over" concern.
