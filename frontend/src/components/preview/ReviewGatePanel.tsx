@@ -229,12 +229,27 @@ export function ReviewGatePanel({
             animate={{ opacity: 1 }}
             transition={{ duration: 0.15 }}
           >
-            {isSpec && <SpecPreview content={hasEdits ? editedContent : output} />}
-            {isTasks && <TasksPreview content={hasEdits ? editedContent : output} onTasksChange={handleTasksChange} />}
-            {!isSpec && !isTasks && (
-              <pre className="text-[11px] text-gray-700 whitespace-pre-wrap leading-relaxed font-mono">
-                {(hasEdits ? editedContent : output).slice(0, 4000)}
-              </pre>
+            {(hasEdits ? editedContent : output)?.trim() ? (
+              <>
+                {isSpec && <SpecPreview content={hasEdits ? editedContent : output} />}
+                {isTasks && <TasksPreview content={hasEdits ? editedContent : output} onTasksChange={handleTasksChange} />}
+                {!isSpec && !isTasks && (
+                  <pre className="text-[11px] text-gray-700 whitespace-pre-wrap leading-relaxed font-mono">
+                    {(hasEdits ? editedContent : output).slice(0, 4000)}
+                  </pre>
+                )}
+              </>
+            ) : (
+              /* Defensive empty-state: the agent produced no content to review.
+                 With the runner no-delta fallback this should not occur for a
+                 model that returned text, but never present a silently blank
+                 panel with live Approve/Reject buttons. */
+              <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
+                <p className="text-[12px] font-medium text-gray-500">No content was produced for review.</p>
+                <p className="text-[11px] text-gray-400">
+                  The agent returned an empty result. Reject to cancel the pipeline, or approve to continue anyway.
+                </p>
+              </div>
             )}
           </motion.div>
         ) : (

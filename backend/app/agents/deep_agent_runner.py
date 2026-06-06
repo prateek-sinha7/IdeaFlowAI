@@ -335,6 +335,13 @@ class DeepAgentRunner:
         from langchain_core.messages import HumanMessage
 
         full_output = ""
+        # Did the CURRENT model turn surface any ``on_chat_model_stream`` text?
+        # Reset at ``on_chat_model_start``; set on the first streamed delta. When
+        # a turn ends having streamed nothing (a Bedrock no-delta turn), we fall
+        # back to the ``on_chat_model_end`` message content (below) so output is
+        # never silently empty — otherwise a Human review gate opens with nothing
+        # to review and the live agent output is blank.
+        turn_streamed_text = False
         try:
             # ``astream_events`` v2 fires for EVERY model/tool in the assembled
             # graph (including middleware-internal model calls). We deliberately
@@ -348,13 +355,18 @@ class DeepAgentRunner:
             ):
                 etype = event["event"]
 
-                if etype == "on_chat_model_stream":
+                if etype == "on_chat_model_start":
+                    # A new model turn begins — it has streamed no text yet.
+                    turn_streamed_text = False
+
+                elif etype == "on_chat_model_stream":
                     # Assistant text token. A tool-call turn emits text AND tool
                     # calls; the text still maps to ``chunk`` and accumulates
                     # into ``full_output`` (mirrors the legacy loop, which
                     # accumulated every iteration's text).
                     text = _extract_text(event["data"]["chunk"].content)
                     if text:
+                        turn_streamed_text = True
                         full_output += text
                         yield {"type": "chunk", "chunk": text}
 
@@ -371,6 +383,19 @@ class DeepAgentRunner:
                             "input_tokens": meta.get("input_tokens", 0),
                             "output_tokens": meta.get("output_tokens", 0),
                         }
+                    # No-delta fallback: if this turn surfaced NO
+                    # ``on_chat_model_stream`` text (a documented Bedrock case),
+                    # the end event still carries the full assistant message.
+                    # Use its text so output is never silently empty (otherwise a
+                    # review gate opens blank). Emit it as a ``chunk`` too, so the
+                    # engine's chunk-join AND the live UI both receive it. A
+                    # tool-call turn's message has empty text content here, so this
+                    # never duplicates or fabricates output for tool turns.
+                    if not turn_streamed_text:
+                        end_text = _extract_text(getattr(msg, "content", "") or "")
+                        if end_text:
+                            full_output += end_text
+                            yield {"type": "chunk", "chunk": end_text}
 
                 elif etype == "on_tool_start":
                     # Tool invocation. ``event["name"]`` is the tool name and
