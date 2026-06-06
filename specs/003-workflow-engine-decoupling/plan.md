@@ -14,6 +14,7 @@
 | **Branch** | `feature/003-workflow-engine-decoupling` (off `deepagents-full-swap`) |
 | **Status** | 📋 Planned — Phase 0 next. No code landed yet. |
 | **Created** | 2026-06-06 |
+| **Revised** | 2026-06-06 — review additions folded in (§8 tool perms · §9 gates · §13 merge-conflict · §15 repo index · §17 lineage · §18 persistence · §19 authz · §20 model policy · §21 cancel/retry/resume · §22 frontend contract; INV-8…10) |
 | **Builds on** | [002-deepagents-migration](../002-deepagents-migration/plan.md) (the deepagents runtime this refactor restructures) |
 | **Supersedes** | the hardcoded `pipeline_type`/`spec.id == "prototype-build"` branches in `agents/execution_engine/engine.py` |
 
@@ -41,11 +42,15 @@ corruption bug and a hard blocker for fan-out / parallel waves / multi-tenant ru
 3. **Per-run isolation** — all run state lives in a per-run `ExecutionContext`; the kernel singleton is stateless (NFR-001).
 4. **Workspace-ready** — engine talks to a `Workspace`/`RuntimeEnvironment` port; **local impl now**, ECS later as a backend swap, no engine rewrite (Q-N1).
 5. **Agent-initiated fan-out** — any allowed agent can request sub-agent fan-out via an **engine-owned** tool; the engine (not the prompt) owns isolation, caps, routing, merge, events.
+6. **Safe multi-tenant by construction** — every workflow, run, artifact, workspace, and repository is **owner-scoped** (INV-8); every step runs **least-privilege** tools (INV-9); every artifact is **lineage-tracked** (INV-10); gates are first-class (§9).
 
-**In scope:** Phases 0–6 below + the Workspace/Runtime layer **as interfaces with a local implementation**.
+**In scope:** Phases 0–6 below + the Workspace/Runtime layer **as interfaces with a local implementation** +
+the foundational platform contracts the review surfaced (typed artifacts & lineage §17, persistence §18,
+authorization §19, tool-permission policy §8, gate registry §9, model policy §20, cancellation/retry/resume §21,
+and the dynamic API/frontend contract §22 as a parallel track).
 **Out of scope (this spec):** ECS/EC2 provisioning, warm/dedicated containers, container networking/secrets,
 CP-SAT scheduling, single-file fragment-merge parallelism, untrusted end-user code execution. These are
-**designed-for** (interfaces exist) but **deferred** (§17), and code-execution security gets its **own gated spec** (§16 N3).
+**designed-for** (interfaces exist) but **deferred** (§27), and code-execution security gets its **own gated spec** (§26 N3).
 
 ## 2. Firm decisions (locked via Q&A — Q1–Q45 + N1)
 
@@ -113,15 +118,30 @@ Migration & non-functionals
 - **Q45 / "What Must Be Added"** Explicit models for **workspace/project/repo/worktree, trust/security, durable resume, typed artifact references, merge policy, per-run execution state.**
 - **N1** **Delay ECS/EC2**; build `Workspace` + `RuntimeEnvironment` interface + `LocalSandboxRuntime` now.
 
+**Locked additions (post-review, 2026-06-06)** — promoted from "risks/notes" to first-class requirements:
+- **A1** **Dynamic API/frontend contract** is a deliverable, not a risk (§22). The composer fetches workflow metadata + capabilities + event types + artifact/diff trees dynamically; no hardcoded workflow types.
+- **A2** **Concrete persistence schema** (§18): `workflows`, `workflow_runs`(extend), `artifact_refs`, `workspaces`, `repositories`, `subagent_runs`, `wave_runs`, `validation_results`, `gate_events`.
+- **A3** **Ownership is an invariant** (INV-8, §19): every workflow/run/artifact/repo/parent-run/workspace is user+workspace scoped; default-deny; parent/source-run access is ownership-checked.
+- **A4** **Step-level tool-permission policy** (INV-9, §8): `read_files`/`write_files`/`exec`/`git`/`network`/`secrets`/`spawn_subagents`; exec/network/secrets default OFF.
+- **A5** **Repo index / context selection** (§15): `RepoInventory`/`RepoIndex`/`ContextPack` as first-class artifacts/providers (ignore rules, binary skip, summaries, dep graph, targeted selection).
+- **A6** **Merge-conflict flow** (§13): on merge failure → conflict artifact + `on_conflict` policy (human gate | merge agent | partial | abort).
+- **A7** **Gate registry** (§9): `human` / `validation` / `approval` / `security` gates first-class (today's `Validation_Gate` is declared-but-unimplemented — make it real).
+- **A8** **Artifact lineage** (INV-10, §17): producer step/agent/task, content hash, path, version, visibility, retention, parents.
+- **A9** **Cancellation / retry / resume** (§21): defined cancellation semantics, idempotent step retry, durable reconnect/restart resume.
+- **A10** **Model policy** (§20): per-workflow/per-step model, max tokens, cost class, fallback chain.
+
 ## 3. Hard invariants (apply to every phase)
 
 - **INV-1 Kernel knows no workflow by name.** No `if pipeline_type in {...}` / `if spec.id == "..."` for behavior selection anywhere in the kernel. Grep gate: the only place a workflow id appears is the manifest loader.
-- **INV-2 No per-run state on the singleton.** All mutable run state is on `ExecutionContext`. `ExecutionEngine`/kernel instances are immutable after construction.
-- **INV-3 Byte-identical migration.** Each phase keeps the existing WS event stream + deliverable identical for `prototype`/`od_*`/`ppt`/code-gen (characterization tests are the gate). No feature flag dual-paths left after a phase lands.
+- **INV-2 No per-run state on the singleton.** All mutable run state is on `ExecutionContext`. Kernel instances are immutable after construction.
+- **INV-3 Byte-identical migration.** Each phase keeps the existing WS event stream + deliverable identical for `prototype`/`od_*`/`ppt`/code-gen (characterization tests are the gate). No feature-flag dual-paths left after a phase lands.
 - **INV-4 Capabilities are registered, manifests reference by name.** Engineers register; manifest validation rejects any unknown/​not-allowed capability name (trust boundary, Q2).
 - **INV-5 Thin compiler, no DSL.** A manifest compiles to a validated `ExecutionPlan`. No control flow (`if`/`while`/expressions) in manifests — loops/conditionals live inside strategies.
-- **INV-6 Ports, not implementations.** Engine depends on `Workspace`/`RuntimeEnvironment`/`Validator`/`Strategy`/`DeliverableResolver`/`ContextProvider`/`IsolationProvider`/`MergeStrategy` **interfaces**; concrete impls are injected/registered.
+- **INV-6 Ports, not implementations.** Engine depends on `Workspace`/`RuntimeEnvironment`/`Validator`/`Strategy`/`DeliverableResolver`/`ContextProvider`/`IsolationProvider`/`MergeStrategy`/`GateHandler` **interfaces**; concrete impls are injected/registered.
 - **INV-7 Engine owns fan-out.** Agents request via the engine tool; the agent prompt never decides isolation/caps/merge.
+- **INV-8 Ownership everywhere (default-deny).** Every workflow, run, artifact, workspace, repository, and parent/source run is scoped to `(owner_id, workspace_id)`. No cross-owner read/write; parent-run/source-run seeding and artifact retrieval are ownership-checked at the store layer (§19).
+- **INV-9 Least-privilege tools.** A step gets only the tool permissions its manifest grants (read/write/exec/git/network/secrets/spawn). `exec`/`network`/`secrets`/`spawn_subagents` default **OFF**. A capability the workflow's owner isn't allowed → compile error (§8).
+- **INV-10 Every artifact is lineage-tracked.** No anonymous deliverables: producer step/agent/task, content hash, version, parents, visibility, retention are recorded at write time (§17).
 
 ## 4. The problem — current coupling (the "as-is" leak map)
 
@@ -143,6 +163,8 @@ Verified leaks in `agents/execution_engine/engine.py` (all must move to declarat
 | L12 | `_build_context_message`: od_ppt/od_prototype template/DS/example injection + `prototype-build` CURRENT-TASK + full-HTML + compliance | 2378–2512 | prototype/PPT |
 | L13 | **dead** `_extract_html_skeleton` (built, never called) | 2565–2628 | the token-trim that was never wired |
 | L14 | per-run state on `self` (`_od_context`, `_completed_tasks`, `_current_task_block`, `_revision_*`, `_gate_agent_ids`, `_user_id`, `_checkpointer`) | 474–550, throughout | singleton mutation |
+| L15 | loose run handoff: `accumulated_outputs: dict[str,str]` (untyped) + thin `ArtifactStore` | throughout | no typed artifacts/lineage |
+| L16 | `parent_run_id` seeding reads `RunSandbox(user_id, parent_run_id)` with **no explicit ownership check** | 583–610 | implicit, not enforced (INV-8) |
 
 ## 5. Target architecture
 
@@ -151,81 +173,93 @@ Verified leaks in `agents/execution_engine/engine.py` (all must move to declarat
             \                              /
              ▼                            ▼
           ┌──────────────────────────────────┐
-          │  WorkflowCompiler (thin, no DSL)  │  validate refs vs CapabilityRegistry + trust
+          │  WorkflowCompiler (thin, no DSL)  │  validate refs vs CapabilityRegistry + trust + owner allow-list
           └──────────────────────────────────┘
                           │  CompiledWorkflow (ExecutionPlan: typed DAG of Steps)
                           ▼
           ┌──────────────────────────────────┐
           │       Runtime Kernel              │  knows NO workflow by name (INV-1)
-          │  execute(plan, ExecutionContext)  │  sequence • gates • events • budgets • artifacts
+          │  execute(plan, ExecutionContext)  │  sequence • gates • events • budgets • cancel/resume
           └──────────────────────────────────┘
-             │            │            │
-   ExecutionStrategy   Validator   DeliverableResolver   ContextProvider   (registries, INV-4)
-   single_shot         html_static  single_file          opendesign
-   task_loop           html_render  serialized_sandbox   repo / previous_run / uploaded / memory
-   fanout_batch        compile/test streamed_text(_unwrapped)
-   wave_scheduler      lint/schema  <registered custom>
-                          │
-                ┌─────────┴─────────┐
-                ▼                   ▼
-          ArtifactGraph        Workspace ──backed by── RuntimeEnvironment (port)
-          (typed refs)         (fs + opt git + opt exec)   LocalSandboxRuntime  [EcsRuntime later]
-                                       │
-                              IsolationProvider + MergeStrategy + BudgetManager
+    │        │        │        │        │        │
+  Strategy Validator Deliverable Context  Gate   Policy        (registries, INV-4)
+  single   html_*    single_file opendesign human  model        + ToolPermissions (INV-9)
+  task_loop compile  serialized  repo       valid. tool-perm
+  fanout   test/lint streamed    prev_run   approv.
+  waves    coverage  repo_diff   memory     security(N3)
+    │
+    ▼
+  ArtifactGraph (typed, lineage, owner-scoped, INV-8/10) ──► Persistence (§18)
+    │
+    ▼
+  Workspace ──backed by── RuntimeEnvironment (port)   IsolationProvider + MergeStrategy + BudgetManager
+  (fs + opt git + opt exec + ExecutionPolicy)         LocalSandboxRuntime  [EcsRuntime later]
+    │
+    └─► dynamic API/frontend contract (§22): /workflows, /capabilities, /runs/{id}/artifacts|diff, events
 ```
 
 **Layering (dependency direction inward):** Compiler → Kernel → Capability ports. The kernel imports
-**ports**; concrete capabilities register themselves into the `CapabilityRegistry` at startup. Workflows
-are **data**; capabilities are **code**; the kernel is the **only** orchestrator (it owns fan-out, INV-7).
+**ports**; concrete capabilities register into the `CapabilityRegistry` at startup. Workflows are **data**;
+capabilities are **code**; the kernel is the **only** orchestrator (it owns fan-out, INV-7). Ownership (§19) +
+persistence (§18) wrap every artifact/run; the frontend (§22) reads it all dynamically.
 
 ## 6. Core abstractions (contracts)
 
 Illustrative signatures (final names TBD in Phase 1). Python `Protocol`/`dataclass`.
 
 ```python
-# --- per-run state (replaces all self._* on the engine) ---
+# --- per-run state (replaces all self._* on the engine; L14) ---
 @dataclass
 class ExecutionContext:
     run_id: str
-    user_id: str | None
+    owner_id: str | None                 # user (INV-8)
+    workspace_id: str
     plan: CompiledWorkflow
     workspace: Workspace
-    artifacts: ArtifactGraph
+    artifacts: ArtifactGraph             # typed + lineage (§17)
     budget: BudgetManager
+    models: ModelResolver                # §20 resolution order
     planning_context: dict
     cancel_event: asyncio.Event
-    gate_agent_ids: list[str] | None
-    parent_run_id: str | None
+    parent_run_id: str | None            # ownership-checked before use (INV-8/L16)
     checkpointer: object
-    accumulated_outputs: dict[str, str] = field(default_factory=dict)
+    accumulated_outputs: dict[str, str] = field(default_factory=dict)  # legacy mirror during migration
     results: list[AgentResult] = field(default_factory=list)
     completed_tasks: list[dict] = field(default_factory=list)
-    depth: int = 0                      # fan-out nesting (Q17)
-    # NOTE: strategy-local scratch (e.g. current task block) lives in the strategy, not here.
+    depth: int = 0                       # fan-out nesting (Q17)
+    # strategy-local scratch (e.g. current task block) lives in the strategy, not here.
 
-# --- declarative workflow (compiled from the manifest) ---
+# --- declarative step (compiled from the manifest) ---
 @dataclass
 class Step:
     agent_id: str
     strategy: str = "single_shot"          # Q8/Q9
-    gate: str | None = None                # "human" | None
+    gates: list[Gate] = field(default_factory=list)        # §9 (was a single gate)
+    tools: ToolPermissions = field(default_factory=ToolPermissions)  # INV-9 / §8
+    model: ModelPolicy | None = None       # §20 (step > agent > workflow > global)
     task_source: TaskSource | None = None  # Q10a/b
     validators: list[str] = field(default_factory=list)   # Q21
     fix: FixPolicy | None = None           # Q23/Q25
     compaction: str | None = None          # Q35
     fanout: FanoutSpec | None = None       # Q12 declarative
+    on_conflict: str = "human_gate"        # §13: human_gate | merge_agent | partial | abort
+    retry: RetryPolicy | None = None       # §21
     injects: list[str] = field(default_factory=list)
 
 @dataclass
 class CompiledWorkflow:
     id: str
+    owner_id: str | None                   # INV-8
+    workspace_id: str
     steps: list[Step]                      # topo-validated DAG
     context_providers: list[str]           # Q28
     seed_files: dict[str, SeedSource]      # Q29
     deliverable: DeliverableSpec           # Q26
     planner: str                           # "skip" | "run"  (Q30)
     clarify: ClarifySpec                   # mode + defaults (Q30)
-    limits: Limits                         # Q18/Q44
+    model: ModelPolicy                     # workflow default (§20)
+    repo: RepoSpec | None = None           # §15 (brownfield)
+    limits: Limits = field(default_factory=Limits)         # Q18/Q44
 
 # --- canonical task (Q11) ---
 @dataclass
@@ -234,12 +268,12 @@ class Task:
     targets: list[str]                     # section selectors / file paths
     depends_on: list[str]
     parallel: bool
-    conflict_keys: list[str]               # wave scheduling (Q32/Q33)
-    done_when: list[str]                   # Q-Tier5 / validators
+    conflict_keys: list[str]               # wave scheduling (Q32/Q33) + merge (§13)
+    done_when: list[str]                   # Tier#5 / validators
     inputs: dict; outputs: dict
 
-class TaskParser(Protocol):                # adapters → Task (Q11)
-    def parse(self, text: str) -> list[Task]: ...   # heading_tasks | json_tasks | bracket_p ...
+class TaskParser(Protocol):                # adapters → Task (Q11): heading_tasks | json_tasks | bracket_p
+    def parse(self, text: str) -> list[Task]: ...
 
 # --- capability ports ---
 class ExecutionStrategy(Protocol):
@@ -252,7 +286,7 @@ class Validator(Protocol):
 
 @dataclass
 class Issue:
-    severity: str          # P0|P1|P2|P3 internally (Q24)
+    severity: str          # P0|P1|P2|P3 internally (Q24)  → CRITICAL/HIGH/MEDIUM/LOW externally
     code: str; message: str
     target: str | None = None
     fixable: bool = True
@@ -264,6 +298,51 @@ class DeliverableResolver(Protocol):
 class ContextProvider(Protocol):
     name: str
     async def load(self, ctx: ExecutionContext) -> dict[str, str]: ...   # block-name -> content
+
+class GateHandler(Protocol):               # §9
+    kind: str                              # human | validation | approval | security
+    async def evaluate(self, step: Step, ctx: ExecutionContext) -> "GateOutcome": ...  # pass|block|wait_human
+
+# --- security & policy (§8 / §20) ---
+@dataclass
+class ToolPermissions:                      # least-privilege grant set (INV-9)
+    read_files: bool = True
+    write_files: bool = False
+    exec: bool = False                      # default OFF (N3)
+    git: bool = False
+    network: bool = False                   # default OFF
+    secrets: list[str] = field(default_factory=list)     # named, scoped; default none
+    spawn_subagents: bool = False
+
+@dataclass
+class ExecutionPolicy:                       # per-step runtime guardrails on the Workspace
+    tools: ToolPermissions
+    exec_allow: list[str] = field(default_factory=list)  # command allow-list (N3)
+    exec_deny: list[str] = field(default_factory=list)
+    network_allow: list[str] = field(default_factory=list)
+    cpu_seconds: int | None = None
+    mem_mb: int | None = None
+
+@dataclass
+class ModelPolicy:                           # §20
+    model: str | None = None                 # None → inherit (step>agent>workflow>global Haiku)
+    max_tokens: int | None = None            # doc-only; runtime caps at MAX_OUTPUT_TOKENS
+    cost_class: str = "standard"             # cheap | standard | premium
+    fallback: list[str] = field(default_factory=list)    # ordered model fallback on throttle/error
+
+# --- typed artifacts with lineage (INV-10 / §17) ---
+@dataclass
+class ArtifactRef:
+    id: str
+    kind: str           # spec|plan|task_list|html_file|file_bundle|repo_inventory|repo_diff|context_pack|validation_report|merge_conflict|summary|patch
+    owner_id: str; workspace_id: str; run_id: str      # INV-8
+    producer_step: str; producer_agent: str; task_id: str | None
+    content_hash: str                                   # content-addressed (replay/dedup)
+    location: str                                       # sandbox path | store id | git ref
+    version: int
+    parents: list[str] = field(default_factory=list)    # lineage
+    visibility: str = "private"                          # private | workspace | public
+    retention: str = "run_ttl"                           # run_ttl | keep | days:N
 
 # --- workspace / runtime (designed now, local impl now; Q-N1) ---
 class RuntimeEnvironment(Protocol):
@@ -278,214 +357,382 @@ class RuntimeEnvironment(Protocol):
 
 class Workspace(Protocol):          # fs + optional git + optional exec, backed by a RuntimeEnvironment
     runtime: RuntimeEnvironment
+    owner_id: str; workspace_id: str    # INV-8
     has_git: bool
-    exec_policy: "ExecutionPolicy"
+    exec_policy: ExecutionPolicy
 
 class IsolationProvider(Protocol):  # Q20/Q34
     async def allocate(self, ctx: ExecutionContext, scope: str) -> Workspace: ...  # shared_read | sub_sandbox | worktree
 
-class MergeStrategy(Protocol):      # Q-"What Must Be Added"
+class MergeStrategy(Protocol):      # §13
     name: str
-    async def merge(self, base: Workspace, fragments: list[Workspace]) -> None: ...  # copy_disjoint | git_3way | json | html_fragment
+    async def merge(self, base: Workspace, fragments: list[Workspace]) -> "MergeResult": ...  # copy_disjoint|git_3way|json|html_fragment
 
 class BudgetManager:                # Q18/Q44 — tokens, cost, subagents, depth, concurrency, wall-clock
     def reserve(self, *, tokens=0, subagents=0) -> None: ...   # raises BudgetExceeded
     def spent(self) -> "BudgetSnapshot": ...
 ```
 
-**Fan-out (engine-owned, INV-7).** A new runner tool `spawn_subagents(tasks=[{agent, input}], mode=…)` is
-bound to allowed agents. The tool **does not** spawn anything itself; it emits a structured request the
-**kernel** fulfils: pick `IsolationProvider`, enforce `BudgetManager` + depth cap, run via `asyncio.gather`
-(parallel, capped) or sequentially, route outputs to the `ArtifactGraph`/sub-sandbox, `MergeStrategy` back,
-emit `subagent_*`/`merge_*` events, and return a files+summary payload (Q16-D) to the caller's next turn.
+**Fan-out (engine-owned, INV-7).** A runner tool `spawn_subagents(tasks=[{agent, input}], mode=…)` is bound
+**only** to steps whose `tools.spawn_subagents` is granted (INV-9). The tool **does not** spawn anything; it
+emits a structured request the **kernel** fulfils: pick `IsolationProvider`, enforce `BudgetManager` + depth
+cap, run via `asyncio.gather` (parallel, capped) or sequentially, route outputs to the `ArtifactGraph`,
+`MergeStrategy` back (→ §13 on conflict), emit `subagent_*`/`merge_*` events, return files+summary (Q16-D).
 
 ## 7. Capability registry & trust model (Q2, Q27, INV-4)
 
 - One `CapabilityRegistry` keyed by `(kind, name)` for: strategies, validators, deliverable resolvers,
-  context providers, isolation providers, merge strategies, task parsers, worker agents.
+  context providers, gate handlers, isolation providers, merge strategies, task parsers, worker agents.
 - **Engineers register** capabilities in code at startup. **Manifests reference by name.**
 - **Trust:** built-in/file manifests may reference any registered capability. **User/DB manifests** (later)
-  are validated against a per-capability **`user_allowed: bool`** flag — unknown or not-user-allowed names
-  → compile error. This is the security seam that keeps "fan-out / exec" from being user-composable until
-  explicitly allow-listed (and code-exec stays off the user list until N3 lands).
+  are validated against a per-capability **`user_allowed: bool`** flag + the owner's allow-list — unknown,
+  not-user-allowed, or not-owned (repos/workspaces) names → compile error. This is the seam that keeps
+  fan-out / exec / secrets off the user palette until explicitly allow-listed (code-exec stays off until N3).
 
-## 8. Prototype re-expressed as a manifest (the parity proof — SC-001)
+## 8. Tool permission policy & least privilege (A4 / INV-9 / N3)
+
+Step-level permissions, enforced **before** brownfield/exec work exists so nothing ships over-privileged.
+
+| Permission | Meaning | Default |
+|---|---|---|
+| `read_files` | read workspace/sandbox files | **ON** |
+| `write_files` | create/edit deliverable files | OFF |
+| `git` | branch/worktree/diff/commit (no push w/o N4) | OFF |
+| `exec` | run shell/compile/test in the workspace | **OFF** (N3) |
+| `network` | outbound network from a step/exec | **OFF** |
+| `secrets` | named, scoped secret access | **none** |
+| `spawn_subagents` | request engine fan-out (§6) | OFF |
+
+- **Resolution:** effective = `intersection(owner_allow_list, workflow_ceiling, step_grant)`. An agent's
+  AGENT.md may declare a **default it can only lower**, never raise.
+- **Enforcement points:** (1) `factory._build_runner_tools` binds only the granted tool sets; (2) the
+  `Workspace.ExecutionPolicy` gates `exec`/`network`/`secrets` at runtime (allow/deny lists, resource caps).
+- **Trust tie-in (§7):** user manifests may only grant from the user-allowed permission set; `exec`/`secrets`
+  are never user-grantable until N3's threat model lands. Default-deny throughout.
+
+## 9. Gate registry (A7)
+
+Gates become first-class, registry-driven `GateHandler`s declared per step (`gates: [...]`, ordered),
+evaluated by the kernel at the step boundary. Outcome ∈ `pass | block | wait_human`.
+
+| Gate | Behavior | Today |
+|---|---|---|
+| `human` | review/approve/edit/reject — the existing `_run_review_gate` + `review_gate_*` events | ✅ works |
+| `validation` | run the step's validators; block on policy (Q25); emit `validation_warning` on residuals | ⚠️ `Validation_Gate` declared in AGENT.md schema but **never implemented** — this makes it real |
+| `approval` | explicit sign-off before a sensitive action (e.g. PR push, first `exec`) | new |
+| `security` | gate `exec`/`network`/`secrets`/code-exec; default-deny until N3 | new (ties N3) |
+
+The HITL `human` gate keeps byte-identical events (INV-3). `validation`/`approval`/`security` are additive.
+
+## 10. Prototype re-expressed as a manifest (the parity proof — SC-001)
 
 `agents/workflows/prototype/workflow.yaml` (illustrative):
 
 ```yaml
 id: prototype
 version: 1
-planner: skip                                   # was SKIP_PLANNER_FOR_PROTOTYPE (L5)
+model: { model: null, cost_class: standard }     # inherit global default (Haiku); §20
+planner: skip                                     # was SKIP_PLANNER_FOR_PROTOTYPE (L5)
 clarify:
-  mode: always                                  # was ALWAYS_CLARIFY
+  mode: always                                    # was ALWAYS_CLARIFY
   defaults: [target_audience, scope, priority, style]   # was the L6 dict entry
-context_providers: [opendesign]                 # was od_context branches (L12)
-seed_files:                                     # was _write_build_reference_files (L11)
+context_providers: [opendesign]                   # was od_context branches (L12)
+seed_files:                                       # was _write_build_reference_files (L11)
   spec.md:  { from: prototype-specify }
   tasks.md: { from: prototype-plan }
-  design.md: { from_provider: opendesign }       # template_body + ds_body
+  design.md: { from_provider: opendesign }         # template_body + ds_body
 deliverable: { strategy: single_file, name: prototype.html }   # was L2/L10
 limits: { max_subagents: 0, max_concurrency: 1 }               # prototype = sequential (Q33)
 steps:
-  - { agent: prototype-specify, gate: human }
-  - { agent: prototype-plan,    gate: human }
+  - { agent: prototype-specify, gates: [human], tools: { read_files: true } }
+  - { agent: prototype-plan,    gates: [human], tools: { read_files: true } }
   - agent: prototype-build
-    strategy: task_loop                          # was the L7 spec.id branch
+    strategy: task_loop                            # was the L7 spec.id branch
+    tools: { read_files: true, write_files: true }  # least-privilege (INV-9): no exec/net/spawn
     task_source: { from: prototype-plan, parser: heading_tasks }   # was _count/_extract (L11)
-    compaction: html_skeleton                     # was the dead L13 helper (now wired, Q35/Tier#1)
-    validators: [html_static, html_render]        # was _run_validation_fix_loop (L11)
+    compaction: html_skeleton                       # was the dead L13 helper (now wired; Q35/Tier#1)
+    validators: [html_static, html_render]          # was _run_validation_fix_loop (L11)
     fix: { max_attempts: 2, policy: warn_noncritical_block_critical }
-  - { agent: prototype-validate }
+  - { agent: prototype-validate, tools: { read_files: true, write_files: true } }
 ```
 
-`od_prototype` = the same manifest selected with the OpenDesign context provider configured (alias → same plan).
-`prototype_revision` = a variant manifest with `seed_files.parent: { from_run: parent }` + the revision deliverable
-+ the post-edit validation step (was L4/L8). **Acceptance:** running this manifest produces the identical event
-stream + `prototype.html` as today (characterization tests), with the L1–L14 branches deleted from the kernel.
+`od_prototype` = same manifest with the OpenDesign provider configured (alias → same plan). `prototype_revision`
+= a variant with `seed_files.parent: { from_run: parent }` (ownership-checked, INV-8) + the revision deliverable
++ a post-edit `validation` gate (was L4/L8). **Acceptance:** identical event stream + `prototype.html` as today
+(characterization tests), with L1–L16 branches deleted from the kernel.
 
-## 9. Leak → new-home mapping (every L# from §4)
+## 11. Leak → new-home mapping (every L# from §4)
 
 | Leak | New home |
 |---|---|
 | L1 names/`REVISION_FILE_NAME` | manifest `deliverable.name` + `seed_files`; no frozensets |
-| L2 `_resolve_final_output` | `DeliverableResolver` registry (`single_file`/`serialized_sandbox`/`streamed_text`/`…`) |
-| L3 carousel/`<artifact>` | a `ppt` `DeliverableResolver` + a `ppt` post-step validator/transform (registered) |
-| L4 revision seeding/baseline | `seed_files.from_run` + a `previous_run` ContextProvider; baselines = validator concern |
+| L2 `_resolve_final_output` | `DeliverableResolver` registry |
+| L3 carousel/`<artifact>` | a `ppt` `DeliverableResolver` + a `ppt` post-step transform/validator |
+| L4 revision seeding/baseline | `seed_files.from_run` + `previous_run` ContextProvider (ownership-checked); baselines = validator concern |
 | L5 skip-planner | manifest `planner: skip` |
 | L6 clarify defaults | manifest `clarify.defaults` |
-| L7 build-loop dispatch | `strategy: task_loop` resolved from the step (Q9) |
-| L8 post-revision fix | the same `task_loop`/validators on the revision step |
+| L7 build-loop dispatch | `strategy: task_loop` from the step (Q9) |
+| L8 post-revision fix | `validation` gate + `task_loop`/validators on the revision step |
 | L9 final-output + sanitize | `DeliverableResolver.resolve()` |
-| L10 HTML read-back | `task_loop` strategy reads the declared `deliverable.name` from the workspace |
+| L10 HTML read-back | `task_loop` reads the declared `deliverable.name` from the workspace |
 | L11 build-loop internals | `TaskLoopStrategy` + `TaskParser` + `Validator`s + generic fix-loop + `seed_files` |
-| L12 context injection | `ContextProvider` (opendesign) + per-agent `injects` resolution in a generic injector |
-| L13 dead skeleton | `CompactionStrategy(html_skeleton)` wired via `compaction:` (Tier#1) |
+| L12 context injection | `ContextProvider(opendesign)` + per-agent `injects` resolved by a generic injector |
+| L13 dead skeleton | `CompactionStrategy(html_skeleton)` via `compaction:` (Tier#1) |
 | L14 singleton state | `ExecutionContext` (Phase 0) |
+| L15 untyped handoff | `ArtifactGraph` + `ArtifactRef` (§17); `accumulated_outputs` kept as a mirror during migration |
+| L16 unchecked parent seeding | ownership check at the store layer (INV-8 / §19) |
 
-## 10. Fan-out & sub-agents (Q12–Q20) — interfaces now, build in Phase 5
+## 12. Fan-out & sub-agents (Q12–Q20) — interfaces now, build in Phase 5
 
-- **Two entry points:** declarative (`step.fanout` over a task list) and runtime (`spawn_subagents` tool).
-  Both funnel through one kernel `run_fanout(requests, ctx)`.
-- **Worker selection (Q14):** `agent="self"` (N copies) or a named worker that must be in the workflow's
-  `allowed_workers` + registry.
+- **Two entry points:** declarative (`step.fanout`) and runtime (`spawn_subagents` tool, gated by `tools.spawn_subagents`). Both funnel through one kernel `run_fanout(requests, ctx)`.
+- **Worker selection (Q14):** `agent="self"` (N copies) or a named worker in the workflow's `allowed_workers` + registry.
 - **Mode (Q15):** `parallel` (capped `asyncio.gather`) or `sequential`; engine enforces `max_concurrency`.
-- **Isolation (Q20/Q34):** `IsolationProvider.allocate(scope)` → shared-read | sub_sandbox | worktree; writes default to isolated.
-- **Merge (Q16-D):** results land as artifacts/files; `MergeStrategy` integrates them; caller gets files + a structured summary.
-- **Nesting/limits (Q17/Q18):** `ctx.depth` capped; `BudgetManager` enforces subagent count, concurrency, tokens, cost, wall-clock; `BudgetExceeded` aborts fan-out gracefully (partial results surfaced).
-- **Events (Q43):** `subagent_spawned` / `subagent_result` / `merge_start` / `merge_complete` / `budget_warning`.
+- **Isolation (Q20/Q34):** `IsolationProvider.allocate(scope)` → shared-read | sub_sandbox | worktree; writes default isolated.
+- **Merge (Q16-D):** results land as artifacts; `MergeStrategy` integrates; conflicts → §13.
+- **Nesting/limits (Q17/Q18):** `ctx.depth` capped; `BudgetManager` enforces subagents/concurrency/tokens/cost/wall-clock; `BudgetExceeded` aborts gracefully (partial results surfaced).
+- **Persistence:** each child is a `subagent_runs` row (§18); events `subagent_spawned`/`subagent_result`.
 
-## 11. Workspace / RuntimeEnvironment layer (Q-N1, N2, N7) — interfaces now, `LocalSandboxRuntime` only
+## 13. Merge conflict flow (A6)
 
-- **One `Workspace`** (INV-2 of the design): filesystem + optional git + optional exec. Prototype's
-  `RunSandbox` becomes a `Workspace` with `has_git=False, exec=off`. **No engine fork** for repo vs artifact.
-- **`LocalSandboxRuntime`** implements the port over the existing per-run disk dir (clone into the run dir,
-  local branch/worktree, `git diff`). **`EcsRuntime` is deferred** (§17) behind the same port.
-- **Repo workflow (local, Phase 4):** `clone_repo` → `create_branch`/worktree → agents read/edit/search/exec
-  → validators (compile/test/lint) → `DeliverableResolver(repo_diff)` → app-builder-style **file tree + diff +
-  validation results** surface (Q-N7). PR push waits on a git-hosting integration (N4).
+When `MergeStrategy.merge` reports conflicts (overlapping `conflict_keys`/files, failed 3-way):
 
-## 12. Validation framework & severity (Q21–Q25)
+1. Write a `merge_conflict` `ArtifactRef` (the conflicting hunks/files) and emit a `merge_conflict` event.
+2. Resolve per the step's `on_conflict` policy:
+   - **`human_gate`** (default) — pause via a `human` gate showing the conflict; resume on user resolution.
+   - **`merge_agent`** — spawn a designated merge worker (bounded attempts) to auto-resolve, then re-validate.
+   - **`partial`** — keep non-conflicting fragments, mark conflicted tasks failed, continue; surface in the report.
+   - **`abort`** — fail the wave/run.
+3. Applies to fan-out (Phase 5), waves (Phase 6), and worktree merges. Bounded `merge_agent` retries (avoid oscillation).
+
+## 14. Workspace / RuntimeEnvironment layer (Q-N1, N2, N7) — interfaces now, `LocalSandboxRuntime` only
+
+- **One `Workspace`** abstraction: filesystem + optional git + optional exec + `ExecutionPolicy`. Prototype's
+  `RunSandbox` becomes a `Workspace` with `has_git=False, exec=off`. **No engine fork** for repo vs artifact (R3).
+- **`LocalSandboxRuntime`** implements the port over the per-run disk dir (clone into the run dir, local
+  branch/worktree, `git diff`). **`EcsRuntime` deferred** (§27) behind the same port.
+- **Repo workflow (local, Phase 4):** `clone_repo` → `create_branch`/worktree → repo inventory (§15) → agents
+  read/edit/search/exec (under `ExecutionPolicy`) → `validation` gate (compile/test/lint) → `DeliverableResolver(repo_diff)`
+  → app-builder-style **file tree + diff + validation results** (Q-N7). PR push waits on git-hosting (N4).
+
+## 15. Repo index / context selection (A5 / N6)
+
+Codex-like repo work needs more than `search()`. Three first-class artifacts/providers:
+
+- **`RepoInventory`** (`kind=repo_inventory`) — file tree, language stats, dependency graph, **ignore rules**
+  (`.gitignore` + `.flowinignore`), **binary-file skip**, size caps, optional per-dir/file **summaries**.
+  Produced by a `repo_inventory` step/provider after clone.
+- **`RepoIndex`** (optional, large repos) — symbol/embedding index behind a port; default = grep/glob for small
+  repos. The grep-vs-index threshold is **N6** (repo scale).
+- **`ContextPack`** (`kind=context_pack`) — the **targeted subset** (files/snippets) an agent needs for a task,
+  built by a `context_selector` capability; avoids dumping the repo into context (the brownfield analog of the
+  prototype `html_skeleton` compaction). Lineage-tracked, per task.
+- Surfaced to agents via the `repo` `ContextProvider`.
+
+## 16. Validation framework & severity (Q21–Q25)
 
 - `Validator` registry; manifest lists `validators: [...]` per step. `DeliverableContext` carries path,
-  content, `Workspace`, and task meta, and can request a browser/compile/test runner (Q22).
+  content, `Workspace`, and task meta, and may request a browser/compile/test/static-analysis runner (Q22).
 - **Generic fix-loop** (replaces L11's HTML-hardcoded one): deliverable name + `max_attempts` + fix-prompt
-  template from `FixPolicy`. Default policy **warn on non-critical, block on critical**, then emit
-  `validation_warning` with residuals (Q25, lands Tier#9).
-- **Severity:** internal `P0/P1/P2/P3`; a single mapping function exposes `CRITICAL/HIGH/MEDIUM/LOW` to the UI (Q24).
-- **Tier #4/#5/#6** become registered validators/gates: `spec_plan_coverage` (pre-build analyze), `task_done_when`
+  template from `FixPolicy`. Default **warn on non-critical, block on critical** (via the `validation` gate, §9),
+  then emit `validation_warning` with residuals (Q25, lands Tier#9). Each run/attempt → `validation_results` row (§18).
+- **Severity:** internal `P0/P1/P2/P3`; one mapping function exposes `CRITICAL/HIGH/MEDIUM/LOW` to the UI (Q24).
+- **Tier #4/#5/#6** ship as registered validators: `spec_plan_coverage` (pre-build analyze), `task_done_when`
   (per-task acceptance), `design_quality` (tokens/placeholder/a11y, warnings-first).
 
-## 13. Budgets, limits, observability (Q18, Q43, Q44)
+## 17. Artifact graph & lineage (A8 / INV-10)
+
+- `ArtifactGraph` = the typed, **content-addressed**, **owner-scoped** DAG of `ArtifactRef`s for a run (and
+  across runs via `parents`). Replaces the loose `accumulated_outputs: dict[str,str]` (L15) and the thin store.
+- Every write records producer step/agent/task, `content_hash`, `version`, `parents`, `visibility`, `retention`.
+- Powers: typed `produces`/`consumes` routing (not string matching), revision lineage (`derived_from`),
+  dedup/replay, deliverable resolution, and debugging ("what produced this, from what"). Retention default
+  `run_ttl` (= the 48h sandbox TTL) unless `keep`/`days:N` (N9).
+
+## 18. Persistence schema (A2 / Q45)
+
+New/extended tables (all carry `owner_id` + `workspace_id`; additive migrations only, Q3):
+
+| Table | Key columns |
+|---|---|
+| `workflows` (definitions) | id, owner_id, workspace_id, source(`file`/`db`), manifest_json, version, created/updated |
+| `workflow_runs` *(extend)* | + workspace_id, owner_id, parent_run_id, source_run_id, plan_id, status, budget_snapshot_json |
+| `artifact_refs` | full `ArtifactRef` (§17) + FKs(run_id, owner_id, workspace_id); idx (run_id, kind), (content_hash) |
+| `workspaces` | id, owner_id, kind(`sandbox`/`repo`), repo_id?, runtime(`local`/`ecs`), created, ttl |
+| `repositories` | id, owner_id, provider(`github`/`gitlab`/`local`), url, default_branch, auth_ref(scoped), created |
+| `subagent_runs` | id, parent_run_id, parent_step, worker_agent, depth, isolation, workspace_id, status, tokens, cost |
+| `wave_runs` | id, run_id, step, wave_index, task_ids[], status |
+| `validation_results` | id, run_id, step, validator, severity, code, message, target, attempt, created |
+| `gate_events` | id, run_id, step, gate_kind, outcome, actor, created |
+
+Migrations live in the existing migrations dir (002 referenced migration 0013). A retention sweep aligns
+`artifact_refs`/`workspaces` with the sandbox TTL.
+
+## 19. Authorization & multi-user boundaries (A3 / INV-8)
+
+- **Ownership model:** `user → workspace → (repository | project) → run → {artifacts, subagent_runs}`.
+  Everything carries `owner_id` + `workspace_id`.
+- **Default-deny:** a run may only read/seed from a `parent_run`/`source_run`/artifact/workspace/repo it owns
+  (or that is shared at `workspace` visibility). The current `parent_run_id` seeding (`engine.py:583-610`, L16)
+  reads `RunSandbox(user_id, parent_run_id)` keyed on the same user **implicitly** — make it an **explicit,
+  enforced** check that rejects cross-owner access.
+- **Enforcement at the store/repository layer** (a single scoped-query helper), not scattered in callers — mirrors
+  how `RunSandbox` already namespaces by user on disk. All artifact/run reads go through it.
+- **User-authored workflows** (later): may only reference owned repos/workspaces + user-allowed capabilities (§7/§8).
+
+## 20. Model policy (A10)
+
+- **Resolution order:** `step.model` > agent default (AGENT.md) > `workflow.model` > global default (Haiku).
+  A `ModelResolver` on `ExecutionContext` applies it per agent invocation via `model_factory.build_model`.
+- **Fields:** model id, `max_tokens` (doc-only; runtime caps at `MAX_OUTPUT_TOKENS`), `cost_class`
+  (`cheap`/`standard`/`premium`), ordered `fallback` chain (on provider throttle/error → next model).
+- **Budget tie-in:** `cost_class` informs `BudgetManager`; a `premium` workflow can use a stronger executor
+  (the noted future lever from 002) without code changes. Per-step override lets one expensive step upgrade.
+
+## 21. Cancellation, retry & resume (A9)
+
+- **Cancellation:** cooperative `cancel_event`, checked per-chunk **and** at step/gate/fanout/wave boundaries.
+  On cancel → mark run `cancelled`, **preserve partial artifacts** (lineage), `teardown()` isolated workspaces,
+  emit `pipeline_cancelled`. Fan-out cancellation **propagates to children**.
+- **Retry (idempotent):** per-step `retry: {max, on}` for **transient** errors (provider/throttle) — distinct
+  from the validator **fix-loop** (which refines content). A step is keyed by `(run_id, step_id, input content_hash)`;
+  re-entry **reuses the existing artifact** if the hash matches (no duplicate work).
+- **Resume:** durable **step-level** run state (status per step) + the LangGraph checkpointer (per-agent thread)
+  + `artifact_refs`. **Reconnect** = re-attach to the event stream (replay from store). **Server restart** =
+  `restore_non_terminal_runs` extended to step granularity: a `waiting_for_user` gate resumes on user action; an
+  in-flight step resumes from its checkpoint or re-runs idempotently. Long brownfield jobs (N8) resume **mid-wave**
+  via `subagent_runs`/`wave_runs` records.
+
+## 22. API / frontend contract (A1)
+
+The composer must become **dynamic** — no hardcoded workflow types or flat agent sequences. Backend endpoints:
+
+- `GET /api/workflows` → list + metadata (id, name, description, step summary).
+- `GET /api/workflows/{id}` → full step configs, gates, validators, deliverable, declared capabilities.
+- `GET /api/capabilities` → registry (kind, name, `user_allowed`, config schema) — the composer **palette** (§7).
+- run stream (WS/ndjson) → existing events **+** new (Q43): `subagent_*`, `wave_*`, `validator_result`,
+  `validation_warning`, `merge_*`, `budget_warning`, `gate_*`.
+- `GET /api/runs/{id}/artifacts` → typed artifact tree (lineage); `GET /api/runs/{id}/diff` → repo diff.
+- subagent tree + wave view derived from events / `subagent_runs` / `wave_runs`.
+
+**Frontend track (parallel, flagged per phase):** dynamic composer + capability palette; validator/issue panel;
+subagent + wave tree; artifact/diff viewer (**reuse the app-builder `FilesTab`/`AppBuilderPreview`** for
+`repo_diff`/`file_bundle`). The event contract for **existing** workflows stays byte-identical (INV-3); all new
+panels are additive. Risk R6 is now this section, not a footnote.
+
+## 23. Budgets, limits, observability (Q18, Q43, Q44)
 
 - `BudgetManager` per-run **and** per-workspace ceilings (tokens, €, subagents, depth, concurrency, wall-clock);
-  reserve-before-spawn; graceful abort.
+  reserve-before-spawn; graceful abort; snapshot persisted on the run (§18).
 - New events (Q43): `subagent_*`, `wave_start`/`wave_complete`, `validator_result`, `validation_warning`,
-  `merge_*`, `budget_warning`. Existing events stay byte-identical for migrated workflows (INV-3).
+  `merge_*`, `gate_*`, `budget_warning`. Existing events stay byte-identical for migrated workflows (INV-3).
 
-## 14. Backward-compat & testing strategy (Q3, Q40)
+## 24. Backward-compat & testing strategy (Q3, Q40)
 
 - **Characterization tests FIRST (Phase 0):** golden deliverable + recorded event-stream snapshots for
   `prototype`, `od_prototype`, `prototype_revision`, `ppt`/`od_ppt`, and one code-gen pipeline, driven by a
   scripted model (`tests/agents/_scripted_model.py`). These are the regression gate for every later phase.
-- Each phase must leave those snapshots **green** before it merges. No dual-path flags left behind (INV-3).
+- Per-capability suites added as each registry lands; authz tests (cross-owner denial) from Phase 1.
+- Each phase must leave snapshots **green** before it merges. No dual-path flags left behind (INV-3).
 
-## 15. Phase plan
+## 25. Phase plan
 
 > Strangler migration (Q39). Each phase is independently shippable and keeps prototype working.
 
-**Phase 0 — Safety net + `ExecutionContext`.** Characterization tests (§14). Extract all `self._*` run state
-into `ExecutionContext`; thread it through `execute`/`_run_agent`/build-loop. **No behavior change.**
-*Accept:* snapshots green; kernel instance has no per-run attributes (NFR-001). Also lands **Tier#1 token-trim** (wire `_extract_html_skeleton`) as the first measurable win (Q37/Q41).
+**Phase 0 — Safety net + `ExecutionContext` + cheap wins.** Characterization tests (§24). Extract all `self._*`
+run state into `ExecutionContext` (L14). Add the **explicit ownership check** on `parent_run` seeding (L16/INV-8 —
+cheap, do now). Wire the dead `_extract_html_skeleton` (Tier#1 token-trim). **No behavior change.**
+*Accept:* snapshots green; kernel has no per-run attributes (NFR-001); cross-owner parent seed rejected.
 
-**Phase 1 — Manifest + typed artifacts + thin compiler.** `WorkflowManifest` (file-backed), `ArtifactGraph`/
-`ArtifactRef`, `WorkflowCompiler` → `CompiledWorkflow`. Existing pipelines load via a generated manifest
-(behavior unchanged). *Accept:* every current pipeline runs from a compiled plan; snapshots green.
+**Phase 1 — Manifest + typed artifacts + persistence + compiler + model policy.** `WorkflowManifest` (file-backed),
+`ArtifactGraph`/`ArtifactRef` (§17) + the persistence schema (§18: `artifact_refs`, extend `workflow_runs`,
+`workspaces`), `WorkflowCompiler` → `CompiledWorkflow`, `ModelResolver` (§20). Existing pipelines load via a
+generated manifest (unchanged). *Accept:* every current pipeline runs from a compiled plan; artifacts are
+typed+lineage-tracked; snapshots green; authz denial tests pass.
 
 **Phase 2 — Prototype as manifest (parity proof, SC-001).** Implement `single_shot` + `task_loop` strategies,
-`single_file`/`serialized_sandbox`/`streamed_text` resolvers, `opendesign` context provider, `seed_files`,
-`heading_tasks` parser. Delete L1–L13 kernel branches. *Accept:* prototype/od_/revision/ppt/code-gen
-byte-identical (snapshots green) with **zero name/id branches** in the kernel (grep gate, INV-1).
+`single_file`/`serialized_sandbox`/`streamed_text` resolvers, `opendesign` provider, `seed_files`, `heading_tasks`
+parser, `html_skeleton` compaction. **Delete L1–L16 kernel branches.** *Accept:* prototype/od_/revision/ppt/code-gen
+byte-identical with **zero name/id branches** in the kernel (grep gate, INV-1).
 
-**Phase 3 — Capability registries hardened.** Formalize `CapabilityRegistry` + trust flags (Q2/Q7); migrate
-validators (`html_static`, `html_render`) and the generic fix-loop; severity mapping; `validation_warning`.
-*Accept:* validators are registry-driven; Tier#4/5/6 land as validators (Q38).
+**Phase 3 — Capabilities hardened: registries + gates + tool perms.** Formalize `CapabilityRegistry` + trust flags
+(§7); `GateHandler` registry (`human`/`validation`/`approval`/`security`, §9) — make `Validation_Gate` real;
+`ToolPermissions` enforcement at `factory._build_runner_tools` (§8/INV-9); migrate `html_static`/`html_render`
+validators + generic fix-loop; severity mapping; `validation_warning`. *Accept:* validators+gates registry-driven;
+least-privilege enforced; Tier#4/5/6 land as validators (Q38).
 
-**Phase 4 — Local Workspace runtime.** `RuntimeEnvironment` port + `LocalSandboxRuntime`; `Workspace`;
-`repo_diff` resolver; minimal repo tools (read/edit/search/exec/git_diff) behind `ExecutionPolicy`. First
-brownfield workflow end-to-end **locally** (clone → branch → agents → compile/test validators → diff surface).
-*Accept:* a sample repo workflow produces a diff + validation results; prototype unaffected.
+**Phase 4 — Local Workspace runtime + repo workflows.** `RuntimeEnvironment` port + `LocalSandboxRuntime`;
+`Workspace` + `ExecutionPolicy`; `repositories`/`workspaces` rows; repo inventory/index/context-pack (§15);
+`security` gate gating `exec`/`network`/`secrets` (default-deny pending N3); `repo_diff` resolver; first brownfield
+workflow end-to-end locally (clone → branch → inventory → agents → compile/test validators → diff surface).
+*Accept:* a sample repo workflow produces a diff + validation results; prototype unaffected; exec stays gated.
 
-**Phase 5 — Engine-owned fan-out.** `spawn_subagents` tool + kernel `run_fanout`; `IsolationProvider`
-(sub_sandbox/worktree) + `MergeStrategy`; `BudgetManager`; depth/concurrency caps; `subagent_*`/`merge_*` events.
-*Accept:* an agent can fan out N workers under caps, results merge deterministically; budgets abort gracefully.
+**Phase 5 — Engine-owned fan-out + merge.** `spawn_subagents` tool (gated) + kernel `run_fanout`;
+`IsolationProvider` (sub_sandbox/worktree) + `MergeStrategy` + **merge-conflict flow** (§13); `BudgetManager`;
+depth/concurrency caps; `subagent_runs` persistence; cancellation propagation (§21); `subagent_*`/`merge_*` events.
+*Accept:* an agent fans out N workers under caps; results merge deterministically; conflicts follow `on_conflict`;
+budgets abort gracefully.
 
-**Phase 6 — Wave scheduler.** `wave_scheduler` strategy: topo-sort tasks by `depends_on` + `conflict_keys`
-into waves, run each wave via fan-out. Enabled for multi-file workflows; **prototype stays sequential** (Q33).
-*Accept:* a multi-file workflow runs disjoint tasks in parallel waves; seam left for CP-SAT (Q32).
+**Phase 6 — Wave scheduler + durable resume.** `wave_scheduler` strategy: topo-sort by `depends_on` +
+`conflict_keys` into waves, run each wave via fan-out; `wave_runs` persistence; resume **mid-wave** (§21). Enabled
+for multi-file workflows; **prototype stays sequential** (Q33). *Accept:* a multi-file workflow runs disjoint tasks
+in parallel waves; a restart resumes mid-wave; CP-SAT seam left (Q32).
 
-**Phase 7 (later) — ECS/EC2 runtime** behind the unchanged `RuntimeEnvironment` port (separate spec; §17).
+**Phase 7 (later) — ECS/EC2 runtime** behind the unchanged `RuntimeEnvironment` port (separate spec; §27).
 
-## 16. Open decisions (decision records — confirm before the relevant phase)
+*Cross-cutting:* the **frontend contract (§22)** is a parallel track touched every phase (new events/panels);
+**cancellation/retry/resume (§21)** is basic in Phase 0 and hardened through Phases 5–6.
+
+## 26. Open decisions (decision records — confirm before the relevant phase)
 
 - **N1 ✅ DECIDED** — Local runtime now; ECS later behind the port.
 - **N2 (Phase 4)** — *Proposed:* isolation granularity MVP = **ephemeral per-run local**; abstraction allows warm/dedicated later. **Confirm.**
-- **N3 (gates Phase 4 exec) ⚠️ OPEN — highest risk** — Local `exec_command` security: network egress (none/allow-list), secrets (none-by-default/scoped), credentials (ephemeral), command allow/deny, resource caps. **Needs its own threat-model decision; code-exec stays disabled until set.**
-- **N4 (Phase 4+)** — Git hosting scope. *Note:* your repo is GitLab (`hexaware-uki/flowin`) → GitLab likely required, not just GitHub. **Confirm order: GitHub-first vs GitLab-first vs both.**
-- **N5 (Phase 4)** — *Proposed:* branch/PR **manifest-declared, runtime-enforced** (`base_branch`, `working_branch`, `commit_policy`, `pr_policy`); v1 = **diff-only, no PR push** until N4 lands. **Confirm.**
-- **N6 (Phase 4)** — Target repo scale (kLOC / file count) → drives index-vs-grep for repo inventory. **Provide a ballpark.**
-- **N7 (Phase 4)** — *Proposed/confirmed-ish:* repo deliverable = app-builder-style **file tree + per-file diff + test/build results + summary** (PR link when N4 lands). **Confirm.**
+- **N3 (Phase 4 exec) ⚠️ OPEN — highest risk** — Local `exec_command` security: network egress (none/allow-list), secrets (none-by-default/scoped), credentials (ephemeral), command allow/deny, resource caps. **Own threat-model decision; code-exec disabled (security gate) until set.**
+- **N4 (Phase 4+)** — Git hosting scope/order. *Note:* your repo is GitLab (`hexaware-uki/flowin`) → GitLab likely required. **Confirm GitHub-first vs GitLab-first vs both.**
+- **N5 (Phase 4)** — *Proposed:* branch/PR **manifest-declared, runtime-enforced** (`base_branch`, `working_branch`, `commit_policy`, `pr_policy`); v1 = **diff-only, no PR push** until N4. **Confirm.**
+- **N6 (Phase 4)** — Target repo scale (kLOC / file count) → grep-vs-index threshold for §15. **Provide a ballpark.**
+- **N7 (Phase 4)** — *Proposed:* repo deliverable = app-builder-style **file tree + per-file diff + test/build results + summary** (PR link when N4 lands). **Confirm.**
 - **N8 (Phase 4+)** — Long-job orchestration substrate. *Proposed:* in-process (FastAPI task) for local v1; durable queue/worker is an infra follow-up. **Confirm.**
+- **N9 (Phase 1)** — Artifact **retention** default. *Proposed:* `run_ttl` (= 48h sandbox TTL); `keep` for deliverables surfaced to the user. **Confirm.**
+- **N10 (Phase 4)** — `RepoIndex` approach for large repos: grep-only vs symbol index vs embeddings (tied to N6). **Confirm when N6 known.**
+- **N11 (Phase 1)** — Model policy: global default (Haiku) + whether `premium` models are allowed per workflow, and the default fallback chain. **Confirm.**
 
-## 17. Non-goals / deferred (designed-for, not built here)
+## 27. Non-goals / deferred (designed-for, not built here)
 
 ECS/EC2 provisioning · warm/dedicated containers · container networking & cloud secrets injection · production
 container teardown/lease mgmt · CP-SAT scheduling (topo seam only) · single-file fragment-merge parallelism
 (prototype stays sequential) · untrusted **end-user code execution** (trust seam exists; capability stays
-engineer-only until N3) · PR/commit push (diff-only until git-hosting integration). All sit behind interfaces
-defined in this spec so each is a **backend swap, not a rewrite**.
+engineer-only + `security`-gated until N3) · PR/commit **push** (diff-only until git-hosting integration, N4).
+All sit behind interfaces defined in this spec so each is a **backend swap, not a rewrite**.
 
-## 18. File-by-file change map (initial)
+## 28. File-by-file change map (initial)
 
-- `agents/execution_engine/engine.py` → split into `kernel.py` (workflow-agnostic) + delete L1–L13 branches.
+- `agents/execution_engine/engine.py` → split into `kernel.py` (workflow-agnostic) + delete L1–L16 branches.
 - new `agents/execution_engine/context.py` — `ExecutionContext` (Phase 0).
-- new `agents/workflows/` — `manifest.py`, `compiler.py`, `plan.py`, and `<id>/workflow.yaml` per workflow.
-- new `agents/capabilities/` — `registry.py` + `strategies/`, `validators/`, `deliverables/`, `context_providers/`, `isolation/`, `merge/`, `task_parsers/`.
-- new `app/agents/runtime/` — `base.py` (`RuntimeEnvironment`/`Workspace` ports), `local.py` (`LocalSandboxRuntime`).
+- new `agents/workflows/` — `manifest.py`, `compiler.py`, `plan.py`, `<id>/workflow.yaml` per workflow.
+- new `agents/capabilities/` — `registry.py` + `strategies/`, `validators/`, `deliverables/`, `context_providers/`, `gates/`, `policy/` (model + tool resolution), `isolation/`, `merge/`, `task_parsers/`, `repo/` (inventory/index/context_selector).
+- new `agents/authz.py` — ownership-scoped query/seed helpers (INV-8).
+- new `app/agents/runtime/` — `base.py` (`RuntimeEnvironment`/`Workspace`/`ExecutionPolicy` ports), `local.py` (`LocalSandboxRuntime`).
 - new `app/agents/tools/fanout.py` — `spawn_subagents` (Phase 5).
 - `app/agents/static_check.py` / `render_check.py` → wrapped as registered `Validator`s.
-- `agents/registry.py` — `PIPELINE_AGENTS` becomes (or is generated from) manifests; alias `pipeline_type`.
-- tests: `tests/agents/test_characterization_*.py` (Phase 0), then per-capability suites.
+- `app/models/` — extend `workflow.py`/`workflow_definition.py`; new `artifact_ref.py`, `workspace.py`, `repository.py`, `subagent_run.py`, `wave_run.py`, `validation_result.py`, `gate_event.py`; new migrations (§18).
+- `app/api/` — new `workflows.py`, `capabilities.py`; extend run/artifact/diff endpoints (§22).
+- `agents/registry.py` — `PIPELINE_AGENTS` becomes (or is generated from) manifests; `pipeline_type` alias.
+- frontend — dynamic composer + capability palette + validator/subagent/wave/diff panels (parallel track, §22).
+- tests — `tests/agents/test_characterization_*.py` (Phase 0); per-capability + authz suites after.
 
-## 19. Risks
+## 29. Risks
 
 - **R1 Parity regression** — behavior secretly encoded in `engine.py`. *Mitigation:* Phase 0 characterization snapshots; INV-3.
 - **R2 Compiler scope-creep into a DSL** — *Mitigation:* INV-5; manifest is data, strategies hold logic.
 - **R3 Two engines** (artifact vs repo) — *Mitigation:* one `Workspace` abstraction (INV-6); prototype = git-off Workspace.
 - **R4 Fan-out cost/recursion blowups** — *Mitigation:* `BudgetManager` + depth/concurrency caps; engine-owned (INV-7).
-- **R5 Code-exec security** — the scariest surface. *Mitigation:* N3 own spec; capability disabled until threat-model set; off the user allow-list.
-- **R6 Frontend lag** — UI assumes known types/flat sequences. *Mitigation:* workflow metadata + new events fetched dynamically (tracked separately).
-- **R7 Durable resume for long repo jobs** — *Mitigation:* typed artifacts + run-state records; N8.
+- **R5 Code-exec security** — the scariest surface. *Mitigation:* N3 own spec; `security` gate default-deny; off the user allow-list.
+- **R6 Frontend lag** — now a first-class deliverable (§22), not a footnote. *Mitigation:* dynamic metadata/events; parallel track per phase.
+- **R7 Durable resume for long jobs** — *Mitigation:* typed artifacts + step/subagent/wave run records (§18/§21); N8.
+- **R8 Cross-tenant leakage** — *Mitigation:* INV-8; store-layer scoped queries; ownership denial tests from Phase 1.
+- **R9 Persistence migration risk** — *Mitigation:* additive migrations only (Q3); back-compat columns; staged rollout.
+- **R10 Model cost / throttle** — *Mitigation:* `cost_class` + `BudgetManager` + fallback chain (§20).
+- **R11 Merge-conflict oscillation** — *Mitigation:* bounded `merge_agent` attempts; `on_conflict` policy; human gate fallback (§13).
 
 ---
 
