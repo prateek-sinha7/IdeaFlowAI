@@ -14,7 +14,7 @@
 | **Branch** | `feature/003-workflow-engine-decoupling` (off `deepagents-full-swap`) |
 | **Status** | 📋 Planned — Phase 0 next. No code landed yet. |
 | **Created** | 2026-06-06 |
-| **Revised** | 2026-06-06 — review additions folded in (§8 tool perms · §9 gates · §13 merge-conflict · §15 repo index · §17 lineage · §18 persistence · §19 authz · §20 model policy · §21 cancel/retry/resume · §22 frontend contract; INV-8…10) |
+| **Revised** | 2026-06-06 (r1) review additions §8–§22 + INV-8…10 · 2026-06-06 (r2) phase splits (0A/B/C · 1A/B/C · 4A/B), semantic event parity (INV-3), synthetic `anon:<session_id>` owner, hand-authored manifests, durable event `seq`/replay cursor |
 | **Builds on** | [002-deepagents-migration](../002-deepagents-migration/plan.md) (the deepagents runtime this refactor restructures) |
 | **Supersedes** | the hardcoded `pipeline_type`/`spec.id == "prototype-build"` branches in `agents/execution_engine/engine.py` |
 
@@ -34,8 +34,8 @@ corruption bug and a hard blocker for fan-out / parallel waves / multi-tenant ru
 **Goal.** A workflow-agnostic kernel + declarative capabilities such that:
 
 1. **Parity by declaration** — `prototype` is re-expressed as a manifest; the engine contains **no**
-   `if pipeline_type == "prototype"` / `if spec.id == "prototype-build"` branches, and output is
-   byte-identical (SC-001).
+   `if pipeline_type == "prototype"` / `if spec.id == "prototype-build"` branches; the deliverable is
+   **identical where deterministic** and the event stream is at **semantic parity** (SC-001, INV-3).
 2. **Reusable powers** — per-task loop, fan-out, validation+fix, deliverable strategies, context providers,
    reference-file seeding, planner/clarify config, context compaction are **first-class declared capabilities**
    (Q36: all of them).
@@ -134,7 +134,7 @@ Migration & non-functionals
 
 - **INV-1 Kernel knows no workflow by name.** No `if pipeline_type in {...}` / `if spec.id == "..."` for behavior selection anywhere in the kernel. Grep gate: the only place a workflow id appears is the manifest loader.
 - **INV-2 No per-run state on the singleton.** All mutable run state is on `ExecutionContext`. Kernel instances are immutable after construction.
-- **INV-3 Byte-identical migration.** Each phase keeps the existing WS event stream + deliverable identical for `prototype`/`od_*`/`ppt`/code-gen (characterization tests are the gate). No feature-flag dual-paths left after a phase lands.
+- **INV-3 Semantic-compatible migration.** Each phase preserves the **deliverable byte-for-byte where the output is deterministic**, and the WS event stream at **semantic parity** — same event *types*, order, and required fields, and the same final result. Volatile fields (timestamps, streamed-text chunk boundaries, generated IDs, token/usage counts, durations) are **normalized out** of the snapshot. The one sanctioned exception is an intentional context/compaction change (e.g. Phase 0C), gated on the semantic snapshot + a measured token delta — not byte-identity. No feature-flag dual-paths left after a phase lands.
 - **INV-4 Capabilities are registered, manifests reference by name.** Engineers register; manifest validation rejects any unknown/​not-allowed capability name (trust boundary, Q2).
 - **INV-5 Thin compiler, no DSL.** A manifest compiles to a validated `ExecutionPlan`. No control flow (`if`/`while`/expressions) in manifests — loops/conditionals live inside strategies.
 - **INV-6 Ports, not implementations.** Engine depends on `Workspace`/`RuntimeEnvironment`/`Validator`/`Strategy`/`DeliverableResolver`/`ContextProvider`/`IsolationProvider`/`MergeStrategy`/`GateHandler` **interfaces**; concrete impls are injected/registered.
@@ -212,7 +212,7 @@ Illustrative signatures (final names TBD in Phase 1). Python `Protocol`/`datacla
 @dataclass
 class ExecutionContext:
     run_id: str
-    owner_id: str | None                 # user (INV-8)
+    owner_id: str                        # user, or synthetic "anon:<session_id>" — never None (INV-8)
     workspace_id: str
     plan: CompiledWorkflow
     workspace: Workspace
@@ -249,7 +249,7 @@ class Step:
 @dataclass
 class CompiledWorkflow:
     id: str
-    owner_id: str | None                   # INV-8
+    owner_id: str                          # never None — "anon:<session_id>" if unauthenticated (INV-8)
     workspace_id: str
     steps: list[Step]                      # topo-validated DAG
     context_providers: list[str]           # Q28
@@ -422,7 +422,7 @@ evaluated by the kernel at the step boundary. Outcome ∈ `pass | block | wait_h
 | `approval` | explicit sign-off before a sensitive action (e.g. PR push, first `exec`) | new |
 | `security` | gate `exec`/`network`/`secrets`/code-exec; default-deny until N3 | new (ties N3) |
 
-The HITL `human` gate keeps byte-identical events (INV-3). `validation`/`approval`/`security` are additive.
+The HITL `human` gate keeps **semantic event parity** (INV-3). `validation`/`approval`/`security` are additive.
 
 ## 10. Prototype re-expressed as a manifest (the parity proof — SC-001)
 
@@ -458,7 +458,7 @@ steps:
 
 `od_prototype` = same manifest with the OpenDesign provider configured (alias → same plan). `prototype_revision`
 = a variant with `seed_files.parent: { from_run: parent }` (ownership-checked, INV-8) + the revision deliverable
-+ a post-edit `validation` gate (was L4/L8). **Acceptance:** identical event stream + `prototype.html` as today
++ a post-edit `validation` gate (was L4/L8). **Acceptance:** **identical `prototype.html` (deterministic)** + **semantic event parity** as today
 (characterization tests), with L1–L16 branches deleted from the kernel.
 
 ## 11. Leak → new-home mapping (every L# from §4)
@@ -510,9 +510,10 @@ When `MergeStrategy.merge` reports conflicts (overlapping `conflict_keys`/files,
   `RunSandbox` becomes a `Workspace` with `has_git=False, exec=off`. **No engine fork** for repo vs artifact (R3).
 - **`LocalSandboxRuntime`** implements the port over the per-run disk dir (clone into the run dir, local
   branch/worktree, `git diff`). **`EcsRuntime` deferred** (§27) behind the same port.
-- **Repo workflow (local, Phase 4):** `clone_repo` → `create_branch`/worktree → repo inventory (§15) → agents
-  read/edit/search/exec (under `ExecutionPolicy`) → `validation` gate (compile/test/lint) → `DeliverableResolver(repo_diff)`
-  → app-builder-style **file tree + diff + validation results** (Q-N7). PR push waits on git-hosting (N4).
+- **Repo workflow (local):** `clone_repo` → `create_branch`/worktree → repo inventory (§15) → agents
+  read/edit/search → `DeliverableResolver(repo_diff)` → app-builder-style **file tree + diff** (Q-N7) — this is
+  **Phase 4A (no exec)**. `exec` + compile/test/lint validators behind the `security` gate are **Phase 4B**
+  (after the N3 threat model). PR push waits on git-hosting (N4).
 
 ## 15. Repo index / context selection (A5 / N6)
 
@@ -563,6 +564,7 @@ New/extended tables (all carry `owner_id` + `workspace_id`; additive migrations 
 | `wave_runs` | id, run_id, step, wave_index, task_ids[], status |
 | `validation_results` | id, run_id, step, validator, severity, code, message, target, attempt, created |
 | `gate_events` | id, run_id, step, gate_kind, outcome, actor, created |
+| `run_events` | id, run_id, **seq** (monotonic per run), event_id, type, payload_json, created; idx (run_id, seq) — durable event log for replay/resume (§21/§22) |
 
 Migrations live in the existing migrations dir (002 referenced migration 0013). A retention sweep aligns
 `artifact_refs`/`workspaces` with the sandbox TTL.
@@ -577,6 +579,7 @@ Migrations live in the existing migrations dir (002 referenced migration 0013). 
   enforced** check that rejects cross-owner access.
 - **Enforcement at the store/repository layer** (a single scoped-query helper), not scattered in callers — mirrors
   how `RunSandbox` already namespaces by user on disk. All artifact/run reads go through it.
+- **Anonymous runs are allowed but never `None`-owned:** an unauthenticated run gets a synthetic owner `anon:<session_id>` so every scope check has a real principal and artifacts/workspaces stay isolated per session.
 - **User-authored workflows** (later): may only reference owned repos/workspaces + user-allowed capabilities (§7/§8).
 
 ## 20. Model policy (A10)
@@ -597,10 +600,11 @@ Migrations live in the existing migrations dir (002 referenced migration 0013). 
   from the validator **fix-loop** (which refines content). A step is keyed by `(run_id, step_id, input content_hash)`;
   re-entry **reuses the existing artifact** if the hash matches (no duplicate work).
 - **Resume:** durable **step-level** run state (status per step) + the LangGraph checkpointer (per-agent thread)
-  + `artifact_refs`. **Reconnect** = re-attach to the event stream (replay from store). **Server restart** =
-  `restore_non_terminal_runs` extended to step granularity: a `waiting_for_user` gate resumes on user action; an
-  in-flight step resumes from its checkpoint or re-runs idempotently. Long brownfield jobs (N8) resume **mid-wave**
-  via `subagent_runs`/`wave_runs` records.
+  + `artifact_refs`. Every emitted event carries a **monotonic per-run `seq` + `event_id`**, persisted to
+  `run_events` (§18). **Reconnect** = replay from the durable log via `after=<last_seq>` (§22), idempotent by
+  `event_id` (no loss, no double-apply). **Server restart** = `restore_non_terminal_runs` extended to step
+  granularity: a `waiting_for_user` gate resumes on user action; an in-flight step resumes from its checkpoint
+  or re-runs idempotently. Long brownfield jobs (N8) resume **mid-wave** via `subagent_runs`/`wave_runs` records.
 
 ## 22. API / frontend contract (A1)
 
@@ -612,11 +616,12 @@ The composer must become **dynamic** — no hardcoded workflow types or flat age
 - run stream (WS/ndjson) → existing events **+** new (Q43): `subagent_*`, `wave_*`, `validator_result`,
   `validation_warning`, `merge_*`, `budget_warning`, `gate_*`.
 - `GET /api/runs/{id}/artifacts` → typed artifact tree (lineage); `GET /api/runs/{id}/diff` → repo diff.
+- `GET /api/runs/{id}/events?after=<seq>` → **durable event replay** (each event carries a monotonic `seq` + `event_id`; §18 `run_events`, §21) for reconnect/resume.
 - subagent tree + wave view derived from events / `subagent_runs` / `wave_runs`.
 
 **Frontend track (parallel, flagged per phase):** dynamic composer + capability palette; validator/issue panel;
 subagent + wave tree; artifact/diff viewer (**reuse the app-builder `FilesTab`/`AppBuilderPreview`** for
-`repo_diff`/`file_bundle`). The event contract for **existing** workflows stays byte-identical (INV-3); all new
+`repo_diff`/`file_bundle`). The event contract for **existing** workflows stays at **semantic parity** (INV-3); all new
 panels are additive. Risk R6 is now this section, not a footnote.
 
 ## 23. Budgets, limits, observability (Q18, Q43, Q44)
@@ -624,35 +629,55 @@ panels are additive. Risk R6 is now this section, not a footnote.
 - `BudgetManager` per-run **and** per-workspace ceilings (tokens, €, subagents, depth, concurrency, wall-clock);
   reserve-before-spawn; graceful abort; snapshot persisted on the run (§18).
 - New events (Q43): `subagent_*`, `wave_start`/`wave_complete`, `validator_result`, `validation_warning`,
-  `merge_*`, `gate_*`, `budget_warning`. Existing events stay byte-identical for migrated workflows (INV-3).
+  `merge_*`, `gate_*`, `budget_warning`. Existing events stay at **semantic parity** for migrated workflows (INV-3).
 
-## 24. Backward-compat & testing strategy (Q3, Q40)
+## 24. Backward-compat & testing strategy (Q3, Q40, INV-3)
 
-- **Characterization tests FIRST (Phase 0):** golden deliverable + recorded event-stream snapshots for
-  `prototype`, `od_prototype`, `prototype_revision`, `ppt`/`od_ppt`, and one code-gen pipeline, driven by a
-  scripted model (`tests/agents/_scripted_model.py`). These are the regression gate for every later phase.
-- Per-capability suites added as each registry lands; authz tests (cross-owner denial) from Phase 1.
-- Each phase must leave snapshots **green** before it merges. No dual-path flags left behind (INV-3).
+- **Characterization tests FIRST (Phase 0A):** for `prototype`, `od_prototype`, `prototype_revision`,
+  `ppt`/`od_ppt`, and one code-gen pipeline, driven by a scripted model (`tests/agents/_scripted_model.py`):
+  - **Deliverable snapshot** — byte-for-byte where the output is deterministic.
+  - **Semantic event snapshot** — event *types*, order, and required fields + the final result, with volatile
+    fields **normalized out** (timestamps, streamed-text chunk boundaries, generated IDs, token/usage counts,
+    durations). The monotonic event `seq` (§21) is asserted **contiguous**, not by absolute value.
+- Per-capability suites as each registry lands; **authz denial tests** (cross-owner parent/artifact access) from Phase 1B.
+- Phase 0C and any prompt/compaction change is gated on the **semantic** snapshot + a measured token/cost delta,
+  **not** byte-identity (a context change can legitimately alter generated text).
+- Each phase leaves snapshots green before merge. No dual-path flags left behind (INV-3).
 
 ## 25. Phase plan
 
 > Strangler migration (Q39). Each phase is independently shippable and keeps prototype working.
 
-**Phase 0 — Safety net + `ExecutionContext` + cheap wins.** Characterization tests (§24). Extract all `self._*`
-run state into `ExecutionContext` (L14). Add the **explicit ownership check** on `parent_run` seeding (L16/INV-8 —
-cheap, do now). Wire the dead `_extract_html_skeleton` (Tier#1 token-trim). **No behavior change.**
-*Accept:* snapshots green; kernel has no per-run attributes (NFR-001); cross-owner parent seed rejected.
+**Phase 0A — Safety net.** Characterization tests only (§24) — deliverable + semantic-event snapshots for
+prototype/od_/revision/ppt/code-gen. No source changes. *Accept:* snapshots recorded + green on current behavior.
 
-**Phase 1 — Manifest + typed artifacts + persistence + compiler + model policy.** `WorkflowManifest` (file-backed),
-`ArtifactGraph`/`ArtifactRef` (§17) + the persistence schema (§18: `artifact_refs`, extend `workflow_runs`,
-`workspaces`), `WorkflowCompiler` → `CompiledWorkflow`, `ModelResolver` (§20). Existing pipelines load via a
-generated manifest (unchanged). *Accept:* every current pipeline runs from a compiled plan; artifacts are
-typed+lineage-tracked; snapshots green; authz denial tests pass.
+**Phase 0B — `ExecutionContext` + ownership.** Extract all `self._*` run state into `ExecutionContext` (L14);
+add the **explicit ownership check** on `parent_run` seeding (L16/INV-8). **No behavior change.** *Accept:*
+snapshots green (deliverable byte-identical); kernel has no per-run attributes (NFR-001); cross-owner parent seed rejected.
+
+**Phase 0C — Token-trim (measured change).** Wire the dead `_extract_html_skeleton` as the build-task-2+ context
+compaction (Tier#1). This **alters build prompts → generated text may differ**, so it is gated on the **semantic**
+snapshot (same pages/routes, equal-or-better validation pass) **+ a measured token/cost delta**, not byte-identity.
+*Accept:* equal-or-better validation pass rate; measured token reduction on a multi-task build.
+
+**Phase 1A — Manifest + compiler (legacy artifact mirror).** `WorkflowManifest` (file-backed, **hand-authored**)
++ `WorkflowCompiler` → `CompiledWorkflow`. Existing pipelines run from a compiled plan; artifacts still flow via
+the legacy `accumulated_outputs` mirror (no schema change yet). *Accept:* every current pipeline runs from a
+compiled plan; snapshots green.
+
+**Phase 1B — Typed artifacts + persistence (dual-write).** `ArtifactGraph`/`ArtifactRef` (§17) + the persistence
+schema (§18: `artifact_refs`, extend `workflow_runs`, `workspaces`, `run_events`); **dual-write** typed refs
+alongside the legacy mirror, migrating reads incrementally. *Accept:* artifacts typed + lineage-tracked + persisted;
+**authz denial tests** (cross-owner) pass; snapshots green.
+
+**Phase 1C — Model policy.** `ModelResolver` (§20): resolution order + fallback chain + cost_class. *Accept:*
+per-step/workflow model honored; global default unchanged (Haiku).
 
 **Phase 2 — Prototype as manifest (parity proof, SC-001).** Implement `single_shot` + `task_loop` strategies,
 `single_file`/`serialized_sandbox`/`streamed_text` resolvers, `opendesign` provider, `seed_files`, `heading_tasks`
-parser, `html_skeleton` compaction. **Delete L1–L16 kernel branches.** *Accept:* prototype/od_/revision/ppt/code-gen
-byte-identical with **zero name/id branches** in the kernel (grep gate, INV-1).
+parser, and `html_skeleton` as a registered `CompactionStrategy` (re-expressing the Phase 0C trim behind the
+capability — behavior-preserving vs 0C). **Delete L1–L16 kernel branches.** *Accept:* prototype/od_/revision/ppt/code-gen
+at **deliverable parity + semantic event parity** (vs the post-0C baseline) with **zero name/id branches** in the kernel (grep gate, INV-1).
 
 **Phase 3 — Capabilities hardened: registries + gates + tool perms.** Formalize `CapabilityRegistry` + trust flags
 (§7); `GateHandler` registry (`human`/`validation`/`approval`/`security`, §9) — make `Validation_Gate` real;
@@ -660,11 +685,16 @@ byte-identical with **zero name/id branches** in the kernel (grep gate, INV-1).
 validators + generic fix-loop; severity mapping; `validation_warning`. *Accept:* validators+gates registry-driven;
 least-privilege enforced; Tier#4/5/6 land as validators (Q38).
 
-**Phase 4 — Local Workspace runtime + repo workflows.** `RuntimeEnvironment` port + `LocalSandboxRuntime`;
-`Workspace` + `ExecutionPolicy`; `repositories`/`workspaces` rows; repo inventory/index/context-pack (§15);
-`security` gate gating `exec`/`network`/`secrets` (default-deny pending N3); `repo_diff` resolver; first brownfield
-workflow end-to-end locally (clone → branch → inventory → agents → compile/test validators → diff surface).
-*Accept:* a sample repo workflow produces a diff + validation results; prototype unaffected; exec stays gated.
+**Phase 4A — Local Workspace runtime + repo workflows (no exec).** `RuntimeEnvironment` port + `LocalSandboxRuntime`;
+`Workspace` + `ExecutionPolicy` (**exec off**); `repositories`/`workspaces` rows; repo inventory/index/context-pack
+(§15); `repo_diff` resolver. First brownfield workflow end-to-end locally **without execution** (clone → branch →
+inventory → agents read/edit/search → diff surface). *Accept:* a sample repo workflow produces a diff; **no `exec`**;
+prototype unaffected.
+
+**Phase 4B — Safe local exec (gated on N3).** After the N3 threat model: enable a constrained `exec` profile behind
+the `security` gate (command allow/deny, network default-deny, resource caps, ephemeral creds) + compile/test/lint
+validators. *Accept:* `exec` runs only under the `security` gate + `ExecutionPolicy`; egress denied by default; a
+sample compile/test validator passes.
 
 **Phase 5 — Engine-owned fan-out + merge.** `spawn_subagents` tool (gated) + kernel `run_fanout`;
 `IsolationProvider` (sub_sandbox/worktree) + `MergeStrategy` + **merge-conflict flow** (§13); `BudgetManager`;
@@ -716,7 +746,7 @@ All sit behind interfaces defined in this spec so each is a **backend swap, not 
 - `app/agents/static_check.py` / `render_check.py` → wrapped as registered `Validator`s.
 - `app/models/` — extend `workflow.py`/`workflow_definition.py`; new `artifact_ref.py`, `workspace.py`, `repository.py`, `subagent_run.py`, `wave_run.py`, `validation_result.py`, `gate_event.py`; new migrations (§18).
 - `app/api/` — new `workflows.py`, `capabilities.py`; extend run/artifact/diff endpoints (§22).
-- `agents/registry.py` — `PIPELINE_AGENTS` becomes (or is generated from) manifests; `pipeline_type` alias.
+- `agents/registry.py` — `PIPELINE_AGENTS` superseded by **hand-authored** built-in `workflow.yaml` manifests (one per workflow); `pipeline_type` kept as an alias; an auto-generated manifest **index** is optional later (never the source of truth).
 - frontend — dynamic composer + capability palette + validator/subagent/wave/diff panels (parallel track, §22).
 - tests — `tests/agents/test_characterization_*.py` (Phase 0); per-capability + authz suites after.
 
@@ -737,3 +767,5 @@ All sit behind interfaces defined in this spec so each is a **backend swap, not 
 ---
 
 *Decision log: append dated entries here as phases land.*
+
+- **2026-06-06 (r2)** — review tweaks: split Phase 0→0A/0B/0C, 1→1A/1B/1C, 4→4A/4B; **INV-3 relaxed to semantic event parity** (deliverables byte-identical only where deterministic; Phase 0C is the sanctioned context-change exception); **anonymous runs use a synthetic `anon:<session_id>` owner** (never None); **built-in manifests are hand-authored** (generated index optional later); added a **durable event `seq` + replay cursor** (`run_events` §18, resume §21, `GET /runs/{id}/events?after=` §22); Phase 4 exec split out behind N3.
