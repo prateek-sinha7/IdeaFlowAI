@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-06T23:51:38.577Z"
-last_activity: 2026-06-06 -- Phase 02 execution started
+last_updated: "2026-06-07T00:53:58.055Z"
+last_activity: 2026-06-07 -- Completed 02-01 (ExecutionContext state lift)
 progress:
   total_phases: 12
   completed_phases: 1
   total_plans: 7
-  completed_plans: 4
+  completed_plans: 5
   percent: 8
 ---
 
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 ## Current Position
 
 Phase: 02 (executioncontext-ownership-0b) — EXECUTING
-Plan: 1 of 3
-Status: Executing Phase 02
-Last activity: 2026-06-06 -- Phase 02 execution started
+Plan: 2 of 3
+Status: Ready to execute (02-01 complete)
+Last activity: 2026-06-07 -- Completed 02-01 (ExecutionContext state lift; 0A suite green, L14 grep 0)
 
-Progress: [██████████] 100% (Phase 1 plans 4/4 complete)
+Progress: [███████░░░] 71% (5/7 plans complete)
 
 ## Performance Metrics
 
@@ -53,6 +53,7 @@ Progress: [██████████] 100% (Phase 1 plans 4/4 complete)
 *Updated after each plan completion*
 | Phase 01 P02 | ~12 min | 2 tasks | 11 files |
 | Phase 01 P04 | ~9 min | 3 tasks | 4 files |
+| Phase 02 P02-01 | 75min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -66,6 +67,9 @@ Recent decisions affecting current work:
 - Init: Models=quality (Opus); execution=sequential (strangler safety); git tracking=on
 - [Phase ?]: 01-02: event-snapshot is an order-canonical multiset (build-loop interleaving is nondeterministic); strict order covered by assert_seq_contiguous + phase3/01-01 sequence tests. VOLATILE_SENTINEL='<normalized>'; contract dicts imported from phase3 verify (no divergence).
 - [Phase ?]: 01-04: import-linter scaffold anchored on kernel→app.api boundary (non-vacuous, green); vulture allow-listed in pyproject; banned-pattern gate single-file allow-list + injected-fixture non-vacuity; tests/agents now run in CI (offline backend:characterization) — closes D-16 false-green.
+- [Phase ?]: ExecutionContext revision_* fields kept flat (not nested RevisionState) to keep consumer rewrites mechanical
+- [Phase ?]: current_task_block parked on ExecutionContext as a Phase-7-temporary home (D-02); Phase 7 reclaims it into TaskLoopStrategy
+- [Phase ?]: Migration-ledger L14/D1 rows left unflipped in 02-01; L14 enforced via acceptance grep, ledger flip deferred to 02-02/02-03
 
 ### Pending Todos
 

@@ -21,11 +21,11 @@
 
 ### Per-Run Execution Context & Ownership (Phase 0B)
 
-- [ ] **CTX-01**: All `self._*` per-run state (`_od_context`, `_completed_tasks`, `_current_task_block`, `_revision_*`, `_gate_agent_ids`, `_user_id`, `_checkpointer`) moves to a per-run `ExecutionContext` (L14 / INV-2)
-- [ ] **CTX-02**: The kernel singleton holds no per-run attributes and is immutable after construction (NFR-001 / INV-2)
+- [x] **CTX-01**: All `self._*` per-run state (`_od_context`, `_completed_tasks`, `_current_task_block`, `_revision_*`, `_gate_agent_ids`, `_user_id`, `_checkpointer`) moves to a per-run `ExecutionContext` (L14 / INV-2)
+- [x] **CTX-02**: The kernel singleton holds no per-run attributes and is immutable after construction (NFR-001 / INV-2)
 - [ ] **CTX-03**: `parent_run` seeding performs an explicit ownership check that rejects cross-owner access (L16 / INV-8)
 - [ ] **CTX-04**: Dead `_handle_revision` (`engine.py:2138-2251`) is deleted (D1)
-- [ ] **CTX-05**: No behavior change — deliverable snapshots stay byte-identical and event snapshots stay at semantic parity (INV-3)
+- [x] **CTX-05**: No behavior change — deliverable snapshots stay byte-identical and event snapshots stay at semantic parity (INV-3)
 
 ### Context Compaction / Token-Trim (Phase 0C)
 
