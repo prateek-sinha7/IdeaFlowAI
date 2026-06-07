@@ -122,14 +122,18 @@ def test_deleted_pattern_absent_from_backend(item: str, pattern: str | None) -> 
     )
 
 
-def test_ledger_parses_and_phase0b_flips_only_l14() -> None:
-    """Every §31 item is present; Phase 0B flips ONLY L14 to ``☑`` (T-03-02).
+def test_ledger_parses_and_phase0b_flips_l14_l16() -> None:
+    """Every §31 item is present; Phase 0B flips exactly {L14, L16} to ``☑`` (T-03-02).
 
-    Phase 1 had every row ``☐``. Phase 0B lifts per-run state into ``ExecutionContext``,
-    so the L14 grep ratchet is armed (``☑``). D1 (``_handle_revision``) was found **live**
-    during 0B execution — it is the frontend ``run_revision`` PPT-revision handler, not dead
-    code — so its deletion is voided/deferred and it stays ``☐`` (see the ledger ‡ note).
-    L16 is a CHECK row owned by plan 02-03. All later-phase rows remain ``☐``.
+    Phase 1 had every row ``☐``. Phase 0B (plan 02-01/02-02) lifts per-run state into
+    ``ExecutionContext``, arming the L14 grep ratchet (``☑``). Plan 02-03 wires the explicit
+    parent-run ownership check (``assert_owns``) and flips the L16 CHECK row to ``☑`` — L16
+    is a CHECK row (its gate is prose referencing the denial test, NOT a grep pattern), so it
+    is SKIPPED by the grep ratchet (``_checked_grep_rows`` yields it as ``None``); its
+    enforcement lives in ``tests/agents/test_parent_run_ownership.py``. D1 (``_handle_revision``)
+    was found **live** during 0B execution — the frontend ``run_revision`` PPT-revision handler,
+    not dead code — so its deletion is voided/deferred and it stays ``☐`` (see the ledger ‡
+    note). All later-phase rows remain ``☐``.
     """
     text = _LEDGER.read_text()
     rows = _parse_rows(text)
@@ -137,8 +141,8 @@ def test_ledger_parses_and_phase0b_flips_only_l14() -> None:
     missing = [i for i in _REQUIRED_ITEMS if i not in ids]
     assert not missing, f"ledger drifted from §31 — missing rows: {missing}"
     flipped = sorted(item for item, _g, status in rows if "☑" in status)
-    assert flipped == ["L14"], (
-        f"Phase 0B expects exactly {{L14}} flipped to ☑, found: {flipped}"
+    assert flipped == ["L14", "L16"], (
+        f"Phase 0B expects exactly {{L14, L16}} flipped to ☑, found: {flipped}"
     )
 
 

@@ -27,6 +27,7 @@ import time
 from typing import AsyncGenerator
 
 from agents.artifact_store.store import ArtifactStoreWriteError, get_artifact_store
+from agents.execution_engine.authz import assert_owns
 from agents.execution_engine.context import ExecutionContext
 from agents.execution_engine.resolver import WorkflowResolver
 from agents.execution_engine.state_machine import get_state_machine
@@ -584,6 +585,21 @@ class ExecutionEngine:
                 # ANY failure (no parent_run_id, TTL-swept dir, unreadable file)
                 # only logs a warning — a missing parent must never break a revision.
                 if parent_run_id:
+                    # ── L16 ownership gate (CTX-03 / INV-8) — BEFORE the try ─────────
+                    # An owner may only seed from a parent run it OWNS. We derive the
+                    # parent's owner by convention (Phase 5 AUTHZ-02 replaces this with a
+                    # real store lookup and relocates assert_owns into the scoped-query
+                    # helper — D-06) and assert ownership. This call is LEXICALLY ABOVE
+                    # the graceful-degrade try (D-07): a cross-owner parent raises
+                    # PermissionError and PROPAGATES OUT of execute() — it must NOT be
+                    # swallowed by the broad `except Exception` below (which exists only
+                    # to tolerate a legitimate SAME-OWNER missing / TTL-swept parent).
+                    _parent_owner = self._derive_parent_owner(user_id, parent_run_id)
+                    assert_owns(
+                        owner_id=ectx.owner_id,
+                        parent_run_id=parent_run_id,
+                        parent_owner_id=_parent_owner,
+                    )
                     try:
                         parent_sb = RunSandbox(user_id or "anon", parent_run_id)
                         seeded: list[str] = []
@@ -2531,6 +2547,22 @@ class ExecutionEngine:
             )
 
         return "\n".join(parts)
+
+    def _derive_parent_owner(self, user_id: str | None, parent_run_id: str) -> str:
+        """Derive the owner of ``parent_run_id`` for the L16 ownership check (D-06).
+
+        BY CONVENTION in 0B: a parent sandbox is keyed on disk under
+        ``(user_id or "anon", parent_run_id)`` (the SAME principal the engine keys this
+        run with — D-04/D-05). So the parent's owner is, by convention, ``user_id or
+        "anon"``. This keeps the keying byte-identical while making the same-owner
+        assumption an explicit, testable gate. Phase 5 (AUTHZ-02) replaces this
+        by-convention derivation with a real store/workspace lookup of the parent run's
+        recorded ``owner_id`` and relocates ``assert_owns`` into the scoped-query helper.
+
+        Exposed as a method (not an inline expression) so a cross-owner case can be
+        exercised by overriding the derived owner.
+        """
+        return user_id or "anon"
 
     @staticmethod
     def _extract_existing_prototype_html(user_message: str) -> str:

@@ -47,7 +47,7 @@ The `Deletion gate` column holds one of two things, distinguished by the parser:
 | Item | Legacy (`file:line`) | New home | Phase | Deletion gate (grep → 0 / check) | Status | Deleting SHA |
 |---|---|---|---|---|---|---|
 | L14 | `self._od_context/_completed_tasks/_current_task_block/_revision_*/_gate_agent_ids` (engine, throughout) | `ExecutionContext` (§6) | 0B | `self\._(od_context\|completed_tasks\|current_task_block\|revision_\|gate_agent_ids)` | ☑ | 8b90fd2 |
-| L16 | unchecked `parent_run` seed `engine.py:583-610` | authz store check (§19) | 0B | CHECK: cross-owner denial test passes | ☐ | |
+| L16 | unchecked `parent_run` seed `engine.py:583-610` | authz store check (§19) | 0B | CHECK: cross-owner denial test passes (tests/agents/test_parent_run_ownership.py) | ☑ | |
 | D1 | `_handle_revision` `engine.py:2156` — **LIVE, not dead**: the frontend `run_revision` PPT-revision handler (`DashboardLayout.tsx` → `app/api/websocket.py:625`) | retain (revisit only if `run_revision` is retired) | (deferred ‡) | CHECK: voided in 0B — live `run_revision` handler, not dead code | ☐ | |
 | L13 | `_extract_html_skeleton` wired inline in 0C `engine.py:2565` | `CompactionStrategy(html_skeleton)` (§30) | 0C→2 | `_extract_html_skeleton` | ☐ | |
 | L1 | `_PPT_PIPELINE_TYPES`/`_PROTOTYPE_PIPELINE_TYPES`/`REVISION_FILE_NAME` `engine.py:93-110` | manifest `deliverable`/`seed_files` | 2 | `_PROTOTYPE_PIPELINE_TYPES\|_PPT_PIPELINE_TYPES` | ☐ | |
