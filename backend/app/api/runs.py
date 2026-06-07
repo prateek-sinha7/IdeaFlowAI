@@ -19,6 +19,8 @@ Security carried over VERBATIM from the original handlers:
     with ``re.sub(r"[^A-Za-z0-9._-]", "_", title)[:40]`` exactly as before.
 """
 
+import json
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -142,7 +144,6 @@ def export_pptx(
 
     Returns: .pptx binary download.
     """
-    import json as _json
     from fastapi.responses import Response
     from app.services.pptx_export import generate_pptx_from_code
 
@@ -168,7 +169,7 @@ def export_pptx(
         ).first()
         if wr and wr.agent_outputs:
             try:
-                outputs = _json.loads(wr.agent_outputs)
+                outputs = json.loads(wr.agent_outputs)
                 for agent in outputs:
                     if agent.get("agent_id", "") in _PPT_CODE_AGENT_IDS:
                         js_code = agent.get("output", "")
@@ -178,11 +179,10 @@ def export_pptx(
 
     # Strategy 2: Extract from HTML
     if not js_code and html_content:
-        import re as _re
         # Find generatePresentation function in script tags
-        scripts = _re.findall(r'<script[^>]*>([\s\S]*?)</script>', html_content)
+        scripts = re.findall(r'<script[^>]*>([\s\S]*?)</script>', html_content)
         for script in scripts:
-            m = _re.search(r'((?:async\s+)?function\s+generatePresentation\s*\([^)]*\)\s*\{)', script)
+            m = re.search(r'((?:async\s+)?function\s+generatePresentation\s*\([^)]*\)\s*\{)', script)
             if m:
                 start = m.start()
                 depth = 0
@@ -201,7 +201,7 @@ def export_pptx(
 
         # Also try full HTML search
         if not js_code:
-            m = _re.search(r'((?:async\s+)?function\s+generatePresentation\s*\([^)]*\)\s*\{)', html_content)
+            m = re.search(r'((?:async\s+)?function\s+generatePresentation\s*\([^)]*\)\s*\{)', html_content)
             if m:
                 start = m.start()
                 depth = 0
@@ -236,8 +236,7 @@ def export_pptx(
     # double-quote, which let a maliciously-crafted title smuggle additional
     # headers (HTTP response splitting). The Pydantic max_length on `title`
     # bounds the size; this re.sub bounds the alphabet.
-    import re as _re
-    safe_title = _re.sub(r"[^A-Za-z0-9._-]", "_", title)[:40] or "Presentation"
+    safe_title = re.sub(r"[^A-Za-z0-9._-]", "_", title)[:40] or "Presentation"
     filename = f"{safe_title}.pptx"
     return Response(
         content=pptx_bytes,
@@ -325,8 +324,6 @@ def _extract_chain_context(workflow_run: WorkflowRun) -> ChainContextResponse:
     - mulesoft / dotnet: extracts the migration plan from the inventory agent
     - custom: extracts the final output text
     """
-    import json as _json
-    import re as _re
 
     pipeline_type = workflow_run.type
     brief = workflow_run.input or ""
@@ -336,7 +333,7 @@ def _extract_chain_context(workflow_run: WorkflowRun) -> ChainContextResponse:
     agent_outputs: list[dict] = []
     if workflow_run.agent_outputs:
         try:
-            agent_outputs = _json.loads(workflow_run.agent_outputs)
+            agent_outputs = json.loads(workflow_run.agent_outputs)
         except Exception:
             pass
 
@@ -353,10 +350,10 @@ def _extract_chain_context(workflow_run: WorkflowRun) -> ChainContextResponse:
 
     # Helper: extract <spec>...</spec> JSON from text
     def extract_spec(text: str) -> str:
-        m = _re.search(r"<spec>([\s\S]*?)</spec>", text)
+        m = re.search(r"<spec>([\s\S]*?)</spec>", text)
         if m:
             try:
-                spec = _json.loads(m.group(1))
+                spec = json.loads(m.group(1))
                 # Format as readable text
                 lines = [f"Title: {spec.get('title', '')}"]
                 if spec.get("audience"):
@@ -406,7 +403,7 @@ def _extract_chain_context(workflow_run: WorkflowRun) -> ChainContextResponse:
         # resolves to the same prototype agents, so the IDs match for both.
         spec_output = get_agent_output("prototype-specify") or get_agent_output("prototype-plan")
         if spec_output:
-            m = _re.search(r"<spec>([\s\S]*?)</spec>", spec_output)
+            m = re.search(r"<spec>([\s\S]*?)</spec>", spec_output)
             spec_text = (m.group(1).strip() if m else spec_output)
             structured_summary = f"Prototype Specification:\n{spec_text[:3500]}"
             agent_summaries.append({"agent": "Spec Writer", "summary": spec_text[:500]})
@@ -452,7 +449,7 @@ def _extract_chain_context(workflow_run: WorkflowRun) -> ChainContextResponse:
     if not structured_summary and workflow_run.output:
         output = workflow_run.output
         # Skip HTML artifacts
-        if not _re.search(r"<!DOCTYPE|<html", output, _re.IGNORECASE):
+        if not re.search(r"<!DOCTYPE|<html", output, re.IGNORECASE):
             structured_summary = output[:3000]
 
     # Build the ready-to-inject context block
