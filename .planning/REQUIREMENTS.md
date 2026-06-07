@@ -48,7 +48,7 @@
 - [x] **ART-03**: Typed `produces`/`consumes` routing replaces string matching; revision lineage tracked via `parents`/`derived_from` (§17)
 - [x] **ART-04**: Default retention `run_ttl` (= 48h sandbox TTL); `keep`/`days:N` overrides (N9 — confirm)
 - [x] **PERSIST-01**: Migration adds `artifact_refs`, extends `workflow_runs` (+ workspace_id, owner_id, parent_run_id, source_run_id, plan_id, status, budget_snapshot_json), adds `workspaces`, `run_events` — additive only, every table carries `owner_id` + `workspace_id` (§18 / Q3)
-- [ ] **PERSIST-02**: Dual-write typed refs alongside the legacy mirror; reads migrate incrementally; the `accumulated_outputs` mirror is deleted in this phase once reads migrate (L15 / §31)
+- [x] **PERSIST-02**: Dual-write typed refs alongside the legacy mirror; reads migrate incrementally; the `accumulated_outputs` mirror is deleted in this phase once reads migrate (L15 / §31)
 - [x] **PERSIST-03**: `run_events` rows carry monotonic per-run `seq` + `event_id` for durable replay/resume; index (run_id, seq) (§18/§21)
 - [x] **AUTHZ-01**: Ownership model `user → workspace → (repository|project) → run → {artifacts, subagent_runs}`; everything carries `owner_id` + `workspace_id` (INV-8 / §19)
 - [x] **AUTHZ-02**: Default-deny store-layer scoped-query helper; all artifact/run reads go through it; no cross-owner read/write (§19)
