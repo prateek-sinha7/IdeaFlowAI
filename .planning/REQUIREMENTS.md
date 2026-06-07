@@ -29,9 +29,9 @@
 
 ### Context Compaction / Token-Trim (Phase 0C)
 
-- [ ] **COMPACT-01**: The dead `_extract_html_skeleton` is wired as build-task-2+ context compaction (Tier#1 / L13)
+- [x] **COMPACT-01**: The dead `_extract_html_skeleton` is wired as build-task-2+ context compaction (Tier#1 / L13)
 - [ ] **COMPACT-02**: The change is gated on the semantic snapshot (same pages/routes, equal-or-better validation pass) plus a measured token/cost delta — not byte-identity (the sanctioned INV-3 exception)
-- [ ] **COMPACT-03**: A measured token reduction is demonstrated on a multi-task build (Accept criterion)
+- [x] **COMPACT-03**: A measured token reduction is demonstrated on a multi-task build (Accept criterion)
 
 ### Manifests & Compiler (Phase 1A)
 

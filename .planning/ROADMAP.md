@@ -96,7 +96,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 03-01-PLAN.md — Wire `_extract_html_skeleton` into `_build_context_message` task-2+ + deterministic offline ≥50% reduction CI gate + read_file-access assert (COMPACT-01, COMPACT-03) [wave 1]
+- [x] 03-01-PLAN.md — Wire `_extract_html_skeleton` into `_build_context_message` task-2+ + deterministic offline ≥50% reduction CI gate + read_file-access assert (COMPACT-01, COMPACT-03) [wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -309,7 +309,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 |-------|----------------|--------|-----------|
 | 1. Safety Net + Deletion Guard [0A] | 4/4 | Complete   | 2026-06-06 |
 | 2. ExecutionContext + Ownership [0B] | 3/3 | Complete    | 2026-06-07 |
-| 3. Token-Trim [0C] | 0/2 | Not started | - |
+| 3. Token-Trim [0C] | 1/2 | In Progress|  |
 | 4. Manifest + Compiler [1A] | 0/4 | Not started | - |
 | 5. Typed Artifacts + Persistence [1B] | 0/5 | Not started | - |
 | 6. Model Policy [1C] | 0/3 | Not started | - |

@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-07T11:23:43.864Z"
-last_activity: 2026-06-07 -- Phase 3 planning complete
+last_updated: "2026-06-07T11:41:42.901Z"
+last_activity: 2026-06-07 -- Phase 03 execution started
 progress:
   total_phases: 12
   completed_phases: 2
-  total_plans: 7
-  completed_plans: 7
+  total_plans: 9
+  completed_plans: 8
   percent: 17
 ---
 
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-06)
 
 **Core value:** A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001).
-**Current focus:** Phase 02 — executioncontext-ownership-0b
+**Current focus:** Phase 03 — token-trim-measured-change-0c
 
 ## Current Position
 
-Phase: 3
-Plan: Not started
+Phase: 03 (token-trim-measured-change-0c) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-06-07 -- Phase 3 planning complete
+Last activity: 2026-06-07 -- Phase 03 execution started
 
 Progress: [██████████] 100% (7/7 plans complete)
 
@@ -56,6 +56,7 @@ Progress: [██████████] 100% (7/7 plans complete)
 | Phase 01 P04 | ~9 min | 3 tasks | 4 files |
 | Phase 02 P02-01 | 75min | 2 tasks | 7 files |
 | Phase 02 P02-03 | ~12 min | 2 tasks | 5 files |
+| Phase 03 P01 | 25min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,7 @@ Recent decisions affecting current work:
 - [Phase ?]: current_task_block parked on ExecutionContext as a Phase-7-temporary home (D-02); Phase 7 reclaims it into TaskLoopStrategy
 - [Phase ?]: Migration-ledger L14/D1 rows left unflipped in 02-01; L14 enforced via acceptance grep, ledger flip deferred to 02-02/02-03
 - [Phase ?]: L16 ownership: pure assert_owns (authz.py) raises PermissionError above the seed graceful-degrade try (D-07); by-convention _derive_parent_owner, Phase 5 relocates
+- [Phase ?]: 03-01: build-task-2+ context compaction wired (_extract_html_skeleton on the is_build_task_2_plus branch); offline >=50% gate measures 96.9% reduction; L13 stays ☐ (Phase 7 deletes).
 
 ### Pending Todos
 
