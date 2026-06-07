@@ -2523,17 +2523,33 @@ class ExecutionEngine:
                     f"=== END CURRENT TASK ==="
                 )
 
-            # Pass current HTML for modification
+            # Pass current HTML for modification.
+            # For build tasks 2+ (0C / COMPACT-01): inject only the compact
+            # ~1-3k char skeleton state-map (self._extract_html_skeleton) instead of
+            # the full current HTML (up to 120k) — this kills the O(n²) prompt growth.
+            # The skeleton is framed as a state-map (NOT the editable source) and
+            # points the sub-agent at read_file('prototype.html') to fetch the full
+            # content before editing (its AGENT.md already mandates this). Task 1 (the
+            # HTML shell) has no prior HTML and keeps the full-HTML block unchanged.
             current_html = accumulated_outputs.get("prototype-build", "")
             if current_html and not current_html.startswith("[Error:"):
-                html_to_pass = current_html[:120000]
-                truncated = len(current_html) > 120000
-                parts.append(
-                    f"\n--- CURRENT HTML (modify this — do NOT rebuild from scratch) ---\n"
-                    f"{html_to_pass}"
-                    f"{'...[truncated at 120k]' if truncated else ''}\n"
-                    f"--- END CURRENT HTML ---"
-                )
+                if is_build_task_2_plus:
+                    skeleton = self._extract_html_skeleton(current_html)
+                    parts.append(
+                        f"\n=== CURRENT PROTOTYPE (skeleton — call read_file('prototype.html') "
+                        f"for full content before editing) ===\n"
+                        f"{skeleton}\n"
+                        f"=== END CURRENT PROTOTYPE ==="
+                    )
+                else:
+                    html_to_pass = current_html[:120000]
+                    truncated = len(current_html) > 120000
+                    parts.append(
+                        f"\n--- CURRENT HTML (modify this — do NOT rebuild from scratch) ---\n"
+                        f"{html_to_pass}"
+                        f"{'...[truncated at 120k]' if truncated else ''}\n"
+                        f"--- END CURRENT HTML ---"
+                    )
 
             # Template compliance reminder
             od = ectx.od_context or {}
