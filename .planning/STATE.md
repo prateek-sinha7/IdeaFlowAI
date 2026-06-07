@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-07T16:23:48.752Z"
+last_updated: "2026-06-07T16:46:50.554Z"
 last_activity: 2026-06-07 -- Phase 04 execution started
 progress:
   total_phases: 12
   completed_phases: 3
   total_plans: 14
-  completed_plans: 12
+  completed_plans: 13
   percent: 25
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 ## Current Position
 
 Phase: 04 (manifest-compiler-1a) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-06-07 -- Phase 04 execution started
 
@@ -62,6 +62,7 @@ Progress: [██████████] 100% (7/7 plans complete)
 | Phase 04 P01 | 4min | 2 tasks | 5 files |
 | Phase 04-manifest-compiler-1a P02 | 4min | 2 tasks | 4 files |
 | Phase 04-manifest-compiler-1a P03 | 7min | 3 tasks | 20 files |
+| Phase 04 P04 | 38min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 03-01: build-task-2+ context compaction wired (_extract_html_skeleton on the is_build_task_2_plus branch); offline >=50% gate measures 96.9% reduction; L13 stays ☐ (Phase 7 deletes).
 - [Phase ?]: 03-02: parity reference derived from committed golden; validation parity = zero net-new failure events + clean pipeline_complete; golden re-baseline confirmed no-op (scripted fixed-HTML); live token-delta is opt-in evidence (D-04)
 - [Phase ?]: 04-01: CapabilityRegistry keyed by (kind,name) registers 14 names only (D-07); is_registered pure set-membership; resolve_alias lifts agents.registry._OD_ALIAS_BASE single source (MAN-05); base.py = 6 typing.Protocol ports, plan-domain types typed Any to avoid inbound dep on 04-02 plan.py
+- [Phase ?]: 04-04: engine sources agent membership/deliverable/clarify/planner from CompiledWorkflow; pipeline_type reduced to id-alias resolver (MAN-04/MAN-05); behavioral L1-L13 branches byte-identical
+- [Phase ?]: 04-04: 1A drift assertion compares compiled plan vs registry MEMBERSHIP (not validation.dag); execution order stays resolver topo-DAG; INV-3 snapshots green
 
 ### Pending Todos
 

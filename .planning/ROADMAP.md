@@ -127,7 +127,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 04-04-PLAN.md — Engine routing seam + id-alias (run from CompiledWorkflow) + characterization parity gate [MAN-04, MAN-05]
+- [x] 04-04-PLAN.md — Engine routing seam + id-alias (run from CompiledWorkflow) + characterization parity gate [MAN-04, MAN-05]
 - [ ] 04-05-PLAN.md — `/api/workflows` definitions rewrite + `/api/runs` relocation + 10 frontend repoints [API-01]
 
 ### Phase 5: Typed Artifacts + Persistence + Ownership [1B]
@@ -317,7 +317,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 1. Safety Net + Deletion Guard [0A] | 4/4 | Complete   | 2026-06-06 |
 | 2. ExecutionContext + Ownership [0B] | 3/3 | Complete    | 2026-06-07 |
 | 3. Token-Trim [0C] | 2/2 | Complete    | 2026-06-07 |
-| 4. Manifest + Compiler [1A] | 3/5 | In Progress|  |
+| 4. Manifest + Compiler [1A] | 4/5 | In Progress|  |
 | 5. Typed Artifacts + Persistence [1B] | 0/5 | Not started | - |
 | 6. Model Policy [1C] | 0/3 | Not started | - |
 | 7. Prototype as Manifest (Parity Proof) [2] | 0/5 | Not started | - |
