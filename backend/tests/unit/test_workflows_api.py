@@ -70,6 +70,35 @@ class TestList:
             s.id for s in get_pipeline_agents("prototype")
         ]
 
+    @pytest.mark.parametrize("workflow_id", sorted(PIPELINE_AGENTS.keys()))
+    def test_list_step_count_matches_compiled_plan(self, client, workflow_id):
+        # WR-01 regression guard: the list step_count must derive from the
+        # COMPILED plan, not get_pipeline_agents — so 'ppt' (whose agents declare
+        # pipeline_type: od_ppt, making get_pipeline_agents('ppt') empty) reports
+        # its real 3 steps rather than step_count=0 / empty steps.
+        resp = client.get("/api/workflows")
+        assert resp.status_code == 200, resp.text
+        by_id = {w["id"]: w for w in resp.json()}
+        compiled = compile_for_run(workflow_id)
+        entry = by_id[workflow_id]
+        assert entry["step_count"] == len(compiled.steps), (
+            f"{workflow_id}: list step_count {entry['step_count']} != "
+            f"compiled plan {len(compiled.steps)}"
+        )
+        assert len(entry["steps"]) == len(compiled.steps)
+
+    def test_list_ppt_reports_nonempty_steps(self, client):
+        # The specific bug WR-01 fixed: 'ppt' previously reported step_count=0
+        # and empty steps. It has 3 well-defined steps.
+        resp = client.get("/api/workflows")
+        assert resp.status_code == 200, resp.text
+        by_id = {w["id"]: w for w in resp.json()}
+        ppt = by_id["ppt"]
+        assert ppt["step_count"] == len(compile_for_run("ppt").steps) > 0
+        assert len(ppt["steps"]) > 0
+        # Names resolve via the membership fallback, not bare agent ids.
+        assert all(s["name"] for s in ppt["steps"])
+
     def test_list_does_not_query_workflow_run(self, client):
         # The router imports no DB session; a clean list call must succeed with
         # no get_db override present (proves no WorkflowRun dependency).

@@ -34,6 +34,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from agents.execution_engine.engine import compile_for_run
+from agents.loader import load_agent_spec
 from agents.registry import PIPELINE_AGENTS, get_pipeline_agents
 from app.core.dependencies import get_current_user
 from app.models.user import User
@@ -131,6 +132,28 @@ def _describe(workflow_id: str, step_specs: list) -> str:
     return f"{len(step_specs)}-step workflow: {names}"
 
 
+def _spec_by_id(workflow_id: str) -> dict:
+    """Map agent_id -> AgentSpec for a workflow's declared AGENT.md metadata.
+
+    Prefers ``get_pipeline_agents`` (discovery by ``pipeline_type`` frontmatter),
+    but falls back to loading each agent by ``PIPELINE_AGENTS`` membership when
+    discovery yields nothing — this handles ``ppt``, whose agents physically
+    declare ``pipeline_type: od_ppt`` (shared with the od_ppt pipeline), so
+    ``get_pipeline_agents("ppt")`` is empty. The same fallback the engine /
+    WebSocket layer applies (WR-01). A spec that fails to load is skipped so a
+    single bad AGENT.md never breaks the whole listing.
+    """
+    by_id = {s.id: s for s in get_pipeline_agents(workflow_id)}
+    if by_id:
+        return by_id
+    for agent_id in PIPELINE_AGENTS.get(workflow_id, []):
+        try:
+            by_id[agent_id] = load_agent_spec(agent_id)
+        except Exception:
+            continue
+    return by_id
+
+
 # --- Endpoints ---
 
 
@@ -140,23 +163,47 @@ def list_workflows(
 ):
     """List every authored workflow with manifest-derived metadata (API-01).
 
-    One entry per ``PIPELINE_AGENTS`` id (id, name, description, step summary),
-    ordered by ``get_pipeline_agents(id)`` (ascending ``AgentSpec.order``).
-    Reads only the compiled manifests + registry — no DB query.
+    One entry per ``PIPELINE_AGENTS`` id (id, name, description, step summary).
+    The step summary derives from the COMPILED plan (the same source the detail
+    endpoint uses) so the count/steps match the manifest even when
+    ``get_pipeline_agents`` is empty — e.g. ``ppt``, whose agents declare
+    ``pipeline_type: od_ppt`` (WR-01). AGENT.md names/gates come from
+    ``_spec_by_id`` (with the same membership fallback), falling back to the
+    agent id when no spec is available. Reads only the compiled manifests +
+    registry — no DB query.
     """
     out: list[WorkflowSummary] = []
     for workflow_id in PIPELINE_AGENTS:
-        step_specs = get_pipeline_agents(workflow_id)
+        compiled = compile_for_run(workflow_id)
+        spec_by_id = _spec_by_id(workflow_id)
+        step_specs = [
+            spec_by_id[s.agent_id]
+            for s in compiled.steps
+            if s.agent_id in spec_by_id
+        ]
+        steps = [
+            WorkflowStepSummary(
+                agent_id=step.agent_id,
+                name=(
+                    spec_by_id[step.agent_id].name
+                    if step.agent_id in spec_by_id
+                    else step.agent_id
+                ),
+                gate=(
+                    spec_by_id[step.agent_id].gate
+                    if step.agent_id in spec_by_id
+                    else None
+                ),
+            )
+            for step in compiled.steps
+        ]
         out.append(
             WorkflowSummary(
                 id=workflow_id,
                 name=_display_name(workflow_id),
                 description=_describe(workflow_id, step_specs),
-                step_count=len(step_specs),
-                steps=[
-                    WorkflowStepSummary(agent_id=s.id, name=s.name, gate=s.gate)
-                    for s in step_specs
-                ],
+                step_count=len(compiled.steps),
+                steps=steps,
             )
         )
     return out
@@ -185,10 +232,12 @@ def get_workflow(
         )
 
     compiled = compile_for_run(workflow_id)
-    step_specs = get_pipeline_agents(workflow_id)
     # Map agent_id -> AgentSpec for the AGENT.md-declared metadata (name/role/
     # order/gate) that complements the compiled Step (strategy/gates/etc.).
-    spec_by_id = {s.id: s for s in step_specs}
+    # Uses the membership fallback so 'ppt' (agents declare pipeline_type:
+    # od_ppt) returns real names/roles/orders rather than agent-id stubs (WR-01).
+    spec_by_id = _spec_by_id(workflow_id)
+    step_specs = list(spec_by_id.values())
 
     steps: list[WorkflowStepDetail] = []
     for step in compiled.steps:
