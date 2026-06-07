@@ -535,12 +535,30 @@ async def websocket_chat(websocket: WebSocket):
                     else:
                         # No running pipeline — check if paused at clarify gate
                         from agents.artifact_store.store import get_artifact_store as _get_store
+                        from agents.authz import ScopedStore as _ScopedStore
                         from agents.execution_engine.state_machine import get_state_machine as _get_sm
                         _store = _get_store()
                         _sm = _get_sm()
                         _state = _sm.get_state(_reconnect_run_id)
                         if _state == "waiting_for_user":
-                            _clarifications = await _store.retrieve_latest(_reconnect_run_id, "clarifications")
+                            # T-5-IDOR mitigation (05-04): owner-scope the clarifications
+                            # read through the default-deny ScopedStore. The reconnecting
+                            # user's principal is asserted to OWN this run via the typed
+                            # store's owner+workspace-scoped get_run — a run the user does
+                            # NOT own resolves to None, so the clarifications are never
+                            # read (no cross-session disclosure of another user's
+                            # questionnaire). The clarifications PAYLOAD still lives in the
+                            # thin store this plan (its dual-write into artifact_refs is a
+                            # later increment — the mirror/thin-store are alive until
+                            # 05-06); the typed store is the OWNERSHIP gate on the read.
+                            _scoped = _ScopedStore(owner_id=user.id)
+                            _owned_run = await _scoped.get_run(_reconnect_run_id)
+                            _clar_kind = "clarifications"
+                            _clarifications = (
+                                await _store.retrieve_latest(_reconnect_run_id, _clar_kind)
+                                if _owned_run is not None
+                                else None
+                            )
                             if _clarifications:
                                 try:
                                     import json as _json

@@ -840,13 +840,23 @@ class ExecutionEngine:
                     # ScopedStore.assert_owns (D-07) is now a REAL store lookup: it reads
                     # the parent run's TRUE owner_id from the DB and raises PermissionError
                     # on a cross-owner mismatch (the Phase-2 by-convention parent_owner_id
-                    # argument is gone). This call is LEXICALLY ABOVE the graceful-degrade
-                    # try (D-07): a cross-owner parent raises PermissionError and PROPAGATES
-                    # OUT of execute() — it must NOT be swallowed by the broad
-                    # `except Exception` below (which exists only to tolerate a legitimate
-                    # SAME-OWNER missing / TTL-swept parent, which assert_owns returns None
-                    # for). Uses the per-run scoped store (ctx.owner_id principal).
-                    await ectx.scoped_store.assert_owns(parent_run_id)
+                    # argument is gone). The PermissionError PROPAGATES OUT of execute()
+                    # (re-raised below) — it must NOT be swallowed: a cross-owner parent
+                    # is never silently seeded (Highest-Risk Behavior 4 — L16 must not
+                    # regress). Any OTHER error (a DB outage / an offline run whose schema
+                    # predates the owner_id column) degrades like a missing/TTL-swept
+                    # parent — the prior pure-predicate seam never touched the DB, so a
+                    # store-lookup failure must NOT newly break a revision (CTX-05 parity).
+                    try:
+                        await ectx.scoped_store.assert_owns(parent_run_id)
+                    except PermissionError:
+                        raise  # cross-owner denial — propagate (L16)
+                    except Exception as _authz_exc:  # noqa: BLE001 — DB/schema → degrade
+                        logger.warning(
+                            "prototype_revision: assert_owns store lookup failed for "
+                            "parent %s (%s) — degrading to same-owner seed (CTX-05 parity)",
+                            parent_run_id, _authz_exc,
+                        )
                     try:
                         parent_sb = RunSandbox(ectx.disk_principal, parent_run_id)
                         seeded: list[str] = []
@@ -1489,7 +1499,7 @@ class ExecutionEngine:
 
         # Emit agent_input event (Phase 3 / T040) — shows full input prompt
         # and context sources in the Thinking tab (FR-015).
-        context_sources = self._build_context_sources(spec, ordered_agents, accumulated_outputs)
+        context_sources = self._build_context_sources(spec, ordered_agents, ectx, accumulated_outputs)
         yield {
             "type": "agent_input",
             "data": {
@@ -1512,7 +1522,7 @@ class ExecutionEngine:
 
             ctx = AgentContext(
                 user_request=user_message,
-                agent_outputs=self._filter_consumed_outputs(spec, ordered_agents, accumulated_outputs),
+                agent_outputs=self._filter_consumed_outputs(spec, ordered_agents, ectx, accumulated_outputs),
                 attached_skills=merged_skills,
                 attached_hooks=list(attached_hooks or []),
                 model=model_id,
@@ -1684,7 +1694,27 @@ class ExecutionEngine:
             if pipeline_type in _PPT_PIPELINE_TYPES and output:
                 output = _sanitize_carousel_deck_html(output)
 
+            # Mirror write (still source-of-truth until 05-06 — INV-3) ...
             accumulated_outputs[spec.id] = output
+            # ... and the typed dual-write (PERSIST-02 step 2): the typed graph + DB.
+            # Skip empty output (an agent that produced nothing has no artifact). The
+            # location is the sandbox-relative file for file-backed prototype HTML, else
+            # a logical artifact_refs path for string artifacts (D-01).
+            if output:
+                _kind = self._artifact_kind_for(spec)
+                _location = (
+                    "prototype.html"
+                    if _kind == "html_file"
+                    else f"artifact_refs/{spec.id}"
+                )
+                await self._dual_write_artifact(
+                    ectx,
+                    producer_agent=spec.id,
+                    producer_step=spec.id,
+                    content=output,
+                    kind=_kind,
+                    location=_location,
+                )
 
             # Store the agent output as a typed artifact (if it produces any)
             for artifact_type in getattr(spec, "produces", []):
@@ -1753,9 +1783,25 @@ class ExecutionEngine:
                         }}
                         return
                     elif gate_event.get("type") == "_gate_edited":
-                        # User edited the output — update accumulated_outputs
+                        # User edited the output — update accumulated_outputs (mirror)
                         edited = gate_event.get("edited_content", output)
                         accumulated_outputs[spec.id] = edited
+                        # Typed dual-write the edited content as a NEW ref version so
+                        # _latest_typed_content returns the edit downstream (ART-03).
+                        if edited:
+                            _ek = self._artifact_kind_for(spec)
+                            await self._dual_write_artifact(
+                                ectx,
+                                producer_agent=spec.id,
+                                producer_step=spec.id,
+                                content=edited,
+                                kind=_ek,
+                                location=(
+                                    "prototype.html"
+                                    if _ek == "html_file"
+                                    else f"artifact_refs/{spec.id}"
+                                ),
+                            )
                         # Also update the last result
                         if results:
                             results[-1] = {**results[-1], "output": edited}
@@ -1783,7 +1829,21 @@ class ExecutionEngine:
             logger.exception("Agent %s failed", spec.id)
             _log_event("agent_error", pipeline_run_id, agent_id=spec.id, error=str(exc))
             yield {"type": "agent_error", "data": {"agent_id": spec.id, "error": str(exc), "recoverable": True}}
-            accumulated_outputs[spec.id] = f"[Error: {exc}]"
+            # Mirror + typed dual-write the error placeholder so a downstream consumer
+            # reading from the typed graph sees the SAME content the mirror held (parity).
+            _err_output = f"[Error: {exc}]"
+            accumulated_outputs[spec.id] = _err_output
+            _erk = self._artifact_kind_for(spec)
+            await self._dual_write_artifact(
+                ectx,
+                producer_agent=spec.id,
+                producer_step=spec.id,
+                content=_err_output,
+                kind=_erk,
+                location=(
+                    "prototype.html" if _erk == "html_file" else f"artifact_refs/{spec.id}"
+                ),
+            )
 
     # ------------------------------------------------------------------
     # Build task loop — calls prototype-build once per task
@@ -1821,7 +1881,11 @@ class ExecutionEngine:
         fix sub-agent's stream is consumed INTERNALLY and never re-emitted, so
         the user still sees exactly ONE build per task.
         """
-        plan_output = accumulated_outputs.get("prototype-plan", "")
+        # Typed read-migration (ART-03): the planner's task list comes typed-first
+        # (prototype-plan's ref content), mirror-fallback.
+        plan_output = self._latest_typed_content(
+            ectx, "prototype-plan", accumulated_outputs
+        ) or ""
 
         # Count the planner's tasks (## Task N: headers, or inside a <tasks>
         # wrapper) via the pure, unit-tested _count_plan_tasks seam. A count of 0
@@ -1906,6 +1970,18 @@ class ExecutionEngine:
             task_html = sandbox.read("prototype.html")
             if task_html:
                 accumulated_outputs[spec.id] = task_html
+                # Typed dual-write the post-task HTML as a new prototype-build ref
+                # version (one per task) so _latest_typed_content matches the mirror
+                # for the NEXT task's prompt (ART-03). task_id ties the ref to the task.
+                await self._dual_write_artifact(
+                    ectx,
+                    producer_agent=spec.id,
+                    producer_step=spec.id,
+                    content=task_html,
+                    kind="html_file",
+                    location="prototype.html",
+                    task_id=str(task_num),
+                )
                 logger.info(
                     "Build task loop: task %d/%d done — HTML=%d chars",
                     task_num, total_tasks, len(task_html),
@@ -1941,7 +2017,20 @@ class ExecutionEngine:
             # The fix-loop may have edited prototype.html — refresh the accumulated
             # HTML so the NEXT task's sub-agent sees the corrected document.
             fixed_html = sandbox.read("prototype.html")
-            if fixed_html:
+            if fixed_html and fixed_html != task_html:
+                accumulated_outputs[spec.id] = fixed_html
+                # Typed dual-write the fixed HTML only when it actually changed (avoid a
+                # redundant identical ref version); keeps the typed latest == mirror.
+                await self._dual_write_artifact(
+                    ectx,
+                    producer_agent=spec.id,
+                    producer_step=spec.id,
+                    content=fixed_html,
+                    kind="html_file",
+                    location="prototype.html",
+                    task_id=str(task_num),
+                )
+            elif fixed_html:
                 accumulated_outputs[spec.id] = fixed_html
 
         logger.info("Build task loop: finished %d tasks for pipeline=%s", total_tasks, pipeline_run_id)
@@ -1960,17 +2049,21 @@ class ExecutionEngine:
         with ``read_file`` for the full spec / template / design-system / task
         list. The sandbox is per-run/shared so every task (and fix) sub-agent
         sees the same files. Missing inputs degrade gracefully:
-          * ``spec.md``  ← ``accumulated_outputs["prototype-specify"]`` (the
-            ``<spec>`` text). Skipped if absent.
-          * ``tasks.md`` ← ``accumulated_outputs["prototype-plan"]`` (the
-            ``<tasks>`` text). Skipped if absent.
+          * ``spec.md``  ← the ``prototype-specify`` content, typed-first
+            (ectx.artifacts), mirror-fallback (ART-03 read-migration). Skipped if absent.
+          * ``tasks.md`` ← the ``prototype-plan`` content (same typed-first read).
+            Skipped if absent.
           * ``design.md`` ← ``od_context["template_body"]`` (ACTIVE TEMPLATE) +
             ``od_context["ds_body"]`` (ACTIVE DESIGN SYSTEM) under clear headers;
             each header is included only if its body is present (so a run with no
             DS still gets a template-only design.md, and vice versa).
         """
-        spec_text = accumulated_outputs.get("prototype-specify", "")
-        tasks_text = accumulated_outputs.get("prototype-plan", "")
+        spec_text = self._latest_typed_content(
+            ectx, "prototype-specify", accumulated_outputs
+        ) or ""
+        tasks_text = self._latest_typed_content(
+            ectx, "prototype-plan", accumulated_outputs
+        ) or ""
         od = ectx.od_context or {}
         template_body = od.get("template_body") or ""
         ds_body = od.get("ds_body") or ""
@@ -2600,19 +2693,24 @@ class ExecutionEngine:
             },
         })
 
-    def _build_context_sources(        self,
+    def _build_context_sources(
+        self,
         spec,
         ordered_agents: list,
-        accumulated_outputs: dict[str, str],
+        ectx: ExecutionContext,
+        mirror: dict[str, str] | None = None,
     ) -> list[dict]:
         """Build the context_sources list for the agent_input event (FR-015).
 
         For each upstream agent whose output is consumed, records:
         - type: "summary" (text output) or "artifact" (typed artifact)
         - agent_id, agent_name, summary_length, full_output_length
+
+        Reads consumed content typed-first (ectx.artifacts), mirror-fallback, via
+        _filter_consumed_outputs (ART-03 read-migration).
         """
         sources: list[dict] = []
-        consumed = self._filter_consumed_outputs(spec, ordered_agents, accumulated_outputs)
+        consumed = self._filter_consumed_outputs(spec, ordered_agents, ectx, mirror)
         for aid, output in consumed.items():
             prev = next((s for s in ordered_agents if s.id == aid), None)
             sources.append({
@@ -2643,10 +2741,125 @@ class ExecutionEngine:
                 skills[spec.id] = content
         return skills
 
+    # ------------------------------------------------------------------
+    # Typed artifact substrate — kind mapping, dual-write, typed reads (05-04)
+    # ------------------------------------------------------------------
+
+    # Map a producing agent's role to a typed ARTIFACT_KINDS value (D-01). The
+    # KIND is for lineage / persisted artifact_refs rows only — the engine's
+    # consumes ROUTING is by producer_agent id (the registry DAG contract is
+    # id-based: produces/consumes are agent ids, not kinds), so an unmapped agent
+    # still routes correctly with a sensible default kind. spec/plan/task_list/
+    # html_file are the prototype pipeline's genuine artifacts.
+    _AGENT_KIND_MAP: dict[str, str] = {
+        "prototype-specify": "spec",
+        "prototype-plan": "task_list",
+        "prototype-build": "html_file",
+        "prototype-validate": "validation_report",
+        "prototype-revision-agent": "html_file",
+    }
+
+    def _artifact_kind_for(self, spec) -> str:
+        """Resolve the ARTIFACT_KINDS value for ``spec``'s produced artifact (D-01).
+
+        Looks up the agent-id map; falls back to ``summary`` (a valid kind) for
+        agents without an explicit mapping. The kind labels the persisted
+        artifact_refs row; routing is by producer_agent (see _filter_consumed_outputs),
+        so the fallback never affects deliverable content / parity.
+        """
+        return self._AGENT_KIND_MAP.get(getattr(spec, "id", ""), "summary")
+
+    async def _dual_write_artifact(
+        self,
+        ectx: ExecutionContext,
+        *,
+        producer_agent: str,
+        producer_step: str,
+        content: str,
+        kind: str,
+        location: str,
+        task_id: str | None = None,
+        derived_from: str | None = None,
+    ) -> None:
+        """Dual-write a genuine artifact (PERSIST-02 step 2): the in-memory typed
+        ``ArtifactGraph`` (ectx.artifacts — the live typed handoff Task 3 reads from)
+        AND, best-effort, the persisted ``artifact_refs`` DB row via the per-run
+        ScopedStore.
+
+        The ``accumulated_outputs`` mirror write stays alive ALONGSIDE this (the
+        mirror is still source-of-truth until 05-06 deletes it — INV-3). The DB
+        persist is best-effort for the same reason as the event sink: the offline
+        characterization harness has no workflow_runs FK row, so a DB failure must
+        DEGRADE (log) and never perturb the deliverable / event stream.
+        """
+        ref = ectx.artifacts.write_ref(
+            run_id=ectx.run_id,
+            owner_id=ectx.owner_id,
+            workspace_id=ectx.workspace_id,
+            kind=kind,
+            producer_step=producer_step,
+            producer_agent=producer_agent,
+            task_id=task_id,
+            content=content,
+            location=location,
+            derived_from=derived_from,
+        )
+        store = ectx.scoped_store
+        if store is not None:
+            try:
+                await store.write_ref(ref)
+            except Exception as exc:  # noqa: BLE001 — never break the run on DB persist
+                logger.debug(
+                    "artifact_refs persist failed for run %s kind %s (%s) — typed "
+                    "graph + mirror unaffected (PERSIST-02 best-effort)",
+                    ectx.run_id, kind, exc,
+                )
+
+    def _latest_typed_content(
+        self,
+        ectx: ExecutionContext,
+        producer_agent: str,
+        mirror: dict[str, str] | None = None,
+    ) -> str | None:
+        """Return the LATEST content produced by ``producer_agent`` — TYPED-FIRST.
+
+        Typed read-migration (ART-03): the typed graph (``ectx.artifacts``) is the
+        PRIMARY source — the latest ref by insertion order (the build loop writes a
+        new prototype-build ref version per task; the next task's prompt needs the
+        most recent). The still-live ``accumulated_outputs`` mirror is the documented
+        FALLBACK (the strangler invariant this plan: the typed reads return the SAME
+        content the mirror held — dual-written in production; the mirror is deleted in
+        05-06). Returns None if neither has content.
+        """
+        latest: str | None = None
+        for ref in ectx.artifacts.tree(ectx.run_id):
+            if ref.producer_agent == producer_agent:
+                latest = ref.content
+        if latest is not None:
+            return latest
+        if mirror is not None:
+            return mirror.get(producer_agent)
+        return None
+
     def _filter_consumed_outputs(
-        self, spec, ordered_agents: list, accumulated_outputs: dict[str, str]
+        self,
+        spec,
+        ordered_agents: list,
+        ectx: ExecutionContext,
+        mirror: dict[str, str] | None = None,
     ) -> dict[str, str]:
-        """Return only the upstream outputs whose produces match this agent's consumes."""
+        """Return the upstream outputs this agent consumes — READ TYPED-FIRST.
+
+        Typed read-migration (ART-03 / PERSIST-02 step 3): the routing CONTRACT is
+        unchanged (an upstream agent is consumed iff its ``produces`` intersects this
+        agent's ``consumes`` — both are registry agent-id sets), but the CONTENT now
+        comes from ``ectx.artifacts`` (the typed graph) first, falling back to the
+        still-live ``accumulated_outputs`` mirror. Returns ``{upstream.id: content}``
+        exactly as before so every caller (_build_context_message /
+        _build_context_sources / AgentContext.agent_outputs) is byte-identical — the
+        typed graph holds the SAME content the mirror does (dual-written), so
+        deliverables + events stay at parity.
+        """
         consumes = set(getattr(spec, "consumes", []))
         if not consumes:
             return {}
@@ -2658,8 +2871,10 @@ class ExecutionEngine:
             if upstream.id.startswith("_"):
                 continue
             produced = set(getattr(upstream, "produces", []))
-            if produced & consumes and upstream.id in accumulated_outputs:
-                filtered[upstream.id] = accumulated_outputs[upstream.id]
+            if produced & consumes:
+                content = self._latest_typed_content(ectx, upstream.id, mirror)
+                if content is not None:
+                    filtered[upstream.id] = content
         return filtered
 
     def _build_context_message(
@@ -2808,7 +3023,7 @@ class ExecutionEngine:
                 for part in get_template_injection_parts(template_id):
                     parts.append(part)
 
-        consumed = self._filter_consumed_outputs(spec, ordered_agents, accumulated_outputs)
+        consumed = self._filter_consumed_outputs(spec, ordered_agents, ectx, accumulated_outputs)
         for aid, output in consumed.items():
             prev = next((s for s in ordered_agents if s.id == aid), None)
             label = f"{prev.name} ({prev.role})" if prev else aid
@@ -2847,7 +3062,12 @@ class ExecutionEngine:
             # points the sub-agent at read_file('prototype.html') to fetch the full
             # content before editing (its AGENT.md already mandates this). Task 1 (the
             # HTML shell) has no prior HTML and keeps the full-HTML block unchanged.
-            current_html = accumulated_outputs.get("prototype-build", "")
+            # Typed read-migration (ART-03): read the latest prototype-build HTML
+            # typed-first (the build loop dual-writes a new ref version per task),
+            # mirror-fallback.
+            current_html = self._latest_typed_content(
+                ectx, "prototype-build", accumulated_outputs
+            ) or ""
             if current_html and not current_html.startswith("[Error:"):
                 if is_build_task_2_plus:
                     skeleton = self._extract_html_skeleton(current_html)

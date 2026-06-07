@@ -18,10 +18,28 @@ from agents.execution_engine.context import ExecutionContext
 from agents.execution_engine.engine import ExecutionEngine
 
 
-def _ectx() -> ExecutionContext:
-    """A minimal per-run ExecutionContext to thread into _build_context_message
-    (CTX-01/CTX-02 — the method now takes the run context explicitly, D-03)."""
-    return ExecutionContext(run_id="test-run", owner_id="anon")
+def _ectx(typed: dict[str, str] | None = None) -> ExecutionContext:
+    """A minimal per-run ExecutionContext to thread into the engine helpers.
+
+    ``typed`` seeds the per-run typed ArtifactGraph (05-04 read-migration): the
+    engine's consumes routing now reads upstream content from ``ectx.artifacts``
+    (keyed by producer_agent), NOT the accumulated_outputs mirror. Each entry
+    ``{producer_agent: content}`` becomes one ref in the graph.
+    """
+    ctx = ExecutionContext(run_id="test-run", owner_id="anon", workspace_id="ws-1")
+    for producer_agent, content in (typed or {}).items():
+        ctx.artifacts.write_ref(
+            run_id="test-run",
+            owner_id="anon",
+            workspace_id="ws-1",
+            kind="summary",
+            producer_step=producer_agent,
+            producer_agent=producer_agent,
+            task_id=None,
+            content=content,
+            location=f"artifact_refs/{producer_agent}",
+        )
+    return ctx
 
 
 @dataclass
@@ -52,8 +70,7 @@ def test_build_context_sources_empty_when_no_consumes():
     engine = ExecutionEngine()
     spec = _Spec("agent-a", produces=["agent-a"], consumes=[])
     agents = [spec]
-    accumulated = {"agent-a": "some output"}
-    sources = engine._build_context_sources(spec, agents, accumulated)
+    sources = engine._build_context_sources(spec, agents, _ectx({"agent-a": "some output"}))
     assert sources == []
 
 
@@ -62,8 +79,8 @@ def test_build_context_sources_single_upstream():
     upstream = _Spec("agent-a", produces=["agent-a"], consumes=[])
     consumer = _Spec("agent-b", produces=["agent-b"], consumes=["agent-a"])
     agents = [upstream, consumer]
-    accumulated = {"agent-a": "upstream output text"}
-    sources = engine._build_context_sources(consumer, agents, accumulated)
+    ectx = _ectx({"agent-a": "upstream output text"})
+    sources = engine._build_context_sources(consumer, agents, ectx)
     assert len(sources) == 1
     assert sources[0]["type"] == "summary"
     assert sources[0]["agent_id"] == "agent-a"
@@ -77,21 +94,20 @@ def test_build_context_sources_multiple_upstream():
     b = _Spec("b", produces=["b"], consumes=[])
     c = _Spec("c", produces=["c"], consumes=["a", "b"])
     agents = [a, b, c]
-    accumulated = {"a": "output from a", "b": "output from b"}
-    sources = engine._build_context_sources(c, agents, accumulated)
+    ectx = _ectx({"a": "output from a", "b": "output from b"})
+    sources = engine._build_context_sources(c, agents, ectx)
     assert len(sources) == 2
     agent_ids = {s["agent_id"] for s in sources}
     assert agent_ids == {"a", "b"}
 
 
 def test_build_context_sources_skips_missing_accumulated():
-    """If an upstream agent hasn't produced output yet, it's not in sources."""
+    """If an upstream agent hasn't produced output yet (no typed ref), it's not in sources."""
     engine = ExecutionEngine()
     a = _Spec("a", produces=["a"], consumes=[])
     b = _Spec("b", produces=["b"], consumes=["a"])
     agents = [a, b]
-    accumulated: dict = {}  # a hasn't run yet
-    sources = engine._build_context_sources(b, agents, accumulated)
+    sources = engine._build_context_sources(b, agents, _ectx())  # a hasn't run yet
     assert sources == []
 
 
