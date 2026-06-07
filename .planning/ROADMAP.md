@@ -13,7 +13,7 @@ The plan sub-phases (0A/0B/0C, 1A/1B/1C, 4A/4B) are mapped to sequential GSD pha
 **Phase Numbering:** Integer phases map 1:1 to the plan's §25 sub-phases. Strangler order is strictly sequential — each phase depends on the prior.
 
 - [x] **Phase 1: Safety Net + Deletion Guard [0A]** - Characterization snapshots + ledger/import-linter/banned-pattern CI gates; no behavior change (completed 2026-06-06)
-- [ ] **Phase 2: ExecutionContext + Ownership [0B]** - Lift all `self._*` run state into a per-run `ExecutionContext`; explicit parent-run ownership check; no behavior change
+- [x] **Phase 2: ExecutionContext + Ownership [0B]** - Lift all `self._*` run state into a per-run `ExecutionContext`; explicit parent-run ownership check; no behavior change (completed 2026-06-07)
 - [ ] **Phase 3: Token-Trim (measured change) [0C]** - Wire the dead `_extract_html_skeleton` as build compaction; gated on semantic snapshot + measured token delta
 - [ ] **Phase 4: Manifest + Compiler [1A]** - File-backed manifests → thin compiler → typed `CompiledWorkflow`; pipelines run from compiled plans
 - [ ] **Phase 5: Typed Artifacts + Persistence + Ownership [1B]** - `ArtifactGraph`/`ArtifactRef` + schema (§18); dual-write then delete the legacy mirror; authz denial tests
@@ -74,7 +74,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 02-03-PLAN.md — `assert_owns` ownership helper (authz.py) + explicit cross-owner check above the seed try/except + denial/degrade/anon tests + record L16 (CTX-03, CTX-05) [wave 3]
+- [x] 02-03-PLAN.md — `assert_owns` ownership helper (authz.py) + explicit cross-owner check above the seed try/except + denial/degrade/anon tests + record L16 (CTX-03, CTX-05) [wave 3]
 
 **Cross-cutting constraints:**
 
@@ -305,7 +305,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Safety Net + Deletion Guard [0A] | 4/4 | Complete   | 2026-06-06 |
-| 2. ExecutionContext + Ownership [0B] | 2/3 | In Progress|  |
+| 2. ExecutionContext + Ownership [0B] | 3/3 | Complete   | 2026-06-07 |
 | 3. Token-Trim [0C] | 0/2 | Not started | - |
 | 4. Manifest + Compiler [1A] | 0/4 | Not started | - |
 | 5. Typed Artifacts + Persistence [1B] | 0/5 | Not started | - |
