@@ -1,259 +1,326 @@
-"""tests/agents/test_parent_run_ownership.py — the L16 ownership check (CTX-03 / INV-8).
+"""tests/agents/test_parent_run_ownership.py — the default-deny ownership boundary.
 
-Two layers:
+Phase 5 (05-03, AUTHZ-01..04) relocated the L16 ownership seam from the pure
+``agents/execution_engine/authz.py`` predicate UP into the single default-deny
+scoped store helper ``agents.authz.ScopedStore`` (move-don't-copy, INV-12). This
+suite exercises the helper directly against an in-memory SQLite DB (the
+endpoint/injected-``Session`` path), covering:
 
-1. Unit tests for the pure ``assert_owns`` helper (``agents/execution_engine/authz.py``)
-   — same-owner allowed, cross-owner denied (``PermissionError``), the ``"anon"`` principal
-   treated as a REAL owner (not a bypass), and a by-construction purity assertion (no I/O).
+1. ``assert_owns`` — now a REAL store lookup (D-07): it reads the parent run's
+   true ``owner_id`` and raises ``PermissionError`` on a cross-owner mismatch
+   (the L16 denial, AUTHZ-02). Same-owner → ``None``; an absent/TTL-swept parent
+   → ``None`` (the same-owner graceful-degrade path). The ``anon:<session_id>``
+   principal is a REAL owner, never a bypass (AUTHZ-03 / D-09).
 
-2. End-to-end tests driving ``ExecutionEngine.execute()`` on the ``prototype_revision``
-   pipeline: a cross-owner ``parent_run_id`` raises ``PermissionError`` out of ``execute()``
-   with NOTHING seeded; a same-owner missing/TTL-swept parent still hits the graceful-degrade
-   try and proceeds; the ``"anon"`` principal (``user_id=None``) cannot bypass.
+2. AUTHZ-04 cross-owner DENIAL via the default-deny read filter — owner A cannot
+   read owner B's ``artifact_refs`` rows (``get_ref``/``list_refs``) nor owner
+   B's ``workspaces`` rows.
 
-Offline / no DB / no API key — the ``backend:characterization`` job.
+3. AUTHZ-03 anon isolation — a second anon session (``anon:sess-B``) cannot read
+   the first session's (``anon:sess-A``) ``run_events`` / ``artifact_refs`` rows.
+
+NOTE (intra-phase wave boundary): the ENGINE seed call-site (``engine.py``) is
+rewired to this relocated helper in 05-04 (the next wave). The end-to-end
+``ExecutionEngine.execute()`` denial tests are reinstated there once the engine
+imports the relocated path. THIS plan's gate is the helper + the store-lookup
+denial coverage above — which fully exercises the L16 denial behavior at the
+store layer it now lives in.
+
+Offline / in-memory SQLite / no API key — the ``backend:characterization`` job.
 """
 
 from __future__ import annotations
 
-import inspect
+import hashlib
+import uuid
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
-from agents.execution_engine import authz
-from agents.execution_engine.authz import assert_owns
+from agents.authz import ScopedStore
+from app.models.artifact_ref import ArtifactRef
+from app.models.database import Base
+from app.models.run_event import RunEvent
+from app.models.workflow import WorkflowRun
+from app.models.workspace import Workspace
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Unit tests — the pure assert_owns helper
+# In-memory DB fixture (single shared StaticPool connection)
 # ════════════════════════════════════════════════════════════════════════════
 
 
-def test_assert_owns_same_owner_allowed() -> None:
-    """Same owner → returns None, no raise."""
-    assert assert_owns("alice", "run-123", parent_owner_id="alice") is None
+@pytest.fixture
+def db_session():
+    """An in-memory SQLite session with all Phase-5 tables created.
+
+    A single shared in-memory connection (StaticPool) so seeded rows and the
+    helper reads see the same DB.
+    """
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    TestingSession = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    session = TestingSession()
+    try:
+        yield session
+    finally:
+        session.close()
+        Base.metadata.drop_all(bind=engine)
 
 
-def test_assert_owns_cross_owner_denied() -> None:
-    """Cross-owner → raises PermissionError naming the owner and the parent run id."""
+# --- seed helpers -----------------------------------------------------------
+
+
+def _seed_run(session, *, run_id: str, owner_id: str, workspace_id: str = "ws-1") -> str:
+    """Insert a minimal ``workflow_runs`` row owned by ``owner_id``."""
+    run = WorkflowRun(
+        id=run_id,
+        user_id=owner_id,
+        title="t",
+        type="prototype",
+        status="completed",
+        input="idea",
+        owner_id=owner_id,
+        workspace_id=workspace_id,
+    )
+    session.add(run)
+    session.commit()
+    return run_id
+
+
+def _seed_artifact(
+    session,
+    *,
+    run_id: str,
+    owner_id: str,
+    workspace_id: str = "ws-1",
+    kind: str = "spec",
+    content: str = "# spec\n",
+    visibility: str = "private",
+) -> str:
+    """Insert a minimal ``artifact_refs`` row owned by ``owner_id``."""
+    art_id = str(uuid.uuid4())
+    row = ArtifactRef(
+        id=art_id,
+        run_id=run_id,
+        owner_id=owner_id,
+        workspace_id=workspace_id,
+        kind=kind,
+        producer_step="build",
+        producer_agent="prototype-build",
+        content=content,
+        content_hash=hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        location="spec.md",
+        version=1,
+        visibility=visibility,
+    )
+    session.add(row)
+    session.commit()
+    return art_id
+
+
+def _seed_workspace(
+    session, *, owner_id: str, workspace_id: str
+) -> str:
+    """Insert a ``workspaces`` row owned by ``owner_id`` with self-id == ``workspace_id``."""
+    row = Workspace(
+        id=workspace_id,
+        owner_id=owner_id,
+        workspace_id=workspace_id,
+    )
+    session.add(row)
+    session.commit()
+    return workspace_id
+
+
+def _seed_event(
+    session, *, run_id: str, owner_id: str, workspace_id: str, seq: int
+) -> str:
+    """Insert a ``run_events`` row owned by ``owner_id``."""
+    eid = str(uuid.uuid4())
+    row = RunEvent(
+        id=str(uuid.uuid4()),
+        run_id=run_id,
+        owner_id=owner_id,
+        workspace_id=workspace_id,
+        seq=seq,
+        event_id=eid,
+        type="agent_complete",
+        payload_json={"k": "v"},
+    )
+    session.add(row)
+    session.commit()
+    return eid
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# assert_owns — the relocated L16 seam, now a real store lookup (D-07 / AUTHZ-02)
+# ════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_assert_owns_same_owner_allowed(db_session) -> None:
+    """Same owner → returns None, no raise (store lookup confirms ownership)."""
+    _seed_run(db_session, run_id="run-123", owner_id="alice")
+    store = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
+    assert await store.assert_owns("run-123") is None
+
+
+@pytest.mark.asyncio
+async def test_assert_owns_cross_owner_denied(db_session) -> None:
+    """Cross-owner → raises PermissionError naming the owner and the parent run id.
+
+    This is the L16 denial, now enforced via the parent's TRUE owner looked up
+    from the store (no by-convention argument)."""
+    _seed_run(db_session, run_id="run-123", owner_id="bob")
+    store = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
     with pytest.raises(PermissionError) as exc:
-        assert_owns("alice", "run-123", parent_owner_id="bob")
+        await store.assert_owns("run-123")
     msg = str(exc.value)
     assert "alice" in msg and "run-123" in msg
 
 
-def test_assert_owns_anon_is_a_real_owner_denied() -> None:
-    """The ``"anon"`` principal cannot bypass — a cross-owner anon parent is denied."""
+@pytest.mark.asyncio
+async def test_assert_owns_anon_is_a_real_owner_denied(db_session) -> None:
+    """The ``anon:<session_id>`` principal cannot bypass — a cross-owner anon
+    parent (owned by 'bob') is denied (AUTHZ-03 / D-09)."""
+    _seed_run(db_session, run_id="run-123", owner_id="bob")
+    store = ScopedStore(
+        owner_id="anon:sess-123", workspace_id="ws-1", session=db_session
+    )
     with pytest.raises(PermissionError):
-        assert_owns("anon", "run-123", parent_owner_id="bob")
+        await store.assert_owns("run-123")
 
 
-def test_assert_owns_anon_same_session_allowed() -> None:
-    """Two same-session anon runs (same principal string) are allowed."""
-    assert assert_owns("anon", "run-123", parent_owner_id="anon") is None
+@pytest.mark.asyncio
+async def test_assert_owns_anon_same_session_allowed(db_session) -> None:
+    """Two same-session anon principals (same ``anon:<session_id>`` string on the
+    parent and the caller) are allowed."""
+    _seed_run(db_session, run_id="run-123", owner_id="anon:sess-123")
+    store = ScopedStore(
+        owner_id="anon:sess-123", workspace_id="ws-1", session=db_session
+    )
+    assert await store.assert_owns("run-123") is None
+
+
+@pytest.mark.asyncio
+async def test_assert_owns_missing_parent_degrades_gracefully(db_session) -> None:
+    """A missing / TTL-swept parent → returns None (no raise) — the same-owner
+    graceful-degrade path (CTX-05 parity); the engine's seed try then proceeds."""
+    store = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
+    assert await store.assert_owns("parent-never-created") is None
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# End-to-end tests — the wired ownership check in ExecutionEngine.execute()
+# AUTHZ-04 — cross-owner artifact denial (default-deny read filter)
 # ════════════════════════════════════════════════════════════════════════════
-#
-# These drive the REAL execute() on the prototype_revision pipeline (offline,
-# scripted models) through the parent-run seed block. The cross-owner case must
-# RAISE before any parent file is seeded; the same-owner missing-parent case must
-# degrade gracefully (no raise); the anon principal cannot bypass.
-
-_REVISION_MSG = (
-    "=== EXISTING PROTOTYPE HTML ===\n"
-    "<!doctype html><html><body>original</body></html>\n"
-    "=== END EXISTING HTML ===\n"
-    "=== REVISION REQUEST ===\nMake the header blue.\n=== END REQUEST ==="
-)
-
-
-async def _drive_revision(
-    *,
-    user_id: str | None,
-    parent_run_id: str,
-    parent_owner_override: str | None = None,
-    seed_parent_owner: str | None = None,
-    run_id: str | None = None,
-):
-    """Drive execute() on prototype_revision with a parent_run_id, returning the
-    captured events. Mirrors the _scripted_model harness wiring but threads
-    parent_run_id and lets a test override the by-convention parent owner.
-
-    ``seed_parent_owner`` — if given, pre-create a parent sandbox owned by that
-    principal containing spec.md/design.md/tasks.md (so a same-owner run would seed
-    them); used to assert NOTHING is seeded on a cross-owner denial.
-    """
-    import uuid as _uuid
-
-    import agents.execution_engine.engine as engine_mod
-    import agents.factory as factory_mod
-    from agents.execution_engine.engine import ExecutionEngine
-    from agents.registry import get_pipeline_agents
-    from app.agents.sandbox import RunSandbox
-    from app.core.config import settings as _settings
-
-    from tests.agents._scripted_model import (
-        _RUNS_ROOT,
-        ScriptedFakeChatModel,
-        _scripts_for,
-    )
-
-    _settings.RUNS_ROOT = _RUNS_ROOT
-    engine_mod.ALWAYS_CLARIFY = False
-
-    specs = get_pipeline_agents("prototype_revision")
-
-    _orig_create_runner = factory_mod.create_runner
-    _orig_engine_create_runner = getattr(engine_mod, "create_runner", None)
-
-    def _patched_create_runner(agent_id, ctx, **kw):
-        ctx.model = ScriptedFakeChatModel(_scripts_for(agent_id))
-        return _orig_create_runner(agent_id, ctx, **kw)
-
-    factory_mod.create_runner = _patched_create_runner
-    engine_mod.create_runner = _patched_create_runner
-
-    engine = ExecutionEngine()
-
-    async def _fake_run_planner(user_message, pipeline_run_id, model_id, cancel_event, ptype="custom"):
-        return engine._default_planning_context(user_message), "PROCEED"
-
-    engine._run_planner = _fake_run_planner  # type: ignore[assignment]
-
-    async def _noop_store(*a, **k):
-        return "artifact-id"
-
-    engine._store.store = _noop_store  # type: ignore[assignment]
-
-    async def _noop_gate(*a, **k):
-        return
-        yield  # pragma: no cover
-
-    engine._run_review_gate = _noop_gate  # type: ignore[assignment]
-
-    # Override the by-convention parent owner to exercise the cross-owner path.
-    if parent_owner_override is not None:
-        engine._derive_parent_owner = (  # type: ignore[assignment]
-            lambda _uid, _prid, _o=parent_owner_override: _o
-        )
-
-    # Optionally seed a real parent sandbox (owned by some principal) so we can prove
-    # that a cross-owner denial copies NOTHING into this run's sandbox.
-    if seed_parent_owner is not None:
-        psb = RunSandbox(seed_parent_owner, parent_run_id)
-        psb.ensure()
-        psb.write("spec.md", "# parent spec\n")
-        psb.write("design.md", "# parent design\n")
-        psb.write("tasks.md", "# parent tasks\n")
-
-    run_id = run_id or f"ownertest-{_uuid.uuid4().hex[:8]}"
-    events: list[dict] = []
-    try:
-        async for ev in engine.execute(
-            agents=list(specs),
-            user_message=_REVISION_MSG,
-            pipeline_run_id=run_id,
-            pipeline_type="prototype_revision",
-            user_id=user_id,
-            gate_agent_ids=[],
-            parent_run_id=parent_run_id,
-        ):
-            events.append(ev)
-    finally:
-        factory_mod.create_runner = _orig_create_runner
-        if _orig_engine_create_runner is not None:
-            engine_mod.create_runner = _orig_engine_create_runner
-
-    # Surface this run's sandbox so callers can assert what was (not) seeded.
-    this_sb = RunSandbox(user_id or "anon", run_id)
-    return events, this_sb
 
 
 @pytest.mark.asyncio
-async def test_execute_cross_owner_parent_raises_and_seeds_nothing() -> None:
-    """A cross-owner parent_run_id RAISES PermissionError out of execute() BEFORE any
-    parent file is seeded (the L16 CHECK denial test). The parent sandbox is real and
-    owned by 'bob'; alice's revision sandbox must contain NO copied spec/design/tasks."""
-    parent_run_id = "parent-owned-by-bob"
-    alice_run_id = "alice-revision-crossowner"
-    with pytest.raises(PermissionError):
-        await _drive_revision(
-            user_id="alice",
-            parent_run_id=parent_run_id,
-            parent_owner_override="bob",        # cross-owner derivation
-            seed_parent_owner="bob",            # parent sandbox really has the files
-            run_id=alice_run_id,
-        )
-    from app.agents.sandbox import RunSandbox
-    # Nothing was seeded into alice's run sandbox — the raise fired ABOVE the seed try,
-    # so no parent spec/design/tasks was ever copied across the owner boundary.
-    alice_sb = RunSandbox("alice", alice_run_id)
-    assert alice_sb.read("spec.md") is None
-    assert alice_sb.read("design.md") is None
-    assert alice_sb.read("tasks.md") is None
-    # And bob's parent sandbox is untouched (still owns its files).
-    psb = RunSandbox("bob", parent_run_id)
-    assert psb.read("spec.md") == "# parent spec\n"
+async def test_artifact_cross_owner_get_ref_denied(db_session) -> None:
+    """Owner A cannot read owner B's artifact_refs row via get_ref (default-deny)."""
+    _seed_run(db_session, run_id="run-b", owner_id="bob")
+    art_id = _seed_artifact(db_session, run_id="run-b", owner_id="bob")
+    store_a = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
+    assert await store_a.get_ref(art_id) is None  # cross-owner → nothing → 404
 
 
 @pytest.mark.asyncio
-async def test_execute_same_owner_missing_parent_degrades_gracefully() -> None:
-    """A legitimate SAME-OWNER parent that is missing / TTL-swept does NOT raise — the
-    graceful-degrade try is preserved (CTX-05 parity); the run completes normally."""
-    events, _sb = await _drive_revision(
-        user_id="alice",
-        parent_run_id="alice-parent-never-created",  # no parent sandbox on disk
-        # no override → by-convention owner == alice == ectx.owner_id (same owner)
-    )
-    # The run produced events and did not raise (graceful degrade on the missing parent).
-    assert events, "same-owner revision run should produce events, not raise"
-    assert any(ev.get("type") in ("complete", "agent_complete", "pipeline_complete")
-               or "complete" in str(ev.get("type", "")) for ev in events), (
-        "same-owner revision run should reach completion"
-    )
+async def test_artifact_cross_owner_list_refs_denied(db_session) -> None:
+    """Owner A's list_refs for owner B's run returns no artifact rows."""
+    _seed_run(db_session, run_id="run-b", owner_id="bob")
+    _seed_artifact(db_session, run_id="run-b", owner_id="bob")
+    store_a = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
+    assert await store_a.list_refs("run-b") == []
 
 
 @pytest.mark.asyncio
-async def test_execute_anon_principal_cannot_bypass() -> None:
-    """user_id=None → owner 'anon'. A cross-owner anon parent (owner 'bob') is DENIED —
-    the 'anon' fallback string is a real owner, not a bypass."""
-    with pytest.raises(PermissionError):
-        await _drive_revision(
-            user_id=None,                      # → owner_id == "anon"
-            parent_run_id="parent-owned-by-bob",
-            parent_owner_override="bob",
-        )
+async def test_artifact_same_owner_readable(db_session) -> None:
+    """Positive control: owner B can read its own artifact (filter is not vacuous)."""
+    _seed_run(db_session, run_id="run-b", owner_id="bob")
+    art_id = _seed_artifact(db_session, run_id="run-b", owner_id="bob")
+    store_b = ScopedStore(owner_id="bob", workspace_id="ws-1", session=db_session)
+    got = await store_b.get_ref(art_id)
+    assert got is not None and got.id == art_id
+    assert len(await store_b.list_refs("run-b")) == 1
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# AUTHZ-04 — cross-owner workspace denial
+# ════════════════════════════════════════════════════════════════════════════
 
 
 @pytest.mark.asyncio
-async def test_execute_anon_same_session_parent_allowed() -> None:
-    """Two same-session anon runs (owner 'anon' on both sides) are allowed — a missing
-    same-anon parent degrades gracefully, no raise."""
-    events, _sb = await _drive_revision(
-        user_id=None,                          # → owner_id == "anon"
-        parent_run_id="anon-parent-never-created",
-        # no override → by-convention owner == "anon" == ectx.owner_id (same owner)
+async def test_workspace_cross_owner_run_denied(db_session) -> None:
+    """Owner A cannot read owner B's run (workspace + owner scoped) → None → 404."""
+    _seed_run(db_session, run_id="run-b", owner_id="bob", workspace_id="ws-b")
+    store_a = ScopedStore(owner_id="alice", workspace_id="ws-b", session=db_session)
+    assert await store_a.get_run("run-b") is None
+
+
+@pytest.mark.asyncio
+async def test_workspace_cross_workspace_run_denied(db_session) -> None:
+    """Same owner but the caller's workspace differs → the workspace scope denies
+    the read (workspace_id = :ws), proving workspace isolation on runs."""
+    _seed_run(db_session, run_id="run-b", owner_id="bob", workspace_id="ws-b")
+    store_other_ws = ScopedStore(
+        owner_id="bob", workspace_id="ws-other", session=db_session
     )
-    assert events, "same-anon-owner revision run should produce events, not raise"
+    assert await store_other_ws.get_run("run-b") is None
+    store_right = ScopedStore(
+        owner_id="bob", workspace_id="ws-b", session=db_session
+    )
+    assert await store_right.get_run("run-b") is not None  # positive control
 
 
-def test_assert_owns_is_pure_no_io() -> None:
-    """By construction: the helper performs a string compare only — no store/sandbox/disk
-    calls (D-06 — Phase 5 AUTHZ-02 must relocate it as a mechanical move).
+@pytest.mark.asyncio
+async def test_workspace_default_deny_seeded_workspace(db_session) -> None:
+    """Seed a workspaces row owned by owner B; owner A's scoped run/event reads in
+    that workspace return nothing (the workspace itself is owner-scoped)."""
+    _seed_workspace(db_session, owner_id="bob", workspace_id="ws-b")
+    _seed_run(db_session, run_id="run-b", owner_id="bob", workspace_id="ws-b")
+    store_a = ScopedStore(owner_id="alice", workspace_id="ws-b", session=db_session)
+    assert await store_a.get_run("run-b") is None
 
-    Scan the executable BODY only (strip the docstring, whose prose legitimately mentions
-    ``RunSandbox`` to explain what the helper deliberately does NOT do)."""
-    import ast
-    import textwrap
 
-    tree = ast.parse(textwrap.dedent(inspect.getsource(assert_owns)))
-    fn = tree.body[0]
-    body = fn.body
-    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
-        body = body[1:]  # drop the docstring expression
-    code = "\n".join(ast.dump(node) for node in body)
-    for banned in ("RunSandbox", "_store", "read", "write", "open", "Path"):
-        assert banned not in code, f"assert_owns must be pure; found I/O token {banned!r}"
+# ════════════════════════════════════════════════════════════════════════════
+# AUTHZ-03 — anon session isolation (a second anon session can't read the first's)
+# ════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_anon_session_b_cannot_read_session_a_events(db_session) -> None:
+    """``anon:sess-B`` cannot read ``anon:sess-A``'s run_events rows."""
+    _seed_run(db_session, run_id="run-a", owner_id="anon:sess-A", workspace_id="ws-a")
+    _seed_event(
+        db_session, run_id="run-a", owner_id="anon:sess-A", workspace_id="ws-a", seq=1
+    )
+    store_b = ScopedStore(
+        owner_id="anon:sess-B", workspace_id="ws-a", session=db_session
+    )
+    assert await store_b.read_events("run-a", after_seq=0) == []
+    # positive control: session A reads its own event
+    store_a = ScopedStore(
+        owner_id="anon:sess-A", workspace_id="ws-a", session=db_session
+    )
+    assert len(await store_a.read_events("run-a", after_seq=0)) == 1
+
+
+@pytest.mark.asyncio
+async def test_anon_session_b_cannot_read_session_a_artifacts(db_session) -> None:
+    """``anon:sess-B`` cannot read ``anon:sess-A``'s artifact_refs row."""
+    _seed_run(db_session, run_id="run-a", owner_id="anon:sess-A", workspace_id="ws-a")
+    art_id = _seed_artifact(
+        db_session, run_id="run-a", owner_id="anon:sess-A", workspace_id="ws-a"
+    )
+    store_b = ScopedStore(
+        owner_id="anon:sess-B", workspace_id="ws-a", session=db_session
+    )
+    assert await store_b.get_ref(art_id) is None
+    assert await store_b.list_refs("run-a") == []
