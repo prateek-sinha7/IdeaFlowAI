@@ -19,3 +19,15 @@ environment/config issues, none touch ORM models or migrations:
 Scope confirmation: 05-02 modified only `backend/app/models/*` and
 `backend/alembic/versions/0014_*` + its test. The 0014 migration test, the
 existing `test_alembic.py` drift/check suite, and `lint-imports` all pass.
+
+## 05-04 (Typed substrate + persistence wiring)
+
+- `backend/tests/agents/characterization/_normalize.py` — pre-existing ruff
+  `B905` (`zip(seqs, seqs[1:])` without `strict=`) in `assert_seq_contiguous`.
+  Predates 05-04 (present at HEAD before this plan); 05-04 only edited the
+  `_VOLATILE_STRIP_KEYS` frozenset in the same file. Left untouched per the
+  executor SCOPE BOUNDARY rule (do not fix pre-existing lint in unrelated lines).
+- `backend/app/api/websocket.py:619` — pre-existing ruff `B023` (loop-variable
+  binding `_rev_target_type` in a closure). Predates 05-04; this plan only added
+  the `session_id=chat_session_id` kwarg to the `engine.execute()` call. Out of
+  scope.
