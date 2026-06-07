@@ -313,7 +313,8 @@ class TestCumulativeTaskProgress:
     calls ``_run_agent`` fresh once per task, so the local reset every task and
     ``completed_count`` was stuck at 1 (the frontend's ``protoCompletedTaskCount``
     went non-monotonic: 0,1,1,1,2,1). The fix moves the list to run-level
-    (``engine._completed_tasks``, initialized in ``execute()``).
+    (``ectx.completed_tasks`` on the per-run ExecutionContext, constructed in
+    ``execute()`` and threaded down — CTX-01/CTX-02).
 
     This test drives ``_run_build_task_loop`` directly (engine-level, scripted
     model, temp sandbox) for a 3-task and a 1-task build and asserts the emitted
@@ -390,12 +391,15 @@ class TestCumulativeTaskProgress:
         monkeypatch.setattr(engine_mod, "create_runner", _patched_create_runner)
 
         engine = engine_mod.ExecutionEngine()
-        # Mirror execute()'s per-run init of the cumulative list (the unit under
-        # test). _run_build_task_loop/_run_agent read engine._completed_tasks.
-        engine._completed_tasks = []
-        engine._checkpointer = None
-        engine._disk_skills = {}
-        engine._gate_agent_ids = []  # suppress the inter-agent review gate
+        # Per-run state now lives on the threaded ExecutionContext (CTX-01/CTX-02),
+        # not on the engine singleton. Mirror execute()'s construction: the cumulative
+        # list (the unit under test) is ectx.completed_tasks; gate_agent_ids=[]
+        # suppresses the inter-agent review gate.
+        ectx = engine_mod.ExecutionContext(
+            run_id=f"cumcount-{n_tasks}",
+            owner_id="anon",
+            gate_agent_ids=[],
+        )
 
         # Artifact store writes → no-op (the fake run_id has no workflow_runs row,
         # so a real INSERT fails the FK and would abort the loop). Same neutralizer
@@ -405,7 +409,7 @@ class TestCumulativeTaskProgress:
 
         engine._store.store = _noop_store  # type: ignore[assignment]
 
-        run_id = f"cumcount-{n_tasks}"
+        run_id = ectx.run_id
         engine._state_machine.transition(run_id, "generating")
 
         sandbox = RunSandbox("anon", run_id)
@@ -428,6 +432,7 @@ class TestCumulativeTaskProgress:
         async for ev in engine._run_build_task_loop(
             build_spec, 2, [build_spec], "build me a thing", accumulated_outputs,
             sandbox, run_id, "prototype", {}, None, None, None, results, None,
+            ectx,
         ):
             if ev.get("type") == "task_progress":
                 counts.append(ev["data"]["completed_count"])
@@ -441,4 +446,4 @@ class TestCumulativeTaskProgress:
             f"completed_count must never decrease mid-build; got {counts}"
         )
         # The cumulative list carries one item per completed task, in order.
-        assert [t["number"] for t in engine._completed_tasks] == list(range(1, n_tasks + 1))
+        assert [t["number"] for t in ectx.completed_tasks] == list(range(1, n_tasks + 1))

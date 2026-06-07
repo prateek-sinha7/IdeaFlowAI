@@ -164,13 +164,15 @@ _OD_CONTEXT = {
 
 
 def _fresh_engine(monkeypatch, tmp_path):
-    """An ``ExecutionEngine`` wired for an offline ``_run_build_task_loop`` run.
+    """An ``ExecutionEngine`` + per-run ``ExecutionContext`` wired for an offline
+    ``_run_build_task_loop`` run.
 
     Mirrors the neutralizers ``_scripted_model`` / ``TestCumulativeTaskProgress``
     apply: a temp ``RUNS_ROOT`` (the real ``/app/runs`` is absent locally), a
-    no-op artifact store (the fake run_id has no ``workflow_runs`` row), the
-    cumulative-task list + checkpointer/skills/gate fields ``execute()`` sets per
-    run, and the state machine moved to ``generating``.
+    no-op artifact store (the fake run_id has no ``workflow_runs`` row), and the
+    per-run state ``execute()`` constructs — now on the threaded ``ExecutionContext``
+    (CTX-01/CTX-02), not the engine singleton. Returns ``(engine_mod, engine, ectx)``;
+    callers thread ``ectx`` into ``_run_build_task_loop`` and read ``ectx.*`` state.
     """
     import agents.execution_engine.engine as engine_mod
     from app.core.config import settings as _settings
@@ -178,17 +180,18 @@ def _fresh_engine(monkeypatch, tmp_path):
     monkeypatch.setattr(_settings, "RUNS_ROOT", str(tmp_path))
 
     engine = engine_mod.ExecutionEngine()
-    engine._completed_tasks = []
-    engine._checkpointer = None
-    engine._disk_skills = {}
-    engine._gate_agent_ids = []  # suppress the inter-agent review gate
-    engine._od_context = _OD_CONTEXT
+    ectx = engine_mod.ExecutionContext(
+        run_id="phase4-build",
+        owner_id="anon",
+        gate_agent_ids=[],        # suppress the inter-agent review gate
+        od_context=dict(_OD_CONTEXT),
+    )
 
     async def _noop_store(*a, **k):
         return "artifact-id"
 
     engine._store.store = _noop_store  # type: ignore[assignment]
-    return engine_mod, engine
+    return engine_mod, engine, ectx
 
 
 def _install_scripted_runner_factory(monkeypatch, engine_mod, *, turns_for):
@@ -239,13 +242,14 @@ def _build_spec():
     )
 
 
-async def _run_loop(engine, build_spec, run_id, accumulated_outputs, sandbox):
+async def _run_loop(engine, build_spec, run_id, accumulated_outputs, sandbox, ectx):
     """Drive the REAL ``_run_build_task_loop`` and collect the yielded events."""
     events: list[dict] = []
     async for ev in engine._run_build_task_loop(
         build_spec, 2, [build_spec], "Build me a task manager.",
         accumulated_outputs, sandbox, run_id, "prototype", {},
         None, None, None, [], None,
+        ectx,
     ):
         events.append(ev)
     return events
@@ -272,7 +276,7 @@ class TestReferenceFiles:
     async def test_reference_files_written_with_expected_content(
         self, tmp_path, monkeypatch
     ) -> None:
-        engine_mod, engine = _fresh_engine(monkeypatch, tmp_path)
+        engine_mod, engine, ectx = _fresh_engine(monkeypatch, tmp_path)
 
         def turns_for(agent_id, thread_id, is_fix, task_num):
             # Single clean task — reference-file writing happens before any task.
@@ -288,7 +292,7 @@ class TestReferenceFiles:
         spec_text = "# Specification\nThe app manages tasks.\n## Architecture\nSPA, hash routing."
         accumulated = {"prototype-specify": spec_text, "prototype-plan": _plan(1)}
 
-        await _run_loop(engine, _build_spec(), run_id, accumulated, sandbox)
+        await _run_loop(engine, _build_spec(), run_id, accumulated, sandbox, ectx)
 
         # spec.md == the specify agent's output.
         assert sandbox.read("spec.md") == spec_text
@@ -308,8 +312,8 @@ class TestReferenceFiles:
     ) -> None:
         """A run with a template but NO design system still gets a template-only
         design.md (per the engine's "include a header only if its body is present")."""
-        engine_mod, engine = _fresh_engine(monkeypatch, tmp_path)
-        engine._od_context = {
+        engine_mod, engine, ectx = _fresh_engine(monkeypatch, tmp_path)
+        ectx.od_context = {
             "template_body": "## Workflow\nTemplate only.",
             "template_id": "tpl-x",
             # no ds_body / ds_id
@@ -326,7 +330,7 @@ class TestReferenceFiles:
         sandbox.ensure()
         await _run_loop(
             engine, _build_spec(), run_id,
-            {"prototype-specify": "spec", "prototype-plan": _plan(1)}, sandbox,
+            {"prototype-specify": "spec", "prototype-plan": _plan(1)}, sandbox, ectx,
         )
 
         design = sandbox.read("design.md") or ""
@@ -349,15 +353,16 @@ class TestPerTaskInjection:
     async def test_current_task_block_is_isolated_per_task(
         self, tmp_path, monkeypatch
     ) -> None:
-        engine_mod, engine = _fresh_engine(monkeypatch, tmp_path)
+        engine_mod, engine, ectx = _fresh_engine(monkeypatch, tmp_path)
 
         # Spy on the REAL _build_context_message to capture the CURRENT TASK block
-        # the build sub-agent is actually handed per task.
+        # the build sub-agent is actually handed per task. The method now takes the
+        # threaded ExecutionContext (ectx) — the spy mirrors the new signature.
         captured: list[str | None] = []
         orig_bcm = engine_mod.ExecutionEngine._build_context_message
 
-        def spy(self, spec, ordered_agents, user_message, accumulated_outputs, planning_context):
-            msg = orig_bcm(self, spec, ordered_agents, user_message, accumulated_outputs, planning_context)
+        def spy(self, spec, ordered_agents, user_message, accumulated_outputs, planning_context, ectx):
+            msg = orig_bcm(self, spec, ordered_agents, user_message, accumulated_outputs, planning_context, ectx)
             if getattr(spec, "id", None) == "prototype-build":
                 m = re.search(
                     r"=== CURRENT TASK ===\n(.*?)\n=== END CURRENT TASK ===", msg, re.DOTALL
@@ -385,7 +390,7 @@ class TestPerTaskInjection:
         sandbox.ensure()
         await _run_loop(
             engine, _build_spec(), run_id,
-            {"prototype-specify": "spec", "prototype-plan": _plan(3)}, sandbox,
+            {"prototype-specify": "spec", "prototype-plan": _plan(3)}, sandbox, ectx,
         )
 
         assert len(captured) == 3, f"expected one CURRENT TASK block per task; got {captured}"
@@ -419,7 +424,7 @@ class TestAccumulationAndEvents:
     async def test_html_accumulates_and_progress_events_unchanged(
         self, tmp_path, monkeypatch
     ) -> None:
-        engine_mod, engine = _fresh_engine(monkeypatch, tmp_path)
+        engine_mod, engine, ectx = _fresh_engine(monkeypatch, tmp_path)
 
         # Shell + 2 page edits, each adding a sizeable chunk so the doc grows.
         page2 = "<p>" + ("dashboard widgets " * 8) + "</p>"
@@ -452,6 +457,7 @@ class TestAccumulationAndEvents:
             _build_spec(), 2, [_build_spec()], "brief",
             {"prototype-specify": "spec", "prototype-plan": _plan(3)},
             sandbox, run_id, "prototype", {}, None, None, None, [], None,
+            ectx,
         ):
             events.append(ev)
             if ev["type"] == "task_loop_progress":
@@ -532,7 +538,7 @@ class TestInternalFixLoop:
     async def test_repairable_defect_is_fixed_internally_without_leaking_events(
         self, tmp_path, monkeypatch
     ) -> None:
-        engine_mod, engine = _fresh_engine(monkeypatch, tmp_path)
+        engine_mod, engine, ectx = _fresh_engine(monkeypatch, tmp_path)
 
         # Task 2 edits in a page that introduces a DEAD nav link (#/ghost) — a
         # defect static_check (and render_check) catch. The fix sub-agent edits
@@ -570,7 +576,7 @@ class TestInternalFixLoop:
         sandbox.ensure()
         events = await _run_loop(
             engine, _build_spec(), run_id,
-            {"prototype-specify": "spec", "prototype-plan": _plan(2)}, sandbox,
+            {"prototype-specify": "spec", "prototype-plan": _plan(2)}, sandbox, ectx,
         )
 
         # ── The internal fix sub-agent fired on the SAME task, a distinct :fix thread. ──
@@ -611,7 +617,7 @@ class TestInternalFixLoop:
     async def test_unrepairable_defect_stops_after_two_attempts_and_completes(
         self, tmp_path, monkeypatch, caplog
     ) -> None:
-        engine_mod, engine = _fresh_engine(monkeypatch, tmp_path)
+        engine_mod, engine, ectx = _fresh_engine(monkeypatch, tmp_path)
 
         # A single task whose shell carries a permanent dead nav link, and a fix
         # that never repairs it (its edit targets a string that isn't present, so
@@ -659,7 +665,7 @@ class TestInternalFixLoop:
         with caplog.at_level(logging.WARNING, logger="agents.execution_engine.engine"):
             events = await _run_loop(
                 engine, _build_spec(), run_id,
-                {"prototype-specify": "spec", "prototype-plan": _plan(1)}, sandbox,
+                {"prototype-specify": "spec", "prototype-plan": _plan(1)}, sandbox, ectx,
             )
 
         # ── Exactly 2 fix attempts (bounded N=2), on :fix1 then :fix2. ──
@@ -693,7 +699,7 @@ class TestFinalValidity:
     async def test_final_prototype_passes_static_and_render(
         self, tmp_path, monkeypatch
     ) -> None:
-        engine_mod, engine = _fresh_engine(monkeypatch, tmp_path)
+        engine_mod, engine, ectx = _fresh_engine(monkeypatch, tmp_path)
 
         page2 = "<p>dashboard content</p>"
         page3 = "<p>reports content</p>"
@@ -713,7 +719,7 @@ class TestFinalValidity:
         sandbox.ensure()
         await _run_loop(
             engine, _build_spec(), run_id,
-            {"prototype-specify": "spec", "prototype-plan": _plan(3)}, sandbox,
+            {"prototype-specify": "spec", "prototype-plan": _plan(3)}, sandbox, ectx,
         )
 
         html_path = sandbox.path_for("prototype.html")

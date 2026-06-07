@@ -27,6 +27,7 @@ import time
 from typing import AsyncGenerator
 
 from agents.artifact_store.store import ArtifactStoreWriteError, get_artifact_store
+from agents.execution_engine.context import ExecutionContext
 from agents.execution_engine.resolver import WorkflowResolver
 from agents.execution_engine.state_machine import get_state_machine
 from agents.factory import AgentContext, create_runner
@@ -471,19 +472,23 @@ class ExecutionEngine:
         # the engine reads its deliverables back from disk.
         sandbox = RunSandbox(user_id or "anon", pipeline_run_id)
         sandbox.ensure()
-        self._od_context = od_context  # threaded into AgentContext per agent
-        self._user_id = user_id
-        # Per-run gate selection (see docstring + _should_gate). None = use the
-        # static AGENT.md `gate: Human_Gate` set (today's behavior); a list =
-        # gate exactly those agent IDs. Stashed on self (like _od_context above)
-        # so the decision point inside _run_agent can read it without threading
-        # the param through _run_agent / _run_build_task_loop signatures.
-        self._gate_agent_ids = gate_agent_ids
-        # Parent run id (prototype_revision only) — used below to seed the parent
-        # run's spec.md/design.md/tasks.md into THIS run's sandbox. Stashed on
-        # self (like _od_context / _gate_agent_ids) so the post-revision fix-loop
-        # can read it without threading the param through every signature.
-        self._parent_run_id = parent_run_id
+        # ── Per-run state: ONE ExecutionContext, threaded explicitly (CTX-01/CTX-02) ──
+        # Construct the per-run value object immediately after the sandbox so NO per-run
+        # datum is stashed on the ExecutionEngine singleton (the INV-2 concurrency
+        # hazard). owner_id = user_id or "anon" (D-04) — the SAME principal RunSandbox
+        # keys disk with above (kept byte-identical, D-05). Run state previously written
+        # to self._* now lives on `ectx`, threaded down through the call tree (D-03,
+        # explicit param — never contextvars). gate_agent_ids selection (None ⇒ static
+        # AGENT.md `gate: Human_Gate` set; a list ⇒ exactly those ids) and parent_run_id
+        # (prototype_revision parent-seed source) ride on the context too.
+        ectx = ExecutionContext(
+            run_id=pipeline_run_id,
+            owner_id=user_id or "anon",
+            od_context=od_context,  # threaded into AgentContext per agent
+            gate_agent_ids=gate_agent_ids,
+            parent_run_id=parent_run_id,
+            cancel_event=cancel_event,
+        )
 
         # ── Durable graph state: acquire the LangGraph checkpointer once per run ──
         # get_checkpointer() is a process-wide CACHED SINGLETON (see
@@ -500,7 +505,7 @@ class ExecutionEngine:
         # gets its OWN unique thread_id below so per-agent graph states never
         # collide on this shared checkpointer; the disk sandbox stays per-run/shared.
         from app.agents.checkpointer import get_checkpointer
-        self._checkpointer = await get_checkpointer()
+        ectx.checkpointer = await get_checkpointer()
 
         # ── Cumulative prototype task-completion list (run-level, run-shared) ──
         # RESTORES the pre-cutover semantics of PrototypeArtifactStore, which was
@@ -512,9 +517,9 @@ class ExecutionEngine:
         # TASK. A local list resets every task, so completed_count would be stuck at
         # 1 and the frontend's protoCompletedTaskCount would go non-monotonic
         # (0,1,1,1,2,1) instead of cumulative/monotonic (0,1,1,2,2,3) — a visible
-        # build-progress UI regression. Initialized once per run here, appended in
-        # _run_agent, emitted as completed_count=len(self._completed_tasks).
-        self._completed_tasks: list[dict] = []
+        # build-progress UI regression. Lives on the per-run context
+        # (ectx.completed_tasks, [] by default_factory), appended in _run_agent,
+        # emitted as completed_count=len(ectx.completed_tasks).
 
         # ── Prototype revision: seed the existing prototype as an editable file ──
         # DELIBERATE EXCEPTION to the revision pattern used elsewhere. Every other
@@ -529,29 +534,27 @@ class ExecutionEngine:
         # existing in-page JS such as the SPA route map). We drop the current HTML
         # into the sandbox and slim the prompt to just the instruction + a
         # pointer, so the document isn't also duplicated into the agent's context.
-        self._revision_original_html = ""
         # Phase-5 revision state consumed by the post-revision fix-loop (below,
-        # just before the read-back). Safe defaults so the fix-loop degrades to a
+        # just before the read-back). The ExecutionContext already carries safe
+        # defaults (ectx.revision_original_html="", ectx.revision_instruction=None,
+        # ectx.revision_baseline_static/console=set()) so the fix-loop degrades to a
         # no-baseline / no-instruction run (or is skipped) when this is not a
         # prototype_revision, or when no existing HTML was found.
-        #   _revision_instruction       — the user's revision request, re-injected
-        #                                  into the fix prompt (None ⇒ build-style
-        #                                  wording; we set it to the slimmed message
-        #                                  as a fallback so it's never None here).
-        #   _revision_baseline_static   — static-issue signatures of the seeded
-        #                                  ORIGINAL prototype.html (pre-edit), so
-        #                                  the fix-loop only treats NEW static
-        #                                  issues as regressions.
-        #   _revision_baseline_console  — console-error signatures of that same
-        #                                  pre-edit render (empty when render is
-        #                                  unavailable).
-        self._revision_instruction = None
-        self._revision_baseline_static: set[str] = set()
-        self._revision_baseline_console: set[str] = set()
+        #   ectx.revision_instruction      — the user's revision request, re-injected
+        #                                     into the fix prompt (None ⇒ build-style
+        #                                     wording; we set it to the slimmed message
+        #                                     as a fallback so it's never None here).
+        #   ectx.revision_baseline_static  — static-issue signatures of the seeded
+        #                                     ORIGINAL prototype.html (pre-edit), so
+        #                                     the fix-loop only treats NEW static
+        #                                     issues as regressions.
+        #   ectx.revision_baseline_console — console-error signatures of that same
+        #                                     pre-edit render (empty when render is
+        #                                     unavailable).
         if pipeline_type == "prototype_revision":
             existing_html = self._extract_existing_prototype_html(user_message)
             if existing_html:
-                self._revision_original_html = existing_html
+                ectx.revision_original_html = existing_html
                 sandbox.write(REVISION_FILE_NAME, existing_html)
 
                 # ── Capture the user's revision instruction (for the fix prompt) ──
@@ -565,7 +568,7 @@ class ExecutionEngine:
                     user_message, re.IGNORECASE,
                 )
                 user_message = self._slim_revision_message(user_message)
-                self._revision_instruction = (
+                ectx.revision_instruction = (
                     _req_match.group(1).strip() if _req_match else user_message
                 )
 
@@ -621,7 +624,7 @@ class ExecutionEngine:
                 from app.agents.static_check import static_check
                 _orig_path = sandbox.path_for(REVISION_FILE_NAME)
                 _sres0 = static_check(_orig_path)
-                self._revision_baseline_static = _static_issue_sigs(_sres0)
+                ectx.revision_baseline_static = _static_issue_sigs(_sres0)
                 try:
                     from app.agents.render_check import render_check
                     _rres0 = await render_check(_orig_path)
@@ -636,12 +639,12 @@ class ExecutionEngine:
                         ok=True, available=False,
                         note=f"render_check error: {_render_exc}",
                     )
-                self._revision_baseline_console = _console_sigs(_rres0)
+                ectx.revision_baseline_console = _console_sigs(_rres0)
                 logger.info(
                     "prototype_revision: pre-edit baseline — %d static issue(s), "
                     "%d console error(s)",
-                    len(self._revision_baseline_static),
-                    len(self._revision_baseline_console),
+                    len(ectx.revision_baseline_static),
+                    len(ectx.revision_baseline_console),
                 )
             else:
                 logger.warning(
@@ -652,7 +655,7 @@ class ExecutionEngine:
         # Load per-user disk skills for all agents (user → global → built-in).
         # Honours per-user SKILL.md overrides — replicates the behaviour of the
         # former WorkflowOrchestrator._load_skills (WORKFLOWS.md §B6).
-        self._disk_skills = self._load_disk_skills(agents, user_id)
+        ectx.disk_skills = self._load_disk_skills(agents, user_id)
 
         # ── Step 1: Validate the DAG ──────────────────────────────────────
         validation = self._resolver.validate(agents)
@@ -874,6 +877,7 @@ class ExecutionEngine:
                         spec, i, ordered_agents, user_message, accumulated_outputs,
                         sandbox, pipeline_run_id, pipeline_type, planning_context,
                         attached_skills, attached_hooks, model_id, results, cancel_event,
+                        ectx,
                     ):
                         yield event
                 else:
@@ -881,6 +885,7 @@ class ExecutionEngine:
                         spec, i, ordered_agents, user_message, accumulated_outputs,
                         sandbox, pipeline_run_id, pipeline_type, planning_context,
                         attached_skills, attached_hooks, model_id, results, cancel_event,
+                        ectx,
                     ):
                         yield event
 
@@ -923,12 +928,12 @@ class ExecutionEngine:
                 #  - disk-skill merge keyed on the literal agent id (== spec.id),
                 #  - agent_outputs={} (prototype-revision-agent declares consumes:[]
                 #    so _filter_consumed_outputs returns {} — set directly here),
-                #  - run_id=pipeline_run_id + user_id=self._user_id so create_runner
+                #  - run_id=pipeline_run_id + user_id=ectx.owner_id so create_runner
                 #    (inside the fix-loop) roots the fix sub-agent's RunSandbox at
                 #    RunSandbox(ctx.user_id or "anon", ctx.run_id) — the SAME revision
                 #    dir holding prototype.html — so its edits are NOT lost.
                 _rev_skills: list[dict] = list(attached_skills or [])
-                _disk_skills = getattr(self, "_disk_skills", {})
+                _disk_skills = ectx.disk_skills
                 if "prototype-revision-agent" in _disk_skills:
                     _rev_skills.append({"content": _disk_skills["prototype-revision-agent"]})
                 rev_ctx = AgentContext(
@@ -937,9 +942,9 @@ class ExecutionEngine:
                     attached_skills=_rev_skills,
                     attached_hooks=list(attached_hooks or []),
                     model=model_id,
-                    od_context=getattr(self, "_od_context", None),
+                    od_context=ectx.od_context,
                     planning_context=planning_context,
-                    user_id=getattr(self, "_user_id", None),
+                    user_id=ectx.owner_id,
                     run_id=pipeline_run_id,
                 )
                 await self._run_validation_fix_loop(
@@ -950,10 +955,11 @@ class ExecutionEngine:
                     total_tasks=1,
                     cancel_event=cancel_event,
                     agent_id="prototype-revision-agent",
-                    baseline_static=getattr(self, "_revision_baseline_static", None),
-                    baseline_console=getattr(self, "_revision_baseline_console", None),
-                    user_instruction=getattr(self, "_revision_instruction", None),
+                    baseline_static=ectx.revision_baseline_static,
+                    baseline_console=ectx.revision_baseline_console,
+                    user_instruction=ectx.revision_instruction,
                     label="revision",
+                    checkpointer=ectx.checkpointer,
                 )
             except Exception as exc:  # noqa: BLE001 — never let validation abort the revision
                 logger.warning(
@@ -972,7 +978,7 @@ class ExecutionEngine:
             pipeline_type,
             sandbox,
             results,
-            revision_original_html=getattr(self, "_revision_original_html", None),
+            revision_original_html=ectx.revision_original_html,
         )
 
         # ── PPT carousel deck: strip slide-hiding CSS the composer may hallucinate ──
@@ -1121,8 +1127,14 @@ class ExecutionEngine:
         model_id: str | None,
         results: list[dict],
         cancel_event: asyncio.Event | None,
+        ectx: ExecutionContext,
     ) -> AsyncGenerator[dict, None]:
-        """Run a single domain agent, yielding WS events."""
+        """Run a single domain agent, yielding WS events.
+
+        ``ectx`` is the per-run ExecutionContext (D-03 explicit thread): the engine
+        reads od_context / owner / completed-tasks / checkpointer from it instead of
+        ``self`` (the kernel holds no per-run state — CTX-02).
+        """
         # Guard: if the run is already in a terminal state (e.g. user rejected
         # a review gate), stop immediately without running the agent.
         current_state = self._state_machine.get_state(pipeline_run_id)
@@ -1145,7 +1157,7 @@ class ExecutionEngine:
         # Build context message from upstream outputs (consumes contract)
         context_message = self._build_context_message(
             spec, ordered_agents, user_message, accumulated_outputs,
-            planning_context,
+            planning_context, ectx,
         )
 
         # Emit agent_input event (Phase 3 / T040) — shows full input prompt
@@ -1167,7 +1179,7 @@ class ExecutionEngine:
             # Merge disk-based skills into attached_skills for this agent.
             # UI-attached skills take priority; disk skill is appended after.
             merged_skills: list[dict] = list(attached_skills or [])
-            disk_skills = getattr(self, "_disk_skills", {})
+            disk_skills = ectx.disk_skills
             if spec.id in disk_skills:
                 merged_skills.append({"content": disk_skills[spec.id]})
 
@@ -1177,9 +1189,9 @@ class ExecutionEngine:
                 attached_skills=merged_skills,
                 attached_hooks=list(attached_hooks or []),
                 model=model_id,
-                od_context=getattr(self, "_od_context", None),
+                od_context=ectx.od_context,
                 planning_context=planning_context,
-                user_id=getattr(self, "_user_id", None),
+                user_id=ectx.owner_id,
                 # run_id roots create_runner's RunSandbox at RunSandbox(user_id,
                 # pipeline_run_id) — the SAME per-run disk dir the engine reads
                 # deliverables back from (prototype.html / code-gen files).
@@ -1210,7 +1222,7 @@ class ExecutionEngine:
                 spec.id,
                 ctx,
                 thread_id=thread_id,
-                checkpointer=getattr(self, "_checkpointer", None),
+                checkpointer=ectx.checkpointer,
             )
 
             output_chunks: list[str] = []
@@ -1239,10 +1251,10 @@ class ExecutionEngine:
             # longer populates a PrototypeArtifactStore). We capture each call's
             # args from the tool_call event and emit the SAME task_progress
             # payload shape the engine emitted from proto_store.completed_tasks.
-            # The list is RUN-LEVEL (self._completed_tasks, initialized once per run
+            # The list is RUN-LEVEL (ectx.completed_tasks, created once per run
             # in execute()), NOT a local — because the build loop calls _run_agent
             # fresh once per task, so a local would reset every task and stick
-            # completed_count at 1 (the #46 regression). Accumulating on self mirrors
+            # completed_count at 1 (the #46 regression). Accumulating on ectx mirrors
             # the old run-shared PrototypeArtifactStore so completed_count grows
             # cumulatively (1,2,3,…) across the build loop's per-task invocations.
             try:
@@ -1264,7 +1276,7 @@ class ExecutionEngine:
                             # (fired on the matching tool_result) reflects every task.
                             if event.get("tool") == "report_task_complete":
                                 args = event.get("args", {}) or {}
-                                self._completed_tasks.append({
+                                ectx.completed_tasks.append({
                                     "number": args.get("task_number"),
                                     "title": args.get("task_title"),
                                     "summary": args.get("summary", ""),
@@ -1282,8 +1294,8 @@ class ExecutionEngine:
                                     "data": {
                                         "agent_id": spec.id,
                                         "pipeline_run_id": pipeline_run_id,
-                                        "completed_tasks": list(self._completed_tasks),
-                                        "completed_count": len(self._completed_tasks),
+                                        "completed_tasks": list(ectx.completed_tasks),
+                                        "completed_count": len(ectx.completed_tasks),
                                         "timestamp": _now(),
                                     },
                                 }
@@ -1391,7 +1403,7 @@ class ExecutionEngine:
             # = today's static `gate: Human_Gate` set; see _should_gate / the
             # `gate_agent_ids` param on execute()). The gate body below — the
             # _run_review_gate call and its events — is unchanged.
-            if self._should_gate(spec):
+            if self._should_gate(spec, ectx):
                 async for gate_event in self._run_review_gate(
                     pipeline_run_id=pipeline_run_id,
                     agent_id=spec.id,
@@ -1463,6 +1475,7 @@ class ExecutionEngine:
         model_id: str | None,
         results: list[dict],
         cancel_event,
+        ectx: ExecutionContext,
     ):
         """Per-task isolated sub-agent build loop with Both-validation (Phase 4).
 
@@ -1504,8 +1517,8 @@ class ExecutionEngine:
         # reads them with read_file for deeper detail than the injected task block.
         # spec.md  = the spec writer's <spec> text; tasks.md = the planner's <tasks>;
         # design.md = ACTIVE TEMPLATE (SKILL.md) + ACTIVE DESIGN SYSTEM (DESIGN.md)
-        # from self._od_context. Missing keys are handled gracefully (skip a header).
-        self._write_build_reference_files(sandbox, accumulated_outputs)
+        # from ectx.od_context. Missing keys are handled gracefully (skip a header).
+        self._write_build_reference_files(sandbox, accumulated_outputs, ectx)
 
         for task_num in range(1, total_tasks + 1):
             if cancel_event and cancel_event.is_set():
@@ -1531,9 +1544,10 @@ class ExecutionEngine:
             accumulated_outputs["_build_task_total"] = str(total_tasks)
 
             # ── (B) Stash THIS task's `## Task N:` block for injection ───────────
-            # _build_context_message reads self._current_task_block and emits it
+            # _build_context_message reads ectx.current_task_block and emits it
             # inside the `=== CURRENT TASK ===` marker the #51 prompt looks for.
-            self._current_task_block = self._extract_task_block(task_source, task_num)
+            # (D-02 TEMPORARY home — Phase 7 reclaims this into TaskLoopStrategy.)
+            ectx.current_task_block = self._extract_task_block(task_source, task_num)
 
             # Emit loop progress so frontend knows which task is running
             yield {
@@ -1551,6 +1565,7 @@ class ExecutionEngine:
                 spec, index, ordered_agents, user_message, accumulated_outputs,
                 sandbox, pipeline_run_id, pipeline_type, planning_context,
                 attached_skills, attached_hooks, model_id, results, cancel_event,
+                ectx,
             ):
                 yield event
 
@@ -1579,9 +1594,9 @@ class ExecutionEngine:
                     attached_skills=list(attached_skills or []),
                     attached_hooks=list(attached_hooks or []),
                     model=model_id,
-                    od_context=getattr(self, "_od_context", None),
+                    od_context=ectx.od_context,
                     planning_context=planning_context,
-                    user_id=getattr(self, "_user_id", None),
+                    user_id=ectx.owner_id,
                     run_id=pipeline_run_id,
                 ),
                 sandbox=sandbox,
@@ -1589,6 +1604,7 @@ class ExecutionEngine:
                 task_num=task_num,
                 total_tasks=total_tasks,
                 cancel_event=cancel_event,
+                checkpointer=ectx.checkpointer,
             )
             # The fix-loop may have edited prototype.html — refresh the accumulated
             # HTML so the NEXT task's sub-agent sees the corrected document.
@@ -1603,7 +1619,8 @@ class ExecutionEngine:
     # ------------------------------------------------------------------
 
     def _write_build_reference_files(
-        self, sandbox: RunSandbox, accumulated_outputs: dict[str, str]
+        self, sandbox: RunSandbox, accumulated_outputs: dict[str, str],
+        ectx: ExecutionContext,
     ) -> None:
         """Write spec.md / design.md / tasks.md into the run sandbox (Region A).
 
@@ -1622,7 +1639,7 @@ class ExecutionEngine:
         """
         spec_text = accumulated_outputs.get("prototype-specify", "")
         tasks_text = accumulated_outputs.get("prototype-plan", "")
-        od = getattr(self, "_od_context", None) or {}
+        od = ectx.od_context or {}
         template_body = od.get("template_body") or ""
         ds_body = od.get("ds_body") or ""
 
@@ -1718,6 +1735,7 @@ class ExecutionEngine:
         baseline_console: "set[str] | None" = None,
         user_instruction: str | None = None,
         label: str = "",
+        checkpointer: object | None = None,
     ) -> None:
         """Both-validation + bounded INTERNAL fix-loop (Region C — build & revision).
 
@@ -1866,7 +1884,7 @@ class ExecutionEngine:
                     agent_id,
                     ctx,
                     thread_id=fix_thread,
-                    checkpointer=getattr(self, "_checkpointer", None),
+                    checkpointer=checkpointer,
                 )
                 async for _ev in fix_agent.astream_events(fix_message):
                     if cancel_event and cancel_event.is_set():
@@ -1887,13 +1905,13 @@ class ExecutionEngine:
     # Gate selection — which agents pause for the inter-agent Human gate
     # ------------------------------------------------------------------
 
-    def _should_gate(self, spec) -> bool:
+    def _should_gate(self, spec, ectx: ExecutionContext) -> bool:
         """Decide whether ``spec`` pauses for the inter-agent Human review gate.
 
         Effective set = the per-run ``gate_agent_ids`` passed to ``execute()``
-        (stashed as ``self._gate_agent_ids``) when given, else the STATIC set.
+        (carried on ``ectx.gate_agent_ids``) when given, else the STATIC set.
 
-        - ``self._gate_agent_ids is not None``  → gate iff ``spec.id`` is in it.
+        - ``ectx.gate_agent_ids is not None``  → gate iff ``spec.id`` is in it.
         - else (default; field absent / client didn't send it) → gate iff the
           AGENT.md frontmatter declares ``gate: Human_Gate`` — **exactly today's
           static rule**, so behavior is byte-identical unless a client opts in.
@@ -1901,7 +1919,7 @@ class ExecutionEngine:
         Only selects *which* agents trigger the gate; the gate itself
         (``_run_review_gate`` + its ``review_gate_*`` events) is unchanged.
         """
-        gate_ids = getattr(self, "_gate_agent_ids", None)
+        gate_ids = ectx.gate_agent_ids
         if gate_ids is not None:
             return spec.id in set(gate_ids)
         return getattr(spec, "gate", None) == "Human_Gate"
@@ -2319,6 +2337,7 @@ class ExecutionEngine:
         user_message: str,
         accumulated_outputs: dict[str, str],
         planning_context: dict,
+        ectx: ExecutionContext,
     ) -> str:
         """Build the context message (user request + consumed upstream outputs).
 
@@ -2387,7 +2406,7 @@ class ExecutionEngine:
         # injection — the skeleton already has the DS tokens and the task list
         # has the CSS classes. Only inject for task 1 (HTML shell) and for
         # non-build agents (spec writer, planner, validate).
-        od = getattr(self, "_od_context", None) or {}
+        od = ectx.od_context or {}
         injects = getattr(spec, "injects", []) or []
         task_num_str = accumulated_outputs.get("_build_task_number", "")
         is_build_task_2_plus = (spec.id == "prototype-build" and task_num_str not in ("", "1"))
@@ -2468,7 +2487,7 @@ class ExecutionEngine:
         # authoritative scope. The Phase-4 build loop (_run_build_task_loop) writes
         # spec.md / design.md / tasks.md to the sandbox (the sub-agent reads them
         # with read_file for deeper detail) and stashes THIS task's full `## Task N:`
-        # block on `self._current_task_block` before each _run_agent call — we emit
+        # block on `ectx.current_task_block` before each _run_agent call — we emit
         # that block inside the marker so the sub-agent's scope is the exact planner
         # task text, not just "Task N of M". (The Both-validation fix re-run is driven
         # INTERNALLY by the loop with its own constructed message — see
@@ -2477,7 +2496,7 @@ class ExecutionEngine:
             task_num_str = accumulated_outputs.get("_build_task_number", "")
             total_str = accumulated_outputs.get("_build_task_total", "")
             if task_num_str:
-                task_block = getattr(self, "_current_task_block", "") or ""
+                task_block = ectx.current_task_block or ""
                 body = task_block.strip() if task_block.strip() else (
                     "Execute ONLY this task from the task list above."
                 )
@@ -2501,7 +2520,7 @@ class ExecutionEngine:
                 )
 
             # Template compliance reminder
-            od = getattr(self, "_od_context", None) or {}
+            od = ectx.od_context or {}
             ds_id = od.get("ds_id", "")
             template_id_val = od.get("template_id", "")
             parts.append(

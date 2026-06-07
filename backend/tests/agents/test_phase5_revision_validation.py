@@ -272,11 +272,10 @@ def _fresh_engine(monkeypatch, tmp_path):
     monkeypatch.setattr(_settings, "RUNS_ROOT", str(tmp_path))
 
     engine = engine_mod.ExecutionEngine()
-    engine._completed_tasks = []
-    engine._checkpointer = None
-    engine._disk_skills = {}
-    engine._gate_agent_ids = []  # suppress the inter-agent review gate
-    engine._od_context = _OD_CONTEXT
+    # Per-run state is no longer stashed on the engine singleton (CTX-01/CTX-02):
+    # execute() constructs its own per-run ExecutionContext from the call args
+    # (gate_agent_ids=[], od_context=_OD_CONTEXT are passed by _execute_revision).
+    # Nothing to pre-seed on `engine` here.
 
     async def _noop_store(*a, **k):
         return "artifact-id"
@@ -553,9 +552,25 @@ class TestFixPolicyEndToEnd:
     ) -> None:
         """The baseline (the set of pre-existing static signatures to ignore) is
         computed on the ORIGINAL prototype.html BEFORE the agent edits it — proven
-        by inspecting the engine's stashed ``_revision_baseline_static`` after the
-        run. (Guards the 'baseline on the seeded original' contract directly.)"""
+        by capturing the ``baseline_static`` / ``user_instruction`` the engine threads
+        into ``_run_validation_fix_loop``. Post-CTX-01/02 the run state lives on the
+        per-run ExecutionContext (not the engine singleton), so the observable seam is
+        the args handed to the fix-loop, which carry ``ectx.revision_baseline_static``
+        and ``ectx.revision_instruction``. (Guards 'baseline on the seeded original'.)"""
         engine_mod, engine = _fresh_engine(monkeypatch, tmp_path)
+
+        # Capture the fix-loop's baseline + instruction args (== ectx.revision_*).
+        captured: dict = {}
+        orig_fix_loop = engine_mod.ExecutionEngine._run_validation_fix_loop
+
+        async def _spy_fix_loop(self, **kwargs):
+            captured["baseline_static"] = kwargs.get("baseline_static")
+            captured["user_instruction"] = kwargs.get("user_instruction")
+            return await orig_fix_loop(self, **kwargs)
+
+        monkeypatch.setattr(
+            engine_mod.ExecutionEngine, "_run_validation_fix_loop", _spy_fix_loop
+        )
 
         def turns_for(agent_id, thread_id, is_fix):
             return (
@@ -575,14 +590,15 @@ class TestFixPolicyEndToEnd:
         # The baseline captured the ORIGINAL's pre-existing nit (so the fix-loop
         # treats it as not-a-regression), and did NOT capture the ghost regression
         # (which only exists AFTER the edit).
-        assert _PREEXISTING_NIT in engine._revision_baseline_static, (
+        baseline_static = captured.get("baseline_static") or set()
+        assert _PREEXISTING_NIT in baseline_static, (
             "baseline must capture the pre-existing nit from the seeded ORIGINAL"
         )
-        assert _REGRESSION_ISSUE not in engine._revision_baseline_static, (
+        assert _REGRESSION_ISSUE not in baseline_static, (
             "baseline must be pre-edit — the regression must NOT be in it"
         )
-        # The instruction stashed for the fix prompt is the user's verbatim request.
-        assert engine._revision_instruction == _USER_INSTRUCTION
+        # The instruction threaded into the fix prompt is the user's verbatim request.
+        assert captured.get("user_instruction") == _USER_INSTRUCTION
 
 
 # ===========================================================================
