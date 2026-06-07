@@ -502,3 +502,176 @@ def get_chain_context(
         )
 
     return _extract_chain_context(workflow_run)
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — typed-artifact / durable-replay read surface (API-04, API-05).
+#
+# Both endpoints route every read through the SINGLE default-deny ``ScopedStore``
+# helper (``agents/authz.py``, §19) — the engine and the API share one enforced
+# read path. A cross-owner / missing run resolves to ``None`` at the helper and
+# is surfaced as 404 here (never 403 — no existence leak; the runs.py:14-17 IDOR
+# precedent, D-08). These handlers are ``async def`` because the ``ScopedStore``
+# methods are coroutines (D-08); they accept the injected request ``Session`` via
+# ``Depends(get_db)`` so the helper reuses the one acquisition path.
+# ---------------------------------------------------------------------------
+
+
+def _build_lineage_tree(refs: list, *, include_content: bool) -> list[dict]:
+    """Assemble the nested lineage TREE from a flat list of scoped ArtifactRef
+    rows (D-10). Roots = refs with neither ``derived_from`` nor any in-set
+    ``parents``; each node carries the typed ref fields + ``children: []`` built
+    by walking ``parents``/``derived_from``. Cycles / dangling parent ids are
+    tolerated (an unreachable ref still surfaces as a root so nothing is lost).
+    Inline ``content`` is EXCLUDED unless ``include_content`` (D-10 — reduces
+    incidental exposure of large artifact bodies, T-5-CONTENT).
+    """
+    ids = {r.id for r in refs}
+
+    def _node(r) -> dict:
+        node = {
+            "id": r.id,
+            "kind": r.kind,
+            "producer_step": r.producer_step,
+            "producer_agent": r.producer_agent,
+            "task_id": r.task_id,
+            "content_hash": r.content_hash,
+            "version": r.version,
+            "visibility": r.visibility,
+            "retention": r.retention,
+            "location": r.location,
+            "parents": list(r.parents or []),
+            "derived_from": r.derived_from,
+            "children": [],
+        }
+        if include_content:
+            node["content"] = r.content
+        return node
+
+    nodes = {r.id: _node(r) for r in refs}
+
+    # A ref's parent set = explicit derived_from + the parents[] list, restricted
+    # to ids present in THIS run's scoped set (a parent outside the set can't be a
+    # tree edge — the child becomes a root instead).
+    def _parent_ids(r) -> list[str]:
+        pids: list[str] = []
+        if r.derived_from and r.derived_from in ids:
+            pids.append(r.derived_from)
+        for pid in (r.parents or []):
+            if pid in ids and pid not in pids:
+                pids.append(pid)
+        return pids
+
+    roots: list[dict] = []
+    for r in refs:
+        pids = _parent_ids(r)
+        if not pids:
+            roots.append(nodes[r.id])
+            continue
+        for pid in pids:
+            nodes[pid]["children"].append(nodes[r.id])
+    return roots
+
+
+@router.get("/{workflow_id}/artifacts")
+async def get_run_artifacts(
+    workflow_id: str,
+    include: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the run's typed ``ArtifactRef`` lineage TREE (API-04, D-10).
+
+    Each node carries the ref fields (id/kind/producer step/agent/task/
+    content_hash/version/visibility/retention/location/parents/derived_from)
+    plus ``children: []`` assembled by walking ``parents``/``derived_from`` from
+    the roots. Inline ``content`` is excluded by default; pass
+    ``?include=content`` to include it (same-owner only). A cross-owner or
+    missing run returns 404 (IDOR → 404, never 403).
+    """
+    # Resolve the run with the owner filter first (for authed users owner_id ==
+    # user_id) to obtain its workspace_id, then construct the ScopedStore so the
+    # uniform owner+workspace scope holds for the lineage read.
+    workflow_run = (
+        db.query(WorkflowRun)
+        .filter(WorkflowRun.id == workflow_id, WorkflowRun.user_id == current_user.id)
+        .first()
+    )
+    if not workflow_run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow run not found",
+        )
+
+    from agents.authz import ScopedStore
+
+    store = ScopedStore(
+        owner_id=current_user.id,
+        workspace_id=workflow_run.workspace_id,
+        session=db,
+    )
+    # Defense in depth: re-resolve through the single enforced read path so the
+    # ownership boundary lives in ONE place (§19); cross-owner → None → 404.
+    if await store.get_run(workflow_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow run not found",
+        )
+
+    refs = await store.lineage(workflow_id)
+    tree = _build_lineage_tree(refs, include_content=(include == "content"))
+    return {"workflow_id": workflow_id, "artifacts": tree}
+
+
+@router.get("/{workflow_id}/events")
+async def get_run_events(
+    workflow_id: str,
+    after: int = 0,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the run's ``run_events`` rows with ``seq > after`` (API-05, D-11).
+
+    Rows are ordered by ``seq`` ascending, each carrying ``seq`` + a unique
+    ``event_id`` (idempotent replay). ``after`` is int-coerced by FastAPI
+    (non-int → 422; ASVS V5 — never reaches raw SQL) and flows into the
+    parameterized ORM ``.filter()``. A cross-owner or missing run returns 404.
+    """
+    workflow_run = (
+        db.query(WorkflowRun)
+        .filter(WorkflowRun.id == workflow_id, WorkflowRun.user_id == current_user.id)
+        .first()
+    )
+    if not workflow_run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow run not found",
+        )
+
+    from agents.authz import ScopedStore
+
+    store = ScopedStore(
+        owner_id=current_user.id,
+        workspace_id=workflow_run.workspace_id,
+        session=db,
+    )
+    if await store.get_run(workflow_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow run not found",
+        )
+
+    rows = await store.read_events(workflow_id, after_seq=after)
+    return {
+        "workflow_id": workflow_id,
+        "after": after,
+        "events": [
+            {
+                "seq": r.seq,
+                "event_id": r.event_id,
+                "type": r.type,
+                "payload_json": r.payload_json,
+            }
+            for r in rows
+        ],
+    }
