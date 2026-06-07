@@ -219,6 +219,33 @@ Defer if out of phase scope.
 
 ---
 
+## Resolution (orchestrator, 2026-06-07)
+
+Applied in `f89be6e` (scope: tests):
+- **WR-01 — FIXED.** `_full_html_build_ctx` in `test_phase3_token_delta_live.py`
+  changed from keyword-only to the positional signature the engine actually calls
+  (`engine.py:1174`), with an explanatory comment. The opt-in COMPACT-03 live-evidence
+  test no longer `TypeError`s on the compaction-OFF baseline run. (Full validation needs
+  a live SSO run; the module collects and skips cleanly offline.)
+- **WR-04 — ADDRESSED.** Added `test_extract_html_skeleton_is_faithful_to_source` to
+  `test_phase3_compaction.py` — a direct, offline, non-vacuous unit test asserting every
+  `data-page` ID, the routes map, and the `:root` tokens survive into the skeleton (and
+  that it is a real compaction). Closes the "offline suite provides no real coverage of
+  the semantic hazard" gap without depending on the scripted model.
+
+Accepted / deferred (no change — out of phase scope):
+- **WR-02, WR-03, WR-05** — robustness of the *pre-existing* `_extract_html_skeleton`
+  helper (no-`</body>` final-section drop; nested-brace route maps; no engine-side
+  read-before-edit enforcement). CONTEXT locked the helper's extraction logic as
+  "leave as-is unless a concrete gap surfaces"; these edge-case hardening items are owned
+  by the **Phase 7** `CompactionStrategy(html_skeleton)` re-expression (PARITY-04), where
+  the helper logic moves and gets its own gate. Tracked there.
+- **IN-01, IN-02, IN-03** — info-level cleanliness (dead `_fullhtml_baseline_len`;
+  duplicated marker strings; magic control keys in `accumulated_outputs`). Non-blocking;
+  left for a future cleanup pass / the Phase 7 re-expression.
+
+---
+
 _Reviewed: 2026-06-07_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
