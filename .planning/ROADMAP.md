@@ -92,12 +92,12 @@ Plans:
   2. Semantic snapshot holds (same pages/routes, equal-or-better validation pass rate) — gated on semantics, not byte-identity
   3. A measured token/cost reduction is demonstrated on a multi-task build
 
-**Plans**: TBD
+**Plans**: 2 plans (2 waves)
 
 Plans:
 
-- [ ] 03-01: Wire skeleton compaction into the build loop + token-delta measurement
-- [ ] 03-02: Re-baseline semantic snapshots; assert equal-or-better validation pass
+- [ ] 03-01-PLAN.md — Wire `_extract_html_skeleton` into `_build_context_message` task-2+ + deterministic offline ≥50% reduction CI gate + read_file-access assert (COMPACT-01, COMPACT-03) [wave 1]
+- [ ] 03-02-PLAN.md — Re-baseline prototype/od_prototype deliverable goldens (hold semantic snapshots) + pages/routes + equal-or-better-validation parity assertion + opt-in live token-delta evidence → SUMMARY (COMPACT-02, COMPACT-03) [wave 2]
 
 ### Phase 4: Manifest + Compiler [1A]
 
