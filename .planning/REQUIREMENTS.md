@@ -158,7 +158,7 @@
 
 ### Dynamic API / Frontend Contract (parallel track, §22)
 
-- [ ] **API-01**: `GET /api/workflows` → list + metadata; `GET /api/workflows/{id}` → full step configs, gates, validators, deliverable, declared capabilities (§22)
+- [x] **API-01**: `GET /api/workflows` → list + metadata; `GET /api/workflows/{id}` → full step configs, gates, validators, deliverable, declared capabilities (§22)
 - [ ] **API-02**: `GET /api/capabilities` → registry palette (kind, name, `user_allowed`, config schema) incl. runtimes, skills, hooks, MCP servers, integrations, model catalog — with required auth + permission scopes (§22/§7/§30)
 - [ ] **API-03**: Run stream (WS/ndjson) emits existing events + new (`subagent_*`, `wave_*`, `validator_result`, `validation_warning`, `merge_*`, `budget_warning`, `gate_*`); existing-workflow contract stays at semantic parity (Q43/INV-3)
 - [ ] **API-04**: `GET /api/runs/{id}/artifacts` → typed artifact tree (lineage); `GET /api/runs/{id}/diff` → repo diff (§22)
@@ -222,7 +222,7 @@ Each v1 requirement maps to exactly one phase. Phases are GSD integers 1–12, m
 | CTX-01, CTX-02, CTX-03, CTX-04, CTX-05 | Phase 2 [0B] | Pending |
 | COMPACT-01, COMPACT-02, COMPACT-03 | Phase 3 [0C] | Pending |
 | MAN-01, MAN-02, MAN-03, MAN-04, MAN-05 | Phase 4 [1A] | Pending |
-| API-01 | Phase 4 [1A] | Pending |
+| API-01 | Phase 4 [1A] | Complete |
 | ART-01, ART-02, ART-03, ART-04 | Phase 5 [1B] | Pending |
 | PERSIST-01, PERSIST-02, PERSIST-03 | Phase 5 [1B] | Pending |
 | AUTHZ-01, AUTHZ-02, AUTHZ-03, AUTHZ-04 | Phase 5 [1B] | Pending |

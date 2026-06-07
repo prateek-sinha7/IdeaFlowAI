@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-06-07T16:46:50.554Z"
+status: verifying
+last_updated: "2026-06-07T17:01:53.423Z"
 last_activity: 2026-06-07 -- Phase 04 execution started
 progress:
   total_phases: 12
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 14
-  completed_plans: 13
-  percent: 25
+  completed_plans: 14
+  percent: 33
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 
 Phase: 04 (manifest-compiler-1a) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-07 -- Phase 04 execution started
 
 Progress: [██████████] 100% (7/7 plans complete)
@@ -63,6 +63,7 @@ Progress: [██████████] 100% (7/7 plans complete)
 | Phase 04-manifest-compiler-1a P02 | 4min | 2 tasks | 4 files |
 | Phase 04-manifest-compiler-1a P03 | 7min | 3 tasks | 20 files |
 | Phase 04 P04 | 38min | 3 tasks | 5 files |
+| Phase 04-manifest-compiler-1a P05 | 10min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 04-01: CapabilityRegistry keyed by (kind,name) registers 14 names only (D-07); is_registered pure set-membership; resolve_alias lifts agents.registry._OD_ALIAS_BASE single source (MAN-05); base.py = 6 typing.Protocol ports, plan-domain types typed Any to avoid inbound dep on 04-02 plan.py
 - [Phase ?]: 04-04: engine sources agent membership/deliverable/clarify/planner from CompiledWorkflow; pipeline_type reduced to id-alias resolver (MAN-04/MAN-05); behavioral L1-L13 branches byte-identical
 - [Phase ?]: 04-04: 1A drift assertion compares compiled plan vs registry MEMBERSHIP (not validation.dag); execution order stays resolver topo-DAG; INV-3 snapshots green
+- [Phase ?]: 04-05: /api/workflows reclaimed for manifest-derived definitions (compile_for_run + get_pipeline_agents, no DB); run-history moved to /api/runs with IDOR filter + export sanitization preserved; 10 frontend refs repointed (clean break, no aliases)
 
 ### Pending Todos
 
