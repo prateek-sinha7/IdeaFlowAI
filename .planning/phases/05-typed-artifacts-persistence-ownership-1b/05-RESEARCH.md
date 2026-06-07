@@ -382,11 +382,14 @@ if not row:
 | A5 | `workflows` extend keeps legacy `agents`/`artifact_edges` columns (nullable, populated by legacy path) | #5 | If legacy Phase-3 workflow-definition path is dead, columns are vestigial (harmless) |
 | A6 | D-02 controls over SPEC ART-01 on package location (`agents/artifacts/` not `agents/execution_engine/artifacts/`) | user_constraints note | Wrong location → import-linter still green either way, but §32 fidelity differs |
 
-## Open Questions
+## Open Questions (RESOLVED during planning)
 
 1. **Anon session-id source (A1).** CONTEXT locks the *format* `anon:<session_id>` but no stable session id is threaded into `execute()` today (run is always authed; `session_id=user.id`). Recommendation: add an explicit `session_id` param to `execute()` (cleanest) or use `anon:<pipeline_run_id>` (lowest-change). Planner's call.
+   **→ RESOLVED (05-04 Task 1):** add `session_id: str | None = None` param to `execute()` and thread the WS session id from the `websocket.py` call site; disk-keying decoupled from `ctx.owner_id` (byte-identity guard).
 2. **Historical artifact rows (A2).** Does prod hold `workflow_artifacts` rows that users still fetch (e.g. via the revision `_handle_revision` `retrieve_latest`)? If yes, `_handle_revision`'s parent-artifact reads must resolve against the typed graph for *future* runs but old runs predate `artifact_refs`. Recommendation: confirm whether a one-time data backfill of `workflow_artifacts` → `artifact_refs` is needed (CONTEXT does NOT mandate it — schema-only), or whether revision-of-pre-cutover-runs is acceptably best-effort.
+   **→ RESOLVED (deferred):** no historical content backfill. `0015` drops `workflow_artifacts` without migrating its content; revision/lineage of **pre-cutover** runs is acceptably best-effort. Recorded explicitly in `05-CONTEXT.md` `<deferred>` so the drop is a recorded decision, not a silent omission.
 3. **`agents/artifacts/` vs `agents/execution_engine/artifacts/` (A6).** D-02 (controlling) says `agents/artifacts/`; SPEC ART-01 target prose says `agents/execution_engine/artifacts/`. Use D-02 (`agents/artifacts/`, matches plan §32). Flagged for the planner to lock.
+   **→ RESOLVED (05-01):** `agents/artifacts/` per D-02 (matches plan §32 + import-linter contract).
 
 ## Environment Availability
 

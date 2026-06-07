@@ -203,6 +203,7 @@ Downstream agents MUST read `05-SPEC.md` before planning or implementing. Requir
 - **DB-authored user workflows** — v2. The `workflows` table is file-backed manifest metadata only this phase.
 - **Deleting kernel leaks L1–L13 / prototype-as-manifest parity** — Phase 7. Only L15 (mirror) + the thin store are deleted here.
 - **`engine.py` → `kernel.py` split + import-linter tightening** — Phase 7. This phase keeps `engine.py`.
+- **Historical `workflow_artifacts` → `artifact_refs` content backfill** — **out of scope (recorded decision, not a silent drop).** The §18 schema + typed graph cover the *new* per-run mechanism; the SPEC/CONTEXT mandate schema + the default-**workspace** backfill (D-03) only, NOT a content backfill of historical artifact rows. `0015` drops `workflow_artifacts` without migrating its content; revision/lineage of **pre-cutover** runs is acceptably best-effort (those runs predate `artifact_refs`). New runs are fully typed from cutover forward. Surfaced by plan-checker (A2) — recorded here so the drop is a deliberate, visible decision. *Override:* if historical artifacts must survive, add a one-time data-migration task to 05-06 before the `0015` DROP.
 
 None of these are scope creep — all are explicitly later-phase per ROADMAP.md / the §31 ledger.
 
