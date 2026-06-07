@@ -26,15 +26,19 @@ It is for the engineers building and operating Flowin's agent workflows — and,
 - ✓ Disk skill hierarchy (user→global→built-in) + UI-attached skills — existing (partial)
 - ✓ Inbound MCP server (`/flowin-handoff`) — existing
 - ✓ GitHub handoff pipeline (scoped PAT) — existing (separate path, bypasses runtime)
+- ✓ Declarative file-backed workflow manifests + thin no-DSL `WorkflowCompiler` → typed `CompiledWorkflow` (INV-5 / MAN-01 / MAN-02) — Phase 4 (1A)
+- ✓ `CapabilityRegistry` name-seam (14 names) + Protocol ports; compiler validates every declared reference and rejects unknown (INV-4 / MAN-03) — Phase 4 (1A); concrete impls Phase 7, trust/self-registration Phase 8
+- ✓ Every pipeline runs from its `CompiledWorkflow`; `pipeline_type` reduced to an id-alias; no legacy dispatch fallback; Phase-0A snapshots byte-identical (MAN-04 / MAN-05 / INV-3) — Phase 4 (1A)
+- ✓ `GET /api/workflows[/{id}]` manifest-derived metadata + run-history relocated to `/api/runs` (API-01) — Phase 4 (1A)
 
 ### Active
 
 <!-- The refactor scope. Building toward these (full detail + REQ-IDs in REQUIREMENTS.md, phases in ROADMAP.md). -->
 
-- [ ] Workflow-agnostic kernel: no `if pipeline_type == "..."` / `if spec.id == "..."` branches anywhere (INV-1)
+- [~] Workflow-agnostic kernel: no `if pipeline_type == "..."` / `if spec.id == "..."` branches anywhere (INV-1) — **Phase 4 / 1A**: routing is now manifest-driven (no dispatch branch); the surviving L1–L13 behavioral branches are allow-listed for deletion in Phase 7
 - [ ] Per-run `ExecutionContext`; stateless immutable kernel singleton (INV-2)
-- [ ] Declarative file-backed workflow manifests → thin compiler (no DSL) → typed `CompiledWorkflow`/`ExecutionPlan` (INV-5)
-- [ ] `CapabilityRegistry` + trust model: strategies, validators, deliverables, context providers, gates, isolation, merge, task parsers, worker agents, runtimes, skills, hooks, tools, MCP, integrations (INV-4)
+- [x] Declarative file-backed workflow manifests → thin compiler (no DSL) → typed `CompiledWorkflow`/`ExecutionPlan` (INV-5) — **Phase 4 / 1A complete** (MAN-01/02; step-level + top-level strict-key DSL rejection)
+- [~] `CapabilityRegistry` + trust model: strategies, validators, deliverables, context providers, gates, isolation, merge, task parsers, worker agents, runtimes, skills, hooks, tools, MCP, integrations (INV-4) — **Phase 4 / 1A**: central name-seam (14 names) + Protocol ports + compiler validation done; concrete impls Phase 7, trust/`@register`/self-registration Phase 8
 - [ ] Execution strategies: `single_shot`, `task_loop`, `fanout_batch`, `wave_scheduler`
 - [ ] Validator registry + generic fix-loop + P0–P3 severity; make `Validation_Gate` real
 - [ ] Deliverable resolver registry (`single_file`, `serialized_sandbox`, `streamed_text`, `repo_diff`, `ppt`)
@@ -56,7 +60,7 @@ It is for the engineers building and operating Flowin's agent workflows — and,
 - [ ] Executable lifecycle hooks (`secret_scan`, `otel_tracing`, pre/post-commit, post-task, …) + `hook_runs` (N12)
 - [ ] MCP client + allow-listed famous-server catalog (GitHub/GitLab/Jira/Slack/…) (N13)
 - [ ] Cancellation / idempotent retry / durable resume; monotonic event `seq` + replay cursor (§21)
-- [ ] Dynamic API/frontend contract: `/api/workflows`, `/api/capabilities`, artifact/diff trees, event replay (§22)
+- [~] Dynamic API/frontend contract: `/api/workflows`, `/api/capabilities`, artifact/diff trees, event replay (§22) — **Phase 4 / 1A**: `/api/workflows[/{id}]` manifest metadata + `/api/runs` relocation done (API-01); `/api/capabilities`, artifact/diff trees, event replay are later phases
 - [ ] Code-deletion / anti-duplication discipline: move-don't-copy, §31 migration ledger, per-phase deletion gates + dead-code scan + import-linter (INV-12)
 - [ ] LangChain `deepagents` mandated project-wide; banned-pattern CI gate against hand-rolled deep agents (INV-13 / R15)
 
@@ -136,4 +140,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-07 after Phase 3 (Token-Trim, 0C) completion*
+*Last updated: 2026-06-07 after Phase 4 (Manifest + Compiler, 1A) completion*
