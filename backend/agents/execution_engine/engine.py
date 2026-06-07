@@ -26,12 +26,18 @@ import re
 import time
 from typing import AsyncGenerator
 
+from pathlib import Path
+
 from agents.artifact_store.store import ArtifactStoreWriteError, get_artifact_store
+from agents.capabilities.registry import CapabilityRegistry
 from agents.execution_engine.authz import assert_owns
 from agents.execution_engine.context import ExecutionContext
 from agents.execution_engine.resolver import WorkflowResolver
 from agents.execution_engine.state_machine import get_state_machine
 from agents.factory import AgentContext, create_runner
+from agents.workflows.compiler import WorkflowCompiler
+from agents.workflows.manifest import load_manifest
+from agents.workflows.plan import CompiledWorkflow
 from app.agents.sandbox import (
     RunSandbox,
     count_sandbox_deliverables,
@@ -110,6 +116,65 @@ _PROTOTYPE_PIPELINE_TYPES = frozenset({"prototype", "od_prototype"})
 # engine seeds it with the current prototype before the agent runs and reads it
 # back as the deliverable afterwards (see execute()).
 REVISION_FILE_NAME = "prototype.html"
+
+
+# ---------------------------------------------------------------------------
+# Declarative routing seam (MAN-04 / MAN-05)
+# ---------------------------------------------------------------------------
+#
+# The engine sources the FOUR routing concerns — step sequence + agent ids,
+# deliverable spec, clarify defaults, and the planner-skip flag — from the
+# CompiledWorkflow produced by the manifest + compiler layer (agents/workflows),
+# NOT from the legacy hardcoded dicts (get_pipeline_agents / _pipeline_defaults /
+# SKIP_PLANNER_FOR_PROTOTYPE). The legacy `pipeline_type` label is reduced to an
+# id-alias resolved to a manifest id at run entry (od_prototype -> prototype;
+# every real key -> itself), consumed ONLY by that resolver for routing (MAN-05).
+# There is NO legacy `pipeline_type` dispatch fallback (INV-12): a dispatchable
+# run sources its agent list from the compiled plan.
+#
+# The behavioral L1-L13 branches that still read `pipeline_type`/`spec.id` are
+# UNCHANGED and explicitly allow-listed as Phase-7-scoped — they are behavioral,
+# not routing. See RESEARCH §D-09 for the full classification.
+
+# Where the hand-authored workflow.yaml manifests live (one dir per manifest id).
+_WORKFLOWS_DIR = Path(__file__).resolve().parents[1] / "workflows"
+
+# Shared, stateless capability registry + compiler for the run-entry seam.
+_CAPABILITY_REGISTRY = CapabilityRegistry()
+_WORKFLOW_COMPILER = WorkflowCompiler()
+
+
+def resolve_alias(pipeline_type: str) -> str:
+    """Resolve the legacy run label to a manifest id (MAN-05).
+
+    ``od_prototype`` -> ``prototype``; every real key resolves to itself. This is
+    the SINGLE point that maps the legacy ``pipeline_type`` label onto a manifest
+    id for routing. Sourced from the central capability registry, which lifts
+    ``agents.registry._OD_ALIAS_BASE`` (single source of truth) — never
+    re-hardcoded here.
+    """
+    return _CAPABILITY_REGISTRY.resolve_alias(pipeline_type)
+
+
+def compile_for_run(pipeline_type: str) -> CompiledWorkflow:
+    """Load + compile the CompiledWorkflow the engine routes a run from (MAN-04).
+
+    Resolves the ``pipeline_type`` id-alias to a manifest id, loads that
+    manifest from ``agents/workflows/<id>/workflow.yaml``, and compiles it to a
+    typed, validated ``CompiledWorkflow``. The engine sources the agent
+    sequence, deliverable spec, clarify defaults, and planner flag from the
+    returned plan — no legacy dispatch fallback (INV-12).
+
+    Raises:
+        FileNotFoundError: if no manifest exists for the resolved id (the
+            resolver maps to a known id from a closed set, so an unknown label
+            surfaces a FileNotFoundError rather than ``open(base / arbitrary)``
+            — no path traversal via the run label, T-04-09).
+        CompilerError / ManifestValidationError: on a malformed manifest.
+    """
+    manifest_id = resolve_alias(pipeline_type)
+    manifest = load_manifest(manifest_id, _WORKFLOWS_DIR)
+    return _WORKFLOW_COMPILER.compile(manifest, _CAPABILITY_REGISTRY)
 
 
 # ---------------------------------------------------------------------------
@@ -704,6 +769,32 @@ class ExecutionEngine:
 
         ordered_agents = validation.dag or list(agents)
 
+        # ── Routing seam: compile the CompiledWorkflow this run executes from ──
+        # (MAN-04/MAN-05). Resolve the legacy `pipeline_type` label to a manifest
+        # id, load + compile that manifest, and source the FOUR routing concerns
+        # from the compiled plan below: (1) the agent sequence/ids, (2) the
+        # deliverable spec, (3) the clarify defaults, (4) the planner-skip flag.
+        # No legacy `pipeline_type` dispatch fallback (INV-12).
+        compiled = compile_for_run(pipeline_type)
+
+        # (1) Agent sequence/ids — the compiled plan is the SOURCE of the step
+        # order. In 1A the incoming `agents` are still resolved by the caller via
+        # get_pipeline_agents; assert the compiled step order matches it so any
+        # manifest/registry drift fails LOUDLY here rather than silently
+        # reordering agents and breaking the characterization snapshots
+        # (RESEARCH Pitfall 3). The `reverse_engineer` empty-plan stub and the
+        # non-engine-dispatched `chat` manifest never reach execute(), so a
+        # populated compiled plan is expected for every dispatchable run.
+        _compiled_agent_ids = [s.agent_id for s in compiled.steps]
+        _ordered_agent_ids = [getattr(s, "id", None) for s in ordered_agents]
+        if _compiled_agent_ids and _compiled_agent_ids != _ordered_agent_ids:
+            raise RuntimeError(
+                "compiled plan step order does not match the resolved agent "
+                f"sequence for '{pipeline_type}' (manifest id "
+                f"'{compiled.id}'): plan={_compiled_agent_ids} "
+                f"agents={_ordered_agent_ids}"
+            )
+
         # Persist custom workflow definition (T061, FR-013)
         await self._persist_workflow_definition(
             user_id=user_id,
@@ -716,12 +807,15 @@ class ExecutionEngine:
         self._state_machine.transition(pipeline_run_id, "planning")
         _log_event("workflow_run_created", pipeline_run_id, pipeline_type=pipeline_type)
 
-        # ── Prototype pipelines (Approach 2+3): skip planner + clarifier ──
-        # The prototype-specify agent handles planning and clarification as
-        # part of its spec generation phase. Running the planner/clarifier
-        # before it is redundant and adds unnecessary latency.
-        from agents.prototype.pipeline import SKIP_PLANNER_FOR_PROTOTYPE, is_prototype_pipeline
-        skip_planner = SKIP_PLANNER_FOR_PROTOTYPE and is_prototype_pipeline(pipeline_type)
+        # ── Planner-skip routing concern — sourced from the compiled plan ──
+        # (MAN-04, concern 4). The planner-skip flag now comes from
+        # `compiled.planner` ("run" | "skip"), NOT from the legacy
+        # `SKIP_PLANNER_FOR_PROTOTYPE and is_prototype_pipeline(...)` computation.
+        # Every dispatchable manifest declares `planner: run` (because the live
+        # SKIP_PLANNER_FOR_PROTOTYPE is False today — RESEARCH Pitfall 1), so
+        # `skip_planner` is False for every run and behavior is byte-identical:
+        # the planner/clarifier runs for every pipeline exactly as before.
+        skip_planner = compiled.planner == "skip"
 
         if skip_planner:
             logger.info("Prototype pipeline (Approach 2+3): skipping planner + clarifier")
@@ -749,18 +843,17 @@ class ExecutionEngine:
                 planning_context["execution_gate"] = "CLARIFY_REQUIRED"
                 if not planning_context.get("missing_information"):
                     has_topic = planning_context.get("has_topic", True)
-                    _pipeline_defaults: dict[str, list[str]] = {
-                        "od_ppt":        ["target_audience", "tone_and_style", "key_objectives", "slide_count"],
-                        "ppt":           ["target_audience", "tone_and_style", "key_objectives", "slide_count"],
-                        "od_prototype":  ["target_audience", "scope", "priority", "style"],
-                        "prototype":     ["target_audience", "scope", "priority", "style"],
-                        "user_stories":  ["target_audience", "scope", "priority", "technology"],
-                        "app_builder":   ["technology", "scope", "target_audience", "security"],
-                        "mulesoft_to_springboot": ["scope", "technology", "timeline", "priority"],
-                        "dotnet_to_azure":        ["scope", "technology", "timeline", "priority"],
-                        "custom":        ["target_audience", "key_objectives", "scope", "priority"],
-                    }
-                    defaults = _pipeline_defaults.get(pipeline_type, _pipeline_defaults["custom"])
+                    # ── Clarify-defaults routing concern — sourced from the
+                    # compiled plan (MAN-04, concern 3). The per-pipeline default
+                    # clarifying-question list now comes from
+                    # `compiled.clarify.defaults` (which reproduces the engine's
+                    # former `_pipeline_defaults` dict verbatim, with revisions /
+                    # edge ids falling to the `custom` list), NOT from a hardcoded
+                    # dict keyed by pipeline_type. `od_prototype` resolves to the
+                    # `prototype` manifest whose defaults equal the former
+                    # `_pipeline_defaults["od_prototype"]`, so behavior is
+                    # byte-identical.
+                    defaults = list(compiled.clarify.defaults)
                     if not has_topic:
                         defaults = ["topic"] + defaults
                     planning_context["missing_information"] = defaults
@@ -982,6 +1075,27 @@ class ExecutionEngine:
                     "prototype_revision: post-revision validation errored (%s) — continuing",
                     exc,
                 )
+
+        # ── Deliverable routing concern — declared by the compiled plan ─────────
+        # (MAN-04, concern 2). The deliverable resolver NAME for this run is
+        # declared on `compiled.deliverable.strategy` (e.g. single_file /
+        # serialized_sandbox / streamed_text / ppt), sourced from the manifest +
+        # validated against the CapabilityRegistry at compile time. In 1A the
+        # actual byte-resolution still flows through the behavioral
+        # `_resolve_final_output` chooser (allow-listed, Phase-7-scoped): the
+        # concrete resolver impls that consume this declared name land with the
+        # capability impls in Phase 7. The spec is bound here so the routing
+        # concern is genuinely sourced from the compiled plan, not the legacy dict.
+        # Logged (not emitted as an event) so the semantic-event multiset stays
+        # byte-identical (INV-3) while the sourced concern is observably consumed.
+        logger.debug(
+            "deliverable routing concern (compiled): pipeline=%s manifest=%s "
+            "resolver=%s name=%s",
+            pipeline_type,
+            compiled.id,
+            compiled.deliverable.strategy,
+            compiled.deliverable.name,
+        )
 
         # ── Resolve the deliverable (WorkflowRun.output) by pipeline class ──────
         # Single source of truth: _resolve_final_output reads prototype.html for
