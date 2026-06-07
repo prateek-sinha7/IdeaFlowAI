@@ -1113,6 +1113,10 @@ async def _handle_workflow_execution(
                 pipeline_run_id=pipeline_run_id,
                 pipeline_type=pipeline_type,
                 user_id=user.id,
+                # D-09 anon-principal source: the WS chat session id. For authed runs
+                # owner_id == user_id so this is unused; threaded so an unauthenticated
+                # run would get a stable per-session owner (anon:<session_id>, AUTHZ-03).
+                session_id=chat_session_id,
                 attached_skills=attached_skills or [],
                 attached_hooks=attached_hooks or [],
                 model_id=getattr(user, "preferred_model", None) or None,

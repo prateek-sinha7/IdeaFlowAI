@@ -13,20 +13,28 @@ This is the engine-level, per-RUN container. It is DISTINCT from
 ``agents/factory.py::AgentContext``, which is per-AGENT (rebuilt for every
 ``create_runner`` call). They coexist — do not conflate them.
 
-D-01 minimal field set ONLY: just the fields with real backing today. The heavy
-later-phase fields (the compiled-workflow plan, the workspace, the artifact graph, the
-budget manager, the model resolver, and the workspace identifier) are NOT laid down here —
-their types do not exist until Phases 4/9/5/11/6 (INV-12: no abstraction you don't yet
-use). The dataclass grows in each later phase as its types land.
+D-01 minimal field set ONLY: just the fields with real backing today. The dataclass
+grows in each later phase as its types land. Phase 5 (05-04) lands the FIRST typed
+substrate fields: ``artifacts: ArtifactGraph`` (the per-run typed handoff that replaces
+the untyped ``accumulated_outputs`` mirror — INV-3), ``workspace_id`` (the default per-run
+workspace row id — D-04), and ``disk_principal`` (the decoupled byte-identity-guard
+principal — D-09; see below). The remaining heavy later-phase fields (the compiled-workflow
+plan, the budget manager, the model resolver) are still NOT laid down here — their types do
+not exist yet (INV-12: no abstraction you don't yet use).
 
 Import-direction constraint: this module defines data only. It imports ONLY stdlib +
-``__future__`` — never ``agents.factory`` or any ``engine`` internals — so the Phase-1
-import-linter kernel→ports scaffold stays green.
+``__future__`` + ``agents.artifacts.graph`` (the kernel-importable pure typed substrate,
+which itself imports only stdlib — RESEARCH #1) — never ``agents.factory``, never
+``app.models``/``app.api``, never any ``engine`` internals — so the Phase-1 import-linter
+kernel→ports scaffold stays green. The single ``agents.artifacts`` import is intentionally
+allowed because the graph is pure data with no ``app.*`` reach (05-04).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+
+from agents.artifacts.graph import ArtifactGraph
 
 
 @dataclass
@@ -41,7 +49,37 @@ class ExecutionContext:
 
     # ── Run identity (required; populated at construction) ──────────────────────────
     run_id: str                                       # this run's pipeline_run_id
-    owner_id: str                                     # owner principal = user_id or "anon" (D-04)
+    # owner_id: the PERSISTED DB principal (AUTHZ-03/D-09). From 05-04 it is
+    # ``user_id or f"anon:{session_id}"`` — ALWAYS a real non-None scoped subject (an
+    # unauthenticated run gets ``anon:<session_id>``, never None). DO NOT key any on-disk
+    # path off this field — disk keying uses ``disk_principal`` (the byte-identity guard,
+    # below) which stays ``user_id or "anon"`` so anon runs' sandbox paths are unchanged.
+    owner_id: str
+
+    # ── Typed substrate + workspace (Phase 5 / 05-04) ────────────────────────────────
+    # artifacts: the per-run in-memory typed artifact graph (ART-01). The engine
+    # dual-writes ArtifactRefs here (and through the scoped store to the DB) alongside the
+    # still-live accumulated_outputs mirror, and reads consume() from here (05-04). The
+    # mirror is removed in 05-06 once parity proves the cutover (INV-3).
+    artifacts: ArtifactGraph = field(default_factory=ArtifactGraph)
+    # workspace_id: the default per-run workspace row id (D-04), created at execute() entry
+    # via ScopedStore.create_workspace(run_id). Stamped on every persisted artifact_refs /
+    # run_events / run_capabilities row for the AUTHZ-01 owner+workspace scope filter.
+    workspace_id: str = ""
+    # disk_principal: the DECOUPLED on-disk sandbox principal (byte-identity guard, D-09 /
+    # CTX-05). Stays ``user_id or "anon"`` — the SAME value RunSandbox keyed disk with
+    # before 05-04. Decoupling it from owner_id lets owner_id become anon:<session_id> (the
+    # DB principal) WITHOUT changing any RunSandbox/create_runner disk path. For authed runs
+    # disk_principal == owner_id == user_id; only anon runs differ. No disk-keying site may
+    # use owner_id (Task 1 grep gate) — pass disk_principal there.
+    disk_principal: str = ""
+    # scoped_store: the per-run owner+workspace-scoped store helper
+    # (``agents.authz.ScopedStore``) constructed at execute() entry. Threaded here so the
+    # seq sink (05-04 Task 2 — append_event) and the typed dual-write (Task 3 — write_ref)
+    # reuse the SAME scoped principal. Typed ``object | None`` (NOT the concrete type) so
+    # this pure-data module stays free of the helper's ``app.models`` import (the helper
+    # lives in the DB-touching ``agents.authz``, not the kernel-pure ``agents.artifacts``).
+    scoped_store: object | None = None
 
     # ── Migrated per-run state (was stashed on the singleton pre-0B) ─────────────────
     # od_context: loaded template / design-system / craft content; flows engine →

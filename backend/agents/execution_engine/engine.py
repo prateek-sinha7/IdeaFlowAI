@@ -29,8 +29,8 @@ from typing import AsyncGenerator
 from pathlib import Path
 
 from agents.artifact_store.store import ArtifactStoreWriteError, get_artifact_store
+from agents.authz import ScopedStore
 from agents.capabilities.registry import CapabilityRegistry
-from agents.execution_engine.authz import assert_owns
 from agents.execution_engine.context import ExecutionContext
 from agents.execution_engine.resolver import WorkflowResolver
 from agents.execution_engine.state_machine import get_state_machine
@@ -480,6 +480,7 @@ class ExecutionEngine:
         pipeline_type: str = "custom",
         cancel_event: asyncio.Event | None = None,
         user_id: str | None = None,
+        session_id: str | None = None,
         attached_skills: list[dict] | None = None,
         attached_hooks: list[dict] | None = None,
         model_id: str | None = None,
@@ -495,8 +496,22 @@ class ExecutionEngine:
             pipeline_run_id: UUID for this run.
             pipeline_type: Pipeline type label.
             cancel_event: Optional cancellation signal.
-            user_id: Authenticated user ID (session_id). Forwarded to the disk
-                     skill loader so per-user SKILL.md overrides are honoured.
+            user_id: Authenticated user ID. Forwarded to the disk skill loader so
+                     per-user SKILL.md overrides are honoured, and used as the DB
+                     owner principal when present (``owner_id = user_id``). Also
+                     keys the on-disk sandbox via ``disk_principal = user_id or
+                     "anon"`` (UNCHANGED — byte-identity guard, D-09).
+            session_id: D-09 anon-principal source. When ``user_id`` is None the DB
+                     owner principal becomes ``f"anon:{session_id}"`` (AUTHZ-03 — a
+                     real, per-session-isolated, never-None scoped subject). The WS
+                     layer threads its ``chat_session_id`` here (websocket.py); this
+                     is lower-risk than reusing ``pipeline_run_id`` because it gives
+                     true per-session isolation (two runs in one session share the
+                     anon owner; two different sessions do not). When BOTH are None
+                     (a defensive/forward path with no session id) it falls back to
+                     ``anon:{pipeline_run_id}`` so the owner is still never None.
+                     NOTE: ``session_id`` is the DB-PRINCIPAL source ONLY — it NEVER
+                     touches the on-disk sandbox key (see ``disk_principal``).
             attached_skills / attached_hooks: UI-attached extras.
             model_id: User-selected model override.
             od_context: For od_prototype/od_ppt — loaded template/design-system
@@ -536,25 +551,68 @@ class ExecutionEngine:
         # create_runner(agent_id, ctx) — which roots its RunSandbox at
         # RunSandbox(ctx.user_id, ctx.run_id) — lands in this SAME directory and
         # the engine reads its deliverables back from disk.
-        sandbox = RunSandbox(user_id or "anon", pipeline_run_id)
+        # ── Byte-identity guard (D-09 / CTX-05): the on-disk principal is DECOUPLED ──
+        # from the DB owner principal. disk_principal stays ``user_id or "anon"`` — the
+        # SAME value RunSandbox keyed disk with before 05-04 — so anon runs' sandbox paths
+        # are byte-identical and the 0A snapshots hold. owner_id (the DB principal, below)
+        # may be ``anon:<session_id>`` for anon runs; it must NEVER reach a disk key.
+        disk_principal = user_id or "anon"
+        sandbox = RunSandbox(disk_principal, pipeline_run_id)
         sandbox.ensure()
+        # ── DB owner principal (AUTHZ-03 / D-09): always a real, non-None scoped subject ──
+        # ``user_id`` when authenticated; otherwise ``anon:<session_id>`` (true per-session
+        # isolation), falling back to ``anon:<pipeline_run_id>`` when no session id was
+        # threaded (defensive — owner_id must never be None for the default-deny filter).
+        owner_id = user_id or f"anon:{session_id or pipeline_run_id}"
         # ── Per-run state: ONE ExecutionContext, threaded explicitly (CTX-01/CTX-02) ──
         # Construct the per-run value object immediately after the sandbox so NO per-run
         # datum is stashed on the ExecutionEngine singleton (the INV-2 concurrency
-        # hazard). owner_id = user_id or "anon" (D-04) — the SAME principal RunSandbox
-        # keys disk with above (kept byte-identical, D-05). Run state previously written
-        # to self._* now lives on `ectx`, threaded down through the call tree (D-03,
-        # explicit param — never contextvars). gate_agent_ids selection (None ⇒ static
-        # AGENT.md `gate: Human_Gate` set; a list ⇒ exactly those ids) and parent_run_id
-        # (prototype_revision parent-seed source) ride on the context too.
+        # hazard). owner_id is the DB principal (above); disk_principal is the decoupled
+        # byte-identity-guard principal (above). Run state previously written to self._*
+        # now lives on `ectx`, threaded down through the call tree (D-03, explicit param —
+        # never contextvars). gate_agent_ids selection (None ⇒ static AGENT.md
+        # `gate: Human_Gate` set; a list ⇒ exactly those ids) and parent_run_id
+        # (prototype_revision parent-seed source) ride on the context too. ctx.artifacts is
+        # the per-run typed graph (default_factory=ArtifactGraph — 05-04 dual-write target).
         ectx = ExecutionContext(
             run_id=pipeline_run_id,
-            owner_id=user_id or "anon",
+            owner_id=owner_id,
+            disk_principal=disk_principal,
             od_context=od_context,  # threaded into AgentContext per agent
             gate_agent_ids=gate_agent_ids,
             parent_run_id=parent_run_id,
             cancel_event=cancel_event,
         )
+
+        # ── Scoped store + default workspace + capabilities (D-04/D-06/CAPRUN-01) ──────
+        # The single default-deny scoped store helper (agents.authz.ScopedStore) is the
+        # one enforced read/write path for the typed substrate. Constructed with the DB
+        # owner principal; the workspace id is set right after create_workspace returns it.
+        # create_workspace(run_id) inserts the per-run default ``workspaces`` row and
+        # returns its id → ctx.workspace_id (D-04). record_capabilities(run_id,
+        # runtime=langchain_deepagents) inserts EXACTLY ONE run_capabilities row at entry
+        # (CAPRUN-01/D-12 — INV-13: every agent runs on LangChain deepagents). Both are
+        # best-effort: the offline characterization harness has no workflow_runs row (the
+        # run_capabilities/run_events FK target), so a DB failure here must DEGRADE (log a
+        # warning) and NEVER perturb the deterministic deliverable or the event stream
+        # (INV-3). For real runs (the WS layer creates the workflow_runs row first) these
+        # persist normally.
+        scoped_store = ScopedStore(owner_id=owner_id)
+        try:
+            ectx.workspace_id = await scoped_store.create_workspace(pipeline_run_id)
+            scoped_store._workspace_id = ectx.workspace_id  # stamp later writes
+            await scoped_store.record_capabilities(
+                pipeline_run_id, runtime="langchain_deepagents"
+            )
+        except Exception as _scope_exc:  # noqa: BLE001 — never break a run on DB persist
+            logger.warning(
+                "execute(): workspace/capabilities persist failed (%s) — proceeding "
+                "(typed-substrate DB writes degrade; deliverable/events unaffected)",
+                _scope_exc,
+            )
+        # Thread the scoped store onto the context so the seq sink (Task 2) and the typed
+        # dual-write (Task 3) reuse the SAME owner+workspace-scoped helper.
+        ectx.scoped_store = scoped_store
 
         # ── Durable graph state: acquire the LangGraph checkpointer once per run ──
         # get_checkpointer() is a process-wide CACHED SINGLETON (see
@@ -650,23 +708,20 @@ class ExecutionEngine:
                 # ANY failure (no parent_run_id, TTL-swept dir, unreadable file)
                 # only logs a warning — a missing parent must never break a revision.
                 if parent_run_id:
-                    # ── L16 ownership gate (CTX-03 / INV-8) — BEFORE the try ─────────
-                    # An owner may only seed from a parent run it OWNS. We derive the
-                    # parent's owner by convention (Phase 5 AUTHZ-02 replaces this with a
-                    # real store lookup and relocates assert_owns into the scoped-query
-                    # helper — D-06) and assert ownership. This call is LEXICALLY ABOVE
-                    # the graceful-degrade try (D-07): a cross-owner parent raises
-                    # PermissionError and PROPAGATES OUT of execute() — it must NOT be
-                    # swallowed by the broad `except Exception` below (which exists only
-                    # to tolerate a legitimate SAME-OWNER missing / TTL-swept parent).
-                    _parent_owner = self._derive_parent_owner(user_id, parent_run_id)
-                    assert_owns(
-                        owner_id=ectx.owner_id,
-                        parent_run_id=parent_run_id,
-                        parent_owner_id=_parent_owner,
-                    )
+                    # ── L16 ownership gate (AUTHZ-02 / INV-8) — BEFORE the try ───────
+                    # An owner may only seed from a parent run it OWNS. The relocated
+                    # ScopedStore.assert_owns (D-07) is now a REAL store lookup: it reads
+                    # the parent run's TRUE owner_id from the DB and raises PermissionError
+                    # on a cross-owner mismatch (the Phase-2 by-convention parent_owner_id
+                    # argument is gone). This call is LEXICALLY ABOVE the graceful-degrade
+                    # try (D-07): a cross-owner parent raises PermissionError and PROPAGATES
+                    # OUT of execute() — it must NOT be swallowed by the broad
+                    # `except Exception` below (which exists only to tolerate a legitimate
+                    # SAME-OWNER missing / TTL-swept parent, which assert_owns returns None
+                    # for). Uses the per-run scoped store (ctx.owner_id principal).
+                    await ectx.scoped_store.assert_owns(parent_run_id)
                     try:
-                        parent_sb = RunSandbox(user_id or "anon", parent_run_id)
+                        parent_sb = RunSandbox(ectx.disk_principal, parent_run_id)
                         seeded: list[str] = []
                         for _name in ("spec.md", "design.md", "tasks.md"):
                             try:
@@ -1050,10 +1105,12 @@ class ExecutionEngine:
                 #  - disk-skill merge keyed on the literal agent id (== spec.id),
                 #  - agent_outputs={} (prototype-revision-agent declares consumes:[]
                 #    so _filter_consumed_outputs returns {} — set directly here),
-                #  - run_id=pipeline_run_id + user_id=ectx.owner_id so create_runner
+                #  - run_id=pipeline_run_id + user_id=ectx.disk_principal so create_runner
                 #    (inside the fix-loop) roots the fix sub-agent's RunSandbox at
                 #    RunSandbox(ctx.user_id or "anon", ctx.run_id) — the SAME revision
-                #    dir holding prototype.html — so its edits are NOT lost.
+                #    dir holding prototype.html — so its edits are NOT lost. Byte-identity
+                #    guard (D-09): pass disk_principal (== user_id or "anon"), NOT owner_id
+                #    (which may be anon:<session_id>), so the disk path is unchanged.
                 _rev_skills: list[dict] = list(attached_skills or [])
                 _disk_skills = ectx.disk_skills
                 if "prototype-revision-agent" in _disk_skills:
@@ -1066,7 +1123,7 @@ class ExecutionEngine:
                     model=model_id,
                     od_context=ectx.od_context,
                     planning_context=planning_context,
-                    user_id=ectx.owner_id,
+                    user_id=ectx.disk_principal,
                     run_id=pipeline_run_id,
                 )
                 await self._run_validation_fix_loop(
@@ -1334,7 +1391,10 @@ class ExecutionEngine:
                 model=model_id,
                 od_context=ectx.od_context,
                 planning_context=planning_context,
-                user_id=ectx.owner_id,
+                # Byte-identity guard (D-09): pass disk_principal (== user_id or "anon"),
+                # NOT owner_id (the DB principal, which may be anon:<session_id>), so the
+                # sub-agent's RunSandbox disk path stays byte-identical to pre-05-04.
+                user_id=ectx.disk_principal,
                 # run_id roots create_runner's RunSandbox at RunSandbox(user_id,
                 # pipeline_run_id) — the SAME per-run disk dir the engine reads
                 # deliverables back from (prototype.html / code-gen files).
@@ -1739,7 +1799,9 @@ class ExecutionEngine:
                     model=model_id,
                     od_context=ectx.od_context,
                     planning_context=planning_context,
-                    user_id=ectx.owner_id,
+                    # Byte-identity guard (D-09): disk_principal, NOT owner_id — keeps the
+                    # fix sub-agent's RunSandbox disk path byte-identical to pre-05-04.
+                    user_id=ectx.disk_principal,
                     run_id=pipeline_run_id,
                 ),
                 sandbox=sandbox,
@@ -2690,22 +2752,6 @@ class ExecutionEngine:
             )
 
         return "\n".join(parts)
-
-    def _derive_parent_owner(self, user_id: str | None, parent_run_id: str) -> str:
-        """Derive the owner of ``parent_run_id`` for the L16 ownership check (D-06).
-
-        BY CONVENTION in 0B: a parent sandbox is keyed on disk under
-        ``(user_id or "anon", parent_run_id)`` (the SAME principal the engine keys this
-        run with — D-04/D-05). So the parent's owner is, by convention, ``user_id or
-        "anon"``. This keeps the keying byte-identical while making the same-owner
-        assumption an explicit, testable gate. Phase 5 (AUTHZ-02) replaces this
-        by-convention derivation with a real store/workspace lookup of the parent run's
-        recorded ``owner_id`` and relocates ``assert_owns`` into the scoped-query helper.
-
-        Exposed as a method (not an inline expression) so a cross-owner case can be
-        exercised by overriding the derived owner.
-        """
-        return user_id or "anon"
 
     @staticmethod
     def _extract_existing_prototype_html(user_message: str) -> str:
