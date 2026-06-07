@@ -11,6 +11,12 @@ from app.models.artifact import WorkflowArtifact  # noqa: F401
 from app.models.workflow_clarification import WorkflowClarification  # noqa: F401
 from app.models.workflow_memory import WorkflowMemory  # noqa: F401
 from app.models.workflow_definition import WorkflowDefinition  # noqa: F401
+# Phase 5 typed-artifacts / persistence / ownership models — must be imported
+# here so Base.metadata sees them for Alembic autogenerate/check (Pitfall 5).
+from app.models.artifact_ref import ArtifactRef  # noqa: F401
+from app.models.workspace import Workspace  # noqa: F401
+from app.models.run_event import RunEvent  # noqa: F401
+from app.models.run_capabilities import RunCapabilities  # noqa: F401
 from app.models.handoff import (
     HandoffSession,
     UserApiKey,
@@ -44,6 +50,10 @@ __all__ = [
     "ChatSession",
     "Message",
     "WorkflowRun",
+    "ArtifactRef",
+    "Workspace",
+    "RunEvent",
+    "RunCapabilities",
     "RevokedToken",
     "cleanup_expired_revocations",
     "HandoffSession",

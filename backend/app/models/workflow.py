@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
+from sqlalchemy.types import JSON
 
 from app.models.database import Base
 
@@ -46,6 +47,16 @@ class WorkflowRun(Base):
     planning_context_unavailable = Column(
         Boolean, nullable=True, default=False, server_default="0"
     )
+
+    # Phase 5 columns (added additively by migration 0014). owner_id/workspace_id
+    # are backfilled for existing rows (owner_id = user_id, a default per-run
+    # workspace) — see migration 0014. plan_id (Phase 4) and budget_snapshot_json
+    # (Phase 11) are forward fields, nullable until those phases populate them.
+    owner_id = Column(String, nullable=True)             # AUTHZ-01 (backfilled)
+    workspace_id = Column(String, nullable=True)         # AUTHZ-01 (backfilled)
+    source_run_id = Column(String, nullable=True)
+    plan_id = Column(String, nullable=True)              # Phase 4 forward field
+    budget_snapshot_json = Column(JSON, nullable=True)   # Phase 11 forward field
 
     user = relationship("User", back_populates="workflow_runs")
     parent_run = relationship("WorkflowRun", remote_side=[id])
