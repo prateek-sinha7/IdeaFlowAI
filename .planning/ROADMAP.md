@@ -114,14 +114,15 @@ Plans:
   2. Every current pipeline runs from a compiled plan; snapshots green; `accumulated_outputs` mirror still used (no schema change yet)
   3. Compiler rejects unknown/not-allowed capability references (INV-4); `GET /api/workflows[/{id}]` returns manifest-derived metadata
 
-**Plans**: TBD
+**Plans**: 5 plans
 
 Plans:
 
-- [ ] 04-01: `manifest.py` schema + loader/validator; hand-author built-in `workflow.yaml` per pipeline
-- [ ] 04-02: `compiler.py` + `plan.py` (CompiledWorkflow/Step/Task) — name→capability resolution + validation
-- [ ] 04-03: Route the engine to execute from the compiled plan (legacy mirror retained)
-- [ ] 04-04: `/api/workflows` + `/api/workflows/{id}` endpoints
+- [ ] 04-01-PLAN.md — Capability ports (`base.py`) + name registry (`registry.py`, 14 names) + id-alias resolver [MAN-03]
+- [ ] 04-02-PLAN.md — `plan.py` (CompiledWorkflow/Step/Task §6 contract) + `manifest.py` loader/validator [MAN-01]
+- [ ] 04-03-PLAN.md — `compiler.py` (thin, no-DSL, name-resolve) + the 15 `workflow.yaml` manifests + coverage/parity tests [MAN-02, MAN-03, MAN-04]
+- [ ] 04-04-PLAN.md — Engine routing seam + id-alias (run from CompiledWorkflow) + characterization parity gate [MAN-04, MAN-05]
+- [ ] 04-05-PLAN.md — `/api/workflows` definitions rewrite + `/api/runs` relocation + 10 frontend repoints [API-01]
 
 ### Phase 5: Typed Artifacts + Persistence + Ownership [1B]
 
