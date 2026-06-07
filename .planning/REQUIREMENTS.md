@@ -47,10 +47,10 @@
 - [x] **ART-02**: Every artifact write records producer step/agent/task, content hash, location, version, parents, visibility, retention (INV-10)
 - [x] **ART-03**: Typed `produces`/`consumes` routing replaces string matching; revision lineage tracked via `parents`/`derived_from` (§17)
 - [x] **ART-04**: Default retention `run_ttl` (= 48h sandbox TTL); `keep`/`days:N` overrides (N9 — confirm)
-- [ ] **PERSIST-01**: Migration adds `artifact_refs`, extends `workflow_runs` (+ workspace_id, owner_id, parent_run_id, source_run_id, plan_id, status, budget_snapshot_json), adds `workspaces`, `run_events` — additive only, every table carries `owner_id` + `workspace_id` (§18 / Q3)
+- [x] **PERSIST-01**: Migration adds `artifact_refs`, extends `workflow_runs` (+ workspace_id, owner_id, parent_run_id, source_run_id, plan_id, status, budget_snapshot_json), adds `workspaces`, `run_events` — additive only, every table carries `owner_id` + `workspace_id` (§18 / Q3)
 - [ ] **PERSIST-02**: Dual-write typed refs alongside the legacy mirror; reads migrate incrementally; the `accumulated_outputs` mirror is deleted in this phase once reads migrate (L15 / §31)
-- [ ] **PERSIST-03**: `run_events` rows carry monotonic per-run `seq` + `event_id` for durable replay/resume; index (run_id, seq) (§18/§21)
-- [ ] **AUTHZ-01**: Ownership model `user → workspace → (repository|project) → run → {artifacts, subagent_runs}`; everything carries `owner_id` + `workspace_id` (INV-8 / §19)
+- [x] **PERSIST-03**: `run_events` rows carry monotonic per-run `seq` + `event_id` for durable replay/resume; index (run_id, seq) (§18/§21)
+- [x] **AUTHZ-01**: Ownership model `user → workspace → (repository|project) → run → {artifacts, subagent_runs}`; everything carries `owner_id` + `workspace_id` (INV-8 / §19)
 - [ ] **AUTHZ-02**: Default-deny store-layer scoped-query helper; all artifact/run reads go through it; no cross-owner read/write (§19)
 - [ ] **AUTHZ-03**: Anonymous runs get a synthetic `anon:<session_id>` owner — never `None` (§19)
 - [ ] **AUTHZ-04**: Authz-denial tests (cross-owner parent/artifact access) pass (Phase 1B Accept / R8)
@@ -154,7 +154,7 @@
 - [ ] **INTEG-01**: `integration_provider` capabilities (GitHub/GitLab/Jira/Slack/Confluence/Figma/OpenDesign) make repo/GitHub reachable from the unified `create_runner` path, not only the handoff pipeline (§30)
 - [ ] **INTEG-02**: `integrations` tool-permission scopes (e.g. `gitlab_read`, `jira_read`) default none; scoped per-owner creds (§8/§30/R13)
 - [ ] **SKILL-01**: `skill_provider` capabilities (ui · disk · template · repo) with a provider interface + versioning replace the flattened skill content list (§30)
-- [ ] **CAPRUN-01**: `run_capabilities` persistence records the active runtime + resolved skill/hook/integration/MCP names + versions + `model_overrides` per run for replay/debug (§18/§30)
+- [x] **CAPRUN-01**: `run_capabilities` persistence records the active runtime + resolved skill/hook/integration/MCP names + versions + `model_overrides` per run for replay/debug (§18/§30)
 
 ### Dynamic API / Frontend Contract (parallel track, §22)
 
@@ -226,7 +226,7 @@ Each v1 requirement maps to exactly one phase. Phases are GSD integers 1–12, m
 | ART-01, ART-02, ART-03, ART-04 | Phase 5 [1B] | Pending |
 | PERSIST-01, PERSIST-02, PERSIST-03 | Phase 5 [1B] | Pending |
 | AUTHZ-01, AUTHZ-02, AUTHZ-03, AUTHZ-04 | Phase 5 [1B] | Pending |
-| CAPRUN-01 | Phase 5 [1B] | Pending |
+| CAPRUN-01 | Phase 5 [1B] | Complete |
 | API-04, API-05 | Phase 5 [1B] | Pending |
 | MODEL-01, MODEL-02, MODEL-03, MODEL-04, MODEL-05 | Phase 6 [1C] | Pending |
 | PARITY-01, PARITY-02, PARITY-03, PARITY-04, PARITY-05, PARITY-06, PARITY-07, PARITY-08, PARITY-09 | Phase 7 [2] | Pending |
