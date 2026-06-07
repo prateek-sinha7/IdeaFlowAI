@@ -143,15 +143,16 @@ Plans:
   3. Default-deny store-layer scoping enforced; cross-owner authz denial tests pass; `anon:<session_id>` owner used for unauthenticated runs; snapshots green
   4. `GET /api/runs/{id}/artifacts` returns the typed lineage tree; `GET /api/runs/{id}/events?after=<seq>` replays the durable log
 
-**Plans**: TBD
+**Plans**: 6 plans (5 waves)
 
 Plans:
 
-- [ ] 05-01: `ArtifactGraph`/`ArtifactRef` (artifacts/) + typed produces/consumes routing
-- [ ] 05-02: Migrations §18 (artifact_refs, workflow_runs extend, workspaces, run_events, run_capabilities)
-- [ ] 05-03: `authz.py` ownership-scoped store helper (default-deny) + denial tests
-- [ ] 05-04: Dual-write → migrate reads → delete `accumulated_outputs` mirror
-- [ ] 05-05: `run_capabilities` persistence + `/api/runs/{id}/artifacts` + events replay endpoint
+- [ ] 05-01-PLAN.md — `agents/artifacts/` typed `ArtifactGraph`/`ArtifactRef` + typed produces/consumes routing (ART-01..04) [wave 1]
+- [ ] 05-02-PLAN.md — §18 additive `0014` migration + 4 models + extend `workflow_runs`/`workflows` + default-workspace backfill (PERSIST-01, AUTHZ-01) [wave 1]
+- [ ] 05-03-PLAN.md — relocate `assert_owns` → `agents/authz.py` default-deny scoped store helper + parent/artifact/workspace denial tests + anon:<session_id> (AUTHZ-01..04) [wave 2]
+- [ ] 05-04-PLAN.md — engine wiring: owner/workspace/capabilities/artifacts at `execute()` entry (byte-identity guard) + per-run seq/event_id sink + dual-write + read-migration (ART-01/03, PERSIST-02/03, CAPRUN-01) [wave 3]
+- [ ] 05-05-PLAN.md — `/api/runs/{id}/artifacts` lineage tree + `/api/runs/{id}/events?after=<seq>` replay + CAPRUN-01 (API-04/05) [wave 4]
+- [ ] 05-06-PLAN.md — [BLOCKING parity gate] then delete `accumulated_outputs` mirror + thin store + `0015` DROP + flip ledger L15 (PERSIST-02) [wave 5]
 
 ### Phase 6: Model Policy [1C]
 
@@ -318,7 +319,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 2. ExecutionContext + Ownership [0B] | 3/3 | Complete    | 2026-06-07 |
 | 3. Token-Trim [0C] | 2/2 | Complete    | 2026-06-07 |
 | 4. Manifest + Compiler [1A] | 5/5 | Complete    | 2026-06-07 |
-| 5. Typed Artifacts + Persistence [1B] | 0/5 | Not started | - |
+| 5. Typed Artifacts + Persistence [1B] | 0/6 | Planned     | - |
 | 6. Model Policy [1C] | 0/3 | Not started | - |
 | 7. Prototype as Manifest (Parity Proof) [2] | 0/5 | Not started | - |
 | 8. Capabilities Hardened [3] | 0/8 | Not started | - |
