@@ -51,9 +51,9 @@
 - [ ] **PERSIST-02**: Dual-write typed refs alongside the legacy mirror; reads migrate incrementally; the `accumulated_outputs` mirror is deleted in this phase once reads migrate (L15 / §31)
 - [x] **PERSIST-03**: `run_events` rows carry monotonic per-run `seq` + `event_id` for durable replay/resume; index (run_id, seq) (§18/§21)
 - [x] **AUTHZ-01**: Ownership model `user → workspace → (repository|project) → run → {artifacts, subagent_runs}`; everything carries `owner_id` + `workspace_id` (INV-8 / §19)
-- [ ] **AUTHZ-02**: Default-deny store-layer scoped-query helper; all artifact/run reads go through it; no cross-owner read/write (§19)
-- [ ] **AUTHZ-03**: Anonymous runs get a synthetic `anon:<session_id>` owner — never `None` (§19)
-- [ ] **AUTHZ-04**: Authz-denial tests (cross-owner parent/artifact access) pass (Phase 1B Accept / R8)
+- [x] **AUTHZ-02**: Default-deny store-layer scoped-query helper; all artifact/run reads go through it; no cross-owner read/write (§19)
+- [x] **AUTHZ-03**: Anonymous runs get a synthetic `anon:<session_id>` owner — never `None` (§19)
+- [x] **AUTHZ-04**: Authz-denial tests (cross-owner parent/artifact access) pass (Phase 1B Accept / R8)
 
 ### Model Policy & Per-Agent Selection (Phase 1C)
 

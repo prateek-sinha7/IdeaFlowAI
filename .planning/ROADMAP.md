@@ -152,7 +152,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 05-03-PLAN.md — relocate `assert_owns` → `agents/authz.py` default-deny scoped store helper + parent/artifact/workspace denial tests + anon:<session_id> (AUTHZ-01..04) [wave 2]
+- [x] 05-03-PLAN.md — relocate `assert_owns` → `agents/authz.py` default-deny scoped store helper + parent/artifact/workspace denial tests + anon:<session_id> (AUTHZ-01..04) [wave 2]
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -331,7 +331,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 2. ExecutionContext + Ownership [0B] | 3/3 | Complete    | 2026-06-07 |
 | 3. Token-Trim [0C] | 2/2 | Complete    | 2026-06-07 |
 | 4. Manifest + Compiler [1A] | 5/5 | Complete    | 2026-06-07 |
-| 5. Typed Artifacts + Persistence [1B] | 2/6 | In Progress|  |
+| 5. Typed Artifacts + Persistence [1B] | 3/6 | In Progress|  |
 | 6. Model Policy [1C] | 0/3 | Not started | - |
 | 7. Prototype as Manifest (Parity Proof) [2] | 0/5 | Not started | - |
 | 8. Capabilities Hardened [3] | 0/8 | Not started | - |

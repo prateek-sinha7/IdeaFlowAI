@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-07T20:14:30.233Z"
+last_updated: "2026-06-07T20:22:07.188Z"
 last_activity: 2026-06-07 -- Phase 05 execution started
 progress:
   total_phases: 12
   completed_phases: 4
   total_plans: 20
-  completed_plans: 16
+  completed_plans: 17
   percent: 33
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 ## Current Position
 
 Phase: 05 (Typed Artifacts + Persistence + Ownership [1B]) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Ready to execute
 Last activity: 2026-06-07 -- Phase 05 execution started
 
@@ -67,6 +67,7 @@ Progress: [██████████] 100% (7/7 plans complete)
 | Phase 04-manifest-compiler-1a P05 | 10min | 3 tasks | 9 files |
 | Phase 05 P01 | 2min | 2 tasks | 3 files |
 | Phase 05 P02 | 7min | 2 tasks | 9 files |
+| Phase 05 P03 | 3min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -93,6 +94,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 05-01: agents/artifacts/ package path per D-02; kernel-pure typed substrate (graph owns sha256 hashing + per-(run,kind) versioning)
 - [Phase ?]: 05-02: Extended existing workflows table (WorkflowDefinition) additively — no second workflows table (RESEARCH #5 collision)
 - [Phase ?]: 05-02: Default-workspace backfill inlined in Alembic 0014 (D-03); owner_id/workspace_id NOT NULL on new tables, nullable+backfilled on extended tables
+- [Phase ?]: 05-03: relocated assert_owns into the single default-deny ScopedStore helper (agents/authz.py); reads filter owner+visibility (ArtifactRef) / owner+workspace (run/ws/event/caps); assert_owns is a real parent-owner store lookup; old execution_engine/authz.py deleted (INV-12); engine call-site rewiring deferred to 05-04 (vetted intra-phase gap)
 
 ### Pending Todos
 
