@@ -777,22 +777,35 @@ class ExecutionEngine:
         # No legacy `pipeline_type` dispatch fallback (INV-12).
         compiled = compile_for_run(pipeline_type)
 
-        # (1) Agent sequence/ids — the compiled plan is the SOURCE of the step
-        # order. In 1A the incoming `agents` are still resolved by the caller via
-        # get_pipeline_agents; assert the compiled step order matches it so any
-        # manifest/registry drift fails LOUDLY here rather than silently
-        # reordering agents and breaking the characterization snapshots
-        # (RESEARCH Pitfall 3). The `reverse_engineer` empty-plan stub and the
-        # non-engine-dispatched `chat` manifest never reach execute(), so a
-        # populated compiled plan is expected for every dispatchable run.
+        # (1) Agent sequence/ids — the compiled plan is the SOURCE of the agent
+        # MEMBERSHIP for this run. The manifests are authored in the registry's
+        # membership order (get_pipeline_agents / PIPELINE_AGENTS — coverage test
+        # in 04-03), which is the engine's canonical agent list. The actual
+        # EXECUTION order stays the resolver's topo-sorted DAG (validation.dag,
+        # unchanged below — byte-identical), which may reorder contract-coupled
+        # agents (e.g. the code-gen pipelines). So we assert the compiled plan's
+        # step set/order matches the registry MEMBERSHIP source, not validation.dag
+        # — any manifest/registry drift fails LOUDLY here rather than silently
+        # diverging from the agents the engine drives (RESEARCH Pitfall 3). `ppt`
+        # agents declare pipeline_type: od_ppt so get_pipeline_agents("ppt") is
+        # empty; fall back to PIPELINE_AGENTS[id] there (mirrors the coverage
+        # test). `reverse_engineer` (empty plan) / `chat` (ChatRunner) never reach
+        # execute(), so a populated compiled plan is expected for every run here.
+        from agents.registry import PIPELINE_AGENTS, get_pipeline_agents
+
         _compiled_agent_ids = [s.agent_id for s in compiled.steps]
-        _ordered_agent_ids = [getattr(s, "id", None) for s in ordered_agents]
-        if _compiled_agent_ids and _compiled_agent_ids != _ordered_agent_ids:
+        _registry_specs = get_pipeline_agents(compiled.id)
+        _membership_ids = (
+            [a.id for a in _registry_specs]
+            if _registry_specs
+            else list(PIPELINE_AGENTS.get(compiled.id, []))
+        )
+        if _compiled_agent_ids and _compiled_agent_ids != _membership_ids:
             raise RuntimeError(
-                "compiled plan step order does not match the resolved agent "
-                f"sequence for '{pipeline_type}' (manifest id "
+                "compiled plan step order does not match the registry agent "
+                f"membership for '{pipeline_type}' (manifest id "
                 f"'{compiled.id}'): plan={_compiled_agent_ids} "
-                f"agents={_ordered_agent_ids}"
+                f"registry={_membership_ids}"
             )
 
         # Persist custom workflow definition (T061, FR-013)
