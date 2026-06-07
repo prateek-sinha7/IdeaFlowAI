@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-07T19:51:30.355Z"
-last_activity: 2026-06-07 -- Phase 5 planning complete
+last_updated: "2026-06-07T20:04:41.919Z"
+last_activity: 2026-06-07 -- Phase 05 execution started
 progress:
   total_phases: 12
   completed_phases: 4
-  total_plans: 14
-  completed_plans: 14
+  total_plans: 20
+  completed_plans: 15
   percent: 33
 ---
 
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-06)
 
 **Core value:** A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001).
-**Current focus:** Phase 04 — manifest-compiler-1a
+**Current focus:** Phase 05 — Typed Artifacts + Persistence + Ownership [1B]
 
 ## Current Position
 
-Phase: 5
-Plan: Not started
+Phase: 05 (Typed Artifacts + Persistence + Ownership [1B]) — EXECUTING
+Plan: 2 of 6
 Status: Ready to execute
-Last activity: 2026-06-07 -- Phase 5 planning complete
+Last activity: 2026-06-07 -- Phase 05 execution started
 
 Progress: [██████████] 100% (7/7 plans complete)
 
@@ -65,6 +65,7 @@ Progress: [██████████] 100% (7/7 plans complete)
 | Phase 04-manifest-compiler-1a P03 | 7min | 3 tasks | 20 files |
 | Phase 04 P04 | 38min | 3 tasks | 5 files |
 | Phase 04-manifest-compiler-1a P05 | 10min | 3 tasks | 9 files |
+| Phase 05 P01 | 2min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -88,6 +89,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 04-04: engine sources agent membership/deliverable/clarify/planner from CompiledWorkflow; pipeline_type reduced to id-alias resolver (MAN-04/MAN-05); behavioral L1-L13 branches byte-identical
 - [Phase ?]: 04-04: 1A drift assertion compares compiled plan vs registry MEMBERSHIP (not validation.dag); execution order stays resolver topo-DAG; INV-3 snapshots green
 - [Phase ?]: 04-05: /api/workflows reclaimed for manifest-derived definitions (compile_for_run + get_pipeline_agents, no DB); run-history moved to /api/runs with IDOR filter + export sanitization preserved; 10 frontend refs repointed (clean break, no aliases)
+- [Phase ?]: 05-01: agents/artifacts/ package path per D-02; kernel-pure typed substrate (graph owns sha256 hashing + per-(run,kind) versioning)
 
 ### Pending Todos
 

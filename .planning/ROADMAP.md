@@ -147,7 +147,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 05-01-PLAN.md — `agents/artifacts/` typed `ArtifactGraph`/`ArtifactRef` + typed produces/consumes routing (ART-01..04) [wave 1]
+- [x] 05-01-PLAN.md — `agents/artifacts/` typed `ArtifactGraph`/`ArtifactRef` + typed produces/consumes routing (ART-01..04) [wave 1]
 - [ ] 05-02-PLAN.md — §18 additive `0014` migration + 4 models + extend `workflow_runs`/`workflows` + default-workspace backfill (PERSIST-01, AUTHZ-01) [wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion)*
@@ -331,7 +331,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 2. ExecutionContext + Ownership [0B] | 3/3 | Complete    | 2026-06-07 |
 | 3. Token-Trim [0C] | 2/2 | Complete    | 2026-06-07 |
 | 4. Manifest + Compiler [1A] | 5/5 | Complete    | 2026-06-07 |
-| 5. Typed Artifacts + Persistence [1B] | 0/6 | Planned     | - |
+| 5. Typed Artifacts + Persistence [1B] | 1/6 | In Progress|  |
 | 6. Model Policy [1C] | 0/3 | Not started | - |
 | 7. Prototype as Manifest (Parity Proof) [2] | 0/5 | Not started | - |
 | 8. Capabilities Hardened [3] | 0/8 | Not started | - |

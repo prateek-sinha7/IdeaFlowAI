@@ -43,10 +43,10 @@
 
 ### Typed Artifacts, Lineage & Persistence (Phase 1B)
 
-- [ ] **ART-01**: `ArtifactGraph` + `ArtifactRef` — typed, content-addressed, owner-scoped DAG replaces loose `accumulated_outputs: dict[str,str]` (L15 / §17 / INV-10)
-- [ ] **ART-02**: Every artifact write records producer step/agent/task, content hash, location, version, parents, visibility, retention (INV-10)
-- [ ] **ART-03**: Typed `produces`/`consumes` routing replaces string matching; revision lineage tracked via `parents`/`derived_from` (§17)
-- [ ] **ART-04**: Default retention `run_ttl` (= 48h sandbox TTL); `keep`/`days:N` overrides (N9 — confirm)
+- [x] **ART-01**: `ArtifactGraph` + `ArtifactRef` — typed, content-addressed, owner-scoped DAG replaces loose `accumulated_outputs: dict[str,str]` (L15 / §17 / INV-10)
+- [x] **ART-02**: Every artifact write records producer step/agent/task, content hash, location, version, parents, visibility, retention (INV-10)
+- [x] **ART-03**: Typed `produces`/`consumes` routing replaces string matching; revision lineage tracked via `parents`/`derived_from` (§17)
+- [x] **ART-04**: Default retention `run_ttl` (= 48h sandbox TTL); `keep`/`days:N` overrides (N9 — confirm)
 - [ ] **PERSIST-01**: Migration adds `artifact_refs`, extends `workflow_runs` (+ workspace_id, owner_id, parent_run_id, source_run_id, plan_id, status, budget_snapshot_json), adds `workspaces`, `run_events` — additive only, every table carries `owner_id` + `workspace_id` (§18 / Q3)
 - [ ] **PERSIST-02**: Dual-write typed refs alongside the legacy mirror; reads migrate incrementally; the `accumulated_outputs` mirror is deleted in this phase once reads migrate (L15 / §31)
 - [ ] **PERSIST-03**: `run_events` rows carry monotonic per-run `seq` + `event_id` for durable replay/resume; index (run_id, seq) (§18/§21)
