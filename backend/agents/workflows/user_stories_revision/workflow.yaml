@@ -1,0 +1,19 @@
+# user_stories_revision — single revision agent over a prior backlog.
+# clarify.defaults fall to engine._pipeline_defaults["custom"] (engine.py:761)
+# — revisions have no dedicated entry in the dict (parity trap #2).
+# context_providers: [previous_run] seeds the prior run's output (Phase-7 impl).
+id: user_stories_revision
+version: 1
+planner: run
+clarify:
+  mode: auto
+  defaults: [target_audience, key_objectives, scope, priority]
+deliverable:
+  strategy: streamed_text
+  name: user_stories.md
+context_providers: [previous_run]
+seed_files: {}
+steps:
+  - agent: user-story-revision-agent
+    strategy: single_shot
+    gates: []

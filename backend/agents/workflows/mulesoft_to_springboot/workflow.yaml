@@ -1,0 +1,55 @@
+# mulesoft_to_springboot — 13-agent MuleSoft -> Spring Boot migration pipeline.
+# Step order == PIPELINE_AGENTS["mulesoft_to_springboot"]. deliverable:
+# serialized_sandbox. clarify.defaults verbatim from
+# engine._pipeline_defaults["mulesoft_to_springboot"] (engine.py:759).
+id: mulesoft_to_springboot
+version: 1
+planner: run
+clarify:
+  mode: auto
+  defaults: [scope, technology, timeline, priority]
+deliverable:
+  strategy: serialized_sandbox
+  name: springboot-app
+context_providers: []
+seed_files: {}
+steps:
+  - agent: mulesoft-inventory
+    strategy: single_shot
+    gates: []
+  - agent: mulesoft-user-stories
+    strategy: single_shot
+    gates: []
+  - agent: mulesoft-decomposition
+    strategy: single_shot
+    gates: []
+  - agent: mulesoft-security-architecture
+    strategy: single_shot
+    gates: []
+  - agent: mulesoft-springboot-scaffold
+    strategy: single_shot
+    gates: []
+  - agent: mulesoft-feature-coding
+    strategy: single_shot
+    gates: []
+  - agent: mulesoft-dataweave-translator
+    strategy: single_shot
+    gates: []
+  - agent: mulesoft-aws-infra
+    strategy: single_shot
+    gates: []
+  - agent: mulesoft-code-compliance
+    strategy: single_shot
+    gates: []
+  - agent: mulesoft-test-implementation
+    strategy: single_shot
+    gates: []
+  - agent: mulesoft-test-compliance
+    strategy: single_shot
+    gates: []
+  - agent: mulesoft-validation
+    strategy: single_shot
+    gates: []
+  - agent: mulesoft-sdlc-governance
+    strategy: single_shot
+    gates: []

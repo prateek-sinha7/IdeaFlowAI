@@ -1,0 +1,18 @@
+# od_ppt_revision — single OpenDesign PPT revision agent. REAL registry key.
+# clarify.defaults fall to engine._pipeline_defaults["custom"] (parity trap #2).
+# context_providers: [opendesign, previous_run] — OD flavor + prior-run seeding.
+id: od_ppt_revision
+version: 1
+planner: run
+clarify:
+  mode: auto
+  defaults: [target_audience, key_objectives, scope, priority]
+deliverable:
+  strategy: ppt
+  name: presentation.pptx
+context_providers: [opendesign, previous_run]
+seed_files: {}
+steps:
+  - agent: od-ppt-revision-agent
+    strategy: single_shot
+    gates: []

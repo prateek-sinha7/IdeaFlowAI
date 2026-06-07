@@ -1,0 +1,16 @@
+# reverse_engineer — empty-plan stub (D-05). agents TBD (populated when AGENT.md
+# files are authored for this pipeline). steps: [] is valid (MAN-01) and compiles
+# to a CompiledWorkflow with no steps. Zero coverage-test exemptions: it loads +
+# compiles like every other manifest. clarify.defaults fall to the custom list.
+id: reverse_engineer
+version: 1
+planner: run
+clarify:
+  mode: auto
+  defaults: [target_audience, key_objectives, scope, priority]
+deliverable:
+  strategy: streamed_text
+  name: analysis.md
+context_providers: []
+seed_files: {}
+steps: []

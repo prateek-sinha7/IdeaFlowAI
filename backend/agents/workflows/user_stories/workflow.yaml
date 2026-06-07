@@ -1,0 +1,35 @@
+# user_stories — 6-agent user-story backlog pipeline.
+# Step order = PIPELINE_AGENTS["user_stories"] (== get_pipeline_agents order).
+# planner: run — SKIP_PLANNER_FOR_PROTOTYPE=False, every pipeline runs the planner.
+# clarify.defaults reproduced verbatim from engine._pipeline_defaults["user_stories"]
+# (engine.py:757). Pure data — no control-flow/DSL.
+id: user_stories
+version: 1
+planner: run
+clarify:
+  mode: auto
+  defaults: [target_audience, scope, priority, technology]
+deliverable:
+  strategy: streamed_text
+  name: user_stories.md
+context_providers: []
+seed_files: {}
+steps:
+  - agent: domain-analyst
+    strategy: single_shot
+    gates: []
+  - agent: epic-architect
+    strategy: single_shot
+    gates: []
+  - agent: story-estimator
+    strategy: single_shot
+    gates: []
+  - agent: nfr-specialist
+    strategy: single_shot
+    gates: []
+  - agent: backlog-reviewer
+    strategy: single_shot
+    gates: []
+  - agent: backlog-compiler
+    strategy: single_shot
+    gates: []

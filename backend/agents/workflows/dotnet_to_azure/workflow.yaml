@@ -1,0 +1,55 @@
+# dotnet_to_azure — 13-agent .NET -> Azure modernization pipeline.
+# Step order == PIPELINE_AGENTS["dotnet_to_azure"]. deliverable:
+# serialized_sandbox. clarify.defaults verbatim from
+# engine._pipeline_defaults["dotnet_to_azure"] (engine.py:760).
+id: dotnet_to_azure
+version: 1
+planner: run
+clarify:
+  mode: auto
+  defaults: [scope, technology, timeline, priority]
+deliverable:
+  strategy: serialized_sandbox
+  name: azure-app
+context_providers: []
+seed_files: {}
+steps:
+  - agent: dotnet-inventory
+    strategy: single_shot
+    gates: []
+  - agent: dotnet-user-stories
+    strategy: single_shot
+    gates: []
+  - agent: dotnet-azure-target-mapping
+    strategy: single_shot
+    gates: []
+  - agent: dotnet-security-architecture
+    strategy: single_shot
+    gates: []
+  - agent: dotnet-modernization
+    strategy: single_shot
+    gates: []
+  - agent: dotnet-feature-coding
+    strategy: single_shot
+    gates: []
+  - agent: dotnet-azure-bicep
+    strategy: single_shot
+    gates: []
+  - agent: dotnet-azure-ai
+    strategy: single_shot
+    gates: []
+  - agent: dotnet-code-compliance
+    strategy: single_shot
+    gates: []
+  - agent: dotnet-test-implementation
+    strategy: single_shot
+    gates: []
+  - agent: dotnet-test-compliance
+    strategy: single_shot
+    gates: []
+  - agent: dotnet-validation
+    strategy: single_shot
+    gates: []
+  - agent: dotnet-sdlc-governance
+    strategy: single_shot
+    gates: []

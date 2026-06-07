@@ -1,0 +1,21 @@
+# ppt_revision — 2-agent PPT revision (revise + reassemble).
+# clarify.defaults fall to engine._pipeline_defaults["custom"] (revisions absent
+# from the dict — parity trap #2). context_providers: [previous_run].
+id: ppt_revision
+version: 1
+planner: run
+clarify:
+  mode: auto
+  defaults: [target_audience, key_objectives, scope, priority]
+deliverable:
+  strategy: ppt
+  name: presentation.pptx
+context_providers: [previous_run]
+seed_files: {}
+steps:
+  - agent: ppt-revision-agent
+    strategy: single_shot
+    gates: []
+  - agent: ppt-revision-assembler
+    strategy: single_shot
+    gates: []

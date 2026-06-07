@@ -1,0 +1,63 @@
+# app_builder — 15-agent full-app generation pipeline.
+# Step order == PIPELINE_AGENTS["app_builder"] (== get_pipeline_agents order).
+# deliverable: serialized_sandbox (the filename:-block bundle). gates: [] per step
+# (static-gate detection stays behavioral via _should_gate/AGENT.md, Phase 7).
+# clarify.defaults verbatim from engine._pipeline_defaults["app_builder"]
+# (engine.py:758).
+id: app_builder
+version: 1
+planner: run
+clarify:
+  mode: auto
+  defaults: [technology, scope, target_audience, security]
+deliverable:
+  strategy: serialized_sandbox
+  name: app
+context_providers: []
+seed_files: {}
+steps:
+  - agent: material-analyzer
+    strategy: single_shot
+    gates: []
+  - agent: app-user-stories
+    strategy: single_shot
+    gates: []
+  - agent: app-system-design
+    strategy: single_shot
+    gates: []
+  - agent: app-security-architecture
+    strategy: single_shot
+    gates: []
+  - agent: app-ux-design
+    strategy: single_shot
+    gates: []
+  - agent: app-api-design
+    strategy: single_shot
+    gates: []
+  - agent: app-database-design
+    strategy: single_shot
+    gates: []
+  - agent: app-code-generator
+    strategy: single_shot
+    gates: []
+  - agent: app-feature-implementation
+    strategy: single_shot
+    gates: []
+  - agent: app-infra-generator
+    strategy: single_shot
+    gates: []
+  - agent: app-code-compliance
+    strategy: single_shot
+    gates: []
+  - agent: app-test-implementation
+    strategy: single_shot
+    gates: []
+  - agent: app-test-compliance
+    strategy: single_shot
+    gates: []
+  - agent: app-devops
+    strategy: single_shot
+    gates: []
+  - agent: app-sdlc-governance
+    strategy: single_shot
+    gates: []

@@ -1,0 +1,22 @@
+# prototype_revision — single revision agent over a prior prototype.html.
+# Runs the same Both-validation as a smart-hybrid policy (validators declared;
+# fix-loop behavioral until Phase 7). gates: [validation] on the revision step
+# (post-edit validation gate). deliverable: single_file. context_providers:
+# [previous_run] seeds the parent run's spec/design. clarify.defaults fall to
+# engine._pipeline_defaults["custom"] (parity trap #2).
+id: prototype_revision
+version: 1
+planner: run
+clarify:
+  mode: auto
+  defaults: [target_audience, key_objectives, scope, priority]
+deliverable:
+  strategy: single_file
+  name: prototype.html
+context_providers: [previous_run]
+seed_files: {}
+steps:
+  - agent: prototype-revision-agent
+    strategy: single_shot
+    gates: [validation]
+    validators: [html_static, html_render]

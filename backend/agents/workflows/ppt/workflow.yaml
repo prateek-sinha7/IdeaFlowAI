@@ -1,0 +1,27 @@
+# ppt — 3-agent PPT brief→compose→validate pipeline.
+# NOTE: the ppt agents physically declare pipeline_type: od_ppt (shared agents),
+# so get_pipeline_agents("ppt") is empty; the canonical membership/order is
+# PIPELINE_AGENTS["ppt"]. Step order below == PIPELINE_AGENTS["ppt"].
+# deliverable: ppt (streamed_text + carousel sanitize live behaviorally).
+# clarify.defaults verbatim from engine._pipeline_defaults["ppt"] (engine.py:754).
+id: ppt
+version: 1
+planner: run
+clarify:
+  mode: auto
+  defaults: [target_audience, tone_and_style, key_objectives, slide_count]
+deliverable:
+  strategy: ppt
+  name: presentation.pptx
+context_providers: []
+seed_files: {}
+steps:
+  - agent: od-ppt-brief-analyst
+    strategy: single_shot
+    gates: []
+  - agent: od-ppt-composer
+    strategy: single_shot
+    gates: []
+  - agent: od-ppt-validator
+    strategy: single_shot
+    gates: []

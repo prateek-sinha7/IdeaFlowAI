@@ -1,0 +1,40 @@
+# chat — the free-chat 7-agent sequence (D-05). Loads + compiles like every other
+# manifest (single source of truth for chat agent membership/order), BUT the
+# ExecutionEngine NEVER dispatches it: chat is driven by the dedicated ChatRunner
+# (app/agents/chat_runner.py) and is in agents.registry._INTERNAL_PIPELINES, so it
+# is excluded from allowed_custom_agent_ids (the security fallback). Present here
+# only so /api/workflows + the coverage test see all 15 with zero exemptions.
+# Step order == PIPELINE_AGENTS["chat"]. deliverable: streamed_text.
+id: chat
+version: 1
+planner: run
+clarify:
+  mode: auto
+  defaults: [target_audience, key_objectives, scope, priority]
+deliverable:
+  strategy: streamed_text
+  name: chat.md
+context_providers: []
+seed_files: {}
+steps:
+  - agent: chat-discovery
+    strategy: single_shot
+    gates: []
+  - agent: chat-requirements
+    strategy: single_shot
+    gates: []
+  - agent: chat-user-stories
+    strategy: single_shot
+    gates: []
+  - agent: chat-ppt
+    strategy: single_shot
+    gates: []
+  - agent: chat-prototype
+    strategy: single_shot
+    gates: []
+  - agent: chat-ui-design
+    strategy: single_shot
+    gates: []
+  - agent: chat-preview
+    strategy: single_shot
+    gates: []
