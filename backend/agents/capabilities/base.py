@@ -87,7 +87,7 @@ class ContextProvider(Protocol):
 class GateHandler(Protocol):
     """A step gate — human | validation | approval | security (§9)."""
 
-    kind: str
+    name: str  # capability name, e.g. "human" | "validation" | "approval" | "security"
 
     async def evaluate(self, step: Any, ctx: Any) -> Any:
         """Evaluate the gate, returning a gate outcome (pass | block | wait_human)."""
