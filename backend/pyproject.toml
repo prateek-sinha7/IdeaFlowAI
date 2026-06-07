@@ -146,6 +146,29 @@ source_modules = ["agents.execution_engine.engine"]
 forbidden_modules = ["app.api"]
 
 # ---------------------------------------------------------------------------
+# Ports & Adapters boundary (§32 / SAFE-05): the declaration layer
+# (`agents.workflows`) and the capability port layer (`agents.capabilities`)
+# are INNER — they must never import the execution kernel
+# (`agents.execution_engine`) nor the web/API layer (`app`). The kernel and
+# the API call INTO these packages, never the reverse. Both directions are
+# already respected on the current tree (the compiler/manifest/plan and the
+# capability ports import only stdlib + each other), so these contracts are
+# NON-VACUOUS and exit 0 today — they lock the boundary so a future accidental
+# inward import is caught by CI.
+# ---------------------------------------------------------------------------
+[[tool.importlinter.contracts]]
+name = "agents.workflows must not import the execution kernel or the web layer"
+type = "forbidden"
+source_modules = ["agents.workflows"]
+forbidden_modules = ["agents.execution_engine", "app"]
+
+[[tool.importlinter.contracts]]
+name = "agents.capabilities must not import the execution kernel or the web layer"
+type = "forbidden"
+source_modules = ["agents.capabilities"]
+forbidden_modules = ["agents.execution_engine", "app"]
+
+# ---------------------------------------------------------------------------
 # vulture — dead-code / orphaned-symbol detection (D-13).
 #
 # Complements ruff (which only flags unused-WITHIN-a-file F401/F811) by finding
