@@ -46,9 +46,9 @@ The `Deletion gate` column holds one of two things, distinguished by the parser:
 
 | Item | Legacy (`file:line`) | New home | Phase | Deletion gate (grep → 0 / check) | Status | Deleting SHA |
 |---|---|---|---|---|---|---|
-| L14 | `self._od_context/_completed_tasks/_current_task_block/_revision_*/_gate_agent_ids` (engine, throughout) | `ExecutionContext` (§6) | 0B | `self\._(od_context\|completed_tasks\|current_task_block\|revision_\|gate_agent_ids)` | ☐ | |
+| L14 | `self._od_context/_completed_tasks/_current_task_block/_revision_*/_gate_agent_ids` (engine, throughout) | `ExecutionContext` (§6) | 0B | `self\._(od_context\|completed_tasks\|current_task_block\|revision_\|gate_agent_ids)` | ☑ | 8b90fd2 |
 | L16 | unchecked `parent_run` seed `engine.py:583-610` | authz store check (§19) | 0B | CHECK: cross-owner denial test passes | ☐ | |
-| D1 | dead `_handle_revision` `engine.py:2138-2251` | delete (superseded by inline revision) | 0B | `_handle_revision` | ☐ | |
+| D1 | `_handle_revision` `engine.py:2156` — **LIVE, not dead**: the frontend `run_revision` PPT-revision handler (`DashboardLayout.tsx` → `app/api/websocket.py:625`) | retain (revisit only if `run_revision` is retired) | (deferred ‡) | CHECK: voided in 0B — live `run_revision` handler, not dead code | ☐ | |
 | L13 | `_extract_html_skeleton` wired inline in 0C `engine.py:2565` | `CompactionStrategy(html_skeleton)` (§30) | 0C→2 | `_extract_html_skeleton` | ☐ | |
 | L1 | `_PPT_PIPELINE_TYPES`/`_PROTOTYPE_PIPELINE_TYPES`/`REVISION_FILE_NAME` `engine.py:93-110` | manifest `deliverable`/`seed_files` | 2 | `_PROTOTYPE_PIPELINE_TYPES\|_PPT_PIPELINE_TYPES` | ☐ | |
 | L2/L9 | `_resolve_final_output` `engine.py:316-397` | `DeliverableResolver` registry | 2 | `_resolve_final_output` | ☐ | |
@@ -69,4 +69,15 @@ The `Deletion gate` column holds one of two things, distinguished by the parser:
 
 > The ledger is the single source of truth for "what still needs refactoring." CI fails if any
 > `☑` item's grep pattern reappears in `backend/`. Rows flip to `☑` only in their owning phase
-> (L14 / L16 / D1 in Phase 0B; L13 in 0C→2; L1–L12 in Phase 2/7; L15 in 1B; F1–F5 in Phase 3).
+> (L14 in Phase 0B; L16 CHECK in 0B via the 02-03 denial test; **D1 deferred — `_handle_revision`
+> is live, not dead ‡**; L13 in 0C→2; L1–L12 in Phase 2/7; L15 in 1B; F1–F5 in Phase 3).
+>
+> ‡ **Phase 0B execution finding (2026-06-07):** D1 assumed `_handle_revision` was dead code
+> superseded by the inline `prototype_revision` path. Execution found it is the **live handler for
+> the frontend `run_revision` PPT-revision message** (`frontend/src/components/layout/DashboardLayout.tsx`
+> → `app/api/websocket.py:625` → `engine.py::_handle_revision`), with a dedicated
+> `backend/tests/unit/test_revision_intelligence.py` suite. The inline `prototype_revision` pipeline
+> (which the 0A snapshots characterize) is a **separate** mechanism — the spec conflated the two.
+> Deleting `_handle_revision` would break PPT revision (a CTX-05 behavior change), so the D1 deletion
+> is **voided/deferred** pending a product decision on retiring `run_revision`. L14 still flips to `☑`
+> (the state-lift is genuinely complete). See `.planning/phases/02-executioncontext-ownership-0b/02-02-SUMMARY.md`.

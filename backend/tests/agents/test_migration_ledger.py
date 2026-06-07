@@ -20,6 +20,7 @@ Offline / unmarked — runs in the CI ``backend:characterization`` job (no DB / 
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -66,7 +67,14 @@ def _parse_rows(ledger_text: str) -> list[tuple[str, str, str]]:
             continue
         if "Status" in line or "---" in line:  # header / separator
             continue
-        cells = [c.strip() for c in line.strip("|").split("|")]
+        # Split on UNESCAPED table-pipe delimiters, then un-escape `\|` → `|` so a gate
+        # cell holding a grep alternation (e.g. L14's `(od_context|completed_tasks|…)`)
+        # survives as ONE cell and reaches grep -E with working alternation, instead of
+        # being shredded at every `\|` (which truncated L14 to a `gate_agent_ids)` fragment).
+        cells = [
+            c.strip().replace("\\|", "|")
+            for c in re.split(r"(?<!\\)\|", line.strip().strip("|"))
+        ]
         if len(cells) < 6:
             continue
         item = cells[0]
@@ -114,15 +122,24 @@ def test_deleted_pattern_absent_from_backend(item: str, pattern: str | None) -> 
     )
 
 
-def test_ledger_parses_and_all_phase1_rows_pending() -> None:
-    """Every §31 item is present and — in Phase 1 — all rows are ``☐`` (T-03-02)."""
+def test_ledger_parses_and_phase0b_flips_only_l14() -> None:
+    """Every §31 item is present; Phase 0B flips ONLY L14 to ``☑`` (T-03-02).
+
+    Phase 1 had every row ``☐``. Phase 0B lifts per-run state into ``ExecutionContext``,
+    so the L14 grep ratchet is armed (``☑``). D1 (``_handle_revision``) was found **live**
+    during 0B execution — it is the frontend ``run_revision`` PPT-revision handler, not dead
+    code — so its deletion is voided/deferred and it stays ``☐`` (see the ledger ‡ note).
+    L16 is a CHECK row owned by plan 02-03. All later-phase rows remain ``☐``.
+    """
     text = _LEDGER.read_text()
     rows = _parse_rows(text)
     ids = [item for item, _gate, _status in rows]
     missing = [i for i in _REQUIRED_ITEMS if i not in ids]
     assert not missing, f"ledger drifted from §31 — missing rows: {missing}"
-    not_pending = [item for item, _g, status in rows if "☐" not in status]
-    assert not not_pending, f"Phase 1 expects all rows ☐, but found ☑: {not_pending}"
+    flipped = sorted(item for item, _g, status in rows if "☑" in status)
+    assert flipped == ["L14"], (
+        f"Phase 0B expects exactly {{L14}} flipped to ☑, found: {flipped}"
+    )
 
 
 def test_guard_fails_on_known_present_pattern() -> None:
