@@ -25,8 +25,8 @@ Downstream agents MUST read `02-SPEC.md` before planning or implementing. Requir
 - Migrating all enumerated `self._*` run state off the singleton onto `ExecutionContext`, threaded through `execute()`
 - Making the kernel singleton stateless / immutable after construction (NFR-001)
 - An explicit parent-run ownership check at the seed/store boundary (L16) + a cross-owner denial test
-- Deleting the dead `_handle_revision` method (D1)
-- Flipping migration-ledger rows L14 and D1 to `☑` (grep ratchets enforced → 0) and recording the L16 denial test
+- ~~Deleting the dead `_handle_revision` method (D1)~~ — **VOIDED in execution (2026-06-07): `_handle_revision` is live (the frontend `run_revision` PPT-revision handler), not dead. D1/CTX-04 deferred pending a product decision on `run_revision`. See `02-02-SUMMARY.md`.**
+- Flipping migration-ledger row **L14** to `☑` (grep ratchet enforced → 0) and recording the L16 denial test **(D1 flip voided — live)**
 
 **Out of scope (from SPEC.md):**
 - Manifests/compiler/typed `ArtifactGraph` (Phase 4/5) — `accumulated_outputs` legacy mirror stays

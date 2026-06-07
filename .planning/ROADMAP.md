@@ -60,7 +60,7 @@ Plans:
 
   1. All `self._*` run state (`_od_context`/`_completed_tasks`/`_current_task_block`/`_revision_*`/`_gate_agent_ids`/`_user_id`/`_checkpointer`) lives on `ExecutionContext`; kernel has no per-run attributes (NFR-001); ledger L14 grep gate returns 0
   2. Cross-owner `parent_run` seeding is rejected by an explicit ownership check (L16 denial test passes)
-  3. Dead `_handle_revision` deleted (D1); deliverable snapshots byte-identical and event snapshots at semantic parity
+  3. ~~Dead `_handle_revision` deleted (D1)~~ **[VOIDED 2026-06-07 — `_handle_revision` is live (the `run_revision` PPT-revision handler); D1 deferred, see CTX-04]**; deliverable snapshots byte-identical and event snapshots at semantic parity
 
 **Plans**: 3 plans (3 waves — strangler chain, each wave leaves the 0A suite green)
 Plans:
@@ -70,7 +70,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 02-02-PLAN.md — Delete dead `_handle_revision` (D1) + flip migration-ledger rows L14 + D1 to ☑ (arm the grep ratchets) (CTX-04, CTX-05) [wave 2]
+- [x] 02-02-PLAN.md — **[RE-SCOPED 2026-06-07]** ~~Delete dead `_handle_revision` (D1)~~ (voided — live `run_revision` handler) + flip migration-ledger row **L14** to ☑ (arm the grep ratchet; fixed the ledger parser to handle alternation patterns); D1 deferred (CTX-05; CTX-04 deferred) [wave 2]
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -305,7 +305,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Safety Net + Deletion Guard [0A] | 4/4 | Complete   | 2026-06-06 |
-| 2. ExecutionContext + Ownership [0B] | 1/3 | In Progress|  |
+| 2. ExecutionContext + Ownership [0B] | 2/3 | In Progress|  |
 | 3. Token-Trim [0C] | 0/2 | Not started | - |
 | 4. Manifest + Compiler [1A] | 0/4 | Not started | - |
 | 5. Typed Artifacts + Persistence [1B] | 0/5 | Not started | - |

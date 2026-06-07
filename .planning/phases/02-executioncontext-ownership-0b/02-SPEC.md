@@ -35,10 +35,8 @@ Phase 1 [0A] already recorded green characterization snapshots (deliverable byte
    - Target: an explicit ownership check at the seed/store boundary rejects a `parent_run` owned by a different owner *before* any seeding occurs; the synthetic `anon:<session_id>` principal is a real owner for the check (never `None`)
    - Acceptance: a cross-owner denial test — seeding with a `parent_run_id` owned by a different `owner_id` is rejected (refused/raised, nothing seeded) — passes (L16 CHECK row)
 
-4. **Delete dead `_handle_revision` (CTX-04 / D1)**: The dead `_handle_revision` method is deleted.
-   - Current: `_handle_revision` exists at `engine.py:2138` (`:2138–2251`), superseded by inline revision handling, never reached
-   - Target: the method is removed entirely
-   - Acceptance: `grep -rn '_handle_revision' backend/` returns **0** (D1 ratchet)
+4. **Delete dead `_handle_revision` (CTX-04 / D1)** — **⚠ VOIDED during 0B execution (2026-06-07).** `_handle_revision` is **NOT dead**: it is the live handler for the frontend `run_revision` PPT-revision message (`DashboardLayout.tsx` → `app/api/websocket.py:625`), with a dedicated `backend/tests/unit/test_revision_intelligence.py` suite. The inline `prototype_revision` pipeline (which the 0A snapshots characterize) is a **separate** mechanism — the spec conflated them. Deleting the method would break PPT revision (a CTX-05 violation), so D1/CTX-04 is **deferred** pending a product decision on retiring `run_revision`. **Not delivered in 0B.** See `02-02-SUMMARY.md` + the migration-ledger ‡ note.
+   - Original intent (now known incorrect): method at `engine.py:2138`, "superseded by inline revision handling, never reached"; target = removed; acceptance = `grep -rn '_handle_revision' backend/` → 0. **All three premises are false/voided — the method is reached via `run_revision`.**
 
 5. **No behavior change (CTX-05 / INV-3)**: Deliverable snapshots stay byte-identical and event snapshots stay at semantic parity.
    - Current: Phase 0A characterization snapshots are green for prototype/od_prototype/prototype_revision/ppt/od_ppt/code-gen (deliverable byte-snapshots + semantic event snapshots + contiguous `seq`)
@@ -52,8 +50,8 @@ Phase 1 [0A] already recorded green characterization snapshots (deliverable byte
 - Migrating all enumerated `self._*` run state off the singleton onto `ExecutionContext`, threaded through `execute()`
 - Making the kernel singleton stateless / immutable after construction (NFR-001)
 - An explicit parent-run ownership check at the seed/store boundary (L16) + a cross-owner denial test
-- Deleting the dead `_handle_revision` method (D1)
-- Flipping migration-ledger rows L14 and D1 to `☑` (grep gates become enforced ratchets returning 0) and recording the L16 denial test
+- ~~Deleting the dead `_handle_revision` method (D1)~~ — **VOIDED: `_handle_revision` is live (the `run_revision` handler); D1 deferred (see Requirements §4)**
+- Flipping migration-ledger row **L14** to `☑` (its grep gate becomes an enforced ratchet returning 0) and recording the L16 denial test. **(D1 flip voided — the method is live.)**
 
 **Out of scope:**
 - Manifests, compiler, typed `ArtifactGraph`/`ArtifactRef` — Phase 4/5; this phase keeps the legacy `accumulated_outputs` mirror (it may ride on `ExecutionContext` as a field but is **not** replaced here)
@@ -81,10 +79,10 @@ Phase 1 [0A] already recorded green characterization snapshots (deliverable byte
 - [ ] L14 grep `self\._(od_context|completed_tasks|current_task_block|revision_|gate_agent_ids)` over `backend/` returns 0
 - [ ] Kernel singleton has no per-run attribute writes after construction (NFR-001/INV-2), including `_user_id`, `_checkpointer`, and `_parent_run_id` relocated to the context
 - [ ] Cross-owner `parent_run` seed is rejected by an explicit ownership check (L16 denial test passes)
-- [ ] grep `_handle_revision` over `backend/` returns 0 (D1)
+- [ ] ~~grep `_handle_revision` over `backend/` returns 0 (D1)~~ — **VOIDED: `_handle_revision` is live; D1 deferred**
 - [ ] Phase 0A deliverable byte-snapshots remain byte-identical
 - [ ] Phase 0A semantic event snapshots remain at parity; per-run `seq` contiguous
-- [ ] Migration-ledger rows L14 and D1 flipped to `☑` (grep ratchets green); L16 row recorded with its denial test
+- [ ] Migration-ledger row **L14** flipped to `☑` (grep ratchet green); **D1 voided/deferred (live)**; L16 row recorded with its denial test
 
 ## Ambiguity Report
 
