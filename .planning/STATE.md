@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-07T15:53:50.269Z"
-last_activity: 2026-06-07 -- Phase 04 planning complete
+last_updated: "2026-06-07T16:06:17.736Z"
+last_activity: 2026-06-07 -- Phase 04 execution started
 progress:
   total_phases: 12
   completed_phases: 3
-  total_plans: 9
-  completed_plans: 9
+  total_plans: 14
+  completed_plans: 10
   percent: 25
 ---
 
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-06)
 
 **Core value:** A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001).
-**Current focus:** Phase 03 — token-trim-measured-change-0c
+**Current focus:** Phase 04 — manifest-compiler-1a
 
 ## Current Position
 
-Phase: 4
-Plan: Not started
+Phase: 04 (manifest-compiler-1a) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-06-07 -- Phase 04 planning complete
+Last activity: 2026-06-07 -- Phase 04 execution started
 
 Progress: [██████████] 100% (7/7 plans complete)
 
@@ -59,6 +59,7 @@ Progress: [██████████] 100% (7/7 plans complete)
 | Phase 02 P02-03 | ~12 min | 2 tasks | 5 files |
 | Phase 03 P01 | 25min | 2 tasks | 2 files |
 | Phase 03 P02 | ~20min | 3 tasks | 2 files |
+| Phase 04 P01 | 4min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,7 @@ Recent decisions affecting current work:
 - [Phase ?]: L16 ownership: pure assert_owns (authz.py) raises PermissionError above the seed graceful-degrade try (D-07); by-convention _derive_parent_owner, Phase 5 relocates
 - [Phase ?]: 03-01: build-task-2+ context compaction wired (_extract_html_skeleton on the is_build_task_2_plus branch); offline >=50% gate measures 96.9% reduction; L13 stays ☐ (Phase 7 deletes).
 - [Phase ?]: 03-02: parity reference derived from committed golden; validation parity = zero net-new failure events + clean pipeline_complete; golden re-baseline confirmed no-op (scripted fixed-HTML); live token-delta is opt-in evidence (D-04)
+- [Phase ?]: 04-01: CapabilityRegistry keyed by (kind,name) registers 14 names only (D-07); is_registered pure set-membership; resolve_alias lifts agents.registry._OD_ALIAS_BASE single source (MAN-05); base.py = 6 typing.Protocol ports, plan-domain types typed Any to avoid inbound dep on 04-02 plan.py
 
 ### Pending Todos
 
