@@ -47,6 +47,42 @@ class CompilerError(Exception):
     """
 
 
+# ---------------------------------------------------------------------------
+# Strict step-level key allow-list (D-08 / INV-5)
+# ---------------------------------------------------------------------------
+
+# EXACTLY the keys a step dict may declare. Mirrors the top-level
+# ``_ALLOWED_TOP_KEYS`` strict-key rejection (manifest.py): the no-DSL guarantee
+# must hold at EVERY level, not just the top (D-08). A control-flow / DSL field
+# (``when:`` / ``if:`` / ``for:`` / ``${...}`` …) at step level has nowhere to
+# live and is rejected by name. The first six keys are the ones authored across
+# the 15 in-repo workflow.yaml manifests today; the remainder is the inert
+# forward surface (declared now, consumed Phase 6/7).
+_ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
+    {
+        # consumed in Phase 4 (authored in the 15 manifests)
+        "agent",
+        "strategy",
+        "gates",
+        "validators",
+        "compaction",
+        "task_source",
+        # forward surface (inert in Phase 4 — declared now, consumed Phase 6/7)
+        "tools",
+        "model",
+        "fix",
+        "fanout",
+        "on_conflict",
+        "retry",
+        "injects",
+        "depends_on",
+    }
+)
+
+# EXACTLY the keys a task_source dict may declare (D-08 at the nested level).
+_ALLOWED_TASK_SOURCE_KEYS: frozenset[str] = frozenset({"kind", "parser", "target"})
+
+
 class WorkflowCompiler:
     """Thin, no-DSL manifest → ``CompiledWorkflow`` transform (MAN-02).
 
@@ -106,6 +142,16 @@ class WorkflowCompiler:
             )
         where = f"step '{agent_id}'"
 
+        # Strict step-level key rejection (D-08 / INV-5): a DSL/control-flow
+        # field at step level has nowhere to live. Name the offending key(s).
+        extra = set(raw) - _ALLOWED_STEP_KEYS
+        if extra:
+            raise CompilerError(
+                f"unknown step key(s) {sorted(extra)} in {where} — manifests "
+                f"are pure data; a control-flow/DSL field has nowhere to live "
+                f"(INV-5)"
+            )
+
         strategy = raw.get("strategy", "single_shot")
         if not registry.is_registered("strategy", strategy):
             raise CompilerError(f"unknown strategy '{strategy}' in {where}")
@@ -127,6 +173,13 @@ class WorkflowCompiler:
         task_source = None
         raw_ts = raw.get("task_source")
         if raw_ts is not None:
+            extra_ts = set(raw_ts) - _ALLOWED_TASK_SOURCE_KEYS
+            if extra_ts:
+                raise CompilerError(
+                    f"unknown task_source key(s) {sorted(extra_ts)} in {where} "
+                    f"— manifests are pure data; a control-flow/DSL field has "
+                    f"nowhere to live (INV-5)"
+                )
             parser = raw_ts.get("parser")
             if parser is not None and not registry.is_registered("task_parser", parser):
                 raise CompilerError(f"unknown task_parser '{parser}' in {where}")

@@ -173,6 +173,41 @@ steps:
         )
 
 
+def test_rejects_step_level_dsl_key() -> None:
+    # The strict-key guard must hold at EVERY level, not just the top (D-08).
+    # A control-flow/DSL field smuggled into a step dict has nowhere to live —
+    # the compiler rejects it NAMING the offending key (INV-5).
+    with pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(
+            _manifest(
+                steps=[{"agent": "a", "strategy": "single_shot", "when": "cond"}]
+            ),
+            CapabilityRegistry(),
+        )
+    assert "when" in str(exc.value)
+
+
+def test_rejects_task_source_level_dsl_key() -> None:
+    # The nested task_source dict is also pure data — an unknown key is rejected.
+    with pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(
+            _manifest(
+                steps=[
+                    {
+                        "agent": "a",
+                        "task_source": {
+                            "kind": "parsed",
+                            "parser": "heading_tasks",
+                            "if": "cond",
+                        },
+                    }
+                ]
+            ),
+            CapabilityRegistry(),
+        )
+    assert "if" in str(exc.value)
+
+
 # ---------------------------------------------------------------------------
 # Structure test — no workflow-name branch, no eval (INV-1)
 # ---------------------------------------------------------------------------
