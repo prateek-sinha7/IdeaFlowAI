@@ -119,7 +119,7 @@ Plans:
 **Wave 1**
 
 - [x] 04-01-PLAN.md — Capability ports (`base.py`) + name registry (`registry.py`, 14 names) + id-alias resolver [MAN-03]
-- [ ] 04-02-PLAN.md — `plan.py` (CompiledWorkflow/Step/Task §6 contract) + `manifest.py` loader/validator [MAN-01]
+- [x] 04-02-PLAN.md — `plan.py` (CompiledWorkflow/Step/Task §6 contract) + `manifest.py` loader/validator [MAN-01]
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -317,7 +317,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 1. Safety Net + Deletion Guard [0A] | 4/4 | Complete   | 2026-06-06 |
 | 2. ExecutionContext + Ownership [0B] | 3/3 | Complete    | 2026-06-07 |
 | 3. Token-Trim [0C] | 2/2 | Complete    | 2026-06-07 |
-| 4. Manifest + Compiler [1A] | 1/5 | In Progress|  |
+| 4. Manifest + Compiler [1A] | 2/5 | In Progress|  |
 | 5. Typed Artifacts + Persistence [1B] | 0/5 | Not started | - |
 | 6. Model Policy [1C] | 0/3 | Not started | - |
 | 7. Prototype as Manifest (Parity Proof) [2] | 0/5 | Not started | - |
