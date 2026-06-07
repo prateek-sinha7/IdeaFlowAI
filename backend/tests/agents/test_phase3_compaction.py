@@ -277,3 +277,45 @@ def test_revert_engine_edit_would_fail_skeleton_gate() -> None:
     assert ("--- CURRENT HTML (modify this" in msg1) and (
         "--- CURRENT HTML (modify this" not in msg2
     ), "task-1 and task-2 HTML injection paths must diverge (skeleton wiring live)"
+
+
+def test_extract_html_skeleton_is_faithful_to_source() -> None:
+    """Skeleton fidelity (non-vacuous offline coverage of the change's core premise).
+
+    The offline parity test (test_phase3_parity.py) drives the SCRIPTED model, whose
+    fixed single-section output is independent of the injected context — so it cannot
+    detect a skeleton that drops, renames, or garbles a page (code-review WR-04). The
+    whole phase rests on the premise that the ~1-3k char skeleton faithfully reflects
+    the prior HTML; this test exercises `_extract_html_skeleton` DIRECTLY on the
+    multi-page fixture and asserts every `data-page` ID, the routes map, and the
+    `:root` tokens survive into the state-map. A regression that corrupts the skeleton
+    fails HERE rather than silently shipping behind the vacuous scripted parity run.
+
+    Fixture note: `_MULTI_PAGE_HTML` carries a closing `</body>`, so this does not
+    exercise (or depend on) the pre-existing no-`</body>` edge in the helper's section
+    regex (WR-02) — that robustness item is tracked for the Phase 7 CompactionStrategy
+    re-expression, where the helper logic is owned. Here we pin the normal-case
+    contract the wiring depends on.
+    """
+    skeleton = ExecutionEngine()._extract_html_skeleton(_MULTI_PAGE_HTML)
+
+    # Every data-page section in the fixture (both filled) must be named — no section
+    # silently dropped on the path that is now the agent's only structural view.
+    built_line = next(
+        (ln for ln in skeleton.splitlines() if ln.startswith("Pages already built")),
+        "",
+    )
+    assert built_line, "skeleton must report the filled sections via a 'Pages already built' line"
+    assert "dashboard" in built_line and "settings" in built_line, (
+        f"both data-page ids must appear in the built-pages line, got: {built_line!r}"
+    )
+
+    # Routes map and :root design tokens are carried into the skeleton.
+    assert "Routes map" in skeleton, "skeleton must carry the routes map"
+    assert ":root tokens" in skeleton, "skeleton must carry the :root design tokens"
+
+    # The skeleton is a COMPACTION — materially smaller than the source HTML it summarizes.
+    assert len(skeleton) < 0.5 * len(_MULTI_PAGE_HTML), (
+        f"skeleton ({len(skeleton)} chars) must be far smaller than the source "
+        f"HTML ({len(_MULTI_PAGE_HTML)} chars) it summarizes"
+    )

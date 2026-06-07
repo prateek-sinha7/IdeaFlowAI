@@ -166,7 +166,12 @@ async def _drive_live(*, compaction_on: bool) -> list[dict]:
         # ── compaction OFF: restore the pre-0C full-HTML injection ──────────────
         _orig_build_ctx = engine._build_context_message
         if not compaction_on:
-            def _full_html_build_ctx(*, spec, ordered_agents, user_message,
+            # NOTE: the engine calls `self._build_context_message(...)` POSITIONALLY
+            # (engine.py:1174). This override is assigned as an instance attribute (an
+            # unbound plain function), so it must accept the same POSITIONAL shape — a
+            # keyword-only signature here raises `TypeError: takes 0 positional
+            # arguments but 6 were given` on the first (baseline) call. (#WR-01)
+            def _full_html_build_ctx(spec, ordered_agents, user_message,
                                      accumulated_outputs, planning_context, ectx):
                 msg = _orig_build_ctx(
                     spec=spec, ordered_agents=ordered_agents,
