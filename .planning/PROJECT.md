@@ -40,7 +40,7 @@ It is for the engineers building and operating Flowin's agent workflows — and,
 - [ ] Deliverable resolver registry (`single_file`, `serialized_sandbox`, `streamed_text`, `repo_diff`, `ppt`)
 - [ ] Context provider registry (`opendesign`, `repo`, `previous_run`, `uploaded_files`, `memory`) + declared seed files
 - [ ] Manifest `planner` / `clarify` config + per-agent injects
-- [ ] Context compaction strategy (wire the dead `_extract_html_skeleton` as `html_skeleton`)
+- [~] Context compaction: inline `_extract_html_skeleton` wired as build-task-2+ compaction — **Phase 3 / 0C complete** (COMPACT-01/02/03 ✓: ≥50% deterministic gate + semantic parity, INV-3 sanctioned change); registration as the `html_skeleton` `CompactionStrategy` capability remains (Phase 7 / PARITY-04, L13 still ☐)
 - [ ] Gate registry: `human` / `validation` / `approval` / `security` (INV-9 ties)
 - [ ] Step-level least-privilege tool permissions; exec/network/secrets/spawn default OFF (INV-9)
 - [ ] Typed artifacts + lineage: `ArtifactGraph`/`ArtifactRef`, content-addressed, owner-scoped (INV-10)
@@ -83,6 +83,7 @@ It is for the engineers building and operating Flowin's agent workflows — and,
 - **Branch:** `feature/003-workflow-engine-decoupling` (off `deepagents-full-swap`). Repo is GitLab (`hexaware-uki/flowin`) → GitLab likely required for git hosting (N4).
 - **Migration approach:** strangler/incremental (Q39) — introduce abstractions behind existing behavior, migrate prototype to declarations, delete hardcoded leaks while prototype keeps working throughout.
 - **Full specification:** `specs/003-workflow-engine-decoupling/plan.md` (the authoritative source; nothing in it may be dropped).
+- **Current state (2026-06-07):** Phases 0–2 + **Phase 3 (Token-Trim, 0C) complete** — the one sanctioned INV-3 non-byte-identical change is live: build-task-2+ `prototype`/`od_prototype` prompts inject the compact `_extract_html_skeleton` state-map instead of the full current HTML (96.9% measured reduction on a 2-page fixture), with the semantic event snapshots held green and deliverable goldens unchanged. Next: **Phase 4 — Manifest + Compiler (1A)**.
 
 ## Constraints
 
@@ -135,4 +136,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-06 after initialization*
+*Last updated: 2026-06-07 after Phase 3 (Token-Trim, 0C) completion*
