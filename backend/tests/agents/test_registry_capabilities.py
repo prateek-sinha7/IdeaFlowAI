@@ -12,8 +12,18 @@ No capability implementations are asserted here — Phase 4 registers NAMES only
 
 from __future__ import annotations
 
+import typing
+
 import pytest
 
+from agents.capabilities.base import (
+    ContextProvider,
+    DeliverableResolver,
+    ExecutionStrategy,
+    GateHandler,
+    TaskParser,
+    Validator,
+)
 from agents.capabilities.registry import CapabilityRegistry, _KNOWN
 
 # The authoritative 14 (kind, name) pairs per D-07 / 04-RESEARCH §D-07.
@@ -73,3 +83,35 @@ def test_resolve_alias_is_identity_for_real_keys(
     assert registry.resolve_alias("ppt") == "ppt"
     assert registry.resolve_alias("od_ppt") == "od_ppt"
     assert registry.resolve_alias("custom") == "custom"
+
+
+# --- capability ports (base.py) -------------------------------------------
+
+_PORTS = [
+    ExecutionStrategy,
+    Validator,
+    DeliverableResolver,
+    ContextProvider,
+    GateHandler,
+    TaskParser,
+]
+
+
+@pytest.mark.parametrize("port", _PORTS)
+def test_port_is_a_protocol(port: type) -> None:
+    # Every capability port is a typing.Protocol (hexagonal boundary, §6/§32).
+    assert issubclass(port, typing.Protocol)  # type: ignore[arg-type]
+    assert getattr(port, "_is_protocol", False) is True
+
+
+def test_all_six_ports_importable() -> None:
+    # Guard against drift in the exported port surface.
+    names = {p.__name__ for p in _PORTS}
+    assert names == {
+        "ExecutionStrategy",
+        "Validator",
+        "DeliverableResolver",
+        "ContextProvider",
+        "GateHandler",
+        "TaskParser",
+    }

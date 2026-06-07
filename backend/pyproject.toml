@@ -188,4 +188,8 @@ ignore_names = [
     "explicit_constraints",
     "implicit_constraints",
     "missing_information",
+    # Capability Protocol-port method parameter (agents/capabilities/base.py):
+    # interface-only signatures (no bodies — impls are Phase 7), so the params
+    # are "unused" only to static analysis. The signature IS the port contract.
+    "step",
 ]
