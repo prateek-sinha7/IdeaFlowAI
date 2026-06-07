@@ -161,8 +161,8 @@
 - [x] **API-01**: `GET /api/workflows` → list + metadata; `GET /api/workflows/{id}` → full step configs, gates, validators, deliverable, declared capabilities (§22)
 - [ ] **API-02**: `GET /api/capabilities` → registry palette (kind, name, `user_allowed`, config schema) incl. runtimes, skills, hooks, MCP servers, integrations, model catalog — with required auth + permission scopes (§22/§7/§30)
 - [ ] **API-03**: Run stream (WS/ndjson) emits existing events + new (`subagent_*`, `wave_*`, `validator_result`, `validation_warning`, `merge_*`, `budget_warning`, `gate_*`); existing-workflow contract stays at semantic parity (Q43/INV-3)
-- [ ] **API-04**: `GET /api/runs/{id}/artifacts` → typed artifact tree (lineage); `GET /api/runs/{id}/diff` → repo diff (§22)
-- [ ] **API-05**: `GET /api/runs/{id}/events?after=<seq>` → durable event replay (monotonic seq + event_id) for reconnect/resume (§22/§21)
+- [x] **API-04**: `GET /api/runs/{id}/artifacts` → typed artifact tree (lineage); `GET /api/runs/{id}/diff` → repo diff (§22)
+- [x] **API-05**: `GET /api/runs/{id}/events?after=<seq>` → durable event replay (monotonic seq + event_id) for reconnect/resume (§22/§21)
 - [ ] **API-06**: Dynamic composer + capability palette + per-agent model picker; validator/issue panel; subagent + wave tree; artifact/diff viewer (reuse app-builder `FilesTab`/`AppBuilderPreview`) — additive panels (§22)
 
 ### Budgets & Observability (cross-cutting, §23)

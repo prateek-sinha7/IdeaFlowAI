@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-07T22:56:45.142Z"
-last_activity: 2026-06-07 -- Phase 05 execution started
+last_updated: "2026-06-07T23:06:52.500Z"
+last_activity: 2026-06-08 -- Completed 05-04-PLAN.md (Task 3 reconciled + committed); INV-3 parity GREEN
 progress:
   total_phases: 12
   completed_phases: 4
   total_plans: 20
-  completed_plans: 18
+  completed_plans: 19
   percent: 33
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 ## Current Position
 
 Phase: 05 (Typed Artifacts + Persistence + Ownership [1B]) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Ready to execute
 Last activity: 2026-06-08 -- Completed 05-04-PLAN.md (Task 3 reconciled + committed); INV-3 parity GREEN
 
@@ -69,6 +69,7 @@ Progress: [██████░░░░] 67% (4/6 plans complete)
 | Phase 05 P02 | 7min | 2 tasks | 9 files |
 | Phase 05 P03 | 3min | 2 tasks | 3 files |
 | Phase 05 P04 | 35min | 3 tasks | 6 files |
+| Phase 05 P05 | 7min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 05-03: relocated assert_owns into the single default-deny ScopedStore helper (agents/authz.py); reads filter owner+visibility (ArtifactRef) / owner+workspace (run/ws/event/caps); assert_owns is a real parent-owner store lookup; old execution_engine/authz.py deleted (INV-12); engine call-site rewiring deferred to 05-04 (vetted intra-phase gap)
 - [Phase ?]: 05-04: Typed substrate dual-written alongside the live accumulated_outputs mirror (strangler); engine reads migrated typed-first; mirror deletion deferred to 05-06 (INV-3).
 - [Phase ?]: 05-04: Disk principal (user_id or 'anon') decoupled from DB owner (anon:<session_id>) to keep RunSandbox paths byte-identical (CTX-05); single seq/event_id sink at execute() emit boundary, stripped from the 0A characterization multiset.
+- [Phase ?]: 05-05: owner-scoped /artifacts (lineage tree) + /events (seq>after replay) route through the single ScopedStore; cross-owner -> 404
 
 ### Pending Todos
 
