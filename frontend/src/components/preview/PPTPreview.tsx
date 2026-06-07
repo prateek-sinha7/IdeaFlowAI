@@ -57,7 +57,7 @@ export function PPTPreview({ content, isStreaming, pptxCode, onRevise, pipelineT
       // Find matching workflow for Agent 3 code
       let workflowId = "";
       try {
-        const res = await fetch(`${ENV.API_URL}/api/workflows?type=ppt&limit=20`, {
+        const res = await fetch(`${ENV.API_URL}/api/runs?type=ppt&limit=20`, {
           headers: { "Authorization": `Bearer ${token}` },
         });
         if (res.ok) {
@@ -71,7 +71,7 @@ export function PPTPreview({ content, isStreaming, pptxCode, onRevise, pipelineT
         }
       } catch {}
 
-      const response = await fetch(`${ENV.API_URL}/api/workflows/export-pptx`, {
+      const response = await fetch(`${ENV.API_URL}/api/runs/export-pptx`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({

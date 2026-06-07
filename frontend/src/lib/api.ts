@@ -303,7 +303,7 @@ export async function getWorkflows(
   token: string,
   options?: { type?: WorkflowType; limit?: number }
 ): Promise<WorkflowRun[]> {
-  let path = "/api/workflows";
+  let path = "/api/runs";
   const params = new URLSearchParams();
   if (options?.type) params.set("type", options.type);
   if (options?.limit) params.set("limit", String(options.limit));
@@ -321,7 +321,7 @@ export async function getWorkflow(
   token: string,
   workflowId: string
 ): Promise<WorkflowRun> {
-  const raw = await request<RawWorkflowRun>(`/api/workflows/${workflowId}`, {
+  const raw = await request<RawWorkflowRun>(`/api/runs/${workflowId}`, {
     method: "GET",
     headers: authHeaders(token),
   });
@@ -345,7 +345,7 @@ export async function getChainContext(
   token: string,
   workflowId: string
 ): Promise<ChainContext> {
-  return request<ChainContext>(`/api/workflows/${workflowId}/chain-context`, {
+  return request<ChainContext>(`/api/runs/${workflowId}/chain-context`, {
     method: "GET",
     headers: authHeaders(token),
   });
@@ -355,7 +355,7 @@ export async function deleteWorkflow(
   token: string,
   workflowId: string
 ): Promise<void> {
-  const url = `${BASE_URL}/api/workflows/${workflowId}`;
+  const url = `${BASE_URL}/api/runs/${workflowId}`;
   const response = await fetch(url, {
     method: "DELETE",
     headers: authHeaders(token),

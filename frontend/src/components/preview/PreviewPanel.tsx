@@ -377,7 +377,7 @@ function PPTTabActions({
       }
       let workflowId = "";
       try {
-        const res = await fetch(`${ENV.API_URL}/api/workflows?type=ppt&limit=5`, {
+        const res = await fetch(`${ENV.API_URL}/api/runs?type=ppt&limit=5`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (res.ok) {
@@ -385,7 +385,7 @@ function PPTTabActions({
           if (runs.length > 0) workflowId = runs[0].id;
         }
       } catch { /* ignore */ }
-      const response = await fetch(`${ENV.API_URL}/api/workflows/export-pptx`, {
+      const response = await fetch(`${ENV.API_URL}/api/runs/export-pptx`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ js_code: pptxCode || "", html: content || "", workflow_id: workflowId, title: pptTitle }),
