@@ -20,10 +20,12 @@ DB-backed artifacts, lineage, revision intelligence, restart resumability.
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 import logging
 import re
 import time
+import uuid
 from typing import AsyncGenerator
 
 from pathlib import Path
@@ -78,6 +80,53 @@ def _log_event(
         entry["error"] = error
     entry.update(extra)
     logger.info("LIFECYCLE %s", _json.dumps(entry))
+
+
+# ---------------------------------------------------------------------------
+# Durable run_events sink (PERSIST-03 / D-11)
+# ---------------------------------------------------------------------------
+
+
+class _RunEventSink:
+    """Per-run holder that persists stamped events to ``run_events`` (PERSIST-03).
+
+    Created by the public ``execute()`` wrapper and ARMED by ``_execute_impl`` once
+    the per-run ``ScopedStore`` + run id are known (after owner/workspace wiring).
+    Until armed, ``persist`` is a no-op (events emitted before the entry wiring —
+    none today — would simply not be persisted rather than error).
+
+    ``persist`` is BEST-EFFORT: a DB / FK failure (e.g. the offline characterization
+    harness has no ``workflow_runs`` row) is swallowed with a debug log so the live
+    event stream and the deterministic deliverable are NEVER perturbed (INV-3). The
+    ``seq``/``event_id`` are stamped on the event dict regardless (stripped from the
+    0A multiset), so parity holds whether or not the row lands.
+    """
+
+    def __init__(self) -> None:
+        self._store: ScopedStore | None = None
+        self._run_id: str | None = None
+
+    def arm(self, store: ScopedStore, run_id: str) -> None:
+        self._store = store
+        self._run_id = run_id
+
+    async def persist(
+        self, seq: int, event_id: str, type: str, payload_json: dict
+    ) -> None:
+        """Append one ``run_events`` row for the stamped event (best-effort)."""
+        if self._store is None or self._run_id is None:
+            return
+        try:
+            await self._store.append_event(
+                self._run_id, seq, event_id, type, payload_json
+            )
+        except Exception as exc:  # noqa: BLE001 — never break the live stream
+            logger.debug(
+                "run_events persist failed for run %s seq %d (%s) — "
+                "stream unaffected (PERSIST-03 best-effort)",
+                self._run_id, seq, exc,
+            )
+
 
 PLANNER_TIMEOUT_SECONDS = 120.0  # SmartPlanner: single call (generous — large chained prompts run slower). On timeout it defaults to PROCEED, so it never discards agent work.
 PLANNER_AGENT_ID = "deep-planner"
@@ -488,6 +537,78 @@ class ExecutionEngine:
         gate_agent_ids: list[str] | None = None,
         parent_run_id: str | None = None,
     ) -> AsyncGenerator[dict, None]:
+        """Public entry — the SINGLE outward emit boundary (PERSIST-03 / D-11).
+
+        This thin wrapper is the ONE chokepoint every engine event passes through
+        before reaching the caller (websocket.py's queue drainer). It runs the real
+        pipeline body (``_execute_impl``) and, for EACH yielded event, stamps a
+        monotonic per-run ``seq`` (1,2,3,… — contiguous deltas==1, SAFE-03) plus a
+        unique ``event_id`` (uuid — idempotent replay) onto ``event["data"]``, then
+        persists one ``run_events`` row via the per-run scoped store before yielding
+        the now-stamped event outward.
+
+        ONE counter, ONE place (RESEARCH #4): there is NO second counter and NOTHING
+        is stamped in ``ndjson_adapter`` (not the chokepoint). The persist is
+        best-effort — the offline characterization harness has no ``workflow_runs``
+        row (the ``run_events`` FK target), so a DB failure DEGRADES (logs a warning)
+        and NEVER perturbs the deliverable bytes or the event multiset (INV-3). The
+        ``seq``/``event_id`` keys are stripped from the 0A characterization multiset
+        (``_VOLATILE_STRIP_KEYS``) so semantic-event parity holds.
+
+        ``_execute_impl`` shares its per-run scoped store + run id with this wrapper
+        via the ``_sink`` holder once ``owner_id``/``workspace_id`` are known.
+        """
+        sink = _RunEventSink()
+        counter = itertools.count(1)
+        async for event in self._execute_impl(
+            agents=agents,
+            user_message=user_message,
+            pipeline_run_id=pipeline_run_id,
+            pipeline_type=pipeline_type,
+            cancel_event=cancel_event,
+            user_id=user_id,
+            session_id=session_id,
+            attached_skills=attached_skills,
+            attached_hooks=attached_hooks,
+            model_id=model_id,
+            od_context=od_context,
+            gate_agent_ids=gate_agent_ids,
+            parent_run_id=parent_run_id,
+            _sink=sink,
+        ):
+            # Stamp exactly once, at the boundary, so seq is contiguous across the
+            # nondeterministically-interleaved build loop. Events always carry a
+            # "data" dict in this engine; guard defensively anyway.
+            data = event.get("data")
+            if not isinstance(data, dict):
+                data = {}
+                event["data"] = data
+            seq = next(counter)
+            event_id = str(uuid.uuid4())
+            data["seq"] = seq
+            data["event_id"] = event_id
+            # Durable sink (best-effort — see docstring). Persist the now-stamped
+            # event; a DB/FK failure must not break the live stream.
+            await sink.persist(seq, event_id, event.get("type", ""), data)
+            yield event
+
+    async def _execute_impl(
+        self,
+        agents: list,
+        user_message: str,
+        pipeline_run_id: str,
+        pipeline_type: str = "custom",
+        cancel_event: asyncio.Event | None = None,
+        user_id: str | None = None,
+        session_id: str | None = None,
+        attached_skills: list[dict] | None = None,
+        attached_hooks: list[dict] | None = None,
+        model_id: str | None = None,
+        od_context: dict | None = None,
+        gate_agent_ids: list[str] | None = None,
+        parent_run_id: str | None = None,
+        _sink: "_RunEventSink | None" = None,
+    ) -> AsyncGenerator[dict, None]:
         """Execute a workflow end-to-end, yielding WebSocket events.
 
         Args:
@@ -610,9 +731,15 @@ class ExecutionEngine:
                 "(typed-substrate DB writes degrade; deliverable/events unaffected)",
                 _scope_exc,
             )
-        # Thread the scoped store onto the context so the seq sink (Task 2) and the typed
-        # dual-write (Task 3) reuse the SAME owner+workspace-scoped helper.
+        # Thread the scoped store onto the context so the seq sink and the typed
+        # dual-write reuse the SAME owner+workspace-scoped helper.
         ectx.scoped_store = scoped_store
+        # Arm the durable run_events sink (PERSIST-03): hand the public execute()
+        # wrapper this run's scoped store + run id so it can persist every stamped
+        # event. Done HERE (not in the wrapper) because owner_id/workspace_id are only
+        # known after the entry wiring above.
+        if _sink is not None:
+            _sink.arm(scoped_store, pipeline_run_id)
 
         # ── Durable graph state: acquire the LangGraph checkpointer once per run ──
         # get_checkpointer() is a process-wide CACHED SINGLETON (see

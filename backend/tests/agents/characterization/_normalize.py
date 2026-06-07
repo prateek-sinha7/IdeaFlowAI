@@ -108,6 +108,18 @@ _VOLATILE_STRIP_KEYS = frozenset(
         "model_id",
         "context_message",
         "context_sources",
+        # ── Per-run durable-log stamps (05-04 seq sink) ──────────────────────
+        # The engine now stamps a monotonic per-run ``seq`` + a uuid ``event_id``
+        # on every event at the single execute() emit boundary (PERSIST-03). Both
+        # are run-specific and NOT in _REQUIRED_DATA_KEYS, so they are STRIPPED
+        # from the canonical-JSON multiset — otherwise every event would carry a
+        # unique event_id and a position-dependent seq, perturbing the multiset
+        # and breaking 0A semantic-event parity. Emission ORDER (the seq DELTAS==1
+        # contract) is still enforced separately by assert_seq_contiguous(), which
+        # reads ``seq`` from the RAW (un-normalized) events — so stripping here
+        # does not weaken the contiguity check.
+        "seq",
+        "event_id",
     }
 )
 
