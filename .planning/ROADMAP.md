@@ -14,7 +14,7 @@ The plan sub-phases (0A/0B/0C, 1A/1B/1C, 4A/4B) are mapped to sequential GSD pha
 
 - [x] **Phase 1: Safety Net + Deletion Guard [0A]** - Characterization snapshots + ledger/import-linter/banned-pattern CI gates; no behavior change (completed 2026-06-06)
 - [x] **Phase 2: ExecutionContext + Ownership [0B]** - Lift all `self._*` run state into a per-run `ExecutionContext`; explicit parent-run ownership check; no behavior change (completed 2026-06-07)
-- [ ] **Phase 3: Token-Trim (measured change) [0C]** - Wire the dead `_extract_html_skeleton` as build compaction; gated on semantic snapshot + measured token delta
+- [x] **Phase 3: Token-Trim (measured change) [0C]** - Wire the dead `_extract_html_skeleton` as build compaction; gated on semantic snapshot + measured token delta (completed 2026-06-07)
 - [ ] **Phase 4: Manifest + Compiler [1A]** - File-backed manifests → thin compiler → typed `CompiledWorkflow`; pipelines run from compiled plans
 - [ ] **Phase 5: Typed Artifacts + Persistence + Ownership [1B]** - `ArtifactGraph`/`ArtifactRef` + schema (§18); dual-write then delete the legacy mirror; authz denial tests
 - [ ] **Phase 6: Model Policy [1C]** - `ModelResolver` (resolution order + fallback + cost_class) + `ModelCatalog` + per-agent overrides
@@ -100,7 +100,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 03-02-PLAN.md — Re-baseline prototype/od_prototype deliverable goldens (hold semantic snapshots) + pages/routes + equal-or-better-validation parity assertion + opt-in live token-delta evidence → SUMMARY (COMPACT-02, COMPACT-03) [wave 2]
+- [x] 03-02-PLAN.md — Re-baseline prototype/od_prototype deliverable goldens (hold semantic snapshots) + pages/routes + equal-or-better-validation parity assertion + opt-in live token-delta evidence → SUMMARY (COMPACT-02, COMPACT-03) [wave 2]
 
 ### Phase 4: Manifest + Compiler [1A]
 
@@ -309,7 +309,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 |-------|----------------|--------|-----------|
 | 1. Safety Net + Deletion Guard [0A] | 4/4 | Complete   | 2026-06-06 |
 | 2. ExecutionContext + Ownership [0B] | 3/3 | Complete    | 2026-06-07 |
-| 3. Token-Trim [0C] | 1/2 | In Progress|  |
+| 3. Token-Trim [0C] | 2/2 | Complete   | 2026-06-07 |
 | 4. Manifest + Compiler [1A] | 0/4 | Not started | - |
 | 5. Typed Artifacts + Persistence [1B] | 0/5 | Not started | - |
 | 6. Model Policy [1C] | 0/3 | Not started | - |
