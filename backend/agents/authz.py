@@ -365,6 +365,13 @@ class ScopedStore:
         (AUTHZ-03 fail-loud, never by widening nullability). The lookup is
         UNSCOPED-by-owner (the row may still carry a None owner/workspace at this
         point), but the write only ever STAMPS the caller-supplied real principal.
+
+        IN-02: because the lookup is unscoped-by-owner, a future/misused caller could
+        re-scope a row that already belongs to a DIFFERENT owner, silently clobbering
+        it. Defend the seam: only stamp when the row's existing ``owner_id`` is None
+        (never scoped) or already equals the supplied owner; a mismatch is a misuse
+        and FAILS LOUD with ``PermissionError`` rather than performing a cross-owner
+        overwrite.
         """
         if not owner_id or not workspace_id:
             raise ValueError(
@@ -385,6 +392,16 @@ class ScopedStore:
                 # Offline harness / no FK row — nothing to stamp. The caller's
                 # best-effort wrapper degrades the same way append_event does.
                 return None
+            # IN-02: same-owner sanity guard. Stamping is only legal onto an
+            # unscoped row (owner None) or a row already owned by this principal.
+            # A cross-owner stamp is a contract violation — fail loud, never clobber.
+            existing_owner = getattr(row, "owner_id", None)
+            if existing_owner is not None and existing_owner != owner_id:
+                raise PermissionError(
+                    "set_run_scope refused: workflow_runs row "
+                    f"{run_id!r} is already owned by a different principal "
+                    "(cross-owner re-scope is not permitted, AUTHZ-03)"
+                )
             row.owner_id = owner_id
             row.workspace_id = workspace_id
             session.commit()
