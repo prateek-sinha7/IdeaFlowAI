@@ -176,6 +176,50 @@ class TestLoadAgentSpecDescription:
 
 
 # ---------------------------------------------------------------------------
+# Optional `model` field (D-09; tier-3 agent-default for the resolver, MODEL-01)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadAgentSpecModel:
+    """The optional `model` frontmatter field (str | None, fully additive).
+
+    The loader enforces a type guard only (string-or-null → else AgentSpecError);
+    catalog-membership validation of an AGENT.md `model` is deferred to RESOLVE
+    time in the resolver (06-03), so the loader gains no catalog import.
+    """
+
+    def test_model_field_parses(self, tmp_agent_dir):
+        """An explicit `model:` frontmatter value is parsed verbatim onto spec.model."""
+        model_id = "eu.anthropic.claude-sonnet-4-6"
+        _write_agent(
+            tmp_agent_dir,
+            "model-agent",
+            extra_fields={"model": model_id},
+        )
+        spec = load_agent_spec("model-agent")
+        assert spec.model == model_id
+
+    def test_model_absent_is_none(self, tmp_agent_dir):
+        """No `model:` key at all → spec.model is None (fully additive default)."""
+        _write_agent(tmp_agent_dir, "no-model-agent")
+        spec = load_agent_spec("no-model-agent")
+        assert spec.model is None
+
+    def test_model_invalid_type_raises(self, tmp_agent_dir):
+        """A non-string, non-null `model` (e.g. an int) raises AgentSpecError."""
+        content = make_agent_md(id="bad-model")
+        content = content.replace(
+            "estimated_duration: 3.0",
+            "estimated_duration: 3.0\nmodel: 123",
+        )
+        create_agent_file(tmp_agent_dir, "bad-model", content)
+
+        with pytest.raises(AgentSpecError) as exc_info:
+            load_agent_spec("bad-model")
+        assert "model" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
 # Caching
 # ---------------------------------------------------------------------------
 
