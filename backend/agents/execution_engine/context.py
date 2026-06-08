@@ -93,6 +93,19 @@ class ExecutionContext:
     # resolver's tier-1 (user override) and is persisted to ``run_capabilities`` (06-04). Empty
     # dict here ⇒ tier 1 never fires ⇒ the parity default holds (INV-3).
     model_overrides: dict = field(default_factory=dict)
+    # runner: the D-03 KernelServices handle (Phase 7) — the SINGLE object the
+    # capability strategies/resolvers reach kernel + ``app.*`` primitives through:
+    # the run-one-agent-yielding-events primitive (wrapping ``_run_agent`` — create_runner
+    # + astream + the MODEL-02 fallback chain + the per-task vs engine thread-id shape
+    # ``f"{run_id}:{spec.id}:{task_num}"`` vs ``f"{run_id}:{spec.id}"``), the per-run sandbox
+    # (read/write/path_for/root), ``static_check``, ``render_check``, and the sandbox
+    # deliverable helpers (``count_sandbox_deliverables``/``serialize_sandbox_deliverable``).
+    # Typed ``object | None`` (NOT the concrete type) — IDENTICAL to ``scoped_store``/
+    # ``model_resolver`` above — so this pure-data module stays import-pure: the concrete
+    # ``KernelServices`` class lives under the kernel (``execution_engine/``) and is attached
+    # here by ``execute()`` (07-04); capabilities reach it dynamically via ``ctx.runner`` and
+    # NEVER import the kernel/app (the import-linter contract — T-07-01-03).
+    runner: object | None = None
 
     # ── Migrated per-run state (was stashed on the singleton pre-0B) ─────────────────
     # od_context: loaded template / design-system / craft content; flows engine →
