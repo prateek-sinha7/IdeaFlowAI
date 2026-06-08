@@ -584,3 +584,50 @@ class TestModelOverrideValidation:
             {"ghost-agent": "ghost-model"}, {"prototype-build"}
         )
         assert err is not None
+
+    # ── CR-01: malformed (non-dict / non-string) input is REJECTED, not crash ──
+    # A truthy non-dict ``model_overrides`` (string, list) bypasses the ``or {}``
+    # guard at the call sites. Before the fix it reached ``.items()`` / the set
+    # membership check and raised AttributeError/TypeError, killing the asyncio
+    # task SILENTLY (no error event, client hangs, _PIPELINE_TASKS leak). The
+    # type guards must turn every malformed case into a rejection STRING so the
+    # handler emits ``invalid_model_override`` and refuses the run.
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "evil_string",          # truthy str
+            ["prototype-build"],    # truthy list
+            42,                     # truthy int
+            ("a", "b"),             # truthy tuple
+        ],
+    )
+    def test_non_dict_overrides_are_rejected_not_raised(self, bad) -> None:
+        """A truthy non-dict ``model_overrides`` returns a rejection string
+        (does NOT raise) — closing the silent-task-death vector (CR-01)."""
+        from app.api.websocket import _validate_model_overrides
+
+        err = _validate_model_overrides(bad, {"prototype-build"})
+        assert err is not None, f"non-dict {bad!r} MUST be rejected, not crash"
+        assert "model_overrides" in err
+
+    def test_non_string_value_is_rejected_not_raised(self) -> None:
+        """A dict with a non-string value (e.g. a list) returns a rejection
+        string instead of raising TypeError on the set membership check."""
+        from app.api.websocket import _validate_model_overrides
+
+        err = _validate_model_overrides(
+            {"prototype-build": ["not", "a", "string"]}, {"prototype-build"}
+        )
+        assert err is not None, "non-string value MUST be rejected, not crash"
+        assert "string" in err
+
+    def test_non_string_key_is_rejected_not_raised(self) -> None:
+        """A dict with a non-string key returns a rejection string rather than
+        flowing a non-string agent id into the run-agent membership check."""
+        from app.api.websocket import _validate_model_overrides
+
+        err = _validate_model_overrides(
+            {123: "some-model"}, {"prototype-build"}
+        )
+        assert err is not None, "non-string key MUST be rejected, not crash"

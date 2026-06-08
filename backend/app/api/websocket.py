@@ -76,12 +76,30 @@ def _validate_model_overrides(
     """
     if not model_overrides:
         return None
+    # Type guard (CR-01): ``model_overrides`` is UNTRUSTED run-payload input. The
+    # ``or {}`` normalisation at the call sites only swaps FALSY values for ``{}``;
+    # a truthy non-dict ("evil_string", ["list"]) — or a dict with non-string
+    # keys/values — passes through and would crash on ``.items()`` / the set
+    # membership check, killing the asyncio task silently (no error event, leaked
+    # _PIPELINE_TASKS). REJECT malformed input with the same str-return contract as
+    # every other violation, so the caller emits ``code="invalid_model_override"``
+    # and refuses the run before any WorkflowRun is created.
+    if not isinstance(model_overrides, dict):
+        return (
+            f"model_overrides must be an object mapping agent_id to model_id "
+            f"(got {type(model_overrides).__name__!r})"
+        )
     # Import the kernel-pure catalog lazily (app → kernel import is allowed; the
     # catalog has no app.* reach so this stays import-clean).
     from agents.capabilities.model_catalog import ModelCatalog
 
     allowed_model_ids = set(ModelCatalog().ids())
     for agent_id, model_id in model_overrides.items():
+        if not isinstance(agent_id, str) or not isinstance(model_id, str):
+            return (
+                f"model_overrides entries must be string agent_id → string "
+                f"model_id; got {agent_id!r}: {model_id!r}"
+            )
         if agent_id not in run_agent_ids:
             return (
                 f"model_overrides targets agent {agent_id!r}, which is not part "
