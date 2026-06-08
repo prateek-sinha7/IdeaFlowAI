@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-06-08T07:49:53.524Z"
+last_updated: "2026-06-08T08:35:16.755Z"
 last_activity: 2026-06-08 -- Completed 05-04-PLAN.md (Task 3 reconciled + committed); INV-3 parity GREEN
 progress:
   total_phases: 12
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 21
-  completed_plans: 20
-  percent: 33
+  completed_plans: 21
+  percent: 42
 ---
 
 # Project State
@@ -71,6 +71,7 @@ Progress: [██████░░░░] 67% (4/6 plans complete)
 | Phase 05 P04 | 35min | 3 tasks | 6 files |
 | Phase 05 P05 | 7min | 2 tasks | 4 files |
 | Phase 05-typed-artifacts-persistence-ownership-1b P06 | ~40min | 3 tasks | 8 files |
+| Phase 05 P07 P07 | ~55 min | 3 tasks | 23 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 05-04: Disk principal (user_id or 'anon') decoupled from DB owner (anon:<session_id>) to keep RunSandbox paths byte-identical (CTX-05); single seq/event_id sink at execute() emit boundary, stripped from the 0A characterization multiset.
 - [Phase ?]: 05-05: owner-scoped /artifacts (lineage tree) + /events (seq>after replay) route through the single ScopedStore; cross-owner -> 404
 - [Phase ?]: 05-06: producer/revision/clarifications writes use visibility=workspace so same-owner cross-run _handle_revision reads pass the owner+visibility scope filter; thin-store artifact consumers fully migrated (05-07 deletion precondition TRUE)
+- [Phase ?]: 05-07: deleted accumulated_outputs mirror + thin-store artifact half + WorkflowArtifact (0015); typed ArtifactGraph sole impl; phase 05 DONE; L15+D2 done
 
 ### Pending Todos
 

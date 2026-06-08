@@ -16,7 +16,7 @@ The plan sub-phases (0A/0B/0C, 1A/1B/1C, 4A/4B) are mapped to sequential GSD pha
 - [x] **Phase 2: ExecutionContext + Ownership [0B]** - Lift all `self._*` run state into a per-run `ExecutionContext`; explicit parent-run ownership check; no behavior change (completed 2026-06-07)
 - [x] **Phase 3: Token-Trim (measured change) [0C]** - Wire the dead `_extract_html_skeleton` as build compaction; gated on semantic snapshot + measured token delta (completed 2026-06-07)
 - [x] **Phase 4: Manifest + Compiler [1A]** - File-backed manifests → thin compiler → typed `CompiledWorkflow`; pipelines run from compiled plans (completed 2026-06-07)
-- [ ] **Phase 5: Typed Artifacts + Persistence + Ownership [1B]** - `ArtifactGraph`/`ArtifactRef` + schema (§18); dual-write then delete the legacy mirror; authz denial tests
+- [x] **Phase 5: Typed Artifacts + Persistence + Ownership [1B]** - `ArtifactGraph`/`ArtifactRef` + schema (§18); dual-write then delete the legacy mirror; authz denial tests (completed 2026-06-08)
 - [ ] **Phase 6: Model Policy [1C]** - `ModelResolver` (resolution order + fallback + cost_class) + `ModelCatalog` + per-agent overrides
 - [ ] **Phase 7: Prototype as Manifest — Parity Proof (SC-001) [2]** - Strategies/resolvers/providers/parsers/compaction; delete kernel leaks L1–L12; zero name/id branches
 - [ ] **Phase 8: Capabilities Hardened — Registry, Gates, Tool Perms, Runtime [3]** - CapabilityRegistry + trust; gate registry; least-privilege; AgentRuntimeAdapter + PromptAssemblyPolicy; delete F1–F5
@@ -168,7 +168,7 @@ Plans:
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 05-07-PLAN.md — [BLOCKING parity gate] then delete `accumulated_outputs` mirror + thin-store artifact half + `WorkflowArtifact` + `0015` DROP + flip ledger L15 + thin-store gate (PERSIST-02) [wave 6]
+- [x] 05-07-PLAN.md — [BLOCKING parity gate] then delete `accumulated_outputs` mirror + thin-store artifact half + `WorkflowArtifact` + `0015` DROP + flip ledger L15 + thin-store gate (PERSIST-02) [wave 6]
 
 ### Phase 6: Model Policy [1C]
 
@@ -335,7 +335,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 2. ExecutionContext + Ownership [0B] | 3/3 | Complete    | 2026-06-07 |
 | 3. Token-Trim [0C] | 2/2 | Complete    | 2026-06-07 |
 | 4. Manifest + Compiler [1A] | 5/5 | Complete    | 2026-06-07 |
-| 5. Typed Artifacts + Persistence [1B] | 6/7 | In Progress|  |
+| 5. Typed Artifacts + Persistence [1B] | 7/7 | Complete   | 2026-06-08 |
 | 6. Model Policy [1C] | 0/3 | Not started | - |
 | 7. Prototype as Manifest (Parity Proof) [2] | 0/5 | Not started | - |
 | 8. Capabilities Hardened [3] | 0/8 | Not started | - |
