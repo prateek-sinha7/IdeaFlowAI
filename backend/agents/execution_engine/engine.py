@@ -37,7 +37,9 @@ from agents.capabilities.registry import CapabilityRegistry
 from agents.execution_engine.context import ExecutionContext
 from agents.execution_engine.resolver import WorkflowResolver
 from agents.execution_engine.state_machine import get_state_machine
+from agents.capabilities.model_catalog import ModelCatalog
 from agents.factory import AgentContext, create_runner
+from agents.model_policy import ModelResolver
 from agents.workflows.compiler import WorkflowCompiler
 from agents.workflows.manifest import load_manifest
 from agents.workflows.plan import CompiledWorkflow
@@ -989,6 +991,29 @@ class ExecutionEngine:
         # No legacy `pipeline_type` dispatch fallback (INV-12).
         compiled = compile_for_run(pipeline_type)
 
+        # ── Model resolution seam (Phase 6 / MODEL-01/02/05) ──────────────────────────
+        # Construct the per-run ModelResolver ONCE, here — after the workflow is compiled
+        # so ``compiled.model`` (CompiledWorkflow.model — the workflow default, tier 4) is
+        # available — and carry it on ``ectx.model_resolver``. The three _run_agent model
+        # sites consult it for the effective per-agent id by the D-02 precedence
+        # (override > step.model > AgentSpec.model > workflow.model > session model_id or
+        # Haiku). Seeds: ``ectx.model_overrides`` (validated {agent_id→model_id}; defaults
+        # {} this plan, 06-04 wires the WS ingress), ``compiled.model`` (workflow default —
+        # None today), the run-wide session ``model_id`` (the existing param — UNCHANGED),
+        # and the global Haiku default ``settings.BEDROCK_INFERENCE_PROFILE_ID``.
+        # ★ INV-3 PARITY: with model_overrides={} and every manifest/agent tier None (today's
+        # state), resolve() returns ``session model_id or Haiku`` == exactly today's
+        # ``model_id`` input to build_model — so the characterization snapshots are unchanged.
+        from app.core.config import settings as _settings
+
+        ectx.model_resolver = ModelResolver(
+            model_overrides=ectx.model_overrides,
+            workflow_model=compiled.model,
+            session_model_id=model_id,
+            haiku_default=_settings.BEDROCK_INFERENCE_PROFILE_ID,
+            catalog=ModelCatalog(),
+        )
+
         # (1) Agent sequence/ids — the compiled plan is the SOURCE of the agent
         # MEMBERSHIP for this run. The manifests are authored in the registry's
         # membership order (get_pipeline_agents / PIPELINE_AGENTS — coverage test
@@ -1283,7 +1308,10 @@ class ExecutionEngine:
                     agent_outputs={},
                     attached_skills=_rev_skills,
                     attached_hooks=list(attached_hooks or []),
-                    model=model_id,
+                    # MODEL-01/02/05: resolved id for the revision fix sub-agent (reuses this
+                    # agent's spec — RESEARCH). step=None this plan; parity-identical to
+                    # ``model_id`` when no override/manifest model is set (INV-3).
+                    model=self._resolve_model(ectx, spec, model_id),
                     od_context=ectx.od_context,
                     planning_context=planning_context,
                     user_id=ectx.disk_principal,
@@ -1481,6 +1509,23 @@ class ExecutionEngine:
     # Domain agent execution
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _resolve_model(ectx: ExecutionContext, spec, model_id, step=None):
+        """Return the effective model id for ``spec`` (MODEL-01/02/05) — resolver-or-fallback.
+
+        ``execute()`` always seeds ``ectx.model_resolver`` (after the workflow compiles), so on
+        the live path this delegates to the D-02 precedence resolver. When the resolver is
+        absent — direct unit-style invocations of ``_run_agent`` / ``_run_build_task_loop`` that
+        construct an ``ExecutionContext`` WITHOUT going through ``execute()`` — fall back to the
+        threaded ``model_id`` (today's behavior). This fallback is parity-safe: with no override
+        and no manifest model the resolver itself returns ``model_id or Haiku``, so the resolved
+        id is identical either way (INV-3).
+        """
+        resolver = ectx.model_resolver
+        if resolver is None:
+            return model_id
+        return resolver.resolve(spec, step)
+
     async def _run_agent(
         self,
         spec,
@@ -1557,7 +1602,11 @@ class ExecutionEngine:
                 agent_outputs=self._filter_consumed_outputs(spec, ordered_agents, ectx),
                 attached_skills=merged_skills,
                 attached_hooks=list(attached_hooks or []),
-                model=model_id,
+                # MODEL-01/02/05: the effective model id by the D-02 precedence. With no
+                # overrides + no manifest model (today) this returns ``model_id or Haiku`` =
+                # the prior value — INV-3 parity. step=None this plan (06-04 wires the
+                # compiled Step lookup); resolve() applies tiers 1/3/4/5 unchanged.
+                model=self._resolve_model(ectx, spec, model_id),
                 od_context=ectx.od_context,
                 planning_context=planning_context,
                 # Byte-identity guard (D-09): pass disk_principal (== user_id or "anon"),
@@ -2030,7 +2079,10 @@ class ExecutionEngine:
                     user_request=user_message,
                     attached_skills=list(attached_skills or []),
                     attached_hooks=list(attached_hooks or []),
-                    model=model_id,
+                    # MODEL-01/02/05: resolved id for the build-task validation fix sub-agent
+                    # (reuses the build agent's spec). step=None this plan; parity-identical to
+                    # ``model_id`` when no override/manifest model is set (INV-3).
+                    model=self._resolve_model(ectx, spec, model_id),
                     od_context=ectx.od_context,
                     planning_context=planning_context,
                     # Byte-identity guard (D-09): disk_principal, NOT owner_id — keeps the
