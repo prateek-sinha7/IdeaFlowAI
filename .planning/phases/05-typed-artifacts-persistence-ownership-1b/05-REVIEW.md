@@ -1,7 +1,8 @@
 ---
 phase: 05-typed-artifacts-persistence-ownership-1b
-reviewed: 2026-06-08T00:00:00Z
+reviewed: 2026-06-08T13:10:00Z
 depth: standard
+iteration: 3
 files_reviewed: 43
 files_reviewed_list:
   - backend/agents/artifact_store/store.py
@@ -48,356 +49,170 @@ files_reviewed_list:
   - backend/tests/unit/test_runs_api_events.py
   - specs/003-workflow-engine-decoupling/migration-ledger.md
 findings:
-  critical: 2
-  warning: 7
-  info: 5
-  total: 14
-status: issues_found
+  critical: 0
+  warning: 0
+  info: 3
+  total: 3
+status: clean
 ---
 
-# Phase 5: Code Review Report
+# Phase 5: Code Review Report (iteration 3 — FINAL re-review)
 
 **Reviewed:** 2026-06-08
 **Depth:** standard
-**Files Reviewed:** 43 (source + tests)
-**Status:** issues_found
+**Status:** clean
 
 ## Summary
 
-Phase 5 lands the typed-artifact substrate (`ArtifactGraph`/`ArtifactRef`), additive
-migration 0014 + the parity-gated drop 0015, the single default-deny `ScopedStore`
-ownership seam, durable `run_events`, and `run_capabilities`. The kernel-purity
-constraint holds (`agents/artifacts/graph.py` is stdlib-only; `ExecutionContext` only
-reaches into `agents.artifacts.graph`); the `ScopedStore` correctly keeps `app.api` out
-of the import graph and uses lazy `app.models` imports inside methods. The IDOR→404
-precedent is preserved at the API and the cross-owner `assert_owns` lookup is sound.
+This is iteration 3, the final pass of the auto fix↔review loop. The iteration-2 review
+raised one BLOCKER (CR-01: the round-1 WR-06 fix was defeated on a real DB — revision
+`run_events` could not persist and `/events` 404'd for every revision run) plus one Warning
+(WR-01: a stale `_RunEventSink.persist` docstring). The fixer landed those (commits up to
+`2d72081`). I read the current code — not the fix report — to verify the fix holds and to
+hunt for any regression the latest edits introduced.
 
-The adversarial pass surfaced two correctness defects that undermine the very
-ownership/versioning guarantees the phase advertises:
+**Verdict: the iteration-2 BLOCKER fix HOLDS. Zero Critical, zero Warning findings remain.**
+Three Info-tier observations are recorded below but are out of `fix_scope` (critical_warning)
+and do not gate the loop.
 
-1. The clarifications persistence path writes a fresh in-memory `ArtifactGraph` per
-   round, so every round's `clarifications` ref lands at `version=1`. The reconnect read
-   orders by `version ASC` and takes `[-1]`, so with multiple rounds the row returned is
-   non-deterministic (DB tie-break) — the user can be re-served an earlier round's
-   questionnaire on reconnect.
-2. The same path stamps `ArtifactRef.owner_id` from `ClarifyEngine._owner_id`, which is
-   typed `str | None` and defaults to `None`; the dataclass contract and AUTHZ-03
-   mandate a real, never-`None` owner. On the live engine path `owner_id` is non-None,
-   but the helper write does not enforce it and a `None` owner row defeats the
-   default-deny filter (an owner-`None` row matches no scoped read but also bypasses the
-   "real principal" invariant).
+### 1. CR-01 (revision run scoping + run_events persistence + /events resolution) — VERIFIED FIXED
 
-Additional warnings concern best-effort swallowing that hides genuine persistence
-failures, an ordering assumption in `list_refs`/`lineage`, and shared-node mutation in
-the lineage-tree builder.
+Traced the full revision path end to end:
+
+- **`engine.py::_handle_revision` (2671, 2729-2746):** the store is built
+  `ScopedStore(owner_id=owner_id)` and the parent artifact's workspace
+  (`original.workspace_id`) is threaded onto it (`store._workspace_id = _rev_ws_id`) AFTER
+  the cross-run read resolves `original` and BEFORE the first emit. The sink is armed only
+  inside the `if owner_id and _rev_ws_id:` guard (2730, 2746), so it can never be armed with
+  a workspace-less store. `original.workspace_id` is read from `artifact_refs`, whose
+  `workspace_id` column is `NOT NULL` (`artifact_ref.py:35`,
+  `0014_typed_artifacts_persistence.py:47`), so the read value is provably non-None — the
+  guard's "else" (sink never armed) is unreachable for any parent artifact that came from
+  the DB.
+
+- **`authz.py::set_run_scope` (351-394):** stamps `(owner_id, workspace_id)` onto the
+  revision `workflow_runs` row and FAILS LOUD with `ValueError` on a falsy owner or
+  workspace (369-374, AUTHZ-01/03 — never widens nullability), and no-ops when the row is
+  absent (offline-harness parity, same shape as `append_event`). The lookup is
+  unscoped-by-owner, but the write only ever stamps the caller-supplied real principal, and
+  the run_id is a freshly-generated uuid for this same user's revision run, so there is no
+  cross-owner write surface.
+
+- **`websocket.py` revision-run creation (608-639):** the revision `WorkflowRun` is created
+  with `owner_id=user.id` (never owner-None at creation, 623) and `user_id=user.id` (637);
+  the workspace is stamped back by the engine. The `/events` endpoint
+  (`runs.py:674-696`) first resolves the row by `(id, user_id)`, reads its `workspace_id`,
+  then builds `ScopedStore(owner_id=current_user.id, workspace_id=workflow_run.workspace_id)`
+  and calls `get_run` — exactly what the new regression test mirrors.
+
+- **`run_events.workspace_id` / `owner_id` (run_event.py:30-31; 0014:105-106):** both
+  `NOT NULL`. `append_event` stamps `self._owner_id` / `self._workspace_id`
+  (authz.py:300-305); with the armed store carrying the real workspace, the insert satisfies
+  both constraints — no IntegrityError, no swallow.
+
+- **The new regression test
+  `test_revision_run_events_persist_and_resolve_on_real_db`
+  (test_revision_intelligence.py:368-459)** genuinely exercises a real sqlite DB: the
+  `db_factory` fixture builds an in-memory SQLite engine via `Base.metadata.create_all`
+  (test:50-55) — the SAME ORM metadata the 0014 migration encodes, so all four typed tables
+  with their NOT NULL columns exist — and monkeypatches `app.models.database.SessionLocal`
+  onto it (test:59) so every engine-path `ScopedStore` (no injected session) hits this DB.
+  It creates the revision run with `workspace_id=None` exactly as the WS layer transiently
+  does (test:404-414), drives `_handle_revision`, then asserts (a) the run row's workspace
+  was stamped back to `WS` (440), (b) an owner+workspace-scoped store mirroring the `/events`
+  endpoint resolves the run (445-447, the 404-prevention check), and (c) the
+  `pipeline_start`/`pipeline_complete` `run_events` rows actually persisted with the real
+  `(owner_id, workspace_id)` and replay in monotonic `seq` order (450-459). I ran the suite:
+  **10 passed** (this test included). The pre-fix failure mode (NOT NULL violation on
+  `workspace_id=None`, swallowed by the WR-02 narrow-catch) is the exact behavior this test
+  now precludes.
+
+### 2. WR-01 docstring fix — VERIFIED accurate
+
+The `_RunEventSink` class docstring (engine.py:99-107) now states the WR-02 narrowed
+contract precisely: the DB-write case (`SQLAlchemyError`) degrades to a `warning`; **any
+OTHER exception PROPAGATES (re-raised) — it is NOT swallowed**; `seq`/`event_id` are stamped
+regardless so 0A parity holds. This matches the actual code at engine.py:127-141:
+`except Exception` → `if not isinstance(exc, SQLAlchemyError): raise` → else
+`logger.warning(...)`. The two parallel sites (the workspace/caps degrade at 741-753 and the
+revision scope-writeback degrade at 2734-2745) follow the identical narrow-catch + re-raise
+shape. No stale `debug`-swallow wording remains anywhere in the sink path.
+
+### 3. Regression hunt on the latest edits — NONE FOUND
+
+- **Non-revision event ordering / payloads:** UNCHANGED. The public `execute()` wrapper
+  (537-606) and its single seq/event_id boundary are untouched by the iteration-3 edits; the
+  revision changes are confined to `_handle_revision` and the new `set_run_scope` method.
+  The revision path uses its OWN `_stamped_send` counter (2690-2705) and is deliberately NOT
+  routed through `execute()`, so there is no double-stamping and no shared-counter
+  interference. On the revision path the deferred sink-arm sits strictly before the first
+  emit (`pipeline_start` at 2783, below the read at 2713), so event ORDER is unchanged
+  (`pipeline_start` → `pipeline_complete`); only the persistence side-effect was added.
+- **Scoping seam correctness:** `set_run_scope` and `assert_owns` both perform the
+  intentional unscoped-by-owner lookup with a documented, bounded write/compare; neither
+  widens the default-deny read filter. `assert_owns` still PROPAGATES `PermissionError`
+  (engine.py:872-873) so a cross-owner parent is never silently seeded (L16 intact).
+- **Kernel purity (INV):** verified `agents/artifacts/*.py` imports stdlib only — no
+  `app.models` / `app.api` / `fastapi` / `sqlalchemy` (grep clean). `agents/authz.py`
+  imports `app.models.*` inside methods (the sanctioned pattern) and never `app.api.*`.
+- **Additive-only migrations:** 0014 only adds; the typed-table `workspace_id`/`owner_id`
+  columns are `NOT NULL` (AUTHZ-01) and the backfill is idempotent (WR-07,
+  `WHERE workspace_id IS NULL`). No migration files were touched in iteration 3.
+
+Targeted suites re-run green during this review: `test_revision_intelligence` (10 passed,
+incl. the new real-DB regression). The iteration-2 fix record documents the broader
+touched-area set (`test_run_events`, `test_runs_api_events`, `test_runs_api_artifacts`,
+`test_artifact_store`, `test_execution_engine`, `test_resumability`,
+`test_phase5_revision_validation`, `test_parent_run_ownership`,
+`test_characterization_prototype{,_revision}`) at 78 passed, consistent with the unchanged
+non-revision contract.
 
 ## Structural Findings (fallow)
 
 No `<structural_findings>` block was provided with this review; none incorporated.
 
-## Critical Issues
-
-### CR-01: Multi-round clarifications all persist at `version=1`, making the reconnect read non-deterministic
-
-**File:** `backend/agents/execution_engine/clarify_engine.py:420-436` (and the read at `backend/app/api/websocket.py:550-555`)
-
-**Issue:** `_persist_qa` constructs a brand-new `ArtifactGraph()` on every call:
-
-```python
-graph = ArtifactGraph()
-ref = graph.write_ref(run_id=pipeline_run_id, ..., kind="clarifications", ...)
-store = ScopedStore(owner_id=self._owner_id, workspace_id=self._workspace_id)
-await store.write_ref(ref)
-```
-
-`ArtifactGraph.write_ref` computes `version = 1 + count of refs of same (run_id, kind)
-in THIS graph`. Because a fresh graph is created each round, the in-memory count is
-always 0, so `ref.version` is always `1`. `ScopedStore.write_ref` then honors the
-already-set `ref.version` (`version = getattr(ref, "version", None) or (existing_count
-+ 1)` — `1` is truthy, so the DB `existing_count` branch never runs). Result: round 1,
-round 2, and round 3 all write `clarifications` rows with `version=1` for the same run.
-
-The reconnect restoration reads them back with `list_refs(run_id, kind="clarifications")`
-which does `order_by(ArtifactRef.version.asc())` and takes `_clar_refs[-1]`. With all
-versions equal to `1`, the tie-break is DB-/insertion-order dependent and NOT guaranteed
-to be the most recent round — so a reconnecting user can be re-served an earlier round's
-unanswered questions, or a stale Q&A set. This regresses the "served entirely from the
-typed layer" guarantee the migration claims (05-06).
-
-**Fix:** Persist clarifications through the same per-run graph the engine already owns
-(thread `ectx.artifacts` into `ClarifyEngine`), OR let the DB assign the version by NOT
-pre-setting it on the dataclass and letting `ScopedStore.write_ref` compute
-`existing_count + 1`. Minimal fix in the store helper — make the DB the source of truth
-for cross-call versioning when the caller cannot share a graph:
-
-```python
-# clarify_engine: do not rely on the throwaway graph's version
-ref = graph.write_ref(...)          # version will be 1 (ignored)
-await store.write_ref(ref, force_db_version=True)
-```
-and in `ScopedStore.write_ref`, when `force_db_version` is set use `existing_count + 1`
-instead of `ref.version`. Alternatively, order the reconnect read by
-`created_at.desc()` and take `[0]` so ties resolve to the newest row deterministically.
-
-### CR-02: `ArtifactRef.owner_id` can be persisted as `None`, violating the never-None AUTHZ-03 invariant
-
-**File:** `backend/agents/execution_engine/clarify_engine.py:67-73, 103-104, 421-436`
-
-**Issue:** `ClarifyEngine._owner_id` is typed `str | None` and initialized to `None`;
-`run()` assigns it from the `owner_id: str | None = None` parameter. `_persist_qa` then
-passes it straight into both `graph.write_ref(owner_id=self._owner_id, ...)` and
-`ScopedStore(owner_id=self._owner_id, ...)`. `ArtifactRef.owner_id` is documented as
-"owner principal … never None" (`graph.py:66`) and AUTHZ-03/D-09 require a real
-principal so the default-deny filter always has a real owner. Neither `write_ref`
-(graph) nor `ScopedStore.write_ref` validates non-None, so a `None` owner row is
-silently created. The DB column is `nullable=False` (`artifact_ref.py:34`), so on a real
-DB this raises an IntegrityError that is then swallowed by the bare
-`except Exception` (line 437) — meaning clarifications silently fail to persist whenever
-`owner_id` is None, and the reconnect read returns nothing.
-
-On the live engine path `ectx.owner_id` is always a real principal (`engine.py:688`), so
-this is latent there; but `ClarifyEngine.run()`'s public signature invites a `None`
-owner (it defaults to `None`), and any direct caller or future wiring that omits
-`owner_id` gets a silent persistence failure rather than a loud error. This is a
-default-deny correctness hole: the ownership boundary depends on a real owner that the
-write path does not enforce.
-
-**Fix:** Make `owner_id` required (drop the `None` default) or assert it early:
-
-```python
-async def run(self, ..., owner_id: str, workspace_id: str | None = None, ...):
-    if not owner_id:
-        raise ValueError("ClarifyEngine.run requires a real owner_id (AUTHZ-03)")
-```
-
-And/or enforce in the single seam — `ScopedStore.write_ref` should reject a falsy
-resolved owner:
-
-```python
-resolved_owner = getattr(ref, "owner_id", None) or self._owner_id
-if not resolved_owner:
-    raise ValueError("artifact_refs.owner_id must be a real principal (AUTHZ-03)")
-```
-
-## Warnings
-
-### WR-01: `ArtifactGraph.write_ref` and `ScopedStore.write_ref` compute `version` independently and can diverge
-
-**File:** `backend/agents/artifacts/graph.py:122-124` and `backend/agents/authz.py:149-157`
-
-**Issue:** The graph computes `version` from its in-memory per-(run, kind) count; the
-store recomputes it from a DB `COUNT(*)` but then prefers the dataclass value
-(`getattr(ref, "version", None) or (existing_count + 1)`). When the same `ArtifactGraph`
-is shared per run (the engine path) the two agree by construction. But any caller that
-constructs a throwaway graph (CR-01 clarify path; `_handle_revision` at
-`engine.py:2697`) gets a graph version of `1` that overrides the DB count, so DB
-versions are NOT monotonic per (run, kind) for those rows. The `version` column is
-documented "monotonic per (run, kind)" (`artifact_ref.py:43`) — this invariant is
-violated for clarify/revision writes. (For `_handle_revision` the row lands in a fresh
-revision run so `1` is coincidentally correct; for clarify it is not — see CR-01.)
-
-**Fix:** Centralize versioning in ONE place. Either always share the per-run graph, or
-have `ScopedStore.write_ref` ignore the dataclass `version` and always use
-`existing_count + 1` (the DB is the durable source of truth). Document which is
-canonical.
-
-### WR-02: Best-effort `except Exception` blocks swallow real persistence failures with only debug/warning logs
-
-**File:** `backend/agents/execution_engine/engine.py:124-129, 729-734, 861-866 (debug), 2861-2866`; `backend/agents/execution_engine/clarify_engine.py:437-438`
-
-**Issue:** Every typed-substrate write (`_dual_write_artifact`, the run_events sink,
-workspace/capabilities creation, clarifications persist) wraps the DB call in a broad
-`except Exception` that degrades to a `logger.debug`/`logger.warning` and continues. The
-stated rationale is the offline characterization harness has no `workflow_runs` FK row.
-The problem: this masks genuine production failures (FK violations from a real bug,
-connection exhaustion, schema drift) as silent no-ops. A run that fails to persist ALL
-its artifacts/events would look completely healthy in logs at default levels (several
-are `logger.debug`). There is no metric, no error event, and no way to distinguish "no
-FK row in tests" from "the artifact_refs table is broken in prod."
-
-**Fix:** Narrow the catch to the specific expected exception (e.g. SQLAlchemy
-`IntegrityError` for the missing-FK harness case) and re-raise / surface anything else,
-or at minimum log at `warning`+ with a stable error code and emit a counter so silent
-total-persistence-loss is observable. Do not catch bare `Exception` on the DB write
-path.
-
-### WR-03: `lineage()` orders by `created_at` but `created_at` has second-or-finer ties from a Python-side default
-
-**File:** `backend/agents/authz.py:224-238`; `backend/app/models/artifact_ref.py:54-56`
-
-**Issue:** `ScopedStore.lineage` returns refs `order_by(ArtifactRef.created_at.asc())`,
-and `_build_lineage_tree` (`runs.py:520`) relies on this ordering to assemble the tree.
-`created_at` is set by a Python-side `default=lambda: datetime.now(timezone.utc)` at
-flush time. Multiple artifacts written in the same task loop iteration (e.g. the
-per-task HTML write + a `produces` fold write happen back-to-back) can receive
-timestamps that tie at the stored precision, making the order between same-timestamp
-refs non-deterministic. The tree builder tolerates dangling parents but assumes a
-parent appears before its child is processed only insofar as it pre-builds all nodes
-first (it does), so the tree itself is robust — but any consumer that depends on
-`lineage()` insertion order (and the docstring implies it) gets unstable results.
-
-**Fix:** Add a stable secondary sort key, e.g. `order_by(created_at.asc(),
-version.asc(), id.asc())`, or order by the monotonic `seq`-equivalent. For artifact_refs
-specifically there is no monotonic per-run counter; consider adding one or sort by
-`(version, id)` within a kind.
-
-### WR-04: `_build_lineage_tree` shares the same node dict across multiple parents, corrupting the tree on diamond lineage
-
-**File:** `backend/app/api/runs.py:551-573`
-
-**Issue:** `nodes = {r.id: _node(r) for r in refs}` builds ONE dict per ref. When a ref
-has multiple in-set parents (`_parent_ids` can return both `derived_from` AND entries
-from `parents[]`), the loop appends the SAME `nodes[r.id]` object as a child under every
-parent:
-
-```python
-for pid in pids:
-    nodes[pid]["children"].append(nodes[r.id])
-```
-
-This means a single node object is referenced from multiple `children` lists. JSON
-serialization will duplicate it (acceptable), but if any later code mutates a node
-in-place it mutates it under every parent, and a cycle (A parent of B, B parent of A,
-both in-set) produces an infinite structure that `json` serialization (FastAPI response
-encoding) will fail on with `ValueError: Circular reference detected`. The docstring
-claims "Cycles … are tolerated" but the implementation does not break cycles — it only
-tolerates dangling (out-of-set) parents.
-
-**Fix:** Track visited nodes when attaching children and skip an edge that would
-re-introduce an already-attached ancestor, or detect cycles explicitly:
-
-```python
-attached: set[str] = set()
-for r in refs:
-    for pid in _parent_ids(r):
-        if r.id in attached:   # already placed — don't double-attach
-            break
-        nodes[pid]["children"].append(nodes[r.id])
-        attached.add(r.id)
-```
-and add a cycle guard so a mutual-parent pair cannot create a self-referential tree
-before it reaches the JSON encoder.
-
-### WR-05: `restore_non_terminal_runs` re-arms resume events but never restores artifact/clarification state
-
-**File:** `backend/agents/execution_engine/engine.py:2450-2505`
-
-**Issue:** The docstring says it restores runs "so they can be resumed by user action,"
-and re-registers `asyncio.Event`s for `waiting_for_user` runs. But it re-arms a resume
-event for EVERY non-terminal run (not just `waiting_for_user` — the `NON_TERMINAL` set
-includes `running`/`generating`/etc.), and it transitions the state machine to whatever
-status the DB row holds. A run in `generating` that was interrupted by a restart now has
-a state-machine entry of `generating` and a dangling resume event, but no coroutine is
-actually driving it — the engine never re-launches the pipeline body. So these runs are
-"restored" into a permanently-stuck state that looks live to the state machine. The
-30-second SC-007 claim is met trivially (it only touches in-memory dicts), but the
-restoration is incomplete: only `waiting_for_user` runs are genuinely resumable.
-
-**Fix:** Only re-register resume events for `waiting_for_user` runs; for other
-non-terminal states either mark them `failed` (the process that owned them is gone) or
-explicitly document that they are abandoned. Don't transition the state machine into a
-live-looking state with no driver.
-
-### WR-06: `_handle_revision` is invoked outside the `execute()` seq/persistence boundary, so revision events are never durably logged
-
-**File:** `backend/app/api/websocket.py:637-645`; `backend/agents/execution_engine/engine.py:2590-2741`
-
-**Issue:** The PERSIST-03 design routes ALL engine events through the single `execute()`
-wrapper that stamps `seq`/`event_id` and persists `run_events`. But the `run_revision`
-handler calls `_rev_engine._handle_revision(...)` directly, emitting `pipeline_start` /
-`pipeline_complete` / `state_restoration_failed` through `_send_revision_event` with no
-`seq`, no `event_id`, and no `run_events` row. So a revision run produces a
-`WorkflowRun` and an `artifact_refs` row but an empty `run_events` log — the
-`GET /{id}/events` replay endpoint returns nothing for revision runs, breaking the
-idempotent-replay contract (API-05) for that run class. This is a consistency gap, not
-just a missing-feature: the same run id has artifacts but no event ledger.
-
-**Fix:** Route revision emits through the same stamping path (extract the stamping into a
-shared helper both `execute()` and `_handle_revision` use), or document that
-`*_revision` runs are intentionally excluded from `run_events` and have the events
-endpoint say so.
-
-### WR-07: 0014 backfill assigns the same `created_at = func.now()` to every backfilled workspace and is not idempotent
-
-**File:** `backend/alembic/versions/0014_typed_artifacts_persistence.py:176-203`
-
-**Issue:** The data backfill loops over existing runs and inserts one workspace per run.
-Two robustness gaps: (1) `now = sa.func.now()` is evaluated once and reused for every
-insert, so all backfilled workspaces share an identical `created_at` (cosmetic but
-hides ordering). (2) The migration is not re-run-safe: if `upgrade()` partially applied
-(e.g. failed mid-loop and was retried), runs that already got `owner_id`/`workspace_id`
-set would get a SECOND workspace row, since the loop reads ALL runs unconditionally with
-no `WHERE workspace_id IS NULL` guard. Additive migrations should be defensive against
-partial application.
-
-**Fix:** Filter the backfill to unscoped runs only:
-
-```python
-existing = bind.execute(
-    sa.select(workflow_runs.c.id, workflow_runs.c.user_id)
-    .where(workflow_runs.c.workspace_id.is_(None))
-).fetchall()
-```
-
 ## Info
 
-### IN-01: `ScopedStore.assert_owns` treats an absent parent as "allowed" — document the trust boundary
+_The following are non-blocking observations (Info tier). They are OUT of the
+critical_warning fix scope and do not affect loop termination._
 
-**File:** `backend/agents/authz.py:423-435`
+### IN-01: `_handle_revision` skips run-events persistence (silently) when `owner_id` is falsy
 
-**Issue:** When the parent run row is absent, `assert_owns` returns `None` (allow). This
-is intentional (TTL-swept/same-owner degrade) and propagated correctly, but it means a
-caller can pass any non-existent `parent_run_id` and pass the ownership check. Since the
-subsequent seed read finds no files, there's no leak, but the method name implies a
-stronger guarantee than it provides. A one-line note at the call site contract would
-prevent future misuse.
+**File:** `backend/agents/execution_engine/engine.py:2730`
+**Issue:** The sink-arm and scope-writeback are gated on `if owner_id and _rev_ws_id:`. The
+live WS call site always passes `owner_id=user.id` (websocket.py:664), so this never fires
+in production — but if a future/forward caller passes `owner_id=None`, the revision still
+streams events while persisting no `run_events` ledger and writing no run scope, with no
+log line. The subsequent `store.write_ref(_rev_ref)` would then raise `ValueError`
+(AUTHZ-03) and surface the problem, so it is not a silent data-loss path today, just an
+implicit precondition.
+**Fix:** Consider asserting `owner_id` truthy at method entry (mirroring `ClarifyEngine.run`'s
+falsy-owner `ValueError`) so the contract is explicit rather than encoded in a downstream
+`write_ref` failure.
 
-**Fix:** Rename to `assert_not_cross_owner` or add an explicit comment that absence ==
-allow by design.
+### IN-02: `set_run_scope` lookup is unscoped-by-owner by design but lacks a same-owner sanity assertion
 
-### IN-02: `ALWAYS_CLARIFY = True` is a hardcoded behavioral flag with no config override
+**File:** `backend/agents/authz.py:377-391`
+**Issue:** `set_run_scope` reads the target `workflow_runs` row by id alone and overwrites its
+`(owner_id, workspace_id)` with the caller-supplied values. This is safe in the current
+single call site (a freshly-created revision run owned by the same caller, after
+`assert_owns` on the parent), but the method itself does not verify the row's existing
+`owner_id` is None-or-equal before clobbering it — so a future caller could re-scope a row to
+a different owner. The docstring documents the intent; the guard is by-convention.
+**Fix:** Optionally add a defensive check: only stamp when the existing `owner_id` is None or
+already equals the supplied owner; otherwise raise (turning a misuse into a loud failure
+rather than a cross-owner overwrite).
 
-**File:** `backend/agents/execution_engine/engine.py:139`
+### IN-03: revision `pipeline_complete` reports `total_duration: 0.0` and `agents_completed: 1` as constants
 
-**Issue:** Forcing CLARIFY_REQUIRED on every run is a product decision baked into a
-module constant; the comment says "Set to False to let the planner decide" but it is not
-wired to settings. Toggling requires a code edit + deploy.
-
-**Fix:** Source from `settings.ALWAYS_CLARIFY` so it can be changed per environment.
-
-### IN-03: Bare `except Exception: pass` in `export_pptx` and `_extract_chain_context` hides JSON-decode failures
-
-**File:** `backend/app/api/runs.py:177-178, 337-338`
-
-**Issue:** `json.loads(wr.agent_outputs)` failures are swallowed silently. A corrupted
-`agent_outputs` blob results in an empty result with no log, making field diagnosis
-hard. (Not a security issue — the data is already owner-scoped.)
-
-**Fix:** `except (ValueError, TypeError) as e: logger.warning(...)` at minimum.
-
-### IN-04: `clarify_engine` keyword-match question routing has overlapping keys with silent first-match-wins
-
-**File:** `backend/agents/execution_engine/clarify_engine.py:346-359`
-
-**Issue:** The `QUESTION_LIBRARY` substring/word-overlap matching iterates a dict and
-takes the first match; with keys like `topic`/`subject`, `tone`/`style`,
-`persona`/`user` mapping to identical questions, and `data`/`security`/`integration`
-sharing words, the selected question for an ambiguity item depends on Python dict
-insertion order. It "works" but is fragile and untested for collisions. Maintainability
-risk, not a correctness bug today.
-
-**Fix:** Make the mapping explicit (ordered list of (priority, matcher, question)) or
-document that ties resolve by insertion order.
-
-### IN-05: `_now()`/timestamp helpers re-import `datetime`/`json` inside functions
-
-**File:** `backend/agents/execution_engine/engine.py:70, 142-144`; `clarify_engine.py:60-61`
-
-**Issue:** `_log_event` does `import json as _json` per call and `_now()` imports
-`datetime` per call. Minor; module-level imports are clearer and avoid repeated import
-machinery. Purely stylistic.
-
-**Fix:** Hoist these to module-level imports (the module already imports `json` at top).
+**File:** `backend/agents/execution_engine/engine.py:2843-2845`
+**Issue:** The revision path emits a placeholder `total_duration=0.0` and hardcoded
+`agents_completed=1`/`agents_total=1`. This is consistent with the Phase-3 "store the
+instruction + context as the revision artifact" stub (the method comment at 2795-2797 notes
+a full DeepAgent revision loop is not yet wired), so it is intentional, not a defect — but
+the constant duration will read as "instant" in any UI/telemetry that consumes it.
+**Fix:** When the real revision agent loop lands, replace the constants with measured values;
+no action needed for this phase.
 
 ---
 
