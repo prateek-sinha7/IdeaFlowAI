@@ -3370,7 +3370,7 @@ class ExecutionEngine:
             # For task 1 and all other agents: inject all reference files.
             if "prototype_emit_only" in (getattr(spec, "tools", []) or []):
                 # Build/validate agent — inject template seed always, others only for task 1
-                from agents.prototype.context import get_template_injection_parts
+                from agents.execution_engine.od_context import get_template_injection_parts
                 all_parts = get_template_injection_parts(template_id)
                 if is_build_task_2_plus:
                     # Only inject the seed (first part) — skip layouts and checklist
@@ -3381,7 +3381,7 @@ class ExecutionEngine:
                     for part in all_parts:
                         parts.append(part)
             elif "prototype" in (getattr(spec, "tools", []) or []):
-                from agents.prototype.context import get_template_injection_parts
+                from agents.execution_engine.od_context import get_template_injection_parts
                 for part in get_template_injection_parts(template_id):
                     parts.append(part)
 
@@ -3505,7 +3505,7 @@ class ExecutionEngine:
         if not template_id:
             return None
         try:
-            from agents.prototype.context import get_example_html
+            from agents.execution_engine.od_context import get_example_html
             return get_example_html(template_id)
         except Exception as exc:
             logger.debug("Could not load template example for %s: %s", template_id, exc)

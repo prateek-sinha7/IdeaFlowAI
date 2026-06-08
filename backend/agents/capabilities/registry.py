@@ -105,6 +105,8 @@ def install() -> None:
     )
     from agents.capabilities.deliverables.streamed_text import StreamedTextResolver
     from agents.capabilities.deliverables.ppt import PptResolver
+    from agents.capabilities.context_providers.opendesign import OpenDesignProvider
+    from agents.capabilities.context_providers.previous_run import PreviousRunProvider
 
     _IMPLS[("task_parser", "heading_tasks")] = HeadingTasksParser()
     _IMPLS[("strategy", "single_shot")] = SingleShotStrategy()
@@ -114,8 +116,10 @@ def install() -> None:
     _IMPLS[("deliverable", "serialized_sandbox")] = SerializedSandboxResolver()
     _IMPLS[("deliverable", "streamed_text")] = StreamedTextResolver()
     _IMPLS[("deliverable", "ppt")] = PptResolver()
-    # NOTE: context providers (07-02 task 2) + further bindings (validators,
-    # compaction, gates) land in later plans
+    # Context providers (07-02 / PARITY-03).
+    _IMPLS[("context_provider", "opendesign")] = OpenDesignProvider()
+    _IMPLS[("context_provider", "previous_run")] = PreviousRunProvider()
+    # NOTE: further bindings (validators, compaction, gates) land in later plans
     # as those impl modules are created — add them here alongside their module
     # import. ``resolve`` raises a clear RuntimeError for any known-but-unbound
     # ``(kind, name)`` until then.
