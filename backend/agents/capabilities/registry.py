@@ -99,14 +99,26 @@ def install() -> None:
     from agents.capabilities.strategies.single_shot import SingleShotStrategy
     from agents.capabilities.strategies.task_loop import TaskLoopStrategy
     from agents.capabilities.task_parsers.heading_tasks import HeadingTasksParser
+    from agents.capabilities.deliverables.single_file import SingleFileResolver
+    from agents.capabilities.deliverables.serialized_sandbox import (
+        SerializedSandboxResolver,
+    )
+    from agents.capabilities.deliverables.streamed_text import StreamedTextResolver
+    from agents.capabilities.deliverables.ppt import PptResolver
 
     _IMPLS[("task_parser", "heading_tasks")] = HeadingTasksParser()
     _IMPLS[("strategy", "single_shot")] = SingleShotStrategy()
     _IMPLS[("strategy", "task_loop")] = TaskLoopStrategy()
-    # NOTE: further bindings (validators, deliverables, context_providers,
-    # compaction, gates) land in later plans as those impl modules are created —
-    # add them here alongside their module import. ``resolve`` raises a clear
-    # RuntimeError for any known-but-unbound ``(kind, name)`` until then.
+    # Deliverable resolvers (07-02 / PARITY-02 + PARITY-07).
+    _IMPLS[("deliverable", "single_file")] = SingleFileResolver()
+    _IMPLS[("deliverable", "serialized_sandbox")] = SerializedSandboxResolver()
+    _IMPLS[("deliverable", "streamed_text")] = StreamedTextResolver()
+    _IMPLS[("deliverable", "ppt")] = PptResolver()
+    # NOTE: context providers (07-02 task 2) + further bindings (validators,
+    # compaction, gates) land in later plans
+    # as those impl modules are created — add them here alongside their module
+    # import. ``resolve`` raises a clear RuntimeError for any known-but-unbound
+    # ``(kind, name)`` until then.
 
     _INSTALLED = True
 
