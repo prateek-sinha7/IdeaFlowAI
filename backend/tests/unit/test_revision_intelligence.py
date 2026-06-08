@@ -357,3 +357,43 @@ async def test_cross_owner_revision_denied(engine: ExecutionEngine, db_factory) 
     attacker_store = ScopedStore(owner_id=OTHER_OWNER)
     refs = await attacker_store.list_refs("run-rev-cross-owner", kind="spec")
     assert refs == []
+
+
+# ---------------------------------------------------------------------------
+# Clarifications round-trip (05-06 Task 3): clarify_engine write → websocket read
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_clarifications_round_trip_via_artifact_refs(db_factory) -> None:
+    """ClarifyEngine._persist_qa writes the clarifications payload into
+    artifact_refs (kind=clarifications); the reconnect read path resolves it back
+    via ScopedStore.list_refs — owner-scoped, served entirely from the typed layer.
+    A non-owner read returns nothing (T-5-IDOR)."""
+    from agents.execution_engine.clarify_engine import ClarifyEngine
+
+    run_id = "run-clarify-rt"
+    _seed_run(db_factory, run_id=run_id, owner_id=OWNER)
+
+    clarify = ClarifyEngine()
+    clarify._owner_id = OWNER
+    clarify._workspace_id = WS
+
+    questions = [
+        {"question_id": "r1_q1", "question_text": "What topic?", "impact_level": "high"},
+    ]
+    responses = [{"question_id": "r1_q1", "answer": "Login feature"}]
+    await clarify._persist_qa(run_id, questions, responses, round_num=1)
+
+    # Owner read resolves the clarifications payload back from artifact_refs.
+    owner_store = ScopedStore(owner_id=OWNER)
+    refs = await owner_store.list_refs(run_id, kind="clarifications")
+    assert refs, "clarifications payload not persisted to artifact_refs"
+    payload = json.loads(refs[-1].content)
+    assert payload[0]["question_id"] == "r1_q1"
+    assert payload[0]["answer"] == "Login feature"
+
+    # A non-owner read returns nothing (no cross-session disclosure).
+    other_store = ScopedStore(owner_id=OTHER_OWNER)
+    other_refs = await other_store.list_refs(run_id, kind="clarifications")
+    assert other_refs == []

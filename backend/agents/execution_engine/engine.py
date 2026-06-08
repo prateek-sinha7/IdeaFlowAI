@@ -1134,7 +1134,13 @@ class ExecutionEngine:
             # Run clarify.run() as a background task so we can yield its
             # events concurrently from the queue.
             clarify_task = asyncio.create_task(
-                clarify.run(pipeline_run_id, planning_context, _ws_send)
+                clarify.run(
+                    pipeline_run_id,
+                    planning_context,
+                    _ws_send,
+                    owner_id=ectx.owner_id,
+                    workspace_id=ectx.workspace_id,
+                )
             )
 
             # Drain the queue until clarify_task completes

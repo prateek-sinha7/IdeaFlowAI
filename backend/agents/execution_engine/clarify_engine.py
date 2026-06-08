@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 from agents.artifact_store.store import get_artifact_store
+from agents.artifacts.graph import ArtifactGraph
+from agents.authz import ScopedStore
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +65,12 @@ class ClarifyEngine:
     """Manages the Clarify_Agent Human_Gate: pause, present questions, resume."""
 
     def __init__(self) -> None:
+        # The HITL half of the thin store stays live (resume events / questionnaire
+        # responses) — only the clarifications PAYLOAD write is migrated to
+        # artifact_refs in 05-06. owner_id/workspace_id are threaded in via run().
         self._store = get_artifact_store()
+        self._owner_id: str | None = None
+        self._workspace_id: str | None = None
 
     async def run(
         self,
@@ -71,6 +78,8 @@ class ClarifyEngine:
         planning_context: dict[str, Any],
         websocket_send_fn: Callable[[dict], Awaitable[None]],
         clarify_agent=None,
+        owner_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> dict[str, Any]:
         """Run the clarification gate. Returns the (possibly updated) planning_context.
 
@@ -81,11 +90,18 @@ class ClarifyEngine:
             clarify_agent: Optional DeepAgent instance for the Clarify_Agent.
                            When None (Phase 2 default), questions are derived from
                            the planning_context's missing_information list.
+            owner_id: The run owner principal (user.id or anon:<session_id>) — the
+                      clarifications payload is owner-scoped so the reconnect read
+                      (websocket.py) returns nothing for a non-owner (T-5-IDOR).
+            workspace_id: The run's workspace id (paired with owner_id for the
+                          artifact_refs row).
 
         Returns:
             The planning_context with merged clarification answers and an
             updated execution_gate (set to PROCEED once clarification completes).
         """
+        self._owner_id = owner_id
+        self._workspace_id = workspace_id
         round_num = 0
         merged_context = dict(planning_context)
 
@@ -379,7 +395,15 @@ class ClarifyEngine:
         responses: list[dict],
         round_num: int,
     ) -> None:
-        """Persist each Q&A pair to the ArtifactStore as a clarifications artifact."""
+        """Persist each Q&A pair as a typed ``clarifications`` ArtifactRef.
+
+        Migrated off the thin store in 05-06: the clarifications PAYLOAD now lands
+        in ``artifact_refs`` (kind=clarifications) via the owner-scoped
+        ``ScopedStore``, so the websocket reconnect read is served entirely from the
+        typed layer. visibility="workspace" so the owner read resolves through the
+        owner+visibility scope filter. Best-effort: a persist failure logs and never
+        breaks the clarify flow (same shape as the prior thin-store write).
+        """
         answer_map = {r.get("question_id"): r.get("answer") for r in responses}
         qa_pairs = []
         for q in questions:
@@ -393,13 +417,23 @@ class ClarifyEngine:
                 }
             )
         try:
-            await self._store.store(
+            graph = ArtifactGraph()
+            ref = graph.write_ref(
                 run_id=pipeline_run_id,
-                artifact_type="clarifications",
-                name=f"clarifications_round_{round_num}",
+                owner_id=self._owner_id,
+                workspace_id=self._workspace_id or "",
+                kind="clarifications",
+                producer_step=f"clarify_round_{round_num}",
+                producer_agent="clarify-agent",
+                task_id=None,
                 content=json.dumps(qa_pairs),
-                producing_agent_id="clarify-agent",
+                location="artifact_refs/clarifications",
+                visibility="workspace",
             )
+            store = ScopedStore(
+                owner_id=self._owner_id, workspace_id=self._workspace_id
+            )
+            await store.write_ref(ref)
         except Exception as exc:
             logger.warning("Failed to persist clarifications: %s", exc)
 

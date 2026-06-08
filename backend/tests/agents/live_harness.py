@@ -605,7 +605,7 @@ async def drive_engine_pipeline(
         _forced_ctx, _forced_verdict = planner_result
 
         async def _forced_run_planner(
-            user_message, pipeline_run_id, model_id, cancel_event, ptype="custom"
+            user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs
         ):
             return dict(_forced_ctx), _forced_verdict
 
