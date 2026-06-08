@@ -208,13 +208,25 @@ Plans:
   4. prototype/od_/revision/ppt/code-gen at deliverable parity + semantic event parity vs the post-0C baseline
 
 **Plans**: 5 plans
-
 Plans:
+**Wave 1**
 
 - [ ] 07-01-PLAN.md — `single_shot` + `task_loop` strategies + `heading_tasks` parser + the D-02 resolve seam + D-03 runner handle (PARITY-01)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 07-02-PLAN.md — `single_file`/`serialized_sandbox`/`streamed_text`/`ppt` resolvers + `opendesign`/`previous_run` providers + seed_files (PARITY-02/03/07)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 07-03-PLAN.md — `html_skeleton` CompactionStrategy re-expressing 0C behind the capability (PARITY-04)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 07-04-PLAN.md — wire the engine to route prototype/od_prototype/prototype_revision through the capabilities + prove 5-pipeline parity while L1–L13 are present-but-dead (PARITY-05/09)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 07-05-PLAN.md — delete kernel leaks L1–L13 + drop pipeline.py + flip ledger rows kernel-scoped + banned-pattern hard-fail + re-verify L14/L15/L16 (PARITY-06/08)
 
 ### Phase 8: Capabilities Hardened — Registry, Gates, Tool Perms, Runtime [3]
