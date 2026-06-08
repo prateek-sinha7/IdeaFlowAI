@@ -449,8 +449,24 @@ class DeepAgentRunner:
             yield {"type": "done", "output": full_output}
 
         except Exception as exc:  # noqa: BLE001 — mirror the legacy swallow
-            # The legacy ``astream_events`` catches and yields an ``error`` event
-            # rather than raising (Phase 3 will promote this to a ``raise``).
+            # B1 (06-05 / MODEL-02, APPROACH B): a classified TRANSIENT THROTTLE is
+            # RE-RAISED so the engine's rebuild-and-retry loop can advance the model
+            # resolver to the next fallback chain id and re-invoke. This is the
+            # documented "promote to raise" the docstring above (and 451/307) already
+            # anticipates — scoped STRICTLY to transient throttles. Everything else
+            # (validation/auth/generic errors) keeps the existing swallow path:
+            # ``yield {"type":"error", ...}`` UNCHANGED, so non-throttle behavior is
+            # byte/semantically identical to today (the engine ignores ``error``
+            # events) — INV-3 parity for the non-throttle path is preserved.
+            from agents.model_policy import _is_transient_throttle
+
+            if _is_transient_throttle(exc):
+                logger.warning(
+                    "DeepAgentRunner.astream_events: re-raising transient throttle "
+                    "for engine fallback (model=%s): %s",
+                    self.model_id, exc,
+                )
+                raise
             logger.exception("DeepAgentRunner.astream_events failed: %s", exc)
             yield {"type": "error", "error": str(exc)}
 
