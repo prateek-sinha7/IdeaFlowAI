@@ -223,7 +223,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 07-04-PLAN.md — wire the engine to route prototype/od_prototype/prototype_revision through the capabilities + prove 5-pipeline parity while L1–L13 are present-but-dead (PARITY-05/09)
+- [x] 07-04-PLAN.md — wire the engine to route prototype/od_prototype/prototype_revision through the capabilities + prove 5-pipeline parity while L1–L13 are present-but-dead (PARITY-05/09)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -348,7 +348,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 4. Manifest + Compiler [1A] | 5/5 | Complete    | 2026-06-07 |
 | 5. Typed Artifacts + Persistence [1B] | 7/7 | Complete    | 2026-06-08 |
 | 6. Model Policy [1C] | 5/5 | Complete    | 2026-06-08 |
-| 7. Prototype as Manifest (Parity Proof) [2] | 3/5 | In Progress|  |
+| 7. Prototype as Manifest (Parity Proof) [2] | 4/5 | In Progress|  |
 | 8. Capabilities Hardened [3] | 0/8 | Not started | - |
 | 9. Local Runtime + Repo (no exec) [4A] | 0/6 | Not started | - |
 | 10. Safe Local Exec [4B] | 0/2 | Not started | - |

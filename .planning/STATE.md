@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-08T21:11:21.486Z"
+last_updated: "2026-06-08T21:47:50.101Z"
 last_activity: 2026-06-08 -- Phase 07 execution started
 progress:
   total_phases: 12
   completed_phases: 6
   total_plans: 31
-  completed_plans: 29
+  completed_plans: 30
   percent: 50
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 ## Current Position
 
 Phase: 07 (prototype-as-manifest-parity-proof-sc-001-2) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-06-08 -- Phase 07 execution started
 
@@ -82,6 +82,7 @@ Progress: [█████░░░░░] 50% (6/12 phases complete)
 | Phase 07 P01 | 35min | 2 tasks | 10 files |
 | Phase 07 P02 | ~30min | 2 tasks | 15 files |
 | Phase 07 P03 | 13min | 1 tasks | 4 files |
+| Phase 07 P04 | 95min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -126,6 +127,7 @@ Recent decisions affecting current work:
 - [Phase 07]: 07-01: D-02 resolve() seam = static dict over a separate _IMPLS map (distinct from _KNOWN), explicit lazy install(); unknown name raises before any lookup (T-07-01-01); D-03 ctx.runner is one object-typed KernelServices handle (concrete class deferred to 07-04); single_shot/task_loop lifted behind ExecutionStrategy with strategy-local task scratch, no kernel/app import, no deep-agent graph (INV-13)
 - [Phase ?]: 07-02: 4 deliverable resolvers decompose _resolve_final_output by deliverable.name (no pipeline_type); ppt owns both carousel-sanitize sites (PARITY-07); opendesign/previous_run providers behind ports; 3 prototype OD loaders RELOCATED to execution_engine/od_context.py (move-don't-copy single home, NOT into the capability which would break the import-linter app-ban; provider composes from boundary od_context per A6); previous_run assert_owns-before-seed with propagating PermissionError (L16)
 - [Phase ?]: 07-03: html_skeleton compaction = byte-identical lift of engine._extract_html_skeleton behind resolve('compaction','html_skeleton'); structural contract (name+compact()), no CompactionStrategy port added; 0C >=50% reduction gate re-pointed at the capability (PARITY-04 preserved) + byte-parity test pins capability==engine; engine copy left live until 07-05
+- [Phase ?]: 07-04: KernelServices(ctx.runner) delegates to engine _run_agent/_run_validation_fix_loop for byte+event parity; per-step dispatch via resolve(strategy).run, deliverable via resolve(deliverable).resolve, generic context injector over context_provider caps; L1-L13 DEAD-not-deleted; 5-pipeline parity GREEN.
 
 ### Pending Todos
 
