@@ -80,6 +80,19 @@ class ExecutionContext:
     # this pure-data module stays free of the helper's ``app.models`` import (the helper
     # lives in the DB-touching ``agents.authz``, not the kernel-pure ``agents.artifacts``).
     scoped_store: object | None = None
+    # model_resolver: the per-run ModelResolver (agents.model_policy.ModelResolver),
+    # constructed at execute() entry once the workflow is compiled (so CompiledWorkflow.model
+    # seeds tier 4). Consulted at each _run_agent model site to pick the effective model id by
+    # the D-02 precedence (override > step.model > AgentSpec.model > workflow.model >
+    # session model_id or Haiku). Typed ``object | None`` (NOT the concrete type) — IDENTICAL
+    # to ``scoped_store`` above — so this pure-data module gains no inbound import (the resolver
+    # imports ``app.core.config``/``agents.workflows``, which this kernel-pure context must not).
+    model_resolver: object | None = None
+    # model_overrides: the validated per-run ``{agent_id → model_id}`` override map (D-08).
+    # Defaults to ``{}`` (this plan; 06-04 wires the WS ingress + catalog validation). Seeds the
+    # resolver's tier-1 (user override) and is persisted to ``run_capabilities`` (06-04). Empty
+    # dict here ⇒ tier 1 never fires ⇒ the parity default holds (INV-3).
+    model_overrides: dict = field(default_factory=dict)
 
     # ── Migrated per-run state (was stashed on the singleton pre-0B) ─────────────────
     # od_context: loaded template / design-system / craft content; flows engine →
