@@ -189,7 +189,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 06-04-PLAN.md — per-agent `model_overrides` ingress + allow-list validation + persist to `run_capabilities` (MODEL-03; HIGH threat)
+- [x] 06-04-PLAN.md — per-agent `model_overrides` ingress + allow-list validation + persist to `run_capabilities` (MODEL-03; HIGH threat)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -335,7 +335,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 3. Token-Trim [0C] | 2/2 | Complete    | 2026-06-07 |
 | 4. Manifest + Compiler [1A] | 5/5 | Complete    | 2026-06-07 |
 | 5. Typed Artifacts + Persistence [1B] | 7/7 | Complete    | 2026-06-08 |
-| 6. Model Policy [1C] | 3/5 | In Progress|  |
+| 6. Model Policy [1C] | 4/5 | In Progress|  |
 | 7. Prototype as Manifest (Parity Proof) [2] | 0/5 | Not started | - |
 | 8. Capabilities Hardened [3] | 0/8 | Not started | - |
 | 9. Local Runtime + Repo (no exec) [4A] | 0/6 | Not started | - |

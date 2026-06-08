@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-08T15:29:02.675Z"
+last_updated: "2026-06-08T15:45:33.306Z"
 last_activity: 2026-06-08 -- Phase 06 execution started
 progress:
   total_phases: 12
   completed_phases: 5
   total_plans: 26
-  completed_plans: 24
+  completed_plans: 25
   percent: 42
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 ## Current Position
 
 Phase: 06 (model-policy-1c) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-06-08 -- Phase 06 execution started
 
@@ -76,6 +76,7 @@ Progress: [██████░░░░] 67% (4/6 plans complete)
 | Phase 06-model-policy-1c P01 | 18min | 2 tasks | 4 files |
 | Phase 06-model-policy-1c P02 | 5min | 1 tasks | 2 files |
 | Phase 06 P03 | 15min | 2 tasks | 4 files |
+| Phase 06 P04 | 18min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -115,6 +116,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 06-03: ModelResolver constructed after compile_for_run() (CompiledWorkflow.model seeds tier 4), carried on ectx.model_resolver; the 3 _run_agent model sites consult it via _resolve_model — INV-3 snapshots byte/semantic-identical
 - [Phase ?]: 06-03: _resolve_model falls back to threaded model_id when ectx.model_resolver is None (direct unit-style _run_agent invocations) — parity-safe (Rule 1 fix); step=None this plan (06-04 wires Step lookup); SmartPlanner left on session id (RESEARCH #2)
 - [Phase ?]: 06-03: ModelPolicy.max_tokens stays doc-only (cap stays settings.MAX_OUTPUT_TOKENS); _is_transient_throttle + set_chain/current/advance shipped for the 06-05 fallback loop
+- [Phase ?]: 06-04: model_overrides validated at ingress (model_id in ModelCatalog.ids() AND agent_id in run agents) reject with invalid_model_override before execute; {} to SQL NULL on persist (INV-3 parity); no new migration
 
 ### Pending Todos
 
