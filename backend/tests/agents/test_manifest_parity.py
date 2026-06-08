@@ -1,19 +1,19 @@
 """Parity tests — the two parity traps that snapshots do NOT catch (MAN-04).
 
 Parity trap #1 — planner: run everywhere.
-  SKIP_PLANNER_FOR_PROTOTYPE = False today (agents/prototype/pipeline.py:63), so
-  skip_planner is ALWAYS False — every dispatchable pipeline (incl. prototype)
-  runs the planner/clarifier. Every dispatchable manifest must therefore declare
+  The legacy prototype planner-skip flag was False, so skip_planner is ALWAYS
+  False — every dispatchable pipeline (incl. prototype) runs the planner/clarifier.
+  That flag (and its module) were DELETED in 07-05; the AUTHORED truth is now the
+  manifest's ``planner: run``. Every dispatchable manifest must therefore declare
   planner: run (NOT planner: skip, despite §10's illustrative YAML). A
   planner: skip would change behavior and break the prototype event snapshots.
 
 Parity trap #2 — clarify.defaults reproduce engine._pipeline_defaults verbatim.
-  The ALWAYS_CLARIFY seeding (engine.py:752-763) keys the default clarifying
-  questions off a per-pipeline dict. With ALWAYS_CLARIFY=False in the offline
-  _drive harness this is NOT exercised by characterization snapshots — this
-  dedicated test is the only guard. The compiled clarify.defaults must equal the
-  engine dict per pipeline; revisions / ids absent from the dict reuse the
-  "custom" list.
+  The clarify-mode auto seeding (engine.py) keys the default clarifying questions
+  off a per-pipeline dict. With the offline _drive harness this is NOT exercised by
+  characterization snapshots — this dedicated test is the only guard. The compiled
+  clarify.defaults must equal the engine dict per pipeline; revisions / ids absent
+  from the dict reuse the "custom" list.
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ from pathlib import Path
 import pytest
 
 from agents.capabilities.registry import CapabilityRegistry
-from agents.prototype.pipeline import SKIP_PLANNER_FOR_PROTOTYPE
 from agents.registry import _INTERNAL_PIPELINES, PIPELINE_AGENTS
 from agents.workflows.compiler import WorkflowCompiler
 from agents.workflows.manifest import load_manifest
@@ -60,10 +59,12 @@ def _compile(workflow_id: str):
 # ---------------------------------------------------------------------------
 
 
-def test_skip_planner_flag_is_false() -> None:
-    # Guards the premise of trap #1: if this ever flips, the manifests + this
-    # test must be revisited (prototype would then declare planner: skip).
-    assert SKIP_PLANNER_FOR_PROTOTYPE is False
+def test_prototype_planner_runs() -> None:
+    # Guards the premise of trap #1, re-expressed via the AUTHORED manifest after
+    # the legacy planner-skip flag (and its module) were deleted in 07-05: the
+    # prototype manifest must declare planner: run (i.e. NOT skip). If this ever
+    # flips, the manifests + this test must be revisited.
+    assert _compile("prototype").planner == "run"
 
 
 @pytest.mark.parametrize(

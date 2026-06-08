@@ -28,7 +28,9 @@ OFFLINE SCAFFOLDING (test-only monkeypatches; NO production code changed):
   * Scripted model injected as ``ctx.model`` (used as-is by the runner).
   * ``_run_planner`` → default PROCEED context (the planner makes a real LLM
     call; prototype pipelines skip it anyway).
-  * ``ALWAYS_CLARIFY`` forced False (the clarifier needs live WS round-trips).
+  * ``compile_for_run`` wrapped to set the compiled ``clarify.mode`` to "off" — the
+    auto-clarify override needs live WS round-trips (replaces the old ALWAYS_CLARIFY=False
+    monkeypatch; the flag was deleted in 07-05 and the behavior is manifest-sourced now).
   * ``ArtifactStore.store`` → async no-op (avoids DB coupling; deterministic).
   * ``_run_review_gate`` → no-op async-gen (the inter-agent gate is engine-level;
     suppressing it keeps the agent-streaming capture non-blocking).
@@ -421,8 +423,22 @@ async def _drive(pipeline_type: str, world: str = "new") -> list[dict]:
     from app.core.config import settings as _settings
     _settings.RUNS_ROOT = _RUNS_ROOT
 
-    # ── Disable ALWAYS_CLARIFY (the clarifier needs live WS round-trips). ─────
-    engine_mod.ALWAYS_CLARIFY = False
+    # ── Disable the auto-clarify gate (the clarifier needs live WS round-trips). ─
+    # The former module-level ALWAYS_CLARIFY flag was deleted in 07-05; the "force
+    # CLARIFY_REQUIRED on every run" behavior is now declared per-workflow by the
+    # manifest ``clarify.mode`` ("auto"), read off the CompiledWorkflow at run entry.
+    # The offline harness has no live WS round-trip, so we wrap ``compile_for_run`` to
+    # flip the compiled clarify.mode to "off" — disabling the auto-clarify override
+    # exactly as setting ALWAYS_CLARIFY=False used to (the planner still runs; only the
+    # PROCEED→CLARIFY_REQUIRED forcing is suppressed). Restored in finally.
+    _orig_compile_for_run = engine_mod.compile_for_run
+
+    def _patched_compile_for_run(pipeline_type, _orig=_orig_compile_for_run):
+        compiled = _orig(pipeline_type)
+        compiled.clarify.mode = "off"
+        return compiled
+
+    engine_mod.compile_for_run = _patched_compile_for_run
 
     specs = get_pipeline_agents(_lookup_type)
 
@@ -509,4 +525,5 @@ async def _drive(pipeline_type: str, world: str = "new") -> list[dict]:
         factory_mod.create_runner = _orig_create_runner
         if _orig_engine_create_runner is not None:
             engine_mod.create_runner = _orig_engine_create_runner
+        engine_mod.compile_for_run = _orig_compile_for_run
     return events

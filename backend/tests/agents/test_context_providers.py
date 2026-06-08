@@ -171,13 +171,17 @@ def test_relocated_loaders_live_in_od_context():
     assert hasattr(oc, "load_prototype_od_context")
 
 
-def test_old_prototype_context_loaders_removed():
-    import agents.prototype.context as old
+def test_old_prototype_context_package_removed():
+    # The three loaders were PHYSICALLY MOVED to execution_engine/od_context.py in
+    # 07-02 (INV-12 move-don't-copy), and the now-empty ``agents.prototype`` package
+    # (context.py + the dead pipeline.py + __init__.py) was DELETED in 07-05. Importing
+    # it must fail — the single home for the loaders is od_context.py (asserted above).
+    import importlib
 
-    # The three loaders are PHYSICALLY MOVED — no longer defined here (INV-12).
-    assert not hasattr(old, "load_prototype_context")
-    assert not hasattr(old, "get_template_injection_parts")
-    assert not hasattr(old, "get_example_html")
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("agents.prototype.context")
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("agents.prototype")
 
 
 # ===========================================================================
