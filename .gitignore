@@ -22,7 +22,7 @@ build/
 *.db
 *.db.*
 *.bak
-
+*uv.lock
 # Virtual environments
 venv/
 .venv/
