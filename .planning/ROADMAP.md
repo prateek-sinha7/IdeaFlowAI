@@ -164,7 +164,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 05-06-PLAN.md — migrate the 6 thin-store artifact-method consumers (planner/produces-loop/`_handle_revision` reads+write/clarifications write/reconnect read) onto `ScopedStore`/`artifact_refs`, `assert_owns`-gated; additive, parity-safe, no deletion (ART-01/03, PERSIST-02) [wave 5]
+- [x] 05-06-PLAN.md — migrate the 6 thin-store artifact-method consumers (planner/produces-loop/`_handle_revision` reads+write/clarifications write/reconnect read) onto `ScopedStore`/`artifact_refs`, `assert_owns`-gated; additive, parity-safe, no deletion (ART-01/03, PERSIST-02) [wave 5]
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
@@ -335,7 +335,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 2. ExecutionContext + Ownership [0B] | 3/3 | Complete    | 2026-06-07 |
 | 3. Token-Trim [0C] | 2/2 | Complete    | 2026-06-07 |
 | 4. Manifest + Compiler [1A] | 5/5 | Complete    | 2026-06-07 |
-| 5. Typed Artifacts + Persistence [1B] | 5/6 | In Progress|  |
+| 5. Typed Artifacts + Persistence [1B] | 6/7 | In Progress|  |
 | 6. Model Policy [1C] | 0/3 | Not started | - |
 | 7. Prototype as Manifest (Parity Proof) [2] | 0/5 | Not started | - |
 | 8. Capabilities Hardened [3] | 0/8 | Not started | - |

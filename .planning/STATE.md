@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-06-07T23:06:52.500Z"
+status: verifying
+last_updated: "2026-06-08T07:49:53.524Z"
 last_activity: 2026-06-08 -- Completed 05-04-PLAN.md (Task 3 reconciled + committed); INV-3 parity GREEN
 progress:
   total_phases: 12
   completed_phases: 4
-  total_plans: 20
-  completed_plans: 19
+  total_plans: 21
+  completed_plans: 20
   percent: 33
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 
 Phase: 05 (Typed Artifacts + Persistence + Ownership [1B]) — EXECUTING
 Plan: 6 of 6
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-08 -- Completed 05-04-PLAN.md (Task 3 reconciled + committed); INV-3 parity GREEN
 
 Progress: [██████░░░░] 67% (4/6 plans complete)
@@ -70,6 +70,7 @@ Progress: [██████░░░░] 67% (4/6 plans complete)
 | Phase 05 P03 | 3min | 2 tasks | 3 files |
 | Phase 05 P04 | 35min | 3 tasks | 6 files |
 | Phase 05 P05 | 7min | 2 tasks | 4 files |
+| Phase 05-typed-artifacts-persistence-ownership-1b P06 | ~40min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -100,6 +101,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 05-04: Typed substrate dual-written alongside the live accumulated_outputs mirror (strangler); engine reads migrated typed-first; mirror deletion deferred to 05-06 (INV-3).
 - [Phase ?]: 05-04: Disk principal (user_id or 'anon') decoupled from DB owner (anon:<session_id>) to keep RunSandbox paths byte-identical (CTX-05); single seq/event_id sink at execute() emit boundary, stripped from the 0A characterization multiset.
 - [Phase ?]: 05-05: owner-scoped /artifacts (lineage tree) + /events (seq>after replay) route through the single ScopedStore; cross-owner -> 404
+- [Phase ?]: 05-06: producer/revision/clarifications writes use visibility=workspace so same-owner cross-run _handle_revision reads pass the owner+visibility scope filter; thin-store artifact consumers fully migrated (05-07 deletion precondition TRUE)
 
 ### Pending Todos
 
