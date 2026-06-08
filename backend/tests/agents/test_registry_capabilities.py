@@ -1,10 +1,10 @@
 """Tests for the capability seam (Phase 4 / 04-01).
 
 Covers:
-  - ``CapabilityRegistry.is_registered(kind, name)`` for all 14 known names.
+  - ``CapabilityRegistry.is_registered(kind, name)`` for all 15 known names.
   - Unknown name / unknown kind rejection.
   - The ``od_prototype -> prototype`` id-alias resolver (single source).
-  - The registered count is exactly 14 (drift guard).
+  - The registered count is exactly 15 (drift guard).
 
 No capability implementations are asserted here — Phase 4 registers NAMES only
 (impls land in Phase 7, trust flags in Phase 8 per D-07).
@@ -26,7 +26,8 @@ from agents.capabilities.base import (
 )
 from agents.capabilities.registry import CapabilityRegistry, _KNOWN
 
-# The authoritative 14 (kind, name) pairs per D-07 / 04-RESEARCH §D-07.
+# The authoritative 15 (kind, name) pairs per D-07 / 04-RESEARCH §D-07,
+# plus the Phase 6 model_catalog name-only registration (06-01 / D-03).
 _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("strategy", "single_shot"),
     ("strategy", "task_loop"),
@@ -42,6 +43,7 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("gate", "human"),
     ("gate", "validation"),
     ("compaction", "html_skeleton"),
+    ("model_catalog", "default"),
 ]
 
 
@@ -66,9 +68,9 @@ def test_unknown_kind_is_rejected(registry: CapabilityRegistry) -> None:
     assert registry.is_registered("bogus_kind", "single_shot") is False
 
 
-def test_registered_count_is_exactly_fourteen() -> None:
-    # Drift guard: registering a 15th name (or dropping one) must trip this.
-    assert len(_KNOWN) == 14
+def test_registered_count_is_exactly_fifteen() -> None:
+    # Drift guard: registering a 16th name (or dropping one) must trip this.
+    assert len(_KNOWN) == 15
     assert set(_KNOWN) == set(_EXPECTED_NAMES)
 
 
