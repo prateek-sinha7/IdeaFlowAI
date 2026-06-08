@@ -190,16 +190,33 @@ async def test_run_event_sink_unarmed_is_noop():
 
 
 @pytest.mark.asyncio
-async def test_run_event_sink_degrades_on_persist_failure():
-    """A persist FAILURE (e.g. the offline harness has no workflow_runs FK row) is
-    swallowed — the byte-identity / parity guard (INV-3): the live stream must never
-    break on a DB error."""
+async def test_run_event_sink_degrades_on_db_persist_failure():
+    """A DB persist FAILURE (the offline harness has no workflow_runs/run_events
+    schema → SQLAlchemyError) is degraded to a warning — the byte-identity / parity
+    guard (INV-3): the live stream must never break on a DB error. WR-02: the
+    degrade is narrowed to the SQLAlchemy error family."""
+    from sqlalchemy.exc import OperationalError
 
     class _BoomStore:
         async def append_event(self, *a, **k):
-            raise RuntimeError("FK violation: no workflow_runs row")
+            raise OperationalError("no such table: run_events", None, Exception())
 
     sink = _RunEventSink()
     sink.arm(_BoomStore(), "run-1")  # type: ignore[arg-type]
-    # Must NOT raise — the failure degrades to a debug log.
+    # Must NOT raise — the DB failure degrades to a warning log.
     await sink.persist(1, str(uuid.uuid4()), "agent_complete", {"k": "v"})
+
+
+@pytest.mark.asyncio
+async def test_run_event_sink_reraises_non_db_persist_failure():
+    """WR-02: a NON-DB persist failure (a real bug — not the offline-harness DB
+    condition) must PROPAGATE, not be masked as a silent no-op."""
+
+    class _BoomStore:
+        async def append_event(self, *a, **k):
+            raise RuntimeError("unexpected non-DB failure")
+
+    sink = _RunEventSink()
+    sink.arm(_BoomStore(), "run-1")  # type: ignore[arg-type]
+    with pytest.raises(RuntimeError, match="unexpected non-DB failure"):
+        await sink.persist(1, str(uuid.uuid4()), "agent_complete", {"k": "v"})
