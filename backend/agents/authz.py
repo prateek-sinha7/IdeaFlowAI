@@ -130,7 +130,7 @@ class ScopedStore:
     # ArtifactRef — write + scoped reads
     # ------------------------------------------------------------------
 
-    async def write_ref(self, ref: Any) -> str:
+    async def write_ref(self, ref: Any, *, force_db_version: bool = False) -> str:
         """Persist an ``ArtifactRef`` dataclass (agents/artifacts/graph.py) to the
         ``artifact_refs`` ORM row and return the row id.
 
@@ -139,10 +139,32 @@ class ScopedStore:
         The principal stamped on the row is the helper's ``(owner_id,
         workspace_id)`` — the row's ``owner_id`` comes from the dataclass when
         present (it carries the producing owner) else the helper principal.
+
+        Versioning source of truth (WR-01 / CR-01): when the caller shares the
+        per-run ``ArtifactGraph`` (the engine path), the dataclass ``version`` and
+        the DB ``COUNT(*)`` agree by construction, so the dataclass value is
+        honored. When the caller CANNOT share a graph (the clarify path constructs
+        a throwaway ``ArtifactGraph`` per round, so its ``version`` is always 1),
+        it must pass ``force_db_version=True`` so the DB ``existing_count + 1`` is
+        the authoritative per-(run, kind) version — keeping the column monotonic
+        across calls (artifact_ref.py:43 invariant) and the reconnect read
+        deterministic (websocket.py orders by ``version ASC`` and takes the last).
+
+        AUTHZ-03 (CR-02): the resolved ``owner_id`` MUST be a real principal — a
+        falsy owner defeats the default-deny filter (an owner-``None`` row matches
+        no scoped read and bypasses the "real principal" invariant), so this single
+        write seam rejects it loudly rather than silently persisting a dead row.
         """
         from sqlalchemy import func
 
         from app.models.artifact_ref import ArtifactRef as ArtifactRefRow
+
+        resolved_owner = getattr(ref, "owner_id", None) or self._owner_id
+        if not resolved_owner:
+            raise ValueError(
+                "artifact_refs.owner_id must be a real principal (AUTHZ-03); "
+                "got a falsy owner from both the ref and the ScopedStore"
+            )
 
         session, owned = self._acquire()
         try:
@@ -154,11 +176,16 @@ class ScopedStore:
                 )
                 .scalar()
             ) or 0
-            version = getattr(ref, "version", None) or (existing_count + 1)
+            if force_db_version:
+                # The caller's dataclass version is not cross-call meaningful
+                # (throwaway graph) — the DB count is authoritative.
+                version = existing_count + 1
+            else:
+                version = getattr(ref, "version", None) or (existing_count + 1)
             row = ArtifactRefRow(
                 id=getattr(ref, "id", None) or str(uuid.uuid4()),
                 run_id=ref.run_id,
-                owner_id=getattr(ref, "owner_id", None) or self._owner_id,
+                owner_id=resolved_owner,
                 workspace_id=getattr(ref, "workspace_id", None)
                 or self._workspace_id,
                 kind=ref.kind,

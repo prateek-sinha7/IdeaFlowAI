@@ -83,7 +83,7 @@ async def test_clarify_engine_no_missing_info_proceeds():
         events.append(e)
 
     ctx = {"execution_gate": "CLARIFY_REQUIRED", "missing_information": []}
-    result = await engine.run("run-clarify-1", ctx, ws)
+    result = await engine.run("run-clarify-1", ctx, ws, owner_id="user-test")
     assert result["execution_gate"] == "PROCEED"
 
 
@@ -110,7 +110,7 @@ async def test_clarify_engine_pause_resume_cycle():
         "missing_information": ["target audience"],
         "explicit_constraints": [],
     }
-    result = await engine.run(pipeline_run_id, ctx, ws)
+    result = await engine.run(pipeline_run_id, ctx, ws, owner_id="user-test")
 
     # questionnaire_ready and questionnaire_complete should both fire
     types = [e["type"] for e in events]
@@ -145,7 +145,7 @@ async def test_clarify_engine_max_rounds():
         "missing_information": ["a", "b", "c", "d", "e"],
         "explicit_constraints": [],
     }
-    result = await engine.run(pipeline_run_id, ctx, ws)
+    result = await engine.run(pipeline_run_id, ctx, ws, owner_id="user-test")
 
     types = [e["type"] for e in events]
     assert "clarification_limit_reached" in types
@@ -176,7 +176,7 @@ async def test_clarify_engine_caps_questions_at_5():
         "missing_information": ["a", "b", "c", "d", "e", "f", "g"],  # 7 items
         "explicit_constraints": [],
     }
-    await engine.run(pipeline_run_id, ctx, ws)
+    await engine.run(pipeline_run_id, ctx, ws, owner_id="user-test")
     # First round must cap at 5
     assert captured_question_counts[0] == 5
 

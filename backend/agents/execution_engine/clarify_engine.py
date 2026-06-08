@@ -69,6 +69,8 @@ class ClarifyEngine:
         # responses) — only the clarifications PAYLOAD write is migrated to
         # artifact_refs in 05-06. owner_id/workspace_id are threaded in via run().
         self._store = get_artifact_store()
+        # Set to the real owner principal in run() (AUTHZ-03 — never None once
+        # run() has validated owner_id); None only before the gate runs.
         self._owner_id: str | None = None
         self._workspace_id: str | None = None
 
@@ -90,9 +92,12 @@ class ClarifyEngine:
             clarify_agent: Optional DeepAgent instance for the Clarify_Agent.
                            When None (Phase 2 default), questions are derived from
                            the planning_context's missing_information list.
-            owner_id: The run owner principal (user.id or anon:<session_id>) — the
-                      clarifications payload is owner-scoped so the reconnect read
-                      (websocket.py) returns nothing for a non-owner (T-5-IDOR).
+            owner_id: REQUIRED real owner principal (user.id or anon:<session_id>).
+                      The signature keeps a keyword default for back-compat, but a
+                      falsy value raises ValueError at entry (AUTHZ-03) rather than
+                      silently persisting an owner-None row. The clarifications
+                      payload is owner-scoped so the reconnect read (websocket.py)
+                      returns nothing for a non-owner (T-5-IDOR).
             workspace_id: The run's workspace id (paired with owner_id for the
                           artifact_refs row).
 
@@ -100,6 +105,15 @@ class ClarifyEngine:
             The planning_context with merged clarification answers and an
             updated execution_gate (set to PROCEED once clarification completes).
         """
+        # AUTHZ-03 / CR-02: a real owner principal is required. The clarifications
+        # payload is owner-scoped (artifact_refs.owner_id is nullable=False and the
+        # default-deny filter must always have a real owner); a falsy owner would
+        # otherwise be caught only at the DB layer (IntegrityError) and silently
+        # swallowed, dropping the clarifications row. Fail loud at the seam instead.
+        if not owner_id:
+            raise ValueError(
+                "ClarifyEngine.run requires a real owner_id (AUTHZ-03)"
+            )
         self._owner_id = owner_id
         self._workspace_id = workspace_id
         round_num = 0
@@ -416,26 +430,51 @@ class ClarifyEngine:
                     "round": round_num,
                 }
             )
+        # CR-01 / WR-01: a fresh throwaway ArtifactGraph is constructed per round,
+        # so its in-memory per-(run, kind) count is always 0 and ref.version is
+        # always 1. The DB — not this graph — is the cross-call versioning source
+        # of truth here, so we pass force_db_version=True to ScopedStore.write_ref
+        # so it stamps existing_count + 1. This keeps clarifications rows monotonic
+        # per round (round 1→v1, round 2→v2, …) and makes the websocket reconnect
+        # read (order_by version ASC, take [-1]) deterministically return the
+        # newest round.
+        graph = ArtifactGraph()
+        ref = graph.write_ref(
+            run_id=pipeline_run_id,
+            owner_id=self._owner_id,
+            workspace_id=self._workspace_id or "",
+            kind="clarifications",
+            producer_step=f"clarify_round_{round_num}",
+            producer_agent="clarify-agent",
+            task_id=None,
+            content=json.dumps(qa_pairs),
+            location="artifact_refs/clarifications",
+            visibility="workspace",
+        )
+        store = ScopedStore(
+            owner_id=self._owner_id, workspace_id=self._workspace_id
+        )
+        # WR-02 / CR-02: do NOT swallow the persist on a bare Exception. The
+        # AUTHZ-03 guard in ScopedStore.write_ref raises ValueError on a falsy
+        # owner — a real bug that must propagate. Only the offline-characterization
+        # harness condition (no artifact_refs/workflow_runs schema → SQLAlchemy
+        # OperationalError / IntegrityError) is degraded to a warning so the live
+        # clarify flow is never broken; any non-DB exception propagates loudly.
+        from sqlalchemy.exc import SQLAlchemyError
+
         try:
-            graph = ArtifactGraph()
-            ref = graph.write_ref(
-                run_id=pipeline_run_id,
-                owner_id=self._owner_id,
-                workspace_id=self._workspace_id or "",
-                kind="clarifications",
-                producer_step=f"clarify_round_{round_num}",
-                producer_agent="clarify-agent",
-                task_id=None,
-                content=json.dumps(qa_pairs),
-                location="artifact_refs/clarifications",
-                visibility="workspace",
+            await store.write_ref(ref, force_db_version=True)
+        except SQLAlchemyError as exc:
+            # Missing-table (OperationalError) / missing-FK (IntegrityError) —
+            # the offline harness has no DB schema. Surfaced at warning with the
+            # run context so a genuine prod persistence failure is observable
+            # (not a silent debug no-op).
+            logger.warning(
+                "clarifications persist failed for run %s round %d (%s) — "
+                "DB write degraded (offline harness / schema unavailable); "
+                "live clarify flow unaffected",
+                pipeline_run_id, round_num, exc,
             )
-            store = ScopedStore(
-                owner_id=self._owner_id, workspace_id=self._workspace_id
-            )
-            await store.write_ref(ref)
-        except Exception as exc:
-            logger.warning("Failed to persist clarifications: %s", exc)
 
     def _merge_answers(
         self,
