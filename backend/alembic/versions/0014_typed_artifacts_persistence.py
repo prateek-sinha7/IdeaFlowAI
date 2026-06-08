@@ -178,9 +178,13 @@ def upgrade() -> None:
     workflow_runs = sa.Table("workflow_runs", meta, autoload_with=bind)
     workspaces = sa.Table("workspaces", meta, autoload_with=bind)
 
-    now = sa.func.now()
+    # WR-07: backfill ONLY runs that are not already scoped. Without the
+    # ``workspace_id IS NULL`` guard a partial/retried upgrade() would create a
+    # SECOND workspace row for runs already backfilled by the first attempt.
+    # Additive migrations must be defensive against partial application.
     existing = bind.execute(
         sa.select(workflow_runs.c.id, workflow_runs.c.user_id)
+        .where(workflow_runs.c.workspace_id.is_(None))
     ).fetchall()
 
     for run_id, user_id in existing:
@@ -193,7 +197,9 @@ def upgrade() -> None:
                 kind="sandbox",
                 runtime="local",
                 ttl="run_ttl",
-                created_at=now,
+                # WR-07: evaluate now() per-row so backfilled workspaces do not all
+                # share one identical created_at (which would hide ordering).
+                created_at=sa.func.now(),
             )
         )
         bind.execute(
