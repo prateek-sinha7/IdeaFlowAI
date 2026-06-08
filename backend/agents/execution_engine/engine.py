@@ -2663,6 +2663,34 @@ class ExecutionEngine:
         # resolve through the owner+visibility scope filter for the same owner.
         store = ScopedStore(owner_id=owner_id)
 
+        # WR-06: revision runs are invoked OUTSIDE the execute() wrapper, so their
+        # events would otherwise carry no seq/event_id and write no run_events row —
+        # leaving a revision run with artifacts but an empty event ledger, breaking
+        # the idempotent-replay contract (API-05) for that run class. Route every
+        # revision emit through the SAME stamping+persist path execute() uses: arm a
+        # run-events sink with this run's scoped store and stamp a monotonic seq +
+        # unique event_id onto each event's data before sending. Persist is
+        # best-effort (offline harness has no workflow_runs FK row → degrade).
+        _rev_sink = _RunEventSink()
+        if owner_id:
+            _rev_sink.arm(store, pipeline_run_id)
+        _rev_counter = itertools.count(1)
+        _raw_send_fn = websocket_send_fn
+
+        async def _stamped_send(event: dict) -> None:
+            data = event.get("data")
+            if not isinstance(data, dict):
+                data = {}
+                event["data"] = data
+            _seq = next(_rev_counter)
+            _eid = str(uuid.uuid4())
+            data["seq"] = _seq
+            data["event_id"] = _eid
+            await _rev_sink.persist(_seq, _eid, event.get("type", ""), data)
+            await _raw_send_fn(event)
+
+        websocket_send_fn = _stamped_send
+
         # T-5-SEED: assert the caller owns the parent run BEFORE any cross-run read.
         # A cross-owner caller raises PermissionError (never reads another owner's
         # artifacts); an absent/TTL-swept parent returns None (same-owner degrade).
