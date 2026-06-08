@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-08T20:12:45.607Z"
+last_updated: "2026-06-08T20:32:58.887Z"
 last_activity: 2026-06-08 -- Phase 07 execution started
 progress:
   total_phases: 12
   completed_phases: 6
   total_plans: 31
-  completed_plans: 26
+  completed_plans: 27
   percent: 50
 ---
 
@@ -25,8 +25,8 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 ## Current Position
 
 Phase: 07 (prototype-as-manifest-parity-proof-sc-001-2) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 07
+Plan: 2 of 5
+Status: Ready to execute
 Last activity: 2026-06-08 -- Phase 07 execution started
 
 Progress: [█████░░░░░] 50% (6/12 phases complete)
@@ -79,6 +79,7 @@ Progress: [█████░░░░░] 50% (6/12 phases complete)
 | Phase 06 P03 | 15min | 2 tasks | 4 files |
 | Phase 06 P04 | 18min | 2 tasks | 4 files |
 | Phase 06 P05 | 35min | 2 tasks | 4 files |
+| Phase 07 P01 | 35min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -120,6 +121,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 06-03: ModelPolicy.max_tokens stays doc-only (cap stays settings.MAX_OUTPUT_TOKENS); _is_transient_throttle + set_chain/current/advance shipped for the 06-05 fallback loop
 - [Phase ?]: 06-04: model_overrides validated at ingress (model_id in ModelCatalog.ids() AND agent_id in run agents) reject with invalid_model_override before execute; {} to SQL NULL on persist (INV-3 parity); no new migration
 - [Phase ?]: 06-05: MODEL-02 fallback = APPROACH B (engine rebuild-and-retry), NOT with_fallbacks; B1 runner re-raises classified throttles, engine advances ModelResolver + rebuilds via create_runner (build_model only), bounded by chain length, exhaustion surfaces a visible agent_error
+- [Phase 07]: 07-01: D-02 resolve() seam = static dict over a separate _IMPLS map (distinct from _KNOWN), explicit lazy install(); unknown name raises before any lookup (T-07-01-01); D-03 ctx.runner is one object-typed KernelServices handle (concrete class deferred to 07-04); single_shot/task_loop lifted behind ExecutionStrategy with strategy-local task scratch, no kernel/app import, no deep-agent graph (INV-13)
 
 ### Pending Todos
 

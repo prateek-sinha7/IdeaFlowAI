@@ -65,7 +65,7 @@
 
 ### Prototype as Manifest — Parity Proof (Phase 2)
 
-- [ ] **PARITY-01**: Implement `single_shot` + `task_loop` execution strategies (Q8/L7)
+- [x] **PARITY-01**: Implement `single_shot` + `task_loop` execution strategies (Q8/L7)
 - [ ] **PARITY-02**: Implement `single_file` / `serialized_sandbox` / `streamed_text` deliverable resolvers (L2/L9/L10)
 - [ ] **PARITY-03**: Implement the `opendesign` context provider + declared `seed_files` + `heading_tasks` task parser (L11/L12/Q11)
 - [ ] **PARITY-04**: `html_skeleton` registered as a `CompactionStrategy`, re-expressing Phase 0C behind the capability (behavior-preserving vs 0C) (Q35 / L13)
