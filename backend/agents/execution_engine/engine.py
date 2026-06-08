@@ -2495,25 +2495,49 @@ class ExecutionEngine:
                     .all()
                 )
                 restored = 0
+                abandoned = 0
                 for wr in stuck_runs:
                     # WorkflowRun.id is the single run identifier (the
                     # pipeline_run_id column was dropped in migration 0013).
                     pipeline_run_id = wr.id
                     if not pipeline_run_id:
                         continue
-                    # Re-register the asyncio.Event so the run can be resumed
-                    await self._store.get_resume_event(pipeline_run_id)
-                    # Update state machine
-                    try:
-                        self._state_machine.transition(pipeline_run_id, wr.status)
-                    except Exception:
-                        pass
-                    restored += 1
+                    # WR-05: only `waiting_for_user` runs are genuinely resumable —
+                    # they are paused on an asyncio.Event the user's next answer
+                    # sets. Every OTHER non-terminal state (running/generating/…)
+                    # was driven by an in-process coroutine that the restart killed;
+                    # re-arming a resume event + transitioning the state machine
+                    # into that live-looking status would leave the run permanently
+                    # stuck with no driver. Mark those abandoned (failed) instead.
+                    if wr.status == "waiting_for_user":
+                        await self._store.get_resume_event(pipeline_run_id)
+                        try:
+                            self._state_machine.transition(
+                                pipeline_run_id, wr.status
+                            )
+                        except Exception:
+                            pass
+                        restored += 1
+                    else:
+                        # The owning process is gone — no coroutine will ever drive
+                        # this run forward. Fail it loud so it is not a phantom-live
+                        # row. DB write is committed once after the loop.
+                        prior_status = wr.status
+                        wr.status = "failed"
+                        wr.error = (
+                            "Run abandoned: backend restarted while in "
+                            f"'{prior_status}'; no driver after restart (WR-05)."
+                        )
+                        abandoned += 1
+
+                if abandoned:
+                    db.commit()
 
                 elapsed = (datetime.now(timezone.utc) - start).total_seconds()
                 logger.info(
-                    "restore_non_terminal_runs: restored %d run(s) in %.2fs",
-                    restored, elapsed,
+                    "restore_non_terminal_runs: restored %d resumable run(s), "
+                    "marked %d abandoned run(s) failed, in %.2fs",
+                    restored, abandoned, elapsed,
                 )
             finally:
                 db.close()
