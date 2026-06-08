@@ -34,7 +34,7 @@ _BACKEND = _REPO / "backend"
 # Item ids that MUST be present in the ledger (mirror of plan §31; T-03-02 mitigation).
 _REQUIRED_ITEMS = [
     "L14", "L16", "D1", "L13", "L1", "L2/L9", "L3", "L4/L8", "L5", "L6",
-    "L7", "L10", "L11", "L12", "L15", "F1", "F2", "F3", "F4", "F5",
+    "L7", "L10", "L11", "L12", "L15", "D2", "F1", "F2", "F3", "F4", "F5",
 ]
 
 
@@ -122,8 +122,8 @@ def test_deleted_pattern_absent_from_backend(item: str, pattern: str | None) -> 
     )
 
 
-def test_ledger_parses_and_phase0b_flips_l14_l16() -> None:
-    """Every §31 item is present; Phase 0B flips exactly {L14, L16} to ``☑`` (T-03-02).
+def test_ledger_parses_and_phase1b_flips_l14_l15_l16_d2() -> None:
+    """Every §31 item is present; through Phase 1B exactly {D2, L14, L15, L16} are ``☑``.
 
     Phase 1 had every row ``☐``. Phase 0B (plan 02-01/02-02) lifts per-run state into
     ``ExecutionContext``, arming the L14 grep ratchet (``☑``). Plan 02-03 wires the explicit
@@ -133,7 +133,13 @@ def test_ledger_parses_and_phase0b_flips_l14_l16() -> None:
     enforcement lives in ``tests/agents/test_parent_run_ownership.py``. D1 (``_handle_revision``)
     was found **live** during 0B execution — the frontend ``run_revision`` PPT-revision handler,
     not dead code — so its deletion is voided/deferred and it stays ``☐`` (see the ledger ‡
-    note). All later-phase rows remain ``☐``.
+    note).
+
+    Phase 1B (plan 05-07) completes the strangler cutover: it flips **L15** (deletes the
+    prior-agent output mirror dict — arms the bare-token grep ratchet → 0) and adds **D2**
+    (deletes the thin-store artifact half + the thin artifact ORM model + its table via
+    alembic ``0015`` — the gate greps the deleted model import path → 0). All later-phase
+    rows (L1–L13, F1–F5) remain ``☐``.
     """
     text = _LEDGER.read_text()
     rows = _parse_rows(text)
@@ -141,8 +147,8 @@ def test_ledger_parses_and_phase0b_flips_l14_l16() -> None:
     missing = [i for i in _REQUIRED_ITEMS if i not in ids]
     assert not missing, f"ledger drifted from §31 — missing rows: {missing}"
     flipped = sorted(item for item, _g, status in rows if "☑" in status)
-    assert flipped == ["L14", "L16"], (
-        f"Phase 0B expects exactly {{L14, L16}} flipped to ☑, found: {flipped}"
+    assert flipped == ["D2", "L14", "L15", "L16"], (
+        f"Through Phase 1B exactly {{D2, L14, L15, L16}} flipped to ☑, found: {flipped}"
     )
 
 

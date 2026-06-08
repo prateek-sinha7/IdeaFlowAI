@@ -60,7 +60,8 @@ The `Deletion gate` column holds one of two things, distinguished by the parser:
 | L10 | `pipeline_type in ("od_prototype","prototype")` HTML readback `engine.py:1328-1335` | `task_loop` reads `deliverable.name` | 2 | `pipeline_type in \("od_prototype", ?"prototype"\)` | ☐ | |
 | L11 | build-loop internals `engine.py:1450-1704,2554-2563` | `TaskLoopStrategy`+`TaskParser`+validators+fix-loop+`seed_files` | 2 | `_run_build_task_loop\|_write_build_reference_files\|_count_plan_tasks\|_extract_task_block\|_run_validation_fix_loop\|_load_template_example` | ☐ | |
 | L12 | `_build_context_message` od/ppt/build injection `engine.py:2378-2512` | `ContextProvider` + generic injector | 2 | `_build_context_message` | ☐ | |
-| L15 | `accumulated_outputs: dict[str,str]` mirror (throughout) | `ArtifactGraph`/`ArtifactRef` (§17) | 1A→**1B (delete mirror)** | `accumulated_outputs` | ☐ | |
+| L15 | `accumulated_outputs: dict[str,str]` mirror (throughout) | `ArtifactGraph`/`ArtifactRef` (§17) | 1A→**1B (delete mirror)** | `accumulated_outputs` | ☑ | aa68dc9 |
+| D2 | thin-store artifact half (`store`/`retrieve_latest`/`retrieve_version`/`list_by_type`/`list_lineage`) + `WorkflowArtifact` model + `workflow_artifacts` table | `artifact_refs` + `ScopedStore` (§18) / alembic `0015` | 1B | `from app\.models\.artifact import` | ☑ | 26863bc |
 | F1 | prompt-assembly inline order `factory.py:174-255` | `PromptAssemblyPolicy` (§6/§30) | 3 | `blocks\.append` | ☐ | |
 | F2 | `_build_runner_tools` closed switch `factory.py:384-446` | `tool_provider` registry (§30) | 3 | `_build_runner_tools` | ☐ | |
 | F3 | inline skills/hooks injection `factory.py:220-245` | `skill_provider` / `hook_provider` (§30) | 3 | `_inject_skills\|_inject_hooks` | ☐ | |
