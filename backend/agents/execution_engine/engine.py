@@ -1241,32 +1241,66 @@ class ExecutionEngine:
 
         results: list[dict] = []
 
+        # ── KernelServices runner handle (D-03) — the SINGLE seam capabilities ──
+        # reach the kernel/app primitives through (INV-13/hexagonal). Constructed
+        # here, after the sandbox + compiled plan + per-run ExecutionContext, and
+        # attached to ctx.runner so the routed strategies / deliverable resolvers /
+        # context providers call _run_agent / sandbox / static_check / render_check /
+        # serialize/count WITHOUT importing the kernel. The handle wraps the engine's
+        # EXISTING _run_agent (which wraps create_deep_agent via langchain_deepagents —
+        # INV-13, no hand-rolled agent loop) so the routed path is byte/event identical.
+        from agents.execution_engine.kernel_services import KernelServices
+
+        ectx.runner = KernelServices(
+            engine=self,
+            ectx=ectx,
+            sandbox=sandbox,
+            ordered_agents=ordered_agents,
+            user_message=user_message,
+            pipeline_run_id=pipeline_run_id,
+            pipeline_type=pipeline_type,
+            planning_context=planning_context,
+            attached_skills=attached_skills,
+            attached_hooks=attached_hooks,
+            model_id=model_id,
+            results=results,
+            cancel_event=cancel_event,
+        )
+
+        # ── Per-step capability dispatch (INV-1) — NO spec.id/pipeline_type branch ──
+        # The compiled plan's Step.strategy names the execution-strategy capability for
+        # each agent (task_loop for the prototype build step; single_shot for every
+        # other step). The engine routes per-step via
+        # registry.resolve("strategy", step.strategy).run(step, ctx) — the L7 build-vs-
+        # else dispatch (`if spec.id == "prototype-build"`) is no longer reached on the
+        # routed path (its definition stays dead until 07-05). install() is lazy-bound
+        # by resolve(); the compiled steps align 1:1 with ordered_agents (asserted at
+        # compile-time above), so we zip them by index for the per-step strategy name.
+        from agents.capabilities.registry import CapabilityRegistry as _CapReg
+
+        _registry = _CapReg()
+        _steps_by_agent = {s.agent_id: s for s in compiled.steps}
+
         try:
             for i, spec in enumerate(ordered_agents):
                 if cancel_event and cancel_event.is_set():
                     logger.info("Workflow cancelled before agent %s", spec.id)
                     break
 
-                # ── Task-loop agents: call repeatedly until all tasks done ──
-                # The prototype-build agent executes one task per call.
-                # We call it N times (once per task) so each call is small
-                # and focused — never runs out of tokens filling all pages.
-                if getattr(spec, "id", None) == "prototype-build":
-                    async for event in self._run_build_task_loop(
-                        spec, i, ordered_agents, user_message,
-                        sandbox, pipeline_run_id, pipeline_type, planning_context,
-                        attached_skills, attached_hooks, model_id, results, cancel_event,
-                        ectx,
-                    ):
-                        yield event
-                else:
-                    async for event in self._run_agent(
-                        spec, i, ordered_agents, user_message,
-                        sandbox, pipeline_run_id, pipeline_type, planning_context,
-                        attached_skills, attached_hooks, model_id, results, cancel_event,
-                        ectx,
-                    ):
-                        yield event
+                # Resolve the per-step strategy capability by manifest name (D-02).
+                # Fall back to single_shot when a step is absent from the compiled
+                # plan (defensive — a populated plan is asserted above for every run).
+                step = _steps_by_agent.get(spec.id)
+                strategy_name = getattr(step, "strategy", "single_shot") if step else "single_shot"
+                if step is None:
+                    # Synthesize a minimal step carrying the agent id so the handle
+                    # can resolve the AgentSpec (single_shot needs only agent_id).
+                    from agents.workflows.plan import Step as _Step
+
+                    step = _Step(agent_id=spec.id, strategy=strategy_name)
+                strategy = _registry.resolve("strategy", strategy_name)
+                async for event in strategy.run(step, ectx):
+                    yield event
 
         except asyncio.CancelledError:
             self._state_machine.transition(pipeline_run_id, "cancelled")
@@ -1372,26 +1406,32 @@ class ExecutionEngine:
             compiled.deliverable.name,
         )
 
-        # ── Resolve the deliverable (WorkflowRun.output) by pipeline class ──────
-        # Single source of truth: _resolve_final_output reads prototype.html for
-        # prototype / od_prototype / revision, serializes the sandbox for code-gen,
-        # and uses the streamed output (with <artifact> unwrapped) for text/PPT. So
-        # the build's reference scaffolding (spec.md/design.md/tasks.md) can never be
-        # serialized into the output, and design.md's <artifact> example can never be
-        # mis-extracted as the deliverable.
-        final_output = _resolve_final_output(
-            pipeline_type,
-            sandbox,
-            results,
-            revision_original_html=ectx.revision_original_html,
-        )
+        # ── Resolve the deliverable via the declared resolver capability (INV-1) ──
+        # The deliverable resolver NAME is declared on compiled.deliverable.strategy
+        # (single_file / serialized_sandbox / streamed_text / ppt), validated against
+        # the registry at compile time. The engine routes resolution through
+        # registry.resolve("deliverable", compiled.deliverable.strategy).resolve(ctx),
+        # reading deliverable.name — NO _resolve_final_output pipeline_type branch on
+        # the routed path (its definition stays dead until 07-05). The resolver reads
+        # the run state off ctx: ctx.deliverable (the compiled spec), ctx.last_streamed
+        # (the final agent's streamed output), ctx.revision_original_html (the seeded
+        # original), and the sandbox via ctx.runner. The ppt resolver owns the carousel
+        # sanitize (PARITY-07) so the inline _sanitize_carousel_deck_html call site is
+        # gone too. serialized_sandbox returns None when the sandbox holds 0 deliverable
+        # files (the legacy count>0 guard); the engine then falls back to streamed_text
+        # — byte-identical to the legacy code-gen→text fall-through.
+        ectx.deliverable = compiled.deliverable
+        ectx.last_streamed = results[-1]["output"] if results else ""
 
-        # ── PPT carousel deck: strip slide-hiding CSS the composer may hallucinate ──
-        # A horizontal-carousel deck navigates by translating .stage; rules like
-        # `.slide:not(.active){display:none}` remove slides 2..N so only slide 1 shows.
-        # Deterministic backstop scoped strictly to ppt/od_ppt (never prototype HTML).
-        if pipeline_type in _PPT_PIPELINE_TYPES and final_output:
-            final_output = _sanitize_carousel_deck_html(final_output)
+        _deliverable_strategy = compiled.deliverable.strategy or "streamed_text"
+        _resolver = _CAPABILITY_REGISTRY.resolve("deliverable", _deliverable_strategy)
+        final_output = _resolver.resolve(ectx)
+        if final_output is None:
+            # The declared resolver did not claim the deliverable (serialized_sandbox
+            # with 0 files) — fall back to the streamed-text resolver (legacy parity).
+            final_output = _CAPABILITY_REGISTRY.resolve(
+                "deliverable", "streamed_text"
+            ).resolve(ectx)
 
         # (Prototype revisions are now produced by the agent editing
         # prototype.html in the workspace directly — see the output-capture

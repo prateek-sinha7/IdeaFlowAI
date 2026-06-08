@@ -230,22 +230,17 @@ class TaskLoopStrategy:
             current_task_block = task_blocks[task_num - 1]
 
             # ── task-2+ compaction (D-02 route) ──────────────────────────────────
+            # The compaction capability is RESOLVED here by manifest name (D-02) so
+            # the route is genuinely capability-driven. During 07-04 (parity proof,
+            # strangler "rewire") the per-task prompt's skeleton injection STILL
+            # rides the engine's _build_context_message (delegated through
+            # runner.run_agent -> _run_agent), so the strategy does NOT inject the
+            # skeleton into the task block (that would double-inject). 07-05 deletes
+            # _build_context_message and the skeleton injection moves fully here.
             if task_num >= 2 and compaction_name:
-                compactor = self._maybe_resolve_compaction(compaction_name)
-                if compactor is not None:
-                    try:
-                        prior_html = runner.sandbox.read("prototype.html") or ""
-                        skeleton = compactor.compact(prior_html)
-                        # The skeleton is injected into the per-task prompt by the
-                        # handle (07-04 threads it); pass it through run_agent.
-                        current_task_block = (
-                            f"{current_task_block}\n\n"
-                            f"=== CURRENT PROTOTYPE SKELETON ===\n{skeleton}"
-                            if skeleton
-                            else current_task_block
-                        )
-                    except Exception as exc:  # noqa: BLE001 — compaction must not abort the build
-                        logger.warning("task_loop: compaction failed (%s) — continuing", exc)
+                # Resolve-by-name to confirm the route binds (parity-safe no-op on
+                # the prompt — the engine path performs the actual injection).
+                _ = self._maybe_resolve_compaction(compaction_name)
 
             # Emit loop progress so the frontend knows which task is running.
             yield {
@@ -269,16 +264,34 @@ class TaskLoopStrategy:
             ):
                 yield event
 
+            # Typed-write the post-task HTML (ART-03) so the NEXT task's prompt
+            # skeleton reads the most recent document — mirrors the legacy build
+            # loop's per-task dual-write (no event emitted; INV-3 parity).
+            if hasattr(runner, "persist_task_html"):
+                await runner.persist_task_html(task_num, agent_id=agent_id)
+
             # ── Both-validation + bounded internal fix-loop ──────────────────────
+            # Routed through the handle (the engine's _run_validation_fix_loop) so
+            # the fix wording / thread-id / N=2 bound / consume-internally contract
+            # is byte-identical to the legacy build loop (INV-3). The handle owns the
+            # AgentContext construction the loop needs.
             if cancel_event is not None and cancel_event.is_set():
                 break
-            await self._run_validation_fix_loop(
-                runner,
-                task_num=task_num,
-                total_tasks=total_tasks,
-                cancel_event=cancel_event,
-                agent_id=agent_id,
-            )
+            if hasattr(runner, "run_validation_fix_loop"):
+                await runner.run_validation_fix_loop(
+                    step,
+                    task_num=task_num,
+                    total_tasks=total_tasks,
+                    agent_id=agent_id,
+                )
+            else:  # pragma: no cover — fake handle without the validation method
+                await self._run_validation_fix_loop(
+                    runner,
+                    task_num=task_num,
+                    total_tasks=total_tasks,
+                    cancel_event=cancel_event,
+                    agent_id=agent_id,
+                )
 
         logger.info("task_loop: finished %d tasks for pipeline=%s", total_tasks, run_id)
 
