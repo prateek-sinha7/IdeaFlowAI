@@ -122,8 +122,17 @@ class _RunEventSink:
                 self._run_id, seq, event_id, type, payload_json
             )
         except Exception as exc:  # noqa: BLE001 — never break the live stream
-            logger.debug(
+            # WR-02: narrow the degrade to the offline-harness DB condition
+            # (no schema → SQLAlchemyError). Surface it at WARNING with the run
+            # context so a genuine prod persistence loss is observable instead of
+            # a silent debug no-op; any non-DB exception is a real bug → re-raise.
+            from sqlalchemy.exc import SQLAlchemyError
+
+            if not isinstance(exc, SQLAlchemyError):
+                raise
+            logger.warning(
                 "run_events persist failed for run %s seq %d (%s) — "
+                "DB write degraded (offline harness / schema unavailable); "
                 "stream unaffected (PERSIST-03 best-effort)",
                 self._run_id, seq, exc,
             )
@@ -727,6 +736,13 @@ class ExecutionEngine:
                 pipeline_run_id, runtime="langchain_deepagents"
             )
         except Exception as _scope_exc:  # noqa: BLE001 — never break a run on DB persist
+            # WR-02: degrade ONLY the offline-harness DB condition (no schema →
+            # SQLAlchemyError); a non-DB exception is a real bug → re-raise so it
+            # is not masked as a silent no-op.
+            from sqlalchemy.exc import SQLAlchemyError
+
+            if not isinstance(_scope_exc, SQLAlchemyError):
+                raise
             logger.warning(
                 "execute(): workspace/capabilities persist failed (%s) — proceeding "
                 "(typed-substrate DB writes degrade; deliverable/events unaffected)",
@@ -2859,9 +2875,18 @@ class ExecutionEngine:
             try:
                 await store.write_ref(ref)
             except Exception as exc:  # noqa: BLE001 — never break the run on DB persist
-                logger.debug(
-                    "artifact_refs persist failed for run %s kind %s (%s) — typed "
-                    "graph + mirror unaffected (PERSIST-02 best-effort)",
+                # WR-02: degrade ONLY the offline-harness DB condition (no schema →
+                # SQLAlchemyError). Surface at WARNING with run/kind context so a
+                # genuine prod artifact-persistence loss is observable; the
+                # AUTHZ-03 ValueError and any other non-DB exception propagate.
+                from sqlalchemy.exc import SQLAlchemyError
+
+                if not isinstance(exc, SQLAlchemyError):
+                    raise
+                logger.warning(
+                    "artifact_refs persist failed for run %s kind %s (%s) — "
+                    "DB write degraded (offline harness / schema unavailable); "
+                    "typed graph unaffected (PERSIST-02 best-effort)",
                     ectx.run_id, kind, exc,
                 )
 
