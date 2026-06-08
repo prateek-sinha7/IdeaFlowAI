@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-08T14:59:28.268Z"
+last_updated: "2026-06-08T15:07:44.774Z"
 last_activity: 2026-06-08 -- Phase 06 execution started
 progress:
   total_phases: 12
   completed_phases: 5
   total_plans: 26
-  completed_plans: 22
+  completed_plans: 23
   percent: 42
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 ## Current Position
 
 Phase: 06 (model-policy-1c) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-06-08 -- Phase 06 execution started
 
@@ -74,6 +74,7 @@ Progress: [██████░░░░] 67% (4/6 plans complete)
 | Phase 05-typed-artifacts-persistence-ownership-1b P06 | ~40min | 3 tasks | 8 files |
 | Phase 05 P07 P07 | ~55 min | 3 tasks | 23 files |
 | Phase 06-model-policy-1c P01 | 18min | 2 tasks | 4 files |
+| Phase 06-model-policy-1c P02 | 5min | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -108,6 +109,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 05-07: deleted accumulated_outputs mirror + thin-store artifact half + WorkflowArtifact (0015); typed ArtifactGraph sole impl; phase 05 DONE; L15+D2 done
 - [Phase ?]: 06-01: ModelCatalog is the single source of model ids/metadata (INV-12); AVAILABLE_MODELS/_VALID_MODEL_IDS are projections
 - [Phase ?]: 06-01: catalog stores both tier (display) and cost_class (canonical), asserted consistent (D-04); name-only registry membership (D-03)
+- [Phase ?]: 06-02: AGENT.md model parsed with a load-time type guard only; catalog-membership validation deferred to the resolver (06-03), keeping the loader catalog-free (D-09)
+- [Phase ?]: 06-02: AgentSpec.model is fully additive (str|None, default None); all ~80 existing agents load unchanged
 
 ### Pending Todos
 

@@ -16,3 +16,10 @@ by this plan's changes (catalog/registry/settings projection). Logged, not fixed
 These do not touch `model_catalog.py`, `registry.py`, or `settings.py::AVAILABLE_MODELS`.
 The plan's own gate subset (loader / banned-pattern / migration-ledger) and the catalog
 suite are fully green; `lint-imports` is 3-kept / 0-broken.
+
+## 06-02 (re-confirmed)
+
+Same 9 failures reproduced unchanged in the `tests/agents/ tests/unit/` run for 06-02
+(`test_logout.py` self-registration 403; `test_pipeline_cancel.py` async/expired-token).
+06-02 touches only `agents/loader.py` + `tests/agents/test_loader.py` — neither suite
+imports the loader. Out of scope; not fixed. `tests/agents/test_loader.py` is 44/44 green.

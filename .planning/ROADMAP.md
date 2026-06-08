@@ -181,7 +181,7 @@ Plans:
 **Wave 1**
 
 - [x] 06-01-PLAN.md — `ModelCatalog` single-source capability + registry name + `AVAILABLE_MODELS` projection (MODEL-04, INV-12)
-- [ ] 06-02-PLAN.md — AGENT.md optional `model` field → `AgentSpec.model` (loader, backs resolver tier 3)
+- [x] 06-02-PLAN.md — AGENT.md optional `model` field → `AgentSpec.model` (loader, backs resolver tier 3)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -335,7 +335,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 3. Token-Trim [0C] | 2/2 | Complete    | 2026-06-07 |
 | 4. Manifest + Compiler [1A] | 5/5 | Complete    | 2026-06-07 |
 | 5. Typed Artifacts + Persistence [1B] | 7/7 | Complete    | 2026-06-08 |
-| 6. Model Policy [1C] | 1/5 | In Progress|  |
+| 6. Model Policy [1C] | 2/5 | In Progress|  |
 | 7. Prototype as Manifest (Parity Proof) [2] | 0/5 | Not started | - |
 | 8. Capabilities Hardened [3] | 0/8 | Not started | - |
 | 9. Local Runtime + Repo (no exec) [4A] | 0/6 | Not started | - |
