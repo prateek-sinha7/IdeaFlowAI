@@ -31,11 +31,12 @@ def test_constructs_with_only_required_fields_defaulting_the_rest() -> None:
     assert ectx.cancel_event is None
     assert ectx.depth == 0
     assert ectx.current_task_block == ""
+    assert ectx.build_task_number == ""
+    assert ectx.build_task_total == ""
     assert ectx.revision_original_html == ""
     assert ectx.revision_instruction is None
     # Mutable defaults are empty containers.
     assert ectx.completed_tasks == []
-    assert ectx.accumulated_outputs == {}
     assert ectx.disk_skills == {}
     assert ectx.revision_baseline_static == set()
     assert ectx.revision_baseline_console == set()

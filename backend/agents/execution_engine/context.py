@@ -15,8 +15,8 @@ This is the engine-level, per-RUN container. It is DISTINCT from
 
 D-01 minimal field set ONLY: just the fields with real backing today. The dataclass
 grows in each later phase as its types land. Phase 5 (05-04) lands the FIRST typed
-substrate fields: ``artifacts: ArtifactGraph`` (the per-run typed handoff that replaces
-the untyped ``accumulated_outputs`` mirror — INV-3), ``workspace_id`` (the default per-run
+substrate fields: ``artifacts: ArtifactGraph`` (the per-run typed handoff that replaced
+the untyped prior-agent output mirror — INV-3, deleted 05-07), ``workspace_id`` (the default per-run
 workspace row id — D-04), and ``disk_principal`` (the decoupled byte-identity-guard
 principal — D-09; see below). The remaining heavy later-phase fields (the compiled-workflow
 plan, the budget manager, the model resolver) are still NOT laid down here — their types do
@@ -58,9 +58,9 @@ class ExecutionContext:
 
     # ── Typed substrate + workspace (Phase 5 / 05-04) ────────────────────────────────
     # artifacts: the per-run in-memory typed artifact graph (ART-01). The engine
-    # dual-writes ArtifactRefs here (and through the scoped store to the DB) alongside the
-    # still-live accumulated_outputs mirror, and reads consume() from here (05-04). The
-    # mirror is removed in 05-06 once parity proves the cutover (INV-3).
+    # writes ArtifactRefs here (and through the scoped store to the DB) and reads
+    # consume() from here — the SOLE artifact source since the prior-agent output
+    # mirror was deleted in 05-07 (INV-3/INV-12, L15 ☑).
     artifacts: ArtifactGraph = field(default_factory=ArtifactGraph)
     # workspace_id: the default per-run workspace row id (D-04), created at execute() entry
     # via ScopedStore.create_workspace(run_id). Stamped on every persisted artifact_refs /
@@ -103,6 +103,13 @@ class ExecutionContext:
     # D-02 TEMPORARY home — Phase 7 relocates this into TaskLoopStrategy (strategy-local
     # scratch lives in the strategy, not on ctx; no strategy exists yet in 0B).
     current_task_block: str = ""
+    # build_task_number / build_task_total: the current/total build-loop task counters
+    # injected into the `=== CURRENT TASK ===` marker. NON-artifact build-loop scratch —
+    # relocated here (off the deleted prior-agent output dict) in 05-07 so the typed
+    # ArtifactGraph carries only genuine artifacts (INV-3). Phase 7 moves these into the
+    # TaskLoopStrategy alongside current_task_block.
+    build_task_number: str = ""
+    build_task_total: str = ""
 
     # ── Prototype-revision group (set defaults; conditionally populated in execute()) ─
     # revision_original_html: the seeded ORIGINAL prototype.html (pre-edit); read back
@@ -117,10 +124,9 @@ class ExecutionContext:
     # when render is unavailable).
     revision_baseline_console: set[str] = field(default_factory=set)
 
-    # ── Legacy mirror + run-wide odds and ends ───────────────────────────────────────
-    # accumulated_outputs: the sanctioned temporary mirror (removed in a later phase per
-    # INV-3). Kept here for the run-wide prior-agent output map.
-    accumulated_outputs: dict[str, str] = field(default_factory=dict)
+    # ── Run-wide odds and ends ────────────────────────────────────────────────────────
+    # (The sanctioned temporary prior-agent output mirror was DELETED in 05-07 once the
+    #  typed ``ArtifactGraph`` was proven the sole source — INV-3/INV-12, L15 ☑.)
     # cancel_event: cooperative cancellation signal (the Stop button); checked per chunk.
     cancel_event: object | None = None
     # disk_skills: per-user disk SKILL.md overrides, keyed by agent id, loaded once/run.

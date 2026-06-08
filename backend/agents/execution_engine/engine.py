@@ -1181,7 +1181,6 @@ class ExecutionEngine:
             },
         }
 
-        accumulated_outputs: dict[str, str] = {}
         results: list[dict] = []
 
         try:
@@ -1196,7 +1195,7 @@ class ExecutionEngine:
                 # and focused — never runs out of tokens filling all pages.
                 if getattr(spec, "id", None) == "prototype-build":
                     async for event in self._run_build_task_loop(
-                        spec, i, ordered_agents, user_message, accumulated_outputs,
+                        spec, i, ordered_agents, user_message,
                         sandbox, pipeline_run_id, pipeline_type, planning_context,
                         attached_skills, attached_hooks, model_id, results, cancel_event,
                         ectx,
@@ -1204,7 +1203,7 @@ class ExecutionEngine:
                         yield event
                 else:
                     async for event in self._run_agent(
-                        spec, i, ordered_agents, user_message, accumulated_outputs,
+                        spec, i, ordered_agents, user_message,
                         sandbox, pipeline_run_id, pipeline_type, planning_context,
                         attached_skills, attached_hooks, model_id, results, cancel_event,
                         ectx,
@@ -1469,7 +1468,6 @@ class ExecutionEngine:
         index: int,
         ordered_agents: list,
         user_message: str,
-        accumulated_outputs: dict[str, str],
         sandbox: RunSandbox,
         pipeline_run_id: str,
         pipeline_type: str,
@@ -1508,13 +1506,13 @@ class ExecutionEngine:
 
         # Build context message from upstream outputs (consumes contract)
         context_message = self._build_context_message(
-            spec, ordered_agents, user_message, accumulated_outputs,
+            spec, ordered_agents, user_message,
             planning_context, ectx,
         )
 
         # Emit agent_input event (Phase 3 / T040) — shows full input prompt
         # and context sources in the Thinking tab (FR-015).
-        context_sources = self._build_context_sources(spec, ordered_agents, ectx, accumulated_outputs)
+        context_sources = self._build_context_sources(spec, ordered_agents, ectx)
         yield {
             "type": "agent_input",
             "data": {
@@ -1537,7 +1535,7 @@ class ExecutionEngine:
 
             ctx = AgentContext(
                 user_request=user_message,
-                agent_outputs=self._filter_consumed_outputs(spec, ordered_agents, ectx, accumulated_outputs),
+                agent_outputs=self._filter_consumed_outputs(spec, ordered_agents, ectx),
                 attached_skills=merged_skills,
                 attached_hooks=list(attached_hooks or []),
                 model=model_id,
@@ -1562,12 +1560,12 @@ class ExecutionEngine:
             # above.) Base id = "<pipeline_run_id>:<spec.id>". The build loop runs
             # the SAME spec.id ("prototype-build") once per task, so when a task
             # number is present we append it ("<run>:<agent>:<task>") to keep each
-            # task on its own thread — _run_build_task_loop sets _build_task_number
-            # in accumulated_outputs before each call (and it is absent/"" for every
-            # other agent, which then uses the plain two-part id). interrupt_on is
-            # intentionally NOT passed (kept None) — gate-selection is Task #44 and
-            # the runner stays in non-gate mode so event shapes are unchanged.
-            task_num = accumulated_outputs.get("_build_task_number")
+            # task on its own thread — _run_build_task_loop sets ectx.build_task_number
+            # before each call (and it is "" for every other agent, which then uses the
+            # plain two-part id). interrupt_on is intentionally NOT passed (kept None) —
+            # gate-selection is Task #44 and the runner stays in non-gate mode so event
+            # shapes are unchanged.
+            task_num = ectx.build_task_number or None
             thread_id = (
                 f"{pipeline_run_id}:{spec.id}:{task_num}"
                 if task_num
@@ -1709,9 +1707,8 @@ class ExecutionEngine:
             if pipeline_type in _PPT_PIPELINE_TYPES and output:
                 output = _sanitize_carousel_deck_html(output)
 
-            # Mirror write (still source-of-truth until 05-06 — INV-3) ...
-            accumulated_outputs[spec.id] = output
-            # ... and the typed dual-write (PERSIST-02 step 2): the typed graph + DB.
+            # Typed write (PERSIST-02 step 2): the typed graph + DB — the SOLE artifact
+            # path since the prior-agent output mirror was deleted in 05-07 (INV-3).
             # Skip empty output (an agent that produced nothing has no artifact). The
             # location is the sandbox-relative file for file-backed prototype HTML, else
             # a logical artifact_refs path for string artifacts (D-01).
@@ -1786,7 +1783,6 @@ class ExecutionEngine:
                     agent_id=spec.id,
                     agent_name=spec.name,
                     output=output,
-                    accumulated_outputs=accumulated_outputs,
                 ):
                     if gate_event.get("type") == "_gate_rejected":
                         # User rejected — cancel the pipeline
@@ -1800,10 +1796,9 @@ class ExecutionEngine:
                         }}
                         return
                     elif gate_event.get("type") == "_gate_edited":
-                        # User edited the output — update accumulated_outputs (mirror)
+                        # User edited the output.
                         edited = gate_event.get("edited_content", output)
-                        accumulated_outputs[spec.id] = edited
-                        # Typed dual-write the edited content as a NEW ref version so
+                        # Typed-write the edited content as a NEW ref version so
                         # _latest_typed_content returns the edit downstream (ART-03).
                         if edited:
                             _ek = self._artifact_kind_for(spec)
@@ -1846,10 +1841,9 @@ class ExecutionEngine:
             logger.exception("Agent %s failed", spec.id)
             _log_event("agent_error", pipeline_run_id, agent_id=spec.id, error=str(exc))
             yield {"type": "agent_error", "data": {"agent_id": spec.id, "error": str(exc), "recoverable": True}}
-            # Mirror + typed dual-write the error placeholder so a downstream consumer
-            # reading from the typed graph sees the SAME content the mirror held (parity).
+            # Typed-write the error placeholder so a downstream consumer reading from
+            # the typed graph sees it (the SOLE artifact path since 05-07; parity).
             _err_output = f"[Error: {exc}]"
-            accumulated_outputs[spec.id] = _err_output
             _erk = self._artifact_kind_for(spec)
             await self._dual_write_artifact(
                 ectx,
@@ -1872,7 +1866,6 @@ class ExecutionEngine:
         index: int,
         ordered_agents: list,
         user_message: str,
-        accumulated_outputs: dict[str, str],
         sandbox,
         pipeline_run_id: str,
         pipeline_type: str,
@@ -1898,10 +1891,10 @@ class ExecutionEngine:
         fix sub-agent's stream is consumed INTERNALLY and never re-emitted, so
         the user still sees exactly ONE build per task.
         """
-        # Typed read-migration (ART-03): the planner's task list comes typed-first
-        # (prototype-plan's ref content), mirror-fallback.
+        # Typed read (ART-03): the planner's task list comes from the typed graph
+        # (prototype-plan's ref content) — the SOLE source since 05-07.
         plan_output = self._latest_typed_content(
-            ectx, "prototype-plan", accumulated_outputs
+            ectx, "prototype-plan"
         ) or ""
 
         # Count the planner's tasks (## Task N: headers, or inside a <tasks>
@@ -1929,7 +1922,7 @@ class ExecutionEngine:
         # spec.md  = the spec writer's <spec> text; tasks.md = the planner's <tasks>;
         # design.md = ACTIVE TEMPLATE (SKILL.md) + ACTIVE DESIGN SYSTEM (DESIGN.md)
         # from ectx.od_context. Missing keys are handled gracefully (skip a header).
-        self._write_build_reference_files(sandbox, accumulated_outputs, ectx)
+        self._write_build_reference_files(sandbox, ectx)
 
         for task_num in range(1, total_tasks + 1):
             if cancel_event and cancel_event.is_set():
@@ -1951,8 +1944,10 @@ class ExecutionEngine:
             )
 
             # Inject task number so _build_context_message can pass it to the agent
-            accumulated_outputs["_build_task_number"] = str(task_num)
-            accumulated_outputs["_build_task_total"] = str(total_tasks)
+            # (NON-artifact build-loop scratch on ectx since 05-07 — the prior-agent
+            #  output dict it used to ride on was deleted).
+            ectx.build_task_number = str(task_num)
+            ectx.build_task_total = str(total_tasks)
 
             # ── (B) Stash THIS task's `## Task N:` block for injection ───────────
             # _build_context_message reads ectx.current_task_block and emits it
@@ -1973,23 +1968,23 @@ class ExecutionEngine:
             }
 
             async for event in self._run_agent(
-                spec, index, ordered_agents, user_message, accumulated_outputs,
+                spec, index, ordered_agents, user_message,
                 sandbox, pipeline_run_id, pipeline_type, planning_context,
                 attached_skills, attached_hooks, model_id, results, cancel_event,
                 ectx,
             ):
                 yield event
 
-            # After each task: update accumulated HTML from the run sandbox.
+            # After each task: persist the HTML from the run sandbox.
             # The build agent edited prototype.html on disk this task; read it
             # back so _build_context_message passes the current HTML into the
             # next task's prompt.
             task_html = sandbox.read("prototype.html")
             if task_html:
-                accumulated_outputs[spec.id] = task_html
-                # Typed dual-write the post-task HTML as a new prototype-build ref
-                # version (one per task) so _latest_typed_content matches the mirror
-                # for the NEXT task's prompt (ART-03). task_id ties the ref to the task.
+                # Typed-write the post-task HTML as a new prototype-build ref version
+                # (one per task) so _latest_typed_content returns it for the NEXT
+                # task's prompt (ART-03; sole source since 05-07). task_id ties the
+                # ref to the task.
                 await self._dual_write_artifact(
                     ectx,
                     producer_agent=spec.id,
@@ -2031,13 +2026,12 @@ class ExecutionEngine:
                 cancel_event=cancel_event,
                 checkpointer=ectx.checkpointer,
             )
-            # The fix-loop may have edited prototype.html — refresh the accumulated
-            # HTML so the NEXT task's sub-agent sees the corrected document.
+            # The fix-loop may have edited prototype.html — refresh the typed graph
+            # so the NEXT task's sub-agent sees the corrected document.
             fixed_html = sandbox.read("prototype.html")
             if fixed_html and fixed_html != task_html:
-                accumulated_outputs[spec.id] = fixed_html
-                # Typed dual-write the fixed HTML only when it actually changed (avoid a
-                # redundant identical ref version); keeps the typed latest == mirror.
+                # Typed-write the fixed HTML only when it actually changed (avoid a
+                # redundant identical ref version); keeps _latest_typed_content current.
                 await self._dual_write_artifact(
                     ectx,
                     producer_agent=spec.id,
@@ -2047,8 +2041,6 @@ class ExecutionEngine:
                     location="prototype.html",
                     task_id=str(task_num),
                 )
-            elif fixed_html:
-                accumulated_outputs[spec.id] = fixed_html
 
         logger.info("Build task loop: finished %d tasks for pipeline=%s", total_tasks, pipeline_run_id)
 
@@ -2057,7 +2049,7 @@ class ExecutionEngine:
     # ------------------------------------------------------------------
 
     def _write_build_reference_files(
-        self, sandbox: RunSandbox, accumulated_outputs: dict[str, str],
+        self, sandbox: RunSandbox,
         ectx: ExecutionContext,
     ) -> None:
         """Write spec.md / design.md / tasks.md into the run sandbox (Region A).
@@ -2066,9 +2058,10 @@ class ExecutionEngine:
         with ``read_file`` for the full spec / template / design-system / task
         list. The sandbox is per-run/shared so every task (and fix) sub-agent
         sees the same files. Missing inputs degrade gracefully:
-          * ``spec.md``  ← the ``prototype-specify`` content, typed-first
-            (ectx.artifacts), mirror-fallback (ART-03 read-migration). Skipped if absent.
-          * ``tasks.md`` ← the ``prototype-plan`` content (same typed-first read).
+          * ``spec.md``  ← the ``prototype-specify`` content, read typed-only
+            (ectx.artifacts; ART-03 — the mirror fallback was deleted in 05-07).
+            Skipped if absent.
+          * ``tasks.md`` ← the ``prototype-plan`` content (same typed-only read).
             Skipped if absent.
           * ``design.md`` ← ``od_context["template_body"]`` (ACTIVE TEMPLATE) +
             ``od_context["ds_body"]`` (ACTIVE DESIGN SYSTEM) under clear headers;
@@ -2076,10 +2069,10 @@ class ExecutionEngine:
             DS still gets a template-only design.md, and vice versa).
         """
         spec_text = self._latest_typed_content(
-            ectx, "prototype-specify", accumulated_outputs
+            ectx, "prototype-specify"
         ) or ""
         tasks_text = self._latest_typed_content(
-            ectx, "prototype-plan", accumulated_outputs
+            ectx, "prototype-plan"
         ) or ""
         od = ectx.od_context or {}
         template_body = od.get("template_body") or ""
@@ -2376,7 +2369,6 @@ class ExecutionEngine:
         agent_id: str,
         agent_name: str,
         output: str,
-        accumulated_outputs: dict[str, str],
     ) -> AsyncGenerator[dict, None]:
         """Pause the pipeline for human review of an agent's output.
 
@@ -2753,7 +2745,6 @@ class ExecutionEngine:
         spec,
         ordered_agents: list,
         ectx: ExecutionContext,
-        mirror: dict[str, str] | None = None,
     ) -> list[dict]:
         """Build the context_sources list for the agent_input event (FR-015).
 
@@ -2761,11 +2752,12 @@ class ExecutionEngine:
         - type: "summary" (text output) or "artifact" (typed artifact)
         - agent_id, agent_name, summary_length, full_output_length
 
-        Reads consumed content typed-first (ectx.artifacts), mirror-fallback, via
-        _filter_consumed_outputs (ART-03 read-migration).
+        Reads consumed content typed-only (ectx.artifacts) via
+        _filter_consumed_outputs (ART-03 read-migration; the mirror fallback was
+        deleted in 05-07).
         """
         sources: list[dict] = []
-        consumed = self._filter_consumed_outputs(spec, ordered_agents, ectx, mirror)
+        consumed = self._filter_consumed_outputs(spec, ordered_agents, ectx)
         for aid, output in consumed.items():
             prev = next((s for s in ordered_agents if s.id == aid), None)
             sources.append({
@@ -2837,16 +2829,17 @@ class ExecutionEngine:
         derived_from: str | None = None,
         visibility: str = "private",
     ) -> None:
-        """Dual-write a genuine artifact (PERSIST-02 step 2): the in-memory typed
-        ``ArtifactGraph`` (ectx.artifacts — the live typed handoff Task 3 reads from)
+        """Write a genuine artifact (PERSIST-02 step 2): the in-memory typed
+        ``ArtifactGraph`` (ectx.artifacts — the live typed handoff readers consume)
         AND, best-effort, the persisted ``artifact_refs`` DB row via the per-run
         ScopedStore.
 
-        The ``accumulated_outputs`` mirror write stays alive ALONGSIDE this (the
-        mirror is still source-of-truth until 05-06 deletes it — INV-3). The DB
-        persist is best-effort for the same reason as the event sink: the offline
-        characterization harness has no workflow_runs FK row, so a DB failure must
-        DEGRADE (log) and never perturb the deliverable / event stream.
+        This is the SOLE artifact write path: the prior-agent output mirror that used
+        to be dual-written alongside it was DELETED in 05-07 once parity proved the
+        typed graph holds the same content (INV-3/INV-12, L15 ☑). The DB persist is
+        best-effort like the event sink: the offline characterization harness has no
+        workflow_runs FK row, so a DB failure must DEGRADE (log) and never perturb the
+        deliverable / event stream.
         """
         ref = ectx.artifacts.write_ref(
             run_id=ectx.run_id,
@@ -2876,46 +2869,37 @@ class ExecutionEngine:
         self,
         ectx: ExecutionContext,
         producer_agent: str,
-        mirror: dict[str, str] | None = None,
     ) -> str | None:
-        """Return the LATEST content produced by ``producer_agent`` — TYPED-FIRST.
+        """Return the LATEST content produced by ``producer_agent`` — TYPED-ONLY.
 
-        Typed read-migration (ART-03): the typed graph (``ectx.artifacts``) is the
-        PRIMARY source — the latest ref by insertion order (the build loop writes a
-        new prototype-build ref version per task; the next task's prompt needs the
-        most recent). The still-live ``accumulated_outputs`` mirror is the documented
-        FALLBACK (the strangler invariant this plan: the typed reads return the SAME
-        content the mirror held — dual-written in production; the mirror is deleted in
-        05-06). Returns None if neither has content.
+        Typed read (ART-03): the typed graph (``ectx.artifacts``) is the SOLE
+        source — the latest ref by insertion order (the build loop writes a new
+        prototype-build ref version per task; the next task's prompt needs the most
+        recent). The prior-agent output mirror that used to be the fallback was
+        DELETED in 05-07 (INV-3/INV-12, L15 ☑) once parity proved the typed reads
+        return the same content. Returns None if the graph has no such content.
         """
         latest: str | None = None
         for ref in ectx.artifacts.tree(ectx.run_id):
             if ref.producer_agent == producer_agent:
                 latest = ref.content
-        if latest is not None:
-            return latest
-        if mirror is not None:
-            return mirror.get(producer_agent)
-        return None
+        return latest
 
     def _filter_consumed_outputs(
         self,
         spec,
         ordered_agents: list,
         ectx: ExecutionContext,
-        mirror: dict[str, str] | None = None,
     ) -> dict[str, str]:
-        """Return the upstream outputs this agent consumes — READ TYPED-FIRST.
+        """Return the upstream outputs this agent consumes — READ TYPED-ONLY.
 
-        Typed read-migration (ART-03 / PERSIST-02 step 3): the routing CONTRACT is
-        unchanged (an upstream agent is consumed iff its ``produces`` intersects this
-        agent's ``consumes`` — both are registry agent-id sets), but the CONTENT now
-        comes from ``ectx.artifacts`` (the typed graph) first, falling back to the
-        still-live ``accumulated_outputs`` mirror. Returns ``{upstream.id: content}``
-        exactly as before so every caller (_build_context_message /
-        _build_context_sources / AgentContext.agent_outputs) is byte-identical — the
-        typed graph holds the SAME content the mirror does (dual-written), so
-        deliverables + events stay at parity.
+        Typed read (ART-03 / PERSIST-02 step 3): the routing CONTRACT is unchanged
+        (an upstream agent is consumed iff its ``produces`` intersects this agent's
+        ``consumes`` — both are registry agent-id sets); the CONTENT comes solely
+        from ``ectx.artifacts`` (the typed graph). The prior-agent output mirror
+        fallback was deleted in 05-07. Returns ``{upstream.id: content}`` exactly as
+        before so every caller (_build_context_message / _build_context_sources /
+        AgentContext.agent_outputs) is byte-identical.
         """
         consumes = set(getattr(spec, "consumes", []))
         if not consumes:
@@ -2929,7 +2913,7 @@ class ExecutionEngine:
                 continue
             produced = set(getattr(upstream, "produces", []))
             if produced & consumes:
-                content = self._latest_typed_content(ectx, upstream.id, mirror)
+                content = self._latest_typed_content(ectx, upstream.id)
                 if content is not None:
                     filtered[upstream.id] = content
         return filtered
@@ -2939,7 +2923,6 @@ class ExecutionEngine:
         spec,
         ordered_agents: list,
         user_message: str,
-        accumulated_outputs: dict[str, str],
         planning_context: dict,
         ectx: ExecutionContext,
     ) -> str:
@@ -2953,7 +2936,7 @@ class ExecutionEngine:
         Chain context (=== CONTEXT FROM PREVIOUS PIPELINE ===) is only shown to
         the FIRST agent in the pipeline — it interprets the brief. Downstream
         agents already receive the first agent's structured output (spec/HTML)
-        via accumulated_outputs, so the raw chain context is noise for them.
+        via the typed graph, so the raw chain context is noise for them.
         """
         # Determine if this is the first agent in the pipeline
         is_first_agent = (len(ordered_agents) == 0 or spec.id == ordered_agents[0].id)
@@ -3012,7 +2995,7 @@ class ExecutionEngine:
         # non-build agents (spec writer, planner, validate).
         od = ectx.od_context or {}
         injects = getattr(spec, "injects", []) or []
-        task_num_str = accumulated_outputs.get("_build_task_number", "")
+        task_num_str = ectx.build_task_number
         is_build_task_2_plus = (spec.id == "prototype-build" and task_num_str not in ("", "1"))
 
         # Inject design system into user message for ALL prototype agents
@@ -3080,7 +3063,7 @@ class ExecutionEngine:
                 for part in get_template_injection_parts(template_id):
                     parts.append(part)
 
-        consumed = self._filter_consumed_outputs(spec, ordered_agents, ectx, accumulated_outputs)
+        consumed = self._filter_consumed_outputs(spec, ordered_agents, ectx)
         for aid, output in consumed.items():
             prev = next((s for s in ordered_agents if s.id == aid), None)
             label = f"{prev.name} ({prev.role})" if prev else aid
@@ -3097,8 +3080,8 @@ class ExecutionEngine:
         # INTERNALLY by the loop with its own constructed message — see
         # _run_validation_fix_loop — so it does NOT pass through here.)
         if spec.id == "prototype-build":
-            task_num_str = accumulated_outputs.get("_build_task_number", "")
-            total_str = accumulated_outputs.get("_build_task_total", "")
+            task_num_str = ectx.build_task_number
+            total_str = ectx.build_task_total
             if task_num_str:
                 task_block = ectx.current_task_block or ""
                 body = task_block.strip() if task_block.strip() else (
@@ -3119,11 +3102,11 @@ class ExecutionEngine:
             # points the sub-agent at read_file('prototype.html') to fetch the full
             # content before editing (its AGENT.md already mandates this). Task 1 (the
             # HTML shell) has no prior HTML and keeps the full-HTML block unchanged.
-            # Typed read-migration (ART-03): read the latest prototype-build HTML
-            # typed-first (the build loop dual-writes a new ref version per task),
-            # mirror-fallback.
+            # Typed read (ART-03): read the latest prototype-build HTML from the typed
+            # graph (the build loop writes a new ref version per task) — sole source
+            # since the mirror was deleted in 05-07.
             current_html = self._latest_typed_content(
-                ectx, "prototype-build", accumulated_outputs
+                ectx, "prototype-build"
             ) or ""
             if current_html and not current_html.startswith("[Error:"):
                 if is_build_task_2_plus:

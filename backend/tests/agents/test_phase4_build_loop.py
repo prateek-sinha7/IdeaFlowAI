@@ -242,12 +242,31 @@ def _build_spec():
     )
 
 
-async def _run_loop(engine, build_spec, run_id, accumulated_outputs, sandbox, ectx):
+def _seed_typed(ectx, seeds: dict[str, str]) -> None:
+    """Seed upstream agent content into the typed ArtifactGraph (the SOLE source
+    since the prior-agent output mirror was deleted in 05-07). Tests pass the same
+    ``{producer_agent: content}`` map they used to hand the loop as a dict."""
+    for producer_agent, content in seeds.items():
+        ectx.artifacts.write_ref(
+            run_id=ectx.run_id,
+            owner_id=ectx.owner_id,
+            workspace_id=ectx.workspace_id,
+            kind="html_file" if producer_agent == "prototype-build" else "text",
+            producer_step=producer_agent,
+            producer_agent=producer_agent,
+            task_id=None,
+            content=content,
+            location=f"artifact_refs/{producer_agent}",
+        )
+
+
+async def _run_loop(engine, build_spec, run_id, upstream_outputs, sandbox, ectx):
     """Drive the REAL ``_run_build_task_loop`` and collect the yielded events."""
+    _seed_typed(ectx, upstream_outputs)
     events: list[dict] = []
     async for ev in engine._run_build_task_loop(
         build_spec, 2, [build_spec], "Build me a task manager.",
-        accumulated_outputs, sandbox, run_id, "prototype", {},
+        sandbox, run_id, "prototype", {},
         None, None, None, [], None,
         ectx,
     ):
@@ -361,8 +380,8 @@ class TestPerTaskInjection:
         captured: list[str | None] = []
         orig_bcm = engine_mod.ExecutionEngine._build_context_message
 
-        def spy(self, spec, ordered_agents, user_message, accumulated_outputs, planning_context, ectx):
-            msg = orig_bcm(self, spec, ordered_agents, user_message, accumulated_outputs, planning_context, ectx)
+        def spy(self, spec, ordered_agents, user_message, planning_context, ectx):
+            msg = orig_bcm(self, spec, ordered_agents, user_message, planning_context, ectx)
             if getattr(spec, "id", None) == "prototype-build":
                 m = re.search(
                     r"=== CURRENT TASK ===\n(.*?)\n=== END CURRENT TASK ===", msg, re.DOTALL
@@ -450,12 +469,14 @@ class TestAccumulationAndEvents:
         sandbox = RunSandbox("anon", run_id)
         sandbox.ensure()
 
+        # Seed upstream content into the typed graph (sole source since 05-07).
+        _seed_typed(ectx, {"prototype-specify": "spec", "prototype-plan": _plan(3)})
+
         # Capture HTML length at each task_loop_progress boundary to prove growth.
         events: list[dict] = []
         lengths_at_task_start: list[int] = []
         async for ev in engine._run_build_task_loop(
             _build_spec(), 2, [_build_spec()], "brief",
-            {"prototype-specify": "spec", "prototype-plan": _plan(3)},
             sandbox, run_id, "prototype", {}, None, None, None, [], None,
             ectx,
         ):

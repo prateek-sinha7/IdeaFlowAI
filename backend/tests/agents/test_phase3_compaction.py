@@ -128,16 +128,25 @@ def _build_message(task_number: str) -> str:
     spec = get_agent_by_id("prototype-build")
     assert spec is not None, "prototype-build spec must resolve"
     ectx = _make_ectx()
-    accumulated_outputs = {
-        "prototype-build": _MULTI_PAGE_HTML,
-        "_build_task_number": task_number,
-        "_build_task_total": "2",
-    }
+    # The current prototype-build HTML now lives in the typed ArtifactGraph (the
+    # mirror dict was deleted in 05-07); scratch task counters live on ectx.
+    ectx.artifacts.write_ref(
+        run_id=ectx.run_id,
+        owner_id=ectx.owner_id,
+        workspace_id=ectx.workspace_id,
+        kind="html_file",
+        producer_step="prototype-build",
+        producer_agent="prototype-build",
+        task_id=None,
+        content=_MULTI_PAGE_HTML,
+        location="prototype.html",
+    )
+    ectx.build_task_number = task_number
+    ectx.build_task_total = "2"
     return engine._build_context_message(
         spec=spec,
         ordered_agents=[spec],
         user_message="Build a SaaS dashboard prototype.",
-        accumulated_outputs=accumulated_outputs,
         planning_context={},
         ectx=ectx,
     )

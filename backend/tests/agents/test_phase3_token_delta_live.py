@@ -166,23 +166,24 @@ async def _drive_live(*, compaction_on: bool) -> list[dict]:
         # ── compaction OFF: restore the pre-0C full-HTML injection ──────────────
         _orig_build_ctx = engine._build_context_message
         if not compaction_on:
-            # NOTE: the engine calls `self._build_context_message(...)` POSITIONALLY
-            # (engine.py:1174). This override is assigned as an instance attribute (an
-            # unbound plain function), so it must accept the same POSITIONAL shape — a
-            # keyword-only signature here raises `TypeError: takes 0 positional
-            # arguments but 6 were given` on the first (baseline) call. (#WR-01)
+            # NOTE: the engine calls `self._build_context_message(...)` POSITIONALLY.
+            # This override is assigned as an instance attribute (an unbound plain
+            # function), so it must accept the same POSITIONAL shape. Since 05-07 the
+            # signature dropped the prior-agent output dict: build-loop scratch lives on
+            # ectx and the current HTML comes from the typed ArtifactGraph. (#WR-01)
             def _full_html_build_ctx(spec, ordered_agents, user_message,
-                                     accumulated_outputs, planning_context, ectx):
+                                     planning_context, ectx):
                 msg = _orig_build_ctx(
                     spec=spec, ordered_agents=ordered_agents,
                     user_message=user_message,
-                    accumulated_outputs=accumulated_outputs,
                     planning_context=planning_context, ectx=ectx,
                 )
                 if spec.id == "prototype-build":
-                    task_num_str = accumulated_outputs.get("_build_task_number", "")
+                    task_num_str = ectx.build_task_number
                     is_2_plus = task_num_str not in ("", "1")
-                    current_html = accumulated_outputs.get("prototype-build", "")
+                    current_html = engine._latest_typed_content(
+                        ectx, "prototype-build"
+                    ) or ""
                     if is_2_plus and current_html and not current_html.startswith("[Error:"):
                         skeleton = engine._extract_html_skeleton(current_html)
                         skeleton_block = (

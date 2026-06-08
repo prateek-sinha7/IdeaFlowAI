@@ -340,7 +340,7 @@ class TestCumulativeTaskProgress:
 
         # ── Scripted prototype-build model: each per-task invocation calls
         #    report_task_complete(task_number=<the loop's current task>) once. The
-        #    build loop sets accumulated_outputs["_build_task_number"] before each
+        #    build loop sets ectx.build_task_number before each
         #    call; the runner consumes a fresh model per call, so we hand each
         #    create_runner call a model scripted with that call's task number. ──
         def _build_turns(task_number: int) -> list[_ScriptedTurn]:
@@ -368,9 +368,9 @@ class TestCumulativeTaskProgress:
         # The build loop calls create_runner once per task, in order; a closure
         # counter gives each scripted model its task number. (The real engine
         # passes the task number to the model via _build_context_message, which
-        # reads accumulated_outputs directly — but ctx.agent_outputs handed to the
-        # runner is the FILTERED consumes-set, which strips _build_task_number, so
-        # we can't read it off ctx here. The count under test = len of the
+        # reads ectx.build_task_number — but ctx.agent_outputs handed to the
+        # runner is the FILTERED consumes-set, so we can't read it off ctx here.
+        # The count under test = len of the
         # cumulative list and is independent of the reported number regardless.)
         _task_counter = {"n": 0}
 
@@ -401,14 +401,10 @@ class TestCumulativeTaskProgress:
             gate_agent_ids=[],
         )
 
-        # Artifact store writes → no-op (the fake run_id has no workflow_runs row,
-        # so a real INSERT fails the FK and would abort the loop). Same neutralizer
-        # the _scripted_model driver applies; orthogonal to the count being tested.
-        async def _noop_store(*a, **k):
-            return "artifact-id"
-
-        engine._store.store = _noop_store  # type: ignore[assignment]
-
+        # Typed artifact writes degrade best-effort: the fake run_id has no
+        # workflow_runs row, so the persisted INSERT fails the FK — _dual_write_artifact
+        # logs and continues (it never aborts the loop). No store neutralizer is needed
+        # since the thin-store artifact half was deleted in 05-07.
         run_id = ectx.run_id
         engine._state_machine.transition(run_id, "generating")
 
@@ -425,12 +421,23 @@ class TestCumulativeTaskProgress:
         # Planner output with exactly n_tasks "## Task N:" headers so the loop runs
         # _run_agent that many times.
         plan = "\n\n".join(f"## Task {i}: do thing {i}\nbody" for i in range(1, n_tasks + 1))
-        accumulated_outputs: dict[str, str] = {"prototype-plan": plan}
+        # The planner output now lives in the typed graph (sole source since 05-07).
+        ectx.artifacts.write_ref(
+            run_id=ectx.run_id,
+            owner_id=ectx.owner_id,
+            workspace_id=ectx.workspace_id,
+            kind="text",
+            producer_step="prototype-plan",
+            producer_agent="prototype-plan",
+            task_id=None,
+            content=plan,
+            location="artifact_refs/prototype-plan",
+        )
         results: list[dict] = []
 
         counts: list[int] = []
         async for ev in engine._run_build_task_loop(
-            build_spec, 2, [build_spec], "build me a thing", accumulated_outputs,
+            build_spec, 2, [build_spec], "build me a thing",
             sandbox, run_id, "prototype", {}, None, None, None, results, None,
             ectx,
         ):

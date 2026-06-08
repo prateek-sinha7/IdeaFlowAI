@@ -1,8 +1,8 @@
 """agents/artifacts/graph.py — the per-RUN typed artifact substrate.
 
-Phase 5 (ART-01..04). This module defines the typed handoff that replaces the
-untyped ``accumulated_outputs: dict[str, str]`` carried on the engine today: a
-typed ``ArtifactRef`` value object (full lineage field set + content-addressed
+Phase 5 (ART-01..04). This module defines the typed handoff that replaced the
+untyped prior-agent output mirror (a ``dict[str, str]`` carried on the engine,
+deleted in 05-07): a typed ``ArtifactRef`` value object (full lineage field set + content-addressed
 sha256) and an in-memory ``ArtifactGraph`` that owns hashing/versioning, typed
 ``produces``/``consumes`` routing, and an in-memory lineage walk.
 

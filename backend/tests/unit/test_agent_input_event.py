@@ -22,9 +22,10 @@ def _ectx(typed: dict[str, str] | None = None) -> ExecutionContext:
     """A minimal per-run ExecutionContext to thread into the engine helpers.
 
     ``typed`` seeds the per-run typed ArtifactGraph (05-04 read-migration): the
-    engine's consumes routing now reads upstream content from ``ectx.artifacts``
-    (keyed by producer_agent), NOT the accumulated_outputs mirror. Each entry
-    ``{producer_agent: content}`` becomes one ref in the graph.
+    engine's consumes routing reads upstream content from ``ectx.artifacts``
+    (keyed by producer_agent) — the SOLE source since the prior-agent output
+    mirror was deleted in 05-07. Each entry ``{producer_agent: content}`` becomes
+    one ref in the graph.
     """
     ctx = ExecutionContext(run_id="test-run", owner_id="anon", workspace_id="ws-1")
     for producer_agent, content in (typed or {}).items():
@@ -129,7 +130,7 @@ def test_planning_context_injected_into_context_message():
         "quality_targets": ["100% test coverage"],
         "execution_gate": "PROCEED",
     }
-    msg = engine._build_context_message(spec, agents, "test brief", {}, planning_context, _ectx())
+    msg = engine._build_context_message(spec, agents, "test brief", planning_context, _ectx())
     assert "## Planning Context" in msg
     assert "Build a login feature" in msg
     assert "React frontend" in msg
@@ -144,7 +145,7 @@ def test_planning_context_not_injected_when_timed_out():
     spec = _Spec("agent-a", consumes=[])
     agents = [spec]
     planning_context = engine._default_planning_context("brief", timed_out=True)
-    msg = engine._build_context_message(spec, agents, "brief", {}, planning_context, _ectx())
+    msg = engine._build_context_message(spec, agents, "brief", planning_context, _ectx())
     # Timed-out context has planner_timed_out=True — no Planning Context block
     assert "## Planning Context" not in msg
 
@@ -153,6 +154,6 @@ def test_user_request_always_present():
     engine = ExecutionEngine()
     spec = _Spec("agent-a", consumes=[])
     agents = [spec]
-    msg = engine._build_context_message(spec, agents, "my user brief", {}, {}, _ectx())
+    msg = engine._build_context_message(spec, agents, "my user brief", {}, _ectx())
     assert "my user brief" in msg
     assert "ORIGINAL USER REQUEST" in msg
