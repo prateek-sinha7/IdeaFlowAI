@@ -96,11 +96,14 @@ class _RunEventSink:
     Until armed, ``persist`` is a no-op (events emitted before the entry wiring —
     none today — would simply not be persisted rather than error).
 
-    ``persist`` is BEST-EFFORT: a DB / FK failure (e.g. the offline characterization
-    harness has no ``workflow_runs`` row) is swallowed with a debug log so the live
-    event stream and the deterministic deliverable are NEVER perturbed (INV-3). The
-    ``seq``/``event_id`` are stamped on the event dict regardless (stripped from the
-    0A multiset), so parity holds whether or not the row lands.
+    ``persist`` is BEST-EFFORT for the DB-write CASE ONLY (WR-02 narrowed contract):
+    a ``SQLAlchemyError`` (e.g. the offline characterization harness has no
+    ``run_events``/``workflow_runs`` schema, or an FK/constraint failure) degrades to
+    a ``warning`` so the live event stream and the deterministic deliverable are
+    NEVER perturbed (INV-3). Any OTHER exception is treated as a real bug and
+    PROPAGATES (re-raised) — it is NOT swallowed. The ``seq``/``event_id`` are stamped
+    on the event dict regardless (stripped from the 0A multiset), so parity holds
+    whether or not the row lands.
     """
 
     def __init__(self) -> None:
