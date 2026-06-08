@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 
 Phase: 06 (model-policy-1c) — EXECUTING
 Plan: 5 of 5
-Status: Phase complete — ready for verification
+Status: Execution complete + verified offline — HELD pending verification (1 live-Bedrock human item: CR-02 fallback checkpointer; see 06-UAT.md). Not formally complete; close via /gsd-verify-work 6.
 Last activity: 2026-06-08 -- Phase 06 execution started
 
 Progress: [██████░░░░] 67% (4/6 plans complete)
