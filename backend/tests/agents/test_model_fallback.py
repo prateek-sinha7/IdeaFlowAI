@@ -57,7 +57,7 @@ async def _drive_one_agent(
     non_transient_ids: set[str] | None = None,
 ):
     """Run a single text-only agent through ``ExecutionEngine._run_agent`` offline with
-    an armed fallback chain, returning ``(results, completing_model_ids)``.
+    an armed fallback chain, returning ``(results, built_for, events, thread_ids)``.
 
     ``create_runner`` is patched so each (re)build injects a ``ScriptedFakeChatModel``
     keyed on the CURRENT resolved id (``ctx.model``): an id in ``throttle_ids`` raises a
@@ -82,6 +82,10 @@ async def _drive_one_agent(
 
     non_transient_ids = non_transient_ids or set()
     built_for: list[str] = []
+    # CR-02: record the checkpoint thread_id each (re)build was constructed for, so
+    # tests can assert a retry rebuild uses a FRESH thread_id (clean restart, no
+    # stale-checkpoint resume) rather than reusing the primary attempt's id.
+    thread_ids: list[str | None] = []
 
     _orig_create_runner = factory_mod.create_runner
     _orig_engine_create_runner = getattr(engine_mod, "create_runner", None)
@@ -89,6 +93,7 @@ async def _drive_one_agent(
     def _patched_create_runner(agent_id, ctx, **kw):
         model_id = ctx.model
         built_for.append(model_id)
+        thread_ids.append(kw.get("thread_id"))
         if model_id in throttle_ids:
             ctx.model = ScriptedFakeChatModel([], raise_exc=ScriptedThrottleError())
         elif model_id in non_transient_ids:
@@ -157,7 +162,7 @@ async def _drive_one_agent(
         if _orig_engine_create_runner is not None:
             engine_mod.create_runner = _orig_engine_create_runner
 
-    return results, built_for, events
+    return results, built_for, events, thread_ids
 
 
 # ===========================================================================
@@ -169,7 +174,7 @@ async def _drive_one_agent(
 async def test_throttle_advances() -> None:
     """A 2-entry chain [standard, cheap]: the standard primary throttles, the engine
     advances to the cheap fallback and completes the run on it (no live Bedrock)."""
-    results, built_for, _events = await _drive_one_agent(
+    results, built_for, _events, thread_ids = await _drive_one_agent(
         primary=PRIMARY_STANDARD,
         throttle_ids={PRIMARY_STANDARD},
     )
@@ -179,6 +184,20 @@ async def test_throttle_advances() -> None:
     # The run completed — the deliverable reflects the FALLBACK model's stream.
     assert results, "expected a completed agent result"
     assert f"completed on {FALLBACK_CHEAP}" in results[-1]["output"]
+    # CR-02: the retry rebuild MUST use a FRESH checkpoint thread_id (clean
+    # restart, no stale-checkpoint resume) — distinct from the primary attempt's
+    # thread_id. The primary keeps the base id (INV-3 parity); the retry derives
+    # a per-attempt id from it.
+    assert len(thread_ids) == 2, thread_ids
+    primary_tid, retry_tid = thread_ids
+    assert retry_tid != primary_tid, (
+        f"retry reused the primary thread_id {primary_tid!r} — would resume a "
+        f"stale checkpoint instead of restarting cleanly (CR-02)"
+    )
+    assert retry_tid.startswith(primary_tid), (
+        f"retry thread_id {retry_tid!r} should derive from the base "
+        f"{primary_tid!r}"
+    )
 
 
 # ===========================================================================
@@ -197,7 +216,7 @@ async def test_chain_exhaustion_reraises() -> None:
     ``agent_error`` carrying the throttle message (the run fails with that error, NOT the
     old silent blank where the runner swallowed it and the engine ignored it). The chain
     is walked exactly once (bounded), no model switch beyond the single entry."""
-    _results, built_for, events = await _drive_one_agent(
+    _results, built_for, events, _thread_ids = await _drive_one_agent(
         primary=ONLY_CHEAP,
         throttle_ids={ONLY_CHEAP},
     )
@@ -217,7 +236,7 @@ async def test_multi_entry_chain_exhaustion_reraises() -> None:
     """A 2-entry chain [standard, cheap] where BOTH throttle → the engine advances
     through the WHOLE chain (bounded by chain length, no infinite loop), then the last
     throttle escapes the retry loop as a visible ``agent_error`` (not a silent blank)."""
-    _results, built_for, events = await _drive_one_agent(
+    _results, built_for, events, _thread_ids = await _drive_one_agent(
         primary=PRIMARY_STANDARD,
         throttle_ids={PRIMARY_STANDARD, FALLBACK_CHEAP},
     )
@@ -242,7 +261,7 @@ async def test_non_transient_propagates() -> None:
     the engine consume loop sees no throttle and NEVER advances the chain — only the
     primary runner is ever built (no model switch). Parity with today's non-throttle
     error handling is preserved (the run ends without a model switch, not with one)."""
-    _results, built_for, _events = await _drive_one_agent(
+    _results, built_for, _events, _thread_ids = await _drive_one_agent(
         primary=PRIMARY_STANDARD,
         throttle_ids=set(),
         non_transient_ids={PRIMARY_STANDARD},

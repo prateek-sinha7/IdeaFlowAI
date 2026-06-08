@@ -1827,10 +1827,23 @@ class ExecutionEngine:
                         spec.id, _next_id, _attempt + 1, _max_attempts,
                     )
                     ctx.model = _next_id
+                    # ── CR-02: fresh checkpoint thread_id per retry attempt ──────
+                    # The rebuilt runner MUST restart cleanly from context_message,
+                    # not RESUME the throttled attempt's partial graph state. With
+                    # the live checkpointer a mid-stream throttle leaves partial
+                    # state (messages, tool calls, graph nodes) under the base
+                    # thread_id; reusing it would make LangGraph resume on the new
+                    # model (mixed-model execution) instead of re-streaming from
+                    # scratch (the Pitfall-4 intent). Derive a per-attempt id so each
+                    # retry gets a clean checkpoint thread. The PRIMARY attempt keeps
+                    # the base thread_id (INV-3 parity: a no-throttle run is
+                    # byte-identical). The disk sandbox is UNCHANGED — it stays
+                    # per-run/shared, keyed on run_id, so files persist across retries.
+                    retry_thread_id = f"{thread_id}:retry{_attempt}"
                     agent = create_runner(
                         spec.id,
                         ctx,
-                        thread_id=thread_id,
+                        thread_id=retry_thread_id,
                         checkpointer=ectx.checkpointer,
                     )
                     yield {
@@ -1840,6 +1853,12 @@ class ExecutionEngine:
                             "pipeline_run_id": pipeline_run_id,
                             "fallback_model": _next_id,
                             "attempt": _attempt + 1,
+                            # WR-03: the retry RE-STREAMS from scratch on the new
+                            # model, so attempt-N chunks already sent to the client
+                            # are stale. This signals the frontend (Phase 8) to
+                            # discard prior agent_chunk events for this agent.
+                            # Additive — existing consumers ignore the new field.
+                            "reset_output": True,
                             "timestamp": _now(),
                         },
                     }
