@@ -32,7 +32,6 @@ The plan sub-phases (0A/0B/0C, 1A/1B/1C, 4A/4B) are mapped to sequential GSD pha
 ### Phase 1: Safety Net + Deletion Guard [0A]
 
 **Goal**: Lock current behavior with characterization snapshots and stand up the CI gates that enforce the migration discipline — before any refactor touches the engine.
-**Mode:** mvp
 **Depends on**: Nothing (first phase)
 **Requirements**: SAFE-01, SAFE-02, SAFE-03, SAFE-04, SAFE-05, SAFE-06, SAFE-07, DEL-01, DEL-02, DEL-03, DEL-04
 **Success Criteria** (what must be TRUE):
@@ -53,7 +52,6 @@ Plans:
 ### Phase 2: ExecutionContext + Ownership [0B]
 
 **Goal**: Extract every per-run `self._*` attribute into a per-run `ExecutionContext`, make the kernel singleton stateless/immutable, and add the explicit parent-run ownership check — with no behavior change.
-**Mode:** mvp
 **Depends on**: Phase 1
 **Requirements**: CTX-01, CTX-02, CTX-03, CTX-04, CTX-05
 **Success Criteria** (what must be TRUE):
@@ -83,7 +81,6 @@ Plans:
 ### Phase 3: Token-Trim (measured change) [0C]
 
 **Goal**: Wire the dead `_extract_html_skeleton` as build-task-2+ context compaction (Tier#1) — the one sanctioned non-byte-identity change, gated on the semantic snapshot plus a measured token reduction.
-**Mode:** mvp
 **Depends on**: Phase 2
 **Requirements**: COMPACT-01, COMPACT-02, COMPACT-03
 **Success Criteria** (what must be TRUE):
@@ -105,7 +102,6 @@ Plans:
 ### Phase 4: Manifest + Compiler [1A]
 
 **Goal**: Introduce hand-authored file-backed workflow manifests and a thin compiler (no DSL) that produces a typed `CompiledWorkflow`; run every existing pipeline from a compiled plan while artifacts still flow via the legacy mirror.
-**Mode:** mvp
 **Depends on**: Phase 3
 **Requirements**: MAN-01, MAN-02, MAN-03, MAN-04, MAN-05, API-01
 **Success Criteria** (what must be TRUE):
@@ -133,7 +129,6 @@ Plans:
 ### Phase 5: Typed Artifacts + Persistence + Ownership [1B]
 
 **Goal**: Replace the untyped `accumulated_outputs` handoff with a typed, content-addressed, owner-scoped `ArtifactGraph`; land the persistence schema (§18) and default-deny ownership enforcement; dual-write then delete the legacy mirror.
-**Mode:** mvp
 **Depends on**: Phase 4
 **Requirements**: ART-01, ART-02, ART-03, ART-04, PERSIST-01, PERSIST-02, PERSIST-03, AUTHZ-01, AUTHZ-02, AUTHZ-03, AUTHZ-04, CAPRUN-01, API-04, API-05
 **Success Criteria** (what must be TRUE):
@@ -173,7 +168,6 @@ Plans:
 ### Phase 6: Model Policy [1C]
 
 **Goal**: Implement model resolution with the full precedence order, fallback chains, cost classes, a `ModelCatalog`, and persisted per-agent overrides — global default stays Haiku.
-**Mode:** mvp
 **Depends on**: Phase 5
 **Requirements**: MODEL-01, MODEL-02, MODEL-03, MODEL-04, MODEL-05
 **Success Criteria** (what must be TRUE):
@@ -193,7 +187,6 @@ Plans:
 ### Phase 7: Prototype as Manifest — Parity Proof (SC-001) [2]
 
 **Goal**: Re-express prototype/od_/revision entirely as manifests backed by registered capabilities, then delete the hardcoded kernel leaks L1–L12 — proving the kernel knows no workflow by name. **This is the core-value proof.**
-**Mode:** mvp
 **Depends on**: Phase 6
 **Requirements**: PARITY-01, PARITY-02, PARITY-03, PARITY-04, PARITY-05, PARITY-06, PARITY-07, PARITY-08, PARITY-09
 **Success Criteria** (what must be TRUE):
@@ -216,7 +209,6 @@ Plans:
 ### Phase 8: Capabilities Hardened — Registry, Gates, Tool Perms, Runtime [3]
 
 **Goal**: Formalize the capability registry + trust flags, make gates first-class (incl. a real `validation` gate), enforce least-privilege tool permissions, and lift the factory's hardcoded runtime/tools/prompt-order into adapters/registries/policy — deleting F1–F5 and fixing the constitution no-op (R12).
-**Mode:** mvp
 **Depends on**: Phase 7
 **Requirements**: CAP-01, CAP-02, CAP-03, GATE-01, GATE-02, GATE-03, TOOLPERM-01, TOOLPERM-02, TOOLPERM-03, VALID-01, VALID-02, VALID-03, VALID-04, VALID-05, AGENTRT-01, AGENTRT-02, AGENTRT-03, AGENTRT-04, AGENTRT-05, AGENTRT-06, SKILL-01, HOOK-01, HOOK-02, HOOK-03, HOOK-04, OBS-02, API-02, API-03, API-06
 **Success Criteria** (what must be TRUE):
@@ -242,7 +234,6 @@ Plans:
 ### Phase 9: Local Workspace Runtime + Repo Workflows (no exec) [4A]
 
 **Goal**: Introduce the `RuntimeEnvironment`/`Workspace` ports with a `LocalSandboxRuntime`, and deliver the first brownfield repo workflow end-to-end locally without execution (clone → branch → inventory → read/edit/search → diff) — plus the MCP client and integration providers.
-**Mode:** mvp
 **Depends on**: Phase 8
 **Requirements**: RUNTIME-01, RUNTIME-02, RUNTIME-03, REPO-01, REPO-02, REPO-03, REPO-04, REPO-05, MCP-01, MCP-02, MCP-03, MCP-04, INTEG-01, INTEG-02
 **Success Criteria** (what must be TRUE):
@@ -266,7 +257,6 @@ Plans:
 ### Phase 10: Safe Local Exec (gated on N3) [4B]
 
 **Goal**: After the N3 threat model is decided, enable a constrained `exec` profile behind the `security` gate with command allow/deny, default-deny egress, resource caps, and ephemeral creds — plus compile/test/lint validators.
-**Mode:** mvp
 **Depends on**: Phase 9 (and the N3 threat-model decision)
 **Requirements**: EXEC-01, EXEC-02
 **Success Criteria** (what must be TRUE):
@@ -284,7 +274,6 @@ Plans:
 ### Phase 11: Engine-Owned Fan-Out + Merge [5]
 
 **Goal**: Implement engine-owned fan-out (declarative + `spawn_subagents` tool) with isolation, merge-conflict handling, budgets, depth/concurrency caps, subagent persistence, and cancellation propagation — the engine alone decides isolation/caps/merge (INV-7).
-**Mode:** mvp
 **Depends on**: Phase 9
 **Requirements**: FANOUT-01, FANOUT-02, FANOUT-03, FANOUT-04, FANOUT-05, FANOUT-06, FANOUT-07, FANOUT-08, FANOUT-09, FANOUT-10, FANOUT-11, OBS-01, RESUME-01
 **Success Criteria** (what must be TRUE):
@@ -307,7 +296,6 @@ Plans:
 ### Phase 12: Wave Scheduler + Durable Resume [6]
 
 **Goal**: Add a deterministic topological wave scheduler that runs disjoint tasks in parallel waves via fan-out, with durable mid-wave resume; prototype stays sequential and a CP-SAT seam is left.
-**Mode:** mvp
 **Depends on**: Phase 11
 **Requirements**: WAVE-01, WAVE-02, WAVE-03, RESUME-02, RESUME-03, RESUME-04
 **Success Criteria** (what must be TRUE):
