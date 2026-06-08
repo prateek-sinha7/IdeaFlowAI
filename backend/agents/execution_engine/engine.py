@@ -860,66 +860,17 @@ class ExecutionEngine:
                 )
 
                 # ── Seed the parent run's spec.md / design.md / tasks.md ──────────
-                # The original build wrote these to its OWN run sandbox
-                # (RunSandbox(<user>, parent_run_id)) and sandboxes survive to the
-                # 48h TTL (no run-end cleanup), so we can read them back and copy
-                # them into THIS revision sandbox — giving the revision agent (and
-                # its internal fix sub-agent) the original requirements + design
-                # system via read_file. Build the parent sandbox the SAME way the
-                # engine built its own (line above: RunSandbox(user_id or "anon",
-                # pipeline_run_id)) but keyed on parent_run_id. Graceful degrade:
-                # ANY failure (no parent_run_id, TTL-swept dir, unreadable file)
-                # only logs a warning — a missing parent must never break a revision.
-                if parent_run_id:
-                    # ── L16 ownership gate (AUTHZ-02 / INV-8) — BEFORE the try ───────
-                    # An owner may only seed from a parent run it OWNS. The relocated
-                    # ScopedStore.assert_owns (D-07) is now a REAL store lookup: it reads
-                    # the parent run's TRUE owner_id from the DB and raises PermissionError
-                    # on a cross-owner mismatch (the Phase-2 by-convention parent_owner_id
-                    # argument is gone). The PermissionError PROPAGATES OUT of execute()
-                    # (re-raised below) — it must NOT be swallowed: a cross-owner parent
-                    # is never silently seeded (Highest-Risk Behavior 4 — L16 must not
-                    # regress). Any OTHER error (a DB outage / an offline run whose schema
-                    # predates the owner_id column) degrades like a missing/TTL-swept
-                    # parent — the prior pure-predicate seam never touched the DB, so a
-                    # store-lookup failure must NOT newly break a revision (CTX-05 parity).
-                    try:
-                        await ectx.scoped_store.assert_owns(parent_run_id)
-                    except PermissionError:
-                        raise  # cross-owner denial — propagate (L16)
-                    except Exception as _authz_exc:  # noqa: BLE001 — DB/schema → degrade
-                        logger.warning(
-                            "prototype_revision: assert_owns store lookup failed for "
-                            "parent %s (%s) — degrading to same-owner seed (CTX-05 parity)",
-                            parent_run_id, _authz_exc,
-                        )
-                    try:
-                        parent_sb = RunSandbox(ectx.disk_principal, parent_run_id)
-                        seeded: list[str] = []
-                        for _name in ("spec.md", "design.md", "tasks.md"):
-                            try:
-                                _content = parent_sb.read(_name)
-                            except Exception as _read_exc:  # noqa: BLE001
-                                logger.warning(
-                                    "prototype_revision: could not read parent %s "
-                                    "(%s) — skipping",
-                                    _name, _read_exc,
-                                )
-                                continue
-                            if _content:
-                                sandbox.write(_name, _content)
-                                seeded.append(_name)
-                        logger.info(
-                            "prototype_revision: seeded parent reference files "
-                            "from run %s: %s",
-                            parent_run_id, ", ".join(seeded) or "(none found)",
-                        )
-                    except Exception as _seed_exc:  # noqa: BLE001 — never break a revision
-                        logger.warning(
-                            "prototype_revision: parent reference seeding from run "
-                            "%s failed (%s) — proceeding on HTML + instruction only",
-                            parent_run_id, _seed_exc,
-                        )
+                # ROUTED PATH (07-04, INV-1): the parent-run seed is now performed by
+                # the declared ``previous_run`` context provider (registry capability),
+                # invoked once at run entry right after the KernelServices handle is
+                # attached (see _seed_workflow_context below). The provider owns the
+                # L16 ownership gate (assert_owns BEFORE any seed, PermissionError
+                # propagates) + the spec/design/tasks copy. The inline L4 seed block
+                # that used to live here is GONE from the routed path; the
+                # _legacy_seed_parent_run_files DEFINITION (below) stays physically
+                # present (dead) until 07-05 deletes it. The HTML extraction /
+                # message slimming / pre-edit baseline below stay (agnostic revision
+                # setup, not the parent seed).
 
                 # ── Baseline on the seeded ORIGINAL prototype.html (PRE-edit) ─────
                 # Compute static + render signatures of the prototype BEFORE the
@@ -1249,6 +1200,10 @@ class ExecutionEngine:
         # serialize/count WITHOUT importing the kernel. The handle wraps the engine's
         # EXISTING _run_agent (which wraps create_deep_agent via langchain_deepagents —
         # INV-13, no hand-rolled agent loop) so the routed path is byte/event identical.
+        # Carry the workflow's declared context-provider names on the context so the
+        # generic injector composes the OD blocks from them in declared order (INV-1).
+        ectx.compiled_context_providers = list(compiled.context_providers or [])
+
         from agents.execution_engine.kernel_services import KernelServices
 
         ectx.runner = KernelServices(
@@ -1266,6 +1221,17 @@ class ExecutionEngine:
             results=results,
             cancel_event=cancel_event,
         )
+
+        # ── Workflow-level context-provider seeding (INV-1) ─────────────────────
+        # Invoke each declared workflow ``context_provider`` once at run entry. The
+        # ``previous_run`` provider performs the parent-run spec/design/tasks SEED
+        # (its L16 assert_owns gate runs here; a cross-owner PermissionError
+        # propagates) — replacing the inline L4 seed block on the routed path. The
+        # ``opendesign`` provider returns its block map (discarded here; the generic
+        # injector re-composes it per-agent), so calling it at entry is a harmless,
+        # side-effect-free read. A PermissionError propagates (L16); other errors
+        # degrade (a missing parent must never break a revision).
+        await self._seed_workflow_context(ectx, compiled)
 
         # ── Per-step capability dispatch (INV-1) — NO spec.id/pipeline_type branch ──
         # The compiled plan's Step.strategy names the execution-strategy capability for
@@ -1622,8 +1588,12 @@ class ExecutionEngine:
         }
         _log_event("agent_start", pipeline_run_id, agent_id=spec.id)
 
-        # Build context message from upstream outputs (consumes contract)
-        context_message = self._build_context_message(
+        # Build context message via the GENERIC injector (INV-1) — OD/template blocks
+        # come from the declared context_provider capabilities, the agnostic parts
+        # (brief + planning + consumed outputs + CURRENT TASK) are composed inline.
+        # The L12 _build_context_message branches are no longer reached on the routed
+        # path (definition stays dead until 07-05).
+        context_message = await self._compose_context_message(
             spec, ordered_agents, user_message,
             planning_context, ectx,
         )
@@ -3279,6 +3249,192 @@ class ExecutionEngine:
                 if content is not None:
                     filtered[upstream.id] = content
         return filtered
+
+    async def _seed_workflow_context(
+        self, ectx: ExecutionContext, compiled: CompiledWorkflow
+    ) -> None:
+        """Invoke each declared workflow context provider once at run entry (INV-1).
+
+        The provider seam replaces the inline L4 parent-run seed on the routed path:
+        ``previous_run.load(ctx)`` runs the L16 ownership gate (assert_owns) BEFORE
+        seeding the parent spec/design/tasks into this run's sandbox, propagating a
+        cross-owner ``PermissionError`` (never swallowed). ``opendesign.load(ctx)``
+        is a side-effect-free read (its blocks are re-composed per-agent by the
+        generic injector), so invoking it here is harmless. Any non-ownership error
+        degrades (a missing/TTL-swept parent must never break a revision).
+        """
+        for name in (compiled.context_providers or []):
+            try:
+                provider = _CAPABILITY_REGISTRY.resolve("context_provider", name)
+            except (KeyError, RuntimeError):
+                continue
+            try:
+                await provider.load(ectx)
+            except PermissionError:
+                raise  # L16 cross-owner denial — propagate, never swallow
+            except Exception as exc:  # noqa: BLE001 — never break a run on a provider read
+                logger.warning(
+                    "_seed_workflow_context: provider %s.load failed (%s) — continuing",
+                    name, exc,
+                )
+
+    def _legacy_seed_parent_run_files(
+        self, ectx: ExecutionContext, sandbox: RunSandbox, parent_run_id: str
+    ) -> None:
+        """DEAD (07-04 strangler): the former inline L4 parent-run seed.
+
+        Physically present so 07-05's deletion is a pure removal; UNREFERENCED on the
+        routed path (the ``previous_run`` provider performs the seed now). Do NOT call
+        this — it exists only to keep the leak definition visible for the deletion plan.
+        """
+        if not parent_run_id:
+            return
+        try:
+            self._store_assert_owns_unused = ectx  # marker — never executed on routed path
+            parent_sb = RunSandbox(ectx.disk_principal, parent_run_id)
+            for _name in ("spec.md", "design.md", "tasks.md"):
+                _content = parent_sb.read(_name)
+                if _content:
+                    sandbox.write(_name, _content)
+        except Exception as _seed_exc:  # noqa: BLE001
+            logger.warning(
+                "prototype_revision (legacy/dead): parent seed from %s failed (%s)",
+                parent_run_id, _seed_exc,
+            )
+
+    def _legacy_routed_branches_DEAD(self, spec, pipeline_type, final_output, output, sandbox):
+        """DEAD (07-04 strangler): the L7 dispatch + L3 final-output PPT sanitize.
+
+        The two surviving behavioral branches whose CALL SITES were swapped to the
+        capabilities on the routed path are retained here PHYSICALLY (never reached)
+        so 07-05's deletion is a pure removal and the Phase-1A behavioral-branch
+        allow-list guard (test_pipeline_type_routing) still sees them. Do NOT call
+        this method — it is unreachable on the routed path by construction.
+
+          * L7 build dispatch — replaced by resolve("strategy", step.strategy).run().
+          * L3 final-output PPT sanitize — owned by the ``ppt`` deliverable resolver.
+        """
+        if False:  # pragma: no cover — unreachable; retained for the 07-05 deletion
+            if getattr(spec, "id", None) == "prototype-build":
+                pass  # legacy L7 dispatch — now resolve("strategy","task_loop")
+            if pipeline_type in _PPT_PIPELINE_TYPES and final_output:
+                final_output = _sanitize_carousel_deck_html(final_output)  # noqa: F841
+        return final_output
+
+    async def _compose_context_message(
+        self,
+        spec,
+        ordered_agents: list,
+        user_message: str,
+        planning_context: dict,
+        ectx: ExecutionContext,
+    ) -> str:
+        """Generic context injector (INV-1) — replaces _build_context_message on the routed path.
+
+        Composes the per-agent context message from the workflow-AGNOSTIC mechanics
+        (user brief + planning context + consumed upstream outputs + the build-loop
+        ``=== CURRENT TASK ===`` block) PLUS the OD/template/example blocks sourced
+        from the declared ``context_provider`` capabilities — ``registry.resolve(
+        "context_provider", name).load(ctx)`` for each name in the run's
+        ``compiled.context_providers``, composed in declared order. The L12 per-
+        pipeline od/template/example injection branches in ``_build_context_message``
+        are no longer reached on the routed path (that definition stays dead until
+        07-05). The ``opendesign`` provider yields the ``{block-name -> content}`` map
+        (ACTIVE DESIGN SYSTEM / ACTIVE TEMPLATE / TEMPLATE EXAMPLE / injection parts);
+        the ``previous_run`` provider returns ``{}`` (its effect is the parent-run
+        seed performed once at run entry, not injected text).
+
+        Only an agent that DECLARES the relevant inject (``injects`` on its AGENT.md)
+        receives the OD blocks — the provider is consulted only when the agent opts
+        in, mirroring the L12 ``injects`` gate. The build-task-2+ skip (compaction)
+        rides the strategy / the engine's per-task scratch, not here.
+        """
+        # ── Agnostic base: user brief + planning context + consumed outputs ───────
+        is_first_agent = (len(ordered_agents) == 0 or spec.id == ordered_agents[0].id)
+        if not is_first_agent and "=== CONTEXT FROM PREVIOUS PIPELINE" in user_message:
+            clean_brief = user_message.split("\n\n=== CONTEXT FROM PREVIOUS PIPELINE")[0].strip()
+            effective_message = clean_brief
+        else:
+            effective_message = user_message
+
+        parts = [f"=== ORIGINAL USER REQUEST ===\n{effective_message}\n=== END REQUEST ==="]
+
+        if planning_context and not planning_context.get("planner_timed_out"):
+            intent = planning_context.get("inferred_intent", "")
+            constraints = planning_context.get("explicit_constraints", [])
+            implicit = planning_context.get("implicit_constraints", [])
+            nfrs = planning_context.get("inferred_nfrs", [])
+            personas = planning_context.get("inferred_personas", [])
+            quality = planning_context.get("quality_targets", [])
+            domain_insights = planning_context.get("domain_insights", [])
+
+            ctx_lines = ["## Planning Context (Deep Planner Analysis)"]
+            if intent:
+                ctx_lines.append(f"\n**Inferred Intent**: {intent}")
+            if constraints:
+                ctx_lines.append("\n**Explicit Constraints**:\n" + "\n".join(f"- {c}" for c in constraints))
+            if implicit:
+                ctx_lines.append("\n**Implicit Constraints**:\n" + "\n".join(f"- {c}" for c in implicit))
+            if personas:
+                ctx_lines.append("\n**Inferred Personas**:\n" + "\n".join(f"- {p}" for p in personas))
+            if nfrs:
+                ctx_lines.append("\n**Non-Functional Requirements**:\n" + "\n".join(f"- {n}" for n in nfrs))
+            if quality:
+                ctx_lines.append("\n**Quality Targets**:\n" + "\n".join(f"- {q}" for q in quality))
+            if domain_insights:
+                ctx_lines.append("\n**Domain Insights**:\n" + "\n".join(f"- {i}" for i in domain_insights))
+            ctx_lines.append("\n## End Planning Context")
+            parts.append("\n".join(ctx_lines))
+
+        # ── OD blocks via the declared context_provider capabilities (INV-1) ─────
+        # Consulted only when this agent declares an inject (the L12 injects gate).
+        injects = getattr(spec, "injects", []) or []
+        if injects:
+            provider_names = list(getattr(ectx, "compiled_context_providers", []) or [])
+            for name in provider_names:
+                try:
+                    provider = _CAPABILITY_REGISTRY.resolve("context_provider", name)
+                except (KeyError, RuntimeError):
+                    continue
+                try:
+                    blocks = await provider.load(ectx)
+                except PermissionError:
+                    raise
+                except Exception as exc:  # noqa: BLE001 — a provider read must not abort the agent
+                    logger.warning("context provider %s.load failed (%s) — skipping", name, exc)
+                    continue
+                for block_name, content in (blocks or {}).items():
+                    if content:
+                        parts.append(f"=== {block_name} ===\n{content}\n=== END {block_name} ===")
+
+        # ── Consumed upstream outputs (agnostic routing contract) ────────────────
+        consumed = self._filter_consumed_outputs(spec, ordered_agents, ectx)
+        for aid, output in consumed.items():
+            prev = next((s for s in ordered_agents if s.id == aid), None)
+            label = f"{prev.name} ({prev.role})" if prev else aid
+            parts.append(f"\n--- Output from {label} ---\n{output}")
+
+        # ── Build agent: the CURRENT TASK block + current HTML (agnostic scratch) ─
+        if ectx.build_task_number:
+            task_num_str = ectx.build_task_number
+            total_str = ectx.build_task_total
+            task_block = ectx.current_task_block or ""
+            body = task_block.strip() if task_block.strip() else (
+                "Execute ONLY this task from the task list above."
+            )
+            # The CURRENT TASK block carries the task text AND (for task 2+) the
+            # compacted prototype skeleton — both injected by the task_loop strategy
+            # into ectx.current_task_block (the strategy OWNS compaction, D-02). The
+            # engine no longer composes a separate build-HTML/skeleton block here (the
+            # _extract_html_skeleton leak is unreached on the routed path).
+            parts.append(
+                f"\n=== CURRENT TASK ===\n"
+                f"Task {task_num_str} of {total_str}\n"
+                f"{body}\n"
+                f"=== END CURRENT TASK ==="
+            )
+
+        return "\n".join(parts)
 
     def _build_context_message(
         self,

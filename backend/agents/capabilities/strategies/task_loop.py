@@ -230,17 +230,25 @@ class TaskLoopStrategy:
             current_task_block = task_blocks[task_num - 1]
 
             # ── task-2+ compaction (D-02 route) ──────────────────────────────────
-            # The compaction capability is RESOLVED here by manifest name (D-02) so
-            # the route is genuinely capability-driven. During 07-04 (parity proof,
-            # strangler "rewire") the per-task prompt's skeleton injection STILL
-            # rides the engine's _build_context_message (delegated through
-            # runner.run_agent -> _run_agent), so the strategy does NOT inject the
-            # skeleton into the task block (that would double-inject). 07-05 deletes
-            # _build_context_message and the skeleton injection moves fully here.
+            # The compaction capability is RESOLVED + APPLIED here by manifest name
+            # (D-02): the strategy OWNS the per-task skeleton injection into the task
+            # block (07-01 contract). The engine's generic injector keys the
+            # CURRENT-TASK marker off ectx.current_task_block (= this task_block), so
+            # the skeleton rides through to the prompt with NO double-injection (the
+            # engine's own build-HTML block is gone on the routed path).
             if task_num >= 2 and compaction_name:
-                # Resolve-by-name to confirm the route binds (parity-safe no-op on
-                # the prompt — the engine path performs the actual injection).
-                _ = self._maybe_resolve_compaction(compaction_name)
+                compactor = self._maybe_resolve_compaction(compaction_name)
+                if compactor is not None:
+                    try:
+                        prior_html = runner.sandbox.read("prototype.html") or ""
+                        skeleton = compactor.compact(prior_html)
+                        if skeleton:
+                            current_task_block = (
+                                f"{current_task_block}\n\n"
+                                f"=== CURRENT PROTOTYPE SKELETON ===\n{skeleton}"
+                            )
+                    except Exception as exc:  # noqa: BLE001 — compaction must not abort the build
+                        logger.warning("task_loop: compaction failed (%s) — continuing", exc)
 
             # Emit loop progress so the frontend knows which task is running.
             yield {

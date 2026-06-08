@@ -374,14 +374,17 @@ class TestPerTaskInjection:
     ) -> None:
         engine_mod, engine, ectx = _fresh_engine(monkeypatch, tmp_path)
 
-        # Spy on the REAL _build_context_message to capture the CURRENT TASK block
-        # the build sub-agent is actually handed per task. The method now takes the
+        # Spy on the REAL generic injector (_compose_context_message — the routed
+        # path's context builder, 07-04) to capture the CURRENT TASK block the build
+        # sub-agent is actually handed per task. The injector is async and takes the
         # threaded ExecutionContext (ectx) — the spy mirrors the new signature.
         captured: list[str | None] = []
-        orig_bcm = engine_mod.ExecutionEngine._build_context_message
+        orig_bcm = engine_mod.ExecutionEngine._compose_context_message
 
-        def spy(self, spec, ordered_agents, user_message, planning_context, ectx):
-            msg = orig_bcm(self, spec, ordered_agents, user_message, planning_context, ectx)
+        async def spy(self, spec, ordered_agents, user_message, planning_context, ectx):
+            msg = await orig_bcm(
+                self, spec, ordered_agents, user_message, planning_context, ectx
+            )
             if getattr(spec, "id", None) == "prototype-build":
                 m = re.search(
                     r"=== CURRENT TASK ===\n(.*?)\n=== END CURRENT TASK ===", msg, re.DOTALL
@@ -389,7 +392,7 @@ class TestPerTaskInjection:
                 captured.append(m.group(1) if m else None)
             return msg
 
-        monkeypatch.setattr(engine_mod.ExecutionEngine, "_build_context_message", spy)
+        monkeypatch.setattr(engine_mod.ExecutionEngine, "_compose_context_message", spy)
 
         # Three tasks: shell (write) + two edits into the two slots.
         def turns_for(agent_id, thread_id, is_fix, task_num):

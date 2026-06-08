@@ -124,3 +124,61 @@ async def test_routed_deliverable_resolution_is_capability_routed():
     )
     assert ("strategy", "task_loop") in seen, "build did not resolve the task_loop strategy"
     assert ("strategy", "single_shot") in seen, "non-build steps did not resolve single_shot"
+
+
+@pytest.mark.asyncio
+async def test_routed_od_prototype_injects_via_opendesign_provider():
+    """od_prototype composes OD context through the opendesign provider (INV-1).
+
+    The generic injector resolves the workflow's declared ``opendesign`` context
+    provider; its blocks (ACTIVE DESIGN SYSTEM / ACTIVE TEMPLATE) land in the
+    agent_input context_message. We spy on the registry to confirm the opendesign
+    provider was resolved during the routed run, and that the 5-pipeline parity
+    golden for od_prototype stays green (asserted separately).
+    """
+    seen: list[tuple[str, str]] = []
+    _orig_resolve = CapabilityRegistry.resolve
+
+    def _spy_resolve(self, kind, name):
+        seen.append((kind, name))
+        return _orig_resolve(self, kind, name)
+
+    import unittest.mock as _mock
+
+    with _mock.patch.object(CapabilityRegistry, "resolve", _spy_resolve):
+        events = await _drive("od_prototype")
+
+    assert events, "routed od_prototype produced no events"
+    assert ("context_provider", "opendesign") in seen, (
+        f"od_prototype did NOT route OD injection through the opendesign provider "
+        f"(resolves seen: {sorted(set(seen))})"
+    )
+    assert ("deliverable", "single_file") in seen, "od_prototype deliverable not single_file"
+
+
+@pytest.mark.asyncio
+async def test_routed_prototype_revision_seeds_via_previous_run_provider():
+    """prototype_revision routes the parent-run seed through the previous_run provider.
+
+    The workflow-level context seeding resolves the declared ``previous_run``
+    provider at run entry. We spy on the registry to confirm it was resolved during
+    the routed revision run, and that the revision deliverable resolves via single_file.
+    """
+    seen: list[tuple[str, str]] = []
+    _orig_resolve = CapabilityRegistry.resolve
+
+    def _spy_resolve(self, kind, name):
+        seen.append((kind, name))
+        return _orig_resolve(self, kind, name)
+
+    import unittest.mock as _mock
+
+    with _mock.patch.object(CapabilityRegistry, "resolve", _spy_resolve):
+        events = await _drive("prototype_revision")
+
+    assert events, "routed prototype_revision produced no events"
+    assert ("context_provider", "previous_run") in seen, (
+        f"prototype_revision did NOT route the parent seed through previous_run "
+        f"(resolves seen: {sorted(set(seen))})"
+    )
+    assert ("deliverable", "single_file") in seen, "revision deliverable not single_file"
