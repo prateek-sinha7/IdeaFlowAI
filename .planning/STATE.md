@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-08T15:07:44.774Z"
+last_updated: "2026-06-08T15:29:02.675Z"
 last_activity: 2026-06-08 -- Phase 06 execution started
 progress:
   total_phases: 12
   completed_phases: 5
   total_plans: 26
-  completed_plans: 23
+  completed_plans: 24
   percent: 42
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 ## Current Position
 
 Phase: 06 (model-policy-1c) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-06-08 -- Phase 06 execution started
 
@@ -75,6 +75,7 @@ Progress: [██████░░░░] 67% (4/6 plans complete)
 | Phase 05 P07 P07 | ~55 min | 3 tasks | 23 files |
 | Phase 06-model-policy-1c P01 | 18min | 2 tasks | 4 files |
 | Phase 06-model-policy-1c P02 | 5min | 1 tasks | 2 files |
+| Phase 06 P03 | 15min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -111,6 +112,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 06-01: catalog stores both tier (display) and cost_class (canonical), asserted consistent (D-04); name-only registry membership (D-03)
 - [Phase ?]: 06-02: AGENT.md model parsed with a load-time type guard only; catalog-membership validation deferred to the resolver (06-03), keeping the loader catalog-free (D-09)
 - [Phase ?]: 06-02: AgentSpec.model is fully additive (str|None, default None); all ~80 existing agents load unchanged
+- [Phase ?]: 06-03: ModelResolver constructed after compile_for_run() (CompiledWorkflow.model seeds tier 4), carried on ectx.model_resolver; the 3 _run_agent model sites consult it via _resolve_model — INV-3 snapshots byte/semantic-identical
+- [Phase ?]: 06-03: _resolve_model falls back to threaded model_id when ectx.model_resolver is None (direct unit-style _run_agent invocations) — parity-safe (Rule 1 fix); step=None this plan (06-04 wires Step lookup); SmartPlanner left on session id (RESEARCH #2)
+- [Phase ?]: 06-03: ModelPolicy.max_tokens stays doc-only (cap stays settings.MAX_OUTPUT_TOKENS); _is_transient_throttle + set_chain/current/advance shipped for the 06-05 fallback loop
 
 ### Pending Todos
 

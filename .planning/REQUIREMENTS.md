@@ -58,10 +58,10 @@
 ### Model Policy & Per-Agent Selection (Phase 1C)
 
 - [x] **MODEL-01**: `ModelResolver` on `ExecutionContext` applies resolution order (highest wins): user per-agent override > `step.model` > agent default (AGENT.md) > `workflow.model` > global default (Haiku) (§20 / A10)
-- [ ] **MODEL-02**: `ModelPolicy` carries model id, `max_tokens` (doc-only; runtime caps at `MAX_OUTPUT_TOKENS`), `cost_class` (cheap/standard/premium), ordered `fallback` chain on throttle/error (§20)
+- [x] **MODEL-02**: `ModelPolicy` carries model id, `max_tokens` (doc-only; runtime caps at `MAX_OUTPUT_TOKENS`), `cost_class` (cheap/standard/premium), ordered `fallback` chain on throttle/error (§20)
 - [ ] **MODEL-03**: User per-agent `model_overrides: {agent_id → model_id}` applied at the top of the order and persisted per run (A12 / §18 `run_capabilities`)
 - [x] **MODEL-04**: `ModelCatalog` registered capability lists selectable models (label, provider, cost_class, context window, `user_allowed`); surfaced via `/api/capabilities` (§20)
-- [ ] **MODEL-05**: Global default stays Haiku; per-step/workflow model honored (Phase 1C Accept / N11 — confirm premium policy + fallback chain)
+- [x] **MODEL-05**: Global default stays Haiku; per-step/workflow model honored (Phase 1C Accept / N11 — confirm premium policy + fallback chain)
 
 ### Prototype as Manifest — Parity Proof (Phase 2)
 
