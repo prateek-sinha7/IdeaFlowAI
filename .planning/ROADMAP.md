@@ -17,7 +17,7 @@ The plan sub-phases (0A/0B/0C, 1A/1B/1C, 4A/4B) are mapped to sequential GSD pha
 - [x] **Phase 3: Token-Trim (measured change) [0C]** - Wire the dead `_extract_html_skeleton` as build compaction; gated on semantic snapshot + measured token delta (completed 2026-06-07)
 - [x] **Phase 4: Manifest + Compiler [1A]** - File-backed manifests → thin compiler → typed `CompiledWorkflow`; pipelines run from compiled plans (completed 2026-06-07)
 - [x] **Phase 5: Typed Artifacts + Persistence + Ownership [1B]** - `ArtifactGraph`/`ArtifactRef` + schema (§18); dual-write then delete the legacy mirror; authz denial tests (completed 2026-06-08)
-- [ ] **Phase 6: Model Policy [1C]** - `ModelResolver` (resolution order + fallback + cost_class) + `ModelCatalog` + per-agent overrides
+- [x] **Phase 6: Model Policy [1C]** - `ModelResolver` (resolution order + fallback + cost_class) + `ModelCatalog` + per-agent overrides (completed 2026-06-08)
 - [ ] **Phase 7: Prototype as Manifest — Parity Proof (SC-001) [2]** - Strategies/resolvers/providers/parsers/compaction; delete kernel leaks L1–L12; zero name/id branches
 - [ ] **Phase 8: Capabilities Hardened — Registry, Gates, Tool Perms, Runtime [3]** - CapabilityRegistry + trust; gate registry; least-privilege; AgentRuntimeAdapter + PromptAssemblyPolicy; delete F1–F5
 - [ ] **Phase 9: Local Workspace Runtime + Repo Workflows (no exec) [4A]** - `RuntimeEnvironment` port + `LocalSandboxRuntime`; repo inventory/index/context-pack + `repo_diff`; MCP client + integrations
@@ -193,7 +193,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 06-05-PLAN.md — APPROACH B engine-level fallback (rebuild-and-retry on throttle) + scripted-throttle tests (MODEL-02)
+- [x] 06-05-PLAN.md — APPROACH B engine-level fallback (rebuild-and-retry on throttle) + scripted-throttle tests (MODEL-02)
 
 ### Phase 7: Prototype as Manifest — Parity Proof (SC-001) [2]
 
@@ -335,7 +335,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 3. Token-Trim [0C] | 2/2 | Complete    | 2026-06-07 |
 | 4. Manifest + Compiler [1A] | 5/5 | Complete    | 2026-06-07 |
 | 5. Typed Artifacts + Persistence [1B] | 7/7 | Complete    | 2026-06-08 |
-| 6. Model Policy [1C] | 4/5 | In Progress|  |
+| 6. Model Policy [1C] | 5/5 | Complete   | 2026-06-08 |
 | 7. Prototype as Manifest (Parity Proof) [2] | 0/5 | Not started | - |
 | 8. Capabilities Hardened [3] | 0/8 | Not started | - |
 | 9. Local Runtime + Repo (no exec) [4A] | 0/6 | Not started | - |

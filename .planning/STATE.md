@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-06-08T15:45:33.306Z"
+status: verifying
+last_updated: "2026-06-08T16:03:26.076Z"
 last_activity: 2026-06-08 -- Phase 06 execution started
 progress:
   total_phases: 12
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 26
-  completed_plans: 25
-  percent: 42
+  completed_plans: 26
+  percent: 50
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 
 Phase: 06 (model-policy-1c) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-08 -- Phase 06 execution started
 
 Progress: [██████░░░░] 67% (4/6 plans complete)
@@ -77,6 +77,7 @@ Progress: [██████░░░░] 67% (4/6 plans complete)
 | Phase 06-model-policy-1c P02 | 5min | 1 tasks | 2 files |
 | Phase 06 P03 | 15min | 2 tasks | 4 files |
 | Phase 06 P04 | 18min | 2 tasks | 4 files |
+| Phase 06 P05 | 35min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -117,6 +118,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 06-03: _resolve_model falls back to threaded model_id when ectx.model_resolver is None (direct unit-style _run_agent invocations) — parity-safe (Rule 1 fix); step=None this plan (06-04 wires Step lookup); SmartPlanner left on session id (RESEARCH #2)
 - [Phase ?]: 06-03: ModelPolicy.max_tokens stays doc-only (cap stays settings.MAX_OUTPUT_TOKENS); _is_transient_throttle + set_chain/current/advance shipped for the 06-05 fallback loop
 - [Phase ?]: 06-04: model_overrides validated at ingress (model_id in ModelCatalog.ids() AND agent_id in run agents) reject with invalid_model_override before execute; {} to SQL NULL on persist (INV-3 parity); no new migration
+- [Phase ?]: 06-05: MODEL-02 fallback = APPROACH B (engine rebuild-and-retry), NOT with_fallbacks; B1 runner re-raises classified throttles, engine advances ModelResolver + rebuilds via create_runner (build_model only), bounded by chain length, exhaustion surfaces a visible agent_error
 
 ### Pending Todos
 
