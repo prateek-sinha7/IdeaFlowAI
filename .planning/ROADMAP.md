@@ -215,7 +215,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 07-02-PLAN.md — `single_file`/`serialized_sandbox`/`streamed_text`/`ppt` resolvers + `opendesign`/`previous_run` providers + seed_files (PARITY-02/03/07)
+- [x] 07-02-PLAN.md — `single_file`/`serialized_sandbox`/`streamed_text`/`ppt` resolvers + `opendesign`/`previous_run` providers + seed_files (PARITY-02/03/07)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -348,7 +348,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 4. Manifest + Compiler [1A] | 5/5 | Complete    | 2026-06-07 |
 | 5. Typed Artifacts + Persistence [1B] | 7/7 | Complete    | 2026-06-08 |
 | 6. Model Policy [1C] | 5/5 | Complete    | 2026-06-08 |
-| 7. Prototype as Manifest (Parity Proof) [2] | 1/5 | In Progress|  |
+| 7. Prototype as Manifest (Parity Proof) [2] | 2/5 | In Progress|  |
 | 8. Capabilities Hardened [3] | 0/8 | Not started | - |
 | 9. Local Runtime + Repo (no exec) [4A] | 0/6 | Not started | - |
 | 10. Safe Local Exec [4B] | 0/2 | Not started | - |
