@@ -1,20 +1,23 @@
 ---
 phase: 06-model-policy-1c
 verified: 2026-06-08T18:00:00Z
-status: human_needed
+status: passed
 score: 13/13 must-haves verified
 overrides_applied: 0
-human_verification:
-  - test: "Trigger an actual mid-stream fallback against a live LangGraph Postgres checkpointer by inducing a Bedrock ThrottlingException on the primary model after partial output is emitted, then observe that the retry attempt uses thread_id with `:retry1` suffix and produces a clean graph re-execution (not a resume of the prior checkpoint)"
+deferred_verification:
+  - item: "CR-02 live-checkpointer fallback restart"
+    deferred_to: "end-of-milestone live-verification pass (with Phase 7+ real-pipeline runs / staging Bedrock)"
+    decision: "User accepted the offline evidence and deferred the single live item (2026-06-08); it does NOT block Phase 6 completion. Tracked in 06-UAT.md so /gsd-audit-uat surfaces it before /gsd-complete-milestone."
+    test: "Trigger an actual mid-stream fallback against a live LangGraph Postgres checkpointer by inducing a Bedrock ThrottlingException on the primary model after partial output is emitted, then observe that the retry attempt uses thread_id with `:retry1` suffix and produces a clean graph re-execution (not a resume of the prior checkpoint)"
     expected: "The fallback runner starts from a clean graph state; no duplicate graph node replay; final deliverable reflects only the fallback model's output; `agent_model_fallback` event emitted with `reset_output: true`"
-    why_human: "CR-02 correctness depends on LangGraph checkpointer behavior when a partial checkpoint exists under the base thread_id. The offline scripted-model harness (InMemory checkpointer) proves the thread_id derivation is implemented (`{base}:retry{n}` — confirmed in engine.py:1842) but InMemory checkpointer never writes mid-stream state, so stale-checkpoint resume cannot be triggered offline. Only a live Postgres checkpointer + Bedrock throttle can verify that a real partial checkpoint under the base thread_id is NOT resumed by the retry. Deemed non-blocking by the REVIEW.md per the phase's human-verify exception."
+    why_deferred: "The offline scripted-model harness (InMemory checkpointer) proves the thread_id derivation is implemented (`{base}:retry{n}` — confirmed engine.py:1842) but InMemory checkpointer never writes mid-stream state, so stale-checkpoint resume cannot be triggered offline. Only a live Postgres checkpointer + Bedrock throttle can confirm it. Phase 6's locked acceptance bar (D-06) is offline-only; the live check is a prudent staging follow-up, batched to the end-of-milestone live pass."
 ---
 
 # Phase 6: Model Policy [1C] Verification Report
 
 **Phase Goal:** Implement model resolution with the full precedence order, fallback chains, cost classes, a `ModelCatalog`, and persisted per-agent overrides — global default stays Haiku.
 **Verified:** 2026-06-08T18:00:00Z
-**Status:** human_needed
+**Status:** passed (offline acceptance; 1 live item deferred to end-of-milestone — see `deferred_verification` + `06-UAT.md`)
 **Re-verification:** No — initial verification
 
 ---

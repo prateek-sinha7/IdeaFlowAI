@@ -1,9 +1,11 @@
 ---
-status: testing
+status: deferred
+deferred_to: end-of-milestone live-verification pass (staging Bedrock + Postgres checkpointer)
+deferred_decision: "User accepted offline evidence and deferred this live item on 2026-06-08; it does NOT block Phase 6. Surface via /gsd-audit-uat before /gsd-complete-milestone."
 phase: 06-model-policy-1c
 source: [06-VERIFICATION.md, 06-REVIEW.md]
 started: 2026-06-08T16:30:00Z
-updated: 2026-06-08T16:30:00Z
+updated: 2026-06-08T18:30:00Z
 ---
 
 ## Current Test
@@ -15,7 +17,7 @@ expected: |
   checkpoint thread rather than resuming the throttled attempt's partial state under the base
   thread_id, the `agent_model_fallback` event carries `reset_output: true`, and the final
   deliverable reflects only the fallback model's output (no mixed-model graph replay).
-awaiting: user response (requires a live Bedrock + Postgres-checkpointer environment)
+awaiting: DEFERRED to end-of-milestone live pass (requires staging Bedrock + Postgres checkpointer) — not blocking Phase 6
 
 ## Tests
 
@@ -38,7 +40,7 @@ why_human: |
   receiving a mid-stream write before the throttle fires can confirm the `:retry{n}` thread
   diverges cleanly from the partial base checkpoint. Pre-identified as non-blocking in 06-REVIEW.md
   per the phase's offline-test-only constraint (D-06: no live Bedrock).
-result: [pending]
+result: [deferred — end-of-milestone live pass]
 
 ## Summary
 
