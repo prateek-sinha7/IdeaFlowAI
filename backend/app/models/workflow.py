@@ -60,5 +60,7 @@ class WorkflowRun(Base):
 
     user = relationship("User", back_populates="workflow_runs")
     parent_run = relationship("WorkflowRun", remote_side=[id])
-    artifacts = relationship("WorkflowArtifact", back_populates="workflow_run", lazy="dynamic")
+    # (The legacy ``artifacts`` -> WorkflowArtifact relationship was removed in 05-07
+    #  when the thin ``workflow_artifacts`` table was dropped; artifacts now live in
+    #  the persisted ``artifact_refs`` table — see app/models/artifact_ref.py.)
     clarifications = relationship("WorkflowClarification", back_populates="workflow_run", lazy="dynamic")

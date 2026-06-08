@@ -26,7 +26,7 @@ import agents.artifact_store.store as _store_mod
 @pytest.fixture(autouse=True)
 def _use_inmemory_store(monkeypatch):
     """Reset the ArtifactStore singleton to in-memory mode for all tests in this module."""
-    store = ArtifactStore(use_db=False)
+    store = ArtifactStore()
     monkeypatch.setattr(_store_mod, "_STORE", store)
     yield
     monkeypatch.setattr(_store_mod, "_STORE", None)

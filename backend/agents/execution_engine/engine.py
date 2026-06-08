@@ -10,7 +10,7 @@ Phase 2 responsibilities:
   4. Run domain agents in topological order
   5. Emit all WS events using the existing envelope shape
   6. Validation_Gate blocking (soft block — emit validation_gate_blocked, pause)
-  7. ArtifactStoreWriteError propagation (do not mark step complete)
+  7. Best-effort typed artifact persistence (degrade-and-log; never abort the run)
   8. Missing-template error (halt before any agent executes)
 
 Phase 3 will add: planning_context injection, agent_input events,

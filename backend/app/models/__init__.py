@@ -6,8 +6,8 @@ from app.models.chat import ChatSession, Message
 from app.models.workflow import WorkflowRun
 from app.models.revoked_token import RevokedToken, cleanup_expired_revocations
 # Phase 3 models — must be imported before WorkflowRun mapper is finalized
-# so that the relationship() references resolve correctly.
-from app.models.artifact import WorkflowArtifact  # noqa: F401
+# so that the relationship() references resolve correctly. (The thin-store
+# WorkflowArtifact model was deleted in 05-07; artifacts live in artifact_refs.)
 from app.models.workflow_clarification import WorkflowClarification  # noqa: F401
 from app.models.workflow_memory import WorkflowMemory  # noqa: F401
 from app.models.workflow_definition import WorkflowDefinition  # noqa: F401

@@ -20,7 +20,7 @@ from agents.execution_engine.state_machine import StateMachine
 @pytest.fixture
 def engine_with_inmem_store() -> ExecutionEngine:
     eng = ExecutionEngine()
-    eng._store = ArtifactStore(use_db=False)
+    eng._store = ArtifactStore()
     return eng
 
 

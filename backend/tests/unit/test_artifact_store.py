@@ -1,161 +1,25 @@
-"""Unit tests for agents/artifact_store/store.py (Phase 1 in-memory implementation).
+"""Unit tests for agents/artifact_store/store.py — the HITL pause/resume half.
 
-Tests:
-  - Round-trip store/retrieve
-  - Version increment per type per run
-  - Lineage chain
-  - Resume event creation and set
+The artifact-persistence half (store/retrieve_latest/retrieve_version/list_by_type/
+list_lineage + the WorkflowArtifact DB usage) was DELETED in 05-07 (PERSIST-02) once
+all consumers were migrated onto the typed ArtifactGraph + persisted artifact_refs
+layer. What remains — and what this suite covers — is the in-memory per-process
+asyncio.Event HITL mechanism (Phase 8 owns HITL):
+
+  - Resume event creation / identity
   - Questionnaire responses store/retrieve
-  - ArtifactStoreWriteError on failure
+  - Review-gate response store/retrieve
 """
 
 import asyncio
 import pytest
 
-from agents.artifact_store.store import ArtifactStore, ArtifactStoreWriteError
+from agents.artifact_store.store import ArtifactStore, get_artifact_store
 
 
 @pytest.fixture
 def store() -> ArtifactStore:
-    return ArtifactStore(use_db=False)
-
-
-# ---------------------------------------------------------------------------
-# Round-trip store / retrieve_latest
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_store_and_retrieve_latest(store: ArtifactStore) -> None:
-    run_id = "run-001"
-    artifact_id = await store.store(
-        run_id=run_id,
-        artifact_type="spec",
-        name="spec.md",
-        content="# My Spec",
-        producing_agent_id="specify-agent",
-    )
-    assert artifact_id
-
-    result = await store.retrieve_latest(run_id, "spec")
-    assert result is not None
-    assert result["content"] == "# My Spec"
-    assert result["type"] == "spec"
-    assert result["name"] == "spec.md"
-    assert result["producing_agent_id"] == "specify-agent"
-    assert result["schema_version"] == "1.0"
-    assert result["version"] == 1
-
-
-@pytest.mark.asyncio
-async def test_retrieve_latest_returns_none_when_missing(store: ArtifactStore) -> None:
-    result = await store.retrieve_latest("run-999", "nonexistent")
-    assert result is None
-
-
-@pytest.mark.asyncio
-async def test_retrieve_version_by_id(store: ArtifactStore) -> None:
-    run_id = "run-002"
-    artifact_id = await store.store(
-        run_id=run_id,
-        artifact_type="plan",
-        name="plan.md",
-        content="# Plan",
-        producing_agent_id="plan-agent",
-    )
-    result = await store.retrieve_version(artifact_id)
-    assert result is not None
-    assert result["id"] == artifact_id
-    assert result["content"] == "# Plan"
-
-
-@pytest.mark.asyncio
-async def test_retrieve_version_returns_none_when_missing(store: ArtifactStore) -> None:
-    result = await store.retrieve_version("nonexistent-id")
-    assert result is None
-
-
-# ---------------------------------------------------------------------------
-# Version increment
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_version_increments_per_type_per_run(store: ArtifactStore) -> None:
-    run_id = "run-003"
-    id1 = await store.store(run_id, "spec", "spec-v1.md", "v1", "agent-a")
-    id2 = await store.store(run_id, "spec", "spec-v2.md", "v2", "agent-b")
-    id3 = await store.store(run_id, "spec", "spec-v3.md", "v3", "agent-c")
-
-    v1 = await store.retrieve_version(id1)
-    v2 = await store.retrieve_version(id2)
-    v3 = await store.retrieve_version(id3)
-
-    assert v1["version"] == 1
-    assert v2["version"] == 2
-    assert v3["version"] == 3
-
-    # retrieve_latest returns v3
-    latest = await store.retrieve_latest(run_id, "spec")
-    assert latest["version"] == 3
-    assert latest["content"] == "v3"
-
-
-@pytest.mark.asyncio
-async def test_versions_independent_across_types(store: ArtifactStore) -> None:
-    run_id = "run-004"
-    await store.store(run_id, "spec", "spec.md", "spec content", "agent-a")
-    await store.store(run_id, "plan", "plan.md", "plan content", "agent-b")
-    await store.store(run_id, "spec", "spec-v2.md", "spec v2", "agent-c")
-
-    spec_latest = await store.retrieve_latest(run_id, "spec")
-    plan_latest = await store.retrieve_latest(run_id, "plan")
-
-    assert spec_latest["version"] == 2
-    assert plan_latest["version"] == 1
-
-
-# ---------------------------------------------------------------------------
-# list_by_type
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_list_by_type_returns_oldest_first(store: ArtifactStore) -> None:
-    run_id = "run-005"
-    await store.store(run_id, "research", "r1.md", "first", "agent-a")
-    await store.store(run_id, "research", "r2.md", "second", "agent-b")
-    await store.store(run_id, "research", "r3.md", "third", "agent-c")
-
-    results = await store.list_by_type(run_id, "research")
-    assert len(results) == 3
-    assert results[0]["content"] == "first"
-    assert results[1]["content"] == "second"
-    assert results[2]["content"] == "third"
-
-
-# ---------------------------------------------------------------------------
-# Lineage chain
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_lineage_chain(store: ArtifactStore) -> None:
-    run_id = "run-006"
-    id1 = await store.store(run_id, "spec", "spec.md", "original", "specify-agent")
-    id2 = await store.store(
-        run_id, "spec", "spec-revised.md", "revised",
-        "revision-agent", derived_from_id=id1,
-    )
-
-    v2 = await store.retrieve_version(id2)
-    assert v2["derived_from_artifact_id"] == id1
-
-    lineage = await store.list_lineage(run_id)
-    assert len(lineage) == 2
-    ids_in_lineage = [a["id"] for a in lineage]
-    assert id1 in ids_in_lineage
-    assert id2 in ids_in_lineage
+    return ArtifactStore()
 
 
 # ---------------------------------------------------------------------------
@@ -200,24 +64,47 @@ async def test_get_questionnaire_responses_returns_none_before_submission(
 
 
 # ---------------------------------------------------------------------------
-# Round-trip equality (SC-010)
+# Review gate (prototype spec/plan review)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_round_trip_equality_unicode(store: ArtifactStore) -> None:
-    content = "# Spec\n\nUnicode: 日本語 🎉 \u2603"
-    run_id = "run-unicode"
-    artifact_id = await store.store(run_id, "spec", "spec.md", content, "agent")
-    result = await store.retrieve_version(artifact_id)
-    assert result["content"] == content
+async def test_get_review_event_creates_and_returns_same_event(
+    store: ArtifactStore,
+) -> None:
+    e1 = await store.get_review_event("run-1:prototype-specify")
+    e2 = await store.get_review_event("run-1:prototype-specify")
+    assert isinstance(e1, asyncio.Event)
+    assert e1 is e2
+    assert not e1.is_set()
 
 
 @pytest.mark.asyncio
-async def test_round_trip_equality_large_content(store: ArtifactStore) -> None:
-    content = "x" * 1_048_576  # 1MB
-    run_id = "run-large"
-    artifact_id = await store.store(run_id, "spec", "spec.md", content, "agent")
-    result = await store.retrieve_version(artifact_id)
-    assert result["content"] == content
-    assert len(result["content"]) == 1_048_576
+async def test_set_review_response_sets_event_and_round_trips(
+    store: ArtifactStore,
+) -> None:
+    gate_key = "run-1:prototype-plan"
+    event = await store.get_review_event(gate_key)
+    assert not event.is_set()
+
+    await store.set_review_response(gate_key, approved=True, edited_content="edited")
+
+    assert event.is_set()
+    response = await store.get_review_response(gate_key)
+    assert response == {"approved": True, "edited_content": "edited"}
+
+
+@pytest.mark.asyncio
+async def test_get_review_response_returns_none_before_submission(
+    store: ArtifactStore,
+) -> None:
+    assert await store.get_review_response("run-1:not-submitted") is None
+
+
+# ---------------------------------------------------------------------------
+# Singleton accessor
+# ---------------------------------------------------------------------------
+
+
+def test_get_artifact_store_is_a_singleton() -> None:
+    assert get_artifact_store() is get_artifact_store()

@@ -1,9 +1,9 @@
 """ArtifactRef SQLAlchemy model — typed artifact persistence (Phase 5).
 
-Table ``artifact_refs`` REPLACES the Phase 3 ``workflow_artifacts`` table
-(``app/models/artifact.py``). The thin-store ``WorkflowArtifact`` model is
-dropped LAST in migration 0015 (plan 05-06) after the read-cutover lands; both
-models coexist during the dual-write window.
+Table ``artifact_refs`` REPLACED the Phase 3 ``workflow_artifacts`` table. The
+thin-store ``WorkflowArtifact`` model + its table were deleted LAST in migration
+``0015`` (plan 05-07) once the read-cutover landed and parity was proven — this is
+now the SOLE persisted artifact model.
 
 Schema source: specs/003-workflow-engine-decoupling/plan.md §6 (ArtifactRef
 fields) + §18 (persistence schema). Every row carries ``owner_id`` +

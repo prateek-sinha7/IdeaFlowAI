@@ -49,7 +49,7 @@ class TestPerformanceTargets:
     async def test_planner_completes_within_15s(self):
         """SC-002: Deep_Planner_Agent must complete in under 15 seconds."""
         engine = ExecutionEngine()
-        engine._store = ArtifactStore(use_db=False)
+        engine._store = ArtifactStore()
         pipeline_run_id = str(uuid.uuid4())
 
         start = time.monotonic()
@@ -71,7 +71,7 @@ class TestPerformanceTargets:
         """SC-003: Total time from submission to first domain agent < 30s."""
         agents = get_pipeline_agents("user_stories")
         engine = ExecutionEngine()
-        engine._store = ArtifactStore(use_db=False)
+        engine._store = ArtifactStore()
         pipeline_run_id = str(uuid.uuid4())
 
         start = time.monotonic()
@@ -95,25 +95,41 @@ class TestPerformanceTargets:
 
     @pytest.mark.asyncio
     async def test_clarification_restore_within_5s(self):
-        """SC-008: Clarification questions restored within 5s of reconnect."""
-        store = ArtifactStore(use_db=False)
+        """SC-008: Clarification questions restored within 5s of reconnect.
+
+        Clarifications persist in ``artifact_refs`` (kind=``clarifications``) via the
+        owner-scoped ``ScopedStore`` since 05-06 (the thin-store path was deleted in
+        05-07). This measures the reconnect read latency through that typed path.
+        """
+        from agents.artifacts.graph import ArtifactGraph
+        from agents.authz import ScopedStore
+
         pipeline_run_id = str(uuid.uuid4())
+        owner_id = "perf-owner"
+        workspace_id = "perf-ws"
+        scoped = ScopedStore(owner_id=owner_id, workspace_id=workspace_id)
 
-        # Simulate a paused run with stored clarifications
-        await store.store(
+        # Simulate a paused run with persisted clarifications.
+        ref = ArtifactGraph().write_ref(
             run_id=pipeline_run_id,
-            artifact_type="clarifications",
-            name="clarifications_round_1",
+            owner_id=owner_id,
+            workspace_id=workspace_id,
+            kind="clarifications",
+            producer_step="clarify-agent",
+            producer_agent="clarify-agent",
+            task_id=None,
             content='[{"question_id": "r1_q1", "question_text": "What is the target audience?", "impact_level": "high", "round": 1}]',
-            producing_agent_id="clarify-agent",
+            location=f"artifact_refs/{pipeline_run_id}/clarifications",
+            visibility="workspace",
         )
+        await scoped.write_ref(ref)
 
-        # Simulate reconnect — retrieve clarifications
+        # Simulate reconnect — retrieve clarifications via the typed scoped read.
         start = time.monotonic()
-        clarifications = await store.retrieve_latest(pipeline_run_id, "clarifications")
+        clarifications = await scoped.list_refs(run_id=pipeline_run_id, kind="clarifications")
         elapsed = time.monotonic() - start
 
-        assert clarifications is not None
+        assert clarifications, "clarifications must be restorable from artifact_refs"
         assert elapsed < 5.0, (
             f"SC-008 FAILED: Clarification restore took {elapsed:.3f}s (limit: 5s)"
         )
