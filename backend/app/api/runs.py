@@ -562,14 +562,48 @@ def _build_lineage_tree(refs: list, *, include_content: bool) -> list[dict]:
                 pids.append(pid)
         return pids
 
+    # WR-04: attach each node under AT MOST ONE parent, and never close a cycle.
+    # The previous loop appended the same nodes[r.id] object under every in-set
+    # parent, so one dict was shared across multiple children lists — and a
+    # mutual-parent pair (A↦B, B↦A both in-set) produced a self-referential
+    # structure that FastAPI's JSON encoder rejects with "Circular reference
+    # detected". Here each node is attached to exactly one parent (the first in-set
+    # parent that does not create a cycle); nodes that cannot be attached surface
+    # as roots so nothing is lost.
+    #
+    # `_attached_parent[child_id] = parent_id` records the single chosen edge so we
+    # can walk a candidate parent's ancestry and refuse an edge whose parent is a
+    # descendant of the child (that would close a cycle).
+    _attached_parent: dict[str, str] = {}
+
+    def _would_cycle(child_id: str, parent_id: str) -> bool:
+        # True iff child_id is already an ancestor of parent_id via chosen edges
+        # (so attaching child under parent would form a loop). Also covers self.
+        cur = parent_id
+        seen: set[str] = set()
+        while cur is not None and cur not in seen:
+            if cur == child_id:
+                return True
+            seen.add(cur)
+            cur = _attached_parent.get(cur)
+        return False
+
     roots: list[dict] = []
     for r in refs:
         pids = _parent_ids(r)
-        if not pids:
-            roots.append(nodes[r.id])
-            continue
+        chosen_parent: Optional[str] = None
         for pid in pids:
-            nodes[pid]["children"].append(nodes[r.id])
+            if pid == r.id:
+                continue  # self-edge — never attach
+            if _would_cycle(r.id, pid):
+                continue  # closing this edge would create a cycle — skip it
+            chosen_parent = pid
+            break
+        if chosen_parent is None:
+            roots.append(nodes[r.id])
+        else:
+            nodes[chosen_parent]["children"].append(nodes[r.id])
+            _attached_parent[r.id] = chosen_parent
     return roots
 
 
