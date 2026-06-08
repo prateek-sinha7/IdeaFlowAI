@@ -207,15 +207,15 @@ Plans:
   3. Kernel leaks L1–L12 deleted; grep gate for `if pipeline_type`/`spec.id ==` and the L1/L2/L5/L6/L7/L10/L11/L12 patterns return 0 (INV-1)
   4. prototype/od_/revision/ppt/code-gen at deliverable parity + semantic event parity vs the post-0C baseline
 
-**Plans**: TBD
+**Plans**: 5 plans
 
 Plans:
 
-- [ ] 07-01: `single_shot` + `task_loop` strategies + `heading_tasks` parser
-- [ ] 07-02: Deliverable resolvers (single_file/serialized_sandbox/streamed_text/ppt) + `opendesign` context provider + seed_files
-- [ ] 07-03: `html_skeleton` CompactionStrategy (re-express 0C behind the capability)
-- [ ] 07-04: prototype/od_prototype/prototype_revision manifests + parity verification
-- [ ] 07-05: Delete L1–L12 kernel branches; ledger gates green; INV-1 grep gate
+- [ ] 07-01-PLAN.md — `single_shot` + `task_loop` strategies + `heading_tasks` parser + the D-02 resolve seam + D-03 runner handle (PARITY-01)
+- [ ] 07-02-PLAN.md — `single_file`/`serialized_sandbox`/`streamed_text`/`ppt` resolvers + `opendesign`/`previous_run` providers + seed_files (PARITY-02/03/07)
+- [ ] 07-03-PLAN.md — `html_skeleton` CompactionStrategy re-expressing 0C behind the capability (PARITY-04)
+- [ ] 07-04-PLAN.md — wire the engine to route prototype/od_prototype/prototype_revision through the capabilities + prove 5-pipeline parity while L1–L13 are present-but-dead (PARITY-05/09)
+- [ ] 07-05-PLAN.md — delete kernel leaks L1–L13 + drop pipeline.py + flip ledger rows kernel-scoped + banned-pattern hard-fail + re-verify L14/L15/L16 (PARITY-06/08)
 
 ### Phase 8: Capabilities Hardened — Registry, Gates, Tool Perms, Runtime [3]
 
