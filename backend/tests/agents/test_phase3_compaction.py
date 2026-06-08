@@ -34,6 +34,7 @@ from __future__ import annotations
 # (RUNS_ROOT→temp + ENV=development) runs and the test stays fully offline.
 from tests.agents import _scripted_model  # noqa: F401  (import for side effects)
 
+from agents.capabilities.compaction.html_skeleton import HtmlSkeletonCompaction
 from agents.execution_engine.context import ExecutionContext
 from agents.execution_engine.engine import ExecutionEngine
 from agents.factory import AgentContext, _build_runner_tools
@@ -198,7 +199,10 @@ def test_build_task2_context_is_at_least_50pct_smaller() -> None:
 
     # Size the message would have been under the OLD full-HTML behavior: take the
     # compacted message, remove the skeleton block, add the full-HTML block.
-    skeleton = ExecutionEngine()._extract_html_skeleton(_MULTI_PAGE_HTML)
+    # The skeleton is produced by the html_skeleton CompactionStrategy capability
+    # (PARITY-04) — re-pointed from engine._extract_html_skeleton (the engine's copy
+    # stays live until 07-05; the capability is byte-identical, see the parity test).
+    skeleton = HtmlSkeletonCompaction().compact(_MULTI_PAGE_HTML)
     skeleton_block = (
         f"\n=== CURRENT PROTOTYPE (skeleton — call read_file('prototype.html') "
         f"for full content before editing) ===\n"
@@ -305,8 +309,13 @@ def test_extract_html_skeleton_is_faithful_to_source() -> None:
     regex (WR-02) — that robustness item is tracked for the Phase 7 CompactionStrategy
     re-expression, where the helper logic is owned. Here we pin the normal-case
     contract the wiring depends on.
+
+    Re-pointed (07-03 / PARITY-04): the skeleton is now produced by the
+    `html_skeleton` CompactionStrategy capability (`HtmlSkeletonCompaction.compact`),
+    the verbatim lift of `_extract_html_skeleton`. The ≥50% reduction assertion below
+    is the preserved 0C deterministic gate, now measured against the capability.
     """
-    skeleton = ExecutionEngine()._extract_html_skeleton(_MULTI_PAGE_HTML)
+    skeleton = HtmlSkeletonCompaction().compact(_MULTI_PAGE_HTML)
 
     # Every data-page section in the fixture (both filled) must be named — no section
     # silently dropped on the path that is now the agent's only structural view.
@@ -327,4 +336,28 @@ def test_extract_html_skeleton_is_faithful_to_source() -> None:
     assert len(skeleton) < 0.5 * len(_MULTI_PAGE_HTML), (
         f"skeleton ({len(skeleton)} chars) must be far smaller than the source "
         f"HTML ({len(_MULTI_PAGE_HTML)} chars) it summarizes"
+    )
+
+
+def test_html_skeleton_capability_is_byte_identical_to_engine_helper() -> None:
+    """PARITY-04: the html_skeleton CompactionStrategy is a VERBATIM lift.
+
+    The capability output MUST be byte-identical to the engine's still-present
+    `_extract_html_skeleton` for the calibration fixture — the 0C ≥50% reduction
+    gate is calibrated to that exact output, so the lift must not alter a single
+    character. (The engine's inline copy stays live until 07-05 deletes it; this
+    test pins the strangler "wrap" parity meanwhile.)
+    """
+    engine_skeleton = ExecutionEngine()._extract_html_skeleton(_MULTI_PAGE_HTML)
+    capability_skeleton = HtmlSkeletonCompaction().compact(_MULTI_PAGE_HTML)
+    assert capability_skeleton == engine_skeleton, (
+        "HtmlSkeletonCompaction.compact must be byte-identical to "
+        "engine._extract_html_skeleton (verbatim lift — PARITY-04)"
+    )
+
+    # The compaction is non-trivial on the calibration fixture (≥50% reduction —
+    # the preserved 0C gate, now also measured directly against the capability).
+    assert len(capability_skeleton) <= 0.5 * len(_MULTI_PAGE_HTML), (
+        f"capability skeleton ({len(capability_skeleton)} chars) must be ≤ 50% of "
+        f"the source HTML ({len(_MULTI_PAGE_HTML)} chars) — PARITY-04 reduction gate"
     )

@@ -107,6 +107,7 @@ def install() -> None:
     from agents.capabilities.deliverables.ppt import PptResolver
     from agents.capabilities.context_providers.opendesign import OpenDesignProvider
     from agents.capabilities.context_providers.previous_run import PreviousRunProvider
+    from agents.capabilities.compaction.html_skeleton import HtmlSkeletonCompaction
 
     _IMPLS[("task_parser", "heading_tasks")] = HeadingTasksParser()
     _IMPLS[("strategy", "single_shot")] = SingleShotStrategy()
@@ -119,7 +120,10 @@ def install() -> None:
     # Context providers (07-02 / PARITY-03).
     _IMPLS[("context_provider", "opendesign")] = OpenDesignProvider()
     _IMPLS[("context_provider", "previous_run")] = PreviousRunProvider()
-    # NOTE: further bindings (validators, compaction, gates) land in later plans
+    # Compaction (07-03 / PARITY-04) — html_skeleton verbatim-lift of the engine's
+    # _extract_html_skeleton; task_loop routes task-2+ through resolve("compaction",..).
+    _IMPLS[("compaction", "html_skeleton")] = HtmlSkeletonCompaction()
+    # NOTE: further bindings (validators, gates) land in later plans
     # as those impl modules are created — add them here alongside their module
     # import. ``resolve`` raises a clear RuntimeError for any known-but-unbound
     # ``(kind, name)`` until then.
