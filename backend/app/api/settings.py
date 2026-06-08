@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from agents.capabilities.model_catalog import ModelCatalog
 from app.api.api_key_auth import mint_api_key
 from app.core.crypto import decrypt_pat, encrypt_pat
 from app.core.dependencies import get_current_user
@@ -30,48 +31,30 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
 # ---------------------------------------------------------------------------
-# Claude 4 series models available on AWS Bedrock
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# Claude 4 series models available on AWS Bedrock
+# Claude 4 series models available on AWS Bedrock.
+#
+# Source of truth (INV-12): agents.capabilities.model_catalog.ModelCatalog — the
+# ONE hand-maintained model-id list. These two module-level constants are derived
+# projections over the catalog, NOT a second list. The projection emits EXACTLY
+# {id, name, description, tier} (mapping label→name) so the /api/settings response
+# and the frontend ModelOption shape stay byte-identical; the catalog's extra
+# fields (cost_class/provider/context_window/user_allowed) are dropped here.
+# app→kernel import (ModelCatalog, imported at module top) is allowed by the
+# import-linter contract.
 # ---------------------------------------------------------------------------
 
 AVAILABLE_MODELS = [
     {
-        "id": "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
-        "name": "Claude Haiku 4.5",
-        "description": "Fastest and most cost-efficient. Great for high-volume tasks.",
-        "tier": "fast",
-    },
-    {
-        "id": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
-        "name": "Claude Sonnet 4.5",
-        "description": "Balanced speed and intelligence. Ideal for most pipelines.",
-        "tier": "balanced",
-    },
-    {
-        "id": "eu.anthropic.claude-sonnet-4-6",
-        "name": "Claude Sonnet 4.6",
-        "description": "Best combination of speed and intelligence. 1M token context.",
-        "tier": "balanced",
-    },
-    {
-        "id": "eu.anthropic.claude-opus-4-5-20251101-v1:0",
-        "name": "Claude Opus 4.5",
-        "description": "Most powerful. Best for complex reasoning and coding tasks.",
-        "tier": "powerful",
-    },
-    {
-        "id": "eu.anthropic.claude-opus-4-6-v1",
-        "name": "Claude Opus 4.6",
-        "description": "Most intelligent broadly available model. Exceptional coding.",
-        "tier": "powerful",
-    },
+        "id": m.id,
+        "name": m.label,
+        "description": m.description,
+        "tier": m.tier,
+    }
+    for m in ModelCatalog().list()
 ]
 
-# Valid model IDs for validation
-_VALID_MODEL_IDS = {m["id"] for m in AVAILABLE_MODELS}
+# Valid model IDs for validation — derived from the same single source.
+_VALID_MODEL_IDS = set(ModelCatalog().ids())
 
 
 # --- Schemas ------------------------------------------------------------

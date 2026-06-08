@@ -127,3 +127,55 @@ def test_catalog_is_kernel_pure() -> None:
         for name in sys.modules
         if name.startswith("app.") and "model_catalog" in repr(sys.modules.get(name, ""))
     }
+
+
+# --- Task 2: AVAILABLE_MODELS is a projection over the catalog (INV-12) ------
+
+
+def test_available_models_is_projection() -> None:
+    from app.api.settings import AVAILABLE_MODELS, _VALID_MODEL_IDS
+
+    expected = [
+        {"id": m.id, "name": m.label, "description": m.description, "tier": m.tier}
+        for m in ModelCatalog().list()
+    ]
+    assert AVAILABLE_MODELS == expected
+    # /api/settings response shape unchanged: EXACTLY {id, name, description, tier}.
+    for model in AVAILABLE_MODELS:
+        assert set(model.keys()) == {"id", "name", "description", "tier"}
+    assert _VALID_MODEL_IDS == set(ModelCatalog().ids())
+
+
+# --- Task 2: registry knows ('model_catalog','default') ---------------------
+
+
+def test_registry_membership() -> None:
+    from agents.capabilities.registry import CapabilityRegistry
+
+    registry = CapabilityRegistry()
+    assert registry.is_registered("model_catalog", "default") is True
+    assert registry.is_registered("model_catalog", "garbage") is False
+
+
+# --- Task 2: INV-12 single-source grep --------------------------------------
+
+
+def test_single_source_grep() -> None:
+    """Model-id literals appear in exactly ONE maintained list across
+    backend/app/api + backend/agents/capabilities, namely model_catalog.py."""
+    backend = Path(__file__).resolve().parents[2]
+    roots = [backend / "app" / "api", backend / "agents" / "capabilities"]
+    pattern = re.compile(r"claude-(haiku|sonnet|opus)-4")
+
+    hits: set[str] = set()
+    for root in roots:
+        for py in root.rglob("*.py"):
+            for line in py.read_text().splitlines():
+                stripped = line.lstrip()
+                if stripped.startswith("#"):
+                    continue
+                if pattern.search(line):
+                    hits.add(py.name)
+                    break
+
+    assert hits == {"model_catalog.py"}, f"model-id literals leaked into: {hits}"

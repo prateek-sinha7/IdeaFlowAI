@@ -24,7 +24,7 @@ from __future__ import annotations
 from agents.registry import _OD_ALIAS_BASE
 
 # ---------------------------------------------------------------------------
-# Known capability names — the authoritative 14 (kind, name) pairs (D-07).
+# Known capability names — the authoritative 15 (kind, name) pairs (D-07).
 # strategy:        single_shot, task_loop
 # validator:       html_static, html_render
 # deliverable:     single_file, serialized_sandbox, streamed_text, ppt
@@ -32,6 +32,7 @@ from agents.registry import _OD_ALIAS_BASE
 # task_parser:     heading_tasks
 # gate:            human, validation
 # compaction:      html_skeleton
+# model:           default  (the ModelCatalog data capability — name-only, D-03)
 # ---------------------------------------------------------------------------
 _KNOWN: set[tuple[str, str]] = {
     ("strategy", "single_shot"),
@@ -48,6 +49,7 @@ _KNOWN: set[tuple[str, str]] = {
     ("gate", "human"),
     ("gate", "validation"),
     ("compaction", "html_skeleton"),
+    ("model_catalog", "default"),
 }
 
 
