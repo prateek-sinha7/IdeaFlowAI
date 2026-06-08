@@ -50,6 +50,51 @@ def _cleanup_pipeline(pipeline_run_id: str) -> None:
     _PIPELINE_TASKS.pop(pipeline_run_id, None)
 
 
+def _validate_model_overrides(
+    model_overrides: dict, run_agent_ids: set[str]
+) -> str | None:
+    """Allow-list-validate the per-run ``{agent_id → model_id}`` override map.
+
+    The security chokepoint for MODEL-03 (Phase 6 D-07, [HIGH] threat T-06-06):
+    ``model_overrides`` is UNTRUSTED run-payload input crossing into model
+    selection. Each entry is checked against TWO allow-lists, both derived from
+    authoritative sources (never an arbitrary string, Q2 trust):
+
+      * ``model_id ∈ ModelCatalog.ids()`` — the kernel-pure model catalog (06-01)
+        is the ONE authoritative model-id list (INV-12). An unknown/arbitrary
+        model id (unknown-provider / cost-abuse / invalid-model-crash vector) is
+        rejected here.
+      * ``agent_id ∈ run_agent_ids`` — the resolved agent set for THIS run
+        (``get_pipeline_agents`` / the custom ``agent_ids`` list). An override
+        targeting a non-existent agent (silent no-op, T-06-07 [MED]) is rejected.
+
+    Returns ``None`` when every entry is valid (or the map is empty — the
+    no-override default the frontend sends until Phase 8). On the FIRST
+    violation returns a human-readable error message naming the bad value; the
+    caller emits the existing ``{"type":"error", ..., "code":"invalid_model_override"}``
+    event and rejects the run BEFORE ``engine.execute`` is called.
+    """
+    if not model_overrides:
+        return None
+    # Import the kernel-pure catalog lazily (app → kernel import is allowed; the
+    # catalog has no app.* reach so this stays import-clean).
+    from agents.capabilities.model_catalog import ModelCatalog
+
+    allowed_model_ids = set(ModelCatalog().ids())
+    for agent_id, model_id in model_overrides.items():
+        if agent_id not in run_agent_ids:
+            return (
+                f"model_overrides targets agent {agent_id!r}, which is not part "
+                f"of this run's agents"
+            )
+        if model_id not in allowed_model_ids:
+            return (
+                f"model_overrides for agent {agent_id!r} requests model "
+                f"{model_id!r}, which is not an allowed model"
+            )
+    return None
+
+
 def _get_db() -> Session:
     """Create a new database session for WebSocket use."""
     return SessionLocal()
@@ -426,6 +471,12 @@ async def websocket_chat(websocket: WebSocket):
                 # exactly those agents this run. We pass it through verbatim
                 # (None when absent) and let the engine apply the semantics.
                 gate_agent_ids = message_data.get("gate_agent_ids")
+                # Optional per-agent model override map (Phase 6 D-07, MODEL-03).
+                # Untrusted run-payload input — allow-list-validated at ingress
+                # (against the catalog AND this run's agents) inside
+                # _handle_workflow_execution, once the agent set is resolved.
+                # Absent → {} (the frontend doesn't send it until Phase 8).
+                model_overrides = message_data.get("model_overrides") or {}
 
                 # Tier gate — map od_* aliases to their base type for the check
                 from app.core.entitlements import can_run_pipeline
@@ -451,6 +502,7 @@ async def websocket_chat(websocket: WebSocket):
                         attached_skills=attached_skills,
                         attached_hooks=attached_hooks,
                         gate_agent_ids=gate_agent_ids,
+                        model_overrides=model_overrides,
                         template_id=message_data.get("template_id"),
                         design_system_id=message_data.get("design_system_id"),
                         discovery=message_data.get("discovery"),
@@ -946,6 +998,7 @@ async def _handle_workflow_execution(
     attached_skills: list[dict] | None = None,
     attached_hooks: list[dict] | None = None,
     gate_agent_ids: list[str] | None = None,
+    model_overrides: dict | None = None,
     template_id: str | None = None,
     design_system_id: str | None = None,
     discovery: dict | None = None,
@@ -1060,6 +1113,25 @@ async def _handle_workflow_execution(
         })
         return
 
+    # ── model_overrides ingress validation (Phase 6 D-07, MODEL-03) ───────
+    # The security chokepoint: validate the untrusted per-agent override map
+    # against the catalog allow-list AND this run's resolved agent set, BEFORE
+    # any run starts. A rejection emits the existing error-event shape with
+    # code "invalid_model_override" and returns without calling engine.execute
+    # (no WorkflowRun is created). Done here because the run's agent set
+    # (`agents`) is only known after resolution above. Absent → {} (no-op).
+    model_overrides = model_overrides or {}
+    _override_error = _validate_model_overrides(
+        model_overrides, {spec.id for spec in agents}
+    )
+    if _override_error is not None:
+        await websocket.send_json({
+            "type": "error", "chunk": None, "section": None,
+            "data": {"error": _override_error,
+                     "code": "invalid_model_override", "recoverable": False},
+        })
+        return
+
     # ── Create WorkflowRun record ─────────────────────────────────────────
     pipeline_run_id = str(_uuid.uuid4())
     workflow_run_id = None
@@ -1155,6 +1227,7 @@ async def _handle_workflow_execution(
                 od_context=od_context,
                 gate_agent_ids=gate_agent_ids,
                 parent_run_id=parent_run_id,
+                model_overrides=model_overrides,
             ):
                 await event_queue.put({"type": update["type"], "data": update.get("data", {})})
                 # Track state for DB persistence

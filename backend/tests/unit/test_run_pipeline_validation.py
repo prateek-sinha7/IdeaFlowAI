@@ -480,3 +480,107 @@ class TestHandlerRejectionLogic:
         rejected = [aid for aid in ["any-agent-id", "another-id"]
                     if aid not in allowed]
         assert rejected == ["any-agent-id", "another-id"]
+
+
+# ---------------------------------------------------------------------------
+# 8. model_overrides ingress allow-list validation (Phase 6 D-07, MODEL-03).
+# ---------------------------------------------------------------------------
+#
+# The security chokepoint: ``model_overrides`` is UNTRUSTED run-payload input
+# crossing into model selection — the [HIGH] threat surface of Phase 6
+# (T-06-06). The WS handler runs EXACTLY this predicate
+# (``app/api/websocket.py::_validate_model_overrides``) at ingress, after the
+# run's agent set is resolved and BEFORE ``engine.execute`` is called:
+#
+#     err = _validate_model_overrides(model_overrides, {spec.id for spec in agents})
+#     if err is not None: reject with code="invalid_model_override"; no run.
+#
+# We drive that predicate directly here (same split as the agent_ids tests
+# above — the full async WS stack is covered at the integration layer). The two
+# allow-lists are authoritative: model ids come from the kernel-pure
+# ``ModelCatalog`` (06-01, INV-12), agent ids from the resolved run agents.
+
+
+class TestModelOverrideValidation:
+    """Allow-list validation for the per-agent ``model_overrides`` map.
+
+    Both reject-cases (unknown model id, unknown agent id) MUST fail fast with a
+    non-None error so the handler emits ``invalid_model_override`` and starts no
+    run — this is the phase's blocking security control (T-06-06 [HIGH] /
+    T-06-07 [MED]). Never an arbitrary string (Q2 trust).
+    """
+
+    def _catalog_id(self) -> str:
+        from agents.capabilities.model_catalog import ModelCatalog
+
+        return ModelCatalog().ids()[0]
+
+    def test_empty_map_is_valid_noop(self) -> None:
+        """Absent / empty ``model_overrides`` (the only kind sent until Phase 8)
+        passes validation — no error, the run proceeds unchanged (INV-3)."""
+        from app.api.websocket import _validate_model_overrides
+
+        assert _validate_model_overrides({}, {"agent-a", "agent-b"}) is None
+        assert _validate_model_overrides(None or {}, set()) is None
+
+    def test_valid_override_passes(self) -> None:
+        """A ``{agent_id → catalog-model-id}`` where the agent is in the run and
+        the model is in the catalog passes — reaches ``engine.execute``."""
+        from app.api.websocket import _validate_model_overrides
+
+        valid_model = self._catalog_id()
+        run_agents = {"prototype-specify", "prototype-build"}
+        err = _validate_model_overrides(
+            {"prototype-build": valid_model}, run_agents
+        )
+        assert err is None, f"valid override unexpectedly rejected: {err}"
+
+    def test_unknown_model_id_is_rejected(self) -> None:
+        """T-06-06 [HIGH]: an arbitrary/unknown model id (not in the catalog)
+        is rejected — the load-bearing mitigation. The error names the bad
+        value so the emitted ``invalid_model_override`` event is actionable.
+        """
+        from app.api.websocket import _validate_model_overrides
+
+        run_agents = {"prototype-build"}
+        err = _validate_model_overrides(
+            {"prototype-build": "evil.attacker/unknown-model:latest"}, run_agents
+        )
+        assert err is not None, "unknown model id MUST be rejected (T-06-06)"
+        assert "evil.attacker/unknown-model:latest" in err
+
+    def test_unknown_model_id_rejected_even_for_valid_agent(self) -> None:
+        """The model-id allow-list is enforced independently of the agent check:
+        a real run agent with a bogus model id is still rejected (no arbitrary
+        string ever reaches build_model)."""
+        from app.api.websocket import _validate_model_overrides
+
+        err = _validate_model_overrides(
+            {"prototype-build": "claude-totally-made-up"}, {"prototype-build"}
+        )
+        assert err is not None
+        assert "claude-totally-made-up" in err
+
+    def test_unknown_agent_id_is_rejected(self) -> None:
+        """T-06-07 [MED]: an override targeting an agent NOT in this run's agent
+        set is rejected (no silent no-op), even when the model id is a valid
+        catalog id."""
+        from app.api.websocket import _validate_model_overrides
+
+        valid_model = self._catalog_id()
+        run_agents = {"prototype-specify", "prototype-build"}
+        err = _validate_model_overrides(
+            {"not-in-this-run": valid_model}, run_agents
+        )
+        assert err is not None, "unknown agent id MUST be rejected (T-06-07)"
+        assert "not-in-this-run" in err
+
+    def test_first_violation_is_reported(self) -> None:
+        """A map with multiple bad entries is rejected (fail-fast) — the handler
+        only needs ONE error to reject the whole run before it starts."""
+        from app.api.websocket import _validate_model_overrides
+
+        err = _validate_model_overrides(
+            {"ghost-agent": "ghost-model"}, {"prototype-build"}
+        )
+        assert err is not None
