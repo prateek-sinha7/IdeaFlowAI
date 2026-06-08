@@ -143,7 +143,7 @@ Plans:
   3. Default-deny store-layer scoping enforced; cross-owner authz denial tests pass; `anon:<session_id>` owner used for unauthenticated runs; snapshots green
   4. `GET /api/runs/{id}/artifacts` returns the typed lineage tree; `GET /api/runs/{id}/events?after=<seq>` replays the durable log
 
-**Plans**: 6 plans (5 waves)
+**Plans**: 7 plans (6 waves)
 Plans:
 **Wave 1**
 
@@ -164,7 +164,11 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 05-06-PLAN.md — [BLOCKING parity gate] then delete `accumulated_outputs` mirror + thin store + `0015` DROP + flip ledger L15 (PERSIST-02) [wave 5]
+- [ ] 05-06-PLAN.md — migrate the 6 thin-store artifact-method consumers (planner/produces-loop/`_handle_revision` reads+write/clarifications write/reconnect read) onto `ScopedStore`/`artifact_refs`, `assert_owns`-gated; additive, parity-safe, no deletion (ART-01/03, PERSIST-02) [wave 5]
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 05-07-PLAN.md — [BLOCKING parity gate] then delete `accumulated_outputs` mirror + thin-store artifact half + `WorkflowArtifact` + `0015` DROP + flip ledger L15 + thin-store gate (PERSIST-02) [wave 6]
 
 ### Phase 6: Model Policy [1C]
 
