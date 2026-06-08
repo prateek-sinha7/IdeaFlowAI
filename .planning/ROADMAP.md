@@ -177,13 +177,22 @@ Plans:
   3. `ModelCatalog` capability lists selectable models (label/provider/cost_class/window/user_allowed); per-agent `model_overrides` applied at the top of the order and persisted per run
 
 **Plans**: 5 plans
-
 Plans:
+**Wave 1**
 
 - [ ] 06-01-PLAN.md — `ModelCatalog` single-source capability + registry name + `AVAILABLE_MODELS` projection (MODEL-04, INV-12)
 - [ ] 06-02-PLAN.md — AGENT.md optional `model` field → `AgentSpec.model` (loader, backs resolver tier 3)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 06-03-PLAN.md — `ModelResolver` + precedence + tier-descent chains + `_is_transient_throttle`, on `ExecutionContext`; rewire `_run_agent` model sites (MODEL-01/02/05, INV-3 parity)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 06-04-PLAN.md — per-agent `model_overrides` ingress + allow-list validation + persist to `run_capabilities` (MODEL-03; HIGH threat)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 06-05-PLAN.md — APPROACH B engine-level fallback (rebuild-and-retry on throttle) + scripted-throttle tests (MODEL-02)
 
 ### Phase 7: Prototype as Manifest — Parity Proof (SC-001) [2]

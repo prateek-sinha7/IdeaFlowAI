@@ -489,7 +489,9 @@ _VALID_MODEL_IDS = set(ModelCatalog().ids())
 | A2 | Exact wrapped throttle exception types under langchain-aws 1.4.6 / langchain-anthropic 1.4.3 (botocore `ClientError` codes + Anthropic 429/529 are documented; the *wrapper* class path is not verified live) | D-06 predicate | MEDIUM — `_is_transient_throttle` must be defensive (type OR status OR code/message). The offline test uses a synthetic raise, so the test is not blocked; real-Bedrock behavior should be confirmed at implementation time. |
 | A3 | Load-time catalog validation in the loader is import-clean (loader is not under agents.capabilities/workflows, so importing the kernel-pure catalog is allowed) | D-09 | LOW — verified the loader has no import-linter contract; if coupling is undesired, defer to resolve-time validation (also acceptable per D-09). |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> Both resolved at plan time and adopted by the Phase 6 plans: Q1 → **B1** (06-05 rebuilds via `create_runner` on a re-raised classified throttle); Q2 → **main `run_pipeline` only** (06-04 threads `model_overrides` into the `websocket.py:1142` execute, not the revision path).
 
 1. **B1 vs B2 for the throttle-visibility seam (APPROACH B).**
    - What we know: B1 (runner re-raises classified transient throttles) is more robust than B2 (engine string-matches the `error` event).
