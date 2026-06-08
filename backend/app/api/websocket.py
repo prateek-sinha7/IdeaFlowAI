@@ -612,6 +612,25 @@ async def websocket_chat(websocket: WebSocket):
                         # the run up by id.
                         id=_rev_pipeline_run_id,
                         user_id=user.id,
+                        # CR-01 / AUTHZ-03: stamp the owner at creation so the row is
+                        # never owner-None. The workspace is the PARENT artifact's
+                        # workspace (only resolvable inside the engine), so
+                        # _handle_revision writes workspace_id back via
+                        # ScopedStore.set_run_scope once `original` is read. Until
+                        # then the row carries a real owner + (transiently) a null
+                        # workspace; the engine writeback completes the scope so the
+                        # owner+workspace-scoped /events get_run resolves it.
+                        owner_id=user.id,
+                        # Link the revision run to its parent so lineage stays intact
+                        # (parent_run_id is an enforced FK — only set when the parent
+                        # row actually exists, else creation would abort).
+                        parent_run_id=(
+                            _rev_parent_run_id
+                            if _rev_db.query(WorkflowRun.id)
+                            .filter(WorkflowRun.id == _rev_parent_run_id)
+                            .first()
+                            else None
+                        ),
                         title=f"Revision: {_rev_instruction[:50]}",
                         type=f"{_rev_target_type}_revision",
                         status="revising",

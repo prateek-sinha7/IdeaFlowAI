@@ -2661,9 +2661,13 @@ class ExecutionEngine:
 
         # Owner-scoped persisted store for the cross-run parent reads + revision
         # write. owner_id is the run owner (user.id at the WS call site). No
-        # workspace_id is threaded for the cross-run reads — the parent's artifacts
-        # are written visibility="workspace" (Task 1 producer writes), so they
-        # resolve through the owner+visibility scope filter for the same owner.
+        # workspace_id is threaded YET — the cross-run reads below are
+        # visibility-scoped (the parent's artifacts are written
+        # visibility="workspace" by the Task-1 producer writes, so they resolve
+        # through the owner+visibility filter for the same owner without a
+        # workspace match). The real workspace is resolved from the parent
+        # artifact's row (``original.workspace_id``) AFTER the read and threaded
+        # back onto the store + sink + revision run row below (CR-01).
         store = ScopedStore(owner_id=owner_id)
 
         # WR-06: revision runs are invoked OUTSIDE the execute() wrapper, so their
@@ -2674,9 +2678,15 @@ class ExecutionEngine:
         # run-events sink with this run's scoped store and stamp a monotonic seq +
         # unique event_id onto each event's data before sending. Persist is
         # best-effort (offline harness has no workflow_runs FK row → degrade).
+        #
+        # CR-01: the sink is armed LATER (after ``original.workspace_id`` is known)
+        # rather than here, because ``append_event`` stamps the store's
+        # ``workspace_id`` into ``run_events.workspace_id`` (NOT NULL, AUTHZ-01).
+        # Arming with a workspace-less store would IntegrityError on every persist
+        # (then degrade to a silent warning under the WR-02 narrow-catch), so NO
+        # revision ledger row would ever land on a real DB. The first emit
+        # (``pipeline_start``) is below the read, so deferring the arm is safe.
         _rev_sink = _RunEventSink()
-        if owner_id:
-            _rev_sink.arm(store, pipeline_run_id)
         _rev_counter = itertools.count(1)
         _raw_send_fn = websocket_send_fn
 
@@ -2707,6 +2717,33 @@ class ExecutionEngine:
                 f"No artifact of type {target_artifact_type!r} found for run {parent_run_id!r}. "
                 "Revision MUST NOT proceed without original context (FR-014)."
             )
+
+        # CR-01: now that the parent artifact is resolved, its workspace is the
+        # authoritative workspace for the whole revision run. Thread it onto the
+        # store so ``append_event`` can satisfy ``run_events.workspace_id`` NOT NULL
+        # (AUTHZ-01), scope the revision ``workflow_runs`` row with the SAME
+        # (owner_id, workspace_id) so the /events endpoint's owner+workspace-scoped
+        # ``get_run`` resolves it (else every revision run 404s — CR-01 / AUTHZ-03),
+        # and only THEN arm the sink. ``original.workspace_id`` is non-None because
+        # the producer write stamped it (artifact_refs.workspace_id NOT NULL).
+        _rev_ws_id = getattr(original, "workspace_id", None)
+        if owner_id and _rev_ws_id:
+            store._workspace_id = _rev_ws_id
+            try:
+                await store.set_run_scope(pipeline_run_id, owner_id, _rev_ws_id)
+            except Exception as _scope_exc:  # noqa: BLE001 — never break the revision on persist
+                # WR-02 parity: degrade ONLY the offline-harness DB condition
+                # (no schema → SQLAlchemyError); a non-DB exception is a real bug.
+                from sqlalchemy.exc import SQLAlchemyError
+
+                if not isinstance(_scope_exc, SQLAlchemyError):
+                    raise
+                logger.warning(
+                    "revision run scope writeback failed for %s (%s) — proceeding "
+                    "(typed-substrate DB write degraded; stream unaffected)",
+                    pipeline_run_id, _scope_exc,
+                )
+            _rev_sink.arm(store, pipeline_run_id)
 
         # Version history = the same owner-scoped list (avoid a second query)
         version_history = _refs

@@ -348,6 +348,51 @@ class ScopedStore:
             if owned:
                 session.close()
 
+    async def set_run_scope(
+        self, run_id: str, owner_id: str, workspace_id: str
+    ) -> None:
+        """Stamp ``(owner_id, workspace_id)`` onto an existing ``workflow_runs`` row.
+
+        CR-01: a run created at the WS layer before its workspace is known (the
+        revision path — the workspace is the parent artifact's workspace, resolved
+        only inside the engine) must have its scope written back so the
+        owner+workspace-scoped reads (``get_run`` / ``read_events`` /
+        ``_scope_owner_ws``) resolve it. Without this the /events endpoint 404s for
+        every such run and the row violates the never-None AUTHZ-01/03 invariant.
+
+        Both ``owner_id`` and ``workspace_id`` MUST be real principals — a falsy
+        value would re-open the default-deny hole, so this seam rejects it loudly
+        (AUTHZ-03 fail-loud, never by widening nullability). The lookup is
+        UNSCOPED-by-owner (the row may still carry a None owner/workspace at this
+        point), but the write only ever STAMPS the caller-supplied real principal.
+        """
+        if not owner_id or not workspace_id:
+            raise ValueError(
+                "set_run_scope requires a real (owner_id, workspace_id) "
+                "(AUTHZ-01/03); refusing to stamp a falsy principal on "
+                f"workflow_runs row {run_id!r}"
+            )
+        from app.models.workflow import WorkflowRun
+
+        session, owned = self._acquire()
+        try:
+            row = (
+                session.query(WorkflowRun)
+                .filter(WorkflowRun.id == run_id)
+                .first()
+            )
+            if row is None:
+                # Offline harness / no FK row — nothing to stamp. The caller's
+                # best-effort wrapper degrades the same way append_event does.
+                return None
+            row.owner_id = owner_id
+            row.workspace_id = workspace_id
+            session.commit()
+            return None
+        finally:
+            if owned:
+                session.close()
+
     # ------------------------------------------------------------------
     # Workspace — create + (the scoped read rides _scope_owner_ws)
     # ------------------------------------------------------------------

@@ -360,6 +360,106 @@ async def test_cross_owner_revision_denied(engine: ExecutionEngine, db_factory) 
 
 
 # ---------------------------------------------------------------------------
+# CR-01 regression: revision run_events persist + /events resolution on a real DB
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_revision_run_events_persist_and_resolve_on_real_db(
+    engine: ExecutionEngine, db_factory
+) -> None:
+    """CR-01 (iteration-2 BLOCKER) regression.
+
+    The round-1 WR-06 fix routed revision emits through a ``_RunEventSink``, but on
+    a REAL DB it (a) stamped ``run_events.workspace_id = None`` (NOT NULL) → the
+    IntegrityError was swallowed by the WR-02 narrow-catch, so NO ledger row landed,
+    and (b) left the revision ``workflow_runs`` row owner/workspace-None, so the
+    owner+workspace-scoped ``get_run`` (and therefore the /events endpoint) 404'd.
+
+    This test creates the revision ``workflow_runs`` row exactly as the WS layer
+    does (owner set, workspace UNSET), drives ``_handle_revision``, then asserts:
+      1. ``run_events`` rows actually persisted (the sink got a real workspace).
+      2. The revision run row had its scope stamped back (owner + workspace).
+      3. An owner+workspace-scoped ``ScopedStore`` (mirroring the /events endpoint
+         that builds ``ScopedStore(owner, workflow_run.workspace_id)``) resolves
+         the run AND replays the stamped ``pipeline_start``/``pipeline_complete``
+         events — i.e. the run no longer 404s.
+    """
+    parent = "run-parent-events"
+    _seed_run(db_factory, run_id=parent, owner_id=OWNER, workspace_id=WS)
+    _seed_ref(
+        db_factory,
+        run_id=parent,
+        owner_id=OWNER,
+        kind="spec",
+        content="# Spec\n\nSection 1",
+        workspace_id=WS,
+    )
+
+    rev_run_id = "run-rev-events"
+    # Mirror websocket.py: revision run created with a real owner but NO workspace
+    # (the workspace is the parent artifact's workspace, resolved in the engine).
+    s = db_factory()
+    try:
+        s.add(
+            WorkflowRun(
+                id=rev_run_id,
+                user_id=OWNER,
+                owner_id=OWNER,        # AUTHZ-03 — never None at creation
+                workspace_id=None,     # transiently null — engine stamps it back
+                title="Revision: x",
+                type="spec_revision",
+                status="revising",
+                input="x",
+            )
+        )
+        s.commit()
+    finally:
+        s.close()
+
+    events: list[dict] = []
+
+    async def ws(e: dict) -> None:
+        events.append(e)
+
+    await engine._handle_revision(
+        parent_run_id=parent,
+        target_artifact_type="spec",
+        instruction="Tighten section 1",
+        pipeline_run_id=rev_run_id,
+        websocket_send_fn=ws,
+        owner_id=OWNER,
+    )
+
+    # (2) The revision run row had its scope stamped back to the parent workspace.
+    chk = db_factory()
+    try:
+        row = chk.query(WorkflowRun).filter(WorkflowRun.id == rev_run_id).first()
+        assert row is not None
+        assert row.owner_id == OWNER
+        assert row.workspace_id == WS, "revision run workspace not stamped back (CR-01)"
+    finally:
+        chk.close()
+
+    # (3) Mirror the /events endpoint: ScopedStore(owner, workflow_run.workspace_id).
+    endpoint_store = ScopedStore(owner_id=OWNER, workspace_id=WS)
+    resolved = await endpoint_store.get_run(rev_run_id)
+    assert resolved is not None, "revision run 404s under owner+workspace scope (CR-01)"
+
+    # (1) The stamped lifecycle events actually persisted and replay in seq order.
+    rows = await endpoint_store.read_events(rev_run_id, after_seq=0)
+    types = [r.type for r in rows]
+    assert "pipeline_start" in types, "pipeline_start run_events row missing (CR-01)"
+    assert "pipeline_complete" in types, "pipeline_complete run_events row missing (CR-01)"
+    # Every persisted row carries the real workspace (AUTHZ-01, never None).
+    assert all(r.workspace_id == WS for r in rows)
+    assert all(r.owner_id == OWNER for r in rows)
+    # seq is monotonic per run (idempotent replay contract, API-05).
+    seqs = [r.seq for r in rows]
+    assert seqs == sorted(seqs) and len(set(seqs)) == len(seqs)
+
+
+# ---------------------------------------------------------------------------
 # Clarifications round-trip (05-06 Task 3): clarify_engine write → websocket read
 # ---------------------------------------------------------------------------
 
