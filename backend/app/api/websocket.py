@@ -534,35 +534,29 @@ async def websocket_chat(websocket: WebSocket):
                             pass
                     else:
                         # No running pipeline — check if paused at clarify gate
-                        from agents.artifact_store.store import get_artifact_store as _get_store
                         from agents.authz import ScopedStore as _ScopedStore
                         from agents.execution_engine.state_machine import get_state_machine as _get_sm
-                        _store = _get_store()
                         _sm = _get_sm()
                         _state = _sm.get_state(_reconnect_run_id)
                         if _state == "waiting_for_user":
-                            # T-5-IDOR mitigation (05-04): owner-scope the clarifications
-                            # read through the default-deny ScopedStore. The reconnecting
-                            # user's principal is asserted to OWN this run via the typed
-                            # store's owner+workspace-scoped get_run — a run the user does
-                            # NOT own resolves to None, so the clarifications are never
-                            # read (no cross-session disclosure of another user's
-                            # questionnaire). The clarifications PAYLOAD still lives in the
-                            # thin store this plan (its dual-write into artifact_refs is a
-                            # later increment — the mirror/thin-store are alive until
-                            # 05-06); the typed store is the OWNERSHIP gate on the read.
+                            # T-5-IDOR mitigation (05-06): the clarifications PAYLOAD now
+                            # lives in artifact_refs (kind=clarifications, written by
+                            # clarify_engine), read back through the default-deny
+                            # ScopedStore. The reconnecting user's principal owner-scopes
+                            # the read: a run the user does NOT own resolves to an empty
+                            # list, so the clarifications are never read (no cross-session
+                            # disclosure of another user's questionnaire). The literal
+                            # thin-store retrieve_latest is gone.
                             _scoped = _ScopedStore(owner_id=user.id)
-                            _owned_run = await _scoped.get_run(_reconnect_run_id)
                             _clar_kind = "clarifications"
-                            _clarifications = (
-                                await _store.retrieve_latest(_reconnect_run_id, _clar_kind)
-                                if _owned_run is not None
-                                else None
+                            _clar_refs = await _scoped.list_refs(
+                                _reconnect_run_id, kind=_clar_kind
                             )
+                            _clarifications = _clar_refs[-1] if _clar_refs else None
                             if _clarifications:
                                 try:
                                     import json as _json
-                                    _qa_pairs = _json.loads(_clarifications["content"])
+                                    _qa_pairs = _json.loads(_clarifications.content)
                                     _unanswered = [
                                         {"question_id": q["question_id"], "question_text": q["question_text"],
                                          "impact_level": q.get("impact_level", "medium"), "answer_type": "free_text",
@@ -647,6 +641,7 @@ async def websocket_chat(websocket: WebSocket):
                         pipeline_run_id=_rev_pipeline_run_id,
                         websocket_send_fn=_send_revision_event,
                         model_id=getattr(user, "preferred_model", None) or None,
+                        owner_id=user.id,
                     )
                     # Mark revision run completed
                     _rev_db2 = _get_db()

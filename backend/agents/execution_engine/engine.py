@@ -30,7 +30,8 @@ from typing import AsyncGenerator
 
 from pathlib import Path
 
-from agents.artifact_store.store import ArtifactStoreWriteError, get_artifact_store
+from agents.artifact_store.store import get_artifact_store
+from agents.artifacts.graph import ArtifactGraph
 from agents.authz import ScopedStore
 from agents.capabilities.registry import CapabilityRegistry
 from agents.execution_engine.context import ExecutionContext
@@ -2596,35 +2597,58 @@ class ExecutionEngine:
         pipeline_run_id: str,
         websocket_send_fn,
         model_id: str | None = None,
+        owner_id: str | None = None,
     ) -> None:
         """Handle a revision request (FR-014).
 
         Retrieves the original Artifact, version history, and instruction as
         three separate structured inputs (NOT concatenated). Stores the result
-        as a new Artifact version with derived_from_artifact_id.
+        as a new Artifact version with derived_from.
+
+        Cross-run reads of the PARENT run's artifacts go through the owner-scoped
+        persisted ``ScopedStore`` against ``artifact_refs`` (the per-run in-memory
+        ArtifactGraph CANNOT serve cross-run). ``assert_owns(parent_run_id)`` is
+        called ABOVE the reads (T-5-SEED): a caller who does not own the parent run
+        gets ``PermissionError`` — never another owner's artifacts. For a valid
+        same-owner revision the owner-scoped reads return the SAME artifacts the
+        thin store returned → INV-3 byte-identity preserved.
 
         Raises ValueError for invalid inputs (empty instruction, missing artifact).
         """
         if not instruction or not instruction.strip():
             raise ValueError("Revision instruction must not be empty.")
 
-        # Retrieve the original artifact
-        original = await self._store.retrieve_latest(parent_run_id, target_artifact_type)
+        # Owner-scoped persisted store for the cross-run parent reads + revision
+        # write. owner_id is the run owner (user.id at the WS call site). No
+        # workspace_id is threaded for the cross-run reads — the parent's artifacts
+        # are written visibility="workspace" (Task 1 producer writes), so they
+        # resolve through the owner+visibility scope filter for the same owner.
+        store = ScopedStore(owner_id=owner_id)
+
+        # T-5-SEED: assert the caller owns the parent run BEFORE any cross-run read.
+        # A cross-owner caller raises PermissionError (never reads another owner's
+        # artifacts); an absent/TTL-swept parent returns None (same-owner degrade).
+        await store.assert_owns(parent_run_id)
+
+        # Retrieve the original artifact (latest by version asc) — owner-scoped.
+        _refs = await store.list_refs(parent_run_id, kind=target_artifact_type)
+        original = _refs[-1] if _refs else None
         if original is None:
             raise ValueError(
                 f"No artifact of type {target_artifact_type!r} found for run {parent_run_id!r}. "
                 "Revision MUST NOT proceed without original context (FR-014)."
             )
 
-        # Retrieve version history
-        version_history = await self._store.list_by_type(parent_run_id, target_artifact_type)
+        # Version history = the same owner-scoped list (avoid a second query)
+        version_history = _refs
 
         # Check if parent run predates Phase 3 (no planning_context artifact)
-        planning_context_artifact = await self._store.retrieve_latest(parent_run_id, "planning_context")
+        _pc = await store.list_refs(parent_run_id, kind="planning_context")
+        planning_context_artifact = _pc[-1] if _pc else None
         planning_context_unavailable = planning_context_artifact is None
 
         # Build the three separate structured inputs (NOT concatenated)
-        original_content = original["content"]
+        original_content = original.content
         history_summary = f"{len(version_history)} version(s) exist for this artifact."
 
         # Compose the revision context message with three clearly separated sections
@@ -2644,7 +2668,7 @@ class ExecutionEngine:
         if planning_context_artifact:
             revision_context = (
                 f"=== PLANNING CONTEXT (original run guardrail) ===\n"
-                f"{planning_context_artifact['content']}\n"
+                f"{planning_context_artifact.content}\n"
                 f"=== END PLANNING CONTEXT ===\n\n"
             ) + revision_context
 
@@ -2666,19 +2690,34 @@ class ExecutionEngine:
         # For Phase 3, we store the instruction + context as the revision artifact
         # and mark it with derived_from_artifact_id
         try:
-            new_artifact_id = await self._store.store(
+            # Build a typed ArtifactRef (graph computes id/content_hash/version)
+            # for the revision result, derived_from the parent original. The
+            # revision row lands in the revision RUN (pipeline_run_id); persist it
+            # owner-scoped via the same ScopedStore. visibility="workspace" keeps it
+            # consistent with the producer writes (a future revision-of-revision can
+            # read it cross-run for the same owner).
+            _rev_graph = ArtifactGraph()
+            _rev_ref = _rev_graph.write_ref(
                 run_id=pipeline_run_id,
-                artifact_type=target_artifact_type,
-                name=f"{target_artifact_type}_revision",
+                owner_id=owner_id,
+                # Land the revision in the SAME workspace as the parent original so
+                # the owner+workspace scope filter holds (workspace_id is NOT NULL).
+                workspace_id=original.workspace_id,
+                kind=target_artifact_type,
+                producer_step="revision",
+                producer_agent="revision-agent",
+                task_id=None,
                 content=revision_context,
-                producing_agent_id="revision-agent",
-                derived_from_id=original["id"],
+                location=f"artifact_refs/{target_artifact_type}",
+                derived_from=original.id,
+                visibility="workspace",
             )
+            new_artifact_id = await store.write_ref(_rev_ref)
             logger.info(
                 "Revision stored: parent_run=%s type=%s new_artifact=%s planning_unavailable=%s",
                 parent_run_id, target_artifact_type, new_artifact_id, planning_context_unavailable,
             )
-        except ArtifactStoreWriteError as exc:
+        except Exception as exc:  # noqa: BLE001 — preserve the state_restoration_failed emit
             await websocket_send_fn({
                 "type": "state_restoration_failed",
                 "data": {
