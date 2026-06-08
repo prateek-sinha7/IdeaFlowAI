@@ -1633,6 +1633,12 @@ class ExecutionEngine:
                 run_id=pipeline_run_id,
             )
 
+            # Capture the resolved primary model ID *now*, before create_runner — it is
+            # the string id the MODEL-02 fallback chain is armed on (set_chain below).
+            # Captured here (not off ctx.model after the build) because the fallback
+            # retry reassigns ctx.model to the next chain id on a throttle.
+            _resolved_model_id = ctx.model
+
             # ── Unique per-agent-invocation checkpoint thread_id ──────────────
             # The LangGraph checkpoint thread_id isolates each agent's graph state
             # and MUST be unique per agent-invocation, or sequential agents in the
@@ -1681,6 +1687,42 @@ class ExecutionEngine:
             timed_out = False
             agent_input_tokens = 0
             agent_output_tokens = 0
+
+            # ── MODEL-02 fallback chain (APPROACH B — engine-level rebuild-and-retry) ──
+            # Above the botocore retries (model_factory.py): on a SUSTAINED transient
+            # throttle the runner RE-RAISES the classified exception (B1,
+            # deep_agent_runner.py), and the engine advances ctx.model_resolver to the
+            # next fallback chain id, REBUILDS the runner via create_runner (the
+            # sanctioned langchain_deepagents adapter — NO new deepagents-graph
+            # construction, INV-13), and re-invokes — BOUNDED by chain length. The
+            # rebuild goes through build_model only. Chain exhaustion re-raises the
+            # last error (no silent blank, T-06-10). Non-transient errors are NOT
+            # re-raised by the runner (they still yield {"type":"error"}); they never
+            # enter this loop and propagate exactly as today (parity, T-06-11).
+            #
+            # ★ INV-3 PARITY: with NO throttle (the normal path) the very first attempt
+            # consumes to completion and the loop exits after one pass — byte/semantically
+            # identical to the single-model path. The retry only engages on a re-raised
+            # throttle, so characterization snapshots are unchanged.
+            #
+            # ★ Pitfall 4 (mid-stream restart): a throttle BEFORE the first token (the
+            # common Bedrock case — throttles are pre-call) restarts cleanly. A throttle
+            # AFTER tokens already streamed cannot un-emit them; the retried attempt
+            # RE-STREAMS from scratch (we reset output_chunks + token accumulators below),
+            # so the final deliverable reflects the successful attempt — the only
+            # observable artifact downstream consumes.
+            from agents.model_policy import _is_transient_throttle
+
+            _resolver = ectx.model_resolver
+            # Arm the active chain for the resolved primary id (06-03 set_chain): the
+            # cursor starts at the primary. When the resolver is absent (direct
+            # unit-style _run_agent invocations) the loop runs exactly one attempt with
+            # the already-built ``agent`` — today's behavior, parity-safe.
+            if _resolver is not None and hasattr(_resolver, "set_chain"):
+                _resolver.set_chain(_resolved_model_id)
+            # Bound: chain length when armed, else a single attempt.
+            _max_attempts = len(getattr(_resolver, "_chain", []) or [None]) if _resolver else 1
+
             # Prototype task progress is derived from the report_task_complete
             # tool events (the store-free runner_tools.report_task_complete no
             # longer populates a PrototypeArtifactStore). We capture each call's
@@ -1692,50 +1734,116 @@ class ExecutionEngine:
             # completed_count at 1 (the #46 regression). Accumulating on ectx mirrors
             # the old run-shared PrototypeArtifactStore so completed_count grows
             # cumulatively (1,2,3,…) across the build loop's per-task invocations.
-            try:
-                async with asyncio.timeout(agent_timeout):
-                    async for event in agent.astream_events(context_message):
-                        if cancel_event and cancel_event.is_set():
-                            raise asyncio.CancelledError()
-                        etype = event["type"]
-                        if etype == "chunk":
-                            output_chunks.append(event["chunk"])
-                            yield {"type": "agent_chunk", "data": {"agent_id": spec.id, "chunk": event["chunk"]}}
-                        elif etype == "usage":
-                            agent_input_tokens += event.get("input_tokens", 0)
-                            agent_output_tokens += event.get("output_tokens", 0)
-                        elif etype == "tool_call":
-                            # ── Prototype task progress ──────────────────────────────
-                            # report_task_complete carries the task in its args; record
-                            # it (number/title/summary) so the task_progress event below
-                            # (fired on the matching tool_result) reflects every task.
-                            if event.get("tool") == "report_task_complete":
-                                args = event.get("args", {}) or {}
-                                ectx.completed_tasks.append({
-                                    "number": args.get("task_number"),
-                                    "title": args.get("task_title"),
-                                    "summary": args.get("summary", ""),
-                                })
-                            yield {"type": "tool_call", "data": {"agent_id": spec.id, "tool": event["tool"], "args": event.get("args", {})}}
-                        elif etype == "tool_result":
-                            yield {"type": "tool_result", "data": {"agent_id": spec.id, "tool": event["tool"], "result": str(event.get("result", ""))[:500]}}
-                            # When report_task_complete() returns, emit a task_progress
-                            # event so the frontend can update the task checklist in
-                            # real-time — same payload shape as before, now sourced from
-                            # the tool events instead of the (removed) PrototypeArtifactStore.
-                            if event.get("tool") == "report_task_complete":
-                                yield {
-                                    "type": "task_progress",
-                                    "data": {
-                                        "agent_id": spec.id,
-                                        "pipeline_run_id": pipeline_run_id,
-                                        "completed_tasks": list(ectx.completed_tasks),
-                                        "completed_count": len(ectx.completed_tasks),
-                                        "timestamp": _now(),
-                                    },
-                                }
-            except asyncio.TimeoutError:
-                timed_out = True
+            _attempt = 0
+            while True:
+                _attempt += 1
+                # Reset per-attempt accumulators so a retried attempt re-streams from
+                # scratch (Pitfall 4) — the deliverable reflects the successful attempt.
+                output_chunks = []
+                agent_input_tokens = 0
+                agent_output_tokens = 0
+                # task_progress records appended this attempt (so a retry does not double
+                # count the prototype build checklist on re-stream).
+                _attempt_task_count = 0
+                try:
+                    async with asyncio.timeout(agent_timeout):
+                        async for event in agent.astream_events(context_message):
+                            if cancel_event and cancel_event.is_set():
+                                raise asyncio.CancelledError()
+                            etype = event["type"]
+                            if etype == "chunk":
+                                output_chunks.append(event["chunk"])
+                                yield {"type": "agent_chunk", "data": {"agent_id": spec.id, "chunk": event["chunk"]}}
+                            elif etype == "usage":
+                                agent_input_tokens += event.get("input_tokens", 0)
+                                agent_output_tokens += event.get("output_tokens", 0)
+                            elif etype == "tool_call":
+                                # ── Prototype task progress ──────────────────────────────
+                                # report_task_complete carries the task in its args; record
+                                # it (number/title/summary) so the task_progress event below
+                                # (fired on the matching tool_result) reflects every task.
+                                if event.get("tool") == "report_task_complete":
+                                    args = event.get("args", {}) or {}
+                                    ectx.completed_tasks.append({
+                                        "number": args.get("task_number"),
+                                        "title": args.get("task_title"),
+                                        "summary": args.get("summary", ""),
+                                    })
+                                    _attempt_task_count += 1
+                                yield {"type": "tool_call", "data": {"agent_id": spec.id, "tool": event["tool"], "args": event.get("args", {})}}
+                            elif etype == "tool_result":
+                                yield {"type": "tool_result", "data": {"agent_id": spec.id, "tool": event["tool"], "result": str(event.get("result", ""))[:500]}}
+                                # When report_task_complete() returns, emit a task_progress
+                                # event so the frontend can update the task checklist in
+                                # real-time — same payload shape as before, now sourced from
+                                # the tool events instead of the (removed) PrototypeArtifactStore.
+                                if event.get("tool") == "report_task_complete":
+                                    yield {
+                                        "type": "task_progress",
+                                        "data": {
+                                            "agent_id": spec.id,
+                                            "pipeline_run_id": pipeline_run_id,
+                                            "completed_tasks": list(ectx.completed_tasks),
+                                            "completed_count": len(ectx.completed_tasks),
+                                            "timestamp": _now(),
+                                        },
+                                    }
+                    # Stream consumed cleanly (no throttle) — done, exit the retry loop.
+                    break
+                except asyncio.TimeoutError:
+                    timed_out = True
+                    break
+                except asyncio.CancelledError:
+                    raise
+                except Exception as _exc:
+                    # Only a classified TRANSIENT THROTTLE (re-raised by the runner, B1)
+                    # triggers a model switch. Anything else propagates immediately
+                    # (the runner already swallows non-throttle errors into an ``error``
+                    # event, so reaching here for a non-throttle means a genuine fault —
+                    # do NOT mask it behind a fallback).
+                    if not _is_transient_throttle(_exc):
+                        raise
+                    # Roll back any task_progress records appended this (failed) attempt so
+                    # a retry's re-stream does not double-count the prototype checklist.
+                    if _attempt_task_count:
+                        del ectx.completed_tasks[-_attempt_task_count:]
+                    # Advance to the next fallback chain id, if any.
+                    _next_id = _resolver.advance() if _resolver is not None and hasattr(_resolver, "advance") else None
+                    if _next_id is None or _attempt >= _max_attempts:
+                        # Chain exhausted — re-raise the last throttle (no silent blank).
+                        logger.warning(
+                            "Agent %s: fallback chain exhausted after %d attempt(s); "
+                            "re-raising last throttle (%s)",
+                            spec.id, _attempt, _exc,
+                        )
+                        raise
+                    # Rebuild the runner on the next chain id via create_runner (the
+                    # sanctioned langchain_deepagents adapter — no new deepagents-graph
+                    # construction, INV-13). ctx.model now carries the next id →
+                    # DeepAgentRunner → build_model rebuilds on it. Sandbox unchanged.
+                    logger.warning(
+                        "Agent %s: transient throttle on model — advancing to fallback "
+                        "model %s (attempt %d/%d)",
+                        spec.id, _next_id, _attempt + 1, _max_attempts,
+                    )
+                    ctx.model = _next_id
+                    agent = create_runner(
+                        spec.id,
+                        ctx,
+                        thread_id=thread_id,
+                        checkpointer=ectx.checkpointer,
+                    )
+                    yield {
+                        "type": "agent_model_fallback",
+                        "data": {
+                            "agent_id": spec.id,
+                            "pipeline_run_id": pipeline_run_id,
+                            "fallback_model": _next_id,
+                            "attempt": _attempt + 1,
+                            "timestamp": _now(),
+                        },
+                    }
+                    # loop continues → re-invoke on the rebuilt runner
 
             if timed_out:
                 logger.warning(
