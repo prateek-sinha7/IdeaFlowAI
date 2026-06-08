@@ -26,7 +26,13 @@ findings:
   warning: 3
   info: 1
   total: 6
-status: issues_found
+status: resolved
+resolution:
+  fixed: [CR-01, CR-02, WR-01, WR-03]
+  accepted: [WR-02]
+  wontfix: [IN-01]
+  fix_commits: [1d4eeb4, fbd6b03, 3aa8210]
+  parity: characterization unchanged (10/10); INV-13 + import-linter green
 ---
 
 # Phase 6: Code Review Report — Model Policy [1C]
@@ -34,7 +40,20 @@ status: issues_found
 **Reviewed:** 2026-06-08T12:00:00Z
 **Depth:** standard
 **Files Reviewed:** 17
-**Status:** issues_found
+**Status:** resolved
+
+## Resolution (2026-06-08)
+
+All findings dispositioned. INV-3 characterization snapshots stayed unchanged (10/10), INV-13 banned-pattern green, import-linter 3-kept/0-broken, and regression tests were added.
+
+| Finding | Disposition | Detail |
+|---------|-------------|--------|
+| CR-01 | **Fixed** (`1d4eeb4`) | `_validate_model_overrides` now rejects non-dict / non-string payloads with the existing `invalid_model_override` error event instead of crashing the WS task. Regression tests added. |
+| CR-02 | **Fixed** (`3aa8210`) | APPROACH-B retry rebuild uses a fresh per-attempt `thread_id` (`…:retry{n}`); the primary attempt keeps the base id (parity). Prevents stale-checkpoint resume. Offline harness asserts the fresh thread; live-checkpointer behavior is a human-verify item. |
+| WR-01 | **Fixed** (`fbd6b03`) | Tier-3 `AgentSpec.model` catalog validation now fires only when tier-3 is the selected tier (no higher-precedence override/step.model won). Regression tests added. |
+| WR-03 | **Fixed** (`3aa8210`) | `agent_model_fallback` event now carries `reset_output: true` (additive backend signal for the Phase 8 frontend to discard prior chunks). |
+| WR-02 | **Accepted** | HTTP-500/transient-5xx classification is intended per locked decision D-06 ("transient 5xx incl. InternalServerError"). No change. |
+| IN-01 | **Wontfix** | `_attempt >= _max_attempts` is a deliberate defensive infinite-loop bound, kept even though `_next_id is None` usually fires first. |
 
 ## Summary
 
