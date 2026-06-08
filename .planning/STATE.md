@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-08T14:39:26.514Z"
-last_activity: 2026-06-08 -- Phase 06 planning complete
+last_updated: "2026-06-08T14:59:28.268Z"
+last_activity: 2026-06-08 -- Phase 06 execution started
 progress:
   total_phases: 12
   completed_phases: 5
-  total_plans: 21
-  completed_plans: 21
+  total_plans: 26
+  completed_plans: 22
   percent: 42
 ---
 
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-06)
 
 **Core value:** A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001).
-**Current focus:** Phase 05 — Typed Artifacts + Persistence + Ownership [1B]
+**Current focus:** Phase 06 — model-policy-1c
 
 ## Current Position
 
-Phase: 6
-Plan: Not started
+Phase: 06 (model-policy-1c) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-06-08 -- Phase 06 planning complete
+Last activity: 2026-06-08 -- Phase 06 execution started
 
 Progress: [██████░░░░] 67% (4/6 plans complete)
 
@@ -73,6 +73,7 @@ Progress: [██████░░░░] 67% (4/6 plans complete)
 | Phase 05 P05 | 7min | 2 tasks | 4 files |
 | Phase 05-typed-artifacts-persistence-ownership-1b P06 | ~40min | 3 tasks | 8 files |
 | Phase 05 P07 P07 | ~55 min | 3 tasks | 23 files |
+| Phase 06-model-policy-1c P01 | 18min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -105,6 +106,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 05-05: owner-scoped /artifacts (lineage tree) + /events (seq>after replay) route through the single ScopedStore; cross-owner -> 404
 - [Phase ?]: 05-06: producer/revision/clarifications writes use visibility=workspace so same-owner cross-run _handle_revision reads pass the owner+visibility scope filter; thin-store artifact consumers fully migrated (05-07 deletion precondition TRUE)
 - [Phase ?]: 05-07: deleted accumulated_outputs mirror + thin-store artifact half + WorkflowArtifact (0015); typed ArtifactGraph sole impl; phase 05 DONE; L15+D2 done
+- [Phase ?]: 06-01: ModelCatalog is the single source of model ids/metadata (INV-12); AVAILABLE_MODELS/_VALID_MODEL_IDS are projections
+- [Phase ?]: 06-01: catalog stores both tier (display) and cost_class (canonical), asserted consistent (D-04); name-only registry membership (D-03)
 
 ### Pending Todos
 
