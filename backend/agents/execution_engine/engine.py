@@ -2654,10 +2654,22 @@ class ExecutionEngine:
         same-owner revision the owner-scoped reads return the SAME artifacts the
         thin store returned → INV-3 byte-identity preserved.
 
-        Raises ValueError for invalid inputs (empty instruction, missing artifact).
+        Raises ValueError for invalid inputs (empty instruction, missing artifact,
+        falsy owner_id).
         """
         if not instruction or not instruction.strip():
             raise ValueError("Revision instruction must not be empty.")
+
+        # IN-01 / AUTHZ-03: a real owner principal is REQUIRED. The signature keeps
+        # a keyword default for back-compat, but the sink-arm + scope-writeback below
+        # are gated on ``if owner_id and _rev_ws_id:`` — a falsy owner would silently
+        # skip run_events persistence and run-scope stamping, encoding the precondition
+        # in a downstream ``write_ref`` ValueError instead of failing loud at the seam.
+        # Mirror ClarifyEngine.run's falsy-owner guard so the contract is explicit.
+        if not owner_id:
+            raise ValueError(
+                "_handle_revision requires a real owner_id (AUTHZ-03)"
+            )
 
         # Owner-scoped persisted store for the cross-run parent reads + revision
         # write. owner_id is the run owner (user.id at the WS call site). No
