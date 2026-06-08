@@ -121,3 +121,61 @@ async def test_record_capabilities_is_one_row_not_per_agent(db_session):
         .count()
     )
     assert count == 1
+
+
+# ---------------------------------------------------------------------------
+# MODEL-03 (Phase 6 D-08) — model_overrides persisted at entry; {} → SQL NULL
+# ---------------------------------------------------------------------------
+#
+# The engine seeds ``ectx.model_overrides`` (the validated {agent_id → model_id}
+# map from the WS ingress) and persists it via
+# ``record_capabilities(..., model_overrides=(ectx.model_overrides or None))``
+# at run entry (engine.py). These tests drive the same single write path and
+# assert the row, plus the INV-3 row-parity rule: a no-override run (the only
+# kind today) writes the column as SQL NULL — never a spurious ``{}``.
+
+
+@pytest.mark.asyncio
+async def test_record_capabilities_persists_model_overrides_map(db_session):
+    """MODEL-03: a run with ``model_overrides={agent → catalog-id}`` writes that
+    EXACT map to ``run_capabilities.model_overrides`` (owner+workspace-scoped)."""
+    from agents.capabilities.model_catalog import ModelCatalog
+
+    _seed_run(db_session, run_id="run-ov", owner_id="alice", workspace_id="ws-1")
+    store = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
+
+    catalog_id = ModelCatalog().ids()[0]
+    overrides = {"prototype-build": catalog_id}
+    await store.record_capabilities(
+        "run-ov", runtime="langchain_deepagents", model_overrides=overrides
+    )
+
+    row = (
+        db_session.query(RunCapabilities)
+        .filter(RunCapabilities.run_id == "run-ov")
+        .one()
+    )
+    assert row.model_overrides == {"prototype-build": catalog_id}
+
+
+@pytest.mark.asyncio
+async def test_empty_model_overrides_persists_as_null(db_session):
+    """INV-3 row parity: a no-override run (``{} or None`` → NULL) persists the
+    column as SQL NULL, identical to legacy/pre-Phase-6 rows — NOT ``{}``.
+
+    Mirrors the engine call ``record_capabilities(..., model_overrides=(ectx.
+    model_overrides or None))`` for the no-override case (every run today)."""
+    _seed_run(db_session, run_id="run-empty", owner_id="alice", workspace_id="ws-1")
+    store = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
+
+    # The engine passes ``{} or None`` → None for a no-override run.
+    await store.record_capabilities(
+        "run-empty", runtime="langchain_deepagents", model_overrides=({} or None)
+    )
+
+    row = (
+        db_session.query(RunCapabilities)
+        .filter(RunCapabilities.run_id == "run-empty")
+        .one()
+    )
+    assert row.model_overrides is None, "empty {} must persist as NULL, not {}"

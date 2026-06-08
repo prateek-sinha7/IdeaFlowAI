@@ -551,6 +551,7 @@ class ExecutionEngine:
         od_context: dict | None = None,
         gate_agent_ids: list[str] | None = None,
         parent_run_id: str | None = None,
+        model_overrides: dict[str, str] | None = None,
     ) -> AsyncGenerator[dict, None]:
         """Public entry — the SINGLE outward emit boundary (PERSIST-03 / D-11).
 
@@ -589,6 +590,7 @@ class ExecutionEngine:
             od_context=od_context,
             gate_agent_ids=gate_agent_ids,
             parent_run_id=parent_run_id,
+            model_overrides=model_overrides,
             _sink=sink,
         ):
             # Stamp exactly once, at the boundary, so seq is contiguous across the
@@ -622,6 +624,7 @@ class ExecutionEngine:
         od_context: dict | None = None,
         gate_agent_ids: list[str] | None = None,
         parent_run_id: str | None = None,
+        model_overrides: dict[str, str] | None = None,
         _sink: "_RunEventSink | None" = None,
     ) -> AsyncGenerator[dict, None]:
         """Execute a workflow end-to-end, yielding WebSocket events.
@@ -719,6 +722,12 @@ class ExecutionEngine:
             parent_run_id=parent_run_id,
             cancel_event=cancel_event,
         )
+        # Seed the validated per-agent override map (Phase 6 D-07/D-08, MODEL-03).
+        # Already allow-list-validated at the WS ingress (websocket.py
+        # _validate_model_overrides) — the engine trusts the carried map. Default
+        # {} when absent (the only kind today) so the resolver's override tier is a
+        # no-op and INV-3 parity holds. Persisted as ``or None`` below ({} → NULL).
+        ectx.model_overrides = model_overrides or {}
 
         # ── Scoped store + default workspace + capabilities (D-04/D-06/CAPRUN-01) ──────
         # The single default-deny scoped store helper (agents.authz.ScopedStore) is the
@@ -738,7 +747,12 @@ class ExecutionEngine:
             ectx.workspace_id = await scoped_store.create_workspace(pipeline_run_id)
             scoped_store._workspace_id = ectx.workspace_id  # stamp later writes
             await scoped_store.record_capabilities(
-                pipeline_run_id, runtime="langchain_deepagents"
+                pipeline_run_id,
+                runtime="langchain_deepagents",
+                # D-08: persist the validated overrides at entry. ``or None`` so an
+                # empty {} (every run today) persists as SQL NULL — INV-3 row parity
+                # with legacy/no-override rows (never a spurious non-null {} write).
+                model_overrides=(ectx.model_overrides or None),
             )
         except Exception as _scope_exc:  # noqa: BLE001 — never break a run on DB persist
             # WR-02: degrade ONLY the offline-harness DB condition (no schema →
