@@ -83,15 +83,67 @@ class _ScriptedTurn:
         self.usage = usage
 
 
+class ScriptedThrottleError(Exception):
+    """Synthetic transient throttle raised by ``ScriptedFakeChatModel`` (06-05).
+
+    Shaped so ``agents.model_policy._is_transient_throttle`` classifies it ``True``
+    via the botocore-``ClientError`` layer: it carries a ``response`` dict whose
+    ``Error.Code`` is ``ThrottlingException`` and whose HTTP status is 429 — exactly
+    the prod Bedrock throttle the engine's APPROACH-B retry loop reacts to. No live
+    Bedrock / no botocore import: the predicate matches on the duck-typed shape.
+    """
+
+    def __init__(self, message: str = "Rate exceeded (synthetic throttle)") -> None:
+        super().__init__(message)
+        self.response = {
+            "Error": {"Code": "ThrottlingException", "Message": message},
+            "ResponseMetadata": {"HTTPStatusCode": 429},
+        }
+
+
+class ScriptedNonTransientError(Exception):
+    """Synthetic NON-transient error (a ``ValidationException`` analogue, 06-05).
+
+    Shaped so ``_is_transient_throttle`` classifies it ``False`` (bad-params / auth
+    class): the engine must NOT switch models — it propagates immediately. The
+    ``response`` code is ``ValidationException`` and the status 400; neither is in
+    the transient sets, and the type name / message carry no transient substring.
+    """
+
+    def __init__(self, message: str = "Invalid request (synthetic non-transient)") -> None:
+        super().__init__(message)
+        self.response = {
+            "Error": {"Code": "ValidationException", "Message": message},
+            "ResponseMetadata": {"HTTPStatusCode": 400},
+        }
+
+
 class ScriptedFakeChatModel(BaseChatModel):
-    """Minimal BaseChatModel that streams a different scripted turn per call."""
+    """Minimal BaseChatModel that streams a different scripted turn per call.
+
+    06-05 fallback extension: when ``raise_exc`` is set the model RAISES that
+    exception from ``_stream``/``_generate`` instead of streaming — simulating a
+    model that throttles (or hard-fails) on every invocation. The engine's
+    APPROACH-B retry loop builds a fresh ``ScriptedFakeChatModel`` per chain id
+    (via the patched ``create_runner``), so a per-instance ``raise_exc`` lets a
+    test flag throttle-on-id-A while id-B streams normally — no live Bedrock.
+    """
 
     model_config = {"arbitrary_types_allowed": True}
 
-    def __init__(self, turns: list[_ScriptedTurn], **kwargs: Any) -> None:
+    def __init__(
+        self,
+        turns: list[_ScriptedTurn],
+        *,
+        raise_exc: BaseException | None = None,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(**kwargs)
         object.__setattr__(self, "_turns", list(turns))
         object.__setattr__(self, "_call_index", 0)
+        # When set, every model turn raises this exception instead of streaming
+        # (the synthetic throttle / non-transient error for the fallback tests).
+        object.__setattr__(self, "_raise_exc", raise_exc)
 
     @property
     def _llm_type(self) -> str:
@@ -114,6 +166,11 @@ class ScriptedFakeChatModel(BaseChatModel):
         run_manager: Any = None,
         **kwargs: Any,
     ) -> Iterator[ChatGenerationChunk]:
+        # 06-05: a flagged instance raises pre-first-token (the common Bedrock
+        # throttle case) so the engine's retry loop restarts cleanly on the next
+        # chain id. Raised here AND in _generate so both stream / invoke paths fail.
+        if self._raise_exc is not None:
+            raise self._raise_exc
         turn = self._next_turn()
         pieces = turn.texts if turn.texts else [""]
         last_i = len(pieces) - 1
@@ -150,6 +207,8 @@ class ScriptedFakeChatModel(BaseChatModel):
         run_manager: Any = None,
         **kwargs: Any,
     ) -> ChatResult:
+        if self._raise_exc is not None:
+            raise self._raise_exc
         chunks = list(self._stream(messages, stop=stop, run_manager=run_manager, **kwargs))
         text = "".join(c.message.content for c in chunks if isinstance(c.message.content, str))
         return ChatResult(generations=[ChatGeneration(message=AIMessage(content=text))])
