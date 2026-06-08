@@ -101,6 +101,12 @@ class AgentSpec:
     gate: str | None = None                              # Human_Gate | Validation_Gate | None
     injects: list[str] = field(default_factory=list)    # subset of [template, design_system, craft]
 
+    # ── Phase 6 extension — optional model id (D-09; MODEL-01) ───────────
+    # Optional AGENT.md `model` id; absent → None. Backs tier 3 (agent-default)
+    # of the resolver's model-precedence. Loader enforces a type guard only;
+    # catalog-membership validation is deferred to RESOLVE time in 06-03.
+    model: str | None = None
+
 
 class AgentSpecError(Exception):
     """Raised when an AGENT.md file has invalid or missing fields."""
@@ -353,6 +359,20 @@ def _build_spec(
             )
     gate: str | None = raw_gate
 
+    # ── model (optional) ──────────────────────────────────────────────────
+    # Optional AGENT.md model id (D-09; MODEL-01). Absent → None for every
+    # agent (no existing AGENT.md declares it). Type guard only: a present
+    # value must be a string; catalog-membership validation is deferred to
+    # RESOLVE time in the resolver (06-03) so the loader gains no catalog
+    # import and the all-agents schema test is unaffected by catalog contents.
+    raw_model = metadata.get("model")
+    if raw_model is not None and not isinstance(raw_model, str):
+        raise AgentSpecError(
+            f"Invalid field 'model' in {file_path_str}: "
+            f"expected a string or null, got {type(raw_model).__name__!r}"
+        )
+    model: str | None = raw_model
+
     return AgentSpec(
         id=agent_id,
         name=name,
@@ -371,6 +391,7 @@ def _build_spec(
         consumes=consumes,
         gate=gate,
         injects=injects,
+        model=model,
     )
 
 
