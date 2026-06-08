@@ -259,7 +259,16 @@ class ScopedStore:
                 ArtifactRefRow.run_id == run_id
             )
             query = self._scope_with_visibility(query, ArtifactRefRow)
-            return query.order_by(ArtifactRefRow.created_at.asc()).all()
+            # WR-03: created_at is a Python-side default(datetime.now) set at flush
+            # time, so back-to-back writes in one task-loop iteration can tie at the
+            # stored precision. Add stable secondary keys (version, id) so the order
+            # between same-timestamp refs is deterministic for any consumer that
+            # relies on lineage() insertion order.
+            return query.order_by(
+                ArtifactRefRow.created_at.asc(),
+                ArtifactRefRow.version.asc(),
+                ArtifactRefRow.id.asc(),
+            ).all()
         finally:
             if owned:
                 session.close()
