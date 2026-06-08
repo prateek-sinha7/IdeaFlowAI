@@ -159,3 +159,21 @@ class ExecutionContext:
     disk_skills: dict = field(default_factory=dict)
     # depth: sub-run nesting depth (0 = top-level run). Reserved for the fan-out phases.
     depth: int = 0
+    # ── Deliverable routing (07-05) ─────────────────────────────────────────────────
+    # deliverable: the compiled DeliverableSpec (strategy + name) for this run, set at
+    # run entry from ``compiled.deliverable`` so the per-agent mid-stream transforms in
+    # ``_run_agent`` (the single-file disk readback + the ppt carousel sanitize) key off
+    # the DECLARED deliverable strategy — NOT a ``pipeline_type`` name-branch (INV-1).
+    # Replaces the former L10 prototype-name readback gate and the L3 ppt-name-set
+    # mid-stream sanitize gate (both deleted from the kernel in 07-05).
+    deliverable: object | None = None
+    # last_streamed: the final agent's streamed output, set just before the deliverable
+    # resolver runs so the resolver capability reads it off ctx (single_file / ppt /
+    # streamed_text fallbacks). Typed ``object``-free str default.
+    last_streamed: str = ""
+    # is_revision_workflow: True when the run's manifest declares the ``previous_run``
+    # context provider (a revise-prior-run workflow). Gates the per-agent single_file
+    # MID-STREAM disk readback in _run_agent off (the legacy L10 readback excluded the
+    # revision path — a revision's mid-stream output is the edited streamed text, not a
+    # fresh disk file); the FINAL single_file deliverable resolver still reads the file.
+    is_revision_workflow: bool = False

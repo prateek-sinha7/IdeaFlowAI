@@ -14,10 +14,10 @@ attributes/methods dynamically off ``ctx.runner``.
 This module IS the kernel, so it MAY import ``app.*`` + engine internals freely.
 It delegates the heavy behavior to the engine's EXISTING ``_run_agent`` /
 ``_run_validation_fix_loop`` so the routed path is byte-identical + semantic-event
-parity to the legacy ``_run_build_task_loop`` / per-step dispatch (INV-3). The
+parity to the legacy per-task build loop / per-step dispatch (INV-3). The
 strangler constraint (07-04): nothing here re-implements a leak — it wraps the
-engine's existing primitives so the L1-L13 call SITES can be swapped to the
-capabilities while the leak DEFINITIONS stay dead (07-05 deletes them).
+engine's existing primitives so the L1-L13 call SITES could be swapped to the
+capabilities; the leak DEFINITIONS were then deleted in 07-05.
 
 The handle is constructed once per run inside ``_execute_impl`` and carries the
 per-run invocation context (the engine instance, the ordered AgentSpecs, the
@@ -161,7 +161,7 @@ class KernelServices:
         Rebuilds the engine's positional ``_run_agent`` call from the minimal
         ``(step, ctx)`` contract: looks up the AgentSpec for ``step.agent_id`` in
         the run's ordered agents, sets the build-loop scratch on the per-run
-        ``ExecutionContext`` (so ``_build_context_message`` injects the
+        ``ExecutionContext`` (so the engine's generic context injector emits the
         ``=== CURRENT TASK ===`` block — task_loop path), then re-yields every
         event ``_run_agent`` produces unchanged (INV-3). The scratch is reset
         afterwards so a single_shot step is byte-identical to today.
@@ -170,8 +170,8 @@ class KernelServices:
         index = self._index_for(spec)
 
         # Build-loop scratch (task_loop path): set the per-task counters + block so
-        # the engine's _build_context_message emits the CURRENT TASK marker exactly
-        # as the legacy _run_build_task_loop did. For single_shot (no task_number)
+        # the engine's generic context injector emits the CURRENT TASK marker exactly
+        # as the legacy per-task build loop did. For single_shot (no task_number)
         # these stay "" — byte-identical to a non-build agent.
         prev_num = self._ectx.build_task_number
         prev_total = self._ectx.build_task_total

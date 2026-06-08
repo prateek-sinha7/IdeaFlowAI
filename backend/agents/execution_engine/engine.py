@@ -43,11 +43,7 @@ from agents.model_policy import ModelResolver
 from agents.workflows.compiler import WorkflowCompiler
 from agents.workflows.manifest import load_manifest
 from agents.workflows.plan import CompiledWorkflow
-from app.agents.sandbox import (
-    RunSandbox,
-    count_sandbox_deliverables,
-    serialize_sandbox_deliverable,
-)
+from app.agents.sandbox import RunSandbox
 
 logger = logging.getLogger("agents.execution_engine.engine")
 
@@ -147,10 +143,11 @@ PLANNER_TIMEOUT_SECONDS = 120.0  # SmartPlanner: single call (generous — large
 PLANNER_AGENT_ID = "deep-planner"
 
 # ── Human-in-the-loop: always ask clarifying questions ────────────────────────
-# When True, the gate verdict is forced to CLARIFY_REQUIRED for every pipeline
-# run regardless of what the planner returns. Set to False to let the planner
-# decide autonomously.
-ALWAYS_CLARIFY = True
+# (Migrated L6, 07-05) The former module-level ``ALWAYS_CLARIFY`` flag is GONE; the
+# "force CLARIFY_REQUIRED on every run" behavior is now declared per-workflow by the
+# manifest ``clarify.mode`` ("auto" ⇒ always clarify), read off the CompiledWorkflow
+# at run entry (``compiled.clarify.mode == "auto"``). Every dispatchable manifest
+# declares ``clarify.mode: auto`` today, so behavior is byte-identical (INV-1/INV-3).
 
 
 def _now() -> str:
@@ -158,27 +155,12 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# ---------------------------------------------------------------------------
-# PPT carousel deck sanitizer (deterministic safety net)
-# ---------------------------------------------------------------------------
-
-_PPT_PIPELINE_TYPES = frozenset({"od_ppt", "od_ppt_revision", "ppt", "ppt_revision"})
-
-# Pipelines whose single deliverable is the ``prototype.html`` built on the run
-# sandbox disk (NOT a serialized multi-file bundle, NOT a streamed text answer).
-# ``od_prototype`` is the OpenDesign-context alias of ``prototype`` (same agents,
-# plus a selected template + design system). It is never a registered pipeline,
-# but BOTH entry surfaces — the WebSocket ``run_pipeline`` handler and the NDJSON
-# ``/api/prototype/run`` adapter — forward the label ``od_prototype`` to the engine
-# UNALIASED (the WS handler resolves the alias only for agent lookup, not for the
-# value it passes to execute()), so the engine must accept both spellings.
-# ``prototype_revision`` is deliberately excluded: it has its own deliverable
-# resolution (original-HTML fallback) in :func:`_resolve_final_output`.
-_PROTOTYPE_PIPELINE_TYPES = frozenset({"prototype", "od_prototype"})
-
 # Workspace filename the prototype-revision-agent reads + edits in place. The
 # engine seeds it with the current prototype before the agent runs and reads it
-# back as the deliverable afterwards (see execute()).
+# back as the deliverable afterwards (see execute()). This is the AGNOSTIC
+# revision-setup constant (the slim-message pointer + the pre-edit baseline path),
+# NOT a workflow-name branch — it survives 07-05 (the L1 ratchet scopes only the
+# the ppt/prototype name-set leaks the L1 ratchet scopes, both deleted in 07-05).
 REVISION_FILE_NAME = "prototype.html"
 
 
@@ -189,8 +171,8 @@ REVISION_FILE_NAME = "prototype.html"
 # The engine sources the FOUR routing concerns — step sequence + agent ids,
 # deliverable spec, clarify defaults, and the planner-skip flag — from the
 # CompiledWorkflow produced by the manifest + compiler layer (agents/workflows),
-# NOT from the legacy hardcoded dicts (get_pipeline_agents / _pipeline_defaults /
-# SKIP_PLANNER_FOR_PROTOTYPE). The legacy `pipeline_type` label is reduced to an
+# NOT from the legacy hardcoded dicts (get_pipeline_agents / per-pipeline default
+# question lists / the legacy planner-skip flag). The legacy `pipeline_type` label is reduced to an
 # id-alias resolved to a manifest id at run entry (od_prototype -> prototype;
 # every real key -> itself), consumed ONLY by that resolver for routing (MAN-05).
 # There is NO legacy `pipeline_type` dispatch fallback (INV-12): a dispatchable
@@ -358,174 +340,6 @@ def _select_issues_to_fix(
             seen.add(line)
             deduped.append(line)
     return deduped
-
-
-def _sanitize_carousel_deck_html(html: str) -> str:
-    """Strip slide-hiding CSS that contradicts a horizontal translateX carousel deck.
-
-    The od_ppt composer LLM sometimes hallucinates ``.slide:not(.active){display:none}``
-    and ``.slide.active{display:...}`` (and occasionally a bare ``.slide{...display:none...}``)
-    on top of a pure-carousel template whose ``.stage`` navigates via
-    ``transform: translateX(-i*100vw)`` while every ``.slide`` stays ``display:grid``.
-    Those rules remove slides 2..N from layout, so only slide 1 ever renders.
-
-    This is a deterministic backstop — the composer prompt forbids these rules, but LLM
-    output is non-deterministic, so we also strip them here. We act ONLY when the deck is
-    clearly a horizontal carousel, and we remove ONLY the conflicting rules — never the
-    base ``.slide{display:grid}`` (the carousel relies on it) nor ``@media print`` rules
-    (those use ``display:block``/``!important``, not ``display:none``).
-
-    Returns the (possibly modified) HTML. No-op on non-carousel / non-HTML input.
-    Scope this strictly to ppt/od_ppt output — never call it on prototype HTML.
-    """
-    if not html or "<style" not in html.lower():
-        return html
-
-    # Detect a horizontal carousel: a translateX(...vw) transform driving the stage,
-    # plus the .stage/.slide structure it relies on. Whitespace-robust.
-    has_translate_vw = re.search(r"translateX\s*\(\s*[^)]*vw", html, re.IGNORECASE) is not None
-    has_stage_slide = (".stage" in html) and (".slide" in html)
-    if not (has_translate_vw and has_stage_slide):
-        return html
-
-    original = html
-
-    # 1) `.slide:not(.active) { ... }` — always a carousel-breaking hide rule. Remove it.
-    html = re.sub(
-        r"\.slide\s*:not\(\s*\.active\s*\)\s*\{[^}]*\}",
-        "",
-        html,
-        flags=re.IGNORECASE,
-    )
-
-    # 2) `.slide.active { ... }` ONLY when it overrides `display` (fights the carousel).
-    #    A cosmetic `.slide.active` rule (e.g. box-shadow) without `display` is left alone.
-    html = re.sub(
-        r"\.slide\.active\s*\{[^}]*\bdisplay\s*:[^}]*\}",
-        "",
-        html,
-        flags=re.IGNORECASE,
-    )
-
-    # 3) A bare `.slide { ... display:none ... }` hide rule — never legitimate for a
-    #    carousel (base is display:grid, print is display:block). The negative lookbehind
-    #    keeps us off `.slide-inner`, `.slide.dark`, `.slide.active`, `.slide:not(...)`, etc.
-    html = re.sub(
-        r"(?<![\w.\-:])\.slide\s*\{[^}]*?\bdisplay\s*:\s*none\b[^}]*\}",
-        "",
-        html,
-        flags=re.IGNORECASE,
-    )
-
-    if html != original:
-        # Tidy up runs of blank lines left where rules were removed (cosmetic only).
-        html = re.sub(r"[ \t]*\n([ \t]*\n){2,}", "\n\n", html)
-        logger.info("Sanitized carousel deck: removed slide-hiding CSS (%d → %d chars)", len(original), len(html))
-    return html
-
-
-def _unwrap_artifact(text: str) -> str:
-    """Return the inner content of a single ``<artifact>…</artifact>`` wrapper.
-
-    Some text agents (the PPT composer) emit their deliverable wrapped in an
-    ``<artifact>`` tag. Return the unwrapped inner content; return ``text``
-    unchanged when there is no wrapper.
-
-    This is applied ONLY to a streamed-text deliverable — NEVER to a serialized
-    code-gen bundle or a prototype's raw HTML, both of which can legitimately
-    contain the literal substring ``<artifact>`` inside a file (e.g. an
-    ``<artifact>`` *example* printed inside design.md). Stripping over those
-    would extract the example and discard the real deliverable.
-    """
-    if text and "<artifact" in text:
-        m = re.search(r"<artifact[^>]*>\s*([\s\S]*?)\s*</artifact>", text, re.IGNORECASE)
-        if m:
-            return m.group(1).strip()
-    return text
-
-
-def _resolve_final_output(
-    pipeline_type: str,
-    sandbox: RunSandbox,
-    results: list[dict],
-    *,
-    revision_original_html: str | None = None,
-) -> str:
-    """Resolve the run's deliverable (``WorkflowRun.output``) from the sandbox.
-
-    The deliverable is chosen by *pipeline class* — never by blindly serializing
-    every file on the run sandbox. The prototype build loop writes ``spec.md`` /
-    ``design.md`` / ``tasks.md`` into the SAME sandbox as build-agent reference
-    scaffolding; those are NOT deliverables and must never leak into the output
-    (``design.md`` even carries a literal ``<artifact>`` *example*, so an
-    indiscriminate serialize-then-strip would surface that example as a tiny
-    "deliverable" and discard the real prototype):
-
-      * ``prototype_revision`` — the revision agent edited ``prototype.html`` in
-        place; that single file IS the deliverable. Fall back to the streamed
-        HTML, or the pre-revision original, only when the file is missing.
-      * ``prototype`` / ``od_prototype`` — the build loop wrote ``prototype.html``
-        incrementally; that single file IS the deliverable. Fall back to the last
-        streamed output (NEVER serialize the sandbox) when the file is missing.
-      * code-gen (``app_builder`` / ``mulesoft_to_springboot`` / ``dotnet_to_azure``
-        and their revisions) — multiple deliverable files; serialize them to the
-        ``filename:``-block bundle the UI's FilesTab/AppBuilderPreview parse.
-      * text / PPT — the last agent's streamed output IS the deliverable; an
-        ``<artifact>`` wrapper (the PPT composer) is unwrapped.
-
-    Args:
-        pipeline_type: The run's pipeline type (resolved, e.g. ``"prototype"``).
-        sandbox: The per-run :class:`RunSandbox` the agents wrote to.
-        results: Per-agent result dicts (each with an ``"output"`` key); the last
-            one's output is the streamed deliverable for the text/PPT class.
-        revision_original_html: The pre-revision HTML, used only as the last-ditch
-            fallback when a ``prototype_revision`` agent never wrote the file.
-
-    Returns:
-        The ``WorkflowRun.output`` string for this run.
-    """
-    last_streamed = results[-1]["output"] if results else ""
-
-    if pipeline_type == "prototype_revision":
-        # The revision agent edited prototype.html in place — that file IS the
-        # deliverable (raw HTML, never the ```filename:``` wrapper). Fall back
-        # without losing the prototype when the agent never wrote the file.
-        revised = sandbox.read(REVISION_FILE_NAME)
-        if revised:
-            return revised
-        streamed = last_streamed.strip()
-        looks_like_html = streamed[:60].lower().lstrip().startswith(("<!doctype", "<html"))
-        chosen = streamed if looks_like_html else (revision_original_html or streamed)
-        logger.warning(
-            "prototype_revision: %s not written by agent — fell back to %s",
-            REVISION_FILE_NAME,
-            "streamed HTML" if looks_like_html else "original HTML",
-        )
-        return _unwrap_artifact(chosen)
-
-    if pipeline_type in _PROTOTYPE_PIPELINE_TYPES:
-        # Forward prototype: the per-task build loop wrote prototype.html on disk.
-        # That single file is the deliverable — never serialize the sandbox (which
-        # bundles the spec.md/design.md/tasks.md reference scaffolding).
-        built = sandbox.read(REVISION_FILE_NAME)
-        if built:
-            return built
-        logger.warning(
-            "%s: %s not written by build loop — fell back to streamed output",
-            pipeline_type,
-            REVISION_FILE_NAME,
-        )
-        return last_streamed
-
-    if count_sandbox_deliverables(sandbox.root) > 0:
-        # Code-gen: multiple deliverable files → the ```filename:```-block bundle.
-        # No <artifact> unwrap here — a serialized file may legitimately contain
-        # the literal text "<artifact>" (this is the bug the prototype branch above
-        # also guards against).
-        return serialize_sandbox_deliverable(sandbox.root)
-
-    # Text / PPT: the streamed output IS the deliverable; unwrap an <artifact> tag.
-    return _unwrap_artifact(last_streamed)
 
 
 class ExecutionEngine:
@@ -800,13 +614,37 @@ class ExecutionEngine:
         # so report_task_complete calls ACCUMULATED across tasks. After the Phase-3
         # cutover, task_progress is derived from report_task_complete tool events in
         # _run_agent; that list MUST live here (run-level) — not as a local inside
-        # _run_agent — because _run_build_task_loop calls _run_agent fresh ONCE PER
+        # _run_agent — because the task_loop strategy calls _run_agent fresh ONCE PER
         # TASK. A local list resets every task, so completed_count would be stuck at
         # 1 and the frontend's protoCompletedTaskCount would go non-monotonic
         # (0,1,1,1,2,1) instead of cumulative/monotonic (0,1,1,2,2,3) — a visible
         # build-progress UI regression. Lives on the per-run context
         # (ectx.completed_tasks, [] by default_factory), appended in _run_agent,
         # emitted as completed_count=len(ectx.completed_tasks).
+
+        # ── Routing seam: compile the CompiledWorkflow this run executes from ──
+        # (MAN-04/MAN-05). Resolve the legacy `pipeline_type` label to a manifest id,
+        # load + compile that manifest, and source EVERY routing concern from the
+        # compiled plan below (agent sequence/ids, deliverable spec, clarify mode +
+        # defaults, planner flag, declared context_providers). Compiled HERE — before
+        # the revision setup — so the in-place-edit revision behavior keys off the
+        # DECLARED ``previous_run`` provider, NOT a ``pipeline_type`` name branch
+        # (INV-1). No legacy `pipeline_type` dispatch fallback (INV-12).
+        compiled = compile_for_run(pipeline_type)
+        # Bind the declared deliverable spec onto the context at run entry (INV-1) so
+        # the per-agent mid-stream transforms in _run_agent (the single-file disk
+        # readback + the ppt carousel sanitize) key off compiled.deliverable.strategy.
+        ectx.deliverable = compiled.deliverable
+        # The "revise a prior run in place" setup (extract the existing artifact,
+        # slim the message, compute the pre-edit baseline) is gated on the workflow
+        # DECLARING the ``previous_run`` context provider — the manifest feature that
+        # marks a revise-prior-run workflow — NOT on the workflow's name (INV-1). Stash
+        # it on the context too: the per-agent single_file mid-stream readback (in
+        # _run_agent) fires for a FORWARD single_file build (the agent writes the file
+        # fresh) but NOT for a revision (whose mid-stream deliverable is the edited
+        # streamed output — the legacy L10 gate excluded prototype_revision, parity).
+        _is_revision_workflow = "previous_run" in (compiled.context_providers or [])
+        ectx.is_revision_workflow = _is_revision_workflow
 
         # ── Prototype revision: seed the existing prototype as an editable file ──
         # DELIBERATE EXCEPTION to the revision pattern used elsewhere. Every other
@@ -838,7 +676,7 @@ class ExecutionEngine:
         #   ectx.revision_baseline_console — console-error signatures of that same
         #                                     pre-edit render (empty when render is
         #                                     unavailable).
-        if pipeline_type == "prototype_revision":
+        if _is_revision_workflow:
             existing_html = self._extract_existing_prototype_html(user_message)
             if existing_html:
                 ectx.revision_original_html = existing_html
@@ -948,13 +786,9 @@ class ExecutionEngine:
 
         ordered_agents = validation.dag or list(agents)
 
-        # ── Routing seam: compile the CompiledWorkflow this run executes from ──
-        # (MAN-04/MAN-05). Resolve the legacy `pipeline_type` label to a manifest
-        # id, load + compile that manifest, and source the FOUR routing concerns
-        # from the compiled plan below: (1) the agent sequence/ids, (2) the
-        # deliverable spec, (3) the clarify defaults, (4) the planner-skip flag.
-        # No legacy `pipeline_type` dispatch fallback (INV-12).
-        compiled = compile_for_run(pipeline_type)
+        # (The CompiledWorkflow was compiled at run entry above — before the revision
+        # setup — so the in-place-edit revision behavior keys off the declared
+        # ``previous_run`` provider rather than a ``pipeline_type`` name branch, INV-1.)
 
         # ── Model resolution seam (Phase 6 / MODEL-01/02/05) ──────────────────────────
         # Construct the per-run ModelResolver ONCE, here — after the workflow is compiled
@@ -1024,12 +858,11 @@ class ExecutionEngine:
 
         # ── Planner-skip routing concern — sourced from the compiled plan ──
         # (MAN-04, concern 4). The planner-skip flag now comes from
-        # `compiled.planner` ("run" | "skip"), NOT from the legacy
-        # `SKIP_PLANNER_FOR_PROTOTYPE and is_prototype_pipeline(...)` computation.
-        # Every dispatchable manifest declares `planner: run` (because the live
-        # SKIP_PLANNER_FOR_PROTOTYPE is False today — RESEARCH Pitfall 1), so
-        # `skip_planner` is False for every run and behavior is byte-identical:
-        # the planner/clarifier runs for every pipeline exactly as before.
+        # `compiled.planner` ("run" | "skip"), NOT from the legacy module-level
+        # planner-skip flag the prototype path used to read. Every dispatchable
+        # manifest declares `planner: run` today, so `skip_planner` is False for every
+        # run and behavior is byte-identical: the planner/clarifier runs for every
+        # pipeline exactly as before.
         skip_planner = compiled.planner == "skip"
 
         if skip_planner:
@@ -1052,29 +885,33 @@ class ExecutionEngine:
                 ectx=ectx,
             )
 
-            # Human-in-the-loop override: force clarification on every run.
-            if ALWAYS_CLARIFY and gate_verdict != "CLARIFY_REQUIRED":
-                logger.info("ALWAYS_CLARIFY=True — overriding gate verdict PROCEED → CLARIFY_REQUIRED")
+            # ── Clarify-mode routing concern — sourced from the compiled plan ─────
+            # (MAN-04, concern 3; migrated L6, INV-1). The "force clarification on
+            # every run" behavior is now declared by the manifest `clarify.mode`
+            # ("auto" ⇒ always clarify), NOT a hardcoded module-level `ALWAYS_CLARIFY`
+            # flag. Every dispatchable manifest declares `clarify.mode: auto` today, so
+            # `clarify_auto` is True for every run and behavior is byte-identical: the
+            # gate verdict is forced to CLARIFY_REQUIRED on every run exactly as before.
+            clarify_auto = compiled.clarify.mode == "auto"
+            if clarify_auto and gate_verdict != "CLARIFY_REQUIRED":
+                logger.info("clarify.mode=auto — overriding gate verdict PROCEED → CLARIFY_REQUIRED")
                 gate_verdict = "CLARIFY_REQUIRED"
                 planning_context["execution_gate"] = "CLARIFY_REQUIRED"
                 if not planning_context.get("missing_information"):
                     has_topic = planning_context.get("has_topic", True)
-                    # ── Clarify-defaults routing concern — sourced from the
-                    # compiled plan (MAN-04, concern 3). The per-pipeline default
-                    # clarifying-question list now comes from
-                    # `compiled.clarify.defaults` (which reproduces the engine's
-                    # former `_pipeline_defaults` dict verbatim, with revisions /
-                    # edge ids falling to the `custom` list), NOT from a hardcoded
-                    # dict keyed by pipeline_type. `od_prototype` resolves to the
-                    # `prototype` manifest whose defaults equal the former
-                    # `_pipeline_defaults["od_prototype"]`, so behavior is
-                    # byte-identical.
+                    # The per-pipeline default clarifying-question list comes from
+                    # `compiled.clarify.defaults` (which reproduces the engine's former
+                    # `_pipeline_defaults` dict verbatim, with revisions / edge ids
+                    # falling to the `custom` list), NOT from a hardcoded dict keyed by
+                    # pipeline_type. `od_prototype` resolves to the `prototype` manifest
+                    # whose defaults equal the former `_pipeline_defaults["od_prototype"]`,
+                    # so behavior is byte-identical.
                     defaults = list(compiled.clarify.defaults)
                     if not has_topic:
                         defaults = ["topic"] + defaults
                     planning_context["missing_information"] = defaults
                     logger.info(
-                        "ALWAYS_CLARIFY: seeding defaults has_topic=%s pipeline=%s: %s",
+                        "clarify.mode=auto: seeding defaults has_topic=%s pipeline=%s: %s",
                         has_topic, pipeline_type, defaults
                     )
 
@@ -1233,15 +1070,15 @@ class ExecutionEngine:
         # degrade (a missing parent must never break a revision).
         await self._seed_workflow_context(ectx, compiled)
 
-        # ── Per-step capability dispatch (INV-1) — NO spec.id/pipeline_type branch ──
+        # ── Per-step capability dispatch (INV-1) — NO workflow-name/agent-id branch ──
         # The compiled plan's Step.strategy names the execution-strategy capability for
         # each agent (task_loop for the prototype build step; single_shot for every
         # other step). The engine routes per-step via
-        # registry.resolve("strategy", step.strategy).run(step, ctx) — the L7 build-vs-
-        # else dispatch (`if spec.id == "prototype-build"`) is no longer reached on the
-        # routed path (its definition stays dead until 07-05). install() is lazy-bound
-        # by resolve(); the compiled steps align 1:1 with ordered_agents (asserted at
-        # compile-time above), so we zip them by index for the per-step strategy name.
+        # registry.resolve("strategy", step.strategy).run(step, ctx) — the former L7
+        # build-vs-else dispatch (the deleted prototype-build name branch) is gone from
+        # the kernel entirely (07-05). install() is lazy-bound by resolve(); the
+        # compiled steps align 1:1 with ordered_agents (asserted at compile-time above),
+        # so we zip them by index for the per-step strategy name.
         from agents.capabilities.registry import CapabilityRegistry as _CapReg
 
         _registry = _CapReg()
@@ -1281,10 +1118,10 @@ class ExecutionEngine:
         if current_state not in ("cancelled", "failed"):
             self._state_machine.transition(pipeline_run_id, "completed")
 
-        # Determine the final deliverable below, by pipeline class, via
-        # _resolve_final_output (prototype.html for prototype/revision; serialized
-        # sandbox for code-gen; streamed+unwrapped output for text/PPT). The
-        # revision branch first runs the post-revision validation fix-loop.
+        # Determine the final deliverable below via the DECLARED deliverable resolver
+        # capability (single_file → prototype.html for prototype/revision;
+        # serialized_sandbox → code-gen bundle; streamed_text/ppt → streamed+unwrapped
+        # output). The revision branch first runs the post-revision validation fix-loop.
 
         # ── Prototype revision: programmatic post-revision validation + fix ──────
         # After the visible prototype-revision-agent has edited prototype.html, run
@@ -1355,12 +1192,11 @@ class ExecutionEngine:
         # (MAN-04, concern 2). The deliverable resolver NAME for this run is
         # declared on `compiled.deliverable.strategy` (e.g. single_file /
         # serialized_sandbox / streamed_text / ppt), sourced from the manifest +
-        # validated against the CapabilityRegistry at compile time. In 1A the
-        # actual byte-resolution still flows through the behavioral
-        # `_resolve_final_output` chooser (allow-listed, Phase-7-scoped): the
-        # concrete resolver impls that consume this declared name land with the
-        # capability impls in Phase 7. The spec is bound here so the routing
-        # concern is genuinely sourced from the compiled plan, not the legacy dict.
+        # validated against the CapabilityRegistry at compile time. The byte-resolution
+        # flows entirely through the declared resolver capability (07-04 wired it; the
+        # legacy chooser was deleted from the kernel in 07-05). The spec is bound here
+        # so the routing concern is genuinely sourced from the compiled plan, not a
+        # legacy name dict.
         # Logged (not emitted as an event) so the semantic-event multiset stays
         # byte-identical (INV-3) while the sourced concern is observably consumed.
         logger.debug(
@@ -1377,12 +1213,12 @@ class ExecutionEngine:
         # (single_file / serialized_sandbox / streamed_text / ppt), validated against
         # the registry at compile time. The engine routes resolution through
         # registry.resolve("deliverable", compiled.deliverable.strategy).resolve(ctx),
-        # reading deliverable.name — NO _resolve_final_output pipeline_type branch on
-        # the routed path (its definition stays dead until 07-05). The resolver reads
-        # the run state off ctx: ctx.deliverable (the compiled spec), ctx.last_streamed
+        # reading deliverable.name — NO legacy by-class deliverable chooser / workflow-
+        # name branch on the routed path (deleted from the kernel in 07-05). The resolver
+        # reads the run state off ctx: ctx.deliverable (the compiled spec), ctx.last_streamed
         # (the final agent's streamed output), ctx.revision_original_html (the seeded
         # original), and the sandbox via ctx.runner. The ppt resolver owns the carousel
-        # sanitize (PARITY-07) so the inline _sanitize_carousel_deck_html call site is
+        # sanitize (PARITY-07) so the inline mid-stream sanitize call site is
         # gone too. serialized_sandbox returns None when the sandbox holds 0 deliverable
         # files (the legacy count>0 guard); the engine then falls back to streamed_text
         # — byte-identical to the legacy code-gen→text fall-through.
@@ -1535,7 +1371,7 @@ class ExecutionEngine:
 
         ``execute()`` always seeds ``ectx.model_resolver`` (after the workflow compiles), so on
         the live path this delegates to the D-02 precedence resolver. When the resolver is
-        absent — direct unit-style invocations of ``_run_agent`` / ``_run_build_task_loop`` that
+        absent — direct unit-style invocations of ``_run_agent`` (or the task_loop strategy) that
         construct an ``ExecutionContext`` WITHOUT going through ``execute()`` — fall back to the
         threaded ``model_id`` (today's behavior). This fallback is parity-safe: with no override
         and no manifest model the resolver itself returns ``model_id or Haiku``, so the resolved
@@ -1591,10 +1427,10 @@ class ExecutionEngine:
         # Build context message via the GENERIC injector (INV-1) — OD/template blocks
         # come from the declared context_provider capabilities, the agnostic parts
         # (brief + planning + consumed outputs + CURRENT TASK) are composed inline.
-        # The L12 _build_context_message branches are no longer reached on the routed
-        # path (definition stays dead until 07-05).
+        # The former L12 per-pipeline injection branches were deleted from the kernel
+        # in 07-05; the generic injector is the sole context-composition path.
         context_message = await self._compose_context_message(
-            spec, ordered_agents, user_message,
+            spec, index, ordered_agents, user_message,
             planning_context, ectx,
         )
 
@@ -1658,7 +1494,7 @@ class ExecutionEngine:
             # above.) Base id = "<pipeline_run_id>:<spec.id>". The build loop runs
             # the SAME spec.id ("prototype-build") once per task, so when a task
             # number is present we append it ("<run>:<agent>:<task>") to keep each
-            # task on its own thread — _run_build_task_loop sets ectx.build_task_number
+            # task on its own thread — the task_loop strategy sets ectx.build_task_number
             # before each call (and it is "" for every other agent, which then uses the
             # plain two-part id). interrupt_on is intentionally NOT passed (kept None) —
             # gate-selection is Task #44 and the runner stays in non-gate mode so event
@@ -1902,29 +1738,45 @@ class ExecutionEngine:
 
             output = "".join(output_chunks)
 
-            # ── Prototype pipeline: read HTML from the run sandbox ───────────
-            # A prototype agent writes its HTML to prototype.html on disk via the
-            # native deepagents write_file/edit_file tools (the text stream only
-            # carries the tool confirmation, not the HTML). Read the file back and
-            # prefer it over the streamed text so downstream agents receive the
-            # full HTML — same "prefer the deliverable over the confirmation" rule
-            # as the old shared-store path.
-            if pipeline_type in ("od_prototype", "prototype"):
-                html_from_disk = sandbox.read("prototype.html")
-                if html_from_disk and len(html_from_disk) > len(output):
+            # ── Single-file deliverable: read the named file from the run sandbox ─────
+            # (INV-1, migrated L10) An agent whose run produces a single on-disk file
+            # (deliverable.strategy == "single_file", e.g. the prototype build loop)
+            # writes its HTML to that file via the native deepagents write_file/edit_file
+            # tools — the text stream only carries the tool confirmation, not the HTML.
+            # Read the named file back and prefer it over the streamed text so downstream
+            # agents (and the agent_complete.output_length snapshot key — PARITY-09) see
+            # the full deliverable. Keyed off the DECLARED deliverable spec on ctx, NOT a
+            # workflow-name branch (the former prototype-name readback gate, deleted in
+            # 07-05). The fall-through resolution is owned by the single_file deliverable
+            # resolver; this is the mid-stream "prefer the deliverable over the
+            # confirmation" readback that the per-agent output (and output_length) needs.
+            _deliv = getattr(ectx, "deliverable", None)
+            _deliv_strategy = getattr(_deliv, "strategy", None)
+            if _deliv_strategy == "single_file" and not getattr(ectx, "is_revision_workflow", False):
+                _deliv_name = getattr(_deliv, "name", None) or "prototype.html"
+                file_from_disk = sandbox.read(_deliv_name)
+                if file_from_disk and len(file_from_disk) > len(output):
                     logger.info(
-                        "Agent %s: using sandbox prototype.html (%d chars) instead of text output (%d chars)",
-                        spec.id, len(html_from_disk), len(output),
+                        "Agent %s: using sandbox %s (%d chars) instead of text output (%d chars)",
+                        spec.id, _deliv_name, len(file_from_disk), len(output),
                     )
-                    output = html_from_disk
+                    output = file_from_disk
 
             # ── PPT carousel deck: strip slide-hiding CSS the composer may hallucinate ──
-            # Sanitize here (before storage/context) so the stored artifact, the
-            # downstream QA validator, and the final output all see a deck whose
-            # carousel renders all slides. Scoped strictly to ppt/od_ppt; no-op
-            # unless `output` is a horizontal-carousel deck (never prototype HTML).
-            if pipeline_type in _PPT_PIPELINE_TYPES and output:
-                output = _sanitize_carousel_deck_html(output)
+            # (INV-1, migrated L3) Sanitize here (before storage/context) so the stored
+            # artifact, the downstream QA validator, the agent_complete.output_length
+            # snapshot key (PARITY-07/09), and the final output all see a deck whose
+            # carousel renders all slides. Keyed off the DECLARED deliverable strategy
+            # (== "ppt"), NOT a workflow-name branch (the former ppt-name-set sanitize
+            # gate, deleted in 07-05). The transform is import-pure and a no-op on
+            # non-carousel / non-HTML input; its definition lives in the ppt deliverable
+            # resolver's shared _artifact module (move-don't-copy, INV-12).
+            if _deliv_strategy == "ppt" and output:
+                from agents.capabilities.deliverables._artifact import (
+                    sanitize_carousel_deck_html as _sanitize_deck,
+                )
+
+                output = _sanitize_deck(output)
 
             # Typed write (PERSIST-02 step 2): the typed graph + DB — the SOLE artifact
             # path since the prior-agent output mirror was deleted in 05-07 (INV-3).
@@ -2076,306 +1928,16 @@ class ExecutionEngine:
             )
 
     # ------------------------------------------------------------------
-    # Build task loop — calls prototype-build once per task
+    # DELETED (07-05, L11): the legacy per-task build-loop driver, its reference-file
+    # writer, and the two pure task-plan parsers (count + per-block slice). The per-task
+    # build loop is now the ``task_loop`` ExecutionStrategy (heading_tasks task parser +
+    # the html_static/html_render validators), routed via
+    # resolve("strategy","task_loop").run() and delegating per-agent runs to
+    # KernelServices.run_agent / .run_validation_fix_loop. The kept survivors (the
+    # validation fix-loop below, the template-example loader, _run_agent) are LIVE
+    # behavioral primitives reached via the handle — NOT leaks (the L11 ratchet scopes
+    # the four deleted symbols only; see specs/.../migration-ledger.md).
     # ------------------------------------------------------------------
-
-    async def _run_build_task_loop(
-        self,
-        spec,
-        index: int,
-        ordered_agents: list,
-        user_message: str,
-        sandbox,
-        pipeline_run_id: str,
-        pipeline_type: str,
-        planning_context: dict,
-        attached_skills: list[dict] | None,
-        attached_hooks: list[dict] | None,
-        model_id: str | None,
-        results: list[dict],
-        cancel_event,
-        ectx: ExecutionContext,
-    ):
-        """Per-task isolated sub-agent build loop with Both-validation (Phase 4).
-
-        Replaces the pre-Phase-4 "call prototype-build N times with injected
-        context" with: write the shared reference files (spec.md / design.md /
-        tasks.md) to the run sandbox ONCE, then run ONE isolated sub-agent per
-        task (the SAME create_runner per-task loop as Phase 3 — current task
-        injected via `=== CURRENT TASK ===`), and after each task run
-        Both-validation (static_check + render_check) with a bounded internal
-        fix-loop. The UI event contract is UNCHANGED: task_loop_progress (here)
-        + task_progress (from _run_agent's report_task_complete events) keep
-        their shapes, and the validation/fix is "richer build underneath" — the
-        fix sub-agent's stream is consumed INTERNALLY and never re-emitted, so
-        the user still sees exactly ONE build per task.
-        """
-        # Typed read (ART-03): the planner's task list comes from the typed graph
-        # (prototype-plan's ref content) — the SOLE source since 05-07.
-        plan_output = self._latest_typed_content(
-            ectx, "prototype-plan"
-        ) or ""
-
-        # Count the planner's tasks (## Task N: headers, or inside a <tasks>
-        # wrapper) via the pure, unit-tested _count_plan_tasks seam. A count of 0
-        # means the planner did NOT emit a task plan — the regression where it
-        # built HTML/<artifact> instead of planning (now guarded by the
-        # prototype-plan plan-only preamble); fall back to a single build pass.
-        total_tasks, task_source = self._count_plan_tasks(plan_output)
-        if total_tasks == 0:
-            logger.warning(
-                "Build task loop: no tasks found in plan output (%d chars) — running once",
-                len(plan_output),
-            )
-            total_tasks = 1
-
-        logger.info(
-            "Build task loop: %d tasks for pipeline=%s",
-            total_tasks, pipeline_run_id,
-        )
-
-        # ── (A) Write the shared reference files to the run sandbox ONCE ──────────
-        # The sandbox is per-run/SHARED, so every per-task sub-agent (and every
-        # internal fix sub-agent) sees the same spec.md / design.md / tasks.md and
-        # reads them with read_file for deeper detail than the injected task block.
-        # spec.md  = the spec writer's <spec> text; tasks.md = the planner's <tasks>;
-        # design.md = ACTIVE TEMPLATE (SKILL.md) + ACTIVE DESIGN SYSTEM (DESIGN.md)
-        # from ectx.od_context. Missing keys are handled gracefully (skip a header).
-        self._write_build_reference_files(sandbox, ectx)
-
-        for task_num in range(1, total_tasks + 1):
-            if cancel_event and cancel_event.is_set():
-                logger.info("Build task loop: cancelled at task %d", task_num)
-                break
-
-            # Guard: stop if pipeline was cancelled
-            current_state = self._state_machine.get_state(pipeline_run_id)
-            if current_state in ("cancelled", "failed"):
-                logger.info(
-                    "Build task loop: stopping at task %d — pipeline in terminal state=%s",
-                    task_num, current_state,
-                )
-                break
-
-            logger.info(
-                "Build task loop: executing task %d/%d for pipeline=%s",
-                task_num, total_tasks, pipeline_run_id,
-            )
-
-            # Inject task number so _build_context_message can pass it to the agent
-            # (NON-artifact build-loop scratch on ectx since 05-07 — the prior-agent
-            #  output dict it used to ride on was deleted).
-            ectx.build_task_number = str(task_num)
-            ectx.build_task_total = str(total_tasks)
-
-            # ── (B) Stash THIS task's `## Task N:` block for injection ───────────
-            # _build_context_message reads ectx.current_task_block and emits it
-            # inside the `=== CURRENT TASK ===` marker the #51 prompt looks for.
-            # (D-02 TEMPORARY home — Phase 7 reclaims this into TaskLoopStrategy.)
-            ectx.current_task_block = self._extract_task_block(task_source, task_num)
-
-            # Emit loop progress so frontend knows which task is running
-            yield {
-                "type": "task_loop_progress",
-                "data": {
-                    "agent_id": spec.id,
-                    "pipeline_run_id": pipeline_run_id,
-                    "task_number": task_num,
-                    "total_tasks": total_tasks,
-                    "timestamp": _now(),
-                },
-            }
-
-            async for event in self._run_agent(
-                spec, index, ordered_agents, user_message,
-                sandbox, pipeline_run_id, pipeline_type, planning_context,
-                attached_skills, attached_hooks, model_id, results, cancel_event,
-                ectx,
-            ):
-                yield event
-
-            # After each task: persist the HTML from the run sandbox.
-            # The build agent edited prototype.html on disk this task; read it
-            # back so _build_context_message passes the current HTML into the
-            # next task's prompt.
-            task_html = sandbox.read("prototype.html")
-            if task_html:
-                # Typed-write the post-task HTML as a new prototype-build ref version
-                # (one per task) so _latest_typed_content returns it for the NEXT
-                # task's prompt (ART-03; sole source since 05-07). task_id ties the
-                # ref to the task.
-                await self._dual_write_artifact(
-                    ectx,
-                    producer_agent=spec.id,
-                    producer_step=spec.id,
-                    content=task_html,
-                    kind="html_file",
-                    location="prototype.html",
-                    task_id=str(task_num),
-                )
-                logger.info(
-                    "Build task loop: task %d/%d done — HTML=%d chars",
-                    task_num, total_tasks, len(task_html),
-                )
-
-            # ── (C) Both-validation + bounded internal fix-loop ──────────────────
-            # Static check (sync) + headless render (async). On failure, re-invoke
-            # the SAME sub-agent internally (≤2 attempts) with the errors injected;
-            # the fix stream is consumed but NOT re-emitted (one build per task in
-            # the UI). Never blocks the whole build — logs + continues after N.
-            if cancel_event and cancel_event.is_set():
-                break
-            await self._run_validation_fix_loop(
-                ctx=AgentContext(
-                    user_request=user_message,
-                    attached_skills=list(attached_skills or []),
-                    attached_hooks=list(attached_hooks or []),
-                    # MODEL-01/02/05: resolved id for the build-task validation fix sub-agent
-                    # (reuses the build agent's spec). step=None this plan; parity-identical to
-                    # ``model_id`` when no override/manifest model is set (INV-3).
-                    model=self._resolve_model(ectx, spec, model_id),
-                    od_context=ectx.od_context,
-                    planning_context=planning_context,
-                    # Byte-identity guard (D-09): disk_principal, NOT owner_id — keeps the
-                    # fix sub-agent's RunSandbox disk path byte-identical to pre-05-04.
-                    user_id=ectx.disk_principal,
-                    run_id=pipeline_run_id,
-                ),
-                sandbox=sandbox,
-                pipeline_run_id=pipeline_run_id,
-                task_num=task_num,
-                total_tasks=total_tasks,
-                cancel_event=cancel_event,
-                checkpointer=ectx.checkpointer,
-            )
-            # The fix-loop may have edited prototype.html — refresh the typed graph
-            # so the NEXT task's sub-agent sees the corrected document.
-            fixed_html = sandbox.read("prototype.html")
-            if fixed_html and fixed_html != task_html:
-                # Typed-write the fixed HTML only when it actually changed (avoid a
-                # redundant identical ref version); keeps _latest_typed_content current.
-                await self._dual_write_artifact(
-                    ectx,
-                    producer_agent=spec.id,
-                    producer_step=spec.id,
-                    content=fixed_html,
-                    kind="html_file",
-                    location="prototype.html",
-                    task_id=str(task_num),
-                )
-
-        logger.info("Build task loop: finished %d tasks for pipeline=%s", total_tasks, pipeline_run_id)
-
-    # ------------------------------------------------------------------
-    # Phase 4 helpers — reference files, task-block extraction, validation
-    # ------------------------------------------------------------------
-
-    def _write_build_reference_files(
-        self, sandbox: RunSandbox,
-        ectx: ExecutionContext,
-    ) -> None:
-        """Write spec.md / design.md / tasks.md into the run sandbox (Region A).
-
-        Called ONCE before the per-task loop. The per-task sub-agents read these
-        with ``read_file`` for the full spec / template / design-system / task
-        list. The sandbox is per-run/shared so every task (and fix) sub-agent
-        sees the same files. Missing inputs degrade gracefully:
-          * ``spec.md``  ← the ``prototype-specify`` content, read typed-only
-            (ectx.artifacts; ART-03 — the mirror fallback was deleted in 05-07).
-            Skipped if absent.
-          * ``tasks.md`` ← the ``prototype-plan`` content (same typed-only read).
-            Skipped if absent.
-          * ``design.md`` ← ``od_context["template_body"]`` (ACTIVE TEMPLATE) +
-            ``od_context["ds_body"]`` (ACTIVE DESIGN SYSTEM) under clear headers;
-            each header is included only if its body is present (so a run with no
-            DS still gets a template-only design.md, and vice versa).
-        """
-        spec_text = self._latest_typed_content(
-            ectx, "prototype-specify"
-        ) or ""
-        tasks_text = self._latest_typed_content(
-            ectx, "prototype-plan"
-        ) or ""
-        od = ectx.od_context or {}
-        template_body = od.get("template_body") or ""
-        ds_body = od.get("ds_body") or ""
-
-        try:
-            if spec_text:
-                sandbox.write("spec.md", spec_text)
-            if tasks_text:
-                sandbox.write("tasks.md", tasks_text)
-
-            design_sections: list[str] = []
-            if template_body:
-                template_id = od.get("template_id", "") or ""
-                hdr = f"# ACTIVE TEMPLATE{f' ({template_id})' if template_id else ''}"
-                design_sections.append(f"{hdr}\n\n{template_body}")
-            if ds_body:
-                ds_id = od.get("ds_id", "") or ""
-                hdr = f"# ACTIVE DESIGN SYSTEM{f' ({ds_id})' if ds_id else ''}"
-                design_sections.append(f"{hdr}\n\n{ds_body}")
-            if design_sections:
-                sandbox.write("design.md", "\n\n".join(design_sections))
-
-            logger.info(
-                "Build task loop: wrote reference files (spec.md=%s, design.md=%s, tasks.md=%s)",
-                bool(spec_text), bool(design_sections), bool(tasks_text),
-            )
-        except Exception as exc:  # noqa: BLE001 — never let a write failure abort the build
-            logger.warning("Build task loop: failed writing reference files: %s", exc)
-
-    @staticmethod
-    def _count_plan_tasks(plan_output: str) -> tuple[int, str]:
-        """Count ``## Task N:`` headers in the planner output → ``(count, task_source)``.
-
-        Looks for top-level ``## Task N:`` headers directly; if none are present,
-        falls back to the content inside a ``<tasks>…</tasks>`` wrapper and counts
-        there. The returned ``count`` is the RAW number of task headers found —
-        ``0`` means the planner did NOT emit a task plan (e.g. it built an HTML
-        ``<artifact>`` instead of planning, the regression guarded by the
-        prototype-plan plan-only preamble). The caller decides how to treat 0 (the
-        build loop runs a single pass). ``task_source`` is the text the headers
-        were found in (the whole output, or the unwrapped ``<tasks>`` body) so
-        :meth:`_extract_task_block` slices each ``## Task N:`` block from the right
-        text.
-
-        Pure (no I/O, no engine state) so the build loop AND its tests share the
-        exact same task-detection logic — mirrors :meth:`_extract_task_block`.
-        """
-        text = plan_output or ""
-        task_matches = re.findall(r"^##\s+Task\s+(\d+)", text, re.MULTILINE)
-        task_source = text
-        if not task_matches:
-            tasks_section = re.search(r"<tasks>([\s\S]*?)</tasks>", text, re.IGNORECASE)
-            if tasks_section:
-                task_source = tasks_section.group(1)
-                task_matches = re.findall(r"^##\s+Task\s+(\d+)", task_source, re.MULTILINE)
-        return len(task_matches), task_source
-
-    @staticmethod
-    def _extract_task_block(task_source: str, task_num: int) -> str:
-        """Return the full ``## Task {n}: …`` block (header + body) from the plan.
-
-        The block runs from its ``## Task {n}:`` header up to (but not including)
-        the next ``## Task`` / ``## `` header or end-of-text. Returns ``""`` when
-        the numbered task can't be located (the caller then falls back to the
-        generic "execute this task" instruction in ``_build_context_message``).
-        """
-        import re as _re
-
-        m = _re.search(
-            rf"^##\s+Task\s+{task_num}\b.*$",
-            task_source or "",
-            _re.MULTILINE,
-        )
-        if not m:
-            return ""
-        start = m.start()
-        # End at the next top-level "## " heading (the next task or any ## section).
-        nxt = _re.search(r"^##\s+", task_source[m.end():], _re.MULTILINE)
-        end = m.end() + nxt.start() if nxt else len(task_source)
-        return task_source[start:end].strip()
 
     async def _run_validation_fix_loop(
         self,
@@ -2773,9 +2335,17 @@ class ExecutionEngine:
         if not user_id:
             return None
 
-        # Only persist explicitly custom workflows (not standard pipeline types)
+        # Only persist explicitly custom workflows (not standard pipeline types).
+        # This is a PERSISTENCE-SCOPE check (which workflow definitions to save to the
+        # DB), NOT routed-path workflow dispatch — it never selects engine behavior by
+        # workflow identity (INV-1 is a property of the routed EXECUTION path). Written
+        # as a registry-membership predicate (no workflow-name routing branch).
         from agents.registry import PIPELINE_AGENTS
-        if pipeline_type in PIPELINE_AGENTS and pipeline_type != "custom":
+
+        _is_standard_pipeline = (
+            pipeline_type in PIPELINE_AGENTS and pipeline_type != "custom"
+        )
+        if _is_standard_pipeline:
             return None
 
         # Enforce 1–50 agent limit (Deep_Planner_Agent excluded)
@@ -3230,7 +2800,7 @@ class ExecutionEngine:
         ``consumes`` — both are registry agent-id sets); the CONTENT comes solely
         from ``ectx.artifacts`` (the typed graph). The prior-agent output mirror
         fallback was deleted in 05-07. Returns ``{upstream.id: content}`` exactly as
-        before so every caller (_build_context_message / _build_context_sources /
+        before so every caller (the generic context injector / _build_context_sources /
         AgentContext.agent_outputs) is byte-identical.
         """
         consumes = set(getattr(spec, "consumes", []))
@@ -3278,68 +2848,25 @@ class ExecutionEngine:
                     name, exc,
                 )
 
-    def _legacy_seed_parent_run_files(
-        self, ectx: ExecutionContext, sandbox: RunSandbox, parent_run_id: str
-    ) -> None:
-        """DEAD (07-04 strangler): the former inline L4 parent-run seed.
-
-        Physically present so 07-05's deletion is a pure removal; UNREFERENCED on the
-        routed path (the ``previous_run`` provider performs the seed now). Do NOT call
-        this — it exists only to keep the leak definition visible for the deletion plan.
-        """
-        if not parent_run_id:
-            return
-        try:
-            self._store_assert_owns_unused = ectx  # marker — never executed on routed path
-            parent_sb = RunSandbox(ectx.disk_principal, parent_run_id)
-            for _name in ("spec.md", "design.md", "tasks.md"):
-                _content = parent_sb.read(_name)
-                if _content:
-                    sandbox.write(_name, _content)
-        except Exception as _seed_exc:  # noqa: BLE001
-            logger.warning(
-                "prototype_revision (legacy/dead): parent seed from %s failed (%s)",
-                parent_run_id, _seed_exc,
-            )
-
-    def _legacy_routed_branches_DEAD(self, spec, pipeline_type, final_output, output, sandbox):
-        """DEAD (07-04 strangler): the L7 dispatch + L3 final-output PPT sanitize.
-
-        The two surviving behavioral branches whose CALL SITES were swapped to the
-        capabilities on the routed path are retained here PHYSICALLY (never reached)
-        so 07-05's deletion is a pure removal and the Phase-1A behavioral-branch
-        allow-list guard (test_pipeline_type_routing) still sees them. Do NOT call
-        this method — it is unreachable on the routed path by construction.
-
-          * L7 build dispatch — replaced by resolve("strategy", step.strategy).run().
-          * L3 final-output PPT sanitize — owned by the ``ppt`` deliverable resolver.
-        """
-        if False:  # pragma: no cover — unreachable; retained for the 07-05 deletion
-            if getattr(spec, "id", None) == "prototype-build":
-                pass  # legacy L7 dispatch — now resolve("strategy","task_loop")
-            if pipeline_type in _PPT_PIPELINE_TYPES and final_output:
-                final_output = _sanitize_carousel_deck_html(final_output)  # noqa: F841
-        return final_output
-
     async def _compose_context_message(
         self,
         spec,
+        index: int,
         ordered_agents: list,
         user_message: str,
         planning_context: dict,
         ectx: ExecutionContext,
     ) -> str:
-        """Generic context injector (INV-1) — replaces _build_context_message on the routed path.
+        """Generic context injector (INV-1) — the sole per-agent context-composition path.
 
         Composes the per-agent context message from the workflow-AGNOSTIC mechanics
         (user brief + planning context + consumed upstream outputs + the build-loop
         ``=== CURRENT TASK ===`` block) PLUS the OD/template/example blocks sourced
         from the declared ``context_provider`` capabilities — ``registry.resolve(
         "context_provider", name).load(ctx)`` for each name in the run's
-        ``compiled.context_providers``, composed in declared order. The L12 per-
-        pipeline od/template/example injection branches in ``_build_context_message``
-        are no longer reached on the routed path (that definition stays dead until
-        07-05). The ``opendesign`` provider yields the ``{block-name -> content}`` map
+        ``compiled.context_providers``, composed in declared order. The former L12 per-
+        pipeline od/template/example injection branches were deleted from the kernel in
+        07-05; this injector replaced them. The ``opendesign`` provider yields the ``{block-name -> content}`` map
         (ACTIVE DESIGN SYSTEM / ACTIVE TEMPLATE / TEMPLATE EXAMPLE / injection parts);
         the ``previous_run`` provider returns ``{}`` (its effect is the parent-run
         seed performed once at run entry, not injected text).
@@ -3350,7 +2877,14 @@ class ExecutionEngine:
         rides the strategy / the engine's per-task scratch, not here.
         """
         # ── Agnostic base: user brief + planning context + consumed outputs ───────
-        is_first_agent = (len(ordered_agents) == 0 or spec.id == ordered_agents[0].id)
+        # POSITIONAL first-agent check (Pitfall 1, INV-1): index == 0 is the
+        # workflow-agnostic "first agent in the run" predicate — NOT a spec.id name
+        # branch. Rewritten from the former positional first-agent-id comparison so the
+        # kernel agent-id-equality grep cleanly returns 0 (the banned-pattern hard-fail
+        # gate, Task 3, does not false-match). Behavior identical: the first dispatched
+        # agent (index 0) interprets the raw cross-pipeline brief; downstream agents
+        # (index > 0) get the stripped clean brief.
+        is_first_agent = (len(ordered_agents) == 0 or index == 0)
         if not is_first_agent and "=== CONTEXT FROM PREVIOUS PIPELINE" in user_message:
             clean_brief = user_message.split("\n\n=== CONTEXT FROM PREVIOUS PIPELINE")[0].strip()
             effective_message = clean_brief
@@ -3426,7 +2960,7 @@ class ExecutionEngine:
             # compacted prototype skeleton — both injected by the task_loop strategy
             # into ectx.current_task_block (the strategy OWNS compaction, D-02). The
             # engine no longer composes a separate build-HTML/skeleton block here (the
-            # _extract_html_skeleton leak is unreached on the routed path).
+            # former skeleton-extraction leak was deleted from the kernel in 07-05).
             parts.append(
                 f"\n=== CURRENT TASK ===\n"
                 f"Task {task_num_str} of {total_str}\n"
@@ -3436,227 +2970,13 @@ class ExecutionEngine:
 
         return "\n".join(parts)
 
-    def _build_context_message(
-        self,
-        spec,
-        ordered_agents: list,
-        user_message: str,
-        planning_context: dict,
-        ectx: ExecutionContext,
-    ) -> str:
-        """Build the context message (user request + consumed upstream outputs).
-
-        Phase 3 (FR-016): planning_context is injected cross-cutting to ALL agents.
-        For od_ppt / od_prototype agents that declare `injects`, the template body
-        and example HTML are also injected into the user message — the AGENT.md
-        prompts explicitly expect them there (ACTIVE TEMPLATE, TEMPLATE EXAMPLE).
-
-        Chain context (=== CONTEXT FROM PREVIOUS PIPELINE ===) is only shown to
-        the FIRST agent in the pipeline — it interprets the brief. Downstream
-        agents already receive the first agent's structured output (spec/HTML)
-        via the typed graph, so the raw chain context is noise for them.
-        """
-        # Determine if this is the first agent in the pipeline
-        is_first_agent = (len(ordered_agents) == 0 or spec.id == ordered_agents[0].id)
-
-        # For downstream agents, strip the chain context block from user_message
-        # to avoid polluting their input with the full previous pipeline output.
-        # Keep only the clean brief (everything before the first === CONTEXT === block).
-        if not is_first_agent and "=== CONTEXT FROM PREVIOUS PIPELINE" in user_message:
-            clean_brief = user_message.split("\n\n=== CONTEXT FROM PREVIOUS PIPELINE")[0].strip()
-            effective_message = clean_brief
-        else:
-            effective_message = user_message
-
-        parts = [f"=== ORIGINAL USER REQUEST ===\n{effective_message}\n=== END REQUEST ==="]
-
-        # Inject planning_context for ALL pipelines (cross-cutting guardrail, FR-016)
-        if planning_context and not planning_context.get("planner_timed_out"):
-            intent = planning_context.get("inferred_intent", "")
-            constraints = planning_context.get("explicit_constraints", [])
-            implicit = planning_context.get("implicit_constraints", [])
-            nfrs = planning_context.get("inferred_nfrs", [])
-            personas = planning_context.get("inferred_personas", [])
-            quality = planning_context.get("quality_targets", [])
-            domain_insights = planning_context.get("domain_insights", [])
-
-            ctx_lines = ["## Planning Context (Deep Planner Analysis)"]
-            if intent:
-                ctx_lines.append(f"\n**Inferred Intent**: {intent}")
-            if constraints:
-                ctx_lines.append("\n**Explicit Constraints**:\n" + "\n".join(f"- {c}" for c in constraints))
-            if implicit:
-                ctx_lines.append("\n**Implicit Constraints**:\n" + "\n".join(f"- {c}" for c in implicit))
-            if personas:
-                ctx_lines.append("\n**Inferred Personas**:\n" + "\n".join(f"- {p}" for p in personas))
-            if nfrs:
-                ctx_lines.append("\n**Non-Functional Requirements**:\n" + "\n".join(f"- {n}" for n in nfrs))
-            if quality:
-                ctx_lines.append("\n**Quality Targets**:\n" + "\n".join(f"- {q}" for q in quality))
-            if domain_insights:
-                ctx_lines.append("\n**Domain Insights**:\n" + "\n".join(f"- {i}" for i in domain_insights))
-            ctx_lines.append("\n## End Planning Context")
-
-            parts.append("\n".join(ctx_lines))
-
-        # ── od_ppt / od_prototype: inject template + DS + example into user message ──
-        # The AGENT.md prompts for these agents explicitly expect:
-        #   - ACTIVE TEMPLATE (SKILL.md) — the template's workflow instructions
-        #   - ACTIVE DESIGN SYSTEM (DESIGN.md) — the design tokens
-        #   - TEMPLATE EXAMPLE (example.html) — concrete visual reference
-        # Without these in the user message, the agent ignores the template and
-        # generates a generic prototype that doesn't match the selected style.
-        #
-        # For prototype-build tasks 2+: skip the full DS body and template body
-        # injection — the skeleton already has the DS tokens and the task list
-        # has the CSS classes. Only inject for task 1 (HTML shell) and for
-        # non-build agents (spec writer, planner, validate).
-        od = ectx.od_context or {}
-        injects = getattr(spec, "injects", []) or []
-        task_num_str = ectx.build_task_number
-        is_build_task_2_plus = (spec.id == "prototype-build" and task_num_str not in ("", "1"))
-
-        # Inject design system into user message for ALL prototype agents
-        # (it's also in the system prompt via factory.py, but repeating it
-        # in the user message ensures text-only agents see it prominently).
-        # Skip for build tasks 2+ — skeleton already has DS tokens.
-        if "design_system" in injects and od.get("ds_body") and not is_build_task_2_plus:
-            ds_id = od.get("ds_id", "custom")
-            is_deck_conditional = od.get("is_design_system_required")
-            include_ds = True if is_deck_conditional is None else bool(is_deck_conditional)
-            if include_ds:
-                parts.append(
-                    f"=== ACTIVE DESIGN SYSTEM: {ds_id} ===\n"
-                    f"Apply these tokens to ALL colors, fonts, and spacing. "
-                    f"Map to :root variables: --bg, --fg, --accent, --surface, --border, --muted.\n"
-                    f"{od['ds_body']}\n"
-                    f"=== END ACTIVE DESIGN SYSTEM ==="
-                )
-
-        if "template" in injects and od.get("template_body"):
-            template_id = od.get("template_id", "")
-            # For build tasks 2+: skip the full template body — the task list
-            # already has the CSS classes and layout patterns.
-            if not is_build_task_2_plus:
-                parts.append(
-                    f"=== ACTIVE TEMPLATE (SKILL.md): {template_id} ===\n"
-                    f"{od['template_body']}\n"
-                    f"=== END ACTIVE TEMPLATE ==="
-                )
-                # Also inject example.html if available — gives the agent a concrete
-                # visual reference for the template's class system and layout patterns.
-                # Inject example.html ONLY for the BUILD agent (it needs a concrete
-                # reference for the template's class system). Planning agents
-                # (prototype-specify / prototype-plan, tools=[]) must NOT see a full
-                # working HTML doc — it nudges them to copy/continue it instead of
-                # writing the spec / decomposing into tasks.
-                _is_builder = bool(set(getattr(spec, "tools", []) or []) & {"prototype_emit_only", "prototype"})
-                example_html = self._load_template_example(template_id) if _is_builder else None
-                if example_html:
-                    parts.append(
-                        f"=== TEMPLATE EXAMPLE (example.html): {template_id} ===\n"
-                        f"{example_html[:8000]}"
-                        f"{'...[truncated]' if len(example_html) > 8000 else ''}\n"
-                        f"=== END TEMPLATE EXAMPLE ==="
-                    )
-
-            # Pre-inject prototype reference files (template seed + layouts + checklist).
-            # For build tasks 2+: inject ONLY the template seed (CSS classes needed
-            # to build the page) — skip layouts.md and checklist.md to save tokens.
-            # For task 1 and all other agents: inject all reference files.
-            if "prototype_emit_only" in (getattr(spec, "tools", []) or []):
-                # Build/validate agent — inject template seed always, others only for task 1
-                from agents.execution_engine.od_context import get_template_injection_parts
-                all_parts = get_template_injection_parts(template_id)
-                if is_build_task_2_plus:
-                    # Only inject the seed (first part) — skip layouts and checklist
-                    seed_parts = [p for p in all_parts if "TEMPLATE SEED" in p]
-                    for part in seed_parts:
-                        parts.append(part)
-                else:
-                    for part in all_parts:
-                        parts.append(part)
-            elif "prototype" in (getattr(spec, "tools", []) or []):
-                from agents.execution_engine.od_context import get_template_injection_parts
-                for part in get_template_injection_parts(template_id):
-                    parts.append(part)
-
-        consumed = self._filter_consumed_outputs(spec, ordered_agents, ectx)
-        for aid, output in consumed.items():
-            prev = next((s for s in ordered_agents if s.id == aid), None)
-            label = f"{prev.name} ({prev.role})" if prev else aid
-            parts.append(f"\n--- Output from {label} ---\n{output}")
-
-        # For the build agent: inject the current task block + current HTML.
-        # The #51 prototype-build prompt reads `=== CURRENT TASK ===` to find its
-        # authoritative scope. The Phase-4 build loop (_run_build_task_loop) writes
-        # spec.md / design.md / tasks.md to the sandbox (the sub-agent reads them
-        # with read_file for deeper detail) and stashes THIS task's full `## Task N:`
-        # block on `ectx.current_task_block` before each _run_agent call — we emit
-        # that block inside the marker so the sub-agent's scope is the exact planner
-        # task text, not just "Task N of M". (The Both-validation fix re-run is driven
-        # INTERNALLY by the loop with its own constructed message — see
-        # _run_validation_fix_loop — so it does NOT pass through here.)
-        if spec.id == "prototype-build":
-            task_num_str = ectx.build_task_number
-            total_str = ectx.build_task_total
-            if task_num_str:
-                task_block = ectx.current_task_block or ""
-                body = task_block.strip() if task_block.strip() else (
-                    "Execute ONLY this task from the task list above."
-                )
-                parts.append(
-                    f"\n=== CURRENT TASK ===\n"
-                    f"Task {task_num_str} of {total_str}\n"
-                    f"{body}\n"
-                    f"=== END CURRENT TASK ==="
-                )
-
-            # Pass current HTML for modification.
-            # For build tasks 2+ (0C / COMPACT-01): inject only the compact
-            # ~1-3k char skeleton state-map (self._extract_html_skeleton) instead of
-            # the full current HTML (up to 120k) — this kills the O(n²) prompt growth.
-            # The skeleton is framed as a state-map (NOT the editable source) and
-            # points the sub-agent at read_file('prototype.html') to fetch the full
-            # content before editing (its AGENT.md already mandates this). Task 1 (the
-            # HTML shell) has no prior HTML and keeps the full-HTML block unchanged.
-            # Typed read (ART-03): read the latest prototype-build HTML from the typed
-            # graph (the build loop writes a new ref version per task) — sole source
-            # since the mirror was deleted in 05-07.
-            current_html = self._latest_typed_content(
-                ectx, "prototype-build"
-            ) or ""
-            if current_html and not current_html.startswith("[Error:"):
-                if is_build_task_2_plus:
-                    skeleton = self._extract_html_skeleton(current_html)
-                    parts.append(
-                        f"\n=== CURRENT PROTOTYPE (skeleton — call read_file('prototype.html') "
-                        f"for full content before editing) ===\n"
-                        f"{skeleton}\n"
-                        f"=== END CURRENT PROTOTYPE ==="
-                    )
-                else:
-                    html_to_pass = current_html[:120000]
-                    truncated = len(current_html) > 120000
-                    parts.append(
-                        f"\n--- CURRENT HTML (modify this — do NOT rebuild from scratch) ---\n"
-                        f"{html_to_pass}"
-                        f"{'...[truncated at 120k]' if truncated else ''}\n"
-                        f"--- END CURRENT HTML ---"
-                    )
-
-            # Template compliance reminder
-            od = ectx.od_context or {}
-            ds_id = od.get("ds_id", "")
-            template_id_val = od.get("template_id", "")
-            parts.append(
-                f"\n=== TEMPLATE COMPLIANCE ===\n"
-                f"Template: {template_id_val} — use ONLY its CSS classes from the TEMPLATE SEED\n"
-                f"Design System: {ds_id} — use ONLY :root variables, never raw hex colors\n"
-                f"=== END TEMPLATE COMPLIANCE ==="
-            )
-
-        return "\n".join(parts)
+    # DELETED (07-05, L12): the legacy per-pipeline context-message builder with its
+    # od/template/example injection branches. The routed path composes the per-agent
+    # context via the GENERIC _compose_context_message injector (above), which sources
+    # OD/template blocks from the declared ``context_provider`` capabilities (resolve(
+    # "context_provider", name).load(ctx)) in declared order — NO workflow-name/agent-id
+    # branch (INV-1). The build-task CURRENT-TASK marker + compaction now ride the
+    # task_loop strategy's ectx scratch, read by _compose_context_message.
 
     @staticmethod
     def _extract_existing_prototype_html(user_message: str) -> str:
@@ -3707,70 +3027,12 @@ class ExecutionEngine:
             logger.debug("Could not load template example for %s: %s", template_id, exc)
         return None
 
-    def _extract_html_skeleton(self, html: str) -> str:
-        """Extract a compact skeleton from the full HTML for build agent context.
-
-        Option 1+5: instead of passing the full HTML (which grows with every task
-        and causes O(n²) slowdown), extract only what the build agent needs:
-          - :root token values (so DS tokens are preserved across calls)
-          - List of <section data-page> IDs with filled/empty status
-          - Routes map
-          - Chrome structure summary
-
-        Returns a compact ~1-3k char summary instead of the full 50k+ HTML.
-        """
-        import re as _re
-        lines: list[str] = []
-
-        # 1. Extract :root tokens
-        root_match = _re.search(r":root\s*\{([^}]+)\}", html, _re.DOTALL)
-        if root_match:
-            root_content = root_match.group(1).strip()
-            # Keep only the 6 key token lines
-            token_lines = []
-            for line in root_content.split("\n"):
-                line = line.strip()
-                if any(tok in line for tok in ["--bg:", "--fg:", "--accent:", "--surface:", "--border:", "--muted:", "--font-"]):
-                    token_lines.append(f"  {line}")
-            if token_lines:
-                lines.append(":root tokens (current):\n" + "\n".join(token_lines[:12]))
-
-        # 2. Extract routes map
-        routes_match = _re.search(r"const routes\s*=\s*\{([^}]+)\}", html, _re.DOTALL)
-        if routes_match:
-            routes_content = routes_match.group(1).strip()
-            lines.append(f"Routes map:\n  {{{ routes_content.strip() }}}")
-
-        # 3. Scan all <section data-page> elements — filled vs empty
-        sections = _re.findall(
-            r'<section[^>]+data-page=["\']([^"\']+)["\'][^>]*>([\s\S]*?)(?=<section|</body>)',
-            html, _re.IGNORECASE
-        )
-        filled = []
-        empty = []
-        for page_id, content in sections:
-            # A section is "filled" if it has more than just whitespace/comments
-            stripped = _re.sub(r'<!--.*?-->', '', content, flags=_re.DOTALL).strip()
-            if len(stripped) > 100:
-                filled.append(page_id)
-            else:
-                empty.append(page_id)
-
-        if filled:
-            lines.append(f"Pages already built ({len(filled)}): {', '.join(filled)}")
-        if empty:
-            lines.append(f"Pages still empty ({len(empty)}): {', '.join(empty)}")
-
-        # 4. Chrome summary (topnav/sidebar presence)
-        has_sidebar = bool(_re.search(r'<aside|data-od-id=["\']sidebar', html, _re.IGNORECASE))
-        has_topnav = bool(_re.search(r'class=["\'][^"\']*topnav|data-od-id=["\']topnav', html, _re.IGNORECASE))
-        chrome_type = "sidebar" if has_sidebar else ("topnav" if has_topnav else "none")
-        lines.append(f"Chrome: {chrome_type} (copy chrome from any filled page — do NOT rewrite it)")
-
-        # 5. Total HTML size for reference
-        lines.append(f"Total HTML so far: {len(html):,} chars across {len(filled) + len(empty)} sections")
-
-        return "\n".join(lines)
+    # DELETED (07-05, L13): the legacy HTML-skeleton extraction helper. The
+    # build-task-2+ HTML skeleton
+    # compaction is now the ``html_skeleton`` compaction capability (resolve(
+    # "compaction","html_skeleton").compact()), owned + injected by the task_loop
+    # strategy into ectx.current_task_block — NOT composed by the engine. The 0C
+    # >=50% reduction gate is re-pointed at the capability (PARITY-04 preserved).
 
 
 # ------------------------------------------------------------------
