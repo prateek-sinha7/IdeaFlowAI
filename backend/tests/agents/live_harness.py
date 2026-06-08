@@ -613,7 +613,7 @@ async def drive_engine_pipeline(
     elif fake_planner:
 
         async def _fake_run_planner(
-            user_message, pipeline_run_id, model_id, cancel_event, ptype="custom"
+            user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs
         ):
             return engine._default_planning_context(user_message), "PROCEED"
 

@@ -1038,7 +1038,8 @@ class ExecutionEngine:
 
             planner_start_ms = time.time() * 1000
             planning_context, gate_verdict = await self._run_planner(
-                user_message, pipeline_run_id, model_id, cancel_event, pipeline_type
+                user_message, pipeline_run_id, model_id, cancel_event, pipeline_type,
+                ectx=ectx,
             )
 
             # Human-in-the-loop override: force clarification on every run.
@@ -1363,6 +1364,7 @@ class ExecutionEngine:
         model_id: str | None,
         cancel_event: asyncio.Event | None,
         pipeline_type: str = "custom",
+        ectx: ExecutionContext | None = None,
     ) -> tuple[dict, str]:
         """Run the Deep_Planner_Agent with a timeout. Returns (planning_context, gate)."""
         try:
@@ -1371,17 +1373,23 @@ class ExecutionEngine:
                 timeout=PLANNER_TIMEOUT_SECONDS,
             )
             gate = planning_context.get("execution_gate", "PROCEED")
-            # Store the planning_context artifact
-            try:
-                await self._store.store(
-                    run_id=pipeline_run_id,
-                    artifact_type="planning_context",
-                    name="planning_context",
+            # Persist the planning_context as a typed ArtifactRef in artifact_refs
+            # (PERSIST-02 — migrated off the thin store in 05-06). visibility="workspace"
+            # so a later same-owner revision (_handle_revision cross-run read) resolves
+            # it through the owner+visibility scope filter. Best-effort: a DB persist
+            # failure degrades (log) and never breaks the run — same shape as
+            # _dual_write_artifact (the offline characterization harness has no
+            # workflow_runs FK row).
+            if ectx is not None:
+                await self._dual_write_artifact(
+                    ectx,
+                    producer_agent=PLANNER_AGENT_ID,
+                    producer_step="planner",
                     content=json.dumps(planning_context),
-                    producing_agent_id=PLANNER_AGENT_ID,
+                    kind="planning_context",
+                    location="artifact_refs/planning_context",
+                    visibility="workspace",
                 )
-            except ArtifactStoreWriteError as exc:
-                logger.warning("planning_context store failed: %s", exc)
             return planning_context, gate
         except asyncio.TimeoutError:
             logger.warning("Deep planner timed out — defaulting to PROCEED")
@@ -1716,24 +1724,26 @@ class ExecutionEngine:
                     location=_location,
                 )
 
-            # Store the agent output as a typed artifact (if it produces any)
-            for artifact_type in getattr(spec, "produces", []):
-                try:
-                    await self._store.store(
-                        run_id=pipeline_run_id,
-                        artifact_type=artifact_type,
-                        name=f"{spec.id}_{artifact_type}",
+            # Persist each declared `produces` kind as a typed ArtifactRef in
+            # artifact_refs (PERSIST-02 — migrated off the thin store in 05-06). The
+            # per-run handoff for spec.id is already dual-written above; this folds each
+            # declared `produces` artifact_type into the typed path keyed by that kind.
+            # visibility="workspace" so a later same-owner revision (_handle_revision
+            # cross-run read) resolves it through the owner+visibility scope filter.
+            # Best-effort degrade (matches _dual_write_artifact): the offline
+            # characterization harness has no workflow_runs FK row, so a hard-fail here
+            # would break 0A parity (INV-3).
+            if output:
+                for artifact_type in getattr(spec, "produces", []):
+                    await self._dual_write_artifact(
+                        ectx,
+                        producer_agent=spec.id,
+                        producer_step=spec.id,
                         content=output,
-                        producing_agent_id=spec.id,
+                        kind=artifact_type,
+                        location=f"artifact_refs/{artifact_type}",
+                        visibility="workspace",
                     )
-                except ArtifactStoreWriteError as exc:
-                    # Do NOT mark step complete — surface error and fail the run
-                    self._state_machine.transition(pipeline_run_id, "failed")
-                    yield {
-                        "type": "agent_error",
-                        "data": {"agent_id": spec.id, "error": f"Artifact write failed: {exc}", "recoverable": False},
-                    }
-                    return
 
             duration = time.time() - agent_start
             agent_total_tokens = agent_input_tokens + agent_output_tokens
@@ -2780,6 +2790,7 @@ class ExecutionEngine:
         location: str,
         task_id: str | None = None,
         derived_from: str | None = None,
+        visibility: str = "private",
     ) -> None:
         """Dual-write a genuine artifact (PERSIST-02 step 2): the in-memory typed
         ``ArtifactGraph`` (ectx.artifacts — the live typed handoff Task 3 reads from)
@@ -2803,6 +2814,7 @@ class ExecutionEngine:
             content=content,
             location=location,
             derived_from=derived_from,
+            visibility=visibility,
         )
         store = ectx.scoped_store
         if store is not None:

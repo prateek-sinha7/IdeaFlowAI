@@ -282,7 +282,7 @@ def _fresh_engine(monkeypatch, tmp_path):
 
     engine._store.store = _noop_store  # type: ignore[assignment]
 
-    async def _fake_run_planner(user_message, pipeline_run_id, model_id, cancel_event, ptype="custom"):
+    async def _fake_run_planner(user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs):
         return engine._default_planning_context(user_message), "PROCEED"
 
     engine._run_planner = _fake_run_planner  # type: ignore[assignment]

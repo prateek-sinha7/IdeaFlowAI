@@ -390,7 +390,7 @@ async def _drive(pipeline_type: str, world: str = "new") -> list[dict]:
     engine = ExecutionEngine()
 
     # ── Neutralise the planner (real LLM call) → default PROCEED context. ─────
-    async def _fake_run_planner(user_message, pipeline_run_id, model_id, cancel_event, ptype="custom"):
+    async def _fake_run_planner(user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs):
         return engine._default_planning_context(user_message), "PROCEED"
 
     engine._run_planner = _fake_run_planner  # type: ignore[assignment]

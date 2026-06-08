@@ -196,7 +196,7 @@ async def _drive_live(*, compaction_on: bool) -> list[dict]:
             engine._build_context_message = _full_html_build_ctx  # type: ignore[assignment]
 
         async def _fake_run_planner(user_message, pipeline_run_id, model_id,
-                                    cancel_event, ptype="custom"):
+                                    cancel_event, ptype="custom", **kwargs):
             return engine._default_planning_context(user_message), "PROCEED"
 
         engine._run_planner = _fake_run_planner  # type: ignore[assignment]
