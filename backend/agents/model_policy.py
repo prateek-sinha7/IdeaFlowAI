@@ -82,24 +82,36 @@ class ModelResolver:
         ``None`` tiers are skipped (an empty tier never blocks a lower one). Tier 3
         (``AgentSpec.model``) is catalog-validated at resolve time (Q2 allow-list,
         T-06-03): an unknown AGENT.md model id raises ``ValueError`` rather than silently
-        flowing into ``build_model``.
+        flowing into ``build_model`` — but ONLY when tier 3 is actually the selected tier
+        (WR-01). A higher-precedence tier-1 override or tier-2 step.model must be able to
+        win even when AGENT.md declares an invalid (e.g. retired) model id, so the tier-3
+        catalog check is deferred until after the precedence ``or``-chain resolves.
         """
-        # 3. AgentSpec.model — validate against the catalog before it can be selected.
+        # 3. AgentSpec.model — resolved below; catalog-validated only if it WINS.
         agent_model = getattr(spec, "model", None)
-        if agent_model is not None and not self._catalog.is_allowed(agent_model):
-            raise ValueError(
-                f"AGENT.md model {agent_model!r} for agent "
-                f"{getattr(spec, 'id', '?')!r} is not a known, allowed catalog model"
-            )
+        # The two higher-precedence tiers, computed first so we can tell whether
+        # tier 3 is actually the SELECTED tier before validating it (WR-01).
+        override = self._overrides.get(getattr(spec, "id", None))           # 1 override
+        step_model = step.model.model if step is not None and step.model else None  # 2
 
         resolved = (
-            self._overrides.get(getattr(spec, "id", None))                  # 1 override
-            or (step.model.model if step is not None and step.model else None)  # 2 step.model
+            override
+            or step_model
             or agent_model                                                  # 3 AgentSpec.model
             or (self._workflow_model.model if self._workflow_model else None)   # 4 workflow.model
             or self._session_model_id                                       # 5a session model_id
             or self._haiku_default                                          # 5b global Haiku
         )
+        # Validate tier 3 ONLY when no higher-precedence tier resolved — i.e. when
+        # AgentSpec.model is actually the selected tier. An invalid AGENT.md model
+        # id must not block a run that a tier-1 override or tier-2 step.model would
+        # have rescued (WR-01). Lower tiers (4/5) are catalog-trusted upstream.
+        if override is None and step_model is None and agent_model is not None:
+            if not self._catalog.is_allowed(agent_model):
+                raise ValueError(
+                    f"AGENT.md model {agent_model!r} for agent "
+                    f"{getattr(spec, 'id', '?')!r} is not a known, allowed catalog model"
+                )
         return resolved
 
     # ── Fallback chain derivation (N11 / D-05) ───────────────────────────────────────

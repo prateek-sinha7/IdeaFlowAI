@@ -202,6 +202,24 @@ def test_resolve_accepts_known_agent_model():
     assert r.resolve(spec, None) == SONNET_45
 
 
+def test_invalid_agent_model_does_not_block_higher_override():
+    """WR-01: an INVALID tier-3 AgentSpec.model must NOT pre-empt a valid tier-1
+    override. The catalog check is deferred until tier 3 is the selected tier, so
+    a higher-precedence override wins without raising."""
+    r = _resolver(overrides={"agent-x": OPUS_45}, session_model_id=HAIKU)
+    spec = FakeSpec(id="agent-x", model="totally-bogus-model-id")
+    assert r.resolve(spec, None) == OPUS_45
+
+
+def test_invalid_agent_model_does_not_block_higher_step_model():
+    """WR-01: same precedence guard for tier 2 — a valid step.model wins over an
+    invalid AGENT.md model id (no ValueError, since tier 3 never gets selected)."""
+    r = _resolver(session_model_id=HAIKU)
+    spec = FakeSpec(id="agent-x", model="totally-bogus-model-id")
+    step = FakeStep(model=ModelPolicy(model=SONNET_46))
+    assert r.resolve(spec, step) == SONNET_46
+
+
 # ── Throttle predicate (D-06) ─────────────────────────────────────────────────────
 class _FakeClientError(Exception):
     """Synthetic botocore-shaped ClientError (no botocore import needed for the test)."""
