@@ -186,27 +186,48 @@ async def test_throttle_advances() -> None:
 # ===========================================================================
 
 
+def _agent_error_events(events: list[dict]) -> list[dict]:
+    return [e for e in events if e.get("type") == "agent_error"]
+
+
 @pytest.mark.asyncio
 async def test_chain_exhaustion_reraises() -> None:
     """A single-entry chain [cheap] (cheap has no tier-descent fallback): it throttles,
-    the chain exhausts, and the throttle is RE-RAISED (the run fails with that error,
-    not a silent blank)."""
-    with pytest.raises(ScriptedThrottleError):
-        await _drive_one_agent(
-            primary=ONLY_CHEAP,
-            throttle_ids={ONLY_CHEAP},
-        )
+    the chain exhausts, and the throttle ESCAPES the retry loop — surfacing as a visible
+    ``agent_error`` carrying the throttle message (the run fails with that error, NOT the
+    old silent blank where the runner swallowed it and the engine ignored it). The chain
+    is walked exactly once (bounded), no model switch beyond the single entry."""
+    _results, built_for, events = await _drive_one_agent(
+        primary=ONLY_CHEAP,
+        throttle_ids={ONLY_CHEAP},
+    )
+
+    # Only the single chain entry was ever built — no phantom advance past the end.
+    assert built_for == [ONLY_CHEAP], built_for
+    # The throttle surfaced (not a silent blank): a visible agent_error with its message.
+    errs = _agent_error_events(events)
+    assert errs, "expected the exhausted throttle to surface as an agent_error event"
+    assert "throttle" in errs[-1]["data"]["error"].lower()
+    # No successful completion result was recorded (the run failed with the error).
+    assert not _results, "exhausted chain must not record a completed result"
 
 
 @pytest.mark.asyncio
 async def test_multi_entry_chain_exhaustion_reraises() -> None:
-    """A 2-entry chain [standard, cheap] where BOTH throttle → after advancing through
-    the whole chain the last error is re-raised (bounded by chain length, no loop)."""
-    with pytest.raises(ScriptedThrottleError):
-        await _drive_one_agent(
-            primary=PRIMARY_STANDARD,
-            throttle_ids={PRIMARY_STANDARD, FALLBACK_CHEAP},
-        )
+    """A 2-entry chain [standard, cheap] where BOTH throttle → the engine advances
+    through the WHOLE chain (bounded by chain length, no infinite loop), then the last
+    throttle escapes the retry loop as a visible ``agent_error`` (not a silent blank)."""
+    _results, built_for, events = await _drive_one_agent(
+        primary=PRIMARY_STANDARD,
+        throttle_ids={PRIMARY_STANDARD, FALLBACK_CHEAP},
+    )
+
+    # The engine advanced through every chain entry exactly once (bounded retry).
+    assert built_for == [PRIMARY_STANDARD, FALLBACK_CHEAP], built_for
+    errs = _agent_error_events(events)
+    assert errs, "expected the exhausted throttle to surface as an agent_error event"
+    assert "throttle" in errs[-1]["data"]["error"].lower()
+    assert not _results, "exhausted chain must not record a completed result"
 
 
 # ===========================================================================
