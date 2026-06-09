@@ -18,7 +18,7 @@ The plan sub-phases (0A/0B/0C, 1A/1B/1C, 4A/4B) are mapped to sequential GSD pha
 - [x] **Phase 4: Manifest + Compiler [1A]** - File-backed manifests → thin compiler → typed `CompiledWorkflow`; pipelines run from compiled plans (completed 2026-06-07)
 - [x] **Phase 5: Typed Artifacts + Persistence + Ownership [1B]** - `ArtifactGraph`/`ArtifactRef` + schema (§18); dual-write then delete the legacy mirror; authz denial tests (completed 2026-06-08)
 - [x] **Phase 6: Model Policy [1C]** - `ModelResolver` (resolution order + fallback + cost_class) + `ModelCatalog` + per-agent overrides (completed 2026-06-08 — verified offline + threat-secured; 1 live-Bedrock check deferred to end-of-milestone, see 06-UAT.md)
-- [ ] **Phase 7: Prototype as Manifest — Parity Proof (SC-001) [2]** - Strategies/resolvers/providers/parsers/compaction; delete kernel leaks L1–L12; zero name/id branches (plans 5/5 executed; verification gaps_found 2026-06-09 — OpenDesign context-injection not byte-identical to legacy L12; gap-closure pending)
+- [x] **Phase 7: Prototype as Manifest — Parity Proof (SC-001) [2]** - Strategies/resolvers/providers/parsers/compaction; delete kernel leaks L1–L12; zero name/id branches (plans 5/5 executed; verification gaps_found 2026-06-09 — OpenDesign context-injection not byte-identical to legacy L12; gap-closure pending) (completed 2026-06-09)
 - [ ] **Phase 8: Capabilities Hardened — Registry, Gates, Tool Perms, Runtime [3]** - CapabilityRegistry + trust; gate registry; least-privilege; AgentRuntimeAdapter + PromptAssemblyPolicy; delete F1–F5
 - [ ] **Phase 9: Local Workspace Runtime + Repo Workflows (no exec) [4A]** - `RuntimeEnvironment` port + `LocalSandboxRuntime`; repo inventory/index/context-pack + `repo_diff`; MCP client + integrations
 - [ ] **Phase 10: Safe Local Exec (gated on N3) [4B]** - Constrained `exec` behind the `security` gate + `ExecutionPolicy`; compile/test/lint validators
@@ -231,7 +231,7 @@ Plans:
 
 **Wave 6** *(gap-closure — 07-01…05 executed; closes the 2 FAILED verification truths)*
 
-- [ ] 07-06-PLAN.md — restore the opendesign provider's L12 byte contract (CR-01 DS preamble, CR-02 builder-gated example, CR-03 build-task-2+ suppression) + fix the locked-in test assertion + add a dedicated context_message parity assertion / de-blind the characterization normalizer (PARITY-03/09 gap-closure)
+- [x] 07-06-PLAN.md — restore the opendesign provider's L12 byte contract (CR-01 DS preamble, CR-02 builder-gated example, CR-03 build-task-2+ suppression) + fix the locked-in test assertion + add a dedicated context_message parity assertion / de-blind the characterization normalizer (PARITY-03/09 gap-closure)
 
 ### Phase 8: Capabilities Hardened — Registry, Gates, Tool Perms, Runtime [3]
 
@@ -352,7 +352,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 4. Manifest + Compiler [1A] | 5/5 | Complete    | 2026-06-07 |
 | 5. Typed Artifacts + Persistence [1B] | 7/7 | Complete    | 2026-06-08 |
 | 6. Model Policy [1C] | 5/5 | Complete    | 2026-06-08 |
-| 7. Prototype as Manifest (Parity Proof) [2] | 5/5 | Gaps Found | 2026-06-09 |
+| 7. Prototype as Manifest (Parity Proof) [2] | 6/6 | Complete   | 2026-06-09 |
 | 8. Capabilities Hardened [3] | 0/8 | Not started | - |
 | 9. Local Runtime + Repo (no exec) [4A] | 0/6 | Not started | - |
 | 10. Safe Local Exec [4B] | 0/2 | Not started | - |

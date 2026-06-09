@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-last_updated: "2026-06-09T06:38:09.208Z"
-last_activity: "2026-06-09 -- Phase 07 gap-closure plan 07-06 created (opendesign L12 byte-parity: CR-01/02/03 + context_message blind-spot); plan-checker PASSED -- ready to execute"
+status: executing
+last_updated: "2026-06-09T06:57:26.044Z"
+last_activity: 2026-06-09 -- Phase 07 execution started
 progress:
   total_phases: 12
-  completed_phases: 6
-  total_plans: 31
-  completed_plans: 31
-  percent: 50
+  completed_phases: 7
+  total_plans: 32
+  completed_plans: 32
+  percent: 58
 ---
 
 # Project State
@@ -24,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 
 ## Current Position
 
-Phase: 07 (prototype-as-manifest-parity-proof-sc-001-2) — GAPS FOUND → gap-closure planned (07-06 ready to execute)
-Plan: 5 of 5 executed (verification scored 7/9) + gap-closure plan 07-06 created (3 tasks), checker-PASSED, pending execution
-Status: SC-001 structural proof landed (kernel knows no workflow by name) + deliverable/event parity green. Verification found 2 gaps in the OpenDesign context-injection path (PARITY-03/09 / INV-3): the opendesign provider is not byte-identical to the legacy L12 injection (dropped DS preamble, lost builder-only example gate, lost build-task-2+ skip), and the characterization net is blind to it (context_message is normalized out). Gap-closure plan 07-06 (opendesign L12 byte-parity) restores all three regressions to the git fb55699 byte contract via ectx.current_spec_tools/build_task_number gating (INV-1-safe), fixes the locked-in test, and de-blinds the normalizer — plan-checker PASSED. See 07-VERIFICATION.md + 07-REVIEW.md + 07-06-PLAN.md. Next: /gsd-execute-phase 7
-Last activity: 2026-06-09 -- Phase 07 gap-closure plan 07-06 created (opendesign L12 byte-parity: CR-01/02/03 + context_message blind-spot); plan-checker PASSED — ready to execute
+Phase: 07 (prototype-as-manifest-parity-proof-sc-001-2) — ALL PLANS EXECUTED (07-01…07-06)
+Plan: 6 of 6 (07-06 gap-closure complete)
+Status: Ready to execute
+Last activity: 2026-06-09 -- Completed 07-06 (opendesign L12 byte-parity gap closure; PARITY-03/09 closed)
 
 Progress: [█████░░░░░] 50% (6/12 phases complete)
 
@@ -84,6 +84,7 @@ Progress: [█████░░░░░] 50% (6/12 phases complete)
 | Phase 07 P03 | 13min | 1 tasks | 4 files |
 | Phase 07 P04 | 95min | 2 tasks | 5 files |
 | Phase 07 P05 | ~150min | 3 tasks | 21 files |
+| Phase 07 P06 | 25min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -130,6 +131,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 07-03: html_skeleton compaction = byte-identical lift of engine._extract_html_skeleton behind resolve('compaction','html_skeleton'); structural contract (name+compact()), no CompactionStrategy port added; 0C >=50% reduction gate re-pointed at the capability (PARITY-04 preserved) + byte-parity test pins capability==engine; engine copy left live until 07-05
 - [Phase ?]: 07-04: KernelServices(ctx.runner) delegates to engine _run_agent/_run_validation_fix_loop for byte+event parity; per-step dispatch via resolve(strategy).run, deliverable via resolve(deliverable).resolve, generic context injector over context_provider caps; L1-L13 DEAD-not-deleted; 5-pipeline parity GREEN.
 - [Phase 07]: 07-05: SC-001 LANDED — L1-L13 deleted from the kernel + agents/prototype/ removed (INV-12 exit gate); the kernel knows NO workflow by name, enforced by a kernel-scoped banned-pattern HARD-FAIL (assert 0 `if pipeline_type ==`/`spec.id ==` in agents/execution_engine/). L10 single-file readback + L3 mid-stream ppt sanitize MIGRATED to key off the declared compiled.deliverable strategy (output_length/PARITY-07/09 held; revision excluded via ectx.is_revision_workflow). L6 ALWAYS_CLARIFY re-homed to compiled.clarify.mode=="auto"; in-place revision setup + post-revision validation gate key off the declared previous_run provider (CompiledWorkflow compiled at run entry). migration-ledger L1-L13 flipped to ☑ kernel-scoped (L4/L8 + L11 refined to the leak construct; L1 keeps live REVISION_FILE_NAME; L11 keeps live survivors _run_validation_fix_loop/_load_template_example); L14/L15/L16 re-confirmed; D1 voided. Stale engine-internal suites retired (behavior covered by capabilities + characterization).
+- [Phase ?]: 07-06: opendesign restored to byte-faithful L12 lift; DS preamble (CR-01), builder-gated example (CR-02), task-2+ suppression (CR-03); engine threads ectx.current_spec_tools per D-03, no spec.id/pipeline_type (INV-1); context_message de-blinded (removed from _VOLATILE_STRIP_KEYS + 5 golden regenerated parity-stable) + dedicated parity assertion; PARITY-03/09 closed
 
 ### Pending Todos
 
