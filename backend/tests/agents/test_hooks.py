@@ -315,8 +315,11 @@ async def test_engine_fire_hooks_scanner_unbound_when_read_files_off():
     """With read_files lowered off, secret_scan is unbound → no block even for a secret.
 
     Proves the permission gate at the engine seam: a step lacking read_files does
-    not bind the scanner, so the firing is a no-op continue (HOOK-02). NO hook_runs
-    row is written (the unbound hook never fires).
+    not bind the scanner, so the secret-bearing payload is NOT scanned and the
+    firing is a no-op continue (HOOK-02). The scanner writes NO hook_runs row (the
+    unbound hook never fires). The wildcard observability hook (otel_tracing) IS
+    bound (no required permission) and DOES record a continue row for the event — so
+    the assertion is scoped to the scanner, not the total row count.
     """
     from agents.execution_engine.engine import ExecutionEngine
 
@@ -331,4 +334,112 @@ async def test_engine_fire_hooks_scanner_unbound_when_read_files_off():
         "before_write", step, ectx, reg, payload=secret
     )
     assert outcome == HOOK_CONTINUE
-    assert runner.hook_runs == []  # unbound → never fired → no row
+    # The unbound scanner never fired → no secret_scan row (no block either).
+    secret_rows = [r for r in runner.hook_runs if r["hook"] == "secret_scan"]
+    assert secret_rows == []
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# otel_tracing behavior (OBS-02) — fires on *, non-blocking, span + hook_runs row
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def test_otel_tracing_resolves_as_wildcard_observability_hook():
+    """otel_tracing resolves off the registry: bound to ``*``, no required permission."""
+    reg = CapabilityRegistry()
+    hook = reg.resolve("hook", "otel_tracing")
+    assert hook.name == "otel_tracing"
+    assert hook.events == ["*"]
+    # Pure observability — no privilege needed, so it is ALWAYS bound (HOOK-02).
+    assert hook.required_permission is None
+    assert hasattr(hook, "handle")
+
+
+def test_otel_tracing_is_user_allowed():
+    """otel_tracing is user-grantable (D-02) — an observability hook grants no privilege."""
+    reg = CapabilityRegistry()
+    assert reg.is_user_allowed("hook", "otel_tracing") is True
+
+
+def test_otel_tracing_fires_for_every_event_via_wildcard():
+    """otel_tracing's ``*`` binds it to EVERY lifecycle/tool-call firing point."""
+    reg = CapabilityRegistry()
+    hook = reg.resolve("hook", "otel_tracing")
+    for event in ("before_step", "post_task", "before_write", "on_validation"):
+        assert hook_fires_for(hook, event) is True
+    # No permission → always bound, regardless of the step's effective perms.
+    assert is_bound(hook, _Perms(read_files=False, git=False, exec=False)) is True
+
+
+@pytest.mark.asyncio
+async def test_otel_tracing_continues_and_writes_row_on_fire():
+    """otel_tracing fires non-blocking: a real OTel span + a hook_runs row, always continue (OBS-02)."""
+    reg = CapabilityRegistry()
+    hook = reg.resolve("hook", "otel_tracing")
+    runner = _RecordingRunner()
+    ctx = _Ctx(runner)
+
+    event = {"event": "before_step", "agent_id": "build"}
+    result = await hook.handle(event, ctx)
+
+    # NON-blocking: always continue (never block).
+    assert result.outcome == HOOK_CONTINUE
+    # One hook_runs row, outcome=continue, hook=otel_tracing, event carried through.
+    assert len(runner.hook_runs) == 1
+    row = runner.hook_runs[0]
+    assert row["hook"] == "otel_tracing"
+    assert row["event"] == "before_step"
+    assert row["outcome"] == HOOK_CONTINUE
+    assert row["detail"]["span"] is True
+    assert row["detail"]["agent_id"] == "build"
+
+
+@pytest.mark.asyncio
+async def test_otel_tracing_never_blocks_for_any_event():
+    """otel_tracing's outcome is ALWAYS continue — it can never halt an action (OBS-02)."""
+    reg = CapabilityRegistry()
+    hook = reg.resolve("hook", "otel_tracing")
+    runner = _RecordingRunner()
+    ctx = _Ctx(runner)
+
+    # Even an event whose payload would trip secret_scan never blocks here — the
+    # observability hook does not inspect/halt; it only spans + records.
+    for event_name in ("before_write", "post_task", "before_step"):
+        result = await hook.handle({"event": event_name}, ctx)
+        assert result.outcome == HOOK_CONTINUE
+    assert all(r["outcome"] == HOOK_CONTINUE for r in runner.hook_runs)
+
+
+@pytest.mark.asyncio
+async def test_otel_tracing_missing_runner_is_noop_continue():
+    """A missing ctx.runner (offline span-only) degrades to a clean continue (best-effort row)."""
+    reg = CapabilityRegistry()
+    hook = reg.resolve("hook", "otel_tracing")
+
+    class _NoRunnerCtx:
+        runner = None
+
+    result = await hook.handle({"event": "before_step"}, _NoRunnerCtx())
+    assert result.outcome == HOOK_CONTINUE
+
+
+@pytest.mark.asyncio
+async def test_otel_tracing_emits_no_ws_event_string():
+    """otel_tracing emits a span/row but NEVER an engine WS event (characterization parity).
+
+    The hook's return is a HookOutcome (continue) and its only side effects are an
+    OTel span + a hook_runs row — there is no engine WS event in its surface, so a
+    clean characterization run's event multiset is unchanged (Pitfall 6).
+    """
+    reg = CapabilityRegistry()
+    hook = reg.resolve("hook", "otel_tracing")
+    runner = _RecordingRunner()
+    ctx = _Ctx(runner)
+
+    result = await hook.handle({"event": "after_run"}, ctx)
+    # The outcome object carries only the hook vocabulary — no WS event payload.
+    assert result.outcome == HOOK_CONTINUE
+    assert not hasattr(result, "ws_event")
+    # The only recorded side effect is the audit row (no event stream touched).
+    assert len(runner.hook_runs) == 1
+    assert runner.hook_runs[0]["hook"] == "otel_tracing"

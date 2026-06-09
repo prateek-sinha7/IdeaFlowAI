@@ -18,6 +18,7 @@ Import purity (import-linter): imports ONLY the registry decorator + stdlib typi
 from __future__ import annotations
 
 from agents.capabilities.hooks import behavioral  # noqa: F401 — import side effect: @register
+from agents.capabilities.hooks import otel_tracing  # noqa: F401 — import side effect: @register (08-07 / OBS-02)
 from agents.capabilities.hooks import secret_scan  # noqa: F401 — import side effect: @register (08-07)
 from agents.capabilities.hooks.base import (  # noqa: F401 — re-export the executable-hook contract
     HOOK_BLOCK,
@@ -31,6 +32,7 @@ from agents.capabilities.hooks.behavioral import HookBlock
 
 __all__ = [
     "behavioral",
+    "otel_tracing",
     "secret_scan",
     "HookBlock",
     "HOOK_BLOCK",

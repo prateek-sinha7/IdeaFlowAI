@@ -51,3 +51,12 @@ httpx==0.28.1
 pytest-asyncio==0.24.0
 # YAML frontmatter parser for AGENT.md files (folder-per-agent architecture)
 python-frontmatter==1.1.0
+# OpenTelemetry — the otel_tracing canonical hook (08-07 / OBS-02). API + SDK only
+# (CNCF OpenTelemetry, github.com/open-telemetry/opentelemetry-python; human-verified
+# on PyPI at the package-legitimacy checkpoint). The hook emits a span per fired
+# lifecycle event behind a ConsoleSpanExporter by default; it auto-switches to the
+# OTLP exporter only when OTEL_EXPORTER_OTLP_ENDPOINT is set, importing
+# `opentelemetry-exporter-otlp` LAZILY in that branch — so the OTLP exporter is an
+# OPTIONAL runtime dependency, NOT pinned here (least-privilege / supply-chain).
+opentelemetry-api==1.42.1
+opentelemetry-sdk==1.42.1
