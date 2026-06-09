@@ -18,7 +18,7 @@ import re
 import pytest
 
 from agents.capabilities import registry as registry_mod
-from agents.capabilities.registry import CapabilityRegistry, install
+from agents.capabilities.registry import CapabilityRegistry, discover
 from agents.capabilities.strategies.single_shot import SingleShotStrategy
 from agents.capabilities.strategies.task_loop import TaskLoopStrategy
 from agents.capabilities.task_parsers.heading_tasks import HeadingTasksParser
@@ -26,7 +26,7 @@ from agents.capabilities.task_parsers.heading_tasks import HeadingTasksParser
 
 @pytest.fixture()
 def reg() -> CapabilityRegistry:
-    install()  # bind impls for these tests
+    discover()  # bind impls for these tests (08-01: discover() replaced install())
     return CapabilityRegistry()
 
 
@@ -74,13 +74,15 @@ def test_resolve_unknown_kind_raises(reg: CapabilityRegistry) -> None:
 
 
 def test_resolve_known_but_unbound_raises_runtime_error() -> None:
-    # A name in _KNOWN with no impl bound (e.g. html_static lands in a later plan)
-    # is a programmer error → RuntimeError, never silently None.
-    install()
+    # A name in _KNOWN with no impl bound is a programmer error → RuntimeError,
+    # never silently None. model_catalog/default is the declared slot that has no
+    # built-in impl after discover(); html_static/html_render became bound
+    # validators in 08-04, so they no longer model the unbound case.
+    discover()
     reg = CapabilityRegistry()
-    assert reg.is_registered("validator", "html_static") is True
+    assert reg.is_registered("model_catalog", "default") is True
     with pytest.raises(RuntimeError):
-        reg.resolve("validator", "html_static")
+        reg.resolve("model_catalog", "default")
 
 
 def test_unknown_name_checked_against_known_before_lookup() -> None:
