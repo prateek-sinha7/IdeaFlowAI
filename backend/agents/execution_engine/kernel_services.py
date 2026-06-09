@@ -131,6 +131,46 @@ class KernelServices:
 
         return await render_check(html_path)
 
+    # ── Pre-edit revision baseline (revision_validation post-step, CR-06) ───────
+    async def compute_revision_baseline(self, original_html: str):
+        """Return ``(baseline_static, baseline_console)`` for the pre-edit ORIGINAL.
+
+        Writes the seeded ORIGINAL to a temp file and runs static_check + (best-
+        effort) render_check on it, normalizing via the engine's SINGLE-home
+        ``_static_issue_sigs`` / ``_console_sigs`` helpers — so the post-step
+        capability never imports the kernel (import-linter) yet reuses the exact
+        signature logic the fix-loop uses. Byte-identical to the legacy inline
+        baseline (same helpers, same render-unavailable degrade).
+        """
+        import tempfile
+        from pathlib import Path
+
+        from agents.execution_engine.engine import _console_sigs, _static_issue_sigs
+
+        with tempfile.TemporaryDirectory() as _td:
+            _orig_path = Path(_td) / "original.html"
+            _orig_path.write_text(original_html, encoding="utf-8")
+            _sres0 = _static_check(_orig_path)
+            baseline_static = _static_issue_sigs(_sres0)
+            try:
+                from app.agents.render_check import render_check
+
+                _rres0 = await render_check(_orig_path)
+            except Exception as _render_exc:  # noqa: BLE001 — render unavailable ⇒ no baseline
+                logger.warning(
+                    "revision baseline render_check raised (%s) — treating as "
+                    "unavailable (no console baseline)",
+                    _render_exc,
+                )
+                from app.agents.render_check import RenderResult
+
+                _rres0 = RenderResult(
+                    ok=True, available=False,
+                    note=f"render_check error: {_render_exc}",
+                )
+            baseline_console = _console_sigs(_rres0)
+        return baseline_static, baseline_console
+
     # ── Typed-graph read (ART-03) ──────────────────────────────────────────────
     def latest_typed_content(self, producer_step: str) -> str | None:
         return self._engine._latest_typed_content(self._ectx, producer_step)

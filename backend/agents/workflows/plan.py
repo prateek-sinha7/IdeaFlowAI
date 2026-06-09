@@ -214,6 +214,7 @@ class Step:
     strategy: str = "single_shot"                            # Q8/Q9 — capability name
     gates: list[str] = field(default_factory=list)           # §9 — gate capability names
     task_source: TaskSource | None = None                    # Q10a/b
+    post_step: str | None = None                             # post_step capability name (07-10 / CR-06)
 
     # ── Forward surface (declared, INERT in Phase 4) ──────────────────────
     tools: ToolPermissions = field(default_factory=ToolPermissions)  # INV-9 / §8

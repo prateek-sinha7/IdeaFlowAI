@@ -84,6 +84,24 @@ class ContextProvider(Protocol):
 
 
 @runtime_checkable
+class PostStep(Protocol):
+    """A declared after-step behavior run once the step's agent has finished (§9 / CR-06).
+
+    The kernel resolves it by name from ``Step.post_step`` and invokes ``run(step,
+    ctx)`` after the step's execution strategy completes — replacing the
+    kernel-resident prototype-revision validation block. Phase 8 makes
+    Validator/GateHandler formal; this phase preserves the BEHAVIOR behind a
+    declared, registered capability.
+    """
+
+    name: str
+
+    async def run(self, step: Any, ctx: Any) -> None:
+        """Run the post-step behavior (no events; side effects only)."""
+        ...
+
+
+@runtime_checkable
 class GateHandler(Protocol):
     """A step gate — human | validation | approval | security (§9)."""
 

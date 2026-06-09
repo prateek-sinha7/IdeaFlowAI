@@ -23,7 +23,6 @@ import asyncio
 import itertools
 import json
 import logging
-import re
 import time
 import uuid
 from typing import AsyncGenerator
@@ -156,15 +155,6 @@ PLANNER_AGENT_ID = "deep-planner"
 def _now() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()
-
-
-# Workspace filename the prototype-revision-agent reads + edits in place. The
-# engine seeds it with the current prototype before the agent runs and reads it
-# back as the deliverable afterwards (see execute()). This is the AGNOSTIC
-# revision-setup constant (the slim-message pointer + the pre-edit baseline path),
-# NOT a workflow-name branch — it survives 07-05 (the L1 ratchet scopes only the
-# the ppt/prototype name-set leaks the L1 ratchet scopes, both deleted in 07-05).
-REVISION_FILE_NAME = "prototype.html"
 
 
 # ---------------------------------------------------------------------------
@@ -655,36 +645,6 @@ class ExecutionEngine:
         )
         ectx.is_revision_workflow = _is_revision_workflow
 
-        # ── Prototype revision: seed the existing prototype as an editable file ──
-        # DELIBERATE EXCEPTION to the revision pattern used elsewhere. Every other
-        # revision pipeline (ppt/user_stories/app_builder) follows
-        # "existing artifact in the message → agent regenerates the COMPLETE
-        # artifact → engine takes the output". Prototype revision instead does a
-        # real coding-agent edit loop: the agent edits prototype.html in place via
-        # read_file/edit_file/write_file. This is chosen on purpose because a
-        # prototype is a single 60-100k char HTML file where surgical edits are
-        # far more reliable than re-emitting the whole document (the old approach
-        # here — a regex-merged structured diff — silently dropped edits to
-        # existing in-page JS such as the SPA route map). We drop the current HTML
-        # into the sandbox and slim the prompt to just the instruction + a
-        # pointer, so the document isn't also duplicated into the agent's context.
-        # Phase-5 revision state consumed by the post-revision fix-loop (below,
-        # just before the read-back). The ExecutionContext already carries safe
-        # defaults (ectx.revision_original_html="", ectx.revision_instruction=None,
-        # ectx.revision_baseline_static/console=set()) so the fix-loop degrades to a
-        # no-baseline / no-instruction run (or is skipped) when this is not a
-        # prototype_revision, or when no existing HTML was found.
-        #   ectx.revision_instruction      — the user's revision request, re-injected
-        #                                     into the fix prompt (None ⇒ build-style
-        #                                     wording; we set it to the slimmed message
-        #                                     as a fallback so it's never None here).
-        #   ectx.revision_baseline_static  — static-issue signatures of the seeded
-        #                                     ORIGINAL prototype.html (pre-edit), so
-        #                                     the fix-loop only treats NEW static
-        #                                     issues as regressions.
-        #   ectx.revision_baseline_console — console-error signatures of that same
-        #                                     pre-edit render (empty when render is
-        #                                     unavailable).
         # ── Existing-artifact seed: OWNED by the previous_run provider (CR-06) ───
         # The "seed the prior artifact as an in-place-editable file" behavior
         # (extract the EXISTING artifact from the message → write it under
@@ -1019,45 +979,11 @@ class ExecutionEngine:
         # degrade (a missing parent must never break a revision).
         await self._seed_workflow_context(ectx, compiled)
 
-        # ── Pre-edit baseline on the seeded ORIGINAL (PRE-edit) ──────────────────
-        # The previous_run provider (above) seeded the existing artifact under
-        # deliverable.name + stashed ``ectx.revision_original_html``. Compute the
-        # static + render signatures of that ORIGINAL here, BEFORE the revision
-        # agent edits it, using the SAME T1 module-level helpers the fix-loop uses —
-        # so the fix-loop treats only NEW static/console issues as regressions (hard
-        # render-breakage is always fixed regardless of baseline). Render is
-        # best-effort: an unavailable/erroring Chromium yields an empty console
-        # baseline. (07-10 Task 2: relocated to AFTER the provider seed so it reads
-        # the now-seeded file; 07-10 Task 3 moves this into the post-step capability.)
-        if _is_revision_workflow and ectx.revision_original_html:
-            _artifact_name = (
-                getattr(compiled.deliverable, "name", None) or "prototype.html"
-            )
-            from app.agents.static_check import static_check
-            _orig_path = sandbox.path_for(_artifact_name)
-            _sres0 = static_check(_orig_path)
-            ectx.revision_baseline_static = _static_issue_sigs(_sres0)
-            try:
-                from app.agents.render_check import render_check
-                _rres0 = await render_check(_orig_path)
-            except Exception as _render_exc:  # noqa: BLE001 — render unavailable ⇒ no baseline
-                logger.warning(
-                    "prototype_revision: baseline render_check raised (%s) — "
-                    "treating as unavailable (no console baseline)",
-                    _render_exc,
-                )
-                from app.agents.render_check import RenderResult
-                _rres0 = RenderResult(
-                    ok=True, available=False,
-                    note=f"render_check error: {_render_exc}",
-                )
-            ectx.revision_baseline_console = _console_sigs(_rres0)
-            logger.info(
-                "prototype_revision: pre-edit baseline — %d static issue(s), "
-                "%d console error(s)",
-                len(ectx.revision_baseline_static),
-                len(ectx.revision_baseline_console),
-            )
+        # The pre-edit revision baseline + post-edit Both-validation fix-loop are no
+        # longer kernel-resident (07-10 / CR-06): they live in the declared
+        # ``revision_validation`` post-step capability, invoked by the per-step
+        # dispatch loop below after the revision step's strategy completes. The
+        # kernel hosts NO prototype-revision behavior by name.
 
         # ── Per-step capability dispatch (INV-1) — NO workflow-name/agent-id branch ──
         # The compiled plan's Step.strategy names the execution-strategy capability for
@@ -1094,6 +1020,18 @@ class ExecutionEngine:
                 async for event in strategy.run(step, ectx):
                     yield event
 
+                # ── Declared post-step capability (INV-1 / CR-06) ────────────────
+                # After the step's strategy finishes, run any declared ``post_step``
+                # capability (resolved by NAME from the compiled step — NO workflow-
+                # name/agent-id branch). This is where the in-place-revision pre-edit
+                # baseline + post-edit Both-validation fix-loop now lives (relocated
+                # out of the formerly kernel-resident revision block). It is
+                # non-yielding (side effects only) and never aborts the run (the
+                # capability swallows its own errors).
+                post_step_name = getattr(step, "post_step", None)
+                if post_step_name:
+                    await _registry.resolve("post_step", post_step_name).run(step, ectx)
+
         except asyncio.CancelledError:
             self._state_machine.transition(pipeline_run_id, "cancelled")
             yield {"type": "pipeline_cancelled", "data": {"pipeline_run_id": pipeline_run_id}}
@@ -1110,76 +1048,10 @@ class ExecutionEngine:
         # Determine the final deliverable below via the DECLARED deliverable resolver
         # capability (single_file → prototype.html for prototype/revision;
         # serialized_sandbox → code-gen bundle; streamed_text/ppt → streamed+unwrapped
-        # output). The revision branch first runs the post-revision validation fix-loop.
-
-        # ── Prototype revision: programmatic post-revision validation + fix ──────
-        # After the visible prototype-revision-agent has edited prototype.html, run
-        # the generalized (T1) Both-validation + bounded INTERNAL fix-loop on the
-        # revision sandbox BEFORE reading the file back as the deliverable. With the
-        # pre-edit baseline (computed in the seeding block above) the fix-loop fixes
-        # only NEW static/console regressions PLUS hard render-breakage (page
-        # errors, dead nav, blank render), re-injecting the user's instruction and
-        # leaving pre-existing nits alone. This is NON-YIELDING: the fix sub-agent's
-        # stream is consumed internally (it persists prototype.html to disk as a
-        # side effect) and NOTHING is re-emitted — the WS/UI event contract is
-        # byte-identical (no new events). It NEVER aborts the revision (try/except),
-        # and only runs when the agent actually produced a prototype.html.
-        if (
-            _is_revision_workflow
-            and sandbox.path_for("prototype.html").is_file()
-        ):
-            try:
-                # Mirror _run_agent's AgentContext construction for the SAME agent:
-                #  - disk-skill merge keyed on the literal agent id (== spec.id),
-                #  - agent_outputs={} (prototype-revision-agent declares consumes:[]
-                #    so _filter_consumed_outputs returns {} — set directly here),
-                #  - run_id=pipeline_run_id + user_id=ectx.disk_principal so create_runner
-                #    (inside the fix-loop) roots the fix sub-agent's RunSandbox at
-                #    RunSandbox(ctx.user_id or "anon", ctx.run_id) — the SAME revision
-                #    dir holding prototype.html — so its edits are NOT lost. Byte-identity
-                #    guard (D-09): pass disk_principal (== user_id or "anon"), NOT owner_id
-                #    (which may be anon:<session_id>), so the disk path is unchanged.
-                _rev_skills: list[dict] = list(attached_skills or [])
-                _disk_skills = ectx.disk_skills
-                if "prototype-revision-agent" in _disk_skills:
-                    _rev_skills.append({"content": _disk_skills["prototype-revision-agent"]})
-                rev_ctx = AgentContext(
-                    # Slimmed message now lives on the handle (the previous_run
-                    # provider slimmed it); read it back so the fix sub-agent's brief
-                    # is byte-identical to the legacy inline-slimmed value (07-10
-                    # Task 2 — this whole block is deleted in Task 3).
-                    user_request=getattr(ectx.runner, "user_message", user_message),
-                    agent_outputs={},
-                    attached_skills=_rev_skills,
-                    attached_hooks=list(attached_hooks or []),
-                    # MODEL-01/02/05: resolved id for the revision fix sub-agent (reuses this
-                    # agent's spec — RESEARCH). step=None this plan; parity-identical to
-                    # ``model_id`` when no override/manifest model is set (INV-3).
-                    model=self._resolve_model(ectx, spec, model_id),
-                    od_context=ectx.od_context,
-                    planning_context=planning_context,
-                    user_id=ectx.disk_principal,
-                    run_id=pipeline_run_id,
-                )
-                await self._run_validation_fix_loop(
-                    ctx=rev_ctx,
-                    sandbox=sandbox,
-                    pipeline_run_id=pipeline_run_id,
-                    task_num=1,
-                    total_tasks=1,
-                    cancel_event=cancel_event,
-                    agent_id="prototype-revision-agent",
-                    baseline_static=ectx.revision_baseline_static,
-                    baseline_console=ectx.revision_baseline_console,
-                    user_instruction=ectx.revision_instruction,
-                    label="revision",
-                    checkpointer=ectx.checkpointer,
-                )
-            except Exception as exc:  # noqa: BLE001 — never let validation abort the revision
-                logger.warning(
-                    "prototype_revision: post-revision validation errored (%s) — continuing",
-                    exc,
-                )
+        # output). The post-edit revision validation fix-loop already ran inside the
+        # declared ``revision_validation`` post-step capability (invoked by the
+        # per-step dispatch loop above) — the kernel hosts NO in-place-revision
+        # block, no agent-id literal, and no by-name revision exception (07-10 / CR-06).
 
         # ── Deliverable routing concern — declared by the compiled plan ─────────
         # (MAN-04, concern 2). The deliverable resolver NAME for this run is
@@ -2684,12 +2556,17 @@ class ExecutionEngine:
     # id-based: produces/consumes are agent ids, not kinds), so an unmapped agent
     # still routes correctly with a sensible default kind. spec/plan/task_list/
     # html_file are the prototype pipeline's genuine artifacts.
+    # CR-06 (07-10): the in-place-revision agent is NO LONGER named here. This map
+    # is a lineage-only KIND label for the persisted artifact_refs row; routing is
+    # by producer_agent id, so an unmapped agent (the revision agent) falls back to
+    # the valid ``summary`` kind below — which "never affects deliverable content /
+    # parity" (see _artifact_kind_for). The kernel names no workflow agent by literal
+    # for any behavior (INV-1).
     _AGENT_KIND_MAP: dict[str, str] = {
         "prototype-specify": "spec",
         "prototype-plan": "task_list",
         "prototype-build": "html_file",
         "prototype-validate": "validation_report",
-        "prototype-revision-agent": "html_file",
     }
 
     def _artifact_kind_for(self, spec) -> str:
@@ -3038,43 +2915,13 @@ class ExecutionEngine:
     # branch (INV-1). The build-task CURRENT-TASK marker + compaction now ride the
     # task_loop strategy's ectx scratch, read by _compose_context_message.
 
-    @staticmethod
-    def _extract_existing_prototype_html(user_message: str) -> str:
-        """Pull the current prototype HTML out of a revision request.
-
-        The frontend wraps it as:
-            === EXISTING PROTOTYPE HTML ===
-            <!doctype html> ...
-            === END EXISTING HTML ===
-        Returns "" if the markers are absent (defensive — the agent then works
-        from the prompt alone).
-        """
-        import re as _re
-
-        m = _re.search(
-            r"=== EXISTING PROTOTYPE HTML ===\s*([\s\S]*?)\s*=== END EXISTING HTML ===",
-            user_message, _re.IGNORECASE,
-        )
-        return m.group(1).strip() if m else ""
-
-    @staticmethod
-    def _slim_revision_message(user_message: str) -> str:
-        """Replace the inlined EXISTING HTML block with a pointer to the file.
-
-        Once the current prototype lives in the workspace as prototype.html there
-        is no reason to also carry 60-100k chars of it in the agent's prompt. We
-        swap the HTML block for a one-line pointer and keep the
-        === REVISION REQUEST === section (the agent's actual instruction, also
-        used to title the run) intact.
-        """
-        import re as _re
-
-        return _re.sub(
-            r"=== EXISTING PROTOTYPE HTML ===[\s\S]*?=== END EXISTING HTML ===",
-            f"The current prototype is in the workspace file `{REVISION_FILE_NAME}`. "
-            "Call read_file to read it before editing.",
-            user_message, count=1, flags=_re.IGNORECASE,
-        ).strip()
+    # DELETED (07-10, CR-06): the kernel-resident revision HTML-extraction +
+    # message-slimming helpers (``_extract_existing_prototype_html`` /
+    # ``_slim_revision_message``). The single home for the existing-artifact
+    # extraction + slimming is now the ``previous_run`` context provider
+    # (agents/capabilities/context_providers/previous_run.py), which owns the
+    # in-place-revision seed (parameterized by deliverable.name). No dual
+    # implementation — the kernel no longer extracts/slims a revision request.
 
     def _load_template_example(self, template_id: str) -> str | None:
         """Load the example.html for a template, or None if not available."""

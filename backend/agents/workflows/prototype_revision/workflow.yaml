@@ -27,3 +27,7 @@ steps:
     strategy: single_shot
     gates: [validation]
     validators: [html_static, html_render]
+    # post_step (07-10 / CR-06): after the revision agent edits prototype.html in
+    # place, run the pre-edit baseline + post-edit Both-validation + bounded fix-
+    # loop. Relocated out of the kernel's "DELIBERATE EXCEPTION" block.
+    post_step: revision_validation

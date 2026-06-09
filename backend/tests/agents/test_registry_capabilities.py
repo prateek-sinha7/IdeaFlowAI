@@ -27,7 +27,8 @@ from agents.capabilities.base import (
 from agents.capabilities.registry import CapabilityRegistry, _KNOWN
 
 # The authoritative 15 (kind, name) pairs per D-07 / 04-RESEARCH §D-07,
-# plus the Phase 6 model_catalog name-only registration (06-01 / D-03).
+# plus the Phase 6 model_catalog name-only registration (06-01 / D-03),
+# plus the 07-10 post_step capability (CR-06: the relocated revision validation).
 _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("strategy", "single_shot"),
     ("strategy", "task_loop"),
@@ -43,6 +44,7 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("gate", "human"),
     ("gate", "validation"),
     ("compaction", "html_skeleton"),
+    ("post_step", "revision_validation"),
     ("model_catalog", "default"),
 ]
 
@@ -68,9 +70,11 @@ def test_unknown_kind_is_rejected(registry: CapabilityRegistry) -> None:
     assert registry.is_registered("bogus_kind", "single_shot") is False
 
 
-def test_registered_count_is_exactly_fifteen() -> None:
-    # Drift guard: registering a 16th name (or dropping one) must trip this.
-    assert len(_KNOWN) == 15
+def test_registered_count_is_exactly_sixteen() -> None:
+    # Drift guard: registering a 17th name (or dropping one) must trip this.
+    # 15 authoritative D-07 pairs + model_catalog (06-01) + post_step
+    # revision_validation (07-10 / CR-06) = 16.
+    assert len(_KNOWN) == 16
     assert set(_KNOWN) == set(_EXPECTED_NAMES)
 
 

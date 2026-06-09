@@ -67,6 +67,7 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
         "validators",
         "compaction",
         "task_source",
+        "post_step",  # declared post-step capability (07-10 / CR-06)
         # forward surface (inert in Phase 4 — declared now, consumed Phase 6/7)
         "tools",
         "model",
@@ -170,6 +171,10 @@ class WorkflowCompiler:
         if compaction is not None and not registry.is_registered("compaction", compaction):
             raise CompilerError(f"unknown compaction '{compaction}' in {where}")
 
+        post_step = raw.get("post_step")
+        if post_step is not None and not registry.is_registered("post_step", post_step):
+            raise CompilerError(f"unknown post_step '{post_step}' in {where}")
+
         task_source = None
         raw_ts = raw.get("task_source")
         if raw_ts is not None:
@@ -196,6 +201,7 @@ class WorkflowCompiler:
             task_source=task_source,
             validators=validators,
             compaction=compaction,
+            post_step=post_step,
         )
 
     def _compile_deliverable(

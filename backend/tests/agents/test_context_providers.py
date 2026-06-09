@@ -93,11 +93,18 @@ class _FakeScopedStore:
 class _Ctx:
     def __init__(self, runner, *, od_context=None, scoped_store=None,
                  parent_run_id=None, current_spec_tools=None,
-                 build_task_number="", current_spec_injects=None) -> None:
+                 build_task_number="", current_spec_injects=None,
+                 is_revision_workflow=False, deliverable=None) -> None:
         self.runner = runner
         self.od_context = od_context
         self.scoped_store = scoped_store
         self.parent_run_id = parent_run_id
+        # WR-06 (07-10): the previous_run provider gates the seed + assert_owns on
+        # the DECLARED revision-intent flag, not raw parent_run_id presence. Default
+        # False (a forward build never seeds); the parent-seed tests set it True.
+        self.is_revision_workflow = is_revision_workflow
+        # CR-06: the existing-artifact seed is parameterized by deliverable.name.
+        self.deliverable = deliverable
         # The engine threads the consuming agent's OPAQUE tool set + the build-loop
         # task number onto the ctx before provider.load (D-03; engine.py
         # _compose_context_message). Default current_spec_tools to the BUILDER set so
@@ -448,7 +455,10 @@ async def test_previous_run_seeds_same_owner_parent():
         },
     )
     store = _FakeScopedStore(cross_owner=False)
-    ctx = _Ctx(runner, scoped_store=store, parent_run_id="parent-1")
+    ctx = _Ctx(
+        runner, scoped_store=store, parent_run_id="parent-1",
+        is_revision_workflow=True,  # declared revision-intent (WR-06)
+    )
 
     await PreviousRunProvider().load(ctx)
 
@@ -466,7 +476,10 @@ async def test_previous_run_cross_owner_permission_error_propagates():
         parent_files={"spec.md": "SPEC"},
     )
     store = _FakeScopedStore(cross_owner=True)
-    ctx = _Ctx(runner, scoped_store=store, parent_run_id="parent-evil")
+    ctx = _Ctx(
+        runner, scoped_store=store, parent_run_id="parent-evil",
+        is_revision_workflow=True,  # declared revision-intent (WR-06)
+    )
 
     with pytest.raises(PermissionError):
         await PreviousRunProvider().load(ctx)
@@ -480,7 +493,36 @@ async def test_previous_run_cross_owner_permission_error_propagates():
 async def test_previous_run_noop_without_parent():
     sandbox = _FakeSandbox()
     runner = _FakeRunner(sandbox=sandbox)
-    ctx = _Ctx(runner, scoped_store=_FakeScopedStore(), parent_run_id=None)
+    ctx = _Ctx(
+        runner, scoped_store=_FakeScopedStore(), parent_run_id=None,
+        is_revision_workflow=True,
+    )
     out = await PreviousRunProvider().load(ctx)
     assert out == {}
     assert sandbox.written == {}
+
+
+@pytest.mark.asyncio
+async def test_previous_run_forward_build_with_stray_parent_does_not_seed():
+    """WR-06: a forward build (no declared revision-intent) never seeds or asserts.
+
+    Even with a stray parent_run_id AND a scoped_store present, the provider
+    short-circuits — closing the latent path where a client-payload change could
+    trigger an unintended cross-run seed.
+    """
+    sandbox = _FakeSandbox()
+    runner = _FakeRunner(
+        sandbox=sandbox,
+        parent_files={"spec.md": "SPEC", "design.md": "DESIGN", "tasks.md": "TASKS"},
+    )
+    store = _FakeScopedStore(cross_owner=True)  # would raise IF assert_owns ran
+    ctx = _Ctx(
+        runner, scoped_store=store, parent_run_id="parent-1",
+        is_revision_workflow=False,  # forward build — NOT a declared revision
+    )
+
+    out = await PreviousRunProvider().load(ctx)
+
+    assert out == {}
+    assert store.assert_called is False  # never asserted (no PermissionError raised)
+    assert sandbox.written == {}         # nothing seeded

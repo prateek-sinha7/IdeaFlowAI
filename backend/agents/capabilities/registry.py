@@ -58,6 +58,7 @@ _KNOWN: set[tuple[str, str]] = {
     ("gate", "human"),
     ("gate", "validation"),
     ("compaction", "html_skeleton"),
+    ("post_step", "revision_validation"),
     ("model_catalog", "default"),
 }
 
@@ -108,6 +109,9 @@ def install() -> None:
     from agents.capabilities.context_providers.opendesign import OpenDesignProvider
     from agents.capabilities.context_providers.previous_run import PreviousRunProvider
     from agents.capabilities.compaction.html_skeleton import HtmlSkeletonCompaction
+    from agents.capabilities.post_steps.revision_validation import (
+        RevisionValidationPostStep,
+    )
 
     _IMPLS[("task_parser", "heading_tasks")] = HeadingTasksParser()
     _IMPLS[("strategy", "single_shot")] = SingleShotStrategy()
@@ -123,6 +127,9 @@ def install() -> None:
     # Compaction (07-03 / PARITY-04) — html_skeleton verbatim-lift of the engine's
     # _extract_html_skeleton; task_loop routes task-2+ through resolve("compaction",..).
     _IMPLS[("compaction", "html_skeleton")] = HtmlSkeletonCompaction()
+    # Post-step capability (07-10 / CR-06) — the revision pre-edit baseline +
+    # post-edit Both-validation fix-loop, relocated out of the kernel.
+    _IMPLS[("post_step", "revision_validation")] = RevisionValidationPostStep()
     # NOTE: further bindings (validators, gates) land in later plans
     # as those impl modules are created — add them here alongside their module
     # import. ``resolve`` raises a clear RuntimeError for any known-but-unbound
