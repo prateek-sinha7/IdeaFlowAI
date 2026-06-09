@@ -157,6 +157,13 @@ class ExecutionContext:
     cancel_event: object | None = None
     # disk_skills: per-user disk SKILL.md overrides, keyed by agent id, loaded once/run.
     disk_skills: dict = field(default_factory=dict)
+    # prewarmed_constitution: the owner's Constitution, awaited ONCE at run entry (before
+    # the SYNC create_runner calls) and threaded into each per-agent AgentContext so the
+    # sync factory reads it WITHOUT awaiting inside the running event loop (AGENTRT-06 /
+    # F4 / R12 — the production no-op fix). None ⇒ no Constitution set (graceful no-op;
+    # the characterization runs carry none → snapshots byte-identical). Pre-warm at run
+    # entry is the lower-risk option (RESEARCH A3 / D-08): no await-in-running-loop hazard.
+    prewarmed_constitution: str | None = None
     # depth: sub-run nesting depth (0 = top-level run). Reserved for the fan-out phases.
     depth: int = 0
     # ── Deliverable routing (07-05) ─────────────────────────────────────────────────

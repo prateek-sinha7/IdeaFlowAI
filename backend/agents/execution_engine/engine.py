@@ -672,6 +672,33 @@ class ExecutionEngine:
         # former WorkflowOrchestrator._load_skills (WORKFLOWS.md §B6).
         ectx.disk_skills = self._load_disk_skills(agents, user_id)
 
+        # ── Constitution pre-warm at run entry (AGENTRT-06 / F4 / R12) ──────────────────
+        # The factory's _inject_constitution is SYNC but is called from THIS async engine
+        # under a RUNNING event loop. Awaiting get_constitution there is unsafe (the old
+        # running-loop branch silently read only the in-process _mem dict, dropping a
+        # DB-stored Constitution in prod — the R12 no-op). Per RESEARCH A3 / D-08 (the
+        # lower-risk option) we await it HERE, ONCE, before the sync create_runner calls,
+        # and stash the value on the context; each per-agent AgentContext carries it
+        # (prewarmed_constitution) so the factory reads it sync-safely. The pre-warm key is
+        # ``disk_principal`` — the SAME value threaded as AgentContext.user_id in
+        # _run_agent (the factory's effective Constitution key). Best-effort: the offline
+        # characterization harness has no DB and sets no Constitution, so this degrades to
+        # None (graceful no-op) and the 5 snapshots stay byte-identical (RESEARCH A4).
+        try:
+            from agents.workflow_memory.memory import get_workflow_memory
+
+            _const_key = ectx.disk_principal or owner_id
+            if _const_key:
+                ectx.prewarmed_constitution = await get_workflow_memory().get_constitution(
+                    _const_key
+                )
+        except Exception as _const_exc:  # noqa: BLE001 — never break a run on the pre-warm
+            logger.warning(
+                "execute(): Constitution pre-warm failed (%s) — proceeding without a "
+                "pre-warmed Constitution (graceful no-op)",
+                _const_exc,
+            )
+
         # ── Step 1: Validate the DAG ──────────────────────────────────────
         validation = self._resolver.validate(agents)
         yield {
@@ -1384,6 +1411,11 @@ class ExecutionEngine:
                 # pipeline_run_id) — the SAME per-run disk dir the engine reads
                 # deliverables back from (prototype.html / code-gen files).
                 run_id=pipeline_run_id,
+                # prewarmed_constitution (AGENTRT-06 / F4 / R12): the owner's Constitution,
+                # awaited ONCE at run entry, so the SYNC factory injects a DB-stored
+                # Constitution under this running event loop WITHOUT awaiting (the R12
+                # no-op fix). None when none is set → graceful no-op (parity).
+                prewarmed_constitution=ectx.prewarmed_constitution,
             )
 
             # Capture the resolved primary model ID *now*, before create_runner — it is
