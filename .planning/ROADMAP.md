@@ -267,7 +267,7 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [x] 08-04-PLAN.md — `Validator` registry + generic `FixPolicy` fix-loop + migrate html_static/html_render (severity via the imported 08-01 `map_severity`) + Tier#4/5/6 + re-point task_loop validation (VALID-01/02/04/05) [wave 3]
-- [ ] 08-05-PLAN.md — `AgentRuntimeAdapter` + `PromptAssemblyPolicy` + skill_provider/hook_provider; delete F1/F3/F5 (AGENTRT-01/02/03/05, SKILL-01) [wave 3]
+- [x] 08-05-PLAN.md — `AgentRuntimeAdapter` + `PromptAssemblyPolicy` + skill_provider/hook_provider; delete F1/F3/F5 (AGENTRT-01/02/03/05, SKILL-01) [wave 3]
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -373,7 +373,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 5. Typed Artifacts + Persistence [1B] | 7/7 | Complete    | 2026-06-08 |
 | 6. Model Policy [1C] | 5/5 | Complete    | 2026-06-08 |
 | 7. Prototype as Manifest (Parity Proof) [2] | 11/11 | Complete    | 2026-06-09 |
-| 8. Capabilities Hardened [3] | 4/8 | In Progress|  |
+| 8. Capabilities Hardened [3] | 5/8 | In Progress|  |
 | 9. Local Runtime + Repo (no exec) [4A] | 0/6 | Not started | - |
 | 10. Safe Local Exec [4B] | 0/2 | Not started | - |
 | 11. Fan-Out + Merge [5] | 0/5 | Not started | - |

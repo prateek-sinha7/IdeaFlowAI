@@ -91,11 +91,11 @@
 - [x] **VALID-03**: Severity P0–P3 internal with one mapping function to CRITICAL/HIGH/MEDIUM/LOW for the UI (Q24)
 - [x] **VALID-04**: Migrate `html_static`/`html_render` to registered validators; each run/attempt → `validation_results` row (§16/§18)
 - [x] **VALID-05**: Tier#4/#5/#6 ship as registered validators — `spec_plan_coverage` (pre-build analyze), `task_done_when` (per-task acceptance), `design_quality` (tokens/placeholder/a11y, warnings-first) (Q38)
-- [ ] **AGENTRT-01**: `AgentRuntimeAdapter` wraps `create_deep_agent`; `langchain_deepagents` is the mandated adapter; future `claude_code_cli`/`custom_runner` slot in without kernel edits (§6/§30 / INV-13)
-- [ ] **AGENTRT-02**: `create_deep_agent` is called only inside the `langchain_deepagents` adapter (F5 deletion gate)
-- [ ] **AGENTRT-03**: `PromptAssemblyPolicy` promotes the hardcoded block order (`factory.py:174-255`: injects→guardrails→skills→hooks→constitution→body) to a declared, registry-resolved policy (F1 / §6/§30)
+- [x] **AGENTRT-01**: `AgentRuntimeAdapter` wraps `create_deep_agent`; `langchain_deepagents` is the mandated adapter; future `claude_code_cli`/`custom_runner` slot in without kernel edits (§6/§30 / INV-13)
+- [x] **AGENTRT-02**: `create_deep_agent` is called only inside the `langchain_deepagents` adapter (F5 deletion gate)
+- [x] **AGENTRT-03**: `PromptAssemblyPolicy` promotes the hardcoded block order (`factory.py:174-255`: injects→guardrails→skills→hooks→constitution→body) to a declared, registry-resolved policy (F1 / §6/§30)
 - [x] **AGENTRT-04**: `tool_provider` registry replaces the closed `_build_runner_tools` switch (`factory.py:384-446`) (F2)
-- [ ] **AGENTRT-05**: `skill_provider` / `hook_provider` replace inline skills/hooks injection (`factory.py:220-245`); behavioral hook becomes a non-executable provider sub-type (F3)
+- [x] **AGENTRT-05**: `skill_provider` / `hook_provider` replace inline skills/hooks injection (`factory.py:220-245`); behavioral hook becomes a non-executable provider sub-type (F3)
 - [ ] **AGENTRT-06**: Constitution injection made sync-safe / pre-warmed so a Postgres-stored Constitution is injected in production; constitution-injected-in-prod test passes (R12 / F4)
 
 ### Local Workspace Runtime & Repo Workflows — No Exec (Phase 4A)
@@ -153,7 +153,7 @@
 - [ ] **MCP-04**: Powerful servers (Filesystem/Postgres/write/network) sit behind the `security` gate + scoped creds + `secrets` permission (R13/§30)
 - [ ] **INTEG-01**: `integration_provider` capabilities (GitHub/GitLab/Jira/Slack/Confluence/Figma/OpenDesign) make repo/GitHub reachable from the unified `create_runner` path, not only the handoff pipeline (§30)
 - [ ] **INTEG-02**: `integrations` tool-permission scopes (e.g. `gitlab_read`, `jira_read`) default none; scoped per-owner creds (§8/§30/R13)
-- [ ] **SKILL-01**: `skill_provider` capabilities (ui · disk · template · repo) with a provider interface + versioning replace the flattened skill content list (§30)
+- [x] **SKILL-01**: `skill_provider` capabilities (ui · disk · template · repo) with a provider interface + versioning replace the flattened skill content list (§30)
 - [x] **CAPRUN-01**: `run_capabilities` persistence records the active runtime + resolved skill/hook/integration/MCP names + versions + `model_overrides` per run for replay/debug (§18/§30)
 
 ### Dynamic API / Frontend Contract (parallel track, §22)
@@ -234,8 +234,8 @@ Each v1 requirement maps to exactly one phase. Phases are GSD integers 1–12, m
 | GATE-01, GATE-02, GATE-03 | Phase 8 [3] | Pending |
 | TOOLPERM-01, TOOLPERM-02, TOOLPERM-03 | Phase 8 [3] | Pending |
 | VALID-01, VALID-02, VALID-03, VALID-04, VALID-05 | Phase 8 [3] | Pending |
-| AGENTRT-01, AGENTRT-02, AGENTRT-03, AGENTRT-04, AGENTRT-05, AGENTRT-06 | Phase 8 [3] | Pending |
-| SKILL-01 | Phase 8 [3] | Pending |
+| AGENTRT-01, AGENTRT-02, AGENTRT-03, AGENTRT-04, AGENTRT-05 (08-03/08-05); AGENTRT-06 pending (08-06) | Phase 8 [3] | Partial |
+| SKILL-01 | Phase 8 [3] | Done (08-05) |
 | HOOK-01, HOOK-02, HOOK-03, HOOK-04 | Phase 8 [3] | Pending |
 | OBS-02 | Phase 8 [3] | Pending |
 | API-02, API-03, API-06 | Phase 8 [3] | Pending |
