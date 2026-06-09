@@ -2,9 +2,12 @@
 
 The prototype build backbone, lifted as a capability behind the
 ``ExecutionStrategy`` port. ``run`` owns the full per-task isolated-sub-agent
-build loop the engine's ``_run_build_task_loop`` (engine.py:2072-2257),
-``_write_build_reference_files`` (:2263-2316) and ``_run_validation_fix_loop``
-(:2370-2549) implement today (INV-12 move-don't-copy):
+build loop the engine's ``_run_build_task_loop`` (engine.py:2072-2257) and
+``_write_build_reference_files`` (:2263-2316) implement today (INV-12
+move-don't-copy). The Both-validation + bounded ``N=2`` fix-loop is NOT
+re-implemented here — it has a SINGLE home in the engine's
+``_run_validation_fix_loop``, reached only through ``runner.run_validation_fix_loop``
+(INV-3/INV-12 no dual implementations):
 
   (1) write spec.md / design.md / tasks.md into the run sandbox ONCE before the
       loop — the ``seed_files`` behaviour rides HERE (all manifests are
@@ -18,12 +21,10 @@ build loop the engine's ``_run_build_task_loop`` (engine.py:2072-2257),
   (4) on task-2+ apply the registry-resolved compaction (``step.compaction`` ->
       ``html_skeleton``; the impl lands in a later plan — the call site routes
       through ``resolve`` now and is skipped when no impl is bound);
-  (5) after each task run Both-validation (``static_check`` + ``render_check``) via
-      the handle and the bounded ``N=2`` INTERNAL fix-loop.
-
-The pure fix-signature helpers ``_static_issue_sigs`` / ``_console_sigs`` /
-``_select_issues_to_fix`` are lifted VERBATIM from engine.py:274-360 — the
-byte-identical fix wording for build AND revision (do not rewrite).
+  (5) after each task run Both-validation (``static_check`` + ``render_check``) +
+      the bounded ``N=2`` INTERNAL fix-loop by delegating UNCONDITIONALLY to
+      ``runner.run_validation_fix_loop`` (the engine's single implementation) —
+      this strategy holds NO fix-loop / fix-selection code of its own.
 
 INV-3 (WS parity): ``run`` yields the SAME ``{"type", "data"}`` dicts the engine
 build loop yields today (``task_loop_progress`` + the per-task ``run_agent``
@@ -47,10 +48,11 @@ concrete class lives under the kernel and is NEVER imported here):
       shape ``f"{run_id}:{spec.id}:{task_num}"`` (vs ``f"{run_id}:{spec.id}"`` for
       the engine path), the MODEL-02 fallback chain and the post-task
       prototype.html readback / typed dual-write.
-  * ``run_fix_agent(fix_message, *, task_num, total_tasks, attempt, label="")``
-      -> awaitable — re-invoke the SAME sub-agent on a distinct
-      ``…:fix{n}`` thread, DRAIN its stream internally (apply edits as a side
-      effect) and re-emit NOTHING.
+  * ``run_validation_fix_loop(step, *, task_num, total_tasks, agent_id=…)``
+      -> awaitable — the Both-validation + bounded ``N=2`` INTERNAL fix-loop. The
+      handle owns the fix sub-agent invocation (on a distinct ``…:fix{n}`` thread),
+      DRAINS its stream internally (applies edits as a side effect) and re-emits
+      NOTHING. The strategy NEVER calls the fix sub-agent itself.
   * ``sandbox`` — the per-run RunSandbox: ``read(name)`` / ``write(name, text)`` /
       ``path_for(name)`` / ``root``.
   * ``static_check(html_path)`` -> StaticCheckResult (sync).
@@ -75,82 +77,10 @@ from agents.capabilities.task_parsers.heading_tasks import _count_plan_tasks
 
 logger = logging.getLogger(__name__)
 
-_MAX_FIX_ATTEMPTS = 2
-
 
 def _now() -> str:
     """ISO-ish timestamp for event payloads (mirrors the engine's ``_now``)."""
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-
-# ===========================================================================
-# Pure fix-signature helpers — lifted VERBATIM from engine.py:274-360.
-# The byte-identical fix-message wording for build AND revision. Do NOT rewrite.
-# ===========================================================================
-
-
-def _static_issue_sigs(sres) -> set[str]:
-    """Signatures of a StaticCheckResult's fatal issues (for baseline diffing)."""
-    return set(getattr(sres, "issues", None) or [])
-
-
-def _console_sigs(rres) -> set[str]:
-    """Signatures of a RenderResult's console errors (for baseline diffing)."""
-    if not getattr(rres, "available", False):
-        return set()
-    return set(getattr(rres, "console_errors", None) or [])
-
-
-def _select_issues_to_fix(
-    sres,
-    rres,
-    baseline_static: "set[str] | None" = None,
-    baseline_console: "set[str] | None" = None,
-) -> list[str]:
-    """Ordered, de-duplicated fix-list for the internal validation fix-loop.
-
-    With empty baselines this is byte-identical to today's build ``error_lines``
-    (all static issues, then console errors, then page errors, then dead nav
-    links). With populated baselines (revision) only NEW static + NEW console
-    issues are selected, while hard render-breakage is ALWAYS included. Lifted
-    verbatim from ``engine.py``.
-    """
-    base_static = baseline_static or set()
-    base_console = baseline_console or set()
-
-    selected: list[str] = []
-
-    # (1) Static regressions — issues not present on the baseline.
-    for issue in getattr(sres, "issues", None) or []:
-        if issue not in base_static:
-            selected.append(issue)
-
-    # Render contributes only when the headless render actually ran.
-    if getattr(rres, "available", False):
-        # (2) New console errors.
-        for err in getattr(rres, "console_errors", None) or []:
-            if err not in base_console:
-                selected.append(f"console error: {err}")
-
-        # (3) Hard render-breakage, ALWAYS included regardless of baseline.
-        for err in getattr(rres, "page_errors", None) or []:
-            selected.append(f"uncaught exception: {err}")
-
-        for nav in getattr(rres, "nav_results", None) or []:
-            if not getattr(nav, "ok", True):
-                selected.append(
-                    f"dead nav link: clicking '{nav.href}' activated no "
-                    f"<section data-page>"
-                )
-
-    # De-duplicate while preserving first-seen order.
-    seen: set[str] = set()
-    deduped: list[str] = []
-    for line in selected:
-        if line not in seen:
-            seen.add(line)
-            deduped.append(line)
-    return deduped
 
 
 # ===========================================================================
@@ -285,21 +215,12 @@ class TaskLoopStrategy:
             # AgentContext construction the loop needs.
             if cancel_event is not None and cancel_event.is_set():
                 break
-            if hasattr(runner, "run_validation_fix_loop"):
-                await runner.run_validation_fix_loop(
-                    step,
-                    task_num=task_num,
-                    total_tasks=total_tasks,
-                    agent_id=agent_id,
-                )
-            else:  # pragma: no cover — fake handle without the validation method
-                await self._run_validation_fix_loop(
-                    runner,
-                    task_num=task_num,
-                    total_tasks=total_tasks,
-                    cancel_event=cancel_event,
-                    agent_id=agent_id,
-                )
+            await runner.run_validation_fix_loop(
+                step,
+                task_num=task_num,
+                total_tasks=total_tasks,
+                agent_id=agent_id,
+            )
 
         logger.info("task_loop: finished %d tasks for pipeline=%s", total_tasks, run_id)
 
@@ -361,162 +282,3 @@ class TaskLoopStrategy:
         except (KeyError, RuntimeError):
             return None
 
-    # ------------------------------------------------------------------
-    # Validation + bounded internal fix-loop (lift of _run_validation_fix_loop)
-    # ------------------------------------------------------------------
-
-    async def _run_validation_fix_loop(
-        self,
-        runner,
-        *,
-        task_num: int,
-        total_tasks: int,
-        cancel_event,
-        agent_id: str = "prototype-build",
-        max_attempts: int = _MAX_FIX_ATTEMPTS,
-        baseline_static: "set[str] | None" = None,
-        baseline_console: "set[str] | None" = None,
-        user_instruction: str | None = None,
-        label: str = "",
-    ) -> None:
-        """Both-validation + bounded INTERNAL fix-loop (Region C — build).
-
-        Lift of ``_run_validation_fix_loop`` (engine.py:2370-2549) reaching
-        static_check / render_check / the fix sub-agent through the handle. With
-        empty baselines (the build default) the failing-decision reduces to
-        EXACTLY today's ``(not sres.ok) or render_failed`` (INV-3). Never blocks.
-        """
-        html_path = runner.sandbox.path_for("prototype.html")
-        if not html_path.is_file():
-            logger.warning(
-                "task_loop validation: task %d/%d wrote no prototype.html — skipping",
-                task_num, total_tasks,
-            )
-            return
-
-        attempt = 0
-        while True:
-            if cancel_event is not None and cancel_event.is_set():
-                return
-
-            sres = runner.static_check(html_path)
-            try:
-                rres = await runner.render_check(html_path)
-            except Exception as exc:  # noqa: BLE001 — render harness must never crash the build
-                logger.warning(
-                    "task_loop validation: render_check raised (%s) — treating as skipped",
-                    exc,
-                )
-                rres = _SkippedRender(note=f"render_check error: {exc}")
-
-            render_skipped = not getattr(rres, "available", False)
-            render_failed = getattr(rres, "available", False) and not getattr(rres, "ok", True)
-            error_lines = _select_issues_to_fix(
-                sres, rres, baseline_static, baseline_console
-            )
-            failing = bool(error_lines)
-
-            logger.info(
-                "task_loop validation: task %d/%d attempt %d — static=%s render=%s%s",
-                task_num, total_tasks, attempt,
-                sres.summary(), rres.summary(),
-                " (render skipped)" if render_skipped else "",
-            )
-
-            if not failing:
-                return
-
-            if attempt >= max_attempts:
-                if user_instruction is None:
-                    residual: list[str] = list(getattr(sres, "issues", None) or [])
-                    if render_failed:
-                        residual.append(f"render: {rres.summary()}")
-                        residual.extend(getattr(rres, "console_errors", None) or [])
-                        residual.extend(getattr(rres, "page_errors", None) or [])
-                        residual.extend(
-                            f"dead nav link: {n.href} (no section activated)"
-                            for n in (getattr(rres, "nav_results", None) or [])
-                            if not getattr(n, "ok", True)
-                        )
-                else:
-                    residual = list(error_lines)
-                logger.warning(
-                    "task_loop validation: task %d/%d still failing after %d fix "
-                    "attempt(s) — continuing build. Residual issues: %s",
-                    task_num, total_tasks, max_attempts, "; ".join(residual) or "(none)",
-                )
-                return
-
-            attempt += 1
-            if user_instruction is None:
-                fix_message = (
-                    f"=== VALIDATION ERRORS (fix prototype.html) ===\n"
-                    f"The prototype you built for task {task_num} of {total_tasks} failed "
-                    f"validation. Read the current prototype.html with "
-                    f"read_file(file_path=\"prototype.html\") and apply MINIMAL "
-                    f"edit_file(file_path=\"prototype.html\", ...) changes to fix ONLY "
-                    f"the issues listed below. Do NOT rebuild the document, do NOT add "
-                    f"new pages, do NOT touch anything unrelated to these errors. You "
-                    f"may read_file(\"spec.md\") / read_file(\"design.md\") for reference.\n\n"
-                    + "\n".join(f"- {e}" for e in error_lines)
-                    + "\n=== END VALIDATION ERRORS ==="
-                )
-            else:
-                fix_message = (
-                    f"=== VALIDATION ERRORS (fix prototype.html) ===\n"
-                    f"The user asked you to revise this prototype:\n"
-                    f"\"{user_instruction}\"\n\n"
-                    f"You revised this prototype to satisfy that request — keep that "
-                    f"change intact. Now fix ONLY the issues listed below (they were "
-                    f"introduced by your edit, or they stop the page rendering / "
-                    f"displaying content); do not touch anything unrelated.\n\n"
-                    f"Read the current prototype.html with "
-                    f"read_file(file_path=\"prototype.html\") and apply MINIMAL "
-                    f"edit_file(file_path=\"prototype.html\", ...) changes. Do NOT "
-                    f"rebuild the document and do NOT undo the requested change. You "
-                    f"may read_file(\"spec.md\") / read_file(\"design.md\") for the "
-                    f"original requirements + design system if present.\n\n"
-                    + "\n".join(f"- {e}" for e in error_lines)
-                    + "\n=== END VALIDATION ERRORS ==="
-                )
-
-            logger.info(
-                "task_loop validation: task %d/%d FAILING — internal fix attempt %d/%d (%d issue(s))",
-                task_num, total_tasks, attempt, max_attempts, len(error_lines),
-            )
-
-            try:
-                await runner.run_fix_agent(
-                    fix_message,
-                    task_num=task_num,
-                    total_tasks=total_tasks,
-                    attempt=attempt,
-                    agent_id=agent_id,
-                    label=label,
-                )
-            except Exception as exc:  # noqa: BLE001 — a fix failure must not abort the build
-                logger.warning(
-                    "task_loop validation: task %d/%d fix attempt %d errored (%s) — continuing",
-                    task_num, total_tasks, attempt, exc,
-                )
-                return
-            # Loop back to re-validate the (possibly) fixed prototype.html.
-
-
-class _SkippedRender:
-    """Minimal RenderResult stand-in for a render_check that raised (handle path).
-
-    Mirrors the engine's ``RenderResult(ok=True, available=False, ...)`` fallback
-    so ``_select_issues_to_fix`` treats it as "render unavailable" (a pass).
-    """
-
-    def __init__(self, note: str = "") -> None:
-        self.ok = True
-        self.available = False
-        self.note = note
-        self.console_errors: list[str] = []
-        self.page_errors: list[str] = []
-        self.nav_results: list = []
-
-    def summary(self) -> str:
-        return self.note or "render unavailable"
