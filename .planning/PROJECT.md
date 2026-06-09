@@ -35,7 +35,7 @@ It is for the engineers building and operating Flowin's agent workflows — and,
 
 <!-- The refactor scope. Building toward these (full detail + REQ-IDs in REQUIREMENTS.md, phases in ROADMAP.md). -->
 
-- [x] Workflow-agnostic kernel: no `if pipeline_type == "..."` / `if spec.id == "..."` branches anywhere (INV-1) — **Phase 7 complete (SC-001 proven)**: L1–L13 deleted from the kernel; banned-pattern hard-fail gate + migration-ledger ratchet green; the kernel knows no workflow by name (verified 9/9). Routing was made manifest-driven in Phase 4 / 1A.
+- [~] Workflow-agnostic kernel: no `if pipeline_type == "..."` / `if spec.id == "..."` branches anywhere (INV-1) — **Phase 7 kernel dispatch is name-free (proven)**: L1–L13 deleted from the kernel; banned-pattern hard-fail gate + migration-ledger ratchet green. **SC-001 NOT fully met — Phase 7 REOPENED 2026-06-09** (07-REVIEW-DEEP.md): the deep review found prototype names hardcoded in the 'generic' capabilities (`task_loop`/`kernel_services` hardcode `prototype.html`; `previous_run` ignores declared `seed_files`), so a non-prototype `task_loop` workflow still needs capability edits. Gap-closure 07-07. Routing was made manifest-driven in Phase 4 / 1A.
 - [ ] Per-run `ExecutionContext`; stateless immutable kernel singleton (INV-2)
 - [x] Declarative file-backed workflow manifests → thin compiler (no DSL) → typed `CompiledWorkflow`/`ExecutionPlan` (INV-5) — **Phase 4 / 1A complete** (MAN-01/02; step-level + top-level strict-key DSL rejection)
 - [~] `CapabilityRegistry` + trust model: strategies, validators, deliverables, context providers, gates, isolation, merge, task parsers, worker agents, runtimes, skills, hooks, tools, MCP, integrations (INV-4) — **Phase 4 / 1A**: central name-seam (14 names) + Protocol ports + compiler validation done; **Phase 7**: concrete impls (strategies/deliverables/providers/parser/compaction) + `resolve(kind,name)` seam landed; trust/`@register`/self-registration remain Phase 8
@@ -108,7 +108,7 @@ It is for the engineers building and operating Flowin's agent workflows — and,
 |----------|-----------|---------|
 | Unify vocabulary on `workflow`; `pipeline_type` kept as temporary alias (Q1) | Avoid privileged built-in paths | — Pending |
 | Engineer-registered capabilities + user-composable manifests; trust boundary (Q2) | Power as data, safe palette for users | — Pending |
-| Success = prototype parity by manifest/config only, zero engine edits (Q4 / SC-001) | The one test that must hold | ✓ Proven — Phase 7 (9/9 must-haves; kernel knows no workflow by name; prototype/od_/revision run purely from manifests at deliverable-byte + semantic-event + context_message parity) |
+| Success = prototype parity by manifest/config only, zero engine edits (Q4 / SC-001) | The one test that must hold | ⚠ Partially proven — **Phase 7 REOPENED 2026-06-09** (07-REVIEW-DEEP.md): kernel dispatch is name-free, but the deep review found context_message parity DRIFT (the 07-06 de-blind pinned the post-drift bytes, not the pre-phase-7 contract) + prototype names hardcoded in the capabilities, so "by manifest/config only, zero engine edits" does NOT yet hold. Gap-closure 07-07. |
 | File-backed manifests now; DB-backed user workflows later (Q5) | Dogfood the model without DB scope | — Pending |
 | `ExecutionStrategy` registry: single_shot/task_loop/fanout_batch/wave_scheduler (Q8) | "How a step runs" is pluggable | — Pending |
 | Canonical `Task` schema + parser adapters (Q11) | One task model, many formats | — Pending |
@@ -140,4 +140,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-09 after Phase 7 (Prototype as Manifest — Parity Proof, SC-001) completion*
+*Last updated: 2026-06-09 — Phase 7 REOPENED after deep code review (07-REVIEW-DEEP.md); SC-001 not fully met, gap-closure 07-07 pending*

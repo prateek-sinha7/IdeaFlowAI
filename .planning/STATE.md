@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-09T07:23:45.330Z"
-last_activity: "2026-06-09 -- Phase 07 complete: gap-closure 07-06 (OpenDesign L12 byte-parity) verified PASSED 9/9; SC-001 proven"
+last_updated: "2026-06-09"
+last_activity: "2026-06-09 -- Phase 07 REOPENED: deep code review (07-REVIEW-DEEP.md) found 14 confirmed findings — context_message parity drift the 07-06 de-blind masked + SC-001 names hardcoded in the capabilities; gap-closure 07-07 to plan"
 progress:
   total_phases: 12
-  completed_phases: 7
+  completed_phases: 6
   total_plans: 32
   completed_plans: 32
-  percent: 58
+  percent: 50
 ---
 
 # Project State
@@ -20,16 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-06)
 
 **Core value:** A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001).
-**Current focus:** Phase 08 — Capabilities Hardened (Registry, Gates, Tool Perms, Runtime) — next · Phase 07 complete (SC-001 proven)
+**Current focus:** Phase 07 — REOPENED for gap-closure (07-07): deep review found context_message parity drift + SC-001 hardcoding (see 07-REVIEW-DEEP.md); Phase 08 deferred until 07 truly closes
 
 ## Current Position
 
-Phase: 8
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-09 -- Phase 07 complete (gap-closure 07-06 verified PASSED 9/9; SC-001 proven)
+Phase: 7
+Plan: 07-07 (gap-closure) — not started
+Status: Reopened — ready to plan (/gsd-plan-phase 7)
+Last activity: 2026-06-09 -- Phase 07 reopened after deep code review (14 confirmed findings; CR-03 already fixed inline)
 
-Progress: [██████░░░░] 58% (7/12 phases complete)
+Progress: [█████░░░░░] 50% (6/12 phases complete)
 
 ## Performance Metrics
 
@@ -157,4 +157,4 @@ Open decision records to confirm before their phase (from plan §26):
 - CP-SAT scheduling · single-file fragment-merge · PR/commit push · DB-backed user workflows (REQUIREMENTS.md v2 / Out of Scope).
 
 ---
-*Last updated: 2026-06-06 after completing plan 01-04 (Phase 1 complete — all four safety-net gate families armed and running in CI)*
+*Last updated: 2026-06-09 — Phase 07 reopened for gap-closure (07-07) after deep code review (07-REVIEW-DEEP.md); CR-03 fixed inline*
