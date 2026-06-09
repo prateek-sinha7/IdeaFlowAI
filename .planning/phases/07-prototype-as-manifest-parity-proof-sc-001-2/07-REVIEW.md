@@ -29,7 +29,16 @@ findings:
   warning: 5
   info: 5
   total: 10
+  resolved: 2
 status: issues_found
+resolved_findings:
+  - id: WR-01
+    commit: 16cfe43
+    note: de-hardcoded html_file artifact location to deliverable.name (3 sites); goldens byte-unchanged (parity preserved)
+  - id: WR-04
+    commit: 96b6484
+    note: assert_owns now fails CLOSED on unexpected store errors (skips parent seed; PermissionError still propagates). Added fail-closed regression test + provisioned same-owner parent DB in the phase5 seeding harness.
+deferred_findings: [WR-02, WR-03, WR-05, IN-01, IN-02, IN-03, IN-04, IN-05]
 ---
 
 # Phase 07: Code Review Report
@@ -38,6 +47,8 @@ status: issues_found
 **Depth:** standard
 **Files Reviewed:** 21 (20 in scope + heading_tasks/single_shot/_artifact/sandbox cross-referenced)
 **Status:** issues_found
+
+> **Gap-closure update (2026-06-09):** WR-01 (commit `16cfe43`) and WR-04 (commit `96b6484`) are **RESOLVED**. WR-02, WR-03, WR-05 and all Info items (IN-01..IN-05) remain **OPEN / intentionally deferred** — not addressed in this pass. Goldens confirmed byte-unchanged; broad `tests/agents/` regression green (582 passed / 0 failed).
 
 ## Summary
 
@@ -54,6 +65,8 @@ The findings below are all latent-but-real de-hardcoding gaps and test blind spo
 ## Warnings
 
 ### WR-01: Typed-artifact `location` is still hardcoded `"prototype.html"` — CR-05 de-hardcoding incomplete
+
+**STATUS: RESOLVED** (commit `16cfe43`, `fix(engine): de-hardcode html_file artifact location to deliverable.name (07 WR-01)`). All three `_dual_write_artifact` html_file sites (success readback :1661, `_gate_edited` rewrite :1755, error placeholder :1799) now source `_location` from `getattr(getattr(ectx, "deliverable", None), "name", None) or "prototype.html"` — the same accessor CR-05/07-11 threaded elsewhere (mirrors `single_file.py` / engine.py:1629). Parity-safe: for prototype/od_prototype `deliverable.name` IS `prototype.html`, so the persisted location is byte-identical; `git diff --stat` on the characterization goldens is EMPTY (parity preserved). Verified by `test_context_message_oracle.py` + `test_sc001_nonprototype_task_loop.py` + `test_characterization_prototype.py` + `test_characterization_od_prototype.py` (17 passed).
 
 **File:** `backend/agents/execution_engine/engine.py:1661-1665`, `:1755-1759`, `:1798-1800`
 **Issue:** All three `_dual_write_artifact` call sites in `_run_agent` hardcode the persisted `location` to the literal `"prototype.html"` whenever `_kind == "html_file"`, instead of reading the declared `ectx.deliverable.name`:
@@ -89,6 +102,8 @@ filename = name or _DEFAULT_DELIVERABLE_NAME
 **Fix:** Make the seeding side effects idempotent within a run (guard on a `ctx`-stashed `_previous_run_seeded` flag), or have `_compose_context_message` skip providers whose effect is run-entry-only. Document the contract that `previous_run.load` is run-entry-only.
 
 ### WR-04: `assert_owns` lookup swallows broad `Exception` and degrades OPEN to seeding
+
+**STATUS: RESOLVED** (commit `96b6484`, `fix(agents): assert_owns fail-closed on unexpected store errors (07 WR-04)`). The broad `except Exception` around `scoped_store.assert_owns` now FAILS CLOSED: on any non-`PermissionError` (DB outage / schema mismatch / transient store bug) it logs and `return {}` — skipping the parent-run seed rather than degrading OPEN to seeding on an unconfirmed ownership check. `PermissionError` still propagates (L16, never swallowed). The legitimate "parent absent" graceful path is preserved without relying on the broad catch: `ScopedStore.assert_owns` already returns `None` (no raise) for a missing/TTL-swept parent (authz.py:521-525), and per-file unreadable parent files still degrade in the seed loop. Added a fail-closed regression test (`test_previous_run_unexpected_store_error_fails_closed`) and provisioned a same-owner parent `workflow_runs` row in the phase5 seeding harness (`_provision_parent_run_db`) so `TestParentSeeding` exercises the REAL production seed path instead of the former degrade-open-on-missing-DB behavior. Verified by `test_parent_run_ownership.py` + `test_revision_gating.py` + `test_context_providers.py` + `test_phase5_revision_validation.py` (all green; broad `tests/agents/` regression: 582 passed / 0 failed / 19 skipped).
 
 **File:** `backend/agents/capabilities/context_providers/previous_run.py:162-167`
 **Issue:** Only `PermissionError` propagates; any OTHER exception from `scoped_store.assert_owns` (a DB error, a schema mismatch, a transient store outage, an unexpected store bug) is caught by `except Exception` and the provider then PROCEEDS to seed the parent run's spec/design/tasks ("degrading to same-owner seed"). If `assert_owns` raises a non-`PermissionError` for a reason that actually masks an authorization-relevant failure, the code degrades OPEN — it seeds parent content without a confirmed ownership check. The comment frames this as CTX-05 graceful-degrade parity, but the blast radius is cross-run data exposure, not a cosmetic degrade.
