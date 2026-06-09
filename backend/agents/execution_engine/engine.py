@@ -1658,8 +1658,16 @@ class ExecutionEngine:
             # a logical artifact_refs path for string artifacts (D-01).
             if output:
                 _kind = self._artifact_kind_for(spec)
+                # CR-05 / 07-11 de-hardcode (WR-01): source the html_file location from
+                # the DECLARED deliverable name (the same accessor threaded through the
+                # strategy + persist path, mirroring single_file.py / engine.py:1629),
+                # NOT the literal "prototype.html". Parity-safe: for prototype/od_prototype
+                # the declared name IS "prototype.html", so the persisted location stays
+                # byte-identical; a future non-prototype html_file workflow now persists
+                # under its own declared name instead of a wrong prototype location.
+                _html_loc = getattr(getattr(ectx, "deliverable", None), "name", None) or "prototype.html"
                 _location = (
-                    "prototype.html"
+                    _html_loc
                     if _kind == "html_file"
                     else f"artifact_refs/{spec.id}"
                 )
@@ -1746,6 +1754,8 @@ class ExecutionEngine:
                         # _latest_typed_content returns the edit downstream (ART-03).
                         if edited:
                             _ek = self._artifact_kind_for(spec)
+                            # WR-01 de-hardcode: declared deliverable name for html_file.
+                            _ek_html_loc = getattr(getattr(ectx, "deliverable", None), "name", None) or "prototype.html"
                             await self._dual_write_artifact(
                                 ectx,
                                 producer_agent=spec.id,
@@ -1753,7 +1763,7 @@ class ExecutionEngine:
                                 content=edited,
                                 kind=_ek,
                                 location=(
-                                    "prototype.html"
+                                    _ek_html_loc
                                     if _ek == "html_file"
                                     else f"artifact_refs/{spec.id}"
                                 ),
@@ -1789,6 +1799,8 @@ class ExecutionEngine:
             # the typed graph sees it (the SOLE artifact path since 05-07; parity).
             _err_output = f"[Error: {exc}]"
             _erk = self._artifact_kind_for(spec)
+            # WR-01 de-hardcode: declared deliverable name for html_file.
+            _erk_html_loc = getattr(getattr(ectx, "deliverable", None), "name", None) or "prototype.html"
             await self._dual_write_artifact(
                 ectx,
                 producer_agent=spec.id,
@@ -1796,7 +1808,7 @@ class ExecutionEngine:
                 content=_err_output,
                 kind=_erk,
                 location=(
-                    "prototype.html" if _erk == "html_file" else f"artifact_refs/{spec.id}"
+                    _erk_html_loc if _erk == "html_file" else f"artifact_refs/{spec.id}"
                 ),
             )
 
