@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-09T13:00:00.000Z"
-last_activity: "2026-06-09 -- 07-09 executed: restored the routed prototype-build context_message byte-equal to the acd1636 oracle (CR-01/02/04, WR-01/02/03/05); flipped the 07-08 divergence xfail to a hard PASS; regenerated the 5 goldens to oracle ground truth (loop closed). INV-1 clean; 569 agent tests pass."
+last_updated: "2026-06-09T14:30:00.000Z"
+last_activity: "2026-06-09 -- 07-10 executed (cluster D + cluster E CR-06): revision now keys off a DECLARED deliverable.revises_existing flag (WR-04 proxy gone), the previous_run seed/assert_owns gates on that signal (WR-06), and the whole kernel-resident revision block (seed/baseline/fix-loop, REVISION_FILE_NAME, prototype-revision-agent literal, DELIBERATE EXCEPTION) is evicted into the previous_run provider + a declared revision_validation post-step capability. INV-1 clean; 578 agent tests pass; lint-imports KEPT; characterization revision + phase5 + L16 parity held."
 progress:
   total_phases: 12
   completed_phases: 6
   total_plans: 37
-  completed_plans: 36
+  completed_plans: 37
   percent: 50
 ---
 
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 ## Current Position
 
 Phase: 7
-Plan: 07-10..07-11 (gap-closure — 07-09 DONE, 2 plans remaining, waves 4–5)
-Status: Executing (gap-closure) — 07-09 complete (cluster C closed: routed == oracle, goldens re-pinned); next: /gsd-execute-phase 7 (07-10)
-Last activity: 2026-06-09 -- 07-09 executed: restored the routed prototype-build context_message byte-equal to the acd1636 oracle (CR-01/02/04, WR-01/02/03/05); flipped the 07-08 divergence xfail to a hard PASS; regenerated the 5 goldens to oracle ground truth (loop closed). INV-1 clean; 569 agent tests pass.
+Plan: 07-11 (gap-closure — 07-10 DONE, 1 plan remaining, wave 5)
+Status: Executing (gap-closure) — 07-10 complete (cluster D WR-04/WR-06 + cluster E CR-06 closed: revision keyed off a declared flag; kernel revision block evicted to provider + post-step capability); next: /gsd-execute-phase 7 (07-11)
+Last activity: 2026-06-09 -- 07-10 executed (cluster D + cluster E CR-06): revision now keys off a DECLARED deliverable.revises_existing flag (WR-04 proxy gone), the previous_run seed/assert_owns gates on that signal (WR-06), and the whole kernel-resident revision block (seed/baseline/fix-loop, REVISION_FILE_NAME, prototype-revision-agent literal, DELIBERATE EXCEPTION) is evicted into the previous_run provider + a declared revision_validation post-step capability. INV-1 clean; 578 agent tests pass; lint-imports KEPT.
 
 Progress: [█████░░░░░] 50% (6/12 phases complete)
 
@@ -89,6 +89,7 @@ Progress: [█████░░░░░] 50% (6/12 phases complete)
 | Phase 07 P07 | 6min | 2 tasks | 2 files |
 | Phase 07 P08 | ~25min | 2 tasks | 3 files |
 | Phase 07 P09 | ~75min | 3 tasks | 13 files |
+| Phase 07 P10 | ~55min | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -138,6 +139,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 07-06: opendesign restored to byte-faithful L12 lift; DS preamble (CR-01), builder-gated example (CR-02), task-2+ suppression (CR-03); engine threads ectx.current_spec_tools per D-03, no spec.id/pipeline_type (INV-1); context_message de-blinded (removed from _VOLATILE_STRIP_KEYS + 5 golden regenerated parity-stable) + dedicated parity assertion; PARITY-03/09 closed
 - [Phase 07]: 07-07: deleted the dead DUAL validation fix-loop from task_loop.py (INV-3/INV-12; WR-07/WR-08, cluster B). Removed the `else: # pragma: no cover` fallback, the in-strategy `_run_validation_fix_loop`, `_SkippedRender`, the duplicated `_select_issues_to_fix`/`_static_issue_sigs`/`_console_sigs`, and `_MAX_FIX_ATTEMPTS`. TaskLoopStrategy.run now delegates validation+fix UNCONDITIONALLY to runner.run_validation_fix_loop (the single engine home). _FakeRunner re-pointed onto run_validation_fix_loop FIRST (RED→GREEN guard) importing _select_issues_to_fix from engine. run_fix_agent pruned from the strategy docstring; kernel_services already advertised none. Goldens byte-unchanged; characterization green in clean session. Pre-existing test_strategies→characterization session pollution logged to deferred-items.md (out of scope).
 - [Phase 07]: 07-08: REVERSES the 07-06 adjudication ("pinned==correct" was false — the de-blind captured POST-refactor drifted bytes). Built an engine-INDEPENDENT acd1636 context_message ORACLE (tests/agents/characterization/oracle/) via PINNED-BYTES (verbatim legacy block strings + per-block provenance, NOT running the legacy method — that would re-couple to engine/od_loader). build_oracle_message covers 4 prototype agent classes honoring every acd1636 gate (per-injects, is_build_task_2_plus suppression, _is_builder example gate, raw injection parts, bare END markers, skeleton wrapper, unconditional TEMPLATE COMPLIANCE). Stability test PASSES; a divergence test (drives _drive('prototype'), extracts build-agent context_message) XFAILS — the documented 07-09 acceptance target. Baseline pinned to acd1636 (07-06 used 1d9234b^; _is_builder gate present at both → baseline-invariant). The 5 goldens left UNTOUCHED (re-pinning to oracle is 07-09 work after the engine is byte-correct).
+- [Phase 07]: 07-10 (WR-04/WR-06/CR-06): revision-intent is now a DECLARED per-deliverable flag `DeliverableSpec.revises_existing` (manifest `deliverable.revises_existing` → compiler → compiled model). engine sources `_is_revision_workflow` from it, NOT from `"previous_run" in context_providers` (the proxy that misclassified the 4 non-prototype previous_run workflows). The previous_run provider gates the seed + assert_owns on `ctx.is_revision_workflow` (WR-06: a forward build with a stray parent_run_id no longer seeds). The kernel revision block is EVICTED: seed-existing-artifact → previous_run provider (parameterized by deliverable.name, single-home extract/slim helpers); pre-edit baseline + post-edit fix-loop → a new DECLARED `revision_validation` post-step capability (PostStep port + `post_step` capability kind + `Step.post_step`, invoked by the dispatch loop; agent_id from the compiled step, baseline via `KernelServices.compute_revision_baseline` so the capability never imports the kernel). REVISION_FILE_NAME, the prototype-revision-agent literal (incl. _AGENT_KIND_MAP entry), the DELIBERATE EXCEPTION comment, and the orphaned engine helpers + `import re` are deleted. INV-1=0, WR-04 proxy=0, CR-06 literals=0; lint-imports KEPT; 578 agent tests pass; characterization revision + phase5 + L16 parity held.
 
 ### Pending Todos
 
@@ -162,4 +164,4 @@ Open decision records to confirm before their phase (from plan §26):
 - CP-SAT scheduling · single-file fragment-merge · PR/commit push · DB-backed user workflows (REQUIREMENTS.md v2 / Out of Scope).
 
 ---
-*Last updated: 2026-06-09 — 07-07 complete (cluster B / WR-07+WR-08 closed); gap-closure continues with 07-08..07-11*
+*Last updated: 2026-06-09 — 07-10 complete (cluster D WR-04/WR-06 + cluster E CR-06 closed); gap-closure continues with 07-11*
