@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-09T17:17:35.786Z"
-last_activity: 2026-06-09 -- 08-03 complete (live ToolPermissions intersection + tool_provider registry + F2 deleted)
+last_updated: "2026-06-09T18:00:00.000Z"
+last_activity: 2026-06-09 -- 08-08 PAUSED at API-06 panel-render human-verify checkpoint (Tasks 1-2 done: /api/capabilities palette + additive WS events + 3 composer panels; all automated gates green)
 progress:
   total_phases: 12
   completed_phases: 7
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 ## Current Position
 
 Phase: 08 (capabilities-hardened-registry-gates-tool-perms-runtime-3) — EXECUTING
-Plan: 7 of 8
-Status: Ready to execute
-Last activity: 2026-06-09 -- 08-06 complete (constitution sync-safe pre-warm; R12 _mem-only branch deleted; F4 ☑ — all F1–F5 ☑)
+Plan: 8 of 8
+Status: PAUSED at checkpoint — 08-08 Task 3 (API-06 panel-render human-verify)
+Last activity: 2026-06-09 -- 08-08 Tasks 1-2 done (GET /api/capabilities auth-gated palette [API-02], additive validator_result/validation_warning/gate_* WS events [API-03], 3 live composer panels); awaiting human panel-render verify (API-06)
 
 Progress: [██████░░░░] 60% (7/12 phases complete; Phase 08 plan 6/8 done)
 
