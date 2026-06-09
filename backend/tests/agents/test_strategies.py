@@ -23,7 +23,12 @@ import pytest
 from agents.capabilities import registry as registry_mod
 from agents.capabilities.strategies.single_shot import SingleShotStrategy
 from agents.capabilities.strategies.task_loop import TaskLoopStrategy
+# The fix-selection logic has a SINGLE canonical home — the engine (INV-3/INV-12,
+# same import test_phase5_fixloop_selection.py uses). NEVER import it from task_loop.
+from agents.execution_engine.engine import _select_issues_to_fix
 from agents.workflows.plan import Step, TaskSource
+
+_MAX_FIX_ATTEMPTS = 2
 
 
 # ===========================================================================
@@ -122,10 +127,48 @@ class _FakeRunner:
         for ev in self._agent_events:
             yield ev
 
-    async def run_fix_agent(self, fix_message, *, task_num, total_tasks, attempt, agent_id, label=""):
-        self.fix_calls.append(
-            {"task_num": task_num, "attempt": attempt, "agent_id": agent_id, "message": fix_message}
-        )
+    async def run_validation_fix_loop(
+        self,
+        step,
+        *,
+        task_num,
+        total_tasks,
+        agent_id="prototype-build",
+        baseline_static=None,
+        baseline_console=None,
+        user_instruction=None,
+        label="",
+    ):
+        """Drive the SAME path real runs take (the engine's run_validation_fix_loop).
+
+        Reproduces the bounded N=2 decision the strategy delegates to the engine:
+        read the scripted static/render results, compute the fix list via the SINGLE
+        engine selection home, and for each failing attempt (max 2) record a fix call
+        in the ``{"task_num","attempt","agent_id","message"}`` shape the assertions read.
+        """
+        html_path = self.sandbox.path_for("prototype.html")
+        if not html_path.is_file():
+            return
+
+        attempt = 0
+        while True:
+            sres = self.static_check(html_path)
+            rres = await self.render_check(html_path)
+            error_lines = _select_issues_to_fix(
+                sres, rres, baseline_static, baseline_console
+            )
+            if not error_lines:
+                return
+            if attempt >= _MAX_FIX_ATTEMPTS:
+                return
+            attempt += 1
+            fix_message = (
+                f"=== VALIDATION ERRORS (fix prototype.html) ===\n"
+                + "\n".join(f"- {e}" for e in error_lines)
+            )
+            self.fix_calls.append(
+                {"task_num": task_num, "attempt": attempt, "agent_id": agent_id, "message": fix_message}
+            )
 
     def latest_typed_content(self, producer_step):
         return self._typed.get(producer_step)
