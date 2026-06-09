@@ -2,268 +2,288 @@
 phase: 07-prototype-as-manifest-parity-proof-sc-001-2
 reviewed: 2026-06-09T00:00:00Z
 depth: standard
-files_reviewed: 15
+files_reviewed: 4
 files_reviewed_list:
-  - backend/agents/execution_engine/engine.py
-  - backend/agents/execution_engine/kernel_services.py
-  - backend/agents/capabilities/strategies/task_loop.py
-  - backend/agents/capabilities/strategies/single_shot.py
-  - backend/agents/capabilities/registry.py
-  - backend/agents/capabilities/deliverables/ppt.py
-  - backend/agents/capabilities/deliverables/single_file.py
-  - backend/agents/capabilities/deliverables/serialized_sandbox.py
-  - backend/agents/capabilities/deliverables/streamed_text.py
   - backend/agents/capabilities/context_providers/opendesign.py
-  - backend/agents/capabilities/context_providers/previous_run.py
-  - backend/agents/capabilities/compaction/html_skeleton.py
-  - backend/agents/capabilities/task_parsers/heading_tasks.py
-  - backend/agents/execution_engine/context.py
-  - backend/agents/execution_engine/od_context.py
+  - backend/agents/execution_engine/engine.py
+  - backend/tests/agents/test_context_providers.py
+  - backend/tests/agents/characterization/_normalize.py
 findings:
-  critical: 3
-  warning: 4
-  info: 3
-  total: 10
+  critical: 1
+  warning: 3
+  info: 2
+  total: 6
 status: issues_found
+adjudicated_critical: 0
+adjudication: >-
+  CR-01 (BLOCKER) REJECTED as false-positive. The is_builder example gate is the deliberate,
+  documented pre-Phase-7 behavior (added Phase 4 / commit 218582d; rationale comment present at
+  1d9234b^; defined as the CORRECT contract by 07-VERIFICATION.md CR-02). The reviewer traced the
+  contract to the stale pre-Phase-4 commit 4889e3a, which predates the gate. The reviewer's fix (a)
+  (drop the gate) would re-leak example.html to planning agents and REOPEN the original CR-02 — do
+  NOT apply it. WR-01 is mitigated (the de-blinded characterization goldens now pin the full
+  assembled context_message). WR-02/WR-03/IN-01 are valid, non-blocking optional follow-ups.
+  See "Orchestrator Adjudication" below for the git evidence. Net blocking findings: 0.
 ---
 
-# Phase 7: Code Review Report
+# Phase 07 (07-06 gap-closure): Code Review Report
+
+## Orchestrator Adjudication (added by execute-phase code_review_gate — advisory, non-blocking)
+
+**CR-01 (Critical) — REJECTED as a false positive.** The reviewer concluded the legacy
+contract had *no* tool gate on the TEMPLATE EXAMPLE block by reading commit `4889e3a`
+(2026-06-02, the original feature commit). That is the wrong baseline. Git evidence:
+
+| Ref | What it is | Example-block gate |
+|-----|-----------|--------------------|
+| `4889e3a` | original feature (Jun 2, pre-Phase-4) — **reviewer read this** | `engine.py:1479` — no tool gate |
+| `030820b` | post-0C baseline (Phase 3 cutover) | `engine.py:1697` — no tool gate |
+| `218582d` | **Phase 4** — prototype per-task sub-agents | gate ADDED here (deliberate) |
+| `fb55699` | Jun 8, during Ph7, pre-deletion | `engine.py:3357` — `_is_builder` gate present (snapshot DOES contain it; reviewer's IN-01 claim that the snapshot lacks the contract is itself wrong) |
+| **`1d9234b^`** | **last live L12, the true pre–Phase-7 baseline INV-3 must preserve** | `engine.py:3553` — `_is_builder` gate present |
+
+The gate was a deliberate Phase-4 decision with this documented rationale (verbatim at `1d9234b^`):
+*"Inject example.html ONLY for the BUILD agent... Planning agents (prototype-specify / prototype-plan,
+tools=[]) must NOT see a full working HTML doc — it nudges them to copy/continue it instead of writing
+the spec / decomposing into tasks."* INV-3 requires preserving *existing* (pre–Phase-7) behavior, which
+HAS the gate. `context_message` was stripped from the post-0C characterization contract, so
+"parity vs post-0C" never constrained the example gate. 07-06 correctly restored the gate; the new
+tests pin the correct behavior. The reviewer's own fix (b) — "reclassify as intentional, tighten the
+provenance docs" — is the accurate disposition.
+
+**WR-01 — valid but mitigated.** The dedicated `test_context_message_parity_*` checks only the
+provider block map, narrower than its name. But the full assembled `context_message` IS now pinned by
+the de-blinded characterization goldens (verified: the DS preamble bytes appear inline in
+`golden/prototype.events.json` and `golden/od_prototype.events.json`). Coverage exists at the
+characterization layer; a test rename is a worthwhile optional cleanup.
+
+**WR-02 — valid, accepted.** Parity-stability holds under the deterministic scripted-model
+characterization fixtures (executor verified twice). A guard comment is a reasonable optional follow-up.
+
+**WR-03 — valid, minor optional hardening.** `task_num_str = str(getattr(ctx, "build_task_number", "") or "")`.
+Matches the legacy pattern and `build_task_number` is typed `str`, so not a live bug; cheap robustness.
+
+**IN-01 — valid provenance nit.** The bytes are correct, but citing `fb55699` (a config commit) is
+confusing; the canonical contract is `1d9234b^` (last live L12) / the Phase-4 origin. Worth tightening
+the comments. **IN-02** (END-marker `: {id}` suffix) is a pre-existing 07-04 injector property, out of
+07-06 scope.
+
+**Disposition:** 0 net blocking findings. Phase proceeds to goal verification. The four valid nits
+(WR-01 rename, WR-02 guard comment, WR-03 coercion, IN-01 provenance) are optional, non-blocking
+follow-ups; none affect the byte-parity correctness of the gap closure.
+
+---
+
+# Phase 07 (07-06 gap-closure): Code Review Report
 
 **Reviewed:** 2026-06-09
 **Depth:** standard
-**Files Reviewed:** 15
+**Files Reviewed:** 4
 **Status:** issues_found
+
+> Scope note: this artifact has been rewritten for the FOCUSED 07-06 gap-closure
+> review (diff base `2a4335a^`, the four files listed in `files_reviewed_list`).
+> It is not the earlier whole-phase review.
 
 ## Summary
 
-This phase lifts the prototype-coupled engine behavior into registered capabilities
-(strategies, deliverable resolvers, context providers, task parser, compaction) and
-routes the engine through them by manifest name (SC-001 / INV-1). The structural
-decoupling is clean — the registry seam, the deliverable resolvers, the task parser,
-and the html_skeleton compaction are faithful, import-pure verbatim lifts, and the
-previous_run ownership gate (L16) is correctly preserved and tested.
+Focused adversarial review of the 07-06 gap-closure diff (base `2a4335a^`), which
+restores three OD context-injection branches in `OpenDesignProvider` to the
+pre-refactor "L12" contract under the stated INV-3 byte-parity mandate. I traced the
+claimed legacy ground truth to its real home — commit `4889e3a`
+(`backend/agents/execution_engine/engine.py:1445-1510`, the `_build_context_message`
+od/template/example branch) — because the cited ref `fb55699` does **not** contain
+the preamble string or the L12 branch (it is a config-only commit). The diff's intent
+context refers to `fb55699` as ground truth; the actual byte source is `4889e3a`. I
+reviewed the three gates against that real legacy implementation.
 
-However, the **OpenDesign context provider is NOT a faithful lift of the legacy L12
-injection branches**, and the divergences directly violate INV-3 (byte/semantic-event
-parity) on a path the in-scope parity tests do not assert. Three independent behavioral
-regressions are folded into `opendesign.py`:
-1. the design-system instruction preamble is dropped from the injected block;
-2. the example.html now leaks into the `tools:[]` planning agents (prototype-specify /
-   prototype-plan), which the legacy code explicitly guarded against;
-3. the build-task-2+ injection skip is lost, so the full DS + template + example are
-   re-injected on every build task.
+Two of the three restored gates are byte-faithful (the DS preamble bytes, the task-2+
+suppression of DS/template/example, and the `prototype_emit_only` seed-only filter all
+match `4889e3a` exactly). **The third — the `is_builder` gate on the TEMPLATE EXAMPLE
+block — introduces NEW suppression behavior that the legacy contract did not have**,
+and the new tests pin that divergence as correct. This is the one Critical finding.
+Secondary findings concern an over-claiming test name and a latent characterization
+fragility introduced by de-blinding `context_message`.
 
-Because the offline `_drive` harness DOES seed `od_context` for prototype/od_prototype,
-the first divergence changes the `agent_input.context_message` golden — meaning the
-characterization snapshots (out of this review's file scope) must have been regenerated
-to bake in the regression rather than catch it. These are the load-bearing SC-001
-parity findings and are classified BLOCKER.
-
-A secondary cluster: the `task_loop` strategy's internal fix-loop (`_run_validation_fix_loop`
-+ the `run_fix_agent` contract) is dead on the live path but is the ONLY path the
-`test_strategies.py` suite exercises — the tests validate dead code while the live
-`KernelServices.run_validation_fix_loop` path goes unasserted by the strategy suite.
+## Narrative Findings (AI reviewer)
 
 ## Critical Issues
 
-### CR-01: OpenDesign provider drops the design-system instruction preamble (INV-3 parity break)
+### CR-01: `is_builder` example gate diverges from the legacy byte contract — planning agents lose the TEMPLATE EXAMPLE block
 
-**File:** `backend/agents/capabilities/context_providers/opendesign.py:53-58`
-**Issue:** The legacy L12 design-system block (engine.py @ diff-base lines ~3327-3338)
-injected an instruction preamble inside the block body:
+**File:** `backend/agents/capabilities/context_providers/opendesign.py:93-104`
+**Issue:**
+The diff adds an `is_builder` precondition to the TEMPLATE EXAMPLE block:
 
-```
-=== ACTIVE DESIGN SYSTEM: {ds_id} ===
-Apply these tokens to ALL colors, fonts, and spacing. Map to :root variables: --bg, --fg, --accent, --surface, --border, --muted.
-{ds_body}
-=== END ACTIVE DESIGN SYSTEM ===
-```
-
-The provider emits only `{ds_id: ds_body}` as the block content, so the generic injector
-(`_compose_context_message`, engine.py:2940-2942) wraps it as
-`=== ACTIVE DESIGN SYSTEM: {ds_id} ===\n{ds_body}\n=== END ...` — the entire "Apply these
-tokens..." instruction line is **gone**. The `_drive` harness seeds `ds_body` for
-prototype/od_prototype (`_scripted_model.py:500-504`), so this changes the
-`agent_input.context_message` byte stream for every prototype agent — a direct INV-3
-violation. If the characterization goldens pass, they were regenerated to accept the loss.
-
-**Fix:** Restore the preamble inside the provider's block content so the composed message
-is byte-identical:
 ```python
-if include_ds:
-    blocks[f"ACTIVE DESIGN SYSTEM: {ds_id}"] = (
-        "Apply these tokens to ALL colors, fonts, and spacing. "
-        "Map to :root variables: --bg, --fg, --accent, --surface, --border, --muted.\n"
-        f"{ds_body}"
-    )
+if (
+    is_builder
+    and runner is not None
+    and hasattr(runner, "template_example")
+):
+    example_html = runner.template_example(template_id)
 ```
 
-### CR-02: example.html leaks into the `tools:[]` planning agents (behavioral regression + parity break)
+The legacy contract this diff claims to restore (`4889e3a:.../engine.py:1466-1486`)
+gates the example on **only** `"template" in injects and od.get("template_body") and
+not is_build_task_2_plus` — there is **no tool/builder check** on the example:
 
-**File:** `backend/agents/capabilities/context_providers/opendesign.py:67-74`
-**Issue:** Legacy L12 gated the `TEMPLATE EXAMPLE (example.html)` block on
-`_is_builder = bool(set(spec.tools) & {"prototype_emit_only", "prototype"})` — it was
-injected ONLY for the build agent, with an explicit comment: *"Planning agents
-(prototype-specify / prototype-plan, tools=[]) must NOT see a full working HTML doc — it
-nudges them to copy/continue it instead of writing the spec / decomposing into tasks."*
-
-The provider has no access to `spec.tools` and gates the example only on
-`if template_body:`. `_compose_context_message` consults the provider for any agent that
-declares `injects` (engine.py:2925-2926). `prototype-specify` and `prototype-plan` both
-declare `injects: [template, design_system]` with `tools: []` (verified in their
-AGENT.md), so they now receive the full example.html — the exact regression the legacy
-gate prevented. This is both a behavior change and an INV-3 parity break. (It is masked
-offline only when `web-prototype/example.html` is absent from the test env; it manifests
-in production where the example exists.)
-
-**Fix:** Re-introduce the builder gate. Pass the consuming `spec` (or its tool set) to the
-provider via `ctx`/the runner handle and gate the example block on it, e.g.:
 ```python
-spec_tools = set(getattr(getattr(ctx, "current_spec", None), "tools", []) or [])
-is_builder = bool(spec_tools & {"prototype_emit_only", "prototype"})
-...
-if template_body:
-    blocks[f"ACTIVE TEMPLATE (SKILL.md): {template_id}"] = template_body
-    example_html = runner.template_example(template_id) if is_builder else None
-    ...
+if "template" in injects and od.get("template_body"):
+    if not is_build_task_2_plus:
+        parts.append("=== ACTIVE TEMPLATE ... ===")
+        example_html = self._load_template_example(template_id)   # NO tools gate
+        if example_html:
+            parts.append("=== TEMPLATE EXAMPLE (example.html) ... ===")
 ```
-The kernel must thread the current agent spec onto the context before invoking the
-provider in `_compose_context_message`.
 
-### CR-03: build-task-2+ injection skip is lost — full DS/template/example re-injected every task
+Both `prototype-specify` and `prototype-plan` declare `injects: [template,
+design_system]` with `tools: []` (verified at
+`4889e3a:.../prompts/prototype-specify/AGENT.md` and `prototype-plan/AGENT.md`). Under
+the legacy branch they therefore **received the TEMPLATE EXAMPLE block** (template_body
+present, task is "" → not task 2+, no tool gate). Under the new provider,
+`current_spec_tools = set()` for these agents → `is_builder == False` → the example is
+**suppressed**.
 
-**File:** `backend/agents/capabilities/context_providers/opendesign.py:50-79` and
-`backend/agents/execution_engine/engine.py:2923-2942`
-**Issue:** Legacy L12 computed `is_build_task_2_plus = (spec.id == "prototype-build" and
-task_num_str not in ("", "1"))` and skipped the design-system body, the template body,
-AND the example for build tasks 2+ (engine.py @ diff-base ~3326, ~3342). The whole point
-of the html_skeleton compaction is that task 2+ receives the compact skeleton INSTEAD of
-the growing full DS/template/example. The new provider path has no task-number awareness
-and `_compose_context_message` runs the provider loop unconditionally whenever `injects`
-is set, so on build task 2+ the full DS body + template body + example are re-injected on
-top of the skeleton. This both diverges from legacy byte output (INV-3) and re-introduces
-the O(n) prompt-growth the compaction was designed to remove.
+This is a behavioral regression against the exact byte contract the diff exists to
+preserve (INV-3 / PARITY-09). It is the same class of context-injection regression
+(CR-01/02/03) this gap-closure was opened to fix — re-introduced in the opposite
+direction. The new tests (`test_opendesign_example_gated_on_builder_tools`,
+`test_context_message_parity_build_task_1_vs_task_2`) assert the divergent behavior as
+correct, so the suite will not catch it; it locks the regression in.
 
-**Fix:** Gate the DS/template/example composition on the build-task scratch. Either pass
-`ectx.build_task_number` to the provider and skip the heavy blocks when it is not in
-`("", "1")`, or have `_compose_context_message` suppress the provider blocks for the build
-agent on task 2+ (mirroring the legacy `is_build_task_2_plus` predicate) so only the
-strategy-injected skeleton rides through.
+Note the in-code justification ("Planning agents ... must NOT see a full working HTML
+doc — it nudges them to copy/continue it") is a *product* rationale, not a parity
+rationale. If suppressing the example for planning agents is a deliberate, desired
+product change, it must be declared as an intentional divergence from the legacy
+contract (and the characterization goldens updated to reflect it) — not shipped under
+the banner of byte parity, where it silently contradicts the stated INV-3 mandate.
+
+**Fix:** Either (a) restore parity by dropping the `is_builder` precondition so the
+example follows the legacy template-inject gate:
+
+```python
+example_html = None
+if runner is not None and hasattr(runner, "template_example"):
+    example_html = runner.template_example(template_id)
+if example_html:
+    truncated = example_html[:8000]
+    if len(example_html) > 8000:
+        truncated = truncated + "...[truncated]"
+    blocks[f"TEMPLATE EXAMPLE (example.html): {template_id}"] = truncated
+```
+
+or (b) keep the builder gate but reclassify it explicitly as an *intentional* behavior
+change from `4889e3a`, document the divergence in the plan/REVIEW trail, and update the
+characterization goldens + the `test_opendesign_example_gated_on_builder_tools`
+docstring to state it is a new product decision rather than "L12 parity". Do not leave
+it presented as byte parity.
 
 ## Warnings
 
-### WR-01: task_loop's internal fix-loop is dead on the live path but is the only path the strategy tests exercise
+### WR-01: `test_context_message_parity_build_task_1_vs_task_2` does not test the context_message — it only tests the provider block map
 
-**File:** `backend/agents/capabilities/strategies/task_loop.py:288-302, 368-503`
-**Issue:** On the live path `KernelServices` exposes `run_validation_fix_loop` (it
-delegates to the engine's `_run_validation_fix_loop`), so the `hasattr(runner,
-"run_validation_fix_loop")` branch (task_loop.py:288) is always taken and the strategy's
-own `_run_validation_fix_loop` (lines 368-503) — which calls `runner.run_fix_agent` — is
-never reached. `KernelServices` has NO `run_fix_agent` method (grep confirms it exists
-only in task_loop and the test fake), so the fallback path would `AttributeError` if it
-ever ran. The `test_strategies.py` `_FakeRunner` deliberately omits
-`run_validation_fix_loop` and provides `run_fix_agent`, forcing every fix-loop assertion
-(N=2 bound, attempt counting, fix-message wording) down the DEAD fallback path. The result
-is a test suite that validates code the production engine never executes, while the live
-`run_validation_fix_loop` wiring goes unasserted by the strategy suite.
+**File:** `backend/tests/agents/test_context_providers.py:247-294`
+**Issue:**
+The test name, docstring ("Dedicated context_message parity assertion ... Pins the
+EXACT ordered block-key sequence AND the byte content of the composed OD block map"),
+and the de-blinding comment in `_normalize.py:116-117` all present this as the
+"normalizer-independent context_message parity assertion". In fact it calls
+`OpenDesignProvider().load(ctx)` and asserts on the returned `{block-name -> content}`
+dict only. It never invokes `_compose_context_message`, so it does **not** pin:
 
-**Fix:** Either (a) delete the dead `_run_validation_fix_loop` + the `run_fix_agent`
-contract from task_loop (INV-12 — it is a second implementation of the fix-loop the engine
-already owns), and update `test_strategies.py` to drive a fake that exposes
-`run_validation_fix_loop`; or (b) if the fallback is intentional defensive code, add a test
-where the fake exposes `run_validation_fix_loop` so the live branch is covered, and add
-`run_fix_agent` to `KernelServices` so the fallback cannot `AttributeError`.
+- the injector wrapper format (`=== {name} ===\n{content}\n=== END {name} ===`),
+- the `=== END ACTIVE DESIGN SYSTEM: {ds_id} ===` END-marker (which carries the
+  `: {ds_id}` suffix the legacy `=== END ACTIVE DESIGN SYSTEM ===` did not — see IN-02),
+- block ordering relative to ORIGINAL USER REQUEST / CURRENT TASK / consumed outputs,
+- the assembled message bytes the engine actually sends.
 
-### WR-02: `_index_for` silently returns 0 for an unknown spec, masking a wiring bug
+A regression in the injector (engine.py:2949-2951) or in block-vs-other-part ordering
+would pass this test untouched, defeating the stated purpose of closing the
+characterization blind spot at the message level.
 
-**File:** `backend/agents/execution_engine/kernel_services.py:289-293`
-**Issue:** `_spec_for` raises a clear `RuntimeError` when the step's `agent_id` is not in
-`ordered_agents`, but `_index_for` silently returns `0` if the spec is not found. Since
-`_index_for` is only called with a spec already resolved by `_spec_for`, the miss path is
-currently unreachable — but if the two ever drift (e.g. a synthesized step), index 0 would
-silently route the wrong agent's identity into the `agent_start`/`agent_complete`
-`index`/`total` fields, corrupting the UI ordering with no error. Defensive-but-silent
-fallbacks of identity values are how parity bugs hide.
+**Fix:** Either rename the test to `test_opendesign_block_map_parity_build_task_1_vs_task_2`
+(truthful scope) and stop claiming context_message coverage, OR add a real assertion
+that drives `_compose_context_message` (or an extracted pure helper) and pins the
+assembled string bytes — including the wrapper and END-marker — for a scripted build
+agent on task 1 and task 2.
 
-**Fix:** Mirror `_spec_for` — raise on a miss rather than returning 0:
+### WR-02: De-blinding `context_message` pins a model-derived skeleton into the golden — latent characterization flakiness
+
+**File:** `backend/tests/agents/characterization/_normalize.py:109-117`
+**Issue:**
+Removing `context_message` from `_VOLATILE_STRIP_KEYS` means the golden event snapshots
+now pin the full assembled `context_message`. For build tasks 2+, that message embeds
+the compacted prototype skeleton injected via the task_loop strategy's CURRENT TASK
+block (engine.py:2960-2978), which is derived from the model-generated `prototype.html`.
+The de-blinding comment asserts this is "parity-stable once run_id/timestamps are
+already stripped" — that holds **only** for the scripted-model characterization
+fixtures, where HTML output is deterministic. It is not generally true: any change to
+the scripted model's emitted HTML, to the compaction logic, or any attempt to feed a
+non-scripted run into the goldens will now perturb `context_message` and break the
+snapshot, where before it was tolerated. The newly-pinned surface is much larger and
+more drift-prone than the rest of the normalized event.
+
+**Fix:** Add an explicit guard/comment that this pin is valid ONLY under the scripted
+fixtures and document the regeneration trigger; alternatively normalize the embedded
+CURRENT TASK HTML skeleton sub-block to `VOLATILE_SENTINEL` (keeping the OD blocks
+pinned but not the model-derived skeleton), so the snapshot pins the parity-relevant OD
+injection without coupling to model HTML output.
+
+### WR-03: `build_task_number` comparison relies on an undocumented str invariant with no defensive coercion
+
+**File:** `backend/agents/capabilities/context_providers/opendesign.py:58-60`
+**Issue:**
+`task_num_str not in ("", "1")` is correct only because
+`ExecutionContext.build_task_number` is typed `str` and is always set via
+`str(task_number)` (context.py:137, kernel_services.py:180). If any future caller
+threads a raw int (e.g. `build_task_number = task_number`), then `1 not in ("", "1")`
+evaluates `True` and **task 1 would be wrongly treated as task 2+**, silently
+suppressing the DS/template/example blocks on the very first build task — a quiet parity
+break with no test guarding the int path. The `getattr(..., "") or ""` default does not
+coerce a non-empty int to str.
+
+**Fix:** Coerce defensively at read time so the gate is type-robust:
+
 ```python
-def _index_for(self, spec) -> int:
-    for i, s in enumerate(self._ordered_agents):
-        if s.id == spec.id:
-            return i
-    raise RuntimeError(f"KernelServices: spec {spec.id!r} not in ordered agents")
+task_num_str = str(getattr(ctx, "build_task_number", "") or "")
 ```
-
-### WR-03: `_now()` formats differ between the kernel and the strategy — non-identical timestamps in parity-sensitive events
-
-**File:** `backend/agents/capabilities/strategies/task_loop.py:81-83` vs
-`backend/agents/execution_engine/engine.py:153-155`
-**Issue:** The engine's `_now()` returns `datetime.now(timezone.utc).isoformat()` (e.g.
-`2026-06-09T12:34:56.789012+00:00`), while task_loop's `_now()` returns
-`time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())` (no microseconds, `Z` suffix). The
-`task_loop_progress` event (task_loop.py:254-263) is emitted with the strategy's `_now()`,
-whereas the legacy build loop's progress events used the engine's `_now()`. The `timestamp`
-field is volatile and typically stripped from the characterization multiset, so this likely
-does not break goldens — but it is a silent format divergence in a migrated event payload
-that downstream consumers parsing the timestamp could trip on.
-
-**Fix:** Have the strategy reach the kernel's timestamp helper through the runner handle
-(e.g. expose `runner.now()`), or align the format exactly to the engine's
-`datetime.now(timezone.utc).isoformat()`.
-
-### WR-04: opendesign provider double-truncates the example (correct vs legacy, but fragile and undocumented)
-
-**File:** `backend/agents/capabilities/context_providers/opendesign.py:70-74`
-**Issue:** `runner.template_example` -> `engine._load_template_example` ->
-`get_example_html(template_id)` already truncates to 8000 chars and appends
-`"\n...[truncated]"` (od_context.py:154-155). The provider then slices `[:8000]` again and
-appends `"...[truncated]"`. This happens to reproduce the legacy double-truncation
-byte-for-byte (verified against diff-base engine.py ~3361-3363), so parity holds — but the
-behavior is accidental, undocumented, and brittle: any change to `get_example_html`'s
-truncation marker or `max_chars` silently desyncs the two layers. The `max_chars=8000`
-magic number is duplicated across three sites (od_context.py, the runner fake, opendesign).
-
-**Fix:** Document the intentional double-truncation with a comment referencing
-`get_example_html`, or push truncation to a single owner (pass `max_chars` through the
-handle so the provider does not re-truncate) and add a regression test pinning the
-post-8000-char output byte string.
 
 ## Info
 
-### IN-01: `model_catalog` vs `model` registry-kind mismatch in the `_KNOWN` comment
+### IN-01: Cited legacy ground-truth ref `fb55699` does not contain the L12 contract
 
-**File:** `backend/agents/capabilities/registry.py:44, 61`
-**Issue:** The header comment (line 44) documents the data capability as `model: default`,
-but the actual `_KNOWN` entry (line 61) is `("model_catalog", "default")`. The comment
-mislabels the kind; a future reader resolving `("model", "default")` would hit a spurious
-`KeyError`.
+**File:** `backend/agents/capabilities/context_providers/opendesign.py:54,68,76`
+(comments) and `backend/tests/agents/test_context_providers.py:115-120`
+**Issue:**
+Multiple comments and the test pin the bytes to "git fb55699". `fb55699` is a
+config-only commit (`chore(config): disable worktree isolation ...`) and contains
+neither the preamble string nor the `_build_context_message` L12 branch. The real byte
+source is `4889e3a:backend/agents/execution_engine/engine.py:1445-1510`. The preamble
+bytes themselves DO match that real source (verified), so this is a provenance/citation
+error, not a byte error — but it makes the parity claim unverifiable for the next
+reader who checks out `fb55699`.
 
-**Fix:** Update the line-44 comment to `model_catalog: default`.
+**Fix:** Update the comments and `_DS_PREAMBLE` provenance note to cite the actual
+contract commit/line (`4889e3a` `_build_context_message`), or whatever canonical ref the
+team designates, so the byte-parity claim is auditable.
 
-### IN-02: `persist_task_html` swallows a missing-file as a no-op but logs nothing
+### IN-02: Injector END-marker carries a `: {id}` suffix the legacy END marker lacked
 
-**File:** `backend/agents/execution_engine/kernel_services.py:258-276`
-**Issue:** When `sandbox.read("prototype.html")` returns falsy the method returns silently.
-The legacy per-task dual-write skipped a missing file too, so this is parity-safe, but a
-task that produced no HTML now leaves no trace at the dual-write site (the validation loop
-does log a "wrote no prototype.html" warning, so the signal exists elsewhere). Consider a
-`logger.debug` here for symmetry with the other best-effort sites.
+**File:** `backend/agents/execution_engine/engine.py:2951`
+**Issue:**
+The generic injector emits `=== END {block_name} ===`, so the DS block closes with
+`=== END ACTIVE DESIGN SYSTEM: midnight ===` whereas the legacy contract closed with
+`=== END ACTIVE DESIGN SYSTEM ===` (no id) — likewise for ACTIVE TEMPLATE / TEMPLATE
+EXAMPLE. This is a pre-existing 07-04 injector property, not introduced by this diff,
+and is out of strict scope; but it is a real byte divergence from the legacy contract
+that the de-blinded `context_message` golden now pins, and WR-01's missing
+message-level test means it is unverified against legacy. Flagged for awareness, not as
+a blocker for this diff.
 
-**Fix:** Add `logger.debug("persist_task_html: no prototype.html for task %d — skipping", task_num)`
-before the early return.
-
-### IN-03: `_extract_task_title` is new behavior not present in the legacy lift
-
-**File:** `backend/agents/capabilities/task_parsers/heading_tasks.py:71-85`
-**Issue:** The module docstring states the parser is a "clean verbatim lift" of the engine's
-two pure staticmethods (`_count_plan_tasks` + `_extract_task_block`). `_extract_task_title`
-is a third, NEW helper with no legacy counterpart. It is non-load-bearing (the build prompt
-uses `Task.body`, not `Task.title`), so parity holds, but the "verbatim lift" framing is
-inaccurate and could mislead a future reviewer into assuming title parsing is also
-characterized.
-
-**Fix:** Adjust the docstring to note `_extract_task_title` / `Task.title` is new,
-best-effort, and non-load-bearing (not part of the byte-identity contract).
+**Fix:** Confirm intentionality of the `: {id}` END suffix against the legacy contract
+during the message-level parity test added per WR-01; adjust the injector or document
+the accepted divergence.
 
 ---
 
