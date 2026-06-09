@@ -320,6 +320,20 @@ class KernelServices:
             )
             return None
 
+    # ── FixPolicy factory (D-06) — the strategy builds a policy via the handle ──
+    def make_fix_policy(
+        self, deliverable: str, *, max_attempts: int = 2
+    ) -> "FixPolicy":
+        """Return a generic ``FixPolicy`` for the fix-loop (reached via ``ctx.runner``).
+
+        The strategy CANNOT import the kernel (import-linter forbids
+        ``agents.capabilities -> agents.execution_engine``), so it builds the policy
+        through this handle factory rather than importing ``FixPolicy`` directly. The
+        prototype manifest's deliverable is ``prototype.html`` so the produced policy
+        keeps the loop byte-identical; a non-prototype workflow names its own file.
+        """
+        return FixPolicy(deliverable=deliverable, max_attempts=max_attempts)
+
     # ── Build a DeliverableContext target for a registered Validator (D-04) ─────
     def deliverable_context(
         self,

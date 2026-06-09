@@ -500,3 +500,109 @@ async def test_tier_validators_write_validation_results_rows(db_session):
     written = {r.validator for r in rows}
     assert {"spec_plan_coverage", "task_done_when", "design_quality"} <= written
     assert all(r.owner_id == "alice" for r in rows)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 6. task_loop re-point — drives the DECLARED registered validators, event-free
+# ════════════════════════════════════════════════════════════════════════════
+
+
+class _RoutingRunner:
+    """A task_loop handle stub exercising the D-06 re-point helpers.
+
+    Records make_fix_policy + deliverable_context + record_validation_result calls
+    so the test proves task_loop routes the post-fix validation through the
+    REGISTERED validators (resolve + the handle) without emitting any event.
+    """
+
+    def __init__(self):
+        from agents.execution_engine.kernel_services import FixPolicy
+
+        self._FixPolicy = FixPolicy
+        self.run_id = "run-route"
+        self.cancel_event = None
+        self.fix_loop_calls: list[dict] = []
+        self.validation_records: list[dict] = []
+        self.deliverable_contexts: list[dict] = []
+        self.static_result = _StaticResult(ok=True)
+        self.render_result = _RenderResult(available=False)
+
+    # — fix-loop —
+    def make_fix_policy(self, deliverable, *, max_attempts=2):
+        return self._FixPolicy(deliverable=deliverable, max_attempts=max_attempts)
+
+    async def run_validation_fix_loop(self, step, **kwargs):
+        self.fix_loop_calls.append(kwargs)
+
+    # — registered validator target —
+    def deliverable_context(self, *, name, step="", content=None, task_meta=None):
+        self.deliverable_contexts.append(
+            {"name": name, "step": step, "task_meta": dict(task_meta or {})}
+        )
+        return _Target(name=name, runner=self, step=step,
+                       task_meta=dict(task_meta or {}))
+
+    def static_check(self, path):
+        return self.static_result
+
+    async def render_check(self, path):
+        return self.render_result
+
+    async def record_validation_result(
+        self, step, validator, *, severity=None, attempt=0, issues=None
+    ):
+        self.validation_records.append(
+            {"step": step, "validator": validator, "attempt": attempt}
+        )
+        return f"vr-{len(self.validation_records)}"
+
+
+class _RouteStep:
+    agent_id = "prototype-build"
+    validators = ["html_static", "html_render"]
+    fix = None
+
+
+@pytest.mark.asyncio
+async def test_task_loop_runs_registered_validators_via_policy_and_handle():
+    """task_loop's _run_registered_validators routes declared validators event-free."""
+    from agents.capabilities.strategies.task_loop import TaskLoopStrategy
+
+    strat = TaskLoopStrategy()
+    runner = _RoutingRunner()
+    step = _RouteStep()
+
+    # The FixPolicy is built via the handle (deliverable-driven, not prototype.html).
+    policy = strat._fix_policy(runner, step, "prototype.html")
+    assert policy is not None
+    assert policy.deliverable == "prototype.html"
+    assert policy.max_attempts == 2   # no declared step.fix → Phase-7 default
+
+    # Running the declared validators writes validation_results rows per attempt
+    # via the handle — and yields NO event (additive / event-free, D-06).
+    await strat._run_registered_validators(
+        runner, step, "prototype.html", task_num=2, total_tasks=3
+    )
+    written = {r["validator"] for r in runner.validation_records}
+    assert written == {"html_static", "html_render"}
+    # The attempt is keyed on the task number (the validation_results.attempt col).
+    assert all(r["attempt"] == 2 for r in runner.validation_records)
+
+
+@pytest.mark.asyncio
+async def test_task_loop_no_validators_is_noop():
+    """A step declaring no validators routes nothing (no validation_results rows)."""
+    from agents.capabilities.strategies.task_loop import TaskLoopStrategy
+
+    strat = TaskLoopStrategy()
+    runner = _RoutingRunner()
+
+    class _NoValStep:
+        agent_id = "code-gen"
+        validators: list = []
+        fix = None
+
+    await strat._run_registered_validators(
+        runner, _NoValStep(), "app.py", task_num=1, total_tasks=1
+    )
+    assert runner.validation_records == []

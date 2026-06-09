@@ -288,14 +288,44 @@ class TaskLoopStrategy:
             # the fix wording / thread-id / N=2 bound / consume-internally contract
             # is byte-identical to the legacy build loop (INV-3). The handle owns the
             # AgentContext construction the loop needs.
+            #
+            # D-06 re-point: the loop is driven by a GENERIC FixPolicy (deliverable
+            # name + max_attempts) — not the hardcoded ``prototype.html`` path. The
+            # prototype manifest's deliverable is ``prototype.html`` so the value
+            # passed through keeps the loop byte/event-identical (the 5 characterization
+            # snapshots gate it); a non-prototype task_loop workflow fixes ITS file.
             if cancel_event is not None and cancel_event.is_set():
                 break
-            await runner.run_validation_fix_loop(
-                step,
-                task_num=task_num,
-                total_tasks=total_tasks,
-                agent_id=agent_id,
-                filename=filename,
+            fix_policy = self._fix_policy(runner, step, filename)
+            if fix_policy is not None:
+                await runner.run_validation_fix_loop(
+                    step,
+                    task_num=task_num,
+                    total_tasks=total_tasks,
+                    agent_id=agent_id,
+                    policy=fix_policy,
+                )
+            else:
+                # Handle lacks the FixPolicy factory (an old unit fake) — fall back
+                # to the bare ``filename=`` call (the loop wraps a default policy;
+                # byte-identical).
+                await runner.run_validation_fix_loop(
+                    step,
+                    task_num=task_num,
+                    total_tasks=total_tasks,
+                    agent_id=agent_id,
+                    filename=filename,
+                )
+
+            # D-06: run the step's DECLARED registered validators against the
+            # post-fix deliverable so each task persists ``validation_results`` rows
+            # (VALID-04 / D-10) reached via the registry + the KernelServices handle
+            # (NO kernel→app import). This is ADDITIVE + EVENT-FREE — the validators
+            # only write audit rows; no event is emitted — so the 5 characterization
+            # snapshots stay byte/event-identical. Prototype declares
+            # ``html_static``/``html_render``; a workflow declaring none is a no-op.
+            await self._run_registered_validators(
+                runner, step, filename, task_num=task_num, total_tasks=total_tasks
             )
 
             # WR-05 (07-09): the fix-loop edits prototype.html on disk as a side effect
@@ -314,6 +344,69 @@ class TaskLoopStrategy:
                     )
 
         logger.info("task_loop: finished %d tasks for pipeline=%s", total_tasks, run_id)
+
+    # ------------------------------------------------------------------
+    # D-06 — generic FixPolicy + registered-validator run (additive, event-free)
+    # ------------------------------------------------------------------
+
+    def _fix_policy(self, runner, step, filename: str):
+        """Build the generic ``FixPolicy`` for this step via the handle (D-06).
+
+        The deliverable name + the attempt bound drive the fix-loop (NOT a hardcoded
+        ``prototype.html``). ``max_attempts`` is read from the DECLARED ``step.fix``
+        (a ``FixPolicy`` manifest field) when present + positive, else the Phase-7
+        default of 2 — so the prototype path stays byte-identical (its manifest
+        declares no ``fix``). The policy object is constructed KERNEL-side through
+        ``runner.make_fix_policy`` because the strategy must not import the kernel
+        (import-linter); when the handle lacks the factory (an old unit fake) fall
+        back to a bare ``filename=`` call by returning ``None`` (the loop then wraps
+        a default policy — byte-identical).
+        """
+        fix_decl = getattr(step, "fix", None)
+        declared = getattr(fix_decl, "max_attempts", 0) or 0
+        max_attempts = declared if declared > 0 else 2
+        make = getattr(runner, "make_fix_policy", None)
+        if make is None:
+            return None
+        return make(filename, max_attempts=max_attempts)
+
+    async def _run_registered_validators(
+        self, runner, step, filename: str, *, task_num: int, total_tasks: int
+    ) -> None:
+        """Run the step's DECLARED registered validators (additive, event-free; D-06).
+
+        Resolves each ``step.validators`` name from the registry and calls
+        ``.validate(target)`` against a ``DeliverableContext`` built by the handle
+        (``runner.deliverable_context``) — so the validators reach the heavy checks +
+        write their ``validation_results`` rows through ``target.runner`` (NO
+        kernel→app import). EVENT-FREE: the validators only persist audit rows; no
+        event is yielded — so the 5 characterization snapshots stay byte/event-
+        identical. A workflow declaring no validators (or a handle lacking the
+        factory, an old unit fake) is a no-op. Best-effort: a validator raising must
+        never abort the build (INV-3 parity — the audit run mirrors the legacy loop's
+        non-blocking contract).
+        """
+        validator_names = list(getattr(step, "validators", None) or [])
+        if not validator_names:
+            return
+        make_target = getattr(runner, "deliverable_context", None)
+        if make_target is None:
+            return
+        agent_id = getattr(step, "agent_id", "") or ""
+        target = make_target(
+            name=filename,
+            step=agent_id,
+            task_meta={"attempt": task_num, "total_tasks": total_tasks},
+        )
+        for vname in validator_names:
+            try:
+                validator = self._registry.resolve("validator", vname)
+                await validator.validate(target)
+            except Exception as exc:  # noqa: BLE001 — an audit validator never aborts the build
+                logger.warning(
+                    "task_loop: registered validator %r raised (%s) — continuing",
+                    vname, exc,
+                )
 
     # ------------------------------------------------------------------
     # Reference files (seed_files behaviour — lift of _write_build_reference_files)
