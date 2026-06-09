@@ -87,11 +87,15 @@ class ToolPermissions:
     def lowered_by(self, agent_md: "ToolPermissions") -> "ToolPermissions":
         """Return ``self`` masked by an AGENT.md default that may only LOWER (D-07).
 
-        An AGENT.md default can DROP a permission this (already-effective) set
-        grants, but can NEVER raise one it lacks — the mask is a pure AND over the
-        bool gates and an intersection over the list allow-lists. So an AGENT.md
-        declaring ``exec=True`` over an ungranted ``exec`` is a no-op (stays OFF),
-        while an AGENT.md declaring ``read_files=False`` lowers it.
+        FORWARD-SURFACE HELPER — correct in isolation, NOT yet wired into a call
+        site. The intended consumer is the factory tool-binding seam, where an
+        AGENT.md default would lower the step's effective grant before tool
+        resolution; that wiring lands in Phase 9+ (alongside the first privileged
+        tool set). The mask itself is a pure AND over the bool gates and an
+        intersection over the list allow-lists: an AGENT.md declaring ``exec=True``
+        over an ungranted ``exec`` is a no-op (stays OFF), while ``read_files=False``
+        lowers it. It can never RAISE a permission. Do NOT cite this as an active
+        enforcement point — it has no production caller this phase.
         """
         return _and_mask(self, agent_md)
 
@@ -143,19 +147,22 @@ _PRIVILEGED_RUNTIME_ACTIONS: frozenset[str] = frozenset({"exec", "network", "sec
 
 @dataclass
 class ExecutionPolicy:
-    """Default-deny runtime enforcement point on the Workspace boundary (D-07 / §8).
+    """Default-deny runtime policy helper for the Workspace boundary (D-07 / §8).
 
-    The SECOND of the two D-07 enforcement points (the first is the
-    ``tool_provider`` registry at the factory's tool-binding seam). This is the
-    runtime ``exec``/``network``/``secrets`` gate: it DEFAULT-DENIES every
-    privileged runtime action even with no runtime host attached — the
-    ``LocalSandboxRuntime`` it gates is Phase 9, but the enforcement POINT is wired
-    now so a step requesting ``exec`` is denied regardless (security default-OFF,
-    T-08-03-EoP2). Non-privileged actions (e.g. ``read_files``) are permitted.
+    FORWARD SURFACE — correct in isolation, NOT yet wired into the runtime action
+    path. This is the DESIGN of the second D-07 enforcement point (the runtime
+    ``exec``/``network``/``secrets`` gate); the actual call site lands with the
+    ``LocalSandboxRuntime`` in Phase 9 (the runtime host that would invoke
+    ``check`` before any privileged action). There is NO production caller of
+    ``check`` this phase. The actual exec/network/secrets DENIAL this phase comes
+    from (a) the compiler's ``intersect_permissions`` collapsing those perms OFF and
+    (b) the ``security`` gate — both of which ARE wired. Do NOT cite ``check`` as an
+    active runtime enforcement point until Phase 9 wires it.
 
     ``check(action, perms)`` returns ``(allowed, reason)``; a privileged action is
     denied UNLESS a runtime host (Phase 9) explicitly opens it — there is no host
-    this phase, so privileged actions are uniformly denied.
+    this phase, so privileged actions are uniformly denied (the helper is
+    default-deny by construction, ready for the Phase-9 call site).
     """
 
     # Phase 9 attaches a runtime host that may open specific privileged actions.

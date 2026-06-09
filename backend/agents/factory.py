@@ -465,10 +465,17 @@ def _resolve_runner_tools(spec, ctx: AgentContext) -> tuple[list, bool]:
     sets. This binds byte-identical tool sets to what the deleted switch produced
     (parity — ``test_create_runner.py`` + the 5 characterization snapshots gate it).
 
-    Grant-driven (D-07 / INV-9): only tool sets whose effective ``ToolPermissions``
-    permit them bind. The four existing sets all bind under the default
-    ``read_files``-only posture (none requires write/exec), so parity holds; a future
-    privileged set would be gated by the effective grant before resolution.
+    Grant model (D-07 / INV-9) — FORWARD SURFACE, not yet enforced here: the D-07
+    design is that only tool sets whose effective ``ToolPermissions`` permit them
+    should bind. This function does NOT yet read ``step.tools`` / intersect any
+    ``ToolPermissions`` — it resolves every named provider unconditionally. That is
+    SAFE this phase because none of the four registered sets is write/exec-privileged
+    (all bind under the default ``read_files``-only posture), so there is nothing to
+    gate. The grant-driven binding check (skip/deny a set whose required permission is
+    not granted) is the tool-binding enforcement POINT that lands when the first
+    privileged tool set is introduced (Phase 9+, alongside the LocalSandboxRuntime).
+    Until then this is the resolution seam only — do NOT cite it as an active
+    permission enforcement point.
 
     ``exclude_builtin`` is the AND of every granted set's flag (a set that needs the
     native fs flips it ``False``); an empty ``spec.tools`` ⇒ pure-text agent
