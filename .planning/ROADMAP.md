@@ -276,7 +276,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 08-07-PLAN.md — executable `HookHandler` framework + secret_scan + otel_tracing (OTel install gated by checkpoint) + hook_runs (HOOK-01..04, OBS-02) [wave 5]
+- [x] 08-07-PLAN.md — executable `HookHandler` framework + secret_scan + otel_tracing (real OpenTelemetry, human-approved) + hook_runs (HOOK-01..04, OBS-02) [wave 5]
 
 ### Phase 9: Local Workspace Runtime + Repo Workflows (no exec) [4A]
 
@@ -373,7 +373,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 5. Typed Artifacts + Persistence [1B] | 7/7 | Complete    | 2026-06-08 |
 | 6. Model Policy [1C] | 5/5 | Complete    | 2026-06-08 |
 | 7. Prototype as Manifest (Parity Proof) [2] | 11/11 | Complete    | 2026-06-09 |
-| 8. Capabilities Hardened [3] | 7/8 | In Progress|  |
+| 8. Capabilities Hardened [3] | 8/8 | In Progress (awaiting verification) |  |
 | 9. Local Runtime + Repo (no exec) [4A] | 0/6 | Not started | - |
 | 10. Safe Local Exec [4B] | 0/2 | Not started | - |
 | 11. Fan-Out + Merge [5] | 0/5 | Not started | - |

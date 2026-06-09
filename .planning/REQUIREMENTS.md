@@ -143,10 +143,10 @@
 
 ### Agent Runtime, Skills, Hooks, MCP & Integrations (§30; lands across Phases 1B/3/4+)
 
-- [ ] **HOOK-01**: `HookHandler` executable lifecycle/tool-call hooks bound to events (before/after run·step·tool_call·write, post_task, pre/post_commit, on_validation, before/after_merge, or `*`); outcome continue|warn|block; blocking hooks halt the offending action (N12 / §30)
-- [ ] **HOOK-02**: Canonical hooks — `secret_scan` (before_write/pre_commit, blocking), `otel_tracing`/logging (`*`, non-blocking → observability), pre/post_commit, post_task (§30/§23)
-- [ ] **HOOK-03**: Hooks are permissioned (a command-running hook needs `exec`, a git hook needs `git`, a scanner needs `read_files`); engineer-registered, users attach allow-listed only (INV-9/§30)
-- [ ] **HOOK-04**: Every hook firing → a `hook_runs` row for replay/debug; legacy prompt-only hook survives as a `kind: behavioral` non-executable sub-type (§18/§30)
+- [x] **HOOK-01**: `HookHandler` executable lifecycle/tool-call hooks bound to events (before/after run·step·tool_call·write, post_task, pre/post_commit, on_validation, before/after_merge, or `*`); outcome continue|warn|block; blocking hooks halt the offending action (N12 / §30)
+- [x] **HOOK-02**: Canonical hooks — `secret_scan` (before_write/pre_commit, blocking), `otel_tracing`/logging (`*`, non-blocking → observability), pre/post_commit, post_task (§30/§23)
+- [x] **HOOK-03**: Hooks are permissioned (a command-running hook needs `exec`, a git hook needs `git`, a scanner needs `read_files`); engineer-registered, users attach allow-listed only (INV-9/§30)
+- [x] **HOOK-04**: Every hook firing → a `hook_runs` row for replay/debug; legacy prompt-only hook survives as a `kind: behavioral` non-executable sub-type (§18/§30)
 - [ ] **MCP-01**: `McpClientAdapter` (e.g. `langchain-mcp-adapters` `MultiServerMCPClient`) connects to external MCP servers (stdio/SSE/HTTP), lists tools/resources/prompts, binds allowed ones into the agent tool set (N13 / §30)
 - [ ] **MCP-02**: Allow-listed famous-server catalog (GitHub, GitLab, Jira/Atlassian, Confluence, Slack, Notion, Linear, Sentry, Figma, Filesystem, Postgres, Google Drive, web-search, Playwright, …), each with transport + exposed tools + scoped per-owner creds + `user_allowed` (§30)
 - [ ] **MCP-03**: `McpCapabilityRegistry` — compiler validates `tools.mcp` only names tools from servers the step + owner may reach; unknown `server.tool` → compile error (§7/§30)
@@ -168,7 +168,7 @@
 ### Budgets & Observability (cross-cutting, §23)
 
 - [ ] **OBS-01**: `BudgetManager` enforces per-run AND per-workspace ceilings (tokens, €, subagents, depth, concurrency, wall-clock); reserve-before-spawn; graceful abort; snapshot persisted on the run (§23/§18)
-- [ ] **OBS-02**: Logging/tracing hooks bound to `*` emit OpenTelemetry-style spans/logs per lifecycle event → native observability; each firing lands in `hook_runs` (§23/§30)
+- [x] **OBS-02**: Logging/tracing hooks bound to `*` emit OpenTelemetry-style spans/logs per lifecycle event → native observability; each firing lands in `hook_runs` (§23/§30)
 
 ### Anti-Duplication & Deletion Ledger (cross-cutting, INV-12/§31)
 
@@ -236,8 +236,8 @@ Each v1 requirement maps to exactly one phase. Phases are GSD integers 1–12, m
 | VALID-01, VALID-02, VALID-03, VALID-04, VALID-05 | Phase 8 [3] | Pending |
 | AGENTRT-01, AGENTRT-02, AGENTRT-03, AGENTRT-04, AGENTRT-05 (08-03/08-05); AGENTRT-06 pending (08-06) | Phase 8 [3] | Partial |
 | SKILL-01 | Phase 8 [3] | Done (08-05) |
-| HOOK-01, HOOK-02, HOOK-03, HOOK-04 | Phase 8 [3] | Pending |
-| OBS-02 | Phase 8 [3] | Pending |
+| HOOK-01, HOOK-02, HOOK-03, HOOK-04 | Phase 8 [3] | Done (08-07) |
+| OBS-02 | Phase 8 [3] | Done (08-07) |
 | API-02, API-03, API-06 | Phase 8 [3] | Done (08-08; API-06 human-verified) |
 | RUNTIME-01, RUNTIME-02, RUNTIME-03 | Phase 9 [4A] | Pending |
 | REPO-01, REPO-02, REPO-03, REPO-04, REPO-05 | Phase 9 [4A] | Pending |
