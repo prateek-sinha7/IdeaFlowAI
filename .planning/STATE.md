@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-06-09T20:50:00.000Z"
-last_activity: 2026-06-09 -- 08-07 COMPLETE (executable HookHandler framework + secret_scan blocking hook + otel_tracing observability hook with REAL OpenTelemetry; HOOK-01..04 + OBS-02; 20 hook tests green; 5 characterization snapshots byte/event-identical; import-linter 3/0; commits 5354944 + 94b77b3). Human approved real OTel install (opentelemetry-api/sdk 1.42.1, console-default/OTLP-via-env). Phase 08 = 8/8 plans DONE.
+status: verifying
+last_updated: "2026-06-09T22:19:55.833Z"
+last_activity: 2026-06-09
 progress:
   total_phases: 12
-  completed_phases: 7
+  completed_phases: 8
   total_plans: 45
   completed_plans: 45
-  percent: 100
+  percent: 67
 ---
 
 # Project State
@@ -24,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 
 ## Current Position
 
-Phase: 08 (capabilities-hardened-registry-gates-tool-perms-runtime-3) — ALL 8 PLANS COMPLETE (awaiting phase verification)
-Plan: 8 of 8 — DONE
+Phase: 9
+Plan: Not started
 Status: 08-07 COMPLETE & committed — executable HookHandler framework + secret_scan (blocking, read_files) + otel_tracing (wildcard, non-blocking, REAL OpenTelemetry spans); every firing persists a hook_runs row; HOOK-01..04 + OBS-02 satisfied. Human approved the real-OTel install at the blocking-human checkpoint. Phase 08 = 8/8 plans; next: phase 08 verification.
-Last activity: 2026-06-09 -- 08-07 done — otel_tracing emits real OTel spans (ConsoleSpanExporter default; OTLP auto-switch via OTEL_EXPORTER_OTLP_ENDPOINT, exporter optional/lazy); installed opentelemetry-api/sdk 1.42.1 (CNCF, human-verified on PyPI); 20 hook tests green; 5 characterization snapshots byte/event-identical (no re-baseline); import-linter 3/0; banned-pattern unaffected. Commits 5354944 + 94b77b3.
+Last activity: 2026-06-09
 
 Progress: [██████░░░░] 60% (7/12 phases complete; Phase 08 = 8/8 plans complete, awaiting verification)
 
@@ -35,7 +35,7 @@ Progress: [██████░░░░] 60% (7/12 phases complete; Phase 08 =
 
 **Velocity:**
 
-- Total plans completed: 60
+- Total plans completed: 76
 - Average duration: ~7 min
 - Total execution time: ~0.35 hours
 
@@ -50,6 +50,7 @@ Progress: [██████░░░░] 60% (7/12 phases complete; Phase 08 =
 | 05 | 7 | - | - |
 | 06 | 5 | - | - |
 | 07 | 11 | - | - |
+| 08 | 8 | - | - |
 
 **Recent Trend:**
 

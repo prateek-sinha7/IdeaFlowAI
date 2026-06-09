@@ -96,7 +96,7 @@
 - [x] **AGENTRT-03**: `PromptAssemblyPolicy` promotes the hardcoded block order (`factory.py:174-255`: injects→guardrails→skills→hooks→constitution→body) to a declared, registry-resolved policy (F1 / §6/§30)
 - [x] **AGENTRT-04**: `tool_provider` registry replaces the closed `_build_runner_tools` switch (`factory.py:384-446`) (F2)
 - [x] **AGENTRT-05**: `skill_provider` / `hook_provider` replace inline skills/hooks injection (`factory.py:220-245`); behavioral hook becomes a non-executable provider sub-type (F3)
-- [ ] **AGENTRT-06**: Constitution injection made sync-safe / pre-warmed so a Postgres-stored Constitution is injected in production; constitution-injected-in-prod test passes (R12 / F4)
+- [x] **AGENTRT-06**: Constitution injection made sync-safe / pre-warmed so a Postgres-stored Constitution is injected in production; constitution-injected-in-prod test passes (R12 / F4)
 
 ### Local Workspace Runtime & Repo Workflows — No Exec (Phase 4A)
 
@@ -231,10 +231,10 @@ Each v1 requirement maps to exactly one phase. Phases are GSD integers 1–12, m
 | MODEL-01, MODEL-02, MODEL-03, MODEL-04, MODEL-05 | Phase 6 [1C] | Pending |
 | PARITY-01, PARITY-02, PARITY-03, PARITY-04, PARITY-05, PARITY-06, PARITY-07, PARITY-08, PARITY-09 | Phase 7 [2] | Complete (all 11 plans executed incl. gap-closure 07-07…07-11; SC-001 PROVEN; awaiting re-verification) |
 | CAP-01, CAP-02, CAP-03 | Phase 8 [3] | Done (08-01) |
-| GATE-01, GATE-02, GATE-03 | Phase 8 [3] | Pending |
-| TOOLPERM-01, TOOLPERM-02, TOOLPERM-03 | Phase 8 [3] | Pending |
-| VALID-01, VALID-02, VALID-03, VALID-04, VALID-05 | Phase 8 [3] | Pending |
-| AGENTRT-01, AGENTRT-02, AGENTRT-03, AGENTRT-04, AGENTRT-05 (08-03/08-05); AGENTRT-06 pending (08-06) | Phase 8 [3] | Partial |
+| GATE-01, GATE-02, GATE-03 | Phase 8 [3] | Done (08-02; validation-gate context wired in review remediation) |
+| TOOLPERM-01, TOOLPERM-02, TOOLPERM-03 | Phase 8 [3] | Done (08-03) |
+| VALID-01, VALID-02, VALID-03, VALID-04, VALID-05 | Phase 8 [3] | Done (08-04; VALID-03 single-source map_severity in 08-01) |
+| AGENTRT-01, AGENTRT-02, AGENTRT-03, AGENTRT-04, AGENTRT-05 (08-03/08-05); AGENTRT-06 (08-06) | Phase 8 [3] | Done |
 | SKILL-01 | Phase 8 [3] | Done (08-05) |
 | HOOK-01, HOOK-02, HOOK-03, HOOK-04 | Phase 8 [3] | Done (08-07) |
 | OBS-02 | Phase 8 [3] | Done (08-07) |

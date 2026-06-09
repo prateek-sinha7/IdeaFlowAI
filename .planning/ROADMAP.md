@@ -19,7 +19,7 @@ The plan sub-phases (0A/0B/0C, 1A/1B/1C, 4A/4B) are mapped to sequential GSD pha
 - [x] **Phase 5: Typed Artifacts + Persistence + Ownership [1B]** - `ArtifactGraph`/`ArtifactRef` + schema (§18); dual-write then delete the legacy mirror; authz denial tests (completed 2026-06-08)
 - [x] **Phase 6: Model Policy [1C]** - `ModelResolver` (resolution order + fallback + cost_class) + `ModelCatalog` + per-agent overrides (completed 2026-06-08 — verified offline + threat-secured; 1 live-Bedrock check deferred to end-of-milestone, see 06-UAT.md)
 - [x] **Phase 7: Prototype as Manifest — Parity Proof (SC-001) [2]** - Strategies/resolvers/providers/parsers/compaction; delete kernel leaks L1–L12; zero name/id branches (plans 11/11 executed — 6 original + 5 gap-closure 07-07…07-11 ALL DONE 2026-06-09; the 14 deep-review findings closed, SC-001 PROVEN by a non-prototype task_loop workflow; **awaiting re-verification** — see 07-REVIEW-DEEP.md / 07-11-SUMMARY.md) (completed 2026-06-09)
-- [ ] **Phase 8: Capabilities Hardened — Registry, Gates, Tool Perms, Runtime [3]** - CapabilityRegistry + trust; gate registry; least-privilege; AgentRuntimeAdapter + PromptAssemblyPolicy; delete F1–F5
+- [x] **Phase 8: Capabilities Hardened — Registry, Gates, Tool Perms, Runtime [3]** - CapabilityRegistry + trust; gate registry; least-privilege; AgentRuntimeAdapter + PromptAssemblyPolicy; delete F1–F5 (completed 2026-06-09)
 - [ ] **Phase 9: Local Workspace Runtime + Repo Workflows (no exec) [4A]** - `RuntimeEnvironment` port + `LocalSandboxRuntime`; repo inventory/index/context-pack + `repo_diff`; MCP client + integrations
 - [ ] **Phase 10: Safe Local Exec (gated on N3) [4B]** - Constrained `exec` behind the `security` gate + `ExecutionPolicy`; compile/test/lint validators
 - [ ] **Phase 11: Engine-Owned Fan-Out + Merge [5]** - `spawn_subagents` + kernel `run_fanout`; isolation + merge-conflict flow; `BudgetManager`; subagent persistence
@@ -373,7 +373,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 5. Typed Artifacts + Persistence [1B] | 7/7 | Complete    | 2026-06-08 |
 | 6. Model Policy [1C] | 5/5 | Complete    | 2026-06-08 |
 | 7. Prototype as Manifest (Parity Proof) [2] | 11/11 | Complete    | 2026-06-09 |
-| 8. Capabilities Hardened [3] | 8/8 | In Progress (awaiting verification) |  |
+| 8. Capabilities Hardened [3] | 8/8 | Complete    | 2026-06-09 |
 | 9. Local Runtime + Repo (no exec) [4A] | 0/6 | Not started | - |
 | 10. Safe Local Exec [4B] | 0/2 | Not started | - |
 | 11. Fan-Out + Merge [5] | 0/5 | Not started | - |
