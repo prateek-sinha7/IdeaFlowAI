@@ -80,11 +80,23 @@ class _FakeScopedStore:
 
 class _Ctx:
     def __init__(self, runner, *, od_context=None, scoped_store=None,
-                 parent_run_id=None) -> None:
+                 parent_run_id=None, current_spec_tools=None,
+                 build_task_number="") -> None:
         self.runner = runner
         self.od_context = od_context
         self.scoped_store = scoped_store
         self.parent_run_id = parent_run_id
+        # The engine threads the consuming agent's OPAQUE tool set + the build-loop
+        # task number onto the ctx before provider.load (D-03; engine.py
+        # _compose_context_message). Default current_spec_tools to the BUILDER set so
+        # the existing positive example/parts assertions keep exercising the builder
+        # path (CR-02); per-test overrides drive the tools:[] planning-agent + the
+        # task-2+ suppression cases.
+        self.current_spec_tools = (
+            {"prototype_emit_only"} if current_spec_tools is None
+            else set(current_spec_tools)
+        )
+        self.build_task_number = build_task_number
 
 
 # ===========================================================================
@@ -100,6 +112,13 @@ _OD = {
     "is_design_system_required": None,
 }
 
+# The exact L12 DS-block instruction preamble (git fb55699, spaces after each
+# comma). The DS block content is this preamble immediately followed by ds_body.
+_DS_PREAMBLE = (
+    "Apply these tokens to ALL colors, fonts, and spacing. "
+    "Map to :root variables: --bg, --fg, --accent, --surface, --border, --muted.\n"
+)
+
 
 @pytest.mark.asyncio
 async def test_opendesign_block_name_keys_and_content():
@@ -111,13 +130,102 @@ async def test_opendesign_block_name_keys_and_content():
     ctx = _Ctx(runner, od_context=_OD)
     blocks = await OpenDesignProvider().load(ctx)
 
-    assert blocks["ACTIVE DESIGN SYSTEM: midnight"] == "DS TOKENS"
+    # CR-01: the DS block is the preamble + ds_body (byte-identical to git fb55699),
+    # NOT the bare ds_body that the prior assertion locked in.
+    assert blocks["ACTIVE DESIGN SYSTEM: midnight"] == _DS_PREAMBLE + "DS TOKENS"
+    assert blocks["ACTIVE DESIGN SYSTEM: midnight"].startswith(
+        "Apply these tokens to ALL colors, fonts, and spacing."
+    )
+    assert blocks["ACTIVE DESIGN SYSTEM: midnight"].endswith("DS TOKENS")
     assert blocks["ACTIVE TEMPLATE (SKILL.md): web-prototype"] == "TEMPLATE BODY"
     assert blocks["TEMPLATE EXAMPLE (example.html): web-prototype"].startswith(
         "<html>example"
     )
     # The get_template_injection_parts block is present.
     assert any("TEMPLATE SEED" in v for v in blocks.values())
+
+
+@pytest.mark.asyncio
+async def test_opendesign_ds_block_has_preamble():
+    """CR-01: the ACTIVE DESIGN SYSTEM block content begins with the EXACT full
+    instruction preamble line (pin the bytes, not just a fragment)."""
+    runner = _FakeRunner(od_context=_OD, injection_parts=[], example=None)
+    ctx = _Ctx(runner, od_context=_OD)
+    blocks = await OpenDesignProvider().load(ctx)
+
+    ds = blocks["ACTIVE DESIGN SYSTEM: midnight"]
+    assert ds.startswith(
+        "Apply these tokens to ALL colors, fonts, and spacing. "
+        "Map to :root variables: --bg, --fg, --accent, --surface, --border, --muted."
+    )
+    assert ds == _DS_PREAMBLE + "DS TOKENS"
+
+
+@pytest.mark.asyncio
+async def test_opendesign_example_gated_on_builder_tools():
+    """CR-02: example.html injects ONLY for builder tool sets. A tools:[] planning
+    agent (prototype-specify / prototype-plan) must NOT receive the full working
+    HTML example; a builder (prototype_emit_only) must."""
+    # Planning agent — tools:[] — example ABSENT.
+    runner = _FakeRunner(
+        od_context=_OD,
+        injection_parts=["=== TEMPLATE SEED ===\nseed"],
+        example="<html>example</html>",
+    )
+    planner_ctx = _Ctx(runner, od_context=_OD, current_spec_tools=set())
+    planner_blocks = await OpenDesignProvider().load(planner_ctx)
+    assert "TEMPLATE EXAMPLE (example.html): web-prototype" not in planner_blocks
+    assert not any(k.startswith("TEMPLATE EXAMPLE") for k in planner_blocks)
+    # A tools:[] planning agent also receives NO injection parts (legacy branch had
+    # no else clause for tools:[]).
+    assert not any(k.startswith("TEMPLATE INJECTION PART") for k in planner_blocks)
+
+    # Builder agent — prototype_emit_only — example PRESENT.
+    builder_ctx = _Ctx(
+        runner, od_context=_OD, current_spec_tools={"prototype_emit_only"}
+    )
+    builder_blocks = await OpenDesignProvider().load(builder_ctx)
+    assert "TEMPLATE EXAMPLE (example.html): web-prototype" in builder_blocks
+
+
+@pytest.mark.asyncio
+async def test_opendesign_build_task_2_plus_suppresses_ds_template_example():
+    """CR-03: on build task 2+ for a builder, the DS / template / example blocks are
+    ALL absent and only the seed injection part survives. On task 1 all three blocks
+    are present (no suppression)."""
+    runner = _FakeRunner(
+        od_context=_OD,
+        injection_parts=[
+            "=== TEMPLATE SEED ===\nseed\n=== END TEMPLATE SEED ===",
+            "=== LAYOUTS ===\nlayouts",
+            "=== CHECKLIST ===\nchecklist",
+        ],
+        example="<html>example</html>",
+    )
+
+    # Task 2 — suppression active.
+    t2_ctx = _Ctx(
+        runner, od_context=_OD,
+        current_spec_tools={"prototype_emit_only"}, build_task_number="2",
+    )
+    t2 = await OpenDesignProvider().load(t2_ctx)
+    assert "ACTIVE DESIGN SYSTEM: midnight" not in t2
+    assert "ACTIVE TEMPLATE (SKILL.md): web-prototype" not in t2
+    assert "TEMPLATE EXAMPLE (example.html): web-prototype" not in t2
+    # Only the seed injection part survives.
+    part_vals = [v for k, v in t2.items() if k.startswith("TEMPLATE INJECTION PART")]
+    assert part_vals and all("TEMPLATE SEED" in v for v in part_vals)
+    assert not any("LAYOUTS" in v or "CHECKLIST" in v for v in part_vals)
+
+    # Task 1 — no suppression; all three blocks present.
+    t1_ctx = _Ctx(
+        runner, od_context=_OD,
+        current_spec_tools={"prototype_emit_only"}, build_task_number="1",
+    )
+    t1 = await OpenDesignProvider().load(t1_ctx)
+    assert "ACTIVE DESIGN SYSTEM: midnight" in t1
+    assert "ACTIVE TEMPLATE (SKILL.md): web-prototype" in t1
+    assert "TEMPLATE EXAMPLE (example.html): web-prototype" in t1
 
 
 @pytest.mark.asyncio
