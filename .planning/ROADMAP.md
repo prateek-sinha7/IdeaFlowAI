@@ -257,7 +257,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 08-01-PLAN.md — `@register`/`discover()` self-registration + `user_allowed` trust + new tool/skill/hook/runtime kinds + `base.py` ports + the single canonical `map_severity` (VALID-03); delete `install()`; fold the test-isolation reset fixture (CAP-01/02/03, VALID-03) [wave 1]
+- [x] 08-01-PLAN.md — `@register`/`discover()` self-registration + `user_allowed` trust + new tool/skill/hook/runtime kinds + `base.py` ports + the single canonical `map_severity` (VALID-03); delete `install()`; fold the test-isolation reset fixture (CAP-01/02/03, VALID-03) [wave 1] ✅ 2026-06-09
 
 **Wave 2** *(blocked on Wave 1 completion)*
 

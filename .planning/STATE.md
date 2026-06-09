@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-09T16:02:53.789Z"
-last_activity: 2026-06-09 -- Phase 8 planning complete
+last_updated: "2026-06-09T17:00:00.000Z"
+last_activity: 2026-06-09 -- 08-01 complete (self-registering registry + trust + ports + severity)
 progress:
   total_phases: 12
   completed_phases: 7
-  total_plans: 37
-  completed_plans: 37
-  percent: 58
+  total_plans: 45
+  completed_plans: 38
+  percent: 60
 ---
 
 # Project State
@@ -20,16 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-06)
 
 **Core value:** A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001).
-**Current focus:** Phase 07 — gap-closure COMPLETE (07-07..07-11 all executed): the 14 deep-review findings closed — context_message parity drift (oracle-gated) + SC-001 hardcoding (CR-05/CR-06/CR-07). SC-001 now PROVEN by a non-prototype task_loop workflow. Phase 07 ready for re-verification; Phase 08 deferred until 07 verification confirms closure.
+**Current focus:** Phase 08 — capabilities-hardened-registry-gates-tool-perms-runtime-3
 
 ## Current Position
 
-Phase: 8
-Plan: Not started
-Status: Executing → gap-closure COMPLETE — 07-11 (cluster E CR-05/CR-07, the SC-001 proof) done; next: re-run Phase 7 verification (/gsd-verify-phase 7) to confirm SC-001 closure, then Phase 08
-Last activity: 2026-06-09 -- Phase 8 planning complete
+Phase: 08 (capabilities-hardened-registry-gates-tool-perms-runtime-3) — EXECUTING
+Plan: 2 of 8
+Status: Executing Phase 08 — Wave 1 (08-01) complete; Wave 2 (08-02/08-03) ready
+Last activity: 2026-06-09 -- 08-01 complete (self-registering registry + trust + ports + severity)
 
-Progress: [█████░░░░░] 50% (6/12 phases complete)
+Progress: [█████░░░░░] 58% (7/12 phases complete; Phase 08 plan 1/8 done)
 
 ## Performance Metrics
 
@@ -91,6 +91,7 @@ Progress: [█████░░░░░] 50% (6/12 phases complete)
 | Phase 07 P08 | ~25min | 2 tasks | 3 files |
 | Phase 07 P09 | ~75min | 3 tasks | 13 files |
 | Phase 07 P10 | ~55min | 3 tasks | 14 files |
+| Phase 08 P01 | ~30min | 4 tasks | 18 files |
 
 ## Accumulated Context
 
@@ -141,6 +142,7 @@ Recent decisions affecting current work:
 - [Phase 07]: 07-07: deleted the dead DUAL validation fix-loop from task_loop.py (INV-3/INV-12; WR-07/WR-08, cluster B). Removed the `else: # pragma: no cover` fallback, the in-strategy `_run_validation_fix_loop`, `_SkippedRender`, the duplicated `_select_issues_to_fix`/`_static_issue_sigs`/`_console_sigs`, and `_MAX_FIX_ATTEMPTS`. TaskLoopStrategy.run now delegates validation+fix UNCONDITIONALLY to runner.run_validation_fix_loop (the single engine home). _FakeRunner re-pointed onto run_validation_fix_loop FIRST (RED→GREEN guard) importing _select_issues_to_fix from engine. run_fix_agent pruned from the strategy docstring; kernel_services already advertised none. Goldens byte-unchanged; characterization green in clean session. Pre-existing test_strategies→characterization session pollution logged to deferred-items.md (out of scope).
 - [Phase 07]: 07-08: REVERSES the 07-06 adjudication ("pinned==correct" was false — the de-blind captured POST-refactor drifted bytes). Built an engine-INDEPENDENT acd1636 context_message ORACLE (tests/agents/characterization/oracle/) via PINNED-BYTES (verbatim legacy block strings + per-block provenance, NOT running the legacy method — that would re-couple to engine/od_loader). build_oracle_message covers 4 prototype agent classes honoring every acd1636 gate (per-injects, is_build_task_2_plus suppression, _is_builder example gate, raw injection parts, bare END markers, skeleton wrapper, unconditional TEMPLATE COMPLIANCE). Stability test PASSES; a divergence test (drives _drive('prototype'), extracts build-agent context_message) XFAILS — the documented 07-09 acceptance target. Baseline pinned to acd1636 (07-06 used 1d9234b^; _is_builder gate present at both → baseline-invariant). The 5 goldens left UNTOUCHED (re-pinning to oracle is 07-09 work after the engine is byte-correct).
 - [Phase 07]: 07-10 (WR-04/WR-06/CR-06): revision-intent is now a DECLARED per-deliverable flag `DeliverableSpec.revises_existing` (manifest `deliverable.revises_existing` → compiler → compiled model). engine sources `_is_revision_workflow` from it, NOT from `"previous_run" in context_providers` (the proxy that misclassified the 4 non-prototype previous_run workflows). The previous_run provider gates the seed + assert_owns on `ctx.is_revision_workflow` (WR-06: a forward build with a stray parent_run_id no longer seeds). The kernel revision block is EVICTED: seed-existing-artifact → previous_run provider (parameterized by deliverable.name, single-home extract/slim helpers); pre-edit baseline + post-edit fix-loop → a new DECLARED `revision_validation` post-step capability (PostStep port + `post_step` capability kind + `Step.post_step`, invoked by the dispatch loop; agent_id from the compiled step, baseline via `KernelServices.compute_revision_baseline` so the capability never imports the kernel). REVISION_FILE_NAME, the prototype-revision-agent literal (incl. _AGENT_KIND_MAP entry), the DELIBERATE EXCEPTION comment, and the orphaned engine helpers + `import re` are deleted. INV-1=0, WR-04 proxy=0, CR-06 literals=0; lint-imports KEPT; 578 agent tests pass; characterization revision + phase5 + L16 parity held.
+- [Phase 08]: 08-01 (CAP-01/02/03 + VALID-03 + D-12): `install()`/`_register_builtins` DELETED (INV-12) → `@register(kind,name,*,user_allowed=False)` self-registration decorator binds `(kind,name)->impl` + `_TRUST` at impl-module import; `discover()` is the single successor (explicit subpackage imports incl. best-effort `app/agents/validators/`, idempotent via `_DISCOVERED`, never at compiler import — Pitfall 1 held). `_KNOWN` kept as the declared impl-free literal allow-list the decorator ADDS to (compiler membership path stays impl-free). 11 Phase-7 built-in impl classes now carry `@register` decorators. Six new ports in base.py (PromptAssemblyPolicy/AgentRuntimeAdapter/HookHandler/ToolProvider/SkillProvider/HookProvider); new `tool`/`skill`/`hook`/`runtime` KIND strings accepted (no central if/elif). CAP-03 trust check: `WorkflowCompiler.compile(trust='file')` default-trusted kwarg threaded inline at the existing per-reference `is_registered` site (no forked path); user/db manifest referencing a non-`user_allowed` cap → CompilerError NAMING `(kind,name)`; file manifests unrestricted (Phase-4/7 parity). VALID-03 single source: ONE `map_severity` (P0→CRITICAL/…/P3→LOW, unknown→ValueError) in `agents/capabilities/validators/severity.py`, pure-stdlib import-clean (no `@register`/discover side-effect) for the 08-02 gate before 08-04. D-12 folded: autouse registry save/restore reset fixture in `test_strategies.py` (snapshots AFTER `discover()` — import-side-effect binding is one-shot per process) → no same-session characterization pollution. 5 characterization snapshots byte/event-identical; lint-imports/banned-pattern/migration-ledger green.
 - [Phase 07]: 07-11 (CR-05/CR-07 — the SC-001 PROOF): the deliverable filename is THREADED from `ctx.deliverable.name` (single_file.py pattern) to `persist_task_html`/`run_validation_fix_loop`/`engine._run_validation_fix_loop` as a REQUIRED `filename` (no prototype default; the prototype manifest declares `prototype.html` so it passes through byte-identical). Added DECLARED `TaskSource.source_step`/`spec_step` (prototype declares prototype-plan/-specify; the STRATEGY owns the legacy fallback so the compiler stays thin, INV-5) — no hardcoded prototype-plan/-specify on the routed path. `previous_run` + `task_loop._write_reference_files` honor the declared `compiled.seed_files` (the `from_run` list) threaded onto `ectx.seed_files`, with `_SEED_FILES` fallback (authored manifests are {} → fallback fires → byte-identical, Pitfall 2). SC-001 PROVEN: a brand-new NON-prototype `sc001_task_loop` workflow (manifest + 3 AGENT.md only, using only registered task_loop/single_file/heading_tasks) runs end-to-end producing `app.py` — test asserts the deliverable is app.py, the dual-write location is app.py, the fix-loop operated on app.py, the task list came from the DECLARED source_step, and all proof artifacts live OUTSIDE backend/agents/execution_engine/ (zero engine edits to run the new workflow). 581 agent tests pass; 5-pipeline characterization + banned-pattern + migration-ledger + L16 parity held. Phase 07 gap-closure COMPLETE.
 
 ### Pending Todos
@@ -166,4 +168,4 @@ Open decision records to confirm before their phase (from plan §26):
 - CP-SAT scheduling · single-file fragment-merge · PR/commit push · DB-backed user workflows (REQUIREMENTS.md v2 / Out of Scope).
 
 ---
-*Last updated: 2026-06-09 — 07-10 complete (cluster D WR-04/WR-06 + cluster E CR-06 closed); gap-closure continues with 07-11*
+*Last updated: 2026-06-09 — 08-01 complete (Wave 1 substrate: self-registering @register/discover() registry + CAP-03 trust + 6 ports + new kinds + VALID-03 map_severity; install() deleted; D-12 test-isolation folded). Wave 2 (08-02/08-03) ready.*

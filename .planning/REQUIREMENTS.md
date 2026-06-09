@@ -77,9 +77,9 @@
 
 ### Capability Registry, Gates & Tool Permissions (Phase 3)
 
-- [ ] **CAP-01**: One `CapabilityRegistry` keyed by `(kind, name)` for all capability kinds (strategies, validators, deliverables, context providers, gates, isolation, merge, task parsers, worker agents, runtimes, skills, hooks, tools, MCP, integrations) (§7 / INV-4)
-- [ ] **CAP-02**: Self-registering plugins (`@register(kind, name)`) + a startup `discover()` imports all capability packages — no central if/elif (§32)
-- [ ] **CAP-03**: Trust model — built-in/file manifests reference any registered capability; user/DB manifests validated against per-capability `user_allowed` + owner allow-list (§7 / Q2/Q27)
+- [x] **CAP-01**: One `CapabilityRegistry` keyed by `(kind, name)` for all capability kinds (strategies, validators, deliverables, context providers, gates, isolation, merge, task parsers, worker agents, runtimes, skills, hooks, tools, MCP, integrations) (§7 / INV-4)
+- [x] **CAP-02**: Self-registering plugins (`@register(kind, name)`) + a startup `discover()` imports all capability packages — no central if/elif (§32)
+- [x] **CAP-03**: Trust model — built-in/file manifests reference any registered capability; user/DB manifests validated against per-capability `user_allowed` + owner allow-list (§7 / Q2/Q27)
 - [ ] **GATE-01**: `GateHandler` registry with `human`, `validation`, `approval`, `security` gates, declared per step (ordered), evaluated at the step boundary; outcome ∈ pass|block|wait_human (§9 / A7)
 - [ ] **GATE-02**: `validation` gate makes the declared-but-unimplemented `Validation_Gate` real — runs validators, blocks on policy, emits `validation_warning` on residuals (§9)
 - [ ] **GATE-03**: `human` gate preserves semantic event parity (existing `_run_review_gate` + `review_gate_*`) (INV-3)
@@ -88,7 +88,7 @@
 - [ ] **TOOLPERM-03**: Enforcement at `factory._build_runner_tools` (binds only granted tool sets) and `Workspace.ExecutionPolicy` (runtime exec/network/secrets gating) (§8)
 - [ ] **VALID-01**: `Validator` registry; manifest lists `validators: [...]` per step; `DeliverableContext` carries path/content/Workspace/task-meta and may request browser/compile/test/static-analysis runners (Q21/Q22)
 - [ ] **VALID-02**: Generic fix-loop (deliverable name + max_attempts + fix-prompt template from `FixPolicy`); default warn-non-critical / block-critical, then `validation_warning` with residuals (Q23/Q25)
-- [ ] **VALID-03**: Severity P0–P3 internal with one mapping function to CRITICAL/HIGH/MEDIUM/LOW for the UI (Q24)
+- [x] **VALID-03**: Severity P0–P3 internal with one mapping function to CRITICAL/HIGH/MEDIUM/LOW for the UI (Q24)
 - [ ] **VALID-04**: Migrate `html_static`/`html_render` to registered validators; each run/attempt → `validation_results` row (§16/§18)
 - [ ] **VALID-05**: Tier#4/#5/#6 ship as registered validators — `spec_plan_coverage` (pre-build analyze), `task_done_when` (per-task acceptance), `design_quality` (tokens/placeholder/a11y, warnings-first) (Q38)
 - [ ] **AGENTRT-01**: `AgentRuntimeAdapter` wraps `create_deep_agent`; `langchain_deepagents` is the mandated adapter; future `claude_code_cli`/`custom_runner` slot in without kernel edits (§6/§30 / INV-13)
@@ -230,7 +230,7 @@ Each v1 requirement maps to exactly one phase. Phases are GSD integers 1–12, m
 | API-04, API-05 | Phase 5 [1B] | Pending |
 | MODEL-01, MODEL-02, MODEL-03, MODEL-04, MODEL-05 | Phase 6 [1C] | Pending |
 | PARITY-01, PARITY-02, PARITY-03, PARITY-04, PARITY-05, PARITY-06, PARITY-07, PARITY-08, PARITY-09 | Phase 7 [2] | Complete (all 11 plans executed incl. gap-closure 07-07…07-11; SC-001 PROVEN; awaiting re-verification) |
-| CAP-01, CAP-02, CAP-03 | Phase 8 [3] | Pending |
+| CAP-01, CAP-02, CAP-03 | Phase 8 [3] | Done (08-01) |
 | GATE-01, GATE-02, GATE-03 | Phase 8 [3] | Pending |
 | TOOLPERM-01, TOOLPERM-02, TOOLPERM-03 | Phase 8 [3] | Pending |
 | VALID-01, VALID-02, VALID-03, VALID-04, VALID-05 | Phase 8 [3] | Pending |
