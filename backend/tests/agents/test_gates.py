@@ -236,3 +236,101 @@ async def test_validation_gate_no_validators_passes_clean():
     result = await gate.evaluate(step, _Ctx(runner))
     assert result.outcome == GATE_PASS
     assert result.events == []
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Engine step-boundary seam (Task 3) — _evaluate_gates pre/post + halt
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def _engine():
+    from agents.execution_engine.engine import ExecutionEngine
+
+    return ExecutionEngine()
+
+
+async def _collect_gates(engine, step, ctx, *, phase):
+    """Drain the engine's _evaluate_gates generator into a (events, outcomes) pair."""
+    from agents.capabilities.registry import CapabilityRegistry
+
+    events, outcomes = [], []
+    async for ev, outcome in engine._evaluate_gates(
+        step, ctx, CapabilityRegistry(), phase=phase
+    ):
+        events.append(ev)
+        outcomes.append(outcome)
+    return events, outcomes
+
+
+class _GatedStep(_Step):
+    def __init__(self, agent_id="step-x", *, gates=None, **kw) -> None:
+        super().__init__(agent_id, **kw)
+        self.gates = list(gates or [])
+
+
+@pytest.mark.asyncio
+async def test_engine_pre_step_security_gate_halts_with_block_event():
+    """A step declaring gates:[security] requesting exec halts at the boundary
+    with a block outcome + an additive gate_blocked event (Task-3 behavior)."""
+    engine = _engine()
+    runner = _RecordingRunner()
+    ctx = _Ctx(runner)
+    step = _GatedStep(gates=["security"], tools=_ToolGrant(exec=True))
+
+    events, outcomes = await _collect_gates(engine, step, ctx, phase="pre")
+    assert GATE_BLOCK in outcomes
+    assert any(e["type"] == "gate_blocked" for e in events)
+
+
+@pytest.mark.asyncio
+async def test_engine_pre_phase_skips_post_only_validation_gate():
+    """The validation gate is POST-step: it does not fire in the pre phase."""
+    _register_fake_validator("v_blk", [_Issue("P0")])
+    engine = _engine()
+    step = _GatedStep(gates=["validation"], validators=["v_blk"])
+
+    events, outcomes = await _collect_gates(engine, step, _Ctx(_RecordingRunner()), phase="pre")
+    assert events == [] and outcomes == []
+
+
+@pytest.mark.asyncio
+async def test_engine_post_phase_runs_validation_gate_only():
+    """The validation gate fires in the POST phase; a pre-step gate does not."""
+    _register_fake_validator("v_warn", [_Issue("P2")])
+    engine = _engine()
+    step = _GatedStep(gates=["security", "validation"], validators=["v_warn"],
+                      tools=_ToolGrant(exec=True))
+
+    events, outcomes = await _collect_gates(engine, step, _Ctx(_RecordingRunner()), phase="post")
+    # Only validation runs in post — it warns (P2) and passes; security is pre-only.
+    assert GATE_PASS in outcomes
+    assert any(e["type"] == "validation_warning" for e in events)
+    assert not any(e["type"] == "gate_blocked" for e in events)
+
+
+@pytest.mark.asyncio
+async def test_engine_no_declared_gates_is_noop():
+    """A step with no declared gates yields nothing in either phase (parity:
+    existing prototype/od_* steps declare no gates → the seam is inert)."""
+    engine = _engine()
+    step = _GatedStep(gates=[])
+    for phase in ("pre", "post"):
+        events, outcomes = await _collect_gates(engine, step, _Ctx(_RecordingRunner()), phase=phase)
+        assert events == [] and outcomes == []
+
+
+@pytest.mark.asyncio
+async def test_engine_gate_that_raises_is_swallowed_not_aborting():
+    """A gate that raises is treated as pass (a gate failure must never abort a run)."""
+    engine = _engine()
+
+    class _BoomGate:
+        name = "validation"
+
+        async def evaluate(self, step, ctx):
+            raise RuntimeError("boom")
+
+    registry_mod._IMPLS[("gate", "validation")] = _BoomGate()
+    step = _GatedStep(gates=["validation"])
+    events, outcomes = await _collect_gates(engine, step, _Ctx(_RecordingRunner()), phase="post")
+    assert events == [] and outcomes == []

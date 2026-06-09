@@ -1024,9 +1024,43 @@ class ExecutionEngine:
                     from agents.workflows.plan import Step as _Step
 
                     step = _Step(agent_id=spec.id, strategy=strategy_name)
+                # ── [D-03] Pre-step gates (security/approval/human) ──────────────
+                # A step's declared ``gates: [...]`` evaluate in order at the step
+                # BOUNDARY. The pre-step gates (security/approval/human) run BEFORE
+                # the strategy; a ``block``/``wait_human`` outcome halts the step
+                # ADDITIVELY (it emits the NEW ``gate_*`` event, never a renamed
+                # existing one). The existing inline ``_should_gate`` →
+                # ``_run_review_gate`` human path in ``_run_agent`` is UNCHANGED
+                # (parity); a declared ``gates:[human]`` step is the additive
+                # registry-driven entry point that delegates to the SAME review gate.
+                _halted = False
+                async for _ge, _outcome in self._evaluate_gates(
+                    step, ectx, _registry, phase="pre"
+                ):
+                    yield _ge
+                    if _outcome in ("block", "wait_human"):
+                        _halted = True
+                if _halted:
+                    # The step is halted at its boundary — skip the strategy + the
+                    # post-step gates/post_step for this agent (additive halt).
+                    continue
+
                 strategy = _registry.resolve("strategy", strategy_name)
                 async for event in strategy.run(step, ectx):
                     yield event
+
+                # ── [D-03] Post-step gates (validation) ──────────────────────────
+                # Post-step gates (validation) evaluate AFTER the strategy completes:
+                # they run the step's declared validators + the block-critical /
+                # warn-non-critical policy, emitting the additive ``validation_warning``
+                # + ``gate_*`` events. A ``block`` here is surfaced as the additive
+                # ``gate_blocked`` event (the deliverable already produced; this is the
+                # declarative post-build validation entry point, NOT the inline
+                # task_loop build-loop validation which stays put per D-06).
+                async for _ge, _outcome in self._evaluate_gates(
+                    step, ectx, _registry, phase="post"
+                ):
+                    yield _ge
 
                 # ── Declared post-step capability (INV-1 / CR-06) ────────────────
                 # After the step's strategy finishes, run any declared ``post_step``
@@ -2039,6 +2073,56 @@ class ExecutionEngine:
     # ------------------------------------------------------------------
     # Review_Gate — Human review/edit/approve gate between agents
     # ------------------------------------------------------------------
+
+    # Pre-step vs post-step gate placement (D-03). security/approval/human gate
+    # BEFORE the strategy runs (they decide whether the step proceeds); validation
+    # gates AFTER (it inspects the produced deliverable). An unknown/unclassified
+    # gate name defaults to pre-step (fail-safe: evaluate it before the work).
+    _POST_STEP_GATES = frozenset({"validation"})
+
+    async def _evaluate_gates(
+        self,
+        step,
+        ectx: ExecutionContext,
+        registry,
+        *,
+        phase: str,
+    ) -> AsyncGenerator[tuple[dict, str], None]:
+        """Evaluate a step's declared ``gates: [...]`` for one phase (D-03).
+
+        Yields ``(event, outcome)`` for every additive event a gate emits so the
+        caller can both forward the event AND act on the outcome (a pre-step
+        ``block``/``wait_human`` halts the step). Gates evaluate in DECLARED order;
+        only the gates belonging to ``phase`` (``pre``|``post``) run here. Each gate
+        returns a ``GateOutcome`` (outcome + additive events); the kernel owns the
+        yield so the gate impls stay simple async functions.
+
+        Additive-only (INV-3): every event a gate yields is a NEW ``gate_*`` /
+        ``validation_warning`` type flowing through the generic forward — no
+        existing event is renamed/removed. A gate that raises is swallowed (a gate
+        failure must never abort the run); the step proceeds as if the gate passed.
+        """
+        declared = list(getattr(step, "gates", None) or [])
+        if not declared:
+            return
+        for name in declared:
+            is_post = name in self._POST_STEP_GATES
+            if phase == "post" and not is_post:
+                continue
+            if phase == "pre" and is_post:
+                continue
+            try:
+                gate = registry.resolve("gate", name)
+                result = await gate.evaluate(step, ectx)
+            except Exception as exc:  # noqa: BLE001 — a gate must never abort the run
+                logger.warning(
+                    "gate %r on step %s raised (%s) — treating as pass",
+                    name, getattr(step, "agent_id", "?"), exc,
+                )
+                continue
+            outcome = getattr(result, "outcome", "pass")
+            for event in getattr(result, "events", None) or []:
+                yield event, outcome
 
     async def _run_review_gate(
         self,
