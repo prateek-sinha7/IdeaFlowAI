@@ -1072,6 +1072,20 @@ class ExecutionEngine:
                     # post-step gates/post_step for this agent (additive halt).
                     continue
 
+                # ── [08-07 / D-09] before_step hook firing (additive) ────────────
+                # The executable hooks bound to ``before_step`` (or the ``*``
+                # wildcard — otel_tracing) fire at the step boundary. otel_tracing
+                # is non-blocking (records a span/hook_runs row, emits NO WS event);
+                # a blocking hook (none bound to before_step this phase) would halt
+                # the step additively. The hook firing writes hook_runs rows but adds
+                # NO event to the existing characterization runs (RESEARCH Pitfall 6).
+                _hook_outcome = await self._fire_hooks(
+                    "before_step", step, ectx, _registry
+                )
+                if _hook_outcome == "block":
+                    # Additive halt — no new WS event, the step simply does not run.
+                    continue
+
                 strategy = _registry.resolve("strategy", strategy_name)
                 async for event in strategy.run(step, ectx):
                     yield event
@@ -2101,6 +2115,94 @@ class ExecutionEngine:
         if gate_ids is not None:
             return spec.id in set(gate_ids)
         return getattr(spec, "gate", None) == "Human_Gate"
+
+    # ------------------------------------------------------------------
+    # Executable hook firing (08-07 / HOOK-01..04) — the D-09 lifecycle seam
+    # ------------------------------------------------------------------
+
+    # The executable-hook NAMES wired live this phase. The legacy prompt-only hook
+    # is the ``behavioral`` NON-executable sub-type (08-05) — it is NOT fired here
+    # (it renders into the prompt, it does not handle lifecycle events). Git-/exec-
+    # needing hooks are registered + permissioned but do NOT fire this phase (their
+    # required permission is OFF: git=P9, exec=P10) — the permission gate in
+    # ``hooks.base.is_bound`` leaves them unbound, so listing them here is harmless.
+    _EXECUTABLE_HOOK_NAMES = ("secret_scan", "otel_tracing")
+
+    def _resolve_executable_hooks(self, registry) -> list:
+        """Return the registered EXECUTABLE ``HookHandler`` impls (08-07).
+
+        Resolves each wired executable-hook name off the registry, skipping any not
+        bound (a name registered in a later plan). The ``behavioral`` provider is
+        excluded — it is the non-executable prompt-only sub-type, not a firing hook.
+        """
+        hooks: list = []
+        for name in self._EXECUTABLE_HOOK_NAMES:
+            try:
+                hooks.append(registry.resolve("hook", name))
+            except (KeyError, RuntimeError):
+                continue
+        return hooks
+
+    async def _fire_hooks(
+        self,
+        event_name: str,
+        step,
+        ectx: ExecutionContext,
+        registry,
+        *,
+        payload: str = "",
+    ) -> str:
+        """Fire every executable hook BOUND for ``event_name`` (HOOK-01..04 / D-09).
+
+        Binding = the hook declares ``event_name`` (or the ``*`` wildcard) AND the
+        step's EFFECTIVE permissions (``step.tools`` — the 08-03 intersection) grant
+        the hook's ``required_permission`` (``hooks.base.bound_hooks``). A git/exec
+        hook is NOT bound this phase (those perms OFF) so it never fires (HOOK-02 /
+        T-08-07-EoP). Each bound hook's ``handle`` writes its own ``hook_runs`` row
+        (HOOK-04) via ``ctx.runner.record_hook_run``.
+
+        Returns the AGGREGATE outcome: ``block`` iff ANY hook blocked (the caller
+        halts the offending action ADDITIVELY — it emits NO existing WS event, it
+        just stops the write/step, so a clean characterization run that carries no
+        secret is byte/event-identical — RESEARCH Pitfall 6); else ``continue``. A
+        hook that RAISES is swallowed (a hook failure must never abort the run —
+        INV-3 parity), treated as ``continue``.
+        """
+        from agents.capabilities.hooks.base import (
+            HOOK_BLOCK,
+            HOOK_CONTINUE,
+            bound_hooks,
+        )
+
+        perms = getattr(step, "tools", None)
+        hooks = bound_hooks(self._resolve_executable_hooks(registry), event_name, perms)
+        if not hooks:
+            return HOOK_CONTINUE
+
+        # The fired-event envelope every hook reads (dict shape — defensive parsers
+        # in the hook impls accept attr OR dict). ``payload`` carries the write
+        # content for a ``before_write`` firing (scanned by secret_scan); it is ""
+        # for a lifecycle firing (otel just records the span/row).
+        event = {
+            "event": event_name,
+            "step": getattr(step, "agent_id", None),
+            "payload": payload,
+        }
+
+        aggregate = HOOK_CONTINUE
+        for hook in hooks:
+            try:
+                result = await hook.handle(event, ectx)
+            except Exception as exc:  # noqa: BLE001 — a hook must never abort the run
+                logger.warning(
+                    "hook %r on event %s raised (%s) — treating as continue",
+                    getattr(hook, "name", "?"), event_name, exc,
+                )
+                continue
+            outcome = getattr(result, "outcome", HOOK_CONTINUE)
+            if outcome == HOOK_BLOCK:
+                aggregate = HOOK_BLOCK
+        return aggregate
 
     # ------------------------------------------------------------------
     # Review_Gate — Human review/edit/approve gate between agents

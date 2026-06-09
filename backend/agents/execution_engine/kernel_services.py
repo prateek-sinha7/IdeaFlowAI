@@ -320,6 +320,64 @@ class KernelServices:
             )
             return None
 
+    # ── Hook-firing audit write (08-07 / HOOK-04 / D-10) ───────────────────────
+    async def record_hook_run(
+        self, hook: str, event: str, outcome: str, detail: Any = None
+    ) -> str | None:
+        """Write one owner/workspace-scoped ``hook_runs`` row for a hook firing.
+
+        Reached by the executable ``HookHandler`` impls via
+        ``ctx.runner.record_hook_run`` (NO kernel→app import on their side).
+        Delegates to the per-run ``ScopedStore`` on the ExecutionContext so the row
+        carries the run's ``(owner_id, workspace_id)`` (AUTHZ-01 / T-08-07-ID2).
+        ``outcome`` ∈ ``continue | warn | block``. Best-effort — a persist failure
+        (offline harness / no FK row) degrades to ``None`` rather than aborting the
+        hook firing (INV-3 parity: audit must never break the live stream).
+        """
+        store = getattr(self._ectx, "scoped_store", None)
+        if store is None:
+            return None
+        try:
+            return await store.record_hook_run(
+                self.run_id, hook, event, outcome, detail
+            )
+        except Exception as exc:  # noqa: BLE001 — audit write must never abort a hook
+            logger.warning(
+                "record_hook_run(hook=%s event=%s outcome=%s) failed: %s",
+                hook, event, outcome, exc,
+            )
+            return None
+
+    # ── Hook firing passthrough (08-07 / HOOK-01..04 / D-09) ───────────────────
+    async def fire_hooks(
+        self, event_name: str, step: Any, *, payload: str = ""
+    ) -> str:
+        """Fire the executable hooks bound to ``event_name`` (delegates to the engine).
+
+        The SINGLE seam a runner write/tool-call event (``before_write``) or a
+        task-loop per-task boundary (``post_task``) reaches the engine's hook
+        dispatch through — WITHOUT importing the kernel (the caller is the
+        kernel-side runner / strategy reaching it off ``ctx.runner``). Returns the
+        aggregate outcome (``block`` iff any bound hook blocked — the caller halts
+        the offending write/action ADDITIVELY; else ``continue``). ``payload`` is
+        the write content scanned by ``secret_scan`` on a ``before_write`` firing.
+
+        A ``before_write`` carrying a secret returns ``block`` (the write must be
+        halted) and the secret_scan hook persists a ``hook_runs`` row outcome=block
+        (HOOK-04 / T-08-07-ID). Best-effort: a missing engine/registry degrades to
+        ``continue`` so audit never aborts the write.
+        """
+        from agents.capabilities.hooks.base import HOOK_CONTINUE
+
+        engine = self._engine
+        if engine is None:
+            return HOOK_CONTINUE
+        from agents.capabilities.registry import CapabilityRegistry
+
+        return await engine._fire_hooks(
+            event_name, step, self._ectx, CapabilityRegistry(), payload=payload
+        )
+
     # ── FixPolicy factory (D-06) — the strategy builds a policy via the handle ──
     def make_fix_policy(
         self, deliverable: str, *, max_attempts: int = 2

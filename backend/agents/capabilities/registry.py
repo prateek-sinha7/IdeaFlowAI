@@ -67,7 +67,8 @@ from agents.registry import _OD_ALIAS_BASE
 # runtime:         langchain_deepagents  (08-05 / F5 — AgentRuntimeAdapter, wraps DeepAgentRunner)
 # prompt:          default  (08-05 / F1 — PromptAssemblyPolicy, fixed block order)
 # skill:           ui, disk, template, repo  (08-05 / F3 / SKILL-01 — versioned skill providers)
-# hook:            behavioral  (08-05 / F3 — non-executable hook sub-type; 08-07 adds executable hooks)
+# hook:            behavioral  (08-05 / F3 — non-executable hook sub-type)
+#                  secret_scan, otel_tracing  (08-07 / HOOK-01..04 / OBS-02 — executable hooks)
 # ---------------------------------------------------------------------------
 _KNOWN: set[tuple[str, str]] = {
     ("strategy", "single_shot"),
@@ -102,6 +103,8 @@ _KNOWN: set[tuple[str, str]] = {
     ("skill", "template"),                 # 08-05 / F3 / SKILL-01
     ("skill", "repo"),                     # 08-05 / F3 / SKILL-01
     ("hook", "behavioral"),                # 08-05 / F3 (non-executable sub-type)
+    ("hook", "secret_scan"),               # 08-07 / HOOK-01..04 (executable, blocking)
+    ("hook", "otel_tracing"),              # 08-07 / OBS-02 (executable, non-blocking)
 }
 
 
