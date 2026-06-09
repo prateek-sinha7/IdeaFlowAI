@@ -253,18 +253,18 @@ Plans:
   3. `AgentRuntimeAdapter` (`langchain_deepagents`), `PromptAssemblyPolicy`, `tool_provider`/`skill_provider`/`hook_provider` replace the inline factory code; F1–F5 deleted; constitution-injected-in-prod test passes (R12)
   4. Executable lifecycle hooks (secret_scan/otel_tracing/pre-post_commit/post_task) fire and persist to `hook_runs`; `/api/capabilities` returns the dynamic palette; new validator/gate events surface at semantic parity for existing workflows
 
-**Plans**: TBD
+**Plans**: 8 plans (7 waves — strangler dependency order; each F# deletion gated on parity before its row flips ☑)
 
 Plans:
 
-- [ ] 08-01: `CapabilityRegistry` (registry.py) + `base.py` ports + self-registering `discover()` + trust flags
-- [ ] 08-02: `GateHandler` registry (human/validation/approval/security); make `Validation_Gate` real
-- [ ] 08-03: `ToolPermissions` resolution + enforcement (factory + ExecutionPolicy); delete F2 switch
-- [ ] 08-04: Validator registry + generic fix-loop + severity mapping + Tier#4/5/6 validators (migrate html_static/html_render)
-- [ ] 08-05: `AgentRuntimeAdapter` + `PromptAssemblyPolicy`; delete F1/F5; skill_provider/hook_provider (delete F3)
-- [ ] 08-06: Fix constitution no-op (F4/R12, sync-safe load)
-- [ ] 08-07: Executable `HookHandler` framework + canonical hooks + `hook_runs`; otel tracing hook
-- [ ] 08-08: `/api/capabilities` palette + dynamic composer/model-picker/validator-panel wiring
+- [ ] 08-01-PLAN.md — `@register`/`discover()` self-registration + `user_allowed` trust + new tool/skill/hook/runtime kinds + `base.py` ports; delete `install()`; fold the test-isolation reset fixture (CAP-01/02/03) [wave 1]
+- [ ] 08-02-PLAN.md — `GateHandler` registry (human/validation/approval/security) + real `Validation_Gate` + the additive `0016` migration (validation_results/gate_events/hook_runs) (GATE-01/02/03) [wave 2]
+- [ ] 08-03-PLAN.md — `ToolPermissions` intersection + enforcement (factory tool_provider + ExecutionPolicy); delete F2 switch (TOOLPERM-01/02/03, AGENTRT-04) [wave 3]
+- [ ] 08-04-PLAN.md — `Validator` registry + generic `FixPolicy` fix-loop + P0–P3 severity + migrate html_static/html_render + Tier#4/5/6 + re-point task_loop validation (VALID-01..05) [wave 3]
+- [ ] 08-05-PLAN.md — `AgentRuntimeAdapter` + `PromptAssemblyPolicy` + skill_provider/hook_provider; delete F1/F3/F5 (AGENTRT-01/02/03/05, SKILL-01) [wave 4]
+- [ ] 08-06-PLAN.md — constitution sync-safe pre-warm fix; delete F4/R12 branch (AGENTRT-06) [wave 5]
+- [ ] 08-07-PLAN.md — executable `HookHandler` framework + secret_scan + otel_tracing (OTel install gated by checkpoint) + hook_runs (HOOK-01..04, OBS-02) [wave 6]
+- [ ] 08-08-PLAN.md — `GET /api/capabilities` palette + additive run-stream events + capability palette/model picker/validator panel (API-02/03/06) [wave 7]
 
 ### Phase 9: Local Workspace Runtime + Repo Workflows (no exec) [4A]
 
@@ -361,7 +361,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 5. Typed Artifacts + Persistence [1B] | 7/7 | Complete    | 2026-06-08 |
 | 6. Model Policy [1C] | 5/5 | Complete    | 2026-06-08 |
 | 7. Prototype as Manifest (Parity Proof) [2] | 11/11 | Complete    | 2026-06-09 |
-| 8. Capabilities Hardened [3] | 0/8 | Not started | - |
+| 8. Capabilities Hardened [3] | 0/8 | Planned     | - |
 | 9. Local Runtime + Repo (no exec) [4A] | 0/6 | Not started | - |
 | 10. Safe Local Exec [4B] | 0/2 | Not started | - |
 | 11. Fan-Out + Merge [5] | 0/5 | Not started | - |
