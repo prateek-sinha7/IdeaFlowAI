@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-last_updated: "2026-06-09T11:13:58.537Z"
-last_activity: 2026-06-09 -- Phase 07 gap-closure PLANNED (07-07..07-11) — 5 plans close all 14 deep-review findings (B→C→D→E); plan-checker PASSED 14/14; ready to execute
+status: executing
+last_updated: "2026-06-09T11:48:00.000Z"
+last_activity: "2026-06-09 -- 07-07 executed: deleted the dead dual validation fix-loop from task_loop.py (INV-3/INV-12; WR-07/WR-08, cluster B closed). Goldens unchanged."
 progress:
   total_phases: 12
   completed_phases: 6
-  total_plans: 32
-  completed_plans: 32
+  total_plans: 38
+  completed_plans: 34
   percent: 50
 ---
 
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 ## Current Position
 
 Phase: 7
-Plan: 07-07..07-11 (gap-closure — 5 plans, waves 1–5) — not started
-Status: Planned (gap-closure) — ready to execute (/gsd-execute-phase 7)
-Last activity: 2026-06-09 -- Phase 07 gap-closure planned: 07-07..07-11 close all 14 deep-review findings (B→C→D→E); plan-checker PASSED 14/14
+Plan: 07-08..07-11 (gap-closure — 07-07 DONE, 4 plans remaining, waves 2–5)
+Status: Executing (gap-closure) — 07-07 complete; next: /gsd-execute-phase 7 (07-08)
+Last activity: 2026-06-09 -- 07-07 executed: deleted the dead dual validation fix-loop from task_loop.py (INV-3/INV-12; WR-07/WR-08, cluster B closed). Goldens unchanged.
 
 Progress: [█████░░░░░] 50% (6/12 phases complete)
 
@@ -86,6 +86,7 @@ Progress: [█████░░░░░] 50% (6/12 phases complete)
 | Phase 07 P04 | 95min | 2 tasks | 5 files |
 | Phase 07 P05 | ~150min | 3 tasks | 21 files |
 | Phase 07 P06 | 25min | 3 tasks | 9 files |
+| Phase 07 P07 | 6min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -133,6 +134,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 07-04: KernelServices(ctx.runner) delegates to engine _run_agent/_run_validation_fix_loop for byte+event parity; per-step dispatch via resolve(strategy).run, deliverable via resolve(deliverable).resolve, generic context injector over context_provider caps; L1-L13 DEAD-not-deleted; 5-pipeline parity GREEN.
 - [Phase 07]: 07-05: SC-001 LANDED — L1-L13 deleted from the kernel + agents/prototype/ removed (INV-12 exit gate); the kernel knows NO workflow by name, enforced by a kernel-scoped banned-pattern HARD-FAIL (assert 0 `if pipeline_type ==`/`spec.id ==` in agents/execution_engine/). L10 single-file readback + L3 mid-stream ppt sanitize MIGRATED to key off the declared compiled.deliverable strategy (output_length/PARITY-07/09 held; revision excluded via ectx.is_revision_workflow). L6 ALWAYS_CLARIFY re-homed to compiled.clarify.mode=="auto"; in-place revision setup + post-revision validation gate key off the declared previous_run provider (CompiledWorkflow compiled at run entry). migration-ledger L1-L13 flipped to ☑ kernel-scoped (L4/L8 + L11 refined to the leak construct; L1 keeps live REVISION_FILE_NAME; L11 keeps live survivors _run_validation_fix_loop/_load_template_example); L14/L15/L16 re-confirmed; D1 voided. Stale engine-internal suites retired (behavior covered by capabilities + characterization).
 - [Phase ?]: 07-06: opendesign restored to byte-faithful L12 lift; DS preamble (CR-01), builder-gated example (CR-02), task-2+ suppression (CR-03); engine threads ectx.current_spec_tools per D-03, no spec.id/pipeline_type (INV-1); context_message de-blinded (removed from _VOLATILE_STRIP_KEYS + 5 golden regenerated parity-stable) + dedicated parity assertion; PARITY-03/09 closed
+- [Phase 07]: 07-07: deleted the dead DUAL validation fix-loop from task_loop.py (INV-3/INV-12; WR-07/WR-08, cluster B). Removed the `else: # pragma: no cover` fallback, the in-strategy `_run_validation_fix_loop`, `_SkippedRender`, the duplicated `_select_issues_to_fix`/`_static_issue_sigs`/`_console_sigs`, and `_MAX_FIX_ATTEMPTS`. TaskLoopStrategy.run now delegates validation+fix UNCONDITIONALLY to runner.run_validation_fix_loop (the single engine home). _FakeRunner re-pointed onto run_validation_fix_loop FIRST (RED→GREEN guard) importing _select_issues_to_fix from engine. run_fix_agent pruned from the strategy docstring; kernel_services already advertised none. Goldens byte-unchanged; characterization green in clean session. Pre-existing test_strategies→characterization session pollution logged to deferred-items.md (out of scope).
 
 ### Pending Todos
 
@@ -157,4 +159,4 @@ Open decision records to confirm before their phase (from plan §26):
 - CP-SAT scheduling · single-file fragment-merge · PR/commit push · DB-backed user workflows (REQUIREMENTS.md v2 / Out of Scope).
 
 ---
-*Last updated: 2026-06-09 — Phase 07 reopened for gap-closure (07-07) after deep code review (07-REVIEW-DEEP.md); CR-03 fixed inline*
+*Last updated: 2026-06-09 — 07-07 complete (cluster B / WR-07+WR-08 closed); gap-closure continues with 07-08..07-11*

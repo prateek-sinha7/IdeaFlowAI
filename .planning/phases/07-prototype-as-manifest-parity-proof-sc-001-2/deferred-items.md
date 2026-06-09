@@ -45,3 +45,25 @@ those would not add a NEW `AttributeError` on top of the pre-existing `.store` o
 but the `.store` snapshot itself is out of 07-05's scope (a 05-07 follow-up: repoint
 the harness's store no-op to the typed `ScopedStore`/`ArtifactGraph` substrate, or drop
 the obsolete `.store` stub). Surface to the phase owner for a separate triage.
+
+## Pre-existing test-isolation pollution: test_strategies → characterization (discovered 07-07)
+
+When `tests/agents/test_strategies.py` runs in the SAME pytest session BEFORE
+`tests/agents/test_characterization_prototype.py` / `..._od_prototype.py`, the two
+characterization snapshots FAIL. Root cause:
+`test_strategies.py::test_task_loop_requests_html_skeleton_compaction_for_task_2`
+mutates the process-global capability registry (`registry_mod.install()` +
+`registry_mod._IMPLS[("compaction","html_skeleton")] = ...`); its `finally` only pops
+the one key it added, leaving the `install()`-reseeded global registry in a state that
+shifts the characterization event snapshot.
+
+Verified PRE-EXISTING (NOT caused by 07-07): swapping `task_loop.py` +
+`test_strategies.py` back to their pre-07-07 (HEAD~1 of the 07-07 branch) versions and
+re-running the combined order reproduces the SAME single characterization failure. Both
+files individually, and each characterization file in its own clean session, pass.
+
+07-07's golden-safety is therefore intact — goldens are byte-unchanged and all 3
+prototype characterization suites pass in a clean session (6 passed). The pollution is a
+test-harness hygiene bug (the registry-install test needs a full save/restore of
+`registry_mod._IMPLS`, or an autouse registry-reset fixture), out of 07-07's scope
+(cluster B = dead-dual-impl deletion only). Surface to the phase owner for a separate triage.

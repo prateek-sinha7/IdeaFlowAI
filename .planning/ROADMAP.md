@@ -235,7 +235,7 @@ Plans:
 
 **Wave 7** *(gap-closure — REOPENED 2026-06-09; 07-REVIEW-DEEP.md found 14 confirmed findings the 07-06 de-blind masked; order B→C→D→E, sequential)*
 
-- [ ] 07-07-PLAN.md — cluster B (golden-safe): delete the dead dual validation fix-loop in task_loop.py (the `else` branch, `_SkippedRender`, duplicated helpers) + prune `run_fix_agent` from the KernelServices contract; re-point test_strategies (WR-07/WR-08, INV-3/INV-12) (PARITY-09)
+- [x] 07-07-PLAN.md — cluster B (golden-safe): delete the dead dual validation fix-loop in task_loop.py (the `else` branch, `_SkippedRender`, duplicated helpers) + prune `run_fix_agent` from the KernelServices contract; re-point test_strategies (WR-07/WR-08, INV-3/INV-12) (PARITY-09)
 - [ ] 07-08-PLAN.md — cluster C oracle: capture the TRUE pre-Phase-7 (acd1636) context_message bytes as an engine-independent oracle + a test proving the current routed message diverged (reverses the 07-06 adjudication; the 07-09 acceptance target) (PARITY-03/09)
 - [ ] 07-09-PLAN.md — cluster C restorations (asserted vs the oracle): TEMPLATE COMPLIANCE (CR-01), per-injects gate (CR-02), raw injection parts (CR-04), bare END markers (WR-03), build-skeleton wrapper (WR-01), ppt order (WR-02), typed re-persist after fix (WR-05); regenerate the 5 goldens to oracle bytes (PARITY-03/07/09)
 - [ ] 07-10-PLAN.md — cluster D + E-CR-06: declared revision-intent flag (WR-04/WR-06) + move the kernel-resident prototype-revision block (seed → baseline → post-edit fix-loop) into the previous_run provider + a declared post-step capability; remove the DELIBERATE EXCEPTION (PARITY-05/09)
@@ -360,7 +360,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 4. Manifest + Compiler [1A] | 5/5 | Complete    | 2026-06-07 |
 | 5. Typed Artifacts + Persistence [1B] | 7/7 | Complete    | 2026-06-08 |
 | 6. Model Policy [1C] | 5/5 | Complete    | 2026-06-08 |
-| 7. Prototype as Manifest (Parity Proof) [2] | 6/6 | Reopened (gap-closure 07-07) | - |
+| 7. Prototype as Manifest (Parity Proof) [2] | 7/11 | In Progress|  |
 | 8. Capabilities Hardened [3] | 0/8 | Not started | - |
 | 9. Local Runtime + Repo (no exec) [4A] | 0/6 | Not started | - |
 | 10. Safe Local Exec [4B] | 0/2 | Not started | - |
