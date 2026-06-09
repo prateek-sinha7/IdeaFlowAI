@@ -35,6 +35,8 @@ from agents.workflows.plan import (
     DeliverableSpec,
     Step,
     TaskSource,
+    ToolPermissions,
+    intersect_permissions,
 )
 
 
@@ -85,6 +87,23 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
 # task_loop strategy reads from (07-11 / CR-05) — pure data, no control flow (INV-5).
 _ALLOWED_TASK_SOURCE_KEYS: frozenset[str] = frozenset(
     {"kind", "parser", "target", "source_step", "spec_step"}
+)
+
+# EXACTLY the keys a step ``tools:`` grant block may declare (D-08 at the nested
+# level / D-07). These are the §8 ToolPermissions grant fields — pure data, no
+# control flow (INV-5). Mirrors ``ToolPermissions`` (plan.py:45-) one-for-one.
+_ALLOWED_TOOLS_KEYS: frozenset[str] = frozenset(
+    {
+        "read_files",
+        "write_files",
+        "exec",
+        "git",
+        "network",
+        "secrets",
+        "mcp",
+        "integrations",
+        "spawn_subagents",
+    }
 )
 
 
@@ -265,6 +284,21 @@ class WorkflowCompiler:
                 spec_step=raw_ts.get("spec_step"),
             )
 
+        # ── Effective ToolPermissions (D-07 / INV-9) ─────────────────────────
+        # Parse the step's declared ``tools:`` grant (default least-privilege when
+        # omitted, so existing un-granted steps keep ``read_files`` ON / rest OFF —
+        # parity), then resolve the effective set as
+        # ``intersection(owner_allow_list, workflow_ceiling, step_grant)``. The
+        # per-owner allow-list (Phase-5 run_capabilities / ScopedStore) is not bound
+        # at compile time this phase (DB user manifests are later) → it defaults to
+        # the workflow ceiling, so the intersection collapses to
+        # ``workflow ∩ step`` WITHOUT raising any permission (least-privilege).
+        step_grant = self._compile_tool_grant(raw.get("tools"), where)
+        workflow_ceiling = ToolPermissions()  # §8 least-privilege ceiling this phase
+        effective_tools = intersect_permissions(
+            workflow_ceiling, workflow_ceiling, step_grant
+        )
+
         return Step(
             agent_id=agent_id,
             strategy=strategy,
@@ -273,7 +307,44 @@ class WorkflowCompiler:
             validators=validators,
             compaction=compaction,
             post_step=post_step,
+            tools=effective_tools,
         )
+
+    @staticmethod
+    def _compile_tool_grant(raw_tools: object, where: str) -> ToolPermissions:
+        """Map a step ``tools:`` grant block → a ``ToolPermissions`` (D-07 / INV-9).
+
+        ``None`` (no ``tools:`` block) → the §8 least-privilege default
+        (``read_files`` ON, everything else OFF/none) — so existing un-granted steps
+        bind exactly what they bind today (parity). A declared block strict-key
+        rejects any non-permission field (INV-5) and coerces each value onto the
+        ToolPermissions slot (bools for the gate fields, lists for
+        ``secrets``/``mcp``/``integrations``).
+        """
+        if raw_tools is None:
+            return ToolPermissions()
+        if not isinstance(raw_tools, dict):
+            raise CompilerError(
+                f"step 'tools' must be a permission-grant mapping in {where}; "
+                f"got {type(raw_tools).__name__}"
+            )
+        extra = set(raw_tools) - _ALLOWED_TOOLS_KEYS
+        if extra:
+            raise CompilerError(
+                f"unknown tools grant key(s) {sorted(extra)} in {where} — "
+                f"manifests are pure data; a control-flow/DSL field has nowhere "
+                f"to live (INV-5)"
+            )
+        bool_fields = ("read_files", "write_files", "exec", "git", "network", "spawn_subagents")
+        list_fields = ("secrets", "mcp", "integrations")
+        kwargs: dict = {}
+        for f in bool_fields:
+            if f in raw_tools:
+                kwargs[f] = bool(raw_tools[f])
+        for f in list_fields:
+            if f in raw_tools:
+                kwargs[f] = list(raw_tools[f] or [])
+        return ToolPermissions(**kwargs)
 
     def _compile_deliverable(
         self, manifest: WorkflowManifest, registry: CapabilityRegistry, trusted: bool

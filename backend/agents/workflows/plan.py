@@ -44,10 +44,22 @@ from dataclasses import dataclass, field
 
 @dataclass
 class ToolPermissions:
-    """Least-privilege grant set for a step (INV-9 / §8). INERT in Phase 4.
+    """Least-privilege grant set for a step (INV-9 / §8 / D-07).
 
-    Defaults keep ``exec``/``network``/``secrets``/``spawn_subagents`` OFF —
-    code-exec stays behind the ``security`` gate until N3.
+    Defaults are the §8 least-privilege posture: ``read_files`` ON; everything
+    else OFF/none — ``exec``/``network``/``secrets``/``spawn_subagents`` stay OFF
+    (code-exec stays behind the ``security`` gate until N3). The ``mcp`` /
+    ``integrations`` slots are present but default ``none`` (empty) — slots only,
+    no client/servers this phase (Phase 9 lands the clients).
+
+    Made LIVE in 08-03: ``intersect_permissions`` resolves the effective grant set
+    as ``intersection(owner_allow_list, workflow_ceiling, step_grant)``, and
+    ``lowered_by`` applies an AGENT.md default that may only LOWER a permission
+    (never raise one its step did not grant).
+
+    The bool fields are least-privilege gates; the list fields (``secrets`` /
+    ``mcp`` / ``integrations``) are allow-lists that intersect to their common
+    members.
     """
 
     read_files: bool = True
@@ -59,6 +71,119 @@ class ToolPermissions:
     mcp: list[str] = field(default_factory=list)
     integrations: list[str] = field(default_factory=list)
     spawn_subagents: bool = False
+
+    # Field names by kind — used by the intersection/lowering helpers so a new
+    # permission slot is honored automatically (no parallel literal list).
+    _BOOL_FIELDS = (
+        "read_files",
+        "write_files",
+        "exec",
+        "git",
+        "network",
+        "spawn_subagents",
+    )
+    _LIST_FIELDS = ("secrets", "mcp", "integrations")
+
+    def lowered_by(self, agent_md: "ToolPermissions") -> "ToolPermissions":
+        """Return ``self`` masked by an AGENT.md default that may only LOWER (D-07).
+
+        An AGENT.md default can DROP a permission this (already-effective) set
+        grants, but can NEVER raise one it lacks — the mask is a pure AND over the
+        bool gates and an intersection over the list allow-lists. So an AGENT.md
+        declaring ``exec=True`` over an ungranted ``exec`` is a no-op (stays OFF),
+        while an AGENT.md declaring ``read_files=False`` lowers it.
+        """
+        return _and_mask(self, agent_md)
+
+
+def _and_mask(base: "ToolPermissions", mask: "ToolPermissions") -> "ToolPermissions":
+    """AND-mask two ToolPermissions: a perm is ON only if ON in BOTH (D-07).
+
+    Bool gates AND; list allow-lists intersect (preserving ``base`` order). This is
+    the single primitive behind both ``intersect_permissions`` (owner ∩ workflow ∩
+    step) and ``ToolPermissions.lowered_by`` (effective ∩ agent_md) — neither can
+    raise a permission, only lower it.
+    """
+    bool_kwargs = {
+        f: bool(getattr(base, f)) and bool(getattr(mask, f))
+        for f in ToolPermissions._BOOL_FIELDS
+    }
+    list_kwargs = {
+        f: [x for x in getattr(base, f) if x in set(getattr(mask, f))]
+        for f in ToolPermissions._LIST_FIELDS
+    }
+    return ToolPermissions(**bool_kwargs, **list_kwargs)
+
+
+def intersect_permissions(
+    owner_allow_list: "ToolPermissions",
+    workflow_ceiling: "ToolPermissions",
+    step_grant: "ToolPermissions",
+) -> "ToolPermissions":
+    """Resolve the effective grant set ``= owner ∩ workflow ∩ step`` (D-07 / INV-9).
+
+    A permission is effective ONLY if granted at ALL THREE levels (the intersection
+    is the least-privilege resolution of TOOLPERM-01/02/03). The result is the
+    ceiling an AGENT.md may then only LOWER (via ``ToolPermissions.lowered_by``).
+
+    A missing owner allow-list (DB user manifests are a later phase) defaults to the
+    workflow ceiling — callers pass ``workflow_ceiling`` for ``owner_allow_list``
+    when no per-owner cap is bound, so the intersection collapses to
+    ``workflow ∩ step`` without special-casing here.
+    """
+    return _and_mask(_and_mask(owner_allow_list, workflow_ceiling), step_grant)
+
+
+# Privileged runtime actions gated by the ExecutionPolicy enforcement point (D-07).
+# These are default-DENIED until the security gate + a runtime host (Phase 9/N3)
+# enable them; ``read_files``/``write_files``/``git`` are tool-binding permissions
+# (enforced at the tool_provider seam), NOT runtime-policy actions.
+_PRIVILEGED_RUNTIME_ACTIONS: frozenset[str] = frozenset({"exec", "network", "secrets"})
+
+
+@dataclass
+class ExecutionPolicy:
+    """Default-deny runtime enforcement point on the Workspace boundary (D-07 / §8).
+
+    The SECOND of the two D-07 enforcement points (the first is the
+    ``tool_provider`` registry at ``factory._build_runner_tools``). This is the
+    runtime ``exec``/``network``/``secrets`` gate: it DEFAULT-DENIES every
+    privileged runtime action even with no runtime host attached — the
+    ``LocalSandboxRuntime`` it gates is Phase 9, but the enforcement POINT is wired
+    now so a step requesting ``exec`` is denied regardless (security default-OFF,
+    T-08-03-EoP2). Non-privileged actions (e.g. ``read_files``) are permitted.
+
+    ``check(action, perms)`` returns ``(allowed, reason)``; a privileged action is
+    denied UNLESS a runtime host (Phase 9) explicitly opens it — there is no host
+    this phase, so privileged actions are uniformly denied.
+    """
+
+    # Phase 9 attaches a runtime host that may open specific privileged actions.
+    # Default ``None`` → every privileged action is denied (default-deny).
+    runtime_host: object | None = None
+
+    def check(self, action: str, perms: "ToolPermissions") -> tuple[bool, str]:
+        """Return ``(allowed, reason)`` for a runtime ``action`` (default-deny).
+
+        A privileged action (``exec``/``network``/``secrets``) is DENIED unless a
+        runtime host is attached AND opens it — no host this phase, so it is denied
+        regardless of what ``perms`` requests. A non-privileged action is allowed.
+        """
+        if action in _PRIVILEGED_RUNTIME_ACTIONS:
+            if self.runtime_host is None:
+                return (
+                    False,
+                    f"runtime action '{action}' is denied: no runtime host "
+                    f"attached (default-deny; exec/network/secrets land in "
+                    f"Phase 9/N3)",
+                )
+            # A host is attached (Phase 9) — delegate the per-action decision to it.
+            opener = getattr(self.runtime_host, "allows", None)
+            if callable(opener) and opener(action, perms):
+                return (True, f"runtime action '{action}' opened by the runtime host")
+            return (False, f"runtime action '{action}' is denied by the runtime host")
+        # Non-privileged action (read_files/write_files/git binding) — not gated here.
+        return (True, f"action '{action}' is not a privileged runtime action")
 
 
 @dataclass
