@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-09T16:40:18.051Z"
+last_updated: "2026-06-09T16:59:13.278Z"
 last_activity: 2026-06-09 -- 08-01 complete (self-registering registry + trust + ports + severity)
 progress:
   total_phases: 12
   completed_phases: 7
   total_plans: 45
-  completed_plans: 39
+  completed_plans: 40
   percent: 58
 ---
 
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 ## Current Position
 
 Phase: 08 (capabilities-hardened-registry-gates-tool-perms-runtime-3) — EXECUTING
-Plan: 3 of 8
+Plan: 4 of 8
 Status: Ready to execute
-Last activity: 2026-06-09 -- 08-01 complete (self-registering registry + trust + ports + severity)
+Last activity: 2026-06-09 -- 08-03 complete (live ToolPermissions intersection + tool_provider registry + F2 deleted)
 
-Progress: [█████░░░░░] 58% (7/12 phases complete; Phase 08 plan 1/8 done)
+Progress: [█████░░░░░] 58% (7/12 phases complete; Phase 08 plan 3/8 done)
 
 ## Performance Metrics
 
@@ -93,6 +93,7 @@ Progress: [█████░░░░░] 58% (7/12 phases complete; Phase 08 p
 | Phase 07 P10 | ~55min | 3 tasks | 14 files |
 | Phase 08 P01 | ~30min | 4 tasks | 18 files |
 | Phase 08 P02 | ~45min | 3 tasks | 19 files |
+| Phase 08 P03 | 40min | 3 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -147,6 +148,9 @@ Recent decisions affecting current work:
 - [Phase 07]: 07-11 (CR-05/CR-07 — the SC-001 PROOF): the deliverable filename is THREADED from `ctx.deliverable.name` (single_file.py pattern) to `persist_task_html`/`run_validation_fix_loop`/`engine._run_validation_fix_loop` as a REQUIRED `filename` (no prototype default; the prototype manifest declares `prototype.html` so it passes through byte-identical). Added DECLARED `TaskSource.source_step`/`spec_step` (prototype declares prototype-plan/-specify; the STRATEGY owns the legacy fallback so the compiler stays thin, INV-5) — no hardcoded prototype-plan/-specify on the routed path. `previous_run` + `task_loop._write_reference_files` honor the declared `compiled.seed_files` (the `from_run` list) threaded onto `ectx.seed_files`, with `_SEED_FILES` fallback (authored manifests are {} → fallback fires → byte-identical, Pitfall 2). SC-001 PROVEN: a brand-new NON-prototype `sc001_task_loop` workflow (manifest + 3 AGENT.md only, using only registered task_loop/single_file/heading_tasks) runs end-to-end producing `app.py` — test asserts the deliverable is app.py, the dual-write location is app.py, the fix-loop operated on app.py, the task list came from the DECLARED source_step, and all proof artifacts live OUTSIDE backend/agents/execution_engine/ (zero engine edits to run the new workflow). 581 agent tests pass; 5-pipeline characterization + banned-pattern + migration-ledger + L16 parity held. Phase 07 gap-closure COMPLETE.
 - [Phase ?]: 08-02: GateHandler.evaluate returns a GateOutcome value; the engine _evaluate_gates owns the yield
 - [Phase ?]: 08-02: human gate delegates to the unchanged _run_review_gate (GATE-03 parity, no re-baseline); approval/security added to literal _KNOWN
+- [Phase ?]: 08-03: effective tool perms = intersect(owner, workflow, step); AGENT.md only lowers (D-07)
+- [Phase ?]: 08-03: tool_provider impls emit string tool-keys (capability ↛ app); factory resolves keys → concrete tools
+- [Phase ?]: 08-03: F2 _build_runner_tools DELETED (grep→0, ledger ☑) after parity proven vs 5 characterization snapshots
 
 ### Pending Todos
 
@@ -171,4 +175,4 @@ Open decision records to confirm before their phase (from plan §26):
 - CP-SAT scheduling · single-file fragment-merge · PR/commit push · DB-backed user workflows (REQUIREMENTS.md v2 / Out of Scope).
 
 ---
-*Last updated: 2026-06-09 — 08-01 complete (Wave 1 substrate: self-registering @register/discover() registry + CAP-03 trust + 6 ports + new kinds + VALID-03 map_severity; install() deleted; D-12 test-isolation folded). Wave 2 (08-02/08-03) ready.*
+*Last updated: 2026-06-09 — 08-03 complete (live ToolPermissions intersection owner∩workflow∩step + AGENT.md lower-only + ExecutionPolicy default-deny seam; tool_provider registry binds the 4 sets; F2 _build_runner_tools DELETED grep→0 / ledger ☑ after parity proven vs 5 characterization snapshots). Wave 2 remaining: 08-04 (validators).*
