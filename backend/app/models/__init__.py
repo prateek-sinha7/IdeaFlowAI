@@ -17,6 +17,11 @@ from app.models.artifact_ref import ArtifactRef  # noqa: F401
 from app.models.workspace import Workspace  # noqa: F401
 from app.models.run_event import RunEvent  # noqa: F401
 from app.models.run_capabilities import RunCapabilities  # noqa: F401
+# Phase 8 capability-hardening models (0016) — imported here so Base.metadata
+# sees them for Alembic autogenerate/check (Pitfall 5).
+from app.models.validation_results import ValidationResult  # noqa: F401
+from app.models.gate_events import GateEvent  # noqa: F401
+from app.models.hook_runs import HookRun  # noqa: F401
 from app.models.handoff import (
     HandoffSession,
     UserApiKey,

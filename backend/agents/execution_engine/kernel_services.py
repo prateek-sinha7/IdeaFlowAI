@@ -171,6 +171,34 @@ class KernelServices:
             baseline_console = _console_sigs(_rres0)
         return baseline_static, baseline_console
 
+    # ── Gate-event audit write (08-02 / D-10) ──────────────────────────────────
+    async def record_gate_event(
+        self, step: str, gate: str, outcome: str, detail: Any = None
+    ) -> str | None:
+        """Write one owner/workspace-scoped ``gate_events`` row for a gate firing.
+
+        Reached by the ``GateHandler`` impls via ``ctx.runner.record_gate_event``
+        (NO kernel→app import on their side). Delegates to the per-run
+        ``ScopedStore`` on the ExecutionContext so the row carries the run's
+        ``(owner_id, workspace_id)`` (AUTHZ-01 / T-08-02-ID). Best-effort — a
+        persist failure (offline harness / no FK row) degrades to ``None`` rather
+        than aborting the gate evaluation (INV-3 parity: audit must never break the
+        live stream).
+        """
+        store = getattr(self._ectx, "scoped_store", None)
+        if store is None:
+            return None
+        try:
+            return await store.record_gate_event(
+                self.run_id, step, gate, outcome, detail
+            )
+        except Exception as exc:  # noqa: BLE001 — audit write must never abort a gate
+            logger.warning(
+                "record_gate_event(step=%s gate=%s outcome=%s) failed: %s",
+                step, gate, outcome, exc,
+            )
+            return None
+
     # ── Typed-graph read (ART-03) ──────────────────────────────────────────────
     def latest_typed_content(self, producer_step: str) -> str | None:
         return self._engine._latest_typed_content(self._ectx, producer_step)

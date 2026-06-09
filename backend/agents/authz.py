@@ -487,6 +487,138 @@ class ScopedStore:
                 session.close()
 
     # ------------------------------------------------------------------
+    # Phase-8 capability-hardening tables — owner/workspace-scoped writes (D-10)
+    #
+    # gate_events / validation_results / hook_runs each carry owner_id +
+    # workspace_id (AUTHZ-01); every write stamps the helper principal so the
+    # default-deny read filter (_scope_owner_ws) scopes them. gate_events is the
+    # LIVE writer this plan (08-02); validation_results / hook_runs are consumed in
+    # 08-04 / 08-07 but land their writers here so the seam is complete.
+    # ------------------------------------------------------------------
+
+    async def record_gate_event(
+        self,
+        run_id: str,
+        step: str,
+        gate: str,
+        outcome: str,
+        detail: Any = None,
+    ) -> str:
+        """Insert one ``gate_events`` row stamped with the helper principal (08-02).
+
+        ``outcome`` ∈ ``pass | block | wait_human``. The row carries owner_id +
+        workspace_id so a cross-owner read returns nothing (default-deny,
+        T-08-02-ID). Returns the row id.
+        """
+        from app.models.gate_events import GateEvent
+
+        session, owned = self._acquire()
+        try:
+            row = GateEvent(
+                id=str(uuid.uuid4()),
+                run_id=run_id,
+                owner_id=self._owner_id,
+                workspace_id=self._workspace_id,
+                step=step,
+                gate=gate,
+                outcome=outcome,
+                detail=detail,
+            )
+            session.add(row)
+            session.commit()
+            return row.id
+        finally:
+            if owned:
+                session.close()
+
+    async def read_gate_events(self, run_id: str) -> list[Any]:
+        """Return the run's owner+workspace-scoped ``gate_events`` rows (default-deny).
+
+        A cross-owner read returns nothing → the T-08-02-ID mitigation proof.
+        """
+        from app.models.gate_events import GateEvent
+
+        session, owned = self._acquire()
+        try:
+            query = session.query(GateEvent).filter(GateEvent.run_id == run_id)
+            query = self._scope_owner_ws(query, GateEvent)
+            return query.order_by(GateEvent.created_at.asc()).all()
+        finally:
+            if owned:
+                session.close()
+
+    async def record_validation_result(
+        self,
+        run_id: str,
+        step: str,
+        validator: str,
+        *,
+        severity: str | None = None,
+        attempt: int = 0,
+        issues: Any = None,
+    ) -> str:
+        """Insert one ``validation_results`` row (consumed in 08-04).
+
+        Lands here so the scoped-writer seam for all three §18 tables is complete;
+        the Validator framework (08-04) is its caller.
+        """
+        from app.models.validation_results import ValidationResult
+
+        session, owned = self._acquire()
+        try:
+            row = ValidationResult(
+                id=str(uuid.uuid4()),
+                run_id=run_id,
+                owner_id=self._owner_id,
+                workspace_id=self._workspace_id,
+                step=step,
+                validator=validator,
+                severity=severity,
+                attempt=attempt,
+                issues=issues,
+            )
+            session.add(row)
+            session.commit()
+            return row.id
+        finally:
+            if owned:
+                session.close()
+
+    async def record_hook_run(
+        self,
+        run_id: str,
+        hook: str,
+        event: str,
+        outcome: str,
+        detail: Any = None,
+    ) -> str:
+        """Insert one ``hook_runs`` row (consumed in 08-07).
+
+        Lands here so the scoped-writer seam for all three §18 tables is complete;
+        the executable hook framework (08-07) is its caller.
+        """
+        from app.models.hook_runs import HookRun
+
+        session, owned = self._acquire()
+        try:
+            row = HookRun(
+                id=str(uuid.uuid4()),
+                run_id=run_id,
+                owner_id=self._owner_id,
+                workspace_id=self._workspace_id,
+                hook=hook,
+                event=event,
+                outcome=outcome,
+                detail=detail,
+            )
+            session.add(row)
+            session.commit()
+            return row.id
+        finally:
+            if owned:
+                session.close()
+
+    # ------------------------------------------------------------------
     # assert_owns — the relocated L16 seam, now a real store lookup (D-07)
     # ------------------------------------------------------------------
 
