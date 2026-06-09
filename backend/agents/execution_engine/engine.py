@@ -2924,6 +2924,15 @@ class ExecutionEngine:
         # Consulted only when this agent declares an inject (the L12 injects gate).
         injects = getattr(spec, "injects", []) or []
         if injects:
+            # Thread the consuming agent's OPAQUE tool set onto the ExecutionContext
+            # before the provider loop (D-03 per-run-state-on-ctx, the same dynamic-attr
+            # mechanism used for ectx.compiled_context_providers above). The opendesign
+            # provider gates its builder-only example + the task-2+ suppression on this
+            # tool set + the already-populated ectx.build_task_number — NOT on spec.id /
+            # pipeline_type (INV-1: the kernel passes the opaque tools, the provider does
+            # the gating). This is exactly how the legacy L12 branch identified the build
+            # agent (`set(spec.tools) & {"prototype_emit_only", "prototype"}`).
+            ectx.current_spec_tools = set(getattr(spec, "tools", []) or [])
             provider_names = list(getattr(ectx, "compiled_context_providers", []) or [])
             for name in provider_names:
                 try:
