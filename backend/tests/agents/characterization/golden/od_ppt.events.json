@@ -46,7 +46,7 @@
   {
     "data": {
       "agent_id": "od-ppt-brief-analyst",
-      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n=== ACTIVE DESIGN SYSTEM: default ===\nApply these tokens to ALL colors, fonts, and spacing. Map to :root variables: --bg, --fg, --accent, --surface, --border, --muted.\n:root{--bg:#fff;--fg:#111;--accent:#06f;--surface:#f6f6f6;--border:#ddd;--muted:#888;}\n=== END ACTIVE DESIGN SYSTEM: default ===\n=== ACTIVE TEMPLATE (SKILL.md): web-prototype ===\n## Workflow\nUse .card and .grid classes. Build pages into <section data-page>.\n=== END ACTIVE TEMPLATE (SKILL.md): web-prototype ===",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n=== ACTIVE TEMPLATE (SKILL.md): web-prototype ===\n## Workflow\nUse .card and .grid classes. Build pages into <section data-page>.\n=== END ACTIVE TEMPLATE ===",
       "tool_calls": []
     },
     "type": "agent_input"
@@ -86,7 +86,7 @@
   {
     "data": {
       "agent_id": "od-ppt-composer",
-      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n=== ACTIVE DESIGN SYSTEM: default ===\nApply these tokens to ALL colors, fonts, and spacing. Map to :root variables: --bg, --fg, --accent, --surface, --border, --muted.\n:root{--bg:#fff;--fg:#111;--accent:#06f;--surface:#f6f6f6;--border:#ddd;--muted:#888;}\n=== END ACTIVE DESIGN SYSTEM: default ===\n=== ACTIVE TEMPLATE (SKILL.md): web-prototype ===\n## Workflow\nUse .card and .grid classes. Build pages into <section data-page>.\n=== END ACTIVE TEMPLATE (SKILL.md): web-prototype ===\n\n--- Output from Presentation Strategist Agent (Slide Plan & Content Architecture) ---\n## Slide Plan\n1. Title slide. 2. Problem. 3. Solution. 4. Closing.\n",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n=== ACTIVE DESIGN SYSTEM: default ===\nApply these tokens to ALL colors, fonts, and spacing. Map to :root variables: --bg, --fg, --accent, --surface, --border, --muted.\n:root{--bg:#fff;--fg:#111;--accent:#06f;--surface:#f6f6f6;--border:#ddd;--muted:#888;}\n=== END ACTIVE DESIGN SYSTEM ===\n=== ACTIVE TEMPLATE (SKILL.md): web-prototype ===\n## Workflow\nUse .card and .grid classes. Build pages into <section data-page>.\n=== END ACTIVE TEMPLATE ===\n\n--- Output from Presentation Strategist Agent (Slide Plan & Content Architecture) ---\n## Slide Plan\n1. Title slide. 2. Problem. 3. Solution. 4. Closing.\n",
       "tool_calls": []
     },
     "type": "agent_input"

@@ -243,3 +243,47 @@ def test_ppt_matches_canonical_transform_byte_for_byte(sandbox):
     ctx = _Ctx(_FakeRunner(sandbox), last_streamed=_CAROUSEL_DECK)
     expected = unwrap_artifact(sanitize_carousel_deck_html(_CAROUSEL_DECK))
     assert PptResolver().resolve(ctx) == expected
+
+
+# An <artifact>-wrapped horizontal-carousel deck WITH a slide-hiding rule — the
+# WR-02 confirm-then-fix repro (a carousel deck that the composer wrapped in an
+# <artifact> tag and that carries the carousel-breaking `.slide:not(.active)` hide rule).
+_WRAPPED_CAROUSEL_DECK = (
+    "Validation passed.\n"
+    "<artifact>" + _CAROUSEL_DECK + "</artifact>"
+)
+
+
+def test_ppt_sanitize_unwrap_order_is_equivalent_on_wrapped_carousel(sandbox):
+    """WR-02 (07-09): the NEW resolver order ``unwrap(sanitize(x))`` is byte-EQUIVALENT
+    to the LEGACY order ``sanitize(unwrap(x))`` on an <artifact>-wrapped carousel deck.
+
+    The deep review flagged that 07-02 inverted the engine's legacy ``sanitize(unwrap(x))``
+    (acd1636 unwrapped first, then sanitized) to ``unwrap(sanitize(x))``. Per the plan's
+    confirm-then-fix mandate we built the documented repro — an <artifact>-wrapped carousel
+    deck carrying the ``.slide:not(.active){display:none}`` hide rule — and compared both
+    orderings. They are IDENTICAL: ``sanitize`` only removes carousel-conflicting CSS that
+    lives INSIDE the deck (which survives both orderings), and its carousel detection scans
+    the whole string, so the ``<artifact>`` wrapper does not change whether it fires.
+    ``unwrap`` discards everything outside the artifact, so any outer bytes ``sanitize``
+    might touch in the NEW path are dropped anyway. CONCLUSION: the NEW order is parity-safe
+    — kept as-is; this test PINS the equivalence so a future regression is caught.
+    """
+    from agents.capabilities.deliverables._artifact import (
+        sanitize_carousel_deck_html,
+        unwrap_artifact,
+    )
+
+    new_order = unwrap_artifact(sanitize_carousel_deck_html(_WRAPPED_CAROUSEL_DECK))
+    legacy_order = sanitize_carousel_deck_html(unwrap_artifact(_WRAPPED_CAROUSEL_DECK))
+    assert new_order == legacy_order, (
+        "ppt sanitize/unwrap order is NOT equivalent on a wrapped carousel — the "
+        "legacy order sanitize(unwrap(x)) must be restored in ppt.py (WR-02)."
+    )
+
+    # The resolver (NEW order) strips the hide rule AND unwraps the artifact.
+    ctx = _Ctx(_FakeRunner(sandbox), last_streamed=_WRAPPED_CAROUSEL_DECK)
+    out = PptResolver().resolve(ctx)
+    assert ".slide:not(.active)" not in out
+    assert not out.startswith("Validation passed")  # the wrapper + narration is gone
+    assert out == new_order

@@ -314,3 +314,70 @@ async def test_routed_build_prompt_has_template_compliance_now() -> None:
     # WR-03: the DS END marker is BARE (task 1 carries the DS block).
     assert "=== END ACTIVE DESIGN SYSTEM ===" in routed[0]
     assert "=== END ACTIVE DESIGN SYSTEM: " not in routed[0]
+
+
+# ===========================================================================
+# (3) LOOP CLOSED — the regenerated goldens pin the ORACLE, not the drift.
+# ===========================================================================
+
+import json  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+_GOLDEN_DIR = Path(__file__).parent / "characterization" / "golden"
+
+
+def _golden_build_context_messages(golden_name: str) -> list[str]:
+    """Extract the prototype-build context_message(s) from a regenerated golden."""
+    path = _GOLDEN_DIR / golden_name
+    events = json.loads(path.read_text())
+    out: list[str] = []
+    for ev in events:
+        if ev.get("type") != "agent_input":
+            continue
+        data = ev.get("data") or {}
+        if data.get("agent_id") == "prototype-build":
+            cm = data.get("context_message")
+            if isinstance(cm, str):
+                out.append(cm)
+    return out
+
+
+@pytest.mark.parametrize("golden_name", ["prototype.events.json", "od_prototype.events.json"])
+def test_regenerated_golden_build_prompt_equals_oracle(golden_name: str) -> None:
+    """T-07-09-02: the regenerated build-agent context_message in the golden == the oracle.
+
+    Closes the cluster-C loop: 07-06 de-blinded the goldens against the DRIFTED routed
+    bytes ("pinned == correct" was false); 07-09 corrected the engine, regenerated the
+    goldens, and this asserts the build-agent context_message NOW pinned in the golden is
+    byte-equal to the pre-Phase-7 (acd1636) oracle — so the goldens pin GROUND TRUTH, not
+    the drift. The oracle is fed the same dynamic content the routed path saw; the agnostic
+    planning/consumed blocks are extracted from the golden's own bytes.
+    """
+    golden_msgs = _golden_build_context_messages(golden_name)
+    assert golden_msgs, f"{golden_name} has no prototype-build context_message"
+
+    parts = list(get_template_injection_parts("web-prototype") or [])
+    example = get_example_html("web-prototype")
+
+    # Task 1 (the first build-agent message in the golden).
+    g1 = golden_msgs[0]
+    planning_block = _slice_between(
+        g1, "## Planning Context (Deep Planner Analysis)", "## End Planning Context"
+    )
+    consumed_block = _extract_consumed_block(g1)
+    oracle_t1 = build_oracle_message(
+        "prototype-build",
+        task="1",
+        od_context=_HARNESS_OD_CONTEXT,
+        user_message=_HARNESS_USER_MESSAGE,
+        injection_parts=parts,
+        example_html=example,
+        task_body="## Task 1: Build the HTML shell\nCreate the document skeleton.",
+        task_total="2",
+        planning_block=planning_block,
+        consumed_block=consumed_block,
+    )
+    assert g1 == oracle_t1, (
+        f"{golden_name} task-1 build context_message != oracle (golden still drifted?)\n"
+        f"--- golden ---\n{g1!r}\n--- oracle ---\n{oracle_t1!r}"
+    )

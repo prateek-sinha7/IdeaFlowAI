@@ -104,6 +104,7 @@ class _FakeRunner:
         static_results=None,
         render_result=None,
         od_context=None,
+        fix_writes_html=None,
     ) -> None:
         self._agent_events = list(agent_events or [])
         self._typed = dict(typed_content or {})
@@ -112,6 +113,10 @@ class _FakeRunner:
         self._static_results = list(static_results or [_FakeStatic()])
         self._render_result = render_result if render_result is not None else _FakeRender()
         self.od_context = od_context
+        # WR-05: when set, run_validation_fix_loop writes this HTML to prototype.html
+        # (simulating a fix-loop edit). persist_task_html records the typed dual-write.
+        self._fix_writes_html = fix_writes_html
+        self.persist_calls: list[dict] = []
         self.cancel_event = None
         self.run_id = "run-1"
 
@@ -160,6 +165,11 @@ class _FakeRunner:
         if not html_path.is_file():
             return
 
+        # WR-05: simulate a fix-loop edit by writing the scripted fixed HTML to disk
+        # (the real fix sub-agent edits prototype.html as a side effect).
+        if self._fix_writes_html is not None:
+            self.sandbox.write("prototype.html", self._fix_writes_html)
+
         attempt = 0
         while True:
             sres = self.static_check(html_path)
@@ -182,6 +192,14 @@ class _FakeRunner:
 
     def latest_typed_content(self, producer_step):
         return self._typed.get(producer_step)
+
+    async def persist_task_html(self, task_num, agent_id="prototype-build"):
+        """Typed dual-write — record the call + mirror the on-disk HTML into the typed
+        graph (so latest_typed_content("prototype-build") reflects the persisted HTML)."""
+        html = self.sandbox.read("prototype.html")
+        self.persist_calls.append({"task_num": task_num, "html": html})
+        if html:
+            self._typed["prototype-build"] = html
 
     def static_check(self, html_path):
         self.static_calls += 1
@@ -300,22 +318,22 @@ async def test_task_loop_requests_html_skeleton_compaction_for_task_2() -> None:
     registry_mod.install()
     registry_mod._IMPLS[("compaction", "html_skeleton")] = _FakeCompactor()
     try:
-        sandbox = _FakeSandbox(files={"prototype.html": "<html>page1</html>"})
+        # WR-01 (07-09): the strategy sources the task-2 skeleton from the TYPED GRAPH
+        # (latest_typed_content("prototype-build")). persist_task_html (called after each
+        # task) dual-writes the on-disk prototype.html into the typed graph, so the task-2
+        # compaction reads the persisted task-1 HTML.
+        sandbox = _FakeSandbox(files={"prototype.html": "<html>page1 full content</html>"})
         runner = _FakeRunner(
             agent_events=[{"type": "agent_chunk", "data": {"text": "."}}],
-            # WR-01 (07-09): the strategy sources the task-2 skeleton from the TYPED
-            # GRAPH (latest_typed_content("prototype-build")), not a raw disk read.
-            typed_content={
-                "prototype-plan": _TWO_TASK_PLAN,
-                "prototype-build": "<html>page1 full content</html>",
-            },
+            typed_content={"prototype-plan": _TWO_TASK_PLAN},
             sandbox=sandbox,
         )
         ctx = _Ctx(runner)
 
         _ = [ev async for ev in TaskLoopStrategy().run(_two_task_step(), ctx)]
 
-        # Compaction requested exactly once (task-2 only, not task-1) on the TYPED HTML.
+        # Compaction requested exactly once (task-2 only, not task-1) on the persisted
+        # TYPED HTML (written by persist_task_html after task 1).
         assert len(compact_calls) == 1
         assert compact_calls[0] == "<html>page1 full content</html>"
         # WR-01: the task-2 skeleton rides the dedicated `skeleton` param (NOT nested
@@ -326,6 +344,72 @@ async def test_task_loop_requests_html_skeleton_compaction_for_task_2() -> None:
         assert "SKELETON" not in (runner.run_agent_calls[1]["task_block"] or "")
     finally:
         registry_mod._IMPLS.pop(("compaction", "html_skeleton"), None)
+
+
+_ONE_TASK_PLAN = "## Task 1: Build shell\nWrite the HTML shell.\n"
+
+
+def _one_task_step() -> Step:
+    return Step(
+        agent_id="prototype-build",
+        strategy="task_loop",
+        task_source=TaskSource(kind="parsed", parser="heading_tasks"),
+        compaction="html_skeleton",
+    )
+
+
+@pytest.mark.asyncio
+async def test_task_loop_repersists_typed_artifact_after_fix_changes_html() -> None:
+    """WR-05 (07-09): when the fix-loop edits prototype.html, the typed build artifact is
+    RE-PERSISTED so the consumer (prototype-validate) reads the FIXED HTML.
+
+    The fix-loop edits prototype.html on disk but does NOT touch the typed graph. The
+    legacy build loop re-wrote the typed artifact when ``fixed_html != task_html``; this
+    test drives a one-task build whose fix-loop rewrites the HTML and asserts (a) persist
+    is called a SECOND time after the fix and (b) latest_typed_content reflects the post-fix
+    bytes (not the pre-fix ones).
+    """
+    # static_check fails first (triggers a fix), then clean — so the fix-loop runs once.
+    sandbox = _FakeSandbox(files={"prototype.html": "<html>PRE-FIX</html>"})
+    runner = _FakeRunner(
+        agent_events=[{"type": "agent_chunk", "data": {"text": "."}}],
+        typed_content={"prototype-plan": _ONE_TASK_PLAN},
+        sandbox=sandbox,
+        static_results=[_FakeStatic(issues=["E1"]), _FakeStatic()],
+        render_result=_FakeRender(available=False),
+        fix_writes_html="<html>POST-FIX (corrected)</html>",
+    )
+    ctx = _Ctx(runner)
+
+    _ = [ev async for ev in TaskLoopStrategy().run(_one_task_step(), ctx)]
+
+    # persist_task_html called TWICE: once after run_agent (pre-fix), once after the
+    # fix-loop changed the HTML (WR-05 re-persist).
+    assert len(runner.persist_calls) == 2
+    assert runner.persist_calls[0]["html"] == "<html>PRE-FIX</html>"
+    assert runner.persist_calls[1]["html"] == "<html>POST-FIX (corrected)</html>"
+    # The typed graph now reflects the FIXED HTML (what prototype-validate will read).
+    assert runner.latest_typed_content("prototype-build") == "<html>POST-FIX (corrected)</html>"
+
+
+@pytest.mark.asyncio
+async def test_task_loop_no_repersist_when_fix_does_not_change_html() -> None:
+    """WR-05 negative: a clean task (no fix edit) re-persists only ONCE (no redundant write)."""
+    sandbox = _FakeSandbox(files={"prototype.html": "<html>BUILT</html>"})
+    runner = _FakeRunner(
+        agent_events=[{"type": "agent_chunk", "data": {"text": "."}}],
+        typed_content={"prototype-plan": _ONE_TASK_PLAN},
+        sandbox=sandbox,
+        static_results=[_FakeStatic()],  # clean → no fix → no disk change
+        render_result=_FakeRender(available=False),
+    )
+    ctx = _Ctx(runner)
+
+    _ = [ev async for ev in TaskLoopStrategy().run(_one_task_step(), ctx)]
+
+    # Only the pre-fix persist ran (the fix-loop made no change → no redundant re-persist).
+    assert len(runner.persist_calls) == 1
+    assert runner.persist_calls[0]["html"] == "<html>BUILT</html>"
 
 
 @pytest.mark.asyncio

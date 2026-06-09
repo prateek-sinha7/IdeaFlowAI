@@ -14,6 +14,18 @@ This resolver owns BOTH carousel-sanitize behaviors the engine performs today
     PPT workflow names — that L3 gate is deleted in 07-05).
 Both kernel call sites can be deleted in 07-05 because the behavior lives here.
 No sandbox read, no ``app.*`` import — the transform is import-pure.
+
+WR-02 (07-09 confirm-then-fix): the deep review flagged that this resolver applies
+``unwrap_artifact(sanitize_carousel_deck_html(x))`` (NEW) while the legacy engine
+applied ``sanitize(unwrap(x))`` (acd1636 unwrapped first). We built the documented
+repro — an ``<artifact>``-wrapped carousel deck carrying the carousel-breaking
+``.slide:not(.active){display:none}`` rule — and confirmed both orderings produce
+BYTE-IDENTICAL output: ``sanitize`` only removes carousel-conflicting CSS that lives
+inside the deck body (which survives both orderings) and its carousel detection scans
+the whole string (so the wrapper never changes whether it fires), while ``unwrap``
+discards everything outside the artifact. The NEW order is therefore parity-safe and is
+KEPT as-is; the equivalence is pinned by
+``tests/agents/test_deliverable_resolvers.py::test_ppt_sanitize_unwrap_order_is_equivalent_on_wrapped_carousel``.
 """
 
 from __future__ import annotations

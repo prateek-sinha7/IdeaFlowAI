@@ -214,6 +214,15 @@ class TaskLoopStrategy:
             if hasattr(runner, "persist_task_html"):
                 await runner.persist_task_html(task_num, agent_id=agent_id)
 
+            # WR-05 (07-09): snapshot the on-disk HTML BEFORE the fix-loop so we can
+            # detect whether the fix-loop edited prototype.html (the legacy build loop
+            # re-wrote the typed artifact when `fixed_html != task_html`).
+            pre_fix_html = ""
+            try:
+                pre_fix_html = runner.sandbox.read("prototype.html") or ""
+            except Exception:  # noqa: BLE001 — a read failure must not abort the build
+                pre_fix_html = ""
+
             # ── Both-validation + bounded internal fix-loop ──────────────────────
             # Routed through the handle (the engine's _run_validation_fix_loop) so
             # the fix wording / thread-id / N=2 bound / consume-internally contract
@@ -227,6 +236,19 @@ class TaskLoopStrategy:
                 total_tasks=total_tasks,
                 agent_id=agent_id,
             )
+
+            # WR-05 (07-09): the fix-loop edits prototype.html on disk as a side effect
+            # but does NOT touch the typed graph. The consumer (prototype-validate) reads
+            # the TYPED graph, so if the fix changed the HTML we must RE-PERSIST the typed
+            # build artifact — otherwise prototype-validate sees the PRE-fix HTML (the
+            # legacy build loop re-wrote the artifact when `fixed_html != task_html`).
+            if hasattr(runner, "persist_task_html"):
+                try:
+                    post_fix_html = runner.sandbox.read("prototype.html") or ""
+                except Exception:  # noqa: BLE001 — read failure must not abort the build
+                    post_fix_html = ""
+                if post_fix_html and post_fix_html != pre_fix_html:
+                    await runner.persist_task_html(task_num, agent_id=agent_id)
 
         logger.info("task_loop: finished %d tasks for pipeline=%s", total_tasks, run_id)
 
