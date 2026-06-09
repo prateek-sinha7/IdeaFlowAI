@@ -207,7 +207,7 @@ Plans:
   3. Kernel leaks L1–L12 deleted; grep gate for `if pipeline_type`/`spec.id ==` and the L1/L2/L5/L6/L7/L10/L11/L12 patterns return 0 (INV-1)
   4. prototype/od_/revision/ppt/code-gen at deliverable parity + semantic event parity vs the post-0C baseline
 
-**Plans**: 5 plans
+**Plans**: 6 plans (5 executed + 1 gap-closure)
 Plans:
 **Wave 1**
 
@@ -228,6 +228,10 @@ Plans:
 **Wave 5** *(blocked on Wave 4 completion)*
 
 - [x] 07-05-PLAN.md — delete kernel leaks L1–L13 + drop pipeline.py + flip ledger rows kernel-scoped + banned-pattern hard-fail + re-verify L14/L15/L16 (PARITY-06/08)
+
+**Wave 6** *(gap-closure — 07-01…05 executed; closes the 2 FAILED verification truths)*
+
+- [ ] 07-06-PLAN.md — restore the opendesign provider's L12 byte contract (CR-01 DS preamble, CR-02 builder-gated example, CR-03 build-task-2+ suppression) + fix the locked-in test assertion + add a dedicated context_message parity assertion / de-blind the characterization normalizer (PARITY-03/09 gap-closure)
 
 ### Phase 8: Capabilities Hardened — Registry, Gates, Tool Perms, Runtime [3]
 
