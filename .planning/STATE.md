@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-09T16:59:13.278Z"
-last_activity: 2026-06-09 -- 08-01 complete (self-registering registry + trust + ports + severity)
+last_updated: "2026-06-09T17:17:35.786Z"
+last_activity: 2026-06-09 -- 08-03 complete (live ToolPermissions intersection + tool_provider registry + F2 deleted)
 progress:
   total_phases: 12
   completed_phases: 7
   total_plans: 45
-  completed_plans: 40
+  completed_plans: 41
   percent: 58
 ---
 
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 ## Current Position
 
 Phase: 08 (capabilities-hardened-registry-gates-tool-perms-runtime-3) — EXECUTING
-Plan: 4 of 8
+Plan: 5 of 8
 Status: Ready to execute
 Last activity: 2026-06-09 -- 08-03 complete (live ToolPermissions intersection + tool_provider registry + F2 deleted)
 
-Progress: [█████░░░░░] 58% (7/12 phases complete; Phase 08 plan 3/8 done)
+Progress: [█████░░░░░] 58% (7/12 phases complete; Phase 08 plan 4/8 done)
 
 ## Performance Metrics
 
@@ -94,6 +94,7 @@ Progress: [█████░░░░░] 58% (7/12 phases complete; Phase 08 p
 | Phase 08 P01 | ~30min | 4 tasks | 18 files |
 | Phase 08 P02 | ~45min | 3 tasks | 19 files |
 | Phase 08 P03 | 40min | 3 tasks | 15 files |
+| Phase 08 P04 | ~50min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -151,6 +152,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 08-03: effective tool perms = intersect(owner, workflow, step); AGENT.md only lowers (D-07)
 - [Phase ?]: 08-03: tool_provider impls emit string tool-keys (capability ↛ app); factory resolves keys → concrete tools
 - [Phase ?]: 08-03: F2 _build_runner_tools DELETED (grep→0, ledger ☑) after parity proven vs 5 characterization snapshots
+- [Phase 08]: 08-04 (VALID-01/02/04/05 + D-04/05/06/10): Validator registry backbone. `DeliverableContext` (kernel-pure target: path/content/runner-handle/step/task_meta) is what a registered `Validator` receives. `html_static`/`html_render` migrated to registered app-side Validators (`app/agents/validators/`) wrapping `static_check`/`render_check`, reaching the heavy checks ONLY via `target.runner` (the KernelServices handle — NO kernel→app import; import the PORT `agents.capabilities.base.Validator` + `@register`, the legal app→capabilities direction; lint 3 kept/0 broken). Generic FixPolicy fix-loop: `run_validation_fix_loop` driven by a `FixPolicy` (deliverable name + max_attempts) — NOT hardcoded `prototype.html`; it parameterizes the engine's SINGLE `_run_validation_fix_loop` internals, default reproduces Phase-7 byte-for-byte (max_attempts=2). Tier#4/5/6 = `spec_plan_coverage`/`task_done_when` (pure-stdlib KERNEL-side) + `design_quality` (app-side, WARNINGS-FIRST/non-blocking — emits only P2/P3, never blocks); each registered+run+≥1 test manifest, severity via the SINGLE imported `map_severity` (08-01, grep=1, 0 new defs). Each validator run writes an owner/workspace-scoped `validation_results` row (ScopedStore; cross-owner read=∅, T-08-04-ID). task_loop RE-POINT (D-06): drives the registered `html_static`/`html_render` validators ADDITIVELY + EVENT-FREE after the byte-identical fix-loop (only persists validation_results rows) → 5 characterization snapshots byte/event-identical in a clean session, re-point parity PROVEN, NO re-baseline. `revision_validation` STAYS a post_step (gate conversion would NOT be byte/event-identical — the post_step runs the revision-baselined fix sub-agent loop the generic gate doesn't replicate; decided with `test_characterization_prototype_revision.py` evidence). `_KNOWN` + lockstep registry count bumped 22→25 (expected membership growth). The strategy builds FixPolicy/DeliverableContext via handle FACTORIES (`runner.make_fix_policy`/`runner.deliverable_context`) since import-linter forbids `agents.capabilities → agents.execution_engine`. lint-imports/banned-pattern/migration-ledger + 5 snapshots green.
 
 ### Pending Todos
 
@@ -175,4 +177,4 @@ Open decision records to confirm before their phase (from plan §26):
 - CP-SAT scheduling · single-file fragment-merge · PR/commit push · DB-backed user workflows (REQUIREMENTS.md v2 / Out of Scope).
 
 ---
-*Last updated: 2026-06-09 — 08-03 complete (live ToolPermissions intersection owner∩workflow∩step + AGENT.md lower-only + ExecutionPolicy default-deny seam; tool_provider registry binds the 4 sets; F2 _build_runner_tools DELETED grep→0 / ledger ☑ after parity proven vs 5 characterization snapshots). Wave 2 remaining: 08-04 (validators).*
+*Last updated: 2026-06-09 — 08-04 complete (Validator registry backbone: DeliverableContext + html_static/html_render registered app-side wrapping static_check/render_check via the KernelServices handle, no kernel→app import; generic FixPolicy fix-loop replaces the hardcoded prototype.html internals; Tier#4/5/6 spec_plan_coverage/task_done_when/design_quality — design_quality warnings-first; task_loop re-point drives the registered validators additively + event-free at INV-3 parity, 5 snapshots byte/event-identical, no re-baseline; revision_validation stays a post_step). Wave 2 COMPLETE; next: Wave 3 (08-05 runtime/prompt/providers).*
