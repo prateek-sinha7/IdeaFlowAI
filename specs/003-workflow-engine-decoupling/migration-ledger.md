@@ -35,8 +35,26 @@ The `Deletion gate` column holds one of two things, distinguished by the parser:
   test in the owning phase, not in the grep ratchet. The CHECK rows are **L16**, **F4**, **F5**.
 
 > **INV-1 reservation note:** the `if pipeline_type ==` / `spec.id ==` dispatch reservation is
-> enforced via the **L7** and **L10** rows (hard-fail in Phase 7 when those rows flip to `☑`).
-> In Phase 1 it is **warn-only / documented** — see the banned-pattern gate wired in 01-04.
+> enforced via the **L7** and **L10** rows. In Phase 7 (07-05) those rows flipped to `☑` and
+> the banned-pattern gate (`tests/agents/test_banned_patterns.py`) became a KERNEL-SCOPED
+> HARD-FAIL (`assert 0` over `agents/execution_engine/`) — reintroducing a kernel
+> workflow-name/agent-id branch fails CI (SC-001 ratchet).
+>
+> **07-05 kernel-scoping note:** the **L1–L13** grep gates are asserted against the KERNEL
+> (`agents/execution_engine/`), NOT the whole `backend/` — INV-1/SC-001 is a property of the
+> runtime kernel's routed path, and the bare-token / lifted-construct patterns legitimately
+> reappear OUTSIDE the kernel: the capability impls that are the **move-don't-copy homes**
+> (`agents/capabilities/deliverables/_artifact.py`, `…/task_parsers/heading_tasks.py`,
+> `…/compaction/html_skeleton.py`), the registry's `REVISION_BASE_MAP`/`PIPELINE_AGENTS`,
+> `app/` consumers, and tests. The ratchet (`test_migration_ledger.py`) scopes L1–L13 to the
+> kernel and keeps L14/L15 tree-wide. Two patterns were **refined to the leak construct**
+> (not the bare token) because the bare token legitimately survives as LIVE behavior:
+> **L4/L8** uses `pipeline_type == "prototype_revision"` (the inline name-branch the
+> parent-seed leak used — now 0; the agnostic revision setup, which the manifest's
+> `previous_run` provider now gates, keeps `prototype_revision` only in log/comment strings),
+> and **L11** drops the two retained survivors `_run_validation_fix_loop` /
+> `_load_template_example` (LIVE — reached via the `KernelServices` handle by the `task_loop`
+> strategy + the revision post-loop) and greps only the four genuinely-deleted symbols.
 
 ## Migration & deletion ledger
 
@@ -49,17 +67,17 @@ The `Deletion gate` column holds one of two things, distinguished by the parser:
 | L14 | `self._od_context/_completed_tasks/_current_task_block/_revision_*/_gate_agent_ids` (engine, throughout) | `ExecutionContext` (§6) | 0B | `self\._(od_context\|completed_tasks\|current_task_block\|revision_\|gate_agent_ids)` | ☑ | 8b90fd2 |
 | L16 | unchecked `parent_run` seed `engine.py:583-610` | authz store check (§19) | 0B | CHECK: cross-owner denial test passes (tests/agents/test_parent_run_ownership.py) | ☑ | |
 | D1 | `_handle_revision` `engine.py:2156` — **LIVE, not dead**: the frontend `run_revision` PPT-revision handler (`DashboardLayout.tsx` → `app/api/websocket.py:625`) | retain (revisit only if `run_revision` is retired) | (deferred ‡) | CHECK: voided in 0B — live `run_revision` handler, not dead code | ☐ | |
-| L13 | `_extract_html_skeleton` wired inline in 0C `engine.py:2565` | `CompactionStrategy(html_skeleton)` (§30) | 0C→2 | `_extract_html_skeleton` | ☐ | |
-| L1 | `_PPT_PIPELINE_TYPES`/`_PROTOTYPE_PIPELINE_TYPES`/`REVISION_FILE_NAME` `engine.py:93-110` | manifest `deliverable`/`seed_files` | 2 | `_PROTOTYPE_PIPELINE_TYPES\|_PPT_PIPELINE_TYPES` | ☐ | |
-| L2/L9 | `_resolve_final_output` `engine.py:316-397` | `DeliverableResolver` registry | 2 | `_resolve_final_output` | ☐ | |
-| L3 | `_sanitize_carousel_deck_html`/`_unwrap_artifact` `engine.py:232-313` | `ppt` resolver/transform capability | 2 | `_sanitize_carousel_deck_html\|_unwrap_artifact` | ☐ | |
-| L4/L8 | `prototype_revision` seeding + post-fix `engine.py:519-650,917-962` | `seed_files.from_run` + `previous_run` provider + `validation` gate | 2 | `prototype_revision` | ☐ | |
-| L5 | `SKIP_PLANNER_FOR_PROTOTYPE` `engine.py:704-712` | manifest `planner` | 2 | `SKIP_PLANNER_FOR_PROTOTYPE` | ☐ | |
-| L6 | `ALWAYS_CLARIFY` defaults dict `engine.py:733-743` | manifest `clarify.defaults` | 2 | `ALWAYS_CLARIFY` | ☐ | |
-| L7 | `spec.id == "prototype-build"` dispatch `engine.py:872` | `strategy: task_loop` (§8/§9) | 2 | `spec\.id == "prototype-build"` | ☐ | |
-| L10 | `pipeline_type in ("od_prototype","prototype")` HTML readback `engine.py:1328-1335` | `task_loop` reads `deliverable.name` | 2 | `pipeline_type in \("od_prototype", ?"prototype"\)` | ☐ | |
-| L11 | build-loop internals `engine.py:1450-1704,2554-2563` | `TaskLoopStrategy`+`TaskParser`+validators+fix-loop+`seed_files` | 2 | `_run_build_task_loop\|_write_build_reference_files\|_count_plan_tasks\|_extract_task_block\|_run_validation_fix_loop\|_load_template_example` | ☐ | |
-| L12 | `_build_context_message` od/ppt/build injection `engine.py:2378-2512` | `ContextProvider` + generic injector | 2 | `_build_context_message` | ☐ | |
+| L13 | `_extract_html_skeleton` wired inline in 0C `engine.py:2565` | `CompactionStrategy(html_skeleton)` (§30) | 0C→2 | `_extract_html_skeleton` | ☑ | 1d9234b |
+| L1 | `_PPT_PIPELINE_TYPES`/`_PROTOTYPE_PIPELINE_TYPES`/`REVISION_FILE_NAME` `engine.py:93-110` | manifest `deliverable`/`seed_files` | 2 | `_PROTOTYPE_PIPELINE_TYPES\|_PPT_PIPELINE_TYPES` | ☑ | 1d9234b |
+| L2/L9 | `_resolve_final_output` `engine.py:316-397` | `DeliverableResolver` registry | 2 | `_resolve_final_output` | ☑ | 1d9234b |
+| L3 | `_sanitize_carousel_deck_html`/`_unwrap_artifact` `engine.py:232-313` | `ppt` resolver/transform capability | 2 | `_sanitize_carousel_deck_html\|_unwrap_artifact` | ☑ | 1d9234b |
+| L4/L8 | `prototype_revision` seeding + post-fix `engine.py:519-650,917-962` | `seed_files.from_run` + `previous_run` provider + `validation` gate | 2 | `pipeline_type == "prototype_revision"` | ☑ | 1d9234b |
+| L5 | `SKIP_PLANNER_FOR_PROTOTYPE` `engine.py:704-712` | manifest `planner` | 2 | `SKIP_PLANNER_FOR_PROTOTYPE` | ☑ | 1d9234b |
+| L6 | `ALWAYS_CLARIFY` defaults dict `engine.py:733-743` | manifest `clarify.defaults` | 2 | `ALWAYS_CLARIFY` | ☑ | 1d9234b |
+| L7 | `spec.id == "prototype-build"` dispatch `engine.py:872` | `strategy: task_loop` (§8/§9) | 2 | `spec\.id == "prototype-build"` | ☑ | 1d9234b |
+| L10 | `pipeline_type in ("od_prototype","prototype")` HTML readback `engine.py:1328-1335` | `task_loop` reads `deliverable.name` | 2 | `pipeline_type in \("od_prototype", ?"prototype"\)` | ☑ | 1d9234b |
+| L11 | build-loop internals `engine.py:1450-1704,2554-2563` | `TaskLoopStrategy`+`TaskParser`+validators+fix-loop+`seed_files` | 2 | `_run_build_task_loop\|_write_build_reference_files\|_count_plan_tasks\|_extract_task_block` | ☑ | 1d9234b |
+| L12 | `_build_context_message` od/ppt/build injection `engine.py:2378-2512` | `ContextProvider` + generic injector | 2 | `_build_context_message` | ☑ | 1d9234b |
 | L15 | `accumulated_outputs: dict[str,str]` mirror (throughout) | `ArtifactGraph`/`ArtifactRef` (§17) | 1A→**1B (delete mirror)** | `accumulated_outputs` | ☑ | aa68dc9 |
 | D2 | thin-store artifact half (`store`/`retrieve_latest`/`retrieve_version`/`list_by_type`/`list_lineage`) + `WorkflowArtifact` model + `workflow_artifacts` table | `artifact_refs` + `ScopedStore` (§18) / alembic `0015` | 1B | `from app\.models\.artifact import` | ☑ | 26863bc |
 | F1 | prompt-assembly inline order `factory.py:174-255` | `PromptAssemblyPolicy` (§6/§30) | 3 | `blocks\.append` | ☐ | |

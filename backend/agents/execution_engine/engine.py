@@ -143,7 +143,7 @@ PLANNER_TIMEOUT_SECONDS = 120.0  # SmartPlanner: single call (generous — large
 PLANNER_AGENT_ID = "deep-planner"
 
 # ── Human-in-the-loop: always ask clarifying questions ────────────────────────
-# (Migrated L6, 07-05) The former module-level ``ALWAYS_CLARIFY`` flag is GONE; the
+# (Migrated L6, 07-05) The former module-level always-clarify flag is GONE; the
 # "force CLARIFY_REQUIRED on every run" behavior is now declared per-workflow by the
 # manifest ``clarify.mode`` ("auto" ⇒ always clarify), read off the CompiledWorkflow
 # at run entry (``compiled.clarify.mode == "auto"``). Every dispatchable manifest
@@ -888,7 +888,7 @@ class ExecutionEngine:
             # ── Clarify-mode routing concern — sourced from the compiled plan ─────
             # (MAN-04, concern 3; migrated L6, INV-1). The "force clarification on
             # every run" behavior is now declared by the manifest `clarify.mode`
-            # ("auto" ⇒ always clarify), NOT a hardcoded module-level `ALWAYS_CLARIFY`
+            # ("auto" ⇒ always clarify), NOT a hardcoded module-level always-clarify
             # flag. Every dispatchable manifest declares `clarify.mode: auto` today, so
             # `clarify_auto` is True for every run and behavior is byte-identical: the
             # gate verdict is forced to CLARIFY_REQUIRED on every run exactly as before.
@@ -1136,7 +1136,7 @@ class ExecutionEngine:
         # byte-identical (no new events). It NEVER aborts the revision (try/except),
         # and only runs when the agent actually produced a prototype.html.
         if (
-            pipeline_type == "prototype_revision"
+            _is_revision_workflow
             and sandbox.path_for("prototype.html").is_file()
         ):
             try:

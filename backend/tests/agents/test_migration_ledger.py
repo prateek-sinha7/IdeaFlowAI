@@ -3,10 +3,19 @@
 Parses ``specs/003-workflow-engine-decoupling/migration-ledger.md`` (the operational
 mirror of plan §31, D-08) and enforces the **move-don't-copy** discipline (INV-12):
 
-* For every ``☑`` row whose deletion gate is a *grep pattern*, grep ``backend/`` for the
-  pattern and assert **0 matches** — once deleted, a symbol may never reappear (ratchet).
+* For every ``☑`` row whose deletion gate is a *grep pattern*, grep the row's SCOPE for
+  the pattern and assert **0 matches** — once deleted, a symbol may never reappear (ratchet).
+* SCOPE (07-05, INV-1 is a KERNEL property): the engine-leak rows **L1–L13** are scoped to
+  the kernel (``agents/execution_engine/``) — their bare-token / lifted-construct patterns
+  legitimately reappear OUTSIDE the kernel (the capability impls that are the move-don't-copy
+  HOMES, e.g. ``_artifact.py`` / ``heading_tasks.py`` / ``html_skeleton.py``; the
+  registry's ``REVISION_BASE_MAP``/``PIPELINE_AGENTS``; ``app/`` consumers; tests). Scoping
+  to the kernel asserts the LEAK is gone from the runtime kernel without false-failing on
+  those legit non-kernel references (SC-001 is a property of the kernel's routed path). The
+  state-lift rows **L14/L15** and any non-engine rows stay scoped to the whole ``backend/``
+  (they are tree-wide invariants — the deleted prior-agent output mirror dict / the
+  ``self._*`` per-run state must be absent everywhere).
 * ``☐`` rows are not yet enforced (they reference code that still legitimately exists).
-  In Phase 1 every row is ``☐`` → the parametrized deletion test is green/empty (D-10).
 * CHECK rows (prose / ``test:`` gates like "a denial test passes" — L16/F4/F5) are
   yielded as ``(item, None)`` and skipped here; their assertions live in dedicated tests.
 
@@ -30,6 +39,20 @@ import pytest
 _REPO = Path(__file__).resolve().parents[3]
 _LEDGER = _REPO / "specs/003-workflow-engine-decoupling/migration-ledger.md"
 _BACKEND = _REPO / "backend"
+# INV-1 is a KERNEL property (SC-001): the engine-leak rows L1-L13 are scoped here so
+# the ratchet asserts the leak is gone from the runtime kernel WITHOUT false-failing on
+# the legit non-kernel move-don't-copy homes (capability impls / registry / app / tests).
+_KERNEL = _BACKEND / "agents" / "execution_engine"
+# Item ids whose deletion gate is scoped to the KERNEL (engine leaks, L1-L13). Every
+# other ☑ grep row (the L14/L15 state-lift invariants) is scoped to the whole backend/.
+_KERNEL_SCOPED_ITEMS = frozenset(
+    {"L1", "L2/L9", "L3", "L4/L8", "L5", "L6", "L7", "L10", "L11", "L12", "L13"}
+)
+
+
+def _scope_for(item: str) -> Path:
+    """The grep root for a checked row: the kernel for L1-L13, else whole backend/."""
+    return _KERNEL if item in _KERNEL_SCOPED_ITEMS else _BACKEND
 
 # Item ids that MUST be present in the ledger (mirror of plan §31; T-03-02 mitigation).
 _REQUIRED_ITEMS = [
@@ -111,35 +134,30 @@ def test_deleted_pattern_absent_from_backend(item: str, pattern: str | None) -> 
             "no ☑ grep rows yet — green/empty in Phase 1 (D-10), "
             "or a CHECK-row gate handled out-of-band"
         )
+    scope = _scope_for(item)
     res = subprocess.run(
-        ["grep", "-rnE", pattern, str(_BACKEND), "--include=*.py"],
+        ["grep", "-rnE", pattern, str(scope), "--include=*.py"],
         capture_output=True,
         text=True,
     )
+    scope_label = scope.relative_to(_BACKEND).as_posix() if scope != _BACKEND else "backend/"
     assert res.returncode != 0, (
-        f"{item}: banned pattern is back in backend/ (move-don't-copy violation):\n"
+        f"{item}: banned pattern is back in {scope_label} (move-don't-copy violation):\n"
         f"{res.stdout}"
     )
 
 
-def test_ledger_parses_and_phase1b_flips_l14_l15_l16_d2() -> None:
-    """Every §31 item is present; through Phase 1B exactly {D2, L14, L15, L16} are ``☑``.
+def test_ledger_parses_and_phase7_flips_all_engine_leaks() -> None:
+    """Every §31 item is present; through Phase 7 (07-05) the engine-leak set is ``☑``.
 
-    Phase 1 had every row ``☐``. Phase 0B (plan 02-01/02-02) lifts per-run state into
-    ``ExecutionContext``, arming the L14 grep ratchet (``☑``). Plan 02-03 wires the explicit
-    parent-run ownership check (``assert_owns``) and flips the L16 CHECK row to ``☑`` — L16
-    is a CHECK row (its gate is prose referencing the denial test, NOT a grep pattern), so it
-    is SKIPPED by the grep ratchet (``_checked_grep_rows`` yields it as ``None``); its
-    enforcement lives in ``tests/agents/test_parent_run_ownership.py``. D1 (``_handle_revision``)
-    was found **live** during 0B execution — the frontend ``run_revision`` PPT-revision handler,
-    not dead code — so its deletion is voided/deferred and it stays ``☐`` (see the ledger ‡
-    note).
+    History: Phase 0B armed L14 (state-lift) + the L16 CHECK row; Phase 1B flipped L15
+    (prior-agent output mirror) + D2 (thin-store artifact half). Phase 7 (07-05) deletes
+    the L1–L13 engine leaks (the kernel knows no workflow by name — SC-001/INV-1) and flips
+    them all to ``☑`` with KERNEL-SCOPED grep gates.
 
-    Phase 1B (plan 05-07) completes the strangler cutover: it flips **L15** (deletes the
-    prior-agent output mirror dict — arms the bare-token grep ratchet → 0) and adds **D2**
-    (deletes the thin-store artifact half + the thin artifact ORM model + its table via
-    alembic ``0015`` — the gate greps the deleted model import path → 0). All later-phase
-    rows (L1–L13, F1–F5) remain ``☐``.
+    D1 (``_handle_revision``) was found **live** during 0B — the frontend ``run_revision``
+    PPT-revision handler, not dead code — so its deletion is voided/deferred and it stays
+    ``☐`` (ledger ‡ note). The F1–F5 factory rows remain ``☐`` (Phase 3 scope).
     """
     text = _LEDGER.read_text()
     rows = _parse_rows(text)
@@ -147,8 +165,14 @@ def test_ledger_parses_and_phase1b_flips_l14_l15_l16_d2() -> None:
     missing = [i for i in _REQUIRED_ITEMS if i not in ids]
     assert not missing, f"ledger drifted from §31 — missing rows: {missing}"
     flipped = sorted(item for item, _g, status in rows if "☑" in status)
-    assert flipped == ["D2", "L14", "L15", "L16"], (
-        f"Through Phase 1B exactly {{D2, L14, L15, L16}} flipped to ☑, found: {flipped}"
+    expected = sorted(
+        ["L14", "L15", "L16", "D2",  # 0B / 1B
+         "L1", "L2/L9", "L3", "L4/L8", "L5", "L6", "L7", "L10", "L11", "L12", "L13"]  # 07-05
+    )
+    assert flipped == expected, (
+        f"Through Phase 7 the engine-leak set + 0B/1B rows must be ☑; "
+        f"expected {expected}, found: {flipped} "
+        f"(D1 stays ☐ — voided; F1–F5 stay ☐ — Phase 3)"
     )
 
 
@@ -156,12 +180,14 @@ def test_guard_fails_on_known_present_pattern() -> None:
     """Non-vacuity guard (T-03-01): the ratchet really greps real grep rows.
 
     Inject a synthetic ``☑`` row whose gate is a token KNOWN to exist in ``backend/``
-    (``_PROTOTYPE_PIPELINE_TYPES``, in engine.py). Run the SAME parse+classify logic and
-    assert: (1) it is classified as a grep row (pattern is not None), and (2) the grep
-    machinery actually FINDS it — i.e. the deletion assertion WOULD fail. This proves the
-    guard is not vacuously green while all real rows sit at ``☐``.
+    (``class ExecutionEngine`` — the kernel sequencer, never deleted). Run the SAME
+    parse+classify logic and assert: (1) it is classified as a grep row (pattern is not
+    None), and (2) the grep machinery actually FINDS it — i.e. the deletion assertion
+    WOULD fail. This proves the guard is not vacuously green. (The prior anchor
+    ``_PROTOTYPE_PIPELINE_TYPES`` was a real L1 leak DELETED in 07-05, so it can no longer
+    serve as a known-present token.)
     """
-    present_token = "_PROTOTYPE_PIPELINE_TYPES"
+    present_token = "class ExecutionEngine"
     synthetic = (
         "| Item | Legacy | New home | Phase | Deletion gate (grep → 0 / check) | Status |\n"
         "|---|---|---|---|---|---|\n"

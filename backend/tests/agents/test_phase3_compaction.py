@@ -1,31 +1,24 @@
-"""Phase 3 (0C) — build-task-2+ context compaction gate (COMPACT-01 / COMPACT-03).
+"""Phase 3 (0C) — build-task-2+ HTML-skeleton compaction gate (COMPACT-01 / COMPACT-03).
 
 This module is the DETERMINISTIC, FULLY-OFFLINE CI half of the token-trim phase. It
-proves that `_build_context_message` injects the compact `_extract_html_skeleton`
-state-map (≈1-3k chars) for `prototype-build` tasks 2+ instead of the full current
-HTML (up to 120k chars) — the one sanctioned non-byte-identical change (INV-3).
+proves the ``html_skeleton`` CompactionStrategy capability
+(``HtmlSkeletonCompaction.compact``) produces the compact ≈1-3k char state-map (≥50%
+reduction — PARITY-04 / COMPACT-03) that the ``task_loop`` strategy injects for
+``prototype-build`` tasks 2+ instead of the full current HTML (up to 120k chars).
 
-It exercises the REAL injection site (`ExecutionEngine._build_context_message`) via a
-direct call on a representative multi-page HTML fixture, with NO DB / NO Bedrock / NO
-API key (importing `_scripted_model` first wires `RUNS_ROOT`→temp + `ENV=development`
-at import time, keeping everything offline).
+Post-07-05: the engine's per-pipeline context builder and its inline
+``_extract_html_skeleton`` helper were DELETED (L12 / L13). The build-task-2+ skeleton
+INJECTION now lives in the ``task_loop`` strategy (routing covered by
+``test_strategies.py::test_task_loop_requests_html_skeleton_compaction_for_task_2``) and
+the 5-pipeline characterization suites; the skeleton EXTRACTION + the ≥50% reduction gate
+live with the capability and are pinned here (the verbatim lift's single home is
+``agents/capabilities/compaction/html_skeleton.py``).
 
 Gates asserted here:
-  * COMPACT-03 CI gate — the task-2 message is ≤ 50% the size of the old full-HTML
-    message on a ≥2-page HTML fixture (the full-HTML baseline replicates the
-    engine's `[:120000]` cap so the ratio is faithful).
-  * COMPACT-01 — the skeleton markers are present and the full `--- CURRENT HTML
-    (modify this` block is ABSENT for task 2+.
-  * Task-1 control — the full-HTML block is STILL injected for task 1 (no prior HTML
-    to compact).
-  * Req 7 (read-before-edit) — the compacted task-2 message carries a literal
-    `read_file('prototype.html')` pointer AND the `prototype-build` tool-set still
-    grants the native filesystem tools (`exclude_builtin=False`), i.e. no tool-set
-    change removed fs read access.
-
-Reverting the engine edit (the `is_build_task_2_plus` skeleton branch in
-`_build_context_message`) makes the ≥50% and marker tests FAIL — this is a real
-ratchet, not a vacuous one.
+  * COMPACT-03 / PARITY-04 — the skeleton is ≤ 50% the size of the source HTML on a
+    ≥2-page fixture (the deterministic reduction gate, now measured against the capability).
+  * Skeleton fidelity — every ``data-page`` id, the routes map, and the ``:root`` tokens
+    survive into the state-map (a regression that drops/garbles a page fails HERE).
 """
 
 from __future__ import annotations
@@ -35,10 +28,6 @@ from __future__ import annotations
 from tests.agents import _scripted_model  # noqa: F401  (import for side effects)
 
 from agents.capabilities.compaction.html_skeleton import HtmlSkeletonCompaction
-from agents.execution_engine.context import ExecutionContext
-from agents.execution_engine.engine import ExecutionEngine
-from agents.factory import AgentContext, _build_runner_tools
-from agents.registry import get_agent_by_id
 
 # ── A representative MULTI-PAGE prototype HTML fixture ────────────────────────
 # At least two `<section data-page>` elements with real filled content, a `:root`
@@ -109,216 +98,18 @@ function navigate(page) {{ location.hash = routes[page]; }}
 """
 
 
-def _make_ectx() -> ExecutionContext:
-    """Build a minimal per-run ExecutionContext for a direct injection-site call.
+def test_html_skeleton_is_faithful_to_source() -> None:
+    """Skeleton fidelity — every page / route / token survives into the state-map.
 
-    od_context is an empty dict so the od_prototype/od_ppt `injects` branches
-    (design_system / template body) stay inert — this test isolates the
-    CURRENT-HTML / skeleton branch.
-    """
-    ectx = ExecutionContext(run_id="test-run", owner_id="anon")
-    ectx.od_context = {}
-    ectx.current_task_block = "## Task 2: Fill the settings page\nAdd the settings form."
-    return ectx
-
-
-def _build_message(task_number: str) -> str:
-    """Drive the REAL `_build_context_message` for a prototype-build context at the
-    given build-task number, with the multi-page fixture as the current HTML."""
-    engine = ExecutionEngine()
-    spec = get_agent_by_id("prototype-build")
-    assert spec is not None, "prototype-build spec must resolve"
-    ectx = _make_ectx()
-    # The current prototype-build HTML now lives in the typed ArtifactGraph (the
-    # mirror dict was deleted in 05-07); scratch task counters live on ectx.
-    ectx.artifacts.write_ref(
-        run_id=ectx.run_id,
-        owner_id=ectx.owner_id,
-        workspace_id=ectx.workspace_id,
-        kind="html_file",
-        producer_step="prototype-build",
-        producer_agent="prototype-build",
-        task_id=None,
-        content=_MULTI_PAGE_HTML,
-        location="prototype.html",
-    )
-    ectx.build_task_number = task_number
-    ectx.build_task_total = "2"
-    return engine._build_context_message(
-        spec=spec,
-        ordered_agents=[spec],
-        user_message="Build a SaaS dashboard prototype.",
-        planning_context={},
-        ectx=ectx,
-    )
-
-
-def _fullhtml_baseline_len(task_message_prefix: str) -> int:
-    """Replicate the size the OLD full-HTML path would have injected for task 2.
-
-    The old branch appended `--- CURRENT HTML (modify this …) ---\n{html[:120000]}…
-    \n--- END CURRENT HTML ---`. We reconstruct what THIS task-2 message would have
-    been under the old behavior: the compacted message with its skeleton block
-    swapped back for the full-HTML block. To keep the comparison honest we measure
-    the full-HTML *block* added to everything-else-in-the-message.
-
-    `task_message_prefix` is the task-2 message with the skeleton block already
-    present; we strip the skeleton block out and add the full-HTML block to get the
-    pre-compaction message size.
-    """
-    html_to_pass = _MULTI_PAGE_HTML[:120000]
-    truncated = len(_MULTI_PAGE_HTML) > 120000
-    full_block = (
-        f"\n--- CURRENT HTML (modify this — do NOT rebuild from scratch) ---\n"
-        f"{html_to_pass}"
-        f"{'...[truncated at 120k]' if truncated else ''}\n"
-        f"--- END CURRENT HTML ---"
-    )
-    return len(full_block)
-
-
-_SKELETON_MARKERS = (
-    ":root tokens",
-    "Chrome:",
-    "Total HTML so far",
-)
-
-
-def test_build_task2_context_is_at_least_50pct_smaller() -> None:
-    """COMPACT-03 CI gate: the task-2 message is ≤ 50% of the full-HTML version.
-
-    We compute the full-HTML baseline as the message the OLD path would have built
-    (the same task-2 message but with the full-HTML block instead of the skeleton
-    block). The skeleton-vs-full delta is the only difference between the two, so a
-    block-level ≥50% reduction implies the whole message shrinks by ≥50% relative to
-    the baseline whenever the full-HTML block dominates the message — which it does
-    on a multi-page fixture (the fixture is >100k chars; the rest of the message is
-    a few hundred).
-    """
-    compacted = _build_message("2")
-
-    # Size the message would have been under the OLD full-HTML behavior: take the
-    # compacted message, remove the skeleton block, add the full-HTML block.
-    # The skeleton is produced by the html_skeleton CompactionStrategy capability
-    # (PARITY-04) — re-pointed from engine._extract_html_skeleton (the engine's copy
-    # stays live until 07-05; the capability is byte-identical, see the parity test).
-    skeleton = HtmlSkeletonCompaction().compact(_MULTI_PAGE_HTML)
-    skeleton_block = (
-        f"\n=== CURRENT PROTOTYPE (skeleton — call read_file('prototype.html') "
-        f"for full content before editing) ===\n"
-        f"{skeleton}\n"
-        f"=== END CURRENT PROTOTYPE ==="
-    )
-    assert skeleton_block in compacted, "skeleton block must be present in the task-2 message"
-
-    full_block = (
-        f"\n--- CURRENT HTML (modify this — do NOT rebuild from scratch) ---\n"
-        f"{_MULTI_PAGE_HTML[:120000]}"
-        f"{'...[truncated at 120k]' if len(_MULTI_PAGE_HTML) > 120000 else ''}\n"
-        f"--- END CURRENT HTML ---"
-    )
-    fullhtml_message = compacted.replace(skeleton_block, full_block)
-
-    assert len(compacted) <= 0.5 * len(fullhtml_message), (
-        f"task-2 compacted message ({len(compacted)} chars) must be ≤ 50% of the "
-        f"full-HTML message ({len(fullhtml_message)} chars); "
-        f"ratio={len(compacted) / len(fullhtml_message):.3f}"
-    )
-
-
-def test_build_task2_uses_skeleton_not_full_html() -> None:
-    """COMPACT-01: task-2 carries the skeleton markers; the full-HTML block is absent."""
-    compacted = _build_message("2")
-
-    for marker in _SKELETON_MARKERS:
-        assert marker in compacted, f"skeleton marker {marker!r} missing from task-2 message"
-    # At least one of the filled/empty page lines must be present.
-    assert ("Pages already built" in compacted) or ("Pages still empty" in compacted), (
-        "expected a 'Pages already built'/'Pages still empty' skeleton line"
-    )
-    # The full-HTML injection block must NOT appear for task 2+.
-    assert "--- CURRENT HTML (modify this" not in compacted, (
-        "the full CURRENT HTML block must be absent for build task 2+"
-    )
-
-
-def test_build_task1_still_injects_full_html() -> None:
-    """Control: task 1 (HTML shell) keeps the full-HTML block unchanged."""
-    msg = _build_message("1")
-    assert "--- CURRENT HTML (modify this" in msg, (
-        "task 1 must still receive the full CURRENT HTML block"
-    )
-    # Task 1 must NOT use the skeleton framing.
-    assert "=== CURRENT PROTOTYPE (skeleton" not in msg, (
-        "task 1 must not use the skeleton block"
-    )
-
-
-def test_build_task2_preserves_read_file_access() -> None:
-    """Req 7: the task-2 message instructs read-before-edit AND the prototype-build
-    tool-set still grants the native fs tools (read_file available)."""
-    compacted = _build_message("2")
-    # The compacted prompt points the agent at read_file('prototype.html').
-    assert "read_file('prototype.html')" in compacted, (
-        "the task-2 skeleton block must carry a read_file('prototype.html') pointer"
-    )
-
-    # The prototype-build tool-set still grants native fs tools (exclude_builtin=False
-    # ⇒ read_file/write_file/edit_file remain bound). No tool-set change removed it.
-    spec = get_agent_by_id("prototype-build")
-    assert spec is not None
-    assert "prototype_emit_only" in (spec.tools or []), (
-        "prototype-build must still declare the prototype_emit_only tool-set"
-    )
-    ctx = AgentContext(user_request="Build a SaaS dashboard prototype.")
-    _custom_tools, exclude_builtin = _build_runner_tools(spec, ctx)
-    assert exclude_builtin is False, (
-        "prototype-build must keep native deepagents fs tools (read_file) available "
-        "on the task-2+ path (exclude_builtin must be False)"
-    )
-
-
-def test_revert_engine_edit_would_fail_skeleton_gate() -> None:
-    """Ratchet self-check: the task-2 path differs from the task-1 path.
-
-    If the engine edit were reverted, task-2 would inject the full-HTML block (same
-    as task 1) and `test_build_task2_uses_skeleton_not_full_html` would fail. We
-    assert here that the two paths genuinely diverge so the gate is non-vacuous.
-    """
-    msg1 = _build_message("1")
-    msg2 = _build_message("2")
-    assert ("--- CURRENT HTML (modify this" in msg1) and (
-        "--- CURRENT HTML (modify this" not in msg2
-    ), "task-1 and task-2 HTML injection paths must diverge (skeleton wiring live)"
-
-
-def test_extract_html_skeleton_is_faithful_to_source() -> None:
-    """Skeleton fidelity (non-vacuous offline coverage of the change's core premise).
-
-    The offline parity test (test_phase3_parity.py) drives the SCRIPTED model, whose
-    fixed single-section output is independent of the injected context — so it cannot
-    detect a skeleton that drops, renames, or garbles a page (code-review WR-04). The
-    whole phase rests on the premise that the ~1-3k char skeleton faithfully reflects
-    the prior HTML; this test exercises `_extract_html_skeleton` DIRECTLY on the
-    multi-page fixture and asserts every `data-page` ID, the routes map, and the
-    `:root` tokens survive into the state-map. A regression that corrupts the skeleton
-    fails HERE rather than silently shipping behind the vacuous scripted parity run.
-
-    Fixture note: `_MULTI_PAGE_HTML` carries a closing `</body>`, so this does not
-    exercise (or depend on) the pre-existing no-`</body>` edge in the helper's section
-    regex (WR-02) — that robustness item is tracked for the Phase 7 CompactionStrategy
-    re-expression, where the helper logic is owned. Here we pin the normal-case
-    contract the wiring depends on.
-
-    Re-pointed (07-03 / PARITY-04): the skeleton is now produced by the
-    `html_skeleton` CompactionStrategy capability (`HtmlSkeletonCompaction.compact`),
-    the verbatim lift of `_extract_html_skeleton`. The ≥50% reduction assertion below
-    is the preserved 0C deterministic gate, now measured against the capability.
+    The whole phase rests on the premise that the ~1-3k char skeleton faithfully
+    reflects the prior HTML; this exercises the ``html_skeleton`` capability DIRECTLY
+    on the multi-page fixture and asserts every ``data-page`` id, the routes map, and
+    the ``:root`` tokens survive. A regression that corrupts the skeleton fails HERE.
     """
     skeleton = HtmlSkeletonCompaction().compact(_MULTI_PAGE_HTML)
 
     # Every data-page section in the fixture (both filled) must be named — no section
-    # silently dropped on the path that is now the agent's only structural view.
+    # silently dropped on the path that is the agent's only structural view for task 2+.
     built_line = next(
         (ln for ln in skeleton.splitlines() if ln.startswith("Pages already built")),
         "",
@@ -332,32 +123,16 @@ def test_extract_html_skeleton_is_faithful_to_source() -> None:
     assert "Routes map" in skeleton, "skeleton must carry the routes map"
     assert ":root tokens" in skeleton, "skeleton must carry the :root design tokens"
 
-    # The skeleton is a COMPACTION — materially smaller than the source HTML it summarizes.
-    assert len(skeleton) < 0.5 * len(_MULTI_PAGE_HTML), (
-        f"skeleton ({len(skeleton)} chars) must be far smaller than the source "
-        f"HTML ({len(_MULTI_PAGE_HTML)} chars) it summarizes"
-    )
 
+def test_html_skeleton_reduction_gate() -> None:
+    """COMPACT-03 / PARITY-04: the skeleton is ≤ 50% of the source HTML it summarizes.
 
-def test_html_skeleton_capability_is_byte_identical_to_engine_helper() -> None:
-    """PARITY-04: the html_skeleton CompactionStrategy is a VERBATIM lift.
-
-    The capability output MUST be byte-identical to the engine's still-present
-    `_extract_html_skeleton` for the calibration fixture — the 0C ≥50% reduction
-    gate is calibrated to that exact output, so the lift must not alter a single
-    character. (The engine's inline copy stays live until 07-05 deletes it; this
-    test pins the strangler "wrap" parity meanwhile.)
+    The preserved 0C deterministic reduction gate, measured directly against the
+    ``html_skeleton`` capability (its single home after the engine copy was deleted in
+    07-05). A regression that bloats the skeleton — or reverts the compaction — fails here.
     """
-    engine_skeleton = ExecutionEngine()._extract_html_skeleton(_MULTI_PAGE_HTML)
-    capability_skeleton = HtmlSkeletonCompaction().compact(_MULTI_PAGE_HTML)
-    assert capability_skeleton == engine_skeleton, (
-        "HtmlSkeletonCompaction.compact must be byte-identical to "
-        "engine._extract_html_skeleton (verbatim lift — PARITY-04)"
-    )
-
-    # The compaction is non-trivial on the calibration fixture (≥50% reduction —
-    # the preserved 0C gate, now also measured directly against the capability).
-    assert len(capability_skeleton) <= 0.5 * len(_MULTI_PAGE_HTML), (
-        f"capability skeleton ({len(capability_skeleton)} chars) must be ≤ 50% of "
-        f"the source HTML ({len(_MULTI_PAGE_HTML)} chars) — PARITY-04 reduction gate"
+    skeleton = HtmlSkeletonCompaction().compact(_MULTI_PAGE_HTML)
+    assert len(skeleton) <= 0.5 * len(_MULTI_PAGE_HTML), (
+        f"skeleton ({len(skeleton)} chars) must be ≤ 50% of the source HTML "
+        f"({len(_MULTI_PAGE_HTML)} chars) — PARITY-04 / COMPACT-03 reduction gate"
     )

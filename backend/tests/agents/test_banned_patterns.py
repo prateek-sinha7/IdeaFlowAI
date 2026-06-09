@@ -33,10 +33,12 @@ false confidence. ``test_gate_catches_injected_hand_rolled_agent`` injects a
 known-bad ``class DeepAgent`` fixture into a temp dir and asserts the SAME
 scanner reports a violation — proving the gate actually fires on a regression.
 
-INV-1 reservation (``if pipeline_type ==`` / ``spec.id ==``): these branches
-still legitimately live in ``engine.py`` in Phase 1 (they are L-items deleted in
-Phase 7). Per D-15 they are WARN-ONLY here (collected + asserted below a recorded
-ceiling), and become a hard-fail in Phase 7 when L7 is deleted.
+INV-1 reservation (``if pipeline_type ==`` / ``spec.id ==``): the L-items that kept
+these workflow-name/agent-id branches on the kernel's routed path were DELETED in
+07-05. Per D-15 this is now a KERNEL-SCOPED HARD-FAIL (``assert 0`` over
+``agents/execution_engine/``) — the SC-001 ratchet. Legit non-routing references
+outside the kernel (websocket.py display routing, registry.py ``pipeline_type ==
+"custom"``) are intentionally NOT scanned.
 
 Offline / unmarked — runs in CI (no ``requires_api_key``).
 """
@@ -52,6 +54,13 @@ import pytest
 # first-party source lives under backend/app and backend/agents.
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _SCAN_ROOTS = (_BACKEND_ROOT / "app", _BACKEND_ROOT / "agents")
+
+# The KERNEL — the workflow-agnostic runtime. INV-1 (SC-001) is a property of the
+# kernel's ROUTED execution path: post-07-05 it has ZERO workflow-name/agent-id
+# branches. The INV-1 hard-fail below is scoped HERE (not the whole first-party
+# tree) so legit NON-kernel references survive (websocket.py display routing,
+# registry.py ``pipeline_type == "custom"``) — those are not routed-path dispatch.
+_KERNEL_ROOT = _BACKEND_ROOT / "agents" / "execution_engine"
 
 # The ONE sanctioned ``langchain_deepagents`` adapter — the only file permitted
 # to import/call ``create_deep_agent``. Stored relative to the backend root so
@@ -80,13 +89,15 @@ _RE_CREATE_DEEP_AGENT_CALL = re.compile(r"\bcreate_deep_agent\s*\(")
 # Forbidden NEW local modules/packages shadowing the library.
 _FORBIDDEN_LOCAL_MODULE_NAMES = ("deepagents", "langchain_deepagents")
 
-# INV-1 reservation — WARN-ONLY in Phase 1 (D-15). Recorded ceiling: the current
-# tree has these branches in engine.py + a couple of consumers; we assert the
-# count does not GROW past this ceiling (a ratchet that prevents regression)
-# without hard-failing on the legitimately-still-present branches. Phase 7 flips
-# this to a hard-fail (must be 0) when L7 is deleted.
+# INV-1 reservation — HARD-FAIL since Phase 7 (07-05, D-15). The L1-L13 leaks that
+# kept ``if pipeline_type ==`` / ``spec.id ==`` workflow-name/agent-id branches on the
+# kernel's routed path were DELETED in 07-05; the kernel now routes purely through the
+# capability registry. This pattern must therefore return ZERO matches in the KERNEL
+# (``agents/execution_engine/``). It is NOT scanned over the whole first-party tree:
+# legit non-routing references survive outside the kernel (websocket.py display routing,
+# registry.py ``pipeline_type == "custom"``). Reintroducing a kernel name/id branch
+# fails CI (SC-001 ratchet).
 _INV1_PATTERN = re.compile(r"if\s+pipeline_type\s*==|spec\.id\s*==")
-_INV1_CEILING = 16  # generous headroom over the ~12 current first-party matches
 
 
 def _iter_py_files(*roots: Path):
@@ -280,36 +291,48 @@ def test_gate_ignores_comment_mentions(tmp_path: Path) -> None:
 
 
 # ===========================================================================
-# INV-1 RESERVATION — WARN-ONLY in Phase 1 (D-15), hard-fail in Phase 7
+# INV-1 RESERVATION — HARD-FAIL since Phase 7 (07-05, D-15), KERNEL-SCOPED
 # ===========================================================================
 
 
-def test_inv1_pipeline_type_branching_warn_only(
-    recwarn: pytest.WarningsRecorder,
-) -> None:
-    """INV-1 (`if pipeline_type ==` / `spec.id ==`) is WARN-ONLY in Phase 1.
+def test_inv1_no_kernel_workflow_name_branch() -> None:
+    """INV-1 (SC-001) HARD-FAIL: ZERO `if pipeline_type ==` / `spec.id ==` in the kernel.
 
-    These workflow-by-name branches still legitimately live in engine.py (L7,
-    deleted in Phase 7). We do NOT hard-fail on their presence — we record them
-    and assert the count has not GROWN past a recorded ceiling (a soft ratchet),
-    and emit a warning documenting the deferred hard-fail. Phase 7 replaces this
-    with `assert count == 0`."""
-    hits = _scan(_INV1_PATTERN, *_SCAN_ROOTS)
-    count = len(hits)
-    if count:
-        import warnings
-
-        warnings.warn(
-            f"INV-1 (deferred to Phase 7): {count} `if pipeline_type ==` / "
-            f"`spec.id ==` workflow-by-name branches still present (L7). These "
-            f"become a HARD failure when L7 is deleted in Phase 7.",
-            UserWarning,
-            stacklevel=2,
-        )
-    assert count <= _INV1_CEILING, (
-        f"INV-1 soft ratchet: workflow-by-name branches GREW to {count} "
-        f"(ceiling {_INV1_CEILING}). New `if pipeline_type ==` / `spec.id ==` "
-        f"branching is forbidden — route via the capability registry, not by "
-        f"workflow name. Offenders:\n"
+    The L1-L13 leaks that kept workflow-name/agent-id branches on the kernel's routed
+    path were DELETED in 07-05; the kernel now knows NO workflow by name and routes
+    purely through the capability registry. This is the SC-001 core-value ratchet:
+    reintroducing a kernel name/id branch fails CI. Scoped to the KERNEL
+    (``agents/execution_engine/``) so legit non-routing references survive elsewhere
+    (websocket.py display routing, registry.py ``pipeline_type == "custom"``)."""
+    hits = _scan(_INV1_PATTERN, _KERNEL_ROOT)
+    assert not hits, (
+        "INV-1 (SC-001): a workflow-name/agent-id branch is back in the kernel "
+        "(agents/execution_engine/). The kernel must know NO workflow by name — "
+        "route via the capability registry (resolve(kind, name)), never by workflow "
+        "identity. Offenders:\n"
         + "\n".join(f"  {p}:{n}: {ln}" for p, n, ln in hits)
+    )
+
+
+def test_inv1_gate_is_non_vacuous(tmp_path: Path) -> None:
+    """Non-vacuity: the INV-1 scanner actually fires on an injected name branch.
+
+    Because the kernel is now clean, a broken/never-matching scanner would pass
+    silently. Inject a known-bad ``if pipeline_type ==`` / ``spec.id ==`` line into a
+    temp file and assert the SAME scanner flags it — proving the hard-fail above would
+    catch a real regression."""
+    bad = tmp_path / "rogue_kernel.py"
+    bad.write_text(
+        "def route(pipeline_type, spec):\n"
+        "    if pipeline_type == \"prototype\":\n"
+        "        return 1\n"
+        "    if spec.id == \"prototype-build\":\n"
+        "        return 2\n",
+        encoding="utf-8",
+    )
+    hits = _scan(_INV1_PATTERN, tmp_path)
+    assert hits, (
+        "NON-VACUITY FAILURE: the INV-1 scanner did not flag an injected "
+        "`if pipeline_type ==` / `spec.id ==` branch — the kernel hard-fail would "
+        "not catch a real regression."
     )

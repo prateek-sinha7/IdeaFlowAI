@@ -201,13 +201,16 @@ def test_ppt_unwraps_artifact_after_sanitize(sandbox):
     assert PptResolver().resolve(ctx) == "plain deck no carousel"
 
 
-def test_ppt_matches_engine_transform_byte_for_byte(sandbox):
-    # The resolver's output equals the engine's _unwrap_artifact(_sanitize(...)).
-    from agents.execution_engine.engine import (
-        _sanitize_carousel_deck_html,
-        _unwrap_artifact,
+def test_ppt_matches_canonical_transform_byte_for_byte(sandbox):
+    # The resolver's output equals unwrap_artifact(sanitize(...)) from the canonical
+    # _artifact module — the SINGLE home for the transform after the engine copies were
+    # deleted in 07-05 (the old engine._sanitize_carousel_deck_html/_unwrap_artifact were
+    # the move-don't-copy source; the byte-identical impl now lives only here).
+    from agents.capabilities.deliverables._artifact import (
+        sanitize_carousel_deck_html,
+        unwrap_artifact,
     )
 
     ctx = _Ctx(_FakeRunner(sandbox), last_streamed=_CAROUSEL_DECK)
-    expected = _unwrap_artifact(_sanitize_carousel_deck_html(_CAROUSEL_DECK))
+    expected = unwrap_artifact(sanitize_carousel_deck_html(_CAROUSEL_DECK))
     assert PptResolver().resolve(ctx) == expected

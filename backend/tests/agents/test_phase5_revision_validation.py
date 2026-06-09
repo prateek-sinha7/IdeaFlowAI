@@ -287,6 +287,21 @@ def _fresh_engine(monkeypatch, tmp_path):
 
     engine._run_planner = _fake_run_planner  # type: ignore[assignment]
 
+    # Disable the auto-clarify override (the clarifier needs live WS round-trips this
+    # offline harness cannot do). The former module-level ALWAYS_CLARIFY=False knob was
+    # deleted in 07-05; the "force CLARIFY_REQUIRED on every run" behavior is now declared
+    # by the manifest clarify.mode == "auto", read off the CompiledWorkflow at run entry.
+    # Wrap compile_for_run to flip the compiled clarify.mode to "off" — suppressing the
+    # PROCEED→CLARIFY_REQUIRED forcing exactly as the old knob did (monkeypatch auto-restores).
+    _orig_compile_for_run = engine_mod.compile_for_run
+
+    def _patched_compile_for_run(pipeline_type, _orig=_orig_compile_for_run):
+        compiled = _orig(pipeline_type)
+        compiled.clarify.mode = "off"
+        return compiled
+
+    monkeypatch.setattr(engine_mod, "compile_for_run", _patched_compile_for_run)
+
     async def _noop_gate(*a, **k):
         return
         yield  # pragma: no cover — make it an async generator

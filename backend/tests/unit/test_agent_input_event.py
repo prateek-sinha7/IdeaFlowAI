@@ -113,11 +113,16 @@ def test_build_context_sources_skips_missing_accumulated():
 
 
 # ---------------------------------------------------------------------------
-# _build_context_message — planning_context injection
+# _compose_context_message — planning_context injection (the generic injector that
+# replaced the deleted per-pipeline _build_context_message in 07-05, L12). Async,
+# index-threaded (index 0 == first agent). Behavior is unchanged: it composes the
+# agnostic base (user brief + planning context + consumed outputs + CURRENT TASK)
+# plus the declared context_provider blocks.
 # ---------------------------------------------------------------------------
 
 
-def test_planning_context_injected_into_context_message():
+@pytest.mark.asyncio
+async def test_planning_context_injected_into_context_message():
     engine = ExecutionEngine()
     spec = _Spec("agent-a", consumes=[])
     agents = [spec]
@@ -130,7 +135,7 @@ def test_planning_context_injected_into_context_message():
         "quality_targets": ["100% test coverage"],
         "execution_gate": "PROCEED",
     }
-    msg = engine._build_context_message(spec, agents, "test brief", planning_context, _ectx())
+    msg = await engine._compose_context_message(spec, 0, agents, "test brief", planning_context, _ectx())
     assert "## Planning Context" in msg
     assert "Build a login feature" in msg
     assert "React frontend" in msg
@@ -139,21 +144,23 @@ def test_planning_context_injected_into_context_message():
     assert "< 200ms response" in msg
 
 
-def test_planning_context_not_injected_when_timed_out():
+@pytest.mark.asyncio
+async def test_planning_context_not_injected_when_timed_out():
     """Timed-out planning context (empty/default) should not inject a block."""
     engine = ExecutionEngine()
     spec = _Spec("agent-a", consumes=[])
     agents = [spec]
     planning_context = engine._default_planning_context("brief", timed_out=True)
-    msg = engine._build_context_message(spec, agents, "brief", planning_context, _ectx())
+    msg = await engine._compose_context_message(spec, 0, agents, "brief", planning_context, _ectx())
     # Timed-out context has planner_timed_out=True — no Planning Context block
     assert "## Planning Context" not in msg
 
 
-def test_user_request_always_present():
+@pytest.mark.asyncio
+async def test_user_request_always_present():
     engine = ExecutionEngine()
     spec = _Spec("agent-a", consumes=[])
     agents = [spec]
-    msg = engine._build_context_message(spec, agents, "my user brief", {}, _ectx())
+    msg = await engine._compose_context_message(spec, 0, agents, "my user brief", {}, _ectx())
     assert "my user brief" in msg
     assert "ORIGINAL USER REQUEST" in msg

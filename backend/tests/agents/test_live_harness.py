@@ -120,7 +120,9 @@ class TestEngineWorldOffline:
         before = {
             "factory_create_runner": factory_mod.create_runner,
             "engine_create_runner": engine_mod.create_runner,
-            "always_clarify": engine_mod.ALWAYS_CLARIFY,
+            # ALWAYS_CLARIFY was deleted in 07-05; the harness now patches+restores
+            # compile_for_run (it flips the compiled clarify.mode to "off" offline).
+            "compile_for_run": engine_mod.compile_for_run,
             "runs_root": settings.RUNS_ROOT,
         }
 
@@ -128,7 +130,7 @@ class TestEngineWorldOffline:
 
         assert factory_mod.create_runner is before["factory_create_runner"]
         assert engine_mod.create_runner is before["engine_create_runner"]
-        assert engine_mod.ALWAYS_CLARIFY == before["always_clarify"]
+        assert engine_mod.compile_for_run is before["compile_for_run"]
         assert settings.RUNS_ROOT == before["runs_root"]
 
     @pytest.mark.asyncio

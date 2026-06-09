@@ -549,8 +549,18 @@ async def drive_engine_pipeline(
 
     # ── Don't FORCE clarify; if the real planner still returns CLARIFY_REQUIRED,
     #    the event loop auto-answers questionnaire_ready (auto_answer_clarify). ──
-    _orig_always_clarify = engine_mod.ALWAYS_CLARIFY
-    engine_mod.ALWAYS_CLARIFY = False
+    # The former module-level ALWAYS_CLARIFY=False knob was deleted in 07-05; the
+    # auto-clarify forcing is now declared by the manifest clarify.mode == "auto",
+    # read off the CompiledWorkflow at run entry. Wrap compile_for_run to flip the
+    # compiled clarify.mode to "off" (restored in finally) — same effect as the old knob.
+    _orig_compile_for_run = engine_mod.compile_for_run
+
+    def _harness_compile_for_run(pipeline_type, _orig=_orig_compile_for_run):
+        compiled = _orig(pipeline_type)
+        compiled.clarify.mode = "off"
+        return compiled
+
+    engine_mod.compile_for_run = _harness_compile_for_run
 
     specs = get_pipeline_agents(pipeline_type)
 
@@ -720,7 +730,7 @@ async def drive_engine_pipeline(
             engine_mod.create_runner = _orig_engine_create_runner
         engine._store.store = _orig_store_store  # type: ignore[assignment]
         engine._run_planner = _orig_run_planner  # type: ignore[assignment]
-        engine_mod.ALWAYS_CLARIFY = _orig_always_clarify
+        engine_mod.compile_for_run = _orig_compile_for_run
         _settings.RUNS_ROOT = _orig_runs_root
 
     return result
