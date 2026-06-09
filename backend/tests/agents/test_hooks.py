@@ -395,6 +395,37 @@ async def test_otel_tracing_continues_and_writes_row_on_fire():
 
 
 @pytest.mark.asyncio
+async def test_otel_tracing_degrades_to_noop_span_when_otel_unavailable(monkeypatch):
+    """When opentelemetry is absent, otel_tracing opens NO span but still continues + records (WR-02 / OBS-02).
+
+    Simulates a missing optional dependency by making ``_get_tracer`` return None
+    (the module-level guard sets ``_OTEL_AVAILABLE=False`` in that case). The hook
+    must NOT raise, must return continue, and must still write a hook_runs row —
+    observability degrades gracefully, never breaking the run.
+    """
+    from agents.capabilities.hooks import otel_tracing as _otel
+
+    monkeypatch.setattr(_otel, "_OTEL_AVAILABLE", False)
+    # Reset the cached tracer so _get_tracer re-evaluates the guard.
+    monkeypatch.setattr(_otel, "_TRACER", None)
+
+    hook = _otel.OtelTracingHook()
+    runner = _RecordingRunner()
+    ctx = _Ctx(runner)
+
+    result = await hook.handle({"event": "before_step", "agent_id": "build"}, ctx)
+
+    assert result.outcome == HOOK_CONTINUE
+    assert len(runner.hook_runs) == 1
+    row = runner.hook_runs[0]
+    assert row["hook"] == "otel_tracing"
+    assert row["outcome"] == HOOK_CONTINUE
+    # No span was opened (the optional dependency was unavailable).
+    assert row["detail"]["span"] is False
+    assert row["detail"]["agent_id"] == "build"
+
+
+@pytest.mark.asyncio
 async def test_otel_tracing_never_blocks_for_any_event():
     """otel_tracing's outcome is ALWAYS continue — it can never halt an action (OBS-02)."""
     reg = CapabilityRegistry()

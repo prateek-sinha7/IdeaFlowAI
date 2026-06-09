@@ -38,9 +38,25 @@ import os
 import threading
 from typing import Any
 
-from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
+# OpenTelemetry is an OPTIONAL observability dependency (OBS-02 mandate:
+# observability must NEVER break the run). Guarding the base imports here means a
+# missing/broken ``opentelemetry`` package degrades this hook to a clean no-op
+# (``handle`` records the row + continues, opens no span) RATHER than raising at
+# module-import time — which would abort the hooks-package ``__init__`` and, with
+# it, the unrelated security hook (``secret_scan``). The OTLP *exporter* is guarded
+# separately + lazily in ``_build_span_processor`` (it is an even-more-optional dep).
+try:
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
+
+    _OTEL_AVAILABLE = True
+except ImportError:  # pragma: no cover — package present in this env
+    trace = None  # type: ignore[assignment]
+    TracerProvider = None  # type: ignore[assignment,misc]
+    ConsoleSpanExporter = None  # type: ignore[assignment,misc]
+    SimpleSpanProcessor = None  # type: ignore[assignment,misc]
+    _OTEL_AVAILABLE = False
 
 from agents.capabilities.hooks.base import HOOK_CONTINUE, HookOutcome
 from agents.capabilities.hooks.write import write_hook_run
@@ -55,7 +71,7 @@ _TRACER_NAME = "flowin.agents.hooks.otel_tracing"
 # per-instance) because a process must own a SINGLE TracerProvider — the hook impl
 # is registered once and reused, so this is the natural home.
 _PROVIDER_LOCK = threading.Lock()
-_TRACER: trace.Tracer | None = None
+_TRACER: Any = None
 
 
 def _build_span_processor() -> Any:
@@ -85,8 +101,14 @@ def _build_span_processor() -> Any:
     return SimpleSpanProcessor(ConsoleSpanExporter())
 
 
-def _get_tracer() -> trace.Tracer:
-    """Return the process-wide tracer, configuring the provider once (lazily, thread-safe)."""
+def _get_tracer() -> Any:
+    """Return the process-wide tracer, configuring the provider once (lazily, thread-safe).
+
+    Returns ``None`` when ``opentelemetry`` is unavailable — the caller degrades to a
+    clean no-op (no span) so a missing optional dependency never breaks the run.
+    """
+    if not _OTEL_AVAILABLE:
+        return None
     global _TRACER
     if _TRACER is not None:
         return _TRACER
@@ -116,16 +138,27 @@ class OtelTracingHook:
     async def handle(self, event: Any, ctx: Any) -> HookOutcome:
         """Open a span for the fired event + write a hook_runs row; always continue (OBS-02)."""
         event_name = _event_name(event)
+        agent_id = _event_agent_id(event)
 
         # One span per fired lifecycle/tool-call event. The span is opened + closed
         # synchronously around the audit write — it carries the event name + the
         # firing agent/step id (best-effort) as attributes. Span export is the
         # configured exporter's job (console by default); this emits NO WS event.
+        #
+        # OBS-02 degradation: when ``opentelemetry`` is absent, ``_get_tracer()``
+        # returns ``None`` and we open NO span but STILL record the ``hook_runs``
+        # row + continue — observability degrades gracefully, never breaking the run.
         tracer = _get_tracer()
+        if tracer is None:
+            detail = {"event": event_name, "span": False}
+            if agent_id:
+                detail["agent_id"] = agent_id
+            await write_hook_run(ctx, self.name, event_name, HOOK_CONTINUE, detail)
+            return HookOutcome(outcome=HOOK_CONTINUE)
+
         with tracer.start_as_current_span(f"hook.{event_name}") as span:
             span.set_attribute("flowin.hook", self.name)
             span.set_attribute("flowin.event", event_name)
-            agent_id = _event_agent_id(event)
             if agent_id:
                 span.set_attribute("flowin.agent_id", agent_id)
 

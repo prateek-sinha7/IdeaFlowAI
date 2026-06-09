@@ -39,11 +39,14 @@ Mirrors the module-level-data + accessor idiom of ``agents/registry.py``.
 
 from __future__ import annotations
 
+import logging
 from typing import Callable, TypeVar
 
 # Single source of truth for the od_* id alias (od_prototype -> prototype).
 # Lifted, not redefined — do NOT inline the alias map here (MAN-05 / D-04).
 from agents.registry import _OD_ALIAS_BASE
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Known capability names — the authoritative (kind, name) membership pairs.
@@ -227,6 +230,18 @@ def discover() -> None:
             importlib.import_module(pkg)
         except ModuleNotFoundError:
             # Package not created yet (lands in a later plan) — best-effort no-op.
+            continue
+        except ImportError as exc:  # noqa: PERF203 — one broken pkg must not abort all
+            # The package EXISTS but failed to import for some other reason (an
+            # incompatible optional dependency, a circular import, a syntax error in
+            # a sibling module). Degrade to "that package's capabilities are
+            # unavailable" rather than aborting ALL registry discovery (IN-03). Logged
+            # at warning so the gap is visible, not silent.
+            logger.warning(
+                "capability discovery: forward package %s failed to import (%s) — "
+                "its capabilities are unavailable",
+                pkg, exc,
+            )
             continue
 
 
