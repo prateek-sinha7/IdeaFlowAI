@@ -187,6 +187,14 @@ class ExecutionContext:
     # compiler stays thin (INV-5): it only carries the declaration; control flow lives in
     # the provider/strategy.
     seed_files: dict = field(default_factory=dict)
+    # current_step: the compiled ``Step`` currently being run (08-08 / CR-01). Set by
+    # KernelServices.run_agent for the duration of one agent invocation + reset after
+    # (the same scratch idiom as build_task_number/current_task_block). The engine's
+    # before_write hook firing in _run_agent reads ``current_step.hooks`` so hook
+    # firing is DECLARATION-DRIVEN: only the hooks the step DECLARES fire. None ⇒ no
+    # step bound (a direct unit-style _run_agent invocation) ⇒ no hooks fire (parity).
+    # Typed ``object | None`` to keep this pure-data module free of the plan import.
+    current_step: object | None = None
     # is_revision_workflow: True when the run's manifest declares the ``previous_run``
     # context provider (a revise-prior-run workflow). Gates the per-agent single_file
     # MID-STREAM disk readback in _run_agent off (the legacy L10 readback excluded the

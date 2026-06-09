@@ -95,11 +95,16 @@ class _Perms:
 
 
 class _Step:
-    """Minimal compiled Step stand-in — the hook seam reads ``agent_id`` + ``tools``."""
+    """Minimal compiled Step stand-in — the hook seam reads ``agent_id`` + ``tools`` + ``hooks``.
 
-    def __init__(self, agent_id="step-x", *, tools=None) -> None:
+    ``hooks`` is the DECLARED executable-hook list (08-08 / CR-01/WR-03): the engine
+    fires ONLY the hooks a step declares here. A step declaring no hooks fires nothing.
+    """
+
+    def __init__(self, agent_id="step-x", *, tools=None, hooks=None) -> None:
         self.agent_id = agent_id
         self.tools = tools if tools is not None else _Perms()
+        self.hooks = list(hooks or [])
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -283,7 +288,8 @@ async def test_engine_fire_hooks_before_write_blocks_secret():
     reg = CapabilityRegistry()
     runner = _RecordingRunner()
     ectx = _Ctx(runner)
-    step = _Step("build", tools=_Perms(read_files=True))
+    # The step DECLARES secret_scan (08-08): declaration-driven firing.
+    step = _Step("build", tools=_Perms(read_files=True), hooks=["secret_scan"])
 
     secret = 'token = "ghp_0123456789abcdefghijklmnopqrstuvwxyzABCD"'
     outcome = await engine._fire_hooks(
@@ -302,7 +308,7 @@ async def test_engine_fire_hooks_clean_payload_continues_no_block():
     reg = CapabilityRegistry()
     runner = _RecordingRunner()
     ectx = _Ctx(runner)
-    step = _Step("build", tools=_Perms(read_files=True))
+    step = _Step("build", tools=_Perms(read_files=True), hooks=["secret_scan"])
 
     outcome = await engine._fire_hooks(
         "before_write", step, ectx, reg, payload="<html>clean</html>"
@@ -317,9 +323,11 @@ async def test_engine_fire_hooks_scanner_unbound_when_read_files_off():
     Proves the permission gate at the engine seam: a step lacking read_files does
     not bind the scanner, so the secret-bearing payload is NOT scanned and the
     firing is a no-op continue (HOOK-02). The scanner writes NO hook_runs row (the
-    unbound hook never fires). The wildcard observability hook (otel_tracing) IS
-    bound (no required permission) and DOES record a continue row for the event — so
-    the assertion is scoped to the scanner, not the total row count.
+    unbound hook never fires). The step ALSO declares the wildcard observability hook
+    (otel_tracing), which IS bound (no required permission) and DOES record a continue
+    row for the event — so the assertion is scoped to the scanner, not the total
+    row count. Proves the permission gate is orthogonal to declaration: both are
+    declared, but only the permission-granted one fires.
     """
     from agents.execution_engine.engine import ExecutionEngine
 
@@ -327,7 +335,12 @@ async def test_engine_fire_hooks_scanner_unbound_when_read_files_off():
     reg = CapabilityRegistry()
     runner = _RecordingRunner()
     ectx = _Ctx(runner)
-    step = _Step("build", tools=_Perms(read_files=False))
+    # Both hooks DECLARED; read_files is lowered OFF so secret_scan stays unbound.
+    step = _Step(
+        "build",
+        tools=_Perms(read_files=False),
+        hooks=["secret_scan", "otel_tracing"],
+    )
 
     secret = 'token = "ghp_0123456789abcdefghijklmnopqrstuvwxyzABCD"'
     outcome = await engine._fire_hooks(
@@ -337,6 +350,153 @@ async def test_engine_fire_hooks_scanner_unbound_when_read_files_off():
     # The unbound scanner never fired → no secret_scan row (no block either).
     secret_rows = [r for r in runner.hook_runs if r["hook"] == "secret_scan"]
     assert secret_rows == []
+
+
+@pytest.mark.asyncio
+async def test_engine_fire_hooks_legacy_step_declaring_no_hooks_fires_nothing():
+    """A step DECLARING no hooks fires NOTHING — the declaration-driven WR-03 fix.
+
+    Proves the core of CR-01/WR-03: hook firing keys off the step's DECLARED hooks
+    (``step.hooks``), NOT a global executable-hook set. A legacy step (prototype/od_/
+    ppt/code-gen — declares no hooks) fires neither secret_scan NOR otel_tracing, so
+    it writes NO hook_runs row + prints NO console span — even over a secret payload.
+    This is what keeps the 5 characterization snapshots byte/event-identical AND
+    removes otel_tracing's former global side effect on legacy paths.
+    """
+    from agents.execution_engine.engine import ExecutionEngine
+
+    engine = ExecutionEngine.__new__(ExecutionEngine)
+    reg = CapabilityRegistry()
+    runner = _RecordingRunner()
+    ectx = _Ctx(runner)
+    # No declared hooks → legacy parity path.
+    step = _Step("build", tools=_Perms(read_files=True), hooks=[])
+
+    secret = 'token = "ghp_0123456789abcdefghijklmnopqrstuvwxyzABCD"'
+    for event_name in ("before_step", "before_write"):
+        outcome = await engine._fire_hooks(
+            event_name, step, ectx, reg, payload=secret
+        )
+        assert outcome == HOOK_CONTINUE
+    # NOTHING fired: no hook_runs rows at all (no secret_scan, no otel_tracing).
+    assert runner.hook_runs == []
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# WIRED before_write path (CR-01) — through the production KernelServices.fire_hooks
+# seam (the runner/strategy entry point), with current_step bound declaration-driven
+# ════════════════════════════════════════════════════════════════════════════
+
+
+class _RecordingScopedStore:
+    """A ScopedStore stand-in that records hook_runs rows (the real persist seam)."""
+
+    def __init__(self) -> None:
+        self.hook_runs: list[dict] = []
+
+    async def record_hook_run(self, run_id, hook, event, outcome, detail=None):
+        self.hook_runs.append(
+            {"run_id": run_id, "hook": hook, "event": event,
+             "outcome": outcome, "detail": detail}
+        )
+        return f"hook-row-{len(self.hook_runs)}"
+
+
+def _real_kernel_services(ectx):
+    """Build a real KernelServices over a real engine + ectx (no sandbox/model needed
+    for the fire_hooks passthrough)."""
+    from agents.execution_engine.engine import ExecutionEngine
+    from agents.execution_engine.kernel_services import KernelServices
+
+    engine = ExecutionEngine.__new__(ExecutionEngine)
+    return KernelServices(
+        engine=engine,
+        ectx=ectx,
+        sandbox=None,
+        ordered_agents=[],
+        user_message="",
+        pipeline_run_id=ectx.run_id,
+        pipeline_type="custom",
+        planning_context={},
+        attached_skills=None,
+        attached_hooks=None,
+        model_id=None,
+        cancel_event=None,
+        results=[],
+    )
+
+
+@pytest.mark.asyncio
+async def test_wired_before_write_blocks_secret_via_kernel_services_seam():
+    """The PRODUCTION before_write seam blocks a secret + writes a hook_runs block row.
+
+    Drives the real ``KernelServices.fire_hooks`` (the seam a runner/strategy reaches
+    off ``ctx.runner.fire_hooks``) → engine ``_fire_hooks``, with a step DECLARING
+    secret_scan bound to the ExecutionContext as ``current_step`` (the same binding
+    KernelServices.run_agent establishes before the _run_agent before_write firing).
+    A secret payload → ``block`` AND a hook_runs row outcome=block lands in the
+    scoped store. This proves the WIRED path (not a direct engine._fire_hooks call).
+    """
+    from agents.execution_engine.context import ExecutionContext
+    from agents.workflows.plan import Step
+
+    store = _RecordingScopedStore()
+    ectx = ExecutionContext(run_id="wired-run", owner_id="o", workspace_id="w")
+    ectx.scoped_store = store
+    step = Step(agent_id="build", hooks=["secret_scan"])
+    # Bind the runner handle + the current step exactly as the production run does.
+    runner = _real_kernel_services(ectx)
+    ectx.runner = runner
+    ectx.current_step = step
+
+    secret = 'api_key = "ghp_0123456789abcdefghijklmnopqrstuvwxyzABCD"'
+    outcome = await runner.fire_hooks("before_write", step, payload=secret)
+
+    assert outcome == HOOK_BLOCK
+    block_rows = [r for r in store.hook_runs
+                  if r["hook"] == "secret_scan" and r["outcome"] == HOOK_BLOCK]
+    assert len(block_rows) == 1
+    assert block_rows[0]["event"] == "before_write"
+
+
+@pytest.mark.asyncio
+async def test_wired_run_agent_binds_current_step_for_declaration_driven_firing():
+    """KernelServices.run_agent binds + restores ``ectx.current_step`` (CR-01 plumbing).
+
+    The before_write firing in _run_agent reads ``ectx.current_step.hooks`` — so
+    run_agent must bind the step before delegating + restore it after. We stub the
+    engine's _run_agent to capture the bound step and assert the round-trip without
+    needing a live model/sandbox.
+    """
+    from agents.execution_engine.context import ExecutionContext
+    from agents.workflows.plan import Step
+
+    ectx = ExecutionContext(run_id="bind-run", owner_id="o", workspace_id="w")
+    ectx.current_step = None
+    runner = _real_kernel_services(ectx)
+
+    step = Step(agent_id="prototype-build", hooks=["secret_scan"])
+    captured = {}
+
+    class _Spec:
+        id = "prototype-build"
+
+    async def _fake_run_agent(*args, **kw):
+        captured["current_step"] = ectx.current_step
+        if False:
+            yield  # make it an async generator
+
+    runner._engine._run_agent = _fake_run_agent  # type: ignore[assignment]
+    runner._spec_for = lambda s: _Spec()  # type: ignore[assignment]
+    runner._index_for = lambda s: 0  # type: ignore[assignment]
+
+    async for _ in runner.run_agent(step, ectx):
+        pass
+
+    # The step was bound during the delegation...
+    assert captured["current_step"] is step
+    # ...and restored to its prior value (None) afterwards.
+    assert ectx.current_step is None
 
 
 # ════════════════════════════════════════════════════════════════════════════

@@ -358,6 +358,7 @@ class Step:
     # ── Phase-4-consumed (defaulted) ──────────────────────────────────────
     strategy: str = "single_shot"                            # Q8/Q9 — capability name
     gates: list[str] = field(default_factory=list)           # §9 — gate capability names
+    hooks: list[str] = field(default_factory=list)           # §30 — executable-hook capability names (08-08 / CR-01/WR-03)
     task_source: TaskSource | None = None                    # Q10a/b
     post_step: str | None = None                             # post_step capability name (07-10 / CR-06)
 

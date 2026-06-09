@@ -35,6 +35,16 @@ from agents.capabilities.registry import register
 # value. Tuned to catch obvious leaks WITHOUT flagging ordinary prose (RESEARCH
 # Security Domain: secret_scan is the fine-grained complement, not a noisy
 # heuristic that would block clean deliverables / break characterization parity).
+#
+# KNOWN FALSE NEGATIVES (IN-04) — this is NOT a complete DLP control, do not rely
+# on it as one: it misses JWTs (``eyJ...`` base64 triples), generic 32/40-hex API
+# keys with no ``key=``/prefix context, Azure connection strings, GCP service-
+# account JSON private-key bodies not on a ``-----BEGIN-----`` line, base64-encoded
+# credentials, and any secret assigned WITHOUT quotes or split across lines (the
+# assignment pattern requires a quoted value). A JWT pattern + an entropy heuristic
+# for unquoted long opaque tokens are deliberately deferred (they raise the false-
+# POSITIVE rate, which would risk blocking clean deliverables). Treat a clean scan
+# as "no OBVIOUS leak", never as "definitely no secret".
 _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     # PEM private-key blocks (RSA/EC/OPENSSH/generic).
     re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----"),

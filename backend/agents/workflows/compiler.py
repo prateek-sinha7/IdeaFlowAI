@@ -66,6 +66,7 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
         "agent",
         "strategy",
         "gates",
+        "hooks",  # declared executable-hook capabilities (08-08 / CR-01/WR-03)
         "validators",
         "compaction",
         "task_source",
@@ -243,6 +244,17 @@ class WorkflowCompiler:
                 raise CompilerError(f"unknown gate '{gate}' in {where}")
             self._check_trust(registry, "gate", gate, trusted, where)
 
+        # Declared executable hooks (08-08 / CR-01/WR-03): a step fires ONLY the
+        # hooks it declares here (filtered by permission at the firing point) — NOT
+        # every registered executable hook. A legacy step (prototype/od_/ppt/code-gen)
+        # declares no hooks → fires NOTHING (parity). Name-resolved + trust-checked
+        # like every other capability reference (INV-4 / CAP-03).
+        hooks = list(raw.get("hooks", []) or [])
+        for hook in hooks:
+            if not registry.is_registered("hook", hook):
+                raise CompilerError(f"unknown hook '{hook}' in {where}")
+            self._check_trust(registry, "hook", hook, trusted, where)
+
         validators = list(raw.get("validators", []) or [])
         for v in validators:
             if not registry.is_registered("validator", v):
@@ -303,6 +315,7 @@ class WorkflowCompiler:
             agent_id=agent_id,
             strategy=strategy,
             gates=gates,
+            hooks=hooks,
             task_source=task_source,
             validators=validators,
             compaction=compaction,

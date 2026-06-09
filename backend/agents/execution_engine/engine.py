@@ -1072,13 +1072,14 @@ class ExecutionEngine:
                     # post-step gates/post_step for this agent (additive halt).
                     continue
 
-                # ── [08-07 / D-09] before_step hook firing (additive) ────────────
-                # The executable hooks bound to ``before_step`` (or the ``*``
-                # wildcard — otel_tracing) fire at the step boundary. otel_tracing
-                # is non-blocking (records a span/hook_runs row, emits NO WS event);
-                # a blocking hook (none bound to before_step this phase) would halt
-                # the step additively. The hook firing writes hook_runs rows but adds
-                # NO event to the existing characterization runs (RESEARCH Pitfall 6).
+                # ── [08-07 / 08-08 / D-09] before_step hook firing (additive) ────
+                # Declaration-driven (CR-01/WR-03): only the hooks this step DECLARES
+                # on ``step.hooks`` fire — and only those bound to ``before_step`` (or
+                # the ``*`` wildcard) under the step's effective perms. A legacy step
+                # declares no hooks → NOTHING fires here (no hook_runs row, no console
+                # span on the characterization parity paths). A declared non-blocking
+                # hook (otel_tracing) records a span/hook_runs row + emits NO WS event;
+                # a declared blocking hook would halt the step additively.
                 _hook_outcome = await self._fire_hooks(
                     "before_step", step, ectx, _registry
                 )
@@ -1731,6 +1732,31 @@ class ExecutionEngine:
 
                 output = _sanitize_deck(output)
 
+            # ── [08-08 / CR-01] before_write hook firing (additive, declaration-driven) ──
+            # The DELIVERABLE-WRITE seam: the agent's produced deliverable content
+            # (``output``, read back off the sandbox above for single_file) is about to
+            # be persisted (the typed dual-write below + the downstream readback). Fire
+            # the step's DECLARED ``before_write`` hooks over it FIRST (secret_scan
+            # scans this payload; a manifest declaring ``hooks: [secret_scan]`` blocks a
+            # secret-bearing write). Declaration-driven (only DECLARED hooks fire) so a
+            # legacy step (declares no hooks) fires NOTHING here — no hook_runs row, the
+            # write proceeds byte-identically (the characterization snapshots stay green:
+            # they declare no hooks AND carry no secret). A ``block`` HALTS the persist
+            # ADDITIVELY (the artifact is not written; no new WS event type) — the
+            # fine-grained complement to the coarse pre-step ``security`` gate.
+            _cur_step = getattr(ectx, "current_step", None)
+            if output and _cur_step is not None and getattr(_cur_step, "hooks", None):
+                _bw_outcome = await self._fire_hooks(
+                    "before_write", _cur_step, ectx, _CAPABILITY_REGISTRY, payload=output
+                )
+                if _bw_outcome == "block":
+                    logger.warning(
+                        "before_write hook blocked the deliverable write for agent %s "
+                        "(declared hooks=%s) — skipping persist (additive halt)",
+                        spec.id, list(getattr(_cur_step, "hooks", []) or []),
+                    )
+                    output = ""
+
             # Typed write (PERSIST-02 step 2): the typed graph + DB — the SOLE artifact
             # path since the prior-agent output mirror was deleted in 05-07 (INV-3).
             # Skip empty output (an agent that produced nothing has no artifact). The
@@ -2120,23 +2146,25 @@ class ExecutionEngine:
     # Executable hook firing (08-07 / HOOK-01..04) — the D-09 lifecycle seam
     # ------------------------------------------------------------------
 
-    # The executable-hook NAMES wired live this phase. The legacy prompt-only hook
-    # is the ``behavioral`` NON-executable sub-type (08-05) — it is NOT fired here
-    # (it renders into the prompt, it does not handle lifecycle events). Git-/exec-
-    # needing hooks are registered + permissioned but do NOT fire this phase (their
-    # required permission is OFF: git=P9, exec=P10) — the permission gate in
-    # ``hooks.base.is_bound`` leaves them unbound, so listing them here is harmless.
-    _EXECUTABLE_HOOK_NAMES = ("secret_scan", "otel_tracing")
+    def _resolve_executable_hooks(self, step, registry) -> list:
+        """Return the step's DECLARED executable ``HookHandler`` impls (08-08 / CR-01/WR-03).
 
-    def _resolve_executable_hooks(self, registry) -> list:
-        """Return the registered EXECUTABLE ``HookHandler`` impls (08-07).
+        Declaration-driven (CR-01/WR-03): a step fires ONLY the hooks it DECLARES on
+        ``step.hooks`` (the manifest ``hooks: [...]`` list, name-validated at compile
+        time) — NOT every registered executable hook. A legacy step (prototype/od_/
+        ppt/code-gen) declares no hooks → this returns ``[]`` → it fires NOTHING (no
+        hook_runs row, no console span on the legacy parity paths). The ``behavioral``
+        provider is the non-executable prompt-only sub-type and is never a firing hook.
 
-        Resolves each wired executable-hook name off the registry, skipping any not
-        bound (a name registered in a later plan). The ``behavioral`` provider is
-        excluded — it is the non-executable prompt-only sub-type, not a firing hook.
+        Resolves each declared name off the registry, skipping any unresolvable name
+        defensively (a compile-validated manifest never carries one). The permission
+        filter (``hooks.base.is_bound`` against the step's effective perms) is applied
+        downstream in ``_fire_hooks`` — a declared git/exec hook stays unbound while
+        its permission is OFF.
         """
+        names = list(getattr(step, "hooks", None) or [])
         hooks: list = []
-        for name in self._EXECUTABLE_HOOK_NAMES:
+        for name in names:
             try:
                 hooks.append(registry.resolve("hook", name))
             except (KeyError, RuntimeError):
@@ -2152,14 +2180,18 @@ class ExecutionEngine:
         *,
         payload: str = "",
     ) -> str:
-        """Fire every executable hook BOUND for ``event_name`` (HOOK-01..04 / D-09).
+        """Fire the step's DECLARED executable hooks bound for ``event_name`` (HOOK-01..04 / D-09).
 
-        Binding = the hook declares ``event_name`` (or the ``*`` wildcard) AND the
-        step's EFFECTIVE permissions (``step.tools`` — the 08-03 intersection) grant
-        the hook's ``required_permission`` (``hooks.base.bound_hooks``). A git/exec
-        hook is NOT bound this phase (those perms OFF) so it never fires (HOOK-02 /
-        T-08-07-EoP). Each bound hook's ``handle`` writes its own ``hook_runs`` row
-        (HOOK-04) via ``ctx.runner.record_hook_run``.
+        Declaration-driven (08-08 / CR-01/WR-03): the candidate set is the step's
+        DECLARED hooks (``step.hooks``), NOT every registered executable hook. A
+        legacy step declares no hooks → nothing fires (no hook_runs row, no console
+        span on the legacy parity paths). Among the declared hooks, binding then =
+        the hook declares ``event_name`` (or the ``*`` wildcard) AND the step's
+        EFFECTIVE permissions (``step.tools`` — the 08-03 intersection) grant the
+        hook's ``required_permission`` (``hooks.base.bound_hooks``). A declared git/
+        exec hook stays NOT bound while those perms are OFF (HOOK-02 / T-08-07-EoP).
+        Each bound hook's ``handle`` writes its own ``hook_runs`` row (HOOK-04) via
+        ``ctx.runner.record_hook_run``.
 
         Returns the AGGREGATE outcome: ``block`` iff ANY hook blocked (the caller
         halts the offending action ADDITIVELY — it emits NO existing WS event, it
@@ -2175,7 +2207,9 @@ class ExecutionEngine:
         )
 
         perms = getattr(step, "tools", None)
-        hooks = bound_hooks(self._resolve_executable_hooks(registry), event_name, perms)
+        hooks = bound_hooks(
+            self._resolve_executable_hooks(step, registry), event_name, perms
+        )
         if not hooks:
             return HOOK_CONTINUE
 

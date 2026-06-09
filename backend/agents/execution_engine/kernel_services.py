@@ -516,6 +516,10 @@ class KernelServices:
         prev_total = self._ectx.build_task_total
         prev_block = self._ectx.current_task_block
         prev_skeleton = getattr(self._ectx, "current_prototype_skeleton", "")
+        # Bind the current step (08-08 / CR-01) so the engine's before_write hook
+        # firing reads ``step.hooks`` — declaration-driven (only DECLARED hooks fire).
+        prev_step = getattr(self._ectx, "current_step", None)
+        self._ectx.current_step = step
         if task_number is not None:
             self._ectx.build_task_number = str(task_number)
             self._ectx.build_task_total = str(total_tasks or task_number)
@@ -545,6 +549,7 @@ class KernelServices:
             self._ectx.build_task_total = prev_total
             self._ectx.current_task_block = prev_block
             self._ectx.current_prototype_skeleton = prev_skeleton
+            self._ectx.current_step = prev_step
 
     # ── The Both-validation + bounded internal fix-loop (L-build region C) ─────
     async def run_validation_fix_loop(
