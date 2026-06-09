@@ -61,11 +61,25 @@ class ValidationGate:
         validator_names = list(getattr(step, "validators", None) or [])
         step_id = getattr(step, "agent_id", None) or "?"
 
+        # ── Build the validation TARGET (WR-01) ──────────────────────────────
+        # The registered validators (html_static/html_render/coverage/done_when)
+        # expect a ``DeliverableContext`` shape (``.path`` / ``.content`` / ``.step``
+        # / ``.task_meta`` + ``.runner``) — NOT the raw ``ExecutionContext`` (which
+        # has ``.runner`` but none of those). Build it via the SAME factory the
+        # task_loop uses (``ctx.runner.deliverable_context(...)``) so the validator
+        # reads the real on-disk deliverable and the post-step gate's block-critical
+        # policy can actually fire. The deliverable NAME is the run's declared
+        # deliverable (``ctx.deliverable.name`` — the compiled DeliverableSpec bound
+        # at run entry); a missing factory/name degrades to passing ``ctx`` through
+        # (offline unit ctx with a fake runner that has no factory) so existing fakes
+        # still drive the gate.
+        target = _build_validation_target(ctx, step_id)
+
         # Collect every issue, mapped to its UI label via the SHARED map_severity.
         labelled: list[dict] = []
         for vname in validator_names:
             validator = registry.resolve("validator", vname)
-            issues = await validator.validate(ctx)
+            issues = await validator.validate(target)
             for issue in issues or []:
                 internal = getattr(issue, "severity", None)
                 try:
@@ -121,3 +135,33 @@ class ValidationGate:
             )
         await write_gate_event(ctx, step_id, "validation", GATE_PASS, detail)
         return GateOutcome(outcome=GATE_PASS, events=events, detail=detail)
+
+
+def _build_validation_target(ctx: Any, step_id: str) -> Any:
+    """Build the ``DeliverableContext`` target for the declared validators (WR-01).
+
+    Resolves the run's declared deliverable name off ``ctx.deliverable.name`` (the
+    compiled ``DeliverableSpec`` bound at run entry) and builds the target via the
+    ``ctx.runner.deliverable_context(...)`` factory — the SAME factory the task_loop
+    uses — so ``target.path`` resolves to the on-disk deliverable and each validator
+    reads the real file (``runner.static_check(target.path)`` / ``render_check`` /
+    ``target.content`` / ``target.task_meta``).
+
+    Degrades GRACEFULLY to returning ``ctx`` unchanged when the factory is
+    unavailable (an offline unit ctx whose fake runner has no ``deliverable_context``)
+    or when no deliverable name is declared — so existing fakes that drive the gate
+    with a validator reading off ``ctx.runner`` directly still work. The audit write
+    must never break the live stream (INV-3).
+    """
+    runner = getattr(ctx, "runner", None)
+    factory = getattr(runner, "deliverable_context", None)
+    if factory is None:
+        return ctx
+    deliverable = getattr(ctx, "deliverable", None)
+    name = getattr(deliverable, "name", None)
+    if not name:
+        return ctx
+    try:
+        return factory(name=name, step=step_id, task_meta={"attempt": 0})
+    except Exception:  # noqa: BLE001 — a factory failure degrades to the raw ctx
+        return ctx
