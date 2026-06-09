@@ -310,6 +310,62 @@ def _fresh_engine(monkeypatch, tmp_path):
     return engine_mod, engine
 
 
+def _provision_parent_run_db(monkeypatch, *, parent_run_id, owner_id="anon"):
+    """Provision an in-memory DB with a SAME-OWNER parent ``workflow_runs`` row.
+
+    WR-04 (fail-closed): ``ScopedStore.assert_owns`` does a REAL store lookup of
+    the parent run's ``owner_id`` before the parent-context seed. After the
+    WR-04 fix the seed FAILS CLOSED on any UNEXPECTED store error (so an
+    ownership check that cannot be completed never degrades OPEN to seeding). The
+    offline harness previously had NO DB at all, so ``assert_owns`` raised
+    ``OperationalError: no such table`` and the OLD fail-open code degraded into
+    seeding — i.e. the seeding tests only passed via the very bug WR-04 fixes.
+
+    To keep these tests exercising the REAL production seed path (a same-owner
+    parent that ``assert_owns`` confirms → ``None`` → seed proceeds), back the
+    harness with an in-memory SQLite DB carrying a same-owner parent run row, and
+    point ``SessionLocal`` at it (sqlite does not enforce the ``users`` FK, so no
+    user row is needed). Mirrors the parent-existence the production revision
+    path always has (the parent is a completed run with a ``workflow_runs`` row).
+    """
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    import app.models.database as _db
+    from app.models.database import Base
+    from app.models.workflow import WorkflowRun
+
+    db_engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=db_engine)
+    TestingSession = sessionmaker(bind=db_engine, autocommit=False, autoflush=False)
+
+    seed = TestingSession()
+    try:
+        seed.add(
+            WorkflowRun(
+                id=parent_run_id,
+                user_id=owner_id,
+                title="parent",
+                type="prototype",
+                status="completed",
+                input="idea",
+                owner_id=owner_id,
+            )
+        )
+        seed.commit()
+    finally:
+        seed.close()
+
+    # Point ScopedStore's lazily-opened SessionLocal() at the in-memory DB.
+    monkeypatch.setattr(_db, "SessionLocal", TestingSession)
+    return TestingSession
+
+
 def _install_recording_runner_factory(monkeypatch, engine_mod, *, turns_for, transcripts):
     """Patch ``engine.create_runner`` to return a REAL ``DeepAgentRunner`` over a
     ``_RecordingScriptedModel`` and RECORD every call.
@@ -406,6 +462,10 @@ class TestParentSeeding:
 
         # Pre-write the parent run's sandbox with reference files + a valid SPA.
         parent_run_id = "parent-run-001"
+        # WR-04: back the harness with a same-owner parent run row so the
+        # assert_owns ownership check resolves cleanly (the seed no longer
+        # degrades open on a missing-DB error).
+        _provision_parent_run_db(monkeypatch, parent_run_id=parent_run_id)
         parent_sb = RunSandbox("anon", parent_run_id)
         parent_sb.ensure()
         spec_text = "# Specification\nThe app manages tasks.\n## Architecture\nSPA, hash routing."
@@ -445,6 +505,8 @@ class TestParentSeeding:
         engine_mod, engine = _fresh_engine(monkeypatch, tmp_path)
 
         parent_run_id = "parent-run-002"
+        # WR-04: same-owner parent run row so assert_owns resolves cleanly.
+        _provision_parent_run_db(monkeypatch, parent_run_id=parent_run_id)
         parent_sb = RunSandbox("anon", parent_run_id)
         parent_sb.ensure()
         parent_sb.write("spec.md", "# Spec only\n")

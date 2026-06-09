@@ -159,12 +159,23 @@ class PreviousRunProvider:
                 await scoped_store.assert_owns(parent_run_id)
             except PermissionError:
                 raise  # cross-owner denial — propagate (L16, never swallow)
-            except Exception as authz_exc:  # noqa: BLE001 — DB/schema → degrade
+            except Exception as authz_exc:  # noqa: BLE001 — WR-04: fail CLOSED
+                # WR-04 (fail-closed): an UNEXPECTED store error (DB outage, schema
+                # mismatch, transient store bug) means the ownership check could NOT
+                # be completed. We must NOT proceed to seed the parent run's
+                # spec/design/tasks on an unconfirmed ownership check — degrading OPEN
+                # here risks cross-run data exposure (the blast radius is authz, not
+                # cosmetic). Skip the parent seed entirely; a genuinely-absent parent
+                # is already handled by the `if not parent_run_id` graceful path above,
+                # and individual unreadable / TTL-swept parent files still degrade
+                # per-file in the seed loop below. Only the cross-owner PermissionError
+                # ever propagates (L16); every other error fails closed (no seed).
                 logger.warning(
                     "previous_run: assert_owns lookup failed for parent %s (%s) — "
-                    "degrading to same-owner seed (CTX-05 parity)",
+                    "FAILING CLOSED: skipping parent-run seed (ownership unconfirmed)",
                     parent_run_id, authz_exc,
                 )
+                return {}
 
         # ── Seed the parent run's reference files into this run's sandbox ────────
         # Reach the parent files + the current sandbox through the handle (no app.*

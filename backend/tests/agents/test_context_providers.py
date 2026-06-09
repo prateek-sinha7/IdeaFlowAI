@@ -75,10 +75,17 @@ class _FakeSandbox:
 
 
 class _FakeScopedStore:
-    """assert_owns stub — raises PermissionError for a cross-owner parent."""
+    """assert_owns stub — raises PermissionError for a cross-owner parent.
 
-    def __init__(self, *, cross_owner=False) -> None:
+    ``unexpected_error`` (WR-04): raise a NON-PermissionError (a simulated DB
+    outage / schema mismatch / transient store bug) so the fail-closed path can
+    be exercised — the provider must SKIP the parent seed rather than degrade
+    OPEN to seeding on an unconfirmed ownership check.
+    """
+
+    def __init__(self, *, cross_owner=False, unexpected_error=False) -> None:
         self._cross_owner = cross_owner
+        self._unexpected_error = unexpected_error
         self.assert_called = False
 
     async def assert_owns(self, parent_run_id):
@@ -87,6 +94,8 @@ class _FakeScopedStore:
             raise PermissionError(
                 f"owner may not seed from parent run {parent_run_id!r}"
             )
+        if self._unexpected_error:
+            raise RuntimeError("simulated store outage during ownership lookup")
         return None
 
 
@@ -526,3 +535,33 @@ async def test_previous_run_forward_build_with_stray_parent_does_not_seed():
     assert out == {}
     assert store.assert_called is False  # never asserted (no PermissionError raised)
     assert sandbox.written == {}         # nothing seeded
+
+
+@pytest.mark.asyncio
+async def test_previous_run_unexpected_store_error_fails_closed():
+    """WR-04: an UNEXPECTED (non-PermissionError) store error during assert_owns
+    must FAIL CLOSED — the provider skips the parent-run seed rather than degrade
+    OPEN to seeding on an unconfirmed ownership check.
+
+    The cross-run blast radius of degrading open here is data exposure (seeding a
+    parent's spec/design/tasks without a confirmed ownership check), so any error
+    that is NOT the cross-owner PermissionError (which still propagates, L16) must
+    result in NO parent seed. The error is swallowed (a missing/broken parent must
+    never break a revision — CTX-05 parity) but the seed does NOT proceed.
+    """
+    sandbox = _FakeSandbox()
+    runner = _FakeRunner(
+        sandbox=sandbox,
+        parent_files={"spec.md": "SPEC", "design.md": "DESIGN", "tasks.md": "TASKS"},
+    )
+    store = _FakeScopedStore(unexpected_error=True)
+    ctx = _Ctx(
+        runner, scoped_store=store, parent_run_id="parent-1",
+        is_revision_workflow=True,  # declared revision-intent (WR-06)
+    )
+
+    out = await PreviousRunProvider().load(ctx)
+
+    assert out == {}
+    assert store.assert_called is True   # the ownership check WAS attempted
+    assert sandbox.written == {}         # but FAILED CLOSED — nothing seeded
