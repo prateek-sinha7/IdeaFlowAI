@@ -257,14 +257,14 @@ Plans:
 
 Plans:
 
-- [ ] 08-01-PLAN.md — `@register`/`discover()` self-registration + `user_allowed` trust + new tool/skill/hook/runtime kinds + `base.py` ports; delete `install()`; fold the test-isolation reset fixture (CAP-01/02/03) [wave 1]
-- [ ] 08-02-PLAN.md — `GateHandler` registry (human/validation/approval/security) + real `Validation_Gate` + the additive `0016` migration (validation_results/gate_events/hook_runs) (GATE-01/02/03) [wave 2]
-- [ ] 08-03-PLAN.md — `ToolPermissions` intersection + enforcement (factory tool_provider + ExecutionPolicy); delete F2 switch (TOOLPERM-01/02/03, AGENTRT-04) [wave 3]
-- [ ] 08-04-PLAN.md — `Validator` registry + generic `FixPolicy` fix-loop + P0–P3 severity + migrate html_static/html_render + Tier#4/5/6 + re-point task_loop validation (VALID-01..05) [wave 3]
-- [ ] 08-05-PLAN.md — `AgentRuntimeAdapter` + `PromptAssemblyPolicy` + skill_provider/hook_provider; delete F1/F3/F5 (AGENTRT-01/02/03/05, SKILL-01) [wave 4]
-- [ ] 08-06-PLAN.md — constitution sync-safe pre-warm fix; delete F4/R12 branch (AGENTRT-06) [wave 5]
-- [ ] 08-07-PLAN.md — executable `HookHandler` framework + secret_scan + otel_tracing (OTel install gated by checkpoint) + hook_runs (HOOK-01..04, OBS-02) [wave 6]
-- [ ] 08-08-PLAN.md — `GET /api/capabilities` palette + additive run-stream events + capability palette/model picker/validator panel (API-02/03/06) [wave 7]
+- [ ] 08-01-PLAN.md — `@register`/`discover()` self-registration + `user_allowed` trust + new tool/skill/hook/runtime kinds + `base.py` ports + the single canonical `map_severity` (VALID-03); delete `install()`; fold the test-isolation reset fixture (CAP-01/02/03, VALID-03) [wave 1]
+- [ ] 08-02-PLAN.md — `GateHandler` registry (human/validation/approval/security) + real `Validation_Gate` (imports the 08-01 `map_severity`) + the additive `0016` migration (validation_results/gate_events/hook_runs) (GATE-01/02/03) [wave 2]
+- [ ] 08-03-PLAN.md — `ToolPermissions` intersection + enforcement (factory tool_provider + ExecutionPolicy); delete F2 switch (TOOLPERM-01/02/03, AGENTRT-04) [wave 2]
+- [ ] 08-04-PLAN.md — `Validator` registry + generic `FixPolicy` fix-loop + migrate html_static/html_render (severity via the imported 08-01 `map_severity`) + Tier#4/5/6 + re-point task_loop validation (VALID-01/02/04/05) [wave 3]
+- [ ] 08-05-PLAN.md — `AgentRuntimeAdapter` + `PromptAssemblyPolicy` + skill_provider/hook_provider; delete F1/F3/F5 (AGENTRT-01/02/03/05, SKILL-01) [wave 3]
+- [ ] 08-06-PLAN.md — constitution sync-safe pre-warm fix; delete F4/R12 branch — all F1–F5 ☑ (AGENTRT-06) [wave 4]
+- [ ] 08-07-PLAN.md — executable `HookHandler` framework + secret_scan + otel_tracing (OTel install gated by checkpoint) + hook_runs (HOOK-01..04, OBS-02) [wave 5]
+- [ ] 08-08-PLAN.md — `GET /api/capabilities` palette + additive run-stream events (semantic parity) + capability palette/model picker/validator panel (API-02/03/06) [wave 4]
 
 ### Phase 9: Local Workspace Runtime + Repo Workflows (no exec) [4A]
 
