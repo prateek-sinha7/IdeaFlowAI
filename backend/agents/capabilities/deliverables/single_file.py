@@ -9,9 +9,11 @@ wrote on disk IS the deliverable; the sandbox is read ONLY through ``ctx.runner`
 
 Fallback chain (the folded prototype + revision behavior):
   1. ``deliverable.name`` (default ``prototype.html``) read from the sandbox
-  2. the last-streamed agent output (``ctx.last_streamed``)
-  3. the ``previous_run``-seeded ORIGINAL HTML (``ctx.revision_original_html``)
-     — the revision last-ditch fallback when the agent never wrote the file.
+  2. when a ``previous_run``-seeded ORIGINAL is present (in-place revision): prefer
+     the seeded original over a NON-HTML stream and ``<artifact>``-unwrap the chosen
+     value — byte-identical to the legacy ``prototype_revision`` branch, so a
+     non-HTML confirmation never overwrites the user's prototype
+  3. otherwise (forward build) the last-streamed agent output, returned raw.
 
 This also absorbs the L10 readback (engine.py:1902, today gated on the prototype
 workflow names) — reading ``deliverable.name`` from the sandbox here replaces
@@ -22,6 +24,8 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+
+from agents.capabilities.deliverables._artifact import unwrap_artifact
 
 logger = logging.getLogger(__name__)
 
@@ -47,24 +51,35 @@ class SingleFileResolver:
         if built:
             return built
 
-        # (2) Fall back to the last streamed output (NEVER serialize the sandbox —
-        # it bundles the spec.md/design.md/tasks.md reference scaffolding).
         last_streamed = getattr(ctx, "last_streamed", "") or ""
-        streamed = last_streamed.strip()
-        if streamed:
+        original = getattr(ctx, "revision_original_html", "") or ""
+
+        # (2) Revision fallback — a previous_run-seeded ORIGINAL means this run edits
+        # an existing artifact in place. Byte-identical to the legacy
+        # ``prototype_revision`` branch (engine.py@acd1636:489-504): prefer the
+        # seeded original when the stream is NOT HTML (so a non-HTML confirmation
+        # never overwrites the user's prototype), and unwrap an ``<artifact>`` tag.
+        # Keyed on the ORIGINAL's presence — never on a pipeline-type name (INV-1).
+        if original:
+            streamed = last_streamed.strip()
+            looks_like_html = streamed[:60].lower().lstrip().startswith(
+                ("<!doctype", "<html")
+            )
+            chosen = streamed if looks_like_html else (original or streamed)
+            logger.warning(
+                "single_file: %s not written by agent — fell back to %s",
+                filename,
+                "streamed HTML" if looks_like_html else "seeded original",
+            )
+            return unwrap_artifact(chosen)
+
+        # (3) Forward-build fallback — no seeded original; the streamed output IS the
+        # deliverable, returned raw (matching the legacy forward prototype branch).
+        if last_streamed.strip():
             logger.warning(
                 "single_file: %s not written by agent — falling back to streamed output",
                 filename,
             )
             return last_streamed
-
-        # (3) Last-ditch: the previous_run-seeded ORIGINAL (revision path).
-        original = getattr(ctx, "revision_original_html", "") or ""
-        if original:
-            logger.warning(
-                "single_file: %s not written and no stream — falling back to seeded original",
-                filename,
-            )
-            return original
 
         return ""

@@ -130,6 +130,35 @@ def test_single_file_never_reads_pipeline_type(sandbox):
     assert SingleFileResolver().resolve(ctx) == "<html>ok</html>"
 
 
+def test_single_file_revision_prefers_original_over_non_html_stream(sandbox):
+    # File absent + a NON-HTML stream (e.g. a chat confirmation) + a seeded
+    # original → keep the user's prototype, NOT the chatter (CR-03 regression;
+    # byte-identical to the legacy prototype_revision fallback).
+    ctx = _Ctx(
+        _FakeRunner(sandbox),
+        deliverable=_Deliverable(name="prototype.html"),
+        last_streamed="Done, I updated the prototype.",
+        revision_original_html="<!doctype html><html><body>ORIGINAL</body></html>",
+    )
+    assert (
+        SingleFileResolver().resolve(ctx)
+        == "<!doctype html><html><body>ORIGINAL</body></html>"
+    )
+
+
+def test_single_file_revision_returns_stripped_html_stream_over_original(sandbox):
+    # File absent + an HTML stream + a seeded original → the HTML stream wins,
+    # returned STRIPPED (the legacy branch returned the stripped/unwrapped value,
+    # not the raw last_streamed).
+    ctx = _Ctx(
+        _FakeRunner(sandbox),
+        deliverable=_Deliverable(name="prototype.html"),
+        last_streamed="  <html>NEW</html>  ",
+        revision_original_html="<html>orig</html>",
+    )
+    assert SingleFileResolver().resolve(ctx) == "<html>NEW</html>"
+
+
 # ===========================================================================
 # SerializedSandboxResolver — the code-gen filename:-block bundle
 # ===========================================================================
