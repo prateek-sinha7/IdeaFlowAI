@@ -1,6 +1,6 @@
 """agents/capabilities/prompt/policy.py — the default PromptAssemblyPolicy (08-05 / F1 / §30).
 
-Lifts the factory's hardcoded ``blocks.append`` order (F1) into a registered
+Lifts the factory's hardcoded inline block-append order (F1) into a registered
 ``PromptAssemblyPolicy`` capability. The factory's ``_compose_system_prompt`` joined a
 FIXED block order with ``"\\n\\n"``:
 
@@ -54,7 +54,7 @@ _JOIN = "\n\n"
 class DefaultPromptAssemblyPolicy:
     """The default ``PromptAssemblyPolicy`` — fixed order, ``"\\n\\n"`` join (``name='default'``).
 
-    Reproduces the factory's inline ``blocks.append`` composition byte-for-byte:
+    Reproduces the factory's inline block-append composition byte-for-byte:
     emits the present blocks in ``DEFAULT_ORDER`` joined with ``"\\n\\n"``. The
     ``prompt_body`` category is ALWAYS emitted (the inline path always appended it);
     every other category is emitted only when it carries a non-empty block (mirroring

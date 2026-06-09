@@ -1,14 +1,9 @@
 """agents/capabilities/skills/providers.py — the skill_provider capabilities (08-05 / F3 / SKILL-01).
 
 Lifts the factory's inline flattened skill list (F3) into registered ``SkillProvider``
-capabilities with a provider INTERFACE + VERSION metadata (SKILL-01). The inline path was:
-
-    for skill in ctx.attached_skills:
-        content = skill.get("content", "")
-        if content:
-            blocks.append(content)
-
-i.e. a flattened list of content strings with NO version notion. The lift replaces that
+capabilities with a provider INTERFACE + VERSION metadata (SKILL-01). The inline path
+appended each skill's content to the prompt block list with NO version notion (a
+flattened list of content strings). The lift replaces that
 with four registered providers — ``ui`` / ``disk`` / ``template`` / ``repo`` — each
 returning a list of ``SkillBlock`` descriptors carrying ``content`` + ``version``:
 
@@ -72,21 +67,30 @@ class UiSkillProvider:
     name = "ui"
 
     async def provide(self, ctx: Any) -> list[SkillBlock]:
-        attached = getattr(ctx, "attached_skills", None) or []
-        blocks: list[SkillBlock] = []
-        for skill in attached:
-            content = skill.get("content", "") if isinstance(skill, dict) else ""
-            if not content:
-                continue  # mirror the inline ``if content:`` guard (byte-parity)
-            blocks.append(
-                SkillBlock(
-                    content=content,
-                    version=str(skill.get("version", _UI_DEFAULT_VERSION)),
-                    name=str(skill.get("name", "")),
-                    source="ui",
-                )
+        return extract_ui_skill_blocks(getattr(ctx, "attached_skills", None) or [])
+
+
+def extract_ui_skill_blocks(attached_skills: Any) -> list[SkillBlock]:
+    """Build versioned ``SkillBlock``s from UI-attached skills (sync core, byte-parity).
+
+    The sync core of ``UiSkillProvider.provide`` — usable from the sync factory prompt
+    composer without an async bridge. Drops empty-content skills (the inline
+    ``if content:`` guard) so the flattened content list is byte-identical to the inline
+    path; attaches ``version`` metadata (SKILL-01, defaulting to ``"ui"``)."""
+    result: list[SkillBlock] = []
+    for skill in attached_skills:
+        content = skill.get("content", "") if isinstance(skill, dict) else ""
+        if not content:
+            continue  # mirror the inline ``if content:`` guard (byte-parity)
+        result.append(
+            SkillBlock(
+                content=content,
+                version=str(skill.get("version", _UI_DEFAULT_VERSION)),
+                name=str(skill.get("name", "")),
+                source="ui",
             )
-        return blocks
+        )
+    return result
 
 
 class _EmptyForwardSkillProvider:

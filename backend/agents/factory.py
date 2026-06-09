@@ -225,29 +225,38 @@ def _select_runtime(agent_id: str, build: Callable[[], object]) -> object:
 
 
 def _compose_system_prompt(spec, ctx: AgentContext) -> str:
-    """Compose the system prompt by concatenating in order:
+    """Compose the system prompt via the registered ``PromptAssemblyPolicy`` (08-05 / F1/F3).
 
-    0. Injection content (when spec.injects is non-empty) — critical rules,
-       design system, craft rules, template skill body (mirrors od_runner.py)
-    1. Guardrail content blocks (each preceded by ## Guardrail: {name})
-    2. Skill content blocks from ctx.attached_skills
-    3. Hook guideline blocks from ctx.attached_hooks
-    4. Constitution guardrail (from Workflow_Memory, per-user)
-    5. spec.prompt_body
+    Builds a named-block mapping and delegates block ORDER + join to the
+    registry-resolved ``PromptAssemblyPolicy`` (``resolve("prompt", "default")``,
+    default order ``injects → guardrails → skills → hooks → constitution →
+    prompt_body``, ``"\\n\\n"`` join). The hardcoded inline block-append order (F1)
+    and the inline skills/hooks injection (F3) are DELETED — the SKILLS block now comes
+    from the ``skill_provider`` (``ui``, versioned — SKILL-01) and the HOOKS block from
+    the ``hook_provider`` (``behavioral`` non-executable sub-type, which still renders the
+    ``## Active Behavioral Hooks`` block). Composition is byte-identical to the pre-lift
+    inline path for every existing agent (the 5 characterization snapshots gate it; NEVER
+    re-baseline).
 
-    All blocks are joined with double newlines.
-    Missing guardrail files produce a warning and an empty block (agent still runs).
+    The ``constitution`` slot keeps the factory's existing ``_inject_constitution`` output
+    (F4 is 08-06's deletion — untouched here). Missing guardrail files produce a warning
+    and contribute no block (agent still runs).
     """
-    blocks: list[str] = []
+    from agents.capabilities.hooks.behavioral import render_behavioral_block
+    from agents.capabilities.registry import CapabilityRegistry, discover
+    from agents.capabilities.skills.providers import extract_ui_skill_blocks
+
+    blocks: dict[str, object] = {}
 
     # 0. Injection content (od_prototype / od_ppt agents)
     injects = getattr(spec, "injects", []) or []
     if injects:
         injection_block = _compose_injection(spec, ctx, injects)
         if injection_block:
-            blocks.append(injection_block)
+            blocks["injects"] = injection_block
 
-    # 1. Guardrails
+    # 1. Guardrails (each preceded by ## Guardrail: {name})
+    guardrail_items: list[str] = []
     for guardrail_name in spec.guardrails:
         guardrail_file = _GUARDRAILS_DIR / f"{guardrail_name}.md"
         if not guardrail_file.exists():
@@ -268,44 +277,34 @@ def _compose_system_prompt(spec, ctx: AgentContext) -> str:
                 content = ""
 
         if content:
-            blocks.append(f"## Guardrail: {guardrail_name}\n\n{content}")
+            guardrail_items.append(f"## Guardrail: {guardrail_name}\n\n{content}")
+    if guardrail_items:
+        blocks["guardrails"] = guardrail_items
 
-    # 2. Skills
-    for skill in ctx.attached_skills:
-        content = skill.get("content", "")
-        if content:
-            blocks.append(content)
+    # 2. Skills — via the ``ui`` skill_provider (versioned blocks; SKILL-01). The
+    # factory consumes the versioned blocks' ``content`` for the prompt slot.
+    skill_blocks = extract_ui_skill_blocks(ctx.attached_skills)
+    skill_contents = [b.content for b in skill_blocks if b.content]
+    if skill_contents:
+        blocks["skills"] = skill_contents
 
-    # 3. Hooks — convert hook metadata to behavioral guidelines injected into
-    # the system prompt. Hooks don't carry a "content" field (they are event-
-    # driven behavioral rules, not skill documents), so we synthesize a
-    # guideline block from their metadata: name, event, trigger, description.
-    if ctx.attached_hooks:
-        hook_lines: list[str] = []
-        for hook in ctx.attached_hooks:
-            name = hook.get("name", "")
-            event = hook.get("event", "")
-            trigger = hook.get("trigger", "")
-            description = hook.get("description", "")
-            if name:
-                hook_lines.append(f"- **{name}** ({event}): {description or trigger}")
-        if hook_lines:
-            blocks.append(
-                "## Active Behavioral Hooks\n\n"
-                "The following behavioral guidelines are active for this run. "
-                "Apply them throughout your response:\n\n"
-                + "\n".join(hook_lines)
-            )
+    # 3. Hooks — via the ``behavioral`` hook_provider (the legacy prompt-only hook
+    # survives as a non-executable sub-type; the ## Active Behavioral Hooks block render).
+    hook_block = render_behavioral_block(ctx.attached_hooks)
+    if hook_block:
+        blocks["hooks"] = hook_block
 
-    # 4. Constitution guardrail
+    # 4. Constitution guardrail (F4 untouched — 08-06 owns its deletion).
     constitution = _inject_constitution(ctx)
     if constitution:
-        blocks.append(constitution)
+        blocks["constitution"] = constitution
 
-    # 5. Prompt body
-    blocks.append(spec.prompt_body)
+    # 5. Prompt body (always present)
+    blocks["prompt_body"] = spec.prompt_body
 
-    return "\n\n".join(blocks)
+    discover()  # ensure the prompt policy is bound (idempotent)
+    policy = CapabilityRegistry().resolve("prompt", "default")
+    return policy.assemble(blocks, ctx)
 
 
 def _inject_constitution(ctx: AgentContext) -> str:

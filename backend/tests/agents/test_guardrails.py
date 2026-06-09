@@ -183,16 +183,16 @@ def _compose_blocks_for(spec, ctx: AgentContext) -> dict:
         if injection_block:
             blocks["injects"] = injection_block
 
-    guardrail_blocks: list[str] = []
+    guardrail_items: list[str] = []
     for guardrail_name in spec.guardrails:
         gf = _GUARDRAILS_DIR / f"{guardrail_name}.md"
         if not gf.exists():
             continue
         content = gf.read_text(encoding="utf-8")
         if content:
-            guardrail_blocks.append(f"## Guardrail: {guardrail_name}\n\n{content}")
-    if guardrail_blocks:
-        blocks["guardrails"] = guardrail_blocks
+            guardrail_items.append(f"## Guardrail: {guardrail_name}\n\n{content}")
+    if guardrail_items:
+        blocks["guardrails"] = guardrail_items
 
     skill_blocks = asyncio.run(UiSkillProvider().provide(ctx))
     skill_contents = [b.content for b in skill_blocks if b.content]

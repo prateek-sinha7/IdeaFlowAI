@@ -125,7 +125,7 @@ class GateHandler(Protocol):
 class PromptAssemblyPolicy(Protocol):
     """Composes a named-block mapping into the final system prompt str (F1 / §6).
 
-    Replaces the factory's hardcoded ``blocks.append`` order
+    Replaces the factory's hardcoded inline block-append order
     (``injects -> guardrails -> skills -> hooks -> constitution -> prompt_body``);
     the default order constant lives with the impl (08-05).
     """

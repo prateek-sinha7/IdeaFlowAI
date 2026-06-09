@@ -4,7 +4,7 @@ Importing this package imports ``policy``, firing its
 ``@register("prompt", "default")`` decorator so ``discover()`` (which best-effort
 imports this package) binds the default prompt-assembly policy into the registry.
 
-F1 lift (D-08 / INV-12): the factory's hardcoded ``blocks.append`` order
+F1 lift (D-08 / INV-12): the factory's hardcoded inline block-append order
 (``injects → guardrails → skills → hooks → constitution → prompt_body``, joined with
 ``"\\n\\n"``) becomes a declared, registry-resolved ``PromptAssemblyPolicy``. The default
 policy reproduces that order + join BYTE-IDENTICALLY (the 5 characterization snapshots

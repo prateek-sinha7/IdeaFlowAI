@@ -80,9 +80,9 @@ The `Deletion gate` column holds one of two things, distinguished by the parser:
 | L12 | `_build_context_message` od/ppt/build injection `engine.py:2378-2512` | `ContextProvider` + generic injector | 2 | `_build_context_message` | ☑ | 1d9234b |
 | L15 | `accumulated_outputs: dict[str,str]` mirror (throughout) | `ArtifactGraph`/`ArtifactRef` (§17) | 1A→**1B (delete mirror)** | `accumulated_outputs` | ☑ | aa68dc9 |
 | D2 | thin-store artifact half (`store`/`retrieve_latest`/`retrieve_version`/`list_by_type`/`list_lineage`) + `WorkflowArtifact` model + `workflow_artifacts` table | `artifact_refs` + `ScopedStore` (§18) / alembic `0015` | 1B | `from app\.models\.artifact import` | ☑ | 26863bc |
-| F1 | prompt-assembly inline order `factory.py:174-255` | `PromptAssemblyPolicy` (§6/§30) | 3 | `blocks\.append` | ☐ | |
+| F1 | prompt-assembly inline order `factory.py:174-255` | `PromptAssemblyPolicy` (§6/§30) | 3 | `blocks\.append` | ☑ | |
 | F2 | `_build_runner_tools` closed switch `factory.py:384-446` | `tool_provider` registry (§30) | 3 | `_build_runner_tools` | ☑ | 0861337 |
-| F3 | inline skills/hooks injection `factory.py:220-245` | `skill_provider` / `hook_provider` (§30) | 3 | `_inject_skills\|_inject_hooks` | ☐ | |
+| F3 | inline skills/hooks injection `factory.py:220-245` | `skill_provider` / `hook_provider` (§30) | 3 | `_inject_skills\|_inject_hooks` | ☑ | |
 | F4 | `_inject_constitution` async no-op `factory.py:258-306` (R12) | sync-safe load via `PromptAssemblyPolicy` | 3 | CHECK: constitution-injected-in-prod test passes | ☐ | |
 | F5 | `create_deep_agent` hardcoded `deep_agent_runner.py:240` | `AgentRuntimeAdapter` (§6/§30) | 3 | CHECK: create_deep_agent called only inside the langchain_deepagents adapter | ☑ | |
 

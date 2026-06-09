@@ -11,7 +11,7 @@ single ``## Active Behavioral Hooks`` block from ``ctx.attached_hooks``:
             if name:
                 hook_lines.append(f"- **{name}** ({event}): {description or trigger}")
         if hook_lines:
-            blocks.append("## Active Behavioral Hooks\\n\\n" + ... + "\\n".join(hook_lines))
+            append "## Active Behavioral Hooks\\n\\n" + ... + "\\n".join(hook_lines)
 
 This provider reproduces that block BYTE-IDENTICALLY (the legacy prompt-only hook
 SURVIVES as a ``kind: behavioral`` NON-executable sub-type — F3 / HOOK-01). The ``##
