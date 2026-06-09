@@ -299,3 +299,204 @@ def test_validators_import_the_single_map_severity():
 
     assert hs_mod.map_severity is sev_mod.map_severity
     assert hr_mod.map_severity is sev_mod.map_severity
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 4. Generic FixPolicy fix-loop — config-driven, NOT hardcoded prototype.html
+# ════════════════════════════════════════════════════════════════════════════
+
+
+class _FakeEngine:
+    """Records the filename/max_attempts the kernel threads into the fix-loop."""
+
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    def _resolve_model(self, ectx, spec, model_id):
+        return "fake-model"
+
+    async def _run_validation_fix_loop(self, **kwargs):
+        self.calls.append(kwargs)
+
+
+class _FakeEctx:
+    od_context = None
+    disk_principal = "alice"
+    checkpointer = None
+    scoped_store = None
+    build_task_number = ""
+    build_task_total = ""
+    current_task_block = ""
+    current_prototype_skeleton = ""
+
+
+class _FakeSpec:
+    id = "code-gen"
+
+
+class _FakeStep:
+    agent_id = "code-gen"
+
+
+def _make_kernel(engine):
+    """Build a KernelServices wired to a fake engine (no live run)."""
+    from agents.execution_engine.kernel_services import KernelServices
+
+    return KernelServices(
+        engine=engine,
+        ectx=_FakeEctx(),
+        sandbox=None,
+        ordered_agents=[_FakeSpec()],
+        user_message="idea",
+        pipeline_run_id="run-x",
+        pipeline_type="app_builder",
+        planning_context={},
+        attached_skills=None,
+        attached_hooks=None,
+        model_id=None,
+        results=[],
+        cancel_event=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_fixloop_drives_off_fixpolicy_deliverable():
+    """The fix-loop runs against the FixPolicy deliverable (app.py), not prototype.html."""
+    from agents.execution_engine.kernel_services import FixPolicy
+
+    engine = _FakeEngine()
+    kernel = _make_kernel(engine)
+    await kernel.run_validation_fix_loop(
+        _FakeStep(),
+        task_num=1,
+        total_tasks=1,
+        agent_id="code-gen",
+        policy=FixPolicy(deliverable="app.py", max_attempts=3),
+    )
+    assert engine.calls, "engine fix-loop was not invoked"
+    call = engine.calls[0]
+    assert call["filename"] == "app.py"     # config-driven, NOT prototype.html
+    assert call["max_attempts"] == 3
+
+
+@pytest.mark.asyncio
+async def test_fixloop_filename_backcompat_wraps_default_policy():
+    """A bare filename= caller is wrapped into a default FixPolicy (byte-identical)."""
+    engine = _FakeEngine()
+    kernel = _make_kernel(engine)
+    await kernel.run_validation_fix_loop(
+        _FakeStep(), task_num=1, total_tasks=1, filename="prototype.html",
+    )
+    call = engine.calls[0]
+    assert call["filename"] == "prototype.html"
+    assert call["max_attempts"] == 2   # the Phase-7 default bound
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 5. Tier#4/5/6 validators — register, run against a test manifest, design_quality
+#    is non-blocking (P2/P3 only)
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def test_tier_validators_resolve_after_discover():
+    """spec_plan_coverage / task_done_when / design_quality each resolve."""
+    registry = CapabilityRegistry()
+    for name in ("spec_plan_coverage", "task_done_when", "design_quality"):
+        v = registry.resolve("validator", name)
+        assert v.name == name
+
+
+@pytest.mark.asyncio
+async def test_tier_spec_plan_coverage_flags_gap(db_session):
+    """spec_plan_coverage flags a spec requirement with no matching plan task (P1)."""
+    _seed_run(db_session, run_id="run-t4", owner_id="alice", workspace_id="ws-1")
+    store = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
+    runner = _FakeRunner(
+        static_result=_StaticResult(ok=True), render_result=_RenderResult(),
+        store=store, run_id="run-t4",
+    )
+    target = _Target(
+        name="tasks.md", runner=runner, step="planner",
+        task_meta={
+            "spec_text": "## Authentication\n## Payments\n",
+            "plan_text": "## Task 1: build authentication login form\n",
+        },
+    )
+    v = CapabilityRegistry().resolve("validator", "spec_plan_coverage")
+    issues = await v.validate(target)
+    # 'payments' is uncovered → a P1 coverage gap; 'authentication' is covered.
+    assert any("payments" in i.message.lower() for i in issues)
+    assert all(i.severity == "P1" for i in issues)
+
+
+@pytest.mark.asyncio
+async def test_tier_task_done_when_flags_unmet_criterion(db_session):
+    """task_done_when flags a done_when criterion with no evidence in the deliverable."""
+    _seed_run(db_session, run_id="run-t5", owner_id="alice", workspace_id="ws-1")
+    store = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
+    runner = _FakeRunner(
+        static_result=_StaticResult(ok=True), render_result=_RenderResult(),
+        store=store, run_id="run-t5",
+    )
+    target = _Target(
+        name="app.py", runner=runner, step="code-gen",
+        task_meta={"done_when": ["renders a pricing table", "exports a CSV report"]},
+        content="def render_pricing_table(): ...",
+    )
+    v = CapabilityRegistry().resolve("validator", "task_done_when")
+    issues = await v.validate(target)
+    # The CSV criterion has no evidence → P1; the pricing-table one is evidenced.
+    assert any("csv" in i.message.lower() for i in issues)
+    assert all(i.severity == "P1" for i in issues)
+
+
+@pytest.mark.asyncio
+async def test_tier_design_quality_is_non_blocking(db_session):
+    """design_quality emits ONLY P2/P3 — it can never block (warnings-first)."""
+    _seed_run(db_session, run_id="run-t6", owner_id="alice", workspace_id="ws-1")
+    store = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
+    runner = _FakeRunner(
+        static_result=_StaticResult(ok=True), render_result=_RenderResult(),
+        store=store, run_id="run-t6",
+    )
+    target = _Target(
+        name="prototype.html", runner=runner, step="prototype-build",
+        content=(
+            "<html><body><p>Lorem ipsum placeholder</p>"
+            "<img src='x.png'></body></html>"
+        ),
+    )
+    v = CapabilityRegistry().resolve("validator", "design_quality")
+    issues = await v.validate(target)
+    assert issues, "design_quality should surface placeholder/a11y advisories"
+    # NON-BLOCKING invariant: never P0/P1 (the gate blocks only on CRITICAL/P0).
+    assert all(i.severity in ("P2", "P3") for i in issues)
+    labels = {map_severity(i.severity) for i in issues}
+    assert labels <= {"MEDIUM", "LOW"}
+
+
+@pytest.mark.asyncio
+async def test_tier_validators_write_validation_results_rows(db_session):
+    """Each Tier validator run persists a validation_results row (owner-scoped)."""
+    _seed_run(db_session, run_id="run-t7", owner_id="alice", workspace_id="ws-1")
+    store = ScopedStore(owner_id="alice", workspace_id="ws-1", session=db_session)
+    runner = _FakeRunner(
+        static_result=_StaticResult(ok=True), render_result=_RenderResult(),
+        store=store, run_id="run-t7",
+    )
+    registry = CapabilityRegistry()
+    target = _Target(
+        name="x", runner=runner, step="s",
+        task_meta={"done_when": ["does a thing not present"],
+                   "spec_text": "## Foo\n", "plan_text": ""},
+        content="unrelated body",
+    )
+    for name in ("spec_plan_coverage", "task_done_when", "design_quality"):
+        await registry.resolve("validator", name).validate(target)
+
+    rows = db_session.query(ValidationResult).filter(
+        ValidationResult.run_id == "run-t7"
+    ).all()
+    written = {r.validator for r in rows}
+    assert {"spec_plan_coverage", "task_done_when", "design_quality"} <= written
+    assert all(r.owner_id == "alice" for r in rows)

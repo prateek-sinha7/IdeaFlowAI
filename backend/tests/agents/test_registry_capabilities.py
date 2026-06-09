@@ -40,6 +40,9 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("strategy", "task_loop"),
     ("validator", "html_static"),
     ("validator", "html_render"),
+    ("validator", "spec_plan_coverage"),   # 08-04 / Tier#4
+    ("validator", "task_done_when"),       # 08-04 / Tier#5
+    ("validator", "design_quality"),       # 08-04 / Tier#6
     ("deliverable", "single_file"),
     ("deliverable", "serialized_sandbox"),
     ("deliverable", "streamed_text"),
@@ -82,13 +85,14 @@ def test_unknown_kind_is_rejected(registry: CapabilityRegistry) -> None:
     assert registry.is_registered("bogus_kind", "single_shot") is False
 
 
-def test_registered_count_is_exactly_twenty_two() -> None:
-    # Drift guard: registering a 23rd name (or dropping one) must trip this.
+def test_registered_count_is_exactly_twenty_five() -> None:
+    # Drift guard: registering a 26th name (or dropping one) must trip this.
     # 15 authoritative D-07 pairs + model_catalog (06-01) + post_step
     # revision_validation (07-10 / CR-06) = 16, plus the two 08-02 gate names
     # (approval/security) = 18, plus the four 08-03 tool-set names
-    # (workspace/prototype/prototype_emit_only/planning, F2) = 22.
-    assert len(_KNOWN) == 22
+    # (workspace/prototype/prototype_emit_only/planning, F2) = 22, plus the three
+    # 08-04 Tier validators (spec_plan_coverage/task_done_when/design_quality) = 25.
+    assert len(_KNOWN) == 25
     assert set(_KNOWN) == set(_EXPECTED_NAMES)
 
 

@@ -55,7 +55,7 @@ from agents.registry import _OD_ALIAS_BASE
 # ``tool``/``skill``/``hook``/``runtime`` kinds land their names in 08-02..08-07).
 #
 # strategy:        single_shot, task_loop
-# validator:       html_static, html_render
+# validator:       html_static, html_render, spec_plan_coverage, task_done_when, design_quality  (08-04)
 # deliverable:     single_file, serialized_sandbox, streamed_text, ppt
 # context_provider: opendesign, previous_run
 # task_parser:     heading_tasks
@@ -70,6 +70,9 @@ _KNOWN: set[tuple[str, str]] = {
     ("strategy", "task_loop"),
     ("validator", "html_static"),
     ("validator", "html_render"),
+    ("validator", "spec_plan_coverage"),   # 08-04 / Tier#4
+    ("validator", "task_done_when"),       # 08-04 / Tier#5
+    ("validator", "design_quality"),       # 08-04 / Tier#6 (warnings-first)
     ("deliverable", "single_file"),
     ("deliverable", "serialized_sandbox"),
     ("deliverable", "streamed_text"),
@@ -182,6 +185,12 @@ def discover() -> None:
         "agents.capabilities.context_providers.previous_run",
         "agents.capabilities.compaction.html_skeleton",
         "agents.capabilities.post_steps.revision_validation",
+        # Pure-stdlib kernel-side Tier validators (08-04 / D-05). Imported by module
+        # (NOT via the validators package __init__) so importing
+        # ``agents.capabilities.validators.severity`` stays @register/discover-clean
+        # for the 08-02 gate (08-01 Issues-Encountered: keep severity import-light).
+        "agents.capabilities.validators.spec_plan_coverage",
+        "agents.capabilities.validators.task_done_when",
     )
     for mod in _builtin_modules:
         importlib.import_module(mod)

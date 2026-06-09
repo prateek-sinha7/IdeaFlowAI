@@ -66,6 +66,35 @@ logger = logging.getLogger("agents.execution_engine.kernel_services")
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# FixPolicy (D-06 / VALID-01/02) — the GENERIC, config-driven fix-loop policy.
+#
+# The Both-validation + bounded fix-loop is no longer hardcoded to
+# ``prototype.html``: it drives off this policy carrying the deliverable name, the
+# max attempt bound, and the failure policy (default warn-non-critical /
+# block-critical). Running the loop with ``deliverable="app.py"`` operates on
+# ``app.py``; the prototype manifest's policy names ``prototype.html`` so the
+# prototype path stays byte-identical. The default policy reproduces Phase-7's exact
+# behavior (max_attempts=2, the engine's verbatim BUILD/REVISION fix-prompt wording).
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class FixPolicy:
+    """The generic fix-loop policy (deliverable name + max_attempts + failure mode).
+
+    ``block_critical`` / ``warn_non_critical`` document the default policy the
+    validation gate (08-02) enforces: a CRITICAL issue blocks, residual non-critical
+    issues warn. The internal fix-loop continues to ``max_attempts`` then emits a
+    residual warning — it never blocks the build (INV-3 parity).
+    """
+
+    deliverable: str
+    max_attempts: int = 2
+    block_critical: bool = True
+    warn_non_critical: bool = True
+
+
 @dataclass
 class DeliverableContext:
     """The kernel-pure validation target passed to a registered ``Validator`` (D-04)."""
@@ -453,27 +482,41 @@ class KernelServices:
         task_num: int,
         total_tasks: int,
         agent_id: str = "prototype-build",
-        filename: str,
+        filename: str | None = None,
+        policy: "FixPolicy | None" = None,
         baseline_static: "set[str] | None" = None,
         baseline_console: "set[str] | None" = None,
         user_instruction: str | None = None,
         label: str = "",
     ) -> None:
-        """Run the Both-validation + bounded fix-loop (delegates to the engine).
+        """Run the GENERIC Both-validation + bounded fix-loop (delegates to the engine).
 
-        Builds the SAME per-agent ``AgentContext`` the legacy build loop built and
-        calls the engine's ``_run_validation_fix_loop`` so the fix wording, the
-        thread-id shape, the N=2 bound, and the consume-internally-emit-nothing
-        contract are byte-identical (INV-3). The fix sub-agent edits the deliverable
-        on disk as a side effect; nothing is re-emitted.
+        The loop is config-driven (D-06 / VALID-01/02): the deliverable name + the
+        attempt bound come from a ``FixPolicy`` (``policy.deliverable`` /
+        ``policy.max_attempts``) — NOT hardcoded to ``prototype.html``. Running it
+        with ``policy=FixPolicy(deliverable="app.py")`` validates + fixes ``app.py``.
 
-        07-11 / CR-05: ``filename`` is the DECLARED deliverable filename, threaded in
-        from the strategy (``ctx.deliverable.name``) — REQUIRED (no ``prototype.html``
-        default). The prototype manifest declares ``prototype.html`` so the value
-        passed through keeps prototype validation byte-identical; a non-prototype
-        task_loop workflow validates + fixes ITS OWN file.
+        It delegates to the engine's SINGLE ``_run_validation_fix_loop`` so the fix
+        wording, the thread-id shape, the bounded attempts, and the
+        consume-internally-emit-nothing contract are byte-identical (INV-3). The fix
+        sub-agent edits the deliverable on disk as a side effect; nothing is re-emitted.
+
+        Back-compat (07-11 / CR-05): callers may pass the DECLARED ``filename``
+        directly (the strategy's existing call shape) — it is wrapped into a default
+        ``FixPolicy(deliverable=filename, max_attempts=2)`` so prototype validation is
+        byte-identical. ``policy`` (when given) takes precedence; exactly one of
+        ``policy`` / ``filename`` must be provided.
         """
         from agents.factory import AgentContext
+
+        if policy is None:
+            if filename is None:
+                raise ValueError(
+                    "run_validation_fix_loop requires one of policy / filename"
+                )
+            policy = FixPolicy(deliverable=filename)
+        deliverable_name = policy.deliverable
+        max_attempts = policy.max_attempts
 
         spec = self._spec_for(step)
         ectx = self._ectx
@@ -495,7 +538,8 @@ class KernelServices:
             total_tasks=total_tasks,
             cancel_event=self.cancel_event,
             agent_id=agent_id,
-            filename=filename,
+            filename=deliverable_name,
+            max_attempts=max_attempts,
             baseline_static=baseline_static,
             baseline_console=baseline_console,
             user_instruction=user_instruction,
