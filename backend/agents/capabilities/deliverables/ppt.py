@@ -36,8 +36,10 @@ from agents.capabilities.deliverables._artifact import (
     sanitize_carousel_deck_html,
     unwrap_artifact,
 )
+from agents.capabilities.registry import register
 
 
+@register("deliverable", "ppt")
 class PptResolver:
     """Carousel-sanitize + artifact-unwrap the streamed deck (``name='ppt'``).
 

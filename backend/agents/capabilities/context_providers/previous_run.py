@@ -45,6 +45,8 @@ import logging
 import re
 from typing import Any
 
+from agents.capabilities.registry import register
+
 logger = logging.getLogger(__name__)
 
 _SEED_FILES = ("spec.md", "design.md", "tasks.md")
@@ -110,6 +112,7 @@ def _slim_revision_message(user_message: str, artifact_name: str) -> str:
     ).strip()
 
 
+@register("context_provider", "previous_run")
 class PreviousRunProvider:
     """Ownership-checked parent-run seed (``name='previous_run'``).
 

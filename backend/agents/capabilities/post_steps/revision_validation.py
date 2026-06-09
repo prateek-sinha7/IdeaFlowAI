@@ -31,11 +31,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from agents.capabilities.registry import register
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_ARTIFACT_NAME = "prototype.html"
 
 
+@register("post_step", "revision_validation")
 class RevisionValidationPostStep:
     """Pre-edit baseline + post-edit Both-validation fix-loop (``name='revision_validation'``).
 

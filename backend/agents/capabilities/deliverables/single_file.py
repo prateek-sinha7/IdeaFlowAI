@@ -26,12 +26,14 @@ import logging
 from typing import Any
 
 from agents.capabilities.deliverables._artifact import unwrap_artifact
+from agents.capabilities.registry import register
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_NAME = "prototype.html"
 
 
+@register("deliverable", "single_file")
 class SingleFileResolver:
     """Resolve a single named file from the sandbox (``name='single_file'``).
 

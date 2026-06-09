@@ -28,7 +28,10 @@ from __future__ import annotations
 
 from typing import Any, AsyncIterator
 
+from agents.capabilities.registry import register
 
+
+@register("strategy", "single_shot")
 class SingleShotStrategy:
     """Run one agent for the step and re-yield its events (``name='single_shot'``).
 

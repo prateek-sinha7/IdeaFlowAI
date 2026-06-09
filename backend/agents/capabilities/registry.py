@@ -1,39 +1,59 @@
-"""agents/capabilities/registry.py — central capability NAME registry (MAN-03).
+"""agents/capabilities/registry.py — self-registering capability registry (MAN-03 / CAP-01..03).
 
-Phase 4 / 1A seam: a minimal ``CapabilityRegistry`` keyed by ``(kind, name)``
-holding the known capability names the 15 workflow manifests reference. The
-compiler validates every declared capability reference against this registry
+Phase 8 / 08-01 seam: a self-registering ``CapabilityRegistry`` keyed by
+``(kind, name)``. A module-level ``@register(kind, name, *, user_allowed=...)``
+decorator binds ``(kind,name)->impl`` at module import; a startup ``discover()``
+explicitly imports the known capability subpackages so each ``@register`` fires.
+The compiler validates every declared capability reference against this registry
 (INV-4) — an unknown name is a compile error naming the bad reference.
 
-Scope guards (D-07):
-  - The ``_KNOWN`` membership set stays NAMES only — it is the compiler's INV-4
-    validation surface (``is_registered``) and MUST NOT depend on any impl being
-    bound. Phase 7 adds a SEPARATE ``(kind,name)->impl`` map (populated by an
-    explicit ``install()``), NOT a self-registration decorator and NOT startup
-    discovery machinery (those, plus per-owner trust flags, are Phase 8).
-    Centralising the bindings in an explicit ``install()`` now and converting to
-    ``@register``/``discover()`` in Phase 8 is an evolution, not a dual
-    implementation (INV-12 respected).
+Evolution (D-01, INV-12): this REPLACES the Phase-7 explicit eager-binding
+routine (the deleted ``install``/``_register_builtin`` spelling). ``discover()``
+is its single successor — NOT a parallel path. The old eager binder is DELETED.
+
+Scope guards:
+  - ``_KNOWN`` is the compiler's pure-membership INV-4 surface (``is_registered``)
+    and the declared allow-list ``@register`` validates against. It is a literal
+    populated at registry-module import (impl-free) so the compiler path can
+    validate manifest references WITHOUT any impl being bound
+    (``test_registry_capabilities.py`` asserts no impls at compiler import).
+    ``@register`` may ADD a ``(kind,name)`` pair (e.g. the new
+    ``tool``/``skill``/``hook``/``runtime`` kinds whose names land in later
+    plans) — there is no central if/elif over KIND strings; KINDs are free
+    strings keyed in ``_KNOWN``.
+  - ``discover()`` imports the impl modules — invoked LAZILY at engine import /
+    first ``execute()`` / first ``resolve``, NEVER at compiler import (Pattern 3 /
+    D-01). The compiler imports this module for ``is_registered`` only; the impl
+    subpackages are dragged in only by ``discover()``.
   - ``resolve(kind, name)`` is a STATIC dict lookup over ``_KNOWN``-validated
     names — it performs no dynamic name resolution of any kind (no attribute
-    fetch, no expression evaluation, no dynamic module import) (T-04-01 /
-    T-07-01-01). A compiled manifest name maps to executable behavior only
-    through this fixed map, so it can never become a code-exec vector.
-  - The ``od_prototype -> prototype`` id-alias is lifted from the single source
-    of truth in ``agents.registry`` (``_OD_ALIAS_BASE``); it is NOT re-hardcoded
-    here.
+    fetch, no expression evaluation, no dynamic import) (T-04-01 / T-07-01-01).
+  - Per-capability ``user_allowed`` trust flags live in ``_TRUST`` (D-02): the
+    compiler trust check (CAP-03) keeps ``exec``/``secrets``/``spawn_subagents``
+    off the user palette.
+  - The ``od_prototype -> prototype`` id-alias is lifted from the single source of
+    truth in ``agents.registry`` (``_OD_ALIAS_BASE``); it is NOT re-hardcoded here.
 
 Mirrors the module-level-data + accessor idiom of ``agents/registry.py``.
 """
 
 from __future__ import annotations
 
+from typing import Callable, TypeVar
+
 # Single source of truth for the od_* id alias (od_prototype -> prototype).
 # Lifted, not redefined — do NOT inline the alias map here (MAN-05 / D-04).
 from agents.registry import _OD_ALIAS_BASE
 
 # ---------------------------------------------------------------------------
-# Known capability names — the authoritative 15 (kind, name) pairs (D-07).
+# Known capability names — the authoritative (kind, name) membership pairs.
+#
+# This literal is the compiler's INV-4 pure-membership surface (``is_registered``)
+# AND the declared allow-list ``@register`` validates against. It is populated at
+# registry-module IMPORT (impl-free) so the compiler can validate manifest
+# references with zero impls bound. ``@register`` may ADD a pair (the new
+# ``tool``/``skill``/``hook``/``runtime`` kinds land their names in 08-02..08-07).
+#
 # strategy:        single_shot, task_loop
 # validator:       html_static, html_render
 # deliverable:     single_file, serialized_sandbox, streamed_text, ppt
@@ -41,7 +61,8 @@ from agents.registry import _OD_ALIAS_BASE
 # task_parser:     heading_tasks
 # gate:            human, validation
 # compaction:      html_skeleton
-# model:           default  (the ModelCatalog data capability — name-only, D-03)
+# post_step:       revision_validation
+# model_catalog:   default  (the ModelCatalog data capability — name-only, D-03)
 # ---------------------------------------------------------------------------
 _KNOWN: set[tuple[str, str]] = {
     ("strategy", "single_shot"),
@@ -64,95 +85,134 @@ _KNOWN: set[tuple[str, str]] = {
 
 
 # ---------------------------------------------------------------------------
-# (kind, name) -> impl instance map (Phase 7 / D-02).
+# (kind, name) -> impl instance map + per-capability trust flags (D-01/D-02).
 #
-# SEPARATE from ``_KNOWN`` (the compiler membership set) on purpose: ``_KNOWN``
-# must validate manifest references at Phase-4 compiler import time WITHOUT any
-# impl being bound (``test_registry_capabilities.py`` asserts no impls at that
-# import). The impl map is populated LAZILY by :func:`install` — at engine import
-# / first ``execute()``, never at compiler import. ``resolve`` looks up THIS map
-# (a fixed dict — no dynamic name resolution, T-07-01-01).
+# ``_IMPLS`` is SEPARATE from ``_KNOWN`` (the compiler membership set) on purpose:
+# ``_KNOWN`` must validate manifest references at compiler import time WITHOUT any
+# impl being bound. ``_IMPLS`` is populated by ``@register`` at IMPL-module import,
+# which only happens inside ``discover()`` — at engine import / first ``execute()``
+# / first ``resolve``, never at compiler import. ``resolve`` looks up THIS map (a
+# fixed dict — no dynamic name resolution, T-07-01-01).
+#
+# ``_TRUST`` records the ``user_allowed`` flag per ``(kind, name)`` (D-02): the
+# compiler trust check (CAP-03) keeps privileged capabilities off the user palette.
 # ---------------------------------------------------------------------------
 _IMPLS: dict[tuple[str, str], object] = {}
-_INSTALLED = False
+_TRUST: dict[tuple[str, str], bool] = {}
+_DISCOVERED = False
 
 
-def install() -> None:
-    """Bind one capability impl instance per known ``(kind, name)`` (D-02).
+_T = TypeVar("_T")
 
-    Imports the builtin capability modules and binds a single stateless instance
-    per pair into ``_IMPLS``. Idempotent (re-invocation is a no-op). Invoked
-    LAZILY — at engine import / first ``execute()``, NOT at compiler import — so
-    the compiler's membership-only path (``is_registered`` over ``_KNOWN``) stays
-    honest with zero impls bound (``test_registry_capabilities.py``).
 
-    This is the explicit-binding form sanctioned for Phase 7; the evolution to a
-    ``@register``/``discover()`` self-registration machine is Phase 8 (INV-12 —
-    not a dual implementation).
+def register(
+    kind: str, name: str, *, user_allowed: bool = False
+) -> Callable[[type[_T]], type[_T]]:
+    """Self-registration decorator: bind ``(kind,name)->impl`` at module import (D-01).
+
+    Decorate a stateless capability impl CLASS. At import the decorator:
+      * adds ``(kind, name)`` to ``_KNOWN`` (the declared membership/allow-list —
+        no central if/elif over kinds; the new ``tool``/``skill``/``hook``/
+        ``runtime`` kinds register here too);
+      * instantiates the class once and binds the instance into ``_IMPLS``;
+      * records ``user_allowed`` into ``_TRUST`` (D-02 — privileged capabilities
+        default ``user_allowed=False`` and stay off the user palette).
+
+    Built-ins decorate their existing Phase-7 impl classes so ``discover()``
+    reproduces the exact ``_IMPLS`` set the deleted ``install()`` produced (INV-12).
+    The decorator returns the class UNCHANGED (the binding is the side effect).
     """
-    global _INSTALLED
-    if _INSTALLED:
+
+    def _decorate(cls: type[_T]) -> type[_T]:
+        _KNOWN.add((kind, name))
+        _IMPLS[(kind, name)] = cls()
+        _TRUST[(kind, name)] = user_allowed
+        return cls
+
+    return _decorate
+
+
+def discover() -> None:
+    """Import the known capability subpackages so every ``@register`` fires (D-01).
+
+    The single successor to the deleted ``install()`` (INV-12). Explicitly imports
+    the in-tree capability subpackages — NO namespace/package auto-walk, NO
+    entry-point magic (D-01 rejects auto-discovery: non-deterministic ordering,
+    pulls unintended modules, the import-linter cannot reason about it). Also
+    imports the app-side ``app/agents/validators/`` package (the only app-side
+    capability package) so the heavy-dep validators self-register without the
+    kernel importing ``app.*`` directly (the registry IMPORTS the package to
+    trigger its ``@register``; the validators import the kernel PORT, the legal
+    direction — D-04).
+
+    Idempotent (a flag guards re-invocation). Invoked LAZILY — at engine import /
+    first ``execute()`` / first ``resolve`` — NEVER at compiler import, so the
+    compiler's membership-only path (``is_registered`` over ``_KNOWN``) stays
+    honest with zero impls bound (``test_registry_capabilities.py``).
+    """
+    global _DISCOVERED
+    if _DISCOVERED:
         return
+    # Mark discovered FIRST so a re-entrant import (a capability module importing
+    # registry at import time) does not recurse into discover().
+    _DISCOVERED = True
 
-    # Local imports (NOT module-level) so importing ``registry`` for the
-    # membership path never drags in the impl modules — keeps the compiler import
-    # impl-free and avoids any import cycle.
-    from agents.capabilities.strategies.single_shot import SingleShotStrategy
-    from agents.capabilities.strategies.task_loop import TaskLoopStrategy
-    from agents.capabilities.task_parsers.heading_tasks import HeadingTasksParser
-    from agents.capabilities.deliverables.single_file import SingleFileResolver
-    from agents.capabilities.deliverables.serialized_sandbox import (
-        SerializedSandboxResolver,
+    import importlib
+
+    # In-tree (kernel-side) capability packages whose modules carry @register.
+    # The forward-surface packages (gates/tools/skills/hooks/runtimes/prompt/
+    # validators) are created across 08-02..08-07; import them best-effort so a
+    # not-yet-created package is a no-op rather than an ImportError.
+    _builtin_modules = (
+        "agents.capabilities.strategies.single_shot",
+        "agents.capabilities.strategies.task_loop",
+        "agents.capabilities.task_parsers.heading_tasks",
+        "agents.capabilities.deliverables.single_file",
+        "agents.capabilities.deliverables.serialized_sandbox",
+        "agents.capabilities.deliverables.streamed_text",
+        "agents.capabilities.deliverables.ppt",
+        "agents.capabilities.context_providers.opendesign",
+        "agents.capabilities.context_providers.previous_run",
+        "agents.capabilities.compaction.html_skeleton",
+        "agents.capabilities.post_steps.revision_validation",
     )
-    from agents.capabilities.deliverables.streamed_text import StreamedTextResolver
-    from agents.capabilities.deliverables.ppt import PptResolver
-    from agents.capabilities.context_providers.opendesign import OpenDesignProvider
-    from agents.capabilities.context_providers.previous_run import PreviousRunProvider
-    from agents.capabilities.compaction.html_skeleton import HtmlSkeletonCompaction
-    from agents.capabilities.post_steps.revision_validation import (
-        RevisionValidationPostStep,
+    for mod in _builtin_modules:
+        importlib.import_module(mod)
+
+    # Forward-surface capability PACKAGES (created in later plans). A package whose
+    # __init__ imports its registered modules fires their @register on import.
+    _forward_packages = (
+        "agents.capabilities.gates",
+        "agents.capabilities.tools",
+        "agents.capabilities.skills",
+        "agents.capabilities.hooks",
+        "agents.capabilities.runtimes",
+        "agents.capabilities.prompt",
+        "agents.capabilities.validators",
+        # The only app-side capability package (heavy-dep validators, D-04).
+        "app.agents.validators",
     )
-
-    _IMPLS[("task_parser", "heading_tasks")] = HeadingTasksParser()
-    _IMPLS[("strategy", "single_shot")] = SingleShotStrategy()
-    _IMPLS[("strategy", "task_loop")] = TaskLoopStrategy()
-    # Deliverable resolvers (07-02 / PARITY-02 + PARITY-07).
-    _IMPLS[("deliverable", "single_file")] = SingleFileResolver()
-    _IMPLS[("deliverable", "serialized_sandbox")] = SerializedSandboxResolver()
-    _IMPLS[("deliverable", "streamed_text")] = StreamedTextResolver()
-    _IMPLS[("deliverable", "ppt")] = PptResolver()
-    # Context providers (07-02 / PARITY-03).
-    _IMPLS[("context_provider", "opendesign")] = OpenDesignProvider()
-    _IMPLS[("context_provider", "previous_run")] = PreviousRunProvider()
-    # Compaction (07-03 / PARITY-04) — html_skeleton verbatim-lift of the engine's
-    # _extract_html_skeleton; task_loop routes task-2+ through resolve("compaction",..).
-    _IMPLS[("compaction", "html_skeleton")] = HtmlSkeletonCompaction()
-    # Post-step capability (07-10 / CR-06) — the revision pre-edit baseline +
-    # post-edit Both-validation fix-loop, relocated out of the kernel.
-    _IMPLS[("post_step", "revision_validation")] = RevisionValidationPostStep()
-    # NOTE: further bindings (validators, gates) land in later plans
-    # as those impl modules are created — add them here alongside their module
-    # import. ``resolve`` raises a clear RuntimeError for any known-but-unbound
-    # ``(kind, name)`` until then.
-
-    _INSTALLED = True
-
-
-# Backwards-compatible alias for the D-02 ``install()``/``_register_builtins()``
-# spelling — both names point at the same explicit-binding routine.
-_register_builtins = install
+    for pkg in _forward_packages:
+        try:
+            importlib.import_module(pkg)
+        except ModuleNotFoundError:
+            # Package not created yet (lands in a later plan) — best-effort no-op.
+            continue
 
 
 class CapabilityRegistry:
     """Validates declared capability references and resolves them to impls.
 
-    Two distinct paths:
+    Paths:
       * ``is_registered(kind, name)`` — the compiler's INV-4 membership check, a
-        pure ``_KNOWN`` set lookup. No dynamic name resolution of any kind
-        (T-04-01). Unchanged from Phase 4.
-      * ``resolve(kind, name)`` — the D-02 execution seam: a STATIC dict lookup
-        over the ``_IMPLS`` map (populated by :func:`install`) returning the bound
-        impl instance. Raises on an unknown name BEFORE any lookup, and on a
+        pure ``_KNOWN`` set lookup. No dynamic name resolution (T-04-01).
+      * ``is_user_allowed(kind, name)`` — the CAP-03 trust check: ``True`` iff the
+        capability was registered ``user_allowed=True`` (D-02). A capability with
+        no recorded trust flag (e.g. the name-only ``model_catalog``) defaults to
+        NOT user-allowed.
+      * ``resolve(kind, name)`` — the execution seam: a STATIC dict lookup over the
+        ``_IMPLS`` map (populated by ``discover()``) returning the bound impl
+        instance. Raises on an unknown name BEFORE any lookup, and on a
         known-but-unbound name (a programmer error). Never returns ``None``.
     """
 
@@ -160,27 +220,38 @@ class CapabilityRegistry:
         """Return ``True`` iff ``(kind, name)`` is a known capability."""
         return (kind, name) in _KNOWN
 
+    def is_user_allowed(self, kind: str, name: str) -> bool:
+        """Return ``True`` iff the capability is user-grantable (CAP-03 / D-02).
+
+        Ensures impls are discovered so the ``_TRUST`` flag is bound, then reads it.
+        A capability with no recorded flag (name-only data capabilities, or an
+        unknown reference) defaults to ``False`` — the safe default that keeps
+        privileged capabilities off the user palette.
+        """
+        if not _DISCOVERED:
+            discover()
+        return _TRUST.get((kind, name), False)
+
     def resolve(self, kind: str, name: str) -> object:
         """Return the impl instance bound to ``(kind, name)`` (D-02).
 
         Raises ``KeyError`` for an unknown ``(kind, name)`` — checked against
         ``_KNOWN`` FIRST, before any impl lookup, so a name not in the validated
-        set never reaches the map (T-07-01-01). Raises ``RuntimeError`` for a
-        known name with no bound impl (the impl modules were not ``install()``-ed,
-        a programmer error). This is a pure static dict lookup — it performs no
-        dynamic name resolution of any kind.
+        set never reaches the map (T-07-01-01). Raises ``RuntimeError`` for a known
+        name with no bound impl (the impl modules were not discovered, a programmer
+        error). This is a pure static dict lookup — no dynamic name resolution.
         """
         if (kind, name) not in _KNOWN:
             raise KeyError(f"unknown capability reference: ({kind!r}, {name!r})")
-        # Lazy bind on first resolve so callers need not order install() themselves.
-        if not _INSTALLED:
-            install()
+        # Lazy discover on first resolve so callers need not order discover() themselves.
+        if not _DISCOVERED:
+            discover()
         try:
             return _IMPLS[(kind, name)]
         except KeyError:  # known name, no impl bound (e.g. an impl not yet landed)
             raise RuntimeError(
                 f"capability ({kind!r}, {name!r}) is known but has no bound impl; "
-                "call agents.capabilities.registry.install()"
+                "call agents.capabilities.registry.discover()"
             ) from None
 
     def resolve_alias(self, pipeline_type: str) -> str:

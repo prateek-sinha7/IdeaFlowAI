@@ -72,7 +72,7 @@ import logging
 import time
 from typing import Any, AsyncIterator
 
-from agents.capabilities.registry import CapabilityRegistry
+from agents.capabilities.registry import CapabilityRegistry, register
 from agents.capabilities.task_parsers.heading_tasks import _count_plan_tasks
 
 logger = logging.getLogger(__name__)
@@ -122,6 +122,7 @@ def _now() -> str:
 # ===========================================================================
 
 
+@register("strategy", "task_loop")
 class TaskLoopStrategy:
     """The prototype per-task sub-agent build loop (``name='task_loop'``).
 

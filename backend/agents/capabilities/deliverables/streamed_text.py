@@ -16,8 +16,10 @@ from __future__ import annotations
 from typing import Any
 
 from agents.capabilities.deliverables._artifact import unwrap_artifact
+from agents.capabilities.registry import register
 
 
+@register("deliverable", "streamed_text")
 class StreamedTextResolver:
     """Return the artifact-unwrapped streamed deliverable (``name='streamed_text'``).
 

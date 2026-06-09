@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 
+from agents.capabilities.registry import register
 from agents.workflows.plan import Task
 
 
@@ -85,6 +86,7 @@ def _extract_task_title(block: str, task_num: int) -> str:
     return f"Task {task_num}"
 
 
+@register("task_parser", "heading_tasks")
 class HeadingTasksParser:
     """``## Task N:`` (with ``<tasks>`` fallback) plan-text → ``list[Task]`` parser.
 

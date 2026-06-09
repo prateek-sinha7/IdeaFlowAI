@@ -23,7 +23,10 @@ from __future__ import annotations
 
 import re as _re
 
+from agents.capabilities.registry import register
 
+
+@register("compaction", "html_skeleton")
 class HtmlSkeletonCompaction:
     """Compact a full prototype HTML into its skeleton state-map (``name='html_skeleton'``).
 

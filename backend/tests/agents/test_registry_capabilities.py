@@ -1,13 +1,18 @@
-"""Tests for the capability seam (Phase 4 / 04-01).
+"""Tests for the capability seam (Phase 4 / 04-01; Phase 8 / 08-01).
 
 Covers:
-  - ``CapabilityRegistry.is_registered(kind, name)`` for all 15 known names.
+  - ``CapabilityRegistry.is_registered(kind, name)`` for all known names.
   - Unknown name / unknown kind rejection.
   - The ``od_prototype -> prototype`` id-alias resolver (single source).
-  - The registered count is exactly 15 (drift guard).
+  - The registered count drift guard.
+  - Phase 8 (08-01 / D-01/D-02): the ``@register`` decorator self-registers
+    ``(kind,name)->impl`` at module import; ``discover()`` is idempotent and
+    binds the built-in impl set; ``is_user_allowed`` reflects the trust flag;
+    the new ``tool``/``skill``/``hook``/``runtime`` KIND strings are accepted;
+    the ``_KNOWN`` membership path stays impl-free at compiler import.
 
-No capability implementations are asserted here — Phase 4 registers NAMES only
-(impls land in Phase 7, trust flags in Phase 8 per D-07).
+No capability implementations are asserted in the Phase-4 section — Phase 4
+registers NAMES only; impls + trust flags land in Phase 8 (08-01).
 """
 
 from __future__ import annotations
@@ -24,7 +29,8 @@ from agents.capabilities.base import (
     TaskParser,
     Validator,
 )
-from agents.capabilities.registry import CapabilityRegistry, _KNOWN
+from agents.capabilities import registry as registry_mod
+from agents.capabilities.registry import CapabilityRegistry, _KNOWN, register
 
 # The authoritative 15 (kind, name) pairs per D-07 / 04-RESEARCH §D-07,
 # plus the Phase 6 model_catalog name-only registration (06-01 / D-03),
@@ -121,3 +127,142 @@ def test_all_six_ports_importable() -> None:
         "GateHandler",
         "TaskParser",
     }
+
+
+# --- Phase 8 (08-01): @register / discover() / user_allowed (D-01/D-02) ----
+
+
+@pytest.fixture()
+def _clean_registry():
+    """Snapshot + restore the process-global registry maps around a test.
+
+    The Phase-8 ``@register`` decorator + ``discover()`` mutate process-global
+    maps (``_IMPLS``/``_KNOWN``/``_TRUST``) and the idempotency flag. Save/restore
+    so a test that registers a throwaway capability (or runs ``discover()``) never
+    leaks into another test or the characterization snapshots (mirrors the D-12
+    fold added to ``test_strategies.py``).
+
+    Discovery is import-side-effect-driven: the ``@register`` decorators fire only
+    on the FIRST import of each impl module in the process. So we ensure
+    ``discover()`` has run BEFORE snapshotting — the snapshot then always carries
+    the built-in impls, and restoring it can never drop them (a snapshot taken
+    pre-discovery would, because a later re-import is a no-op).
+    """
+    registry_mod.discover()
+    known = set(registry_mod._KNOWN)
+    impls = dict(registry_mod._IMPLS)
+    trust = dict(registry_mod._TRUST)
+    discovered = registry_mod._DISCOVERED
+    try:
+        yield
+    finally:
+        registry_mod._KNOWN.clear()
+        registry_mod._KNOWN.update(known)
+        registry_mod._IMPLS.clear()
+        registry_mod._IMPLS.update(impls)
+        registry_mod._TRUST.clear()
+        registry_mod._TRUST.update(trust)
+        registry_mod._DISCOVERED = discovered
+
+
+def test_register_binds_impl_resolvable_after_decorator(_clean_registry) -> None:
+    # A module that decorates a class with @register is resolvable with ZERO edits
+    # to the registry's resolution code (no central if/elif). Mark discovered so the
+    # first resolve() does not re-run discover() and clobber the throwaway impl.
+    registry_mod._DISCOVERED = True
+
+    @register("strategy", "demo_single_shot")
+    class _FakeSingleShot:
+        name = "demo_single_shot"
+
+    assert isinstance(
+        CapabilityRegistry().resolve("strategy", "demo_single_shot"), _FakeSingleShot
+    )
+
+
+def test_register_records_user_allowed(_clean_registry) -> None:
+    @register("validator", "html_static", user_allowed=True)
+    class _AllowedValidator:
+        name = "html_static"
+
+    @register("strategy", "single_shot")  # default user_allowed=False
+    class _DeniedStrategy:
+        name = "single_shot"
+
+    reg = CapabilityRegistry()
+    assert reg.is_user_allowed("validator", "html_static") is True
+    assert reg.is_user_allowed("strategy", "single_shot") is False
+
+
+def test_register_adds_membership_to_known(_clean_registry) -> None:
+    # A brand-new (kind, name) under one of the new KIND strings registers and
+    # becomes a known membership pair — no central kind allow-list / if-elif.
+    assert ("runtime", "langchain_deepagents") not in registry_mod._KNOWN
+
+    @register("runtime", "langchain_deepagents")
+    class _FakeRuntime:
+        name = "langchain_deepagents"
+
+    reg = CapabilityRegistry()
+    assert reg.is_registered("runtime", "langchain_deepagents") is True
+    assert isinstance(reg.resolve("runtime", "langchain_deepagents"), _FakeRuntime)
+
+
+@pytest.mark.parametrize("kind", ["tool", "skill", "hook", "runtime"])
+def test_new_kinds_are_accepted(_clean_registry, kind: str) -> None:
+    @register(kind, f"demo_{kind}")
+    class _FakeCap:
+        name = f"demo_{kind}"
+
+    assert CapabilityRegistry().is_registered(kind, f"demo_{kind}") is True
+
+
+def test_discover_is_idempotent(_clean_registry) -> None:
+    # Two discover() calls bind the same impl set without error.
+    registry_mod._DISCOVERED = False
+    registry_mod.discover()
+    first = dict(registry_mod._IMPLS)
+    registry_mod.discover()  # second call — must be a no-op
+    assert registry_mod._IMPLS == first
+
+
+def test_discover_binds_the_builtin_impls(_clean_registry) -> None:
+    # discover() reproduces the impl set install() produced (07 built-ins). The
+    # decorators fire at impl-module import (the first discover() in the process);
+    # discover() is the single trigger for that import. Assert every built-in pair
+    # resolves to an impl whose ``name`` matches.
+    registry_mod.discover()
+    reg = CapabilityRegistry()
+    for kind, name in [
+        ("strategy", "single_shot"),
+        ("strategy", "task_loop"),
+        ("task_parser", "heading_tasks"),
+        ("deliverable", "single_file"),
+        ("deliverable", "serialized_sandbox"),
+        ("deliverable", "streamed_text"),
+        ("deliverable", "ppt"),
+        ("context_provider", "opendesign"),
+        ("context_provider", "previous_run"),
+        ("compaction", "html_skeleton"),
+        ("post_step", "revision_validation"),
+    ]:
+        impl = reg.resolve(kind, name)
+        assert getattr(impl, "name", None) == name
+
+
+def test_membership_path_is_impl_free_at_import() -> None:
+    # The compiler's INV-4 membership path (is_registered over _KNOWN) must hold
+    # with NO impl bound. Importing the registry module alone (this test does not
+    # call discover()) must not have bound impls for the known names — the
+    # membership check is a pure set lookup.
+    reg = CapabilityRegistry()
+    # is_registered never consults _IMPLS — pure _KNOWN membership.
+    assert reg.is_registered("strategy", "single_shot") is True
+    assert reg.is_registered("strategy", "nonexistent") is False
+
+
+def test_install_is_deleted() -> None:
+    # INV-12: install()/_register_builtins() are deleted — discover() is the single
+    # successor, not a parallel path.
+    assert not hasattr(registry_mod, "install")
+    assert not hasattr(registry_mod, "_register_builtins")

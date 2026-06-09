@@ -18,7 +18,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from agents.capabilities.registry import register
 
+
+@register("deliverable", "serialized_sandbox")
 class SerializedSandboxResolver:
     """Serialize the run sandbox to the ``filename:``-block bundle (``name='serialized_sandbox'``).
 

@@ -25,6 +25,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from agents.capabilities.registry import register
+
 # Sentinel key-prefix marking a PRE-WRAPPED (raw) provider block (CR-04). The
 # legacy L12 injection-parts already carry their own ``=== TEMPLATE SEED ... ===``
 # envelope, so the engine appended them RAW (``parts.append(part)``) — it did NOT
@@ -36,6 +38,7 @@ from typing import Any
 RAW_BLOCK_PREFIX = "\x00RAW\x00"
 
 
+@register("context_provider", "opendesign")
 class OpenDesignProvider:
     """Compose the od / template / example injection blocks (``name='opendesign'``).
 
