@@ -13,6 +13,13 @@ clarify:
 deliverable:
   strategy: single_file
   name: prototype.html
+  # DECLARED revision-intent (07-10 / WR-04/WR-06): this is the ONE workflow that
+  # edits an existing artifact (prototype.html) in place. The kernel keys the
+  # in-place-revision setup + the previous_run parent seed off THIS flag, not off
+  # the presence of the previous_run provider. The four other previous_run
+  # workflows (ppt/user_stories/app_builder/od_ppt revisions) leave it false —
+  # they regenerate the whole artifact, so they are not in-place revisions.
+  revises_existing: true
 context_providers: [previous_run]
 seed_files: {}
 steps:

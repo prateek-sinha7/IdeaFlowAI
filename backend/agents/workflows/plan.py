@@ -134,10 +134,21 @@ class DeliverableSpec:
     Phase-4-consumed: ``strategy`` (a deliverable-resolver capability NAME, e.g.
     ``single_file``/``serialized_sandbox``/``streamed_text``/``ppt``) is validated
     by the compiler; ``name`` is the output filename hint.
+
+    ``revises_existing`` is the DECLARED revision-intent flag (07-10 / WR-04/WR-06):
+    when ``True`` the workflow EDITS an existing artifact (named by ``name``) in
+    place — the kernel seeds the prior artifact + gates the previous_run parent
+    seed on THIS flag, NOT on a provider-name proxy (``"previous_run" in
+    context_providers``) nor a workflow-name branch (INV-1). Only the
+    ``prototype_revision`` manifest sets it ``True`` today; the four other
+    ``previous_run``-declaring workflows leave it ``False`` (they regenerate the
+    whole artifact, they do not in-place edit), so they are no longer
+    misclassified as in-place revisions.
     """
 
     strategy: str | None = None   # capability name (deliverable resolver)
     name: str | None = None       # e.g. "prototype.html"
+    revises_existing: bool = False  # DECLARED revision-intent (07-10 / WR-04/WR-06)
 
 
 @dataclass

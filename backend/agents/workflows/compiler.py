@@ -208,7 +208,14 @@ class WorkflowCompiler:
             raise CompilerError(
                 f"unknown deliverable '{strategy}' in workflow '{manifest.id}'"
             )
-        return DeliverableSpec(strategy=strategy, name=raw.get("name"))
+        # DECLARED revision-intent (07-10 / WR-04): copied verbatim onto the compiled
+        # model (default False). Coerced to bool so a truthy/None YAML scalar lands as
+        # a clean flag; NO workflow-name knowledge lives here (INV-1).
+        return DeliverableSpec(
+            strategy=strategy,
+            name=raw.get("name"),
+            revises_existing=bool(raw.get("revises_existing", False)),
+        )
 
     # ── DAG validation (no duplicate agents, no cycle) ───────────────────────
 

@@ -4,6 +4,13 @@ Seeds the parent run's spec.md / design.md / tasks.md into THIS run's sandbox
 (the prototype revision path) as a declared ``ContextProvider`` capability
 (PARITY-03). Lift of the engine's L4 parent-run seeding (engine.py:862-922).
 
+DECLARED revision-intent gate (07-10 / WR-06): the seed (and the assert_owns it
+fronts) fires ONLY when the run DECLARES it revises an existing artifact
+(``ctx.is_revision_workflow``, sourced from ``compiled.deliverable.revises_existing``)
+— NOT on raw ``parent_run_id`` presence. This tightens the trust boundary: a
+forward build carrying a stray ``parent_run_id`` can no longer trigger an
+unintended cross-run seed.
+
 CRITICAL ownership gate (V4 / INV-8 / L16 — Highest-Risk Behavior 4):
 ``ScopedStore.assert_owns`` is called on the parent run BEFORE seeding ANY parent
 context. An owner may only seed from a parent run it OWNS; a cross-owner
@@ -40,10 +47,26 @@ class PreviousRunProvider:
     name = "previous_run"
 
     async def load(self, ctx: Any) -> dict[str, str]:
+        # ── DECLARED revision-intent gate (07-10 / WR-06) ───────────────────────
+        # Re-couple the seed + assert_owns to the DECLARED revision-intent signal
+        # (``ctx.is_revision_workflow``, sourced from
+        # ``compiled.deliverable.revises_existing``), NOT to raw ``parent_run_id``
+        # presence. A forward build that happens to carry a stray ``parent_run_id``
+        # in its payload must NEVER trigger a cross-run seed (it would seed another
+        # run's spec/design/tasks into a non-revision sandbox). Only a workflow that
+        # DECLARES it revises an existing artifact may seed from a parent. Read the
+        # flag off ctx the same dynamic-attr way as ``parent_run_id``/``scoped_store``
+        # so this module imports no kernel/app type (import-linter).
+        revises_existing = bool(getattr(ctx, "is_revision_workflow", False))
+        if not revises_existing:
+            # Not a declared in-place revision — never seed a parent run, never run
+            # assert_owns (no parent context belongs in a forward build).
+            return {}
+
         parent_run_id = getattr(ctx, "parent_run_id", None)
         if not parent_run_id:
-            # No parent (forward build, or a revision with no recorded parent) —
-            # nothing to seed (same-owner graceful-degrade path).
+            # No parent (a declared revision with no recorded parent) — nothing to
+            # seed (same-owner graceful-degrade path).
             return {}
 
         # ── L16 ownership gate (AUTHZ-02 / INV-8) — BEFORE any seed ──────────────

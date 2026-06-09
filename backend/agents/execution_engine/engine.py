@@ -639,14 +639,20 @@ class ExecutionEngine:
         # readback + the ppt carousel sanitize) key off compiled.deliverable.strategy.
         ectx.deliverable = compiled.deliverable
         # The "revise a prior run in place" setup (extract the existing artifact,
-        # slim the message, compute the pre-edit baseline) is gated on the workflow
-        # DECLARING the ``previous_run`` context provider — the manifest feature that
-        # marks a revise-prior-run workflow — NOT on the workflow's name (INV-1). Stash
-        # it on the context too: the per-agent single_file mid-stream readback (in
-        # _run_agent) fires for a FORWARD single_file build (the agent writes the file
-        # fresh) but NOT for a revision (whose mid-stream deliverable is the edited
-        # streamed output — the legacy L10 gate excluded prototype_revision, parity).
-        _is_revision_workflow = "previous_run" in (compiled.context_providers or [])
+        # slim the message, compute the pre-edit baseline) is gated on the DECLARED
+        # per-deliverable revision-intent flag ``compiled.deliverable.revises_existing``
+        # (07-10 / WR-04) — the manifest feature that marks a revise-prior-run
+        # workflow — NOT on the presence of the ``previous_run`` provider (a
+        # provider-name proxy is a workflow-identity branch in disguise: four other
+        # workflows declare ``previous_run`` yet are NOT in-place revisions) and NOT
+        # on the workflow's name (INV-1). Stash it on the context too: the per-agent
+        # single_file mid-stream readback (in _run_agent) fires for a FORWARD
+        # single_file build (the agent writes the file fresh) but NOT for a revision
+        # (whose mid-stream deliverable is the edited streamed output — the legacy
+        # L10 gate excluded prototype_revision, parity).
+        _is_revision_workflow = bool(
+            getattr(compiled.deliverable, "revises_existing", False)
+        )
         ectx.is_revision_workflow = _is_revision_workflow
 
         # ── Prototype revision: seed the existing prototype as an editable file ──
