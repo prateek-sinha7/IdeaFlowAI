@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-06-09T00:19:50.005Z"
-last_activity: 2026-06-09 -- Phase 07 verified: gaps_found (OD context-injection parity); gap-closure pending
+last_updated: "2026-06-09T06:38:09.208Z"
+last_activity: "2026-06-09 -- Phase 07 gap-closure plan 07-06 created (opendesign L12 byte-parity: CR-01/02/03 + context_message blind-spot); plan-checker PASSED -- ready to execute"
 progress:
   total_phases: 12
   completed_phases: 6
@@ -24,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 
 ## Current Position
 
-Phase: 07 (prototype-as-manifest-parity-proof-sc-001-2) — GAPS FOUND (gap-closure pending)
-Plan: 5 of 5 executed; verification scored 7/9 must-haves
-Status: SC-001 structural proof landed (kernel knows no workflow by name) + deliverable/event parity green — BUT verification found 2 gaps in the OpenDesign context-injection path (PARITY-03/09 / INV-3): the opendesign provider is not byte-identical to the legacy L12 injection (dropped DS preamble, lost builder-only example gate, lost build-task-2+ skip), and the characterization net is blind to it (context_message is normalized out). See 07-VERIFICATION.md + 07-REVIEW.md. Next: /gsd-plan-phase 7 --gaps
-Last activity: 2026-06-09 -- Phase 07 verified: gaps_found (CR-01/02/03 OD-injection regressions, confirmed by code-review + adversarial verify + verifier)
+Phase: 07 (prototype-as-manifest-parity-proof-sc-001-2) — GAPS FOUND → gap-closure planned (07-06 ready to execute)
+Plan: 5 of 5 executed (verification scored 7/9) + gap-closure plan 07-06 created (3 tasks), checker-PASSED, pending execution
+Status: SC-001 structural proof landed (kernel knows no workflow by name) + deliverable/event parity green. Verification found 2 gaps in the OpenDesign context-injection path (PARITY-03/09 / INV-3): the opendesign provider is not byte-identical to the legacy L12 injection (dropped DS preamble, lost builder-only example gate, lost build-task-2+ skip), and the characterization net is blind to it (context_message is normalized out). Gap-closure plan 07-06 (opendesign L12 byte-parity) restores all three regressions to the git fb55699 byte contract via ectx.current_spec_tools/build_task_number gating (INV-1-safe), fixes the locked-in test, and de-blinds the normalizer — plan-checker PASSED. See 07-VERIFICATION.md + 07-REVIEW.md + 07-06-PLAN.md. Next: /gsd-execute-phase 7
+Last activity: 2026-06-09 -- Phase 07 gap-closure plan 07-06 created (opendesign L12 byte-parity: CR-01/02/03 + context_message blind-spot); plan-checker PASSED — ready to execute
 
 Progress: [█████░░░░░] 50% (6/12 phases complete)
 
