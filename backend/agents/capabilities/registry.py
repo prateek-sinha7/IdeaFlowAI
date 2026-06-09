@@ -59,7 +59,7 @@ from agents.registry import _OD_ALIAS_BASE
 # deliverable:     single_file, serialized_sandbox, streamed_text, ppt
 # context_provider: opendesign, previous_run
 # task_parser:     heading_tasks
-# gate:            human, validation
+# gate:            human, validation, approval, security  (08-02)
 # compaction:      html_skeleton
 # post_step:       revision_validation
 # model_catalog:   default  (the ModelCatalog data capability — name-only, D-03)
@@ -78,6 +78,8 @@ _KNOWN: set[tuple[str, str]] = {
     ("task_parser", "heading_tasks"),
     ("gate", "human"),
     ("gate", "validation"),
+    ("gate", "approval"),   # 08-02
+    ("gate", "security"),   # 08-02
     ("compaction", "html_skeleton"),
     ("post_step", "revision_validation"),
     ("model_catalog", "default"),

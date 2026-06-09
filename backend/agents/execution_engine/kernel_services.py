@@ -199,6 +199,32 @@ class KernelServices:
             )
             return None
 
+    # ── Human gate delegate (08-02 / GATE-03 parity) ───────────────────────────
+    async def run_human_gate(
+        self, step: Any, *, output: str = ""
+    ) -> AsyncIterator[dict]:
+        """Route a declared ``gates:[human]`` step through the EXISTING review gate.
+
+        Delegates to the engine's unchanged ``_run_review_gate`` so the emitted
+        ``review_gate_*`` event sequence is byte/event-identical (GATE-03 parity —
+        NO new HITL mechanism, NO snapshot re-baseline). The registered ``human``
+        gate consumes this generator and re-surfaces its events; the existing
+        inline ``_should_gate`` → ``_run_review_gate`` path in ``_run_agent`` is
+        untouched (this is the additive registry-driven entry point).
+
+        Yields the engine's review-gate event dicts unchanged. The internal
+        ``_gate_rejected`` / ``_gate_edited`` signals flow through so the caller can
+        map them to the gate outcome.
+        """
+        spec = self._spec_for(step)
+        async for event in self._engine._run_review_gate(
+            pipeline_run_id=self.run_id,
+            agent_id=spec.id,
+            agent_name=spec.name,
+            output=output,
+        ):
+            yield event
+
     # ── Typed-graph read (ART-03) ──────────────────────────────────────────────
     def latest_typed_content(self, producer_step: str) -> str | None:
         return self._engine._latest_typed_content(self._ectx, producer_step)
