@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 ## Current Position
 
 Phase: 08 (capabilities-hardened-registry-gates-tool-perms-runtime-3) — EXECUTING
-Plan: 6 of 8
+Plan: 7 of 8
 Status: Ready to execute
-Last activity: 2026-06-09 -- 08-05 complete (AgentRuntimeAdapter/PromptAssemblyPolicy/skill+hook providers; F1/F3/F5 deleted)
+Last activity: 2026-06-09 -- 08-06 complete (constitution sync-safe pre-warm; R12 _mem-only branch deleted; F4 ☑ — all F1–F5 ☑)
 
-Progress: [██████░░░░] 60% (7/12 phases complete; Phase 08 plan 5/8 done)
+Progress: [██████░░░░] 60% (7/12 phases complete; Phase 08 plan 6/8 done)
 
 ## Performance Metrics
 

@@ -271,7 +271,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 08-06-PLAN.md — constitution sync-safe pre-warm fix; delete F4/R12 branch — all F1–F5 ☑ (AGENTRT-06) [wave 4]
+- [x] 08-06-PLAN.md — constitution sync-safe pre-warm fix; delete F4/R12 branch — all F1–F5 ☑ (AGENTRT-06) [wave 4]
 - [ ] 08-08-PLAN.md — `GET /api/capabilities` palette + additive run-stream events (semantic parity) + capability palette/model picker/validator panel (API-02/03/06) [wave 4]
 
 **Wave 5** *(blocked on Wave 4 completion)*
