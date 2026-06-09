@@ -157,9 +157,11 @@ def test_ledger_parses_and_phase7_flips_all_engine_leaks() -> None:
 
     D1 (``_handle_revision``) was found **live** during 0B — the frontend ``run_revision``
     PPT-revision handler, not dead code — so its deletion is voided/deferred and it stays
-    ``☐`` (ledger ‡ note). Phase 3 / 08-03 flips F2 (the factory tool-binding switch →
-    ``tool_provider`` registry); the remaining F1/F3/F4/F5 factory rows stay ``☐`` (their
-    owning Phase-3 plans).
+    ``☐`` (ledger ‡ note). Phase 3 flips the factory rows in their owning plans:
+    08-03 flips F2 (tool-binding switch → ``tool_provider``), 08-05 flips F1/F3/F5
+    (prompt policy / skill+hook providers / runtime adapter), and 08-06 flips F4
+    (constitution sync-safe pre-warm; R12 ``_mem``-only branch deleted) — so after
+    08-06 ALL of F1–F5 are ``☑``.
     """
     text = _LEDGER.read_text()
     rows = _parse_rows(text)
@@ -171,12 +173,13 @@ def test_ledger_parses_and_phase7_flips_all_engine_leaks() -> None:
         ["L14", "L15", "L16", "D2",  # 0B / 1B
          "L1", "L2/L9", "L3", "L4/L8", "L5", "L6", "L7", "L10", "L11", "L12", "L13",  # 07-05
          "F2",  # 08-03 (Phase 3) — F2 tool-switch lifted to the tool_provider registry
-         "F1", "F3", "F5"]  # 08-05 (Phase 3) — prompt policy (F1) / skill+hook providers (F3) / runtime adapter (F5)
+         "F1", "F3", "F5",  # 08-05 (Phase 3) — prompt policy (F1) / skill+hook providers (F3) / runtime adapter (F5)
+         "F4"]  # 08-06 (Phase 3) — constitution sync-safe pre-warm; R12 _mem-only branch deleted
     )
     assert flipped == expected, (
-        f"Through Phase 7 + the 08-03 F2 flip + the 08-05 F1/F3/F5 flips the "
-        f"engine-leak/factory set + 0B/1B rows must be ☑; expected {expected}, found: "
-        f"{flipped} (D1 stays ☐ — voided; F4 stays ☐ — its Phase-3 plan 08-06)"
+        f"Through Phase 7 + the 08-03 F2 flip + the 08-05 F1/F3/F5 flips + the 08-06 F4 "
+        f"flip the engine-leak/factory set + 0B/1B rows must be ☑; expected {expected}, "
+        f"found: {flipped} (D1 stays ☐ — voided; F1–F5 all ☑ after 08-06)"
     )
 
 

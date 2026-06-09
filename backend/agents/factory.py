@@ -321,50 +321,17 @@ def _inject_constitution(ctx: AgentContext) -> str:
     Per-Workflow Constitution (ctx.planning_context.constitution_ref) overrides
     per-user Constitution.
 
-    Returns empty string if no Constitution is set (graceful no-op).
+    The Constitution is awaited ONCE at the async engine run entry and threaded in
+    as ``ctx.prewarmed_constitution`` so this SYNC factory (called from the async engine
+    under a RUNNING event loop) reads it WITHOUT awaiting — the single sync-safe path
+    (AGENTRT-06 / F4 / R12). A DB-stored Constitution is therefore injected in production
+    where the deleted ``_mem``-only running-loop branch silently dropped it. Returns the
+    empty string when no Constitution is pre-warmed (graceful no-op; the characterization
+    runs carry none → snapshots byte-identical).
     """
-    # ── Sync-safe path (AGENTRT-06 / F4 / R12): the async engine pre-warms the owner's ──
-    # Constitution ONCE at run entry and stashes it on ``ctx.prewarmed_constitution`` so
-    # the factory (SYNC, called from the async engine under a RUNNING event loop) reads it
-    # WITHOUT awaiting. This is the single sync-safe read; it injects a DB-stored
-    # Constitution in production where the old ``_mem``-only running-loop branch silently
-    # dropped it. None ⇒ no Constitution set (graceful no-op; the characterization runs
-    # carry none, so snapshots stay byte-identical).
-    prewarmed = getattr(ctx, "prewarmed_constitution", None)
-    if prewarmed:
-        constitution = prewarmed
-    else:
-        user_id = getattr(ctx, "user_id", None) or (
-            # Extract user_id from planning_context if available
-            (ctx.planning_context or {}).get("session_id") if ctx.planning_context else None
-        )
-        if not user_id:
-            return ""
-
-        try:
-            import asyncio
-            from agents.workflow_memory.memory import get_workflow_memory
-
-            memory = get_workflow_memory()
-            # Run the async get_constitution in the current event loop if available,
-            # otherwise fall back to a new loop (factory is called from sync context).
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # We're inside an async context — schedule as a task and return empty
-                    # (the constitution will be injected on the next call once cached).
-                    # For now, use a thread-safe synchronous fallback via the in-memory store.
-                    constitution = memory._mem.get(user_id, {}).get("constitution")
-                else:
-                    constitution = loop.run_until_complete(memory.get_constitution(user_id))
-            except RuntimeError:
-                constitution = None
-
-            if not constitution:
-                return ""
-        except Exception as exc:
-            logger.warning("_inject_constitution failed: %s", exc)
-            return ""
+    constitution = getattr(ctx, "prewarmed_constitution", None)
+    if not constitution:
+        return ""
 
     return (
         "## Constitution (Governing Principles — Supreme Authority)\n\n"
