@@ -88,6 +88,19 @@ _ALLOWED_TASK_SOURCE_KEYS: frozenset[str] = frozenset(
 )
 
 
+# ---------------------------------------------------------------------------
+# Manifest trust context (CAP-03 / D-02)
+# ---------------------------------------------------------------------------
+
+# The trust levels a manifest source carries. ``file`` and ``builtin`` are
+# TRUSTED (engineer-authored, version-controlled) — they may reference any
+# registered capability. ``user`` / ``db`` are UNTRUSTED — every reference is
+# additionally checked against the per-capability ``user_allowed`` flag, so a
+# user/DB manifest can never reference a privileged capability (exec/secrets/
+# spawn/powerful runtimes) the engineer did not mark user-grantable.
+_TRUSTED_SOURCES: frozenset[str] = frozenset({"file", "builtin"})
+
+
 class WorkflowCompiler:
     """Thin, no-DSL manifest → ``CompiledWorkflow`` transform (MAN-02).
 
@@ -99,23 +112,35 @@ class WorkflowCompiler:
         self,
         manifest: WorkflowManifest,
         registry: CapabilityRegistry,
+        *,
+        trust: str = "file",
     ) -> CompiledWorkflow:
         """Compile ``manifest`` into a typed, validated ``CompiledWorkflow``.
 
+        ``trust`` is the manifest's source/trust context (CAP-03 / D-02): ``file``
+        or ``builtin`` are TRUSTED (the default — the 15 file-backed manifests
+        compile unrestricted, so Phase-4/7 parity holds); ``user`` or ``db`` are
+        UNTRUSTED — every declared capability reference is additionally checked
+        against the registry's ``user_allowed`` flag, and a not-user-allowed
+        reference is a ``CompilerError`` NAMING the offending ``(kind, name)``.
+
         Raises:
             CompilerError: if any declared capability reference is unknown to the
-                registry (naming the bad reference), or the Step DAG has a
-                duplicate agent id / cycle.
+                registry (naming the bad reference); under an untrusted ``trust``,
+                if a reference is registered but not ``user_allowed`` (naming the
+                ``(kind, name)``); or the Step DAG has a duplicate agent id / cycle.
         """
-        steps = [self._compile_step(raw, registry) for raw in manifest.steps]
+        trusted = trust in _TRUSTED_SOURCES
+        steps = [self._compile_step(raw, registry, trusted) for raw in manifest.steps]
 
         # ── Workflow-level reference validation ──────────────────────────────
         where = f"workflow '{manifest.id}'"
         for cp in manifest.context_providers:
             if not registry.is_registered("context_provider", cp):
                 raise CompilerError(f"unknown context_provider '{cp}' in {where}")
+            self._check_trust(registry, "context_provider", cp, trusted, where)
 
-        deliverable = self._compile_deliverable(manifest, registry)
+        deliverable = self._compile_deliverable(manifest, registry, trusted)
 
         # ── Topo-validate the Step DAG (cycle-free, no duplicate agents) ──────
         self._validate_dag(steps)
@@ -136,9 +161,40 @@ class WorkflowCompiler:
             clarify=clarify,
         )
 
+    # ── Trust check (CAP-03 / D-02) ──────────────────────────────────────────
+
+    @staticmethod
+    def _check_trust(
+        registry: CapabilityRegistry,
+        kind: str,
+        name: str,
+        trusted: bool,
+        where: str,
+    ) -> None:
+        """Reject a not-user-allowed reference under an untrusted trust context.
+
+        A no-op for a trusted (``file``/``builtin``) manifest — the default path,
+        so every existing file-backed manifest compiles unrestricted (parity). For
+        an untrusted (``user``/``db``) manifest, a reference that is registered but
+        not ``user_allowed`` raises a ``CompilerError`` NAMING the ``(kind, name)``
+        (the seam that keeps exec/secrets/spawn off the user palette). Called at the
+        SAME per-reference site as ``is_registered`` — the validation path is not
+        forked. (The owner allow-list is a later-phase seam: DB manifests are Q5/
+        later, so a missing allow-list defaults to the ``user_allowed`` flag only.)
+        """
+        if trusted:
+            return
+        if not registry.is_user_allowed(kind, name):
+            raise CompilerError(
+                f"capability ({kind!r}, {name!r}) is not user-allowed in {where} "
+                f"— a user/db manifest may not reference it (CAP-03)"
+            )
+
     # ── Step compilation ─────────────────────────────────────────────────────
 
-    def _compile_step(self, raw: dict, registry: CapabilityRegistry) -> Step:
+    def _compile_step(
+        self, raw: dict, registry: CapabilityRegistry, trusted: bool
+    ) -> Step:
         """Map one raw step dict → a typed ``Step``, validating each reference."""
         agent_id = raw.get("agent")
         if not isinstance(agent_id, str) or not agent_id.strip():
@@ -160,24 +216,31 @@ class WorkflowCompiler:
         strategy = raw.get("strategy", "single_shot")
         if not registry.is_registered("strategy", strategy):
             raise CompilerError(f"unknown strategy '{strategy}' in {where}")
+        self._check_trust(registry, "strategy", strategy, trusted, where)
 
         gates = list(raw.get("gates", []) or [])
         for gate in gates:
             if not registry.is_registered("gate", gate):
                 raise CompilerError(f"unknown gate '{gate}' in {where}")
+            self._check_trust(registry, "gate", gate, trusted, where)
 
         validators = list(raw.get("validators", []) or [])
         for v in validators:
             if not registry.is_registered("validator", v):
                 raise CompilerError(f"unknown validator '{v}' in {where}")
+            self._check_trust(registry, "validator", v, trusted, where)
 
         compaction = raw.get("compaction")
         if compaction is not None and not registry.is_registered("compaction", compaction):
             raise CompilerError(f"unknown compaction '{compaction}' in {where}")
+        if compaction is not None:
+            self._check_trust(registry, "compaction", compaction, trusted, where)
 
         post_step = raw.get("post_step")
         if post_step is not None and not registry.is_registered("post_step", post_step):
             raise CompilerError(f"unknown post_step '{post_step}' in {where}")
+        if post_step is not None:
+            self._check_trust(registry, "post_step", post_step, trusted, where)
 
         task_source = None
         raw_ts = raw.get("task_source")
@@ -192,6 +255,8 @@ class WorkflowCompiler:
             parser = raw_ts.get("parser")
             if parser is not None and not registry.is_registered("task_parser", parser):
                 raise CompilerError(f"unknown task_parser '{parser}' in {where}")
+            if parser is not None:
+                self._check_trust(registry, "task_parser", parser, trusted, where)
             task_source = TaskSource(
                 kind=raw_ts.get("kind", "none"),
                 parser=parser,
@@ -211,7 +276,7 @@ class WorkflowCompiler:
         )
 
     def _compile_deliverable(
-        self, manifest: WorkflowManifest, registry: CapabilityRegistry
+        self, manifest: WorkflowManifest, registry: CapabilityRegistry, trusted: bool
     ) -> DeliverableSpec:
         """Validate + build the workflow's deliverable spec."""
         raw = manifest.deliverable or {}
@@ -219,6 +284,14 @@ class WorkflowCompiler:
         if strategy is not None and not registry.is_registered("deliverable", strategy):
             raise CompilerError(
                 f"unknown deliverable '{strategy}' in workflow '{manifest.id}'"
+            )
+        if strategy is not None:
+            self._check_trust(
+                registry,
+                "deliverable",
+                strategy,
+                trusted,
+                f"workflow '{manifest.id}'",
             )
         # DECLARED revision-intent (07-10 / WR-04): copied verbatim onto the compiled
         # model (default False). Coerced to bool so a truthy/None YAML scalar lands as

@@ -32,6 +32,40 @@ _MAX_FIX_ATTEMPTS = 2
 
 
 # ===========================================================================
+# D-12 fold (08-01): autouse registry save/restore reset fixture
+# ===========================================================================
+#
+# These tests mutate the process-global capability registry (injecting a fake
+# ``html_skeleton`` compaction impl). With Phase-8 ``@register`` import-time
+# binding the pollution surface is larger (``_IMPLS``/``_KNOWN``/``_TRUST`` +
+# the ``_DISCOVERED`` flag), so a single-key ``pop`` in a ``finally`` is no
+# longer sufficient: a leaked binding corrupts the characterization snapshots
+# when ``test_strategies`` runs in the SAME session. This autouse fixture
+# snapshots + restores the full registry state around every test (the deferred
+# 07 test-isolation item, folded here per CONTEXT § Folded Items).
+
+
+@pytest.fixture(autouse=True)
+def _reset_registry():
+    """Save/restore the process-global registry maps around each test (D-12)."""
+    registry_mod.discover()  # bind built-ins before snapshotting (import-side-effect)
+    known = set(registry_mod._KNOWN)
+    impls = dict(registry_mod._IMPLS)
+    trust = dict(registry_mod._TRUST)
+    discovered = registry_mod._DISCOVERED
+    try:
+        yield
+    finally:
+        registry_mod._KNOWN.clear()
+        registry_mod._KNOWN.update(known)
+        registry_mod._IMPLS.clear()
+        registry_mod._IMPLS.update(impls)
+        registry_mod._TRUST.clear()
+        registry_mod._TRUST.update(trust)
+        registry_mod._DISCOVERED = discovered
+
+
+# ===========================================================================
 # Fakes — the ctx.runner handle + ctx, plus validator result stand-ins
 # ===========================================================================
 
@@ -330,7 +364,10 @@ async def test_task_loop_requests_html_skeleton_compaction_for_task_2() -> None:
             compact_calls.append(html)
             return "SKELETON"
 
-    registry_mod.install()
+    # discover() binds the built-ins; we then override html_skeleton with the fake.
+    # The autouse _reset_registry fixture restores the real impl after the test, so
+    # the single-key pop in the finally below is now belt-and-suspenders only.
+    registry_mod.discover()
     registry_mod._IMPLS[("compaction", "html_skeleton")] = _FakeCompactor()
     try:
         # WR-01 (07-09): the strategy sources the task-2 skeleton from the TYPED GRAPH
