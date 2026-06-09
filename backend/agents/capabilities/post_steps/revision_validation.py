@@ -97,6 +97,7 @@ class RevisionValidationPostStep:
                 task_num=1,
                 total_tasks=1,
                 agent_id=agent_id,
+                filename=artifact_name,
                 baseline_static=baseline_static,
                 baseline_console=baseline_console,
                 user_instruction=getattr(ctx, "revision_instruction", None),

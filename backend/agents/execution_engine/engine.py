@@ -1813,6 +1813,7 @@ class ExecutionEngine:
         task_num: int,
         total_tasks: int,
         cancel_event,
+        filename: str,
         max_attempts: int = 2,
         agent_id: str = "prototype-build",
         baseline_static: "set[str] | None" = None,
@@ -1850,11 +1851,16 @@ class ExecutionEngine:
         from app.agents.render_check import render_check
         from app.agents.static_check import static_check
 
-        html_path = sandbox.path_for("prototype.html")
+        # 07-11 / CR-05: the deliverable filename is threaded in from the strategy
+        # (``ctx.deliverable.name``) — no hardcoded ``prototype.html``. The prototype
+        # manifest declares ``prototype.html`` so the value passed through keeps
+        # validation byte-identical; a non-prototype task_loop workflow validates +
+        # fixes ITS OWN file. The fix-prompt wording names this ACTUAL file too.
+        html_path = sandbox.path_for(filename)
         if not html_path.is_file():
             logger.warning(
-                "Validation: task %d/%d wrote no prototype.html — skipping validation",
-                task_num, total_tasks,
+                "Validation: task %d/%d wrote no %s — skipping validation",
+                task_num, total_tasks, filename,
             )
             return
 
@@ -1916,13 +1922,15 @@ class ExecutionEngine:
             attempt += 1
             # Build the fix instruction from the selected issues.
             if user_instruction is None:
-                # BUILD — preserve today's exact wording verbatim.
+                # BUILD — preserve today's exact wording verbatim (the deliverable
+                # filename is interpolated; ``prototype.html`` passes through
+                # byte-identically for the prototype manifest, 07-11 / CR-05).
                 fix_message = (
-                    f"=== VALIDATION ERRORS (fix prototype.html) ===\n"
+                    f"=== VALIDATION ERRORS (fix {filename}) ===\n"
                     f"The prototype you built for task {task_num} of {total_tasks} failed "
-                    f"validation. Read the current prototype.html with "
-                    f"read_file(file_path=\"prototype.html\") and apply MINIMAL "
-                    f"edit_file(file_path=\"prototype.html\", ...) changes to fix ONLY "
+                    f"validation. Read the current {filename} with "
+                    f"read_file(file_path=\"{filename}\") and apply MINIMAL "
+                    f"edit_file(file_path=\"{filename}\", ...) changes to fix ONLY "
                     f"the issues listed below. Do NOT rebuild the document, do NOT add "
                     f"new pages, do NOT touch anything unrelated to these errors. You "
                     f"may read_file(\"spec.md\") / read_file(\"design.md\") for reference.\n\n"
@@ -1933,16 +1941,16 @@ class ExecutionEngine:
                 # REVISION — re-inject the user's instruction; keep the requested
                 # change intact and fix ONLY the listed (introduced/breaking) issues.
                 fix_message = (
-                    f"=== VALIDATION ERRORS (fix prototype.html) ===\n"
+                    f"=== VALIDATION ERRORS (fix {filename}) ===\n"
                     f"The user asked you to revise this prototype:\n"
                     f"\"{user_instruction}\"\n\n"
                     f"You revised this prototype to satisfy that request — keep that "
                     f"change intact. Now fix ONLY the issues listed below (they were "
                     f"introduced by your edit, or they stop the page rendering / "
                     f"displaying content); do not touch anything unrelated.\n\n"
-                    f"Read the current prototype.html with "
-                    f"read_file(file_path=\"prototype.html\") and apply MINIMAL "
-                    f"edit_file(file_path=\"prototype.html\", ...) changes. Do NOT "
+                    f"Read the current {filename} with "
+                    f"read_file(file_path=\"{filename}\") and apply MINIMAL "
+                    f"edit_file(file_path=\"{filename}\", ...) changes. Do NOT "
                     f"rebuild the document and do NOT undo the requested change. You "
                     f"may read_file(\"spec.md\") / read_file(\"design.md\") for the "
                     f"original requirements + design system if present.\n\n"

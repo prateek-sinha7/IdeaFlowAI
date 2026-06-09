@@ -77,11 +77,24 @@ class TaskSource:
 
     Phase-4-consumed only insofar as it is carried on the compiled Step; the
     ``parser`` name is validated against the registry by the compiler (04-03).
+
+    ``source_step`` / ``spec_step`` are the DECLARED upstream step ids the
+    ``task_loop`` strategy reads from (07-11 / CR-05) — replacing the hardcoded
+    ``"prototype-plan"`` (the task plan source) and ``"prototype-specify"`` (the
+    spec source) literals. They name the producer step whose typed-graph output
+    the strategy parses into tasks / writes as the spec reference file. A manifest
+    DECLARES these (the prototype manifest declares ``prototype-plan`` /
+    ``prototype-specify``, so the prototype path stays byte-identical, INV-1); a
+    workflow that omits them falls back to the legacy ids in the strategy (NOT a
+    kernel default — the strategy owns the fallback so the compiler stays thin,
+    INV-5).
     """
 
     kind: str = "none"            # none | inline | parsed | file
     parser: str | None = None     # capability name, e.g. "heading_tasks"
     target: str | None = None     # file/section the tasks come from
+    source_step: str | None = None  # DECLARED task-plan producer step id (CR-05)
+    spec_step: str | None = None    # DECLARED spec producer step id (CR-05)
 
 
 @dataclass

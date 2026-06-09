@@ -278,6 +278,7 @@ class KernelServices:
         task_num: int,
         total_tasks: int,
         agent_id: str = "prototype-build",
+        filename: str,
         baseline_static: "set[str] | None" = None,
         baseline_console: "set[str] | None" = None,
         user_instruction: str | None = None,
@@ -288,8 +289,14 @@ class KernelServices:
         Builds the SAME per-agent ``AgentContext`` the legacy build loop built and
         calls the engine's ``_run_validation_fix_loop`` so the fix wording, the
         thread-id shape, the N=2 bound, and the consume-internally-emit-nothing
-        contract are byte-identical (INV-3). The fix sub-agent edits prototype.html
+        contract are byte-identical (INV-3). The fix sub-agent edits the deliverable
         on disk as a side effect; nothing is re-emitted.
+
+        07-11 / CR-05: ``filename`` is the DECLARED deliverable filename, threaded in
+        from the strategy (``ctx.deliverable.name``) — REQUIRED (no ``prototype.html``
+        default). The prototype manifest declares ``prototype.html`` so the value
+        passed through keeps prototype validation byte-identical; a non-prototype
+        task_loop workflow validates + fixes ITS OWN file.
         """
         from agents.factory import AgentContext
 
@@ -313,6 +320,7 @@ class KernelServices:
             total_tasks=total_tasks,
             cancel_event=self.cancel_event,
             agent_id=agent_id,
+            filename=filename,
             baseline_static=baseline_static,
             baseline_console=baseline_console,
             user_instruction=user_instruction,
@@ -321,14 +329,22 @@ class KernelServices:
         )
 
     # ── Post-task typed dual-write (keeps _latest_typed_content current) ───────
-    async def persist_task_html(self, task_num: int, agent_id: str = "prototype-build") -> None:
-        """Typed-write the post-task prototype.html as a new ref version (ART-03).
+    async def persist_task_html(
+        self, task_num: int, agent_id: str = "prototype-build", *, filename: str
+    ) -> None:
+        """Typed-write the post-task deliverable as a new ref version (ART-03).
 
         Mirrors the legacy build loop's per-task dual-write so the NEXT task's
-        prompt skeleton reads the most recent HTML via ``_latest_typed_content``.
+        prompt skeleton reads the most recent content via ``_latest_typed_content``.
         Best-effort; a missing file is a no-op.
+
+        07-11 / CR-05: ``filename`` is the DECLARED deliverable filename threaded in
+        from the strategy — REQUIRED (no ``prototype.html`` default). It keys BOTH
+        the sandbox read AND the persisted artifact ``location`` so a non-prototype
+        task_loop workflow dual-writes ITS OWN file (the prototype manifest declares
+        ``prototype.html`` so the prototype dual-write is byte-identical).
         """
-        task_html = self.sandbox.read("prototype.html")
+        task_html = self.sandbox.read(filename)
         if not task_html:
             return
         await self._engine._dual_write_artifact(
@@ -337,7 +353,7 @@ class KernelServices:
             producer_step=agent_id,
             content=task_html,
             kind="html_file",
-            location="prototype.html",
+            location=filename,
             task_id=str(task_num),
         )
 

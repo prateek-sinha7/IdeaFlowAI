@@ -81,7 +81,11 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
 )
 
 # EXACTLY the keys a task_source dict may declare (D-08 at the nested level).
-_ALLOWED_TASK_SOURCE_KEYS: frozenset[str] = frozenset({"kind", "parser", "target"})
+# ``source_step`` / ``spec_step`` are the DECLARED upstream producer step ids the
+# task_loop strategy reads from (07-11 / CR-05) — pure data, no control flow (INV-5).
+_ALLOWED_TASK_SOURCE_KEYS: frozenset[str] = frozenset(
+    {"kind", "parser", "target", "source_step", "spec_step"}
+)
 
 
 class WorkflowCompiler:
@@ -192,6 +196,8 @@ class WorkflowCompiler:
                 kind=raw_ts.get("kind", "none"),
                 parser=parser,
                 target=raw_ts.get("target"),
+                source_step=raw_ts.get("source_step"),
+                spec_step=raw_ts.get("spec_step"),
             )
 
         return Step(

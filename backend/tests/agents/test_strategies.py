@@ -123,6 +123,9 @@ class _FakeRunner:
         # Call records for assertions.
         self.run_agent_calls: list[dict] = []
         self.fix_calls: list[dict] = []
+        # 07-11 / CR-05: record the deliverable filenames the strategy threads in.
+        self.fix_filenames: list[str] = []
+        self.persist_filenames: list[str] = []
         self.static_calls = 0
 
     async def run_agent(
@@ -149,6 +152,7 @@ class _FakeRunner:
         task_num,
         total_tasks,
         agent_id="prototype-build",
+        filename="prototype.html",
         baseline_static=None,
         baseline_console=None,
         user_instruction=None,
@@ -160,15 +164,21 @@ class _FakeRunner:
         read the scripted static/render results, compute the fix list via the SINGLE
         engine selection home, and for each failing attempt (max 2) record a fix call
         in the ``{"task_num","attempt","agent_id","message"}`` shape the assertions read.
+
+        07-11 / CR-05: ``filename`` is the DECLARED deliverable filename threaded in by
+        the strategy; the fake reads/writes THAT file (the unit ctx binds no
+        deliverable so the strategy falls back to ``prototype.html`` — parity). The
+        fix-message wording names the actual ``filename`` too.
         """
-        html_path = self.sandbox.path_for("prototype.html")
+        self.fix_filenames.append(filename)
+        html_path = self.sandbox.path_for(filename)
         if not html_path.is_file():
             return
 
         # WR-05: simulate a fix-loop edit by writing the scripted fixed HTML to disk
-        # (the real fix sub-agent edits prototype.html as a side effect).
+        # (the real fix sub-agent edits the deliverable file as a side effect).
         if self._fix_writes_html is not None:
-            self.sandbox.write("prototype.html", self._fix_writes_html)
+            self.sandbox.write(filename, self._fix_writes_html)
 
         attempt = 0
         while True:
@@ -183,7 +193,7 @@ class _FakeRunner:
                 return
             attempt += 1
             fix_message = (
-                f"=== VALIDATION ERRORS (fix prototype.html) ===\n"
+                f"=== VALIDATION ERRORS (fix {filename}) ===\n"
                 + "\n".join(f"- {e}" for e in error_lines)
             )
             self.fix_calls.append(
@@ -193,13 +203,18 @@ class _FakeRunner:
     def latest_typed_content(self, producer_step):
         return self._typed.get(producer_step)
 
-    async def persist_task_html(self, task_num, agent_id="prototype-build"):
-        """Typed dual-write — record the call + mirror the on-disk HTML into the typed
-        graph (so latest_typed_content("prototype-build") reflects the persisted HTML)."""
-        html = self.sandbox.read("prototype.html")
+    async def persist_task_html(self, task_num, agent_id="prototype-build", *, filename="prototype.html"):
+        """Typed dual-write — record the call + mirror the on-disk content into the typed
+        graph (so latest_typed_content(agent_id) reflects the persisted content).
+
+        07-11 / CR-05: keyed on the DECLARED ``filename`` (sandbox read) and ``agent_id``
+        (typed-graph producer) the strategy threads in — no hardcoded ``prototype.html``.
+        """
+        self.persist_filenames.append(filename)
+        html = self.sandbox.read(filename)
         self.persist_calls.append({"task_num": task_num, "html": html})
         if html:
-            self._typed["prototype-build"] = html
+            self._typed[agent_id] = html
 
     def static_check(self, html_path):
         self.static_calls += 1

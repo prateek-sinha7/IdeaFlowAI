@@ -77,6 +77,18 @@ from agents.capabilities.task_parsers.heading_tasks import _count_plan_tasks
 
 logger = logging.getLogger(__name__)
 
+# Default deliverable filename when the run declares none (parity fallback — the
+# prototype manifest declares ``deliverable.name: prototype.html``, so the prototype
+# path passes this value THROUGH and stays byte-identical). Mirrors single_file.py:32.
+_DEFAULT_DELIVERABLE_NAME = "prototype.html"
+
+# Legacy producer-step fallbacks (07-11 / CR-05). The prototype manifest now DECLARES
+# ``task_source.source_step``/``spec_step``; these are the fallbacks the STRATEGY (not
+# the kernel/compiler — INV-5) applies when a manifest omits them, so a manifest that
+# forgets the declaration still resolves the prototype producers.
+_DEFAULT_SOURCE_STEP = "prototype-plan"      # task-plan producer
+_DEFAULT_SPEC_STEP = "prototype-specify"     # spec producer
+
 
 def _now() -> str:
     """ISO-ish timestamp for event payloads (mirrors the engine's ``_now``)."""
@@ -114,17 +126,38 @@ class TaskLoopStrategy:
         run_id = getattr(runner, "run_id", "")
         agent_id = getattr(step, "agent_id", "prototype-build")
 
+        # ── De-hardcode the deliverable filename (07-11 / CR-05) ──────────────────
+        # Read the deliverable filename from the DECLARED ``ctx.deliverable.name``
+        # (the single_file.py:43 pattern) — NOT the hardcoded ``prototype.html``. The
+        # prototype manifest declares ``deliverable.name: prototype.html`` so the
+        # value passed THROUGH is byte-identical; a non-prototype task_loop workflow
+        # names its own file (e.g. ``app.py``). Falls back to the prototype default
+        # only when no deliverable is bound (e.g. the unit-test fakes that set only
+        # ``ctx.runner``) so those stay parity-stable.
+        deliverable = getattr(ctx, "deliverable", None)
+        filename = getattr(deliverable, "name", None) or _DEFAULT_DELIVERABLE_NAME
+
+        # ── De-hardcode the upstream producer step ids (07-11 / CR-05) ────────────
+        # Read the task-plan + spec producer step ids from the DECLARED
+        # ``step.task_source.source_step``/``spec_step`` — NOT the hardcoded
+        # ``"prototype-plan"``/``"prototype-specify"`` literals. The strategy owns the
+        # legacy fallback (INV-5: the compiler stays thin — it only carries the
+        # declaration, it does not default it to a prototype id).
+        task_source_decl = getattr(step, "task_source", None)
+        source_step = (
+            getattr(task_source_decl, "source_step", None) or _DEFAULT_SOURCE_STEP
+        )
+
         # ── Source the planner's task plan from the typed graph (ART-03) ──────────
-        plan_output = runner.latest_typed_content("prototype-plan") or ""
+        plan_output = runner.latest_typed_content(source_step) or ""
 
         # ── (A) Write the shared reference files to the sandbox ONCE ──────────────
         # seed_files behaviour rides here (manifests are {} — Pitfall 2).
-        self._write_reference_files(runner)
+        self._write_reference_files(runner, step)
 
         # Parse the tasks via the registry-resolved parser (D-02). The compiler
         # validates step.task_source.parser; default to "heading_tasks".
         parser_name = "heading_tasks"
-        task_source_decl = getattr(step, "task_source", None)
         if task_source_decl is not None and getattr(task_source_decl, "parser", None):
             parser_name = task_source_decl.parser
         parser = self._registry.resolve("task_parser", parser_name)
@@ -175,7 +208,7 @@ class TaskLoopStrategy:
                 compactor = self._maybe_resolve_compaction(compaction_name)
                 if compactor is not None:
                     try:
-                        prior_html = runner.latest_typed_content("prototype-build") or ""
+                        prior_html = runner.latest_typed_content(agent_id) or ""
                         if prior_html and not prior_html.startswith("[Error:"):
                             skel = compactor.compact(prior_html)
                             if skel:
@@ -212,14 +245,17 @@ class TaskLoopStrategy:
             # skeleton reads the most recent document — mirrors the legacy build
             # loop's per-task dual-write (no event emitted; INV-3 parity).
             if hasattr(runner, "persist_task_html"):
-                await runner.persist_task_html(task_num, agent_id=agent_id)
+                await runner.persist_task_html(
+                    task_num, agent_id=agent_id, filename=filename
+                )
 
-            # WR-05 (07-09): snapshot the on-disk HTML BEFORE the fix-loop so we can
-            # detect whether the fix-loop edited prototype.html (the legacy build loop
-            # re-wrote the typed artifact when `fixed_html != task_html`).
+            # WR-05 (07-09): snapshot the on-disk deliverable BEFORE the fix-loop so we
+            # can detect whether the fix-loop edited it (the legacy build loop re-wrote
+            # the typed artifact when `fixed_html != task_html`). Keyed on the DECLARED
+            # deliverable filename (07-11 / CR-05), NOT a hardcoded ``prototype.html``.
             pre_fix_html = ""
             try:
-                pre_fix_html = runner.sandbox.read("prototype.html") or ""
+                pre_fix_html = runner.sandbox.read(filename) or ""
             except Exception:  # noqa: BLE001 — a read failure must not abort the build
                 pre_fix_html = ""
 
@@ -235,6 +271,7 @@ class TaskLoopStrategy:
                 task_num=task_num,
                 total_tasks=total_tasks,
                 agent_id=agent_id,
+                filename=filename,
             )
 
             # WR-05 (07-09): the fix-loop edits prototype.html on disk as a side effect
@@ -244,11 +281,13 @@ class TaskLoopStrategy:
             # legacy build loop re-wrote the artifact when `fixed_html != task_html`).
             if hasattr(runner, "persist_task_html"):
                 try:
-                    post_fix_html = runner.sandbox.read("prototype.html") or ""
+                    post_fix_html = runner.sandbox.read(filename) or ""
                 except Exception:  # noqa: BLE001 — read failure must not abort the build
                     post_fix_html = ""
                 if post_fix_html and post_fix_html != pre_fix_html:
-                    await runner.persist_task_html(task_num, agent_id=agent_id)
+                    await runner.persist_task_html(
+                        task_num, agent_id=agent_id, filename=filename
+                    )
 
         logger.info("task_loop: finished %d tasks for pipeline=%s", total_tasks, run_id)
 
@@ -256,14 +295,26 @@ class TaskLoopStrategy:
     # Reference files (seed_files behaviour — lift of _write_build_reference_files)
     # ------------------------------------------------------------------
 
-    def _write_reference_files(self, runner) -> None:
+    def _write_reference_files(self, runner, step) -> None:
         """Write spec.md / design.md / tasks.md into the run sandbox (Region A).
 
         Lift of ``_write_build_reference_files`` (engine.py:2263-2316), reaching
         the typed-graph content + od_context + sandbox through the handle.
+
+        07-11 / CR-05: the spec/tasks producer step ids are read from the DECLARED
+        ``step.task_source.source_step``/``spec_step`` (the strategy owns the legacy
+        fallback — INV-5), NOT the hardcoded ``"prototype-specify"``/``"prototype-plan"``
+        literals.
         """
-        spec_text = runner.latest_typed_content("prototype-specify") or ""
-        tasks_text = runner.latest_typed_content("prototype-plan") or ""
+        task_source_decl = getattr(step, "task_source", None)
+        spec_step = (
+            getattr(task_source_decl, "spec_step", None) or _DEFAULT_SPEC_STEP
+        )
+        source_step = (
+            getattr(task_source_decl, "source_step", None) or _DEFAULT_SOURCE_STEP
+        )
+        spec_text = runner.latest_typed_content(spec_step) or ""
+        tasks_text = runner.latest_typed_content(source_step) or ""
         od = getattr(runner, "od_context", None) or {}
         template_body = od.get("template_body") or ""
         ds_body = od.get("ds_body") or ""

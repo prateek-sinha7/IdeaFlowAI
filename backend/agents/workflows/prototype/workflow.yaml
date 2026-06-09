@@ -35,6 +35,8 @@ steps:
       kind: parsed
       parser: heading_tasks
       target: tasks.md
+      source_step: prototype-plan
+      spec_step: prototype-specify
     validators: [html_static, html_render]
     compaction: html_skeleton
   - agent: prototype-validate
