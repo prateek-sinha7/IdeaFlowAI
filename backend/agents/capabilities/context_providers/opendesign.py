@@ -25,6 +25,16 @@ from __future__ import annotations
 
 from typing import Any
 
+# Sentinel key-prefix marking a PRE-WRAPPED (raw) provider block (CR-04). The
+# legacy L12 injection-parts already carry their own ``=== TEMPLATE SEED ... ===``
+# envelope, so the engine appended them RAW (``parts.append(part)``) — it did NOT
+# re-wrap them in a ``=== {block_name} ===`` outer envelope. The provider port is
+# ``dict[str, str]``; to signal "append RAW, do not re-wrap" without changing the
+# port shape we prefix the block-name key with this sentinel. The generic injector
+# (engine._compose_context_message) strips the sentinel and appends the content
+# verbatim. A non-prefixed key is wrapped as before (the legacy non-part blocks).
+RAW_BLOCK_PREFIX = "\x00RAW\x00"
+
 
 class OpenDesignProvider:
     """Compose the od / template / example injection blocks (``name='opendesign'``).
@@ -55,19 +65,23 @@ class OpenDesignProvider:
         # workflow name/id (INV-1: the kernel stays name/id-free, the provider is the
         # legitimate home for the opaque-tool-based gate).
         spec_tools = set(getattr(ctx, "current_spec_tools", set()) or set())
+        # CR-02 (07-09): the PER-INJECTS per-block gate the legacy L12 branch carried
+        # (`if "design_system" in injects ...` / `if "template" in injects ...`). The
+        # engine threads the consuming agent's DECLARED injects onto the ctx alongside
+        # current_spec_tools (D-03). A block is emitted ONLY when its inject is declared.
+        injects = set(getattr(ctx, "current_spec_injects", set()) or set())
         task_num_str = getattr(ctx, "build_task_number", "") or ""
         is_builder = bool(spec_tools & {"prototype_emit_only", "prototype"})
         is_build_task_2_plus = task_num_str not in ("", "1")
 
-        # (1) Design system block — the L12 "ACTIVE DESIGN SYSTEM" branch. The
-        # engine includes it unless a deck explicitly marks it not required; for
-        # the prototype pipeline is_design_system_required is None -> include.
+        # (1) Design system block — the L12 "ACTIVE DESIGN SYSTEM" branch.
+        # CR-02: gated on `"design_system" in injects` (the restored per-block gate).
         # CR-03: skip the DS body for builders on task 2+ (the skeleton already has
         # the DS tokens) — mirrors the legacy `... and not is_build_task_2_plus`.
         # CR-01: the block content is the instruction preamble + ds_body (byte-
         # identical to git fb55699), not the bare ds_body.
         ds_body = od.get("ds_body")
-        if ds_body and not is_build_task_2_plus:
+        if "design_system" in injects and ds_body and not is_build_task_2_plus:
             is_deck_conditional = od.get("is_design_system_required")
             include_ds = True if is_deck_conditional is None else bool(is_deck_conditional)
             if include_ds:
@@ -78,18 +92,21 @@ class OpenDesignProvider:
                 blocks[f"ACTIVE DESIGN SYSTEM: {ds_id}"] = f"{ds_preamble}{ds_body}"
 
         # (2) Template (SKILL.md) block — the L12 "ACTIVE TEMPLATE" branch.
+        # CR-02: gated on `"template" in injects` (the restored per-block gate; the
+        # example + the injection parts share this same template-inject gate).
         # CR-03: the template body + example are nested inside `not is_build_task_2_plus`
         # (the legacy branch skipped the full template body on build tasks 2+).
         template_body = od.get("template_body")
-        if template_body:
+        if "template" in injects and template_body:
             if not is_build_task_2_plus:
                 blocks[f"ACTIVE TEMPLATE (SKILL.md): {template_id}"] = template_body
 
                 # (3) Example.html block — only present when the template body is
-                # injected AND the consuming agent is a BUILDER (CR-02). Planning
-                # agents (prototype-specify / prototype-plan, tools=[]) must NOT see a
-                # full working HTML doc — it nudges them to copy/continue it instead
-                # of writing the spec / decomposing into tasks.
+                # injected AND the consuming agent is a BUILDER (CR-02 example gate —
+                # 07-06; DO NOT re-open). Planning agents (prototype-specify /
+                # prototype-plan, tools=[]) must NOT see a full working HTML doc — it
+                # nudges them to copy/continue it instead of writing the spec /
+                # decomposing into tasks.
                 example_html = None
                 if (
                     is_builder
@@ -110,6 +127,13 @@ class OpenDesignProvider:
             #   * prototype           -> all parts always.
             #   * tools=[] (planning)  -> NO injection parts (the legacy branch had no
             #     else clause for tools:[]).
+            # CR-04 (07-09): the injection-part strings arrive PRE-WRAPPED (each carries
+            # its own `=== TEMPLATE SEED ... ===` / `=== END ... ===` envelope), so the
+            # legacy engine appended them RAW (`parts.append(part)`) — it did NOT nest
+            # them inside a `=== TEMPLATE INJECTION PART N: ... ===` outer wrapper. We
+            # mark each with the RAW_BLOCK_PREFIX sentinel so the engine injector appends
+            # the content verbatim. The sentinel-prefixed key keeps each part a distinct
+            # dict entry (the key is never emitted — only stripped by the injector).
             if runner is not None and hasattr(runner, "template_injection_parts"):
                 all_parts = list(runner.template_injection_parts(template_id) or [])
                 emitted_parts: list[str] = []
@@ -121,6 +145,16 @@ class OpenDesignProvider:
                 elif "prototype" in spec_tools:
                     emitted_parts = all_parts
                 for i, part in enumerate(emitted_parts):
-                    blocks[f"TEMPLATE INJECTION PART {i}: {template_id}"] = part
+                    blocks[f"{RAW_BLOCK_PREFIX}injection-part-{i}"] = part
+
+        # NOTE: the build-agent CURRENT PROTOTYPE skeleton block (WR-01) and the
+        # UNCONDITIONAL TEMPLATE COMPLIANCE block (CR-01) are NOT emitted here — the
+        # legacy engine positioned them AFTER the CURRENT TASK block (which the generic
+        # injector composes from agnostic build scratch, downstream of the provider
+        # blocks). They are emitted by ``_compose_context_message`` in its CURRENT-TASK
+        # build region, gated on the same build signal (build_task_number + builder tool
+        # set) — NOT a workflow name (INV-1). Keeping them in the engine preserves the
+        # legacy byte ORDER (DS/template/example/parts → consumed → CURRENT TASK →
+        # skeleton → TEMPLATE COMPLIANCE).
 
         return blocks

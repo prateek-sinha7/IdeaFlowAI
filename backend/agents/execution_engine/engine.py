@@ -33,6 +33,9 @@ from pathlib import Path
 from agents.artifact_store.store import get_artifact_store
 from agents.artifacts.graph import ArtifactGraph
 from agents.authz import ScopedStore
+from agents.capabilities.context_providers.opendesign import (
+    RAW_BLOCK_PREFIX as _RAW_BLOCK_PREFIX,
+)
 from agents.capabilities.registry import CapabilityRegistry
 from agents.execution_engine.context import ExecutionContext
 from agents.execution_engine.resolver import WorkflowResolver
@@ -2933,6 +2936,12 @@ class ExecutionEngine:
             # the gating). This is exactly how the legacy L12 branch identified the build
             # agent (`set(spec.tools) & {"prototype_emit_only", "prototype"}`).
             ectx.current_spec_tools = set(getattr(spec, "tools", []) or [])
+            # CR-02 (07-09): thread the consuming agent's DECLARED injects onto the ctx
+            # so the opendesign provider can restore the legacy per-block per-injects
+            # gate (DS requires "design_system" in injects; template/example/parts
+            # require "template" in injects) — the SAME D-03 per-run-state-on-ctx
+            # mechanism as current_spec_tools, NOT a spec.id/pipeline_type branch (INV-1).
+            ectx.current_spec_injects = set(injects)
             provider_names = list(getattr(ectx, "compiled_context_providers", []) or [])
             for name in provider_names:
                 try:
@@ -2947,8 +2956,28 @@ class ExecutionEngine:
                     logger.warning("context provider %s.load failed (%s) — skipping", name, exc)
                     continue
                 for block_name, content in (blocks or {}).items():
-                    if content:
-                        parts.append(f"=== {block_name} ===\n{content}\n=== END {block_name} ===")
+                    if not content:
+                        continue
+                    # CR-04 (07-09): a RAW-prefixed block is PRE-WRAPPED (it carries its
+                    # own `=== ... ===` envelope) — append it verbatim, never re-wrap. The
+                    # legacy engine did `parts.append(part)` for the injection parts.
+                    if block_name.startswith(_RAW_BLOCK_PREFIX):
+                        parts.append(content)
+                        continue
+                    # WR-03 (07-09): the END marker is BARE — the legacy END markers
+                    # carried NEITHER the `: {id}` suffix NOR the `(SKILL.md)` /
+                    # `(example.html)` parenthetical the OPEN marker has. Legacy bytes:
+                    #   `=== ACTIVE DESIGN SYSTEM: default ===`     -> `=== END ACTIVE DESIGN SYSTEM ===`
+                    #   `=== ACTIVE TEMPLATE (SKILL.md): web... ===` -> `=== END ACTIVE TEMPLATE ===`
+                    #   `=== TEMPLATE EXAMPLE (example.html): ... ===` -> `=== END TEMPLATE EXAMPLE ===`
+                    # So strip the `: {id}` suffix AND any `(...)` parenthetical to get
+                    # the bare base name.
+                    base = block_name.split(":", 1)[0]
+                    paren = base.find("(")
+                    if paren != -1:
+                        base = base[:paren]
+                    end_name = base.strip()
+                    parts.append(f"=== {block_name} ===\n{content}\n=== END {end_name} ===")
 
         # ── Consumed upstream outputs (agnostic routing contract) ────────────────
         consumed = self._filter_consumed_outputs(spec, ordered_agents, ectx)
@@ -2965,17 +2994,49 @@ class ExecutionEngine:
             body = task_block.strip() if task_block.strip() else (
                 "Execute ONLY this task from the task list above."
             )
-            # The CURRENT TASK block carries the task text AND (for task 2+) the
-            # compacted prototype skeleton — both injected by the task_loop strategy
-            # into ectx.current_task_block (the strategy OWNS compaction, D-02). The
-            # engine no longer composes a separate build-HTML/skeleton block here (the
-            # former skeleton-extraction leak was deleted from the kernel in 07-05).
+            # The CURRENT TASK block carries the task text. The task_loop strategy
+            # threads the compacted prototype skeleton onto ectx.current_prototype_skeleton
+            # (NOT nested inside current_task_block — WR-01 restored the legacy STANDALONE
+            # skeleton block in its legacy position, below the CURRENT TASK block).
             parts.append(
                 f"\n=== CURRENT TASK ===\n"
                 f"Task {task_num_str} of {total_str}\n"
                 f"{body}\n"
                 f"=== END CURRENT TASK ==="
             )
+
+            # WR-01 (07-09): the STANDALONE build-skeleton block, restored byte-exact to
+            # its legacy text/position/instruction. Emitted AFTER the CURRENT TASK block
+            # (the legacy position), gated on the build signal (build_task_number set +
+            # the builder tool set) — NOT a workflow name (INV-1). The skeleton is sourced
+            # by the task_loop strategy from the typed graph (with the `[Error:`
+            # suppression) and threaded onto ectx.current_prototype_skeleton; task 1 has
+            # no prior HTML → no skeleton block.
+            spec_tools = set(getattr(spec, "tools", []) or [])
+            is_builder = bool(spec_tools & {"prototype_emit_only", "prototype"})
+            skeleton = getattr(ectx, "current_prototype_skeleton", "") or ""
+            if is_builder and skeleton and not skeleton.startswith("[Error:"):
+                parts.append(
+                    f"\n=== CURRENT PROTOTYPE (skeleton — call read_file('prototype.html') "
+                    f"for full content before editing) ===\n"
+                    f"{skeleton}\n"
+                    f"=== END CURRENT PROTOTYPE ==="
+                )
+
+            # CR-01 (07-09): the UNCONDITIONAL TEMPLATE COMPLIANCE block, re-emitted on
+            # EVERY build task in its legacy position (last block of the build region),
+            # gated on the build signal (build_task_number set + builder tool set) — NOT a
+            # workflow name (INV-1). template_id / ds_id read from od_context.
+            if is_builder:
+                od = ectx.od_context or {}
+                ds_id_val = od.get("ds_id", "") or ""
+                template_id_val = od.get("template_id", "") or ""
+                parts.append(
+                    f"\n=== TEMPLATE COMPLIANCE ===\n"
+                    f"Template: {template_id_val} — use ONLY its CSS classes from the TEMPLATE SEED\n"
+                    f"Design System: {ds_id_val} — use ONLY :root variables, never raw hex colors\n"
+                    f"=== END TEMPLATE COMPLIANCE ==="
+                )
 
         return "\n".join(parts)
 

@@ -153,13 +153,36 @@ def _resolve_inputs(agent_class: str, task: str) -> dict:
     )
 
 
-def build_oracle_message(agent_class: str, *, task: str = "") -> str:
+def build_oracle_message(
+    agent_class: str,
+    *,
+    task: str = "",
+    od_context: "dict[str, str | None] | None" = None,
+    user_message: str | None = None,
+    injection_parts: "list[str] | None" = None,
+    example_html: str | None = None,
+    skeleton: str | None = None,
+    task_body: str | None = None,
+    task_total: str | None = None,
+    planning_block: str | None = None,
+    consumed_block: str | None = None,
+) -> str:
     """Return the EXACT legacy (acd1636) assembled ``context_message`` for an agent class.
 
     Reconstructs ``ExecutionEngine._build_context_message`` (acd1636:engine.py:3243-3470)
-    for the prototype agent classes against the deterministic ``ORACLE_OD_CONTEXT``
-    fixture, honoring every acd1636 gate verbatim (see the module docstring). NO live
-    engine import — the bytes are pinned from ``git show acd1636:...``.
+    for the prototype agent classes, honoring every acd1636 gate verbatim (see the module
+    docstring). NO live engine import — the GATE LOGIC is pinned from ``git show
+    acd1636:...``; only the dynamic CONTENT (od_context bodies, injection-part bytes,
+    example.html, the task-2+ skeleton) is parameterizable.
+
+    By default the function assembles against the small deterministic fixtures
+    (``ORACLE_OD_CONTEXT`` / ``_ALL_INJECTION_PARTS`` / ``_ORACLE_EXAMPLE_HTML`` /
+    ``_ORACLE_SKELETON``) so the structural-marker tests read tiny reviewable bytes.
+    The 07-09 byte-equality test against the live routed ``_compose_context_message``
+    passes the SAME dynamic inputs the routed path saw (the harness od_context, the real
+    ``get_template_injection_parts`` / ``get_example_html`` bytes, the routed skeleton) so
+    the comparison is a true byte-equality of the legacy CONTRACT (gate logic + ordering +
+    wrapper bytes) over identical content — not a comparison of two different fixtures.
 
     ``agent_class`` is one of ``AGENT_CLASSES``; ``task`` is the build-loop task number
     ("" for non-build agents, "1" / "2" for build tasks).
@@ -171,19 +194,26 @@ def build_oracle_message(agent_class: str, *, task: str = "") -> str:
     # acd1636:engine.py:3322 — is_build_task_2_plus gate.
     is_build_task_2_plus = is_build and task not in ("", "1")
 
-    od = ORACLE_OD_CONTEXT
+    od = ORACLE_OD_CONTEXT if od_context is None else od_context
+    all_parts = _ALL_INJECTION_PARTS if injection_parts is None else injection_parts
+    the_example = _ORACLE_EXAMPLE_HTML if example_html is None else example_html
+    the_skeleton = _ORACLE_SKELETON if skeleton is None else skeleton
+    the_user_message = ORACLE_USER_MESSAGE if user_message is None else user_message
     parts: list[str] = []
 
     # provenance: acd1636:engine.py:3275 — ORIGINAL USER REQUEST block (first agent
     # gets the raw brief; the fixture brief carries no chain context to strip).
     parts.append(
-        f"=== ORIGINAL USER REQUEST ===\n{ORACLE_USER_MESSAGE}\n=== END REQUEST ==="
+        f"=== ORIGINAL USER REQUEST ===\n{the_user_message}\n=== END REQUEST ==="
     )
 
-    # No planning_context in the oracle fixture (the harness drives a default-PROCEED
-    # planner; the planning-context block is workflow-agnostic and unchanged by Phase 7
-    # — it is NOT part of the cluster-C drift, so the oracle omits it to keep the
-    # captured bytes focused on the OD/template/build structure CR-* regressed).
+    # Planning-context block (workflow-AGNOSTIC, unchanged by Phase 7). The fixture
+    # tests omit it (None) to keep the captured bytes focused on the OD/build structure;
+    # the 07-09 byte-equality test against the live routed message passes the routed
+    # planning block here so the assembled oracle includes it at the legacy position
+    # (immediately after the USER REQUEST block, acd1636:engine.py:3290-3304).
+    if planning_block:
+        parts.append(planning_block)
 
     # provenance: acd1636:engine.py:3318-3398 — the od/template/example injection branch.
     # ── (1) ACTIVE DESIGN SYSTEM (per-injects gate + task-2+ suppression) ──────────
@@ -219,13 +249,13 @@ def build_oracle_message(agent_class: str, *, task: str = "") -> str:
             # _is_builder = set(spec.tools) & {"prototype_emit_only", "prototype"}.
             # PRESENT at acd1636 AND 1d9234b^ — planning agents (tools=[]) get NO example.
             _is_builder = bool(set(tools) & {"prototype_emit_only", "prototype"})
-            example_html = _ORACLE_EXAMPLE_HTML if _is_builder else None
-            if example_html:
+            ex = the_example if _is_builder else None
+            if ex:
                 # provenance: acd1636:engine.py:3370-3376 — bare `=== END TEMPLATE EXAMPLE ===`
                 parts.append(
                     f"=== TEMPLATE EXAMPLE (example.html): {template_id} ===\n"
-                    f"{example_html[:8000]}"
-                    f"{'...[truncated]' if len(example_html) > 8000 else ''}\n"
+                    f"{ex[:8000]}"
+                    f"{'...[truncated]' if len(ex) > 8000 else ''}\n"
                     f"=== END TEMPLATE EXAMPLE ==="
                 )
 
@@ -234,29 +264,38 @@ def build_oracle_message(agent_class: str, *, task: str = "") -> str:
         if "prototype_emit_only" in tools:
             if is_build_task_2_plus:
                 # acd1636:engine.py:3388-3391 — task 2+ injects ONLY the seed part(s).
-                seed_parts = [p for p in _ALL_INJECTION_PARTS if "TEMPLATE SEED" in p]
+                seed_parts = [p for p in all_parts if "TEMPLATE SEED" in p]
                 for part in seed_parts:
                     parts.append(part)
             else:
-                for part in _ALL_INJECTION_PARTS:
+                for part in all_parts:
                     parts.append(part)
         elif "prototype" in tools:
-            for part in _ALL_INJECTION_PARTS:
+            for part in all_parts:
                 parts.append(part)
         # tools=[] (planning agents): NO injection parts (acd1636 had no else clause).
 
-    # ── consumed upstream outputs ────────────────────────────────────────────────
-    # The oracle fixture has no upstream consumed outputs (single-agent reconstruction);
-    # the consumed-output routing is workflow-agnostic and unchanged by Phase 7.
+    # ── consumed upstream outputs (workflow-AGNOSTIC, unchanged by Phase 7) ───────
+    # The fixture reconstruction has none (single-agent); the 07-09 byte-equality test
+    # passes the routed consumed-output block here so the assembled oracle carries it at
+    # the legacy position (after the injection parts, before the CURRENT TASK block —
+    # acd1636:engine.py:3400-3406).
+    if consumed_block:
+        parts.append(consumed_block)
 
     # ── (3) build agent: CURRENT TASK + current HTML/skeleton + TEMPLATE COMPLIANCE ─
     # provenance: acd1636:engine.py:3408-3461 — `if spec.id == "prototype-build":`
     if is_build:
         task_num_str = task
-        total_str = "2"  # the fixture pipeline has 2 tasks (mirrors the harness plan)
+        total_str = "2" if task_total is None else task_total  # fixture pipeline = 2 tasks
         if task_num_str:
-            # provenance: acd1636:engine.py:3414-3422 — CURRENT TASK block.
-            body = "Execute ONLY this task from the task list above."
+            # provenance: acd1636:engine.py:3414-3422 — CURRENT TASK block. The body is
+            # the planner's `## Task N:` block text (the routed path injects the real
+            # task block); default to the legacy fallback wording when none supplied.
+            body = (
+                "Execute ONLY this task from the task list above."
+                if task_body is None else task_body
+            )
             parts.append(
                 f"\n=== CURRENT TASK ===\n"
                 f"Task {task_num_str} of {total_str}\n"
@@ -268,7 +307,7 @@ def build_oracle_message(agent_class: str, *, task: str = "") -> str:
         # Task 1 has no prior HTML in the fixture -> no CURRENT HTML block. Task 2+ gets
         # the skeleton wrapper with the read_file instruction + the [Error: suppression.
         if is_build_task_2_plus:
-            current_html = _ORACLE_SKELETON
+            current_html = the_skeleton
             if current_html and not current_html.startswith("[Error:"):
                 # provenance: acd1636:engine.py:3439-3445 — skeleton wrapper + read_file.
                 parts.append(

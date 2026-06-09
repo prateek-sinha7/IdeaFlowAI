@@ -128,8 +128,36 @@ def test_oracle_classes_exported() -> None:
 
 
 # ===========================================================================
-# (2) DIVERGENCE — the current routed build prompt does NOT equal the oracle.
+# (2) BYTE-EQUALITY — the routed build prompt now EQUALS the oracle (07-09).
+#
+# 07-09 corrected the engine/provider so the routed prototype-build context_message is
+# byte-equal to the pre-Phase-7 (acd1636) oracle. The 07-08 xfail divergence test is now
+# a HARD equality PASS. The oracle is a RECONSTRUCTION FUNCTION of (gate logic + ordering
+# + wrapper bytes); the comparison feeds it the SAME dynamic inputs the routed path saw
+# (the harness od_context, the real get_template_injection_parts / get_example_html bytes,
+# the routed planner task body + the agnostic planning/consumed blocks) so equality
+# verifies the legacy CONTRACT byte-for-byte over identical content — CR-01 (TEMPLATE
+# COMPLIANCE restored), CR-02 (per-injects gate), CR-04 (raw injection parts), WR-03 (bare
+# END markers), WR-01 (skeleton wrapper on task 2+).
 # ===========================================================================
+
+from agents.execution_engine.od_context import (  # noqa: E402
+    get_example_html,
+    get_template_injection_parts,
+)
+
+# The harness od_context (tests/agents/_scripted_model.py:_drive) — the live bodies the
+# routed OD provider composes from. Mirrored here so the oracle assembles from the SAME
+# content (NOT the small ORACLE_OD_CONTEXT fixture).
+_HARNESS_OD_CONTEXT = {
+    "template_body": "## Workflow\nUse .card and .grid classes. Build pages into <section data-page>.",
+    "template_id": "web-prototype",
+    "ds_id": "default",
+    "ds_body": ":root{--bg:#fff;--fg:#111;--accent:#06f;--surface:#f6f6f6;--border:#ddd;--muted:#888;}",
+    "craft_block": "Keep markup semantic; wire every nav link.",
+    "is_design_system_required": True,
+}
+_HARNESS_USER_MESSAGE = "Build me a thing for managing tasks."
 
 
 def _build_agent_context_messages(events: list[dict]) -> list[str]:
@@ -146,24 +174,36 @@ def _build_agent_context_messages(events: list[dict]) -> list[str]:
     return out
 
 
-@pytest.mark.asyncio
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "07-09 ACCEPTANCE TARGET: the CURRENT routed build prompt has DRIFTED from the true "
-        "pre-Phase-7 (acd1636) bytes — CR-01 (TEMPLATE COMPLIANCE dropped), CR-02 (DS block "
-        "leaks past the per-injects gate + `: {id}` END suffix), CR-04 (injection parts "
-        "double-wrapped), and the missing skeleton/CURRENT-HTML block. This xfail is the "
-        "07-09 acceptance target: once 07-09 corrects the engine/provider so the routed "
-        "build prompt equals the oracle, this flips to a hard equality PASS (the mark is "
-        "removed and the goldens are re-pinned to oracle ground truth)."
-    ),
-)
-async def test_current_routed_build_prompt_diverges_from_oracle() -> None:
-    """DRIVE a real prototype build; assert the routed build prompt != the oracle (today).
+def _slice_between(text: str, start_marker: str, end_marker: str) -> str:
+    """Return the substring from ``start_marker`` through ``end_marker`` (inclusive)."""
+    i = text.index(start_marker)
+    j = text.index(end_marker, i) + len(end_marker)
+    return text[i:j]
 
-    XFAIL by design (07-08). This proves the drift the 07-06 de-blind masked is real and
-    tracked. 07-09 turns this into a hard equality pass after correcting the engine.
+
+def _extract_consumed_block(text: str) -> str:
+    """Return the routed consumed-output PART verbatim (``\\n--- Output from ... {output}``).
+
+    The engine appends the consumed-output block as ONE ``parts`` entry
+    (``\\n--- Output from {label} ---\\n{output}``) and the CURRENT TASK block as a
+    SEPARATE entry starting with ``\\n``; the ``"\\n".join(parts)`` then places exactly
+    ``\\n\\n=== CURRENT TASK ===`` after the consumed text. So the consumed PART is the
+    slice from the first ``\\n--- Output from`` up to (not including) that ``\\n\\n=== CURRENT
+    TASK ===`` boundary — passed to the oracle as its own part to reproduce the join math.
+    """
+    i = text.index("\n--- Output from")
+    j = text.index("\n\n=== CURRENT TASK ===", i)
+    return text[i:j]
+
+
+@pytest.mark.asyncio
+async def test_routed_build_prompt_equals_oracle_byte_for_byte() -> None:
+    """07-09 ACCEPTANCE: the routed prototype-build context_message == the oracle bytes.
+
+    Drives a real prototype build and reconstructs the legacy (acd1636) bytes via the
+    oracle fed the SAME dynamic inputs the routed path saw — then asserts byte-equality.
+    This is the flipped 07-08 xfail (now a hard PASS): the engine is corrected so the
+    routed build prompt carries the legacy contract verbatim.
     """
     events = await _drive("prototype")
     assert events, "prototype produced no events"
@@ -171,34 +211,106 @@ async def test_current_routed_build_prompt_diverges_from_oracle() -> None:
     routed = _build_agent_context_messages(events)
     assert routed, "no prototype-build agent_input context_message captured"
 
-    # The first build task is task 1. Compare against the task-1 oracle. The equality
-    # is EXPECTED TO FAIL today (the engine is still drifted) — hence xfail. When 07-09
-    # corrects the engine this assertion passes and the test xpasses (then de-marked).
-    oracle_task_1 = build_oracle_message("prototype-build", task="1")
-    assert routed[0] == oracle_task_1, (
-        "the current routed prototype-build context_message EQUALS the oracle — if this "
-        "passes BEFORE 07-09 corrects the engine, the oracle likely captured the DRIFTED "
-        "bytes (re-examine the capture, T-07-08-01) rather than the true acd1636 prompt."
+    # The live dynamic content the routed OD provider read from disk.
+    parts = list(get_template_injection_parts("web-prototype") or [])
+    example = get_example_html("web-prototype")
+
+    # The agnostic planning + consumed-output blocks the routed path injects (extracted
+    # from the routed message itself — they are workflow-agnostic, unchanged by Phase 7,
+    # and not part of the cluster-C contract under test).
+    planning_block = _slice_between(
+        routed[0], "## Planning Context (Deep Planner Analysis)", "## End Planning Context"
+    )
+    consumed_block = _extract_consumed_block(routed[0])
+
+    # ── Task 1 — no prior HTML → no skeleton block ─────────────────────────────
+    oracle_t1 = build_oracle_message(
+        "prototype-build",
+        task="1",
+        od_context=_HARNESS_OD_CONTEXT,
+        user_message=_HARNESS_USER_MESSAGE,
+        injection_parts=parts,
+        example_html=example,
+        task_body="## Task 1: Build the HTML shell\nCreate the document skeleton.",
+        task_total="2",
+        planning_block=planning_block,
+        consumed_block=consumed_block,
+    )
+    assert routed[0] == oracle_t1, (
+        "routed prototype-build task-1 context_message != oracle bytes\n"
+        f"--- routed ---\n{routed[0]!r}\n--- oracle ---\n{oracle_t1!r}"
     )
 
 
 @pytest.mark.asyncio
-async def test_routed_build_prompt_is_missing_template_compliance_today() -> None:
-    """Positive proof of ONE concrete drift: the routed build prompt drops TEMPLATE COMPLIANCE.
+async def test_routed_build_task_2_equals_oracle_byte_for_byte() -> None:
+    """07-09 WR-01: the routed task-2 build prompt == the oracle (skeleton block present).
 
-    Unlike the xfail above (full byte equality), this is a hard PASS today asserting a
-    SPECIFIC documented regression (CR-01) is present in the live routed prompt — so the
-    divergence is not vacuous and is pinned to a named finding. 07-09 restores the block;
-    when it does, THIS test must be updated to assert the block IS present (tracked in the
-    07-09 plan).
+    Task 2+ carries the STANDALONE ``=== CURRENT PROTOTYPE (skeleton — call read_file(
+    'prototype.html') ...) ===`` block (WR-01) after the CURRENT TASK block, with the DS /
+    template / example bodies suppressed and ONLY the seed injection part — byte-equal to
+    the oracle fed the same dynamic content.
+    """
+    events = await _drive("prototype")
+    routed = _build_agent_context_messages(events)
+    assert len(routed) >= 2, "expected a second build task (task 2)"
+
+    parts = list(get_template_injection_parts("web-prototype") or [])
+    example = get_example_html("web-prototype")
+
+    # The routed task-2 message carries the skeleton block (WR-01); extract its inner
+    # content + the agnostic planning/consumed blocks to reconstruct the oracle.
+    skel_block = _slice_between(
+        routed[1], "=== CURRENT PROTOTYPE (skeleton", "=== END CURRENT PROTOTYPE ==="
+    )
+    inner_skeleton = skel_block[
+        skel_block.index("===\n") + 4 : skel_block.rindex("\n=== END CURRENT PROTOTYPE ===")
+    ]
+    planning_block = _slice_between(
+        routed[1], "## Planning Context (Deep Planner Analysis)", "## End Planning Context"
+    )
+    consumed_block = _extract_consumed_block(routed[1])
+
+    oracle_t2 = build_oracle_message(
+        "prototype-build",
+        task="2",
+        od_context=_HARNESS_OD_CONTEXT,
+        user_message=_HARNESS_USER_MESSAGE,
+        injection_parts=parts,
+        example_html=example,
+        skeleton=inner_skeleton,
+        task_body="## Task 2: Fill the dashboard page\nAdd the dashboard content.",
+        task_total="2",
+        planning_block=planning_block,
+        consumed_block=consumed_block,
+    )
+    assert routed[1] == oracle_t2, (
+        "routed prototype-build task-2 context_message != oracle bytes\n"
+        f"--- routed ---\n{routed[1]!r}\n--- oracle ---\n{oracle_t2!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_routed_build_prompt_has_template_compliance_now() -> None:
+    """CR-01 restored: the routed build prompt now CARRIES TEMPLATE COMPLIANCE on every task.
+
+    Inversion of the 07-08 ``..._is_missing_template_compliance_today`` test — 07-09
+    re-emits the unconditional TEMPLATE COMPLIANCE block, so it is present on every routed
+    build task (and the END marker is bare). Also confirms the bare DS END marker (WR-03)
+    and the raw injection parts (CR-04) reached the routed prompt.
     """
     events = await _drive("prototype")
     routed = _build_agent_context_messages(events)
     assert routed, "no prototype-build agent_input context_message captured"
 
-    # CR-01: the oracle has it on every build task; the drifted routed prompt does not.
-    assert "=== TEMPLATE COMPLIANCE ===" in build_oracle_message("prototype-build", task="1")
-    assert all("=== TEMPLATE COMPLIANCE ===" not in cm for cm in routed), (
-        "the routed build prompt now CONTAINS TEMPLATE COMPLIANCE — CR-01 may already be "
-        "fixed; if so this is 07-09 work and this assertion should be inverted."
-    )
+    for cm in routed:
+        # CR-01: TEMPLATE COMPLIANCE present on every build task.
+        assert "=== TEMPLATE COMPLIANCE ===" in cm
+        assert "use ONLY its CSS classes from the TEMPLATE SEED" in cm
+        # CR-04: injection parts RAW — the SEED keeps its own envelope, NOT nested in a
+        # `=== TEMPLATE INJECTION PART N: ... ===` outer wrapper.
+        assert "TEMPLATE INJECTION PART" not in cm
+
+    # WR-03: the DS END marker is BARE (task 1 carries the DS block).
+    assert "=== END ACTIVE DESIGN SYSTEM ===" in routed[0]
+    assert "=== END ACTIVE DESIGN SYSTEM: " not in routed[0]

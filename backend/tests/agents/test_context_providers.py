@@ -22,8 +22,20 @@ from __future__ import annotations
 
 import pytest
 
-from agents.capabilities.context_providers.opendesign import OpenDesignProvider
+from agents.capabilities.context_providers.opendesign import (
+    RAW_BLOCK_PREFIX,
+    OpenDesignProvider,
+)
 from agents.capabilities.context_providers.previous_run import PreviousRunProvider
+
+
+def _raw_part_keys(blocks: dict) -> list[str]:
+    """The RAW-sentinel injection-part keys (CR-04), in dict (insertion) order."""
+    return [k for k in blocks if k.startswith(f"{RAW_BLOCK_PREFIX}injection-part-")]
+
+
+def _raw_part_vals(blocks: dict) -> list[str]:
+    return [blocks[k] for k in _raw_part_keys(blocks)]
 
 
 # ===========================================================================
@@ -81,7 +93,7 @@ class _FakeScopedStore:
 class _Ctx:
     def __init__(self, runner, *, od_context=None, scoped_store=None,
                  parent_run_id=None, current_spec_tools=None,
-                 build_task_number="") -> None:
+                 build_task_number="", current_spec_injects=None) -> None:
         self.runner = runner
         self.od_context = od_context
         self.scoped_store = scoped_store
@@ -95,6 +107,15 @@ class _Ctx:
         self.current_spec_tools = (
             {"prototype_emit_only"} if current_spec_tools is None
             else set(current_spec_tools)
+        )
+        # CR-02 (07-09): the engine threads the DECLARED injects onto the ctx so the
+        # provider restores the legacy per-block per-injects gate. Default to the
+        # prototype AGENT.md declaration (injects=[template, design_system]) so the
+        # existing positive block assertions keep passing; per-test overrides drive
+        # the per-block gate cases.
+        self.current_spec_injects = (
+            {"template", "design_system"} if current_spec_injects is None
+            else set(current_spec_injects)
         )
         self.build_task_number = build_task_number
 
@@ -141,8 +162,9 @@ async def test_opendesign_block_name_keys_and_content():
     assert blocks["TEMPLATE EXAMPLE (example.html): web-prototype"].startswith(
         "<html>example"
     )
-    # The get_template_injection_parts block is present.
-    assert any("TEMPLATE SEED" in v for v in blocks.values())
+    # CR-04: the get_template_injection_parts block is present as a RAW (pre-wrapped)
+    # block — keyed by the RAW sentinel, content appended verbatim by the engine.
+    assert any("TEMPLATE SEED" in v for v in _raw_part_vals(blocks))
 
 
 @pytest.mark.asyncio
@@ -178,7 +200,7 @@ async def test_opendesign_example_gated_on_builder_tools():
     assert not any(k.startswith("TEMPLATE EXAMPLE") for k in planner_blocks)
     # A tools:[] planning agent also receives NO injection parts (legacy branch had
     # no else clause for tools:[]).
-    assert not any(k.startswith("TEMPLATE INJECTION PART") for k in planner_blocks)
+    assert not _raw_part_keys(planner_blocks)
 
     # Builder agent — prototype_emit_only — example PRESENT.
     builder_ctx = _Ctx(
@@ -186,6 +208,74 @@ async def test_opendesign_example_gated_on_builder_tools():
     )
     builder_blocks = await OpenDesignProvider().load(builder_ctx)
     assert "TEMPLATE EXAMPLE (example.html): web-prototype" in builder_blocks
+
+
+@pytest.mark.asyncio
+async def test_opendesign_per_injects_gate():
+    """CR-02 (07-09): the per-block per-injects gate is restored.
+
+    The DS block requires ``"design_system" in injects``; the template body, the
+    example, and the injection parts require ``"template" in injects``. An agent that
+    declares only ONE of the two injects gets ONLY that block — exactly the legacy L12
+    per-block gate (``if "design_system" in injects`` / ``if "template" in injects``).
+    """
+    runner = _FakeRunner(
+        od_context=_OD,
+        injection_parts=["=== TEMPLATE SEED ===\nseed\n=== END TEMPLATE SEED ==="],
+        example="<html>example</html>",
+    )
+
+    # design_system only → DS block present; NO template/example/parts.
+    ds_only = await OpenDesignProvider().load(
+        _Ctx(runner, od_context=_OD, current_spec_injects={"design_system"})
+    )
+    assert "ACTIVE DESIGN SYSTEM: midnight" in ds_only
+    assert "ACTIVE TEMPLATE (SKILL.md): web-prototype" not in ds_only
+    assert "TEMPLATE EXAMPLE (example.html): web-prototype" not in ds_only
+    assert not _raw_part_keys(ds_only)
+
+    # template only → template/example/parts present; NO DS block.
+    tpl_only = await OpenDesignProvider().load(
+        _Ctx(runner, od_context=_OD, current_spec_injects={"template"})
+    )
+    assert "ACTIVE DESIGN SYSTEM: midnight" not in tpl_only
+    assert "ACTIVE TEMPLATE (SKILL.md): web-prototype" in tpl_only
+    assert "TEMPLATE EXAMPLE (example.html): web-prototype" in tpl_only
+    assert _raw_part_keys(tpl_only)
+
+    # NO injects declared → empty (nothing leaks past the gate).
+    none = await OpenDesignProvider().load(
+        _Ctx(runner, od_context=_OD, current_spec_injects=set())
+    )
+    assert none == {}
+
+
+@pytest.mark.asyncio
+async def test_opendesign_example_never_reaches_tools_empty_planning_agent():
+    """T-07-09-01: example.html must NOT leak to a tools:[] planning agent EVEN when
+    that agent declares the template inject (07-06 CR-02 example gate not re-opened).
+
+    The per-injects gate (07-09) emits the template body + injection parts for a
+    planning agent (injects=[template]) — but the example.html block stays behind the
+    builder tool-set gate, so a tools:[] agent never receives the full working HTML doc.
+    """
+    runner = _FakeRunner(
+        od_context=_OD,
+        injection_parts=["=== TEMPLATE SEED ===\nseed\n=== END TEMPLATE SEED ==="],
+        example="<html>example</html>",
+    )
+    planner = await OpenDesignProvider().load(
+        _Ctx(
+            runner, od_context=_OD,
+            current_spec_tools=set(),  # tools:[]
+            current_spec_injects={"template", "design_system"},
+        )
+    )
+    # Template body + parts DO reach the planning agent (per-injects gate)…
+    assert "ACTIVE TEMPLATE (SKILL.md): web-prototype" in planner
+    assert _raw_part_keys(planner) == []  # tools:[] → no injection parts (legacy)
+    # …but the example.html block does NOT (the builder tool-set gate, 07-06 CR-02).
+    assert not any(k.startswith("TEMPLATE EXAMPLE") for k in planner)
 
 
 @pytest.mark.asyncio
@@ -212,8 +302,8 @@ async def test_opendesign_build_task_2_plus_suppresses_ds_template_example():
     assert "ACTIVE DESIGN SYSTEM: midnight" not in t2
     assert "ACTIVE TEMPLATE (SKILL.md): web-prototype" not in t2
     assert "TEMPLATE EXAMPLE (example.html): web-prototype" not in t2
-    # Only the seed injection part survives.
-    part_vals = [v for k, v in t2.items() if k.startswith("TEMPLATE INJECTION PART")]
+    # Only the seed injection part survives (RAW-keyed).
+    part_vals = _raw_part_vals(t2)
     assert part_vals and all("TEMPLATE SEED" in v for v in part_vals)
     assert not any("LAYOUTS" in v or "CHECKLIST" in v for v in part_vals)
 
@@ -269,20 +359,21 @@ async def test_context_message_parity_build_task_1_vs_task_2():
         current_spec_tools={"prototype_emit_only"}, build_task_number="1",
     )
     t1 = await OpenDesignProvider().load(t1_ctx)
+    # The non-part blocks keep their named keys; the injection parts are RAW-keyed
+    # (CR-04) and appended verbatim by the engine (no `=== TEMPLATE INJECTION PART
+    # N ===` outer wrapper). The ordering is DS → template → example → parts.
     assert list(t1.keys()) == [
         "ACTIVE DESIGN SYSTEM: midnight",
         "ACTIVE TEMPLATE (SKILL.md): web-prototype",
         "TEMPLATE EXAMPLE (example.html): web-prototype",
-        "TEMPLATE INJECTION PART 0: web-prototype",
-        "TEMPLATE INJECTION PART 1: web-prototype",
-        "TEMPLATE INJECTION PART 2: web-prototype",
+        f"{RAW_BLOCK_PREFIX}injection-part-0",
+        f"{RAW_BLOCK_PREFIX}injection-part-1",
+        f"{RAW_BLOCK_PREFIX}injection-part-2",
     ]
     assert t1["ACTIVE DESIGN SYSTEM: midnight"] == _DS_PREAMBLE + "DS TOKENS"
     assert t1["ACTIVE TEMPLATE (SKILL.md): web-prototype"] == "TEMPLATE BODY"
     assert t1["TEMPLATE EXAMPLE (example.html): web-prototype"] == example[:8000]
-    assert t1["TEMPLATE INJECTION PART 0: web-prototype"] == parts[0]
-    assert t1["TEMPLATE INJECTION PART 1: web-prototype"] == parts[1]
-    assert t1["TEMPLATE INJECTION PART 2: web-prototype"] == parts[2]
+    assert _raw_part_vals(t1) == parts
 
     # ── Build task 2 — suppressed: seed injection part only ─────────────────────
     t2_ctx = _Ctx(
@@ -290,8 +381,8 @@ async def test_context_message_parity_build_task_1_vs_task_2():
         current_spec_tools={"prototype_emit_only"}, build_task_number="2",
     )
     t2 = await OpenDesignProvider().load(t2_ctx)
-    assert list(t2.keys()) == ["TEMPLATE INJECTION PART 0: web-prototype"]
-    assert t2["TEMPLATE INJECTION PART 0: web-prototype"] == parts[0]
+    assert list(t2.keys()) == [f"{RAW_BLOCK_PREFIX}injection-part-0"]
+    assert _raw_part_vals(t2) == [parts[0]]
 
 
 @pytest.mark.asyncio
