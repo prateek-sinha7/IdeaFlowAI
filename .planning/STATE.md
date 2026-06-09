@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 last_updated: "2026-06-09T20:30:00.000Z"
-last_activity: 2026-06-09 -- 08-08 COMPLETE — API-06 panel render human-verified/approved (live capability palette + per-agent model picker + validator/issue panel from /api/capabilities + WS); API-02/03/06 done; gates green. Phase 08 = 7/8 (08-07 hooks remains)
+last_activity: 2026-06-09 -- 08-07 Task 1 COMPLETE (executable HookHandler framework + secret_scan blocking hook + hook_runs writer + before_step firing; 13 hook tests green; 5 characterization snapshots byte/event-identical; import-linter 3/0; commit 5354944). PAUSED at Task 2 OTel-install blocking-human checkpoint (await: real opentelemetry-api/sdk install vs logging-only span fallback).
 progress:
   total_phases: 12
   completed_phases: 7
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 
 Phase: 08 (capabilities-hardened-registry-gates-tool-perms-runtime-3) — EXECUTING
 Plan: 8 of 8
-Status: 08-08 COMPLETE (Task 3 API-06 panel render human-verified/approved). Phase 08 = 7/8 plans done; 08-07 (executable hooks, HOOK-01..04/OBS-02, wave 5) remains.
-Last activity: 2026-06-09 -- 08-08 done — GET /api/capabilities auth-gated palette [API-02], additive validator_result/validation_warning/gate_* WS events [API-03], 3 live composer panels human-verified [API-06]; all automated gates green
+Status: 08-07 IN PROGRESS — Task 1 (HookHandler framework + secret_scan + hook_runs + before_step firing) COMPLETE & committed (5354944); PAUSED at Task 2 blocking-human OTel-install checkpoint. Task 3 (otel_tracing) awaits the human's real-OTel-vs-logging-only decision.
+Last activity: 2026-06-09 -- 08-07 Task 1 done — executable hooks live: secret_scan blocks before_write secrets + writes hook_runs row outcome=block; permission gating (read_files ON, git/exec OFF unbound); 5 characterization snapshots byte/event-identical; import-linter 3/0. CHECKPOINT REACHED at OTel dependency decision.
 
 Progress: [██████░░░░] 60% (7/12 phases complete; Phase 08 plan 7/8 done — 08-07 hooks remains)
 
