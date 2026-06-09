@@ -1,0 +1,44 @@
+# sc001_task_loop — the SC-001 PROOF manifest (07-11).
+#
+# A BRAND-NEW, NON-prototype task_loop workflow defined by manifest + AGENT.md
+# ONLY, using ALREADY-REGISTERED capabilities (strategy: task_loop, deliverable:
+# single_file, task_source.parser: heading_tasks). Its deliverable is `app.py`
+# (NOT prototype.html) and the task-plan/spec SOURCE steps are DECLARED — proving
+# that a custom workflow replicates the prototype task_loop backbone with ZERO
+# edits to backend/agents/execution_engine/.
+#
+# 3 agents: sc001-spec -> sc001-plan -> sc001-build. The build step uses
+# strategy: task_loop with the declared source_step (sc001-plan) + spec_step
+# (sc001-spec) — NOT the hardcoded prototype-plan / prototype-specify literals.
+# deliverable.name: app.py — so the dual-write / typed persist / validation +
+# fix-loop all operate on `app.py`, NOT prototype.html (CR-05).
+# seed_files: {} — falls back to the legacy (spec.md, design.md, tasks.md) triple
+# (CR-07 fallback path; the proof needs only the de-hardcoded NAMES, not a custom
+# seed list).
+id: sc001_task_loop
+version: 1
+planner: run
+clarify:
+  mode: auto
+  defaults: []
+deliverable:
+  strategy: single_file
+  name: app.py
+context_providers: []
+seed_files: {}
+steps:
+  - agent: sc001-spec
+    strategy: single_shot
+    gates: []
+  - agent: sc001-plan
+    strategy: single_shot
+    gates: []
+  - agent: sc001-build
+    strategy: task_loop
+    gates: []
+    task_source:
+      kind: parsed
+      parser: heading_tasks
+      target: tasks.md
+      source_step: sc001-plan
+      spec_step: sc001-spec
