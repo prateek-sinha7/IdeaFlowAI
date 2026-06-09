@@ -4,13 +4,13 @@ milestone: v1.0
 milestone_name: milestone
 status: verifying
 last_updated: "2026-06-09T00:19:50.005Z"
-last_activity: 2026-06-08 -- Phase 07 execution started
+last_activity: 2026-06-09 -- Phase 07 verified: gaps_found (OD context-injection parity); gap-closure pending
 progress:
   total_phases: 12
-  completed_phases: 7
+  completed_phases: 6
   total_plans: 31
   completed_plans: 31
-  percent: 58
+  percent: 50
 ---
 
 # Project State
@@ -24,12 +24,12 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 
 ## Current Position
 
-Phase: 07 (prototype-as-manifest-parity-proof-sc-001-2) — COMPLETE (ready for verification)
-Plan: 5 of 5 — DONE
-Status: Phase complete — SC-001 landed (kernel knows no workflow by name); ready for verification
-Last activity: 2026-06-09 -- Completed 07-05-PLAN.md (L1-L13 deleted, INV-1 hard-fail armed)
+Phase: 07 (prototype-as-manifest-parity-proof-sc-001-2) — GAPS FOUND (gap-closure pending)
+Plan: 5 of 5 executed; verification scored 7/9 must-haves
+Status: SC-001 structural proof landed (kernel knows no workflow by name) + deliverable/event parity green — BUT verification found 2 gaps in the OpenDesign context-injection path (PARITY-03/09 / INV-3): the opendesign provider is not byte-identical to the legacy L12 injection (dropped DS preamble, lost builder-only example gate, lost build-task-2+ skip), and the characterization net is blind to it (context_message is normalized out). See 07-VERIFICATION.md + 07-REVIEW.md. Next: /gsd-plan-phase 7 --gaps
+Last activity: 2026-06-09 -- Phase 07 verified: gaps_found (CR-01/02/03 OD-injection regressions, confirmed by code-review + adversarial verify + verifier)
 
-Progress: [██████░░░░] 58% (7/12 phases complete)
+Progress: [█████░░░░░] 50% (6/12 phases complete)
 
 ## Performance Metrics
 
