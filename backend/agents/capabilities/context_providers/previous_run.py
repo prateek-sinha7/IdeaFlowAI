@@ -4,6 +4,18 @@ Seeds the parent run's spec.md / design.md / tasks.md into THIS run's sandbox
 (the prototype revision path) as a declared ``ContextProvider`` capability
 (PARITY-03). Lift of the engine's L4 parent-run seeding (engine.py:862-922).
 
+Existing-artifact seed (07-10 / CR-06): when the run declares revision-intent,
+this provider ALSO seeds the EXISTING artifact as an in-place-editable file —
+relocated out of the kernel ``execute()`` (the self-described "DELIBERATE
+EXCEPTION"). It extracts the prior artifact from the user message (the
+deliverable-agnostic ``=== EXISTING PROTOTYPE HTML ===`` framing the frontend
+emits), writes it to the sandbox under ``deliverable.name`` (NOT a hardcoded
+``prototype.html`` const), captures the ``=== REVISION REQUEST ===`` instruction,
+slims the message to a file pointer, and stashes ``revision_original_html`` /
+``revision_instruction`` on ctx for the single_file fallback + the post-step
+fix-loop capability. Byte-identical to the deleted inline kernel block (same
+markers, same slimmed wording, same captured values).
+
 DECLARED revision-intent gate (07-10 / WR-06): the seed (and the assert_owns it
 fronts) fires ONLY when the run DECLARES it revises an existing artifact
 (``ctx.is_revision_workflow``, sourced from ``compiled.deliverable.revises_existing``)
@@ -30,11 +42,54 @@ here.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 _SEED_FILES = ("spec.md", "design.md", "tasks.md")
+
+# Default editable-artifact filename when the deliverable declares no name. The
+# behavior is parameterized by ``deliverable.name`` — this is only the fallback
+# (matches the legacy ``REVISION_FILE_NAME`` default, byte-identical).
+_DEFAULT_ARTIFACT_NAME = "prototype.html"
+
+
+# ── Existing-artifact extraction (relocated from engine, CR-06) ─────────────────
+# Workflow-agnostic: keys on the ``=== EXISTING PROTOTYPE HTML ===`` framing the
+# frontend wraps a revision request with — deliverable-agnostic markers, NOT a
+# workflow-name branch. Single home for this regex (no dual implementation).
+def _extract_existing_artifact(user_message: str) -> str:
+    """Pull the current artifact out of a revision request (returns "" if absent)."""
+    m = re.search(
+        r"=== EXISTING PROTOTYPE HTML ===\s*([\s\S]*?)\s*=== END EXISTING HTML ===",
+        user_message, re.IGNORECASE,
+    )
+    return m.group(1).strip() if m else ""
+
+
+def _extract_revision_instruction(user_message: str) -> str | None:
+    """Pull the ``=== REVISION REQUEST ===`` instruction (None if the markers absent)."""
+    m = re.search(
+        r"=== REVISION REQUEST ===\s*([\s\S]*?)\s*=== END REQUEST ===",
+        user_message, re.IGNORECASE,
+    )
+    return m.group(1).strip() if m else None
+
+
+def _slim_revision_message(user_message: str, artifact_name: str) -> str:
+    """Replace the inlined EXISTING artifact block with a one-line file pointer.
+
+    Byte-identical to the legacy ``ExecutionEngine._slim_revision_message`` (same
+    pointer wording), parameterized by ``artifact_name`` instead of the hardcoded
+    ``REVISION_FILE_NAME`` const.
+    """
+    return re.sub(
+        r"=== EXISTING PROTOTYPE HTML ===[\s\S]*?=== END EXISTING HTML ===",
+        f"The current prototype is in the workspace file `{artifact_name}`. "
+        "Call read_file to read it before editing.",
+        user_message, count=1, flags=re.IGNORECASE,
+    ).strip()
 
 
 class PreviousRunProvider:
@@ -62,6 +117,14 @@ class PreviousRunProvider:
             # Not a declared in-place revision — never seed a parent run, never run
             # assert_owns (no parent context belongs in a forward build).
             return {}
+
+        # ── Seed the EXISTING artifact as an in-place-editable file (CR-06) ──────
+        # Relocated from the kernel's "DELIBERATE EXCEPTION" block. Parameterized by
+        # ``deliverable.name`` (NOT a hardcoded const). Works off the user message
+        # (independent of a parent_run_id), so it runs BEFORE the parent-seed gate.
+        # Byte-identical to the legacy inline block: same extraction, same slimmed
+        # message, same stashed ``revision_original_html`` / ``revision_instruction``.
+        self._seed_existing_artifact(ctx)
 
         parent_run_id = getattr(ctx, "parent_run_id", None)
         if not parent_run_id:
@@ -119,3 +182,57 @@ class PreviousRunProvider:
             parent_run_id, ", ".join(seeded) or "(none found)",
         )
         return {}
+
+    # ── Existing-artifact seed (relocated from the kernel, CR-06) ───────────────
+    @staticmethod
+    def _seed_existing_artifact(ctx: Any) -> None:
+        """Seed the prior artifact as an in-place-editable sandbox file.
+
+        Byte-identical to the deleted inline kernel block: extract the artifact
+        from the user message, write it under ``deliverable.name`` (default
+        ``prototype.html``), capture the revision instruction, slim the message to
+        a file pointer, and stash ``revision_original_html`` / ``revision_instruction``
+        on ctx (for the single_file fallback + the post-step fix-loop capability).
+
+        Reaches the message + sandbox via the ``ctx.runner`` handle (no app.* /
+        kernel import). Degrades quietly when there is no handle, no message, or no
+        EXISTING-artifact markers — the agent then works from the prompt alone.
+        """
+        runner = getattr(ctx, "runner", None)
+        if runner is None:
+            return
+
+        user_message = getattr(runner, "user_message", None) or ""
+        existing = _extract_existing_artifact(user_message)
+        if not existing:
+            logger.warning(
+                "previous_run: no existing artifact found in request — agent will "
+                "work from the prompt only"
+            )
+            return
+
+        # Filename is parameterized by the declared deliverable.name (NOT a const).
+        deliverable = getattr(ctx, "deliverable", None)
+        artifact_name = getattr(deliverable, "name", None) or _DEFAULT_ARTIFACT_NAME
+
+        # Stash the original for the single_file revision fallback.
+        ctx.revision_original_html = existing
+
+        sandbox = getattr(runner, "sandbox", None)
+        if sandbox is not None:
+            try:
+                sandbox.write(artifact_name, existing)
+            except Exception as write_exc:  # noqa: BLE001 — never break a revision
+                logger.warning(
+                    "previous_run: failed seeding existing artifact %s (%s)",
+                    artifact_name, write_exc,
+                )
+
+        # Capture the user's revision instruction; slim the message to a pointer.
+        # Fall back to the slimmed message when the REVISION REQUEST markers are
+        # absent so the fix prompt always has SOMETHING to re-inject (byte-identical
+        # to the legacy block, which used the slimmed message as the fallback).
+        instruction = _extract_revision_instruction(user_message)
+        slimmed = _slim_revision_message(user_message, artifact_name)
+        runner.user_message = slimmed
+        ctx.revision_instruction = instruction if instruction is not None else slimmed

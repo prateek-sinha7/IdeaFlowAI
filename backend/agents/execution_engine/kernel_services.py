@@ -106,6 +106,22 @@ class KernelServices:
     def od_context(self) -> dict | None:
         return self._ectx.od_context
 
+    # ── The run's user message (read/write) ────────────────────────────────────
+    # The previous_run provider (07-10 / CR-06) reads this to extract the existing
+    # artifact for an in-place revision and writes back the SLIMMED message (the
+    # inlined artifact replaced by a pointer to the seeded file). ``run_agent``
+    # reads ``self._user_message`` so a write here reaches the agent — and it is
+    # mutated at run entry (during _seed_workflow_context), BEFORE the strategy loop
+    # consumes it, so the agent receives the slimmed message exactly as the legacy
+    # inline kernel block produced it (byte-identical).
+    @property
+    def user_message(self) -> str:
+        return self._user_message
+
+    @user_message.setter
+    def user_message(self, value: str) -> None:
+        self._user_message = value
+
     # ── Validators ────────────────────────────────────────────────────────────
     def static_check(self, html_path):
         return _static_check(html_path)

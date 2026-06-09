@@ -685,79 +685,19 @@ class ExecutionEngine:
         #   ectx.revision_baseline_console — console-error signatures of that same
         #                                     pre-edit render (empty when render is
         #                                     unavailable).
-        if _is_revision_workflow:
-            existing_html = self._extract_existing_prototype_html(user_message)
-            if existing_html:
-                ectx.revision_original_html = existing_html
-                sandbox.write(REVISION_FILE_NAME, existing_html)
-
-                # ── Capture the user's revision instruction (for the fix prompt) ──
-                # The frontend wraps it as
-                #   === REVISION REQUEST ===\n{instruction}\n=== END REQUEST ===
-                # Extract it verbatim; fall back to the slimmed user_message if the
-                # markers are absent so the fix prompt always has SOMETHING to
-                # re-inject (the slimmed message still contains the request).
-                _req_match = re.search(
-                    r"=== REVISION REQUEST ===\s*([\s\S]*?)\s*=== END REQUEST ===",
-                    user_message, re.IGNORECASE,
-                )
-                user_message = self._slim_revision_message(user_message)
-                ectx.revision_instruction = (
-                    _req_match.group(1).strip() if _req_match else user_message
-                )
-
-                # ── Seed the parent run's spec.md / design.md / tasks.md ──────────
-                # ROUTED PATH (07-04, INV-1): the parent-run seed is now performed by
-                # the declared ``previous_run`` context provider (registry capability),
-                # invoked once at run entry right after the KernelServices handle is
-                # attached (see _seed_workflow_context below). The provider owns the
-                # L16 ownership gate (assert_owns BEFORE any seed, PermissionError
-                # propagates) + the spec/design/tasks copy. The inline L4 seed block
-                # that used to live here is GONE from the routed path; the
-                # _legacy_seed_parent_run_files DEFINITION (below) stays physically
-                # present (dead) until 07-05 deletes it. The HTML extraction /
-                # message slimming / pre-edit baseline below stay (agnostic revision
-                # setup, not the parent seed).
-
-                # ── Baseline on the seeded ORIGINAL prototype.html (PRE-edit) ─────
-                # Compute static + render signatures of the prototype BEFORE the
-                # revision agent edits it, using the SAME T1 module-level helpers
-                # the fix-loop uses — so the signatures line up and the fix-loop
-                # treats only NEW static/console issues as regressions (hard
-                # render-breakage is always fixed regardless of baseline). Render
-                # is best-effort: an unavailable/erroring Chromium yields an empty
-                # console baseline (a skipped render contributes no signatures),
-                # exactly as _console_sigs handles it.
-                from app.agents.static_check import static_check
-                _orig_path = sandbox.path_for(REVISION_FILE_NAME)
-                _sres0 = static_check(_orig_path)
-                ectx.revision_baseline_static = _static_issue_sigs(_sres0)
-                try:
-                    from app.agents.render_check import render_check
-                    _rres0 = await render_check(_orig_path)
-                except Exception as _render_exc:  # noqa: BLE001 — render unavailable ⇒ no baseline
-                    logger.warning(
-                        "prototype_revision: baseline render_check raised (%s) — "
-                        "treating as unavailable (no console baseline)",
-                        _render_exc,
-                    )
-                    from app.agents.render_check import RenderResult
-                    _rres0 = RenderResult(
-                        ok=True, available=False,
-                        note=f"render_check error: {_render_exc}",
-                    )
-                ectx.revision_baseline_console = _console_sigs(_rres0)
-                logger.info(
-                    "prototype_revision: pre-edit baseline — %d static issue(s), "
-                    "%d console error(s)",
-                    len(ectx.revision_baseline_static),
-                    len(ectx.revision_baseline_console),
-                )
-            else:
-                logger.warning(
-                    "prototype_revision: no existing HTML found in request — "
-                    "agent will work from the prompt only"
-                )
+        # ── Existing-artifact seed: OWNED by the previous_run provider (CR-06) ───
+        # The "seed the prior artifact as an in-place-editable file" behavior
+        # (extract the EXISTING artifact from the message → write it under
+        # deliverable.name → capture the revision instruction → slim the message to
+        # a file pointer → stash revision_original_html/revision_instruction) was
+        # relocated OUT of this kernel block into the ``previous_run`` provider
+        # (07-10), invoked at run entry by ``_seed_workflow_context`` below — right
+        # after the KernelServices handle is attached (the provider reaches the
+        # message + sandbox through the handle). The provider also slims the
+        # handle's user_message, so the strategy loop hands the agent the same
+        # slimmed prompt the legacy inline block produced (byte-identical). The
+        # pre-edit baseline (computed on the seeded original) runs just after that
+        # seed, below.
 
         # Load per-user disk skills for all agents (user → global → built-in).
         # Honours per-user SKILL.md overrides — replicates the behaviour of the
@@ -1079,6 +1019,46 @@ class ExecutionEngine:
         # degrade (a missing parent must never break a revision).
         await self._seed_workflow_context(ectx, compiled)
 
+        # ── Pre-edit baseline on the seeded ORIGINAL (PRE-edit) ──────────────────
+        # The previous_run provider (above) seeded the existing artifact under
+        # deliverable.name + stashed ``ectx.revision_original_html``. Compute the
+        # static + render signatures of that ORIGINAL here, BEFORE the revision
+        # agent edits it, using the SAME T1 module-level helpers the fix-loop uses —
+        # so the fix-loop treats only NEW static/console issues as regressions (hard
+        # render-breakage is always fixed regardless of baseline). Render is
+        # best-effort: an unavailable/erroring Chromium yields an empty console
+        # baseline. (07-10 Task 2: relocated to AFTER the provider seed so it reads
+        # the now-seeded file; 07-10 Task 3 moves this into the post-step capability.)
+        if _is_revision_workflow and ectx.revision_original_html:
+            _artifact_name = (
+                getattr(compiled.deliverable, "name", None) or "prototype.html"
+            )
+            from app.agents.static_check import static_check
+            _orig_path = sandbox.path_for(_artifact_name)
+            _sres0 = static_check(_orig_path)
+            ectx.revision_baseline_static = _static_issue_sigs(_sres0)
+            try:
+                from app.agents.render_check import render_check
+                _rres0 = await render_check(_orig_path)
+            except Exception as _render_exc:  # noqa: BLE001 — render unavailable ⇒ no baseline
+                logger.warning(
+                    "prototype_revision: baseline render_check raised (%s) — "
+                    "treating as unavailable (no console baseline)",
+                    _render_exc,
+                )
+                from app.agents.render_check import RenderResult
+                _rres0 = RenderResult(
+                    ok=True, available=False,
+                    note=f"render_check error: {_render_exc}",
+                )
+            ectx.revision_baseline_console = _console_sigs(_rres0)
+            logger.info(
+                "prototype_revision: pre-edit baseline — %d static issue(s), "
+                "%d console error(s)",
+                len(ectx.revision_baseline_static),
+                len(ectx.revision_baseline_console),
+            )
+
         # ── Per-step capability dispatch (INV-1) — NO workflow-name/agent-id branch ──
         # The compiled plan's Step.strategy names the execution-strategy capability for
         # each agent (task_loop for the prototype build step; single_shot for every
@@ -1164,7 +1144,11 @@ class ExecutionEngine:
                 if "prototype-revision-agent" in _disk_skills:
                     _rev_skills.append({"content": _disk_skills["prototype-revision-agent"]})
                 rev_ctx = AgentContext(
-                    user_request=user_message,
+                    # Slimmed message now lives on the handle (the previous_run
+                    # provider slimmed it); read it back so the fix sub-agent's brief
+                    # is byte-identical to the legacy inline-slimmed value (07-10
+                    # Task 2 — this whole block is deleted in Task 3).
+                    user_request=getattr(ectx.runner, "user_message", user_message),
                     agent_outputs={},
                     attached_skills=_rev_skills,
                     attached_hooks=list(attached_hooks or []),
