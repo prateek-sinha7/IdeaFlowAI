@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-06-09"
-last_activity: "2026-06-09 -- Phase 07 REOPENED: deep code review (07-REVIEW-DEEP.md) found 14 confirmed findings — context_message parity drift the 07-06 de-blind masked + SC-001 names hardcoded in the capabilities; gap-closure 07-07 to plan"
+status: planning
+last_updated: "2026-06-09T11:13:58.537Z"
+last_activity: 2026-06-09 -- Phase 07 reopened after deep code review (14 confirmed findings; CR-03 already fixed inline)
 progress:
   total_phases: 12
   completed_phases: 6
