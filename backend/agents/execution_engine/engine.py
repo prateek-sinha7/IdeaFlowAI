@@ -628,6 +628,14 @@ class ExecutionEngine:
         # the per-agent mid-stream transforms in _run_agent (the single-file disk
         # readback + the ppt carousel sanitize) key off compiled.deliverable.strategy.
         ectx.deliverable = compiled.deliverable
+        # Bind the DECLARED seed_files dict onto the context (07-11 / CR-07) so the
+        # previous_run provider + the task_loop reference-file writer read the declared
+        # list (honoring the ``seed_files.from_run`` surface) with the legacy
+        # ``_SEED_FILES`` triple as fallback. All authored manifests are ``{}`` so the
+        # fallback fires → byte-identical (Pitfall 2). The compiler stays thin (INV-5):
+        # it only carries the declaration; the read/control-flow lives in the
+        # provider/strategy, NOT in compiler.py.
+        ectx.seed_files = dict(getattr(compiled, "seed_files", None) or {})
         # The "revise a prior run in place" setup (extract the existing artifact,
         # slim the message, compute the pre-edit baseline) is gated on the DECLARED
         # per-deliverable revision-intent flag ``compiled.deliverable.revises_existing``

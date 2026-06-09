@@ -171,6 +171,15 @@ class ExecutionContext:
     # resolver runs so the resolver capability reads it off ctx (single_file / ppt /
     # streamed_text fallbacks). Typed ``object``-free str default.
     last_streamed: str = ""
+    # seed_files: the DECLARED ``compiled.seed_files`` dict (Q29 / CR-07), threaded onto
+    # the context at run entry so the ``previous_run`` provider + the ``task_loop``
+    # reference-file writer read the DECLARED seed list (honoring the
+    # ``seed_files.from_run`` declared surface) instead of the hardcoded
+    # ``("spec.md","design.md","tasks.md")`` constant. All authored manifests are ``{}``
+    # so the consumers fall back to the legacy triple — byte-identical (Pitfall 2). The
+    # compiler stays thin (INV-5): it only carries the declaration; control flow lives in
+    # the provider/strategy.
+    seed_files: dict = field(default_factory=dict)
     # is_revision_workflow: True when the run's manifest declares the ``previous_run``
     # context provider (a revise-prior-run workflow). Gates the per-agent single_file
     # MID-STREAM disk readback in _run_agent off (the legacy L10 readback excluded the

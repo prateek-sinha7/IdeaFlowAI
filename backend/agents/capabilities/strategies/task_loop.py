@@ -89,6 +89,28 @@ _DEFAULT_DELIVERABLE_NAME = "prototype.html"
 _DEFAULT_SOURCE_STEP = "prototype-plan"      # task-plan producer
 _DEFAULT_SPEC_STEP = "prototype-specify"     # spec producer
 
+# Legacy reference-file names (07-11 / CR-07). The reference files the build loop
+# writes before the per-task loop. Honored positionally as (spec, design, tasks); the
+# DECLARED ``seed_files`` overrides them when present (all authored manifests are ``{}``
+# → this triple is used, byte-identical, Pitfall 2).
+_SEED_FILES = ("spec.md", "design.md", "tasks.md")
+
+
+def _declared_seed_files(ctx) -> tuple[str, str, str]:
+    """Read the DECLARED reference-file names off ctx with the legacy fallback (CR-07).
+
+    The compiled ``seed_files`` dict is threaded onto ``ctx.seed_files`` at run entry.
+    Its ``from_run`` list (when present + holding 3 entries) names the (spec, design,
+    tasks) reference files; otherwise fall back to ``_SEED_FILES``. INV-5: the manifest
+    only DECLARES the list; this control flow lives in the strategy, never the compiler.
+    """
+    declared = getattr(ctx, "seed_files", None) or {}
+    if isinstance(declared, dict):
+        from_run = declared.get("from_run")
+        if from_run and len(from_run) == 3:
+            return (str(from_run[0]), str(from_run[1]), str(from_run[2]))
+    return _SEED_FILES
+
 
 def _now() -> str:
     """ISO-ish timestamp for event payloads (mirrors the engine's ``_now``)."""
@@ -152,8 +174,9 @@ class TaskLoopStrategy:
         plan_output = runner.latest_typed_content(source_step) or ""
 
         # ── (A) Write the shared reference files to the sandbox ONCE ──────────────
-        # seed_files behaviour rides here (manifests are {} — Pitfall 2).
-        self._write_reference_files(runner, step)
+        # seed_files behaviour rides here (manifests are {} — Pitfall 2). The
+        # reference-file NAMES are read from the declared ``ctx.seed_files`` (CR-07).
+        self._write_reference_files(runner, step, ctx)
 
         # Parse the tasks via the registry-resolved parser (D-02). The compiler
         # validates step.task_source.parser; default to "heading_tasks".
@@ -295,8 +318,8 @@ class TaskLoopStrategy:
     # Reference files (seed_files behaviour — lift of _write_build_reference_files)
     # ------------------------------------------------------------------
 
-    def _write_reference_files(self, runner, step) -> None:
-        """Write spec.md / design.md / tasks.md into the run sandbox (Region A).
+    def _write_reference_files(self, runner, step, ctx) -> None:
+        """Write the (spec, design, tasks) reference files into the run sandbox (Region A).
 
         Lift of ``_write_build_reference_files`` (engine.py:2263-2316), reaching
         the typed-graph content + od_context + sandbox through the handle.
@@ -305,6 +328,12 @@ class TaskLoopStrategy:
         ``step.task_source.source_step``/``spec_step`` (the strategy owns the legacy
         fallback — INV-5), NOT the hardcoded ``"prototype-specify"``/``"prototype-plan"``
         literals.
+
+        07-11 / CR-07: the reference-file NAMES are read from the DECLARED
+        ``ctx.seed_files`` (``_declared_seed_files`` → (spec, design, tasks)) with the
+        legacy ``_SEED_FILES`` triple as fallback — NOT the hardcoded
+        ``spec.md``/``design.md``/``tasks.md`` literals. All authored manifests are ``{}``
+        so the fallback fires → byte-identical (Pitfall 2).
         """
         task_source_decl = getattr(step, "task_source", None)
         spec_step = (
@@ -313,6 +342,7 @@ class TaskLoopStrategy:
         source_step = (
             getattr(task_source_decl, "source_step", None) or _DEFAULT_SOURCE_STEP
         )
+        spec_name, design_name, tasks_name = _declared_seed_files(ctx)
         spec_text = runner.latest_typed_content(spec_step) or ""
         tasks_text = runner.latest_typed_content(source_step) or ""
         od = getattr(runner, "od_context", None) or {}
@@ -321,9 +351,9 @@ class TaskLoopStrategy:
 
         try:
             if spec_text:
-                runner.sandbox.write("spec.md", spec_text)
+                runner.sandbox.write(spec_name, spec_text)
             if tasks_text:
-                runner.sandbox.write("tasks.md", tasks_text)
+                runner.sandbox.write(tasks_name, tasks_text)
 
             design_sections: list[str] = []
             if template_body:
@@ -335,11 +365,12 @@ class TaskLoopStrategy:
                 hdr = f"# ACTIVE DESIGN SYSTEM{f' ({ds_id})' if ds_id else ''}"
                 design_sections.append(f"{hdr}\n\n{ds_body}")
             if design_sections:
-                runner.sandbox.write("design.md", "\n\n".join(design_sections))
+                runner.sandbox.write(design_name, "\n\n".join(design_sections))
 
             logger.info(
-                "task_loop: wrote reference files (spec.md=%s, design.md=%s, tasks.md=%s)",
-                bool(spec_text), bool(design_sections), bool(tasks_text),
+                "task_loop: wrote reference files (%s=%s, %s=%s, %s=%s)",
+                spec_name, bool(spec_text), design_name, bool(design_sections),
+                tasks_name, bool(tasks_text),
             )
         except Exception as exc:  # noqa: BLE001 — never let a write failure abort the build
             logger.warning("task_loop: failed writing reference files: %s", exc)

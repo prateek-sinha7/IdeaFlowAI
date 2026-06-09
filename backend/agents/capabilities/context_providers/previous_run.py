@@ -49,6 +49,24 @@ logger = logging.getLogger(__name__)
 
 _SEED_FILES = ("spec.md", "design.md", "tasks.md")
 
+
+def _declared_seed_files(ctx: Any) -> tuple[str, ...]:
+    """Read the DECLARED seed-file list off ctx with the legacy fallback (CR-07).
+
+    The compiled ``seed_files`` dict is threaded onto ``ctx.seed_files`` at run entry.
+    Per the ``seed_files.from_run`` declared surface, the parent-run seed list is the
+    dict's ``from_run`` value when present + non-empty; otherwise fall back to the
+    legacy ``_SEED_FILES`` triple. All authored manifests are ``{}`` (Pitfall 2) so the
+    fallback fires → byte-identical to today. INV-5: the manifest only DECLARES the
+    list; this control flow lives in the provider, never the compiler.
+    """
+    declared = getattr(ctx, "seed_files", None) or {}
+    if isinstance(declared, dict):
+        from_run = declared.get("from_run")
+        if from_run:
+            return tuple(str(n) for n in from_run)
+    return _SEED_FILES
+
 # Default editable-artifact filename when the deliverable declares no name. The
 # behavior is parameterized by ``deliverable.name`` — this is only the fallback
 # (matches the legacy ``REVISION_FILE_NAME`` default, byte-identical).
@@ -158,7 +176,9 @@ class PreviousRunProvider:
 
         sandbox = getattr(runner, "sandbox", None)
         seeded: list[str] = []
-        for name in _SEED_FILES:
+        # CR-07: honor the DECLARED seed list (seed_files.from_run) with _SEED_FILES
+        # fallback — NOT the hardcoded triple.
+        for name in _declared_seed_files(ctx):
             try:
                 content = runner.read_parent_file(parent_run_id, name)
             except Exception as read_exc:  # noqa: BLE001
