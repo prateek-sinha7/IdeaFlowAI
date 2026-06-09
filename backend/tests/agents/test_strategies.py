@@ -120,9 +120,19 @@ class _FakeRunner:
         self.fix_calls: list[dict] = []
         self.static_calls = 0
 
-    async def run_agent(self, step, ctx, *, task_number=None, total_tasks=None, task_block=None):
+    async def run_agent(
+        self, step, ctx, *, task_number=None, total_tasks=None, task_block=None,
+        skeleton=None,
+    ):
+        # WR-01 (07-09): the task-2+ skeleton is passed via a dedicated `skeleton`
+        # param (no longer nested into task_block); record it for assertions.
         self.run_agent_calls.append(
-            {"task_number": task_number, "total_tasks": total_tasks, "task_block": task_block}
+            {
+                "task_number": task_number,
+                "total_tasks": total_tasks,
+                "task_block": task_block,
+                "skeleton": skeleton,
+            }
         )
         for ev in self._agent_events:
             yield ev
@@ -293,18 +303,27 @@ async def test_task_loop_requests_html_skeleton_compaction_for_task_2() -> None:
         sandbox = _FakeSandbox(files={"prototype.html": "<html>page1</html>"})
         runner = _FakeRunner(
             agent_events=[{"type": "agent_chunk", "data": {"text": "."}}],
-            typed_content={"prototype-plan": _TWO_TASK_PLAN},
+            # WR-01 (07-09): the strategy sources the task-2 skeleton from the TYPED
+            # GRAPH (latest_typed_content("prototype-build")), not a raw disk read.
+            typed_content={
+                "prototype-plan": _TWO_TASK_PLAN,
+                "prototype-build": "<html>page1 full content</html>",
+            },
             sandbox=sandbox,
         )
         ctx = _Ctx(runner)
 
         _ = [ev async for ev in TaskLoopStrategy().run(_two_task_step(), ctx)]
 
-        # Compaction requested exactly once (task-2 only, not task-1).
+        # Compaction requested exactly once (task-2 only, not task-1) on the TYPED HTML.
         assert len(compact_calls) == 1
-        # The task-2 prompt carries the skeleton.
-        assert "SKELETON" in runner.run_agent_calls[1]["task_block"]
-        assert "SKELETON" not in runner.run_agent_calls[0]["task_block"]
+        assert compact_calls[0] == "<html>page1 full content</html>"
+        # WR-01: the task-2 skeleton rides the dedicated `skeleton` param (NOT nested
+        # into the task block) so the engine emits the legacy STANDALONE skeleton block.
+        assert runner.run_agent_calls[1]["skeleton"] == "SKELETON"
+        assert runner.run_agent_calls[0]["skeleton"] is None
+        # The task block itself no longer carries the nested skeleton.
+        assert "SKELETON" not in (runner.run_agent_calls[1]["task_block"] or "")
     finally:
         registry_mod._IMPLS.pop(("compaction", "html_skeleton"), None)
 

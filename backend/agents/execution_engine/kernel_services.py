@@ -155,6 +155,7 @@ class KernelServices:
         task_number: int | None = None,
         total_tasks: int | None = None,
         task_block: str | None = None,
+        skeleton: str | None = None,
     ) -> AsyncIterator[dict]:
         """Run ONE agent and re-yield its events (delegates to engine._run_agent).
 
@@ -165,6 +166,12 @@ class KernelServices:
         ``=== CURRENT TASK ===`` block — task_loop path), then re-yields every
         event ``_run_agent`` produces unchanged (INV-3). The scratch is reset
         afterwards so a single_shot step is byte-identical to today.
+
+        WR-01 (07-09): ``skeleton`` carries the task-2+ CURRENT PROTOTYPE skeleton
+        (the strategy sources it from the typed graph). It is threaded onto
+        ``ectx.current_prototype_skeleton`` so the engine emits the legacy STANDALONE
+        skeleton block (after the CURRENT TASK block); reset afterwards like the
+        other build scratch. Task 1 passes ``None`` → no skeleton block.
         """
         spec = self._spec_for(step)
         index = self._index_for(spec)
@@ -176,10 +183,12 @@ class KernelServices:
         prev_num = self._ectx.build_task_number
         prev_total = self._ectx.build_task_total
         prev_block = self._ectx.current_task_block
+        prev_skeleton = getattr(self._ectx, "current_prototype_skeleton", "")
         if task_number is not None:
             self._ectx.build_task_number = str(task_number)
             self._ectx.build_task_total = str(total_tasks or task_number)
             self._ectx.current_task_block = task_block or ""
+            self._ectx.current_prototype_skeleton = skeleton or ""
         try:
             async for event in self._engine._run_agent(
                 spec,
@@ -203,6 +212,7 @@ class KernelServices:
             self._ectx.build_task_number = prev_num
             self._ectx.build_task_total = prev_total
             self._ectx.current_task_block = prev_block
+            self._ectx.current_prototype_skeleton = prev_skeleton
 
     # ── The Both-validation + bounded internal fix-loop (L-build region C) ─────
     async def run_validation_fix_loop(

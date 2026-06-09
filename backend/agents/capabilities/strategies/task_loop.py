@@ -160,23 +160,26 @@ class TaskLoopStrategy:
             current_task_block = task_blocks[task_num - 1]
 
             # ── task-2+ compaction (D-02 route) ──────────────────────────────────
-            # The compaction capability is RESOLVED + APPLIED here by manifest name
-            # (D-02): the strategy OWNS the per-task skeleton injection into the task
-            # block (07-01 contract). The engine's generic injector keys the
-            # CURRENT-TASK marker off ectx.current_task_block (= this task_block), so
-            # the skeleton rides through to the prompt with NO double-injection (the
-            # engine's own build-HTML block is gone on the routed path).
+            # WR-01 (07-09): the compaction capability is RESOLVED + APPLIED here by
+            # manifest name (D-02). The strategy sources the prior HTML from the TYPED
+            # GRAPH (runner.latest_typed_content("prototype-build")) — NOT a raw,
+            # unconditional disk read — and applies the legacy `[Error:` suppression
+            # (legacy read the typed graph then gated `current_html and not
+            # current_html.startswith("[Error:")`). The resulting skeleton is threaded
+            # onto ectx.current_prototype_skeleton (via the run_agent skeleton param) so
+            # the engine emits the legacy STANDALONE `=== CURRENT PROTOTYPE (skeleton —
+            # call read_file('prototype.html') ...) ===` block AFTER the CURRENT TASK
+            # block (byte-exact position/wrapper) — NOT nested into current_task_block.
+            task_skeleton: str | None = None
             if task_num >= 2 and compaction_name:
                 compactor = self._maybe_resolve_compaction(compaction_name)
                 if compactor is not None:
                     try:
-                        prior_html = runner.sandbox.read("prototype.html") or ""
-                        skeleton = compactor.compact(prior_html)
-                        if skeleton:
-                            current_task_block = (
-                                f"{current_task_block}\n\n"
-                                f"=== CURRENT PROTOTYPE SKELETON ===\n{skeleton}"
-                            )
+                        prior_html = runner.latest_typed_content("prototype-build") or ""
+                        if prior_html and not prior_html.startswith("[Error:"):
+                            skel = compactor.compact(prior_html)
+                            if skel:
+                                task_skeleton = skel
                     except Exception as exc:  # noqa: BLE001 — compaction must not abort the build
                         logger.warning("task_loop: compaction failed (%s) — continuing", exc)
 
@@ -193,12 +196,15 @@ class TaskLoopStrategy:
             }
 
             # Run the per-task sub-agent through the handle, re-yielding its events.
+            # WR-01: pass the task-2+ skeleton via the dedicated param (not nested in
+            # the task block) so the engine emits the legacy standalone skeleton block.
             async for event in runner.run_agent(
                 step,
                 ctx,
                 task_number=task_num,
                 total_tasks=total_tasks,
                 task_block=current_task_block,
+                skeleton=task_skeleton,
             ):
                 yield event
 
