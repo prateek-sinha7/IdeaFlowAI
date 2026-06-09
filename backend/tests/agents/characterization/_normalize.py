@@ -106,7 +106,15 @@ _VOLATILE_STRIP_KEYS = frozenset(
         "total_duration",
         "estimated_cost_usd",
         "model_id",
-        "context_message",
+        # ── context_message DE-BLINDED (07-06 / PARITY-09 / INV-3) ───────────────
+        # context_message was previously stripped here because it "embeds the
+        # unaliased run text + prior-agent summaries". For the SCRIPTED characterization
+        # fixtures, the user brief is held constant and the OD blocks are deterministic
+        # once run_id/timestamps are already stripped — so the context_message is
+        # parity-stable and is now PINNED by the golden snapshots, closing the structural
+        # blind spot that let the CR-01/02/03 regressions pass silently. A dedicated,
+        # normalizer-independent context_message parity assertion also pins the OD block
+        # structure/bytes (test_context_providers.test_context_message_parity_*).
         "context_sources",
         # ── Per-run durable-log stamps (05-04 seq sink) ──────────────────────
         # The engine now stamps a monotonic per-run ``seq`` + a uuid ``event_id``

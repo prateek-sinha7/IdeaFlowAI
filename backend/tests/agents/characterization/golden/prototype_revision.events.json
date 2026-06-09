@@ -43,6 +43,14 @@
   {
     "data": {
       "agent_id": "prototype-revision-agent",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-revision-agent",
       "duration": "<normalized>",
       "index": 0,
       "input_tokens": "<normalized>",
@@ -72,13 +80,6 @@
       "tool": "write_file"
     },
     "type": "tool_result"
-  },
-  {
-    "data": {
-      "agent_id": "prototype-revision-agent",
-      "tool_calls": []
-    },
-    "type": "agent_input"
   },
   {
     "data": {

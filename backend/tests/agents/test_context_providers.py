@@ -245,6 +245,56 @@ async def test_opendesign_declared_order_ds_then_template_then_example():
 
 
 @pytest.mark.asyncio
+async def test_context_message_parity_build_task_1_vs_task_2():
+    """Dedicated context_message parity assertion (PARITY-09 / INV-3) — INDEPENDENT
+    of the characterization event normalizer.
+
+    Pins the EXACT ordered block-key sequence AND the byte content of the composed
+    OD block map for a scripted prototype BUILD agent: the full ordered set on task 1
+    (DS preamble+body, template body, example[:8000], injection parts in order) and
+    the suppressed seed-only set on task 2. This is the non-volatile pin the
+    characterization net lacked while context_message was in _VOLATILE_STRIP_KEYS — a
+    context-injection regression now hard-fails HERE regardless of the normalizer."""
+    example = "<html>example</html>"
+    parts = [
+        "=== TEMPLATE SEED ===\nseed\n=== END TEMPLATE SEED ===",
+        "=== LAYOUTS ===\nlayouts",
+        "=== CHECKLIST ===\nchecklist",
+    ]
+    runner = _FakeRunner(od_context=_OD, injection_parts=parts, example=example)
+
+    # ── Build task 1 — full ordered block set, exact bytes ──────────────────────
+    t1_ctx = _Ctx(
+        runner, od_context=_OD,
+        current_spec_tools={"prototype_emit_only"}, build_task_number="1",
+    )
+    t1 = await OpenDesignProvider().load(t1_ctx)
+    assert list(t1.keys()) == [
+        "ACTIVE DESIGN SYSTEM: midnight",
+        "ACTIVE TEMPLATE (SKILL.md): web-prototype",
+        "TEMPLATE EXAMPLE (example.html): web-prototype",
+        "TEMPLATE INJECTION PART 0: web-prototype",
+        "TEMPLATE INJECTION PART 1: web-prototype",
+        "TEMPLATE INJECTION PART 2: web-prototype",
+    ]
+    assert t1["ACTIVE DESIGN SYSTEM: midnight"] == _DS_PREAMBLE + "DS TOKENS"
+    assert t1["ACTIVE TEMPLATE (SKILL.md): web-prototype"] == "TEMPLATE BODY"
+    assert t1["TEMPLATE EXAMPLE (example.html): web-prototype"] == example[:8000]
+    assert t1["TEMPLATE INJECTION PART 0: web-prototype"] == parts[0]
+    assert t1["TEMPLATE INJECTION PART 1: web-prototype"] == parts[1]
+    assert t1["TEMPLATE INJECTION PART 2: web-prototype"] == parts[2]
+
+    # ── Build task 2 — suppressed: seed injection part only ─────────────────────
+    t2_ctx = _Ctx(
+        runner, od_context=_OD,
+        current_spec_tools={"prototype_emit_only"}, build_task_number="2",
+    )
+    t2 = await OpenDesignProvider().load(t2_ctx)
+    assert list(t2.keys()) == ["TEMPLATE INJECTION PART 0: web-prototype"]
+    assert t2["TEMPLATE INJECTION PART 0: web-prototype"] == parts[0]
+
+
+@pytest.mark.asyncio
 async def test_opendesign_empty_when_no_od_context():
     ctx = _Ctx(_FakeRunner(od_context=None), od_context=None)
     assert await OpenDesignProvider().load(ctx) == {}
