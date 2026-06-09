@@ -62,6 +62,12 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("post_step", "revision_validation"),
     ("model_catalog", "default"),
     ("runtime", "langchain_deepagents"),   # 08-05 / F5
+    ("prompt", "default"),                 # 08-05 / F1
+    ("skill", "ui"),                       # 08-05 / F3 / SKILL-01
+    ("skill", "disk"),                     # 08-05 / F3 / SKILL-01
+    ("skill", "template"),                 # 08-05 / F3 / SKILL-01
+    ("skill", "repo"),                     # 08-05 / F3 / SKILL-01
+    ("hook", "behavioral"),                # 08-05 / F3
 ]
 
 
@@ -86,15 +92,17 @@ def test_unknown_kind_is_rejected(registry: CapabilityRegistry) -> None:
     assert registry.is_registered("bogus_kind", "single_shot") is False
 
 
-def test_registered_count_is_exactly_twenty_six() -> None:
-    # Drift guard: registering a 27th name (or dropping one) must trip this.
+def test_registered_count_is_exactly_thirty_two() -> None:
+    # Drift guard: registering a 33rd name (or dropping one) must trip this.
     # 15 authoritative D-07 pairs + model_catalog (06-01) + post_step
     # revision_validation (07-10 / CR-06) = 16, plus the two 08-02 gate names
     # (approval/security) = 18, plus the four 08-03 tool-set names
     # (workspace/prototype/prototype_emit_only/planning, F2) = 22, plus the three
     # 08-04 Tier validators (spec_plan_coverage/task_done_when/design_quality) = 25,
-    # plus the one 08-05 runtime adapter (langchain_deepagents, F5) = 26.
-    assert len(_KNOWN) == 26
+    # plus the one 08-05 runtime adapter (langchain_deepagents, F5) = 26, plus the
+    # six 08-05 prompt/skill/hook capabilities (prompt:default F1; skill:ui/disk/
+    # template/repo F3/SKILL-01; hook:behavioral F3) = 32.
+    assert len(_KNOWN) == 32
     assert set(_KNOWN) == set(_EXPECTED_NAMES)
 
 

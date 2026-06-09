@@ -65,6 +65,9 @@ from agents.registry import _OD_ALIAS_BASE
 # post_step:       revision_validation
 # model_catalog:   default  (the ModelCatalog data capability — name-only, D-03)
 # runtime:         langchain_deepagents  (08-05 / F5 — AgentRuntimeAdapter, wraps DeepAgentRunner)
+# prompt:          default  (08-05 / F1 — PromptAssemblyPolicy, fixed block order)
+# skill:           ui, disk, template, repo  (08-05 / F3 / SKILL-01 — versioned skill providers)
+# hook:            behavioral  (08-05 / F3 — non-executable hook sub-type; 08-07 adds executable hooks)
 # ---------------------------------------------------------------------------
 _KNOWN: set[tuple[str, str]] = {
     ("strategy", "single_shot"),
@@ -93,6 +96,12 @@ _KNOWN: set[tuple[str, str]] = {
     ("post_step", "revision_validation"),
     ("model_catalog", "default"),
     ("runtime", "langchain_deepagents"),   # 08-05 / F5
+    ("prompt", "default"),                 # 08-05 / F1
+    ("skill", "ui"),                       # 08-05 / F3 / SKILL-01
+    ("skill", "disk"),                     # 08-05 / F3 / SKILL-01
+    ("skill", "template"),                 # 08-05 / F3 / SKILL-01
+    ("skill", "repo"),                     # 08-05 / F3 / SKILL-01
+    ("hook", "behavioral"),                # 08-05 / F3 (non-executable sub-type)
 }
 
 
