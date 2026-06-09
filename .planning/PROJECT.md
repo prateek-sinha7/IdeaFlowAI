@@ -35,16 +35,16 @@ It is for the engineers building and operating Flowin's agent workflows — and,
 
 <!-- The refactor scope. Building toward these (full detail + REQ-IDs in REQUIREMENTS.md, phases in ROADMAP.md). -->
 
-- [~] Workflow-agnostic kernel: no `if pipeline_type == "..."` / `if spec.id == "..."` branches anywhere (INV-1) — **Phase 4 / 1A**: routing is now manifest-driven (no dispatch branch); the surviving L1–L13 behavioral branches are allow-listed for deletion in Phase 7
+- [x] Workflow-agnostic kernel: no `if pipeline_type == "..."` / `if spec.id == "..."` branches anywhere (INV-1) — **Phase 7 complete (SC-001 proven)**: L1–L13 deleted from the kernel; banned-pattern hard-fail gate + migration-ledger ratchet green; the kernel knows no workflow by name (verified 9/9). Routing was made manifest-driven in Phase 4 / 1A.
 - [ ] Per-run `ExecutionContext`; stateless immutable kernel singleton (INV-2)
 - [x] Declarative file-backed workflow manifests → thin compiler (no DSL) → typed `CompiledWorkflow`/`ExecutionPlan` (INV-5) — **Phase 4 / 1A complete** (MAN-01/02; step-level + top-level strict-key DSL rejection)
-- [~] `CapabilityRegistry` + trust model: strategies, validators, deliverables, context providers, gates, isolation, merge, task parsers, worker agents, runtimes, skills, hooks, tools, MCP, integrations (INV-4) — **Phase 4 / 1A**: central name-seam (14 names) + Protocol ports + compiler validation done; concrete impls Phase 7, trust/`@register`/self-registration Phase 8
-- [ ] Execution strategies: `single_shot`, `task_loop`, `fanout_batch`, `wave_scheduler`
+- [~] `CapabilityRegistry` + trust model: strategies, validators, deliverables, context providers, gates, isolation, merge, task parsers, worker agents, runtimes, skills, hooks, tools, MCP, integrations (INV-4) — **Phase 4 / 1A**: central name-seam (14 names) + Protocol ports + compiler validation done; **Phase 7**: concrete impls (strategies/deliverables/providers/parser/compaction) + `resolve(kind,name)` seam landed; trust/`@register`/self-registration remain Phase 8
+- [~] Execution strategies: `single_shot`, `task_loop`, `fanout_batch`, `wave_scheduler` — **Phase 7**: `single_shot` + `task_loop` landed behind the `ExecutionStrategy` port (PARITY-01); `fanout_batch`/`wave_scheduler` are Phases 11/12
 - [ ] Validator registry + generic fix-loop + P0–P3 severity; make `Validation_Gate` real
-- [ ] Deliverable resolver registry (`single_file`, `serialized_sandbox`, `streamed_text`, `repo_diff`, `ppt`)
-- [ ] Context provider registry (`opendesign`, `repo`, `previous_run`, `uploaded_files`, `memory`) + declared seed files
+- [~] Deliverable resolver registry (`single_file`, `serialized_sandbox`, `streamed_text`, `repo_diff`, `ppt`) — **Phase 7**: single_file/serialized_sandbox/streamed_text/ppt landed behind the `DeliverableResolver` port (PARITY-02/07); `repo_diff` is Phase 9+
+- [~] Context provider registry (`opendesign`, `repo`, `previous_run`, `uploaded_files`, `memory`) + declared seed files — **Phase 7**: `opendesign` + `previous_run` + declared `seed_files` landed at byte-parity to legacy L12 (PARITY-03; context-injection gap closed in 07-06); `repo`/`uploaded_files`/`memory` are later phases
 - [ ] Manifest `planner` / `clarify` config + per-agent injects
-- [~] Context compaction: inline `_extract_html_skeleton` wired as build-task-2+ compaction — **Phase 3 / 0C complete** (COMPACT-01/02/03 ✓: ≥50% deterministic gate + semantic parity, INV-3 sanctioned change); registration as the `html_skeleton` `CompactionStrategy` capability remains (Phase 7 / PARITY-04, L13 still ☐)
+- [x] Context compaction: `_extract_html_skeleton` registered as the `html_skeleton` `CompactionStrategy` capability — **Phase 3 / 0C** (COMPACT-01/02/03 ✓: ≥50% deterministic gate + semantic parity, INV-3 sanctioned change) + **Phase 7** (PARITY-04: registered behind the `CompactionStrategy` port; L13 deleted from the kernel)
 - [ ] Gate registry: `human` / `validation` / `approval` / `security` (INV-9 ties)
 - [ ] Step-level least-privilege tool permissions; exec/network/secrets/spawn default OFF (INV-9)
 - [ ] Typed artifacts + lineage: `ArtifactGraph`/`ArtifactRef`, content-addressed, owner-scoped (INV-10)
@@ -108,7 +108,7 @@ It is for the engineers building and operating Flowin's agent workflows — and,
 |----------|-----------|---------|
 | Unify vocabulary on `workflow`; `pipeline_type` kept as temporary alias (Q1) | Avoid privileged built-in paths | — Pending |
 | Engineer-registered capabilities + user-composable manifests; trust boundary (Q2) | Power as data, safe palette for users | — Pending |
-| Success = prototype parity by manifest/config only, zero engine edits (Q4 / SC-001) | The one test that must hold | — Pending |
+| Success = prototype parity by manifest/config only, zero engine edits (Q4 / SC-001) | The one test that must hold | ✓ Proven — Phase 7 (9/9 must-haves; kernel knows no workflow by name; prototype/od_/revision run purely from manifests at deliverable-byte + semantic-event + context_message parity) |
 | File-backed manifests now; DB-backed user workflows later (Q5) | Dogfood the model without DB scope | — Pending |
 | `ExecutionStrategy` registry: single_shot/task_loop/fanout_batch/wave_scheduler (Q8) | "How a step runs" is pluggable | — Pending |
 | Canonical `Task` schema + parser adapters (Q11) | One task model, many formats | — Pending |
@@ -140,4 +140,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-07 after Phase 4 (Manifest + Compiler, 1A) completion*
+*Last updated: 2026-06-09 after Phase 7 (Prototype as Manifest — Parity Proof, SC-001) completion*
