@@ -1,8 +1,8 @@
 ---
 phase: 07-prototype-as-manifest-parity-proof-sc-001-2
 verified: 2026-06-09T12:00:00Z
-status: passed
-score: 9/9 must-haves verified
+status: gaps_found
+score: 9/9 must-haves verified (SUPERSEDED 2026-06-09 — see reopened block)
 overrides_applied: 0
 re_verification:
   previous_status: gaps_found
@@ -12,6 +12,23 @@ re_verification:
     - "all 5 pipelines at deliverable byte parity AND context_message byte parity vs the post-0C baseline — context_message removed from _VOLATILE_STRIP_KEYS; dedicated normalizer-independent parity assertion added; 5 golden snapshots regenerated parity-stable"
   gaps_remaining: []
   regressions: []
+reopened:
+  at: 2026-06-09
+  by: 07-REVIEW-DEEP.md (deep multi-agent code review; baseline acd1636)
+  reason: >-
+    The 'passed' conclusion was a false-positive. The 07-06 gap-closure de-blinded the
+    characterization goldens by capturing the POST-refactor context_message bytes — but those
+    bytes had already DRIFTED from the true pre-Phase-7 (acd1636) prompt. The goldens therefore
+    pinned the drifted prompt as the contract; 'pinned == correct' does not hold. SC-001 is only
+    partially proven: kernel dispatch is name-free (test_routing_parity), but prototype names
+    remain hardcoded in the 'generic' capabilities (CR-05/06/07).
+  confirmed_findings: 14   # 15 in 07-REVIEW-DEEP.md minus CR-03 (fixed inline, commit 8428d08)
+  clusters:
+    B_golden_safe: [WR-07, WR-08]            # CR-03 already fixed inline
+    C_parity_needs_oracle: [CR-01, CR-02, CR-04, WR-01, WR-02, WR-03, WR-05]
+    D_revision_gating: [WR-04, WR-06]
+    E_sc001_architecture: [CR-05, CR-06, CR-07]
+  gap_closure_plan: 07-07 (all 14 findings; order B→C→D→E; cluster C reverses the 07-06 adjudication and builds an acd1636 oracle)
 ---
 
 # Phase 7: Prototype-as-Manifest Parity Proof (SC-001) Verification Report
@@ -21,8 +38,23 @@ capabilities, then delete the hardcoded kernel leaks L1–L12 — proving the ke
 workflow by name. This is the core-value proof (SC-001).
 
 **Verified:** 2026-06-09T12:00:00Z
-**Status:** passed
+**Status:** ⚠ REOPENED 2026-06-09 (was: passed) — superseded by 07-REVIEW-DEEP.md
 **Re-verification:** Yes — after gap closure by 07-06
+
+---
+
+> ## ⚠ PHASE REOPENED — this report is superseded (2026-06-09)
+>
+> A deep multi-agent code review (`07-REVIEW-DEEP.md`, baseline `acd1636`) found **14 confirmed
+> findings** this "passed" report missed. Root cause: 07-06 de-blinded the characterization
+> goldens against POST-refactor bytes that had **already drifted** from the true pre-Phase-7
+> prompt — so the goldens below pin a *drifted* contract, not the legacy one. SC-001 is therefore
+> only **partially** proven (kernel dispatch is name-free, but prototype names are hardcoded in
+> the "generic" capabilities — CR-05/06/07).
+>
+> **Status is now `gaps_found`.** Gap-closure is planned as **07-07** (all 14 findings, order
+> B→C→D→E; cluster C reverses this report's adjudication and builds an `acd1636` oracle). The
+> 9/9 verification below is **preserved as the historical 07-06 record**, not the current truth.
 
 ---
 
