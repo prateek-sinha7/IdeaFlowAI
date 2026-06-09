@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-09T18:00:00.000Z"
-last_activity: 2026-06-09 -- 08-08 PAUSED at API-06 panel-render human-verify checkpoint (Tasks 1-2 done: /api/capabilities palette + additive WS events + 3 composer panels; all automated gates green)
+last_updated: "2026-06-09T20:30:00.000Z"
+last_activity: 2026-06-09 -- 08-08 COMPLETE — API-06 panel render human-verified/approved (live capability palette + per-agent model picker + validator/issue panel from /api/capabilities + WS); API-02/03/06 done; gates green. Phase 08 = 7/8 (08-07 hooks remains)
 progress:
   total_phases: 12
   completed_phases: 7
   total_plans: 45
-  completed_plans: 41
-  percent: 58
+  completed_plans: 44
+  percent: 98
 ---
 
 # Project State
@@ -26,10 +26,10 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 
 Phase: 08 (capabilities-hardened-registry-gates-tool-perms-runtime-3) — EXECUTING
 Plan: 8 of 8
-Status: PAUSED at checkpoint — 08-08 Task 3 (API-06 panel-render human-verify)
-Last activity: 2026-06-09 -- 08-08 Tasks 1-2 done (GET /api/capabilities auth-gated palette [API-02], additive validator_result/validation_warning/gate_* WS events [API-03], 3 live composer panels); awaiting human panel-render verify (API-06)
+Status: 08-08 COMPLETE (Task 3 API-06 panel render human-verified/approved). Phase 08 = 7/8 plans done; 08-07 (executable hooks, HOOK-01..04/OBS-02, wave 5) remains.
+Last activity: 2026-06-09 -- 08-08 done — GET /api/capabilities auth-gated palette [API-02], additive validator_result/validation_warning/gate_* WS events [API-03], 3 live composer panels human-verified [API-06]; all automated gates green
 
-Progress: [██████░░░░] 60% (7/12 phases complete; Phase 08 plan 6/8 done)
+Progress: [██████░░░░] 60% (7/12 phases complete; Phase 08 plan 7/8 done — 08-07 hooks remains)
 
 ## Performance Metrics
 
@@ -155,9 +155,11 @@ Recent decisions affecting current work:
 - [Phase 08]: 08-04 (VALID-01/02/04/05 + D-04/05/06/10): Validator registry backbone. `DeliverableContext` (kernel-pure target: path/content/runner-handle/step/task_meta) is what a registered `Validator` receives. `html_static`/`html_render` migrated to registered app-side Validators (`app/agents/validators/`) wrapping `static_check`/`render_check`, reaching the heavy checks ONLY via `target.runner` (the KernelServices handle — NO kernel→app import; import the PORT `agents.capabilities.base.Validator` + `@register`, the legal app→capabilities direction; lint 3 kept/0 broken). Generic FixPolicy fix-loop: `run_validation_fix_loop` driven by a `FixPolicy` (deliverable name + max_attempts) — NOT hardcoded `prototype.html`; it parameterizes the engine's SINGLE `_run_validation_fix_loop` internals, default reproduces Phase-7 byte-for-byte (max_attempts=2). Tier#4/5/6 = `spec_plan_coverage`/`task_done_when` (pure-stdlib KERNEL-side) + `design_quality` (app-side, WARNINGS-FIRST/non-blocking — emits only P2/P3, never blocks); each registered+run+≥1 test manifest, severity via the SINGLE imported `map_severity` (08-01, grep=1, 0 new defs). Each validator run writes an owner/workspace-scoped `validation_results` row (ScopedStore; cross-owner read=∅, T-08-04-ID). task_loop RE-POINT (D-06): drives the registered `html_static`/`html_render` validators ADDITIVELY + EVENT-FREE after the byte-identical fix-loop (only persists validation_results rows) → 5 characterization snapshots byte/event-identical in a clean session, re-point parity PROVEN, NO re-baseline. `revision_validation` STAYS a post_step (gate conversion would NOT be byte/event-identical — the post_step runs the revision-baselined fix sub-agent loop the generic gate doesn't replicate; decided with `test_characterization_prototype_revision.py` evidence). `_KNOWN` + lockstep registry count bumped 22→25 (expected membership growth). The strategy builds FixPolicy/DeliverableContext via handle FACTORIES (`runner.make_fix_policy`/`runner.deliverable_context`) since import-linter forbids `agents.capabilities → agents.execution_engine`. lint-imports/banned-pattern/migration-ledger + 5 snapshots green.
 - [Phase 08]: 08-05 (AGENTRT-01/02/03/05 + SKILL-01 / F1/F3/F5): three factory leaks lifted behind declared capabilities + the inline originals DELETED (INV-12, parity-gated). **F5** `AgentRuntimeAdapter` (`runtime:langchain_deepagents`, `user_allowed=False`) WRAPS `DeepAgentRunner` via a factory **build seam** (`RuntimeBuildContext.build`, a bound zero-arg callable) — the runtime capability NEVER imports `app`/`create_deep_agent` (import-linter + INV-13); `create_deep_agent` stays ONLY in the allow-listed `deep_agent_runner.py` (RESEARCH Q2 — allow-list unchanged); `create_runner` selects `resolve("runtime", "langchain_deepagents")` (future `claude_code_cli`/`custom_runner` slot in with no kernel edit). Sanctioned the `langchain_deepagents` capability MODULE NAME in the INV-13 local-module ban (single-entry `_ALLOWED_LOCAL_MODULE_PATHS`; it is the registered runtime id, import-clean of library+create_deep_agent+loop). **F1** `PromptAssemblyPolicy` (`prompt:default`) drives the fixed order `injects→guardrails→skills→hooks→constitution→prompt_body`, `"\n\n"` join — inline `blocks.append` ordering DELETED (grep→0 backend-wide; reworded docstrings off the literal token). **F3** `skill_provider` (`skill:ui/disk/template/repo`, versioned `SkillBlock` — SKILL-01; ui=live source, disk/template/repo inert) + `hook_provider` (`hook:behavioral` non-executable sub-type renders the legacy `## Active Behavioral Hooks` block) — inline `_inject_skills/_inject_hooks` DELETED (grep→0). Providers expose a SYNC core (`extract_ui_skill_blocks`/`render_behavioral_block`) so the sync `_compose_system_prompt` consumes them without an await-in-running-loop bridge. `_inject_constitution` (F4) LEFT INTACT (08-06's deletion; the policy `constitution` slot is its home). `hooks/` package importable + behavioral sub-type intact for 08-07's executable hooks. `_KNOWN`+lockstep count 25→32 (runtime + prompt + 4 skills + behavioral). Composed prompts byte-identical for EVERY agent (5 snapshots unchanged, NO re-baseline); F1/F3/F5 ledger rows ☑. **Out-of-scope deferred:** `test_capability_resolution.py` pre-existing collection error (imports deleted `install()`) → `deferred-items.md`. lint-imports 3 kept/0 broken; banned-pattern/migration-ledger/create_runner/guardrails green.
 
+- [Phase 08]: 08-08 (API-02/03/06 + D-11): `GET /api/capabilities` is an auth-gated (`Depends(get_current_user)`, 401 without a token — T-08-08-auth) registry-REFLECTIVE palette — enumerated live from `_KNOWN` post-`discover()`, so a freshly `@register`'d cap appears with ZERO endpoint edit (test_palette_reflects_registry). Each `(kind,name)` carries `user_allowed` (privileged exec/secrets/spawn/runtimes = False, T-08-08-ID) + a forward-compat `config_schema={}` slot (the ports are one-method Protocols with no per-cap schema yet — documented stub, non-blocking). The model_catalog kind is surfaced EXPANDED under a separate `model_catalog` key (per-model records for the picker), not one opaque row. API-03 additive WS events (`validator_result`/`validation_warning`/`gate_*`) flow through the GENERIC `websocket.py` forward with NO websocket.py edit — the 5 characterization snapshots stay byte/event-identical (no re-baseline, T-08-08-parity). Frontend D-11 REUSE (not rebuild): 3 additive sibling panels wired into `WorkflowComposer.tsx` — `CapabilityPalette` (live `/api/capabilities`, grouped by kind + trust badge), `AgentModelPicker` (per-agent model from the catalog → `model_overrides`), `ValidatorIssuePanel` (props-driven like AgentProgressPanel; parent routes the WS events; issues grouped CRITICAL/HIGH/MEDIUM/LOW). Subagent/wave-tree + repo-diff viewers DEFERRED (no backing data until P9/11/12) — confirmed absent. Task 3 (API-06) is a frontend visual render with no headless DOM harness → HUMAN-VERIFIED/APPROVED (human ran the dev servers + confirmed the live render). No new backend/frontend dependency (T-08-08-SC accept). 10 tests pass (capabilities_api 8 + characterization_prototype 2); lint-imports 3 kept/0 broken.
+
 ### Pending Todos
 
-None yet.
+- Phase 08: 08-07 (executable HookHandler framework + secret_scan + otel_tracing, HOOK-01..04/OBS-02, wave 5) remains — the last Phase-08 plan before phase verification.
 
 ### Blockers/Concerns
 
@@ -178,4 +180,4 @@ Open decision records to confirm before their phase (from plan §26):
 - CP-SAT scheduling · single-file fragment-merge · PR/commit push · DB-backed user workflows (REQUIREMENTS.md v2 / Out of Scope).
 
 ---
-*Last updated: 2026-06-09 — 08-05 complete (F5 AgentRuntimeAdapter wraps DeepAgentRunner via factory build seam — create_deep_agent stays in the allow-listed adapter, future runtimes slot in with no kernel edit; F1 PromptAssemblyPolicy drives the fixed block order; F3 skill_provider (versioned, SKILL-01) + behavioral hook_provider replace inline skills/hooks; F1/F3/F5 inline originals DELETED, ledger ☑; composed prompts byte-identical across 5 snapshots, no re-baseline; lint 3 kept/0 broken). Wave 3 in progress; next: 08-06 (F4 constitution).*
+*Last updated: 2026-06-09 — 08-08 complete (GET /api/capabilities auth-gated, registry-reflective palette incl. model catalog [API-02]; additive validator_result/validation_warning/gate_* WS events through the generic forward, no re-baseline [API-03]; 3 live composer panels — palette/per-agent model picker/validator-issue panel — human-verified rendering from live data, deferred subagent/wave + repo-diff viewers absent [API-06]; gates green). Phase 08 = 7/8 plans; next: 08-07 (executable hooks, HOOK-01..04/OBS-02, wave 5).*

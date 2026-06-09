@@ -159,11 +159,11 @@
 ### Dynamic API / Frontend Contract (parallel track, §22)
 
 - [x] **API-01**: `GET /api/workflows` → list + metadata; `GET /api/workflows/{id}` → full step configs, gates, validators, deliverable, declared capabilities (§22)
-- [ ] **API-02**: `GET /api/capabilities` → registry palette (kind, name, `user_allowed`, config schema) incl. runtimes, skills, hooks, MCP servers, integrations, model catalog — with required auth + permission scopes (§22/§7/§30)
-- [ ] **API-03**: Run stream (WS/ndjson) emits existing events + new (`subagent_*`, `wave_*`, `validator_result`, `validation_warning`, `merge_*`, `budget_warning`, `gate_*`); existing-workflow contract stays at semantic parity (Q43/INV-3)
+- [x] **API-02**: `GET /api/capabilities` → registry palette (kind, name, `user_allowed`, config schema) incl. runtimes, skills, hooks, MCP servers, integrations, model catalog — with required auth + permission scopes (§22/§7/§30)
+- [x] **API-03**: Run stream (WS/ndjson) emits existing events + new (`subagent_*`, `wave_*`, `validator_result`, `validation_warning`, `merge_*`, `budget_warning`, `gate_*`); existing-workflow contract stays at semantic parity (Q43/INV-3)
 - [x] **API-04**: `GET /api/runs/{id}/artifacts` → typed artifact tree (lineage); `GET /api/runs/{id}/diff` → repo diff (§22)
 - [x] **API-05**: `GET /api/runs/{id}/events?after=<seq>` → durable event replay (monotonic seq + event_id) for reconnect/resume (§22/§21)
-- [ ] **API-06**: Dynamic composer + capability palette + per-agent model picker; validator/issue panel; subagent + wave tree; artifact/diff viewer (reuse app-builder `FilesTab`/`AppBuilderPreview`) — additive panels (§22)
+- [x] **API-06**: Dynamic composer + capability palette + per-agent model picker; validator/issue panel; subagent + wave tree; artifact/diff viewer (reuse app-builder `FilesTab`/`AppBuilderPreview`) — additive panels (§22)
 
 ### Budgets & Observability (cross-cutting, §23)
 
@@ -238,7 +238,7 @@ Each v1 requirement maps to exactly one phase. Phases are GSD integers 1–12, m
 | SKILL-01 | Phase 8 [3] | Done (08-05) |
 | HOOK-01, HOOK-02, HOOK-03, HOOK-04 | Phase 8 [3] | Pending |
 | OBS-02 | Phase 8 [3] | Pending |
-| API-02, API-03, API-06 | Phase 8 [3] | Pending |
+| API-02, API-03, API-06 | Phase 8 [3] | Done (08-08; API-06 human-verified) |
 | RUNTIME-01, RUNTIME-02, RUNTIME-03 | Phase 9 [4A] | Pending |
 | REPO-01, REPO-02, REPO-03, REPO-04, REPO-05 | Phase 9 [4A] | Pending |
 | MCP-01, MCP-02, MCP-03, MCP-04 | Phase 9 [4A] | Pending |

@@ -272,7 +272,7 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [x] 08-06-PLAN.md — constitution sync-safe pre-warm fix; delete F4/R12 branch — all F1–F5 ☑ (AGENTRT-06) [wave 4]
-- [ ] 08-08-PLAN.md — `GET /api/capabilities` palette + additive run-stream events (semantic parity) + capability palette/model picker/validator panel (API-02/03/06) [wave 4]
+- [x] 08-08-PLAN.md — `GET /api/capabilities` palette + additive run-stream events (semantic parity) + capability palette/model picker/validator panel (API-02/03/06) [wave 4]
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -373,7 +373,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 5. Typed Artifacts + Persistence [1B] | 7/7 | Complete    | 2026-06-08 |
 | 6. Model Policy [1C] | 5/5 | Complete    | 2026-06-08 |
 | 7. Prototype as Manifest (Parity Proof) [2] | 11/11 | Complete    | 2026-06-09 |
-| 8. Capabilities Hardened [3] | 5/8 | In Progress|  |
+| 8. Capabilities Hardened [3] | 7/8 | In Progress|  |
 | 9. Local Runtime + Repo (no exec) [4A] | 0/6 | Not started | - |
 | 10. Safe Local Exec [4B] | 0/2 | Not started | - |
 | 11. Fan-Out + Merge [5] | 0/5 | Not started | - |

@@ -48,7 +48,7 @@ patterns-established:
   - "Registry-reflective palette endpoint: a new @register appears with zero endpoint edit (test_palette_reflects_registry)"
   - "Additive WS event proof via source inspection: the generic '{type: event[type]}' forward needs no edit for new event types"
 
-requirements-completed: [API-02, API-03]
+requirements-completed: [API-02, API-03, API-06]
 
 # Metrics
 duration: ~25min
@@ -57,16 +57,16 @@ completed: 2026-06-09
 
 # Phase 8 Plan 8: API + Frontend Capability Surface Summary
 
-**GET /api/capabilities auth-gated registry palette (incl. runtimes/skills/hooks/model catalog) + additive validator_result/validation_warning/gate_* WS events + three live composer panels (palette, per-agent model picker, validator/issue panel) — PAUSED at the API-06 panel-render human-verify checkpoint.**
+**GET /api/capabilities auth-gated registry palette (incl. runtimes/skills/hooks/model catalog) + additive validator_result/validation_warning/gate_* WS events + three live composer panels (palette, per-agent model picker, validator/issue panel) — human-verified rendering from live data.**
 
 ## Status
 
-**IN PROGRESS — paused at Task 3 (`checkpoint:human-verify`, API-06 panel render).** Tasks 1 and 2 are complete and committed; the automated backend/frontend gates all pass. Task 3 requires a human to run the dev backend + frontend and visually confirm the three panels populate from live data. A continuation agent finalizes this plan (state advance + ROADMAP/REQUIREMENTS close-out) after the human approves.
+**COMPLETE — all 3 tasks done.** Tasks 1 and 2 are committed; the automated backend/frontend gates all pass. Task 3 (`checkpoint:human-verify`, API-06 panel render) was VERIFIED and APPROVED by the human: they ran the dev backend + frontend, opened the workflow composer, and confirmed the capability palette, per-agent model picker, and validator/issue panel all populate from live `/api/capabilities` + WS data, and that the deferred subagent/wave-tree + repo-diff viewers are correctly absent.
 
 ## Performance
 
-- **Duration:** ~25 min (through the checkpoint)
-- **Tasks completed:** 2 of 3 (Task 3 is the human-verify checkpoint)
+- **Duration:** ~25 min (Tasks 1-2) + human verification
+- **Tasks completed:** 3 of 3 (Task 3 = human-verify checkpoint, APPROVED)
 - **Files created:** 5 · **Files modified:** 4
 
 ## Accomplishments
@@ -79,7 +79,7 @@ completed: 2026-06-09
 
 1. **Task 1: GET /api/capabilities palette endpoint + additive WS event proof** — `89d11f2` (feat) — TDD RED (module-not-found) → GREEN (8 tests pass)
 2. **Task 2: Frontend palette + per-agent model picker + validator/issue panel** — `f0806be` (feat)
-3. **Task 3: Human-verify panel render (API-06)** — PENDING (checkpoint:human-verify)
+3. **Task 3: Human-verify panel render (API-06)** — APPROVED (checkpoint:human-verify) — human ran the dev servers, confirmed the capability palette, per-agent model picker, and validator/issue panel render from live `/api/capabilities` + WS data; deferred subagent/wave + repo-diff viewers correctly absent. No commit (verification task).
 
 ## Files Created/Modified
 - `backend/app/api/capabilities.py` — auth-gated palette endpoint (registry-reflective + model catalog)
@@ -114,8 +114,8 @@ None - plan executed exactly as written. The "config_schema = {}" choice is hono
 None.
 
 ## Next Phase Readiness
-- API-02 + API-03 complete and gated. API-06 panels built + building; awaiting the human-verify panel-render checkpoint (Task 3) to close API-06.
-- Continuation agent: on "approved", advance the plan counter, mark API-02/03/06 complete, update ROADMAP, and make the metadata commit.
+- API-02 + API-03 + API-06 all complete and gated; the human confirmed the live panel render (Task 3 approved). Plan 08-08 closes the user-facing API/frontend surface of the hardened registry/gates/validators.
+- Phase 08 plan 8/8 complete. Remaining Phase 08 requirements (GATE-*, TOOLPERM-*, VALID-*, AGENTRT-06, HOOK-*, OBS-2) are tracked across the other plans/phase verification.
 
 ## Self-Check: PASSED
 - FOUND: backend/app/api/capabilities.py
@@ -125,7 +125,9 @@ None.
 - FOUND: frontend/src/components/results/ValidatorIssuePanel.tsx
 - FOUND commit: 89d11f2
 - FOUND commit: f0806be
+- FOUND commit: cbbe5aa
+- Gates re-confirmed green at finalize: `pytest test_capabilities_api.py + test_characterization_prototype.py` → 10 passed; `lint-imports` → 3 kept / 0 broken
 
 ---
 *Phase: 08-capabilities-hardened-registry-gates-tool-perms-runtime-3*
-*Paused at checkpoint: 2026-06-09*
+*Completed: 2026-06-09 (Task 3 human-verified/approved)*
