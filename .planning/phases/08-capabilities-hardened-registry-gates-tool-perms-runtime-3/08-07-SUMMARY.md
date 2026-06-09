@@ -156,5 +156,67 @@ Both behavior-adding tasks landed tests + impl together in their feat commits (t
 - lint-imports: 3 kept / 0 broken
 
 ---
+
+## Post-Review Remediation (08-REVIEW.md — 2026-06-10)
+
+The Phase 8 code review surfaced 4 functional gaps + 2 overclaiming docstrings in
+the capabilities surface (this plan's hooks + the gates/tool-perms). All remediated
+on `feature/003-workflow-engine-decoupling`, each fix committed atomically; the 5
+characterization snapshots stayed byte/event-identical (no re-baseline), and
+test_banned_patterns / test_migration_ledger / lint-imports (3 kept / 0 broken)
+stayed green throughout.
+
+- **WR-02 + IN-03 — otel import resilience** (`d8270fc`): guarded the top-level
+  `opentelemetry` imports in `otel_tracing.py` (`try/except ImportError →
+  _OTEL_AVAILABLE=False`); `handle()` degrades to a clean continue (no span) when
+  unavailable. Reordered `hooks/__init__.py` so `secret_scan` imports BEFORE
+  `otel_tracing` (the security hook registers independently). Broadened
+  `registry.discover()`'s `except ModuleNotFoundError` → `except ImportError` (log
+  warning) so one broken forward package degrades instead of aborting all discovery.
+
+- **WR-04 + WR-05 — overclaiming docstrings** (`c4990a9`, docs-only, no behavior
+  change): downgraded `ExecutionPolicy.check` + `ToolPermissions.lowered_by`
+  (plan.py) and the factory `_resolve_runner_tools` grant-binding docstring to
+  honestly state they are forward-surface helpers with NO production caller this
+  phase (the runtime/tool-binding enforcement points land in Phase 9+ with the
+  LocalSandboxRuntime). The real exec/secrets denial this phase remains the
+  compiler's `intersect_permissions` + the `security` gate (both wired).
+
+- **WR-01 — validation gate context** (`6ebc7d9`): `ValidationGate` now builds a
+  `DeliverableContext` via `ctx.runner.deliverable_context(...)` (the same factory
+  task_loop/08-04 uses, keyed on `ctx.deliverable.name`) before calling
+  `validator.validate(target)`, instead of passing the raw `ExecutionContext` (which
+  has no `.path`/`.content`/`.step`/`.task_meta`). New tests drive a `gates:
+  [validation]` step with the REAL `html_static` validator: a P0 static issue blocks
+  (validator read `target.path`); a static warning (P3/LOW) emits `validation_warning`
+  + proceeds. Degrades to the raw ctx for offline fakes (existing tests unaffected).
+
+- **CR-01 + WR-03 + IN-04 — declaration-driven firing + real before_write seam**
+  (`a9f6038`): the core fix. Hook firing is now DECLARATION-DRIVEN — added
+  `Step.hooks` (+ compiler strict-key/name-resolve/trust-check), and
+  `_resolve_executable_hooks(step, registry)` resolves only `step.hooks` (was a
+  global `_EXECUTABLE_HOOK_NAMES` tuple). A legacy step (prototype/od_/ppt/code-gen —
+  declares no hooks) fires NOTHING: this both FIXES WR-03 (otel_tracing no longer
+  fires globally / writes hook_runs rows / prints console spans on the legacy parity
+  paths) AND keeps the snapshots byte/event-identical. Added a real `before_write`
+  firing point (CR-01) in `_run_agent` over the produced deliverable content before
+  the typed dual-write persist; a `block` halts the persist additively (no new WS
+  event). `KernelServices.run_agent` binds `ectx.current_step` (scratch idiom) so the
+  seam reads `step.hooks`. A manifest declaring `hooks: [secret_scan]` now scans the
+  write payload and blocks a secret + writes a `hook_runs` row outcome=block — proven
+  by a test through the production `KernelServices.fire_hooks` seam (not a direct
+  call). `pre_commit` stays registered+unfired (no git this phase — P9). IN-04:
+  documented secret_scan's known false-negative classes (JWT/unquoted/opaque tokens)
+  so it is not relied on as complete DLP.
+
+- **IN-01 / IN-02**: left as-is (auth enforced, denial happens via intersection — no
+  escalation path); documented only, no code change. **Two PRE-EXISTING unit-test
+  failures** (`test_logout` self-registration 403, `test_pipeline_cancel` cancel
+  assertion) confirmed failing identically on the pre-fix tree — logged to
+  `deferred-items.md`, out of scope.
+
+*Remediation completed: 2026-06-10*
+
+---
 *Phase: 08-capabilities-hardened-registry-gates-tool-perms-runtime-3*
 *Completed: 2026-06-09*
