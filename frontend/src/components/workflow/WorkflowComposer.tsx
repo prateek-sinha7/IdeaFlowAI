@@ -2,6 +2,10 @@
 
 import { useState, useCallback } from "react";
 import { Plus, X, Play, AlertCircle, CheckCircle2, GripVertical } from "lucide-react";
+import type { ValidationIssue } from "@/types/index";
+import { CapabilityPalette } from "./CapabilityPalette";
+import { AgentModelPicker } from "./AgentModelPicker";
+import { ValidatorIssuePanel } from "../results/ValidatorIssuePanel";
 
 // Available agents for custom workflow composition
 // In a full implementation this would be fetched from /api/agents
@@ -32,6 +36,17 @@ interface WorkflowComposerProps {
   onSubmit: (agentIds: string[], brief: string) => void;
   /** Whether a pipeline is currently running */
   isRunning?: boolean;
+  /**
+   * Per-agent model overrides selected in the AgentModelPicker (agentId ->
+   * modelId). Reported upward so the caller feeds the run's model_overrides
+   * path. Additive — omit to ignore per-agent model selection.
+   */
+  onModelOverridesChange?: (modelOverrides: Record<string, string>) => void;
+  /**
+   * Live validator/issue feed parsed from the run's `validator_result` /
+   * `validation_warning` WS events (API-03). Additive — defaults to empty.
+   */
+  validatorIssues?: ValidationIssue[];
 }
 
 /**
@@ -47,7 +62,12 @@ interface WorkflowComposerProps {
  * - Submit button that sends run_pipeline with the composed agent list
  * - Shows workflow_validated result (green/red per edge) before allowing submission
  */
-export function WorkflowComposer({ onSubmit, isRunning }: WorkflowComposerProps) {
+export function WorkflowComposer({
+  onSubmit,
+  isRunning,
+  onModelOverridesChange,
+  validatorIssues = [],
+}: WorkflowComposerProps) {
   const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
   const [brief, setBrief] = useState("");
   const [search, setSearch] = useState("");
@@ -237,6 +257,32 @@ export function WorkflowComposer({ onSubmit, isRunning }: WorkflowComposerProps)
               </p>
             )}
           </div>
+        </div>
+
+        {/* --- Phase 8 capability surface (API-06): live palette + per-agent
+            model picker + validator/issue panel. Additive sibling panels reusing
+            the existing composer surface. Subagent/wave-tree + repo-diff viewers
+            are DEFERRED (no backing data) and intentionally absent. --- */}
+
+        {/* Capability palette (live /api/capabilities) */}
+        <div className="pt-1 border-t border-gray-100">
+          <CapabilityPalette />
+        </div>
+
+        {/* Per-agent model picker (model catalog from the palette) */}
+        <div className="pt-1 border-t border-gray-100">
+          <AgentModelPicker
+            agents={selectedAgents
+              .map((id) => agentMap[id])
+              .filter(Boolean)
+              .map((a) => ({ id: a.id, name: a.name }))}
+            onChange={onModelOverridesChange}
+          />
+        </div>
+
+        {/* Validator / issue panel (live validator_result / validation_warning WS events) */}
+        <div className="pt-1 border-t border-gray-100">
+          <ValidatorIssuePanel issues={validatorIssues} />
         </div>
       </div>
 

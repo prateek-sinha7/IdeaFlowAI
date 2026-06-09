@@ -35,10 +35,30 @@ export interface ChatMessage {
 }
 
 export interface StreamMessage {
-  type: "stream" | "complete" | "error" | "phase_start" | "phase_end" | "title_update" | "step" | "pipeline_start" | "agent_start" | "agent_thinking" | "agent_chunk" | "agent_complete" | "agent_error" | "pipeline_complete" | "questionnaire" | "pipeline_cancelled" | "workflow_title_update" | "planner_start" | "planner_complete" | "planner_timeout" | "planner_error" | "gate_status" | "questionnaire_ready" | "questionnaire_complete" | "clarification_limit_reached" | "agent_input" | "tool_call" | "tool_result" | "task_progress" | "task_loop_progress" | "review_gate_ready" | "review_gate_approved" | "pipeline_heartbeat" | "pong" | "workflow_validated";
+  // NOTE: the trailing validator_result/validation_warning/gate_started/
+  // gate_passed/gate_blocked entries are ADDITIVE (Phase 8 / API-03) — they
+  // extend the contract; no existing event was renamed or removed. They flow
+  // through the generic backend WS forward and the ValidatorIssuePanel reads them.
+  type: "stream" | "complete" | "error" | "phase_start" | "phase_end" | "title_update" | "step" | "pipeline_start" | "agent_start" | "agent_thinking" | "agent_chunk" | "agent_complete" | "agent_error" | "pipeline_complete" | "questionnaire" | "pipeline_cancelled" | "workflow_title_update" | "planner_start" | "planner_complete" | "planner_timeout" | "planner_error" | "gate_status" | "questionnaire_ready" | "questionnaire_complete" | "clarification_limit_reached" | "agent_input" | "tool_call" | "tool_result" | "task_progress" | "task_loop_progress" | "review_gate_ready" | "review_gate_approved" | "pipeline_heartbeat" | "pong" | "workflow_validated" | "validator_result" | "validation_warning" | "gate_started" | "gate_passed" | "gate_blocked";
   chunk?: string;
   section?: string;
   data?: FinalOutput | ErrorDetail | ProcessStep | Record<string, unknown>;
+}
+
+/** Severity tier for a validator/gate issue (mirrors the backend P0–P3 map). */
+export type IssueSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+
+/**
+ * One validator/gate issue surfaced from a `validator_result` /
+ * `validation_warning` WS event (Phase 8 / API-03). Additive — does not change
+ * any existing event payload.
+ */
+export interface ValidationIssue {
+  severity: IssueSeverity;
+  message: string;
+  validator?: string;
+  /** true for a `validation_warning` (warnings-first, non-blocking). */
+  warning?: boolean;
 }
 
 export interface ProcessStep {

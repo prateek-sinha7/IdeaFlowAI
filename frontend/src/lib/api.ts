@@ -479,3 +479,47 @@ export async function adminDeleteUser(
     throw new ApiError(response.status, body.detail ?? body);
   }
 }
+
+// --- Capabilities API (API-02 / D-11) ---
+
+/**
+ * One palette entry from `GET /api/capabilities` — a registered capability
+ * `(kind, name)` with its CAP-03 trust flag and a forward-compat config slot.
+ */
+export interface CapabilityEntry {
+  kind: string;
+  name: string;
+  user_allowed: boolean;
+  config_schema: Record<string, unknown>;
+}
+
+/** One model-picker entry from the capability palette's model catalog. */
+export interface CapabilityModelEntry {
+  id: string;
+  label: string;
+  description: string;
+  tier: string;
+  cost_class: string;
+  provider: string;
+  context_window: number;
+  user_allowed: boolean;
+}
+
+/** The full palette payload the composer renders. */
+export interface CapabilitiesPalette {
+  capabilities: CapabilityEntry[];
+  model_catalog: CapabilityModelEntry[];
+}
+
+/**
+ * Fetch the live capability-registry palette (API-02). Auth-gated (JWT); the
+ * CapabilityPalette + AgentModelPicker render from this — never a hardcoded list.
+ */
+export async function getCapabilities(
+  token: string
+): Promise<CapabilitiesPalette> {
+  return request<CapabilitiesPalette>("/api/capabilities", {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+}
