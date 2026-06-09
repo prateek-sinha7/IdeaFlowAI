@@ -30,6 +30,7 @@ strategies call it with.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
 from app.agents.sandbox import (
@@ -40,6 +41,58 @@ from app.agents.sandbox import (
 from app.agents.static_check import static_check as _static_check
 
 logger = logging.getLogger("agents.execution_engine.kernel_services")
+
+
+# ---------------------------------------------------------------------------
+# DeliverableContext (D-04) — the kernel-pure target a Validator receives.
+#
+# A registered ``Validator`` (``html_static`` / ``html_render`` / Tier#4/5/6) is
+# called as ``await validator.validate(target)`` where ``target`` carries:
+#   * ``path``    — the on-disk deliverable path (``runner.sandbox.path_for(name)``);
+#   * ``content`` — the deliverable text (lazily read from disk when omitted);
+#   * ``runner``  — the KernelServices handle, so the validator reaches the heavy
+#                   checks (``runner.static_check`` / ``runner.render_check``) and
+#                   the ScopedStore writer (``runner.record_validation_result``)
+#                   WITHOUT importing the kernel/app (D-04 — the import-linter
+#                   forbids only ``agents.capabilities -> agents.execution_engine``;
+#                   reaching the handle dynamically off ``target.runner`` is legal);
+#   * ``name``    — the declared deliverable filename;
+#   * ``step``    — the step/agent id being validated (the validation_results row key);
+#   * ``task_meta`` — per-task metadata (task number / total / attempt) the loop threads.
+#
+# It lives kernel-side (this module IS the kernel) and is typed so capabilities
+# receive a stable shape; the capabilities NEVER import it (they read attributes off
+# the ``Any``-typed target).
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class DeliverableContext:
+    """The kernel-pure validation target passed to a registered ``Validator`` (D-04)."""
+
+    name: str
+    runner: Any
+    path: Any = None
+    _content: str | None = None
+    step: str = ""
+    task_meta: dict = field(default_factory=dict)
+
+    @property
+    def content(self) -> str:
+        """The deliverable text — lazily read from ``path`` when not provided."""
+        if self._content is not None:
+            return self._content
+        try:
+            if self.path is not None:
+                from pathlib import Path
+
+                p = Path(self.path)
+                if p.is_file():
+                    self._content = p.read_text(encoding="utf-8")
+                    return self._content
+        except OSError as exc:  # noqa: BLE001 — a read failure degrades to empty content
+            logger.debug("DeliverableContext.content read failed (%s)", exc)
+        return self._content or ""
 
 
 class KernelServices:
@@ -198,6 +251,74 @@ class KernelServices:
                 step, gate, outcome, exc,
             )
             return None
+
+    # ── Validation-result audit write (08-04 / D-10) ───────────────────────────
+    async def record_validation_result(
+        self,
+        step: str,
+        validator: str,
+        *,
+        severity: str | None = None,
+        attempt: int = 0,
+        issues: Any = None,
+    ) -> str | None:
+        """Write one owner/workspace-scoped ``validation_results`` row (08-04).
+
+        Reached by the registered ``Validator`` impls via
+        ``target.runner.record_validation_result`` (NO kernel→app import on their
+        side). Delegates to the per-run ``ScopedStore`` on the ExecutionContext so
+        the row carries the run's ``(owner_id, workspace_id)`` (AUTHZ-01 /
+        T-08-04-ID). Best-effort — a persist failure (offline harness / no FK row)
+        degrades to ``None`` rather than aborting the validator (INV-3 parity: the
+        audit write must never break the live stream).
+        """
+        store = getattr(self._ectx, "scoped_store", None)
+        if store is None:
+            return None
+        try:
+            return await store.record_validation_result(
+                self.run_id,
+                step,
+                validator,
+                severity=severity,
+                attempt=attempt,
+                issues=issues,
+            )
+        except Exception as exc:  # noqa: BLE001 — audit write must never abort a validator
+            logger.warning(
+                "record_validation_result(step=%s validator=%s) failed: %s",
+                step, validator, exc,
+            )
+            return None
+
+    # ── Build a DeliverableContext target for a registered Validator (D-04) ─────
+    def deliverable_context(
+        self,
+        *,
+        name: str,
+        step: str = "",
+        content: str | None = None,
+        task_meta: dict | None = None,
+    ) -> DeliverableContext:
+        """Return a ``DeliverableContext`` target keyed on the sandbox deliverable.
+
+        The validator reaches the heavy checks + the audit writer through the
+        ``runner`` handle carried on the returned context; ``path`` resolves to the
+        per-run sandbox path for ``name`` so ``runner.static_check(target.path)``
+        validates the on-disk deliverable byte-identically to the legacy direct call.
+        """
+        try:
+            path = self.sandbox.path_for(name)
+        except Exception:  # noqa: BLE001 — a missing sandbox degrades to no path
+            path = None
+        return DeliverableContext(
+            name=name,
+            runner=self,
+            path=path,
+            _content=content,
+            step=step,
+            task_meta=dict(task_meta or {}),
+        )
 
     # ── Human gate delegate (08-02 / GATE-03 parity) ───────────────────────────
     async def run_human_gate(
