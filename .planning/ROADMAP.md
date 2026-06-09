@@ -207,7 +207,7 @@ Plans:
   3. Kernel leaks L1–L12 deleted; grep gate for `if pipeline_type`/`spec.id ==` and the L1/L2/L5/L6/L7/L10/L11/L12 patterns return 0 (INV-1)
   4. prototype/od_/revision/ppt/code-gen at deliverable parity + semantic event parity vs the post-0C baseline
 
-**Plans**: 6 plans (5 executed + 1 gap-closure)
+**Plans**: 11 plans (6 executed + 5 gap-closure 07-07…07-11; **REOPENED 2026-06-09** — deep review found context_message parity drift + SC-001 hardcoding)
 Plans:
 **Wave 1**
 
@@ -232,6 +232,14 @@ Plans:
 **Wave 6** *(gap-closure — 07-01…05 executed; closes the 2 FAILED verification truths)*
 
 - [x] 07-06-PLAN.md — restore the opendesign provider's L12 byte contract (CR-01 DS preamble, CR-02 builder-gated example, CR-03 build-task-2+ suppression) + fix the locked-in test assertion + add a dedicated context_message parity assertion / de-blind the characterization normalizer (PARITY-03/09 gap-closure)
+
+**Wave 7** *(gap-closure — REOPENED 2026-06-09; 07-REVIEW-DEEP.md found 14 confirmed findings the 07-06 de-blind masked; order B→C→D→E, sequential)*
+
+- [ ] 07-07-PLAN.md — cluster B (golden-safe): delete the dead dual validation fix-loop in task_loop.py (the `else` branch, `_SkippedRender`, duplicated helpers) + prune `run_fix_agent` from the KernelServices contract; re-point test_strategies (WR-07/WR-08, INV-3/INV-12) (PARITY-09)
+- [ ] 07-08-PLAN.md — cluster C oracle: capture the TRUE pre-Phase-7 (acd1636) context_message bytes as an engine-independent oracle + a test proving the current routed message diverged (reverses the 07-06 adjudication; the 07-09 acceptance target) (PARITY-03/09)
+- [ ] 07-09-PLAN.md — cluster C restorations (asserted vs the oracle): TEMPLATE COMPLIANCE (CR-01), per-injects gate (CR-02), raw injection parts (CR-04), bare END markers (WR-03), build-skeleton wrapper (WR-01), ppt order (WR-02), typed re-persist after fix (WR-05); regenerate the 5 goldens to oracle bytes (PARITY-03/07/09)
+- [ ] 07-10-PLAN.md — cluster D + E-CR-06: declared revision-intent flag (WR-04/WR-06) + move the kernel-resident prototype-revision block (seed → baseline → post-edit fix-loop) into the previous_run provider + a declared post-step capability; remove the DELIBERATE EXCEPTION (PARITY-05/09)
+- [ ] 07-11-PLAN.md — cluster E CR-05/CR-07 (SC-001 core value): thread ctx.deliverable.name (de-hardcode prototype.html) + declared TaskSource.source_step + honored seed_files; PROVE a brand-new non-prototype task_loop workflow runs from manifest+AGENT.md only, ZERO engine edits (PARITY-05/09)
 
 ### Phase 8: Capabilities Hardened — Registry, Gates, Tool Perms, Runtime [3]
 
