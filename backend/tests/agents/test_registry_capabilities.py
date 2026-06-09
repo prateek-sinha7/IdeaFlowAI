@@ -61,6 +61,7 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("compaction", "html_skeleton"),
     ("post_step", "revision_validation"),
     ("model_catalog", "default"),
+    ("runtime", "langchain_deepagents"),   # 08-05 / F5
 ]
 
 
@@ -85,14 +86,15 @@ def test_unknown_kind_is_rejected(registry: CapabilityRegistry) -> None:
     assert registry.is_registered("bogus_kind", "single_shot") is False
 
 
-def test_registered_count_is_exactly_twenty_five() -> None:
-    # Drift guard: registering a 26th name (or dropping one) must trip this.
+def test_registered_count_is_exactly_twenty_six() -> None:
+    # Drift guard: registering a 27th name (or dropping one) must trip this.
     # 15 authoritative D-07 pairs + model_catalog (06-01) + post_step
     # revision_validation (07-10 / CR-06) = 16, plus the two 08-02 gate names
     # (approval/security) = 18, plus the four 08-03 tool-set names
     # (workspace/prototype/prototype_emit_only/planning, F2) = 22, plus the three
-    # 08-04 Tier validators (spec_plan_coverage/task_done_when/design_quality) = 25.
-    assert len(_KNOWN) == 25
+    # 08-04 Tier validators (spec_plan_coverage/task_done_when/design_quality) = 25,
+    # plus the one 08-05 runtime adapter (langchain_deepagents, F5) = 26.
+    assert len(_KNOWN) == 26
     assert set(_KNOWN) == set(_EXPECTED_NAMES)
 
 
@@ -209,15 +211,18 @@ def test_register_records_user_allowed(_clean_registry) -> None:
 def test_register_adds_membership_to_known(_clean_registry) -> None:
     # A brand-new (kind, name) under one of the new KIND strings registers and
     # becomes a known membership pair — no central kind allow-list / if-elif.
-    assert ("runtime", "langchain_deepagents") not in registry_mod._KNOWN
+    # Use a NOT-YET-real runtime name (``custom_runner`` is a future slot, F5) so the
+    # assertion that it is absent pre-registration holds; ``langchain_deepagents`` is
+    # now a permanent _KNOWN member (08-05).
+    assert ("runtime", "custom_runner") not in registry_mod._KNOWN
 
-    @register("runtime", "langchain_deepagents")
+    @register("runtime", "custom_runner")
     class _FakeRuntime:
-        name = "langchain_deepagents"
+        name = "custom_runner"
 
     reg = CapabilityRegistry()
-    assert reg.is_registered("runtime", "langchain_deepagents") is True
-    assert isinstance(reg.resolve("runtime", "langchain_deepagents"), _FakeRuntime)
+    assert reg.is_registered("runtime", "custom_runner") is True
+    assert isinstance(reg.resolve("runtime", "custom_runner"), _FakeRuntime)
 
 
 @pytest.mark.parametrize("kind", ["tool", "skill", "hook", "runtime"])

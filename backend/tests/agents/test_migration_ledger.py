@@ -170,12 +170,13 @@ def test_ledger_parses_and_phase7_flips_all_engine_leaks() -> None:
     expected = sorted(
         ["L14", "L15", "L16", "D2",  # 0B / 1B
          "L1", "L2/L9", "L3", "L4/L8", "L5", "L6", "L7", "L10", "L11", "L12", "L13",  # 07-05
-         "F2"]  # 08-03 (Phase 3) — F2 tool-switch lifted to the tool_provider registry
+         "F2",  # 08-03 (Phase 3) — F2 tool-switch lifted to the tool_provider registry
+         "F5"]  # 08-05 Task 1 (Phase 3) — runtime adapter (CHECK row, no grep)
     )
     assert flipped == expected, (
-        f"Through Phase 7 + the 08-03 F2 flip the engine-leak/factory set + 0B/1B rows "
-        f"must be ☑; expected {expected}, found: {flipped} "
-        f"(D1 stays ☐ — voided; F1/F3/F4/F5 stay ☐ — their Phase-3 plans)"
+        f"Through Phase 7 + the 08-03 F2 flip + the 08-05 F5 flip the "
+        f"engine-leak/factory set + 0B/1B rows must be ☑; expected {expected}, found: "
+        f"{flipped} (D1 stays ☐ — voided; F1/F3/F4 stay ☐ until their deletions land)"
     )
 
 

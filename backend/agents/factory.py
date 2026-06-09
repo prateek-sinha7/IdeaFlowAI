@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,25 @@ class TemplateMissingError(Exception):
     """Raised when an agent declares `injects` but the referenced template
     cannot be located. The ExecutionEngine catches this and halts the Workflow
     before any agent executes."""
+
+
+@dataclass
+class RuntimeBuildContext:
+    """The seam the factory hands to the ``AgentRuntimeAdapter`` (08-05 / F5).
+
+    ``create_runner`` (the composition root, permitted to import ``app``) does the
+    spec-load / prompt-compose / tool-resolve / sandbox-build, then resolves the
+    runtime via ``resolve("runtime", <id>)`` and asks the adapter to ``create`` the
+    runner. The kernel-side runtime capability must NOT import ``app.*`` or call
+    ``create_deep_agent`` (import-linter + INV-13 banned-pattern allow-list), so it
+    cannot build the ``DeepAgentRunner`` itself — instead it invokes ``build``, a
+    fully-bound zero-arg callable closing over the app-side construction the factory
+    prepared. The adapter SELECTS the runtime and delegates construction (wrap, never
+    replace).
+    """
+
+    agent_id: str
+    build: "Callable[[], object]"
 
 
 # ---------------------------------------------------------------------------
@@ -149,21 +169,54 @@ def create_runner(
     # ``max_tokens`` is intentionally NOT passed: the runner's ``build_model``
     # already defaults to ``settings.MAX_OUTPUT_TOKENS``, so leaving it unset
     # yields the model ceiling without duplicating the constant here.
-    return DeepAgentRunner(
-        system_prompt=system_prompt,
-        tools=custom_tools,
-        model=ctx.model,
-        run_sandbox=sandbox,
-        checkpointer=checkpointer,
-        # Checkpoint thread is per agent-invocation (caller-controlled): the
-        # engine passes a unique id per agent so graph states never collide.
-        # Falls back to the per-run ctx.run_id when omitted. NOTE: the sandbox
-        # above is intentionally NOT keyed on this — it stays per-run/shared so
-        # files persist across the run's agents.
-        thread_id=(thread_id or ctx.run_id),
-        interrupt_on=interrupt_on,
-        exclude_builtin_tools=exclude_builtin_tools,
-    )
+    #
+    # F5 (08-05): the actual ``DeepAgentRunner`` construction is bound into a zero-arg
+    # ``build`` closure and handed to the registry-resolved ``AgentRuntimeAdapter``
+    # (``resolve("runtime", <id>)``). The adapter SELECTS/WRAPS the runtime — it never
+    # imports ``app``/``create_deep_agent`` itself (INV-13 + import-linter); the
+    # canonical ``create_deep_agent`` stays inside ``DeepAgentRunner`` (the allow-listed
+    # ``app/agents/deep_agent_runner.py``). A future ``claude_code_cli``/``custom_runner``
+    # slots in via the same port with NO kernel edit.
+    def _build_deepagents_runner() -> DeepAgentRunner:
+        return DeepAgentRunner(
+            system_prompt=system_prompt,
+            tools=custom_tools,
+            model=ctx.model,
+            run_sandbox=sandbox,
+            checkpointer=checkpointer,
+            # Checkpoint thread is per agent-invocation (caller-controlled): the
+            # engine passes a unique id per agent so graph states never collide.
+            # Falls back to the per-run ctx.run_id when omitted. NOTE: the sandbox
+            # above is intentionally NOT keyed on this — it stays per-run/shared so
+            # files persist across the run's agents.
+            thread_id=(thread_id or ctx.run_id),
+            interrupt_on=interrupt_on,
+            exclude_builtin_tools=exclude_builtin_tools,
+        )
+
+    return _select_runtime(agent_id, _build_deepagents_runner)
+
+
+# Default runtime id — the only one registered today (INV-13). A manifest/agent could
+# select a future runtime by name; absent that, every agent runs on deepagents.
+_DEFAULT_RUNTIME = "langchain_deepagents"
+
+
+def _select_runtime(agent_id: str, build: Callable[[], object]) -> object:
+    """Resolve the ``AgentRuntimeAdapter`` and delegate runner construction (F5 / 08-05).
+
+    Builds a ``RuntimeBuildContext`` carrying the bound ``build`` seam, resolves
+    ``resolve("runtime", _DEFAULT_RUNTIME)``, and asks the adapter to ``create`` the
+    runner. The adapter invokes ``build`` (the app-side construction the factory
+    prepared) — it never imports ``app``/``create_deep_agent`` itself, so the INV-13
+    allow-list + import-linter stay green while runtime selection becomes a declared,
+    registry-resolved capability (future runtimes slot in with no kernel edit).
+    """
+    from agents.capabilities.registry import CapabilityRegistry, discover
+
+    discover()  # ensure the runtime adapter is bound (idempotent)
+    adapter = CapabilityRegistry().resolve("runtime", _DEFAULT_RUNTIME)
+    return adapter.create(agent_id, RuntimeBuildContext(agent_id=agent_id, build=build))
 
 
 # ---------------------------------------------------------------------------

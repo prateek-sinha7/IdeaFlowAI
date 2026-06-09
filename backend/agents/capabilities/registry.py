@@ -64,6 +64,7 @@ from agents.registry import _OD_ALIAS_BASE
 # compaction:      html_skeleton
 # post_step:       revision_validation
 # model_catalog:   default  (the ModelCatalog data capability — name-only, D-03)
+# runtime:         langchain_deepagents  (08-05 / F5 — AgentRuntimeAdapter, wraps DeepAgentRunner)
 # ---------------------------------------------------------------------------
 _KNOWN: set[tuple[str, str]] = {
     ("strategy", "single_shot"),
@@ -91,6 +92,7 @@ _KNOWN: set[tuple[str, str]] = {
     ("compaction", "html_skeleton"),
     ("post_step", "revision_validation"),
     ("model_catalog", "default"),
+    ("runtime", "langchain_deepagents"),   # 08-05 / F5
 }
 
 

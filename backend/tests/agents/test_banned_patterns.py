@@ -89,6 +89,23 @@ _RE_CREATE_DEEP_AGENT_CALL = re.compile(r"\bcreate_deep_agent\s*\(")
 # Forbidden NEW local modules/packages shadowing the library.
 _FORBIDDEN_LOCAL_MODULE_NAMES = ("deepagents", "langchain_deepagents")
 
+# The ONE sanctioned ``langchain_deepagents``-named module — the F5 runtime adapter
+# capability (08-05). ``langchain_deepagents`` is the registered ``runtime`` capability
+# ID (``@register("runtime", "langchain_deepagents")``), so the capability impl file
+# carries that name by design. It is NOT a library shadow: it lives DEEP in the
+# capability tree (``agents/capabilities/runtimes/langchain_deepagents.py``, imported
+# only as ``agents.capabilities.runtimes.langchain_deepagents`` — never as a top-level
+# ``langchain_deepagents``), it imports NEITHER ``deepagents`` NOR ``create_deep_agent``,
+# and it re-implements NO agent loop (it delegates construction to the factory build
+# seam, which routes to the allow-listed ``deep_agent_runner.py``). The ban's purpose —
+# forbidding a local module that could PROVIDE a hand-rolled agent loop masquerading as
+# the real import — is preserved: every other ``deepagents``/``langchain_deepagents``-
+# named file/dir is still banned, and the create_deep_agent/hand-rolled-loop bans below
+# still scan this file (it must stay loop-free). Stored backend-relative for stability.
+_ALLOWED_LOCAL_MODULE_PATHS = frozenset(
+    {"agents/capabilities/runtimes/langchain_deepagents.py"}
+)
+
 # INV-1 reservation — HARD-FAIL since Phase 7 (07-05, D-15). The L1-L13 leaks that
 # kept ``if pipeline_type ==`` / ``spec.id ==`` workflow-name/agent-id branches on the
 # kernel's routed path were DELETED in 07-05; the kernel now routes purely through the
@@ -183,8 +200,12 @@ def test_no_local_deepagents_module() -> None:
 
     A file/dir named ``deepagents`` or ``langchain_deepagents`` under our source
     tree would let a hand-rolled implementation masquerade as the real import.
-    Our adapter id is ``langchain_deepagents`` but it is NOT a module name — the
-    adapter file is ``deep_agent_runner.py``. ZERO such files expected."""
+    The deepagents runner adapter is ``deep_agent_runner.py``; the F5 runtime
+    *capability* (08-05) is named ``langchain_deepagents.py`` (its registered
+    ``runtime`` capability id) and is the ONE sanctioned exception
+    (``_ALLOWED_LOCAL_MODULE_PATHS``) — it imports neither the library nor
+    ``create_deep_agent`` and re-implements no loop (the create_deep_agent /
+    hand-rolled-loop bans still scan it). Every other such file/dir is banned."""
     offenders: list[str] = []
     for root in _SCAN_ROOTS:
         if not root.exists():
@@ -195,6 +216,8 @@ def test_no_local_deepagents_module() -> None:
             stem = path.stem if path.is_file() and path.suffix == ".py" else path.name
             if path.is_dir() or (path.is_file() and path.suffix == ".py"):
                 if stem in _FORBIDDEN_LOCAL_MODULE_NAMES:
+                    if _rel(path) in _ALLOWED_LOCAL_MODULE_PATHS:
+                        continue  # the sanctioned F5 runtime capability (08-05)
                     offenders.append(_rel(path))
     assert not offenders, (
         "INV-13: a local `deepagents`/`langchain_deepagents` module/package is "
@@ -232,6 +255,53 @@ def test_create_deep_agent_only_in_sanctioned_adapter() -> None:
         "Expected the sanctioned adapter "
         f"({sorted(_ALLOWED_CREATE_DEEP_AGENT)}) to import/call create_deep_agent "
         "— the allow-list anchor is missing; re-verify the adapter path."
+    )
+
+
+# ===========================================================================
+# F5 RUNTIME ADAPTER (08-05) — create_deep_agent stays only in the adapter
+# ===========================================================================
+
+
+def test_runtime_adapter_resolves_after_discover() -> None:
+    """``resolve("runtime", "langchain_deepagents")`` returns the adapter (F5 / 08-05).
+
+    The factory selects the runner runtime via this registry-resolved adapter; future
+    runtimes slot in by registering the same port with no kernel edit."""
+    from agents.capabilities.registry import CapabilityRegistry, discover
+
+    discover()
+    adapter = CapabilityRegistry().resolve("runtime", "langchain_deepagents")
+    assert adapter.name == "langchain_deepagents"
+    assert hasattr(adapter, "create")
+
+
+def test_runtime_capability_does_not_import_app_or_create_deep_agent() -> None:
+    """The kernel-side runtime capability is import-clean of ``app``/``create_deep_agent``.
+
+    F5 keeps the canonical ``create_deep_agent`` call inside the allow-listed
+    ``app/agents/deep_agent_runner.py``; the runtime *capability* selects/wraps the
+    runner via the factory build seam, never importing ``app.*`` (import-linter) nor
+    importing/calling ``create_deep_agent`` (INV-13). This asserts the adapter module's
+    source carries neither — so the allow-list stays a single, stable entry."""
+    adapter_root = _BACKEND_ROOT / "agents" / "capabilities" / "runtimes"
+    # Statement-anchored scans (line-by-line, comment lines stripped) — mirrors the
+    # production scanners so prose/docstring mentions of the tokens do not false-trip.
+    _RE_IMPORT_APP = re.compile(r"^\s*(?:from\s+app\b|import\s+app\b)")
+    import_hits = _scan(_RE_CREATE_DEEP_AGENT_IMPORT, adapter_root)
+    call_hits = _scan(_RE_CREATE_DEEP_AGENT_CALL, adapter_root)
+    app_hits = _scan(_RE_IMPORT_APP, adapter_root)
+    assert not app_hits, (
+        "F5: the runtime capability must not import app.* (import-linter); it reaches "
+        f"runner construction via the factory build seam. Offenders:\n{app_hits}"
+    )
+    assert not import_hits, (
+        "F5: the runtime capability must not import create_deep_agent — it stays in "
+        f"the allow-listed deep_agent_runner.py (INV-13). Offenders:\n{import_hits}"
+    )
+    assert not call_hits, (
+        "F5: the runtime capability must not call create_deep_agent — wrap, never "
+        f"replace. Offenders:\n{call_hits}"
     )
 
 

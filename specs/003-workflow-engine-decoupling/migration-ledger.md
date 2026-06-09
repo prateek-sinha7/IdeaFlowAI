@@ -84,7 +84,7 @@ The `Deletion gate` column holds one of two things, distinguished by the parser:
 | F2 | `_build_runner_tools` closed switch `factory.py:384-446` | `tool_provider` registry (§30) | 3 | `_build_runner_tools` | ☑ | 0861337 |
 | F3 | inline skills/hooks injection `factory.py:220-245` | `skill_provider` / `hook_provider` (§30) | 3 | `_inject_skills\|_inject_hooks` | ☐ | |
 | F4 | `_inject_constitution` async no-op `factory.py:258-306` (R12) | sync-safe load via `PromptAssemblyPolicy` | 3 | CHECK: constitution-injected-in-prod test passes | ☐ | |
-| F5 | `create_deep_agent` hardcoded `deep_agent_runner.py:240` | `AgentRuntimeAdapter` (§6/§30) | 3 | CHECK: create_deep_agent called only inside the langchain_deepagents adapter | ☐ | |
+| F5 | `create_deep_agent` hardcoded `deep_agent_runner.py:240` | `AgentRuntimeAdapter` (§6/§30) | 3 | CHECK: create_deep_agent called only inside the langchain_deepagents adapter | ☑ | |
 
 > The ledger is the single source of truth for "what still needs refactoring." CI fails if any
 > `☑` item's grep pattern reappears in `backend/`. Rows flip to `☑` only in their owning phase
