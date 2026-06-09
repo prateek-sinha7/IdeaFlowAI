@@ -18,7 +18,7 @@ The plan sub-phases (0A/0B/0C, 1A/1B/1C, 4A/4B) are mapped to sequential GSD pha
 - [x] **Phase 4: Manifest + Compiler [1A]** - File-backed manifests → thin compiler → typed `CompiledWorkflow`; pipelines run from compiled plans (completed 2026-06-07)
 - [x] **Phase 5: Typed Artifacts + Persistence + Ownership [1B]** - `ArtifactGraph`/`ArtifactRef` + schema (§18); dual-write then delete the legacy mirror; authz denial tests (completed 2026-06-08)
 - [x] **Phase 6: Model Policy [1C]** - `ModelResolver` (resolution order + fallback + cost_class) + `ModelCatalog` + per-agent overrides (completed 2026-06-08 — verified offline + threat-secured; 1 live-Bedrock check deferred to end-of-milestone, see 06-UAT.md)
-- [ ] **Phase 7: Prototype as Manifest — Parity Proof (SC-001) [2]** - Strategies/resolvers/providers/parsers/compaction; delete kernel leaks L1–L12; zero name/id branches (plans 6/6 executed; **REOPENED 2026-06-09** — deep code review found 14 confirmed findings: context_message parity drift the 07-06 de-blind masked + SC-001 names hardcoded in the 'generic' capabilities; gap-closure 07-07 pending — see 07-REVIEW-DEEP.md)
+- [ ] **Phase 7: Prototype as Manifest — Parity Proof (SC-001) [2]** - Strategies/resolvers/providers/parsers/compaction; delete kernel leaks L1–L12; zero name/id branches (plans 11/11 executed — 6 original + 5 gap-closure 07-07…07-11 ALL DONE 2026-06-09; the 14 deep-review findings closed, SC-001 PROVEN by a non-prototype task_loop workflow; **awaiting re-verification** — see 07-REVIEW-DEEP.md / 07-11-SUMMARY.md)
 - [ ] **Phase 8: Capabilities Hardened — Registry, Gates, Tool Perms, Runtime [3]** - CapabilityRegistry + trust; gate registry; least-privilege; AgentRuntimeAdapter + PromptAssemblyPolicy; delete F1–F5
 - [ ] **Phase 9: Local Workspace Runtime + Repo Workflows (no exec) [4A]** - `RuntimeEnvironment` port + `LocalSandboxRuntime`; repo inventory/index/context-pack + `repo_diff`; MCP client + integrations
 - [ ] **Phase 10: Safe Local Exec (gated on N3) [4B]** - Constrained `exec` behind the `security` gate + `ExecutionPolicy`; compile/test/lint validators
@@ -207,7 +207,7 @@ Plans:
   3. Kernel leaks L1–L12 deleted; grep gate for `if pipeline_type`/`spec.id ==` and the L1/L2/L5/L6/L7/L10/L11/L12 patterns return 0 (INV-1)
   4. prototype/od_/revision/ppt/code-gen at deliverable parity + semantic event parity vs the post-0C baseline
 
-**Plans**: 11 plans (6 executed + 5 gap-closure 07-07…07-11; **REOPENED 2026-06-09** — deep review found context_message parity drift + SC-001 hardcoding)
+**Plans**: 11 plans (6 original + 5 gap-closure 07-07…07-11 — ALL 11 EXECUTED; **REOPENED then closed 2026-06-09** — deep review found context_message parity drift + SC-001 hardcoding; all 14 findings closed, SC-001 PROVEN; awaiting re-verification)
 Plans:
 **Wave 1**
 
@@ -239,7 +239,7 @@ Plans:
 - [x] 07-08-PLAN.md — cluster C oracle: capture the TRUE pre-Phase-7 (acd1636) context_message bytes as an engine-independent oracle + a test proving the current routed message diverged (reverses the 07-06 adjudication; the 07-09 acceptance target) (PARITY-03/09)
 - [x] 07-09-PLAN.md — cluster C restorations (asserted vs the oracle): TEMPLATE COMPLIANCE (CR-01), per-injects gate (CR-02), raw injection parts (CR-04), bare END markers (WR-03), build-skeleton wrapper (WR-01), ppt order (WR-02), typed re-persist after fix (WR-05); regenerate the 5 goldens to oracle bytes (PARITY-03/07/09)
 - [x] 07-10-PLAN.md — cluster D + E-CR-06: declared revision-intent flag (WR-04/WR-06) + move the kernel-resident prototype-revision block (seed → baseline → post-edit fix-loop) into the previous_run provider + a declared post-step capability; remove the DELIBERATE EXCEPTION (PARITY-05/09)
-- [ ] 07-11-PLAN.md — cluster E CR-05/CR-07 (SC-001 core value): thread ctx.deliverable.name (de-hardcode prototype.html) + declared TaskSource.source_step + honored seed_files; PROVE a brand-new non-prototype task_loop workflow runs from manifest+AGENT.md only, ZERO engine edits (PARITY-05/09)
+- [x] 07-11-PLAN.md — cluster E CR-05/CR-07 (SC-001 core value): thread ctx.deliverable.name (de-hardcode prototype.html) + declared TaskSource.source_step + honored seed_files; PROVE a brand-new non-prototype task_loop workflow runs from manifest+AGENT.md only, ZERO engine edits (PARITY-05/09) — DONE: app.py produced end-to-end with validation/fix on app.py, zero engine edits; 581 agent tests + 5-pipeline characterization parity green
 
 ### Phase 8: Capabilities Hardened — Registry, Gates, Tool Perms, Runtime [3]
 

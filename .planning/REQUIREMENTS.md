@@ -229,7 +229,7 @@ Each v1 requirement maps to exactly one phase. Phases are GSD integers 1–12, m
 | CAPRUN-01 | Phase 5 [1B] | Complete |
 | API-04, API-05 | Phase 5 [1B] | Pending |
 | MODEL-01, MODEL-02, MODEL-03, MODEL-04, MODEL-05 | Phase 6 [1C] | Pending |
-| PARITY-01, PARITY-02, PARITY-03, PARITY-04, PARITY-05, PARITY-06, PARITY-07, PARITY-08, PARITY-09 | Phase 7 [2] | Pending |
+| PARITY-01, PARITY-02, PARITY-03, PARITY-04, PARITY-05, PARITY-06, PARITY-07, PARITY-08, PARITY-09 | Phase 7 [2] | Complete (all 11 plans executed incl. gap-closure 07-07…07-11; SC-001 PROVEN; awaiting re-verification) |
 | CAP-01, CAP-02, CAP-03 | Phase 8 [3] | Pending |
 | GATE-01, GATE-02, GATE-03 | Phase 8 [3] | Pending |
 | TOOLPERM-01, TOOLPERM-02, TOOLPERM-03 | Phase 8 [3] | Pending |
