@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: milestone
 status: planning
 last_updated: "2026-06-09T11:13:58.537Z"
-last_activity: 2026-06-09 -- Phase 07 reopened after deep code review (14 confirmed findings; CR-03 already fixed inline)
+last_activity: 2026-06-09 -- Phase 07 gap-closure PLANNED (07-07..07-11) — 5 plans close all 14 deep-review findings (B→C→D→E); plan-checker PASSED 14/14; ready to execute
 progress:
   total_phases: 12
   completed_phases: 6
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-06)
 
 **Core value:** A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001).
-**Current focus:** Phase 07 — REOPENED for gap-closure (07-07): deep review found context_message parity drift + SC-001 hardcoding (see 07-REVIEW-DEEP.md); Phase 08 deferred until 07 truly closes
+**Current focus:** Phase 07 — gap-closure PLANNED (07-07..07-11): closes the 14 deep-review findings — context_message parity drift (oracle-gated) + SC-001 hardcoding (see 07-REVIEW-DEEP.md); Phase 08 deferred until 07 truly closes
 
 ## Current Position
 
 Phase: 7
-Plan: 07-07 (gap-closure) — not started
-Status: Reopened — ready to plan (/gsd-plan-phase 7)
-Last activity: 2026-06-09 -- Phase 07 reopened after deep code review (14 confirmed findings; CR-03 already fixed inline)
+Plan: 07-07..07-11 (gap-closure — 5 plans, waves 1–5) — not started
+Status: Planned (gap-closure) — ready to execute (/gsd-execute-phase 7)
+Last activity: 2026-06-09 -- Phase 07 gap-closure planned: 07-07..07-11 close all 14 deep-review findings (B→C→D→E); plan-checker PASSED 14/14
 
 Progress: [█████░░░░░] 50% (6/12 phases complete)
 
