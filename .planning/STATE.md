@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-09T11:58:00.000Z"
-last_activity: "2026-06-09 -- 07-08 executed: built the engine-independent acd1636 context_message ORACLE (cluster C step 1); stability test PASSES, current-routed divergence XFAILS (the 07-09 acceptance target). 5 goldens untouched."
+last_updated: "2026-06-09T13:00:00.000Z"
+last_activity: "2026-06-09 -- 07-09 executed: restored the routed prototype-build context_message byte-equal to the acd1636 oracle (CR-01/02/04, WR-01/02/03/05); flipped the 07-08 divergence xfail to a hard PASS; regenerated the 5 goldens to oracle ground truth (loop closed). INV-1 clean; 569 agent tests pass."
 progress:
   total_phases: 12
   completed_phases: 6
   total_plans: 37
-  completed_plans: 35
+  completed_plans: 36
   percent: 50
 ---
 
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 ## Current Position
 
 Phase: 7
-Plan: 07-09..07-11 (gap-closure — 07-08 DONE, 3 plans remaining, waves 3–5)
-Status: Executing (gap-closure) — 07-08 complete (oracle built); next: /gsd-execute-phase 7 (07-09)
-Last activity: 2026-06-09 -- 07-08 executed: built the engine-independent acd1636 context_message ORACLE (cluster C step 1); stability test PASSES, current-routed divergence XFAILS (the 07-09 acceptance target). 5 goldens untouched.
+Plan: 07-10..07-11 (gap-closure — 07-09 DONE, 2 plans remaining, waves 4–5)
+Status: Executing (gap-closure) — 07-09 complete (cluster C closed: routed == oracle, goldens re-pinned); next: /gsd-execute-phase 7 (07-10)
+Last activity: 2026-06-09 -- 07-09 executed: restored the routed prototype-build context_message byte-equal to the acd1636 oracle (CR-01/02/04, WR-01/02/03/05); flipped the 07-08 divergence xfail to a hard PASS; regenerated the 5 goldens to oracle ground truth (loop closed). INV-1 clean; 569 agent tests pass.
 
 Progress: [█████░░░░░] 50% (6/12 phases complete)
 
@@ -88,6 +88,7 @@ Progress: [█████░░░░░] 50% (6/12 phases complete)
 | Phase 07 P06 | 25min | 3 tasks | 9 files |
 | Phase 07 P07 | 6min | 2 tasks | 2 files |
 | Phase 07 P08 | ~25min | 2 tasks | 3 files |
+| Phase 07 P09 | ~75min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
