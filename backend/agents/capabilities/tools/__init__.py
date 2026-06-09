@@ -10,8 +10,8 @@ becomes four registered ``ToolProvider`` impls:
     ``prototype_emit_only`` — ``report_task_complete`` + native fs
   * ``planning``            — the stub ``PLANNING_TOOLS``, no disk
 
-Each ``provide(spec, ctx)`` returns the ``(custom_tools, exclude_builtin)`` pair the
-closed ``factory._build_runner_tools`` switch produced (byte-identical parity). The
+Each ``provide(spec, ctx)`` returns the ``(custom_tool_keys, exclude_builtin)`` pair
+the closed factory tool switch (F2) produced (byte-identical parity). The
 text-only ``[]`` case is the absence of a tool set (handled by the factory's binding
 loop), NOT a named provider.
 """

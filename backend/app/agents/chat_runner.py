@@ -16,8 +16,8 @@ own sequencer; this class IS that sequencer, ported off ``BaseAgent`` onto the
 What it reuses vs. reproduces:
   - **Reuses** ``agents.factory.create_runner("chat-<x>", ctx)`` to build each of
     the 7 chat agents as a ``DeepAgentRunner`` over a ``deepagents`` graph. The
-    chat AGENT.md specs declare ``tools: []`` → ``_build_runner_tools`` returns
-    ``([], exclude_builtin_tools=True)`` → a PURE-TEXT stream (no tool chips leak
+    chat AGENT.md specs declare ``tools: []`` → the factory's tool resolution
+    returns ``([], exclude_builtin_tools=True)`` → a PURE-TEXT stream (no tool chips leak
     into the chat bubble). The agent's system prompt comes from its AGENT.md.
   - **Reproduces VERBATIM** (ported from ``AgentOrchestrator``, NOT reinvented):
     ``_parse_output_selection`` (keyword scan of the discovery text),

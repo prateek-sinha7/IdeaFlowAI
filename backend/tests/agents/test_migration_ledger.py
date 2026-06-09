@@ -157,7 +157,9 @@ def test_ledger_parses_and_phase7_flips_all_engine_leaks() -> None:
 
     D1 (``_handle_revision``) was found **live** during 0B — the frontend ``run_revision``
     PPT-revision handler, not dead code — so its deletion is voided/deferred and it stays
-    ``☐`` (ledger ‡ note). The F1–F5 factory rows remain ``☐`` (Phase 3 scope).
+    ``☐`` (ledger ‡ note). Phase 3 / 08-03 flips F2 (the factory tool-binding switch →
+    ``tool_provider`` registry); the remaining F1/F3/F4/F5 factory rows stay ``☐`` (their
+    owning Phase-3 plans).
     """
     text = _LEDGER.read_text()
     rows = _parse_rows(text)
@@ -167,12 +169,13 @@ def test_ledger_parses_and_phase7_flips_all_engine_leaks() -> None:
     flipped = sorted(item for item, _g, status in rows if "☑" in status)
     expected = sorted(
         ["L14", "L15", "L16", "D2",  # 0B / 1B
-         "L1", "L2/L9", "L3", "L4/L8", "L5", "L6", "L7", "L10", "L11", "L12", "L13"]  # 07-05
+         "L1", "L2/L9", "L3", "L4/L8", "L5", "L6", "L7", "L10", "L11", "L12", "L13",  # 07-05
+         "F2"]  # 08-03 (Phase 3) — F2 tool-switch lifted to the tool_provider registry
     )
     assert flipped == expected, (
-        f"Through Phase 7 the engine-leak set + 0B/1B rows must be ☑; "
-        f"expected {expected}, found: {flipped} "
-        f"(D1 stays ☐ — voided; F1–F5 stay ☐ — Phase 3)"
+        f"Through Phase 7 + the 08-03 F2 flip the engine-leak/factory set + 0B/1B rows "
+        f"must be ☑; expected {expected}, found: {flipped} "
+        f"(D1 stays ☐ — voided; F1/F3/F4/F5 stay ☐ — their Phase-3 plans)"
     )
 
 

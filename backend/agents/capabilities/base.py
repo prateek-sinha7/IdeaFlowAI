@@ -177,7 +177,7 @@ class HookHandler(Protocol):
 class ToolProvider(Protocol):
     """Provides the tool set bound to an agent (F2 / TOOLPERM-01..03 / §8).
 
-    Replaces the factory's closed ``_build_runner_tools`` switch: returns the
+    Replaces the factory's closed tool-binding switch (F2): returns the
     ``(custom_tools, exclude_builtin)`` tuple for one granted tool set.
     """
 

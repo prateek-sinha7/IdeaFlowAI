@@ -147,7 +147,7 @@ def _scripted_turns() -> list:
 def _write_probe_spec(prompts_dir: Path) -> None:
     """Write a minimal AGENT.md for the throwaway probe agent into ``prompts_dir``.
 
-    ``tools: [prototype_emit_only]`` makes ``_build_runner_tools`` bind the
+    ``tools: [prototype_emit_only]`` makes the factory's tool resolution bind the
     store-free ``report_task_complete`` custom tool (the gated tool) plus the
     native deepagents filesystem tools — exactly the production tool wiring for a
     prototype-class agent. ``pipeline_type: prototype`` is a valid supported type;

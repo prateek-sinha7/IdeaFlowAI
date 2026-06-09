@@ -5,11 +5,12 @@ WHAT THIS PROVES
 ----------------
 Phase 2 added, purely additively (wired into NOTHING), the runner-construction path:
 ``AgentContext.run_id`` + a store-free ``report_task_complete`` (#33), the
-``_build_runner_tools(spec, ctx)`` tool/exclude mapping (#34), and
+factory tool/exclude resolution (#34), and
 ``create_runner(agent_id, ctx, *, checkpointer=None, interrupt_on=None)`` (#35) — the
 entry point under test. ``create_runner`` reuses the legacy ``_compose_system_prompt``
-verbatim, resolves the per-agent tool-set via ``_build_runner_tools``, roots a per-run
-``RunSandbox`` on real disk, and builds a ``DeepAgentRunner`` over a ``deepagents`` graph.
+verbatim, resolves the per-agent tool-set via the ``tool_provider`` registry (08-03),
+roots a per-run ``RunSandbox`` on real disk, and builds a ``DeepAgentRunner`` over a
+``deepagents`` graph.
 
 These four tests drive ONE representative agent of each tool class through the REAL
 graph (offline, via a scripted fake ``BaseChatModel`` — no network, no credentials) and
@@ -519,7 +520,7 @@ async def test_planning_agent_exposes_only_planning_tools(tmp_path, monkeypatch)
 # ===========================================================================
 # Test 5 — tool_provider registry binds the IDENTICAL sets the F2 switch produced.
 #
-# 08-03 / F2 PARITY GATE: the closed ``_build_runner_tools`` switch is replaced by a
+# 08-03 / F2 PARITY GATE: the closed factory tool switch is replaced by a
 # ``tool_provider`` registry (``@register("tool", <set_name>)``). Each provider must
 # return the EXACT ``(custom_tools, exclude_builtin)`` the switch produced so existing
 # agents bind byte-identical tool sets (RESEARCH Pitfall 5). These tests resolve each

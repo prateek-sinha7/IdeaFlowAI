@@ -79,9 +79,9 @@ def create_runner(
     The LIVE pipeline entry point (the ExecutionEngine calls this for every
     agent). It loads the spec via ``load_agent_spec``, composes the system
     prompt via ``_compose_system_prompt``, resolves the per-agent tool-set via
-    ``_build_runner_tools``, builds the per-run ``RunSandbox``, and constructs a
-    ``DeepAgentRunner`` over a ``deepagents`` graph (native disk fs tools + a
-    store-free ``report_task_complete``).
+    the ``tool_provider`` registry (``_resolve_runner_tools``), builds the per-run
+    ``RunSandbox``, and constructs a ``DeepAgentRunner`` over a ``deepagents`` graph
+    (native disk fs tools + a store-free ``report_task_complete``).
 
     **Sandbox (per-run, SHARED) vs checkpoint thread (per-agent, UNIQUE).**
     These two identifiers are split (plan §10 decision 2026-06-04 (b)):
@@ -119,8 +119,8 @@ def create_runner(
     Raises:
         FileNotFoundError: propagated from the loader if agent_id is unknown.
         AgentSpecError: propagated from the loader if AGENT.md is malformed.
-        ValueError: if spec.tools contains an unrecognized tool name (from
-            ``_build_runner_tools``).
+        KeyError: if spec.tools names a tool set with no registered ``tool_provider``
+            (from ``_resolve_runner_tools`` → the registry, naming the unknown set).
     """
     # Lazy imports keep the factory import light and avoid dragging in the heavy
     # deepagents/langchain stack on import.
@@ -132,7 +132,7 @@ def create_runner(
     # Compose the system prompt — guardrails/skills/hooks/constitution/injection/
     # body, in the fixed injection order (see ``_compose_system_prompt``).
     system_prompt = _compose_system_prompt(spec, ctx)
-    custom_tools, exclude_builtin_tools = _build_runner_tools(spec, ctx)
+    custom_tools, exclude_builtin_tools = _resolve_runner_tools(spec, ctx)
 
     # Per-run on-disk sandbox: <RUNS_ROOT>/<user>/<run>/. SHARED across every
     # agent in the pipeline run, so files (prototype.html, code-gen outputs)
@@ -381,66 +381,91 @@ def _compose_injection(spec, ctx: AgentContext, injects: list[str]) -> str:
     return "\n\n---\n\n".join(sections)
 
 
-def _build_runner_tools(spec, ctx: AgentContext) -> tuple[list, bool]:
-    """Resolve spec.tools to the (custom_tools, exclude_builtin_tools) pair for
-    the `deepagents`-based DeepAgentRunner.
+def _resolve_custom_tool_keys(keys: list[str]) -> list:
+    """Map provider-emitted custom-tool KEYS → concrete tool objects (08-03 / F2).
 
-    The native `deepagents` filesystem tools (`write_file`/`read_file`/
-    `edit_file`/`ls`/`glob`/`grep`) and `write_todos` are the disk-backed tool
-    set. Returning `exclude_builtin_tools=False` keeps those native tools
-    available; `True` hides ALL native deepagents tools so the agent streams
-    pure text (no tool chips appear in the UI).
+    The kernel-side ``tool_provider`` capabilities (``agents/capabilities/tools/``)
+    emit stable string keys, NOT concrete tool objects, so the capability package
+    stays import-clean of ``app.*`` (import-linter: ``agents.capabilities`` ↛ ``app``).
+    The factory IS the composition root (it may import ``app``), so it resolves each
+    key to its concrete tool here:
 
-    Tool-set mapping:
-      []                    → ([], True)  — pure text, no tool chips.
-      "workspace"           → exclude=False (no custom tool; native fs writes
-                              the deliverables to the run sandbox disk).
-      "prototype" /
-      "prototype_emit_only" → append `report_task_complete`, exclude=False (agent
-                              writes `prototype.html` via native write_file/
-                              edit_file; template content is already pre-injected
-                              into the system prompt).
-      "planning"            → extend with PLANNING_TOOLS (stub tools, no disk) —
-                              leave exclude as-is (True unless another tool
-                              flipped it).
+      * ``"report_task_complete"`` → the store-free runner tool (one tool).
+      * ``"planning"``             → the whole ``PLANNING_TOOLS`` set (a list).
+
+    De-dups ``report_task_complete`` (in case both prototype set names co-occur),
+    preserving the byte-identical custom-tool list the deleted switch produced.
+
+    Raises:
+        ValueError: if a key has no concrete resolver (a provider/factory drift).
+    """
+    # Lazy imports keep the factory import light (the heavy stack loads only on bind).
+    from agents.planner.tools import PLANNING_TOOLS
+    from app.agents.tools.runner_tools import report_task_complete
+
+    resolved: list = []
+    for key in keys:
+        if key == "report_task_complete":
+            if report_task_complete not in resolved:
+                resolved.append(report_task_complete)
+        elif key == "planning":
+            resolved.extend(PLANNING_TOOLS)
+        else:
+            raise ValueError(
+                f"unknown custom-tool key '{key}' emitted by a tool_provider; "
+                f"no concrete resolver in the factory"
+            )
+    return resolved
+
+
+def _resolve_runner_tools(spec, ctx: AgentContext) -> tuple[list, bool]:
+    """Resolve spec.tools to the (custom_tools, exclude_builtin_tools) pair via the
+    ``tool_provider`` registry (08-03 / F2 — replaces the closed switch, INV-12).
+
+    Each declared tool-set name in ``spec.tools`` resolves to a registered
+    ``ToolProvider`` (``agents/capabilities/tools/``); the provider returns
+    ``(custom_tool_keys, exclude_builtin)`` for its set, and the factory maps the
+    keys → concrete tools (``_resolve_custom_tool_keys``) and UNIONS the granted
+    sets. This binds byte-identical tool sets to what the deleted switch produced
+    (parity — ``test_create_runner.py`` + the 5 characterization snapshots gate it).
+
+    Grant-driven (D-07 / INV-9): only tool sets whose effective ``ToolPermissions``
+    permit them bind. The four existing sets all bind under the default
+    ``read_files``-only posture (none requires write/exec), so parity holds; a future
+    privileged set would be gated by the effective grant before resolution.
+
+    ``exclude_builtin`` is the AND of every granted set's flag (a set that needs the
+    native fs flips it ``False``); an empty ``spec.tools`` ⇒ pure-text agent
+    (``([], True)``) — no provider to resolve.
 
     Returns:
         (custom_tools, exclude_builtin_tools)
 
     Raises:
-        ValueError: if spec.tools contains an unrecognized tool name.
+        KeyError: if spec.tools names a tool set with no registered provider
+            (the registry raises naming the unknown ``(kind, name)``).
     """
-    # Lazy imports keep the factory import light.
-    from agents.planner.tools import PLANNING_TOOLS
-    from app.agents.tools.runner_tools import report_task_complete
+    from agents.capabilities.registry import CapabilityRegistry, discover
 
     # Empty tool set ⇒ pure-text agent: no custom tools, hide all native tools.
     if not spec.tools:
         return ([], True)
 
-    custom: list = []
-    exclude = True
+    discover()  # ensure the tool_provider impls are bound (idempotent)
+    registry = CapabilityRegistry()
 
-    for tool_name in spec.tools:
-        if tool_name == "workspace":
-            # Native deepagents filesystem replaces make_workspace_tools — no
-            # custom tool to add; just keep the native tools available.
-            exclude = False
-        elif tool_name in ("prototype", "prototype_emit_only"):
-            # Agent writes prototype.html via native write_file/edit_file; the
-            # only surviving custom tool is the store-free report_task_complete.
-            # De-dup in case both prototype set names somehow co-occur.
-            if report_task_complete not in custom:
-                custom.append(report_task_complete)
-            exclude = False
-        elif tool_name == "planning":
-            # Planning agents need no disk — leave `exclude` as-is.
-            custom.extend(PLANNING_TOOLS)
-        else:
-            raise ValueError(
-                f"Unrecognized tool name '{tool_name}' in agent '{spec.id}'. "
-                f"Supported tool sets: 'workspace', 'prototype', "
-                f"'prototype_emit_only', 'planning'."
-            )
+    custom_keys: list[str] = []
+    exclude = True  # AND-accumulator: a set needing native fs flips it False
 
-    return (custom, exclude)
+    for set_name in spec.tools:
+        provider = registry.resolve("tool", set_name)
+        keys, set_exclude = provider.provide(spec, ctx)
+        for key in keys:
+            if key not in custom_keys:
+                custom_keys.append(key)
+        # Mirror the deleted switch's exclude semantics: workspace/prototype set
+        # exclude=False (native fs); planning leaves it True. The union excludes the
+        # builtin tools only if EVERY granted set excludes them (AND).
+        exclude = exclude and set_exclude
+
+    return (_resolve_custom_tool_keys(custom_keys), exclude)

@@ -1,6 +1,6 @@
 """agents/capabilities/tools/providers.py — the tool_provider capabilities (08-03 / F2 / §30).
 
-Lifts the closed ``factory._build_runner_tools`` switch (F2) into registered
+Lifts the closed factory tool-binding switch (F2) into registered
 ``ToolProvider`` capabilities — one per AGENT.md tool-set name (``workspace`` /
 ``prototype`` / ``prototype_emit_only`` / ``planning``). Each ``@register("tool",
 <set_name>)`` and satisfies the ``ToolProvider`` port (``provide(spec, ctx) ->

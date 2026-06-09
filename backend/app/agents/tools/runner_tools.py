@@ -12,8 +12,8 @@ of the live tool so model behavior is unchanged. Phase 3's engine derives
 `task_title` from the tool-call args — so the tool itself does not need to record
 anything.
 
-Wired NOWHERE in Phase 2. #34 (`_build_runner_tools`) will import
-`report_task_complete` from here; this module is additive prep only.
+The factory's tool resolution imports `report_task_complete` from here for the
+prototype tool sets (08-03 routes it through the ``tool_provider`` registry).
 """
 
 from __future__ import annotations

@@ -146,7 +146,7 @@ class ExecutionPolicy:
     """Default-deny runtime enforcement point on the Workspace boundary (D-07 / §8).
 
     The SECOND of the two D-07 enforcement points (the first is the
-    ``tool_provider`` registry at ``factory._build_runner_tools``). This is the
+    ``tool_provider`` registry at the factory's tool-binding seam). This is the
     runtime ``exec``/``network``/``secrets`` gate: it DEFAULT-DENIES every
     privileged runtime action even with no runtime host attached — the
     ``LocalSandboxRuntime`` it gates is Phase 9, but the enforcement POINT is wired
