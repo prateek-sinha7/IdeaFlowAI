@@ -51,6 +51,10 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("gate", "validation"),
     ("gate", "approval"),   # 08-02
     ("gate", "security"),   # 08-02
+    ("tool", "workspace"),             # 08-03 / F2
+    ("tool", "prototype"),             # 08-03 / F2
+    ("tool", "prototype_emit_only"),   # 08-03 / F2
+    ("tool", "planning"),              # 08-03 / F2
     ("compaction", "html_skeleton"),
     ("post_step", "revision_validation"),
     ("model_catalog", "default"),
@@ -78,12 +82,13 @@ def test_unknown_kind_is_rejected(registry: CapabilityRegistry) -> None:
     assert registry.is_registered("bogus_kind", "single_shot") is False
 
 
-def test_registered_count_is_exactly_eighteen() -> None:
-    # Drift guard: registering a 19th name (or dropping one) must trip this.
+def test_registered_count_is_exactly_twenty_two() -> None:
+    # Drift guard: registering a 23rd name (or dropping one) must trip this.
     # 15 authoritative D-07 pairs + model_catalog (06-01) + post_step
     # revision_validation (07-10 / CR-06) = 16, plus the two 08-02 gate names
-    # (approval/security) landed in the literal _KNOWN = 18.
-    assert len(_KNOWN) == 18
+    # (approval/security) = 18, plus the four 08-03 tool-set names
+    # (workspace/prototype/prototype_emit_only/planning, F2) = 22.
+    assert len(_KNOWN) == 22
     assert set(_KNOWN) == set(_EXPECTED_NAMES)
 
 

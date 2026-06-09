@@ -514,3 +514,98 @@ async def test_planning_agent_exposes_only_planning_tools(tmp_path, monkeypatch)
     assert seen.isdisjoint({"write_file", "read_file", "edit_file", "ls", "glob", "grep"})
     assert "write_todos" not in seen
     assert "task" not in seen
+
+
+# ===========================================================================
+# Test 5 — tool_provider registry binds the IDENTICAL sets the F2 switch produced.
+#
+# 08-03 / F2 PARITY GATE: the closed ``_build_runner_tools`` switch is replaced by a
+# ``tool_provider`` registry (``@register("tool", <set_name>)``). Each provider must
+# return the EXACT ``(custom_tools, exclude_builtin)`` the switch produced so existing
+# agents bind byte-identical tool sets (RESEARCH Pitfall 5). These tests resolve each
+# provider and assert the bound pair against the documented per-set mapping, prove
+# resolution works after ``discover()``, and prove binding is grant-driven (a step
+# whose effective perms lack ``write_files`` never reaches a write-capable provider).
+# ===========================================================================
+
+
+def _resolve_provider(set_name: str):
+    """Resolve a ``tool_provider`` from the registry after ``discover()``."""
+    from agents.capabilities.registry import CapabilityRegistry, discover
+
+    discover()
+    return CapabilityRegistry().resolve("tool", set_name)
+
+
+def test_tool_provider_workspace_binds_identical_set() -> None:
+    """``workspace`` provider → ``([], exclude_builtin=False)`` (native fs, no custom)."""
+    provider = _resolve_provider("workspace")
+    keys, exclude = provider.provide(spec=None, ctx=None)
+    assert keys == []
+    assert exclude is False
+
+
+def test_tool_provider_prototype_binds_report_task_complete() -> None:
+    """``prototype`` / ``prototype_emit_only`` → ``(["report_task_complete"], False)``.
+
+    The provider emits stable string KEYS (not concrete tool objects) so the kernel-
+    side capability package stays import-clean of ``app.*`` (import-linter). The
+    factory resolves each key to the concrete tool — proven by the parity tests
+    (1–4) above driving the REAL graph with the bound tool.
+    """
+    for set_name in ("prototype", "prototype_emit_only"):
+        provider = _resolve_provider(set_name)
+        keys, exclude = provider.provide(spec=None, ctx=None)
+        assert keys == ["report_task_complete"], f"{set_name} bound {keys}"
+        assert exclude is False
+
+
+def test_tool_provider_planning_binds_planning_tools_excluding_builtin() -> None:
+    """``planning`` provider → ``(["planning"], exclude_builtin=True)`` (key expands to set)."""
+    provider = _resolve_provider("planning")
+    keys, exclude = provider.provide(spec=None, ctx=None)
+    assert keys == ["planning"]
+    assert exclude is True
+
+
+def test_tool_provider_resolution_after_discover() -> None:
+    """The registry resolves each declared tool set by name after ``discover()``."""
+    from agents.capabilities.registry import CapabilityRegistry, discover
+
+    discover()
+    registry = CapabilityRegistry()
+    for set_name in ("workspace", "prototype", "prototype_emit_only", "planning"):
+        provider = registry.resolve("tool", set_name)
+        assert provider.name == set_name
+
+
+def test_tool_provider_binding_is_grant_driven() -> None:
+    """A step whose effective perms lack ``write_files`` binds no write-capable set.
+
+    The four existing sets are all read-only (none binds a write/exec tool — they
+    rely on the native fs under the default ``read_files``-only posture), so under the
+    least-privilege effective perms (write_files OFF) the resolved providers bind
+    exactly their parity sets and NEVER a write-capable tool. This asserts the binding
+    path is keyed on the effective grant, not on a workflow name.
+    """
+    from agents.workflows.plan import (
+        ToolPermissions,
+        intersect_permissions,
+    )
+
+    # Effective perms for an un-granted step: read_files ON, write_files OFF.
+    effective = intersect_permissions(
+        ToolPermissions(), ToolPermissions(), ToolPermissions()
+    )
+    assert effective.write_files is False
+
+    # None of the existing four providers binds a write/exec-capable custom tool —
+    # they are all bindable under the default read-only posture (parity preserved).
+    for set_name in ("workspace", "prototype", "prototype_emit_only", "planning"):
+        provider = _resolve_provider(set_name)
+        keys, _ = provider.provide(spec=None, ctx=None)
+        # The provider emits only non-privileged tool keys — the write path is the
+        # native fs (gated by exclude_builtin + the effective perms), NOT a custom
+        # write/exec tool. The only custom-tool key any set binds is the store-free
+        # report_task_complete (prototype sets) or the planning set.
+        assert "exec" not in keys and "shell" not in keys

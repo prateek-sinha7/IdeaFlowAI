@@ -60,6 +60,7 @@ from agents.registry import _OD_ALIAS_BASE
 # context_provider: opendesign, previous_run
 # task_parser:     heading_tasks
 # gate:            human, validation, approval, security  (08-02)
+# tool:            workspace, prototype, prototype_emit_only, planning  (08-03 / F2)
 # compaction:      html_skeleton
 # post_step:       revision_validation
 # model_catalog:   default  (the ModelCatalog data capability — name-only, D-03)
@@ -80,6 +81,10 @@ _KNOWN: set[tuple[str, str]] = {
     ("gate", "validation"),
     ("gate", "approval"),   # 08-02
     ("gate", "security"),   # 08-02
+    ("tool", "workspace"),             # 08-03 / F2
+    ("tool", "prototype"),             # 08-03 / F2
+    ("tool", "prototype_emit_only"),   # 08-03 / F2
+    ("tool", "planning"),              # 08-03 / F2
     ("compaction", "html_skeleton"),
     ("post_step", "revision_validation"),
     ("model_catalog", "default"),
