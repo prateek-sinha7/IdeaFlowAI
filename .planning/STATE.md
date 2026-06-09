@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-06-08T21:47:50.101Z"
+status: verifying
+last_updated: "2026-06-09T00:19:50.005Z"
 last_activity: 2026-06-08 -- Phase 07 execution started
 progress:
   total_phases: 12
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 31
-  completed_plans: 30
-  percent: 50
+  completed_plans: 31
+  percent: 58
 ---
 
 # Project State
@@ -24,12 +24,12 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 
 ## Current Position
 
-Phase: 07 (prototype-as-manifest-parity-proof-sc-001-2) — EXECUTING
-Plan: 5 of 5
-Status: Ready to execute
-Last activity: 2026-06-08 -- Phase 07 execution started
+Phase: 07 (prototype-as-manifest-parity-proof-sc-001-2) — COMPLETE (ready for verification)
+Plan: 5 of 5 — DONE
+Status: Phase complete — SC-001 landed (kernel knows no workflow by name); ready for verification
+Last activity: 2026-06-09 -- Completed 07-05-PLAN.md (L1-L13 deleted, INV-1 hard-fail armed)
 
-Progress: [█████░░░░░] 50% (6/12 phases complete)
+Progress: [██████░░░░] 58% (7/12 phases complete)
 
 ## Performance Metrics
 
@@ -83,6 +83,7 @@ Progress: [█████░░░░░] 50% (6/12 phases complete)
 | Phase 07 P02 | ~30min | 2 tasks | 15 files |
 | Phase 07 P03 | 13min | 1 tasks | 4 files |
 | Phase 07 P04 | 95min | 2 tasks | 5 files |
+| Phase 07 P05 | ~150min | 3 tasks | 21 files |
 
 ## Accumulated Context
 
@@ -128,6 +129,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 07-02: 4 deliverable resolvers decompose _resolve_final_output by deliverable.name (no pipeline_type); ppt owns both carousel-sanitize sites (PARITY-07); opendesign/previous_run providers behind ports; 3 prototype OD loaders RELOCATED to execution_engine/od_context.py (move-don't-copy single home, NOT into the capability which would break the import-linter app-ban; provider composes from boundary od_context per A6); previous_run assert_owns-before-seed with propagating PermissionError (L16)
 - [Phase ?]: 07-03: html_skeleton compaction = byte-identical lift of engine._extract_html_skeleton behind resolve('compaction','html_skeleton'); structural contract (name+compact()), no CompactionStrategy port added; 0C >=50% reduction gate re-pointed at the capability (PARITY-04 preserved) + byte-parity test pins capability==engine; engine copy left live until 07-05
 - [Phase ?]: 07-04: KernelServices(ctx.runner) delegates to engine _run_agent/_run_validation_fix_loop for byte+event parity; per-step dispatch via resolve(strategy).run, deliverable via resolve(deliverable).resolve, generic context injector over context_provider caps; L1-L13 DEAD-not-deleted; 5-pipeline parity GREEN.
+- [Phase 07]: 07-05: SC-001 LANDED — L1-L13 deleted from the kernel + agents/prototype/ removed (INV-12 exit gate); the kernel knows NO workflow by name, enforced by a kernel-scoped banned-pattern HARD-FAIL (assert 0 `if pipeline_type ==`/`spec.id ==` in agents/execution_engine/). L10 single-file readback + L3 mid-stream ppt sanitize MIGRATED to key off the declared compiled.deliverable strategy (output_length/PARITY-07/09 held; revision excluded via ectx.is_revision_workflow). L6 ALWAYS_CLARIFY re-homed to compiled.clarify.mode=="auto"; in-place revision setup + post-revision validation gate key off the declared previous_run provider (CompiledWorkflow compiled at run entry). migration-ledger L1-L13 flipped to ☑ kernel-scoped (L4/L8 + L11 refined to the leak construct; L1 keeps live REVISION_FILE_NAME; L11 keeps live survivors _run_validation_fix_loop/_load_template_example); L14/L15/L16 re-confirmed; D1 voided. Stale engine-internal suites retired (behavior covered by capabilities + characterization).
 
 ### Pending Todos
 
