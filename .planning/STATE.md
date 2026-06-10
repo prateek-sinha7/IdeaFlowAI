@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-10T18:38:36.633Z"
-last_activity: 2026-06-10 -- 10-01 complete (exec foundation layer)
+last_updated: "2026-06-10T19:00:00.000Z"
+last_activity: 2026-06-10 -- 10-05 complete (review-trio closure + N3 resolved); Phase 10 execution = 5/5 plans done
 progress:
   total_phases: 12
   completed_phases: 9
   total_plans: 56
-  completed_plans: 55
-  percent: 75
+  completed_plans: 56
+  percent: 79
 ---
 
 # Project State
@@ -24,12 +24,12 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 
 ## Current Position
 
-Phase: 10 (safe-local-exec-gated-on-n3-4b) — EXECUTING
-Plan: 5 of 5
-Status: Ready to execute
-Last activity: 2026-06-10 -- 10-01 complete (exec foundation layer)
+Phase: 10 (safe-local-exec-gated-on-n3-4b) — EXECUTION COMPLETE (5/5 plans); ready for verification
+Plan: 5 of 5 — COMPLETE
+Status: Phase 10 execution done — next: /gsd-verify-work 10
+Last activity: 2026-06-10 -- 10-05 complete (review-trio closure + N3 resolved + parity gate green)
 
-Progress: [████████░░] 75% (9/12 phases complete; 52/56 plans complete)
+Progress: [████████░░] 79% (9/12 phases complete; 56/56 mapped plans complete; Phase 10 execution done, pending verification)
 
 ## Performance Metrics
 
@@ -108,6 +108,7 @@ Progress: [████████░░] 75% (9/12 phases complete; 52/56 plan
 | Phase 10 P02 | ~18min | 2 tasks | 6 files |
 | Phase Phase 10 PP03 | ~22min | 2 tasks tasks | 5 files files |
 | Phase 10 P04 | 22min | 2 tasks | 9 files |
+| Phase 10 P05 | ~18min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -182,6 +183,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 09]: 09-06 (INTEG-01/02 + D-09): integration_provider github/gitlab/jira/slack = THIN MCP-backed bridges onto the 09-05 catalog (ONE mechanism, no parallel SDK — D-08); resolve_integration_scopes() maps a granted integrations scope onto the EXACT mcp_server_configs/mcp_exposed_tools the existing async MCP prewarm consumes, so tools surface into create_runner via the identical McpClientAdapter path. Scopes default NONE (gitlab_read binds only gitlab read tools; 08-03 intersect gates the grant); run_capabilities records the active scopes + MCP servers + runtime per run (or None -> SQL NULL). _KNOWN 46->50. The CodingAgent build_model().ainvoke bypass (the INV-13 gap) is DELETED-by-alias: HandoffCoder (coder.py) produces the same JSON edit-plan via DeepAgentRunner -> create_deep_agent, exported as CodingAgent so the RETAINED /api/handoff routers + UserGithubCredential (ledger D10) + the handoff contract drive unchanged (grep class CodingAgent -> 0, ledger D9). 5-pipeline characterization byte/event-identical; lint 4/0; banned-pattern+ledger green. Phase 09 = 6/6 complete. Commits 3245f02/b17eeca.
 - [Phase Phase 10]: 10-03: tier-2 exec gate layer — profile-conditional security gate (file/builtin exec + approval declared + constrained profile PASS; network/secrets BLOCK byte-identical; exec without approval BLOCK D-01); approval gate on the ONE durable HITL mechanism (run_human_gate->_run_review_gate, D-02) with D-04 policy-snapshot payload (allow-list/caps/scrubbed-env/egress, no argv) + D-03 read_gate_events first-exec memory short-circuit; run_human_gate parameterized with payload (rides review_gate_ready output, payload=None byte-identical), read_gate_events best-effort handle; §15 host seam binds runtime_env('local') exec workspace onto KernelServices.workspace only for exec-granting plans (OSError-only degrade). 31 gate + 10 characterization byte/event-identical + 11 banned-pattern; lint 4/0. Commits 73453b8/3b77221.
 - [Phase ?]: 10-04: code validators reach exec only via the workspace handle; VALIDATOR-DENY refuses with zero spawns; exec_command stdout contract kept; _KNOWN 50->53; EXEC-02+SC-001 proven offline (zero engine edits); lint 4/0. Commits 9028e30/0ba4486.
+- [Phase 10]: 10-05 (EXEC-01/EXEC-02 DEBT+PARITY — Phase 10 COMPLETE 5/5): Phase 9 review trio CLOSED. IN-03 repo_diff._split_per_file._flush keys an unparseable/quoted/rename diff --git header block under a synthetic __unparsed_N__ (per-call idx, distinct keys) instead of silently dropping a changed file — normal parseable path byte-identical, 4 RED→GREEN tests. IN-01 MCP-04 sign-off docstring near slack user_allowed=True (post_message = the ONE user-grantable WRITE, post-only scope, same gate/audit path) — comment-only, exposed_tools/user_allowed UNCHANGED (no behavior change). IN-02 subsumed by 10-01 argv/no-shell exec_command; recorded as a migration-ledger ☑ no-shell-exec grep ratchet (the banned-pattern test does NOT scan shell=True, RESEARCH A5) → grep shell=True = 0 over backend runtime+agents; test_migration_ledger _REQUIRED_ITEMS/expected synced in lockstep (Rule 3 blocking, the established ledger pattern). N3 ⚠️ threat-model blocker FLIPPED to RESOLVED in STATE.md + PROJECT.md citing 10-SPEC.md as the decision record (9 locked requirements shipped 10-01..10-05); IN-01/02/03 pending-todo cleared. Parity gate GREEN at the approved blocking-human checkpoint (orchestrator re-verified): characterization + migration-ledger + banned-patterns 44 passed/5 skipped, lint-imports 4/0, all 14 SPEC criteria map to green. Zero engine edits (SC-001). Commits 2285941/fc3efff/0fcbc84.
 
 ### Pending Todos
 
