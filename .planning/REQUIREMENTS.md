@@ -100,7 +100,7 @@
 
 ### Local Workspace Runtime & Repo Workflows — No Exec (Phase 4A)
 
-- [ ] **RUNTIME-01**: `RuntimeEnvironment` port (read/write/search/exec_command/clone_repo/create_branch/git_diff/teardown) + `LocalSandboxRuntime` impl over the per-run disk dir (§6/§14)
+- [x] **RUNTIME-01**: `RuntimeEnvironment` port (read/write/search/exec_command/clone_repo/create_branch/git_diff/teardown) + `LocalSandboxRuntime` impl over the per-run disk dir (§6/§14) — done 09-01
 - [ ] **RUNTIME-02**: One `Workspace` abstraction (fs + optional git + optional exec + `ExecutionPolicy`); prototype's `RunSandbox` becomes a `has_git=False, exec=off` Workspace — no engine fork repo-vs-artifact (R3/§14)
 - [ ] **RUNTIME-03**: `repositories` + `workspaces` rows persisted (§18)
 - [ ] **REPO-01**: `RepoInventory` (`kind=repo_inventory`) — file tree, language stats, dependency graph, ignore rules (`.gitignore` + `.flowinignore`), binary-file skip, size caps, optional summaries (§15)

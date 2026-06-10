@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-last_updated: "2026-06-10T00:21:16.348Z"
-last_activity: 2026-06-10 -- Phase 9 planning complete
+status: executing
+last_updated: "2026-06-10T08:02:27Z"
+last_activity: 2026-06-10 -- Phase 09 plan 01 complete (local runtime port layer)
 progress:
   total_phases: 12
   completed_phases: 8
-  total_plans: 45
+  total_plans: 51
   completed_plans: 45
   percent: 67
 ---
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-06)
 
 **Core value:** A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001).
-**Current focus:** Phase 08 — capabilities-hardened-registry-gates-tool-perms-runtime-3
+**Current focus:** Phase 09 — local-workspace-runtime-repo-workflows-no-exec-4a
 
 ## Current Position
 
-Phase: 9
-Plan: Not started
-Status: 08-07 COMPLETE & committed — executable HookHandler framework + secret_scan (blocking, read_files) + otel_tracing (wildcard, non-blocking, REAL OpenTelemetry spans); every firing persists a hook_runs row; HOOK-01..04 + OBS-02 satisfied. Human approved the real-OTel install at the blocking-human checkpoint. Phase 08 = 8/8 plans; next: phase 08 verification.
-Last activity: 2026-06-10 -- Phase 9 planning complete
+Phase: 09 (local-workspace-runtime-repo-workflows-no-exec-4a) — EXECUTING
+Plan: 2 of 6
+Status: Executing Phase 09 (plan 01 complete)
+Last activity: 2026-06-10 -- Phase 09 plan 01 complete (local runtime port layer)
 
 Progress: [██████░░░░] 60% (7/12 phases complete; Phase 08 = 8/8 plans complete, awaiting verification)
 
@@ -97,6 +97,7 @@ Progress: [██████░░░░] 60% (7/12 phases complete; Phase 08 =
 | Phase 08 P03 | 40min | 3 tasks | 15 files |
 | Phase 08 P04 | ~50min | 3 tasks | 11 files |
 | Phase 08 P07 | 18min | 3 tasks | 11 files |
+| Phase 09 P01 | ~8min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -161,9 +162,12 @@ Recent decisions affecting current work:
 
 - [Phase 08]: 08-08 (API-02/03/06 + D-11): `GET /api/capabilities` is an auth-gated (`Depends(get_current_user)`, 401 without a token — T-08-08-auth) registry-REFLECTIVE palette — enumerated live from `_KNOWN` post-`discover()`, so a freshly `@register`'d cap appears with ZERO endpoint edit (test_palette_reflects_registry). Each `(kind,name)` carries `user_allowed` (privileged exec/secrets/spawn/runtimes = False, T-08-08-ID) + a forward-compat `config_schema={}` slot (the ports are one-method Protocols with no per-cap schema yet — documented stub, non-blocking). The model_catalog kind is surfaced EXPANDED under a separate `model_catalog` key (per-model records for the picker), not one opaque row. API-03 additive WS events (`validator_result`/`validation_warning`/`gate_*`) flow through the GENERIC `websocket.py` forward with NO websocket.py edit — the 5 characterization snapshots stay byte/event-identical (no re-baseline, T-08-08-parity). Frontend D-11 REUSE (not rebuild): 3 additive sibling panels wired into `WorkflowComposer.tsx` — `CapabilityPalette` (live `/api/capabilities`, grouped by kind + trust badge), `AgentModelPicker` (per-agent model from the catalog → `model_overrides`), `ValidatorIssuePanel` (props-driven like AgentProgressPanel; parent routes the WS events; issues grouped CRITICAL/HIGH/MEDIUM/LOW). Subagent/wave-tree + repo-diff viewers DEFERRED (no backing data until P9/11/12) — confirmed absent. Task 3 (API-06) is a frontend visual render with no headless DOM harness → HUMAN-VERIFIED/APPROVED (human ran the dev servers + confirmed the live render). No new backend/frontend dependency (T-08-08-SC accept). 10 tests pass (capabilities_api 8 + characterization_prototype 2); lint-imports 3 kept/0 broken.
 
+- [Phase 09]: 09-01 (RUNTIME-01): net-new runtime port layer landed. `agents/runtime/base.py` defines four kernel-side stdlib-only `@runtime_checkable` Protocols — `RuntimeEnvironment` (provisioner: `create_workspace(*, owner_id, workspace_id, has_git, exec)` / `teardown`), `Workspace` (facade: read/write/search/clone_repo/create_branch/git_diff/exec_command/teardown + owner_id/workspace_id/runtime back-ref/policy), `ExecutionPolicy` (exec/network/secrets default OFF; `allows`), `IsolationProvider` (`allocate(scope)` — shared_read/per-run downstream, sub_sandbox/worktree Phase 11). `LocalSandboxRuntime` (app-side `app/agents/runtime/local.py`, `@register("runtime_env","local")`, user_allowed=False) returns a `LocalWorkspace` that reuses `RunSandbox.path_for` traversal-safety + `RUNS_ROOT`, and is the SINGLE git-subprocess owner (clone/branch/diff). exec stays OFF: `exec_command` raises `PermissionError` under the default `LocalExecutionPolicy(exec=False)` (T-09-01-02). Registered under the DISTINCT `runtime_env` kind (NOT `runtime:langchain_deepagents` — the agent adapter); `app.agents.runtime` wired into `discover()` `_forward_packages`. The 4th import-linter forbidden contract locks `agents.runtime ↛ [agents.execution_engine, app]` (T-09-01-03) — the ECS-swap seam (D-01: a later `EcsRuntime` plugs in as a backend swap, zero engine edit). `_KNOWN` drift-guard 34→35 (expected membership growth); `git_diff` stages+commits the work-tree edit before diffing `base..work`. lint-imports 4/0; banned-pattern+ledger green (INV-13 untouched); 5 characterization snapshots byte/event-identical (purely additive). Commits e55f89a/6125267/5707298.
+
 ### Pending Todos
 
-- Phase 08: all 8 plans complete — run phase 08 verification next.
+- Phase 09: plan 01 complete; next is 09-02 (RunSandbox → Workspace refold + migration 0017 repositories).
+- Phase 08: all 8 plans complete — run phase 08 verification (still pending).
 
 ### Blockers/Concerns
 
@@ -184,4 +188,6 @@ Open decision records to confirm before their phase (from plan §26):
 - CP-SAT scheduling · single-file fragment-merge · PR/commit push · DB-backed user workflows (REQUIREMENTS.md v2 / Out of Scope).
 
 ---
+*Last updated: 2026-06-10 — 09-01 complete (net-new runtime port layer: RuntimeEnvironment/Workspace/ExecutionPolicy/IsolationProvider kernel-side Protocols + LocalSandboxRuntime app-side @register('runtime_env','local'), the single git-subprocess owner clone/branch/diff; exec_command denied under default policy [RUNTIME-01]; 4th import-linter contract agents.runtime↛[execution_engine,app] — the ECS-swap seam D-01; _KNOWN 34→35; lint 4/0; banned-pattern+ledger green; 5 characterization snapshots byte/event-identical; commits e55f89a/6125267/5707298). Next: 09-02. — previous: 08-07 complete*
+<!-- prior footer retained below for history -->
 *Last updated: 2026-06-09 — 08-07 complete (executable HookHandler framework continue|warn|block + permission-gated binding; secret_scan blocks before_write secrets → hook_runs outcome=block [HOOK-01..04]; otel_tracing wildcard non-blocking REAL OpenTelemetry spans + hook_runs row [OBS-02] — human approved opentelemetry-api/sdk 1.42.1, console-default/OTLP-via-env, exporter optional/lazy; 20 hook tests green; 5 characterization snapshots byte/event-identical; lint-imports 3/0; banned-pattern unaffected; commits 5354944 + 94b77b3). Phase 08 = 8/8 plans complete; next: phase 08 verification.*

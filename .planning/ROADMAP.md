@@ -294,7 +294,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 09-01-PLAN.md — `RuntimeEnvironment`/`Workspace`/`ExecutionPolicy`/`IsolationProvider` ports (kernel `agents/runtime/base.py`) + `LocalSandboxRuntime` (app-side `app/agents/runtime/local.py`) + the 4th import-linter contract (RUNTIME-01) [wave 1]
+- [x] 09-01-PLAN.md — `RuntimeEnvironment`/`Workspace`/`ExecutionPolicy`/`IsolationProvider` ports (kernel `agents/runtime/base.py`) + `LocalSandboxRuntime` (app-side `app/agents/runtime/local.py`) + the 4th import-linter contract (RUNTIME-01) [wave 1] — DONE 2026-06-10 (3 tasks; runtime_env registered; lint 4/0; 5 characterization snapshots byte/event-identical)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
