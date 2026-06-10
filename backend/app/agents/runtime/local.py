@@ -18,7 +18,9 @@ reaches it via the handle, never by import (the ECS-swap seam, D-01).
 from __future__ import annotations
 
 import os
+import resource
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -28,17 +30,70 @@ from app.agents.sandbox import RunSandbox
 from app.core.config import settings
 
 
+# The v1 "ephemeral creds" posture: the child sees ONLY these env keys (constructed,
+# NOT inherited). Excludes every host credential (AWS_*/ANTHROPIC_*/DATABASE_URL/
+# *_TOKEN/*_PROXY) — T-10-01-03.
+_SCRUBBED_ENV_KEYS = ("PATH", "HOME", "TMPDIR")
+
+# 64KB/stream output truncation (T-10-01-06): only a bounded slice is returned, and
+# only a truncated digest is ever audited (never the raw child output, which could
+# carry a secret).
+_OUTPUT_CAP = 65536
+
+
+@dataclass(frozen=True)
+class _ExecProfile:
+    """The N3-locked exec profile — allow-list + caps. NEVER manifest-tunable."""
+
+    exec_allow: tuple = ()
+    exec_deny: tuple = ()
+    cpu_seconds: int = 60
+    mem_mb: int = 512
+    wall_seconds: int = 120
+
+
+# The single locked exec profile a security-gated, exec-granted workspace uses
+# (per N3: Python toolchain allow-list; cpu=60s mem=512MB wall=120s). The caps are
+# locked here, not tunable from a manifest.
+DEFAULT_EXEC_PROFILE = _ExecProfile(
+    exec_allow=("python", "python3", "pytest", "ruff"),
+    exec_deny=(),
+    cpu_seconds=60,
+    mem_mb=512,
+    wall_seconds=120,
+)
+
+
+def _noop_recorder(argv, **kwargs) -> None:  # default audit sink (no-op)
+    """Default workspace recorder — a no-op so non-audited callers don't crash.
+
+    The live recorder (``KernelServices.record_exec_run``) is injected at
+    ``create_workspace`` by 10-02's host seam; until then exec is never granted,
+    so this no-op is dormant.
+    """
+    return None
+
+
 @dataclass
 class LocalExecutionPolicy:
-    """The default capability gate — exec / network / secrets all OFF (until N3).
+    """The capability gate — exec / network / secrets default OFF (until N3).
 
     Satisfies the ``ExecutionPolicy`` port structurally. ``allows`` returns the
-    flag for the named action; unknown actions are denied by default.
+    flag for the named action; unknown actions are denied by default. Phase 10
+    grows the policy with the exec allow/deny lists + resource caps (the
+    enforcement data the hardened ``exec_command`` reads); ``allows("exec")``
+    still returns ``self.exec`` byte-identically (the deny default is unchanged).
     """
 
     exec: bool = False
     network: bool = False
     secrets: list = field(default_factory=list)
+    # Phase 10 — exec allow/deny + caps (the EXEC-PROFILE / EXEC-POLICY data).
+    exec_allow: tuple = ()
+    exec_deny: tuple = ()
+    cpu_seconds: int = 60
+    mem_mb: int = 512
+    wall_seconds: int = 120
 
     def allows(self, action: str) -> bool:
         if action == "exec":
@@ -74,6 +129,12 @@ class LocalWorkspace:
         self.policy = policy
         self._sandbox = sandbox
         self._root: Path = sandbox.ensure()
+        # The audit callback invoked on EVERY exec_command outcome (allowed/denied/
+        # killed) — defaults to a no-op so non-audited callers don't crash; the live
+        # recorder (KernelServices.record_exec_run) is injected at create_workspace
+        # by 10-02's host seam. Bypass-proof: the recorder fires at the enforcement
+        # point regardless of caller path (T-10-01-07).
+        self._recorder = _noop_recorder
 
     # -- filesystem (traversal-proof via RunSandbox.path_for) ----------------
 
@@ -178,20 +239,93 @@ class LocalWorkspace:
             return self._git("diff", "--cached", base)
         return self._git("diff", f"{base}..{work}")
 
-    # -- exec (DENIED under the default policy) -------------------------------
+    # -- exec (hardened argv body — the SINGLE enforcement point) -------------
 
-    def exec_command(self, command: str) -> str:
+    def exec_command(self, argv: list[str]) -> str:
+        """Run ``argv`` (no shell) under the policy — the bypass-proof enforcement.
+
+        Layered enforcement (everything an exec-granted workspace reaches exec
+        through; all downstream gates/validators come HERE):
+          1. deny default (T-09-01-02 unchanged): exec OFF → record denied + raise.
+          2. pre-spawn allow/deny (deny BEATS allow, T-10-01-02): argv[0] must be
+             allow-listed and not deny-listed — recorded + raised BEFORE any spawn.
+          3. scrubbed minimal env (T-10-01-03): the child sees only PATH/HOME/TMPDIR,
+             never host creds.
+          4. POSIX rlimits in a preexec_fn + wall-clock timeout + start_new_session
+             (T-10-01-04): RLIMIT_CPU/RLIMIT_AS bound the child; a runaway is killed
+             at the wall clock; start_new_session makes a forking runaway killable as
+             a group.
+          5. 64KB/stream truncation (T-10-01-06).
+
+        ACCEPTED RESIDUAL (T-10-01-05 / EGRESS-DENY): an allow-listed interpreter can
+        still open sockets at runtime — ``policy.network=False`` + the no-net-capable
+        allow-list + the scrubbed env mitigate but do NOT hard-block egress. OS-level
+        network-namespace enforcement is the v2 ECS seam; exec is engineer-only +
+        ``security``-gated, so this residual is documented + accepted (per N3).
+        """
+        # (1) deny default — byte-identical to the pre-Phase-10 behavior (T-09-01-02).
         if not self.policy.allows("exec"):
+            self._recorder(argv, outcome="denied", exit_code=None)
             raise PermissionError(
                 "exec_command denied: ExecutionPolicy.exec is OFF "
                 "(code execution stays disabled until N3 / Phase 4B)"
             )
-        # Reached only if a future phase flips exec ON behind the security gate.
-        result = subprocess.run(
-            command, cwd=str(self._root), shell=True, check=True,
-            capture_output=True, text=True,
+
+        # (2) pre-spawn allow/deny — deny BEATS allow, recorded BEFORE any spawn.
+        cmd = argv[0]
+        if cmd in self.policy.exec_deny or cmd not in self.policy.exec_allow:
+            self._recorder(argv, outcome="denied", exit_code=None)
+            raise PermissionError(
+                f"exec_command denied: {cmd!r} not permitted by ExecutionPolicy"
+            )
+
+        # (3) scrubbed minimal env — constructed, never inherited (no host creds).
+        env = {k: os.environ[k] for k in _SCRUBBED_ENV_KEYS if k in os.environ}
+
+        # (4) child-only resource caps (preexec_fn runs after fork, before exec).
+        cpu = self.policy.cpu_seconds
+        mem_bytes = self.policy.mem_mb * 1024 * 1024
+
+        def _limits() -> None:
+            resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu))
+            # RLIMIT_AS is hard-enforced on linux, best-effort on darwin (Pitfall 4).
+            try:
+                resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
+            except (ValueError, OSError):
+                pass  # darwin may refuse; the wall-clock timeout still bounds the run
+
+        started = time.monotonic()
+        try:
+            proc = subprocess.run(
+                argv,
+                cwd=str(self._root),
+                shell=False,  # shell=False is the IN-02 fix (no shell interpolation)
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=self.policy.wall_seconds,
+                preexec_fn=_limits,
+                start_new_session=True,  # so killpg can kill a forking runaway tree
+            )
+        except subprocess.TimeoutExpired:
+            self._recorder(
+                argv,
+                outcome="killed",
+                exit_code=None,
+                duration_ms=int((time.monotonic() - started) * 1000),
+            )
+            raise  # the runaway was killed at the wall-clock timeout
+
+        # (5) 64KB/stream truncation.
+        out = (proc.stdout or "")[:_OUTPUT_CAP]
+        self._recorder(
+            argv,
+            outcome="allowed",
+            exit_code=proc.returncode,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            output_digest=out[:256],
         )
-        return result.stdout
+        return out
 
     def teardown(self) -> None:
         # Delegates to the SINGLE rmtree owner (RunSandbox.cleanup). The cleanup
@@ -220,22 +354,45 @@ class LocalSandboxRuntime:
         workspace_id: str,
         has_git: bool = False,
         exec: bool = False,
+        recorder=None,
     ) -> Workspace:
         """Provision a local-disk ``Workspace`` for one run.
 
-        ``has_git`` is advisory (the local backend always supports git); ``exec``
-        flows into the policy but stays OFF this phase (the security gate ignores a
-        ``True`` until N3 — the caller cannot enable exec yet).
+        ``has_git`` is advisory (the local backend always supports git). ``exec``
+        now flows LIVE into the policy: when ``True`` the workspace is granted the
+        N3-locked ``DEFAULT_EXEC_PROFILE`` (allow-list + caps) behind the security
+        gate; when ``False`` the policy is byte-identical to the pre-Phase-10 deny
+        default (exec/network/secrets all OFF) so every existing non-exec run is
+        unchanged (parity). ``recorder`` is the audit callback invoked on every
+        ``exec_command`` outcome (defaults to a no-op so non-audited callers don't
+        crash); 10-02's host seam injects ``KernelServices.record_exec_run``.
         """
         sandbox = RunSandbox(owner_id, workspace_id, runs_root=settings.RUNS_ROOT)
-        policy = LocalExecutionPolicy(exec=False, network=False, secrets=[])
-        return LocalWorkspace(  # type: ignore[return-value]
+        if exec:
+            policy = LocalExecutionPolicy(
+                exec=True,
+                network=False,
+                secrets=[],
+                exec_allow=DEFAULT_EXEC_PROFILE.exec_allow,
+                exec_deny=DEFAULT_EXEC_PROFILE.exec_deny,
+                cpu_seconds=DEFAULT_EXEC_PROFILE.cpu_seconds,
+                mem_mb=DEFAULT_EXEC_PROFILE.mem_mb,
+                wall_seconds=DEFAULT_EXEC_PROFILE.wall_seconds,
+            )
+        else:
+            # Byte-identical to the pre-Phase-10 deny default (parity for every
+            # existing non-exec run — the exec layer is dormant).
+            policy = LocalExecutionPolicy(exec=False, network=False, secrets=[])
+        ws = LocalWorkspace(  # type: ignore[return-value]
             owner_id=owner_id,
             workspace_id=workspace_id,
             runtime=self,
             policy=policy,
             sandbox=sandbox,
         )
+        if recorder is not None:
+            ws._recorder = recorder
+        return ws
 
     def teardown(self, ws: Workspace) -> None:
         ws.teardown()

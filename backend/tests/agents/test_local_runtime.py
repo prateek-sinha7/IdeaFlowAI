@@ -91,14 +91,223 @@ def test_clone_branch_read_write_search_diff(
 def test_exec_command_denied_under_default_policy(
     local_git_fixture: Path, tmp_path: Path
 ) -> None:
-    """exec stays OFF: ``exec_command`` raises under the default ExecutionPolicy."""
+    """exec stays OFF: ``exec_command`` raises under the default ExecutionPolicy.
+
+    T-09-01-02 preserved (deny default unchanged); the recorder records
+    outcome="denied".
+    """
     ws = _make_workspace(tmp_path)
     ws.clone_repo(str(local_git_fixture))
+
+    recorded: list[dict] = []
+    ws._recorder = lambda argv, **kw: recorded.append({"argv": argv, **kw})
 
     # Default policy denies exec (exec=False).
     assert ws.policy.allows("exec") is False
     with pytest.raises(PermissionError):
-        ws.exec_command("echo hi")
+        ws.exec_command(["python3", "-c", "print(1)"])  # argv, not str
+    assert recorded and recorded[-1]["outcome"] == "denied"
+
+
+# ---------------------------------------------------------------------------
+# Phase 10 — hardened argv exec_command (EXEC-PROFILE / EXEC-POLICY / caps / audit)
+# ---------------------------------------------------------------------------
+
+
+def _exec_workspace(tmp_path: Path, **policy_overrides):
+    """An exec=True LocalWorkspace with a recorder, for the hardened-exec tests."""
+    from app.agents.runtime.local import (
+        DEFAULT_EXEC_PROFILE,
+        LocalExecutionPolicy,
+        LocalSandboxRuntime,
+        LocalWorkspace,
+    )
+    from app.agents.sandbox import RunSandbox
+
+    import app.core.config as config_module
+
+    config_module.settings.RUNS_ROOT = str(tmp_path / "runs")
+
+    fields = dict(
+        exec=True,
+        network=False,
+        secrets=[],
+        exec_allow=DEFAULT_EXEC_PROFILE.exec_allow,
+        exec_deny=DEFAULT_EXEC_PROFILE.exec_deny,
+        cpu_seconds=DEFAULT_EXEC_PROFILE.cpu_seconds,
+        mem_mb=DEFAULT_EXEC_PROFILE.mem_mb,
+        wall_seconds=DEFAULT_EXEC_PROFILE.wall_seconds,
+    )
+    fields.update(policy_overrides)
+    policy = LocalExecutionPolicy(**fields)
+
+    runtime = LocalSandboxRuntime()
+    sandbox = RunSandbox("anon", "ws-exec", runs_root=config_module.settings.RUNS_ROOT)
+    recorded: list[dict] = []
+    ws = LocalWorkspace(
+        owner_id="anon",
+        workspace_id="ws-exec",
+        runtime=runtime,
+        policy=policy,
+        sandbox=sandbox,
+    )
+    ws._recorder = lambda argv, **kw: recorded.append({"argv": argv, **kw})
+    return ws, recorded
+
+
+def test_exec_allow_list_runs_and_records_allowed(tmp_path: Path) -> None:
+    """An allow-listed interpreter runs; recorder records outcome=allowed exit_code=0."""
+    ws, recorded = _exec_workspace(tmp_path)
+    out = ws.exec_command(["python3", "-c", "print('ok')"])
+    assert "ok" in out
+    assert recorded[-1]["outcome"] == "allowed"
+    assert recorded[-1]["exit_code"] == 0
+
+
+def test_exec_pre_spawn_deny_for_unlisted_command(tmp_path: Path) -> None:
+    """A non-allow-listed argv[0] raises PermissionError naming it, BEFORE any spawn."""
+    ws, recorded = _exec_workspace(tmp_path)
+
+    import subprocess as _subprocess
+
+    # If exec_command spawns anything for a denied command the test fails loudly.
+    orig_run = _subprocess.run
+    spawned = {"hit": False}
+
+    def _tripwire(*a, **k):
+        spawned["hit"] = True
+        return orig_run(*a, **k)
+
+    _subprocess.run = _tripwire
+    try:
+        with pytest.raises(PermissionError) as exc:
+            ws.exec_command(["bash", "-c", "echo hi"])
+    finally:
+        _subprocess.run = orig_run
+
+    assert "bash" in str(exc.value)
+    assert spawned["hit"] is False, "denied command must NOT spawn a process"
+    assert recorded[-1]["outcome"] == "denied"
+
+
+def test_exec_deny_beats_allow(tmp_path: Path) -> None:
+    """A command in BOTH exec_allow and exec_deny is rejected (deny-precedence)."""
+    ws, recorded = _exec_workspace(
+        tmp_path, exec_allow=("python3",), exec_deny=("python3",)
+    )
+    with pytest.raises(PermissionError):
+        ws.exec_command(["python3", "-c", "print(1)"])
+    assert recorded[-1]["outcome"] == "denied"
+
+
+def test_exec_scrubbed_env_excludes_host_creds(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The child env carries no AWS_*/ANTHROPIC_*/DATABASE_URL/*_TOKEN/*_PROXY keys."""
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "super-secret")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret")
+    monkeypatch.setenv("DATABASE_URL", "postgres://secret")
+    monkeypatch.setenv("SOME_TOKEN", "tok")
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy")
+
+    ws, _ = _exec_workspace(tmp_path)
+    out = ws.exec_command(
+        ["python3", "-c", "import os,json;print(json.dumps(dict(os.environ)))"]
+    )
+    import json as _json
+
+    child_env = _json.loads(out)
+    for forbidden in (
+        "AWS_SECRET_ACCESS_KEY",
+        "ANTHROPIC_API_KEY",
+        "DATABASE_URL",
+        "SOME_TOKEN",
+        "HTTPS_PROXY",
+    ):
+        assert forbidden not in child_env, f"{forbidden} leaked into the child env"
+
+    # The env DICT the workspace constructs carries only PATH/HOME/TMPDIR (the
+    # scrub). The child may still SEE a few benign darwin/toolchain-injected keys
+    # (CPATH/LC_CTYPE/LIBRARY_PATH/MANPATH/SDKROOT/__CF_USER_TEXT_ENCODING) that the
+    # OS launcher adds AFTER our env is applied — none are host credentials. So we
+    # assert the security property directly: no host-cred CLASS key survives, rather
+    # than an exact 3-key allow-list (platform-fragile on darwin, like Pitfall 4).
+    cred_markers = ("AWS", "ANTHROPIC", "DATABASE", "TOKEN", "PROXY", "SECRET", "API_KEY")
+    leaked = [
+        k for k in child_env if any(marker in k.upper() for marker in cred_markers)
+    ]
+    assert not leaked, f"host-credential-class keys leaked into the child env: {leaked}"
+
+
+def test_exec_wall_clock_kill_records_killed(tmp_path: Path) -> None:
+    """A runaway command is killed at the wall-clock timeout; recorder records killed."""
+    import subprocess
+
+    ws, recorded = _exec_workspace(tmp_path, wall_seconds=1)
+    with pytest.raises(subprocess.TimeoutExpired):
+        ws.exec_command(["python3", "-c", "import time;time.sleep(30)"])
+    assert recorded[-1]["outcome"] == "killed"
+
+
+def test_exec_output_truncated_at_64kb(tmp_path: Path) -> None:
+    """Output exceeding 64KB/stream is truncated to 64KB."""
+    ws, _ = _exec_workspace(tmp_path)
+    # Emit ~200KB to stdout; expect a 64KB-truncated return.
+    out = ws.exec_command(
+        ["python3", "-c", "import sys;sys.stdout.write('x'*200000)"]
+    )
+    assert len(out) == 65536, f"expected 64KB truncation, got {len(out)}"
+
+
+def test_exec_rlimit_mechanism_applied(tmp_path: Path) -> None:
+    """The preexec_fn calls resource.setrlimit for RLIMIT_CPU and RLIMIT_AS.
+
+    Asserts the MECHANISM is applied (Pitfall 4: RLIMIT_AS is best-effort on darwin,
+    so an OOM-kill assertion would be flaky). We have the child report its OWN soft
+    limits — if the preexec_fn set them, the child sees the capped values.
+    """
+    import resource
+
+    ws, _ = _exec_workspace(tmp_path, cpu_seconds=42, mem_mb=256)
+    out = ws.exec_command(
+        [
+            "python3",
+            "-c",
+            "import resource,json;"
+            "print(json.dumps([resource.getrlimit(resource.RLIMIT_CPU)[0],"
+            "resource.getrlimit(resource.RLIMIT_AS)[0]]))",
+        ]
+    )
+    import json as _json
+
+    cpu_soft, as_soft = _json.loads(out)
+    assert cpu_soft == 42, "RLIMIT_CPU soft limit not applied in the child"
+    # RLIMIT_AS is best-effort on darwin; assert it is either the cap or RLIM_INFINITY
+    # (the darwin no-op) — never an unrelated value.
+    assert as_soft in (256 * 1024 * 1024, resource.RLIM_INFINITY)
+
+
+def test_default_exec_profile_caps_are_locked() -> None:
+    """DEFAULT_EXEC_PROFILE carries the N3-locked caps (cpu=60 mem=512 wall=120)."""
+    from app.agents.runtime.local import DEFAULT_EXEC_PROFILE
+
+    assert DEFAULT_EXEC_PROFILE.exec_allow == ("python", "python3", "pytest", "ruff")
+    assert DEFAULT_EXEC_PROFILE.cpu_seconds == 60
+    assert DEFAULT_EXEC_PROFILE.mem_mb == 512
+    assert DEFAULT_EXEC_PROFILE.wall_seconds == 120
+
+
+def test_grown_policy_keeps_allows_exec_byte_identical() -> None:
+    """LocalExecutionPolicy grows allow/deny + caps; allows('exec') still returns self.exec."""
+    from app.agents.runtime.local import LocalExecutionPolicy
+
+    deny = LocalExecutionPolicy()
+    assert deny.allows("exec") is False
+    grant = LocalExecutionPolicy(exec=True, exec_allow=("python3",))
+    assert grant.allows("exec") is True
+    # The new cap fields exist with the locked defaults.
+    assert deny.cpu_seconds == 60 and deny.mem_mb == 512 and deny.wall_seconds == 120
+    assert deny.exec_allow == () and deny.exec_deny == ()
 
 
 def test_default_execution_policy_denies_privileged_actions() -> None:

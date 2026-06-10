@@ -85,8 +85,15 @@ class Workspace(Protocol):
         """Return the unified diff between two refs (``git diff base..work``)."""
         ...
 
-    def exec_command(self, command: str) -> Any:
-        """Run a command — DENIED under the default policy (raises until N3)."""
+    def exec_command(self, argv: list[str]) -> Any:
+        """Run an argv command (no shell — the IN-02 fix; Phase 10 / EXEC-01).
+
+        DENIED under the default policy (raises ``PermissionError`` when exec is
+        OFF). When exec is granted, ``argv[0]`` must be allow-listed (deny beats
+        allow), the child runs with a scrubbed minimal env + POSIX rlimits + a
+        wall-clock timeout, and output is truncated at 64KB/stream. EVERY outcome
+        (allowed/denied/killed) is audited at this enforcement point (T-10-01-07).
+        """
         ...
 
     def teardown(self) -> Any:
