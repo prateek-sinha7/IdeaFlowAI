@@ -210,6 +210,10 @@ class FanoutSpec:
     agent: str | None = None      # worker agent; None/"self" = step's own agent ×count
     count: int | None = None      # self×N multiplicity
     workers: list[str] = field(default_factory=list)  # named worker ids (heterogeneous)
+    # The designated merge-agent worker for on_conflict=merge_agent (11-03 / FANOUT-08).
+    # Pure data: the kernel _resolve_conflict bounds it at MERGE_AGENT_MAX_ATTEMPTS then
+    # falls back to human_gate. None ⇒ no merge worker ⇒ immediate human_gate fallback.
+    merge_agent: str | None = None
 
 
 @dataclass

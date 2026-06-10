@@ -525,6 +525,131 @@ class KernelServices:
             if teardown is not None:
                 teardown()
 
+    # ── Typed fragment-artifact persistence (Phase 11 / FANOUT-06) ─────────────
+    async def write_fragment_artifact(
+        self,
+        *,
+        producer_step: str,
+        worker_agent: str,
+        worker_index: int,
+        content: str,
+        location: str,
+        kind: str = "file_bundle",
+    ) -> str | None:
+        """Persist ONE worker's output as a typed lineage-tracked fragment artifact.
+
+        The artifact-ref source 11-01 deferred (FANOUT-06): each fan-out worker's output
+        is persisted as a typed ``ArtifactRef`` (producer step/agent + parent-run linkage)
+        BEFORE the merge, so partial results survive an abort/cancel (11-04/11-05 consume
+        these refs). Delegates to the engine's SINGLE artifact write path
+        (``_dual_write_artifact`` — typed graph + best-effort scoped DB row) so the
+        fragment carries the run's ``(owner_id, workspace_id)`` and a ``content_hash``.
+        Returns the typed ref id (the structured summary carries it), or ``None`` when no
+        engine/graph is reachable (offline harness) so the caller degrades gracefully.
+
+        This is the SINGLE producer of fragment artifacts (INV-12 — one consumer per
+        capability); 11-04/11-05 CONSUME these refs, they do not re-introduce them.
+        """
+        engine = self._engine
+        ectx = self._ectx
+        if engine is None or ectx is None:
+            return None
+        graph = getattr(ectx, "artifacts", None)
+        try:
+            await engine._dual_write_artifact(
+                ectx,
+                producer_agent=worker_agent,
+                producer_step=producer_step,
+                content=content,
+                kind=kind,
+                location=location,
+                task_id=str(worker_index),
+                visibility="workspace",
+            )
+        except Exception as exc:  # noqa: BLE001 — fragment persist must never abort the merge
+            logger.warning(
+                "write_fragment_artifact(step=%s worker=%s idx=%s) failed: %s",
+                producer_step, worker_agent, worker_index, exc,
+            )
+            return None
+        # Return the id of the just-written ref (the latest of its kind for this run).
+        if graph is None:
+            return None
+        try:
+            refs = [
+                r for r in graph.tree(self.run_id)
+                if r.producer_step == producer_step and r.task_id == str(worker_index)
+            ]
+            return refs[-1].id if refs else None
+        except Exception:  # noqa: BLE001 — best-effort id readback
+            return None
+
+    # ── merge_conflict artifact write (Phase 11 / FANOUT-08) ───────────────────
+    async def write_merge_conflict_artifact(
+        self, *, producer_step: str, conflicts: list, payload: Any = None
+    ) -> str | None:
+        """Write an owner-scoped ``merge_conflict`` artifact for a reported conflict.
+
+        The conflict payload is what a human adjudicates (the ``human_gate`` policy) —
+        it carries the conflicting relative paths + per-path worker provenance +
+        TRUNCATED hunks (NO raw secret, Phase-10 D-04). Uses the already-allowed
+        ``merge_conflict`` artifact kind. Delegates to the engine's single artifact
+        write path so the row is owner/workspace-scoped (cross-owner read = ∅,
+        T-11-03-02). Returns the typed ref id or ``None`` (offline degrade).
+        """
+        engine = self._engine
+        ectx = self._ectx
+        if engine is None or ectx is None:
+            return None
+        import json as _json
+
+        body = _json.dumps(
+            payload if payload is not None else {"conflicts": conflicts},
+            default=str, sort_keys=True,
+        )
+        graph = getattr(ectx, "artifacts", None)
+        try:
+            await engine._dual_write_artifact(
+                ectx,
+                producer_agent=producer_step,
+                producer_step=producer_step,
+                content=body,
+                kind="merge_conflict",
+                location=f"merge_conflict/{producer_step}.json",
+                visibility="private",  # owner-scoped: a conflict is not workspace-shared
+            )
+        except Exception as exc:  # noqa: BLE001 — audit must never abort the conflict flow
+            logger.warning(
+                "write_merge_conflict_artifact(step=%s) failed: %s", producer_step, exc
+            )
+            return None
+        if graph is None:
+            return None
+        try:
+            refs = [
+                r for r in graph.tree(self.run_id) if r.kind == "merge_conflict"
+            ]
+            return refs[-1].id if refs else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    # ── Merge-strategy resolver handle (Phase 11 / FANOUT-07) ──────────────────
+    def resolve_merge_strategy(self, name: str) -> Any:
+        """Resolve a registered ``MergeStrategy`` by name (the engine-facing seam).
+
+        The kernel ``run_fanout`` reaches the merge layer THROUGH this handle so it does
+        not depend on the registry import order; returns ``None`` when the strategy is
+        unresolved (offline / not discovered) so the merge degrades to a clean no-op.
+        """
+        try:
+            from agents.capabilities.registry import CapabilityRegistry, discover
+
+            discover()
+            return CapabilityRegistry().resolve("merge", name)
+        except Exception as exc:  # noqa: BLE001 — unresolved ⇒ clean no-op merge
+            logger.debug("resolve_merge_strategy(%s) failed: %s", name, exc)
+            return None
+
     # ── Fan-out spawn handle (Phase 11 / FANOUT-02) ────────────────────────────
     async def run_fanout(
         self, requests: list, ctx: Any, *, step: Any
