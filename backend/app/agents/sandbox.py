@@ -135,8 +135,14 @@ class RunSandbox:
         return self._ws().read_file(relpath)  # type: ignore[attr-defined]
 
     def cleanup(self) -> None:
-        """Remove the run dir (idempotent) via the Workspace teardown."""
-        self._ws().teardown()  # type: ignore[attr-defined]
+        """Remove the run dir (idempotent).
+
+        OWNS the disk delete: ``LocalWorkspace.teardown()`` delegates HERE (never
+        the reverse), so the sandbox<->workspace pair has exactly ONE rmtree owner
+        and no teardown cycle. Both entry points — this facade and
+        ``LocalSandboxRuntime.teardown(ws)`` — land on this single rmtree.
+        """
+        shutil.rmtree(self.root, ignore_errors=True)
 
 
 def sweep_expired(*, ttl_hours: int | None = None, runs_root: str | None = None) -> int:

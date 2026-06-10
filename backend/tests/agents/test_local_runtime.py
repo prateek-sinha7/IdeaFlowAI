@@ -124,6 +124,41 @@ def test_path_traversal_rejected(local_git_fixture: Path, tmp_path: Path) -> Non
         ws.write_file("../escape.txt", "nope")
 
 
+def test_teardown_removes_run_dir_without_recursion(
+    local_git_fixture: Path, tmp_path: Path
+) -> None:
+    """``runtime.teardown(ws)`` deletes the run dir and does not raise (CR-01).
+
+    Pins the cycle-free teardown seam: ``LocalWorkspace.teardown`` delegates to
+    ``RunSandbox.cleanup`` (the single rmtree owner) — never the reverse — so
+    BOTH entry points delete the directory exactly once with no RecursionError.
+    """
+    ws = _make_workspace(tmp_path)
+    ws.clone_repo(str(local_git_fixture))
+    run_root = Path(ws._root)
+    assert run_root.is_dir()
+
+    runtime = _runtime()
+    runtime.teardown(ws)  # must not raise (pre-fix: RecursionError)
+    assert not run_root.exists(), "teardown must remove the run dir"
+
+    # Idempotent: a second teardown (and a direct sandbox cleanup) is a no-op.
+    runtime.teardown(ws)
+    ws._sandbox.cleanup()
+
+
+def test_runsandbox_cleanup_direct_entry_removes_run_dir(tmp_path: Path) -> None:
+    """The sandbox facade entry point also deletes exactly once, no recursion."""
+    from app.agents.sandbox import RunSandbox
+
+    sb = RunSandbox("u", "r", runs_root=str(tmp_path / "runs"))
+    root = sb.ensure()
+    assert root.is_dir()
+    sb.cleanup()  # pre-fix: RecursionError via the Workspace round-trip
+    assert not root.exists()
+    sb.cleanup()  # idempotent
+
+
 def test_runtime_is_isolation_provider_shaped() -> None:
     """The runtime layer exposes the IsolationProvider port (shared_read/per-run)."""
     # The port is importable and the local runtime satisfies its structural shape

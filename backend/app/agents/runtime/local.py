@@ -171,6 +171,9 @@ class LocalWorkspace:
         return result.stdout
 
     def teardown(self) -> None:
+        # Delegates to the SINGLE rmtree owner (RunSandbox.cleanup). The cleanup
+        # never routes back through this teardown — that one-way direction is what
+        # keeps the sandbox<->workspace pair cycle-free (CR-01).
         self._sandbox.cleanup()
 
 
