@@ -1,13 +1,19 @@
-"""Coding agent for /flowin-handoff.
+"""Handoff coder for /flowin-handoff — the UNIFIED-runtime edit-plan producer (09-06 / D-09).
 
-Reads the user's task and the relevant slices of the cloned repo,
-returns a structured JSON object describing the file edits to make.
-The pipeline applies those edits (with path-traversal validation) and
-hands the result to the TestAgent and ComplianceAgent for review.
+Supersedes the deleted ``CodingAgent`` bypass. The old ``CodingAgent.propose_edits``
+called ``build_model(...).ainvoke([...])`` directly — a one-shot LLM call that SKIPPED
+``create_deep_agent``/``create_runner`` (the INV-13 gap D-09 named). This module produces
+the SAME structured JSON edit-plan but routes the model invocation through the sanctioned
+deepagents runtime (``DeepAgentRunner`` → ``create_deep_agent``), so the handoff coding step
+runs on the canonical LangChain ``deepagents`` runtime like every other agent (INV-13).
 
-The agent NEVER executes shell commands or arbitrary code. Its only
-output is a JSON edit-plan; everything else is supervised by the
-pipeline.
+The agent NEVER executes shell commands or arbitrary code. Its only output is a JSON
+edit-plan (text-only, no tools); everything else — applying the edits with path-traversal
+validation, the commit/PR — is supervised by ``run_handoff_pipeline``.
+
+Bound in ``app.services.handoff_pipeline`` under the name ``CodingAgent`` (an alias) so the
+retained ``/api/handoff`` pipeline + its contract test seam are unchanged; the deleted bypass
+class is gone (the migration-ledger grep gate counts zero ``class``-defined bypass).
 """
 
 from __future__ import annotations
@@ -17,12 +23,9 @@ import logging
 import re
 from typing import Any
 
-from langchain_core.messages import HumanMessage, SystemMessage
-
-from app.agents.model_factory import build_model
 from app.core.config import settings
 
-logger = logging.getLogger("app.agents.handoff.coding")
+logger = logging.getLogger("app.agents.handoff.coder")
 
 
 def _extract_text(content: Any) -> str:
@@ -30,8 +33,8 @@ def _extract_text(content: Any) -> str:
 
     Anthropic returns a ``str``; Bedrock returns a list of content blocks
     (e.g. ``[{"type": "text", "text": "..."}]``). Mirrors
-    ``app.agents.deep_agent_runner._extract_text`` so this one-shot call decodes
-    model output identically to the agent runtime.
+    ``app.agents.deep_agent_runner._extract_text`` so the decoded output matches
+    the agent runtime exactly.
     """
     if isinstance(content, str):
         return content
@@ -110,7 +113,7 @@ def _extract_json(raw: str) -> dict[str, Any]:
     """Best-effort JSON extraction.
 
     The system prompt asks for "ONLY a valid JSON object", but real LLM
-    outputs occasionally arrive wrapped in ``” ``json`` fences or with a
+    outputs occasionally arrive wrapped in ``` ```json ``` fences or with a
     one-line preamble. We strip the fences, then fall back to grabbing
     the largest ``{...}`` span and parsing that. If both fail, the
     pipeline treats it as an agent error.
@@ -126,18 +129,24 @@ def _extract_json(raw: str) -> dict[str, Any]:
         pass
     match = _JSON_OBJECT_RE.search(text)
     if match is None:
-        raise ValueError("CodingAgent returned no JSON object")
+        raise ValueError("handoff coder returned no JSON object")
     return json.loads(match.group(0))
 
 
-class CodingAgent:
-    """Coding agent — Sonnet-preferred, structured edit-plan output."""
+class HandoffCoder:
+    """Handoff coder — produces a structured edit-plan through the deepagents runtime.
+
+    Sonnet-preferred (the ``BEDROCK_CODING_MODEL_ID`` operator override is honored).
+    The model invocation flows through the sanctioned ``DeepAgentRunner`` →
+    ``create_deep_agent`` runtime (INV-13) — NOT the deleted ``build_model().ainvoke``
+    bypass. Text-only (no tools): the agent emits the JSON edit-plan as its stream; the
+    pipeline applies it under path-traversal validation.
+    """
 
     def __init__(self) -> None:
-        # Resolution order for the coding model: explicit BEDROCK_CODING_MODEL_ID
-        # if set, otherwise fall back to the default profile (which is Haiku in
-        # the shipped config). This lets operators promote Sonnet without code
-        # changes — see app.core.config.Settings.BEDROCK_CODING_MODEL_ID.
+        # Resolution order for the coding model: explicit BEDROCK_CODING_MODEL_ID if
+        # set, otherwise the default profile (Haiku in the shipped config). Lets
+        # operators promote Sonnet without code changes (app.core.config.Settings).
         self._model_override = (settings.BEDROCK_CODING_MODEL_ID or "").strip() or None
         self._max_tokens = 16000
         self.system_prompt = _CODING_SYSTEM_PROMPT
@@ -149,10 +158,12 @@ class CodingAgent:
         relevant_files: dict[str, str],
         transcript_excerpt: str | None = None,
     ) -> dict[str, Any]:
-        """Run the agent and return a parsed edit plan."""
+        """Run the coder through the deepagents runtime and return a parsed edit plan."""
         context_lines: list[str] = [f"TASK\n----\n{task}"]
         if transcript_excerpt:
-            context_lines.append(f"\nRECENT IDE CONVERSATION\n-----------------------\n{transcript_excerpt[-4000:]}")
+            context_lines.append(
+                f"\nRECENT IDE CONVERSATION\n-----------------------\n{transcript_excerpt[-4000:]}"
+            )
         context_lines.append(f"\nREPOSITORY TREE\n---------------\n{repo_tree[:8000]}")
         for path, contents in relevant_files.items():
             snippet = contents
@@ -161,23 +172,47 @@ class CodingAgent:
             context_lines.append(f"\n=== FILE: {path} ===\n{snippet}")
 
         user_message = "\n".join(context_lines)
-        llm = build_model(model=self._model_override, max_tokens=self._max_tokens)
-        resp = await llm.ainvoke(
-            [
-                SystemMessage(content=self.system_prompt),
-                HumanMessage(content=user_message),
-            ]
+
+        # ── INV-13: run on the sanctioned deepagents runtime (create_deep_agent) ──
+        # A text-only DeepAgentRunner (no tools, no sandbox) — the same runtime every
+        # other agent uses — replaces the deleted build_model().ainvoke one-shot. We
+        # drive its event stream and accumulate the agent's chunked output, then parse
+        # the JSON edit-plan exactly as before. Lazy import keeps the module light.
+        from app.agents.deep_agent_runner import DeepAgentRunner
+
+        runner = DeepAgentRunner(
+            system_prompt=self.system_prompt,
+            tools=[],
+            model=self._model_override,
+            max_tokens=self._max_tokens,
+            exclude_builtin_tools=True,  # text-only: no fs/native tools, pure edit-plan stream
         )
-        raw = _extract_text(resp.content)
+
+        # The runner streams ``{"type":"chunk","chunk":str}`` tokens and a terminal
+        # ``{"type":"done","output":str}`` carrying the full accumulated text. Prefer the
+        # ``done`` output (the authoritative full message) and fall back to the joined
+        # chunks if no ``done`` arrived (defensive — an error event would raise upstream).
+        parts: list[str] = []
+        final_output: str | None = None
+        async for event in runner.astream_events(user_message):
+            etype = event.get("type")
+            if etype == "chunk":
+                parts.append(event.get("chunk", ""))
+            elif etype == "done":
+                final_output = event.get("output", "")
+            elif etype == "error":
+                raise RuntimeError(f"handoff coder runtime error: {event.get('error')}")
+        raw = final_output if final_output is not None else "".join(parts)
+
         try:
             plan = _extract_json(raw)
         except (json.JSONDecodeError, ValueError) as exc:
-            logger.warning("CodingAgent JSON parse failed: %s; raw=%s", exc, raw[:500])
+            logger.warning("handoff coder JSON parse failed: %s; raw=%s", exc, raw[:500])
             raise
 
         edits = plan.get("edits")
         if not isinstance(edits, list):
-            raise ValueError("CodingAgent edit-plan is missing 'edits' array")
+            raise ValueError("handoff coder edit-plan is missing 'edits' array")
         plan.setdefault("summary", "")
         plan.setdefault("rationale", "")
         plan.setdefault("tests_added", [])
