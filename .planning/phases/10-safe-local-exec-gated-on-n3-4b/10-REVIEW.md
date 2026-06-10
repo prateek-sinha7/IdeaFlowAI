@@ -1,15 +1,35 @@
 ---
-status: issues_found
+status: fixed
 phase: 10
 depth: standard
 reviewed: 2026-06-10
+fixed: 2026-06-10
 files_reviewed: 28
 findings:
   critical: 1
   warning: 4
   info: 2
   total: 7
+resolved:
+  fixed: 5
+  accepted: 2
 ---
+
+## Fix Resolution (2026-06-10)
+
+All Critical + Warning findings fixed in atomic commits; Info findings accepted as-is (consistent with existing patterns / acknowledged defense-in-depth).
+
+| Finding | Resolution | Commit |
+|---------|-----------|--------|
+| CR-01 | Fixed — `_make_exec_recorder` sync→async adapter at host seam; single keyword-only recorder contract; regression test drives the REAL adapter through allowed/denied/killed | `67abe33` |
+| WR-01 | Fixed — Popen + communicate; `os.killpg` on timeout; forking-grandchild group-kill test | `3be966d` |
+| WR-02 | Fixed — empty-argv guard records denial + raises PermissionError | `6eedf71` |
+| WR-04 | Fixed — terminal `(None, outcome)` sentinel so a zero-event block still halts; emitted event stream unchanged | `1328430` |
+| WR-03 | Documented — run-scoped exec authorization made explicit at host seam + `exec_granted` (D-03 SPEC-locked, by design) | `dd3de5e` |
+| IN-01 | Accepted — import-only registration matches existing audit-model pattern | — |
+| IN-02 | Accepted — compiler is the enforcement point; runtime echo acknowledged as intentional | — |
+
+Post-fix verification: targeted+parity suite 217 passed / 5 skipped; characterization byte/event-identical (`SNAPSHOT_UPDATE` unset); lint-imports 4 kept / 0 broken.
 
 # Phase 10: Code Review Report — Safe Local Exec (gated on N3)
 
