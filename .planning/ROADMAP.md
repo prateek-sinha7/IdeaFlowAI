@@ -326,12 +326,15 @@ Plans:
   1. `exec` runs only under the `security` gate + `ExecutionPolicy` (command allow/deny, resource caps, ephemeral creds); network egress denied by default
   2. compile/test/lint validators land and a sample compile/test validator passes
 
-**Plans**: TBD
+**Plans**: 5 plans
 
 Plans:
 
-- [ ] 10-01: Resolve N3 threat model; constrained `exec` profile behind the security gate
-- [ ] 10-02: compile/test/lint validators using gated exec
+- [ ] 10-01-PLAN.md — exec foundation: hardened argv exec_command + LocalExecutionPolicy caps + exec_runs audit (0018) [EXEC-01]
+- [ ] 10-02-PLAN.md — compile-time GRANT-PATH: trust-conditional ceiling + D-01 gates-required + plan.py forward-surface deletion (INV-12) [EXEC-01]
+- [ ] 10-03-PLAN.md — GATES: profile-conditional security pass + approval HITL (D-02/03/04) + §15 runtime workspace wiring [EXEC-01]
+- [ ] 10-04-PLAN.md — VALIDATORS: code_compile/test/lint + fixture repo + VALIDATOR-DENY + exec-granting sample manifest (EXEC-02) [EXEC-02]
+- [ ] 10-05-PLAN.md — DEBT+PARITY: IN-01/02/03 closure + N3-resolved flips + phase parity gate [EXEC-01, EXEC-02]
 
 ### Phase 11: Engine-Owned Fan-Out + Merge [5]
 
