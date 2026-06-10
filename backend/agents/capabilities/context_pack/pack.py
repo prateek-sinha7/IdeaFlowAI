@@ -27,6 +27,12 @@ from agents.capabilities.registry import register
 
 logger = logging.getLogger(__name__)
 
+# WR-02: asyncio holds only a WEAK reference to tasks — a bare
+# ``loop.create_task(...)`` can be garbage-collected before it runs, silently
+# dropping the lineage DB write. Retain a strong reference here until each
+# persist task completes (discarded via done-callback).
+_PENDING_LINEAGE_TASKS: set = set()
+
 # Documented cap: never pack more than this many neighbor files (keeps the subset
 # targeted — the whole point of the compaction analog).
 MAX_NEIGHBORS = 8
@@ -183,6 +189,9 @@ class ContextPack:
 
             try:
                 loop = asyncio.get_running_loop()
-                loop.create_task(_persist())
+                task = loop.create_task(_persist())
+                # Strong ref until done — asyncio only weak-refs tasks (WR-02).
+                _PENDING_LINEAGE_TASKS.add(task)
+                task.add_done_callback(_PENDING_LINEAGE_TASKS.discard)
             except RuntimeError:
                 asyncio.run(_persist())
