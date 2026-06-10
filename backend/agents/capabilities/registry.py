@@ -108,6 +108,7 @@ _KNOWN: set[tuple[str, str]] = {
     ("hook", "behavioral"),                # 08-05 / F3 (non-executable sub-type)
     ("hook", "secret_scan"),               # 08-07 / HOOK-01..04 (executable, blocking)
     ("hook", "otel_tracing"),              # 08-07 / OBS-02 (executable, non-blocking)
+    ("runtime_env", "local"),              # 09-01 / RUNTIME-01 — LocalSandboxRuntime (ECS-swap seam)
 }
 
 
@@ -222,8 +223,11 @@ def discover() -> None:
         "agents.capabilities.runtimes",
         "agents.capabilities.prompt",
         "agents.capabilities.validators",
-        # The only app-side capability package (heavy-dep validators, D-04).
+        # App-side capability packages (heavy-dep / app.*-reaching impls, D-04).
+        # The registry IMPORTS these to trigger their @register; the impls import
+        # the kernel PORT (the legal app->ports direction), never the reverse.
         "app.agents.validators",
+        "app.agents.runtime",  # 09-01 / RUNTIME-01 — LocalSandboxRuntime self-registers
     )
     for pkg in _forward_packages:
         try:

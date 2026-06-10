@@ -102,8 +102,12 @@ def test_exec_command_denied_under_default_policy(
 
 
 def test_default_execution_policy_denies_privileged_actions() -> None:
-    """The default ExecutionPolicy denies exec / network / secrets."""
-    policy = ExecutionPolicy()
+    """The default ExecutionPolicy (concrete impl) denies exec / network / secrets."""
+    from app.agents.runtime.local import LocalExecutionPolicy
+
+    policy = LocalExecutionPolicy()
+    # The concrete default satisfies the ExecutionPolicy port structurally.
+    assert isinstance(policy, ExecutionPolicy)
     assert policy.allows("exec") is False
     assert policy.allows("network") is False
     assert policy.allows("secrets") is False

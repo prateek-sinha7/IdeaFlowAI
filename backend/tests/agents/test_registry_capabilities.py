@@ -70,6 +70,7 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("hook", "behavioral"),                # 08-05 / F3
     ("hook", "secret_scan"),               # 08-07 / HOOK-01..04 (executable, blocking)
     ("hook", "otel_tracing"),              # 08-07 / OBS-02 (executable, non-blocking)
+    ("runtime_env", "local"),              # 09-01 / RUNTIME-01 — LocalSandboxRuntime (ECS-swap seam)
 ]
 
 
@@ -94,8 +95,8 @@ def test_unknown_kind_is_rejected(registry: CapabilityRegistry) -> None:
     assert registry.is_registered("bogus_kind", "single_shot") is False
 
 
-def test_registered_count_is_exactly_thirty_four() -> None:
-    # Drift guard: registering a 35th name (or dropping one) must trip this.
+def test_registered_count_is_exactly_thirty_five() -> None:
+    # Drift guard: registering a 36th name (or dropping one) must trip this.
     # 15 authoritative D-07 pairs + model_catalog (06-01) + post_step
     # revision_validation (07-10 / CR-06) = 16, plus the two 08-02 gate names
     # (approval/security) = 18, plus the four 08-03 tool-set names
@@ -104,8 +105,9 @@ def test_registered_count_is_exactly_thirty_four() -> None:
     # plus the one 08-05 runtime adapter (langchain_deepagents, F5) = 26, plus the
     # six 08-05 prompt/skill/hook capabilities (prompt:default F1; skill:ui/disk/
     # template/repo F3/SKILL-01; hook:behavioral F3) = 32, plus the two 08-07
-    # executable hooks (hook:secret_scan HOOK-01..04; hook:otel_tracing OBS-02) = 34.
-    assert len(_KNOWN) == 34
+    # executable hooks (hook:secret_scan HOOK-01..04; hook:otel_tracing OBS-02) = 34,
+    # plus the one 09-01 runtime backend (runtime_env:local, RUNTIME-01) = 35.
+    assert len(_KNOWN) == 35
     assert set(_KNOWN) == set(_EXPECTED_NAMES)
 
 
