@@ -387,19 +387,19 @@ if cancel_event and cancel_event.is_set():        # before the wave
 | A5 | `BudgetSnapshot` cost is stored as JSON (cost_class-weighted; € dormant) in `subagent_runs.cost` and the run snapshot. | Migration pattern | If a scalar numeric cost column is preferred, the schema differs. Column types are Claude's Discretion per CONTEXT. |
 | A6 | The sample fan-out fixture lives test-scoped (`tests/agents/fixtures/` + a `agents/workflows/<fixture>/`) like `sc001_task_loop`, NOT shipped as a production workflow. | SC-001 proof | If it must ship as a real workflow it'd add to `PIPELINE_AGENTS`/registry. D-08 locks it test-scoped — low risk. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Where does the `0019` migration ride in the 5-plan sequence?**
+1. **Where does the `0019` migration ride in the 5-plan sequence?** *(RESOLVED: 11-01 lands `0019` + ORM + ScopedStore writer in Task 1)*
    - What we know: ROADMAP sketch puts persistence in 11-05; but 11-01's `run_fanout` tests may need the table to write rows.
    - What's unclear: whether 11-01 should land `0019` early.
    - Recommendation: planner's call (D-09 explicitly permits re-cutting). If 11-01 tests assert a `subagent_runs` row, land `0019` + the ORM + ScopedStore writer in 11-01; otherwise 11-05. Either way the migration is additive and reversible.
 
-2. **Budget reserve seams needed by 11-01's `run_fanout`.**
+2. **Budget reserve seams needed by 11-01's `run_fanout`.** *(RESOLVED: stub-and-thread — `BudgetManager.reserve` stub seam in 11-01, enforcement in 11-04)*
    - What we know: `run_fanout` must `reserve()` before spawn, but `BudgetManager` is the ROADMAP's 11-04.
    - What's unclear: stub-and-thread vs reorder.
    - Recommendation: stub `BudgetManager.reserve` as a no-op-returning seam in 11-01 (so `run_fanout` has the call site), make it enforce in 11-04. Each plan must leave the characterization suite green (D-09).
 
-3. **`merge_agent` worker designation.**
+3. **`merge_agent` worker designation.** *(RESOLVED: 11-03 Task 2 — step's declared merge-agent worker, fall back to `human_gate` when none designated)*
    - What we know: `merge_agent` policy spawns "a designated merge worker bounded at 2."
    - What's unclear: how the merge worker agent is named/selected (a reserved agent id? a manifest field?).
    - Recommendation: planner decides — likely a named worker from `allowed_workers` or a convention agent id. Bound at 2 then fall back to `human_gate` is locked.
