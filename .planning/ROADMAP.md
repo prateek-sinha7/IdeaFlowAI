@@ -389,7 +389,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 6. Model Policy [1C] | 5/5 | Complete    | 2026-06-08 |
 | 7. Prototype as Manifest (Parity Proof) [2] | 11/11 | Complete    | 2026-06-09 |
 | 8. Capabilities Hardened [3] | 8/8 | Complete    | 2026-06-09 |
-| 9. Local Runtime + Repo (no exec) [4A] | 6/6 | Complete   | 2026-06-10 |
+| 9. Local Runtime + Repo (no exec) [4A] | 6/6 | Complete    | 2026-06-10 |
 | 10. Safe Local Exec [4B] | 0/2 | Not started | - |
 | 11. Fan-Out + Merge [5] | 0/5 | Not started | - |
 | 12. Wave Scheduler + Resume [6] | 0/3 | Not started | - |
