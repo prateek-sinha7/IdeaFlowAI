@@ -290,16 +290,16 @@ Plans:
   3. A sample repo workflow runs end-to-end locally with **no exec** and surfaces a diff; prototype unaffected
   4. `McpClientAdapter` + allow-listed famous-server catalog (scoped per-owner creds, security-gated for powerful servers); compiler validates `tools.mcp`; integration providers reachable from the unified runner path
 
-**Plans**: TBD
+**Plans**: 6 plans (sequential — `use_worktrees=false`; waves encode the true DAG)
 
 Plans:
 
-- [ ] 09-01: `RuntimeEnvironment`/`Workspace`/`ExecutionPolicy` ports (runtime/base.py) + `LocalSandboxRuntime` (local.py)
-- [ ] 09-02: `repositories`/`workspaces` rows; RunSandbox → git-off Workspace
-- [ ] 09-03: `RepoInventory` + `RepoIndex` (grep default) + `ContextPack` + `repo` context provider
-- [ ] 09-04: `repo_diff` deliverable resolver + sample brownfield workflow (no exec)
-- [ ] 09-05: `McpClientAdapter` + server catalog + `McpCapabilityRegistry` validation
-- [ ] 09-06: `integration_provider` capabilities (gitlab/github/jira/slack) + `integrations` scopes
+- [ ] 09-01-PLAN.md — `RuntimeEnvironment`/`Workspace`/`ExecutionPolicy`/`IsolationProvider` ports (kernel `agents/runtime/base.py`) + `LocalSandboxRuntime` (app-side `app/agents/runtime/local.py`) + the 4th import-linter contract (RUNTIME-01) [wave 1]
+- [ ] 09-02-PLAN.md — additive migration 0017 (`repositories`, down_revision 0016) + `repositories`/`kind=repo` `workspaces` rows + `RunSandbox` → `Workspace(has_git=False, exec=off)` refold (parity-gated) (RUNTIME-02/03) [wave 2]
+- [ ] 09-03-PLAN.md — `RepoInventory` + `RepoIndex` (grep default, tree-sitter behind the capability) + `ContextPack`/`context_selector` + `repo` `ContextProvider` (REPO-01/02/03) [wave 3]
+- [ ] 09-04-PLAN.md — `repo_diff` `DeliverableResolver` (reads `Workspace.git_diff`; diff-only) + the sample brownfield workflow (clone→branch→inventory→read/edit→diff, no exec) (REPO-04/05) [wave 4]
+- [ ] 09-05-PLAN.md — `McpClientAdapter` over `MultiServerMCPClient` (async-prewarm) + allow-listed `mcp_server` catalog + `McpCapabilityRegistry` compile-validation + the stdio stub server (MCP-01/02/03/04) [wave 5]
+- [ ] 09-06-PLAN.md — `integration_provider` capabilities (github/gitlab/jira/slack from `create_runner`) + `integrations` scopes + delete the `CodingAgent` handoff bypass (retain `/api/handoff`) (INTEG-01/02) [wave 6]
 
 ### Phase 10: Safe Local Exec (gated on N3) [4B]
 
