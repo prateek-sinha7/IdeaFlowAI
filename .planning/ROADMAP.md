@@ -368,7 +368,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 11-02-PLAN.md — Isolation: `sub_sandbox` + `worktree` on `LocalWorkspace` (single git-subprocess owner) + engine-decided scope selection (has_git→worktree else sub_sandbox, INV-7) + per-worker workspace binding in `run_fanout` (FANOUT-05) [wave 2]
+- [x] 11-02-PLAN.md — Isolation: `sub_sandbox` + `worktree` on `LocalWorkspace` (single git-subprocess owner) + engine-decided scope selection (has_git→worktree else sub_sandbox, INV-7) + per-worker workspace binding in `run_fanout` (FANOUT-05) [wave 2]
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -418,7 +418,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 8. Capabilities Hardened [3] | 8/8 | Complete    | 2026-06-09 |
 | 9. Local Runtime + Repo (no exec) [4A] | 6/6 | Complete    | 2026-06-10 |
 | 10. Safe Local Exec [4B] | 5/5 | Complete    | 2026-06-10 |
-| 11. Fan-Out + Merge [5] | 0/5 | Planned | - |
+| 11. Fan-Out + Merge [5] | 2/5 | In Progress|  |
 | 12. Wave Scheduler + Resume [6] | 0/3 | Not started | - |
 
 ---

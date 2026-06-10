@@ -120,7 +120,7 @@
 - [x] **FANOUT-02**: Kernel `run_fanout(requests, ctx)` funnels both declarative (`step.fanout`) and runtime (tool) entry points (§12) ✅ 11-01
 - [x] **FANOUT-03**: Worker selection — `agent="self"` (N copies) or a named worker from `allowed_workers` + registry (Q14) ✅ 11-01
 - [x] **FANOUT-04**: Mode parallel (capped `asyncio.gather`) or sequential; engine enforces `max_concurrency` (Q15) ✅ 11-01
-- [ ] **FANOUT-05**: `IsolationProvider.allocate(scope)` → shared_read | sub_sandbox | worktree; writes default isolated (Q20/Q34 — confirm N2)
+- [x] **FANOUT-05**: `IsolationProvider.allocate(scope)` → shared_read | sub_sandbox | worktree; writes default isolated (Q20/Q34 — confirm N2)
 - [ ] **FANOUT-06**: Results return both files/artifacts and a structured summary (Q16)
 - [ ] **FANOUT-07**: `MergeStrategy` integrates fragments (copy_disjoint/git_3way/json/html_fragment) (§13)
 - [ ] **FANOUT-08**: Merge-conflict flow — write a `merge_conflict` artifact + emit event; resolve per `on_conflict` policy (human_gate default | merge_agent (bounded) | partial | abort) (§13 / A6)
