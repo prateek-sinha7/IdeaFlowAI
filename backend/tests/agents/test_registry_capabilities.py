@@ -43,6 +43,9 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("validator", "spec_plan_coverage"),   # 08-04 / Tier#4
     ("validator", "task_done_when"),       # 08-04 / Tier#5
     ("validator", "design_quality"),       # 08-04 / Tier#6
+    ("validator", "code_compile"),         # 10-04 / EXEC-02 — py_compile via the exec handle
+    ("validator", "code_test"),            # 10-04 / EXEC-02 — pytest via the exec handle
+    ("validator", "code_lint"),            # 10-04 / EXEC-02 — ruff check via the exec handle
     ("deliverable", "single_file"),
     ("deliverable", "serialized_sandbox"),
     ("deliverable", "streamed_text"),
@@ -128,8 +131,10 @@ def test_registered_count_is_exactly_fifty() -> None:
     # REPO-04) = 40, plus the six 09-05 mcp_server catalog entries (github/gitlab/jira/
     # slack user_allowed=True + filesystem/postgres user_allowed=False, MCP-02) = 46,
     # plus the four 09-06 integration-provider bridges (github/gitlab/jira/slack
-    # user_allowed=True, INTEG-01) = 50.
-    assert len(_KNOWN) == 50
+    # user_allowed=True, INTEG-01) = 50, plus the three 10-04 code validators
+    # (validator:code_compile/code_test/code_lint, EXEC-02 — they reach exec only via
+    # the runner/workspace handle) = 53.
+    assert len(_KNOWN) == 53
     assert set(_KNOWN) == set(_EXPECTED_NAMES)
 
 

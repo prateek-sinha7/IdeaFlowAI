@@ -59,6 +59,7 @@ logger = logging.getLogger(__name__)
 #
 # strategy:        single_shot, task_loop
 # validator:       html_static, html_render, spec_plan_coverage, task_done_when, design_quality  (08-04)
+#                  code_compile, code_test, code_lint  (10-04 / EXEC-02 — exec via the handle)
 # deliverable:     single_file, serialized_sandbox, streamed_text, ppt
 # context_provider: opendesign, previous_run
 # task_parser:     heading_tasks
@@ -81,6 +82,9 @@ _KNOWN: set[tuple[str, str]] = {
     ("validator", "spec_plan_coverage"),   # 08-04 / Tier#4
     ("validator", "task_done_when"),       # 08-04 / Tier#5
     ("validator", "design_quality"),       # 08-04 / Tier#6 (warnings-first)
+    ("validator", "code_compile"),         # 10-04 / EXEC-02 — py_compile via the exec handle
+    ("validator", "code_test"),            # 10-04 / EXEC-02 — pytest via the exec handle
+    ("validator", "code_lint"),            # 10-04 / EXEC-02 — ruff check via the exec handle
     ("deliverable", "single_file"),
     ("deliverable", "serialized_sandbox"),
     ("deliverable", "streamed_text"),
@@ -226,6 +230,13 @@ def discover() -> None:
         # for the 08-02 gate (08-01 Issues-Encountered: keep severity import-light).
         "agents.capabilities.validators.spec_plan_coverage",
         "agents.capabilities.validators.task_done_when",
+        # 10-04 / EXEC-02 — the three code validators that drive gated exec. They
+        # reach exec ONLY via the runner/workspace handle (never spawn directly,
+        # never import app.*); kernel-side + pure-stdlib (the argv targets python/
+        # pytest/ruff run THROUGH the handle, so no heavy dep is imported here).
+        "agents.capabilities.validators.code_compile",
+        "agents.capabilities.validators.code_test",
+        "agents.capabilities.validators.code_lint",
         # 09-03 / repo-context capabilities (kernel-side, pure-stdlib — reach
         # git/disk only via ctx.runner/ctx.scoped_store handles).
         "agents.capabilities.repo_inventory.inventory",
