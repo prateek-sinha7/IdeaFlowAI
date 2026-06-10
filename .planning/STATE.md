@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-last_updated: "2026-06-10T22:18:00.014Z"
-last_activity: 2026-06-10 -- Phase 11 planning complete
+status: executing
+last_updated: "2026-06-11T00:00:00.000Z"
+last_activity: 2026-06-11 -- 11-01 complete (fan-out foundation)
 progress:
   total_phases: 12
   completed_phases: 10
-  total_plans: 56
-  completed_plans: 56
+  total_plans: 61
+  completed_plans: 57
   percent: 83
 ---
 
@@ -20,16 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-10)
 
 **Core value:** A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001).
-**Current focus:** Phase 11 — Fan-Out + Merge [5]
+**Current focus:** Phase 11 — engine-owned-fan-out-merge-5
 
 ## Current Position
 
-Phase: 11
-Plan: Not started
-Status: Ready to plan (Phase 10 verified 14/14 + UAT 7/7 passed + security 31/31 threats closed on 2026-06-10)
-Last activity: 2026-06-10 -- Phase 11 planning complete
+Phase: 11 (engine-owned-fan-out-merge-5) — EXECUTING
+Plan: 2 of 5
+Status: Executing Phase 11
+Last activity: 2026-06-11 -- 11-01 complete (fan-out foundation)
 
-Progress: [████████░░] 83% (10/12 phases complete; 56/56 mapped plans complete)
+Progress: [████████░░] 83% (10/12 phases complete; 57/61 mapped plans complete)
 
 ## Performance Metrics
 
@@ -110,6 +110,7 @@ Progress: [████████░░] 83% (10/12 phases complete; 56/56 map
 | Phase Phase 10 PP03 | ~22min | 2 tasks tasks | 5 files files |
 | Phase 10 P04 | 22min | 2 tasks | 9 files |
 | Phase 10 P05 | ~18min | 2 tasks | 7 files |
+| Phase 11 P01 | ~38min | 3 tasks | 20 files |
 
 ## Accumulated Context
 
@@ -184,6 +185,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 09]: 09-06 (INTEG-01/02 + D-09): integration_provider github/gitlab/jira/slack = THIN MCP-backed bridges onto the 09-05 catalog (ONE mechanism, no parallel SDK — D-08); resolve_integration_scopes() maps a granted integrations scope onto the EXACT mcp_server_configs/mcp_exposed_tools the existing async MCP prewarm consumes, so tools surface into create_runner via the identical McpClientAdapter path. Scopes default NONE (gitlab_read binds only gitlab read tools; 08-03 intersect gates the grant); run_capabilities records the active scopes + MCP servers + runtime per run (or None -> SQL NULL). _KNOWN 46->50. The CodingAgent build_model().ainvoke bypass (the INV-13 gap) is DELETED-by-alias: HandoffCoder (coder.py) produces the same JSON edit-plan via DeepAgentRunner -> create_deep_agent, exported as CodingAgent so the RETAINED /api/handoff routers + UserGithubCredential (ledger D10) + the handoff contract drive unchanged (grep class CodingAgent -> 0, ledger D9). 5-pipeline characterization byte/event-identical; lint 4/0; banned-pattern+ledger green. Phase 09 = 6/6 complete. Commits 3245f02/b17eeca.
 - [Phase Phase 10]: 10-03: tier-2 exec gate layer — profile-conditional security gate (file/builtin exec + approval declared + constrained profile PASS; network/secrets BLOCK byte-identical; exec without approval BLOCK D-01); approval gate on the ONE durable HITL mechanism (run_human_gate->_run_review_gate, D-02) with D-04 policy-snapshot payload (allow-list/caps/scrubbed-env/egress, no argv) + D-03 read_gate_events first-exec memory short-circuit; run_human_gate parameterized with payload (rides review_gate_ready output, payload=None byte-identical), read_gate_events best-effort handle; §15 host seam binds runtime_env('local') exec workspace onto KernelServices.workspace only for exec-granting plans (OSError-only degrade). 31 gate + 10 characterization byte/event-identical + 11 banned-pattern; lint 4/0. Commits 73453b8/3b77221.
 - [Phase ?]: 10-04: code validators reach exec only via the workspace handle; VALIDATOR-DENY refuses with zero spawns; exec_command stdout contract kept; _KNOWN 50->53; EXEC-02+SC-001 proven offline (zero engine edits); lint 4/0. Commits 9028e30/0ba4486.
+- [Phase 11]: 11-01 (FANOUT-01/02/03/04/10 — fan-out foundation): the SINGLE kernel `run_fanout` spawn path landed (agents/execution_engine/fanout.py) with BOTH entry points funneling through it (FANOUT-02): the declarative `fanout_batch` strategy (`@register("strategy","fanout_batch",user_allowed=True)`, import-pure — reaches run_fanout only via ctx.runner) and the runtime `spawn_subagents` tool (the engine's `_derive_fanout` parses the tool_result `{"fanout_request",...}` + fulfils via the same run_fanout, STRICTLY conditional on the tool name so non-fanout runs stay byte/event-identical, Pitfall 3). Worker selection (FANOUT-03): self/None → step agent ×count; named → allowed_workers ∩ registry (checked via runner.agent_exists, no direct registry import), a disallowed/unknown worker raises `FanoutError` BEFORE any spawn → zero subagent_runs rows. Modes (FANOUT-04): parallel under `asyncio.Semaphore(min(declared,4))` (engine caps regardless of manifest, T-11-01-02), sequential strict-ordered. `spawn_subagents` is `user_allowed=False` (CAP-03/T-11-01-01) + spawn-free (the `@tool` returns a JSON request ONLY — no concurrency/spawn import, T-11-01-04). Additive `0019 subagent_runs` (down_revision 0018, free-String isolation/status NO enum, named FK, reversible offline) + SubagentRun ORM + ScopedStore record/update/read (cross-owner read = ∅, FANOUT-10/T-11-01-03) + KernelServices record_subagent_run/run_fanout/run_worker (record_* clones record_exec_run best-effort degrade; workers carry NO gates/fix-loop, D-01). BudgetManager + defaults landed with `reserve()` a NO-OP STUB SEAM (call site present in run_fanout BEFORE any spawn; raising enforcement is 11-04/FANOUT-09, Pitfall 4). FanoutSpec.agent/count/workers + CompiledWorkflow.allowed_workers + manifest allowed_workers + compiler._compile_fanout materialization (the fanout key was in _ALLOWED_STEP_KEYS but never constructed — closed). Isolation fixed at `shared_read` (sub_sandbox/worktree = 11-02); merge is the trivial status-only pass-through (MergeStrategy + typed fragment artifacts = 11-03). _KNOWN 53→55; migration-ledger FANOUT-PERSIST CHECK row + ratchet synced. 5 characterization snapshots byte/event-identical (fanout DORMANT); INV-1 (zero kernel workflow-name branches) + banned-pattern green; lint-imports 4/0; 148 passed/6 skipped. Commits cdec230/903b704/26ee45c.
 - [Phase 10]: 10-05 (EXEC-01/EXEC-02 DEBT+PARITY — Phase 10 COMPLETE 5/5): Phase 9 review trio CLOSED. IN-03 repo_diff._split_per_file._flush keys an unparseable/quoted/rename diff --git header block under a synthetic __unparsed_N__ (per-call idx, distinct keys) instead of silently dropping a changed file — normal parseable path byte-identical, 4 RED→GREEN tests. IN-01 MCP-04 sign-off docstring near slack user_allowed=True (post_message = the ONE user-grantable WRITE, post-only scope, same gate/audit path) — comment-only, exposed_tools/user_allowed UNCHANGED (no behavior change). IN-02 subsumed by 10-01 argv/no-shell exec_command; recorded as a migration-ledger ☑ no-shell-exec grep ratchet (the banned-pattern test does NOT scan shell=True, RESEARCH A5) → grep shell=True = 0 over backend runtime+agents; test_migration_ledger _REQUIRED_ITEMS/expected synced in lockstep (Rule 3 blocking, the established ledger pattern). N3 ⚠️ threat-model blocker FLIPPED to RESOLVED in STATE.md + PROJECT.md citing 10-SPEC.md as the decision record (9 locked requirements shipped 10-01..10-05); IN-01/02/03 pending-todo cleared. Parity gate GREEN at the approved blocking-human checkpoint (orchestrator re-verified): characterization + migration-ledger + banned-patterns 44 passed/5 skipped, lint-imports 4/0, all 14 SPEC criteria map to green. Zero engine edits (SC-001). Commits 2285941/fc3efff/0fcbc84.
 
 ### Pending Todos
@@ -209,6 +211,8 @@ Open decision records to confirm before their phase (from plan §26):
 - CP-SAT scheduling · single-file fragment-merge · PR/commit push · DB-backed user workflows (REQUIREMENTS.md v2 / Out of Scope).
 
 ---
+*Last updated: 2026-06-11 — 11-01 COMPLETE (fan-out foundation, FANOUT-01/02/03/04/10): the single kernel run_fanout spawn path landed with both entry points (declarative fanout_batch strategy + runtime spawn_subagents request-emitter tool) funneling through it; self×N / named worker selection (disallowed rejected pre-spawn, zero rows); parallel (≤cap 4 via Semaphore) / sequential modes; additive 0019 subagent_runs (reversible, owner-scoped, cross-owner read = ∅) + SubagentRun ORM + ScopedStore writer/updater/reader + KernelServices handles; BudgetManager with reserve() stub seam (enforcement → 11-04); FanoutSpec/allowed_workers compiler materialization; _KNOWN 53→55. 5 characterization snapshots byte/event-identical (fanout dormant); INV-1 + banned-pattern + migration-ledger green; lint-imports 4/0; 148 passed/6 skipped. Commits cdec230/903b704/26ee45c. Next: 11-02 (isolation: sub_sandbox/worktree). — previous: Phase 10 UAT-COMPLETE*
+<!-- prior footer retained below for history -->
 *Last updated: 2026-06-10 — Phase 10 UAT-COMPLETE: /gsd-verify-work 10 ran all 7 technical UAT checkpoints autonomously (239 tests total: hardened exec layer 20 + shell=True grep 0, exec_runs audit 7, compiler trust/GRANT-PATH/D-01 37 + ExecutionPolicy.check grep 0, security/approval gates + §15 host seam 32, code validators + EXEC-02/SC-001 90 + validator-subprocess grep 0, review-trio + ledger ratchets 32 + N3-RESOLVED greps, invariants 21 + lint-imports 4/0) — 7/7 PASS, 0 issues, 10-UAT.md status complete. Security already verified (10-SECURITY.md 31/31 threats CLOSED, threats_open: 0). Phase 10 transition was already applied post-execution (ROADMAP [x] 5/5, PROJECT.md evolved); STATE reconciled to Ready-to-plan Phase 11 (Fan-Out + Merge). — previous: Phase 09 SECURED + UAT-COMPLETE*
 <!-- prior footer retained below for history -->
 *Last updated: 2026-06-10 — Phase 09 SECURED + UAT-COMPLETE: /gsd-secure-phase 9 wrote 09-SECURITY.md (28/28 plan-time threats CLOSED, threats_open: 0, evidence-verified — 104 targeted tests + lint-imports 4/0 + greps; 3 no-new-dep accepts logged); /gsd-verify-work 9 ran all 7 technical UAT checkpoints autonomously (211 tests total: local runtime 8, persistence+ledger 23, repo intelligence 18, brownfield E2E 7, MCP 19, integration+handoff 42 + CodingAgent grep 0, invariants 94 + lint 4/0) — 7/7 PASS, 0 issues, 09-UAT.md status complete. Phase 9 transition was already applied post-execution (ROADMAP [x], Phase 10 ready to plan — confirm N3 first). — previous: Phase 09 verified*

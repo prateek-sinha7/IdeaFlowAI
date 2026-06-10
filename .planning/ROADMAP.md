@@ -364,7 +364,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 11-01-PLAN.md — Fan-out foundation: kernel `run_fanout` (fanout.py, the single spawn path) + `spawn_subagents` request-emitter tool (capability + concrete, gated) + `fanout_batch` strategy + worker selection (self×N / `allowed_workers`) + parallel/sequential modes + `0019 subagent_runs` migration/ORM/ScopedStore + budget stub seam + engine tool-result derivation (FANOUT-01/02/03/04/10) [wave 1]
+- [x] 11-01-PLAN.md — Fan-out foundation: kernel `run_fanout` (fanout.py, the single spawn path) + `spawn_subagents` request-emitter tool (capability + concrete, gated) + `fanout_batch` strategy + worker selection (self×N / `allowed_workers`) + parallel/sequential modes + `0019 subagent_runs` migration/ORM/ScopedStore + budget stub seam + engine tool-result derivation (FANOUT-01/02/03/04/10) [wave 1] ✅ cdec230/903b704/26ee45c
 
 **Wave 2** *(blocked on Wave 1 completion)*
 

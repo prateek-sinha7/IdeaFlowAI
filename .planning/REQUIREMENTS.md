@@ -116,16 +116,16 @@
 
 ### Engine-Owned Fan-Out & Merge (Phase 5)
 
-- [ ] **FANOUT-01**: `spawn_subagents(tasks=[{agent,input}], mode=…)` tool bound only to steps granted `tools.spawn_subagents`; it emits a structured request — the kernel fulfils it (INV-7 / §6/§12)
-- [ ] **FANOUT-02**: Kernel `run_fanout(requests, ctx)` funnels both declarative (`step.fanout`) and runtime (tool) entry points (§12)
-- [ ] **FANOUT-03**: Worker selection — `agent="self"` (N copies) or a named worker from `allowed_workers` + registry (Q14)
-- [ ] **FANOUT-04**: Mode parallel (capped `asyncio.gather`) or sequential; engine enforces `max_concurrency` (Q15)
+- [x] **FANOUT-01**: `spawn_subagents(tasks=[{agent,input}], mode=…)` tool bound only to steps granted `tools.spawn_subagents`; it emits a structured request — the kernel fulfils it (INV-7 / §6/§12) ✅ 11-01
+- [x] **FANOUT-02**: Kernel `run_fanout(requests, ctx)` funnels both declarative (`step.fanout`) and runtime (tool) entry points (§12) ✅ 11-01
+- [x] **FANOUT-03**: Worker selection — `agent="self"` (N copies) or a named worker from `allowed_workers` + registry (Q14) ✅ 11-01
+- [x] **FANOUT-04**: Mode parallel (capped `asyncio.gather`) or sequential; engine enforces `max_concurrency` (Q15) ✅ 11-01
 - [ ] **FANOUT-05**: `IsolationProvider.allocate(scope)` → shared_read | sub_sandbox | worktree; writes default isolated (Q20/Q34 — confirm N2)
 - [ ] **FANOUT-06**: Results return both files/artifacts and a structured summary (Q16)
 - [ ] **FANOUT-07**: `MergeStrategy` integrates fragments (copy_disjoint/git_3way/json/html_fragment) (§13)
 - [ ] **FANOUT-08**: Merge-conflict flow — write a `merge_conflict` artifact + emit event; resolve per `on_conflict` policy (human_gate default | merge_agent (bounded) | partial | abort) (§13 / A6)
 - [ ] **FANOUT-09**: `BudgetManager` reserves-before-spawn and enforces total subagents, concurrency, tokens, cost, wall-clock, recursion, fan-out depth (`ctx.depth`); `BudgetExceeded` aborts gracefully with partial results (Q17/Q18/Q44)
-- [ ] **FANOUT-10**: Each child → a `subagent_runs` row; events `subagent_spawned`/`subagent_result`/`merge_*` (§12/§18)
+- [x] **FANOUT-10**: Each child → a `subagent_runs` row; events `subagent_spawned`/`subagent_result`/`merge_*` (§12/§18) ✅ 11-01 (subagent_runs row + subagent_spawned/subagent_result; merge_* lands 11-03)
 - [ ] **FANOUT-11**: Fan-out cancellation propagates to children (§21)
 
 ### Wave Scheduler & Durable Resume (Phase 6)
@@ -244,7 +244,7 @@ Each v1 requirement maps to exactly one phase. Phases are GSD integers 1–12, m
 | MCP-01, MCP-02, MCP-03, MCP-04 | Phase 9 [4A] | Done (09-05) |
 | INTEG-01, INTEG-02 | Phase 9 [4A] | Pending |
 | EXEC-01, EXEC-02 | Phase 10 [4B] | Pending |
-| FANOUT-01, FANOUT-02, FANOUT-03, FANOUT-04, FANOUT-05, FANOUT-06, FANOUT-07, FANOUT-08, FANOUT-09, FANOUT-10, FANOUT-11 | Phase 11 [5] | Pending |
+| FANOUT-01, FANOUT-02, FANOUT-03, FANOUT-04, FANOUT-10 (✅ 11-01); FANOUT-05, FANOUT-06, FANOUT-07, FANOUT-08, FANOUT-09, FANOUT-11 | Phase 11 [5] | In progress (5/11 complete) |
 | OBS-01 | Phase 11 [5] | Pending |
 | RESUME-01 | Phase 11 [5] | Pending |
 | WAVE-01, WAVE-02, WAVE-03 | Phase 12 [6] | Pending |
