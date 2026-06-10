@@ -291,14 +291,29 @@ Plans:
   4. `McpClientAdapter` + allow-listed famous-server catalog (scoped per-owner creds, security-gated for powerful servers); compiler validates `tools.mcp`; integration providers reachable from the unified runner path
 
 **Plans**: 6 plans (sequential — `use_worktrees=false`; waves encode the true DAG)
-
 Plans:
+**Wave 1**
 
 - [ ] 09-01-PLAN.md — `RuntimeEnvironment`/`Workspace`/`ExecutionPolicy`/`IsolationProvider` ports (kernel `agents/runtime/base.py`) + `LocalSandboxRuntime` (app-side `app/agents/runtime/local.py`) + the 4th import-linter contract (RUNTIME-01) [wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 09-02-PLAN.md — additive migration 0017 (`repositories`, down_revision 0016) + `repositories`/`kind=repo` `workspaces` rows + `RunSandbox` → `Workspace(has_git=False, exec=off)` refold (parity-gated) (RUNTIME-02/03) [wave 2]
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 09-03-PLAN.md — `RepoInventory` + `RepoIndex` (grep default, tree-sitter behind the capability) + `ContextPack`/`context_selector` + `repo` `ContextProvider` (REPO-01/02/03) [wave 3]
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 09-04-PLAN.md — `repo_diff` `DeliverableResolver` (reads `Workspace.git_diff`; diff-only) + the sample brownfield workflow (clone→branch→inventory→read/edit→diff, no exec) (REPO-04/05) [wave 4]
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 09-05-PLAN.md — `McpClientAdapter` over `MultiServerMCPClient` (async-prewarm) + allow-listed `mcp_server` catalog + `McpCapabilityRegistry` compile-validation + the stdio stub server (MCP-01/02/03/04) [wave 5]
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
 - [ ] 09-06-PLAN.md — `integration_provider` capabilities (github/gitlab/jira/slack from `create_runner`) + `integrations` scopes + delete the `CodingAgent` handoff bypass (retain `/api/handoff`) (INTEG-01/02) [wave 6]
 
 ### Phase 10: Safe Local Exec (gated on N3) [4B]
