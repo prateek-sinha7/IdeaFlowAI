@@ -58,6 +58,7 @@ logger = logging.getLogger(__name__)
 # ``tool``/``skill``/``hook``/``runtime`` kinds land their names in 08-02..08-07).
 #
 # strategy:        single_shot, task_loop
+# merge:           copy_disjoint, git_3way, json, html_fragment  (11-03 / FANOUT-07, user_allowed=True)
 # validator:       html_static, html_render, spec_plan_coverage, task_done_when, design_quality  (08-04)
 #                  code_compile, code_test, code_lint  (10-04 / EXEC-02 — exec via the handle)
 # deliverable:     single_file, serialized_sandbox, streamed_text, ppt
@@ -78,6 +79,10 @@ _KNOWN: set[tuple[str, str]] = {
     ("strategy", "single_shot"),
     ("strategy", "task_loop"),
     ("strategy", "fanout_batch"),      # 11-01 / FANOUT-02 (user_allowed=True)
+    ("merge", "copy_disjoint"),        # 11-03 / FANOUT-07 (user_allowed=True)
+    ("merge", "git_3way"),             # 11-03 / FANOUT-07 (user_allowed=True)
+    ("merge", "json"),                 # 11-03 / FANOUT-07 (user_allowed=True)
+    ("merge", "html_fragment"),        # 11-03 / FANOUT-07 (user_allowed=True)
     ("validator", "html_static"),
     ("validator", "html_render"),
     ("validator", "spec_plan_coverage"),   # 08-04 / Tier#4
@@ -216,6 +221,12 @@ def discover() -> None:
         "agents.capabilities.strategies.single_shot",
         "agents.capabilities.strategies.task_loop",
         "agents.capabilities.strategies.fanout_batch",  # 11-01 / FANOUT-02
+        # 11-03 / FANOUT-07 — the merge layer (port + 4 impls). Import-pure: each
+        # reaches git ONLY via the ctx.runner handle, never a capability-side subprocess.
+        "agents.capabilities.merge.copy_disjoint",
+        "agents.capabilities.merge.git_3way",
+        "agents.capabilities.merge.json_merge",
+        "agents.capabilities.merge.html_fragment",
         "agents.capabilities.task_parsers.heading_tasks",
         "agents.capabilities.deliverables.single_file",
         "agents.capabilities.deliverables.serialized_sandbox",

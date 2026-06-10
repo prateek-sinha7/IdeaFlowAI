@@ -531,6 +531,41 @@ class LocalWorkspace:
             except subprocess.CalledProcessError as exc:
                 logger.warning("worktree branch delete failed (%s)", exc)
 
+    def merge_worktree(self, branch: str, base_commit: str) -> dict:
+        """3-way merge a per-worker ``branch`` back into the base working branch (11-03).
+
+        Runs ``git merge --no-ff --no-commit <branch>`` via the ``_git`` owner (the
+        SINGLE git-subprocess owner — the merge NEVER runs capability-side, Phase-9
+        D-10). ``base_commit`` is the captured spawn-point merge-base (advisory — git
+        resolves the actual merge-base from history; recorded for provenance). Returns
+        a dict ``{"conflicts": [<rel paths>], "snippet": <truncated>}``: an EMPTY
+        ``conflicts`` list means the merge applied cleanly; a non-empty list names the
+        conflicting paths (parsed from ``git diff --name-only --diff-filter=U``) so the
+        caller reports them as first-class conflicts and NEVER silently overwrites the
+        base (T-11-03-01). On a conflict the merge is ABORTED (``git merge --abort``) so
+        the base working tree is left clean for the on_conflict policy to adjudicate.
+        """
+        try:
+            # --no-commit so a clean merge leaves the integration staged but uncommitted
+            # (the deliverable resolvers read the working tree); --no-ff keeps the merge
+            # explicit. A conflict exits non-zero → CalledProcessError below.
+            self._git("merge", "--no-ff", "--no-commit", branch)
+        except subprocess.CalledProcessError:
+            # Parse the unmerged (conflicting) paths, then abort so the base tree is
+            # restored clean for the on_conflict policy (human_gate / merge_agent / etc.).
+            conflicts: list[str] = []
+            try:
+                out = self._git("diff", "--name-only", "--diff-filter=U")
+                conflicts = [p for p in out.splitlines() if p.strip()]
+            except subprocess.CalledProcessError:
+                conflicts = [branch]  # could not enumerate — report the branch itself
+            try:
+                self._git("merge", "--abort")
+            except subprocess.CalledProcessError:
+                pass  # best-effort restore; the base may already be clean
+            return {"conflicts": conflicts, "snippet": ", ".join(conflicts)[:256]}
+        return {"conflicts": [], "snippet": ""}
+
 
 @register("runtime_env", "local")
 class LocalSandboxRuntime:

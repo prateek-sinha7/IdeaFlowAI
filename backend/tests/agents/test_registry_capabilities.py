@@ -39,6 +39,10 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("strategy", "single_shot"),
     ("strategy", "task_loop"),
     ("strategy", "fanout_batch"),          # 11-01 / FANOUT-02
+    ("merge", "copy_disjoint"),            # 11-03 / FANOUT-07 (user_allowed=True)
+    ("merge", "git_3way"),                 # 11-03 / FANOUT-07 (user_allowed=True)
+    ("merge", "json"),                     # 11-03 / FANOUT-07 (user_allowed=True)
+    ("merge", "html_fragment"),            # 11-03 / FANOUT-07 (user_allowed=True)
     ("validator", "html_static"),
     ("validator", "html_render"),
     ("validator", "spec_plan_coverage"),   # 08-04 / Tier#4
@@ -116,7 +120,7 @@ def test_unknown_kind_is_rejected(registry: CapabilityRegistry) -> None:
 
 
 def test_registered_count_is_exactly_fifty() -> None:
-    # Drift guard: registering a 51st name (or dropping one) must trip this.
+    # Drift guard: registering a 60th name (or dropping one) must trip this.
     # 15 authoritative D-07 pairs + model_catalog (06-01) + post_step
     # revision_validation (07-10 / CR-06) = 16, plus the two 08-02 gate names
     # (approval/security) = 18, plus the four 08-03 tool-set names
@@ -137,8 +141,9 @@ def test_registered_count_is_exactly_fifty() -> None:
     # (validator:code_compile/code_test/code_lint, EXEC-02 — they reach exec only via
     # the runner/workspace handle) = 53, plus the two 11-01 fan-out capabilities
     # (strategy:fanout_batch user_allowed=True FANOUT-02; tool:spawn_subagents
-    # user_allowed=False FANOUT-01) = 55.
-    assert len(_KNOWN) == 55
+    # user_allowed=False FANOUT-01) = 55, plus the four 11-03 merge strategies
+    # (merge:copy_disjoint/git_3way/json/html_fragment user_allowed=True FANOUT-07) = 59.
+    assert len(_KNOWN) == 59
     assert set(_KNOWN) == set(_EXPECTED_NAMES)
 
 

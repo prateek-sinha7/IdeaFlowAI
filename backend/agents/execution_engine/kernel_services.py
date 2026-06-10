@@ -487,6 +487,22 @@ class KernelServices:
         # on the single git owner); wrap the call so the async seam is uniform.
         return allocator(step, worker_index)
 
+    def git_3way_merge(self, branch: str, base_commit: str) -> dict:
+        """3-way merge a worker ``branch`` into the base via the git owner (11-03 / FANOUT-07).
+
+        The capability-facing seam the ``git_3way`` MergeStrategy reaches git through:
+        the strategy NEVER shells git (Pitfall 2 / Phase-9 D-10) — it calls THIS handle,
+        which delegates to the base ``LocalWorkspace.merge_worktree`` (the single
+        git-subprocess owner). Returns the merge_worktree result dict
+        (``{"conflicts": [...], "snippet": ...}``). When no base workspace is bound
+        (offline harness) returns a clean empty result so the merge degrades gracefully.
+        """
+        base = self.workspace
+        merge_fn = getattr(base, "merge_worktree", None) if base is not None else None
+        if merge_fn is None:
+            return {"conflicts": [], "snippet": ""}
+        return merge_fn(branch, base_commit)
+
     async def reclaim_isolated_workspace(self, base_workspace: Any, worker_ws: Any) -> None:
         """Reclaim a per-worker isolated workspace (worktree remove / child rmtree).
 
