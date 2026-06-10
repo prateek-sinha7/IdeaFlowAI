@@ -330,7 +330,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 10-01-PLAN.md — exec foundation: hardened argv exec_command + LocalExecutionPolicy caps + exec_runs audit (0018) [EXEC-01]
+- [x] 10-01-PLAN.md — exec foundation: hardened argv exec_command + LocalExecutionPolicy caps + exec_runs audit (0018) [EXEC-01] (completed 2026-06-10)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
