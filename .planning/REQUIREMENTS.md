@@ -101,8 +101,8 @@
 ### Local Workspace Runtime & Repo Workflows — No Exec (Phase 4A)
 
 - [x] **RUNTIME-01**: `RuntimeEnvironment` port (read/write/search/exec_command/clone_repo/create_branch/git_diff/teardown) + `LocalSandboxRuntime` impl over the per-run disk dir (§6/§14) — done 09-01
-- [ ] **RUNTIME-02**: One `Workspace` abstraction (fs + optional git + optional exec + `ExecutionPolicy`); prototype's `RunSandbox` becomes a `has_git=False, exec=off` Workspace — no engine fork repo-vs-artifact (R3/§14)
-- [ ] **RUNTIME-03**: `repositories` + `workspaces` rows persisted (§18)
+- [x] **RUNTIME-02**: One `Workspace` abstraction (fs + optional git + optional exec + `ExecutionPolicy`); prototype's `RunSandbox` becomes a `has_git=False, exec=off` Workspace — no engine fork repo-vs-artifact (R3/§14)
+- [x] **RUNTIME-03**: `repositories` + `workspaces` rows persisted (§18)
 - [ ] **REPO-01**: `RepoInventory` (`kind=repo_inventory`) — file tree, language stats, dependency graph, ignore rules (`.gitignore` + `.flowinignore`), binary-file skip, size caps, optional summaries (§15)
 - [ ] **REPO-02**: `RepoIndex` (optional, large repos) behind a port; default grep/glob for small repos; threshold = N6 (§15 — confirm N6/N10)
 - [ ] **REPO-03**: `ContextPack` (`kind=context_pack`) — targeted per-task subset via a `context_selector` capability, lineage-tracked; surfaced via the `repo` context provider (§15)
@@ -239,7 +239,7 @@ Each v1 requirement maps to exactly one phase. Phases are GSD integers 1–12, m
 | HOOK-01, HOOK-02, HOOK-03, HOOK-04 | Phase 8 [3] | Done (08-07) |
 | OBS-02 | Phase 8 [3] | Done (08-07) |
 | API-02, API-03, API-06 | Phase 8 [3] | Done (08-08; API-06 human-verified) |
-| RUNTIME-01, RUNTIME-02, RUNTIME-03 | Phase 9 [4A] | Pending |
+| RUNTIME-01, RUNTIME-02, RUNTIME-03 | Phase 9 [4A] | Done (09-01/09-02) |
 | REPO-01, REPO-02, REPO-03, REPO-04, REPO-05 | Phase 9 [4A] | Pending |
 | MCP-01, MCP-02, MCP-03, MCP-04 | Phase 9 [4A] | Pending |
 | INTEG-01, INTEG-02 | Phase 9 [4A] | Pending |

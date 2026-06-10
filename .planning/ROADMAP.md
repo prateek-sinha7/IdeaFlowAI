@@ -298,7 +298,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 09-02-PLAN.md — additive migration 0017 (`repositories`, down_revision 0016) + `repositories`/`kind=repo` `workspaces` rows + `RunSandbox` → `Workspace(has_git=False, exec=off)` refold (parity-gated) (RUNTIME-02/03) [wave 2]
+- [x] 09-02-PLAN.md — additive migration 0017 (`repositories`, down_revision 0016) + `repositories`/`kind=repo` `workspaces` rows + `RunSandbox` → `Workspace(has_git=False, exec=off)` refold (parity-gated) (RUNTIME-02/03) [wave 2] — DONE 2026-06-10 (2 tasks; 0017 reversible offline; ScopedStore.create_repository one-repo+one-kind=repo-workspace + cross-owner PermissionError; no `if repo:` fork; 5 characterization snapshots byte/event-identical, SNAPSHOT_UPDATE UNSET; lint 4/0; ledger R1 green)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
