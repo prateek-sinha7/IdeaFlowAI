@@ -1,0 +1,43 @@
+# sample_exec_workflow — the EXEC-02 PROOF manifest (10-04).
+#
+# A BRAND-NEW, NON-prototype workflow defined by manifest + AGENT.md ONLY that
+# GRANTS exec on its build step and declares the code validators that drive gated
+# exec — proving the legitimate authoring path (GRANT-PATH + D-01) end-to-end
+# OFFLINE with ZERO edits under backend/agents/execution_engine/ (SC-001 discipline:
+# a new exec-capable workflow gains exec by manifest only; the kernel knows no
+# workflow by name, all power lives in the registered capabilities).
+#
+# The build step:
+#   * grants ``tools: {exec: true}`` — engineer-only (file/builtin trust); a user/db
+#     manifest granting exec is a CompilerError (10-02 / T-10-02-01);
+#   * declares ``gates: [security, approval]`` — D-01 GATES-REQUIRED: an exec-granting
+#     step MUST declare BOTH gates; the compiler raises if either is missing, it NEVER
+#     auto-injects them (T-10-02-03);
+#   * declares ``validators: [code_compile, code_test, code_lint]`` (10-04 / EXEC-02)
+#     — the three code validators that reach exec ONLY via the runner/workspace handle.
+#
+# This is a TEST FIXTURE proving the authoring path — NOT a shipped workflow. It is
+# NOT added to any production registry/catalog.
+id: sample_exec_workflow
+version: 1
+planner: run
+clarify:
+  mode: auto
+  defaults: []
+deliverable:
+  strategy: single_file
+  name: app.py
+context_providers: []
+seed_files: {}
+steps:
+  - agent: exec-spec
+    strategy: single_shot
+    gates: []
+  - agent: exec-build
+    strategy: single_shot
+    gates: [security, approval]
+    tools:
+      read_files: true
+      write_files: true
+      exec: true
+    validators: [code_compile, code_test, code_lint]
