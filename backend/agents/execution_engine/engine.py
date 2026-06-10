@@ -699,6 +699,36 @@ class ExecutionEngine:
                 _const_exc,
             )
 
+        # ── MCP/integration tool pre-warm at run entry (09-05 / MCP-01) ──────────────
+        # The SAME async→sync resolution as the Constitution pre-warm above: the factory
+        # tool-resolution (_resolve_runner_tools) is SYNC and runs under THIS running
+        # event loop, but McpClientAdapter.get_tools() is ASYNC. We connect + await the
+        # tools ONCE here, before any sync create_runner, and stash them on the per-run
+        # context (ectx.prewarmed_mcp_tools); each per-agent AgentContext carries the list
+        # so the factory UNIONS them WITHOUT awaiting (no double-loop, Pitfall 3). The
+        # tools AUGMENT the deepagents runtime, never replace it (INV-13). Best-effort:
+        # the offline characterization harness activates no MCP scope → the list stays
+        # empty (graceful no-op) and the 5 snapshots stay byte-identical. The per-run MCP
+        # scope/credential wiring (which servers a run activates) is supplied by the
+        # run-entry host (the §15 binding seam, like the RepoSpec injection in 09-04);
+        # absent any active scope this pre-warm is a no-op.
+        if not hasattr(ectx, "prewarmed_mcp_tools"):
+            ectx.prewarmed_mcp_tools = []
+        try:
+            _mcp_configs = getattr(ectx, "mcp_server_configs", None)
+            if _mcp_configs:
+                from app.agents.mcp.client import McpClientAdapter
+
+                _mcp_allowed = getattr(ectx, "mcp_exposed_tools", None)
+                _adapter = McpClientAdapter(_mcp_configs)
+                ectx.prewarmed_mcp_tools = await _adapter.get_tools(allowed=_mcp_allowed)
+        except Exception as _mcp_exc:  # noqa: BLE001 — never break a run on the pre-warm
+            logger.warning(
+                "execute(): MCP tool pre-warm failed (%s) — proceeding without "
+                "pre-warmed MCP tools (graceful no-op)",
+                _mcp_exc,
+            )
+
         # ── Step 1: Validate the DAG ──────────────────────────────────────
         validation = self._resolver.validate(agents)
         yield {
@@ -1431,6 +1461,11 @@ class ExecutionEngine:
                 # Constitution under this running event loop WITHOUT awaiting (the R12
                 # no-op fix). None when none is set → graceful no-op (parity).
                 prewarmed_constitution=ectx.prewarmed_constitution,
+                # prewarmed_mcp_tools (09-05 / MCP-01): the MCP/integration tools bound
+                # ONCE at run entry (above) so the SYNC factory unions them into the runner
+                # tool set under this running loop WITHOUT awaiting. Empty when no MCP
+                # scope is active → graceful no-op (parity; snapshots byte-identical).
+                prewarmed_mcp_tools=list(getattr(ectx, "prewarmed_mcp_tools", None) or []),
             )
 
             # Capture the resolved primary model ID *now*, before create_runner — it is

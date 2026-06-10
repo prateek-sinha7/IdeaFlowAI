@@ -60,6 +60,15 @@ class AgentContext:
     # F4 / R12 — the production no-op fix). None ⇒ no Constitution set (graceful no-op,
     # matching the characterization runs which carry none → snapshots byte-identical).
     prewarmed_constitution: str | None = None
+    # prewarmed_mcp_tools: the MCP/integration tools bound at the async engine
+    # run-entry (the SAME seam as prewarmed_constitution) and stashed here so the
+    # SYNC factory UNIONS them into the runner tool set WITHOUT awaiting inside the
+    # running loop (09-05 / MCP-01 — the async→sync binding resolution, R-D). The
+    # McpClientAdapter awaits get_tools() ONCE at run-entry; the factory only reads.
+    # Empty ⇒ no MCP scope active (graceful no-op; the characterization runs carry
+    # none → snapshots byte-identical, exactly like the Constitution no-op). These
+    # tools AUGMENT the deepagents runtime, they never replace it (INV-13).
+    prewarmed_mcp_tools: list = field(default_factory=list)
 
 
 class TemplateMissingError(Exception):
@@ -490,8 +499,20 @@ def _resolve_runner_tools(spec, ctx: AgentContext) -> tuple[list, bool]:
     """
     from agents.capabilities.registry import CapabilityRegistry, discover
 
-    # Empty tool set ⇒ pure-text agent: no custom tools, hide all native tools.
+    # Pre-warmed MCP/integration tools (09-05 / MCP-01): bound at the async engine
+    # run-entry and stashed on ctx.prewarmed_mcp_tools. The SYNC factory only READS
+    # them here and UNIONS them into custom_tools — NO await and NO re-entrant event
+    # loop inside the running loop (Pitfall 3 double-loop). They are already-instantiated
+    # LangChain BaseTools, so they bypass the key→impl resolution (which is for the
+    # registered tool_provider keys). Empty ⇒ no MCP scope active (graceful no-op).
+    mcp_tools = list(getattr(ctx, "prewarmed_mcp_tools", None) or [])
+
+    # Empty tool set ⇒ pure-text agent EXCEPT when MCP tools are pre-warmed: those
+    # must still bind (and they need the native tool surface available, so the agent
+    # can actually call them — flip exclude_builtin off when any MCP tool is bound).
     if not spec.tools:
+        if mcp_tools:
+            return (mcp_tools, False)
         return ([], True)
 
     discover()  # ensure the tool_provider impls are bound (idempotent)
@@ -511,4 +532,10 @@ def _resolve_runner_tools(spec, ctx: AgentContext) -> tuple[list, bool]:
         # builtin tools only if EVERY granted set excludes them (AND).
         exclude = exclude and set_exclude
 
-    return (_resolve_custom_tool_keys(custom_keys), exclude)
+    resolved = _resolve_custom_tool_keys(custom_keys)
+    # Union the pre-warmed MCP tools after the registered keys (a pre-bound MCP tool
+    # needs the native fs surface, so it flips exclude off too — INV-13 augment).
+    if mcp_tools:
+        resolved = list(resolved) + mcp_tools
+        exclude = False
+    return (resolved, exclude)
