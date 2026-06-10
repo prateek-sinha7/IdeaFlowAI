@@ -74,19 +74,44 @@ class McpClientAdapter:
         if allowed is None:
             return list(tools)
 
-        # Flatten the per-server allow-list to the set of permitted tool names. The
-        # langchain-mcp-adapters tool ``name`` is the bare MCP tool name (the
-        # client may also expose a server-prefixed alias); accept either form so a
-        # ``server.tool`` reference and a bare ``tool`` reference both match.
-        permitted: set[str] = set()
-        for server, names in allowed.items():
-            for n in names:
-                permitted.add(n)
-                permitted.add(f"{server}.{n}")
-                permitted.add(f"{server}__{n}")
-        bound = [t for t in tools if getattr(t, "name", None) in permitted]
+        # Match on the BARE MCP tool name robustly: langchain-mcp-adapters tool
+        # naming is version-dependent (bare name today; some versions/adapters
+        # emit a server-prefixed alias such as ``server.tool``, ``server__tool``,
+        # ``server-tool`` or ``server:tool``). Strip a known server prefix before
+        # comparing so an alternate adapter version cannot silently drop every
+        # tool (WR-05).
+        permitted_bare: set[str] = set()
+        for names in allowed.values():
+            permitted_bare.update(names)
+        _PREFIX_SEPS = ("__", ".", "-", ":")
+
+        def _is_permitted(tool_name: str | None) -> bool:
+            if not tool_name:
+                return False
+            if tool_name in permitted_bare:
+                return True
+            for server, names in allowed.items():
+                for sep in _PREFIX_SEPS:
+                    prefix = f"{server}{sep}"
+                    if tool_name.startswith(prefix) and tool_name[len(prefix):] in names:
+                        return True
+            return False
+
+        bound = [t for t in tools if _is_permitted(getattr(t, "name", None))]
         dropped = len(tools) - len(bound)
-        if dropped:
+        if tools and not bound:
+            # A TOTAL over-drop is indistinguishable from "no scope active" at
+            # INFO — surface it loudly so a naming-scheme drift in the adapter
+            # (every connected tool filtered out) is visible (WR-05).
+            logger.warning(
+                "McpClientAdapter.get_tools: allow-list filtered out ALL %d "
+                "connected tool(s) (allowed=%s, connected=%s) — the run proceeds "
+                "with ZERO MCP tools; check for an adapter tool-naming mismatch",
+                len(tools),
+                {s: sorted(n) for s, n in allowed.items()},
+                sorted(getattr(t, "name", "?") for t in tools),
+            )
+        elif dropped:
             logger.info(
                 "McpClientAdapter.get_tools: filtered %d tool(s) not in the "
                 "exposed-tool allow-list (kept %d)",
