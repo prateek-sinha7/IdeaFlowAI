@@ -182,6 +182,12 @@ class KernelServices:
         self._model_id = model_id
         self._results = results
         self.cancel_event = cancel_event
+        # The exec-granted Workspace bound by 10-02's host seam (the §15 wiring):
+        # validators reach exec via ``target.runner.workspace.exec_command(argv)``.
+        # Declared here so the attribute always exists; stays None until an
+        # exec-granted plan provisions a workspace in 10-02 (parity: dormant for
+        # every existing non-exec run).
+        self.workspace = None
 
     # ── Run-scoped passthroughs (attributes the capabilities read) ────────────
     @property
@@ -345,6 +351,50 @@ class KernelServices:
             logger.warning(
                 "record_hook_run(hook=%s event=%s outcome=%s) failed: %s",
                 hook, event, outcome, exc,
+            )
+            return None
+
+    # ── Exec-invocation audit write (10 / EXEC-01 / T-10-01-07) ────────────────
+    async def record_exec_run(
+        self,
+        step: str,
+        argv: Any,
+        outcome: str,
+        *,
+        exit_code: int | None = None,
+        duration_ms: int | None = None,
+        policy_snapshot: Any = None,
+        output_digest: str | None = None,
+    ) -> str | None:
+        """Write one owner/workspace-scoped ``exec_runs`` row for an exec outcome.
+
+        Reached by the workspace recorder callback wired in 10-02's host seam, so
+        EVERY ``exec_command`` outcome (allowed / denied / killed) is audited at the
+        enforcement point — bypass-proof regardless of caller (T-10-01-07).
+        Delegates to the per-run ``ScopedStore`` so the row carries the run's
+        ``(owner_id, workspace_id)`` (AUTHZ-01 / T-10-01-08). ``outcome`` ∈
+        ``allowed | denied | killed``. Best-effort — a persist failure (offline
+        harness / no FK row) degrades to ``None`` rather than aborting the exec or
+        the run (Pitfall 6 / INV-3 parity: audit must never break the live stream).
+        """
+        store = getattr(self._ectx, "scoped_store", None)
+        if store is None:
+            return None
+        try:
+            return await store.record_exec_run(
+                self.run_id,
+                step,
+                argv,
+                outcome,
+                exit_code=exit_code,
+                duration_ms=duration_ms,
+                policy_snapshot=policy_snapshot,
+                output_digest=output_digest,
+            )
+        except Exception as exc:  # noqa: BLE001 — audit must NEVER abort the run
+            logger.warning(
+                "record_exec_run(step=%s outcome=%s) failed: %s",
+                step, outcome, exc,
             )
             return None
 

@@ -831,6 +831,76 @@ class ScopedStore:
                 session.close()
 
     # ------------------------------------------------------------------
+    # Phase-10 exec audit table — owner/workspace-scoped writes (EXEC-01)
+    #
+    # exec_runs carries owner_id + workspace_id (AUTHZ-01); every write stamps the
+    # helper principal so the default-deny read filter (_scope_owner_ws) scopes
+    # them. The writer is reached at the exec_command enforcement point via the
+    # workspace recorder callback (KernelServices.record_exec_run), so EVERY exec
+    # outcome (allowed/denied/killed) is audited bypass-proof (T-10-01-07).
+    # ------------------------------------------------------------------
+
+    async def record_exec_run(
+        self,
+        run_id: str,
+        step: str,
+        argv: Any,
+        outcome: str,
+        *,
+        exit_code: int | None = None,
+        duration_ms: int | None = None,
+        policy_snapshot: Any = None,
+        output_digest: str | None = None,
+    ) -> str:
+        """Insert one ``exec_runs`` row stamped with the helper principal (EXEC-01).
+
+        ``outcome`` ∈ ``allowed | denied | killed``. The row carries owner_id +
+        workspace_id so a cross-owner read returns nothing (default-deny,
+        T-10-01-08). ``argv`` is the argv LIST (never a shell string — the IN-02
+        fix); ``output_digest`` is a TRUNCATED digest, never raw child output
+        (T-10-01-03 / T-10-01-06). Returns the row id.
+        """
+        from app.models.exec_runs import ExecRun
+
+        session, owned = self._acquire()
+        try:
+            row = ExecRun(
+                id=str(uuid.uuid4()),
+                run_id=run_id,
+                owner_id=self._owner_id,
+                workspace_id=self._workspace_id,
+                step=step,
+                argv_json=list(argv) if argv is not None else [],
+                outcome=outcome,
+                exit_code=exit_code,
+                duration_ms=duration_ms,
+                policy_snapshot_json=policy_snapshot,
+                output_digest=output_digest,
+            )
+            session.add(row)
+            session.commit()
+            return row.id
+        finally:
+            if owned:
+                session.close()
+
+    async def read_exec_runs(self, run_id: str) -> list[Any]:
+        """Return the run's owner+workspace-scoped ``exec_runs`` rows (default-deny).
+
+        A cross-owner read returns nothing → the T-10-01-08 mitigation proof.
+        """
+        from app.models.exec_runs import ExecRun
+
+        session, owned = self._acquire()
+        try:
+            query = session.query(ExecRun).filter(ExecRun.run_id == run_id)
+            query = self._scope_owner_ws(query, ExecRun)
+            return query.order_by(ExecRun.created_at.asc()).all()
+        finally:
+            if owned:
+                session.close()
+
+    # ------------------------------------------------------------------
     # assert_owns — the relocated L16 seam, now a real store lookup (D-07)
     # ------------------------------------------------------------------
 
