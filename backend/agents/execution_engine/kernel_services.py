@@ -458,6 +458,57 @@ class KernelServices:
         except Exception as exc:  # noqa: BLE001 — audit must NEVER abort the run
             logger.warning("update_subagent_run(row=%s) failed: %s", row_id, exc)
 
+    # ── Isolated-workspace alloc/reclaim handle (Phase 11 / FANOUT-05) ─────────
+    async def allocate_isolated_workspace(
+        self, scope: str, step: str, *, worker_index: int
+    ) -> Any:
+        """Allocate a per-worker isolated ``Workspace`` for ``scope`` (FANOUT-05).
+
+        The capability/engine-facing seam to the ``LocalWorkspace`` git owner: the
+        kernel ``run_fanout`` reaches the Task-1 ``allocate_sub_sandbox`` /
+        ``allocate_worktree`` THROUGH this handle (never importing the app-side impl).
+        ``scope`` is engine-selected upstream (``worktree`` for a repo run, else
+        ``sub_sandbox``) — this method only delegates to the matching allocator on the
+        run's bound ``workspace``. Returns ``None`` when no base workspace is bound
+        (offline harness / non-exec run) so the caller degrades to shared_read.
+        """
+        base = self.workspace
+        if base is None:
+            return None
+        if scope == "worktree":
+            allocator = getattr(base, "allocate_worktree", None)
+        elif scope == "sub_sandbox":
+            allocator = getattr(base, "allocate_sub_sandbox", None)
+        else:
+            allocator = None
+        if allocator is None:
+            return None
+        # The Task-1 allocators are synchronous (the git subprocess / mkdir run inline
+        # on the single git owner); wrap the call so the async seam is uniform.
+        return allocator(step, worker_index)
+
+    async def reclaim_isolated_workspace(self, base_workspace: Any, worker_ws: Any) -> None:
+        """Reclaim a per-worker isolated workspace (worktree remove / child rmtree).
+
+        A ``worktree`` workspace is removed via the base workspace's ``remove_worktree``
+        (the single git owner — git worktree remove + branch delete); a ``sub_sandbox``
+        child is removed via its own ``teardown`` (child-dir rmtree). Detected by the
+        ``_worktree_branch`` stamp the Task-1 ``allocate_worktree`` sets. Best-effort —
+        a teardown failure must never abort the run (the kernel ``run_fanout`` already
+        wraps this, but the discrimination lives here next to the alloc).
+        """
+        if worker_ws is None:
+            return
+        if getattr(worker_ws, "_worktree_branch", None) is not None:
+            base = base_workspace if base_workspace is not None else self.workspace
+            remove = getattr(base, "remove_worktree", None) if base is not None else None
+            if remove is not None:
+                remove(worker_ws)
+        else:
+            teardown = getattr(worker_ws, "teardown", None)
+            if teardown is not None:
+                teardown()
+
     # ── Fan-out spawn handle (Phase 11 / FANOUT-02) ────────────────────────────
     async def run_fanout(
         self, requests: list, ctx: Any, *, step: Any
@@ -484,20 +535,29 @@ class KernelServices:
         thread_id: str,
         agent_id: str,
         input: str,
+        workspace: Any = None,
     ) -> AsyncIterator[dict]:
-        """Run ONE fan-out worker against its allocated workspace (FANOUT-04).
+        """Run ONE fan-out worker against its allocated isolated workspace (FANOUT-04/05).
 
         Wraps ``run_agent`` to run a single worker for the resolved ``agent_id`` with
         the per-worker ``thread_id``. Workers carry NO gates + NO per-worker fix-loop
         (D-01 — the kernel orchestrates the fan-out itself; the worker is a plain agent
         run). Re-yields the ``_run_agent`` events; the caller (``run_fanout``) consumes
         them lifecycle-only (it does NOT forward child chunk events — D-03).
+
+        ``workspace`` is the engine-allocated isolated workspace (11-02 / FANOUT-05):
+        the worker's writes land in it so two parallel workers cannot cross-contaminate
+        before the 11-03 merge. It is bound onto the worker step view (the run-one-agent
+        primitive reads it when present); ``None`` keeps the 11-01 shared-workspace
+        behavior byte-identical for the non-isolated / offline path.
         """
         # A worker runs the resolved worker agent. When the worker IS the step's own
         # agent (self×N) the step is reused as-is; for a NAMED worker we run that
         # agent via a lightweight step view carrying its agent_id (the spec lookup in
-        # run_agent resolves it from the run's ordered agents).
-        if getattr(step, "agent_id", None) == agent_id:
+        # run_agent resolves it from the run's ordered agents). The allocated isolated
+        # workspace is bound on the (always-fresh) worker step view so the per-worker
+        # write isolation rides the step without mutating the shared parent step.
+        if getattr(step, "agent_id", None) == agent_id and workspace is None:
             worker_step = step
         else:
             worker_step = SimpleNamespace(
@@ -509,6 +569,7 @@ class KernelServices:
                 post_step=None,
                 tools=getattr(step, "tools", None),
                 fanout=None,
+                isolated_workspace=workspace,
             )
 
         async for event in self.run_agent(

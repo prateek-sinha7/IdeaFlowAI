@@ -25,6 +25,11 @@ from types import SimpleNamespace
 
 import pytest
 
+from agents.execution_engine.budget import BudgetManager
+from agents.execution_engine.fanout import (
+    _select_isolation_scope,
+    run_fanout,
+)
 from app.agents.runtime.local import LocalSandboxRuntime
 from app.agents.sandbox import RunSandbox
 
@@ -221,3 +226,147 @@ def test_git_ops_are_not_capability_side():
         if any(tok in text for tok in spawn_tokens):
             offenders.append(str(py))
     assert offenders == [], f"git spawn leaked capability-side: {offenders}"
+
+
+# ---------------------------------------------------------------------------
+# Engine isolation-scope selection (INV-7 — engine-decided, NOT manifest)
+# ---------------------------------------------------------------------------
+
+
+def test_select_scope_worktree_when_has_git():
+    base = SimpleNamespace(has_git=True)
+    assert _select_isolation_scope(base) == "worktree"
+
+
+def test_select_scope_sub_sandbox_when_no_git():
+    base = SimpleNamespace(has_git=False)
+    assert _select_isolation_scope(base) == "sub_sandbox"
+
+
+def test_select_scope_defaults_to_sub_sandbox_when_attr_absent():
+    # A workspace with no has_git attr (a non-git sandbox) → sub_sandbox.
+    assert _select_isolation_scope(SimpleNamespace()) == "sub_sandbox"
+
+
+class _IsolationFakeRunner:
+    """A ctx.runner fake that exposes the FANOUT-05 alloc/reclaim seam + a base ws."""
+
+    def __init__(self, *, has_git: bool, known_agents=None):
+        self.run_id = "run-iso"
+        self.allowed_workers = []
+        self._known = set(known_agents or [])
+        self.workspace = SimpleNamespace(has_git=has_git)
+        self.allocated_calls: list[tuple] = []
+        self.reclaimed: list = []
+        self.spawned: list[dict] = []
+        self.recorded_rows: list[dict] = []
+        self.updated_rows: list[dict] = []
+        self._row_seq = 0
+        self.worker_workspaces: list = []
+
+    def agent_exists(self, agent_id):
+        return agent_id in self._known
+
+    async def allocate_isolated_workspace(self, scope, step, *, worker_index):
+        self.allocated_calls.append((scope, step, worker_index))
+        # Return a marker workspace so run_fanout threads it into run_worker.
+        return SimpleNamespace(scope=scope, step=step, worker_index=worker_index)
+
+    async def reclaim_isolated_workspace(self, base_workspace, worker_ws):
+        self.reclaimed.append(worker_ws)
+
+    async def record_subagent_run(self, *, parent_step, worker_agent, depth, isolation, status, tokens=None, cost=None):
+        self._row_seq += 1
+        row_id = f"row-{self._row_seq}"
+        self.recorded_rows.append(
+            dict(id=row_id, parent_step=parent_step, worker_agent=worker_agent,
+                 depth=depth, isolation=isolation, status=status)
+        )
+        return row_id
+
+    async def update_subagent_run(self, row_id, *, status, tokens=None, cost=None):
+        self.updated_rows.append(dict(id=row_id, status=status))
+
+    async def run_worker(self, step, ctx, *, worker_index, thread_id, agent_id, input, workspace=None):
+        self.spawned.append(dict(index=worker_index, agent_id=agent_id, workspace=workspace))
+        self.worker_workspaces.append(workspace)
+        yield {"type": "agent_chunk", "data": {"worker": worker_index}}
+
+
+def _iso_ctx(runner):
+    return SimpleNamespace(runner=runner, depth=0, budget=BudgetManager())
+
+
+def _iso_step(agent_id="worker-a", *, mode="parallel"):
+    fanout = SimpleNamespace(mode=mode, max_parallel=None, agent="self", count=None, workers=[])
+    return SimpleNamespace(agent_id=agent_id, fanout=fanout)
+
+
+async def _collect(gen):
+    return [ev async for ev in gen]
+
+
+@pytest.mark.asyncio
+async def test_has_git_base_allocates_worktree_recorded_on_subagent_runs():
+    runner = _IsolationFakeRunner(has_git=True, known_agents={"worker-a"})
+    ctx = _iso_ctx(runner)
+    step = _iso_step("worker-a")
+    requests = [{"agent": "self", "input": f"t-{i}"} for i in range(2)]
+
+    await _collect(run_fanout(requests, ctx, step=step))
+
+    # Engine selected worktree (has_git) and allocated one per worker.
+    assert [c[0] for c in runner.allocated_calls] == ["worktree", "worktree"]
+    # The chosen scope is recorded on EACH child's subagent_runs.isolation.
+    assert all(r["isolation"] == "worktree" for r in runner.recorded_rows)
+    # Each worker bound its allocated isolated workspace.
+    assert all(ws is not None and ws.scope == "worktree" for ws in runner.worker_workspaces)
+    # Happy-path teardown reclaimed every allocated workspace.
+    assert len(runner.reclaimed) == 2
+
+
+@pytest.mark.asyncio
+async def test_sandbox_base_allocates_sub_sandbox_recorded_on_subagent_runs():
+    runner = _IsolationFakeRunner(has_git=False, known_agents={"worker-a"})
+    ctx = _iso_ctx(runner)
+    step = _iso_step("worker-a")
+    requests = [{"agent": "self", "input": "t"}]
+
+    await _collect(run_fanout(requests, ctx, step=step))
+
+    assert [c[0] for c in runner.allocated_calls] == ["sub_sandbox"]
+    assert all(r["isolation"] == "sub_sandbox" for r in runner.recorded_rows)
+    assert runner.worker_workspaces[0].scope == "sub_sandbox"
+    assert len(runner.reclaimed) == 1
+
+
+@pytest.mark.asyncio
+async def test_no_workspace_handle_degrades_to_shared_read():
+    """An offline runner with no base workspace → shared_read (11-01 behavior)."""
+    runner = _IsolationFakeRunner(has_git=True, known_agents={"worker-a"})
+    runner.workspace = None  # no base workspace bound (offline / non-exec)
+    ctx = _iso_ctx(runner)
+    step = _iso_step("worker-a")
+
+    await _collect(run_fanout([{"agent": "self", "input": "t"}], ctx, step=step))
+
+    # No allocation, scope recorded as shared_read, no teardown.
+    assert runner.allocated_calls == []
+    assert all(r["isolation"] == "shared_read" for r in runner.recorded_rows)
+    assert runner.reclaimed == []
+
+
+def test_fanout_never_reads_isolation_scope_from_manifest():
+    """INV-7: fanout.py reads mode/count/workers but NEVER an isolation scope (T-11-02-03)."""
+    import pathlib
+
+    fanout_src = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "agents" / "execution_engine" / "fanout.py"
+    ).read_text(encoding="utf-8")
+    # The scope is derived from base_workspace.has_git, never from step.fanout.
+    assert "fanout.isolation" not in fanout_src
+    assert "fanout.scope" not in fanout_src
+    assert ".fanout.isolation" not in fanout_src
+    # The selection helper keys SOLELY on has_git.
+    assert "has_git" in fanout_src

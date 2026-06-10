@@ -17,8 +17,12 @@ Sequence (each numbered step maps to a FANOUT requirement):
   2. Budget reserve (FANOUT-09) — ``ctx.budget.reserve(...)`` is called FIRST, before
      any spawn (the call site exists now; the raising enforcement is the 11-04 stub —
      Pitfall 4 enforcement-point discipline).
-  3. Isolation — this plan uses the existing per-run / ``shared_read`` allocation
-     (``sub_sandbox`` / ``worktree`` land in 11-02).
+  3. Isolation (FANOUT-05) — the ENGINE (INV-7, NOT the manifest) selects the scope
+     from the base workspace: ``worktree`` when ``has_git=True``, else ``sub_sandbox``.
+     Each worker binds to its own engine-allocated isolated workspace (writes isolated,
+     reads shared-read of parent refs); when no allocator handle is reachable the scope
+     degrades to ``shared_read`` (the 11-01 per-run behavior). Happy-path workspaces are
+     reclaimed after collect; the full cancel-path teardown is 11-05.
   4. Spawn (FANOUT-04) — parallel mode runs under
      ``asyncio.Semaphore(min(declared, DEFAULT_MAX_CONCURRENCY))`` so the engine caps
      concurrency REGARDLESS of the manifest; sequential mode runs ordered awaits. Each
@@ -46,9 +50,12 @@ from agents.execution_engine.budget import DEFAULT_MAX_CONCURRENCY
 
 logger = logging.getLogger(__name__)
 
-# This plan's isolation scope — the existing per-run/shared_read allocation. The
-# sub_sandbox/worktree scopes land in 11-02 (selected off the step there).
+# The three isolation scopes. ``shared_read`` is the no-isolation per-run fallback
+# (used when the engine cannot reach an allocator handle); ``sub_sandbox`` /
+# ``worktree`` are the per-worker isolated scopes the engine selects (11-02).
 _ISOLATION_SHARED_READ = "shared_read"
+_ISOLATION_SUB_SANDBOX = "sub_sandbox"
+_ISOLATION_WORKTREE = "worktree"
 
 
 class FanoutError(Exception):
@@ -118,6 +125,21 @@ def _is_sequential(step: Any) -> bool:
     return bool(fanout is not None and getattr(fanout, "mode", None) == "sequential")
 
 
+def _select_isolation_scope(base_workspace: Any) -> str:
+    """The ENGINE decides the per-worker isolation scope (INV-7 — NOT the manifest).
+
+    ``worktree`` when the base workspace is a git repo (``has_git=True``) — worker
+    commits/edits are isolated on per-worker branches off the working branch; else
+    ``sub_sandbox`` — worker writes are isolated in a child dir under the run root.
+
+    The scope is derived SOLELY from the base workspace's ``has_git`` — it is NEVER
+    read from ``step.fanout`` (the manifest declares no isolation field). This keeps
+    isolation engine-controlled: a user-authored manifest cannot downgrade isolation
+    (T-11-02-03 / INV-7).
+    """
+    return _ISOLATION_WORKTREE if getattr(base_workspace, "has_git", False) else _ISOLATION_SUB_SANDBOX
+
+
 async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncIterator[dict]:
     """Spawn the fan-out children — the ONLY spawn path (FANOUT-02).
 
@@ -143,14 +165,26 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
             depth=depth,
         )
 
-    # (3) Isolation = the existing per-run / shared_read allocation this plan.
-    isolation = _ISOLATION_SHARED_READ
+    # (3) Isolation — the ENGINE selects the scope from the base workspace (INV-7,
+    # never the manifest): has_git -> worktree, else sub_sandbox. When no allocator
+    # handle is reachable (offline harness / no workspace bound) the scope degrades to
+    # shared_read (the 11-01 per-run behavior) so the fan-out still runs.
+    base_workspace = getattr(runner, "workspace", None)
+    allocate = getattr(runner, "allocate_isolated_workspace", None)
+    if base_workspace is not None and allocate is not None:
+        isolation = _select_isolation_scope(base_workspace)
+    else:
+        isolation = _ISOLATION_SHARED_READ
 
     # Per-worker terminal-status collector (the status-only merge, step 5).
     results: list[dict] = []
+    # Every allocated isolated workspace is recorded so this plan can teardown the
+    # happy-path workspaces after collect; 11-05 extends this list's teardown to the
+    # cancel/finally path (ALL allocations, including a mid-flight cancel).
+    allocated: list[Any] = []
 
     async def _run_one(worker: dict) -> dict:
-        """Spawn ONE worker: write the row, run it, flip the row terminal."""
+        """Spawn ONE worker: allocate its isolated workspace, run it, flip the row."""
         idx = worker["index"]
         agent_id = worker["agent_id"]
         # A depth segment is added when nested (RESEARCH A4) so child thread ids never
@@ -160,6 +194,16 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
         else:
             thread_id = f"{run_id}:{step_id}:{idx}"
 
+        # Allocate the engine-selected isolated workspace for this worker (FANOUT-05).
+        # The worker reads shared-read parent refs but WRITES isolated. When no
+        # allocator is reachable (shared_read fallback) the worker runs against the
+        # run's shared workspace exactly as 11-01 did.
+        worker_ws = None
+        if isolation in (_ISOLATION_SUB_SANDBOX, _ISOLATION_WORKTREE) and allocate is not None:
+            worker_ws = await allocate(isolation, step_id, worker_index=idx)
+            if worker_ws is not None:
+                allocated.append(worker_ws)
+
         row_id = await runner.record_subagent_run(
             parent_step=step_id,
             worker_agent=agent_id,
@@ -168,6 +212,10 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
             status="running",
         )
         status = "complete"
+        # Pass the isolated workspace ONLY when one was allocated so the 11-01
+        # shared-workspace ``run_worker`` call shape stays byte-identical (the kwarg
+        # is additive; an offline/shared_read run never threads it).
+        worker_kwargs = {"workspace": worker_ws} if worker_ws is not None else {}
         try:
             async for _child_event in runner.run_worker(
                 step, ctx,
@@ -175,6 +223,7 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
                 thread_id=thread_id,
                 agent_id=agent_id,
                 input=worker["input"],
+                **worker_kwargs,
             ):
                 # Child agent chunk events are NOT forwarded (D-03 — lifecycle-only).
                 pass
@@ -218,3 +267,28 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
         for res in sorted(gathered, key=lambda r: r["worker"]):
             results.append(res)
             yield {"type": "subagent_result", "data": res}
+
+    # Happy-path teardown — collect/merge is done, so reclaim every allocated
+    # isolated workspace (worktree remove + branch delete, or child-dir rmtree). The
+    # FULL cancel-path teardown (reclaim on a mid-flight cancel/exception too) lands
+    # in 11-05; here we reclaim the post-collect happy-path workspaces. Best-effort
+    # per workspace so a teardown failure never aborts the run.
+    await _teardown_allocated(runner, base_workspace, allocated)
+
+
+async def _teardown_allocated(runner: Any, base_workspace: Any, allocated: list) -> None:
+    """Reclaim every allocated isolated workspace (happy path; 11-05 extends to cancel).
+
+    A ``worktree`` workspace is removed via the base workspace's ``remove_worktree``
+    (the single git owner — git worktree remove + branch delete); a ``sub_sandbox``
+    child is removed via its own ``teardown`` (child-dir rmtree, which never touches
+    the parent). Each teardown is best-effort so an orphaned worktree/dir is logged,
+    not fatal (INV-3: cleanup must never break the run).
+    """
+    reclaim = getattr(runner, "reclaim_isolated_workspace", None)
+    for ws in allocated:
+        try:
+            if reclaim is not None:
+                await reclaim(base_workspace, ws)
+        except Exception as exc:  # noqa: BLE001 — a teardown failure must not abort the run
+            logger.warning("fan-out workspace teardown failed: %s", exc)
