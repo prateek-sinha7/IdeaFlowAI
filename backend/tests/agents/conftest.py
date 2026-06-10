@@ -6,6 +6,7 @@ architecture (loader, factory, registry, orchestrator).
 
 from __future__ import annotations
 
+import subprocess
 import textwrap
 from pathlib import Path
 
@@ -113,3 +114,84 @@ def create_agent_file(prompts_dir: Path, agent_id: str, content: str) -> Path:
     agent_file = agent_dir / "AGENT.md"
     agent_file.write_text(content, encoding="utf-8")
     return agent_file
+
+
+# ---------------------------------------------------------------------------
+# Local git repo fixture (Phase 09 — RUNTIME-01 / repo workflows).
+#
+# Seeds a tiny REAL git repository on local disk (NO network clone) so the
+# LocalSandboxRuntime's clone/branch/diff path can be exercised fully offline.
+# Placed in the suite conftest so the repo workflow plans 09-03/09-04 reuse it.
+# ---------------------------------------------------------------------------
+
+
+def _git(cwd: Path, *args: str) -> None:
+    """Run a git subprocess in ``cwd``, raising on failure. Identity is forced via
+    flags so the fixture works on a machine with no global git user configured."""
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Flowin Test",
+            "-c",
+            "user.email=test@flowin.local",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "init.defaultBranch=main",
+            *args,
+        ],
+        cwd=str(cwd),
+        check=True,
+        capture_output=True,
+    )
+
+
+@pytest.fixture
+def local_git_fixture(tmp_path: Path) -> Path:
+    """Seed a tiny local git repo and return its path (no network).
+
+    The repo carries a few source files committed on ``main`` so a downstream
+    ``LocalSandboxRuntime`` can ``git clone`` it into a per-run dir, branch off it,
+    read/write/search its files, and produce a ``git_diff``.
+    """
+    repo = tmp_path / "origin_repo"
+    repo.mkdir()
+    _git(repo, "init")
+
+    (repo / "README.md").write_text(
+        "# Sample Repo\n\nA brownfield fixture for the local runtime.\n",
+        encoding="utf-8",
+    )
+    src = repo / "src"
+    src.mkdir()
+    (src / "app.py").write_text(
+        textwrap.dedent(
+            '''\
+            """Sample module."""
+
+
+            def greet(name: str) -> str:
+                return f"hello {name}"
+            '''
+        ),
+        encoding="utf-8",
+    )
+    (src / "util.py").write_text(
+        textwrap.dedent(
+            '''\
+            """Utility helpers."""
+
+
+            def add(a: int, b: int) -> int:
+                return a + b
+            '''
+        ),
+        encoding="utf-8",
+    )
+
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "initial commit")
+    # Normalize the default branch name so callers can clone+diff against "main".
+    _git(repo, "branch", "-M", "main")
+    return repo

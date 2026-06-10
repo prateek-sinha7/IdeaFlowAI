@@ -169,6 +169,22 @@ source_modules = ["agents.capabilities"]
 forbidden_modules = ["agents.execution_engine", "app"]
 
 # ---------------------------------------------------------------------------
+# Runtime port boundary (Phase 09 / RUNTIME-01 / T-09-01-03): the runtime port
+# layer (`agents.runtime`) is INNER like the workflow/capability port layers —
+# it must never import the execution kernel (`agents.execution_engine`) nor the
+# web/app layer (`app`). The kernel imports ONLY the runtime PORTS; the concrete
+# `LocalSandboxRuntime` lives app-side (`app.agents.runtime`) and is reached via
+# the `ctx.runner` handle, never imported by the kernel. This locks the ECS-swap
+# seam (D-01): a later `EcsRuntime` plugs in as a backend swap, not an engine
+# rewrite. Non-vacuous + green once `agents/runtime/base.py` stays stdlib-only.
+# ---------------------------------------------------------------------------
+[[tool.importlinter.contracts]]
+name = "agents.runtime must not import the execution kernel or the web layer"
+type = "forbidden"
+source_modules = ["agents.runtime"]
+forbidden_modules = ["agents.execution_engine", "app"]
+
+# ---------------------------------------------------------------------------
 # vulture — dead-code / orphaned-symbol detection (D-13).
 #
 # Complements ruff (which only flags unused-WITHIN-a-file F401/F811) by finding
