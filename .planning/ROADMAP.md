@@ -360,15 +360,27 @@ Plans:
   3. `BudgetManager` reserves-before-spawn and enforces subagents/concurrency/tokens/cost/wall-clock/depth (per-run + per-workspace); `BudgetExceeded` aborts gracefully with partial results; cancellation propagates to children
   4. Each child → a `subagent_runs` row; `subagent_*`/`merge_*` events emitted
 
-**Plans**: TBD
-
+**Plans**: 5 plans (5 waves — sequential `use_worktrees=false`; each plan leaves the characterization suite green, D-09)
 Plans:
+**Wave 1**
 
-- [ ] 11-01: Kernel `run_fanout` (fanout.py) + `spawn_subagents` tool (gated) + declarative `step.fanout`
-- [ ] 11-02: `IsolationProvider` (sub_sandbox/worktree) + worker selection + parallel/sequential modes
-- [ ] 11-03: `MergeStrategy` + merge-conflict flow (§13) + `on_conflict` policies
-- [ ] 11-04: `BudgetManager` (budget.py) caps + reserve-before-spawn + graceful abort
-- [ ] 11-05: `subagent_runs` persistence + `subagent_*`/`merge_*` events + cancellation propagation
+- [ ] 11-01-PLAN.md — Fan-out foundation: kernel `run_fanout` (fanout.py, the single spawn path) + `spawn_subagents` request-emitter tool (capability + concrete, gated) + `fanout_batch` strategy + worker selection (self×N / `allowed_workers`) + parallel/sequential modes + `0019 subagent_runs` migration/ORM/ScopedStore + budget stub seam + engine tool-result derivation (FANOUT-01/02/03/04/10) [wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 11-02-PLAN.md — Isolation: `sub_sandbox` + `worktree` on `LocalWorkspace` (single git-subprocess owner) + engine-decided scope selection (has_git→worktree else sub_sandbox, INV-7) + per-worker workspace binding in `run_fanout` (FANOUT-05) [wave 2]
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 11-03-PLAN.md — Merge: `MergeStrategy` port + 4 registered impls (copy_disjoint/git_3way/json/html_fragment) + merge dispatch + `merge_conflict` artifact/event + 4 `on_conflict` policies (human_gate/merge_agent≤2/partial/abort) + per-worker fragment artifacts (FANOUT-06/07/08) [wave 3]
+
+**Wave 4** *(blocked on Wave 1; landed after merge so the snapshot captures real worker activity)*
+
+- [ ] 11-04-PLAN.md — Budget enforcement: `BudgetManager.reserve()` (reserve-before-spawn; subagents/concurrency/depth + token/wall-clock at-boundary) + trust-conditional `Limits` + per-workspace ceiling (settings seam) + `BudgetSnapshot`→`budget_snapshot_json` + `budget_warning` (FANOUT-09, OBS-01) [wave 4]
+
+**Wave 5** *(blocked on Wave 3 + Wave 4 completion)*
+
+- [ ] 11-05-PLAN.md — Cancellation + SC-001: cancel checks at fan-out boundaries + finally-teardown of every isolated workspace (no leaks) + terminal `cancelled` rows + `pipeline_cancelled` + the test-scoped sample fan-out workflow (manifest + AGENT.md only, zero engine edits) + phase exit gate (FANOUT-11, RESUME-01) [wave 5]
 
 ### Phase 12: Wave Scheduler + Durable Resume [6]
 
@@ -406,7 +418,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 8. Capabilities Hardened [3] | 8/8 | Complete    | 2026-06-09 |
 | 9. Local Runtime + Repo (no exec) [4A] | 6/6 | Complete    | 2026-06-10 |
 | 10. Safe Local Exec [4B] | 5/5 | Complete    | 2026-06-10 |
-| 11. Fan-Out + Merge [5] | 0/5 | Not started | - |
+| 11. Fan-Out + Merge [5] | 0/5 | Planned | - |
 | 12. Wave Scheduler + Resume [6] | 0/3 | Not started | - |
 
 ---
