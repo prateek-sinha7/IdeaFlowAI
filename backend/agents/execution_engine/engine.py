@@ -1274,7 +1274,11 @@ class ExecutionEngine:
                 async for _ge, _outcome in self._evaluate_gates(
                     step, ectx, _registry, phase="pre"
                 ):
-                    yield _ge
+                    # WR-04: skip the terminal (None, outcome) sentinel when
+                    # forwarding (keeps the emitted stream identical) but still
+                    # honor its outcome so a no-event block halts the step.
+                    if _ge is not None:
+                        yield _ge
                     if _outcome in ("block", "wait_human"):
                         _halted = True
                 if _halted:
@@ -1312,7 +1316,11 @@ class ExecutionEngine:
                 async for _ge, _outcome in self._evaluate_gates(
                     step, ectx, _registry, phase="post"
                 ):
-                    yield _ge
+                    # WR-04: skip the terminal (None, outcome) sentinel — post-step
+                    # gates surface events only (the deliverable is already
+                    # produced); the sentinel must not reach the event stream.
+                    if _ge is not None:
+                        yield _ge
 
                 # ── Declared post-step capability (INV-1 / CR-06) ────────────────
                 # After the step's strategy finishes, run any declared ``post_step``
@@ -2475,7 +2483,11 @@ class ExecutionEngine:
 
         Yields ``(event, outcome)`` for every additive event a gate emits so the
         caller can both forward the event AND act on the outcome (a pre-step
-        ``block``/``wait_human`` halts the step). Gates evaluate in DECLARED order;
+        ``block``/``wait_human`` halts the step). After a gate's events, yields a
+        terminal ``(None, outcome)`` sentinel so the halt decision is observable
+        EVEN when the gate emits zero events (WR-04); the caller skips the ``None``
+        event when forwarding, so the emitted stream is unchanged. Gates evaluate
+        in DECLARED order;
         only the gates belonging to ``phase`` (``pre``|``post``) run here. Each gate
         returns a ``GateOutcome`` (outcome + additive events); the kernel owns the
         yield so the gate impls stay simple async functions.
@@ -2506,6 +2518,19 @@ class ExecutionEngine:
             outcome = getattr(result, "outcome", "pass")
             for event in getattr(result, "events", None) or []:
                 yield event, outcome
+            # WR-04: surface the outcome INDEPENDENTLY of event emission. A
+            # blocking gate that emits zero events (``GateOutcome`` with
+            # ``outcome="block"``/``"wait_human"`` but an empty ``events`` list)
+            # must still halt the step — the prior code only yielded inside the
+            # event loop, coupling "did the gate halt" to "did the gate emit a UI
+            # event", so a no-event block would silently pass at a security
+            # boundary. Yield a terminal ``(None, outcome)`` so the caller can act
+            # on the halt regardless of events; the caller skips the ``None`` event
+            # when forwarding/persisting, so the emitted event STREAM is unchanged
+            # for every existing path (characterization snapshots stay byte/event
+            # identical — a gate that already emits its event yields the same
+            # events, only an extra non-forwarded ``None`` sentinel follows).
+            yield None, outcome
 
     async def _run_review_gate(
         self,

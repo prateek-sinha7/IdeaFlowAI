@@ -582,7 +582,11 @@ async def _collect_gates(engine, step, ctx, *, phase):
     async for ev, outcome in engine._evaluate_gates(
         step, ctx, CapabilityRegistry(), phase=phase
     ):
-        events.append(ev)
+        # WR-04: the generator now yields a terminal (None, outcome) sentinel so
+        # the halt is observable even with zero events. Mirror the real callers:
+        # skip the None event when collecting events, always record the outcome.
+        if ev is not None:
+            events.append(ev)
         outcomes.append(outcome)
     return events, outcomes
 
@@ -642,6 +646,38 @@ async def test_engine_no_declared_gates_is_noop():
     for phase in ("pre", "post"):
         events, outcomes = await _collect_gates(engine, step, _Ctx(_RecordingRunner()), phase=phase)
         assert events == [] and outcomes == []
+
+
+@pytest.mark.asyncio
+async def test_engine_block_with_empty_events_still_halts(monkeypatch):
+    """WR-04: a gate that BLOCKS with an EMPTY events list still halts the step.
+
+    Pre-fix the outcome was only yielded INSIDE the event loop, so a block with
+    no events yielded nothing and the step silently proceeded. The terminal
+    (None, outcome) sentinel must surface ``block`` even with zero events, and
+    the engine's pre-step loop must set _halted from it without forwarding a
+    None event.
+    """
+    engine = _engine()
+
+    class _SilentBlockGate:
+        name = "security"
+
+        async def evaluate(self, step, ctx):
+            class _R:
+                outcome = GATE_BLOCK
+                events: list = []  # blocks but emits NO event
+
+            return _R()
+
+    registry_mod._IMPLS[("gate", "security")] = _SilentBlockGate()
+    step = _GatedStep(gates=["security"], tools=_ToolGrant(exec=True))
+
+    events, outcomes = await _collect_gates(engine, step, _Ctx(_RecordingRunner()), phase="pre")
+    # No event was emitted (the stream is unchanged — no None leaks through)...
+    assert events == []
+    # ...but the block outcome is observable so the caller halts the step (WR-04).
+    assert GATE_BLOCK in outcomes
 
 
 @pytest.mark.asyncio
