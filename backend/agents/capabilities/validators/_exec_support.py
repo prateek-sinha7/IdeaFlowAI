@@ -43,7 +43,17 @@ def workspace_of(runner: Any) -> Any:
 
 
 def exec_granted(ws: Any) -> bool:
-    """``True`` iff the workspace exists and its policy allows ``exec``."""
+    """``True`` iff the workspace exists and its policy allows ``exec``.
+
+    WR-03 — this is a RUN-scoped check, NOT per-step: it reads the shared,
+    run-global workspace policy, so once any step's security+approval grant
+    provisions the exec workspace (the engine host seam binds it for the whole
+    run), every step's exec validators see ``exec_granted`` True. Per-step
+    re-authorization is intentionally not enforced here — D-03's SPEC-locked
+    first-exec memory means one approval opens exec for the whole run and
+    subsequent exec steps don't re-prompt. The compiler's engineer-trust ceiling
+    bounds this (a user/db manifest can never provision the exec workspace).
+    """
     if ws is None:
         return False
     policy = getattr(ws, "policy", None)

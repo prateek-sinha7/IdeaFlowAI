@@ -1185,6 +1185,18 @@ class ExecutionEngine:
         # characterization snapshots prove the dormancy). A non-exec run silently
         # gaining an exec-enabled workspace would be a parity break / latent
         # escalation — so the provisioning is strictly conditional.
+        #
+        # WR-03 — exec authorization is RUN-scoped (NOT per-step): one
+        # security+approval-gated grant provisions the workspace for the WHOLE run.
+        # The exec-enabled workspace is bound once onto the shared
+        # ``KernelServices.workspace`` whenever ANY step grants exec, so every
+        # step's exec validators reach the same run-global grant; per-step
+        # re-authorization is intentionally NOT enforced here. This is D-03's
+        # SPEC-locked first-exec memory: the first exec step prompts for approval,
+        # subsequent exec steps in the same run do NOT re-prompt. The compiler's
+        # engineer-trust ceiling (a user/db manifest can never provision the exec
+        # workspace) + the run-level approval model bound the blast radius, so this
+        # run-scoped grant is by-design, not a default-deny break.
         _plan_grants_exec = any(
             bool(getattr(getattr(s, "tools", None), "exec", False))
             for s in (compiled.steps or [])
