@@ -1561,6 +1561,39 @@ class ExecutionEngine:
             return model_id
         return resolver.resolve(spec, step)
 
+    async def _derive_fanout(self, event: dict, ectx: ExecutionContext) -> AsyncGenerator[dict, None]:
+        """Derive a fan-out from a ``spawn_subagents`` tool_result + fulfil it (FANOUT-02).
+
+        Parses the structured request the spawn_subagents request emitter returned
+        (``{"fanout_request": [...], "mode": ...}``), shapes one worker request per
+        task, and funnels them through the SINGLE kernel ``run_fanout`` spawn path —
+        the SAME path the declarative ``fanout_batch`` strategy reaches (so both entry
+        points funnel through one spawn path, FANOUT-02). Re-yields run_fanout's
+        lifecycle events. A malformed/empty request is a no-op (the agent already saw
+        the tool's JSON result; a bad payload must not abort the run — INV-3 parity).
+        """
+        runner = getattr(ectx, "runner", None)
+        step = getattr(ectx, "current_step", None)
+        if runner is None or step is None:
+            return
+        raw = event.get("result", "")
+        try:
+            payload = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        except (ValueError, TypeError):
+            logger.warning("spawn_subagents: unparseable fanout request — skipping")
+            return
+        if not isinstance(payload, dict):
+            return
+        tasks = payload.get("fanout_request") or []
+        if not tasks:
+            return
+        # The tool's declared mode rides on the step's FanoutSpec for a declarative step;
+        # for the runtime tool path the request carries the mode. Shape one request per
+        # task — the kernel run_fanout owns worker selection + concurrency (INV-5).
+        requests = [{"agent": "self", "input": t} for t in tasks]
+        async for fo_ev in runner.run_fanout(requests, ectx, step=step):
+            yield fo_ev
+
     async def _run_agent(
         self,
         spec,
@@ -1823,6 +1856,17 @@ class ExecutionEngine:
                                             "timestamp": _now(),
                                         },
                                     }
+                                # ── Runtime fan-out derivation (Phase 11 / FANOUT-02) ──────
+                                # When the spawn_subagents request emitter returns, derive the
+                                # structured request from its result + fulfil it via the SINGLE
+                                # kernel run_fanout spawn path (the runtime entry point B; the
+                                # declarative entry point A flows through the fanout_batch
+                                # strategy). STRICTLY conditional on the tool name so every
+                                # non-fanout run takes the IDENTICAL path as today (zero new
+                                # events, zero reordering — fanout stays DORMANT, Pitfall 3).
+                                elif event.get("tool") == "spawn_subagents":
+                                    async for _fo_ev in self._derive_fanout(event, ectx):
+                                        yield _fo_ev
                     # Stream consumed cleanly (no throttle) — done, exit the retry loop.
                     break
                 except asyncio.TimeoutError:
