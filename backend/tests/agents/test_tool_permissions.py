@@ -5,19 +5,20 @@ Proves TOOLPERM-01/02/03 (INV-9): effective tool permissions are the
 ON only if granted at ALL THREE levels — and an ``AGENT.md`` default may only LOWER
 a permission, never raise one its step did not grant. Also proves the §8 defaults
 (``read_files`` ON; ``write_files``/``git``/``spawn_subagents``/``exec``/``network``
-OFF; ``secrets``/``mcp``/``integrations`` none) and the ``ExecutionPolicy``
-enforcement-point seam that default-denies ``exec``/``network``/``secrets`` even with
-no runtime host attached (the ``LocalSandboxRuntime`` it gates is Phase 9).
+OFF; ``secrets``/``mcp``/``integrations`` none).
 
-These are pure-data tests: ``ToolPermissions``/``intersect_permissions``/
-``ExecutionPolicy`` are stdlib-only dataclasses + functions (no registry side
-effect, no kernel/app import).
+The runtime exec/network/secrets default-deny enforcement point is the single live
+surface ``LocalExecutionPolicy.allows`` (``app/agents/runtime/local.py``, exercised by
+``tests/agents/test_local_runtime.py``); the former ``plan.py:ExecutionPolicy``
+forward-surface helper was deleted in 10-02 (INV-12 dual-surface resolution).
+
+These are pure-data tests: ``ToolPermissions``/``intersect_permissions`` are
+stdlib-only dataclasses + functions (no registry side effect, no kernel/app import).
 """
 
 from __future__ import annotations
 
 from agents.workflows.plan import (
-    ExecutionPolicy,
     ToolPermissions,
     intersect_permissions,
 )
@@ -157,36 +158,9 @@ def test_agent_md_cannot_raise_write_files() -> None:
 
 
 # ---------------------------------------------------------------------------
-# ExecutionPolicy — the default-deny enforcement point (exec/network/secrets).
+# Runtime exec/network/secrets default-deny — the single live enforcement point.
 # ---------------------------------------------------------------------------
-
-
-def test_execution_policy_denies_exec_by_default() -> None:
-    """The ExecutionPolicy default-denies exec with no runtime host attached."""
-    policy = ExecutionPolicy()
-    allowed, reason = policy.check("exec", ToolPermissions())
-    assert allowed is False
-    assert "exec" in reason
-
-
-def test_execution_policy_denies_network_and_secrets() -> None:
-    """network and secrets are denied by default (default-deny seam)."""
-    policy = ExecutionPolicy()
-    assert policy.check("network", ToolPermissions())[0] is False
-    assert policy.check("secrets", ToolPermissions())[0] is False
-
-
-def test_execution_policy_denies_exec_even_when_step_requests_it() -> None:
-    """A step REQUESTING exec is denied regardless (security default-OFF, Phase 9 runtime)."""
-    policy = ExecutionPolicy()
-    requesting = ToolPermissions(exec=True, network=True, secrets=["X"])
-    assert policy.check("exec", requesting)[0] is False
-    assert policy.check("network", requesting)[0] is False
-    assert policy.check("secrets", requesting)[0] is False
-
-
-def test_execution_policy_allows_read_files() -> None:
-    """read_files is not a privileged runtime action — the policy permits it."""
-    policy = ExecutionPolicy()
-    allowed, _ = policy.check("read_files", ToolPermissions(read_files=True))
-    assert allowed is True
+# The former ``plan.py:ExecutionPolicy`` forward-surface tests were removed in
+# 10-02 (INV-12 dual-surface deletion). The live runtime exec/network/secrets
+# decision is ``LocalExecutionPolicy.allows`` + the pre-spawn allow/deny check in
+# ``app/agents/runtime/local.py`` — exercised by ``tests/agents/test_local_runtime.py``.

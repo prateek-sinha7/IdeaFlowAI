@@ -138,59 +138,14 @@ def intersect_permissions(
     return _and_mask(_and_mask(owner_allow_list, workflow_ceiling), step_grant)
 
 
-# Privileged runtime actions gated by the ExecutionPolicy enforcement point (D-07).
-# These are default-DENIED until the security gate + a runtime host (Phase 9/N3)
-# enable them; ``read_files``/``write_files``/``git`` are tool-binding permissions
-# (enforced at the tool_provider seam), NOT runtime-policy actions.
-_PRIVILEGED_RUNTIME_ACTIONS: frozenset[str] = frozenset({"exec", "network", "secrets"})
-
-
-@dataclass
-class ExecutionPolicy:
-    """Default-deny runtime policy helper for the Workspace boundary (D-07 / §8).
-
-    FORWARD SURFACE — correct in isolation, NOT yet wired into the runtime action
-    path. This is the DESIGN of the second D-07 enforcement point (the runtime
-    ``exec``/``network``/``secrets`` gate); the actual call site lands with the
-    ``LocalSandboxRuntime`` in Phase 9 (the runtime host that would invoke
-    ``check`` before any privileged action). There is NO production caller of
-    ``check`` this phase. The actual exec/network/secrets DENIAL this phase comes
-    from (a) the compiler's ``intersect_permissions`` collapsing those perms OFF and
-    (b) the ``security`` gate — both of which ARE wired. Do NOT cite ``check`` as an
-    active runtime enforcement point until Phase 9 wires it.
-
-    ``check(action, perms)`` returns ``(allowed, reason)``; a privileged action is
-    denied UNLESS a runtime host (Phase 9) explicitly opens it — there is no host
-    this phase, so privileged actions are uniformly denied (the helper is
-    default-deny by construction, ready for the Phase-9 call site).
-    """
-
-    # Phase 9 attaches a runtime host that may open specific privileged actions.
-    # Default ``None`` → every privileged action is denied (default-deny).
-    runtime_host: object | None = None
-
-    def check(self, action: str, perms: "ToolPermissions") -> tuple[bool, str]:
-        """Return ``(allowed, reason)`` for a runtime ``action`` (default-deny).
-
-        A privileged action (``exec``/``network``/``secrets``) is DENIED unless a
-        runtime host is attached AND opens it — no host this phase, so it is denied
-        regardless of what ``perms`` requests. A non-privileged action is allowed.
-        """
-        if action in _PRIVILEGED_RUNTIME_ACTIONS:
-            if self.runtime_host is None:
-                return (
-                    False,
-                    f"runtime action '{action}' is denied: no runtime host "
-                    f"attached (default-deny; exec/network/secrets land in "
-                    f"Phase 9/N3)",
-                )
-            # A host is attached (Phase 9) — delegate the per-action decision to it.
-            opener = getattr(self.runtime_host, "allows", None)
-            if callable(opener) and opener(action, perms):
-                return (True, f"runtime action '{action}' opened by the runtime host")
-            return (False, f"runtime action '{action}' is denied by the runtime host")
-        # Non-privileged action (read_files/write_files/git binding) — not gated here.
-        return (True, f"action '{action}' is not a privileged runtime action")
+# NOTE (10-02 / INV-12): the ``ExecutionPolicy`` forward-surface helper +
+# ``_PRIVILEGED_RUNTIME_ACTIONS`` that formerly lived here were DELETED. They were a
+# documented "FORWARD SURFACE — NOT yet wired" second place deciding "is exec
+# allowed", and Phase 10 made the runtime exec decision live as
+# ``LocalExecutionPolicy.allows`` + the pre-spawn allow/deny check in
+# ``app/agents/runtime/local.py`` — the SINGLE live surface. Keeping the dead helper
+# would be a dual policy surface (no dual implementations — INV-12). Deletion ratcheted
+# in ``specs/003-workflow-engine-decoupling/migration-ledger.md`` (row D11).
 
 
 @dataclass
