@@ -17,7 +17,9 @@ reaches it via the handle, never by import (the ECS-swap seam, D-01).
 
 from __future__ import annotations
 
+import logging
 import os
+import re
 import resource
 import signal
 import subprocess
@@ -29,6 +31,51 @@ from agents.capabilities.registry import register
 from agents.runtime.base import ExecutionPolicy, RuntimeEnvironment, Workspace
 from app.agents.sandbox import RunSandbox
 from app.core.config import settings
+
+logger = logging.getLogger("app.agents.runtime.local")
+
+# Map a step id / worker-index into ONE safe path segment for the isolation child
+# dir + the worktree branch (mirrors RunSandbox._safe_segment so an agent id with a
+# slash/space can never introduce a path separator or a traversal sequence).
+_UNSAFE_SEG = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def _seg(value: str) -> str:
+    seg = _UNSAFE_SEG.sub("_", (value or "").strip()).strip(".")
+    return (seg or "x")[:128]
+
+
+class _ChildSandbox:
+    """A RunSandbox-shaped facade rooted at an isolated child/worktree dir.
+
+    Exposes exactly the ``Workspace``-backing surface ``LocalWorkspace`` consumes
+    (``root`` / ``ensure`` / ``path_for`` / ``user_seg`` / ``run_seg`` / ``cleanup``)
+    but rooted at an arbitrary dir UNDER the parent run root (the sub_sandbox child
+    or the git worktree). Path-traversal safety is preserved: ``path_for`` rejects any
+    escape of THIS child root. ``cleanup`` removes only the child dir (never the
+    parent), so a worker teardown can never delete sibling/parent work.
+    """
+
+    def __init__(self, *, parent: RunSandbox, root: Path, user_seg: str, run_seg: str) -> None:
+        self._parent = parent
+        self.root = root.resolve()
+        self.user_seg = user_seg
+        self.run_seg = run_seg
+
+    def ensure(self) -> Path:
+        self.root.mkdir(parents=True, exist_ok=True)
+        return self.root
+
+    def path_for(self, relpath: str) -> Path:
+        candidate = (self.root / str(relpath).lstrip("/")).resolve()
+        if candidate != self.root and not str(candidate).startswith(str(self.root) + "/"):
+            raise ValueError(f"path escapes isolated workspace: {relpath!r}")
+        return candidate
+
+    def cleanup(self) -> None:
+        import shutil
+
+        shutil.rmtree(self.root, ignore_errors=True)
 
 
 # The v1 "ephemeral creds" posture: the child sees ONLY these env keys (constructed,
@@ -148,6 +195,10 @@ class LocalWorkspace:
         # by 10-02's host seam. Bypass-proof: the recorder fires at the enforcement
         # point regardless of caller path (T-10-01-07).
         self._recorder = _noop_recorder
+        # Set by allocate_worktree on an isolated worktree workspace so the parent's
+        # remove_worktree can delete the per-worker branch + dir (Phase 11 / FANOUT-05).
+        self._worktree_branch: str | None = None
+        self._worktree_path: Path | None = None
 
     # -- filesystem (traversal-proof via RunSandbox.path_for) ----------------
 
@@ -369,6 +420,116 @@ class LocalWorkspace:
         # never routes back through this teardown — that one-way direction is what
         # keeps the sandbox<->workspace pair cycle-free (CR-01).
         self._sandbox.cleanup()
+
+    # -- Phase-11 isolation scopes (FANOUT-05) -------------------------------
+    #
+    # Two engine-selected isolation scopes for a fan-out worker. The ENGINE (INV-7,
+    # never the manifest) picks the scope in ``run_fanout``: ``worktree`` when this
+    # base workspace ``has_git=True``, else ``sub_sandbox``. Both stamp the parent's
+    # ``owner_id``/``workspace_id`` (T-11-02-05) and isolate worker WRITES so two
+    # parallel workers cannot cross-contaminate before the 11-03 merge (T-11-02-02).
+    # ``LocalWorkspace`` stays the SINGLE git-subprocess owner — the worktree git ops
+    # live HERE (Phase-9 D-10), never capability-side.
+
+    def allocate_sub_sandbox(self, step: str, worker_index: int) -> "LocalWorkspace":
+        """Allocate an isolated child-dir workspace ``{run}/subagents/{step}/{i}/``.
+
+        A ``has_git=False`` child rooted at a fresh dir UNDER the parent run root,
+        reached through the traversal-proof ``path_for`` primitive (the step +
+        worker-index segments are sanitised by the same RunSandbox safety the parent
+        uses). Reads are shared-read of the parent run refs (Q20 — the child may read
+        the parent run dir); WRITES land in the child dir ONLY, so two workers writing
+        the SAME relpath never collide (T-11-02-02). The child is stamped with the
+        SAME ``owner_id``/``workspace_id`` as the parent (T-11-02-05) and inherits the
+        deny-default exec policy (exec=off).
+        """
+        rel = f"subagents/{_seg(step)}/{_seg(str(worker_index))}"
+        child_root = self._sandbox.path_for(rel)  # raises on escape
+        child_root.mkdir(parents=True, exist_ok=True)
+        child_sandbox = _ChildSandbox(
+            parent=self._sandbox, root=child_root,
+            user_seg=self._sandbox.user_seg, run_seg=self._sandbox.run_seg,
+        )
+        return LocalWorkspace(  # type: ignore[return-value]
+            owner_id=self.owner_id,
+            workspace_id=self.workspace_id,
+            runtime=self.runtime,
+            policy=LocalExecutionPolicy(exec=False, network=False, secrets=[]),
+            sandbox=child_sandbox,
+        )
+
+    def allocate_worktree(self, step: str, worker_index: int) -> "LocalWorkspace":
+        """Allocate a git-worktree workspace on a per-worker branch.
+
+        Runs ``git worktree add`` off the working branch onto a NEW branch
+        ``fanout/{step}/{worker_i}`` via the ``_git`` owner (the ONLY place git is
+        shelled — Phase-9 D-10). Returns a ``has_git=True`` ``LocalWorkspace`` rooted
+        at the worktree dir, stamped owner/workspace. The worktree branch isolates the
+        worker's commits/edits from the parent and from siblings (T-11-02-02). git ops
+        reuse the SAME protocol/option guards the clone/branch path uses.
+        """
+        branch = f"fanout/{_seg(step)}/{_seg(str(worker_index))}"
+        # The worktree dir lives under the run root (traversal-proof) but OUTSIDE the
+        # tracked tree's working files — under ``.worktrees/`` so it is not picked up
+        # as repo content. ``git worktree add`` requires the target dir NOT to exist.
+        wt_rel = f".worktrees/{_seg(step)}/{_seg(str(worker_index))}"
+        wt_root = self._sandbox.path_for(wt_rel)  # raises on escape
+        wt_root.parent.mkdir(parents=True, exist_ok=True)
+        # ``-b <branch>`` creates the per-worker branch at the worktree add.
+        self._git("worktree", "add", "-b", branch, str(wt_root))
+        wt_sandbox = _ChildSandbox(
+            parent=self._sandbox, root=wt_root,
+            user_seg=self._sandbox.user_seg, run_seg=self._sandbox.run_seg,
+        )
+        ws = LocalWorkspace(  # type: ignore[return-value]
+            owner_id=self.owner_id,
+            workspace_id=self.workspace_id,
+            runtime=self.runtime,
+            policy=LocalExecutionPolicy(exec=False, network=False, secrets=[]),
+            sandbox=wt_sandbox,
+        )
+        # Stamp the per-worker branch so remove_worktree can delete it (happy path).
+        ws._worktree_branch = branch
+        ws._worktree_path = wt_root
+        return ws
+
+    def spawn_point_commit(self) -> str:
+        """Capture the working-branch HEAD commit at spawn (the 11-03 merge-base).
+
+        The 3-way merge in 11-03 needs the commit the worker branches diverged FROM.
+        Captured via the ``_git`` owner; returns the full SHA (empty string if the
+        repo has no commits yet — a fresh repo edge the merge handles).
+        """
+        try:
+            return self._git("rev-parse", "HEAD").strip()
+        except subprocess.CalledProcessError:
+            return ""  # no commits yet — merge-base is the empty tree
+
+    def remove_worktree(self, worktree_ws: "LocalWorkspace") -> None:
+        """Remove a worktree workspace + delete its per-worker branch (happy path).
+
+        Runs ``git worktree remove --force`` then ``git branch -D <branch>`` via the
+        ``_git`` owner so ``git worktree list`` is left with ZERO orphans (T-11-02-04).
+        The FULL cancel-path teardown (every allocated worktree on the cancel/finally
+        path) lands in 11-05; this is the post-collect happy-path cleanup. Best-effort
+        per op so a partially-removed worktree never aborts the run.
+        """
+        branch = getattr(worktree_ws, "_worktree_branch", None)
+        wt_path = getattr(worktree_ws, "_worktree_path", None)
+        if wt_path is not None:
+            try:
+                self._git("worktree", "remove", "--force", str(wt_path))
+            except subprocess.CalledProcessError as exc:
+                logger.warning("worktree remove failed (%s) — pruning", exc)
+                try:
+                    self._git("worktree", "prune")
+                except subprocess.CalledProcessError:
+                    pass
+        if branch:
+            try:
+                self._git("branch", "-D", branch)
+            except subprocess.CalledProcessError as exc:
+                logger.warning("worktree branch delete failed (%s)", exc)
 
 
 @register("runtime_env", "local")

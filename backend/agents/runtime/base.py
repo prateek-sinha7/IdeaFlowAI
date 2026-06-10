@@ -132,13 +132,24 @@ class RuntimeEnvironment(Protocol):
 class IsolationProvider(Protocol):
     """Allocates a ``Workspace`` for an isolation scope (N2 — granularity MVP).
 
-    ``shared_read`` / per-run scope is implemented downstream (09-02); the
-    ``sub_sandbox`` / ``worktree`` scopes are Phase 11. The port exists now so
-    the isolation seam is designed at the same time as the runtime seam.
+    Scopes (all three now LIVE as of Phase 11 / FANOUT-05):
+      * ``shared_read`` — per-run scope (09-02): the worker shares the parent run
+        workspace; no per-worker isolation.
+      * ``sub_sandbox`` — an isolated child dir ``{run}/subagents/{step}/{i}/`` under
+        the run root; reads are shared-read of the parent refs, WRITES are isolated to
+        the child dir (the no-git fan-out isolation default).
+      * ``worktree`` — a git worktree off the run's working branch on a per-worker
+        branch ``fanout/{step}/{i}``; the spawn-point HEAD commit is captured for the
+        11-03 3-way merge-base. Used when the base workspace ``has_git=True``.
+
+    The ENGINE (INV-7) selects the scope in ``run_fanout`` — it is NEVER read from
+    the manifest. The local impl (``LocalWorkspace.allocate_sub_sandbox`` /
+    ``allocate_worktree``) is the SINGLE git-subprocess owner for the worktree ops
+    (Phase-9 D-10). The port signature is unchanged — this is additive doc only.
     """
 
     name: str
 
     def allocate(self, scope: str) -> Workspace:
-        """Allocate a ``Workspace`` for ``scope`` (e.g. ``shared_read`` / per-run)."""
+        """Allocate a ``Workspace`` for ``scope`` (shared_read / sub_sandbox / worktree)."""
         ...
