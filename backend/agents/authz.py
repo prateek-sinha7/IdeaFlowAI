@@ -446,6 +446,121 @@ class ScopedStore:
                 session.close()
 
     # ------------------------------------------------------------------
+    # Repository — create the repo row + link the kind=repo workspace (RUNTIME-03)
+    # ------------------------------------------------------------------
+
+    async def create_repository(
+        self,
+        *,
+        provider: str,
+        url: str,
+        default_branch: str,
+        workspace_id: str | None = None,
+        auth_ref: str | None = None,
+    ) -> str:
+        """Insert ONE ``repositories`` row + link the ``kind='repo'`` workspace.
+
+        Persists exactly one ``repositories`` row (stamped with the helper
+        principal ``owner_id`` + the run's ``workspace_id``, AUTHZ-01) and, when a
+        ``workspace_id`` is supplied, sets that ``workspaces`` row's ``kind='repo'``
+        + ``repo_id`` so the two are linked (the FK wired by migration 0017). The
+        ``workspace_id`` defaults to the helper's principal workspace when omitted.
+
+        Mirrors ``create_workspace`` / ``record_capabilities`` (the run-entry
+        writers): default-deny, owner/workspace-scoped. ``provider`` is a free
+        String (``github`` / ``gitlab`` / ``local``); ``auth_ref`` is the
+        scoped-credential pointer, never the secret. Returns the repository id.
+        """
+        from app.models.repository import Repository
+        from app.models.workspace import Workspace
+
+        ws_id = workspace_id or self._workspace_id
+
+        session, owned = self._acquire()
+        try:
+            repo_id = str(uuid.uuid4())
+            session.add(
+                Repository(
+                    id=repo_id,
+                    owner_id=self._owner_id,
+                    workspace_id=ws_id,
+                    provider=provider,
+                    url=url,
+                    default_branch=default_branch,
+                    auth_ref=auth_ref,
+                )
+            )
+            # Link the kind=repo workspace row to the new repository (FK target),
+            # scoped to the helper principal so a cross-owner workspace is never
+            # mutated (default-deny — a non-matching row links nothing).
+            if ws_id is not None:
+                ws_row = (
+                    session.query(Workspace)
+                    .filter(
+                        Workspace.id == ws_id,
+                        Workspace.owner_id == self._owner_id,
+                    )
+                    .first()
+                )
+                if ws_row is not None:
+                    ws_row.kind = "repo"
+                    ws_row.repo_id = repo_id
+            session.commit()
+            return repo_id
+        finally:
+            if owned:
+                session.close()
+
+    async def get_repository(self, repo_id: str) -> Any | None:
+        """Return the owner+workspace-scoped ``repositories`` row, or ``None``.
+
+        A cross-owner repo id resolves to ``None`` (default-deny) → the T-09-02-ID
+        denial source: the persistence test asserts a cross-owner read raises
+        ``PermissionError`` via :meth:`assert_repo_owned`.
+        """
+        from app.models.repository import Repository
+
+        session, owned = self._acquire()
+        try:
+            query = session.query(Repository).filter(Repository.id == repo_id)
+            query = self._scope_owner_ws(query, Repository)
+            return query.first()
+        finally:
+            if owned:
+                session.close()
+
+    async def assert_repo_owned(self, repo_id: str) -> None:
+        """Raise ``PermissionError`` iff this caller does not own ``repo_id`` (T-09-02-ID).
+
+        Reads the repo's TRUE ``owner_id`` via an UNSCOPED-by-owner lookup and
+        compares it to ``self._owner_id`` (the ``assert_owns`` idiom, D-07). A
+        cross-owner read therefore fails loud rather than silently returning the
+        default-deny ``None`` — the explicit denial gate the persistence test pins.
+        An absent repo (same-owner missing / TTL-swept) returns ``None``.
+        """
+        from app.models.repository import Repository
+
+        session, owned = self._acquire()
+        try:
+            repo = (
+                session.query(Repository)
+                .filter(Repository.id == repo_id)
+                .first()
+            )
+        finally:
+            if owned:
+                session.close()
+
+        if repo is None:
+            return None
+        if repo.owner_id != self._owner_id:
+            raise PermissionError(
+                f"owner {self._owner_id!r} may not read repository "
+                f"{repo_id!r} (owned by {repo.owner_id!r})"
+            )
+        return None
+
+    # ------------------------------------------------------------------
     # RunCapabilities — record
     # ------------------------------------------------------------------
 

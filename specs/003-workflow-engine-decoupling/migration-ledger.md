@@ -85,6 +85,7 @@ The `Deletion gate` column holds one of two things, distinguished by the parser:
 | F3 | inline skills/hooks injection `factory.py:220-245` | `skill_provider` / `hook_provider` (§30) | 3 | `_inject_skills\|_inject_hooks` | ☑ | |
 | F4 | `_inject_constitution` async no-op `factory.py:258-306` (R12) | sync-safe load via `PromptAssemblyPolicy` | 3 | CHECK: constitution-injected-in-prod test passes | ☑ | 5d0c704 |
 | F5 | `create_deep_agent` hardcoded `deep_agent_runner.py:240` | `AgentRuntimeAdapter` (§6/§30) | 3 | CHECK: create_deep_agent called only inside the langchain_deepagents adapter | ☑ | |
+| R1 | `RunSandbox` bespoke per-run disk internals `app/agents/sandbox.py:49-96` | `Workspace(has_git=False, exec=off)` via `LocalSandboxRuntime` (§6, RUNTIME-02) | 9 | CHECK: RunSandbox delegates disk IO to a has_git False Workspace; the five characterization snapshots stay byte and event identical with SNAPSHOT_UPDATE unset (test_repositories_persistence + the 5 characterization files) | ☑ | |
 
 > The ledger is the single source of truth for "what still needs refactoring." CI fails if any
 > `☑` item's grep pattern reappears in `backend/`. Rows flip to `☑` only in their owning phase
