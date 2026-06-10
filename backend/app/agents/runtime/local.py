@@ -17,6 +17,7 @@ reaches it via the handle, never by import (the ECS-swap seam, D-01).
 
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -109,7 +110,7 @@ class LocalWorkspace:
 
     # -- git (the SINGLE git-subprocess owner) -------------------------------
 
-    def _git(self, *args: str) -> str:
+    def _git(self, *args: str, env: dict[str, str] | None = None) -> str:
         result = subprocess.run(
             [
                 "git",
@@ -125,6 +126,7 @@ class LocalWorkspace:
             check=True,
             capture_output=True,
             text=True,
+            env=env,  # None ⇒ inherit; clone threads a GIT_ALLOW_PROTOCOL guard
         )
         return result.stdout
 
@@ -134,10 +136,23 @@ class LocalWorkspace:
         For a local-path source, reject any traversal of the run root for the
         clone TARGET (the source may be an absolute fixture path outside the root,
         which is expected). The clone populates the run root in place.
+
+        Security (WR-01): ``source`` is host-injected (the §15 RepoSpec seam) and
+        must NOT be able to execute code despite exec=OFF. Two git-native escapes
+        are closed here: (a) the ``ext::``/``fd::`` transports run arbitrary
+        commands at clone time — ``GIT_ALLOW_PROTOCOL`` restricts the clone to
+        ``file``/``https``/``ssh``; (b) a source beginning with ``-`` is parsed
+        by git as an OPTION (argument injection) — rejected up front, and ``--``
+        terminates option parsing as defence in depth.
         """
-        # Clone into the run root itself (``git clone src .`` requires an empty dir;
-        # the freshly-ensured run dir is empty).
-        self._git("clone", source, ".")
+        if source.startswith("-"):
+            raise ValueError(
+                f"refusing clone source that parses as a git option: {source!r}"
+            )
+        env = {**os.environ, "GIT_ALLOW_PROTOCOL": "file:https:ssh"}  # no ext::/fd::
+        # Clone into the run root itself (``git clone -- src .`` requires an empty
+        # dir; the freshly-ensured run dir is empty).
+        self._git("clone", "--", source, ".", env=env)
         return self._root
 
     def create_branch(self, name: str) -> str:
