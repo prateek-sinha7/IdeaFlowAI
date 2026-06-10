@@ -285,6 +285,12 @@ class LocalWorkspace:
             )
 
         # (2) pre-spawn allow/deny — deny BEATS allow, recorded BEFORE any spawn.
+        # WR-02: guard empty argv BEFORE indexing argv[0] — an empty argv on an
+        # exec-granted workspace must be a clean, AUDITED PermissionError, not an
+        # unrecorded IndexError that escapes the single enforcement point.
+        if not argv:
+            self._recorder([], outcome="denied", exit_code=None)
+            raise PermissionError("exec_command denied: empty argv")
         cmd = argv[0]
         if cmd in self.policy.exec_deny or cmd not in self.policy.exec_allow:
             self._recorder(argv, outcome="denied", exit_code=None)

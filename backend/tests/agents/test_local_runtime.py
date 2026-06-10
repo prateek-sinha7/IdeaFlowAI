@@ -190,6 +190,16 @@ def test_exec_pre_spawn_deny_for_unlisted_command(tmp_path: Path) -> None:
     assert recorded[-1]["outcome"] == "denied"
 
 
+def test_exec_empty_argv_denied_and_audited(tmp_path: Path) -> None:
+    """WR-02: an empty argv is a clean, audited PermissionError (not IndexError)."""
+    ws, recorded = _exec_workspace(tmp_path)
+    with pytest.raises(PermissionError) as exc:
+        ws.exec_command([])
+    assert "empty argv" in str(exc.value)
+    assert recorded[-1]["outcome"] == "denied"
+    assert recorded[-1]["argv"] == []
+
+
 def test_exec_deny_beats_allow(tmp_path: Path) -> None:
     """A command in BOTH exec_allow and exec_deny is rejected (deny-precedence)."""
     ws, recorded = _exec_workspace(
