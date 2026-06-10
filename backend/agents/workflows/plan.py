@@ -255,11 +255,21 @@ class RetryPolicy:
 
 @dataclass
 class RepoSpec:
-    """Brownfield repo binding (§15). INERT in Phase 4 (repo phases 9–12)."""
+    """Brownfield repo binding (§15). INERT in Phase 4 (repo phases 9–12).
+
+    ``index`` is the DECLARED symbol-index opt-in (09-03 / REPO-02 / D-04): when
+    ``True`` the workflow asks the optional ``repo_index`` (``tree_sitter``)
+    capability to build an in-memory symbol index for the cloned repo. The
+    compiler only RECORDS this flag (INV-5 — manifests are pure data, no control
+    flow); the build DECISION (``index OR file_count > N6``) lives inside the
+    ``repo_index`` capability, never the compiler. ``False`` (the default) means
+    grep/glob is the only search path.
+    """
 
     url: str | None = None
     ref: str | None = None
     branch: str | None = None
+    index: bool = False
 
 
 @dataclass

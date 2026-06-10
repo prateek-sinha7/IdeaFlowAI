@@ -109,6 +109,7 @@ _KNOWN: set[tuple[str, str]] = {
     ("hook", "secret_scan"),               # 08-07 / HOOK-01..04 (executable, blocking)
     ("hook", "otel_tracing"),              # 08-07 / OBS-02 (executable, non-blocking)
     ("runtime_env", "local"),              # 09-01 / RUNTIME-01 — LocalSandboxRuntime (ECS-swap seam)
+    ("repo_index", "tree_sitter"),         # 09-03 / REPO-02 — app-side symbol index (tree-sitter isolated)
 }
 
 
@@ -228,6 +229,7 @@ def discover() -> None:
         # the kernel PORT (the legal app->ports direction), never the reverse.
         "app.agents.validators",
         "app.agents.runtime",  # 09-01 / RUNTIME-01 — LocalSandboxRuntime self-registers
+        "app.agents.repo_index",  # 09-03 / REPO-02 — tree-sitter symbol index (heavy dep isolated)
     )
     for pkg in _forward_packages:
         try:

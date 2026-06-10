@@ -60,3 +60,21 @@ python-frontmatter==1.1.0
 # OPTIONAL runtime dependency, NOT pinned here (least-privilege / supply-chain).
 opentelemetry-api==1.42.1
 opentelemetry-sdk==1.42.1
+# tree-sitter — the symbol-index backing for the optional repo_index capability
+# (09-03 / REPO-02). Human-verified at the package-legitimacy checkpoint:
+# `tree-sitter` (github.com/tree-sitter/py-tree-sitter, Max Brunsfeld) and the
+# per-language grammar wheels below are all PyPI-legitimate, prebuilt (abi3, no C
+# toolchain), and OFFLINE-INSTALLABLE.
+#
+# FALLBACK DECISION (RESEARCH R-C Open Risk realized): the originally-planned
+# `tree-sitter-language-pack==1.8.1` was VERIFIED-LEGITIMATE at the checkpoint but
+# its 1.8.1 wheel does NOT bundle grammars — its native `get_parser` LAZY-DOWNLOADS
+# a parsers.json manifest from github.com/kreuzberg-dev/... at first use, which
+# FAILS with zero network (the phase's offline-CI accept gate). The documented R-C
+# fallback is taken: pin the per-language prebuilt grammar wheels, which DO bundle
+# the compiled grammar IN the wheel (offline-proven in test_repo_index.py with the
+# network disabled). tree-sitter-language-pack is NOT pinned (network-coupled).
+tree-sitter==0.25.2
+tree-sitter-python==0.25.0
+tree-sitter-javascript==0.25.0
+tree-sitter-typescript==0.23.2
