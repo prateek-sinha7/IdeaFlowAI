@@ -159,15 +159,23 @@ class LocalWorkspace:
         return self._git("checkout", "-b", name)
 
     def git_diff(self, base: str, work: str) -> str:
-        # Stage working-tree edits so the diff reflects uncommitted changes too,
-        # then diff the two refs. ``git diff base..work`` covers committed deltas;
-        # an unstaged working-tree edit is surfaced via ``git diff base`` against
-        # the work tree. We commit the edit onto ``work`` first for a clean ref diff.
-        self._git("add", "-A")
-        # Commit only if there is something staged (a no-op commit errors otherwise).
-        status = self._git("status", "--porcelain")
-        if status.strip():
-            self._git("commit", "-m", "workspace edit")
+        """Diff ``base`` → ``work`` WITHOUT committing (WR-03: read-path, no commit).
+
+        The repo_diff deliverable resolver calls this as a READ — it must never
+        create a commit (the previous dirty-path ``git commit`` could land the
+        edit on whatever branch happened to be checked out, corrupting ``base``
+        and the diff). When ``work`` is the checked-out branch, uncommitted
+        working-tree edits (incl. untracked files) are surfaced by staging to
+        the INDEX only and diffing the index against ``base`` — which subsumes
+        the committed ``base..work`` deltas. When ``work`` is NOT checked out,
+        the working tree belongs to another branch, so only the committed
+        ref-to-ref deltas are meaningful.
+        """
+        current = self._git("rev-parse", "--abbrev-ref", "HEAD").strip()
+        if current == work:
+            # Stage (index only, NO commit) so untracked files appear in the diff.
+            self._git("add", "-A")
+            return self._git("diff", "--cached", base)
         return self._git("diff", f"{base}..{work}")
 
     # -- exec (DENIED under the default policy) -------------------------------
