@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import resource
+import signal
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -307,19 +308,37 @@ class LocalWorkspace:
                 pass  # darwin may refuse; the wall-clock timeout still bounds the run
 
         started = time.monotonic()
+        # WR-01: spawn via Popen + communicate(timeout=...) (NOT subprocess.run) so
+        # the pid is RETAINED on TimeoutExpired — start_new_session=True puts the
+        # child in its own process group, and on timeout we kill the WHOLE group
+        # (os.killpg) so a forking runaway (e.g. pytest spawning workers) cannot
+        # leave orphaned descendants past the wall-clock cap. subprocess.run only
+        # SIGKILLs the direct child, defeating the documented group containment.
+        proc = subprocess.Popen(
+            argv,
+            cwd=str(self._root),
+            shell=False,  # shell=False is the IN-02 fix (no shell interpolation)
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            preexec_fn=_limits,
+            start_new_session=True,  # so killpg can kill a forking runaway tree
+        )
         try:
-            proc = subprocess.run(
-                argv,
-                cwd=str(self._root),
-                shell=False,  # shell=False is the IN-02 fix (no shell interpolation)
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=self.policy.wall_seconds,
-                preexec_fn=_limits,
-                start_new_session=True,  # so killpg can kill a forking runaway tree
-            )
+            stdout, _stderr = proc.communicate(timeout=self.policy.wall_seconds)
         except subprocess.TimeoutExpired:
+            # Kill the ENTIRE process group, not just the direct child (WR-01).
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass  # already gone / not permitted — best-effort group kill
+            # Drain any partial output so the pipes close and the child reaps
+            # cleanly; discard it (a killed run returns no stdout to the caller).
+            try:
+                proc.communicate(timeout=5)
+            except (subprocess.TimeoutExpired, ValueError, OSError):
+                pass
             self._recorder(
                 argv,
                 outcome="killed",
@@ -329,7 +348,7 @@ class LocalWorkspace:
             raise  # the runaway was killed at the wall-clock timeout
 
         # (5) 64KB/stream truncation.
-        out = (proc.stdout or "")[:_OUTPUT_CAP]
+        out = (stdout or "")[:_OUTPUT_CAP]
         self._recorder(
             argv,
             outcome="allowed",

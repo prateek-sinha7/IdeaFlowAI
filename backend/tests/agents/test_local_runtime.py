@@ -249,6 +249,52 @@ def test_exec_wall_clock_kill_records_killed(tmp_path: Path) -> None:
     assert recorded[-1]["outcome"] == "killed"
 
 
+def test_exec_wall_clock_kills_forking_descendants(tmp_path: Path) -> None:
+    """WR-01: a child that forks a grandchild has its WHOLE group killed on timeout.
+
+    The child writes its grandchild's pid to a file then both sleep. On the
+    wall-clock timeout the workspace must ``os.killpg`` the new session group so
+    NO descendant survives — ``subprocess.run``'s direct-child ``proc.kill()``
+    would leave the grandchild orphaned and running.
+    """
+    import os as _os
+    import subprocess
+    import time as _time
+
+    ws, recorded = _exec_workspace(tmp_path, wall_seconds=1)
+    pidfile = tmp_path / "grandchild.pid"
+    script = (
+        "import os,sys,time\n"
+        "pid=os.fork()\n"
+        "if pid==0:\n"  # grandchild
+        f"    open({str(pidfile)!r},'w').write(str(os.getpid()))\n"
+        "    time.sleep(30)\n"
+        "    sys.exit(0)\n"
+        "time.sleep(30)\n"
+    )
+    with pytest.raises(subprocess.TimeoutExpired):
+        ws.exec_command(["python3", "-c", script])
+    assert recorded[-1]["outcome"] == "killed"
+
+    # The grandchild must be dead (group kill). Give the SIGKILL a beat to land.
+    _time.sleep(0.5)
+    assert pidfile.exists(), "grandchild never recorded its pid"
+    gc_pid = int(pidfile.read_text())
+
+    def _alive(pid: int) -> bool:
+        try:
+            _os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    assert not _alive(gc_pid), (
+        f"grandchild {gc_pid} survived the wall-clock kill — process group not killed"
+    )
+
+
 def test_exec_output_truncated_at_64kb(tmp_path: Path) -> None:
     """Output exceeding 64KB/stream is truncated to 64KB."""
     ws, _ = _exec_workspace(tmp_path)
