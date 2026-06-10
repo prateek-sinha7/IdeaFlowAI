@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-10T18:15:14.666Z"
+last_updated: "2026-06-10T18:25:59.143Z"
 last_activity: 2026-06-10 -- 10-01 complete (exec foundation layer)
 progress:
   total_phases: 12
   completed_phases: 9
   total_plans: 56
-  completed_plans: 53
+  completed_plans: 54
   percent: 75
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 10 (safe-local-exec-gated-on-n3-4b) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-06-10 -- 10-01 complete (exec foundation layer)
 
@@ -106,6 +106,7 @@ Progress: [████████░░] 75% (9/12 phases complete; 52/56 plan
 | Phase 09 P06 | ~30min | 2 tasks | 13 files |
 | Phase 10 P01 | ~25min | 2 tasks | 9 files |
 | Phase 10 P02 | ~18min | 2 tasks | 6 files |
+| Phase Phase 10 PP03 | ~22min | 2 tasks tasks | 5 files files |
 
 ## Accumulated Context
 
@@ -178,6 +179,7 @@ Recent decisions affecting current work:
 - [Phase 09]: 09-04: sample_brownfield manifest at the REAL manifest home agents/workflows/sample_brownfield/ (not the plan's manifests/ subdir) so compile_for_run loads it with ZERO engine edit; AGENT.md specs + the end-to-end test are test-scoped (sc001 precedent); the §15 RepoSpec injected at run entry, not the manifest (INV-5/D-08). REPO-04/REPO-05 closed; _KNOWN 39→40; exec=off at every step; prototype parity held; commits 98d8f9b/47be9a9.
 - [Phase 10]: 10-01 (EXEC-01 foundation): hardened argv exec_command shipped — shell=False (IN-02 fix, grep shell=True=0 over runtime+agents), scrubbed minimal env (PATH/HOME/TMPDIR only, no host creds T-10-01-03), RLIMIT_CPU/RLIMIT_AS preexec_fn + wall-clock timeout + start_new_session (T-10-01-04), 64KB/stream truncation (T-10-01-06). LocalExecutionPolicy GROWN with exec_allow/exec_deny + cpu/mem/wall caps (deny BEATS allow, pre-spawn denial recorded BEFORE spawn T-10-01-02); DEFAULT_EXEC_PROFILE = N3-locked module constants (python/python3/pytest/ruff; cpu=60s mem=512MB wall=120s, NOT manifest-tunable). create_workspace threads exec live (profile when True, byte-identical deny default when False — parity) + recorder kwarg. Workspace.exec_command port re-signed command:str → argv:list[str] (single form). exec_runs audit (alembic 0018, down_revision 0017, free-String outcome no sa.Enum, run_id FK matches ORM so no NEW alembic drift) + ExecRun ORM + ScopedStore.record_exec_run/read_exec_runs default-deny (cross-owner read=∅ T-10-01-08) + KernelServices.record_exec_run best-effort handle (None offline, Pitfall 6) + KernelServices.workspace attr (None until 10-02 binds). Recorder fires on EVERY outcome at the single enforcement point (bypass-proof T-10-01-07). AUDIT ledger row left ☐ (chain reversibility test asserts it; enforcement rows land 10-04). EGRESS-DENY residual (interpreter sockets) documented + accepted (T-10-01-05, v2 ECS netns). Deviations: 2 Rule-1 (0018 run_id FK added to match ORM; scrubbed-env test re-asserted as no-host-cred-class rather than exact 3-key allow-list — darwin injects benign CPATH/SDKROOT after our env). 5 characterization snapshots byte/event-identical (dormant for non-exec); lint-imports 4/0; banned-pattern+ledger green. Pre-existing workspaces.repo_id alembic-check drift (Phase-9 artifact, already red on clean HEAD) deferred out-of-scope. Commits a272ffb/926d9d7.
 - [Phase ?]: [Phase 09]: 09-06 (INTEG-01/02 + D-09): integration_provider github/gitlab/jira/slack = THIN MCP-backed bridges onto the 09-05 catalog (ONE mechanism, no parallel SDK — D-08); resolve_integration_scopes() maps a granted integrations scope onto the EXACT mcp_server_configs/mcp_exposed_tools the existing async MCP prewarm consumes, so tools surface into create_runner via the identical McpClientAdapter path. Scopes default NONE (gitlab_read binds only gitlab read tools; 08-03 intersect gates the grant); run_capabilities records the active scopes + MCP servers + runtime per run (or None -> SQL NULL). _KNOWN 46->50. The CodingAgent build_model().ainvoke bypass (the INV-13 gap) is DELETED-by-alias: HandoffCoder (coder.py) produces the same JSON edit-plan via DeepAgentRunner -> create_deep_agent, exported as CodingAgent so the RETAINED /api/handoff routers + UserGithubCredential (ledger D10) + the handoff contract drive unchanged (grep class CodingAgent -> 0, ledger D9). 5-pipeline characterization byte/event-identical; lint 4/0; banned-pattern+ledger green. Phase 09 = 6/6 complete. Commits 3245f02/b17eeca.
+- [Phase Phase 10]: 10-03: tier-2 exec gate layer — profile-conditional security gate (file/builtin exec + approval declared + constrained profile PASS; network/secrets BLOCK byte-identical; exec without approval BLOCK D-01); approval gate on the ONE durable HITL mechanism (run_human_gate->_run_review_gate, D-02) with D-04 policy-snapshot payload (allow-list/caps/scrubbed-env/egress, no argv) + D-03 read_gate_events first-exec memory short-circuit; run_human_gate parameterized with payload (rides review_gate_ready output, payload=None byte-identical), read_gate_events best-effort handle; §15 host seam binds runtime_env('local') exec workspace onto KernelServices.workspace only for exec-granting plans (OSError-only degrade). 31 gate + 10 characterization byte/event-identical + 11 banned-pattern; lint 4/0. Commits 73453b8/3b77221.
 
 ### Pending Todos
 

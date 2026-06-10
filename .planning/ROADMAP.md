@@ -338,7 +338,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 10-03-PLAN.md — GATES: profile-conditional security pass + approval HITL (D-02/03/04) + §15 runtime workspace wiring [EXEC-01]
+- [x] 10-03-PLAN.md — GATES: profile-conditional security pass + approval HITL (D-02/03/04) + §15 runtime workspace wiring [EXEC-01]
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -405,7 +405,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 7. Prototype as Manifest (Parity Proof) [2] | 11/11 | Complete    | 2026-06-09 |
 | 8. Capabilities Hardened [3] | 8/8 | Complete    | 2026-06-09 |
 | 9. Local Runtime + Repo (no exec) [4A] | 6/6 | Complete    | 2026-06-10 |
-| 10. Safe Local Exec [4B] | 2/5 | In Progress|  |
+| 10. Safe Local Exec [4B] | 3/5 | In Progress|  |
 | 11. Fan-Out + Merge [5] | 0/5 | Not started | - |
 | 12. Wave Scheduler + Resume [6] | 0/3 | Not started | - |
 
