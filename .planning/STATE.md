@@ -2,7 +2,7 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
+status: ready_to_plan
 last_updated: "2026-06-10T10:36:48.357Z"
 last_activity: 2026-06-10
 progress:
@@ -17,19 +17,19 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-06)
+See: .planning/PROJECT.md (updated 2026-06-10)
 
 **Core value:** A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001).
-**Current focus:** Phase 09 — local-workspace-runtime-repo-workflows-no-exec-4a
+**Current focus:** Phase 10 — Safe Local Exec (gated on N3) [4B]
 
 ## Current Position
 
 Phase: 10
 Plan: Not started
-Status: Phase complete — ready for verification
+Status: Ready to plan (Phase 09 verified passed 4/4 on 2026-06-10)
 Last activity: 2026-06-10
 
-Progress: [██████░░░░] 60% (7/12 phases complete; Phase 08 = 8/8 plans complete, awaiting verification)
+Progress: [████████░░] 75% (9/12 phases complete; 51/51 plans complete)
 
 ## Performance Metrics
 
@@ -178,19 +178,19 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- Phase 09: plans 01-02 complete; next is 09-03 (repo inventory/index/context — tree-sitter behind the repo_index capability).
-- Phase 08: all 8 plans complete — run phase 08 verification (still pending).
+- Phase 09: security review pending — run `/gsd-secure-phase 9` (workflow.security_enforcement=true, no 09-SECURITY.md yet).
+- Phase 09 REVIEW.md: 3 Info findings left unfixed by design (IN-01 slack_post write-scope sign-off, IN-02 exec_command shell=True future surface, IN-03 repo_diff unparseable-header drop) — revisit in Phase 10 (exec hardening).
 
 ### Blockers/Concerns
 
 Open decision records to confirm before their phase (from plan §26):
 
-- **N3 (Phase 10/[4B]) ⚠️ highest risk** — local `exec` security threat model; code-exec stays disabled (security gate) until set
-- **N2 (Phase 9)** — isolation granularity MVP (ephemeral per-run local)
-- **N4 (Phase 9+)** — git hosting scope/order (GitLab vs GitHub; repo is GitLab `hexaware-uki/flowin`)
-- **N5/N7 (Phase 9)** — branch/PR policy + repo deliverable shape (diff-only until N4)
-- **N6/N10 (Phase 9)** — repo scale → grep-vs-index threshold + RepoIndex approach
+- **N3 (Phase 10/[4B]) ⚠️ highest risk — NEXT, must be confirmed before Phase 10 planning** — local `exec` security threat model; code-exec stays disabled (security gate) until set
+- **N4 (Phase 9+)** — git hosting scope/order (GitLab vs GitHub; repo is GitLab `hexaware-uki/flowin`) — Phase 9 shipped diff-only + read-scoped MCP integrations consistent with N4-pending; live hosting order still open
 - **N8 (Phase 9+)** — long-job orchestration substrate
+- ~~N2 (Phase 9)~~ resolved by implementation: ephemeral per-run local isolation (LocalSandboxRuntime/LocalWorkspace)
+- ~~N5/N7 (Phase 9)~~ resolved by implementation: diff-only `repo_diff` deliverable, no commit/PR push
+- ~~N6/N10 (Phase 9)~~ resolved by implementation: grep/glob default + opt-in in-memory tree-sitter `repo_index`
 - **N9 (Phase 5/[1B])** — artifact retention default (run_ttl vs keep)
 - **N11 (Phase 6/[1C])** — model default/premium policy + fallback chain
 
@@ -200,6 +200,8 @@ Open decision records to confirm before their phase (from plan §26):
 - CP-SAT scheduling · single-file fragment-merge · PR/commit push · DB-backed user workflows (REQUIREMENTS.md v2 / Out of Scope).
 
 ---
+*Last updated: 2026-06-10 — Phase 09 COMPLETE + VERIFIED (4/4 must-haves): 6/6 plans executed sequentially; both blocking-human package checkpoints resolved with live PyPI verification (tree-sitter fallback wheels; langchain-mcp-adapters pinned <0.3 after day-old 0.3.0 broke fastapi transitively); code review 1 Critical + 5 Warnings ALL FIXED (CR-01 teardown recursion, WR-01..05); final gate 138 passed + lint 4/0. STATE advanced to Phase 10 (Ready to plan — confirm N3 first; /gsd-secure-phase 9 pending). — previous: 09-01 complete*
+<!-- prior footer retained below for history -->
 *Last updated: 2026-06-10 — 09-01 complete (net-new runtime port layer: RuntimeEnvironment/Workspace/ExecutionPolicy/IsolationProvider kernel-side Protocols + LocalSandboxRuntime app-side @register('runtime_env','local'), the single git-subprocess owner clone/branch/diff; exec_command denied under default policy [RUNTIME-01]; 4th import-linter contract agents.runtime↛[execution_engine,app] — the ECS-swap seam D-01; _KNOWN 34→35; lint 4/0; banned-pattern+ledger green; 5 characterization snapshots byte/event-identical; commits e55f89a/6125267/5707298). Next: 09-02. — previous: 08-07 complete*
 <!-- prior footer retained below for history -->
 *Last updated: 2026-06-09 — 08-07 complete (executable HookHandler framework continue|warn|block + permission-gated binding; secret_scan blocks before_write secrets → hook_runs outcome=block [HOOK-01..04]; otel_tracing wildcard non-blocking REAL OpenTelemetry spans + hook_runs row [OBS-02] — human approved opentelemetry-api/sdk 1.42.1, console-default/OTLP-via-env, exporter optional/lazy; 20 hook tests green; 5 characterization snapshots byte/event-identical; lint-imports 3/0; banned-pattern unaffected; commits 5354944 + 94b77b3). Phase 08 = 8/8 plans complete; next: phase 08 verification.*
