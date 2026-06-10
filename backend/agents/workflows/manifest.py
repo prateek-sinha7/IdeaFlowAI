@@ -60,6 +60,10 @@ class WorkflowManifest:
     # ── Optional with defaults ────────────────────────────────────────────
     context_providers: list = field(default_factory=list)
     seed_files: dict = field(default_factory=dict)
+    # allowed_workers: the workflow-level named-worker allow-list (Phase 11 / FANOUT-03).
+    # A heterogeneous fan-out step may only spawn a named worker listed here (validated
+    # against the agent registry by run_fanout before any spawn). Pure data (INV-5).
+    allowed_workers: list = field(default_factory=list)
     version: int = 1
 
     # ── Forward / inert (D-06) ────────────────────────────────────────────
@@ -82,6 +86,7 @@ _ALLOWED_TOP_KEYS: frozenset[str] = frozenset(
         "clarify",
         "context_providers",
         "seed_files",
+        "allowed_workers",
         "deliverable",
         "limits",
         "steps",
@@ -174,6 +179,7 @@ def _build_manifest(data: object, path: Path) -> WorkflowManifest:
 
     context_providers = _optional_list(data, "context_providers", file_str)
     seed_files = _optional_dict(data, "seed_files", file_str, default_factory=dict)
+    allowed_workers = _optional_list(data, "allowed_workers", file_str)
     version = _optional_int(data, "version", file_str, default=1)
 
     # ── Forward / inert fields (D-06) — type-checked, not consumed ─────────
@@ -188,6 +194,7 @@ def _build_manifest(data: object, path: Path) -> WorkflowManifest:
         clarify=clarify,
         context_providers=context_providers,
         seed_files=seed_files,
+        allowed_workers=allowed_workers,
         version=version,
         model=model,
         limits=limits,

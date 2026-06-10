@@ -901,6 +901,112 @@ class ScopedStore:
                 session.close()
 
     # ------------------------------------------------------------------
+    # subagent_runs — fan-out child audit writer/updater/reader (Phase 11)
+    #
+    # subagent_runs carries owner_id + workspace_id (AUTHZ-01); every write stamps
+    # the helper principal so the default-deny read filter (_scope_owner_ws) scopes
+    # them. ONE row is written per fan-out child at spawn time (status='running')
+    # through the single kernel run_fanout spawn path, flipped terminal on
+    # completion. A cross-owner read returns nothing — the FANOUT-10 mitigation
+    # (T-11-01-03): a user can never read another owner's fan-out children.
+    # ------------------------------------------------------------------
+
+    async def record_subagent_run(
+        self,
+        parent_run_id: str,
+        *,
+        parent_step: str,
+        worker_agent: str,
+        depth: int,
+        isolation: str,
+        status: str,
+        tokens: int | None = None,
+        cost: Any = None,
+    ) -> str:
+        """Insert one ``subagent_runs`` row stamped with the helper principal (FANOUT-10).
+
+        ``isolation`` ∈ ``shared_read | sub_sandbox | worktree`` (free String) and
+        ``status`` ∈ ``running | complete | failed | cancelled`` (free String). The
+        row carries owner_id + workspace_id so a cross-owner read returns nothing
+        (default-deny, T-11-01-03). Returns the row id.
+        """
+        from app.models.subagent_run import SubagentRun
+
+        session, owned = self._acquire()
+        try:
+            row = SubagentRun(
+                id=str(uuid.uuid4()),
+                parent_run_id=parent_run_id,
+                owner_id=self._owner_id,
+                workspace_id=self._workspace_id,
+                parent_step=parent_step,
+                worker_agent=worker_agent,
+                depth=depth,
+                isolation=isolation,
+                status=status,
+                tokens=tokens,
+                cost=cost,
+            )
+            session.add(row)
+            session.commit()
+            return row.id
+        finally:
+            if owned:
+                session.close()
+
+    async def update_subagent_run(
+        self,
+        row_id: str,
+        *,
+        status: str,
+        tokens: int | None = None,
+        cost: Any = None,
+    ) -> None:
+        """Flip a ``subagent_runs`` row terminal (default-deny scoped lookup).
+
+        The row is resolved under the owner+workspace scope filter so a cross-owner
+        caller can never mutate another owner's child row. A missing/cross-owner row
+        is a no-op (the same graceful degrade as the read path).
+        """
+        from app.models.subagent_run import SubagentRun
+
+        session, owned = self._acquire()
+        try:
+            query = session.query(SubagentRun).filter(SubagentRun.id == row_id)
+            query = self._scope_owner_ws(query, SubagentRun)
+            row = query.first()
+            if row is None:
+                return
+            row.status = status
+            if tokens is not None:
+                row.tokens = tokens
+            if cost is not None:
+                row.cost = cost
+            session.commit()
+        finally:
+            if owned:
+                session.close()
+
+    async def read_subagent_runs(self, parent_run_id: str) -> list[Any]:
+        """Return the parent run's owner+workspace-scoped ``subagent_runs`` rows.
+
+        A cross-owner read returns nothing → the FANOUT-10 mitigation proof
+        (T-11-01-03).
+        """
+        from app.models.subagent_run import SubagentRun
+
+        session, owned = self._acquire()
+        try:
+            query = session.query(SubagentRun).filter(
+                SubagentRun.parent_run_id == parent_run_id
+            )
+            query = self._scope_owner_ws(query, SubagentRun)
+            return query.order_by(SubagentRun.created_at.asc()).all()
+        finally:
+            if owned:
+                session.close()
+
+    # ------------------------------------------------------------------
     # assert_owns — the relocated L16 seam, now a real store lookup (D-07)
     # ------------------------------------------------------------------
 

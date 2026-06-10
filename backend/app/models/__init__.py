@@ -29,6 +29,9 @@ from app.models.mcp_credential import McpCredential  # noqa: F401
 # Phase 10 exec-audit model (0018) — imported here so Base.metadata sees it for
 # Alembic autogenerate/check (Pitfall 5).
 from app.models.exec_runs import ExecRun  # noqa: F401
+# Phase 11 fan-out child audit model (0019) — imported here so Base.metadata sees
+# it for Alembic autogenerate/check (Pitfall 5).
+from app.models.subagent_run import SubagentRun  # noqa: F401
 from app.models.handoff import (
     HandoffSession,
     UserApiKey,
@@ -68,6 +71,8 @@ __all__ = [
     "RunCapabilities",
     "Repository",
     "McpCredential",
+    "ExecRun",
+    "SubagentRun",
     "RevokedToken",
     "cleanup_expired_revocations",
     "HandoffSession",

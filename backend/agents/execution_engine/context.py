@@ -166,6 +166,14 @@ class ExecutionContext:
     prewarmed_constitution: str | None = None
     # depth: sub-run nesting depth (0 = top-level run). Reserved for the fan-out phases.
     depth: int = 0
+    # budget: the per-run fan-out BudgetManager (Phase 11 / FANOUT-09). A PER-RUN object
+    # (INV-2 — never on the engine singleton) carrying the resolved caps; the single
+    # kernel run_fanout spawn path calls ``budget.reserve(...)`` BEFORE any spawn
+    # (Pitfall 4 enforcement-point discipline). ``reserve()`` is a no-op stub this plan;
+    # the raising enforcement lands 11-04. None ⇒ no budget bound (a direct unit-style
+    # invocation) ⇒ run_fanout skips the reserve call (graceful no-op). Typed
+    # forward-ref ``object | None`` to keep this pure-data module free of the budget import.
+    budget: object | None = None
     # ── Deliverable routing (07-05) ─────────────────────────────────────────────────
     # deliverable: the compiled DeliverableSpec (strategy + name) for this run, set at
     # run entry from ``compiled.deliverable`` so the per-agent mid-stream transforms in

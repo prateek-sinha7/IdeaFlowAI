@@ -194,10 +194,22 @@ class FixPolicy:
 
 @dataclass
 class FanoutSpec:
-    """Declarative fan-out spec (Q12). INERT in Phase 4 (Phase 7)."""
+    """Declarative fan-out spec (Q12). CONSUMED from Phase 11 (fanout_batch strategy).
+
+    ``mode``/``max_parallel`` are the original (inert-until-Phase-11) fields. The
+    additive Phase-11 fields select the worker (FANOUT-03): ``agent`` names the
+    worker agent (``None``/``"self"`` = the step's own agent, fanned out ``count``×);
+    ``count`` is the self×N multiplicity; ``workers`` is the list of named worker ids
+    for a heterogeneous fan-out (each resolved against ``CompiledWorkflow.allowed_workers``
+    + the agent registry before any spawn). Pure data (INV-5) — the run_fanout kernel
+    owns the selection control flow.
+    """
 
     mode: str | None = None       # parallel | sequential
     max_parallel: int | None = None
+    agent: str | None = None      # worker agent; None/"self" = step's own agent ×count
+    count: int | None = None      # self×N multiplicity
+    workers: list[str] = field(default_factory=list)  # named worker ids (heterogeneous)
 
 
 @dataclass
@@ -366,6 +378,13 @@ class CompiledWorkflow:
     deliverable: DeliverableSpec = field(default_factory=DeliverableSpec)  # Q26
     planner: str = "run"                                     # "skip" | "run" (Q30)
     clarify: ClarifySpec = field(default_factory=ClarifySpec)  # mode + defaults (Q30)
+
+    # allowed_workers: the workflow-level named-worker allow-list (Phase 11 / FANOUT-03).
+    # A step's fan-out may only resolve a NAMED worker (FanoutSpec.workers) that appears
+    # here AND in the agent registry — a disallowed/unknown worker is rejected BEFORE any
+    # spawn (the run_fanout pre-spawn guard). Pure data (INV-5); self×N fan-out needs no
+    # entry (it reuses the step's own agent).
+    allowed_workers: list[str] = field(default_factory=list)
 
     # ── Forward surface (declared, INERT in Phase 4) ──────────────────────
     model: ModelPolicy = field(default_factory=ModelPolicy)  # workflow default (§20)

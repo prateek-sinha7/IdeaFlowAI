@@ -217,6 +217,23 @@ class ScriptedFakeChatModel(BaseChatModel):
 
 
 # ===========================================================================
+# Fan-out worker scripted-model helper (Phase 11 / FANOUT-04).
+# ===========================================================================
+
+
+def worker_model(text: str = "worker output", usage: tuple[int, int] = (10, 5)) -> "ScriptedFakeChatModel":
+    """A minimal single-turn scripted model for a fan-out WORKER (no tool calls).
+
+    Each fan-out child runs ONE agent invocation that streams text + usage and calls
+    no tools (workers carry no gates / no per-worker fix-loop — D-01). The kernel
+    ``run_fanout`` spawn path runs each worker against its own ``thread_id``; this
+    helper supplies a deterministic per-worker model so a parallel/sequential fan-out
+    test can assert N children + the concurrency cap offline (no Bedrock).
+    """
+    return ScriptedFakeChatModel([_ScriptedTurn(texts=[text], usage=usage)])
+
+
+# ===========================================================================
 # Per-agent script registry — keyed by agent id, returns the scripted turns
 # for THAT agent in the LIVE (create_runner) world. The engine builds one agent
 # per spec and runs it once (the build agent runs once per task), so each

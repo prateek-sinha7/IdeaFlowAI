@@ -33,6 +33,7 @@ from agents.workflows.plan import (
     ClarifySpec,
     CompiledWorkflow,
     DeliverableSpec,
+    FanoutSpec,
     Step,
     TaskSource,
     ToolPermissions,
@@ -88,6 +89,14 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
 # task_loop strategy reads from (07-11 / CR-05) — pure data, no control flow (INV-5).
 _ALLOWED_TASK_SOURCE_KEYS: frozenset[str] = frozenset(
     {"kind", "parser", "target", "source_step", "spec_step"}
+)
+
+# EXACTLY the keys a step ``fanout:`` dict may declare (D-08 at the nested level /
+# Phase 11 / FANOUT-03). ``mode``/``max_parallel`` are the original fields;
+# ``agent``/``count``/``workers`` select the worker. Pure data (INV-5): the run_fanout
+# kernel owns the selection control flow, the compiler only materializes the data.
+_ALLOWED_FANOUT_KEYS: frozenset[str] = frozenset(
+    {"mode", "max_parallel", "agent", "count", "workers"}
 )
 
 # EXACTLY the keys a step ``tools:`` grant block may declare (D-08 at the nested
@@ -179,6 +188,10 @@ class WorkflowCompiler:
             steps=steps,
             context_providers=list(manifest.context_providers),
             seed_files=dict(manifest.seed_files),
+            # Phase 11 / FANOUT-03: the workflow-level named-worker allow-list, pure data
+            # (INV-5). run_fanout validates a named worker against this list + the agent
+            # registry BEFORE any spawn — a disallowed worker is rejected pre-spawn.
+            allowed_workers=list(getattr(manifest, "allowed_workers", []) or []),
             deliverable=deliverable,
             planner=manifest.planner,
             clarify=clarify,
@@ -361,6 +374,13 @@ class WorkflowCompiler:
             workflow_ceiling, workflow_ceiling, step_grant
         )
 
+        # ── Declarative fan-out (Phase 11 / Q12 / FANOUT-03) ─────────────────
+        # The ``fanout`` key was already in _ALLOWED_STEP_KEYS but never constructed
+        # (declared-but-inert). Materialize it now so ``Step.fanout`` is populated for
+        # the fanout_batch strategy. A step with no ``fanout`` key keeps ``fanout=None``
+        # (parity — every existing manifest is untouched).
+        fanout = self._compile_fanout(raw.get("fanout"), where)
+
         return Step(
             agent_id=agent_id,
             strategy=strategy,
@@ -371,6 +391,40 @@ class WorkflowCompiler:
             compaction=compaction,
             post_step=post_step,
             tools=effective_tools,
+            fanout=fanout,
+        )
+
+    @staticmethod
+    def _compile_fanout(raw_fanout: object, where: str) -> "FanoutSpec | None":
+        """Map a step ``fanout:`` dict → a typed ``FanoutSpec`` (Phase 11 / INV-5).
+
+        ``None`` (no ``fanout:`` key) → ``None`` (parity — the step is not a fan-out).
+        A declared block strict-key rejects any non-fanout field (INV-5; a
+        control-flow/DSL field has nowhere to live) and coerces each value onto the
+        FanoutSpec slot. The compiler only RECORDS the declaration — the worker
+        selection / parallel-vs-sequential control flow lives inside ``run_fanout``,
+        never here (INV-5 / no DSL).
+        """
+        if raw_fanout is None:
+            return None
+        if not isinstance(raw_fanout, dict):
+            raise CompilerError(
+                f"step 'fanout' must be a mapping in {where}; "
+                f"got {type(raw_fanout).__name__}"
+            )
+        extra = set(raw_fanout) - _ALLOWED_FANOUT_KEYS
+        if extra:
+            raise CompilerError(
+                f"unknown fanout key(s) {sorted(extra)} in {where} — manifests "
+                f"are pure data; a control-flow/DSL field has nowhere to live (INV-5)"
+            )
+        workers = list(raw_fanout.get("workers", []) or [])
+        return FanoutSpec(
+            mode=raw_fanout.get("mode"),
+            max_parallel=raw_fanout.get("max_parallel"),
+            agent=raw_fanout.get("agent"),
+            count=raw_fanout.get("count"),
+            workers=workers,
         )
 
     @staticmethod
