@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-10T08:20:00Z"
+last_updated: "2026-06-10T08:36:30.418Z"
 last_activity: 2026-06-10 -- Phase 09 plan 02 complete (migration 0017 repositories + RunSandbox refold)
 progress:
   total_phases: 12
   completed_phases: 8
   total_plans: 51
-  completed_plans: 46
-  percent: 68
+  completed_plans: 48
+  percent: 67
 ---
 
 # Project State
@@ -25,8 +25,8 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 ## Current Position
 
 Phase: 09 (local-workspace-runtime-repo-workflows-no-exec-4a) — EXECUTING
-Plan: 3 of 6
-Status: Executing Phase 09 (plans 01-02 complete)
+Plan: 4 of 6
+Status: Ready to execute
 Last activity: 2026-06-10 -- Phase 09 plan 02 complete (migration 0017 repositories + RunSandbox refold)
 
 Progress: [██████░░░░] 60% (7/12 phases complete; Phase 08 = 8/8 plans complete, awaiting verification)
@@ -99,6 +99,7 @@ Progress: [██████░░░░] 60% (7/12 phases complete; Phase 08 =
 | Phase 08 P07 | 18min | 3 tasks | 11 files |
 | Phase 09 P01 | ~8min | 3 tasks | 9 files |
 | Phase 09 P02 | ~12min | 2 tasks | 8 files |
+| Phase 09 P03 | ~18min | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -166,6 +167,7 @@ Recent decisions affecting current work:
 - [Phase 09]: 09-01 (RUNTIME-01): net-new runtime port layer landed. `agents/runtime/base.py` defines four kernel-side stdlib-only `@runtime_checkable` Protocols — `RuntimeEnvironment` (provisioner: `create_workspace(*, owner_id, workspace_id, has_git, exec)` / `teardown`), `Workspace` (facade: read/write/search/clone_repo/create_branch/git_diff/exec_command/teardown + owner_id/workspace_id/runtime back-ref/policy), `ExecutionPolicy` (exec/network/secrets default OFF; `allows`), `IsolationProvider` (`allocate(scope)` — shared_read/per-run downstream, sub_sandbox/worktree Phase 11). `LocalSandboxRuntime` (app-side `app/agents/runtime/local.py`, `@register("runtime_env","local")`, user_allowed=False) returns a `LocalWorkspace` that reuses `RunSandbox.path_for` traversal-safety + `RUNS_ROOT`, and is the SINGLE git-subprocess owner (clone/branch/diff). exec stays OFF: `exec_command` raises `PermissionError` under the default `LocalExecutionPolicy(exec=False)` (T-09-01-02). Registered under the DISTINCT `runtime_env` kind (NOT `runtime:langchain_deepagents` — the agent adapter); `app.agents.runtime` wired into `discover()` `_forward_packages`. The 4th import-linter forbidden contract locks `agents.runtime ↛ [agents.execution_engine, app]` (T-09-01-03) — the ECS-swap seam (D-01: a later `EcsRuntime` plugs in as a backend swap, zero engine edit). `_KNOWN` drift-guard 34→35 (expected membership growth); `git_diff` stages+commits the work-tree edit before diffing `base..work`. lint-imports 4/0; banned-pattern+ledger green (INV-13 untouched); 5 characterization snapshots byte/event-identical (purely additive). Commits e55f89a/6125267/5707298.
 
 - [Phase 09]: 09-02 (RUNTIME-02/03): additive Alembic **0017** (`revision=0017`, `down_revision=0016`) adds the owner/workspace-scoped `repositories` table (free-String `provider`, no `sa.Enum`; `auth_ref` cred pointer) + wires the already-nullable `workspaces.repo_id` to it via a NAMED, `batch_alter_table`-portable FK — reversible (`upgrade head`→`downgrade -1`→`upgrade head`) proven offline against in-memory SQLite (no live Postgres offline); single alembic head `0017`. `kind='repo'` needs NO enum widening (free String since 0014). `Repository` model registered on `Base.metadata` (Pitfall 5). `ScopedStore.create_repository` persists ONE `repositories` row + links the `kind=repo` workspace's `repo_id`; `get_repository`/`assert_repo_owned` are default-deny reads (cross-owner → `None` / `PermissionError`, T-09-02-ID) mirroring `create_workspace`/`assert_owns`. **RunSandbox refolded** IN-PLACE (RUNTIME-02, move-don't-copy): the consumed surface (`__init__`/`ensure`/`root`/`path_for`/`read`/`write`/`cleanup` + `serialize`/`count` helpers) is byte-identical, but `read`/`write`/`cleanup` now DELEGATE to a lazily-built `Workspace(has_git=False, exec=off)` (`LocalWorkspace`, 09-01) — the single disk-IO home; `RunSandbox` keeps only the traversal-proof primitives (`root`/`path_for`) that `LocalWorkspace` itself reuses (wrapping a separate sandbox would be circular). `read` keeps the None-on-missing contract via an `is_file()` guard. NO `if repo:` engine fork (grep `agents/execution_engine/` → 0); one path serves artifact (`has_git=False`) + repo (`has_git=True`, 09-04) workspaces. Migration-ledger `R1` CHECK row (the consumed surface survives byte-identical → a grep gate would false-fire; the parity snapshots + persistence test ARE the gate, L16/F4/F5 precedent) + ledger ratchet `_REQUIRED_ITEMS`/`expected` updated in lockstep. 5-pipeline characterization + `test_sandbox_deliverable` byte/event-identical with `SNAPSHOT_UPDATE` UNSET (no re-baseline); `serialize_sandbox_deliverable` raw-bytes read preserved (0 executable `read_text(`); lint-imports 4/0; banned-pattern + migration-ledger green (INV-13 untouched). Commits 8682402/0e90f3e.
+- [Phase ?]: 09-03: repo-context capabilities landed — repo_inventory (kernel stdlib tree/langs/deps/ignore/binary/size-cap, lineage-tracked); repo_index app-side (tree-sitter import-isolated, search=grep default + symbol_query on in-memory per-run build, N6=2000, RepoSpec.index opt-in INV-5); context_pack+selector + repo provider (target+neighbors, cross-owner PermissionError propagates L16). Task-1 pkg checkpoint APPROVED. OFFLINE Open Risk REALIZED: language-pack 1.8.1 lazy-downloads grammars -> FALLBACK to per-language tree-sitter-python/-javascript/-typescript wheels (offline-proven). _KNOWN 35->39; import-linter 4/0; banned-pattern + 5 characterization snapshots byte/event-identical. Commits 4f927a6/e5363e8.
 
 ### Pending Todos
 
