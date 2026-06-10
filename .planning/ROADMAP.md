@@ -327,13 +327,25 @@ Plans:
   2. compile/test/lint validators land and a sample compile/test validator passes
 
 **Plans**: 5 plans
-
 Plans:
+**Wave 1**
 
 - [ ] 10-01-PLAN.md — exec foundation: hardened argv exec_command + LocalExecutionPolicy caps + exec_runs audit (0018) [EXEC-01]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 10-02-PLAN.md — compile-time GRANT-PATH: trust-conditional ceiling + D-01 gates-required + plan.py forward-surface deletion (INV-12) [EXEC-01]
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 10-03-PLAN.md — GATES: profile-conditional security pass + approval HITL (D-02/03/04) + §15 runtime workspace wiring [EXEC-01]
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 10-04-PLAN.md — VALIDATORS: code_compile/test/lint + fixture repo + VALIDATOR-DENY + exec-granting sample manifest (EXEC-02) [EXEC-02]
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 10-05-PLAN.md — DEBT+PARITY: IN-01/02/03 closure + N3-resolved flips + phase parity gate [EXEC-01, EXEC-02]
 
 ### Phase 11: Engine-Owned Fan-Out + Merge [5]
