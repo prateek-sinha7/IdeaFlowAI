@@ -85,7 +85,18 @@ class JiraMcpServer(_McpServerBase):
 
 @register("mcp_server", "slack", user_allowed=True)
 class SlackMcpServer(_McpServerBase):
-    """Slack MCP server — post-scoped (the one write the user palette allows)."""
+    """Slack MCP server — post-scoped (the one write the user palette allows).
+
+    MCP-04 SIGN-OFF (IN-01, reviewed Phase 10): ``slack.post_message`` is the ONE
+    user-grantable WRITE on the user palette (``user_allowed=True`` below). It is
+    accepted because the scope is POST-ONLY — there is no read of other channels'
+    history beyond ``list_channels`` — and it rides the SAME gate/audit path as every
+    other MCP call (the MCP-03 exposed-tool allow-list + the MCP-04 powerful/secrets
+    gating), so it grants no privilege escalation over the existing trust surface.
+    The Phase 9 review (IN-01) flagged this write for explicit sign-off; this is that
+    record. Documentation only — ``exposed_tools`` / ``user_allowed`` are UNCHANGED
+    (no behavior change). See 10-SPEC.md (the N3 decision record).
+    """
 
     name = "slack"
     transport = "streamable_http"

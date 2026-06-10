@@ -112,16 +112,31 @@ class RepoDiffResolver:
         Splits on the ``diff --git a/<p> b/<p>`` headers git emits per file. The
         relpath is taken from the ``b/`` side (the working-tree path), falling back
         to the ``a/`` side for a deletion.
+
+        IN-03 (Phase 9 review): a quoted/rename ``diff --git`` header is unparseable
+        by ``_path_from_header`` (returns ``None``). Before the fix ``_flush`` dropped
+        such a block (it only wrote when ``current_path is not None``), SILENTLY losing
+        a changed file. Now a block whose header could not be parsed is retained under a
+        synthetic ``__unparsed_N__`` key (per-call incrementing ``idx`` → distinct keys
+        for multiple unparseable blocks, no collision). The normal parseable path is
+        byte-identical (keyed by the resolved relpath as before).
         """
         if not unified.strip():
             return {}
         per_file: dict[str, str] = {}
         current_path: str | None = None
         current_lines: list[str] = []
+        unparsed_idx = 0  # IN-03: per-call counter → distinct synthetic keys
 
         def _flush() -> None:
-            if current_path is not None and current_lines:
-                per_file[current_path] = "\n".join(current_lines).rstrip() + "\n"
+            nonlocal unparsed_idx
+            if not current_lines:
+                return
+            key = current_path
+            if key is None:  # IN-03: unparseable header → synthetic key, never drop
+                unparsed_idx += 1
+                key = f"__unparsed_{unparsed_idx}__"
+            per_file[key] = "\n".join(current_lines).rstrip() + "\n"
 
         for line in unified.splitlines():
             if line.startswith("diff --git "):

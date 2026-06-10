@@ -58,7 +58,7 @@ def _scope_for(item: str) -> Path:
 _REQUIRED_ITEMS = [
     "L14", "L16", "D1", "L13", "L1", "L2/L9", "L3", "L4/L8", "L5", "L6",
     "L7", "L10", "L11", "L12", "L15", "D2", "F1", "F2", "F3", "F4", "F5",
-    "R1", "D9", "D10", "D11",
+    "R1", "D9", "D10", "D11", "IN-02",
 ]
 
 
@@ -179,7 +179,8 @@ def test_ledger_parses_and_phase7_flips_all_engine_leaks() -> None:
          "R1",  # 09-02 (Phase 9) — RunSandbox refolded onto a has_git=False Workspace (RUNTIME-02 CHECK)
          "D9",  # 09-06 (Phase 9) — CodingAgent build_model().ainvoke bypass DELETED (bypass-class grep → 0)
          "D10",  # 09-06 (Phase 9) — /api/handoff routers + UserGithubCredential RETAINED-with-justification
-         "D11"]  # 10-02 (Phase 10) — plan.py ExecutionPolicy forward-surface helper DELETED (INV-12 single surface)
+         "D11",  # 10-02 (Phase 10) — plan.py ExecutionPolicy forward-surface helper DELETED (INV-12 single surface)
+         "IN-02"]  # 10-05 (Phase 10) — exec_command shell-exec closed (argv-list, 10-01); permanent no-shell ratchet
     )
     assert flipped == expected, (
         f"Through Phase 7 + the 08-03 F2 flip + the 08-05 F1/F3/F5 flips + the 08-06 F4 "
