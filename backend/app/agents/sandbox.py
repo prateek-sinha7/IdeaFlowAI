@@ -47,11 +47,24 @@ def _safe_segment(value: str, *, fallback: str) -> str:
 
 
 class RunSandbox:
-    """An isolated on-disk workspace for one pipeline run.
+    """An isolated on-disk workspace for one pipeline run — a thin ``Workspace`` facade.
 
     ``root`` = ``<RUNS_ROOT>/<user>/<run>/``. Create it with :meth:`ensure`,
     resolve paths inside it with :meth:`path_for` (rejects escapes), remove it
     with :meth:`cleanup`.
+
+    D-02 refold (RUNTIME-02, move-don't-copy): the consumed surface
+    (``__init__(user_id, run_id)`` / ``ensure`` / ``root`` / ``path_for`` / ``read``
+    / ``write`` / ``cleanup``) survives BYTE-FOR-BYTE so every call site is
+    untouched, but the bespoke per-run disk read/write/cleanup logic is DELEGATED
+    to a ``Workspace(has_git=False, exec=off)`` provisioned by the
+    ``LocalSandboxRuntime`` (09-01). One ``Workspace`` abstraction now serves both
+    artifact (``has_git=False``, here) and repo (``has_git=True``, 09-04) workspaces
+    — there is NO ``if repo:`` engine fork. ``RunSandbox`` keeps the traversal-proof
+    disk PRIMITIVES (``root`` resolution + ``path_for``) because the ``Workspace``
+    impl itself reuses them (``LocalWorkspace`` is constructed FROM this sandbox);
+    the facade's ``read``/``write``/``cleanup`` route through that Workspace so the
+    disk IO lives in ONE place.
     """
 
     def __init__(self, user_id: str, run_id: str, *, runs_root: str | None = None) -> None:
@@ -64,6 +77,32 @@ class RunSandbox:
         # the sanitiser is ever weakened.
         if self.root != base and not str(self.root).startswith(str(base) + "/"):
             raise ValueError(f"sandbox root escaped RUNS_ROOT: {self.root}")
+        # The delegated has_git=False / exec=off Workspace facade (lazily built so
+        # the disk root exists first and to avoid the local.py import cycle).
+        self._workspace: object | None = None
+
+    def _ws(self) -> object:
+        """The has_git=False, exec=off ``Workspace`` this sandbox delegates disk IO to.
+
+        Built lazily (and cached) from THIS sandbox so the single ``LocalWorkspace``
+        disk impl (09-01) owns read/write — move-don't-copy. The import is local to
+        sidestep the ``local.py`` → ``sandbox.py`` import cycle.
+        """
+        if self._workspace is None:
+            from app.agents.runtime.local import (
+                LocalExecutionPolicy,
+                LocalWorkspace,
+            )
+
+            self.ensure()  # the Workspace roots at the ensured run dir
+            self._workspace = LocalWorkspace(
+                owner_id=self.user_seg,
+                workspace_id=self.run_seg,
+                runtime=None,  # no provisioning runtime for the facade path
+                policy=LocalExecutionPolicy(exec=False, network=False, secrets=[]),
+                sandbox=self,
+            )
+        return self._workspace
 
     def ensure(self) -> Path:
         """Create the run dir (parents, mode 0700) and return it."""
@@ -82,18 +121,22 @@ class RunSandbox:
         return candidate
 
     def write(self, relpath: str, content: str) -> Path:
-        p = self.path_for(relpath)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(content, encoding="utf-8")
-        return p
+        # Delegate to the has_git=False Workspace (LocalWorkspace.write_file) — the
+        # single disk-write impl. It mkdir(parents)s + writes UTF-8 under the
+        # traversal-proof path_for, identical to the legacy inline body.
+        return self._ws().write_file(relpath, content)  # type: ignore[attr-defined]
 
     def read(self, relpath: str) -> str | None:
+        # Preserve the legacy contract: missing file → None (LocalWorkspace.read_file
+        # raises on a missing file, so guard is_file() here to keep byte-parity).
         p = self.path_for(relpath)
-        return p.read_text(encoding="utf-8") if p.is_file() else None
+        if not p.is_file():
+            return None
+        return self._ws().read_file(relpath)  # type: ignore[attr-defined]
 
     def cleanup(self) -> None:
-        """Remove the run dir (idempotent)."""
-        shutil.rmtree(self.root, ignore_errors=True)
+        """Remove the run dir (idempotent) via the Workspace teardown."""
+        self._ws().teardown()  # type: ignore[attr-defined]
 
 
 def sweep_expired(*, ttl_hours: int | None = None, runs_root: str | None = None) -> int:
