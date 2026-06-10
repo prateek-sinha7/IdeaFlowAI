@@ -51,12 +51,36 @@ def _reset_registry():
 # ════════════════════════════════════════════════════════════════════════════
 
 
-class _RecordingRunner:
-    """Minimal ctx.runner handle: records record_gate_event calls + delegates HITL."""
+class _GateRow:
+    """Stand-in for a persisted gate_events row (D-03 read returns these)."""
 
-    def __init__(self, review_events=None) -> None:
+    def __init__(self, *, gate: str, outcome: str) -> None:
+        self.gate = gate
+        self.outcome = outcome
+
+
+class _RecordingRunner:
+    """Minimal ctx.runner handle: records record_gate_event calls + delegates HITL.
+
+    Scripts the HITL delegate (``run_human_gate``) by yielding preset review events
+    (10-03 approve/reject scripting) and pre-seeds the D-03 ``read_gate_events``
+    memory. Exposes ``run_id`` + an optional bound ``workspace`` (policy snapshot).
+    """
+
+    def __init__(
+        self,
+        review_events=None,
+        *,
+        prior_gate_rows=None,
+        workspace=None,
+        run_id="run-x",
+    ) -> None:
         self.gate_events: list[dict] = []
         self._review_events = review_events or []
+        self._prior_rows = list(prior_gate_rows or [])
+        self.workspace = workspace
+        self.run_id = run_id
+        self.delegate_payloads: list = []  # records each run_human_gate payload arg
 
     async def record_gate_event(self, step, gate, outcome, detail=None):
         self.gate_events.append(
@@ -64,9 +88,41 @@ class _RecordingRunner:
         )
         return f"gate-row-{len(self.gate_events)}"
 
-    async def run_human_gate(self, step, ctx):
-        """Stand-in for the human-gate delegate (routes to _run_review_gate)."""
-        return list(self._review_events)
+    async def read_gate_events(self, run_id):
+        """D-03 first-exec memory — returns any pre-seeded prior approval rows."""
+        return list(self._prior_rows)
+
+    async def run_human_gate(self, step, *, output="", payload=None):
+        """Stand-in for the ONE HITL delegate (routes to _run_review_gate).
+
+        Async generator matching the parameterized KernelServices signature; yields
+        the scripted review events. Records the payload so a test can assert the D-04
+        policy snapshot rode the delegate.
+        """
+        self.delegate_payloads.append(payload if payload is not None else output)
+        for event in list(self._review_events):
+            yield event
+
+
+class _ExecPolicy:
+    """Minimal bound ExecutionPolicy stand-in (the constrained exec profile)."""
+
+    def __init__(
+        self, *, exec_allow=None, cpu_seconds=60, mem_mb=512, wall_seconds=120,
+        network=False,
+    ) -> None:
+        self.exec_allow = list(exec_allow if exec_allow is not None else ["python3"])
+        self.cpu_seconds = cpu_seconds
+        self.mem_mb = mem_mb
+        self.wall_seconds = wall_seconds
+        self.network = network
+
+
+class _Workspace:
+    """Minimal bound Workspace stand-in carrying the exec policy (the §15 binding)."""
+
+    def __init__(self, *, policy=None) -> None:
+        self.policy = policy if policy is not None else _ExecPolicy()
 
 
 class _Ctx:
@@ -77,10 +133,15 @@ class _Ctx:
 
 
 class _Step:
-    def __init__(self, agent_id="step-x", *, validators=None, tools=None) -> None:
+    def __init__(
+        self, agent_id="step-x", *, validators=None, tools=None, gates=None, trust=None
+    ) -> None:
         self.agent_id = agent_id
         self.validators = list(validators or [])
         self.tools = tools
+        self.gates = list(gates or [])
+        if trust is not None:
+            self.trust = trust
 
 
 class _ToolGrant:
@@ -133,22 +194,86 @@ def test_four_gates_resolve_from_registry():
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# security gate — default-denies exec/network/secrets (exec OFF this phase)
+# security gate — profile-conditional exec PASS (10-03); network/secrets BLOCK
 # ════════════════════════════════════════════════════════════════════════════
 
 
 @pytest.mark.asyncio
-async def test_security_gate_blocks_exec_request():
-    runner = _RecordingRunner()
+async def test_security_gate_passes_file_trust_exec_with_approval_and_profile():
+    """A file/builtin-trust exec step WITH approval declared + a constrained profile
+    attached (bound workspace policy with a non-empty allow-list) → GATE_PASS + a
+    pass gate_events row (10-03 / T-10-03-01)."""
+    runner = _RecordingRunner(workspace=_Workspace())  # policy has ["python3"]
     ctx = _Ctx(runner)
     gate = CapabilityRegistry().resolve("gate", "security")
-    step = _Step(tools=_ToolGrant(exec=True))
+    step = _Step(tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file")
 
     result = await gate.evaluate(step, ctx)
-    assert result.outcome == GATE_BLOCK
-    # gate_events row written with the block outcome
+    assert result.outcome == GATE_PASS
     assert runner.gate_events[-1]["gate"] == "security"
+    assert runner.gate_events[-1]["outcome"] == GATE_PASS
+
+
+@pytest.mark.asyncio
+async def test_security_gate_passes_exec_when_workspace_not_yet_bound():
+    """An exec step with approval declared but NO bound workspace yet → PASS (profile
+    presence is implied by the exec-conditional §15 provisioning; do NOT block on an
+    unbound workspace, RESEARCH Open Question 2)."""
+    runner = _RecordingRunner(workspace=None)
+    gate = CapabilityRegistry().resolve("gate", "security")
+    step = _Step(tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file")
+
+    result = await gate.evaluate(step, _Ctx(runner))
+    assert result.outcome == GATE_PASS
+
+
+@pytest.mark.asyncio
+async def test_security_gate_blocks_network_request_unchanged():
+    """A network request BLOCKS regardless of trust (unchanged — T-10-03-02)."""
+    runner = _RecordingRunner(workspace=_Workspace())
+    gate = CapabilityRegistry().resolve("gate", "security")
+    step = _Step(tools=_ToolGrant(network=True), gates=["security", "approval"], trust="file")
+
+    result = await gate.evaluate(step, _Ctx(runner))
+    assert result.outcome == GATE_BLOCK
+    assert "network" in runner.gate_events[-1]["detail"]["denied"]
+
+
+@pytest.mark.asyncio
+async def test_security_gate_blocks_secrets_request_unchanged():
+    """A secrets request BLOCKS regardless of trust (unchanged — T-10-03-02)."""
+    runner = _RecordingRunner(workspace=_Workspace())
+    gate = CapabilityRegistry().resolve("gate", "security")
+    step = _Step(tools=_ToolGrant(secrets=["MY_KEY"]), gates=["security", "approval"], trust="file")
+
+    result = await gate.evaluate(step, _Ctx(runner))
+    assert result.outcome == GATE_BLOCK
+    assert "secrets" in runner.gate_events[-1]["detail"]["denied"]
+
+
+@pytest.mark.asyncio
+async def test_security_gate_blocks_exec_without_approval_declared():
+    """An exec step WITHOUT the approval gate declared is NOT a silent pass — D-01
+    defense-in-depth BLOCKS (T-10-03-01 second line)."""
+    runner = _RecordingRunner(workspace=_Workspace())
+    gate = CapabilityRegistry().resolve("gate", "security")
+    step = _Step(tools=_ToolGrant(exec=True), gates=["security"], trust="file")
+
+    result = await gate.evaluate(step, _Ctx(runner))
+    assert result.outcome == GATE_BLOCK
     assert runner.gate_events[-1]["outcome"] == GATE_BLOCK
+
+
+@pytest.mark.asyncio
+async def test_security_gate_blocks_exec_with_empty_bound_profile():
+    """An exec step whose bound workspace policy has an EMPTY allow-list BLOCKs (a
+    constrained profile must be attached when the workspace is bound)."""
+    runner = _RecordingRunner(workspace=_Workspace(policy=_ExecPolicy(exec_allow=[])))
+    gate = CapabilityRegistry().resolve("gate", "security")
+    step = _Step(tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file")
+
+    result = await gate.evaluate(step, _Ctx(runner))
+    assert result.outcome == GATE_BLOCK
 
 
 @pytest.mark.asyncio
@@ -162,15 +287,105 @@ async def test_security_gate_passes_when_no_privileged_request():
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# approval gate — explicit sign-off → wait_human
+# approval gate — HITL delegation (D-02) + first-exec memory (D-03) + payload (D-04)
 # ════════════════════════════════════════════════════════════════════════════
 
 
+class _NoHandleRunner:
+    """Runner WITHOUT a run_human_gate handle (offline) — records gate_events only.
+
+    No ``read_gate_events`` either, so the D-03 lookup is skipped and the gate falls
+    to the offline ``wait_human`` path (NEVER auto-approve).
+    """
+
+    def __init__(self) -> None:
+        self.gate_events: list[dict] = []
+        self.run_id = "run-x"
+        self.workspace = None
+
+    async def record_gate_event(self, step, gate, outcome, detail=None):
+        self.gate_events.append(
+            {"step": step, "gate": gate, "outcome": outcome, "detail": detail}
+        )
+        return f"gate-row-{len(self.gate_events)}"
+
+
 @pytest.mark.asyncio
-async def test_approval_gate_waits_for_human():
-    runner = _RecordingRunner()
+async def test_approval_gate_first_exec_pauses_with_d04_payload():
+    """First exec step (no prior approval row) → delegates to run_human_gate, yields
+    review_gate_ready, and the D-04 policy snapshot (allow-list, caps, scrubbed-env
+    note, egress-denied) rode the delegate (10-03 / D-04)."""
+    review = [{"type": "review_gate_ready", "data": {"output": "ignored"}}]
+    runner = _RecordingRunner(review, workspace=_Workspace())
     gate = CapabilityRegistry().resolve("gate", "approval")
-    step = _Step()
+    step = _Step(tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file")
+
+    result = await gate.evaluate(step, _Ctx(runner))
+
+    # The review_gate_ready flowed through (pause surfaced).
+    assert any(e["type"] == "review_gate_ready" for e in result.events)
+    # The D-04 snapshot rode the delegate as the payload.
+    payload = runner.delegate_payloads[-1]
+    assert isinstance(payload, dict)
+    assert payload["exec_allow"] == ["python3"]
+    assert payload["caps"]["cpu_seconds"] == 60
+    assert "scrubbed_env" in payload
+    assert payload["egress_denied"] is True
+
+
+@pytest.mark.asyncio
+async def test_approval_gate_approve_resolves_to_pass():
+    """Scripting the delegate to yield review_gate_approved → GATE_PASS + a
+    gate='approval'/outcome=pass row written."""
+    review = [{"type": "review_gate_approved", "data": {}}]
+    runner = _RecordingRunner(review, workspace=_Workspace())
+    gate = CapabilityRegistry().resolve("gate", "approval")
+    step = _Step(tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file")
+
+    result = await gate.evaluate(step, _Ctx(runner))
+    assert result.outcome == GATE_PASS
+    assert runner.gate_events[-1]["gate"] == "approval"
+    assert runner.gate_events[-1]["outcome"] == GATE_PASS
+
+
+@pytest.mark.asyncio
+async def test_approval_gate_reject_resolves_to_block():
+    """Scripting the delegate to yield _gate_rejected → GATE_BLOCK."""
+    review = [{"type": "_gate_rejected"}]
+    runner = _RecordingRunner(review, workspace=_Workspace())
+    gate = CapabilityRegistry().resolve("gate", "approval")
+    step = _Step(tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file")
+
+    result = await gate.evaluate(step, _Ctx(runner))
+    assert result.outcome == GATE_BLOCK
+    assert runner.gate_events[-1]["outcome"] == GATE_BLOCK
+
+
+@pytest.mark.asyncio
+async def test_approval_gate_second_exec_does_not_re_pause_d03():
+    """With a prior approval-pass row present (D-03 durable memory), a second exec
+    step → GATE_PASS WITHOUT calling the delegate (no review_gate_ready)."""
+    prior = [_GateRow(gate="approval", outcome=GATE_PASS)]
+    review = [{"type": "review_gate_ready", "data": {}}]  # would fire IF delegated
+    runner = _RecordingRunner(review, prior_gate_rows=prior, workspace=_Workspace())
+    gate = CapabilityRegistry().resolve("gate", "approval")
+    step = _Step(tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file")
+
+    result = await gate.evaluate(step, _Ctx(runner))
+    assert result.outcome == GATE_PASS
+    # The delegate was NOT called (no payload recorded) → no re-pause.
+    assert runner.delegate_payloads == []
+    assert not any(e["type"] == "review_gate_ready" for e in result.events)
+    assert runner.gate_events[-1]["outcome"] == GATE_PASS
+
+
+@pytest.mark.asyncio
+async def test_approval_gate_offline_no_handle_waits_for_human():
+    """No run_human_gate handle (offline) → GATE_WAIT_HUMAN (NEVER auto-approve) + a
+    wait_human gate_events row."""
+    runner = _NoHandleRunner()
+    gate = CapabilityRegistry().resolve("gate", "approval")
+    step = _Step(tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file")
 
     result = await gate.evaluate(step, _Ctx(runner))
     assert result.outcome == GATE_WAIT_HUMAN
