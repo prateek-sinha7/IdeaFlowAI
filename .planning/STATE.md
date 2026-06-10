@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 
 Phase: 10
 Plan: Not started
-Status: Ready to plan (Phase 09 verified passed 4/4 on 2026-06-10)
+Status: Ready to plan (Phase 09 verified 4/4 + UAT 7/7 passed + security 28/28 threats closed on 2026-06-10)
 Last activity: 2026-06-10
 
 Progress: [████████░░] 75% (9/12 phases complete; 51/51 plans complete)
@@ -178,7 +178,6 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- Phase 09: security review pending — run `/gsd-secure-phase 9` (workflow.security_enforcement=true, no 09-SECURITY.md yet).
 - Phase 09 REVIEW.md: 3 Info findings left unfixed by design (IN-01 slack_post write-scope sign-off, IN-02 exec_command shell=True future surface, IN-03 repo_diff unparseable-header drop) — revisit in Phase 10 (exec hardening).
 
 ### Blockers/Concerns
@@ -200,6 +199,8 @@ Open decision records to confirm before their phase (from plan §26):
 - CP-SAT scheduling · single-file fragment-merge · PR/commit push · DB-backed user workflows (REQUIREMENTS.md v2 / Out of Scope).
 
 ---
+*Last updated: 2026-06-10 — Phase 09 SECURED + UAT-COMPLETE: /gsd-secure-phase 9 wrote 09-SECURITY.md (28/28 plan-time threats CLOSED, threats_open: 0, evidence-verified — 104 targeted tests + lint-imports 4/0 + greps; 3 no-new-dep accepts logged); /gsd-verify-work 9 ran all 7 technical UAT checkpoints autonomously (211 tests total: local runtime 8, persistence+ledger 23, repo intelligence 18, brownfield E2E 7, MCP 19, integration+handoff 42 + CodingAgent grep 0, invariants 94 + lint 4/0) — 7/7 PASS, 0 issues, 09-UAT.md status complete. Phase 9 transition was already applied post-execution (ROADMAP [x], Phase 10 ready to plan — confirm N3 first). — previous: Phase 09 verified*
+<!-- prior footer retained below for history -->
 *Last updated: 2026-06-10 — Phase 09 COMPLETE + VERIFIED (4/4 must-haves): 6/6 plans executed sequentially; both blocking-human package checkpoints resolved with live PyPI verification (tree-sitter fallback wheels; langchain-mcp-adapters pinned <0.3 after day-old 0.3.0 broke fastapi transitively); code review 1 Critical + 5 Warnings ALL FIXED (CR-01 teardown recursion, WR-01..05); final gate 138 passed + lint 4/0. STATE advanced to Phase 10 (Ready to plan — confirm N3 first; /gsd-secure-phase 9 pending). — previous: 09-01 complete*
 <!-- prior footer retained below for history -->
 *Last updated: 2026-06-10 — 09-01 complete (net-new runtime port layer: RuntimeEnvironment/Workspace/ExecutionPolicy/IsolationProvider kernel-side Protocols + LocalSandboxRuntime app-side @register('runtime_env','local'), the single git-subprocess owner clone/branch/diff; exec_command denied under default policy [RUNTIME-01]; 4th import-linter contract agents.runtime↛[execution_engine,app] — the ECS-swap seam D-01; _KNOWN 34→35; lint 4/0; banned-pattern+ledger green; 5 characterization snapshots byte/event-identical; commits e55f89a/6125267/5707298). Next: 09-02. — previous: 08-07 complete*
