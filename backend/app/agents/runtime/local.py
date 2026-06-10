@@ -64,12 +64,24 @@ DEFAULT_EXEC_PROFILE = _ExecProfile(
 )
 
 
-def _noop_recorder(argv, **kwargs) -> None:  # default audit sink (no-op)
+def _noop_recorder(
+    argv,
+    *,
+    outcome: str,
+    exit_code: int | None = None,
+    duration_ms: int | None = None,
+    policy_snapshot=None,
+    output_digest: str | None = None,
+) -> None:  # default audit sink (no-op)
     """Default workspace recorder — a no-op so non-audited callers don't crash.
 
-    The live recorder (``KernelServices.record_exec_run``) is injected at
-    ``create_workspace`` by 10-02's host seam; until then exec is never granted,
-    so this no-op is dormant.
+    Pins the SINGLE recorder contract every ``exec_command`` call site honors and
+    every injected recorder must match (CR-01): ``argv`` positional + keyword-only
+    ``outcome`` (required) and optional ``exit_code`` / ``duration_ms`` /
+    ``policy_snapshot`` / ``output_digest``. The contract is step-FREE — the
+    workspace has no concept of a step id; the engine's injected adapter (10-02
+    host seam) captures the run-scoped step id and bridges to the async
+    ``KernelServices.record_exec_run``. Until exec is granted this no-op is dormant.
     """
     return None
 

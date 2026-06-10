@@ -335,6 +335,79 @@ def _select_issues_to_fix(
     return deduped
 
 
+def _make_exec_recorder(runner):
+    """Build the sync→async exec-audit recorder the host seam wires (CR-01).
+
+    The workspace recorder contract is synchronous and step-FREE:
+    ``recorder(argv, *, outcome, exit_code=None, duration_ms=None,
+    policy_snapshot=None, output_digest=None)`` (see ``local._noop_recorder``).
+    But the audit sink ``KernelServices.record_exec_run(step, argv, outcome, ...)``
+    is an async coroutine. This adapter bridges the two:
+
+      1. **Step id is RUN-scoped here.** The recorder is wired ONCE at run entry,
+         before the per-step dispatch loop, so no reliable per-step id is
+         reachable from this seam. We pass a clearly-named ``""`` placeholder for
+         ``step`` — the row is still owner/workspace/run-scoped and outcome-true;
+         per-step attribution is a future enhancement (D-03 makes exec a
+         run-scoped grant, so a run-scoped audit row is consistent with the model).
+      2. **Best-effort, never raises into ``exec_command``.** The recorder is
+         documented best-effort (Pitfall 6 / INV-3): a failure here must NEVER
+         turn ``denied`` into ``TypeError`` or break the ``allowed``/``killed``
+         contract. We schedule the async write on the running loop via
+         ``loop.create_task`` when one exists, else swallow with a debug log.
+    """
+
+    def _recorder(
+        argv,
+        *,
+        outcome: str,
+        exit_code: int | None = None,
+        duration_ms: int | None = None,
+        policy_snapshot=None,
+        output_digest: str | None = None,
+    ) -> None:
+        # RUN-scoped step id: the recorder is wired at run entry, before any
+        # per-step tracking exists in scope, so attribute the row to the run with
+        # an explicit "" placeholder rather than a misleading fabricated step id.
+        step_id = ""
+        try:
+            coro = runner.record_exec_run(
+                step_id,
+                list(argv),
+                outcome,
+                exit_code=exit_code,
+                duration_ms=duration_ms,
+                policy_snapshot=policy_snapshot,
+                output_digest=output_digest,
+            )
+        except Exception as exc:  # noqa: BLE001 — audit must NEVER break exec
+            logger.debug("exec recorder build failed (%s) — audit skipped", exc)
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop at this call site — best-effort: close the coroutine
+            # to avoid a "never awaited" warning and skip the write. exec_command
+            # in the live path always runs inside the engine's event loop, so this
+            # branch is the defensive offline fallback only.
+            try:
+                coro.close()
+            except Exception:  # noqa: BLE001
+                pass
+            logger.debug("exec recorder: no running loop — audit skipped")
+            return
+        try:
+            loop.create_task(coro)
+        except Exception as exc:  # noqa: BLE001 — best-effort schedule
+            try:
+                coro.close()
+            except Exception:  # noqa: BLE001
+                pass
+            logger.debug("exec recorder schedule failed (%s) — audit skipped", exc)
+
+    return _recorder
+
+
 class ExecutionEngine:
     """Universal Execution Engine — single entry point for all workflows."""
 
@@ -1125,7 +1198,7 @@ class ExecutionEngine:
                     owner_id=owner_id,
                     workspace_id=ectx.workspace_id,
                     exec=True,
-                    recorder=ectx.runner.record_exec_run,
+                    recorder=_make_exec_recorder(ectx.runner),
                 )
             except Exception as _ws_exc:  # noqa: BLE001 — degrade only the offline harness
                 # Mirror the _scope_exc discipline: a missing on-disk runs root in the

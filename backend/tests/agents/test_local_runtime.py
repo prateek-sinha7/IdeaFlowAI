@@ -368,6 +368,95 @@ def test_runsandbox_cleanup_direct_entry_removes_run_dir(tmp_path: Path) -> None
     sb.cleanup()  # idempotent
 
 
+# ---------------------------------------------------------------------------
+# CR-01 regression — the REAL engine recorder adapter through exec_command
+# ---------------------------------------------------------------------------
+
+
+class _FakeRunner:
+    """A stand-in for ``KernelServices`` exposing the async ``record_exec_run``.
+
+    Records each call's positional/keyword arguments so the test asserts the
+    workspace recorder bridged to the async sink with the correct outcome — the
+    contract that the OLD direct-binding wiring (``recorder=record_exec_run``)
+    could never satisfy (it raised ``TypeError`` and never awaited).
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    async def record_exec_run(
+        self,
+        step,
+        argv,
+        outcome,
+        *,
+        exit_code=None,
+        duration_ms=None,
+        policy_snapshot=None,
+        output_digest=None,
+    ):
+        self.calls.append(
+            {
+                "step": step,
+                "argv": argv,
+                "outcome": outcome,
+                "exit_code": exit_code,
+                "duration_ms": duration_ms,
+            }
+        )
+        return "exec-row-id"
+
+
+@pytest.mark.asyncio
+async def test_real_engine_recorder_adapter_audits_every_outcome(tmp_path: Path) -> None:
+    """The engine's sync→async recorder adapter audits allowed/denied/killed (CR-01).
+
+    Wires the REAL ``_make_exec_recorder`` adapter (the host-seam shape) as the
+    workspace recorder — NOT a hand-rolled sync lambda — and drives ``exec_command``
+    inside a running event loop. Asserts ``record_exec_run`` was invoked with the
+    right outcome for each path, and that the exec contract is preserved (denied →
+    PermissionError, killed → TimeoutExpired, allowed → stdout). This test FAILS
+    against the OLD wiring (``recorder=runner.record_exec_run`` raised TypeError on
+    the single positional argv binding to ``step`` and never awaited the coroutine).
+    """
+    import asyncio
+    import subprocess
+
+    from agents.execution_engine.engine import _make_exec_recorder
+
+    runner = _FakeRunner()
+    adapter = _make_exec_recorder(runner)
+
+    ws, _ = _exec_workspace(tmp_path, wall_seconds=1)
+    ws._recorder = adapter
+
+    # allowed
+    out = ws.exec_command(["python3", "-c", "print('ok')"])
+    assert "ok" in out  # exec contract: allowed returns stdout
+
+    # denied (unlisted argv[0]) — must raise PermissionError, NOT TypeError.
+    with pytest.raises(PermissionError):
+        ws.exec_command(["bash", "-c", "echo hi"])
+
+    # killed (wall-clock timeout) — must raise TimeoutExpired.
+    with pytest.raises(subprocess.TimeoutExpired):
+        ws.exec_command(["python3", "-c", "import time;time.sleep(30)"])
+
+    # The adapter scheduled the async writes on the running loop — let them run.
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    outcomes = [c["outcome"] for c in runner.calls]
+    assert "allowed" in outcomes, "allowed exec must be audited via record_exec_run"
+    assert "denied" in outcomes, "denied exec must be audited via record_exec_run"
+    assert "killed" in outcomes, "killed exec must be audited via record_exec_run"
+    # The bridged call passes argv as a list and a (run-scoped) step placeholder.
+    allowed_call = next(c for c in runner.calls if c["outcome"] == "allowed")
+    assert allowed_call["argv"] == ["python3", "-c", "print('ok')"]
+    assert allowed_call["exit_code"] == 0
+
+
 def test_runtime_is_isolation_provider_shaped() -> None:
     """The runtime layer exposes the IsolationProvider port (shared_read/per-run)."""
     # The port is importable and the local runtime satisfies its structural shape
