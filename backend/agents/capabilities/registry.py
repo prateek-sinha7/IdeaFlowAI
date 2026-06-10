@@ -85,6 +85,7 @@ _KNOWN: set[tuple[str, str]] = {
     ("deliverable", "serialized_sandbox"),
     ("deliverable", "streamed_text"),
     ("deliverable", "ppt"),
+    ("deliverable", "repo_diff"),          # 09-04 / REPO-04 — brownfield diff-only resolver
     ("context_provider", "opendesign"),
     ("context_provider", "previous_run"),
     ("task_parser", "heading_tasks"),
@@ -203,6 +204,8 @@ def discover() -> None:
         "agents.capabilities.deliverables.serialized_sandbox",
         "agents.capabilities.deliverables.streamed_text",
         "agents.capabilities.deliverables.ppt",
+        "agents.capabilities.deliverables.repo_diff",  # 09-04 / REPO-04
+
         "agents.capabilities.context_providers.opendesign",
         "agents.capabilities.context_providers.previous_run",
         "agents.capabilities.compaction.html_skeleton",

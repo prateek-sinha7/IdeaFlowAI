@@ -75,6 +75,7 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("repo_inventory", "default"),         # 09-03 / REPO-01 — kernel-side stdlib inventory
     ("context_pack", "default"),           # 09-03 / REPO-03 — kernel-side targeted context subset
     ("context_provider", "repo"),          # 09-03 / REPO-03 — surfaces the ContextPack to agents
+    ("deliverable", "repo_diff"),          # 09-04 / REPO-04 — brownfield diff-only resolver
 ]
 
 
@@ -99,8 +100,8 @@ def test_unknown_kind_is_rejected(registry: CapabilityRegistry) -> None:
     assert registry.is_registered("bogus_kind", "single_shot") is False
 
 
-def test_registered_count_is_exactly_thirty_nine() -> None:
-    # Drift guard: registering a 40th name (or dropping one) must trip this.
+def test_registered_count_is_exactly_forty() -> None:
+    # Drift guard: registering a 41st name (or dropping one) must trip this.
     # 15 authoritative D-07 pairs + model_catalog (06-01) + post_step
     # revision_validation (07-10 / CR-06) = 16, plus the two 08-02 gate names
     # (approval/security) = 18, plus the four 08-03 tool-set names
@@ -113,8 +114,9 @@ def test_registered_count_is_exactly_thirty_nine() -> None:
     # plus the one 09-01 runtime backend (runtime_env:local, RUNTIME-01) = 35, plus
     # the four 09-03 repo-context capabilities (repo_index:tree_sitter REPO-02;
     # repo_inventory:default REPO-01; context_pack:default + context_provider:repo
-    # REPO-03) = 39.
-    assert len(_KNOWN) == 39
+    # REPO-03) = 39, plus the one 09-04 brownfield deliverable (deliverable:repo_diff
+    # REPO-04) = 40.
+    assert len(_KNOWN) == 40
     assert set(_KNOWN) == set(_EXPECTED_NAMES)
 
 
