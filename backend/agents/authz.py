@@ -561,6 +561,103 @@ class ScopedStore:
         return None
 
     # ------------------------------------------------------------------
+    # McpCredential — scoped write + owner-scoped read (09-05 / MCP-02)
+    # ------------------------------------------------------------------
+
+    async def write_mcp_credential(
+        self,
+        *,
+        server: str,
+        secret: str,
+        scope: str | None = None,
+        workspace_id: str | None = None,
+    ) -> str:
+        """Store a per-owner MCP server credential (encrypted). Returns the row id.
+
+        The secret is Fernet-encrypted (``app.core.crypto.encrypt_pat``) before it
+        touches the DB — never the plaintext (the ``UserGithubCredential`` PAT
+        precedent). The row is stamped with the helper principal ``owner_id`` + the
+        run's ``workspace_id`` (AUTHZ-01) so the default-deny filter scopes every
+        read; a credential is NEVER global. ``server`` is the catalog ``mcp_server``
+        name; ``scope`` records the granted read/write scope (e.g. ``gitlab_read``).
+        """
+        from app.core.crypto import encrypt_pat
+        from app.models.mcp_credential import McpCredential
+
+        ws_id = workspace_id or self._workspace_id
+        session, owned = self._acquire()
+        try:
+            cred_id = str(uuid.uuid4())
+            session.add(
+                McpCredential(
+                    id=cred_id,
+                    owner_id=self._owner_id,
+                    workspace_id=ws_id,
+                    server=server,
+                    scope=scope,
+                    encrypted_secret=encrypt_pat(secret),
+                )
+            )
+            session.commit()
+            return cred_id
+        finally:
+            if owned:
+                session.close()
+
+    async def read_mcp_credential(self, cred_id: str) -> str | None:
+        """Return the DECRYPTED secret for an OWNED MCP credential, or ``None``.
+
+        Owner+workspace-scoped (default-deny): a cross-owner credential id resolves
+        to ``None`` here. The explicit cross-owner DENIAL is :meth:`assert_mcp_cred_owned`
+        — a cross-owner read raises ``PermissionError`` (T-09-05-ID), the gate the
+        catalog test pins. A same-owner row decrypts via ``app.core.crypto.decrypt_pat``.
+        """
+        from app.core.crypto import decrypt_pat
+        from app.models.mcp_credential import McpCredential
+
+        session, owned = self._acquire()
+        try:
+            query = session.query(McpCredential).filter(McpCredential.id == cred_id)
+            query = self._scope_owner_ws(query, McpCredential)
+            row = query.first()
+        finally:
+            if owned:
+                session.close()
+        if row is None:
+            return None
+        return decrypt_pat(row.encrypted_secret)
+
+    async def assert_mcp_cred_owned(self, cred_id: str) -> None:
+        """Raise ``PermissionError`` iff this caller does not own ``cred_id`` (T-09-05-ID).
+
+        Reads the credential's TRUE ``owner_id`` via an UNSCOPED-by-owner lookup and
+        compares it to ``self._owner_id`` (the ``assert_owns`` idiom). A cross-owner
+        read fails LOUD rather than silently returning the default-deny ``None`` — the
+        explicit per-owner-credential denial gate (T-09-05-ID). An absent credential
+        (same-owner missing / swept) returns ``None``.
+        """
+        from app.models.mcp_credential import McpCredential
+
+        session, owned = self._acquire()
+        try:
+            row = (
+                session.query(McpCredential)
+                .filter(McpCredential.id == cred_id)
+                .first()
+            )
+        finally:
+            if owned:
+                session.close()
+        if row is None:
+            return None
+        if row.owner_id != self._owner_id:
+            raise PermissionError(
+                f"owner {self._owner_id!r} may not read MCP credential "
+                f"{cred_id!r} (owned by {row.owner_id!r})"
+            )
+        return None
+
+    # ------------------------------------------------------------------
     # RunCapabilities — record
     # ------------------------------------------------------------------
 

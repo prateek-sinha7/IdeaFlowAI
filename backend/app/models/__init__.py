@@ -25,6 +25,7 @@ from app.models.hook_runs import HookRun  # noqa: F401
 # Phase 9 repo-workflow model (0017) — imported here so Base.metadata sees it for
 # Alembic autogenerate/check (Pitfall 5).
 from app.models.repository import Repository  # noqa: F401
+from app.models.mcp_credential import McpCredential  # noqa: F401
 from app.models.handoff import (
     HandoffSession,
     UserApiKey,
@@ -63,6 +64,7 @@ __all__ = [
     "RunEvent",
     "RunCapabilities",
     "Repository",
+    "McpCredential",
     "RevokedToken",
     "cleanup_expired_revocations",
     "HandoffSession",

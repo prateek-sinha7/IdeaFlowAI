@@ -306,6 +306,9 @@ class WorkflowCompiler:
         # the workflow ceiling, so the intersection collapses to
         # ``workflow ∩ step`` WITHOUT raising any permission (least-privilege).
         step_grant = self._compile_tool_grant(raw.get("tools"), where)
+        # MCP-03 / MCP-04: validate + gate each declared ``tools.mcp`` server.tool
+        # reference at the SAME per-reference site as is_registered (no forked path).
+        self._validate_mcp_grant(step_grant, gates, registry, trusted, where)
         workflow_ceiling = ToolPermissions()  # §8 least-privilege ceiling this phase
         effective_tools = intersect_permissions(
             workflow_ceiling, workflow_ceiling, step_grant
@@ -358,6 +361,75 @@ class WorkflowCompiler:
             if f in raw_tools:
                 kwargs[f] = list(raw_tools[f] or [])
         return ToolPermissions(**kwargs)
+
+    @staticmethod
+    def _validate_mcp_grant(
+        step_grant: ToolPermissions,
+        gates: list,
+        registry: CapabilityRegistry,
+        trusted: bool,
+        where: str,
+    ) -> None:
+        """Validate + gate the step's ``tools.mcp`` ``server.tool`` references (MCP-03/04).
+
+        Per declared ``server.tool`` in ``step_grant.mcp`` (the SAME per-reference site
+        as every other capability check — no forked path):
+
+          * MCP-03: split ``server.tool``; the ``mcp_server`` MUST be registered (else
+            ``CompilerError`` naming the offending ``server.tool``); under an UNTRUSTED
+            (user/db) manifest the server MUST be ``user_allowed`` (else CompilerError);
+            and the named ``tool`` MUST be in that server's exposed-tool allow-list
+            (else CompilerError naming the ``server.tool``).
+          * MCP-04: a POWERFUL/write server (``filesystem``/``postgres``, ``powerful=True``)
+            requires the ``security`` gate on the step AND the ``secrets`` permission
+            granted; a read-scoped server (gitlab_read/jira_read) binds ungated. A
+            powerful reference without ``security`` + ``secrets`` is a ``CompilerError``.
+
+        A reference missing the ``server.tool`` ``.`` separator is a CompilerError (the
+        manifest must name BOTH the server and the tool).
+        """
+        mcp_refs = list(getattr(step_grant, "mcp", None) or [])
+        if not mcp_refs:
+            return
+        from agents.capabilities.mcp_servers.catalog import CATALOG
+
+        has_security_gate = "security" in (gates or [])
+        granted_secrets = list(getattr(step_grant, "secrets", None) or [])
+
+        for ref in mcp_refs:
+            if "." not in str(ref):
+                raise CompilerError(
+                    f"mcp reference {ref!r} in {where} must be 'server.tool' "
+                    f"(name BOTH the server and the tool) — MCP-03"
+                )
+            server, _, tool = str(ref).partition(".")
+            if not registry.is_registered("mcp_server", server):
+                raise CompilerError(
+                    f"unknown mcp_server.tool {ref!r} in {where} — no registered "
+                    f"mcp_server {server!r} (MCP-03)"
+                )
+            # Trust check (CAP-03): a user/db manifest may not reference a
+            # not-user-allowed (powerful) server.
+            if not trusted and not registry.is_user_allowed("mcp_server", server):
+                raise CompilerError(
+                    f"mcp_server {server!r} (referenced as {ref!r} in {where}) is "
+                    f"not user-allowed — a user/db manifest may not reference it "
+                    f"(MCP-03 / CAP-03)"
+                )
+            entry = CATALOG.get(server)
+            if entry is None or not entry.is_tool_exposed(tool):
+                raise CompilerError(
+                    f"mcp tool {ref!r} in {where} is not in the {server!r} "
+                    f"exposed-tool allow-list (MCP-03)"
+                )
+            # MCP-04 gating: a powerful/write server requires security + secrets.
+            if entry.powerful and not (has_security_gate and granted_secrets):
+                raise CompilerError(
+                    f"mcp_server {server!r} (referenced as {ref!r} in {where}) is "
+                    f"powerful/write — it requires the 'security' gate AND a "
+                    f"'secrets' grant on the step (MCP-04); read-scoped servers "
+                    f"bind ungated"
+                )
 
     def _compile_deliverable(
         self, manifest: WorkflowManifest, registry: CapabilityRegistry, trusted: bool

@@ -12,6 +12,10 @@ column to it with an additive foreign key.
   * ``workspaces.repo_id`` — already a nullable ``String`` from 0014 (the "Phase 9
     forward field"); 0017 only adds the FK constraint → ``repositories.id``. The
     target table is created FIRST in this same migration so the FK target exists.
+  * ``mcp_credentials`` — per-owner scoped + encrypted MCP server credential (09-05 /
+    MCP-02); carries ``owner_id`` + ``workspace_id`` (both NOT NULL, AUTHZ-01) so the
+    ``ScopedStore`` default-deny filter scopes every read. The secret is Fernet-encrypted
+    (``encrypted_secret``), never plaintext — the ``UserGithubCredential`` PAT precedent.
 
 ``workspaces.kind`` is already a free ``String`` (``0014:88``), so ``kind='repo'``
 rows need NO additive widening — they just work.
@@ -58,9 +62,28 @@ def upgrade() -> None:
             _REPO_FK, "repositories", ["repo_id"], ["id"]
         )
 
+    # mcp_credentials — per-owner scoped + encrypted MCP server credential (09-05 /
+    # MCP-02). Owner/workspace-scoped (both NOT NULL, AUTHZ-01) so the ScopedStore
+    # default-deny filter scopes every read; the secret is Fernet-encrypted, never
+    # plaintext. `server` is a free String (the catalog mcp_server name) — NO sa.Enum.
+    op.create_table(
+        "mcp_credentials",
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("owner_id", sa.String(), nullable=False),       # AUTHZ-01
+        sa.Column("workspace_id", sa.String(), nullable=False),   # AUTHZ-01
+        sa.Column("server", sa.String(), nullable=False),
+        sa.Column("scope", sa.String(), nullable=True),
+        sa.Column("encrypted_secret", sa.Text(), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(), nullable=False),
+        sa.PrimaryKeyConstraint("id"),
+    )
+
 
 def downgrade() -> None:
-    # Drop the FK first, then the table — clean reverse (mirror of 0014:236).
+    # Drop the mcp_credentials table, then the FK, then the repositories table —
+    # clean reverse (mirror of 0014:236).
+    op.drop_table("mcp_credentials")
     with op.batch_alter_table("workspaces") as batch_op:
         batch_op.drop_constraint(_REPO_FK, type_="foreignkey")
     op.drop_table("repositories")

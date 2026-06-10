@@ -114,6 +114,12 @@ _KNOWN: set[tuple[str, str]] = {
     ("repo_inventory", "default"),         # 09-03 / REPO-01 — kernel-side stdlib inventory
     ("context_pack", "default"),           # 09-03 / REPO-03 — kernel-side targeted context subset
     ("context_provider", "repo"),          # 09-03 / REPO-03 — surfaces the ContextPack to agents
+    ("mcp_server", "github"),              # 09-05 / MCP-02 — read-scoped (user_allowed=True)
+    ("mcp_server", "gitlab"),              # 09-05 / MCP-02 — read-scoped (user_allowed=True)
+    ("mcp_server", "jira"),                # 09-05 / MCP-02 — read-scoped (user_allowed=True)
+    ("mcp_server", "slack"),              # 09-05 / MCP-02 — post-scoped (user_allowed=True)
+    ("mcp_server", "filesystem"),          # 09-05 / MCP-02 — powerful (user_allowed=False)
+    ("mcp_server", "postgres"),            # 09-05 / MCP-02 — powerful (user_allowed=False)
 }
 
 
@@ -221,6 +227,9 @@ def discover() -> None:
         "agents.capabilities.repo_inventory.inventory",
         "agents.capabilities.context_pack.pack",
         "agents.capabilities.context_providers.repo",
+        # 09-05 / MCP-02 — the allow-listed mcp_server catalog (registration DATA
+        # only; the live client is app-side McpClientAdapter).
+        "agents.capabilities.mcp_servers.catalog",
     )
     for mod in _builtin_modules:
         importlib.import_module(mod)
