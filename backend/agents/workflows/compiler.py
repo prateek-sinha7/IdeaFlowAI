@@ -151,7 +151,10 @@ class WorkflowCompiler:
                 ``(kind, name)``); or the Step DAG has a duplicate agent id / cycle.
         """
         trusted = trust in _TRUSTED_SOURCES
-        steps = [self._compile_step(raw, registry, trusted) for raw in manifest.steps]
+        steps = [
+            self._compile_step(raw, registry, trusted, trust)
+            for raw in manifest.steps
+        ]
 
         # ── Workflow-level reference validation ──────────────────────────────
         where = f"workflow '{manifest.id}'"
@@ -213,7 +216,7 @@ class WorkflowCompiler:
     # ── Step compilation ─────────────────────────────────────────────────────
 
     def _compile_step(
-        self, raw: dict, registry: CapabilityRegistry, trusted: bool
+        self, raw: dict, registry: CapabilityRegistry, trusted: bool, trust: str
     ) -> Step:
         """Map one raw step dict → a typed ``Step``, validating each reference."""
         agent_id = raw.get("agent")
@@ -309,7 +312,51 @@ class WorkflowCompiler:
         # MCP-03 / MCP-04: validate + gate each declared ``tools.mcp`` server.tool
         # reference at the SAME per-reference site as is_registered (no forked path).
         self._validate_mcp_grant(step_grant, gates, registry, trusted, where)
-        workflow_ceiling = ToolPermissions()  # §8 least-privilege ceiling this phase
+
+        # ── GRANT-PATH (EXEC-01) — trust-conditional privileged-grant rules ──
+        # exec/network/secrets are ENGINEER-ONLY (file/builtin trust). A user/db
+        # manifest granting any of them is a CompilerError NAMING the grant + step
+        # (N3: exec is never user-grantable; T-10-02-01). file/builtin manifests may
+        # author them, but an exec grant additionally requires the security+approval
+        # gates (D-01, T-10-02-02). Both checks fire ONLY when a privileged perm is
+        # granted, so the un-granted path is untouched (parity).
+        if not trusted:
+            granted_priv: list[str] = []
+            if step_grant.exec:
+                granted_priv.append("exec")
+            if step_grant.network:
+                granted_priv.append("network")
+            if step_grant.secrets:
+                granted_priv.append("secrets")
+            if granted_priv:
+                raise CompilerError(
+                    f"step grant of {granted_priv!r} is not permitted for "
+                    f"{trust!r}-trust manifests in {where} — exec/network/secrets "
+                    f"are engineer-only (file/builtin trust)"
+                )
+
+        # D-01 GATES-REQUIRED: an exec-granting step MUST declare BOTH the
+        # ``security`` and ``approval`` gates. The compiled plan must MIRROR the
+        # authored manifest — the compiler raises, it NEVER auto-injects the gates
+        # (RESEARCH anti-pattern; T-10-02-03).
+        if step_grant.exec:
+            missing = {"security", "approval"} - set(gates)
+            if missing:
+                raise CompilerError(
+                    f"step grants tools.exec but is missing required gate(s) "
+                    f"{sorted(missing)} in {where} — an exec-granting step MUST "
+                    f"declare gates: [security, approval] (D-01)"
+                )
+
+        # ── Trust-conditional workflow ceiling (D-07 / INV-9 / GRANT-PATH) ───
+        # For TRUSTED (file/builtin) trust the ceiling permits ``exec`` to survive
+        # ``intersect_permissions`` so a file/builtin exec grant binds True; for an
+        # untrusted trust the bare §8 least-privilege ceiling collapses exec OFF
+        # (the user/db guard above already rejected the grant). ``network``/
+        # ``secrets`` stay OFF in the ceiling for BOTH trust levels this phase — they
+        # remain gate-blocked at runtime (out of scope here), so a file-trust
+        # ``network:true`` grant still intersects to False.
+        workflow_ceiling = ToolPermissions(exec=trusted)
         effective_tools = intersect_permissions(
             workflow_ceiling, workflow_ceiling, step_grant
         )

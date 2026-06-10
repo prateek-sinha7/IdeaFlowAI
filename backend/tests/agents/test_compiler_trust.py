@@ -58,6 +58,30 @@ def _single_step_manifest(strategy: str) -> WorkflowManifest:
     )
 
 
+def _grant_step_manifest(
+    *,
+    strategy: str = "single_shot",
+    tools: dict | None = None,
+    gates: list[str] | None = None,
+) -> WorkflowManifest:
+    """A one-step manifest carrying a ``tools:`` grant + ``gates:`` (GRANT-PATH / D-01)."""
+    step: dict = {"agent": "exec-agent", "strategy": strategy}
+    if tools is not None:
+        step["tools"] = tools
+    if gates is not None:
+        step["gates"] = gates
+    return WorkflowManifest(
+        id="exec-demo",
+        steps=[step],
+        deliverable={},
+        planner="run",
+        clarify={"mode": "auto", "defaults": []},
+        context_providers=[],
+        seed_files={},
+        version=1,
+    )
+
+
 def test_user_trust_rejects_non_user_allowed_reference(_clean_registry) -> None:
     # Register a privileged (user_allowed=False) strategy and reference it from a
     # user-trust manifest → CompilerError naming the (kind, name).
@@ -123,3 +147,140 @@ def test_default_trust_is_file(_clean_registry) -> None:
     manifest = _single_step_manifest("priv_strategy")
     compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry())
     assert [s.strategy for s in compiled.steps] == ["priv_strategy"]
+
+
+# ---------------------------------------------------------------------------
+# GRANT-PATH (EXEC-01) — trust-conditional exec ceiling + user/db hard-fail.
+# ---------------------------------------------------------------------------
+
+
+def _register_user_allowed_exec_palette() -> None:
+    """Register user-allowed strategy + security/approval gates.
+
+    Lets a user/db exec test reach the tool-grant guard (so it is the GRANT, not
+    the strategy/gate trust, that fails — isolating the user/db exec/network/secrets
+    CompilerError).
+    """
+    @register("strategy", "ua_strategy", user_allowed=True)
+    class _UAStrategy:
+        name = "ua_strategy"
+
+    @register("gate", "ua_security", user_allowed=True)
+    class _UASecurity:
+        name = "ua_security"
+
+    @register("gate", "ua_approval", user_allowed=True)
+    class _UAApproval:
+        name = "ua_approval"
+
+
+def test_file_trust_exec_grant_survives_the_ceiling(_clean_registry) -> None:
+    # file-trust + tools.exec:true + gates:[security,approval] → Step.tools.exec True.
+    manifest = _grant_step_manifest(
+        tools={"exec": True}, gates=["security", "approval"]
+    )
+    compiled = WorkflowCompiler().compile(
+        manifest, CapabilityRegistry(), trust="file"
+    )
+    assert compiled.steps[0].tools.exec is True
+
+
+def test_builtin_trust_exec_grant_survives_the_ceiling(_clean_registry) -> None:
+    manifest = _grant_step_manifest(
+        tools={"exec": True}, gates=["security", "approval"]
+    )
+    compiled = WorkflowCompiler().compile(
+        manifest, CapabilityRegistry(), trust="builtin"
+    )
+    assert compiled.steps[0].tools.exec is True
+
+
+def test_user_trust_exec_grant_raises_compiler_error(_clean_registry) -> None:
+    _register_user_allowed_exec_palette()
+    manifest = _grant_step_manifest(
+        strategy="ua_strategy",
+        tools={"exec": True},
+        gates=["ua_security", "ua_approval"],
+    )
+    with pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="user")
+    msg = str(exc.value)
+    # The message NAMES the grant + the step.
+    assert "exec" in msg and "exec-agent" in msg
+
+
+def test_db_trust_exec_grant_raises_compiler_error(_clean_registry) -> None:
+    _register_user_allowed_exec_palette()
+    manifest = _grant_step_manifest(
+        strategy="ua_strategy",
+        tools={"exec": True},
+        gates=["ua_security", "ua_approval"],
+    )
+    with pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="db")
+    assert "exec" in str(exc.value)
+
+
+def test_user_trust_network_grant_raises_compiler_error(_clean_registry) -> None:
+    _register_user_allowed_exec_palette()
+    manifest = _grant_step_manifest(strategy="ua_strategy", tools={"network": True})
+    with pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="user")
+    assert "network" in str(exc.value)
+
+
+def test_user_trust_secrets_grant_raises_compiler_error(_clean_registry) -> None:
+    _register_user_allowed_exec_palette()
+    manifest = _grant_step_manifest(
+        strategy="ua_strategy", tools={"secrets": ["DEPLOY_KEY"]}
+    )
+    with pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="user")
+    assert "secrets" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# D-01 — an exec-granting step MUST declare gates: [security, approval].
+# ---------------------------------------------------------------------------
+
+
+def test_d01_exec_missing_approval_gate_raises(_clean_registry) -> None:
+    manifest = _grant_step_manifest(tools={"exec": True}, gates=["security"])
+    with pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="file")
+    msg = str(exc.value)
+    assert "approval" in msg and "exec-agent" in msg
+
+
+def test_d01_exec_missing_security_gate_raises(_clean_registry) -> None:
+    manifest = _grant_step_manifest(tools={"exec": True}, gates=["approval"])
+    with pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="file")
+    msg = str(exc.value)
+    assert "security" in msg and "exec-agent" in msg
+
+
+def test_d01_exec_both_gates_present_compiles_clean(_clean_registry) -> None:
+    manifest = _grant_step_manifest(
+        tools={"exec": True}, gates=["security", "approval"]
+    )
+    compiled = WorkflowCompiler().compile(
+        manifest, CapabilityRegistry(), trust="file"
+    )
+    assert compiled.steps[0].tools.exec is True
+
+
+def test_no_grant_parity_holds_across_trust(_clean_registry) -> None:
+    # A no-grant step binds read_files ON / rest OFF regardless of trust — the
+    # trust-conditional ceiling must NOT perturb the un-granted path (parity).
+    manifest = _grant_step_manifest()  # no tools block
+    for trust in ("file", "builtin"):
+        compiled = WorkflowCompiler().compile(
+            manifest, CapabilityRegistry(), trust=trust
+        )
+        tools = compiled.steps[0].tools
+        assert tools.read_files is True
+        assert tools.exec is False
+        assert tools.write_files is False
+        assert tools.network is False
+        assert tools.secrets == []
