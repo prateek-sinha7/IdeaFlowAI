@@ -110,6 +110,9 @@ _KNOWN: set[tuple[str, str]] = {
     ("hook", "otel_tracing"),              # 08-07 / OBS-02 (executable, non-blocking)
     ("runtime_env", "local"),              # 09-01 / RUNTIME-01 — LocalSandboxRuntime (ECS-swap seam)
     ("repo_index", "tree_sitter"),         # 09-03 / REPO-02 — app-side symbol index (tree-sitter isolated)
+    ("repo_inventory", "default"),         # 09-03 / REPO-01 — kernel-side stdlib inventory
+    ("context_pack", "default"),           # 09-03 / REPO-03 — kernel-side targeted context subset
+    ("context_provider", "repo"),          # 09-03 / REPO-03 — surfaces the ContextPack to agents
 }
 
 
@@ -210,6 +213,11 @@ def discover() -> None:
         # for the 08-02 gate (08-01 Issues-Encountered: keep severity import-light).
         "agents.capabilities.validators.spec_plan_coverage",
         "agents.capabilities.validators.task_done_when",
+        # 09-03 / repo-context capabilities (kernel-side, pure-stdlib — reach
+        # git/disk only via ctx.runner/ctx.scoped_store handles).
+        "agents.capabilities.repo_inventory.inventory",
+        "agents.capabilities.context_pack.pack",
+        "agents.capabilities.context_providers.repo",
     )
     for mod in _builtin_modules:
         importlib.import_module(mod)
