@@ -216,3 +216,22 @@ class HookProvider(Protocol):
     async def provide(self, ctx: Any) -> list[Any]:
         """Return the hook descriptors (incl. the ``behavioral`` sub-type)."""
         ...
+
+
+@runtime_checkable
+class IntegrationProvider(Protocol):
+    """Bridges a granted ``integrations`` scope onto a catalog MCP server (INTEG-01 / §15).
+
+    Variants: ``github`` | ``gitlab`` | ``jira`` | ``slack``. Each is a THIN MCP-backed
+    bridge — it surfaces the matching ``mcp_server`` catalog server's tools into
+    ``create_runner`` via the SAME prewarm seam the MCP tools use (ONE mechanism, no
+    parallel SDK path — D-08). It holds the ``scope`` it activates as DATA and composes
+    the MCP server-config fragment the engine run-entry hands to ``McpClientAdapter``.
+    """
+
+    name: str
+    scope: str
+
+    def server_config(self, host_config: Any) -> Any:
+        """Compose the MCP server-config fragment for the run-entry prewarm."""
+        ...

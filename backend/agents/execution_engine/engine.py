@@ -553,6 +553,22 @@ class ExecutionEngine:
         try:
             ectx.workspace_id = await scoped_store.create_workspace(pipeline_run_id)
             scoped_store._workspace_id = ectx.workspace_id  # stamp later writes
+            # ── Per-run integration scopes + active MCP servers (09-06 / CAPRUN-01) ──
+            # Record the run's active integration scopes + the MCP servers they activate
+            # (alongside the runtime) so ``run_capabilities`` is the audit row for WHAT
+            # external surface this run could reach (INTEG-02). ``integration_scopes`` is
+            # host-injected (the §15 seam); default NONE ⇒ both persist as SQL NULL (INV-3
+            # row parity — never a spurious non-null write for a run with no integration).
+            _rec_scopes = list(getattr(ectx, "integration_scopes", None) or [])
+            _rec_servers: list[str] = []
+            if _rec_scopes:
+                from agents.capabilities.integration_providers.providers import (
+                    SCOPE_TO_SERVER,
+                )
+
+                _rec_servers = sorted(
+                    {SCOPE_TO_SERVER[s] for s in _rec_scopes if s in SCOPE_TO_SERVER}
+                )
             await scoped_store.record_capabilities(
                 pipeline_run_id,
                 runtime="langchain_deepagents",
@@ -560,6 +576,10 @@ class ExecutionEngine:
                 # empty {} (every run today) persists as SQL NULL — INV-3 row parity
                 # with legacy/no-override rows (never a spurious non-null {} write).
                 model_overrides=(ectx.model_overrides or None),
+                # 09-06: the active integration scopes + the MCP servers they activate
+                # (``or None`` ⇒ SQL NULL for a no-integration run — INV-3 parity).
+                integrations=(_rec_scopes or None),
+                mcp_servers=(_rec_servers or None),
             )
         except Exception as _scope_exc:  # noqa: BLE001 — never break a run on DB persist
             # WR-02: degrade ONLY the offline-harness DB condition (no schema →
@@ -714,6 +734,46 @@ class ExecutionEngine:
         # absent any active scope this pre-warm is a no-op.
         if not hasattr(ectx, "prewarmed_mcp_tools"):
             ectx.prewarmed_mcp_tools = []
+
+        # ── Integration-provider bridge → the SAME MCP prewarm (09-06 / INTEG-01) ─────
+        # The github/gitlab/jira/slack integration providers are THIN bridges onto the
+        # 09-05 mcp_server catalog (ONE mechanism, no parallel SDK path — D-08): a granted
+        # ``integrations`` scope (``gitlab_read`` etc.) is translated into the EXACT two
+        # inputs the MCP prewarm below consumes (server-config map + exposed-tool allow-list)
+        # by ``resolve_integration_scopes``. We MERGE them with any host-supplied MCP configs
+        # so an integration's tools surface through the identical ``McpClientAdapter`` path.
+        # Scopes default NONE (INTEG-02): no granted scope ⇒ empty maps ⇒ zero integration
+        # tools bound (graceful no-op; the offline characterization activates none → snapshots
+        # byte-identical). ``integration_scopes`` is host-injected per-run (the §15 seam, like
+        # ``mcp_server_configs``); the live transport/credential per server rides on
+        # ``integration_host_configs`` (also host-injected). Recorded per-run below (CAPRUN-01).
+        _integration_scopes = list(getattr(ectx, "integration_scopes", None) or [])
+        _active_integration_servers: list[str] = []
+        if _integration_scopes:
+            try:
+                from agents.capabilities.integration_providers.providers import (
+                    resolve_integration_scopes,
+                )
+
+                _integ_configs, _integ_exposed = resolve_integration_scopes(
+                    _integration_scopes,
+                    getattr(ectx, "integration_host_configs", None),
+                )
+                _active_integration_servers = sorted(_integ_configs.keys())
+                if _integ_configs:
+                    _merged_configs = dict(getattr(ectx, "mcp_server_configs", None) or {})
+                    _merged_configs.update(_integ_configs)
+                    ectx.mcp_server_configs = _merged_configs
+                    _merged_exposed = dict(getattr(ectx, "mcp_exposed_tools", None) or {})
+                    _merged_exposed.update(_integ_exposed)
+                    ectx.mcp_exposed_tools = _merged_exposed
+            except Exception as _integ_exc:  # noqa: BLE001 — never break a run on the bridge
+                logger.warning(
+                    "execute(): integration-scope bridge failed (%s) — proceeding "
+                    "without integration tools (graceful no-op)",
+                    _integ_exc,
+                )
+
         try:
             _mcp_configs = getattr(ectx, "mcp_server_configs", None)
             if _mcp_configs:

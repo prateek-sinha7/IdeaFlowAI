@@ -82,6 +82,10 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("mcp_server", "slack"),              # 09-05 / MCP-02 — post-scoped (user_allowed=True)
     ("mcp_server", "filesystem"),          # 09-05 / MCP-02 — powerful (user_allowed=False)
     ("mcp_server", "postgres"),            # 09-05 / MCP-02 — powerful (user_allowed=False)
+    ("integration_provider", "github"),    # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
+    ("integration_provider", "gitlab"),    # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
+    ("integration_provider", "jira"),      # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
+    ("integration_provider", "slack"),     # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
 ]
 
 
@@ -106,8 +110,8 @@ def test_unknown_kind_is_rejected(registry: CapabilityRegistry) -> None:
     assert registry.is_registered("bogus_kind", "single_shot") is False
 
 
-def test_registered_count_is_exactly_forty_six() -> None:
-    # Drift guard: registering a 47th name (or dropping one) must trip this.
+def test_registered_count_is_exactly_fifty() -> None:
+    # Drift guard: registering a 51st name (or dropping one) must trip this.
     # 15 authoritative D-07 pairs + model_catalog (06-01) + post_step
     # revision_validation (07-10 / CR-06) = 16, plus the two 08-02 gate names
     # (approval/security) = 18, plus the four 08-03 tool-set names
@@ -122,8 +126,10 @@ def test_registered_count_is_exactly_forty_six() -> None:
     # repo_inventory:default REPO-01; context_pack:default + context_provider:repo
     # REPO-03) = 39, plus the one 09-04 brownfield deliverable (deliverable:repo_diff
     # REPO-04) = 40, plus the six 09-05 mcp_server catalog entries (github/gitlab/jira/
-    # slack user_allowed=True + filesystem/postgres user_allowed=False, MCP-02) = 46.
-    assert len(_KNOWN) == 46
+    # slack user_allowed=True + filesystem/postgres user_allowed=False, MCP-02) = 46,
+    # plus the four 09-06 integration-provider bridges (github/gitlab/jira/slack
+    # user_allowed=True, INTEG-01) = 50.
+    assert len(_KNOWN) == 50
     assert set(_KNOWN) == set(_EXPECTED_NAMES)
 
 

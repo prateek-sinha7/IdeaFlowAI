@@ -120,6 +120,10 @@ _KNOWN: set[tuple[str, str]] = {
     ("mcp_server", "slack"),              # 09-05 / MCP-02 — post-scoped (user_allowed=True)
     ("mcp_server", "filesystem"),          # 09-05 / MCP-02 — powerful (user_allowed=False)
     ("mcp_server", "postgres"),            # 09-05 / MCP-02 — powerful (user_allowed=False)
+    ("integration_provider", "github"),    # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
+    ("integration_provider", "gitlab"),    # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
+    ("integration_provider", "jira"),      # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
+    ("integration_provider", "slack"),     # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
 }
 
 
@@ -230,6 +234,10 @@ def discover() -> None:
         # 09-05 / MCP-02 — the allow-listed mcp_server catalog (registration DATA
         # only; the live client is app-side McpClientAdapter).
         "agents.capabilities.mcp_servers.catalog",
+        # 09-06 / INTEG-01 — the integration-provider bridge (registration DATA only;
+        # each provider bridges a granted integrations scope onto a catalog mcp_server
+        # via the SAME prewarm seam — ONE mechanism, no parallel SDK path, D-08).
+        "agents.capabilities.integration_providers.providers",
     )
     for mod in _builtin_modules:
         importlib.import_module(mod)
