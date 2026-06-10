@@ -1,0 +1,51 @@
+# sample_brownfield — the REPO-05 brownfield accept manifest (09-04).
+#
+# A BRAND-NEW, NON-prototype workflow defined by manifest + AGENT.md ONLY, using
+# ONLY already-registered capabilities. It proves the whole brownfield workflow
+# class works against a LOCAL fixture with exec OFF at every step and the surfaced
+# diff containing the agent's edit (REPO-05) — with ZERO edits to
+# backend/agents/execution_engine/ (SC-001 discipline: all power lives in the
+# registered capabilities; the kernel knows no workflow by name).
+#
+# The chain (clone -> branch -> inventory -> read/edit >=1 -> diff):
+#   * the run binds a local fixture as the cloned repo (the RepoSpec url is the
+#     local fixture path; base_branch=main / working_branch=work) — supplied at run
+#     entry by the runtime, not the manifest (manifests are pure data; the §15
+#     repo binding has no manifest top-key, INV-5 / D-08);
+#   * context_providers: [repo] surfaces the targeted ContextPack (09-03) — the
+#     repo_inventory (09-03) feeds it;
+#   * the brownfield-build step reads N files and EDITS >=1 via the native
+#     filesystem tools (write_files GRANTED, exec NOT granted — exec stays OFF at
+#     EVERY step; the effective-perms intersection has exec=off);
+#   * deliverable: repo_diff (09-04) surfaces the file tree + per-file unified diff
+#     + change summary — diff-only, no commit/PR push (N4).
+#
+# NO step grants exec. The §8 ToolPermissions default is exec=OFF; the build step's
+# tools: block grants ONLY write_files (+ the default read_files), so the
+# effective-perms intersection (owner ∩ workflow ∩ step) has exec=off everywhere.
+id: sample_brownfield
+version: 1
+planner: run
+clarify:
+  mode: auto
+  defaults: []
+deliverable:
+  strategy: repo_diff
+  name: repo_diff
+context_providers: [repo]
+seed_files: {}
+steps:
+  - agent: brownfield-analyze
+    strategy: single_shot
+    gates: []
+    tools:
+      read_files: true
+      write_files: false
+      exec: false
+  - agent: brownfield-build
+    strategy: single_shot
+    gates: []
+    tools:
+      read_files: true
+      write_files: true
+      exec: false
