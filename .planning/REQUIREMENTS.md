@@ -111,7 +111,7 @@
 
 ### Safe Local Exec — Gated on N3 (Phase 4B)
 
-- [ ] **EXEC-01**: A constrained `exec` profile runs only behind the `security` gate + `ExecutionPolicy` — command allow/deny, network default-deny, resource caps (cpu_seconds/mem_mb), ephemeral creds (§8/§14 / N3 ⚠️ — own threat model first)
+- [x] **EXEC-01**: A constrained `exec` profile runs only behind the `security` gate + `ExecutionPolicy` — command allow/deny, network default-deny, resource caps (cpu_seconds/mem_mb), ephemeral creds (§8/§14 / N3 ⚠️ — own threat model first)
 - [ ] **EXEC-02**: compile/test/lint validators land; a sample compile/test validator passes; egress denied by default (Phase 4B Accept)
 
 ### Engine-Owned Fan-Out & Merge (Phase 5)
