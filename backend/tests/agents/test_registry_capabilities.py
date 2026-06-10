@@ -38,6 +38,7 @@ from agents.capabilities.registry import CapabilityRegistry, _KNOWN, register
 _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("strategy", "single_shot"),
     ("strategy", "task_loop"),
+    ("strategy", "fanout_batch"),          # 11-01 / FANOUT-02
     ("validator", "html_static"),
     ("validator", "html_render"),
     ("validator", "spec_plan_coverage"),   # 08-04 / Tier#4
@@ -61,6 +62,7 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("tool", "prototype"),             # 08-03 / F2
     ("tool", "prototype_emit_only"),   # 08-03 / F2
     ("tool", "planning"),              # 08-03 / F2
+    ("tool", "spawn_subagents"),       # 11-01 / FANOUT-01 (user_allowed=False)
     ("compaction", "html_skeleton"),
     ("post_step", "revision_validation"),
     ("model_catalog", "default"),
@@ -133,8 +135,10 @@ def test_registered_count_is_exactly_fifty() -> None:
     # plus the four 09-06 integration-provider bridges (github/gitlab/jira/slack
     # user_allowed=True, INTEG-01) = 50, plus the three 10-04 code validators
     # (validator:code_compile/code_test/code_lint, EXEC-02 — they reach exec only via
-    # the runner/workspace handle) = 53.
-    assert len(_KNOWN) == 53
+    # the runner/workspace handle) = 53, plus the two 11-01 fan-out capabilities
+    # (strategy:fanout_batch user_allowed=True FANOUT-02; tool:spawn_subagents
+    # user_allowed=False FANOUT-01) = 55.
+    assert len(_KNOWN) == 55
     assert set(_KNOWN) == set(_EXPECTED_NAMES)
 
 

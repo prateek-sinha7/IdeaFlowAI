@@ -77,6 +77,7 @@ logger = logging.getLogger(__name__)
 _KNOWN: set[tuple[str, str]] = {
     ("strategy", "single_shot"),
     ("strategy", "task_loop"),
+    ("strategy", "fanout_batch"),      # 11-01 / FANOUT-02 (user_allowed=True)
     ("validator", "html_static"),
     ("validator", "html_render"),
     ("validator", "spec_plan_coverage"),   # 08-04 / Tier#4
@@ -101,6 +102,7 @@ _KNOWN: set[tuple[str, str]] = {
     ("tool", "prototype"),             # 08-03 / F2
     ("tool", "prototype_emit_only"),   # 08-03 / F2
     ("tool", "planning"),              # 08-03 / F2
+    ("tool", "spawn_subagents"),       # 11-01 / FANOUT-01 (user_allowed=False)
     ("compaction", "html_skeleton"),
     ("post_step", "revision_validation"),
     ("model_catalog", "default"),
@@ -213,6 +215,7 @@ def discover() -> None:
     _builtin_modules = (
         "agents.capabilities.strategies.single_shot",
         "agents.capabilities.strategies.task_loop",
+        "agents.capabilities.strategies.fanout_batch",  # 11-01 / FANOUT-02
         "agents.capabilities.task_parsers.heading_tasks",
         "agents.capabilities.deliverables.single_file",
         "agents.capabilities.deliverables.serialized_sandbox",

@@ -18,7 +18,14 @@ prototype tool sets (08-03 routes it through the ``tool_provider`` registry).
 
 from __future__ import annotations
 
+import json
+
 from langchain_core.tools import tool
+
+# The stable custom-tool KEY for the fan-out request emitter (Phase 11 / FANOUT-01).
+# The kernel-side capability provider emits this key; the factory resolves it to the
+# concrete tool below. A module constant so the provider + factory never drift.
+TOOL_SPAWN_SUBAGENTS = "spawn_subagents"
 
 
 @tool
@@ -33,6 +40,24 @@ def report_task_complete(task_number: int, task_title: str, summary: str = "") -
     return f"✓ Task {task_number} complete: {task_title}"
 
 
+@tool
+def spawn_subagents(tasks: list, mode: str = "parallel") -> str:
+    """Request that the engine fan out the given tasks to worker sub-agents.
+
+    This tool SPAWNS NOTHING (FANOUT-01): it is a store-free / spawn-free request
+    EMITTER. It returns a structured JSON request string ONLY; the engine derives
+    the request from this tool's result event and fulfils it via the SINGLE kernel
+    fan-out spawn path (the model emits an untrusted REQUEST; the kernel — not the
+    tool — decides what spawns, T-11-01-04). The tool body imports no concurrency
+    primitives, no spawn coroutine, and no kernel module.
+
+    Args:
+        tasks: The list of task inputs to fan out (one worker per task).
+        mode: ``"parallel"`` (default) or ``"sequential"``.
+    """
+    return json.dumps({"fanout_request": list(tasks), "mode": mode})
+
+
 def make_runner_prototype_tools() -> list:
     """Return the store-free runner tool set for prototype agents.
 
@@ -42,4 +67,9 @@ def make_runner_prototype_tools() -> list:
     return [report_task_complete]
 
 
-__all__ = ["report_task_complete", "make_runner_prototype_tools"]
+__all__ = [
+    "report_task_complete",
+    "make_runner_prototype_tools",
+    "spawn_subagents",
+    "TOOL_SPAWN_SUBAGENTS",
+]

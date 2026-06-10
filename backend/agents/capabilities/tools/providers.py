@@ -51,6 +51,7 @@ from agents.capabilities.registry import register
 # import-clean of the app-layer concrete tools (import-linter: capability ↛ app).
 TOOL_REPORT_TASK_COMPLETE = "report_task_complete"
 TOOL_PLANNING_SET = "planning"
+TOOL_SPAWN_SUBAGENTS = "spawn_subagents"  # Phase 11 / FANOUT-01 (user_allowed=False)
 
 
 @register("tool", "workspace", user_allowed=True)
@@ -110,3 +111,22 @@ class PlanningToolProvider:
 
     def provide(self, spec: Any, ctx: Any) -> tuple[list[str], bool]:
         return ([TOOL_PLANNING_SET], True)
+
+
+@register("tool", "spawn_subagents", user_allowed=False)
+class SpawnSubagentsToolProvider:
+    """Fan-out request-emitter tool set (``name='spawn_subagents'``, FANOUT-01).
+
+    Returns ``(["spawn_subagents"], exclude_builtin=False)`` — the agent gets the
+    store-free / spawn-free ``spawn_subagents`` request emitter (it returns a JSON
+    request only; the engine derives the request and fulfils it via the SINGLE kernel
+    ``run_fanout`` spawn path). ``user_allowed=False`` (CAP-03 / T-11-01-01): the
+    compiler rejects any user/db manifest that grants this tool, so spawn power stays
+    off the user palette. The capability layer imports NO concrete tool (the
+    ``PrototypeToolProvider`` precedent) — the factory resolves the key.
+    """
+
+    name = "spawn_subagents"
+
+    def provide(self, spec: Any, ctx: Any) -> tuple[list[str], bool]:
+        return ([TOOL_SPAWN_SUBAGENTS], False)

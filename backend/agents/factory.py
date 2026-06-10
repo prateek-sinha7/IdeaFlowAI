@@ -446,7 +446,7 @@ def _resolve_custom_tool_keys(keys: list[str]) -> list:
     """
     # Lazy imports keep the factory import light (the heavy stack loads only on bind).
     from agents.planner.tools import PLANNING_TOOLS
-    from app.agents.tools.runner_tools import report_task_complete
+    from app.agents.tools.runner_tools import report_task_complete, spawn_subagents
 
     resolved: list = []
     for key in keys:
@@ -455,6 +455,12 @@ def _resolve_custom_tool_keys(keys: list[str]) -> list:
                 resolved.append(report_task_complete)
         elif key == "planning":
             resolved.extend(PLANNING_TOOLS)
+        elif key == "spawn_subagents":
+            # Phase 11 / FANOUT-01: the store-free / spawn-free fan-out request emitter.
+            # Only binds when the step DECLARES the spawn_subagents tool set (user_allowed
+            # =False at the registry, so a user/db manifest can never grant it — CAP-03).
+            if spawn_subagents not in resolved:
+                resolved.append(spawn_subagents)
         else:
             raise ValueError(
                 f"unknown custom-tool key '{key}' emitted by a tool_provider; "

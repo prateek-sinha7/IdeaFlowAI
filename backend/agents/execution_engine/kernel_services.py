@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any, AsyncIterator
 
 from app.agents.sandbox import (
@@ -397,6 +398,127 @@ class KernelServices:
                 step, outcome, exc,
             )
             return None
+
+    # ── Fan-out child audit writer (Phase 11 / FANOUT-10) ──────────────────────
+    async def record_subagent_run(
+        self,
+        *,
+        parent_step: str,
+        worker_agent: str,
+        depth: int,
+        isolation: str,
+        status: str,
+        tokens: int | None = None,
+        cost: Any = None,
+    ) -> str | None:
+        """Write one owner/workspace-scoped ``subagent_runs`` row for a fan-out child.
+
+        Reached by the single kernel ``run_fanout`` spawn path, so EVERY child is
+        audited at the one spawn point (FANOUT-10). Delegates to the per-run
+        ``ScopedStore`` so the row carries the run's ``(owner_id, workspace_id)``
+        (AUTHZ-01 / T-11-01-03). Best-effort — a persist failure (offline harness / no
+        FK row) degrades to ``None`` rather than aborting the spawn or the run (Pitfall
+        6 — audit must never break the live stream). Clones ``record_exec_run`` EXACTLY.
+        """
+        store = getattr(self._ectx, "scoped_store", None)
+        if store is None:
+            return None
+        try:
+            return await store.record_subagent_run(
+                self.run_id,
+                parent_step=parent_step,
+                worker_agent=worker_agent,
+                depth=depth,
+                isolation=isolation,
+                status=status,
+                tokens=tokens,
+                cost=cost,
+            )
+        except Exception as exc:  # noqa: BLE001 — audit must NEVER abort the run
+            logger.warning(
+                "record_subagent_run(step=%s worker=%s) failed: %s",
+                parent_step, worker_agent, exc,
+            )
+            return None
+
+    async def update_subagent_run(
+        self,
+        row_id: str,
+        *,
+        status: str,
+        tokens: int | None = None,
+        cost: Any = None,
+    ) -> None:
+        """Flip a ``subagent_runs`` row terminal (best-effort; never aborts the run)."""
+        store = getattr(self._ectx, "scoped_store", None)
+        if store is None or row_id is None:
+            return
+        try:
+            await store.update_subagent_run(row_id, status=status, tokens=tokens, cost=cost)
+        except Exception as exc:  # noqa: BLE001 — audit must NEVER abort the run
+            logger.warning("update_subagent_run(row=%s) failed: %s", row_id, exc)
+
+    # ── Fan-out spawn handle (Phase 11 / FANOUT-02) ────────────────────────────
+    async def run_fanout(
+        self, requests: list, ctx: Any, *, step: Any
+    ) -> AsyncIterator[dict]:
+        """Re-yield the kernel ``run_fanout`` spawn-path events (FANOUT-02).
+
+        The capability-facing seam: the ``fanout_batch`` strategy + the engine
+        tool-result derivation both call THIS handle method, which delegates to the
+        kernel-private ``run_fanout`` coroutine (the only spawn path). Lifecycle-only
+        events (``subagent_spawned`` / ``subagent_result``) flow back through the
+        engine's single emit boundary.
+        """
+        from agents.execution_engine.fanout import run_fanout as _kernel_run_fanout
+
+        async for event in _kernel_run_fanout(requests, ctx, step=step):
+            yield event
+
+    async def run_worker(
+        self,
+        step: Any,
+        ctx: Any,
+        *,
+        worker_index: int,
+        thread_id: str,
+        agent_id: str,
+        input: str,
+    ) -> AsyncIterator[dict]:
+        """Run ONE fan-out worker against its allocated workspace (FANOUT-04).
+
+        Wraps ``run_agent`` to run a single worker for the resolved ``agent_id`` with
+        the per-worker ``thread_id``. Workers carry NO gates + NO per-worker fix-loop
+        (D-01 — the kernel orchestrates the fan-out itself; the worker is a plain agent
+        run). Re-yields the ``_run_agent`` events; the caller (``run_fanout``) consumes
+        them lifecycle-only (it does NOT forward child chunk events — D-03).
+        """
+        # A worker runs the resolved worker agent. When the worker IS the step's own
+        # agent (self×N) the step is reused as-is; for a NAMED worker we run that
+        # agent via a lightweight step view carrying its agent_id (the spec lookup in
+        # run_agent resolves it from the run's ordered agents).
+        if getattr(step, "agent_id", None) == agent_id:
+            worker_step = step
+        else:
+            worker_step = SimpleNamespace(
+                agent_id=agent_id,
+                strategy=getattr(step, "strategy", "single_shot"),
+                gates=[],
+                hooks=[],
+                task_source=None,
+                post_step=None,
+                tools=getattr(step, "tools", None),
+                fanout=None,
+            )
+
+        async for event in self.run_agent(
+            worker_step,
+            ctx,
+            task_number=None,
+            total_tasks=None,
+            task_block=input,
+        ):
+            yield event
 
     # ── Hook firing passthrough (08-07 / HOOK-01..04 / D-09) ───────────────────
     async def fire_hooks(
