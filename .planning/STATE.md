@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-06-10T11:10:00.000Z"
+status: verifying
+last_updated: "2026-06-10T09:31:26.244Z"
 last_activity: 2026-06-10 -- Phase 09 plan 05 complete (MCP client + catalog + scoped creds + compile-validation + gating)
 progress:
   total_phases: 12
-  completed_phases: 8
+  completed_phases: 9
   total_plans: 51
-  completed_plans: 52
-  percent: 70
+  completed_plans: 51
+  percent: 75
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 
 Phase: 09 (local-workspace-runtime-repo-workflows-no-exec-4a) — EXECUTING
 Plan: 6 of 6
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-10 -- Phase 09 plan 05 complete (MCP client + catalog + scoped creds + compile-validation + gating)
 
 Progress: [██████░░░░] 60% (7/12 phases complete; Phase 08 = 8/8 plans complete, awaiting verification)
@@ -102,6 +102,7 @@ Progress: [██████░░░░] 60% (7/12 phases complete; Phase 08 =
 | Phase 09 P03 | ~18min | 3 tasks | 14 files |
 | Phase 09 P04 | ~20min | 2 tasks | 8 files |
 | Phase 09 P05 | ~40min | 3 tasks | 19 files |
+| Phase 09 P06 | ~30min | 2 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -172,6 +173,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 09-03: repo-context capabilities landed — repo_inventory (kernel stdlib tree/langs/deps/ignore/binary/size-cap, lineage-tracked); repo_index app-side (tree-sitter import-isolated, search=grep default + symbol_query on in-memory per-run build, N6=2000, RepoSpec.index opt-in INV-5); context_pack+selector + repo provider (target+neighbors, cross-owner PermissionError propagates L16). Task-1 pkg checkpoint APPROVED. OFFLINE Open Risk REALIZED: language-pack 1.8.1 lazy-downloads grammars -> FALLBACK to per-language tree-sitter-python/-javascript/-typescript wheels (offline-proven). _KNOWN 35->39; import-linter 4/0; banned-pattern + 5 characterization snapshots byte/event-identical. Commits 4f927a6/e5363e8.
 - [Phase 09]: 09-04: repo_diff reads the diff ONLY via ctx.runner.workspace.git_diff (D-10, resolver spawns no child process); diff-only — no commit/PR push (N4), grep-clean of git commit/push + subprocess; base/working branches off ctx (default main/work), never a workflow-name branch (INV-1).
 - [Phase 09]: 09-04: sample_brownfield manifest at the REAL manifest home agents/workflows/sample_brownfield/ (not the plan's manifests/ subdir) so compile_for_run loads it with ZERO engine edit; AGENT.md specs + the end-to-end test are test-scoped (sc001 precedent); the §15 RepoSpec injected at run entry, not the manifest (INV-5/D-08). REPO-04/REPO-05 closed; _KNOWN 39→40; exec=off at every step; prototype parity held; commits 98d8f9b/47be9a9.
+- [Phase ?]: [Phase 09]: 09-06 (INTEG-01/02 + D-09): integration_provider github/gitlab/jira/slack = THIN MCP-backed bridges onto the 09-05 catalog (ONE mechanism, no parallel SDK — D-08); resolve_integration_scopes() maps a granted integrations scope onto the EXACT mcp_server_configs/mcp_exposed_tools the existing async MCP prewarm consumes, so tools surface into create_runner via the identical McpClientAdapter path. Scopes default NONE (gitlab_read binds only gitlab read tools; 08-03 intersect gates the grant); run_capabilities records the active scopes + MCP servers + runtime per run (or None -> SQL NULL). _KNOWN 46->50. The CodingAgent build_model().ainvoke bypass (the INV-13 gap) is DELETED-by-alias: HandoffCoder (coder.py) produces the same JSON edit-plan via DeepAgentRunner -> create_deep_agent, exported as CodingAgent so the RETAINED /api/handoff routers + UserGithubCredential (ledger D10) + the handoff contract drive unchanged (grep class CodingAgent -> 0, ledger D9). 5-pipeline characterization byte/event-identical; lint 4/0; banned-pattern+ledger green. Phase 09 = 6/6 complete. Commits 3245f02/b17eeca.
 
 ### Pending Todos
 

@@ -151,8 +151,8 @@
 - [x] **MCP-02**: Allow-listed famous-server catalog (GitHub, GitLab, Jira/Atlassian, Confluence, Slack, Notion, Linear, Sentry, Figma, Filesystem, Postgres, Google Drive, web-search, Playwright, …), each with transport + exposed tools + scoped per-owner creds + `user_allowed` (§30)
 - [x] **MCP-03**: `McpCapabilityRegistry` — compiler validates `tools.mcp` only names tools from servers the step + owner may reach; unknown `server.tool` → compile error (§7/§30)
 - [x] **MCP-04**: Powerful servers (Filesystem/Postgres/write/network) sit behind the `security` gate + scoped creds + `secrets` permission (R13/§30)
-- [ ] **INTEG-01**: `integration_provider` capabilities (GitHub/GitLab/Jira/Slack/Confluence/Figma/OpenDesign) make repo/GitHub reachable from the unified `create_runner` path, not only the handoff pipeline (§30)
-- [ ] **INTEG-02**: `integrations` tool-permission scopes (e.g. `gitlab_read`, `jira_read`) default none; scoped per-owner creds (§8/§30/R13)
+- [x] **INTEG-01**: `integration_provider` capabilities (GitHub/GitLab/Jira/Slack/Confluence/Figma/OpenDesign) make repo/GitHub reachable from the unified `create_runner` path, not only the handoff pipeline (§30)
+- [x] **INTEG-02**: `integrations` tool-permission scopes (e.g. `gitlab_read`, `jira_read`) default none; scoped per-owner creds (§8/§30/R13)
 - [x] **SKILL-01**: `skill_provider` capabilities (ui · disk · template · repo) with a provider interface + versioning replace the flattened skill content list (§30)
 - [x] **CAPRUN-01**: `run_capabilities` persistence records the active runtime + resolved skill/hook/integration/MCP names + versions + `model_overrides` per run for replay/debug (§18/§30)
 
