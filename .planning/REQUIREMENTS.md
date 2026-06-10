@@ -106,8 +106,8 @@
 - [x] **REPO-01**: `RepoInventory` (`kind=repo_inventory`) — file tree, language stats, dependency graph, ignore rules (`.gitignore` + `.flowinignore`), binary-file skip, size caps, optional summaries (§15)
 - [x] **REPO-02**: `RepoIndex` (optional, large repos) behind a port; default grep/glob for small repos; threshold = N6 (§15 — confirm N6/N10)
 - [x] **REPO-03**: `ContextPack` (`kind=context_pack`) — targeted per-task subset via a `context_selector` capability, lineage-tracked; surfaced via the `repo` context provider (§15)
-- [ ] **REPO-04**: `repo_diff` `DeliverableResolver` produces app-builder-style file tree + per-file diff (Q-N7 — confirm N5/N7)
-- [ ] **REPO-05**: A sample brownfield workflow runs end-to-end locally without execution (clone → branch → inventory → agents read/edit/search → diff surface); prototype unaffected (Phase 4A Accept)
+- [x] **REPO-04**: `repo_diff` `DeliverableResolver` produces app-builder-style file tree + per-file diff (Q-N7 — confirm N5/N7)
+- [x] **REPO-05**: A sample brownfield workflow runs end-to-end locally without execution (clone → branch → inventory → agents read/edit/search → diff surface); prototype unaffected (Phase 4A Accept)
 
 ### Safe Local Exec — Gated on N3 (Phase 4B)
 
