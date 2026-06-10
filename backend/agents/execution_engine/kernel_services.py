@@ -471,11 +471,11 @@ class KernelServices:
             task_meta=dict(task_meta or {}),
         )
 
-    # ── Human gate delegate (08-02 / GATE-03 parity) ───────────────────────────
+    # ── Human gate delegate (08-02 / GATE-03 parity; 10-03 approval payload) ────
     async def run_human_gate(
-        self, step: Any, *, output: str = ""
+        self, step: Any, *, output: str = "", payload: dict | None = None
     ) -> AsyncIterator[dict]:
-        """Route a declared ``gates:[human]`` step through the EXISTING review gate.
+        """Route a declared ``gates:[human|approval]`` step through the review gate.
 
         Delegates to the engine's unchanged ``_run_review_gate`` so the emitted
         ``review_gate_*`` event sequence is byte/event-identical (GATE-03 parity —
@@ -484,18 +484,54 @@ class KernelServices:
         inline ``_should_gate`` → ``_run_review_gate`` path in ``_run_agent`` is
         untouched (this is the additive registry-driven entry point).
 
+        This is the ONE HITL delegate (D-02 single-mechanism). The ``approval`` gate
+        (10-03) passes the D-04 exec-policy SNAPSHOT as ``payload`` — a structured
+        dict that rides the SAME generic ``review_gate_ready.data.output`` field (no
+        frontend rebuild). When ``payload`` is provided it supersedes ``output`` as
+        the review payload; when ``payload`` is ``None`` the behavior is EXACTLY as
+        before (the ``human``-gate string ``output`` path is byte-identical —
+        parity), because ``_run_review_gate`` is UNCHANGED and simply forwards
+        whatever value it receives. There is NO sibling ``run_approval_gate``
+        (rejected — a second HITL surface).
+
         Yields the engine's review-gate event dicts unchanged. The internal
         ``_gate_rejected`` / ``_gate_edited`` signals flow through so the caller can
         map them to the gate outcome.
         """
+        # The structured approval payload (D-04) rides the generic output field; a
+        # None payload preserves the byte-identical human-gate string path (parity).
+        review_payload: Any = payload if payload is not None else output
         spec = self._spec_for(step)
         async for event in self._engine._run_review_gate(
             pipeline_run_id=self.run_id,
             agent_id=spec.id,
             agent_name=spec.name,
-            output=output,
+            output=review_payload,
         ):
             yield event
+
+    # ── Gate-event read handle (10-03 / D-03 first-exec memory) ─────────────────
+    async def read_gate_events(self, run_id: str) -> list:
+        """Return the run's ``gate_events`` rows (best-effort, default-deny scoped).
+
+        Reached by the ``approval`` gate via ``ctx.runner.read_gate_events`` for the
+        D-03 durable first-exec memory (a prior approval-pass row short-circuits the
+        second exec step's pause). Delegates to the per-run ``ScopedStore`` so the
+        read is owner/workspace-scoped (cross-owner → ∅, T-08-02-ID). Best-effort —
+        mirrors the ``record_hook_run`` degrade: no store (offline harness) → ``[]``;
+        a read failure logs + returns ``[]`` rather than aborting the gate (INV-3
+        parity: an audit READ must never break the live stream / approval flow).
+        """
+        store = getattr(self._ectx, "scoped_store", None)
+        if store is None:
+            return []
+        try:
+            return await store.read_gate_events(run_id)
+        except Exception as exc:  # noqa: BLE001 — read must never abort the run
+            logger.warning(
+                "read_gate_events(run_id=%s) failed: %s", run_id, exc,
+            )
+            return []
 
     # ── Typed-graph read (ART-03) ──────────────────────────────────────────────
     def latest_typed_content(self, producer_step: str) -> str | None:

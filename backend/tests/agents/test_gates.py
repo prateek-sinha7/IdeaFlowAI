@@ -659,3 +659,166 @@ async def test_engine_gate_that_raises_is_swallowed_not_aborting():
     step = _GatedStep(gates=["validation"])
     events, outcomes = await _collect_gates(engine, step, _Ctx(_RecordingRunner()), phase="post")
     assert events == [] and outcomes == []
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# KernelServices.run_human_gate parameterize + read_gate_events handle (Task 2)
+# ════════════════════════════════════════════════════════════════════════════
+
+
+class _FakeReviewEngine:
+    """Engine stub: _run_review_gate records the output it received + yields events."""
+
+    def __init__(self, events) -> None:
+        self._events = list(events)
+        self.seen_output = None
+
+    async def _run_review_gate(self, *, pipeline_run_id, agent_id, agent_name, output):
+        self.seen_output = output
+        for ev in self._events:
+            yield ev
+
+
+class _SpecStub:
+    def __init__(self, agent_id) -> None:
+        self.id = agent_id
+        self.name = agent_id
+
+
+def _kernel_services(engine, *, scoped_store=None):
+    """Build a KernelServices with a minimal ectx (only the attrs the methods read)."""
+    from agents.execution_engine.kernel_services import KernelServices
+
+    class _Ectx:
+        pass
+
+    ectx = _Ectx()
+    ectx.scoped_store = scoped_store
+    ks = KernelServices(
+        engine=engine,
+        ectx=ectx,
+        sandbox=None,
+        ordered_agents=[],
+        user_message="",
+        pipeline_run_id="run-x",
+        pipeline_type="prototype",
+        planning_context={},
+        attached_skills=None,
+        attached_hooks=None,
+        model_id=None,
+        results=[],
+        cancel_event=None,
+    )
+    return ks, ectx
+
+
+@pytest.mark.asyncio
+async def test_run_human_gate_threads_payload_into_review_output(monkeypatch):
+    """With a structured payload, run_human_gate threads the DICT into the review
+    gate's output field (D-04 — rides the generic forward, no frontend rebuild)."""
+    fake_engine = _FakeReviewEngine([{"type": "review_gate_ready", "data": {}}])
+    ks, _ = _kernel_services(fake_engine)
+    monkeypatch.setattr(ks, "_spec_for", lambda step: _SpecStub("step-x"))
+
+    snapshot = {"kind": "approval", "exec_allow": ["python3"]}
+    events = [e async for e in ks.run_human_gate(object(), payload=snapshot)]
+
+    assert fake_engine.seen_output == snapshot  # the dict rode the output field
+    assert events == [{"type": "review_gate_ready", "data": {}}]
+
+
+@pytest.mark.asyncio
+async def test_run_human_gate_payload_none_is_byte_identical_string_path(monkeypatch):
+    """With payload=None the human-gate string output path is byte-identical (parity:
+    _run_review_gate receives the same string it always did)."""
+    fake_engine = _FakeReviewEngine([{"type": "review_gate_approved", "data": {}}])
+    ks, _ = _kernel_services(fake_engine)
+    monkeypatch.setattr(ks, "_spec_for", lambda step: _SpecStub("step-x"))
+
+    _ = [e async for e in ks.run_human_gate(object(), output="agent html output")]
+    assert fake_engine.seen_output == "agent html output"  # string forwarded unchanged
+
+
+@pytest.mark.asyncio
+async def test_read_gate_events_offline_returns_empty_without_raising():
+    """No scoped_store (offline harness) → read_gate_events returns [] (best-effort,
+    never raises — INV-3 parity: an audit read must never abort the run)."""
+    ks, _ = _kernel_services(_FakeReviewEngine([]), scoped_store=None)
+    rows = await ks.read_gate_events("run-x")
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_read_gate_events_degrades_on_store_failure():
+    """A scoped-store read failure degrades to [] (best-effort) rather than raising."""
+
+    class _BoomStore:
+        async def read_gate_events(self, run_id):
+            raise RuntimeError("db down")
+
+    ks, _ = _kernel_services(_FakeReviewEngine([]), scoped_store=_BoomStore())
+    rows = await ks.read_gate_events("run-x")
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_read_gate_events_delegates_to_scoped_store():
+    """With a scoped store, read_gate_events delegates and returns the store's rows."""
+
+    class _Store:
+        async def read_gate_events(self, run_id):
+            assert run_id == "run-x"
+            return [_GateRow(gate="approval", outcome=GATE_PASS)]
+
+    ks, _ = _kernel_services(_FakeReviewEngine([]), scoped_store=_Store())
+    rows = await ks.read_gate_events("run-x")
+    assert len(rows) == 1 and rows[0].gate == "approval"
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# §15 host seam — exec-grant detection over the compiled plan (Task 2)
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def test_host_seam_exec_grant_detection_over_compiled_steps():
+    """The host-seam grant predicate fires iff ANY compiled step grants tools.exec —
+    so a no-exec plan never provisions a workspace (T-10-03-05 parity / Pitfall 3)."""
+
+    def _grants(steps):
+        # Mirror engine.execute()'s _plan_grants_exec predicate verbatim.
+        return any(
+            bool(getattr(getattr(s, "tools", None), "exec", False)) for s in (steps or [])
+        )
+
+    no_exec = [_Step(tools=_ToolGrant(exec=False)), _Step(tools=_ToolGrant(exec=False))]
+    one_exec = [_Step(tools=_ToolGrant(exec=False)), _Step(tools=_ToolGrant(exec=True))]
+
+    assert _grants(no_exec) is False
+    assert _grants([]) is False
+    assert _grants(one_exec) is True
+
+
+def test_host_seam_resolves_local_runtime_and_binds_exec_workspace(tmp_path, monkeypatch):
+    """When the plan grants exec, the local runtime_env resolves + create_workspace(
+    exec=True, recorder=...) returns a Workspace carrying a constrained policy that
+    the security gate's profile check accepts (allow-list non-empty)."""
+    import agents.capabilities.registry as _reg
+
+    _reg.discover()
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "RUNS_ROOT", str(tmp_path))
+
+    runtime = CapabilityRegistry().resolve("runtime_env", "local")
+    recorded: list = []
+
+    async def _recorder(*a, **k):
+        recorded.append((a, k))
+
+    ws = runtime.create_workspace(
+        owner_id="owner-1", workspace_id="ws-1", exec=True, recorder=_recorder
+    )
+    # The bound workspace carries a constrained exec profile (non-empty allow-list)
+    # — the exact shape the security gate's profile check reads.
+    assert ws.policy.exec is True
+    assert list(ws.policy.exec_allow)  # non-empty allow-list (DEFAULT_EXEC_PROFILE)

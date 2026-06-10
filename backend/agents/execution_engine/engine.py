@@ -1094,6 +1094,52 @@ class ExecutionEngine:
             cancel_event=cancel_event,
         )
 
+        # ── §15 host seam: bind the exec-enabled runtime workspace (10-03 / EXEC-01) ──
+        # The runtime_env capability (09-01) is REGISTERED but, until here, never
+        # BOUND onto the live run path — ``KernelServices.workspace`` defaulted to
+        # None (10-01). This is the ONE place an exec-enabled Workspace is
+        # provisioned (Pitfall 1 — first-class, not a footnote): when (and ONLY when)
+        # the compiled plan grants exec, resolve the local ``runtime_env`` impl, call
+        # ``create_workspace(exec=True, recorder=record_exec_run)`` and bind it onto
+        # ``KernelServices.workspace`` so the security gate's profile check + the
+        # exec validators (10-04) reach it via ``target.runner.workspace``. The
+        # recorder is the 10-01 best-effort audit handle — EVERY exec_command outcome
+        # is audited bypass-proof at the enforcement point (T-10-01-07).
+        #
+        # GATED on the exec grant (Pitfall 3 / T-10-03-05): a run whose plan grants
+        # NO exec never provisions a workspace, so ``KernelServices.workspace`` stays
+        # None and every existing non-exec run is byte/event-identical (the 5
+        # characterization snapshots prove the dormancy). A non-exec run silently
+        # gaining an exec-enabled workspace would be a parity break / latent
+        # escalation — so the provisioning is strictly conditional.
+        _plan_grants_exec = any(
+            bool(getattr(getattr(s, "tools", None), "exec", False))
+            for s in (compiled.steps or [])
+        )
+        if _plan_grants_exec:
+            try:
+                from agents.capabilities.registry import CapabilityRegistry as _RtReg
+
+                _runtime_impl = _RtReg().resolve("runtime_env", "local")
+                ectx.runner.workspace = _runtime_impl.create_workspace(
+                    owner_id=owner_id,
+                    workspace_id=ectx.workspace_id,
+                    exec=True,
+                    recorder=ectx.runner.record_exec_run,
+                )
+            except Exception as _ws_exc:  # noqa: BLE001 — degrade only the offline harness
+                # Mirror the _scope_exc discipline: a missing on-disk runs root in the
+                # offline characterization harness (OSError) degrades; a real
+                # provisioning bug (KeyError unknown cap, registry RuntimeError) is
+                # NOT silently no-op'd for an exec run — re-raise so it surfaces.
+                if not isinstance(_ws_exc, OSError):
+                    raise
+                logger.warning(
+                    "execute(): exec workspace provisioning failed (%s) — proceeding "
+                    "without a bound workspace (exec validators will degrade)",
+                    _ws_exc,
+                )
+
         # ── Workflow-level context-provider seeding (INV-1) ─────────────────────
         # Invoke each declared workflow ``context_provider`` once at run entry. The
         # ``previous_run`` provider performs the parent-run spec/design/tasks SEED
