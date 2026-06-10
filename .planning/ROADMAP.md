@@ -372,7 +372,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 11-03-PLAN.md — Merge: `MergeStrategy` port + 4 registered impls (copy_disjoint/git_3way/json/html_fragment) + merge dispatch + `merge_conflict` artifact/event + 4 `on_conflict` policies (human_gate/merge_agent≤2/partial/abort) + per-worker fragment artifacts (FANOUT-06/07/08) [wave 3]
+- [x] 11-03-PLAN.md — Merge: `MergeStrategy` port + 4 registered impls (copy_disjoint/git_3way/json/html_fragment) + merge dispatch + `merge_conflict` artifact/event + 4 `on_conflict` policies (human_gate/merge_agent≤2/partial/abort) + per-worker fragment artifacts (FANOUT-06/07/08) [wave 3]
 
 **Wave 4** *(blocked on Wave 1; landed after merge so the snapshot captures real worker activity)*
 
@@ -418,7 +418,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 8. Capabilities Hardened [3] | 8/8 | Complete    | 2026-06-09 |
 | 9. Local Runtime + Repo (no exec) [4A] | 6/6 | Complete    | 2026-06-10 |
 | 10. Safe Local Exec [4B] | 5/5 | Complete    | 2026-06-10 |
-| 11. Fan-Out + Merge [5] | 2/5 | In Progress|  |
+| 11. Fan-Out + Merge [5] | 3/5 | In Progress|  |
 | 12. Wave Scheduler + Resume [6] | 0/3 | Not started | - |
 
 ---
