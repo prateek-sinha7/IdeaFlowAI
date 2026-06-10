@@ -147,10 +147,10 @@
 - [x] **HOOK-02**: Canonical hooks — `secret_scan` (before_write/pre_commit, blocking), `otel_tracing`/logging (`*`, non-blocking → observability), pre/post_commit, post_task (§30/§23)
 - [x] **HOOK-03**: Hooks are permissioned (a command-running hook needs `exec`, a git hook needs `git`, a scanner needs `read_files`); engineer-registered, users attach allow-listed only (INV-9/§30)
 - [x] **HOOK-04**: Every hook firing → a `hook_runs` row for replay/debug; legacy prompt-only hook survives as a `kind: behavioral` non-executable sub-type (§18/§30)
-- [ ] **MCP-01**: `McpClientAdapter` (e.g. `langchain-mcp-adapters` `MultiServerMCPClient`) connects to external MCP servers (stdio/SSE/HTTP), lists tools/resources/prompts, binds allowed ones into the agent tool set (N13 / §30)
-- [ ] **MCP-02**: Allow-listed famous-server catalog (GitHub, GitLab, Jira/Atlassian, Confluence, Slack, Notion, Linear, Sentry, Figma, Filesystem, Postgres, Google Drive, web-search, Playwright, …), each with transport + exposed tools + scoped per-owner creds + `user_allowed` (§30)
-- [ ] **MCP-03**: `McpCapabilityRegistry` — compiler validates `tools.mcp` only names tools from servers the step + owner may reach; unknown `server.tool` → compile error (§7/§30)
-- [ ] **MCP-04**: Powerful servers (Filesystem/Postgres/write/network) sit behind the `security` gate + scoped creds + `secrets` permission (R13/§30)
+- [x] **MCP-01**: `McpClientAdapter` (e.g. `langchain-mcp-adapters` `MultiServerMCPClient`) connects to external MCP servers (stdio/SSE/HTTP), lists tools/resources/prompts, binds allowed ones into the agent tool set (N13 / §30)
+- [x] **MCP-02**: Allow-listed famous-server catalog (GitHub, GitLab, Jira/Atlassian, Confluence, Slack, Notion, Linear, Sentry, Figma, Filesystem, Postgres, Google Drive, web-search, Playwright, …), each with transport + exposed tools + scoped per-owner creds + `user_allowed` (§30)
+- [x] **MCP-03**: `McpCapabilityRegistry` — compiler validates `tools.mcp` only names tools from servers the step + owner may reach; unknown `server.tool` → compile error (§7/§30)
+- [x] **MCP-04**: Powerful servers (Filesystem/Postgres/write/network) sit behind the `security` gate + scoped creds + `secrets` permission (R13/§30)
 - [ ] **INTEG-01**: `integration_provider` capabilities (GitHub/GitLab/Jira/Slack/Confluence/Figma/OpenDesign) make repo/GitHub reachable from the unified `create_runner` path, not only the handoff pipeline (§30)
 - [ ] **INTEG-02**: `integrations` tool-permission scopes (e.g. `gitlab_read`, `jira_read`) default none; scoped per-owner creds (§8/§30/R13)
 - [x] **SKILL-01**: `skill_provider` capabilities (ui · disk · template · repo) with a provider interface + versioning replace the flattened skill content list (§30)
@@ -240,8 +240,8 @@ Each v1 requirement maps to exactly one phase. Phases are GSD integers 1–12, m
 | OBS-02 | Phase 8 [3] | Done (08-07) |
 | API-02, API-03, API-06 | Phase 8 [3] | Done (08-08; API-06 human-verified) |
 | RUNTIME-01, RUNTIME-02, RUNTIME-03 | Phase 9 [4A] | Done (09-01/09-02) |
-| REPO-01, REPO-02, REPO-03, REPO-04, REPO-05 | Phase 9 [4A] | Pending |
-| MCP-01, MCP-02, MCP-03, MCP-04 | Phase 9 [4A] | Pending |
+| REPO-01, REPO-02, REPO-03, REPO-04, REPO-05 | Phase 9 [4A] | Done (09-03/09-04) |
+| MCP-01, MCP-02, MCP-03, MCP-04 | Phase 9 [4A] | Done (09-05) |
 | INTEG-01, INTEG-02 | Phase 9 [4A] | Pending |
 | EXEC-01, EXEC-02 | Phase 10 [4B] | Pending |
 | FANOUT-01, FANOUT-02, FANOUT-03, FANOUT-04, FANOUT-05, FANOUT-06, FANOUT-07, FANOUT-08, FANOUT-09, FANOUT-10, FANOUT-11 | Phase 11 [5] | Pending |

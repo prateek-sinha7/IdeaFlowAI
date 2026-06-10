@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-10T08:51:08.836Z"
-last_activity: 2026-06-10 -- Phase 09 plan 02 complete (migration 0017 repositories + RunSandbox refold)
+last_updated: "2026-06-10T11:10:00.000Z"
+last_activity: 2026-06-10 -- Phase 09 plan 05 complete (MCP client + catalog + scoped creds + compile-validation + gating)
 progress:
   total_phases: 12
   completed_phases: 8
   total_plans: 51
-  completed_plans: 49
-  percent: 67
+  completed_plans: 52
+  percent: 70
 ---
 
 # Project State
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-06-06)
 ## Current Position
 
 Phase: 09 (local-workspace-runtime-repo-workflows-no-exec-4a) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Ready to execute
-Last activity: 2026-06-10 -- Phase 09 plan 02 complete (migration 0017 repositories + RunSandbox refold)
+Last activity: 2026-06-10 -- Phase 09 plan 05 complete (MCP client + catalog + scoped creds + compile-validation + gating)
 
 Progress: [██████░░░░] 60% (7/12 phases complete; Phase 08 = 8/8 plans complete, awaiting verification)
 
@@ -101,6 +101,7 @@ Progress: [██████░░░░] 60% (7/12 phases complete; Phase 08 =
 | Phase 09 P02 | ~12min | 2 tasks | 8 files |
 | Phase 09 P03 | ~18min | 3 tasks | 14 files |
 | Phase 09 P04 | ~20min | 2 tasks | 8 files |
+| Phase 09 P05 | ~40min | 3 tasks | 19 files |
 
 ## Accumulated Context
 

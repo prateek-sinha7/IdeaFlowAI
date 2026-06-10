@@ -310,7 +310,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 09-05-PLAN.md — `McpClientAdapter` over `MultiServerMCPClient` (async-prewarm) + allow-listed `mcp_server` catalog + `McpCapabilityRegistry` compile-validation + the stdio stub server (MCP-01/02/03/04) [wave 5]
+- [x] 09-05-PLAN.md — `McpClientAdapter` over `MultiServerMCPClient` (async-prewarm) + allow-listed `mcp_server` catalog + compiler `tools.mcp` compile-validation + security-gate+secrets gating + the stdio stub server (MCP-01/02/03/04) [wave 5]
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
