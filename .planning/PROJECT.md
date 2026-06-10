@@ -53,7 +53,7 @@ It is for the engineers building and operating Flowin's agent workflows — and,
 - [ ] Model policy + per-agent model selection (`model_overrides`, `ModelCatalog`, fallback chain) (§20)
 - [x] `Workspace` / `RuntimeEnvironment` ports + `LocalSandboxRuntime` (local only) — **Phase 9 (4A)**: 4 stdlib-only Protocols in `agents/runtime/base.py` + `@register("runtime_env","local")` impl; 4th import-linter contract locks the ECS-swap seam; `RunSandbox` refolded onto `Workspace(has_git=False, exec=off)` with no engine fork; `repositories` + `kind=repo` workspaces persisted (migration 0017) (RUNTIME-01/02/03)
 - [x] Repo workflows (no exec): inventory / index / context-pack + `repo_diff` (Phase 4A) — **Phase 9**: REPO-01..05 complete; sample brownfield workflow runs clone→branch→inventory→edit→diff end-to-end offline with exec OFF and ZERO engine edits; tree-sitter behind the `repo_index` capability (official per-language grammar wheels after the language-pack failed the offline proof)
-- [ ] Safe local exec behind the `security` gate + compile/test/lint validators (Phase 4B, gated on N3)
+- [x] Safe local exec behind the `security` gate + compile/test/lint validators (Phase 4B) — **Phase 10**: N3 RESOLVED (10-SPEC.md is the decision record); hardened argv/no-shell `exec_command`, trust-conditional compiler ceiling, security+approval gates, `code_compile`/`code_test`/`code_lint` validators reaching exec only via the workspace handle, `exec_runs` audit (alembic 0018). EXEC-01/EXEC-02 + SC-001 proven offline with zero engine edits
 - [ ] Engine-owned fan-out + merge-conflict flow + budgets + depth/concurrency caps (INV-7, Phase 5)
 - [ ] Wave scheduler (topo by `depends_on` + `conflict_keys`) + durable mid-wave resume (Phase 6)
 - [ ] `AgentRuntimeAdapter` + `PromptAssemblyPolicy` (declared block order) (§30)
@@ -72,7 +72,7 @@ It is for the engineers building and operating Flowin's agent workflows — and,
 - Container networking & cloud secrets injection, production teardown/lease mgmt — infra follow-up
 - CP-SAT scheduling — topo wave-builder only; seam left (Q32)
 - Single-file fragment-merge parallelism — prototype stays sequential (Q33)
-- Untrusted **end-user code execution** — trust seam exists; engineer-only + `security`-gated until N3
+- Untrusted **end-user code execution** — trust seam exists; engineer-only + `security`+`approval`-gated (N3 resolved Phase 10; end-user exec remains out of scope behind the gates)
 - PR/commit **push** — diff-only until git-hosting integration (N4)
 - DB-backed user-authored workflows — file-backed manifests now; DB later (Q5)
 - Hand-rolled / local `deepagents` runtime — banned (INV-13); always import the real library
@@ -96,7 +96,7 @@ It is for the engineers building and operating Flowin's agent workflows — and,
 - **Architecture**: Ports & Adapters (hexagonal) — kernel depends only on capability ports; concrete impls self-register into the `CapabilityRegistry`. Adding a capability = add a module + register; no kernel edit. Enforced by import-linter (§31).
 - **Compiler**: thin, no DSL (INV-5) — manifests are data; control flow lives inside strategies.
 - **Persistence**: additive migrations only (Q3); every new table carries `owner_id` + `workspace_id`.
-- **Security**: `exec`/`network`/`secrets`/`spawn_subagents` default OFF; code-exec stays behind the `security` gate until N3.
+- **Security**: `exec`/`network`/`secrets`/`spawn_subagents` default OFF; code-exec stays behind the `security`+`approval` gates (N3 resolved Phase 10 — 10-SPEC.md; `network`/`secrets` remain gated-off).
 - **No dual implementations (INV-3/INV-12)**: a phase that adds an abstraction without deleting the code it supersedes is **not done**. Only sanctioned temporary duplication: the `accumulated_outputs` mirror (removed Phase 1B).
 - **Backward-compat (Q3, INV-3)**: existing prototype/`od_*`/PPT/code-gen behavior stays deterministic-byte-identical + semantic-event-parity, proven by characterization tests (Phase 0A).
 
@@ -120,7 +120,8 @@ It is for the engineers building and operating Flowin's agent workflows — and,
 | Hooks are executable lifecycle/tool-call handlers (N12 ✅) | Real enforcement (secret-scan, tracing) | — Pending |
 | Adopt MCP client + all famous servers via allow-listed catalog (N13 ✅) | Consume external MCP, scoped per-owner creds | — Pending |
 | User per-agent model selection at top of resolution order (A12) | Composer model dropdown per agent | — Pending |
-| **Open (confirm before phase):** N2 isolation MVP · N3 exec threat-model ⚠️ · N4 git hosting (GitHub vs GitLab) · N5 branch/PR policy · N6 repo scale · N7 repo deliverable shape · N8 long-job substrate · N9 artifact retention · N10 RepoIndex approach · N11 model default/premium policy | Decision records pending | — Pending |
+| **Open (confirm before phase):** N4 git hosting (GitHub vs GitLab) · N8 long-job substrate · N9 artifact retention · N11 model default/premium policy | Decision records pending | — Pending |
+| **Resolved:** N2 isolation MVP (Phase 9 LocalSandboxRuntime) · **N3 exec threat-model (Phase 10 — 10-SPEC.md is the decision record)** · N5/N7 repo deliverable shape (Phase 9 diff-only `repo_diff`) · N6/N10 RepoIndex approach (Phase 9 grep-default + opt-in tree-sitter) | — | — Resolved |
 
 ## Evolution
 

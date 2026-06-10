@@ -185,13 +185,13 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- Phase 09 REVIEW.md: 3 Info findings left unfixed by design (IN-01 slack_post write-scope sign-off, IN-02 exec_command shell=True future surface, IN-03 repo_diff unparseable-header drop) — revisit in Phase 10 (exec hardening).
+- ~~Phase 09 REVIEW.md: 3 Info findings (IN-01 slack_post write-scope sign-off, IN-02 exec_command shell-exec future surface, IN-03 repo_diff unparseable-header drop)~~ **CLOSED in Phase 10 (10-05)**: IN-01 MCP-04 sign-off documented near the slack `user_allowed=True` gating (post-only scope, same gate/audit path; no behavior change); IN-02 closed by 10-01 argv/no-shell `exec_command` and ratcheted as a migration-ledger ☑ row (grep no-shell-exec token = 0 over backend/); IN-03 `repo_diff._split_per_file` now keys an unparseable header block under a synthetic `__unparsed_N__` (no silent file drop), proven by unit tests. All three Phase 9 review-trio findings resolved.
 
 ### Blockers/Concerns
 
 Open decision records to confirm before their phase (from plan §26):
 
-- **N3 (Phase 10/[4B]) ⚠️ highest risk — NEXT, must be confirmed before Phase 10 planning** — local `exec` security threat model; code-exec stays disabled (security gate) until set
+- ~~**N3 (Phase 10/[4B]) ⚠️ highest risk** — local `exec` security threat model; code-exec stays disabled (security gate) until set~~ **RESOLVED in Phase 10** — `10-SPEC.md` IS the N3 decision record (9 locked requirements: hardened argv/no-shell exec, policy+allow-list egress denial, Python toolchain allow-list, scrubbed-env creds, security+approval gates, trust-conditional compiler ceiling, cap defaults cpu=60s/mem=512MB/wall=120s/64KB-stream, deny-beats-allow). Shipped across 10-01..10-05 (foundation → compiler ceiling → gates+workspace wiring → validators+EXEC-02 → review-trio closure). Code-exec stays behind the security+approval gates; engineer-only constrained profile.
 - **N4 (Phase 9+)** — git hosting scope/order (GitLab vs GitHub; repo is GitLab `hexaware-uki/flowin`) — Phase 9 shipped diff-only + read-scoped MCP integrations consistent with N4-pending; live hosting order still open
 - **N8 (Phase 9+)** — long-job orchestration substrate
 - ~~N2 (Phase 9)~~ resolved by implementation: ephemeral per-run local isolation (LocalSandboxRuntime/LocalWorkspace)
