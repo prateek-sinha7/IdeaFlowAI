@@ -748,7 +748,6 @@ class ExecutionEngine:
         # ``mcp_server_configs``); the live transport/credential per server rides on
         # ``integration_host_configs`` (also host-injected). Recorded per-run below (CAPRUN-01).
         _integration_scopes = list(getattr(ectx, "integration_scopes", None) or [])
-        _active_integration_servers: list[str] = []
         if _integration_scopes:
             try:
                 from agents.capabilities.integration_providers.providers import (
@@ -759,7 +758,9 @@ class ExecutionEngine:
                     _integration_scopes,
                     getattr(ectx, "integration_host_configs", None),
                 )
-                _active_integration_servers = sorted(_integ_configs.keys())
+                # NOTE: the per-run active-server list persisted to
+                # run_capabilities is computed ONCE at the scoped-store entry
+                # (_rec_servers via SCOPE_TO_SERVER) — do not duplicate it here.
                 if _integ_configs:
                     _merged_configs = dict(getattr(ectx, "mcp_server_configs", None) or {})
                     _merged_configs.update(_integ_configs)
