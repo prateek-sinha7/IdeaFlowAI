@@ -98,12 +98,33 @@ pytestmark = pytest.mark.skipif(_skip_reason() is not None, reason=_skip_reason(
 
 
 # ---------------------------------------------------------------------------
+# Seam-existence gate (13-04 / F7) — evaluated at COLLECTION, offline.
+#
+# The compaction-OFF baseline monkeypatches the engine's generic context
+# injector. The Phase-7 decoupling renamed the legacy context-message seam to
+# the async `_compose_context_message` (gaining the positional `index` param)
+# and relocated the legacy skeleton helper into the registered ``html_skeleton``
+# compaction capability — which previously made this module error at live
+# setup with AttributeError. Asserting the seam at import time means a future
+# rename is caught by the OFFLINE collection pass, not by a paid live run.
+# ---------------------------------------------------------------------------
+
+from agents.execution_engine.engine import ExecutionEngine as _Engine  # noqa: E402
+
+assert hasattr(_Engine, "_compose_context_message"), (
+    "ExecutionEngine._compose_context_message is gone — the live token-delta "
+    "baseline override targets a renamed seam; re-point this module (13-04/F7)"
+)
+
+
+# ---------------------------------------------------------------------------
 # Live drive helpers.
 # ---------------------------------------------------------------------------
 
 # The full-HTML injection block the OLD (pre-0C) path emitted for build tasks 2+.
 # We reconstruct it here so the compaction-OFF baseline run injects exactly what the
-# engine did before the 03-01 edit (cap at 120k, matching engine.py:2545).
+# engine did before the 03-01 edit (cap at 120k, matching the legacy pre-0C branch —
+# since deleted with the rest of the inline compaction path in Phase 7).
 def _full_html_block(current_html: str) -> str:
     html_to_pass = current_html[:120000]
     truncated = len(current_html) > 120000
@@ -132,10 +153,14 @@ def _total_input_tokens(events: list[dict]) -> int:
 async def _drive_live(*, compaction_on: bool) -> list[dict]:
     """Run the real multi-task prototype build against a LIVE model.
 
-    With ``compaction_on=False`` we monkeypatch ``_build_context_message`` so the
-    ``is_build_task_2_plus`` skeleton branch is swapped back to the full-HTML block —
-    the least-invasive way to reproduce the pre-0C prompt for the baseline run
-    (D-04). With ``compaction_on=True`` the live engine edit runs unchanged.
+    With ``compaction_on=False`` we monkeypatch ``_compose_context_message`` (the
+    Phase-7 generic context injector — the successor of the legacy per-agent
+    context-message seam) so the build-task-2+ skeleton block is swapped back to
+    the full-HTML block — the least-invasive way to reproduce the pre-0C prompt
+    for the baseline run (D-04). The skeleton bytes come from the registered
+    ``html_skeleton`` compaction capability (where 07-03/07-05 relocated the
+    legacy engine skeleton helper). With ``compaction_on=True`` the live engine
+    runs unchanged.
     """
     import agents.execution_engine.engine as engine_mod
     from agents.execution_engine.engine import ExecutionEngine
@@ -164,17 +189,32 @@ async def _drive_live(*, compaction_on: bool) -> list[dict]:
         engine = ExecutionEngine()
 
         # ── compaction OFF: restore the pre-0C full-HTML injection ──────────────
-        _orig_build_ctx = engine._build_context_message
+        _orig_compose_ctx = engine._compose_context_message
         if not compaction_on:
-            # NOTE: the engine calls `self._build_context_message(...)` POSITIONALLY.
-            # This override is assigned as an instance attribute (an unbound plain
-            # function), so it must accept the same POSITIONAL shape. Since 05-07 the
-            # signature dropped the prior-agent output dict: build-loop scratch lives on
-            # ectx and the current HTML comes from the typed ArtifactGraph. (#WR-01)
-            def _full_html_build_ctx(spec, ordered_agents, user_message,
-                                     planning_context, ectx):
-                msg = _orig_build_ctx(
-                    spec=spec, ordered_agents=ordered_agents,
+            # NOTE: the engine awaits `self._compose_context_message(...)` — the
+            # Phase-7 GENERIC context injector (the rename of the legacy context-
+            # message seam, now ASYNC with an added positional `index` param). This
+            # override is assigned as an instance attribute (an unbound plain async
+            # function), so it must accept the same POSITIONAL shape:
+            # (spec, index, ordered_agents, user_message, planning_context, ectx).
+            # The skeleton helper is the registered `html_skeleton` compaction
+            # capability (07-03/07-05 relocated the legacy engine skeleton helper
+            # there); the task_loop strategy compacts the typed prototype-build
+            # content with it and the engine wraps the result in the STANDALONE
+            # `=== CURRENT PROTOTYPE (skeleton — …) ===` block — so recomputing
+            # compact(current_html) here reproduces the injected block byte-exact
+            # for the replace. (13-04 / F7)
+            from agents.capabilities.registry import CapabilityRegistry, discover
+
+            discover()
+            _skeleton_compactor = CapabilityRegistry().resolve(
+                "compaction", "html_skeleton"
+            )
+
+            async def _full_html_compose_ctx(spec, index, ordered_agents,
+                                             user_message, planning_context, ectx):
+                msg = await _orig_compose_ctx(
+                    spec=spec, index=index, ordered_agents=ordered_agents,
                     user_message=user_message,
                     planning_context=planning_context, ectx=ectx,
                 )
@@ -185,7 +225,7 @@ async def _drive_live(*, compaction_on: bool) -> list[dict]:
                         ectx, "prototype-build"
                     ) or ""
                     if is_2_plus and current_html and not current_html.startswith("[Error:"):
-                        skeleton = engine._extract_html_skeleton(current_html)
+                        skeleton = _skeleton_compactor.compact(current_html)
                         skeleton_block = (
                             f"\n=== CURRENT PROTOTYPE (skeleton — call "
                             f"read_file('prototype.html') for full content before "
@@ -194,7 +234,7 @@ async def _drive_live(*, compaction_on: bool) -> list[dict]:
                         msg = msg.replace(skeleton_block, _full_html_block(current_html))
                 return msg
 
-            engine._build_context_message = _full_html_build_ctx  # type: ignore[assignment]
+            engine._compose_context_message = _full_html_compose_ctx  # type: ignore[assignment]
 
         async def _fake_run_planner(user_message, pipeline_run_id, model_id,
                                     cancel_event, ptype="custom", **kwargs):

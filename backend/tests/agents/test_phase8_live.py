@@ -99,9 +99,13 @@ ModelArg = object
 
 
 # A soft cost ceiling for the WHOLE live sweep (Haiku 4.5: $0.25/M in, $1.25/M
-# out). A full sweep of all pipelines is well under this; it is a guardrail
-# against a runaway live run, asserted in the session-cost roll-up.
-LIVE_BUDGET_USD = 5.0
+# out) — a guardrail against a runaway live run, asserted in the session-cost
+# roll-up. Recalibrated 2026-06-11 (13-04 / UAT test 8) from the measured CLEAN
+# full sweep: $5.94 for 18.7M tokens (17.5M input) at Haiku 4.5 pricing, after
+# MAX_OUTPUT_TOKENS was lifted to 32768. The original Phase-8 calibration (5.0)
+# pre-dated that lift and sat below the measured clean-sweep spend; 8.0 keeps
+# ~35% headroom over the measurement while still catching a runaway run.
+LIVE_BUDGET_USD = 8.0
 
 
 # ===========================================================================
