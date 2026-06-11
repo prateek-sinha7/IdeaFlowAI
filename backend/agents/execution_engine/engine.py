@@ -26,7 +26,7 @@ import json
 import logging
 import time
 import uuid
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Callable
 
 from pathlib import Path
 
@@ -429,6 +429,27 @@ class ExecutionEngine:
         self._resolver = WorkflowResolver()
         self._store = get_artifact_store()
         self._state_machine = get_state_machine()
+        # ── 12-09 Gap 2a: OPTIONAL injected engine→WS live-task bridge ──────────
+        # The kernel MUST NOT import app.api (import-linter forbidden direction),
+        # so live delivery for an AUTO-RESUMED run is wired as injected callables
+        # set from the app layer (app/main.py startup, the single wiring site).
+        # All three default None — the bridge is DORMANT for every other
+        # construction path (offline tests, characterization harness), keeping
+        # resume_run byte/event-identical when unset. Workflow-agnostic: keyed by
+        # run_id only (SC-001 — the kernel knows no workflow by name).
+        #   _resume_register_queue(run_id) -> asyncio.Queue
+        #       returns/creates the WS live queue for the run and records it in
+        #       the WS pipeline-queue registry, so a reconnect mid-resume finds a
+        #       live queue and takes the live-attach branch.
+        #   _resume_register_task(run_id, task) -> None
+        #       records the resume driver task in the WS pipeline-task registry
+        #       (called at the create_task site in restore_non_terminal_runs).
+        #   _resume_cleanup(run_id) -> None
+        #       drops the queue+task entries when the resumed drive finishes, so
+        #       a completed resume never leaves a stale live registration.
+        self._resume_register_queue: Callable[[str], asyncio.Queue] | None = None
+        self._resume_register_task: Callable[[str, asyncio.Task], None] | None = None
+        self._resume_cleanup: Callable[[str], None] | None = None
 
     async def _persist_budget_snapshot_if_active(
         self, ectx: ExecutionContext, *, force: bool = False
@@ -3003,7 +3024,24 @@ class ExecutionEngine:
                         await self._stamp_resume_marker(wr)
                         import asyncio as _asyncio
 
-                        _asyncio.create_task(self.resume_run(pipeline_run_id))
+                        _resume_task = _asyncio.create_task(
+                            self.resume_run(pipeline_run_id)
+                        )
+                        # ── 12-09 Gap 2a: register the resume DRIVER task in the
+                        # WS pipeline registry via the injected bridge so a
+                        # reconnect during the resumed run sees a live task and
+                        # takes the live-attach branch. Best-effort + dormant
+                        # when unset (offline/no-WS — byte-identical).
+                        if self._resume_register_task is not None:
+                            try:
+                                self._resume_register_task(
+                                    pipeline_run_id, _resume_task
+                                )
+                            except Exception as _reg_exc:  # noqa: BLE001
+                                logger.warning(
+                                    "resume task registration failed for %s: %s",
+                                    pipeline_run_id, _reg_exc,
+                                )
                         resumed += 1
                     else:
                         # ── branch (c): WR-05 abandoned→failed VERBATIM ──────────
@@ -4060,6 +4098,22 @@ class ExecutionEngine:
             )
             start = 1
 
+        # ── 12-09 Gap 2a: register the run's LIVE queue via the injected bridge
+        # BEFORE the drive loop, so a reconnect mid-resume finds a live queue and
+        # the live-attach drainer receives the resumed tail in real time
+        # (mirroring the run_pipeline queue contract). Dormant when the hook is
+        # unset (offline/no-WS → byte/event-identical to the queue-less drive).
+        live_queue: asyncio.Queue | None = None
+        if self._resume_register_queue is not None:
+            try:
+                live_queue = self._resume_register_queue(run_id)
+            except Exception as _q_exc:  # noqa: BLE001 — bridge is best-effort
+                logger.warning(
+                    "resume_run(%s): live-queue registration failed: %s",
+                    run_id, _q_exc,
+                )
+                live_queue = None
+
         # ── Re-drive through the SAME seq/event sink as a fresh run (so resumed events
         # persist + replay via the after_seq branch). _execute_impl rebuilds the
         # ExecutionContext via its one construction path and skips i < offset. ─────────
@@ -4087,11 +4141,37 @@ class ExecutionEngine:
                 data["seq"] = seq
                 data["event_id"] = event_id
                 await sink.persist(seq, event_id, event.get("type", ""), data)
-                # The resume driver consumes the stream to drive it forward; live
-                # delivery is handled by a reconnecting client replaying the durable
-                # tail (the 12-03 after_seq branch). No outward queue here.
+                # 12-09 Gap 2a: ALSO push the resumed event onto the WS live
+                # queue (when the bridge is wired) so a connected/reconnecting
+                # client receives the resumed tail incl. pipeline_complete in
+                # real time — not only via a manual durable-tail replay.
+                if live_queue is not None:
+                    try:
+                        live_queue.put_nowait(
+                            {"type": event.get("type", ""), "data": data}
+                        )
+                    except Exception:  # noqa: BLE001 — live push is best-effort
+                        pass
         except Exception as exc:  # noqa: BLE001 — a resume failure must not crash startup
             logger.warning("resume_run(%s) failed mid-drive: %s", run_id, exc)
+        finally:
+            # End-of-stream: the None sentinel terminates the live drainer
+            # (matching the run_pipeline contract), then the injected cleanup
+            # drops the queue+task registry entries so a finished resume never
+            # leaves a stale live registration (no unbounded queue).
+            if live_queue is not None:
+                try:
+                    live_queue.put_nowait(None)
+                except Exception:  # noqa: BLE001
+                    pass
+                if self._resume_cleanup is not None:
+                    try:
+                        self._resume_cleanup(run_id)
+                    except Exception as _cl_exc:  # noqa: BLE001
+                        logger.warning(
+                            "resume_run(%s): bridge cleanup failed: %s",
+                            run_id, _cl_exc,
+                        )
 
     async def _compute_resume_offset(
         self, run_id, user_id, session_id, pipeline_type, agents

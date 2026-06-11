@@ -117,6 +117,15 @@ async def lifespan(app: FastAPI):
     try:
         from agents.execution_engine.engine import get_execution_engine
         engine_instance = get_execution_engine()
+        # ── 12-09 Gap 2a: wire the engine→WS live-task bridge BEFORE the
+        # restore scan, so auto-resumed runs register their queue+task in the
+        # WS pipeline registry and a reconnect mid-resume live-attaches. This
+        # is the SINGLE wiring site — the engine never imports app.api (the
+        # import-linter forbidden direction); the app layer injects callbacks.
+        from app.api import websocket as _ws_bridge
+        engine_instance._resume_register_queue = _ws_bridge._register_resume_queue
+        engine_instance._resume_register_task = _ws_bridge._register_resume_task
+        engine_instance._resume_cleanup = _ws_bridge._cleanup_pipeline
         await engine_instance.restore_non_terminal_runs()
     except Exception as _startup_exc:
         logger.warning("Startup restoration failed (non-fatal): %s", _startup_exc)

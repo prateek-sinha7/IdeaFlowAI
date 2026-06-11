@@ -50,6 +50,40 @@ def _cleanup_pipeline(pipeline_run_id: str) -> None:
     _PIPELINE_TASKS.pop(pipeline_run_id, None)
 
 
+# ---------------------------------------------------------------------------
+# Engine→WS live-task bridge for AUTO-RESUMED runs (12-09 Gap 2a)
+# ---------------------------------------------------------------------------
+# An auto-resumed run (engine.resume_run, driven by restore_non_terminal_runs
+# on startup) was never registered in _PIPELINE_TASKS/_PIPELINE_QUEUES, so a
+# reconnect during the resumed run took the live:false branch and never
+# received the resumed tail (incl. pipeline_complete). These two functions are
+# the app-layer half of the bridge: they are INJECTED onto the engine instance
+# in app/main.py at startup (the single wiring site) — the engine never imports
+# app.api (import-linter forbidden direction; the bridge is a callback). The
+# bridge is purely ADDITIVE: the legacy run_pipeline registration path below is
+# unchanged. Workflow-agnostic — keyed by run_id only (SC-001). Cleanup reuses
+# _cleanup_pipeline (injected as the engine's _resume_cleanup hook).
+
+
+def _register_resume_queue(pipeline_run_id: str) -> asyncio.Queue:
+    """Return/create the live event queue for an auto-resumed run.
+
+    Recorded in _PIPELINE_QUEUES so a reconnect_pipeline mid-resume finds a
+    live queue and attaches its drainer (the live:true branch).
+    """
+    return _get_or_create_queue(pipeline_run_id)
+
+
+def _register_resume_task(pipeline_run_id: str, task: asyncio.Task) -> None:
+    """Record an auto-resumed run's driver task in _PIPELINE_TASKS.
+
+    A reconnect_pipeline checks ``task.done()`` — a live resume driver makes
+    _has_live_task true; a finished one naturally falls back to the durable
+    replay + status branch.
+    """
+    _PIPELINE_TASKS[pipeline_run_id] = task
+
+
 def _validate_model_overrides(
     model_overrides: dict, run_agent_ids: set[str]
 ) -> str | None:
