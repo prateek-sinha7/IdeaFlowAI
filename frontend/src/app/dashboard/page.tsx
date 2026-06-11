@@ -6,6 +6,7 @@ import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkf
 import { ENV } from "@/lib/env";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useWorkflow } from "@/hooks/useWorkflow";
+import { shouldApplyEvent, resetReplayState } from "@/lib/wsReplayState";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, User, WaveGroup } from "@/types/index";
 import type { ChatMode } from "@/components/chat/ChatInput";
@@ -195,27 +196,41 @@ export default function DashboardPage() {
     // resume offset; the seen-event_id set dedupes replayed events so a durable
     // reconnect replay applies each event at most once (idempotent).
     const evData = (msg.data as Record<string, unknown> | undefined) ?? undefined;
+
+    // CR-05 — dedup by event_id at the TOP of the handler, BEFORE routing to any
+    // handler (wave AND non-wave: agent_chunk, tool_call, task_progress). The FE
+    // now always sends after_seq on reconnect, so the backend replay branch is
+    // always entered and persisted-but-not-yet-drained events can be delivered
+    // twice (replay loop + re-attached drainer). The single dedup site here makes
+    // every event type idempotent — a replayed agent_chunk applies at most once
+    // (no duplicated streamed text). Legacy/unstamped events (no event_id) fall
+    // through undeduped, as before.
+    const topEventId =
+      evData && typeof evData.event_id === "string"
+        ? (evData.event_id as string)
+        : undefined;
+    if (!shouldApplyEvent(seenEventIdsRef.current, topEventId)) {
+      return; // duplicate — drop before any routing or cursor advance
+    }
+
+    // Advance the max-seen seq cursor ONLY after the dedup check passes, so a
+    // duplicate event does not re-advance the after_seq offset.
     const evSeq = evData && typeof evData.seq === "number" ? (evData.seq as number) : undefined;
     if (typeof evSeq === "number" && evSeq > lastSeqRef.current) {
       lastSeqRef.current = evSeq;
     }
 
     // Phase 12 (§22) — wave/subagent lifecycle events route into the wave-tree
-    // state (statuses only, D-14). Dedup by event_id FIRST (RESUME-03), then
-    // fold the event into the wave groups, then return (these events do not flow
-    // to the pipeline handler or the legacy switch below).
+    // state (statuses only, D-14). Dedup already happened at the TOP of the
+    // handler (CR-05), so here we just fold the event into the wave groups, then
+    // return (these events do not flow to the pipeline handler or the legacy
+    // switch below).
     const WAVE_EVENT_TYPES = [
       "wave_started", "wave_completed", "wave_failed",
       "subagent_spawned", "subagent_result",
     ];
     if (WAVE_EVENT_TYPES.includes(msg.type)) {
       const data = evData ?? {};
-      const eventId = typeof data.event_id === "string" ? (data.event_id as string) : undefined;
-      // Idempotent replay: ignore an already-applied event_id.
-      if (eventId) {
-        if (seenEventIdsRef.current.has(eventId)) return;
-        seenEventIdsRef.current.add(eventId);
-      }
 
       const waveIndex =
         typeof data.wave_index === "number" ? (data.wave_index as number) : undefined;
@@ -291,6 +306,24 @@ export default function DashboardPage() {
       // they go through the switch statement below to update reviewGateData state.
     ];
     if (pipelineTypes.includes(msg.type)) {
+      // WR-03 — a new run starts: reset the per-run FE replay/dedup/wave state so
+      // a stale after_seq cursor, a poisoned seen-set, or the previous run's wave
+      // panel never bleed into the new run's reconnect. Run 2's events then
+      // advance lastSeqRef from 0, so a mid-run reconnect during run 2 sends the
+      // correct after_seq (run 1 left it at e.g. 500). NOTE: the just-deduped
+      // pipeline_start event_id is re-recorded after the reset so a replay of
+      // pipeline_start itself stays idempotent within the new run.
+      if (msg.type === "pipeline_start") {
+        resetReplayState({
+          seen: seenEventIdsRef.current,
+          setLastSeq: (n) => {
+            lastSeqRef.current = n;
+          },
+          setWaveGroups,
+        });
+        if (topEventId) seenEventIdsRef.current.add(topEventId);
+      }
+
       handlePipelineMsgRef.current?.({
         type: msg.type,
         ...(msg.data as Record<string, unknown> || {}),
