@@ -68,11 +68,12 @@ class _FakeRunner:
     async def update_subagent_run(self, row_id, *, status, tokens=None, cost=None):
         self.updated_rows.append(dict(id=row_id, status=status, tokens=tokens))
 
-    async def run_worker(self, step, ctx, *, worker_index, thread_id, agent_id, input):
+    async def run_worker(self, step, ctx, *, worker_index, thread_id, agent_id, input, total_workers=None, **kw):
         # Instrument concurrency: track the live-worker high-water mark.
         self._live += 1
         self._max_live = max(self._max_live, self._live)
-        self.spawned.append(dict(index=worker_index, thread_id=thread_id, agent_id=agent_id, input=input))
+        self.spawned.append(dict(index=worker_index, thread_id=thread_id, agent_id=agent_id,
+                                 input=input, total_workers=total_workers))
         try:
             if self._worker_delay:
                 await asyncio.sleep(self._worker_delay)
@@ -222,6 +223,54 @@ async def test_summary_carries_per_worker_status_only():
         assert "worker" in r["data"]
         # No typed artifact refs in this plan (those arrive with 11-03).
         assert "artifact_ref" not in r["data"]
+
+
+# ---------------------------------------------------------------------------
+# WR-05 — every worker sees the WAVE WIDTH as total_tasks ("task i of N"), and
+# the fabricated worker step view is a plain single_shot run.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_fanout_threads_wave_width_into_run_worker():
+    runner = _FakeRunner(known_agents={"worker-a"})
+    ctx = _make_ctx(runner)
+    step = _make_step("worker-a")
+    requests = [{"agent": "self", "input": f"t{i}"} for i in range(3)]
+
+    await _collect(run_fanout(requests, ctx, step=step))
+
+    assert [w["total_workers"] for w in runner.spawned] == [3, 3, 3]
+
+
+@pytest.mark.asyncio
+async def test_run_worker_passes_wave_width_and_single_shot_view():
+    """KernelServices.run_worker: total_tasks == wave width; view strategy single_shot."""
+    ks = _real_kernel_services()
+    captured: dict = {}
+
+    async def _capture_run_agent(step, ctx, *, task_number=None, total_tasks=None,
+                                 task_block=None, skeleton=None):
+        captured.update(
+            task_number=task_number, total_tasks=total_tasks,
+            strategy=getattr(step, "strategy", None),
+        )
+        yield {"type": "agent_chunk", "data": {}}
+
+    ks.run_agent = _capture_run_agent  # type: ignore[assignment]
+    parent_step = SimpleNamespace(agent_id="worker-a", strategy="fanout_batch", tools=None)
+
+    async for _ev in ks.run_worker(
+        parent_step, None, worker_index=2, thread_id="r:s:2",
+        agent_id="worker-b", input="x", total_workers=5,
+    ):
+        pass
+
+    # Worker 2 of a 5-wide wave sees "task 3 of 5" — not "task 3 of 3".
+    assert captured["task_number"] == 3
+    assert captured["total_tasks"] == 5
+    # The fabricated worker view is a plain single agent run, not "fanout_batch".
+    assert captured["strategy"] == "single_shot"
 
 
 # ---------------------------------------------------------------------------

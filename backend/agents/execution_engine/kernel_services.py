@@ -820,6 +820,7 @@ class KernelServices:
         agent_id: str,
         input: str,
         workspace: Any = None,
+        total_workers: int | None = None,
     ) -> AsyncIterator[dict]:
         """Run ONE fan-out worker against its allocated isolated workspace (FANOUT-04/05).
 
@@ -846,7 +847,10 @@ class KernelServices:
         else:
             worker_step = SimpleNamespace(
                 agent_id=agent_id,
-                strategy=getattr(step, "strategy", "single_shot"),
+                # WR-05: a worker IS a plain single agent run — the parent's
+                # fanout_batch strategy name would be misleading metadata on the
+                # worker view (and a nested consumer keying on it would re-fan).
+                strategy="single_shot",
                 gates=[],
                 hooks=[],
                 task_source=None,
@@ -864,11 +868,14 @@ class KernelServices:
         # carrying ``input`` (INV-1: agnostic — keyed on the build scratch, never a
         # workflow name). A non-fanout single_shot step never routes through run_worker,
         # so its byte/event parity is untouched (INV-3).
+        # WR-05: total_tasks is the WAVE WIDTH (threaded from run_fanout, which
+        # knows len(selected)) — not worker_index+1, which showed every worker but
+        # the last a wrong "task i of N" in its CURRENT TASK header.
         async for event in self.run_agent(
             worker_step,
             ctx,
             task_number=worker_index + 1,
-            total_tasks=worker_index + 1,
+            total_tasks=total_workers or (worker_index + 1),
             task_block=input,
         ):
             yield event

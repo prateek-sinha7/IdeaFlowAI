@@ -404,7 +404,7 @@ class _IsolationFakeRunner:
     async def update_subagent_run(self, row_id, *, status, tokens=None, cost=None):
         self.updated_rows.append(dict(id=row_id, status=status))
 
-    async def run_worker(self, step, ctx, *, worker_index, thread_id, agent_id, input, workspace=None):
+    async def run_worker(self, step, ctx, *, worker_index, thread_id, agent_id, input, workspace=None, **kw):
         self.spawned.append(dict(index=worker_index, agent_id=agent_id, workspace=workspace))
         self.worker_workspaces.append(workspace)
         yield {"type": "agent_chunk", "data": {"worker": worker_index}}

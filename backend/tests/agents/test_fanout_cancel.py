@@ -103,7 +103,7 @@ class _CancelRunner:
         self.updated_rows.append(dict(id=row_id, status=status))
 
     # -- worker run + fragment persistence -----------------------------------
-    async def run_worker(self, step, ctx, *, worker_index, thread_id, agent_id, input, workspace=None):
+    async def run_worker(self, step, ctx, *, worker_index, thread_id, agent_id, input, workspace=None, **kw):
         self.entered.append(worker_index)
         if self._block:
             # Block until released — the test fires the cancel while we are in-flight.
@@ -283,12 +283,12 @@ async def test_cancel_between_sequential_workers_stops_next_spawn():
     # between-workers _check_cancel trips before worker 1 spawns.
     _orig_run_worker = runner.run_worker
 
-    async def _hooked(step, ctx, *, worker_index, thread_id, agent_id, input, workspace=None):
+    async def _hooked(step, ctx, *, worker_index, thread_id, agent_id, input, workspace=None, **kw):
         if worker_index == 0:
             cancel.set()
         async for ev in _orig_run_worker(
             step, ctx, worker_index=worker_index, thread_id=thread_id,
-            agent_id=agent_id, input=input, workspace=workspace,
+            agent_id=agent_id, input=input, workspace=workspace, **kw,
         ):
             yield ev
 
@@ -343,10 +343,10 @@ async def test_cancel_before_merge_preserves_fragments_and_skips_merge():
     # pre-merge _check_cancel trips. We hook the second worker's completion.
     _orig_run_worker = runner.run_worker
 
-    async def _hooked(step_, ctx_, *, worker_index, thread_id, agent_id, input, workspace=None):
+    async def _hooked(step_, ctx_, *, worker_index, thread_id, agent_id, input, workspace=None, **kw):
         async for ev in _orig_run_worker(
             step_, ctx_, worker_index=worker_index, thread_id=thread_id,
-            agent_id=agent_id, input=input, workspace=workspace,
+            agent_id=agent_id, input=input, workspace=workspace, **kw,
         ):
             yield ev
         if worker_index == 1:

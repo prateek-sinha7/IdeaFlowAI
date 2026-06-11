@@ -342,6 +342,8 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
                 thread_id=thread_id,
                 agent_id=agent_id,
                 input=worker["input"],
+                # WR-05: the wave width — the worker's "task i of N" header.
+                total_workers=len(selected),
                 **worker_kwargs,
             ):
                 # Child agent chunk events are NOT forwarded (D-03 — lifecycle-only);

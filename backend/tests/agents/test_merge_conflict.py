@@ -106,7 +106,7 @@ class _MergeRunner:
     async def reclaim_isolated_workspace(self, base_workspace, worker_ws):
         return None
 
-    async def run_worker(self, step, ctx, *, worker_index, thread_id, agent_id, input, workspace=None):
+    async def run_worker(self, step, ctx, *, worker_index, thread_id, agent_id, input, workspace=None, **kw):
         yield {"type": "agent_chunk", "data": {"worker": worker_index}}
 
     def resolve_merge_strategy(self, name):
