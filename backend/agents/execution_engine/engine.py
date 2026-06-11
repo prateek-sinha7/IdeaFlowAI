@@ -20,6 +20,7 @@ DB-backed artifacts, lineage, revision intelligence, restart resumability.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import itertools
 import json
 import logging
@@ -3404,6 +3405,115 @@ class ExecutionEngine:
             if ref.producer_agent == producer_agent:
                 latest = ref.content
         return latest
+
+    # ──────────────────────────────────────────────────────────────────────
+    # RESUME-02 (12-02): per-step retry/reuse — input-hash + reuse-lookup.
+    #
+    # These two helpers are the shared key for BOTH the retry re-entries (this
+    # plan) and the 12-03 durable-restart re-runs: a step's input content-hash.
+    # ``_compute_step_input_hash`` is CROSS-RESTART STABLE (sha256 over the
+    # SORTED upstream artifact content_hashes + the resolved input string — NO
+    # timestamp, NO uuid, NO unsorted collection, per RESEARCH D-11/Pitfall 1).
+    # ``_find_reused_completion`` reads the durable, OWNER-SCOPED run_events for a
+    # prior completion under the SAME (step_id, input_hash) and returns its
+    # output_ref_id only when the produced artifact still exists (else None;
+    # None offline → re-execute).
+    # ──────────────────────────────────────────────────────────────────────
+
+    def _compute_step_input_hash(self, step, ectx: ExecutionContext) -> str:
+        """Return a cross-restart-stable sha256 of the step's resolved input.
+
+        The hash is taken over a canonical JSON payload of two parts:
+          * ``upstream``: the SORTED list of the content_hashes of the upstream
+            artifacts this step consumes (content-addressed → identical upstream
+            content ⇒ identical hashes), read from the typed graph
+            (``ectx.artifacts``). Sorting makes the key insensitive to
+            production order (Pitfall 1 — cross-restart stability).
+          * ``input``: the step's resolved task/prompt input string (the run's
+            user brief; a task-loop step also carries its per-task block on
+            ``ectx.current_task_block`` when present).
+
+        NEVER includes a timestamp, a fresh uuid, or an unsorted collection: the
+        12-03 restart re-runs depend on hash EQUALITY for the same input.
+        """
+        # Which upstream agents does this step consume? Reuse the registry
+        # produces∩consumes contract via the runner's ordered_agents when present;
+        # fall back to every produced ref (a step that consumes nothing hashes the
+        # empty upstream set + its input — still deterministic).
+        spec = None
+        ordered_agents: list = []
+        runner = getattr(ectx, "runner", None)
+        if runner is not None:
+            ordered_agents = list(getattr(runner, "_ordered_agents", []) or [])
+            for s in ordered_agents:
+                if getattr(s, "id", None) == getattr(step, "agent_id", None):
+                    spec = s
+                    break
+
+        upstream_hashes: list[str] = []
+        if spec is not None and ordered_agents:
+            consumes = set(getattr(spec, "consumes", []))
+            for upstream in ordered_agents:
+                if upstream.id == spec.id:
+                    break
+                if upstream.id.startswith("_"):
+                    continue
+                if set(getattr(upstream, "produces", [])) & consumes:
+                    for ref in ectx.artifacts.tree(ectx.run_id):
+                        if ref.producer_agent == upstream.id:
+                            upstream_hashes.append(ref.content_hash)
+        else:
+            # No consume contract reachable → hash over ALL produced upstream
+            # content (still deterministic + cross-restart stable).
+            for ref in ectx.artifacts.tree(ectx.run_id):
+                upstream_hashes.append(ref.content_hash)
+
+        resolved_input = getattr(runner, "user_message", "") if runner is not None else ""
+        task_block = getattr(ectx, "current_task_block", None)
+        if task_block:
+            resolved_input = f"{resolved_input}\n{task_block}"
+
+        canonical = json.dumps(
+            {"upstream": sorted(upstream_hashes), "input": resolved_input},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    async def _find_reused_completion(
+        self, ectx: ExecutionContext, step_id: str, input_hash: str
+    ) -> str | None:
+        """Return an existing ``output_ref_id`` for a prior matching completion, else None.
+
+        Queries the durable, OWNER-SCOPED ``run_events`` (T-12-02-REPLAY: a
+        cross-owner run resolves to ∅ via ``ScopedStore.read_events``) for a prior
+        ``step_completed``/``step_reused`` event whose payload carries the SAME
+        ``(step_id, input_hash)``, and confirms the referenced output artifact still
+        exists in the typed graph before reusing it. Best-effort: a ``None`` store
+        (offline harness) or any read error → return ``None`` (no reuse, re-execute).
+        """
+        store = getattr(ectx, "scoped_store", None)
+        if store is None:
+            return None
+        try:
+            rows = await store.read_events(ectx.run_id, 0)
+        except Exception:  # noqa: BLE001 — offline / schema-less harness → no reuse
+            return None
+        for row in rows:
+            if getattr(row, "type", None) not in ("step_completed", "step_reused"):
+                continue
+            payload = getattr(row, "payload_json", None) or {}
+            if not isinstance(payload, dict):
+                continue
+            if payload.get("step") != step_id or payload.get("input_hash") != input_hash:
+                continue
+            output_ref_id = payload.get("output_ref_id")
+            if not output_ref_id:
+                continue
+            # Confirm the produced artifact still exists before reusing it.
+            if ectx.artifacts.get(output_ref_id) is not None:
+                return output_ref_id
+        return None
 
     def _filter_consumed_outputs(
         self,

@@ -218,10 +218,19 @@ class FanoutSpec:
 
 @dataclass
 class RetryPolicy:
-    """Per-step retry policy (§21). INERT in Phase 4."""
+    """Per-step retry policy (§21). INERT in Phase 4; ACTIVATED in Phase 12 (RESUME-02).
+
+    ``on`` (D-12, SPEC-locked default ``["transient"]``) names the error classes the
+    engine retry wrapper reacts to. The only class wired today is ``"transient"`` — it
+    reuses the SINGLE 06-03 ``_is_transient_throttle`` classifier (one classifier home,
+    no second list). A step with ``max_attempts == 0`` (or no ``retry`` at all) is
+    byte-identical to today: the wrapper is dormant. Pure data (INV-5) — the engine owns
+    the control flow.
+    """
 
     max_attempts: int = 0
     backoff_seconds: float = 0.0
+    on: list[str] = field(default_factory=lambda: ["transient"])
 
 
 @dataclass
