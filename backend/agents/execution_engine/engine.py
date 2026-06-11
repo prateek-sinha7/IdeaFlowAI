@@ -775,15 +775,25 @@ class ExecutionEngine:
             # real workspace_id — so the owner+workspace-scoped get_run on
             # reconnect never matched and pipeline_reconnected.status was null.
             # Guarded: both principals must be truthy (set_run_scope fail-louds
-            # on falsy by design); best-effort — a stamping failure (incl. the
-            # IN-02 cross-owner PermissionError) logs and proceeds, never
-            # crashes a run (mirrors the best-effort append/marker pattern).
+            # on falsy by design). WR-03: error contract mirrors the revision
+            # caller of this SAME seam (set_run_scope below) — degrade ONLY the
+            # DB condition (offline harness with no schema → SQLAlchemyError);
+            # a non-DB exception — notably the IN-02 cross-owner
+            # PermissionError, i.e. the WS layer created the row under a
+            # DIFFERENT principal than the engine derived (principal drift) —
+            # is a real bug and FAILS LOUD. Swallowing it would hide the drift
+            # AND leave workspace_id NULL, silently reinstating the
+            # null-status reconnect bug this stamp exists to fix.
             if owner_id and ectx.workspace_id:
                 try:
                     await scoped_store.set_run_scope(
                         pipeline_run_id, owner_id, ectx.workspace_id
                     )
-                except Exception as _stamp_exc:  # noqa: BLE001 — best-effort
+                except Exception as _stamp_exc:  # noqa: BLE001 — DB-only degrade
+                    from sqlalchemy.exc import SQLAlchemyError
+
+                    if not isinstance(_stamp_exc, SQLAlchemyError):
+                        raise
                     logger.warning(
                         "execute(): workflow_runs scope stamping failed for %s "
                         "(%s) — proceeding",
