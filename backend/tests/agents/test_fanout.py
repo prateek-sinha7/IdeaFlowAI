@@ -403,6 +403,46 @@ async def test_derive_fanout_requires_spawn_subagents_grant():
 
 
 # ---------------------------------------------------------------------------
+# WR-07 — the spawn_subagents tool's mode argument is honored: a sequential
+# request rides a COPIED step view (the shared compiled step is never mutated).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_derive_fanout_threads_requested_mode_onto_step_view():
+    import json as _json
+
+    from agents.execution_engine.engine import ExecutionEngine
+
+    engine = ExecutionEngine()
+    seen: dict = {}
+
+    class _Runner:
+        async def run_fanout(self, requests, ctx, *, step):
+            seen["mode"] = step.fanout.mode
+            yield {"type": "subagent_spawned", "data": {"worker": 0}}
+
+    declared = SimpleNamespace(mode="parallel", max_parallel=2, agent="self",
+                               count=None, workers=[], merge_agent=None)
+    step = SimpleNamespace(
+        agent_id="a", tools=SimpleNamespace(spawn_subagents=True), fanout=declared
+    )
+    ectx = SimpleNamespace(runner=_Runner(), current_step=step)
+    event = {
+        "tool": "spawn_subagents",
+        "result": _json.dumps({"fanout_request": ["t1"], "mode": "sequential"}),
+    }
+
+    _ = [e async for e in engine._derive_fanout(event, ectx)]
+
+    # The model's sequential request reached run_fanout...
+    assert seen["mode"] == "sequential"
+    # ...without mutating the SHARED compiled step's declared FanoutSpec.
+    assert declared.mode == "parallel"
+    assert step.fanout is declared
+
+
+# ---------------------------------------------------------------------------
 # CR-05 — depth propagation: a worker-triggered NESTED fan-out sees depth+1
 # (so max_depth is enforceable, thread ids namespace with d{depth}, and the
 # nested subagent_runs rows record the nested level) — and the spawner's depth

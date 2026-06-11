@@ -1713,11 +1713,33 @@ class ExecutionEngine:
         tasks = payload.get("fanout_request") or []
         if not tasks:
             return
-        # The tool's declared mode rides on the step's FanoutSpec for a declarative step;
-        # for the runtime tool path the request carries the mode. Shape one request per
-        # task — the kernel run_fanout owns worker selection + concurrency (INV-5).
+        # Shape one request per task — the kernel run_fanout owns worker selection +
+        # concurrency (INV-5).
         requests = [{"agent": "self", "input": t} for t in tasks]
-        async for fo_ev in runner.run_fanout(requests, ectx, step=step):
+        # WR-07: honor the tool's requested mode. The request's ``mode`` is threaded
+        # onto a COPY of the step view (never mutating the shared compiled step) so
+        # run_fanout reads it off ``step.fanout.mode`` — a model asking for
+        # sequential execution actually gets it (concurrency stays clamped by the
+        # engine cap regardless). An invalid/absent mode keeps the declared step.
+        fo_step = step
+        mode = payload.get("mode")
+        if mode in ("parallel", "sequential"):
+            import copy as _copy
+            from types import SimpleNamespace as _SN
+
+            try:
+                fo_step = _copy.copy(step)
+                existing = getattr(step, "fanout", None)
+                if existing is not None:
+                    new_fanout = _copy.copy(existing)
+                else:
+                    new_fanout = _SN(mode=None, max_parallel=None, agent=None,
+                                     count=None, workers=[], merge_agent=None)
+                new_fanout.mode = mode
+                fo_step.fanout = new_fanout
+            except Exception:  # noqa: BLE001 — a non-copyable step degrades to declared mode
+                fo_step = step
+        async for fo_ev in runner.run_fanout(requests, ectx, step=fo_step):
             yield fo_ev
 
     @staticmethod
