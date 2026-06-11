@@ -455,6 +455,85 @@ async def test_midwave_resume_does_not_reinvoke_completed_workers():
 
 
 # ===========================================================================
+# CR-01 — resumed run_events continue PAST the durable tail (no seq collision)
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_resumed_events_seq_continues_past_durable_tail():
+    """CR-01 (RESUME-03): resume_run must SEED its seq counter past the durable tail.
+
+    The pre-restart run already persisted ``run_events`` at seq 1..N (plus the
+    ``run_resuming`` marker at N+1). If ``resume_run`` re-uses ``itertools.count(1)``
+    every resumed event collides with seq 1..N — so a client that sends ``after_seq=N``
+    (its last pre-crash seq) never receives ANY resumed event (they all carry seq <= N).
+
+    This test seeds run_events at seq 1..N under the run's REAL (owner, workspace)
+    scope, drives ``resume_run`` over the same durable DB, then asserts EVERY event the
+    resume driver persisted carries seq > N (strictly continues the monotonic per-run
+    seq) — and that a reconnect-style ``read_events(after_seq=N)`` returns those resumed
+    events (non-empty). FAILS on the pre-fix ``itertools.count(1)`` (resumed events get
+    seq 1..M, colliding, and the after_seq=N read returns nothing new).
+    """
+    from agents.authz import ScopedStore
+    from app.models.run_event import RunEvent
+
+    session, db_engine = _make_session()
+    run_id = f"sq-{uuid.uuid4().hex[:8]}"
+    owner = "sq-user"
+    workspace_id = "ws-sq"
+    # The workflow_runs row resume_run reads (left non-terminal by the interrupt).
+    _seed_workflow_run(session, run_id, owner=owner, status="generating")
+
+    # ── Seed a durable tail: run_events at seq 1..N stamped with the REAL workspace_id
+    # the engine sink would write under (so _recover_workspace_id finds it). ──────────
+    pre_store = ScopedStore(owner_id=owner, workspace_id=workspace_id, session=session)
+    N = 5
+    for seq in range(1, N + 1):
+        await pre_store.append_event(
+            run_id, seq=seq, event_id=f"pre-{seq}",
+            type=f"agent_chunk_{seq}", payload_json={"seq": seq},
+        )
+    session.commit()
+
+    call_log: dict[str, int] = {}
+
+    # ── Resume over the SAME durable DB. The resume driver re-drives the wave workflow
+    # (no prior wave_runs ⇒ offset 0 ⇒ full re-drive) and persists its events. ─────────
+    with _ResumeHarness(session, call_log, fail_on=set(), db_engine=db_engine) as h:
+        engine_b = h.make_engine()
+        await engine_b.resume_run(run_id)
+
+    # Every run_events row whose event_id is NOT a pre-seeded one was persisted by the
+    # resume driver — assert they ALL carry seq > N (continue the monotonic per-run seq).
+    all_rows = (
+        session.query(RunEvent)
+        .filter(RunEvent.run_id == run_id)
+        .order_by(RunEvent.seq.asc())
+        .all()
+    )
+    pre_ids = {f"pre-{s}" for s in range(1, N + 1)}
+    resumed = [r for r in all_rows if r.event_id not in pre_ids]
+    assert resumed, "resume_run persisted no events to assert continuity on"
+    assert all(r.seq > N for r in resumed), (
+        f"resumed events must carry seq > {N} (durable-tail continuity); "
+        f"got seqs {[r.seq for r in resumed]} (pre-fix itertools.count(1) collides)"
+    )
+    # min resumed seq is exactly N+1 (strictly contiguous from the tail).
+    assert min(r.seq for r in resumed) == N + 1, (
+        f"first resumed seq must be {N + 1} (max(seq)+1), got {min(r.seq for r in resumed)}"
+    )
+
+    # A reconnect-style read with after_seq=N returns the resumed tail (non-empty) — the
+    # exact RESUME-03 contract a reconnecting FE (lastSeqRef=N) relies on.
+    read_store = ScopedStore(owner_id=owner, workspace_id=workspace_id, session=session)
+    missed = await read_store.read_events(run_id, after_seq=N)
+    assert missed, "after_seq=N must deliver the resumed tail (it is empty pre-fix)"
+    assert all(r.seq > N for r in missed)
+    session.close()
+
+
+# ===========================================================================
 # (a) — waiting_for_user still gates on user action (not auto-driven)
 # ===========================================================================
 
