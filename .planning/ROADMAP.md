@@ -414,7 +414,7 @@ Plans:
 **Gap Closure** *(after 12-VERIFICATION found 4 blockers + CR-05 + triaged warnings)*
 
 - [x] 12-05-PLAN.md — durable-resume/replay blockers: seed `resume_run` seq counter past the durable tail (CR-01) + recover `workspace_id` in the WS reconnect replay ScopedStore (CR-02) [wave 1, gap_closure] (completed 2026-06-11)
-- [ ] 12-06-PLAN.md — mid-wave resume correctness: step-filter completed-wave set (CR-04) + re-run the whole in-flight wave instead of an unsafe parallel-order prefix skip (CR-03) + flip stale `running` wave row (WR-01) + stamp `wave_index`/`step` on subagent events (CR-06 backend half) + reject duplicate task ids pre-spawn (WR-05) [wave 1, gap_closure]
+- [x] 12-06-PLAN.md — mid-wave resume correctness: step-filter completed-wave set (CR-04) + re-run the whole in-flight wave instead of an unsafe parallel-order prefix skip (CR-03) + flip stale `running` wave row (WR-01) + stamp `wave_index`/`step` on subagent events (CR-06 backend half) + reject duplicate task ids pre-spawn (WR-05) [wave 1, gap_closure]
 - [ ] 12-07-PLAN.md — FE wave tree: hoist `event_id` dedup to cover all event types (CR-05) + reset per-run replay/dedup/wave state (WR-03) + render worker leaves keyed by worker index, waves keyed by `step:waveIndex` (CR-06 FE half / IN-06) + cancelled→terminal (IN-05) + live render/reconnect human-verify [wave 2, gap_closure, depends 12-06]
 
 ## Progress
@@ -435,7 +435,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 9. Local Runtime + Repo (no exec) [4A] | 6/6 | Complete    | 2026-06-10 |
 | 10. Safe Local Exec [4B] | 5/5 | Complete    | 2026-06-10 |
 | 11. Fan-Out + Merge [5] | 5/5 | Complete    | 2026-06-11 |
-| 12. Wave Scheduler + Resume [6] | 4/4 | Complete   | 2026-06-11 |
+| 12. Wave Scheduler + Resume [6] | 6/7 | In Progress|  |
 
 ---
 *Roadmap created: 2026-06-06*
