@@ -98,6 +98,8 @@ def _seed_ref(
     content: str,
     version: int = 1,
     workspace_id: str = WS,
+    producer_step: str = "specify",
+    producer_agent: str = "specify-agent",
 ) -> str:
     """Insert one ``artifact_refs`` row (visibility=workspace, like the producer
     writes) and return its id."""
@@ -111,8 +113,8 @@ def _seed_ref(
                 owner_id=owner_id,
                 workspace_id=workspace_id,
                 kind=kind,
-                producer_step="specify",
-                producer_agent="specify-agent",
+                producer_step=producer_step,
+                producer_agent=producer_agent,
                 content=content,
                 content_hash=hashlib.sha256(content.encode("utf-8")).hexdigest(),
                 location=f"artifact_refs/{kind}",
@@ -497,3 +499,210 @@ async def test_clarifications_round_trip_via_artifact_refs(db_factory) -> None:
     other_store = ScopedStore(owner_id=OTHER_OWNER)
     other_refs = await other_store.list_refs(run_id, kind="clarifications")
     assert other_refs == []
+
+
+# ---------------------------------------------------------------------------
+# F2 / 13-UAT.md Gap 2 — realistic persistence (de-masked seeds)
+#
+# The pre-13-05 scenarios above seed parents with EXACTLY the kind they target
+# ("spec" → target "spec"), which masked the FE contract: no real run ever
+# persists the FE's target kinds ("ppt_output"/"od_ppt_output") — the run path
+# persists per-agent kinds (_AGENT_KIND_MAP values, falling back to "summary")
+# plus summary/planning_context/clarifications and, since 13-05, a completion
+# kind="deliverable" ref. These scenarios seed parents the way the RUN PATH
+# actually persists and send the FE-exact target — proving the FR-014 fallback
+# chain (exact → deliverable → summary) without weakening the guard. The
+# exact-kind tests above stay: they now cover chain link 1.
+# ---------------------------------------------------------------------------
+
+
+def _seed_realistic_parent(
+    session_factory,
+    *,
+    run_id: str,
+    owner_id: str,
+    with_deliverable: bool,
+) -> dict[str, str]:
+    """Seed a parent run with what the run path ACTUALLY persists (F2):
+    per-agent kind="summary" refs (one per agent id) + a kind="planning_context"
+    ref + (optionally) the 13-05 completion kind="deliverable" ref. Returns the
+    seeded contents keyed by role."""
+    _seed_run(session_factory, run_id=run_id, owner_id=owner_id)
+    contents = {
+        "summary_v1": "Composing the 4-slide deck per the strategist plan.",
+        "summary_v2": "Validation passed. Final deck: <section class='deck-slide'>Title</section>",
+        "deliverable": "<!doctype html><html><body><section class='deck-slide'>Title</section></body></html>",
+        "planning": json.dumps({"inferred_intent": "Pitch deck", "execution_gate": "PROCEED"}),
+    }
+    _seed_ref(
+        session_factory,
+        run_id=run_id,
+        owner_id=owner_id,
+        kind="summary",
+        content=contents["summary_v1"],
+        version=1,
+        producer_step="od-ppt-composer",
+        producer_agent="od-ppt-composer",
+    )
+    _seed_ref(
+        session_factory,
+        run_id=run_id,
+        owner_id=owner_id,
+        kind="summary",
+        content=contents["summary_v2"],
+        version=2,
+        producer_step="od-ppt-validator",
+        producer_agent="od-ppt-validator",
+    )
+    _seed_ref(
+        session_factory,
+        run_id=run_id,
+        owner_id=owner_id,
+        kind="planning_context",
+        content=contents["planning"],
+        producer_step="planner",
+        producer_agent="deep-planner",
+    )
+    if with_deliverable:
+        _seed_ref(
+            session_factory,
+            run_id=run_id,
+            owner_id=owner_id,
+            kind="deliverable",
+            content=contents["deliverable"],
+            producer_step="deliverable",
+            producer_agent="od-ppt-validator",
+        )
+    return contents
+
+
+@pytest.mark.asyncio
+async def test_fe_target_resolves_deliverable_ref_on_realistic_parent(
+    engine: ExecutionEngine, db_factory
+) -> None:
+    """(a) F2 / Gap 2: the FE-exact target "ppt_output" against a parent seeded
+    the way a NEW (post-13-05) run persists proceeds via chain link 2 — the
+    kind="deliverable" completion ref — and resolves ITS content."""
+    parent = "run-parent-realistic-new"
+    contents = _seed_realistic_parent(
+        db_factory, run_id=parent, owner_id=OWNER, with_deliverable=True
+    )
+
+    events: list[dict] = []
+
+    async def ws(e: dict) -> None:
+        events.append(e)
+
+    await engine._handle_revision(
+        parent_run_id=parent,
+        target_artifact_type="ppt_output",  # FE-exact (DashboardLayout.tsx)
+        instruction="Make the title slide bolder",
+        pipeline_run_id="run-rev-realistic-new",
+        websocket_send_fn=ws,
+        owner_id=OWNER,
+    )
+
+    complete = next(e for e in events if e["type"] == "pipeline_complete")
+    final_output = complete["data"]["final_output"]
+    # The DELIVERABLE ref's content is the resolved original (not a summary).
+    assert contents["deliverable"] in final_output
+    assert "=== ORIGINAL ARTIFACT (type: ppt_output) ===" in final_output
+    # planning_context still resolves alongside the chain.
+    assert complete["data"]["planning_context_unavailable"] is False
+
+
+@pytest.mark.asyncio
+async def test_fe_target_falls_back_to_summary_on_legacy_parent(
+    engine: ExecutionEngine, db_factory
+) -> None:
+    """(b) F2 / Gap 2: a PRE-13-05 legacy parent (no deliverable ref) resolves
+    via chain link 3 — the latest kind="summary" ref (the final agent's output
+    under the _AGENT_KIND_MAP fallback) — and the revision proceeds."""
+    parent = "run-parent-realistic-legacy"
+    contents = _seed_realistic_parent(
+        db_factory, run_id=parent, owner_id=OWNER, with_deliverable=False
+    )
+
+    events: list[dict] = []
+
+    async def ws(e: dict) -> None:
+        events.append(e)
+
+    await engine._handle_revision(
+        parent_run_id=parent,
+        target_artifact_type="ppt_output",
+        instruction="Tighten the closing slide",
+        pipeline_run_id="run-rev-realistic-legacy",
+        websocket_send_fn=ws,
+        owner_id=OWNER,
+    )
+
+    complete = next(e for e in events if e["type"] == "pipeline_complete")
+    final_output = complete["data"]["final_output"]
+    # Latest-by-version summary (the FINAL agent's output) is the original.
+    assert contents["summary_v2"] in final_output
+    # version_history is the MATCHED link's refs list (both summary versions).
+    assert "2 version(s) exist" in final_output
+
+
+@pytest.mark.asyncio
+async def test_fe_target_still_raises_fr014_when_no_chain_link_matches(
+    engine: ExecutionEngine, db_factory
+) -> None:
+    """(c) F2 / Gap 2: the FR-014 guard is NOT weakened — a parent with no
+    exact/deliverable/summary refs (planning_context only) still raises."""
+    parent = "run-parent-no-chain-refs"
+    _seed_run(db_factory, run_id=parent, owner_id=OWNER)
+    _seed_ref(
+        db_factory,
+        run_id=parent,
+        owner_id=OWNER,
+        kind="planning_context",
+        content=json.dumps({"execution_gate": "PROCEED"}),
+    )
+
+    async def ws(e: dict) -> None:  # pragma: no cover - never reached
+        pass
+
+    with pytest.raises(ValueError, match="No artifact"):
+        await engine._handle_revision(
+            parent_run_id=parent,
+            target_artifact_type="ppt_output",
+            instruction="Revise anything",
+            pipeline_run_id="run-rev-no-chain-refs",
+            websocket_send_fn=ws,
+            owner_id=OWNER,
+        )
+
+
+@pytest.mark.asyncio
+async def test_fe_target_cross_owner_still_denied_on_realistic_parent(
+    engine: ExecutionEngine, db_factory
+) -> None:
+    """(d) F2 / Gap 2 + L16: the fallback chain does NOT widen ownership —
+    a cross-owner replay of (a) raises PermissionError BEFORE any chain read
+    (assert_owns stays first, T-5-SEED)."""
+    parent = "run-parent-realistic-owned-x"
+    _seed_realistic_parent(
+        db_factory, run_id=parent, owner_id=OWNER, with_deliverable=True
+    )
+
+    events: list[dict] = []
+
+    async def ws(e: dict) -> None:
+        events.append(e)
+
+    with pytest.raises(PermissionError):
+        await engine._handle_revision(
+            parent_run_id=parent,
+            target_artifact_type="ppt_output",
+            instruction="Steal owner X's deck",
+            pipeline_run_id="run-rev-realistic-cross-owner",
+            websocket_send_fn=ws,
+            owner_id=OTHER_OWNER,  # NOT the parent owner
+        )
+
+    # Nothing was written for the attacker's revision run.
+    attacker_store = ScopedStore(owner_id=OTHER_OWNER)
+    refs = await attacker_store.list_refs("run-rev-realistic-cross-owner", kind="ppt_output")
+    assert refs == []
