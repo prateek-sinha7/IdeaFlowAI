@@ -166,12 +166,34 @@ class WaveSchedulerStrategy:
         waves = build_waves(tasks)
 
         # ── Dispatch each wave through the SINGLE kernel run_fanout spawn path ──────
+        # Each wave persists ONE owner-scoped wave_runs row (running -> terminal) and
+        # emits wave_started/wave_completed/wave_failed events. The recorders are
+        # reached via ctx.runner (best-effort, None-degrading offline) so the strategy
+        # stays import-pure. All events are plain dicts — the engine's single emit
+        # boundary stamps seq/event_id (zero websocket edits, Pattern 4).
         for wave_index, wave in enumerate(waves):
+            task_ids = [t.id for t in wave]
             requests = [{"agent": "self", "input": t.body} for t in wave]
-            # NOTE: wave_runs persistence (record_wave_run / update_wave_run) +
-            # wave_started/wave_completed/wave_failed events are wired in Task 3
-            # against the ctx.runner handle. This task ships the build_waves + dispatch
-            # logic WITHOUT persistence so the scheduling seam is testable first.
-            async for event in runner.run_fanout(requests, ctx, step=step):
-                yield event
-        _ = step_id  # used by the Task-3 recorder wiring
+
+            row_id = await runner.record_wave_run(
+                step=step_id, wave_index=wave_index, task_ids=task_ids, status="running"
+            )
+            yield {
+                "type": "wave_started",
+                "data": {"step": step_id, "wave_index": wave_index, "task_ids": task_ids},
+            }
+            try:
+                async for event in runner.run_fanout(requests, ctx, step=step):
+                    yield event
+            except Exception:
+                await runner.update_wave_run(row_id, status="failed")
+                yield {
+                    "type": "wave_failed",
+                    "data": {"step": step_id, "wave_index": wave_index, "task_ids": task_ids},
+                }
+                raise
+            await runner.update_wave_run(row_id, status="completed")
+            yield {
+                "type": "wave_completed",
+                "data": {"step": step_id, "wave_index": wave_index, "task_ids": task_ids},
+            }

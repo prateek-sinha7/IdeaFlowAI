@@ -465,6 +465,53 @@ class KernelServices:
         except Exception as exc:  # noqa: BLE001 — audit must NEVER abort the run
             logger.warning("update_subagent_run(row=%s) failed: %s", row_id, exc)
 
+    # ── Per-wave audit writer (Phase 12 / WAVE-02) ─────────────────────────────
+    async def record_wave_run(
+        self,
+        *,
+        step: str,
+        wave_index: int,
+        task_ids: Any,
+        status: str,
+    ) -> str | None:
+        """Write one owner/workspace-scoped ``wave_runs`` row for an executed wave.
+
+        Reached by the ``wave_scheduler`` strategy before each wave's ``run_fanout``,
+        so EVERY executed wave is audited (WAVE-02). Delegates to the per-run
+        ``ScopedStore`` so the row carries the run's ``(owner_id, workspace_id)``
+        (AUTHZ-01 / T-12-01-IDOR). Best-effort — a persist failure (offline harness /
+        no FK row) degrades to ``None`` rather than aborting the wave or the run
+        (Pitfall 6 — audit must never break the live stream). Clones
+        ``record_subagent_run`` EXACTLY.
+        """
+        store = getattr(self._ectx, "scoped_store", None)
+        if store is None:
+            return None
+        try:
+            return await store.record_wave_run(
+                self.run_id,
+                step=step,
+                wave_index=wave_index,
+                task_ids=task_ids,
+                status=status,
+            )
+        except Exception as exc:  # noqa: BLE001 — audit must NEVER abort the run
+            logger.warning(
+                "record_wave_run(step=%s wave=%s) failed: %s",
+                step, wave_index, exc,
+            )
+            return None
+
+    async def update_wave_run(self, row_id: str | None, *, status: str) -> None:
+        """Flip a ``wave_runs`` row terminal (best-effort; never aborts the run)."""
+        store = getattr(self._ectx, "scoped_store", None)
+        if store is None or row_id is None:
+            return
+        try:
+            await store.update_wave_run(row_id, status=status)
+        except Exception as exc:  # noqa: BLE001 — audit must NEVER abort the run
+            logger.warning("update_wave_run(row=%s) failed: %s", row_id, exc)
+
     async def workspace_budget_spent(self) -> dict:
         """Return the workspace's already-spent fan-out budget aggregate (OBS-01).
 

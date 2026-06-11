@@ -26,27 +26,28 @@ Import purity (import-linter): this module imports ONLY stdlib (``json``) + the
 from __future__ import annotations
 
 import json
+import re
 
 from agents.capabilities.registry import register
 from agents.workflows.plan import Task
 
+# A fenced ```json … ``` (or bare ``` … ```) block, anywhere in the text. The agent may
+# wrap its JSON plan in prose ("Here is the plan: ```json … ```"), so the fence is
+# extracted from WITHIN the surrounding text, not just stripped when leading.
+_FENCE_RE = re.compile(r"```(?:json)?\s*\n?(.*?)```", re.DOTALL)
+
 
 def _strip_json_fence(text: str) -> str:
-    """Strip a leading/trailing fenced ```json … ``` (or bare ``` … ```) block.
+    """Extract a fenced ```json … ``` (or bare ``` … ```) block, anywhere in ``text``.
 
-    Tolerant: a non-fenced payload passes through unchanged. Only a single outer
-    fence is stripped — inner content is left intact for ``json.loads``.
+    Tolerant: a non-fenced payload passes through unchanged (whitespace-stripped). When
+    a fence is present (even amid prose) its inner content is returned for ``json.loads``.
     """
     stripped = (text or "").strip()
-    if not stripped.startswith("```"):
-        return stripped
-    lines = stripped.splitlines()
-    # Drop the opening fence line (```json or ```), and a trailing fence line.
-    if lines and lines[0].startswith("```"):
-        lines = lines[1:]
-    if lines and lines[-1].strip().startswith("```"):
-        lines = lines[:-1]
-    return "\n".join(lines).strip()
+    m = _FENCE_RE.search(stripped)
+    if m:
+        return m.group(1).strip()
+    return stripped
 
 
 @register("task_parser", "json_tasks")
