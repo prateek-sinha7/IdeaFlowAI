@@ -169,6 +169,7 @@ class KernelServices:
         model_id: str | None,
         results: list[dict],
         cancel_event: Any,
+        allowed_workers: list[str] | None = None,
     ) -> None:
         self._engine = engine
         self._ectx = ectx
@@ -189,6 +190,12 @@ class KernelServices:
         # exec-granted plan provisions a workspace in 10-02 (parity: dormant for
         # every existing non-exec run).
         self.workspace = None
+        # Phase 11 / FANOUT-03 (CR-01): the compiled workflow-level named-worker
+        # allow-list, bound onto the LIVE handle so the kernel ``run_fanout``
+        # worker selection (``_select_workers``) reads the REAL declaration —
+        # not an attribute that only test fakes fabricate. Threaded from
+        # ``compiled.allowed_workers`` at handle construction in ``_execute_impl``.
+        self.allowed_workers = list(allowed_workers or [])
 
     # ── Run-scoped passthroughs (attributes the capabilities read) ────────────
     @property
@@ -710,6 +717,28 @@ class KernelServices:
         except Exception as exc:  # noqa: BLE001 — unresolved ⇒ clean no-op merge
             logger.debug("resolve_merge_strategy(%s) failed: %s", name, exc)
             return None
+
+    # ── Named-worker registry existence check (Phase 11 / FANOUT-03 / CR-01) ──
+    def agent_exists(self, agent_id: str) -> bool:
+        """True when ``agent_id`` resolves as a runnable fan-out worker (FANOUT-03).
+
+        The registry-existence half of the named-worker pre-spawn guard: the
+        kernel ``_select_workers`` calls this THROUGH the handle (never importing
+        the agent registry directly — layering). A worker is runnable when it is
+        one of the run's ordered AgentSpecs (the ``run_agent`` spec lookup will
+        resolve it) or, failing that, when the agent loader knows it by id.
+        Fail-closed: an unknown/unloadable id returns ``False`` so ``run_fanout``
+        rejects it BEFORE any spawn.
+        """
+        if any(s.id == agent_id for s in self._ordered_agents):
+            return True
+        try:
+            from agents.loader import load_agent_spec
+
+            load_agent_spec(agent_id)
+            return True
+        except Exception:  # noqa: BLE001 — unknown/unloadable ⇒ not a runnable worker
+            return False
 
     # ── Fan-out spawn handle (Phase 11 / FANOUT-02) ────────────────────────────
     async def run_fanout(

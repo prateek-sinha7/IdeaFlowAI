@@ -354,3 +354,91 @@ async def test_kernel_handle_run_fanout_writes_rows_and_events():
 
     session.close()
     Base.metadata.drop_all(bind=engine)
+
+
+# ---------------------------------------------------------------------------
+# CR-01 — the LIVE handle binds allowed_workers + agent_exists (no fake stubbing):
+# a named worker resolves through the REAL KernelServices constructed via __init__.
+# ---------------------------------------------------------------------------
+
+
+def _real_kernel_services(*, allowed_workers=None):
+    """Construct a REAL KernelServices via __init__ (the live binding under test)."""
+    from agents.execution_engine.kernel_services import KernelServices
+
+    class _Ectx:
+        scoped_store = None
+        depth = 0
+        build_task_number = ""
+        build_task_total = ""
+        current_task_block = ""
+        current_prototype_skeleton = ""
+        current_step = None
+        od_context = None
+
+    class _FakeEngine:
+        async def _run_agent(self, *a, **k):
+            yield {"type": "agent_chunk", "data": {"chunk": "x"}}
+
+    return KernelServices(
+        engine=_FakeEngine(),
+        ectx=_Ectx(),
+        sandbox=None,
+        ordered_agents=[
+            SimpleNamespace(id="worker-a", name="A", role="r", icon="i"),
+            SimpleNamespace(id="worker-b", name="B", role="r", icon="i"),
+        ],
+        user_message="go",
+        pipeline_run_id="run-live",
+        pipeline_type="custom",
+        planning_context={},
+        attached_skills=None,
+        attached_hooks=None,
+        model_id=None,
+        results=[],
+        cancel_event=None,
+        allowed_workers=allowed_workers,
+    )
+
+
+def test_kernel_services_binds_allowed_workers_and_agent_exists():
+    """The handle-contract: __init__ binds the attrs _select_workers reads (CR-01)."""
+    ks = _real_kernel_services(allowed_workers=["worker-b"])
+    assert ks.allowed_workers == ["worker-b"]
+    # agent_exists resolves the run's ordered agents; unknown ids are fail-closed.
+    assert ks.agent_exists("worker-a") is True
+    assert ks.agent_exists("worker-b") is True
+    assert ks.agent_exists("no-such-agent-xyz") is False
+    # An unbound allow-list defaults to [] (named workers rejected, self×N unaffected).
+    assert _real_kernel_services().allowed_workers == []
+
+
+@pytest.mark.asyncio
+async def test_named_worker_resolves_through_real_kernel_services():
+    """run_fanout through the REAL handle: a named allow-listed worker spawns (CR-01)."""
+    ks = _real_kernel_services(allowed_workers=["worker-b"])
+    step = SimpleNamespace(agent_id="worker-a", fanout=SimpleNamespace(
+        mode="sequential", max_parallel=None, agent="self", count=None, workers=[]))
+    ctx = SimpleNamespace(runner=ks, depth=0, budget=BudgetManager())
+    requests = [{"agent": "worker-b", "input": "named"}]
+
+    events = [ev async for ev in ks.run_fanout(requests, ctx, step=step)]
+
+    spawned = [e for e in events if e["type"] == "subagent_spawned"]
+    assert len(spawned) == 1
+    assert spawned[0]["data"]["agent"] == "worker-b"
+    results = [e for e in events if e["type"] == "subagent_result"]
+    assert len(results) == 1 and results[0]["data"]["status"] == "complete"
+
+
+@pytest.mark.asyncio
+async def test_named_worker_not_allow_listed_rejected_through_real_kernel_services():
+    """run_fanout through the REAL handle: a non-allow-listed worker is rejected pre-spawn."""
+    ks = _real_kernel_services(allowed_workers=[])  # nothing allow-listed
+    step = SimpleNamespace(agent_id="worker-a", fanout=SimpleNamespace(
+        mode="sequential", max_parallel=None, agent="self", count=None, workers=[]))
+    ctx = SimpleNamespace(runner=ks, depth=0, budget=BudgetManager())
+
+    with pytest.raises(FanoutError):
+        async for _ev in ks.run_fanout([{"agent": "worker-b", "input": "x"}], ctx, step=step):
+            pass

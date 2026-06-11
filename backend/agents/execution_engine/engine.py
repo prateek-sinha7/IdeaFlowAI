@@ -1246,6 +1246,10 @@ class ExecutionEngine:
             model_id=model_id,
             results=results,
             cancel_event=cancel_event,
+            # Phase 11 / FANOUT-03 (CR-01): bind the compiled workflow-level
+            # named-worker allow-list onto the LIVE handle so run_fanout's
+            # pre-spawn worker selection reads the real declaration.
+            allowed_workers=list(getattr(compiled, "allowed_workers", None) or []),
         )
 
         # ── §15 host seam: bind the exec-enabled runtime workspace (10-03 / EXEC-01) ──
