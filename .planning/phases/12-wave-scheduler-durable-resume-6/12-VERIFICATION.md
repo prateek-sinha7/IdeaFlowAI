@@ -1,9 +1,19 @@
 ---
 phase: 12-wave-scheduler-durable-resume-6
-verified: 2026-06-11T16:55:00Z
-status: human_needed
+verified: 2026-06-11T17:45:00Z
+status: passed
 score: 15/15 must-haves verified
 overrides_applied: 0
+live_recheck: >
+  All 4 human_verification items re-verified LIVE 2026-06-11 (milestone-end live
+  re-pass, 12-UAT.md tests 5-8, evidence 12-UAT-EVIDENCE/results-recheck.json):
+  (1) WaveTreePanel rendered live wave groups + 2 distinct worker leaves per wave,
+  badges flipping running→completed; (2) SIGKILL mid-wave-2 + restart: page
+  live-attached via the 12-09 bridge (after_seq=17 → tail 19..29 incl.
+  pipeline_complete), resolved out of running; (3) zero single_file fallback
+  warnings, deliverable = serialized_sandbox bundle part_a..d.txt; (4) cross-owner
+  reconnect_pipeline against a live run demoted to ∅ replay + live:false + null
+  status, no stream (CR-01 gate driven through the real handler).
 re_verification:
   previous_status: passed (overridden human_needed — STALE, pre-gap-closure; milestone-end live UAT then found 3 gaps, 12-UAT.md status diagnosed)
   previous_score: 6/6
@@ -20,27 +30,15 @@ re_verification:
     - "Review WR-03: Gap 2c set_run_scope call site now fails loud on non-SQLAlchemyError (PermissionError = principal drift), mirroring the revision seam (commit 8eb3c880)"
   gaps_remaining: []
   regressions: []
-human_verification:
-  - test: "Live wave-tree panel render on the dashboard execution surface"
-    expected: "During a live sample_wave run, WaveTreePanel renders wave groups + N distinct worker leaves on the dashboard (the 12-08 mount live; the prior live pass proved the backend event half — only the FE mount is newly live-unverified)"
-    why_human: "Requires live browser + servers. Per project convention live re-verification defers to the milestone-end live pass; offline DashboardLayout.waveMount.test.tsx proves the mount/wiring."
-  - test: "Live auto-resume reconnect delivers the full resumed tail and resolves the page"
-    expected: "Backend SIGKILL mid-wave + restart: an open page reconnects, live-attaches (12-09 bridge), receives the resumed tail incl. pipeline_complete, and resolves out of 'running' (12-08 handler); a reconnect that races the restore scan resolves on a later cycle (WR-02 fix)"
-    why_human: "Requires live uvicorn restart + browser reconnect. Offline test_resume_ws_bridge.py + useWorkflow.reconnect.test.ts prove both halves."
-  - test: "Live sample_wave run resolves its deliverable with no fallback warning"
-    expected: "No 'merged.txt not written by agent — falling back to streamed output' log line; final deliverable is the serialized_sandbox bundle containing part_a..d.txt (12-10)"
-    why_human: "Live-run log observation; offline test_sample_wave_workflow.py asserts the bundle content + no-fallback shape."
-  - test: "Cross-owner live-attach demotion (CR-01) driven through the real reconnect_pipeline handler"
-    expected: "A second authenticated user presenting a live run_id gets ∅ replay + live:false, never the live stream"
-    why_human: "12-REVIEW-FIX flags that the CR-01 owner gate has no dedicated handler-driving regression test (existing reconnect tests are contract tests). Code-verified at websocket.py:605-641; recommend a follow-up test or a live check."
+human_verification: []
 ---
 
 # Phase 12: Wave Scheduler + Durable Resume [6] Verification Report
 
 **Phase Goal:** Add a deterministic topological wave scheduler that runs disjoint tasks in parallel waves via fan-out, with durable mid-wave resume; prototype stays sequential and a CP-SAT seam is left.
-**Verified:** 2026-06-11T16:55:00Z
-**Status:** human_needed (all must-haves code-verified offline; live re-confirmation items deferred per project convention)
-**Re-verification:** Yes — after UAT gap closure (plans 12-08/12-09/12-10) + review fixes (CR-01, WR-01, WR-02, WR-03)
+**Verified:** 2026-06-11T17:45:00Z
+**Status:** passed (all must-haves code-verified offline + all 4 deferred live re-checks verified live in the milestone-end re-pass)
+**Re-verification:** Yes — after UAT gap closure (plans 12-08/12-09/12-10) + review fixes (CR-01, WR-01, WR-02, WR-03); live re-pass 2026-06-11 (12-UAT.md tests 5-8)
 
 ## Gap Closure Summary
 
@@ -71,7 +69,7 @@ All 9 plan/fix commits verified present in git: ccfc596b, 8d8a7a39, 41c35a69, 8e
 |---|-------|--------|----------|
 | 1 | `wave_scheduler` topo-sorts by `depends_on` + `conflict_keys` into waves, runs each wave via fan-out; multi-file workflow runs parallel waves; prototype stays sequential; CP-SAT seam left | VERIFIED | `wave_scheduler.py` present; `test_wave_scheduler.py` + `test_json_tasks.py` + `test_sample_wave_workflow.py` green (in the 50+11 passed); `grep sample_wave backend/agents/execution_engine/` = 0 (SC-001); characterization snapshots 10 passed (prototype sequential, byte/event-identical) |
 | 2 | `wave_runs` persisted; server restart resumes mid-wave via `subagent_runs`/`wave_runs`; idempotent step retry reuses artifacts on content-hash match | VERIFIED | `0020_wave_runs.py` + `wave_run.py` ORM present; `test_wave_runs.py` (incl. cross-owner ∅) + `test_restart_resume.py` (seq continuity, whole-wave re-run, cross-step filter, stale-row flip) + `test_step_retry.py` green |
-| 3 | Reconnect replays from durable `run_events` (`after=<seq>`, idempotent by `event_id`); `restore_non_terminal_runs` resumes at step granularity; `waiting_for_user` gates on user action | VERIFIED (offline) | `test_ws_reconnect_replay.py` green; NEW since prior verification: auto-resumed runs live-attach via the injected bridge so a connected client receives the resumed tail incl. `pipeline_complete` (`test_resume_ws_bridge.py`); FE resolves on `pipeline_reconnected` live:false+terminal (`useWorkflow.reconnect.test.ts`); live re-confirmation deferred (human item 2) |
+| 3 | Reconnect replays from durable `run_events` (`after=<seq>`, idempotent by `event_id`); `restore_non_terminal_runs` resumes at step granularity; `waiting_for_user` gates on user action | VERIFIED | `test_ws_reconnect_replay.py` green; NEW since prior verification: auto-resumed runs live-attach via the injected bridge so a connected client receives the resumed tail incl. `pipeline_complete` (`test_resume_ws_bridge.py`); FE resolves on `pipeline_reconnected` live:false+terminal (`useWorkflow.reconnect.test.ts`); live re-confirmation VERIFIED (live re-pass run G: live-attach + tail 19..29 incl. pipeline_complete) |
 
 **Score:** 3/3 ROADMAP success criteria VERIFIED
 
@@ -134,9 +132,9 @@ All 31 previously-verified plan truths regression-checked via their owning suite
 
 | Artifact | Data Variable | Source | Produces Real Data | Status |
 |----------|---------------|--------|--------------------|--------|
-| `WaveTreePanel` (via DashboardLayout) | `waves` prop | `page.tsx waveGroups` state ← WS `wave_*`/`subagent_*` events (assembler vitest-covered) | Yes — prop threaded end-to-end, no hardcoded empty at the call site (`waves={waveGroups}`) | FLOWING (offline) |
+| `WaveTreePanel` (via DashboardLayout) | `waves` prop | `page.tsx waveGroups` state ← WS `wave_*`/`subagent_*` events (assembler vitest-covered) | Yes — prop threaded end-to-end, no hardcoded empty at the call site (`waves={waveGroups}`) | FLOWING (live-verified) |
 | `useWorkflow pipeline_reconnected` | `msg.live` / `msg.status` | backend `websocket.py:736-744` payload (status from scoped `get_run`, non-null post-12-09) | Yes | FLOWING |
-| resume live queue | resumed events | `resume_run` drive loop pushes each persisted event (`engine.py:4247-4253`) + None sentinel | Yes — same dict shape as the run_pipeline queue contract | FLOWING (offline) |
+| resume live queue | resumed events | `resume_run` drive loop pushes each persisted event (`engine.py:4247-4253`) + None sentinel | Yes — same dict shape as the run_pipeline queue contract | FLOWING (live-verified) |
 | `workflow_runs.workspace_id` | stamped scope | `set_run_scope` after workspace resolution | Yes — real DB write via existing seam | FLOWING |
 | sample_wave deliverable | `final_output` | serialized_sandbox bundle of the copy_disjoint-merged base | Yes — test asserts part_a..d.txt filename: blocks present, "(no files written)" absent | FLOWING |
 
@@ -164,10 +162,10 @@ No `scripts/*/tests/probe-*.sh` probes exist in this repo and no PLAN/SUMMARY fo
 |-------------|-------------|-------------|--------|----------|
 | WAVE-01 | 12-01 | wave_scheduler topo-sort by depends_on + conflict_keys, fan-out per wave, CP-SAT seam | SATISFIED | wave_scheduler suites green; sample_wave SC-001 proof; regression-checked this pass |
 | WAVE-02 | 12-01, 12-10 | wave_runs persistence; multi-file workflow in parallel waves; prototype sequential | SATISFIED | wave_runs suites green; sample_wave deliverable now resolves from produced files (Gap 3 closed); characterization unchanged |
-| WAVE-03 | 12-01/03/06, 12-08, 12-09 | Resume mid-wave via subagent_runs/wave_runs after restart | SATISFIED (offline) | Mid-wave resume suites green; the wave tree is now user-visible live (Gap 1 closed in code); live render re-confirmation deferred |
+| WAVE-03 | 12-01/03/06, 12-08, 12-09 | Resume mid-wave via subagent_runs/wave_runs after restart | SATISFIED | Mid-wave resume suites green; wave tree live render VERIFIED in the live re-pass (12-UAT.md test 5) |
 | RESUME-02 | 12-02 | Idempotent per-step retry keyed (run_id, step_id, input_hash); artifact reuse on hash match | SATISFIED | test_step_retry.py green (regression) |
-| RESUME-03 | 12-03/04/05/07, 12-08, 12-09 | Reconnect = durable replay via after=<seq>, idempotent by event_id | SATISFIED (offline) | Replay suites green; auto-resumed-run delivery gap closed (bridge + FE handler); live reconnect re-confirmation deferred |
-| RESUME-04 | 12-03/06, 12-08, 12-09 | restore_non_terminal_runs at step granularity; waiting_for_user gates | SATISFIED (offline) | Three-way classifier suites green; resumed run now live-attaches and the page resolves on terminal status; live restart re-confirmation deferred |
+| RESUME-03 | 12-03/04/05/07, 12-08, 12-09 | Reconnect = durable replay via after=<seq>, idempotent by event_id | SATISFIED | Replay suites green; auto-resumed-run delivery VERIFIED live (12-UAT.md test 6) |
+| RESUME-04 | 12-03/06, 12-08, 12-09 | restore_non_terminal_runs at step granularity; waiting_for_user gates | SATISFIED | Three-way classifier suites green; live restart resume + page resolution VERIFIED live (12-UAT.md test 6) |
 
 All 6 phase requirement IDs are claimed by plans, marked `[x]` in REQUIREMENTS.md (lines 133-142), and mapped to Phase 12 in the traceability table (lines 250-252). No orphaned requirements.
 
@@ -183,38 +181,58 @@ No TBD/FIXME/XXX debt markers in any of the 12 gap-delta files. No stub patterns
 | `websocket.py:605-641` | CR-01 gate has no dedicated handler-driving cross-owner regression test (12-REVIEW-FIX note) | WARNING | Authorization logic verified by reading, not by an automated handler test — listed as human item 4 / follow-up test |
 | `engine.py` WR-09..WR-14 | Prior-review warnings carried (second-restart re-entry, offset-0 resume, resume-failure loop, dropped task ref, pipeline_start mid-replay reset, retry-on-wave-step) | WARNING | Tracked quality debt from the prior verification; none breaks a ROADMAP SC for the primary scenario |
 
-## Human Verification Required
+## Human Verification — RESOLVED (milestone-end live re-pass, 2026-06-11)
 
-### 1. Live wave-tree panel render on the dashboard execution surface
+All 4 deferred items were re-verified live against the real stack (uvicorn :8000 +
+Next.js :3000 + real /ws/chat; scripted-model harness, AWS SSO expired — none of the
+items target the model provider). Full detail: 12-UAT.md tests 5-8; evidence:
+12-UAT-EVIDENCE/results-recheck.json + screenshots 60/62/63/66 + crossowner-frames.jsonl.
 
-**Test:** Run sample_wave from the UI against live servers; observe the dashboard execution view.
-**Expected:** WaveTreePanel renders wave groups with N distinct worker leaves beside AgentProgressPanel (the 12-08 mount; the prior live pass already proved the backend event half live).
-**Why human:** Live browser + servers. Deferred to the milestone-end live re-pass per project convention; offline mount test covers the wiring.
+### 1. Live wave-tree panel render — VERIFIED LIVE
 
-### 2. Live auto-resume reconnect delivers the full resumed tail and resolves the page
+Run F/H: WaveTreePanel rendered live on the dashboard execution column — mid-wave-1
+"Wave 0 / t1, t2 / RUNNING" with 2 distinct sample-wave-worker leaves; badge flipped
+COMPLETED on wave_completed; final state shows both wave groups with 4 worker leaves
+(66-runH-panel-in-view.png). Cosmetic note: at 950px viewport height the panel sits
+~122px below the fold of the scrollable execution column; normal scroll reaches it.
 
-**Test:** SIGKILL the backend mid-wave, restart, keep the page open.
-**Expected:** Page reconnects, live-attaches via the 12-09 bridge, receives the resumed tail incl. pipeline_complete, and resolves out of "running" (12-08 handler) — no more 51-runE2-stuck behavior.
-**Why human:** Live restart + browser. Offline bridge + handler tests cover both halves.
+### 2. Live auto-resume reconnect — VERIFIED LIVE
 
-### 3. Live sample_wave run resolves its deliverable with no fallback warning
+Run G: SIGKILL mid-wave-2 (seq 17) + restart; page reconnected with after_seq=17,
+LIVE-ATTACHED via the 12-09 bridge ("Reconnected — resuming pipeline stream"), received
+seq 19..29 incl. pipeline_complete, and resolved out of "running" (Stop gone, "Done in
+3.0s", 63-runG-resolved.png). INFO: seq 18 = run_resuming audit marker raced the attach
+and was not on this connection's wire (store-appended, not bridge-pushed; FE has no
+handler; durable log contiguous 1..29 — fresh replay delivers it).
 
-**Test:** Run sample_wave live; inspect backend logs and the final deliverable.
-**Expected:** No "merged.txt not written by agent" warning; deliverable is the serialized_sandbox bundle with part_a..d.txt.
-**Why human:** Live-log observation; offline test asserts the bundle shape.
+### 3. Live deliverable resolution — VERIFIED LIVE
 
-### 4. Cross-owner live-attach demotion (CR-01)
+Zero "falling back to streamed" hits across both backend logs; run F
+workflow_runs.output is the serialized_sandbox filename:-block bundle with all four
+part_a..d.txt files; runs completed with non-NULL workspace_id (Gap 2c stamp live)
+and zero marker IntegrityError warnings (marker fix live).
 
-**Test:** Drive `reconnect_pipeline` as a second authenticated user against a registered live run (live or via a new handler-driving test).
-**Expected:** ∅ replay + live:false — never the live stream.
-**Why human:** 12-REVIEW-FIX explicitly flags the missing dedicated regression test; the gate is code-verified only.
+### 4. Cross-owner live-attach demotion (CR-01) — VERIFIED LIVE
+
+While run F was live and registered, uat12b sent reconnect_pipeline with run F's id
+over a raw authenticated WS: exactly one reply — pipeline_reconnected {status: null,
+replayed_through_seq: 0, live: false} — ∅ replayed rows and zero run-F stream frames
+over the following 9s (crossowner-frames.jsonl). The real handler drove the
+websocket.py:605-641 gate. (A dedicated handler-driving regression test remains a
+nice-to-have follow-up; the live check covers the gap flagged by 12-REVIEW-FIX.)
 
 ## Gaps Summary
 
-No blocking gaps. All 3 UAT gaps (dead wave panel, auto-resume reconnect delivery/status/marker, sample deliverable) are closed and verified directly in the codebase with passing offline tests; all 4 in-scope review findings (CR-01, WR-01, WR-02, WR-03) are fixed and code-verified; all 9 claimed commits exist. No regressions across the 193 targeted backend tests, 10 characterization snapshots, 15 FE vitest tests, tsc, and the 4 import contracts. The only open items are the 4 live/follow-up human-verification items above, deferred per the project's defer-live-verification convention.
+No blocking gaps and no open items. All 3 UAT gaps (dead wave panel, auto-resume
+reconnect delivery/status/marker, sample deliverable) are closed, verified in the
+codebase with passing offline tests, AND re-verified live end-to-end; all 4 in-scope
+review findings (CR-01, WR-01, WR-02, WR-03) are fixed, code-verified, and CR-01 is
+live-verified through the real handler. No regressions across the 193 targeted backend
+tests, 10 characterization snapshots, 15 FE vitest tests, tsc, and the 4 import
+contracts.
 
 ---
 
-_Verified: 2026-06-11T16:55:00Z_
-_Verifier: Claude (gsd-verifier)_
-_Re-verification: Yes — after UAT gap closure (12-08/12-09/12-10) + review fixes_
+_Verified: 2026-06-11T17:45:00Z_
+_Verifier: Claude (gsd-verifier) + milestone-end live re-pass (self-driven UAT)_
+_Re-verification: Yes — after UAT gap closure (12-08/12-09/12-10) + review fixes; live re-pass 2026-06-11_

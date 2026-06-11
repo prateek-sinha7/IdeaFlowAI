@@ -1,15 +1,15 @@
 ---
-status: resolved
+status: complete
 phase: 12-wave-scheduler-durable-resume-6
 source: [12-VERIFICATION.md]
 started: 2026-06-11T14:05:00Z
-updated: 2026-06-11T17:10:00Z
+updated: 2026-06-11T17:45:00Z
 gap_closure: >
   All 3 gaps resolved offline 2026-06-11 by plans 12-08/12-09/12-10 plus code-review
   fixes (12-REVIEW.md / 12-REVIEW-FIX.md, commits ccfc596b/8d8a7a39/41c35a69/8eb3c880).
-  Live re-checks (4 items) queued in 12-VERIFICATION.md human_verification for the
-  milestone-end live re-pass (/gsd-verify-work 12).
-deferral: fulfilled 2026-06-11 — milestone-end live pass executed (12/12 phases complete)
+  Live re-checks (4 items) queued in 12-VERIFICATION.md human_verification — ALL 4
+  RE-VERIFIED LIVE 2026-06-11 (tests 5-8 below); fixes confirmed working end-to-end.
+deferral: fulfilled 2026-06-11 — milestone-end live pass + post-gap-closure live re-pass both executed
 environment: >
   Live pass executed self-driven via playwright (headless chromium) against the real
   stack: real uvicorn backend on :8000 (SQLite dev.db migrated to alembic 0020), real
@@ -52,17 +52,45 @@ expected: A non-wave workflow (user_stories) runs with zero wave_*/subagent_* fr
 result: pass
 notes: "Run D: user_stories completed clean — 0 wave/subagent frames, seq 1..27 contiguous, 0 dup event_ids, no errors, agent cards + preview normal (40-runD-complete.png)."
 
+## Live Re-checks (milestone-end, post-gap-closure — 2026-06-11)
+
+The 4 human_verification items queued in 12-VERIFICATION.md, re-run live after the
+12-08/12-09/12-10 fixes landed. Same harness as the first pass (scripted-model
+launcher — AWS SSO still expired; engine/WS/persistence/FE all stock), driven by
+/tmp/flowin-uat-recheck.py. Evidence: 12-UAT-EVIDENCE/results-recheck.json + screenshots.
+
+### 5. Live wave-tree panel render on the dashboard execution surface (human_verification #1)
+expected: During a live sample_wave run, WaveTreePanel renders wave groups + N distinct worker leaves on the dashboard (12-08 mount live)
+result: pass
+notes: "Run F DOM probes: mid-wave-1 the panel rendered 'Wave 0 / t1, t2 / RUNNING' with 2 distinct sample-wave-worker leaves both RUNNING; after wave 1 the badge flipped COMPLETED; at completion both wave groups (Wave 0 t1,t2 + Wave 1 t3,t4) rendered COMPLETED with 4 worker leaves (62-runF-complete.png DOM text). Visually confirmed in-viewport (66-runH-panel-in-view.png). COSMETIC observation: at 950px viewport height the panel sits ~122px below the fold of the scrollable execution column (AgentProgressPanel's flexible space pushes it down); a normal column scroll reaches it — real mounted UI, not dead UI."
+
+### 6. Live auto-resume reconnect delivers the full resumed tail and resolves the page (human_verification #2)
+expected: Backend SIGKILL mid-wave + restart with the page open: page reconnects, live-attaches (12-09 bridge), receives the resumed tail incl. pipeline_complete, resolves out of 'running' (12-08 handler)
+result: pass
+notes: "Run G: killed mid-wave-2 at seq 17; FE reconnected with after_seq=17; got the LIVE-ATTACH ack ('Reconnected — resuming pipeline stream' — the 12-09 bridge registered the auto-resumed run, no live:false demotion); resumed tail seq 19..29 delivered on the wire incl. re-emitted wave 1 + pipeline_complete (seq 29); wire dups 5 (replay/drainer overlap, FE dedups by event_id per CR-05); DOM resolved — Stop button gone, 'Done in 3.0s', completion toast (63-runG-resolved.png). The 51-runE2-stuck behavior is gone. INFO: seq 18 (run_resuming audit marker) was not on this connection's wire — the reconnect raced the marker stamp and the marker is store-appended, not bridge-pushed; FE has no handler for it and the durable log is contiguous 1..29 (fresh replay delivers it). workflow_runs.workspace_id non-NULL on both runs (Gap 2c stamp live); zero marker IntegrityError warnings in either backend log (marker fix live)."
+
+### 7. Live sample_wave run resolves its deliverable with no fallback warning (human_verification #3)
+expected: No 'merged.txt not written by agent — falling back to streamed output' log line; deliverable is the serialized_sandbox bundle containing part_a..d.txt (12-10)
+result: pass
+notes: "0 hits for 'falling back to streamed' across both backend logs (pre- and post-restart). Run F workflow_runs.output is exactly the filename:-block bundle with all 4 parts (filename: part_a.txt 'a' … part_d.txt 'd'); run status completed."
+
+### 8. Cross-owner live-attach demotion — CR-01 (human_verification #4)
+expected: A second authenticated user presenting a live run_id gets ∅ replay + live:false, never the live stream
+result: pass
+notes: "While run F was live mid-wave-1 (registered in _PIPELINE_TASKS), uat12b@example.com opened a raw WS (bearer subprotocol) and sent reconnect_pipeline {pipeline_run_id: <run F>, after_seq: 0}. Received exactly ONE frame: pipeline_reconnected {status: null, replayed_through_seq: 0, live: false, 'Replayed durable run_events tail (no live task)'} — ∅ replayed rows, null status (default-deny scoping), and zero run-F stream frames over the following 9s while the run was actively emitting waves (crossowner-frames.jsonl). The real reconnect_pipeline handler drove the websocket.py:605-641 gate."
+
 ## How it was run
 
 1. Backend via /tmp/flowin-uat-launcher.py (runtime patches only; uvicorn :8000, dev.db @ alembic 0020)
 2. Frontend `npm run dev` (:3000); dedicated `uat12@example.com` user (enterprise), removed after
 3. /tmp/flowin-uat-driver.py — playwright scenarios A (clean wave run), B (2nd-run drop → cursor reset), C (mid-run reload), E/E2 (mid-run backend SIGKILL + restart), D (user_stories regression); WS frames intercepted + logged both directions
+4. Live re-pass (tests 5-8): /tmp/flowin-uat-recheck.py — runs F (clean, DOM probes), G (SIGKILL mid-wave-2 + restart), H (panel geometry), cross-owner raw-WS probe as uat12b@example.com; users uat12/uat12b re-seeded for the pass, removed after
 
 ## Summary
 
-total: 4
-passed: 2
-issues: 2
+total: 8
+passed: 6
+issues: 2 (both resolved by 12-08/12-09/12-10 + review fixes; re-verified live in tests 5-8)
 pending: 0
 skipped: 0
 blocked: 0

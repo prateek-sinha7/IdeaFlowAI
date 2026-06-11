@@ -1,0 +1,252 @@
+{
+  "crossOwner": {
+    "sent_run_id": "af563bbf-9d43-4784-ba2d-2b7c051fd0b8",
+    "frame_types": [
+      "pipeline_reconnected"
+    ],
+    "reconnected_payloads": [
+      {
+        "pipeline_run_id": "af563bbf-9d43-4784-ba2d-2b7c051fd0b8",
+        "status": null,
+        "replayed_through_seq": 0,
+        "live": false,
+        "message": "Replayed durable run_events tail (no live task)"
+      }
+    ],
+    "replayed_run_event_frames": [],
+    "live_stream_frames_after_ack": [],
+    "closed_early": false
+  },
+  "runF": {
+    "wave_started": [
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "task_ids": [
+          "t1",
+          "t2"
+        ],
+        "seq": 7
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "task_ids": [
+          "t3",
+          "t4"
+        ],
+        "seq": 15
+      }
+    ],
+    "wave_completed": [
+      {
+        "wave_index": 0,
+        "seq": 14
+      },
+      {
+        "wave_index": 1,
+        "seq": 22
+      }
+    ],
+    "subagent_spawned": [
+      {
+        "wave_index": 0,
+        "worker": 0,
+        "agent": "sample-wave-worker",
+        "seq": 8
+      },
+      {
+        "wave_index": 0,
+        "worker": 1,
+        "agent": "sample-wave-worker",
+        "seq": 9
+      },
+      {
+        "wave_index": 1,
+        "worker": 0,
+        "agent": "sample-wave-worker",
+        "seq": 16
+      },
+      {
+        "wave_index": 1,
+        "worker": 1,
+        "agent": "sample-wave-worker",
+        "seq": 17
+      }
+    ],
+    "seq_min": 1,
+    "seq_max": 23,
+    "seq_missing": [],
+    "wire_dup_event_ids": 0,
+    "reconnect_sends": [],
+    "pipeline_complete": true,
+    "errors": [],
+    "run_id": "af563bbf-9d43-4784-ba2d-2b7c051fd0b8",
+    "dom_probe_midwave1": {
+      "present": true,
+      "text": "WAVE / SUBAGENT TREE\n\nWave 0\nt1, t2\nRUNNING\nsample-wave-worker\nRUNNING\nsample-wave-worker\nRUNNING",
+      "waveRows": [
+        "Wave 0"
+      ],
+      "workerLeaves": 2,
+      "emptyState": false
+    },
+    "dom_probe_wave1_complete": {
+      "present": true,
+      "text": "WAVE / SUBAGENT TREE\n\nWave 0\nt1, t2\nCOMPLETED\nsample-wave-worker\nCOMPLETE\nsample-wave-worker\nCOMPLETE\nWave 1\nt3, t4\nCOMPLETED\nsample-wave-worker\nCOMPLETE\nsample-wave-worker\nCOMPLETE",
+      "waveRows": [
+        "Wave 0",
+        "Wave 1"
+      ],
+      "workerLeaves": 4,
+      "emptyState": false
+    },
+    "dom_probe_final": {
+      "present": true,
+      "text": "WAVE / SUBAGENT TREE\n\nWave 0\nt1, t2\nCOMPLETED\nsample-wave-worker\nCOMPLETE\nsample-wave-worker\nCOMPLETE\nWave 1\nt3, t4\nCOMPLETED\nsample-wave-worker\nCOMPLETE\nsample-wave-worker\nCOMPLETE",
+      "waveRows": [
+        "Wave 0",
+        "Wave 1"
+      ],
+      "workerLeaves": 4,
+      "emptyState": false
+    }
+  },
+  "runG": {
+    "wave_started": [
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "task_ids": [
+          "t1",
+          "t2"
+        ],
+        "seq": 7
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "task_ids": [
+          "t3",
+          "t4"
+        ],
+        "seq": 15
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "task_ids": [
+          "t3",
+          "t4"
+        ],
+        "seq": 21
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "task_ids": [
+          "t3",
+          "t4"
+        ],
+        "seq": 21
+      }
+    ],
+    "wave_completed": [
+      {
+        "wave_index": 0,
+        "seq": 14
+      },
+      {
+        "wave_index": 1,
+        "seq": 28
+      }
+    ],
+    "subagent_spawned": [
+      {
+        "wave_index": 0,
+        "worker": 0,
+        "agent": "sample-wave-worker",
+        "seq": 8
+      },
+      {
+        "wave_index": 0,
+        "worker": 1,
+        "agent": "sample-wave-worker",
+        "seq": 9
+      },
+      {
+        "wave_index": 1,
+        "worker": 0,
+        "agent": "sample-wave-worker",
+        "seq": 16
+      },
+      {
+        "wave_index": 1,
+        "worker": 1,
+        "agent": "sample-wave-worker",
+        "seq": 17
+      },
+      {
+        "wave_index": 1,
+        "worker": 0,
+        "agent": "sample-wave-worker",
+        "seq": 22
+      },
+      {
+        "wave_index": 1,
+        "worker": 1,
+        "agent": "sample-wave-worker",
+        "seq": 23
+      },
+      {
+        "wave_index": 1,
+        "worker": 0,
+        "agent": "sample-wave-worker",
+        "seq": 22
+      },
+      {
+        "wave_index": 1,
+        "worker": 1,
+        "agent": "sample-wave-worker",
+        "seq": 23
+      }
+    ],
+    "seq_min": 1,
+    "seq_max": 29,
+    "seq_missing": [
+      18
+    ],
+    "wire_dup_event_ids": 5,
+    "reconnect_sends": [
+      {
+        "type": "reconnect_pipeline",
+        "pipeline_run_id": "debade11-c415-4b51-a353-0bfe9bd3d032",
+        "after_seq": 17
+      }
+    ],
+    "pipeline_complete": true,
+    "errors": [],
+    "run_id": "debade11-c415-4b51-a353-0bfe9bd3d032",
+    "pre_kill_seq_max": 17,
+    "reconnected_payloads": [
+      {
+        "pipeline_run_id": "debade11-c415-4b51-a353-0bfe9bd3d032",
+        "message": "Reconnected \u2014 resuming pipeline stream"
+      }
+    ],
+    "post_restart_seq_range": [
+      19,
+      29
+    ],
+    "dom_stop_button_count": 0,
+    "dom_wave_panel_final": {
+      "present": true,
+      "text": "WAVE / SUBAGENT TREE\n\nWave 1\nt3, t4\nCOMPLETED\nsample-wave-worker\nCOMPLETE\nsample-wave-worker\nCOMPLETE",
+      "waveRows": [
+        "Wave 1"
+      ],
+      "workerLeaves": 2,
+      "emptyState": false
+    }
+  }
+}
