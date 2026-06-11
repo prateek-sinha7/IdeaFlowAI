@@ -584,6 +584,7 @@ class ExecutionEngine:
         model_overrides: dict[str, str] | None = None,
         _sink: "_RunEventSink | None" = None,
         _resume_from: int = 0,
+        _is_resume: bool = False,
     ) -> AsyncGenerator[dict, None]:
         """Execute a workflow end-to-end, yielding WebSocket events.
 
@@ -726,9 +727,18 @@ class ExecutionEngine:
             # silently re-run completed workers). On resume, RECOVER the original
             # workspace_id from a durable row (owner-scoped) and reuse it; only mint a
             # fresh one for a normal run or when no prior workspace exists.
+            #
+            # CR-01: recover the workspace whenever this is a RESUME (``_is_resuming``),
+            # NOT only when the offset is > 0. A run interrupted with a durable run_events
+            # tail but no COMPLETED step (offset 0) must still bind to its ORIGINAL
+            # workspace, else its resumed events are stamped with a fresh workspace_id and
+            # the owner+workspace-scoped ``after_seq`` reconnect read resolves to ∅ —
+            # the reconnecting client never sees the resumed tail (RESUME-03). A run with
+            # no durable row (offline harness) recovers ``None`` → mints fresh →
+            # byte/event-identical to the prior behavior.
             _recovered_ws = (
                 await self._recover_workspace_id(owner_id, pipeline_run_id)
-                if _resume_from > 0
+                if (_is_resume or _resume_from > 0)
                 else None
             )
             if _recovered_ws is not None:
@@ -4023,11 +4033,38 @@ class ExecutionEngine:
             # Every step already complete — finalize without re-driving any agent.
             logger.info("resume_run(%s): all steps complete — nothing to re-drive", run_id)
 
+        # ── Seed the resume seq counter PAST the durable tail (CR-01 / RESUME-03) ─────
+        # The pre-restart run already persisted run_events at seq 1..N (plus the
+        # run_resuming marker at max(seq)+1). Re-using itertools.count(1) would make
+        # every resumed event collide with seq 1..N (run_events has no unique
+        # constraint), so a reconnecting client that sends after_seq=N (its last
+        # pre-crash seq) would never receive ANY resumed event (they all carry seq <= N).
+        # Read the durable tail under the SAME owner+workspace scope the engine sink
+        # wrote the rows under (recover the ORIGINAL workspace_id, NOT a fresh
+        # create_workspace id — binding drift, Pitfall 2 / IN-04) and seed the counter at
+        # max(seq)+1 so resumed events continue the monotonic per-run seq. Best-effort:
+        # any read failure (offline harness with no DB / no durable tail) degrades to
+        # start=1 — a resume on an offline run has no durable tail to collide with, so
+        # seq 1 is correct there (byte/event-identical to the prior behavior).
+        start = 1
+        try:
+            owner_id = user_id or f"anon:{session_id or run_id}"
+            workspace_id = await self._recover_workspace_id(owner_id, run_id)
+            tail_store = ScopedStore(owner_id=owner_id, workspace_id=workspace_id)
+            existing = await tail_store.read_events(run_id, after_seq=0)
+            start = max((r.seq for r in existing), default=0) + 1
+        except Exception as exc:  # noqa: BLE001 — no durable tail → start=1 (offline)
+            logger.debug(
+                "resume_run(%s): durable-tail read failed (%s) → seeding seq at 1",
+                run_id, exc,
+            )
+            start = 1
+
         # ── Re-drive through the SAME seq/event sink as a fresh run (so resumed events
         # persist + replay via the after_seq branch). _execute_impl rebuilds the
         # ExecutionContext via its one construction path and skips i < offset. ─────────
         sink = _RunEventSink()
-        counter = itertools.count(1)
+        counter = itertools.count(start)
         try:
             async for event in self._execute_impl(
                 agents=agents,
@@ -4039,6 +4076,7 @@ class ExecutionEngine:
                 parent_run_id=parent_run_id,
                 _sink=sink,
                 _resume_from=offset,
+                _is_resume=True,
             ):
                 data = event.get("data")
                 if not isinstance(data, dict):
