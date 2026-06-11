@@ -90,6 +90,22 @@ def test_id_is_stringified():
     assert out[0].id == "7"
 
 
+def test_duplicate_task_id_raises_named_valueerror():
+    """WR-05: a duplicate task id raises a named ValueError before returning any task.
+
+    FAILS on the pre-fix parser (last-wins ``by_id`` silently drops the earlier task).
+    """
+    payload = json.dumps([
+        {"id": "a", "body": "first a"},
+        {"id": "b", "body": "b"},
+        {"id": "a", "body": "second a"},
+    ])
+    with pytest.raises(ValueError) as exc:
+        _parse(payload)
+    msg = str(exc.value)
+    assert "duplicate" in msg.lower() and "a" in msg, f"unexpected message: {msg!r}"
+
+
 def test_json_tasks_is_registered():
     discover()
     reg = CapabilityRegistry()

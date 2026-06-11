@@ -109,6 +109,23 @@ def test_conflict_split_preserves_dependents_in_later_wave():
     assert _ids(waves) == [["A"], ["B"], ["C"]]
 
 
+def test_build_waves_rejects_duplicate_task_id_before_any_wave():
+    """WR-05 (defense-in-depth): build_waves raises WaveBuildError on a duplicate id
+    BEFORE returning any wave (zero spawn).
+
+    Protects callers that construct tasks without going through json_tasks. FAILS on the
+    pre-fix (last-wins ``by_id`` silently drops a task / can drive in-degrees negative).
+    """
+    tasks = [
+        _t("a", targets=["x.txt"]),
+        _t("b", depends_on=["a"]),
+        _t("a", targets=["y.txt"]),  # duplicate id
+    ]
+    with pytest.raises(WaveBuildError) as exc:
+        build_waves(tasks)
+    assert "duplicate" in str(exc.value).lower()
+
+
 def test_wave_scheduler_is_registered():
     discover()
     reg = CapabilityRegistry()
