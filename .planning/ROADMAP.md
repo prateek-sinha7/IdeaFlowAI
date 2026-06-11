@@ -419,7 +419,7 @@ Plans:
 
 **Gap Closure 2** *(after 12-UAT live pass found Gap 1 dead wave panel, Gap 2 auto-resume reconnect, Gap 3 sample deliverable)*
 
-- [ ] 12-08-PLAN.md — FE: mount `WaveTreePanel` on the dashboard execution surface (thread `waveGroups` from page.tsx → DashboardLayout; Gap 1, no longer dead UI) + add the missing `pipeline_reconnected` handler in useWorkflow (resolve on live:false+terminal; Gap 2 FE half — stops the post-resume "running forever" hang) [wave 1, gap_closure]
+- [x] 12-08-PLAN.md — FE: mount `WaveTreePanel` on the dashboard execution surface (thread `waveGroups` from page.tsx → DashboardLayout; Gap 1, no longer dead UI) + add the missing `pipeline_reconnected` handler in useWorkflow (resolve on live:false+terminal; Gap 2 FE half — stops the post-resume "running forever" hang) [wave 1, gap_closure]
 - [ ] 12-09-PLAN.md — BE: injected engine→WS live-task bridge so an auto-resumed run registers in `_PIPELINE_TASKS`/`_PIPELINE_QUEUES` (reconnect live-attaches; Gap 2a) + stamp `workflow_runs.workspace_id` consistently with the run_events sink via `set_run_scope` (non-null `pipeline_reconnected.status`; Gap 2c) + `_stamp_resume_marker` recovers the real workspace_id (no NOT NULL IntegrityError); import-linter-safe (no engine→app.api import) [wave 1, gap_closure]
 - [ ] 12-10-PLAN.md — manifest: switch `sample_wave` deliverable from `single_file name=merged.txt` (no step produces it) to `serialized_sandbox` (bundles the merged `part_*.txt` base the workers actually write) — no more "merged.txt not written — falling back to streamed output" warning; zero engine edits (SC-001) [wave 1, gap_closure]
 
@@ -441,7 +441,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 9. Local Runtime + Repo (no exec) [4A] | 6/6 | Complete    | 2026-06-10 |
 | 10. Safe Local Exec [4B] | 5/5 | Complete    | 2026-06-10 |
 | 11. Fan-Out + Merge [5] | 5/5 | Complete    | 2026-06-11 |
-| 12. Wave Scheduler + Resume [6] | 7/7 | Complete    | 2026-06-11 |
+| 12. Wave Scheduler + Resume [6] | 8/10 | In Progress|  |
 
 ---
 *Roadmap created: 2026-06-06*

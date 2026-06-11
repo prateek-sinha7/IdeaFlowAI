@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-11T11:53:14.424Z"
-last_activity: 2026-06-11
+last_updated: "2026-06-11T13:52:12.837Z"
+last_activity: 2026-06-11 -- Phase 12 execution started
 progress:
   total_phases: 12
-  completed_phases: 12
-  total_plans: 68
-  completed_plans: 68
-  percent: 100
+  completed_phases: 11
+  total_plans: 71
+  completed_plans: 69
+  percent: 92
 ---
 
 # Project State
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-10)
 
 **Core value:** A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001).
-**Current focus:** Phase 12 — Wave Scheduler + Durable Resume [6]
+**Current focus:** Phase 12 — wave-scheduler-durable-resume-6
 
 ## Current Position
 
-Phase: 12
-Plan: Not started
+Phase: 12 (wave-scheduler-durable-resume-6) — EXECUTING
+Plan: 2 of 10
 Status: Ready to execute
-Last activity: 2026-06-11
+Last activity: 2026-06-11 -- Phase 12 execution started
 
 Progress: [██████████] 100% (12/12 phases complete; 65/65 mapped plans complete)
 
@@ -124,6 +124,7 @@ Progress: [██████████] 100% (12/12 phases complete; 65/65 ma
 | Phase 12 P05 | ~6 min | 2 tasks | 4 files |
 | Phase 12 P06 | ~14min | 3 tasks | 6 files |
 | Phase 12 P07 | ~16min | 3 tasks | 5 files |
+| Phase 12 P08 | 8min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -210,6 +211,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 12-04: additive props-driven WaveTreePanel (08-08 sibling-panel reuse); parent routes wave_*/subagent_* events down + dedup by event_id; FE after_seq reconnect = RESUME-03 client half (idempotent replay); live render/reconnect UAT deferred to end-of-milestone live pass
 - [Phase 12]: 12-05 (RESUME-03 gap closure, CR-01+CR-02): (CR-01) resume_run seeds its event seq counter from the durable run_events tail — reads read_events(after_seq=0) under the RECOVERED owner+workspace scope and seeds itertools.count(max(seq)+1) instead of count(1), so resumed events continue the monotonic per-run seq (no collision with the pre-restart 1..N) and a client sending after_seq=N receives the resumed tail; offline (no tail) degrades to start=1 (byte/event-identical). Surfaced a Rule-1 bug: _execute_impl recovered the original workspace_id ONLY at offset>0, so an offset-0 resume of a run with a durable run_events tail minted a FRESH workspace and stamped resumed events under it → the after_seq read resolved to ∅ even after the seq fix. Added _is_resume to _execute_impl (threaded True from resume_run) + widened recovery to `_is_resume or _resume_from>0` (is_resuming/wave mid-wave filter stays offset>0). (CR-02) the WS reconnect replay branch recovers the run's workspace_id from a RunEvent row filtered by owner_id==user.id (a fresh _get_db() session — no DB session otherwise in scope) and passes it to ScopedStore(owner_id, workspace_id=recovered) — the owner+workspace predicate is PRESERVED (server-recovered value, never dropped, never from the reconnect payload, T-12-05-TENANT); pre-fix workspace_id=None scoped to `workspace_id IS NULL` → 0 production rows. Cross-owner reconnect recovers no row → ∅. Dispatch loop stays 1; 10 characterization snapshots byte/event-identical; lint 4/0; 55 passed/7 skipped (+44 adjacent). Commits 02202ea4/cb34ca82 (CR-01) + 11280c94/987e8262 (CR-02).
 - [Phase 12]: 12-06: mid-wave resume corrected — whole-in-flight-wave re-run (CR-03 no parallel-order data loss), step-filtered _completed_wave_indices (CR-04 no cross-step), stale running wave_runs row flipped 'superseded' on resume (WR-01); subagent_* events carry wave_index+step (CR-06 backend half); duplicate task ids raise pre-spawn in parser + build_waves (WR-05). CR-03-followup per-task-skip deferred (needs task identity on subagent_runs).
+- [Phase 12]: 12-08: live:false+non-terminal pipeline_reconnected keeps isRunning true (self-contained, no reconnectPending flag); re-replay rides existing reconnect cycle bounded by useWebSocket backoff
+- [Phase 12]: 12-08: WaveTreePanel rendered unconditionally on the execution surface — panel owns its empty state, stable slot for non-wave runs
 
 ### Pending Todos
 
