@@ -182,6 +182,7 @@ class LocalWorkspace:
         runtime: "LocalSandboxRuntime",
         policy: ExecutionPolicy,
         sandbox: RunSandbox,
+        has_git: bool = False,
     ) -> None:
         self.owner_id = owner_id
         self.workspace_id = workspace_id
@@ -189,6 +190,13 @@ class LocalWorkspace:
         self.policy = policy
         self._sandbox = sandbox
         self._root: Path = sandbox.ensure()
+        # Phase 11 / FANOUT-05 (CR-06): whether this workspace is a git checkout.
+        # STORED (not discarded) — the engine's isolation-scope selection
+        # (``fanout._select_isolation_scope``) keys on this to pick ``worktree``
+        # over ``sub_sandbox``. Set True by ``create_workspace(has_git=True)``,
+        # by ``clone_repo`` (a clone IS a git checkout), and on every
+        # ``allocate_worktree`` child.
+        self.has_git = has_git
         # The audit callback invoked on EVERY exec_command outcome (allowed/denied/
         # killed) — defaults to a no-op so non-audited callers don't crash; the live
         # recorder (KernelServices.record_exec_run) is injected at create_workspace
@@ -278,6 +286,9 @@ class LocalWorkspace:
         # Clone into the run root itself (``git clone -- src .`` requires an empty
         # dir; the freshly-ensured run dir is empty).
         self._git("clone", "--", source, ".", env=env)
+        # A successful clone makes this workspace a git checkout (CR-06) — the
+        # engine's fan-out isolation selection now sees has_git=True → worktree.
+        self.has_git = True
         return self._root
 
     def create_branch(self, name: str) -> str:
@@ -487,11 +498,29 @@ class LocalWorkspace:
             runtime=self.runtime,
             policy=LocalExecutionPolicy(exec=False, network=False, secrets=[]),
             sandbox=wt_sandbox,
+            has_git=True,  # a worktree child IS a git checkout (CR-06)
         )
         # Stamp the per-worker branch so remove_worktree can delete it (happy path).
         ws._worktree_branch = branch
         ws._worktree_path = wt_root
         return ws
+
+    def commit_all(self, message: str) -> str:
+        """Commit ALL working-tree changes on THIS workspace's checked-out branch.
+
+        The fan-out worker-teardown commit (CR-06): a worktree worker's edits must
+        be COMMITTED on its per-worker branch before ``merge_worktree`` runs, or
+        the 3-way merge reports "already up to date" and the uncommitted edits are
+        destroyed by the ``remove_worktree --force`` teardown (worker output
+        silently lost). Runs ``git add -A`` + ``git commit`` via the ``_git``
+        owner in THIS workspace's root (the worktree dir → the worker branch).
+        A no-change commit is tolerated (returns "" — nothing to integrate).
+        """
+        self._git("add", "-A")
+        try:
+            return self._git("commit", "-m", message)
+        except subprocess.CalledProcessError:
+            return ""  # nothing to commit — a worker that wrote nothing
 
     def spawn_point_commit(self) -> str:
         """Capture the working-branch HEAD commit at spawn (the 11-03 merge-base).
@@ -591,7 +620,10 @@ class LocalSandboxRuntime:
     ) -> Workspace:
         """Provision a local-disk ``Workspace`` for one run.
 
-        ``has_git`` is advisory (the local backend always supports git). ``exec``
+        ``has_git`` marks the workspace as a git checkout — STORED on the
+        workspace (CR-06) so the engine's fan-out isolation-scope selection
+        (``worktree`` vs ``sub_sandbox``) keys on it; ``clone_repo`` also flips
+        it True when a repo lands later. ``exec``
         now flows LIVE into the policy: when ``True`` the workspace is granted the
         N3-locked ``DEFAULT_EXEC_PROFILE`` (allow-list + caps) behind the security
         gate; when ``False`` the policy is byte-identical to the pre-Phase-10 deny
@@ -622,6 +654,9 @@ class LocalSandboxRuntime:
             runtime=self,
             policy=policy,
             sandbox=sandbox,
+            # CR-06: STORE the flag (it was documented "advisory" and discarded,
+            # leaving the engine's worktree isolation scope unreachable live).
+            has_git=has_git,
         )
         if recorder is not None:
             ws._recorder = recorder

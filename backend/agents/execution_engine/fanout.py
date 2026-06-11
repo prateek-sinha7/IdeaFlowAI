@@ -374,6 +374,19 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
         # spawns (the abort propagates through the spawn loop / gather).
         _note_tokens(budget, worker_tokens)
 
+        # Commit a completed WORKTREE worker's edits on its per-worker branch
+        # (CR-06): without this, merge_worktree's ``git merge`` sees nothing to
+        # integrate and the uncommitted edits are destroyed by the worktree
+        # teardown — worker output silently lost. Best-effort via the workspace
+        # handle (the single git owner); a sub_sandbox worker has no branch.
+        if status == "complete" and getattr(worker_ws, "_worktree_branch", None):
+            commit_fn = getattr(worker_ws, "commit_all", None)
+            if callable(commit_fn):
+                try:
+                    commit_fn(f"fanout: worker {idx} ({agent_id})")
+                except Exception as exc:  # noqa: BLE001 — a commit failure degrades to no fragment
+                    logger.warning("fan-out worker %s worktree commit failed: %s", idx, exc)
+
         # (5a) Fragment persistence BEFORE merge (FANOUT-06) — each worker's output
         # persists as a typed lineage-tracked fragment artifact, so partial results
         # survive an abort/cancel (11-04/11-05 consume the ref). Best-effort: a worker

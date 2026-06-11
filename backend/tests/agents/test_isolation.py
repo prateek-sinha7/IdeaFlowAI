@@ -238,6 +238,100 @@ def test_select_scope_worktree_when_has_git():
     assert _select_isolation_scope(base) == "worktree"
 
 
+# ---------------------------------------------------------------------------
+# CR-06 — has_git is STORED on the LIVE LocalWorkspace (not just test fakes),
+# and a worktree worker's edits are COMMITTED so the 3-way merge integrates them.
+# ---------------------------------------------------------------------------
+
+
+def test_create_workspace_stores_has_git_and_drives_scope_selection(runs_root):
+    """The LIVE workspace carries has_git → the engine selects worktree (CR-06)."""
+    git_ws = _base_workspace(runs_root, has_git=True)
+    assert git_ws.has_git is True
+    assert _select_isolation_scope(git_ws) == "worktree"
+
+    plain_ws = LocalSandboxRuntime().create_workspace(
+        owner_id="owner-1", workspace_id="ws-run-2", exec=False
+    )
+    assert plain_ws.has_git is False
+    assert _select_isolation_scope(plain_ws) == "sub_sandbox"
+
+
+@requires_git
+def test_clone_repo_flips_has_git(runs_root, tmp_path):
+    """A repo landing later via clone_repo makes the workspace a git checkout."""
+    src = tmp_path / "src-repo"
+    src.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=str(src), check=True)
+    subprocess.run(["git", "config", "user.email", "t@t.local"], cwd=str(src), check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=str(src), check=True)
+    (src / "seed.txt").write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=str(src), check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "seed"], cwd=str(src), check=True)
+
+    ws = _base_workspace(runs_root, has_git=False)
+    assert ws.has_git is False
+    ws.clone_repo(str(src))
+    assert ws.has_git is True
+    assert _select_isolation_scope(ws) == "worktree"
+
+
+@requires_git
+def test_worktree_worker_commit_then_merge_integrates_edits(runs_root):
+    """commit_all on the worker branch → merge_worktree integrates the edit (CR-06).
+
+    Without the commit, ``git merge`` reports already-up-to-date and the worker's
+    uncommitted worktree writes would be destroyed by the teardown.
+    """
+    base = _base_workspace(runs_root, has_git=True)
+    _init_repo(base)
+    base_commit = base.spawn_point_commit()
+
+    wt = base.allocate_worktree(step="build", worker_index=0)
+    assert wt.has_git is True  # a worktree child IS a git checkout
+    wt.write_file("part_0.txt", "from worker 0\n")
+    wt.commit_all("fanout: worker 0")
+
+    info = base.merge_worktree("fanout/build/0", base_commit)
+    assert info["conflicts"] == []
+    # The worker's committed edit is INTEGRATED into the base working tree.
+    assert base.read_file("part_0.txt") == "from worker 0\n"
+    base.remove_worktree(wt)
+
+
+def test_commit_all_with_no_changes_is_tolerated(runs_root):
+    if _GIT is None:
+        pytest.skip("git not available")
+    base = _base_workspace(runs_root, has_git=True)
+    _init_repo(base)
+    wt = base.allocate_worktree(step="build", worker_index=0)
+    assert wt.commit_all("empty") == ""  # nothing to commit — clean degrade
+    base.remove_worktree(wt)
+
+
+@pytest.mark.asyncio
+async def test_run_fanout_commits_completed_worktree_worker():
+    """run_fanout invokes commit_all for a completed worktree worker (CR-06)."""
+    runner = _IsolationFakeRunner(has_git=True, known_agents={"worker-a"})
+    committed: list[tuple] = []
+
+    _orig_alloc = runner.allocate_isolated_workspace
+
+    async def _alloc(scope, step, *, worker_index):
+        ws = await _orig_alloc(scope, step, worker_index=worker_index)
+        ws._worktree_branch = f"fanout/{step}/{worker_index}"
+        ws._sandbox = SimpleNamespace(root=None)
+        ws.commit_all = lambda msg, _i=worker_index: committed.append((_i, msg))
+        return ws
+
+    runner.allocate_isolated_workspace = _alloc  # type: ignore[assignment]
+    ctx = _iso_ctx(runner)
+
+    await _collect(run_fanout([{"agent": "self", "input": "t"}], ctx, step=_iso_step()))
+
+    assert [c[0] for c in committed] == [0], "the completed worktree worker did not commit"
+
+
 def test_select_scope_sub_sandbox_when_no_git():
     base = SimpleNamespace(has_git=False)
     assert _select_isolation_scope(base) == "sub_sandbox"
