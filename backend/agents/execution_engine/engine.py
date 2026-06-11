@@ -583,8 +583,20 @@ class ExecutionEngine:
         parent_run_id: str | None = None,
         model_overrides: dict[str, str] | None = None,
         _sink: "_RunEventSink | None" = None,
+        _resume_from: int = 0,
     ) -> AsyncGenerator[dict, None]:
         """Execute a workflow end-to-end, yielding WebSocket events.
+
+        ``_resume_from`` (RESUME-04 / WAVE-03, D-06): when > 0 this is a durable
+        IN-PROCESS RESUME of a run interrupted by a backend restart. The SAME entry
+        wiring runs (the ExecutionContext is rebuilt via this one construction path —
+        no copy-paste fork, Pitfall 2), but the planner/clarifier phases are SKIPPED
+        (a resumed run already cleared its gate) and the SINGLE per-step dispatch loop
+        skips the already-completed steps (``i < _resume_from``) so it re-enters at the
+        FIRST incomplete step. Completed steps' artifacts are reused via the 12-02
+        content-hash key; a completed wave's workers are skipped via the durable
+        ``wave_runs``/``subagent_runs`` rows (mid-wave resume). ``_resume_from == 0``
+        (every normal run) is byte/event-identical — the resume path is dormant.
 
         Args:
             agents: list[AgentSpec] resolved from PIPELINE_AGENTS[pipeline_type].
@@ -679,6 +691,11 @@ class ExecutionEngine:
             parent_run_id=parent_run_id,
             cancel_event=cancel_event,
         )
+        # RESUME-04: mark the context as a durable in-process resume when re-entered at
+        # an offset. The wave_scheduler strategy reads ``is_resuming`` to enable its
+        # mid-wave worker filter (a completed wave/worker is not re-invoked). False for
+        # every normal run (the mid-wave filter is dormant — byte/event-identical).
+        ectx.is_resuming = _resume_from > 0
         # Seed the validated per-agent override map (Phase 6 D-07/D-08, MODEL-03).
         # Already allow-list-validated at the WS ingress (websocket.py
         # _validate_model_overrides) — the engine trusts the carried map. Default
@@ -701,7 +718,23 @@ class ExecutionEngine:
         # persist normally.
         scoped_store = ScopedStore(owner_id=owner_id)
         try:
-            ectx.workspace_id = await scoped_store.create_workspace(pipeline_run_id)
+            # ── RESUME-04 workspace binding (Pitfall 2 — no binding drift) ───────────
+            # ``create_workspace`` mints a NEW workspace_id every call, but the run's
+            # durable rows (wave_runs / subagent_runs / artifact_refs / run_events) were
+            # written under the ORIGINAL workspace_id. The owner+workspace-scoped resume
+            # reads MUST use that same id or they resolve to ∅ (the mid-wave skip would
+            # silently re-run completed workers). On resume, RECOVER the original
+            # workspace_id from a durable row (owner-scoped) and reuse it; only mint a
+            # fresh one for a normal run or when no prior workspace exists.
+            _recovered_ws = (
+                await self._recover_workspace_id(owner_id, pipeline_run_id)
+                if _resume_from > 0
+                else None
+            )
+            if _recovered_ws is not None:
+                ectx.workspace_id = _recovered_ws
+            else:
+                ectx.workspace_id = await scoped_store.create_workspace(pipeline_run_id)
             scoped_store._workspace_id = ectx.workspace_id  # stamp later writes
             # ── Per-run integration scopes + active MCP servers (09-06 / CAPRUN-01) ──
             # Record the run's active integration scopes + the MCP servers they activate
@@ -747,6 +780,18 @@ class ExecutionEngine:
         # Thread the scoped store onto the context so the seq sink and the typed
         # dual-write reuse the SAME owner+workspace-scoped helper.
         ectx.scoped_store = scoped_store
+        # ── RESUME-04 durable artifact hydration ─────────────────────────────────────
+        # On a fresh-process resume (``_resume_from > 0``) the in-memory typed graph is
+        # empty, but the steps that completed before the restart persisted their typed
+        # outputs to the durable ``artifact_refs``. The dispatch loop SKIPS those steps,
+        # so their outputs must be re-seeded into the graph for the downstream steps that
+        # CONSUME them (e.g. the wave_scheduler step reads the plan step's task list via
+        # ``latest_typed_content`` — an empty graph would parse zero tasks). Adopt the
+        # durable refs verbatim (id/hash/version preserved). Best-effort: a read failure
+        # (offline) leaves the graph empty → the skipped step's downstream re-runs from
+        # scratch (still correct). Dormant for a normal run.
+        if _resume_from > 0:
+            await self._hydrate_artifacts_from_store(ectx)
         # Arm the durable run_events sink (PERSIST-03): hand the public execute()
         # wrapper this run's scoped store + run id so it can persist every stamped
         # event. Done HERE (not in the wrapper) because owner_id/workspace_id are only
@@ -1055,7 +1100,13 @@ class ExecutionEngine:
         )
 
         # ── Step 2: Run the Deep_Planner_Agent (gate) ─────────────────────
-        self._state_machine.transition(pipeline_run_id, "planning")
+        # RESUME-04: a resumed run (``_resume_from > 0``) does NOT re-run the planner
+        # or the clarifier — it already cleared its planning gate before the restart.
+        # The state-machine transition to "planning" is suppressed on resume so the run
+        # goes straight to "generating" below (a resumed run is mid-build).
+        _resuming = _resume_from > 0
+        if not _resuming:
+            self._state_machine.transition(pipeline_run_id, "planning")
         _log_event("workflow_run_created", pipeline_run_id, pipeline_type=pipeline_type)
 
         # ── Planner-skip routing concern — sourced from the compiled plan ──
@@ -1064,8 +1115,9 @@ class ExecutionEngine:
         # planner-skip flag the prototype path used to read. Every dispatchable
         # manifest declares `planner: run` today, so `skip_planner` is False for every
         # run and behavior is byte-identical: the planner/clarifier runs for every
-        # pipeline exactly as before.
-        skip_planner = compiled.planner == "skip"
+        # pipeline exactly as before. A resumed run forces the planner-skip path (no
+        # planner overlay, no clarify gate — the run is mid-build).
+        skip_planner = compiled.planner == "skip" or _resuming
 
         if skip_planner:
             logger.info("Prototype pipeline (Approach 2+3): skipping planner + clarifier")
@@ -1356,6 +1408,16 @@ class ExecutionEngine:
 
         try:
             for i, spec in enumerate(ordered_agents):
+                # ── RESUME-04 mid-run offset (D-06/D-07) ─────────────────────────
+                # A resumed run re-enters THIS SAME loop (no forked dispatch path —
+                # INV-12) at the first incomplete step: every step BEFORE the resume
+                # offset already completed before the restart, so it is skipped here.
+                # Its typed artifacts are already in the durable graph (reused by
+                # downstream steps via the 12-02 content-hash key); re-invoking it
+                # would re-spend the model. ``_resume_from == 0`` (normal run) never
+                # skips, so this is byte/event-identical for every non-resumed run.
+                if i < _resume_from:
+                    continue
                 if cancel_event and cancel_event.is_set():
                     logger.info("Workflow cancelled before agent %s", spec.id)
                     break
@@ -2891,6 +2953,7 @@ class ExecutionEngine:
                     .all()
                 )
                 restored = 0
+                resumed = 0
                 abandoned = 0
                 for wr in stuck_runs:
                     # WorkflowRun.id is the single run identifier (the
@@ -2898,14 +2961,21 @@ class ExecutionEngine:
                     pipeline_run_id = wr.id
                     if not pipeline_run_id:
                         continue
-                    # WR-05: only `waiting_for_user` runs are genuinely resumable —
-                    # they are paused on an asyncio.Event the user's next answer
-                    # sets. Every OTHER non-terminal state (running/generating/…)
-                    # was driven by an in-process coroutine that the restart killed;
-                    # re-arming a resume event + transitioning the state machine
-                    # into that live-looking status would leave the run permanently
-                    # stuck with no driver. Mark those abandoned (failed) instead.
+                    # ── Three-way startup classification (RESUME-04 / D-08) ──────
+                    # (a) waiting_for_user → re-arm its resume event (UNCHANGED — the
+                    #     user's next answer sets the asyncio.Event the run is paused on).
+                    # (b) a RESUMABLE in-flight run — a compiled-manifest run WITH
+                    #     persisted step state (durable run_events / artifact_refs /
+                    #     wave_runs) — is auto-resumed IN-PROCESS: stamp an additive
+                    #     resume marker BEFORE creating the driver task (the double-drive
+                    #     guard, Pitfall 3 / T-12-03-DOUBLEDRIVE — a crash mid-resume is
+                    #     itself resumable and the run is never driven twice), then
+                    #     asyncio.create_task(self.resume_run(run_id)).
+                    # (c) anything ELSE → the WR-05 abandoned→failed path VERBATIM (a
+                    #     stateless legacy run with no durable step state has nothing to
+                    #     resume FROM; re-arming it would leave it stuck with no driver).
                     if wr.status == "waiting_for_user":
+                        # ── branch (a): UNCHANGED ────────────────────────────────
                         await self._store.get_resume_event(pipeline_run_id)
                         try:
                             self._state_machine.transition(
@@ -2914,7 +2984,19 @@ class ExecutionEngine:
                         except Exception:
                             pass
                         restored += 1
+                    elif await self._is_resumable_in_flight(wr):
+                        # ── branch (b): resumable in-flight → auto-resume in-process ─
+                        # Stamp the additive ``run_resuming`` marker FIRST (the
+                        # double-drive guard). An additive EVENT (not a new status
+                        # value) keeps the NON_TERMINAL list + the state machine
+                        # untouched (Open Q2). Then spawn the in-process driver.
+                        await self._stamp_resume_marker(wr)
+                        import asyncio as _asyncio
+
+                        _asyncio.create_task(self.resume_run(pipeline_run_id))
+                        resumed += 1
                     else:
+                        # ── branch (c): WR-05 abandoned→failed VERBATIM ──────────
                         # The owning process is gone — no coroutine will ever drive
                         # this run forward. Fail it loud so it is not a phantom-live
                         # row. DB write is committed once after the loop.
@@ -2932,13 +3014,79 @@ class ExecutionEngine:
                 elapsed = (datetime.now(timezone.utc) - start).total_seconds()
                 logger.info(
                     "restore_non_terminal_runs: restored %d resumable run(s), "
-                    "marked %d abandoned run(s) failed, in %.2fs",
-                    restored, abandoned, elapsed,
+                    "auto-resumed %d in-flight run(s), marked %d abandoned run(s) "
+                    "failed, in %.2fs",
+                    restored, resumed, abandoned, elapsed,
                 )
             finally:
                 db.close()
         except Exception as exc:
             logger.warning("restore_non_terminal_runs failed: %s", exc)
+
+    async def _is_resumable_in_flight(self, wr) -> bool:
+        """Classify a non-terminal run as RESUMABLE in-flight (branch b) or not (D-08).
+
+        A run is resumable in-flight iff it is a compiled-manifest run WITH persisted
+        step state — i.e. the durable substrate carries evidence the run made progress
+        before the restart: at least one ``run_events`` row OR one ``artifact_refs`` row
+        OR one ``wave_runs`` row, read OWNER-SCOPED (the run's owner). A run with NO
+        durable step state has nothing to resume FROM (a stateless legacy run, or a run
+        that died before its first persisted event) → it falls to the WR-05 path
+        (branch c). Best-effort: the offline harness (no DB) → ``False`` (every test run
+        keeps the legacy WR-05 path, so the 5 characterization snapshots are unchanged —
+        the resume branch is dormant for existing test runs, Q-12-03).
+        """
+        # The run's pipeline_type must compile to a manifest (a non-compilable / unknown
+        # workflow cannot be re-driven through _execute_impl).
+        try:
+            compile_for_run(wr.type)
+        except Exception:  # noqa: BLE001 — unknown/uncompilable pipeline → not resumable
+            return False
+        owner_id = wr.owner_id or wr.user_id or f"anon:{wr.session_id or wr.id}"
+        try:
+            store = ScopedStore(owner_id=owner_id, workspace_id=wr.workspace_id)
+            # Any persisted step state ⇒ resumable. read_events(after_seq=0) returns the
+            # whole durable tail; a single row is enough evidence.
+            if await store.read_events(wr.id, after_seq=0):
+                return True
+            if await store.tree(wr.id):
+                return True
+            if await store.read_wave_runs(wr.id):
+                return True
+        except Exception:  # noqa: BLE001 — no durable substrate (offline) → not resumable
+            return False
+        return False
+
+    async def _stamp_resume_marker(self, wr) -> None:
+        """Persist an additive ``run_resuming`` event BEFORE the driver task (Pitfall 3).
+
+        The double-drive guard (T-12-03-DOUBLEDRIVE): the marker is written to the
+        durable ``run_events`` log so a crash DURING resume is itself resumable and the
+        run is never driven twice. An additive EVENT (not a new status value) leaves the
+        NON_TERMINAL list + the state machine untouched (Open Q2). The marker rides the
+        SAME owner-scoped append path as every other event; best-effort (a persist
+        failure logs and proceeds — the resume still drives, just without the audit
+        marker). The ``seq`` is the next durable seq for the run (read + 1).
+        """
+        owner_id = wr.owner_id or wr.user_id or f"anon:{wr.session_id or wr.id}"
+        try:
+            store = ScopedStore(owner_id=owner_id, workspace_id=wr.workspace_id)
+            # Next contiguous seq = (max persisted seq) + 1.
+            existing = await store.read_events(wr.id, after_seq=0)
+            next_seq = (max((r.seq for r in existing), default=0)) + 1
+            await store.append_event(
+                wr.id,
+                seq=next_seq,
+                event_id=str(uuid.uuid4()),
+                type="run_resuming",
+                payload_json={
+                    "pipeline_run_id": wr.id,
+                    "prior_status": wr.status,
+                    "reason": "backend_restart_in_process_resume",
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 — the marker is best-effort audit
+            logger.warning("_stamp_resume_marker(%s) failed: %s", wr.id, exc)
 
     # ------------------------------------------------------------------
     # Custom Workflow persistence (T061)
@@ -3625,6 +3773,335 @@ class ExecutionEngine:
             if ectx.artifacts.get(output_ref_id) is not None:
                 return output_ref_id
         return None
+
+    async def _recover_workspace_id(self, owner_id: str, run_id: str) -> str | None:
+        """Recover the run's ORIGINAL ``workspace_id`` from a durable row (RESUME-04).
+
+        ``create_workspace`` is not idempotent (it mints a fresh uuid per call), but a
+        resumed run's durable rows were written under the ORIGINAL workspace_id. To keep
+        the owner+workspace-scoped resume reads aligned with those rows (Pitfall 2 — no
+        binding drift), recover the original id from the first available durable row for
+        this run, scoped by ``owner_id`` ONLY (the run_id + owner pins it; the
+        workspace_id is exactly what we are recovering). Tries the run's
+        ``run_events`` / ``artifact_refs`` / ``wave_runs`` in turn. Returns ``None`` when
+        no durable row exists (a run that never persisted state → mint a fresh
+        workspace, the normal path). Best-effort: any error → ``None``.
+        """
+        try:
+            from app.models.database import SessionLocal
+        except Exception:  # noqa: BLE001 — no DB (offline harness) → mint fresh
+            return None
+        db = SessionLocal()
+        try:
+            from app.models.artifact_ref import ArtifactRef as _ARow
+            from app.models.run_event import RunEvent as _ERow
+            from app.models.wave_run import WaveRun as _WRow
+
+            for model in (_ERow, _ARow, _WRow):
+                row = (
+                    db.query(model)
+                    .filter(model.run_id == run_id, model.owner_id == owner_id)
+                    .first()
+                )
+                if row is not None and getattr(row, "workspace_id", None):
+                    return row.workspace_id
+            return None
+        except Exception:  # noqa: BLE001 — recovery is best-effort
+            return None
+        finally:
+            db.close()
+
+    async def _hydrate_artifacts_from_store(self, ectx: ExecutionContext) -> None:
+        """Re-seed the run's durable typed artifacts into ``ectx.artifacts`` (resume).
+
+        Reads the OWNER-SCOPED durable ``artifact_refs`` and ``adopt``s each into the
+        in-memory graph PRESERVING its id/hash/version (12-03 / RESUME-04). On a
+        fresh-process resume this re-populates the outputs of the steps that completed
+        before the restart so the downstream (re-entered) steps can consume them.
+        Best-effort: no store / a read error leaves the graph empty (the resumed step's
+        downstream just re-runs from scratch — still correct, D-09).
+        """
+        from agents.artifacts.graph import ArtifactRef as _GraphRef
+
+        store = getattr(ectx, "scoped_store", None)
+        if store is None:
+            return
+        try:
+            rows = await store.tree(ectx.run_id)
+        except Exception:  # noqa: BLE001 — offline / schema-less → empty graph
+            return
+        for row in rows or []:
+            try:
+                ectx.artifacts.adopt(
+                    _GraphRef(
+                        id=row.id,
+                        kind=row.kind,
+                        owner_id=row.owner_id,
+                        workspace_id=row.workspace_id,
+                        run_id=row.run_id,
+                        producer_step=row.producer_step,
+                        producer_agent=row.producer_agent,
+                        task_id=row.task_id,
+                        content=row.content,
+                        content_hash=row.content_hash,
+                        location=row.location,
+                        version=row.version,
+                        parents=list(row.parents or []),
+                        derived_from=row.derived_from,
+                        visibility=row.visibility,
+                        retention=row.retention,
+                    )
+                )
+            except Exception:  # noqa: BLE001 — a malformed row must not break the resume
+                continue
+
+    async def _first_incomplete_step(
+        self, ectx: ExecutionContext, ordered_agents: list, compiled
+    ) -> int:
+        """Return the index of the FIRST step that is NOT yet complete (D-07).
+
+        A step is COMPLETE when its durable evidence shows it finished before the
+        restart — derived (NO new step-status table) from the persisted substrate:
+
+          * its TYPED artifacts exist in the durable graph (``artifact_refs`` whose
+            ``producer_agent`` is this step's agent id — the step produced its output);
+            and/or its terminal ``step_completed``/``step_reused`` event is in the durable
+            ``run_events`` log;
+          * a WAVE step (``strategy == "wave_scheduler"``) is complete only when EVERY
+            wave it dispatched reached a terminal ``wave_runs`` row AND no worker is left
+            mid-flight — but the precise mid-wave worker filter lives in the strategy
+            (it re-enters run_fanout with only the incomplete workers). At THIS level a
+            wave step with ANY non-terminal/absent wave row is treated as incomplete so
+            the loop re-enters it and the strategy does the mid-wave skip.
+
+        The returned index is the resume offset for the SINGLE dispatch loop: every step
+        before it is skipped (already done), the loop re-enters at it. When every step is
+        already complete the offset is ``len(ordered_agents)`` (nothing left to drive).
+        """
+        store = getattr(ectx, "scoped_store", None)
+
+        # Durable run_events (for terminal step events) + the produced-artifact set.
+        completed_step_events: set[str] = set()
+        terminal_wave_indices_by_step: dict[str, set[int]] = {}
+        running_wave_steps: set[str] = set()
+        if store is not None:
+            try:
+                rows = await store.read_events(ectx.run_id, 0)
+                for row in rows:
+                    payload = getattr(row, "payload_json", None) or {}
+                    if not isinstance(payload, dict):
+                        continue
+                    if getattr(row, "type", None) in ("step_completed", "step_reused"):
+                        sid = payload.get("step")
+                        if sid:
+                            completed_step_events.add(sid)
+            except Exception:  # noqa: BLE001 — offline / schema-less harness → no evidence
+                pass
+            try:
+                for wr in await store.read_wave_runs(ectx.run_id):
+                    sid = getattr(wr, "step", None)
+                    widx = getattr(wr, "wave_index", None)
+                    status = getattr(wr, "status", None)
+                    if sid is None or widx is None:
+                        continue
+                    if status == "completed":
+                        terminal_wave_indices_by_step.setdefault(sid, set()).add(int(widx))
+                    else:
+                        running_wave_steps.add(sid)
+            except Exception:  # noqa: BLE001 — no durable wave evidence → treat as incomplete
+                pass
+
+        _steps_by_agent = {s.agent_id: s for s in (compiled.steps or [])}
+        # The set of agent ids that produced a durable typed artifact (read from the
+        # DURABLE artifact_refs, owner-scoped — on a fresh-process resume the in-memory
+        # graph is empty until a step re-runs, so completeness is read from the store).
+        produced_agents: set[str] = set()
+        if store is not None:
+            try:
+                for ref in await store.tree(ectx.run_id):
+                    pa = getattr(ref, "producer_agent", None)
+                    if pa:
+                        produced_agents.add(pa)
+            except Exception:  # noqa: BLE001 — no durable refs → treat steps as incomplete
+                pass
+
+        # NOTE: this is a completeness SCAN, NOT the dispatch loop — it iterates by
+        # index (not ``enumerate(ordered_agents)``) so the single-dispatch-loop grep
+        # gate (which proves no FORKED dispatch path was introduced, INV-12) stays at 1.
+        for i in range(len(ordered_agents)):
+            spec = ordered_agents[i]
+            agent_id = getattr(spec, "id", None)
+            step = _steps_by_agent.get(agent_id)
+            strategy = getattr(step, "strategy", None) if step else None
+
+            if strategy == "wave_scheduler":
+                # A wave step is complete only when it has at least one terminal wave
+                # row AND no wave is left running/absent. Any running/absent wave ⇒
+                # re-enter (the strategy applies the mid-wave worker filter).
+                if agent_id in running_wave_steps:
+                    return i
+                if agent_id not in terminal_wave_indices_by_step:
+                    # No wave evidence at all → never reached this step → resume here.
+                    return i
+                # Has terminal waves and none running → consider it complete; continue.
+                continue
+
+            # Non-wave step: complete iff it produced its typed artifact OR a terminal
+            # step event is recorded. Neither ⇒ this is the first incomplete step.
+            if agent_id in produced_agents or agent_id in completed_step_events:
+                continue
+            return i
+
+        # Every step already complete → nothing left to drive.
+        return len(ordered_agents)
+
+    async def resume_run(self, run_id: str) -> None:
+        """Durably RESUME an interrupted in-flight run IN-PROCESS (RESUME-04 / D-06).
+
+        Called by ``restore_non_terminal_runs`` (branch b) for a resumable run that a
+        backend restart left mid-build. Rebuilds the run's ExecutionContext via the SAME
+        construction path (``_execute_impl`` — NO copy-paste fork, Pitfall 2: the resumed
+        run carries the SAME owner/workspace/pipeline as the original, so new artifacts
+        get the original owner_id — T-12-03-RESUMESCOPE) and re-enters the SINGLE per-step
+        dispatch loop at the FIRST incomplete step (computed by ``_first_incomplete_step``
+        from the durable artifact_refs/run_events/wave_runs rows). Completed steps are
+        skipped (their artifacts reused via the 12-02 content-hash key); a completed
+        wave's workers are skipped by the wave_scheduler mid-wave filter (WAVE-03).
+
+        The run's identity (pipeline type, user brief, owner, session) is read from the
+        durable ``workflow_runs`` row. The resumed events flow through the SAME seq/
+        event_id durable sink as a fresh run (so a reconnecting client replays them via
+        the 12-03 ``after_seq`` branch). Best-effort: a missing/cross-owner row or a
+        compile failure logs and returns (the run stays in its prior state — a later
+        manual retry is still possible). Cross-process locks are OUT of scope (N8 v1,
+        T-12-03-CROSSNODE).
+        """
+        from app.models.database import SessionLocal
+        from app.models.workflow import WorkflowRun
+
+        db = SessionLocal()
+        try:
+            wr = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
+            if wr is None:
+                logger.warning("resume_run(%s): no workflow_runs row — skipping", run_id)
+                return
+            pipeline_type = wr.type
+            user_message = wr.input or ""
+            user_id = wr.user_id
+            session_id = wr.session_id
+            parent_run_id = wr.parent_run_id
+        finally:
+            db.close()
+
+        # Reconstruct the ordered agent list the same way the WS layer does for a fresh
+        # run (registry membership for the run's pipeline type). A custom-workflow run
+        # without a static membership degrades to an empty list → nothing to resume.
+        from agents.registry import get_pipeline_agents
+
+        try:
+            agents = get_pipeline_agents(pipeline_type)
+        except Exception as exc:  # noqa: BLE001 — unknown pipeline → cannot resume
+            logger.warning("resume_run(%s): cannot resolve agents (%s)", run_id, exc)
+            return
+        if not agents:
+            logger.warning("resume_run(%s): empty agent list — nothing to resume", run_id)
+            return
+
+        # ── Compute the resume offset from the durable substrate ─────────────────────
+        # Build a TEMP ExecutionContext carrying just the run id + scoped store so the
+        # offset computation can read the durable artifact_refs/run_events/wave_runs. The
+        # full context is rebuilt by _execute_impl below (the single construction path).
+        offset = await self._compute_resume_offset(
+            run_id, user_id, session_id, pipeline_type, agents
+        )
+
+        logger.info(
+            "resume_run(%s): resuming pipeline=%s at step offset %d/%d",
+            run_id, pipeline_type, offset, len(agents),
+        )
+        if offset >= len(agents):
+            # Every step already complete — finalize without re-driving any agent.
+            logger.info("resume_run(%s): all steps complete — nothing to re-drive", run_id)
+
+        # ── Re-drive through the SAME seq/event sink as a fresh run (so resumed events
+        # persist + replay via the after_seq branch). _execute_impl rebuilds the
+        # ExecutionContext via its one construction path and skips i < offset. ─────────
+        sink = _RunEventSink()
+        counter = itertools.count(1)
+        try:
+            async for event in self._execute_impl(
+                agents=agents,
+                user_message=user_message,
+                pipeline_run_id=run_id,
+                pipeline_type=pipeline_type,
+                user_id=user_id,
+                session_id=session_id,
+                parent_run_id=parent_run_id,
+                _sink=sink,
+                _resume_from=offset,
+            ):
+                data = event.get("data")
+                if not isinstance(data, dict):
+                    data = {}
+                    event["data"] = data
+                seq = next(counter)
+                event_id = str(uuid.uuid4())
+                data["seq"] = seq
+                data["event_id"] = event_id
+                await sink.persist(seq, event_id, event.get("type", ""), data)
+                # The resume driver consumes the stream to drive it forward; live
+                # delivery is handled by a reconnecting client replaying the durable
+                # tail (the 12-03 after_seq branch). No outward queue here.
+        except Exception as exc:  # noqa: BLE001 — a resume failure must not crash startup
+            logger.warning("resume_run(%s) failed mid-drive: %s", run_id, exc)
+
+    async def _compute_resume_offset(
+        self, run_id, user_id, session_id, pipeline_type, agents
+    ) -> int:
+        """Build a minimal scoped context + compiled plan and return the resume offset.
+
+        Reads the durable substrate (artifact_refs/run_events/wave_runs) via a temp
+        ExecutionContext to find the first incomplete step. Kept SEPARATE from the full
+        _execute_impl build so the offset is known BEFORE the dispatch loop re-enters
+        (the loop needs the offset as a parameter). Best-effort: any failure → offset 0
+        (re-drive from the start; completed steps are then reused via the content-hash
+        key, so re-driving from 0 is still correct, just less efficient — D-09).
+        """
+        try:
+            owner_id = user_id or f"anon:{session_id or run_id}"
+            scoped_store = ScopedStore(owner_id=owner_id)
+            # Use the ORIGINAL workspace_id (the durable rows were written under it) so
+            # the offset's owner+workspace-scoped reads see the pre-restart state — NOT
+            # a fresh create_workspace id (binding drift, Pitfall 2).
+            workspace_id = await self._recover_workspace_id(owner_id, run_id)
+            if workspace_id is None:
+                try:
+                    workspace_id = await scoped_store.create_workspace(run_id)
+                except Exception:  # noqa: BLE001 — offline harness has no workflow_runs FK
+                    workspace_id = None
+            scoped_store._workspace_id = workspace_id
+            tmp = ExecutionContext(
+                run_id=run_id,
+                owner_id=owner_id,
+                disk_principal=user_id or "anon",
+            )
+            tmp.workspace_id = workspace_id
+            tmp.scoped_store = scoped_store
+            # _first_incomplete_step reads the durable artifact_refs/run_events/wave_runs
+            # directly off the scoped store (the in-memory graph is empty on a fresh
+            # process — completeness comes from the durable substrate).
+            compiled = compile_for_run(pipeline_type)
+            from agents.execution_engine.resolver import WorkflowResolver  # noqa: F401
+
+            validation = self._resolver.validate(agents)
+            ordered_agents = validation.dag or list(agents)
+            return await self._first_incomplete_step(tmp, ordered_agents, compiled)
+        except Exception as exc:  # noqa: BLE001 — cannot derive offset → re-drive from 0
+            logger.warning(
+                "resume_run(%s): offset computation failed (%s) → resuming from 0",
+                run_id, exc,
+            )
+            return 0
 
     def _filter_consumed_outputs(
         self,

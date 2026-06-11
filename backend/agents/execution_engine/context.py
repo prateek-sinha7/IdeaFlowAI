@@ -209,3 +209,12 @@ class ExecutionContext:
     # revision path — a revision's mid-stream output is the edited streamed text, not a
     # fresh disk file); the FINAL single_file deliverable resolver still reads the file.
     is_revision_workflow: bool = False
+    # is_resuming: True when this run is a durable IN-PROCESS RESUME of a run
+    # interrupted by a backend restart (RESUME-04 / WAVE-03, set by resume_run before
+    # re-entering the dispatch loop at the first incomplete step). The wave_scheduler
+    # strategy reads it to enable MID-WAVE resume: a completed wave (terminal wave_runs
+    # row) is skipped wholesale, and within the in-flight wave only the workers WITHOUT
+    # a terminal subagent_runs row are re-fanned-out (completed fragments were made
+    # durable pre-merge in Phase 11). ``False`` for every normal run ⇒ the strategy is
+    # byte/event-identical (the mid-wave filter is dormant).
+    is_resuming: bool = False

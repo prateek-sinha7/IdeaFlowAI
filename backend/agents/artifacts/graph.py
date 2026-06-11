@@ -144,6 +144,24 @@ class ArtifactGraph:
         self._by_id[ref.id] = ref
         return ref
 
+    def adopt(self, ref: ArtifactRef) -> ArtifactRef:
+        """Insert an already-constructed ``ArtifactRef`` PRESERVING its id/hash/version.
+
+        Durable-resume hydration (12-03 / RESUME-04): on a fresh-process resume the
+        in-memory graph is empty, but the durable ``artifact_refs`` carry the outputs of
+        the steps that completed before the restart. Re-driving the run at an OFFSET
+        skips those steps, so their outputs must be re-seeded into the graph for the
+        downstream steps that CONSUME them (e.g. the wave_scheduler step reads the plan
+        step's task-list content). Unlike ``write_ref`` (which mints a new id + hash +
+        version), ``adopt`` keeps the persisted identity verbatim so content-hash reuse
+        + lineage stay stable. Idempotent: re-adopting a known id is a no-op.
+        """
+        if ref.id in self._by_id:
+            return self._by_id[ref.id]
+        self._refs.append(ref)
+        self._by_id[ref.id] = ref
+        return ref
+
     # ── Read ─────────────────────────────────────────────────────────────────
     def get(self, ref_id: str) -> ArtifactRef | None:
         """Return the ref with ``ref_id`` or ``None`` if not present."""

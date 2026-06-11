@@ -512,6 +512,43 @@ class KernelServices:
         except Exception as exc:  # noqa: BLE001 — audit must NEVER abort the run
             logger.warning("update_wave_run(row=%s) failed: %s", row_id, exc)
 
+    async def read_wave_runs(self) -> list[Any]:
+        """Return the run's owner/workspace-scoped ``wave_runs`` rows (wave_index asc).
+
+        The 12-03 MID-WAVE resume read: the ``wave_scheduler`` strategy consults the
+        durable wave rows (via this handle — never importing the store) to skip waves
+        already driven to a terminal status before a restart (WAVE-03). Best-effort —
+        a ``None`` store (offline harness) or a read error degrades to ``[]`` (no
+        durable state ⇒ re-run, the read-path precedent). Owner-scoped: a cross-owner
+        read returns nothing (T-12-01-IDOR, enforced in ``ScopedStore.read_wave_runs``).
+        """
+        store = getattr(self._ectx, "scoped_store", None)
+        if store is None:
+            return []
+        try:
+            return await store.read_wave_runs(self.run_id)
+        except Exception as exc:  # noqa: BLE001 — a resume read must never abort the run
+            logger.warning("read_wave_runs failed: %s", exc)
+            return []
+
+    async def read_subagent_runs(self) -> list[Any]:
+        """Return the run's owner/workspace-scoped ``subagent_runs`` rows (created asc).
+
+        The 12-03 MID-WAVE resume read: within the in-flight wave, the strategy skips
+        the workers that already reached a terminal ``subagent_runs`` status before the
+        restart (their fragments were persisted pre-merge in Phase 11) and re-fans-out
+        only the incomplete ones. Best-effort / owner-scoped, mirroring
+        ``read_wave_runs`` (offline / cross-owner ⇒ ``[]``).
+        """
+        store = getattr(self._ectx, "scoped_store", None)
+        if store is None:
+            return []
+        try:
+            return await store.read_subagent_runs(self.run_id)
+        except Exception as exc:  # noqa: BLE001 — a resume read must never abort the run
+            logger.warning("read_subagent_runs failed: %s", exc)
+            return []
+
     async def workspace_budget_spent(self) -> dict:
         """Return the workspace's already-spent fan-out budget aggregate (OBS-01).
 
