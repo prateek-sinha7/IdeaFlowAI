@@ -24,7 +24,7 @@ The plan sub-phases (0A/0B/0C, 1A/1B/1C, 4A/4B) are mapped to sequential GSD pha
 - [x] **Phase 10: Safe Local Exec (gated on N3) [4B]** - Constrained `exec` behind the `security` gate + `ExecutionPolicy`; compile/test/lint validators (completed 2026-06-10)
 - [x] **Phase 11: Engine-Owned Fan-Out + Merge [5]** - `spawn_subagents` + kernel `run_fanout`; isolation + merge-conflict flow; `BudgetManager`; subagent persistence (completed 2026-06-11)
 - [x] **Phase 12: Wave Scheduler + Durable Resume [6]** - Topo wave scheduler; `wave_runs`; resume mid-wave; prototype stays sequential (completed 2026-06-11)
-- [ ] **Phase 13: Live Verification Gap Closure** - Close the post-milestone live-Bedrock findings F1–F7 (.planning/live-verification/REPORT.md): declared-gate event delivery, run_revision FR-014 dead end, silent inject-halt completion, tool-XML prompt hygiene + handoff hardening, app_builder prompt re-templating, sample_fanout deliverable, test-infra repairs
+- [x] **Phase 13: Live Verification Gap Closure** - Close the post-milestone live-Bedrock findings F1–F7 (.planning/live-verification/REPORT.md): declared-gate event delivery, run_revision FR-014 dead end, silent inject-halt completion, tool-XML prompt hygiene + handoff hardening, app_builder prompt re-templating, sample_fanout deliverable, test-infra repairs (completed 2026-06-11)
 
 > **Deferred (plan Phase 7, OUT OF SCOPE this milestone):** ECS/EC2 runtime behind the unchanged `RuntimeEnvironment` port — a separate spec (§27). Tracked as v2 in REQUIREMENTS.md (ECS-01/02).
 
@@ -443,7 +443,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 10. Safe Local Exec [4B] | 5/5 | Complete    | 2026-06-10 |
 | 11. Fan-Out + Merge [5] | 5/5 | Complete    | 2026-06-11 |
 | 12. Wave Scheduler + Resume [6] | 10/10 | Complete    | 2026-06-11 |
-| 13. Live Verification Gap Closure | 5/6 | In Progress|  |
+| 13. Live Verification Gap Closure | 6/6 | Complete   | 2026-06-11 |
 
 ### Phase 13: Live Verification Gap Closure
 
@@ -459,7 +459,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
   5. All 15 app_builder agents produce role-conformant output: the three migration-templated prompts (code-compliance / test-compliance / sdlc-governance) re-templated for app_builder scope; devops agent emits files, not narration (F5)
   6. sample_fanout resolves its declared deliverable from produced files with no single_file fallback warning; `test_phase3_token_delta_live` runs against the current engine; the phase-8 live sweep budget reflects real Haiku 4.5 spend (F6/F7)
 
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans complete
 Plans:
 **Wave 1**
 
@@ -474,7 +474,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 13-06-PLAN.md — pipeline_failed terminal semantics + degraded completion + missing_template_context ingress guard + FE handling (F3)
+- [x] 13-06-PLAN.md — pipeline_failed terminal semantics + degraded completion + missing_template_context ingress guard + FE handling (F3)
 
 ---
 *Roadmap created: 2026-06-06*

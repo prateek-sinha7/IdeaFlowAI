@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-06-11T23:17:24.766Z"
+status: verifying
+last_updated: "2026-06-11T23:37:10.751Z"
 last_activity: 2026-06-12 -- Completed 13-05-PLAN.md (F2 gap closure)
 progress:
   total_phases: 13
-  completed_phases: 12
+  completed_phases: 13
   total_plans: 77
-  completed_plans: 76
-  percent: 92
+  completed_plans: 77
+  percent: 100
 ---
 
 # Project State
@@ -26,12 +26,12 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 
 Phase: 13 (live-verification-gap-closure) — EXECUTING
 Plan: 6 of 6
-Status: Ready to execute
-Last activity: 2026-06-12 -- Completed 13-05-PLAN.md (F2 gap closure)
+Status: Phase complete — ready for verification
+Last activity: 2026-06-12 -- Completed 13-06-PLAN.md (F3 gap closure; phase 13 plans 6/6)
 
-Session continuity: last session 2026-06-12; stopped at Completed 13-05-PLAN.md; resume file: none
+Session continuity: last session 2026-06-12; stopped at Completed 13-06-PLAN.md; resume file: none
 
-Progress: [██████████] 99% (12/13 phases complete; 76/77 plans complete; Phase 13 gap-closure 5/6)
+Progress: [██████████] 100% (12/13 phases complete; 77/77 plans complete; Phase 13 gap-closure 6/6 — ready for verification)
 
 ## Performance Metrics
 
@@ -134,6 +134,7 @@ Progress: [██████████] 99% (12/13 phases complete; 76/77 pla
 | Phase 13 P03 | ~9min | 3 tasks | 9 files |
 | Phase 13 P04 | ~10min | 2 tasks | 4 files |
 | Phase 13 P05 | ~8 min | 3 tasks | 4 files |
+| Phase 13 P06 | ~16 min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -231,6 +232,8 @@ Recent decisions affecting current work:
 - [Phase 13]: 13-04: F6 fixed manifest-data-only — sample_fanout deliverable single_file/merged.txt -> serialized_sandbox (8ffae37c sample_wave mirror; SC-001 zero engine edits); fanout proof asserts the filename:-block bundle of all 3 part files
 - [Phase 13]: 13-04: token-delta live baseline re-pointed at async _compose_context_message (6-positional) + html_skeleton capability compact(); module-level seam-existence assert catches future renames at offline collection. LIVE_BUDGET_USD 5.0->8.0 (measured $5.94/18.7M-token clean sweep, ~35% headroom)
 - [Phase 13]: 13-05: run-completion deliverable persist guarded on (final_output AND results) — generic kind=deliverable / visibility=workspace; FR-014 lookup is a 3-link chain (exact target kind -> deliverable -> summary) with version_history from the matched link; SC-001 held (no *_output literal in the kernel)
+- [Phase 13]: 13-06: total-collapse (no results + agent_errors) -> pipeline_failed terminal + state 'failed' before deliverable resolution; partial failure -> strictly-conditional status='degraded'+agents_failed on pipeline_complete (clean runs byte-identical, no re-baseline)
+- [Phase 13]: 13-06: WS ingress guard keyed on declared spec.injects (mirrors factory._compose_injection exactly) rejects template-less template-inject runs with missing_template_context before engine spin-up; bare prototype/ppt stay admissible but template-required, fail-fast (F3 item 3)
 
 ### Pending Todos
 
