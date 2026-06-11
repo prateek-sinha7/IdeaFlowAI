@@ -1484,6 +1484,16 @@ class ExecutionEngine:
         _registry = _CapReg()
         _steps_by_agent = {s.agent_id: s for s in compiled.steps}
 
+        # ── F3 (13-06): failed-agent tracking — pure OBSERVATION ────────────────
+        # Record the agent_id of every ``agent_error`` event flowing through the
+        # dispatch loop below. No event is modified, reordered or suppressed; the
+        # set is consulted ONLY at the Step-5 terminal block to decide between
+        # ``pipeline_failed`` (total collapse: nothing completed) and the additive
+        # ``status="degraded"``/``agents_failed`` fields on ``pipeline_complete``
+        # (partial failure). Keyed on counters only — no workflow name, no
+        # agent-id literal, no spec.id comparison (SC-001/INV-1).
+        _failed_agent_ids: set[str] = set()
+
         try:
             for i, spec in enumerate(ordered_agents):
                 # ── RESUME-04 mid-run offset (D-06/D-07) ─────────────────────────
@@ -1555,6 +1565,12 @@ class ExecutionEngine:
                 # RESUME-02 (D-10): the SINGLE per-step retry/reuse wrapper. Dormant
                 # (byte/event-identical) unless the step declares retry.max_attempts > 0.
                 async for event in self._dispatch_step_with_retry(step, ectx, strategy):
+                    # F3 (13-06): observe agent_error events for the terminal
+                    # semantics decision (no mutation — the event flows unchanged).
+                    if event.get("type") == "agent_error":
+                        _failed_id = event.get("data", {}).get("agent_id")
+                        if _failed_id:
+                            _failed_agent_ids.add(_failed_id)
                     yield event
 
                 # ── [D-03] Post-step gates (validation) ──────────────────────────
@@ -1619,6 +1635,38 @@ class ExecutionEngine:
         # gate), don't try to transition to "completed" — that would throw a
         # StateMachineError because "cancelled" is a terminal state.
         current_state = self._state_machine.get_state(pipeline_run_id)
+
+        # ── F3 (13-06): total collapse → pipeline_failed terminal ───────────────
+        # When EVERY agent that ran errored and NOTHING completed (``not results
+        # and _failed_agent_ids``), the run is a failure — not a completion with
+        # final_output=''. Mirror the BudgetExceeded failed-terminal precedent:
+        # transition to "failed", persist the budget snapshot if fan-out was
+        # active, emit ONE ``pipeline_failed`` event, and RETURN before
+        # deliverable resolution (no empty-deliverable resolution, no
+        # deliverable ref write — composes with the 13-05 guard — and no
+        # pipeline_complete). Counters only — no workflow-name branch (SC-001).
+        if (
+            current_state not in ("cancelled", "failed")
+            and not results
+            and _failed_agent_ids
+        ):
+            self._state_machine.transition(pipeline_run_id, "failed")
+            await self._persist_budget_snapshot_if_active(ectx)
+            yield {
+                "type": "pipeline_failed",
+                "data": {
+                    "pipeline_type": pipeline_type,
+                    "pipeline_run_id": pipeline_run_id,
+                    "total_duration": round(time.time() - total_start, 2),
+                    "agents_completed": 0,
+                    "agents_total": len(ordered_agents),
+                    "agents_failed": sorted(_failed_agent_ids),
+                    "error": "all agents failed",
+                    "timestamp": _now(),
+                },
+            }
+            return
+
         if current_state not in ("cancelled", "failed"):
             self._state_machine.transition(pipeline_run_id, "completed")
 
@@ -1718,21 +1766,31 @@ class ExecutionEngine:
         from app.core.config import settings as _settings
         _tok_in = sum(r.get("input_tokens", 0) or 0 for r in results)
         _tok_out = sum(r.get("output_tokens", 0) or 0 for r in results)
+        _pipeline_complete_data = {
+            "pipeline_type": pipeline_type,
+            "pipeline_run_id": pipeline_run_id,
+            "total_duration": round(time.time() - total_start, 2),
+            "agents_completed": len(results),
+            "agents_total": len(ordered_agents),
+            "final_output": final_output,
+            "total_input_tokens": _tok_in,
+            "total_output_tokens": _tok_out,
+            "total_tokens": _tok_in + _tok_out,
+            "estimated_cost_usd": round((_tok_in * 0.00000025) + (_tok_out * 0.00000125), 6),
+            "model_id": model_id or _settings.BEDROCK_INFERENCE_PROFILE_ID,
+        }
+        # ── F3 (13-06): degraded completion — STRICTLY CONDITIONAL fields ───────
+        # A partially-failed run (some agents completed, at least one agent_error
+        # observed) carries the ADDITIVE ``status="degraded"`` + ``agents_failed``
+        # keys. A clean run's payload is byte-identical — neither key is present
+        # (mirrors the OBS-01 conditional-snapshot pattern; the 5 characterization
+        # snapshots gate this parity).
+        if results and _failed_agent_ids:
+            _pipeline_complete_data["status"] = "degraded"
+            _pipeline_complete_data["agents_failed"] = sorted(_failed_agent_ids)
         yield {
             "type": "pipeline_complete",
-            "data": {
-                "pipeline_type": pipeline_type,
-                "pipeline_run_id": pipeline_run_id,
-                "total_duration": round(time.time() - total_start, 2),
-                "agents_completed": len(results),
-                "agents_total": len(ordered_agents),
-                "final_output": final_output,
-                "total_input_tokens": _tok_in,
-                "total_output_tokens": _tok_out,
-                "total_tokens": _tok_in + _tok_out,
-                "estimated_cost_usd": round((_tok_in * 0.00000025) + (_tok_out * 0.00000125), 6),
-                "model_id": model_id or _settings.BEDROCK_INFERENCE_PROFILE_ID,
-            },
+            "data": _pipeline_complete_data,
         }
 
     # ------------------------------------------------------------------
