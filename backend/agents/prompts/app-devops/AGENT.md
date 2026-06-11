@@ -76,3 +76,14 @@ Output every config file in this exact format so the team can commit them as-is:
 ```filename: path/to/file
 [complete file content]
 ```
+
+## Output contract
+
+- EVERY deliverable artefact MUST be emitted as a `filename:` fenced
+  block in the exact format shown above — the CI/CD workflow files,
+  the Makefile, the pre-commit config, the onboarding doc.
+- Narration about what you are "about to" create is FORBIDDEN. Never
+  write "Now let me create the CD workflow..." — write the
+  `filename:` block itself instead.
+- A response containing zero `filename:` blocks is a FAILED response.
+- Any prose is limited to a brief summary AFTER the file blocks.
