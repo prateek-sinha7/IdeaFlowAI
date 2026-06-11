@@ -74,6 +74,27 @@ _TASK_PLAN = (
     + "\n```\n"
 )
 
+# A SINGLE-WAVE plan (4 disjoint-target tasks, no deps) so all four workers fan out in
+# ONE run_fanout call — the CR-03 parallel-order test needs partial completion WITHIN one
+# wave (some workers terminal, some not). Dispatch order is t1,t2,t3,t4; on instance A the
+# model RAISES for t1 and t3 (the leading + middle task) while t2 and t4 complete — proving
+# completion order != dispatch order so the pre-fix leading-N prefix skip drops t1/t3.
+_SINGLE_WAVE_PLAN = (
+    "Here is the plan:\n\n```json\n"
+    + _json.dumps(
+        {
+            "tasks": [
+                {"id": "t1", "title": "Write A", "body": "Write the file part_a.txt with the content 'a'.", "targets": ["part_a.txt"]},
+                {"id": "t2", "title": "Write B", "body": "Write the file part_b.txt with the content 'b'.", "targets": ["part_b.txt"]},
+                {"id": "t3", "title": "Write C", "body": "Write the file part_c.txt with the content 'c'.", "targets": ["part_c.txt"]},
+                {"id": "t4", "title": "Write D", "body": "Write the file part_d.txt with the content 'd'.", "targets": ["part_d.txt"]},
+            ]
+        },
+        indent=2,
+    )
+    + "\n```\n"
+)
+
 
 class _PartWritingModel(ScriptedFakeChatModel):
     """Worker model: writes the ``part_X.txt`` in its task; counts per-letter calls.
@@ -158,9 +179,9 @@ def _load_fixture_specs():
     return specs
 
 
-def _scripts_for(agent_id: str):
+def _scripts_for(agent_id: str, plan: str = _TASK_PLAN):
     if agent_id == "sample-wave-plan":
-        return [_ScriptedTurn(texts=[_TASK_PLAN], usage=(20, 16))]
+        return [_ScriptedTurn(texts=[plan], usage=(20, 16))]
     return [_ScriptedTurn(texts=[f"{agent_id} default."], usage=(5, 3))]
 
 
@@ -171,11 +192,13 @@ class _ResumeHarness:
     wave_runs/subagent_runs/run_events persist across the simulated restart (Open Q3).
     """
 
-    def __init__(self, session, call_log, fail_on, *, db_engine=None, raise_on_fanout_call=None):
+    def __init__(self, session, call_log, fail_on, *, db_engine=None, raise_on_fanout_call=None, plan=_TASK_PLAN):
         self.session = session
         self.call_log = call_log
         self.fail_on = fail_on
         self.db_engine = db_engine
+        # The planner-emitted JSON plan (defaults to the 2-wave plan).
+        self.plan = plan
         # When set to N, the Nth run_fanout invocation (1-based) raises mid-wave AFTER
         # its workers ran — simulating an instance-A crash after wave (N-1) completed.
         self.raise_on_fanout_call = raise_on_fanout_call
@@ -226,7 +249,7 @@ class _ResumeHarness:
 
         def _patched_cr(agent_id, ctx, **kw):
             ctx.model = _PartWritingModel(
-                _scripts_for(agent_id),
+                _scripts_for(agent_id, self.plan),
                 is_worker=(agent_id == "sample-wave-worker"),
                 fail_on=self.fail_on,
                 call_log=self.call_log,
@@ -452,6 +475,318 @@ async def test_midwave_resume_does_not_reinvoke_completed_workers():
         f"resume did not complete every wave file: {sorted(produced)}"
     )
     session.close()
+
+
+# ===========================================================================
+# CR-03 — parallel completion-order != dispatch order: the WHOLE in-flight wave
+#         is re-run on resume (no leading-N prefix skip dropping incomplete tasks)
+# ===========================================================================
+
+
+class _ParallelOrderFakeRunner:
+    """Reproduces CR-03 at the strategy boundary: a mid-wave resume where the COMPLETED
+    workers (terminal ``subagent_runs``) do NOT correspond to the LEADING tasks by dispatch
+    order.
+
+    Durable state reported on resume:
+      * wave 0 (step1) ``completed`` — its 2 workers skipped wholesale (correct);
+      * wave 1 in-flight: 2 of its workers reached a terminal ``subagent_runs`` row, but —
+        because waves run PARALLEL — they are NOT the first 2 tasks by dispatch order.
+
+    The strategy records which task ids it actually re-fans-out per wave. The CORRECT
+    behavior is to re-run the ENTIRE in-flight wave (all of wave 1's tasks). The pre-fix
+    leading-N prefix skip would re-run only ``wave1[remaining:]`` — dropping the leading
+    tasks even though THOSE are the ones that never completed.
+    """
+
+    def __init__(self, *, terminal_worker_count):
+        # The number of terminal subagent_runs rows reported for step1 (wave0's 2 workers
+        # + the workers that completed in wave1 before the crash). With wave0=2 tasks and 2
+        # wave1 workers terminal, this is 4 — the pre-fix slice drops wave1's leading tasks.
+        self._terminal = terminal_worker_count
+        self.fanned_out: list[tuple[int, list[str]]] = []  # (wave_index, task_ids)
+        self.recorded: list = []
+        self.updated: list = []
+
+    def latest_typed_content(self, _step):
+        return ""
+
+    async def read_wave_runs(self):
+        # wave 0 completed for step1; wave 1 has a non-terminal (running) row.
+        return [
+            _FakeWaveRow("step1", 0, "completed"),
+            _FakeWaveRow("step1", 1, "running"),
+        ]
+
+    async def read_subagent_runs(self):
+        rows = []
+        for _ in range(self._terminal):
+            r = type("S", (), {})()
+            r.parent_step = "step1"
+            r.status = "complete"
+            rows.append(r)
+        return rows
+
+    async def record_wave_run(self, *, step, wave_index, task_ids, status):
+        self.recorded.append((step, wave_index, list(task_ids), status))
+        # Capture the ACTUAL fanned-out task set for the wave dispatched here.
+        self.fanned_out.append((wave_index, list(task_ids)))
+        return f"row-{step}-{wave_index}"
+
+    async def update_wave_run(self, row_id, *, status):
+        self.updated.append((row_id, status))
+
+    async def run_fanout(self, requests, ctx, *, step=None):
+        if False:  # pragma: no cover — async generator
+            yield {}
+
+
+@pytest.mark.asyncio
+async def test_midwave_resume_reruns_whole_inflight_wave_no_parallel_dropout():
+    """CR-03 (WAVE-03 / data-loss): the in-flight wave is re-run WHOLE on resume — no
+    leading-N prefix skip that drops incomplete parallel tasks.
+
+    wave 0 (2 tasks) completed; wave 1 (2 tasks [t3,t4]) is in-flight with 2 terminal
+    subagent_runs reported for the step (so ``_completed_worker_count`` = 4 = wave0's 2 +
+    2). The pre-fix prefix logic accounts wave 0's 2 tasks, leaving ``_remaining = 2`` for
+    wave 1 and slicing ``wave1[2:]`` = [] → wave 1 is SKIPPED ENTIRELY (its tasks never
+    re-run) even though completion order != dispatch order, so an incomplete parallel task
+    is dropped. The fix re-runs ALL of wave 1's tasks.
+
+    FAILS on the pre-fix prefix skip (wave 1 not fanned out / fanned out with a truncated
+    task set); PASSES once the whole in-flight wave is re-run.
+    """
+    from agents.capabilities.strategies.wave_scheduler import WaveSchedulerStrategy
+    from agents.workflows.plan import Task
+
+    strat = WaveSchedulerStrategy()
+    runner = _ParallelOrderFakeRunner(terminal_worker_count=4)
+    ctx = _Ctx(runner, is_resuming=True)
+    step = _Step("step1")
+
+    # wave 0 = [t1,t2] (disjoint, no deps); wave 1 = [t3 deps t1, t4 deps t2].
+    tasks = [
+        Task(id="t1", title="A", body="a", targets=["a.txt"]),
+        Task(id="t2", title="B", body="b", targets=["b.txt"]),
+        Task(id="t3", title="C", body="c", targets=["c.txt"], depends_on=["t1"]),
+        Task(id="t4", title="D", body="d", targets=["d.txt"], depends_on=["t2"]),
+    ]
+
+    class _FakeParser:
+        def parse(self, _text):
+            return tasks
+
+    strat._registry = type("R", (), {"resolve": lambda self, k, n: _FakeParser()})()
+    step.task_source = type("TS", (), {"source_step": "plan", "parser": "json_tasks"})()
+
+    _ = [ev async for ev in strat.run(step, ctx)]
+
+    # Wave 0 (completed) must be SKIPPED (not re-fanned-out).
+    wave0_fanouts = [tids for (widx, tids) in runner.fanned_out if widx == 0]
+    assert not wave0_fanouts, (
+        f"completed wave 0 should be skipped wholesale, but was re-run: {wave0_fanouts}"
+    )
+    # Wave 1 (in-flight) must be re-run WHOLE — BOTH t3 and t4, not a dispatch-order prefix.
+    wave1_fanouts = [tids for (widx, tids) in runner.fanned_out if widx == 1]
+    assert wave1_fanouts, (
+        "in-flight wave 1 was SKIPPED entirely by the prefix skip — parallel-order data "
+        f"loss (CR-03). recorded={runner.recorded}"
+    )
+    assert set(wave1_fanouts[0]) == {"t3", "t4"}, (
+        f"in-flight wave 1 must re-run ALL its tasks (whole-wave re-run), not a prefix: "
+        f"{wave1_fanouts[0]}"
+    )
+
+
+# ===========================================================================
+# CR-04 — _completed_wave_indices is step-filtered: a second wave_scheduler step
+#         resumes its OWN waves (no cross-step contamination)
+# ===========================================================================
+
+
+class _FakeWaveRow:
+    def __init__(self, step, wave_index, status):
+        self.step = step
+        self.wave_index = wave_index
+        self.status = status
+        self.id = f"{step}:{wave_index}:{status}"
+
+
+class _CrossStepFakeRunner:
+    """A minimal ctx.runner capturing which waves a wave_scheduler step actually fans out.
+
+    ``read_wave_runs`` returns rows for BOTH a first step (step1, waves 0,1 completed) and
+    THIS step (step2, none completed). The pre-fix unfiltered comprehension treats step1's
+    completed indices {0,1} as step2's own → skips step2's waves 0,1 wholesale. The
+    step-filtered fix reads ONLY step2's rows (none) → runs every wave.
+    """
+
+    def __init__(self, this_step):
+        self.this_step = this_step
+        self.fanned_out_waves: list[int] = []
+        self.recorded: list = []
+        self.updated: list = []
+
+    def latest_typed_content(self, _step):
+        return _SINGLE_WAVE_PLAN  # unused (tasks injected directly in the test)
+
+    async def read_wave_runs(self):
+        return [
+            _FakeWaveRow("step1", 0, "completed"),
+            _FakeWaveRow("step1", 1, "completed"),
+        ]
+
+    async def read_subagent_runs(self):
+        return []
+
+    async def record_wave_run(self, *, step, wave_index, task_ids, status):
+        self.recorded.append((step, wave_index, status))
+        return f"row-{step}-{wave_index}"
+
+    async def update_wave_run(self, row_id, *, status):
+        self.updated.append((row_id, status))
+
+    async def run_fanout(self, requests, ctx, *, step=None):
+        # Record the wave (by the wave_index threaded via the current record_wave_run).
+        self.fanned_out_waves.append(len(requests))
+        if False:  # pragma: no cover — make this an async generator
+            yield {}
+
+
+class _Ctx:
+    def __init__(self, runner, is_resuming):
+        self.runner = runner
+        self.is_resuming = is_resuming
+
+
+class _Step:
+    def __init__(self, agent_id):
+        self.agent_id = agent_id
+        self.task_source = None
+
+
+@pytest.mark.asyncio
+async def test_cross_step_does_not_skip_second_steps_waves():
+    """CR-04: a wave_scheduler step must read ONLY its OWN step's completed waves.
+
+    The runner reports step1's waves 0,1 as completed and step2 (THIS step) with none. The
+    strategy (resuming) must fan out step2's waves regardless of step1's indices. FAILS on
+    the pre-fix unfiltered ``_completed_wave_indices`` (which includes step1's {0,1} and
+    skips step2's waves 0,1 wholesale).
+    """
+    from agents.capabilities.strategies.wave_scheduler import WaveSchedulerStrategy
+    from agents.workflows.plan import Task
+
+    strat = WaveSchedulerStrategy()
+    runner = _CrossStepFakeRunner("step2")
+    ctx = _Ctx(runner, is_resuming=True)
+    step = _Step("step2")
+
+    # Inject a 2-wave task list directly (t_a,t_b in wave 0; t_c deps t_a in wave 1).
+    tasks = [
+        Task(id="ta", title="A", body="a", targets=["a.txt"]),
+        Task(id="tb", title="B", body="b", targets=["b.txt"]),
+        Task(id="tc", title="C", body="c", targets=["c.txt"], depends_on=["ta"]),
+    ]
+
+    # Patch the parser-resolve + build_waves source by feeding tasks via a tiny parser.
+    class _FakeParser:
+        def parse(self, _text):
+            return tasks
+
+    strat._registry = type("R", (), {"resolve": lambda self, k, n: _FakeParser()})()
+    step.task_source = type("TS", (), {"source_step": "plan", "parser": "json_tasks"})()
+
+    events = [ev async for ev in strat.run(step, ctx)]
+
+    # The strategy must have recorded a wave_run for step2's waves (NOT skipped them).
+    step2_recorded = [r for r in runner.recorded if r[0] == "step2"]
+    assert step2_recorded, (
+        "step2's waves were SKIPPED — cross-step contamination from step1 (CR-04). "
+        f"recorded={runner.recorded}"
+    )
+    # Both step2 waves (0 and 1) must have been dispatched.
+    step2_wave_indices = {r[1] for r in step2_recorded}
+    assert step2_wave_indices == {0, 1}, (
+        f"step2 did not dispatch all its own waves (CR-04 cross-step skip): {step2_wave_indices}"
+    )
+
+
+# ===========================================================================
+# WR-01 — the stale pre-crash running wave_runs row is flipped terminal on resume
+# ===========================================================================
+
+
+class _StaleRowFakeRunner:
+    """Reports a STALE ``running`` wave_runs row for (this_step, wave 0) — the pre-crash row.
+
+    On resume the strategy must FLIP it terminal (``superseded``) before recording the
+    re-entry's row, so no non-terminal row lingers for (step, 0).
+    """
+
+    def __init__(self, this_step):
+        self.this_step = this_step
+        self.stale_row = _FakeWaveRow(this_step, 0, "running")
+        self.recorded: list = []
+        self.updated: list = []
+
+    def latest_typed_content(self, _step):
+        return ""
+
+    async def read_wave_runs(self):
+        return [self.stale_row]
+
+    async def read_subagent_runs(self):
+        return []
+
+    async def record_wave_run(self, *, step, wave_index, task_ids, status):
+        self.recorded.append((step, wave_index, status))
+        return f"row-{step}-{wave_index}-new"
+
+    async def update_wave_run(self, row_id, *, status):
+        self.updated.append((row_id, status))
+
+    async def run_fanout(self, requests, ctx, *, step=None):
+        if False:  # pragma: no cover — async generator
+            yield {}
+
+
+@pytest.mark.asyncio
+async def test_stale_running_wave_row_is_flipped_terminal_on_resume():
+    """WR-01: the pre-crash ``running`` wave_runs row for the re-entered wave is flipped
+    terminal (``superseded``) on resume — so the wave step is not permanently incomplete.
+
+    FAILS on the pre-fix (the old running row is never updated; ``update_wave_run`` is only
+    ever called with the NEW re-entry row's id, leaving the stale running row forever).
+    """
+    from agents.capabilities.strategies.wave_scheduler import WaveSchedulerStrategy
+    from agents.workflows.plan import Task
+
+    strat = WaveSchedulerStrategy()
+    runner = _StaleRowFakeRunner("step1")
+    ctx = _Ctx(runner, is_resuming=True)
+    step = _Step("step1")
+
+    tasks = [Task(id="ta", title="A", body="a", targets=["a.txt"])]
+
+    class _FakeParser:
+        def parse(self, _text):
+            return tasks
+
+    strat._registry = type("R", (), {"resolve": lambda self, k, n: _FakeParser()})()
+    step.task_source = type("TS", (), {"source_step": "plan", "parser": "json_tasks"})()
+
+    _ = [ev async for ev in strat.run(step, ctx)]
+
+    # The stale running row (id of stale_row) must have been flipped to a terminal status.
+    flipped = [u for u in runner.updated if u[0] == runner.stale_row.id]
+    assert flipped, (
+        "the stale pre-crash running wave_runs row was NOT flipped terminal (WR-01). "
+        f"updates={runner.updated}"
+    )
+    assert flipped[0][1] == "superseded", (
+        f"stale row should be flipped to 'superseded', got {flipped[0][1]}"
+    )
 
 
 # ===========================================================================
