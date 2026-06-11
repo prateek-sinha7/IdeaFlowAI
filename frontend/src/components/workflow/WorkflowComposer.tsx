@@ -2,10 +2,11 @@
 
 import { useState, useCallback } from "react";
 import { Plus, X, Play, AlertCircle, CheckCircle2, GripVertical } from "lucide-react";
-import type { ValidationIssue } from "@/types/index";
+import type { ValidationIssue, WaveGroup } from "@/types/index";
 import { CapabilityPalette } from "./CapabilityPalette";
 import { AgentModelPicker } from "./AgentModelPicker";
 import { ValidatorIssuePanel } from "../results/ValidatorIssuePanel";
+import { WaveTreePanel } from "./WaveTreePanel";
 
 // Available agents for custom workflow composition
 // In a full implementation this would be fetched from /api/agents
@@ -47,6 +48,13 @@ interface WorkflowComposerProps {
    * `validation_warning` WS events (API-03). Additive — defaults to empty.
    */
   validatorIssues?: ValidationIssue[];
+  /**
+   * Live wave/subagent tree assembled from the run's `wave_*` / `subagent_*`
+   * lifecycle events (Phase 12 / §22). The parent's WS handler routes the events
+   * into this list (deduped by `event_id`). Additive — defaults to empty (an
+   * existing non-wave workflow renders an empty tree).
+   */
+  waves?: WaveGroup[];
 }
 
 /**
@@ -67,6 +75,7 @@ export function WorkflowComposer({
   isRunning,
   onModelOverridesChange,
   validatorIssues = [],
+  waves = [],
 }: WorkflowComposerProps) {
   const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
   const [brief, setBrief] = useState("");
@@ -283,6 +292,11 @@ export function WorkflowComposer({
         {/* Validator / issue panel (live validator_result / validation_warning WS events) */}
         <div className="pt-1 border-t border-gray-100">
           <ValidatorIssuePanel issues={validatorIssues} />
+        </div>
+
+        {/* Wave / subagent tree panel (live wave + subagent lifecycle events — Phase 12 §22) */}
+        <div className="pt-1 border-t border-gray-100">
+          <WaveTreePanel waves={waves} />
         </div>
       </div>
 

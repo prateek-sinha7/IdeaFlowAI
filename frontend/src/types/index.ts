@@ -39,10 +39,35 @@ export interface StreamMessage {
   // gate_passed/gate_blocked entries are ADDITIVE (Phase 8 / API-03) — they
   // extend the contract; no existing event was renamed or removed. They flow
   // through the generic backend WS forward and the ValidatorIssuePanel reads them.
-  type: "stream" | "complete" | "error" | "phase_start" | "phase_end" | "title_update" | "step" | "pipeline_start" | "agent_start" | "agent_thinking" | "agent_chunk" | "agent_complete" | "agent_error" | "pipeline_complete" | "questionnaire" | "pipeline_cancelled" | "workflow_title_update" | "planner_start" | "planner_complete" | "planner_timeout" | "planner_error" | "gate_status" | "questionnaire_ready" | "questionnaire_complete" | "clarification_limit_reached" | "agent_input" | "tool_call" | "tool_result" | "task_progress" | "task_loop_progress" | "review_gate_ready" | "review_gate_approved" | "pipeline_heartbeat" | "pong" | "workflow_validated" | "validator_result" | "validation_warning" | "gate_started" | "gate_passed" | "gate_blocked";
+  //
+  // The wave_started/wave_completed/wave_failed/subagent_spawned/subagent_result
+  // entries are ADDITIVE (Phase 12 / §22) — the wave scheduler's wave/subagent
+  // lifecycle events (statuses only, D-14). They flow through the same generic
+  // backend WS forward and the WaveTreePanel reads them; no existing event was
+  // renamed or removed.
+  type: "stream" | "complete" | "error" | "phase_start" | "phase_end" | "title_update" | "step" | "pipeline_start" | "agent_start" | "agent_thinking" | "agent_chunk" | "agent_complete" | "agent_error" | "pipeline_complete" | "questionnaire" | "pipeline_cancelled" | "workflow_title_update" | "planner_start" | "planner_complete" | "planner_timeout" | "planner_error" | "gate_status" | "questionnaire_ready" | "questionnaire_complete" | "clarification_limit_reached" | "agent_input" | "tool_call" | "tool_result" | "task_progress" | "task_loop_progress" | "review_gate_ready" | "review_gate_approved" | "pipeline_heartbeat" | "pong" | "workflow_validated" | "validator_result" | "validation_warning" | "gate_started" | "gate_passed" | "gate_blocked" | "wave_started" | "wave_completed" | "wave_failed" | "subagent_spawned" | "subagent_result";
   chunk?: string;
   section?: string;
   data?: FinalOutput | ErrorDetail | ProcessStep | Record<string, unknown>;
+}
+
+/** One worker leaf under a wave group — an agent + its lifecycle status. */
+export interface WaveWorker {
+  agent: string;
+  status: string;
+}
+
+/**
+ * One wave group in the wave/subagent tree (Phase 12 / §22). Assembled from the
+ * additive `wave_*` / `subagent_*` lifecycle events (statuses only — D-14, no
+ * live token stream). The dashboard WS handler routes the events into this shape
+ * (deduped by `event_id`) and feeds the list to the WaveTreePanel.
+ */
+export interface WaveGroup {
+  waveIndex: number;
+  taskIds: string[];
+  status: string;
+  workers: WaveWorker[];
 }
 
 /** Severity tier for a validator/gate issue (mirrors the backend P0–P3 map). */

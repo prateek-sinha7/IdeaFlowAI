@@ -7,7 +7,7 @@ import { ENV } from "@/lib/env";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useWorkflow } from "@/hooks/useWorkflow";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, User } from "@/types/index";
+import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, User, WaveGroup } from "@/types/index";
 import type { ChatMode } from "@/components/chat/ChatInput";
 
 /**
@@ -63,6 +63,18 @@ export default function DashboardPage() {
     templateId: string; designSystemId: string | null; brief: string; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
   } | null>(null);
+
+  // Phase 12 (§22 / RESUME-03) — wave/subagent tree state assembled from the
+  // additive wave_*/subagent_* lifecycle events, fed to the WaveTreePanel.
+  const [waveGroups, setWaveGroups] = useState<WaveGroup[]>([]);
+  // Per-run dedup substrate for the durable reconnect replay (RESUME-03 FE half):
+  // every applied event_id is recorded so a replayed event is applied at most
+  // once, and the max-seen seq is tracked so the reconnect can send after_seq.
+  const seenEventIdsRef = useRef<Set<string>>(new Set());
+  const lastSeqRef = useRef<number>(0);
+  // Stable getter so DashboardLayout's reconnect effect reads the current
+  // last-received seq without re-subscribing.
+  const getLastSeq = useCallback(() => lastSeqRef.current, []);
 
   // Workflow runs state (primary)
   const [recentRuns, setRecentRuns] = useState<WorkflowRun[]>([]);
@@ -177,6 +189,82 @@ export default function DashboardPage() {
 
   // Handle incoming WebSocket messages
   const handleWebSocketMessage = useCallback((msg: StreamMessage) => {
+    // Phase 12 (RESUME-03 FE half) — track the last-received seq per run so the
+    // reconnect can send it as after_seq (durable replay, 12-03). Every backend
+    // event has carried seq/event_id since Phase 5. The max-seen seq is the
+    // resume offset; the seen-event_id set dedupes replayed events so a durable
+    // reconnect replay applies each event at most once (idempotent).
+    const evData = (msg.data as Record<string, unknown> | undefined) ?? undefined;
+    const evSeq = evData && typeof evData.seq === "number" ? (evData.seq as number) : undefined;
+    if (typeof evSeq === "number" && evSeq > lastSeqRef.current) {
+      lastSeqRef.current = evSeq;
+    }
+
+    // Phase 12 (§22) — wave/subagent lifecycle events route into the wave-tree
+    // state (statuses only, D-14). Dedup by event_id FIRST (RESUME-03), then
+    // fold the event into the wave groups, then return (these events do not flow
+    // to the pipeline handler or the legacy switch below).
+    const WAVE_EVENT_TYPES = [
+      "wave_started", "wave_completed", "wave_failed",
+      "subagent_spawned", "subagent_result",
+    ];
+    if (WAVE_EVENT_TYPES.includes(msg.type)) {
+      const data = evData ?? {};
+      const eventId = typeof data.event_id === "string" ? (data.event_id as string) : undefined;
+      // Idempotent replay: ignore an already-applied event_id.
+      if (eventId) {
+        if (seenEventIdsRef.current.has(eventId)) return;
+        seenEventIdsRef.current.add(eventId);
+      }
+
+      const waveIndex =
+        typeof data.wave_index === "number" ? (data.wave_index as number) : undefined;
+      if (waveIndex === undefined) return;
+
+      setWaveGroups((prev) => {
+        const next = prev.map((w) => ({ ...w, workers: [...w.workers] }));
+        let group = next.find((w) => w.waveIndex === waveIndex);
+        if (!group) {
+          group = { waveIndex, taskIds: [], status: "pending", workers: [] };
+          next.push(group);
+        }
+
+        if (msg.type === "wave_started") {
+          const taskIds = Array.isArray(data.task_ids)
+            ? (data.task_ids as unknown[]).map((t) => String(t))
+            : group.taskIds;
+          group.taskIds = taskIds;
+          group.status = "running";
+        } else if (msg.type === "wave_completed") {
+          group.status = "completed";
+        } else if (msg.type === "wave_failed") {
+          group.status = "failed";
+        } else if (msg.type === "subagent_spawned" || msg.type === "subagent_result") {
+          const agent =
+            typeof data.agent === "string"
+              ? (data.agent as string)
+              : typeof data.agent_id === "string"
+              ? (data.agent_id as string)
+              : "worker";
+          const status =
+            typeof data.status === "string"
+              ? (data.status as string)
+              : msg.type === "subagent_spawned"
+              ? "running"
+              : "completed";
+          const existing = group.workers.find((wk) => wk.agent === agent);
+          if (existing) {
+            existing.status = status;
+          } else {
+            group.workers.push({ agent, status });
+          }
+        }
+
+        return next;
+      });
+      return;
+    }
+
     // Route pipeline messages to the workflow handler.
     // pipeline_cancelled was omitted previously, which left
     // `pipelineState.isRunning` stuck true after Stop — the BE cancelled
