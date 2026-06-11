@@ -572,6 +572,20 @@ class KernelServices:
             if teardown is not None:
                 teardown()
 
+    async def teardown_isolated_workspace(self, base_workspace: Any, worker_ws: Any) -> None:
+        """Tear down ONE allocated isolated workspace on the cancel/finally path (11-05).
+
+        The cancel-path teardown entry point the kernel ``run_fanout`` ``finally`` block
+        calls for EVERY allocated isolated workspace — on a happy completion, a
+        mid-flight cancel, OR a BudgetExceeded abort (Pitfall 5 / RESUME-01: no leaked
+        worktrees/branches/sub_sandbox dirs after cancel). Delegates to the SINGLE
+        reclaim discriminator (``reclaim_isolated_workspace``): a ``worktree`` ->
+        ``LocalWorkspace.remove_worktree`` (git worktree remove + branch delete), a
+        ``sub_sandbox`` -> the child's ``teardown`` (rmtree). Best-effort — a teardown
+        failure is logged, never aborts the run (the caller also wraps it).
+        """
+        await self.reclaim_isolated_workspace(base_workspace, worker_ws)
+
     # ── Typed fragment-artifact persistence (Phase 11 / FANOUT-06) ─────────────
     async def write_fragment_artifact(
         self,

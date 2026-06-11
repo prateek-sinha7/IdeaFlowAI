@@ -134,6 +134,25 @@ def _is_sequential(step: Any) -> bool:
     return bool(fanout is not None and getattr(fanout, "mode", None) == "sequential")
 
 
+def _check_cancel(ctx: Any) -> None:
+    """Cooperative cancel check at a fan-out boundary (RESUME-01 / FANOUT-11).
+
+    Reads ``ctx.cancel_event`` (the Stop button — the same cooperative signal the
+    engine checks per-agent-step + per-chunk) and raises ``asyncio.CancelledError``
+    when it is set. Called BEFORE a fan-out wave (before any allocate/spawn), BETWEEN
+    sequential workers, and BEFORE the merge — so a cancelled run stops cooperatively
+    at the next boundary, pending workers never spawn, and the kernel's outer
+    ``CancelledError`` handler (which emits ``pipeline_cancelled``) drives termination.
+
+    The ``finally``-teardown in ``run_fanout`` reclaims EVERY allocated isolated
+    workspace whether this raises or the body completes normally (Pitfall 5 — no leaks
+    on the cancel path).
+    """
+    cancel_event = getattr(ctx, "cancel_event", None)
+    if cancel_event is not None and cancel_event.is_set():
+        raise asyncio.CancelledError()
+
+
 def _select_isolation_scope(base_workspace: Any) -> str:
     """The ENGINE decides the per-worker isolation scope (INV-7 — NOT the manifest).
 
@@ -161,6 +180,12 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
     run_id = getattr(runner, "run_id", "")
     step_id = getattr(step, "agent_id", "fanout")
     depth = getattr(ctx, "depth", 0)
+
+    # (0) Cooperative cancel BEFORE the fan-out wave (RESUME-01) — if the run was
+    # cancelled before this fan-out starts, raise CancelledError now so NOTHING is
+    # selected/reserved/allocated/spawned (the kernel's outer handler emits
+    # pipeline_cancelled). A pre-wave cancel leaves zero subagent_runs rows.
+    _check_cancel(ctx)
 
     # (1) Worker selection FIRST — a rejected worker raises before any spawn / row.
     selected = _select_workers(requests, ctx, step)
@@ -226,10 +251,16 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
 
     # Per-worker terminal-status collector (the status-only merge, step 5).
     results: list[dict] = []
-    # Every allocated isolated workspace is recorded so this plan can teardown the
-    # happy-path workspaces after collect; 11-05 extends this list's teardown to the
-    # cancel/finally path (ALL allocations, including a mid-flight cancel).
+    # Every allocated isolated workspace is recorded so the ``finally`` block can
+    # teardown EVERY allocation — on the happy path AND the cancel path AND the
+    # BudgetExceeded path (Pitfall 5 / RESUME-01): no leaked workspace dirs / orphan
+    # worktrees remain after a mid-flight cancel.
     allocated: list[Any] = []
+
+    # index -> subagent_runs row_id for every worker that recorded a row but has NOT
+    # yet flipped terminal. On a mid-flight cancel these rows are marked ``cancelled``
+    # (FANOUT-11); ``_run_one`` pops an entry once it flips the row itself.
+    open_rows: dict[int, str] = {}
 
     # Each entry: {"index", "agent_id", "workspace", "branch", "base_commit"} — the
     # merge inputs collected per worker (the isolated workspace handle for sub_sandbox,
@@ -264,6 +295,8 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
             isolation=isolation,
             status="running",
         )
+        if row_id is not None:
+            open_rows[idx] = row_id
         status = "complete"
         # Pass the isolated workspace ONLY when one was allocated so the 11-01
         # shared-workspace ``run_worker`` call shape stays byte-identical (the kwarg
@@ -280,10 +313,20 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
             ):
                 # Child agent chunk events are NOT forwarded (D-03 — lifecycle-only).
                 pass
+        except asyncio.CancelledError:
+            # This worker's task was cancelled (the run was stopped mid-flight). Flip
+            # the row terminal ``cancelled`` (FANOUT-11) and re-raise so asyncio.gather
+            # propagates the cancellation; the ``finally`` teardown reclaims this
+            # worker's allocated workspace (no leak).
+            if row_id is not None:
+                open_rows.pop(idx, None)
+                await runner.update_subagent_run(row_id, status="cancelled")
+            raise
         except Exception as exc:  # noqa: BLE001 — a failed worker must not abort siblings
             logger.warning("fan-out worker %s (%s) failed: %s", idx, agent_id, exc)
             status = "failed"
         if row_id is not None:
+            open_rows.pop(idx, None)
             await runner.update_subagent_run(row_id, status=status)
 
         # (5a) Fragment persistence BEFORE merge (FANOUT-06) — each worker's output
@@ -320,80 +363,177 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
             result["artifact_ref"] = artifact_ref
         return result
 
-    if _is_sequential(step):
-        # Sequential mode — strict order, one worker at a time.
-        for worker in selected:
-            yield {
-                "type": "subagent_spawned",
-                "data": {"worker": worker["index"], "agent": worker["agent_id"],
-                         "isolation": isolation, "depth": depth},
-            }
-            res = await _run_one(worker)
-            results.append(res)
-            yield {"type": "subagent_result", "data": res}
-    else:
-        # Parallel mode — bounded by the engine-enforced semaphore (T-11-01-02).
-        cap = _resolve_concurrency(step)
-        sem = asyncio.Semaphore(cap)
+    # The spawn + merge body runs inside a try/finally so the ``finally`` tears down
+    # EVERY allocated isolated workspace whether the body completes normally, is
+    # cancelled mid-flight, or aborts on BudgetExceeded (Pitfall 5 / RESUME-01). A
+    # CancelledError from a boundary check or an in-flight worker propagates OUT (the
+    # kernel's outer handler emits pipeline_cancelled); the teardown still runs first.
+    try:
+        if _is_sequential(step):
+            # Sequential mode — strict order, one worker at a time. Cancel is checked
+            # BETWEEN workers (RESUME-01): a cancelled run stops before the NEXT spawn,
+            # so pending workers never start (FANOUT-11).
+            for worker in selected:
+                _check_cancel(ctx)
+                yield {
+                    "type": "subagent_spawned",
+                    "data": {"worker": worker["index"], "agent": worker["agent_id"],
+                             "isolation": isolation, "depth": depth},
+                }
+                res = await _run_one(worker)
+                results.append(res)
+                yield {"type": "subagent_result", "data": res}
+        else:
+            # Parallel mode — bounded by the engine-enforced semaphore (T-11-01-02).
+            cap = _resolve_concurrency(step)
+            sem = asyncio.Semaphore(cap)
 
-        # Emit the spawned events up-front (deterministic order) before gathering.
-        for worker in selected:
-            yield {
-                "type": "subagent_spawned",
-                "data": {"worker": worker["index"], "agent": worker["agent_id"],
-                         "isolation": isolation, "depth": depth},
-            }
+            # Emit the spawned events up-front (deterministic order) before gathering.
+            for worker in selected:
+                yield {
+                    "type": "subagent_spawned",
+                    "data": {"worker": worker["index"], "agent": worker["agent_id"],
+                             "isolation": isolation, "depth": depth},
+                }
 
-        async def _bounded(worker: dict) -> dict:
-            async with sem:
-                return await _run_one(worker)
+            async def _bounded(worker: dict) -> dict:
+                async with sem:
+                    return await _run_one(worker)
 
-        gathered = await asyncio.gather(*(_bounded(w) for w in selected))
-        # Preserve worker order in the result stream.
-        for res in sorted(gathered, key=lambda r: r["worker"]):
-            results.append(res)
-            yield {"type": "subagent_result", "data": res}
+            # Cancellation propagation (FANOUT-11): gather the worker tasks so a
+            # cancel can reach the in-flight ones. A cancel_event firing mid-flight (or
+            # a CancelledError from a worker) cancels EVERY task — the in-flight tasks
+            # raise CancelledError (flipping their own row ``cancelled`` in _run_one's
+            # handler) and the pending ones never start. The CancelledError then
+            # propagates so the run terminates; the ``finally`` reclaims allocations.
+            tasks = [asyncio.ensure_future(_bounded(w)) for w in selected]
+            try:
+                gathered = await _gather_or_cancel(tasks, ctx)
+            except asyncio.CancelledError:
+                # Mark any still-open rows cancelled (workers cancelled before their
+                # own handler ran — e.g. pending tasks that never entered _run_one).
+                await _mark_open_cancelled(runner, open_rows)
+                raise
+            # Preserve worker order in the result stream.
+            for res in sorted(gathered, key=lambda r: r["worker"]):
+                results.append(res)
+                yield {"type": "subagent_result", "data": res}
 
-    # ── Budget warning at ≥80% consumption (OBS-01) ───────────────────────────
-    # After the workers are collected, emit a visible budget_warning when any ceiling
-    # is ≥ BUDGET_WARN_THRESHOLD (0.8) consumed — through the single emit boundary +
-    # the generic forward (zero websocket.py edits). Best-effort: a manager without the
-    # warn handle (a bare stub) is skipped (parity for the offline harness).
-    if budget is not None:
-        warn_fn = getattr(budget, "warn_threshold_reached", None)
-        if callable(warn_fn):
-            for dimension in ("subagents", "depth", "tokens", "wall_clock"):
-                try:
-                    breached = warn_fn(dimension)
-                except Exception:  # noqa: BLE001 — a warn read failure is non-fatal
-                    breached = False
-                if breached:
-                    yield {
-                        "type": "budget_warning",
-                        "data": {
-                            "step": step_id,
-                            "dimension": dimension,
-                            "reason": "threshold_reached",
-                        },
-                    }
+        # ── Budget warning at ≥80% consumption (OBS-01) ───────────────────────
+        # After the workers are collected, emit a visible budget_warning when any
+        # ceiling is ≥ BUDGET_WARN_THRESHOLD (0.8) consumed — through the single emit
+        # boundary + the generic forward (zero websocket.py edits). Best-effort: a
+        # manager without the warn handle (a bare stub) is skipped (offline parity).
+        if budget is not None:
+            warn_fn = getattr(budget, "warn_threshold_reached", None)
+            if callable(warn_fn):
+                for dimension in ("subagents", "depth", "tokens", "wall_clock"):
+                    try:
+                        breached = warn_fn(dimension)
+                    except Exception:  # noqa: BLE001 — a warn read failure is non-fatal
+                        breached = False
+                    if breached:
+                        yield {
+                            "type": "budget_warning",
+                            "data": {
+                                "step": step_id,
+                                "dimension": dimension,
+                                "reason": "threshold_reached",
+                            },
+                        }
 
-    # ── (5b) Merge dispatch (FANOUT-07/08) ────────────────────────────────────
-    # The fragments are integrated into the base workspace via the engine-selected
-    # MergeStrategy. Replaces the 11-01 trivial pass-through. The merge runs only over
-    # the COMPLETED workers' fragments (a failed worker contributes nothing). When no
-    # base/merge is reachable (offline harness / shared_read), the merge degrades to a
-    # clean no-op so the fan-out still completes.
-    async for ev in _merge_fragments(
-        runner, base_workspace, step, isolation, fragments_meta
-    ):
-        yield ev
+        # ── Cooperative cancel BEFORE merge (RESUME-01) ───────────────────────
+        # Completed workers' fragment artifacts are ALREADY persisted (5a /
+        # write_fragment_artifact) so they survive this cancel; the merge is simply
+        # skipped and the run terminates (FANOUT-11 — cancel before merge).
+        _check_cancel(ctx)
 
-    # Happy-path teardown — collect/merge is done, so reclaim every allocated
-    # isolated workspace (worktree remove + branch delete, or child-dir rmtree). The
-    # FULL cancel-path teardown (reclaim on a mid-flight cancel/exception too) lands
-    # in 11-05; here we reclaim the post-collect happy-path workspaces. Best-effort
-    # per workspace so a teardown failure never aborts the run.
-    await _teardown_allocated(runner, base_workspace, allocated)
+        # ── (5b) Merge dispatch (FANOUT-07/08) ────────────────────────────────
+        # The fragments are integrated into the base workspace via the engine-selected
+        # MergeStrategy. Replaces the 11-01 trivial pass-through. The merge runs only
+        # over the COMPLETED workers' fragments (a failed worker contributes nothing).
+        # When no base/merge is reachable (offline / shared_read) the merge is a clean
+        # no-op so the fan-out still completes.
+        async for ev in _merge_fragments(
+            runner, base_workspace, step, isolation, fragments_meta
+        ):
+            yield ev
+    finally:
+        # Teardown EVERY allocated isolated workspace — the happy path AND the cancel
+        # path AND the BudgetExceeded path all run this (Pitfall 5 / RESUME-01). Each
+        # ``worktree`` is removed (git worktree remove + branch delete); each
+        # ``sub_sandbox`` child dir is rmtree'd. Best-effort per workspace so a teardown
+        # failure never masks the original outcome. Zero-residue acceptance: no isolated
+        # workspace dirs / orphan ``git worktree list`` entries remain after cancel.
+        await _teardown_allocated(runner, base_workspace, allocated)
+
+
+async def _gather_or_cancel(tasks: list, ctx: Any) -> list[dict]:
+    """Await the worker tasks, but cancel ALL of them when cancel_event fires.
+
+    Races the gathered worker tasks against the cooperative ``cancel_event`` (the Stop
+    button): a poller checks the event and, when set, cancels every in-flight worker
+    task (the pending ones never enter ``_run_one``). On cancel — or on a
+    CancelledError bubbling out of a worker — every task is cancelled and a
+    CancelledError is raised so the run terminates (FANOUT-11). On the happy path the
+    gathered results are returned in submission order.
+    """
+    cancel_event = getattr(ctx, "cancel_event", None)
+    gather_fut = asyncio.gather(*tasks)
+    if cancel_event is None:
+        return await gather_fut
+
+    async def _poll_cancel() -> None:
+        while not cancel_event.is_set():
+            await asyncio.sleep(0.01)
+
+    poller = asyncio.ensure_future(_poll_cancel())
+    try:
+        done, _pending = await asyncio.wait(
+            {gather_fut, poller}, return_when=asyncio.FIRST_COMPLETED
+        )
+        if cancel_event.is_set() and not gather_fut.done():
+            # Cancel every in-flight worker task; await them so each worker's own
+            # CancelledError handler (marking its row cancelled) runs.
+            for t in tasks:
+                t.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            gather_fut.cancel()
+            raise asyncio.CancelledError()
+        # gather_fut completed (happy path or a worker raised) — return/propagate it.
+        return await gather_fut
+    finally:
+        poller.cancel()
+        with _suppress_cancel():
+            await poller
+
+
+class _suppress_cancel:
+    """Context manager swallowing a CancelledError from awaiting the cancelled poller."""
+
+    def __enter__(self) -> "_suppress_cancel":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return exc_type is not None and issubclass(exc_type, asyncio.CancelledError)
+
+
+async def _mark_open_cancelled(runner: Any, open_rows: dict) -> None:
+    """Flip every still-open ``subagent_runs`` row terminal ``cancelled`` (FANOUT-11).
+
+    Called on the parallel-mode cancel path for rows a worker recorded but whose own
+    handler did not run (e.g. a pending task cancelled before it entered ``_run_one``).
+    Best-effort — an audit-write failure must never mask the cancellation.
+    """
+    update = getattr(runner, "update_subagent_run", None)
+    if update is None:
+        return
+    for idx, row_id in list(open_rows.items()):
+        try:
+            await update(row_id, status="cancelled")
+        except Exception as exc:  # noqa: BLE001 — audit must NEVER mask the cancel
+            logger.warning("mark cancelled row=%s failed: %s", row_id, exc)
+        open_rows.pop(idx, None)
 
 
 def _fragment_files(worker_ws: Any) -> dict[str, str]:
@@ -693,18 +833,27 @@ async def _run_human_gate_resolution(
 
 
 async def _teardown_allocated(runner: Any, base_workspace: Any, allocated: list) -> None:
-    """Reclaim every allocated isolated workspace (happy path; 11-05 extends to cancel).
+    """Reclaim EVERY allocated isolated workspace — happy path AND cancel AND abort.
 
-    A ``worktree`` workspace is removed via the base workspace's ``remove_worktree``
-    (the single git owner — git worktree remove + branch delete); a ``sub_sandbox``
-    child is removed via its own ``teardown`` (child-dir rmtree, which never touches
-    the parent). Each teardown is best-effort so an orphaned worktree/dir is logged,
-    not fatal (INV-3: cleanup must never break the run).
+    Invoked from the ``run_fanout`` ``finally`` so it runs whether the fan-out body
+    completed normally, was cancelled mid-flight, or aborted on BudgetExceeded (Pitfall
+    5 / RESUME-01 — no leaks on any path). Prefers the ``teardown_isolated_workspace``
+    handle (the cancel-path teardown entry point) and falls back to
+    ``reclaim_isolated_workspace``; a ``worktree`` workspace is removed via
+    ``remove_worktree`` (git worktree remove + branch delete) and a ``sub_sandbox``
+    child via its own ``teardown`` (child-dir rmtree, which never touches the parent).
+    Each teardown is best-effort so an orphaned worktree/dir is logged, not fatal
+    (INV-3: cleanup must never break the run). The list is cleared after teardown so a
+    re-entry can never double-reclaim a workspace.
     """
+    teardown = getattr(runner, "teardown_isolated_workspace", None)
     reclaim = getattr(runner, "reclaim_isolated_workspace", None)
     for ws in allocated:
         try:
-            if reclaim is not None:
+            if teardown is not None:
+                await teardown(base_workspace, ws)
+            elif reclaim is not None:
                 await reclaim(base_workspace, ws)
         except Exception as exc:  # noqa: BLE001 — a teardown failure must not abort the run
             logger.warning("fan-out workspace teardown failed: %s", exc)
+    allocated.clear()
