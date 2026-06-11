@@ -1,9 +1,14 @@
 ---
-status: diagnosed
+status: resolved
 phase: 12-wave-scheduler-durable-resume-6
 source: [12-VERIFICATION.md]
 started: 2026-06-11T14:05:00Z
-updated: 2026-06-11T15:10:00Z
+updated: 2026-06-11T17:10:00Z
+gap_closure: >
+  All 3 gaps resolved offline 2026-06-11 by plans 12-08/12-09/12-10 plus code-review
+  fixes (12-REVIEW.md / 12-REVIEW-FIX.md, commits ccfc596b/8d8a7a39/41c35a69/8eb3c880).
+  Live re-checks (4 items) queued in 12-VERIFICATION.md human_verification for the
+  milestone-end live re-pass (/gsd-verify-work 12).
 deferral: fulfilled 2026-06-11 — milestone-end live pass executed (12/12 phases complete)
 environment: >
   Live pass executed self-driven via playwright (headless chromium) against the real
@@ -65,7 +70,8 @@ blocked: 0
 ## Gaps
 
 - truth: "WaveTreePanel renders wave groups and N distinct worker leaves during a live wave run"
-  status: failed
+  status: resolved
+  resolution: "12-08 (a6dc6bc1): WaveTreePanel mounted in DashboardLayout beside AgentProgressPanel (own ErrorBoundary), waveGroups threaded from dashboard/page.tsx via new optional waves prop; 3 mount vitests green. ValidatorIssuePanel (phase-8 scope) recorded as known-unwired — explicitly out of this gap's scope. Live render re-check queued (12-VERIFICATION.md human_verification #1)."
   reason: "User-observable: wave run executes but no wave tree UI exists anywhere in the app"
   severity: major
   test: 1
@@ -83,7 +89,8 @@ blocked: 0
   debug_session: "diagnosed live during this UAT pass (root cause file:line verified)"
 
 - truth: "A client connected during an auto-resumed run receives the full resumed tail including pipeline_complete"
-  status: failed
+  status: resolved
+  resolution: "12-09 (0da2315d): engine→WS live-task bridge — 3 optional injected hooks wired once in app/main.py; resume_run registers the live queue before the drive loop, pushes every resumed event, terminates with None sentinel + cleanup (gap a). (a09f7b35): workflow_runs.workspace_id stamped via authz.set_run_scope so scoped get_run resolves and pipeline_reconnected.status is non-null (gap c); _stamp_resume_marker recovers the real workspace_id (NOT NULL fixed). 12-08 (f5ee356f): FE pipeline_reconnected handler — live:false + terminal resolves isRunning, non-terminal keeps running without a retry loop (gap b). Hardened by review fixes: ccfc596b (owner-gated live attach, AUTHZ-03), 8d8a7a39 (cleanup on every resume_run exit path), 41c35a69 (queue registered synchronously at create_task site — closes the task-before-queue race), 8eb3c880 (fail-loud on principal drift). 8 backend + 6 FE tests green. Live restart re-check queued (human_verification #2)."
   reason: "User-observable: after a backend restart mid-run, the open page reconnects, gets a partial tail, then hangs 'running' forever even though the run completed"
   severity: major
   test: 2
@@ -103,7 +110,8 @@ blocked: 0
   debug_session: "diagnosed live during this UAT pass (run E/E2 evidence: 12-UAT-EVIDENCE/runE-durable-resume.txt, results-runE2.json, screenshots 51/52)"
 
 - truth: "sample_wave deliverable resolves merged.txt"
-  status: failed
+  status: resolved
+  resolution: "12-10 (8ffae37c): manifest deliverable switched from single_file/merged.txt (never produced) to the registered serialized_sandbox strategy, bundling the copy_disjoint-merged part_*.txt base; zero engine edits (SC-001 grep clean); test asserts final_output is the resolved bundle, not the streamed fallback. Live no-fallback-warning re-check queued (human_verification #3)."
   reason: "single_file: merged.txt not written by agent — falling back to streamed output (every run, incl. clean run A)"
   severity: minor
   test: 1
