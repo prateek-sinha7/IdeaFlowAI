@@ -1311,6 +1311,42 @@ async def _handle_workflow_execution(
         })
         return
 
+    # ── F3 (13-06): template-inject ingress guard ─────────────────────────
+    # A pipeline whose resolved agents declare `injects: [template, ...]` is
+    # unsatisfiable without a loadable template body: the factory's
+    # _compose_injection raises TemplateMissingError for EVERY such agent
+    # pre-execution, so the run would silently collapse agent-by-agent (live
+    # UAT finding F3). Fail fast here instead — BEFORE the engine, the
+    # checkpointer, and the sandbox spin up (T-13-06-01). The condition
+    # mirrors the factory raise EXACTLY ("template" in spec.injects AND no
+    # od_context template_body) and is GENERIC — keyed on the resolved specs'
+    # DECLARED injects only, never a pipeline-name allow/deny list (SC-001):
+    # od_* runs with a loaded template pass unchanged; workflows whose agents
+    # declare no template inject are untouched.
+    #
+    # Product decision (13-06, F3 — see 13-UAT.md Gap 3 missing item 3): bare
+    # prototype/ppt remain admissible pipeline types (the tier sets include
+    # them) but REQUIRE template context; the FE always sends od_* aliases,
+    # so the only user-visible change is broken runs becoming visible.
+    _template_injecting = [
+        spec.id for spec in agents if "template" in (getattr(spec, "injects", None) or [])
+    ]
+    if _template_injecting and not (od_context or {}).get("template_body"):
+        await websocket.send_json({
+            "type": "error", "chunk": None, "section": None,
+            "data": {
+                "error": (
+                    f"Pipeline {pipeline_type!r} agents "
+                    f"{_template_injecting} declare template injection, so the "
+                    "run requires a template (template_id) or an od_* alias — "
+                    "no template body could be loaded."
+                ),
+                "code": "missing_template_context",
+                "recoverable": False,
+            },
+        })
+        return
+
     # ── model_overrides ingress validation (Phase 6 D-07, MODEL-03) ───────
     # The security chokepoint: validate the untrusted per-agent override map
     # against the catalog allow-list AND this run's resolved agent set, BEFORE
