@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-11T14:07:28.074Z"
+last_updated: "2026-06-11T14:14:44.281Z"
 last_activity: 2026-06-11 -- Phase 12 execution started
 progress:
   total_phases: 12
-  completed_phases: 11
+  completed_phases: 12
   total_plans: 71
-  completed_plans: 70
-  percent: 92
+  completed_plans: 71
+  percent: 100
 ---
 
 # Project State
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 12 (wave-scheduler-durable-resume-6) — EXECUTING
-Plan: 3 of 10
+Plan: 4 of 10
 Status: Ready to execute
 Last activity: 2026-06-11 -- Phase 12 execution started
 
@@ -126,6 +126,7 @@ Progress: [██████████] 100% (12/12 phases complete; 65/65 ma
 | Phase 12 P07 | ~16min | 3 tasks | 5 files |
 | Phase 12 P08 | 8min | 2 tasks | 5 files |
 | Phase 12 P09 | 10min | 2 tasks | 5 files |
+| Phase 12 P10 | 5min | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -216,6 +217,7 @@ Recent decisions affecting current work:
 - [Phase 12]: 12-08: WaveTreePanel rendered unconditionally on the execution surface — panel owns its empty state, stable slot for non-wave runs
 - [Phase ?]: 12-09: engine→WS live-attach for auto-resumed runs = 3 injected callables (queue/task/cleanup, default None — dormant bridge byte-identical offline); wired only in app/main.py, kernel never imports app.api
 - [Phase ?]: 12-09: Gap 2c fixed via the EXISTING authz.set_run_scope seam in _execute_impl (NOT owner-only get_run scoping); _stamp_resume_marker sources its workspace from _recover_workspace_id so the run_resuming marker persists matching the sink scope (NOT NULL fix)
+- [Phase ?]: 12-10: Gap 3 closed by a deliverable-strategy swap to the registered serialized_sandbox (manifest-data-only, dangling name: merged.txt removed) — declared deliverable resolves from the copy_disjoint-merged part_*.txt base; no-fallback asserted via the resolved deliverable bytes, not caplog; zero engine edits (SC-001 held)
 
 ### Pending Todos
 
