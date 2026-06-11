@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-11T22:55:06.619Z"
-last_activity: 2026-06-12 -- Completed 13-02-PLAN.md (F4 gap closure)
+last_updated: "2026-06-11T23:03:27.365Z"
+last_activity: 2026-06-12 -- Completed 13-04-PLAN.md (F6+F7 gap closure)
 progress:
   total_phases: 13
   completed_phases: 12
   total_plans: 77
-  completed_plans: 74
+  completed_plans: 75
   percent: 92
 ---
 
@@ -25,13 +25,13 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 ## Current Position
 
 Phase: 13 (live-verification-gap-closure) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
-Last activity: 2026-06-12 -- Completed 13-03-PLAN.md (F5 gap closure)
+Last activity: 2026-06-12 -- Completed 13-04-PLAN.md (F6+F7 gap closure)
 
-Session continuity: last session 2026-06-12; stopped at Completed 13-03-PLAN.md; resume file: none
+Session continuity: last session 2026-06-12; stopped at Completed 13-04-PLAN.md; resume file: none
 
-Progress: [██████████] 96% (12/13 phases complete; 74/77 plans complete; Phase 13 gap-closure 3/6)
+Progress: [██████████] 97% (12/13 phases complete; 75/77 plans complete; Phase 13 gap-closure 4/6)
 
 ## Performance Metrics
 
@@ -132,6 +132,7 @@ Progress: [██████████] 96% (12/13 phases complete; 74/77 pla
 | Phase 13 P01 | ~12min | 2 tasks | 4 files |
 | Phase 13 P02 | ~15min | 2 tasks | 7 files |
 | Phase 13 P03 | ~9min | 3 tasks | 9 files |
+| Phase 13 P04 | ~10min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -226,6 +227,8 @@ Recent decisions affecting current work:
 - [Phase 13]: 13-01: Streaming gate protocol — evaluate_stream yields delegate events as produced + terminal GateOutcome(events=[]); evaluate() is a thin collector (INV-12); engine duck-types the streaming branch (SC-001) with the WR-04 (None,outcome) sentinel carrying the definitive outcome
 - [Phase 13]: 13-02: tool_availability slot FIRST in DEFAULT_ORDER, emitted only for zero-tool agents (tool-having prompts byte-identical); runner sanitizer mirrors the no_tools derivation with identity on clean output; handoff coder hard 2-attempt parse-retry, fresh runner per attempt, runtime faults never retried (F4)
 - [Phase 13]: 13-03: API prefix standardized on the literal /api/v1 across app-api-design/app-infra-generator/app-devops (resolves live /api vs /api/v1 drift); compliance/test prompts derive stack from upstream context (Node/TS default) + anti-stall state-the-assumption rule; app-devops bound to a filename:-block output contract; app-test-implementation contract-bound to the implementation's exact exported surface (F5 closed at prompt level)
+- [Phase 13]: 13-04: F6 fixed manifest-data-only — sample_fanout deliverable single_file/merged.txt -> serialized_sandbox (8ffae37c sample_wave mirror; SC-001 zero engine edits); fanout proof asserts the filename:-block bundle of all 3 part files
+- [Phase 13]: 13-04: token-delta live baseline re-pointed at async _compose_context_message (6-positional) + html_skeleton capability compact(); module-level seam-existence assert catches future renames at offline collection. LIVE_BUDGET_USD 5.0->8.0 (measured $5.94/18.7M-token clean sweep, ~35% headroom)
 
 ### Pending Todos
 
