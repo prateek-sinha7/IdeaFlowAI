@@ -602,6 +602,44 @@ async def websocket_chat(websocket: WebSocket):
                         and running_queue is not None
                     )
 
+                    # ── AUTHZ-03 owner gate for the LIVE attach (CR-01) ──────────────
+                    # The durable replay below is owner-scoped (RunEvent.owner_id ==
+                    # user.id / ScopedStore default-deny), but the live-attach drainer
+                    # streamed every event for ANY authenticated user presenting the
+                    # run_id. The 12-09 bridge widened the exposure: auto-resumed runs
+                    # — whose owner is by definition not connected (backend restarted)
+                    # — now sit in _PIPELINE_TASKS/_PIPELINE_QUEUES for the whole
+                    # resumed drive. Gate the live attach the same way the replay is
+                    # gated: recover the run's workspace from the workflow_runs row
+                    # FILTERED BY the authenticated principal (never from the client
+                    # payload — the T-12-05-TENANT precedent), then resolve the run
+                    # through the default-deny ScopedStore. A miss demotes to the
+                    # no-live-task path, so a run this principal does not own behaves
+                    # exactly like a finished/unknown run (∅ replay + live:false,
+                    # never the stream).
+                    if _has_live_task:
+                        from agents.authz import ScopedStore as _GateStore
+                        from app.models.workflow import WorkflowRun as _GateRun
+
+                        _gate_db = _get_db()
+                        try:
+                            _gate_row = (
+                                _gate_db.query(_GateRun)
+                                .filter(
+                                    _GateRun.id == _reconnect_run_id,
+                                    _GateRun.owner_id == user.id,
+                                )
+                                .first()
+                            )
+                            _gate_ws = getattr(_gate_row, "workspace_id", None)
+                        finally:
+                            _gate_db.close()
+                        _own_store = _GateStore(
+                            owner_id=user.id, workspace_id=_gate_ws
+                        )
+                        if await _own_store.get_run(_reconnect_run_id) is None:
+                            _has_live_task = False
+
                     # ── Durable run_events tail replay (RESUME-03 / API-05) ──────────
                     # The reconnecting client may supply ``after_seq`` (the highest
                     # ``seq`` it has already rendered). When ``after_seq`` is provided
