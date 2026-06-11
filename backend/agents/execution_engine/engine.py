@@ -767,6 +767,28 @@ class ExecutionEngine:
             else:
                 ectx.workspace_id = await scoped_store.create_workspace(pipeline_run_id)
             scoped_store._workspace_id = ectx.workspace_id  # stamp later writes
+            # ── 12-09 Gap 2c: stamp workflow_runs.workspace_id CONSISTENTLY with
+            # the run_events sink via the EXISTING set_run_scope seam (INV-3/
+            # INV-12 — the revision path already rides it; no parallel stamper).
+            # The WS run path creates the workflow_runs row BEFORE the workspace
+            # exists (workspace_id NULL), while every run_events row carries the
+            # real workspace_id — so the owner+workspace-scoped get_run on
+            # reconnect never matched and pipeline_reconnected.status was null.
+            # Guarded: both principals must be truthy (set_run_scope fail-louds
+            # on falsy by design); best-effort — a stamping failure (incl. the
+            # IN-02 cross-owner PermissionError) logs and proceeds, never
+            # crashes a run (mirrors the best-effort append/marker pattern).
+            if owner_id and ectx.workspace_id:
+                try:
+                    await scoped_store.set_run_scope(
+                        pipeline_run_id, owner_id, ectx.workspace_id
+                    )
+                except Exception as _stamp_exc:  # noqa: BLE001 — best-effort
+                    logger.warning(
+                        "execute(): workflow_runs scope stamping failed for %s "
+                        "(%s) — proceeding",
+                        pipeline_run_id, _stamp_exc,
+                    )
             # ── Per-run integration scopes + active MCP servers (09-06 / CAPRUN-01) ──
             # Record the run's active integration scopes + the MCP servers they activate
             # (alongside the runtime) so ``run_capabilities`` is the audit row for WHAT
@@ -3115,26 +3137,42 @@ class ExecutionEngine:
         SAME owner-scoped append path as every other event; best-effort (a persist
         failure logs and proceeds — the resume still drives, just without the audit
         marker). The ``seq`` is the next durable seq for the run (read + 1).
+
+        12-09: the marker's workspace is the run's RECOVERED real workspace_id
+        (``_recover_workspace_id`` — the run_events-sourced value the sink wrote
+        under), NOT ``wr.workspace_id``: the WS-path workflow_runs row carried a
+        NULL workspace, so the marker's ``append_event`` hit the run_events
+        NOT NULL constraint (IntegrityError) and the marker was LOST on every
+        in-process auto-resume. A resumable run (branch b) always HAS durable
+        rows, so recovery is the normal path; a None recovery (no durable row)
+        falls through to the existing best-effort except — never an inserted
+        NULL, the same logged-warning degrade as today.
         """
-        owner_id = wr.owner_id or wr.user_id or f"anon:{wr.session_id or wr.id}"
+        # Capture the row's scalars UP FRONT so the best-effort except never
+        # touches the ORM object (a lazy-attribute load on a session a failed
+        # flush already poisoned would raise INSIDE the handler).
+        run_id = wr.id
+        prior_status = wr.status
+        owner_id = wr.owner_id or wr.user_id or f"anon:{wr.session_id or run_id}"
         try:
-            store = ScopedStore(owner_id=owner_id, workspace_id=wr.workspace_id)
+            workspace_id = await self._recover_workspace_id(owner_id, run_id)
+            store = ScopedStore(owner_id=owner_id, workspace_id=workspace_id)
             # Next contiguous seq = (max persisted seq) + 1.
-            existing = await store.read_events(wr.id, after_seq=0)
+            existing = await store.read_events(run_id, after_seq=0)
             next_seq = (max((r.seq for r in existing), default=0)) + 1
             await store.append_event(
-                wr.id,
+                run_id,
                 seq=next_seq,
                 event_id=str(uuid.uuid4()),
                 type="run_resuming",
                 payload_json={
-                    "pipeline_run_id": wr.id,
-                    "prior_status": wr.status,
+                    "pipeline_run_id": run_id,
+                    "prior_status": prior_status,
                     "reason": "backend_restart_in_process_resume",
                 },
             )
         except Exception as exc:  # noqa: BLE001 — the marker is best-effort audit
-            logger.warning("_stamp_resume_marker(%s) failed: %s", wr.id, exc)
+            logger.warning("_stamp_resume_marker(%s) failed: %s", run_id, exc)
 
     # ------------------------------------------------------------------
     # Custom Workflow persistence (T061)
