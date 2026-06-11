@@ -1,0 +1,31 @@
+{
+  "wave_started": [],
+  "wave_completed": [],
+  "subagent_spawned": [],
+  "subagent_result_count": 0,
+  "seq_min": 1,
+  "seq_max": 27,
+  "seq_missing": [],
+  "wire_dup_event_ids": 0,
+  "reconnect_sends": [],
+  "run_pipeline_sends": [
+    {
+      "type": "run_pipeline",
+      "pipeline_type": "user_stories",
+      "message": "Refund workflow requirements for a payments platform.",
+      "agent_ids": [
+        "domain-analyst",
+        "epic-architect",
+        "story-estimator",
+        "nfr-specialist",
+        "backlog-reviewer",
+        "backlog-compiler"
+      ]
+    }
+  ],
+  "pipeline_complete": true,
+  "pipeline_cancelled": false,
+  "errors": [],
+  "wave_frames_in_no_wave_run": 0,
+  "dom_agent_cards": 1
+}

@@ -1,0 +1,214 @@
+{
+  "runE2_open_page": {
+    "wave_started": [
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "task_ids": [
+          "t1",
+          "t2"
+        ],
+        "seq": 7
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "task_ids": [
+          "t3",
+          "t4"
+        ],
+        "seq": 15
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "task_ids": [
+          "t3",
+          "t4"
+        ],
+        "seq": 20
+      }
+    ],
+    "wave_completed": [
+      {
+        "wave_index": 0,
+        "seq": 14
+      }
+    ],
+    "subagent_spawned": [
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "worker": 0,
+        "agent": "sample-wave-worker",
+        "seq": 8
+      },
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "worker": 1,
+        "agent": "sample-wave-worker",
+        "seq": 9
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "worker": 0,
+        "agent": "sample-wave-worker",
+        "seq": 16
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "worker": 1,
+        "agent": "sample-wave-worker",
+        "seq": 17
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "worker": 0,
+        "agent": "sample-wave-worker",
+        "seq": 21
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "worker": 1,
+        "agent": "sample-wave-worker",
+        "seq": 22
+      }
+    ],
+    "subagent_result_count": 2,
+    "distinct_workers_first_wave": [
+      0,
+      1
+    ],
+    "seq_min": 1,
+    "seq_max": 22,
+    "seq_missing": [],
+    "wire_dup_event_ids": 0,
+    "reconnect_sends": [
+      {
+        "type": "reconnect_pipeline",
+        "pipeline_run_id": "6c0ab504-a9a3-491e-a2ac-ebdc0ee5ba48",
+        "after_seq": 17
+      }
+    ],
+    "run_pipeline_sends": [
+      {
+        "type": "run_pipeline",
+        "pipeline_type": "sample_wave",
+        "message": "UAT live pass run E2 - durable mid-wave resume."
+      }
+    ],
+    "pipeline_complete": false,
+    "pipeline_cancelled": false,
+    "errors": []
+  },
+  "runE2_after_reload": {
+    "wave_started": [
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "task_ids": [
+          "t1",
+          "t2"
+        ],
+        "seq": 7
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "task_ids": [
+          "t3",
+          "t4"
+        ],
+        "seq": 15
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "task_ids": [
+          "t3",
+          "t4"
+        ],
+        "seq": 20
+      }
+    ],
+    "wave_completed": [
+      {
+        "wave_index": 0,
+        "seq": 14
+      },
+      {
+        "wave_index": 1,
+        "seq": 27
+      }
+    ],
+    "subagent_spawned": [
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "worker": 0,
+        "agent": "sample-wave-worker",
+        "seq": 8
+      },
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "worker": 1,
+        "agent": "sample-wave-worker",
+        "seq": 9
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "worker": 0,
+        "agent": "sample-wave-worker",
+        "seq": 16
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "worker": 1,
+        "agent": "sample-wave-worker",
+        "seq": 17
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "worker": 0,
+        "agent": "sample-wave-worker",
+        "seq": 21
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "worker": 1,
+        "agent": "sample-wave-worker",
+        "seq": 22
+      }
+    ],
+    "subagent_result_count": 4,
+    "distinct_workers_first_wave": [
+      0,
+      1
+    ],
+    "seq_min": 1,
+    "seq_max": 28,
+    "seq_missing": [],
+    "wire_dup_event_ids": 0,
+    "reconnect_sends": [
+      {
+        "type": "reconnect_pipeline",
+        "pipeline_run_id": "6c0ab504-a9a3-491e-a2ac-ebdc0ee5ba48",
+        "after_seq": 0
+      }
+    ],
+    "run_pipeline_sends": [],
+    "pipeline_complete": true,
+    "pipeline_cancelled": false,
+    "errors": []
+  }
+}

@@ -1,0 +1,392 @@
+{
+  "runA": {
+    "wave_started": [
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "task_ids": [
+          "t1",
+          "t2"
+        ],
+        "seq": 7
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "task_ids": [
+          "t3",
+          "t4"
+        ],
+        "seq": 15
+      }
+    ],
+    "wave_completed": [
+      {
+        "wave_index": 0,
+        "seq": 14
+      },
+      {
+        "wave_index": 1,
+        "seq": 22
+      }
+    ],
+    "subagent_spawned": [
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "worker": 0,
+        "agent": "sample-wave-worker",
+        "seq": 8
+      },
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "worker": 1,
+        "agent": "sample-wave-worker",
+        "seq": 9
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "worker": 0,
+        "agent": "sample-wave-worker",
+        "seq": 16
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "worker": 1,
+        "agent": "sample-wave-worker",
+        "seq": 17
+      }
+    ],
+    "subagent_result_count": 4,
+    "distinct_workers_first_wave": [
+      0,
+      1
+    ],
+    "seq_min": 1,
+    "seq_max": 23,
+    "seq_missing": [],
+    "wire_dup_event_ids": 0,
+    "reconnect_sends": [],
+    "run_pipeline_sends": [
+      {
+        "type": "run_pipeline",
+        "pipeline_type": "sample_wave",
+        "message": "UAT live pass run A \u2014 wave scheduler proof."
+      }
+    ],
+    "pipeline_complete": true,
+    "pipeline_cancelled": false,
+    "errors": []
+  },
+  "runB": {
+    "wave_started": [
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "task_ids": [
+          "t1",
+          "t2"
+        ],
+        "seq": 7
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "task_ids": [
+          "t3",
+          "t4"
+        ],
+        "seq": 15
+      }
+    ],
+    "wave_completed": [
+      {
+        "wave_index": 0,
+        "seq": 14
+      },
+      {
+        "wave_index": 1,
+        "seq": 22
+      }
+    ],
+    "subagent_spawned": [
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "worker": 0,
+        "agent": "sample-wave-worker",
+        "seq": 8
+      },
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "worker": 1,
+        "agent": "sample-wave-worker",
+        "seq": 9
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "worker": 0,
+        "agent": "sample-wave-worker",
+        "seq": 16
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "worker": 1,
+        "agent": "sample-wave-worker",
+        "seq": 17
+      }
+    ],
+    "subagent_result_count": 4,
+    "distinct_workers_first_wave": [
+      0,
+      1
+    ],
+    "seq_min": 1,
+    "seq_max": 23,
+    "seq_missing": [],
+    "wire_dup_event_ids": 0,
+    "reconnect_sends": [
+      {
+        "type": "reconnect_pipeline",
+        "pipeline_run_id": "6ae70fbe-f0cd-47d6-9db5-c73da0510445",
+        "after_seq": 4
+      }
+    ],
+    "run_pipeline_sends": [
+      {
+        "type": "run_pipeline",
+        "pipeline_type": "sample_wave",
+        "message": "UAT live pass run A \u2014 wave scheduler proof."
+      },
+      {
+        "type": "run_pipeline",
+        "pipeline_type": "sample_wave",
+        "message": "UAT live pass run B \u2014 per-run reset."
+      }
+    ],
+    "pipeline_complete": true,
+    "pipeline_cancelled": true,
+    "errors": []
+  },
+  "runC": {
+    "wave_started": [
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "task_ids": [
+          "t1",
+          "t2"
+        ],
+        "seq": 7
+      },
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "task_ids": [
+          "t1",
+          "t2"
+        ],
+        "seq": 7
+      }
+    ],
+    "wave_completed": [],
+    "subagent_spawned": [
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "worker": 0,
+        "agent": "sample-wave-worker",
+        "seq": 8
+      },
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "worker": 1,
+        "agent": "sample-wave-worker",
+        "seq": 9
+      },
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "worker": 0,
+        "agent": "sample-wave-worker",
+        "seq": 8
+      },
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "worker": 1,
+        "agent": "sample-wave-worker",
+        "seq": 9
+      }
+    ],
+    "subagent_result_count": 0,
+    "distinct_workers_first_wave": [
+      0,
+      1
+    ],
+    "seq_min": 1,
+    "seq_max": 10,
+    "seq_missing": [],
+    "wire_dup_event_ids": 9,
+    "reconnect_sends": [
+      {
+        "type": "reconnect_pipeline",
+        "pipeline_run_id": "3717c03a-4e64-454f-bc9d-481aea71963a",
+        "after_seq": 0
+      }
+    ],
+    "run_pipeline_sends": [
+      {
+        "type": "run_pipeline",
+        "pipeline_type": "sample_wave",
+        "message": "UAT live pass run C \u2014 reload replay."
+      }
+    ],
+    "pipeline_complete": false,
+    "pipeline_cancelled": true,
+    "errors": []
+  },
+  "runE-pre-kill": {
+    "wave_started": [
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "task_ids": [
+          "t1",
+          "t2"
+        ],
+        "seq": 7
+      },
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "task_ids": [
+          "t1",
+          "t2"
+        ],
+        "seq": 7
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "task_ids": [
+          "t3",
+          "t4"
+        ],
+        "seq": 15
+      }
+    ],
+    "wave_completed": [
+      {
+        "wave_index": 0,
+        "seq": 14
+      }
+    ],
+    "subagent_spawned": [
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "worker": 0,
+        "agent": "sample-wave-worker",
+        "seq": 8
+      },
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "worker": 1,
+        "agent": "sample-wave-worker",
+        "seq": 9
+      },
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "worker": 0,
+        "agent": "sample-wave-worker",
+        "seq": 8
+      },
+      {
+        "wave_index": 0,
+        "step": "sample-wave-worker",
+        "worker": 1,
+        "agent": "sample-wave-worker",
+        "seq": 9
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "worker": 0,
+        "agent": "sample-wave-worker",
+        "seq": 16
+      },
+      {
+        "wave_index": 1,
+        "step": "sample-wave-worker",
+        "worker": 1,
+        "agent": "sample-wave-worker",
+        "seq": 17
+      }
+    ],
+    "subagent_result_count": 2,
+    "distinct_workers_first_wave": [
+      0,
+      1
+    ],
+    "seq_min": 1,
+    "seq_max": 17,
+    "seq_missing": [],
+    "wire_dup_event_ids": 0,
+    "reconnect_sends": [
+      {
+        "type": "reconnect_pipeline",
+        "pipeline_run_id": "3717c03a-4e64-454f-bc9d-481aea71963a",
+        "after_seq": 0
+      }
+    ],
+    "run_pipeline_sends": [
+      {
+        "type": "run_pipeline",
+        "pipeline_type": "sample_wave",
+        "message": "UAT live pass run E \u2014 durable mid-wave resume."
+      }
+    ],
+    "pipeline_complete": false,
+    "pipeline_cancelled": true,
+    "errors": []
+  },
+  "runD": {
+    "wave_started": [],
+    "wave_completed": [],
+    "subagent_spawned": [],
+    "subagent_result_count": 0,
+    "seq_min": 1,
+    "seq_max": 27,
+    "seq_missing": [],
+    "wire_dup_event_ids": 0,
+    "reconnect_sends": [],
+    "run_pipeline_sends": [
+      {
+        "type": "run_pipeline",
+        "pipeline_type": "user_stories",
+        "message": "Refund workflow requirements for a payments platform.",
+        "agent_ids": [
+          "domain-analyst",
+          "epic-architect",
+          "story-estimator",
+          "nfr-specialist",
+          "backlog-reviewer",
+          "backlog-compiler"
+        ]
+      }
+    ],
+    "pipeline_complete": true,
+    "pipeline_cancelled": false,
+    "errors": []
+  }
+}

@@ -1,0 +1,34 @@
+RUN E (b5bca453) — backend SIGKILL mid-wave-2, restart, auto-resume
+pre-kill events: seq 1-17 | post-restart resumed events: seq 18-28 (CR-01 live)
+
+  1  workflow_validated
+  2  pipeline_start
+  3  agent_start
+  4  agent_input
+  5  agent_chunk
+  6  agent_complete
+  7  wave_started
+  8  subagent_spawned
+  9  subagent_spawned
+ 10  subagent_result
+ 11  subagent_result
+ 12  merge_started
+ 13  merge_completed
+ 14  wave_completed
+ 15  wave_started
+ 16  subagent_spawned
+ 17  subagent_spawned
+ 18  workflow_validated
+ 19  pipeline_start
+ 20  wave_started
+ 21  subagent_spawned
+ 22  subagent_spawned
+ 23  subagent_result
+ 24  subagent_result
+ 25  merge_started
+ 26  merge_completed
+ 27  wave_completed
+ 28  pipeline_complete
+
+wave_runs: [(0, 'completed'), (1, 'completed'), (1, 'superseded')]
+run status: completed
