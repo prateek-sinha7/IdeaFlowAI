@@ -331,3 +331,309 @@ def test_spent_returns_snapshot_with_counts():
     assert snap.subagents == 2
     assert snap.depth == 1
     assert snap.tokens == 123
+
+
+# ===========================================================================
+# Task 2 — BudgetSnapshot persistence + partial-results surfacing
+# ===========================================================================
+
+from agents.artifacts.graph import ArtifactGraph
+from agents.execution_engine.engine import ExecutionEngine
+from agents.execution_engine.kernel_services import KernelServices
+
+
+class _PersistEctx:
+    """A minimal ectx carrying a scoped_store + artifacts graph for persist tests."""
+
+    def __init__(self, store=None, graph=None, run_id="run-x"):
+        self.scoped_store = store
+        self.artifacts = graph
+        self.run_id = run_id
+        self.workspace_id = "ws-1"
+        self.od_context = None
+
+
+class _RecordingStore:
+    """Records persist_budget_snapshot / workspace_budget_spent calls."""
+
+    def __init__(self, *, spent=None, raise_on_persist=False):
+        self.persisted: list[tuple] = []
+        self._spent = spent or {"subagents": 0, "tokens": 0}
+        self._raise = raise_on_persist
+
+    async def persist_budget_snapshot(self, run_id, snapshot):
+        if self._raise:
+            raise RuntimeError("boom")
+        self.persisted.append((run_id, snapshot))
+
+    async def workspace_budget_spent(self, workspace_id=None):
+        return self._spent
+
+
+def _ks(ectx):
+    """Build a KernelServices via __new__ + the minimal attrs the persist/aggregate
+    handles touch (the test_fanout kernel-handle precedent — the full ctor needs a
+    sandbox/ordered_agents we don't exercise here)."""
+    ks = KernelServices.__new__(KernelServices)
+    ks._engine = None
+    ks._ectx = ectx
+    ks.run_id = ectx.run_id
+    return ks
+
+
+# ── KernelServices.persist_budget_snapshot (None-degrading) ────────────────
+
+
+@pytest.mark.asyncio
+async def test_persist_budget_snapshot_writes_through_store():
+    store = _RecordingStore()
+    ks = _ks(_PersistEctx(store=store))
+    snap = BudgetSnapshot(tokens=42, subagents=3, depth=1, wall_clock_seconds=5.0)
+    await ks.persist_budget_snapshot(snap)
+    assert len(store.persisted) == 1
+    run_id, payload = store.persisted[0]
+    assert run_id == "run-x"
+    assert payload["tokens"] == 42 and payload["subagents"] == 3
+    assert payload["depth"] == 1 and payload["wall_clock_seconds"] == 5.0
+
+
+@pytest.mark.asyncio
+async def test_persist_budget_snapshot_none_store_degrades():
+    ks = _ks(_PersistEctx(store=None))
+    # No store → no-op, never raises.
+    await ks.persist_budget_snapshot(BudgetSnapshot(subagents=1))
+
+
+@pytest.mark.asyncio
+async def test_persist_budget_snapshot_store_error_never_aborts():
+    store = _RecordingStore(raise_on_persist=True)
+    ks = _ks(_PersistEctx(store=store))
+    # A store failure must degrade (logger.warning) — never propagate.
+    await ks.persist_budget_snapshot(BudgetSnapshot(subagents=1))
+
+
+# ── ScopedStore.workspace_budget_spent + persist via KernelServices handle ──
+
+
+@pytest.mark.asyncio
+async def test_workspace_budget_spent_handle_reads_store():
+    store = _RecordingStore(spent={"subagents": 7, "tokens": 200})
+    ks = _ks(_PersistEctx(store=store))
+    out = await ks.workspace_budget_spent()
+    assert out["subagents"] == 7 and out["tokens"] == 200
+
+
+@pytest.mark.asyncio
+async def test_workspace_budget_spent_handle_none_store_degrades():
+    ks = _ks(_PersistEctx(store=None))
+    out = await ks.workspace_budget_spent()
+    assert out == {"subagents": 0, "tokens": 0}
+
+
+# ── Engine helper: snapshot persistence is STRICTLY CONDITIONAL ────────────
+
+
+class _SnapEctx:
+    """Carries a budget + a runner handle for the engine persist-helper tests."""
+
+    def __init__(self, budget, runner, graph=None, run_id="run-x"):
+        self.budget = budget
+        self.runner = runner
+        self.artifacts = graph
+        self.run_id = run_id
+
+
+class _SnapRunner:
+    def __init__(self):
+        self.persisted: list = []
+
+    async def persist_budget_snapshot(self, snapshot):
+        self.persisted.append(snapshot)
+
+
+@pytest.mark.asyncio
+async def test_engine_persists_snapshot_when_fanout_active():
+    engine = ExecutionEngine()
+    budget = BudgetManager.from_limits(None)
+    budget.reserve(subagents=2)  # fan-out activity
+    runner = _SnapRunner()
+    ectx = _SnapEctx(budget, runner)
+    await engine._persist_budget_snapshot_if_active(ectx)
+    assert len(runner.persisted) == 1
+    assert runner.persisted[0].subagents == 2
+
+
+@pytest.mark.asyncio
+async def test_engine_skips_snapshot_when_no_fanout_activity():
+    # A run that never fanned out (subagents=0, no tokens/wall-clock) writes NOTHING —
+    # the byte/event-identical guarantee for existing workflows (Pitfall 3).
+    engine = ExecutionEngine()
+    budget = BudgetManager.from_limits(None)  # nothing reserved
+    runner = _SnapRunner()
+    ectx = _SnapEctx(budget, runner)
+    await engine._persist_budget_snapshot_if_active(ectx)
+    assert runner.persisted == []
+
+
+@pytest.mark.asyncio
+async def test_engine_force_persists_snapshot_on_abort():
+    # force=True (the BudgetExceeded abort) persists even if the snapshot looks inactive.
+    engine = ExecutionEngine()
+    budget = BudgetManager.from_limits(None)
+    runner = _SnapRunner()
+    ectx = _SnapEctx(budget, runner)
+    await engine._persist_budget_snapshot_if_active(ectx, force=True)
+    assert len(runner.persisted) == 1
+
+
+# ── Engine helper: partial-results surfacing (the completed 11-03 fragments) ─
+
+
+def test_engine_collects_partial_fragments_from_graph():
+    # The completed workers' fragment artifacts (11-03 write_fragment_artifact, kind
+    # file_bundle) are surfaced on the abort path with their artifact-ref ids.
+    engine = ExecutionEngine()
+    graph = ArtifactGraph()
+    ref = graph.write_ref(
+        run_id="run-x", owner_id="o", workspace_id="ws-1", kind="file_bundle",
+        producer_step="fanout-step", producer_agent="worker-a", task_id="0",
+        content="<html>frag</html>", location="prototype.html", visibility="workspace",
+    )
+    ectx = _SnapEctx(BudgetManager.from_limits(None), _SnapRunner(), graph=graph)
+    fragments = engine._collect_partial_fragments(ectx)
+    assert len(fragments) == 1
+    assert fragments[0]["artifact_ref"] == ref.id
+    assert fragments[0]["producer_step"] == "fanout-step"
+    assert fragments[0]["producer_agent"] == "worker-a"
+
+
+def test_engine_partial_fragments_empty_when_no_graph():
+    engine = ExecutionEngine()
+    ectx = _SnapEctx(BudgetManager.from_limits(None), _SnapRunner(), graph=None)
+    assert engine._collect_partial_fragments(ectx) == []
+
+
+def test_engine_partial_fragments_only_fragment_kinds():
+    # Non-fragment refs (e.g. a plan markdown) are NOT surfaced — only the completed
+    # workers' fragment artifacts.
+    engine = ExecutionEngine()
+    graph = ArtifactGraph()
+    graph.write_ref(
+        run_id="run-x", owner_id="o", workspace_id="ws-1", kind="plan",
+        producer_step="planner", producer_agent="planner-a", task_id=None,
+        content="# plan", location="tasks.md", visibility="workspace",
+    )
+    graph.write_ref(
+        run_id="run-x", owner_id="o", workspace_id="ws-1", kind="file_bundle",
+        producer_step="fanout-step", producer_agent="worker-a", task_id="0",
+        content="frag", location="prototype.html", visibility="workspace",
+    )
+    ectx = _SnapEctx(BudgetManager.from_limits(None), _SnapRunner(), graph=graph)
+    fragments = engine._collect_partial_fragments(ectx)
+    assert len(fragments) == 1
+    assert fragments[0]["producer_step"] == "fanout-step"
+
+
+# ===========================================================================
+# Real-DB persistence — budget_snapshot_json written on completion AND abort
+# ===========================================================================
+
+
+def _in_memory_store(owner_id="alice", workspace_id="ws-1"):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    import app.models  # noqa: F401 — register models on Base.metadata
+    from app.models.database import Base
+    from agents.authz import ScopedStore
+
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    session = Session()
+    store = ScopedStore(owner_id=owner_id, workspace_id=workspace_id, session=session)
+    return store, session
+
+
+def _seed_run(session, run_id, owner_id="alice", workspace_id="ws-1"):
+    from app.models.workflow import WorkflowRun
+
+    row = WorkflowRun(
+        id=run_id, user_id=owner_id, owner_id=owner_id, workspace_id=workspace_id,
+        type="custom", input="go", status="running",
+    )
+    session.add(row)
+    session.commit()
+    return row
+
+
+@pytest.mark.asyncio
+async def test_budget_snapshot_persisted_to_workflow_runs_on_completion():
+    store, session = _in_memory_store()
+    _seed_run(session, "run-done")
+    snap = {"tokens": 100, "cost": None, "subagents": 3, "depth": 1, "wall_clock_seconds": 4.0}
+    await store.persist_budget_snapshot("run-done", snap)
+
+    from app.models.workflow import WorkflowRun
+    row = session.query(WorkflowRun).filter(WorkflowRun.id == "run-done").first()
+    assert row.budget_snapshot_json is not None
+    assert row.budget_snapshot_json["subagents"] == 3
+    assert row.budget_snapshot_json["tokens"] == 100
+
+
+@pytest.mark.asyncio
+async def test_budget_snapshot_persisted_to_workflow_runs_on_abort():
+    # The abort path writes the SAME column with the spend-at-abort figures.
+    store, session = _in_memory_store()
+    _seed_run(session, "run-abort")
+    snap = {"tokens": 50, "cost": None, "subagents": 8, "depth": 2, "wall_clock_seconds": 1.0}
+    await store.persist_budget_snapshot("run-abort", snap)
+
+    from app.models.workflow import WorkflowRun
+    row = session.query(WorkflowRun).filter(WorkflowRun.id == "run-abort").first()
+    assert row.budget_snapshot_json["subagents"] == 8
+    assert row.budget_snapshot_json["depth"] == 2
+
+
+@pytest.mark.asyncio
+async def test_persist_budget_snapshot_cross_owner_is_noop():
+    # A cross-owner caller can never stamp another owner's run (default-deny).
+    store, session = _in_memory_store(owner_id="alice")
+    _seed_run(session, "run-alice", owner_id="alice")
+
+    from agents.authz import ScopedStore
+    bob = ScopedStore(owner_id="bob", workspace_id="ws-1", session=session)
+    await bob.persist_budget_snapshot("run-alice", {"subagents": 99})
+
+    from app.models.workflow import WorkflowRun
+    row = session.query(WorkflowRun).filter(WorkflowRun.id == "run-alice").first()
+    assert row.budget_snapshot_json is None  # untouched — cross-owner no-op
+
+
+@pytest.mark.asyncio
+async def test_workspace_budget_spent_aggregate_owner_scoped():
+    # subagent_runs across the workspace's runs are summed for THIS owner; a cross-owner
+    # workspace's rows are NEVER counted (T-11-04-04 default-deny).
+    store, session = _in_memory_store(owner_id="alice", workspace_id="ws-1")
+    # Two of alice's subagent_runs in ws-1.
+    await store.record_subagent_run(
+        "run-1", parent_step="fan", worker_agent="w", depth=0, isolation="shared_read",
+        status="complete",
+    )
+    await store.record_subagent_run(
+        "run-2", parent_step="fan", worker_agent="w", depth=0, isolation="shared_read",
+        status="complete",
+    )
+    # Bob's row in the same workspace name — must NOT be counted for alice.
+    from agents.authz import ScopedStore
+    bob = ScopedStore(owner_id="bob", workspace_id="ws-1", session=session)
+    await bob.record_subagent_run(
+        "run-3", parent_step="fan", worker_agent="w", depth=0, isolation="shared_read",
+        status="complete",
+    )
+
+    agg = await store.workspace_budget_spent("ws-1")
+    assert agg["subagents"] == 2  # alice's two only — bob's excluded

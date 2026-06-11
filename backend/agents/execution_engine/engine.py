@@ -36,7 +36,7 @@ from agents.capabilities.context_providers.opendesign import (
     RAW_BLOCK_PREFIX as _RAW_BLOCK_PREFIX,
 )
 from agents.capabilities.registry import CapabilityRegistry
-from agents.execution_engine.budget import BudgetManager, BudgetSnapshot
+from agents.execution_engine.budget import BudgetExceeded, BudgetManager, BudgetSnapshot
 from agents.execution_engine.context import ExecutionContext
 from agents.execution_engine.resolver import WorkflowResolver
 from agents.execution_engine.state_machine import get_state_machine
@@ -416,6 +416,69 @@ class ExecutionEngine:
         self._resolver = WorkflowResolver()
         self._store = get_artifact_store()
         self._state_machine = get_state_machine()
+
+    async def _persist_budget_snapshot_if_active(
+        self, ectx: ExecutionContext, *, force: bool = False
+    ) -> None:
+        """Persist the per-run BudgetSnapshot — STRICTLY CONDITIONAL on fan-out activity.
+
+        OBS-01: writes ``workflow_runs.budget_snapshot_json`` at the run-termination
+        boundaries (completion / abort / cancel). The write is GATED so existing
+        workflows (no fanout, no budget activity) stay byte/event-identical — a run that
+        never fanned out (``snapshot.subagents == 0`` and no token/wall-clock spend)
+        writes NOTHING (the exec-workspace conditional-provisioning precedent, Pitfall 3).
+        ``force=True`` (the BudgetExceeded abort) persists regardless (a breach means
+        fan-out ran). Reaches the persist through the runner handle (None-degrading);
+        never aborts the run.
+        """
+        budget = getattr(ectx, "budget", None)
+        runner = getattr(ectx, "runner", None)
+        if budget is None or runner is None:
+            return
+        persist = getattr(runner, "persist_budget_snapshot", None)
+        if persist is None:
+            return
+        snapshot = budget.spent()
+        active = (
+            getattr(snapshot, "subagents", 0)
+            or getattr(snapshot, "tokens", 0)
+            or getattr(snapshot, "wall_clock_seconds", 0.0)
+        )
+        if not active and not force:
+            return
+        await persist(snapshot)
+
+    @staticmethod
+    def _collect_partial_fragments(ectx: ExecutionContext) -> list[dict]:
+        """Surface the completed workers' 11-03 fragment artifacts (OBS-01 abort path).
+
+        On a BudgetExceeded abort the completed workers' fragment artifacts — the typed
+        lineage-tracked refs persisted by 11-03's ``write_fragment_artifact`` BEFORE
+        merge — are surfaced so partial results survive the abort (pending workers never
+        spawned). Reads the per-run typed ``ArtifactGraph`` for fragment-kind refs; each
+        entry carries the producer step/agent + the artifact-ref id. Best-effort: an
+        unreadable graph degrades to an empty list (never aborts the abort path).
+        """
+        graph = getattr(ectx, "artifacts", None)
+        run_id = getattr(ectx, "run_id", "")
+        if graph is None or not run_id:
+            return []
+        fragments: list[dict] = []
+        try:
+            for ref in graph.tree(run_id):
+                if getattr(ref, "kind", None) in ("file_bundle", "fragment"):
+                    fragments.append(
+                        {
+                            "artifact_ref": getattr(ref, "id", None),
+                            "producer_step": getattr(ref, "producer_step", None),
+                            "producer_agent": getattr(ref, "producer_agent", None),
+                            "location": getattr(ref, "location", None),
+                        }
+                    )
+        except Exception as exc:  # noqa: BLE001 — partial-results read must never abort
+            logger.warning("partial-fragment surfacing failed: %s", exc)
+            return []
+        return fragments
 
     async def execute(
         self,
@@ -1366,8 +1429,31 @@ class ExecutionEngine:
 
         except asyncio.CancelledError:
             self._state_machine.transition(pipeline_run_id, "cancelled")
+            # OBS-01: persist the budget snapshot on CANCEL (the completed workers'
+            # fragments persisted by 11-03 survive; pending workers never spawned).
+            # Strictly conditional on fan-out activity so a cancelled non-fanout run
+            # stays byte/event-identical (no snapshot written when nothing fanned out).
+            await self._persist_budget_snapshot_if_active(ectx)
             yield {"type": "pipeline_cancelled", "data": {"pipeline_run_id": pipeline_run_id}}
             raise
+        except BudgetExceeded as _budget_exc:
+            # OBS-01 graceful abort: a fan-out reserve/boundary breach aborts the run.
+            # Persist the snapshot (always active here — a BudgetExceeded means fan-out
+            # ran), surface the completed workers' 11-03 fragment artifacts in a partial
+            # structured summary, and emit a visible budget abort event reporting the
+            # breached dimension. Pending workers never spawned (reserve-before-spawn).
+            self._state_machine.transition(pipeline_run_id, "failed")
+            await self._persist_budget_snapshot_if_active(ectx, force=True)
+            yield {
+                "type": "budget_aborted",
+                "data": {
+                    "pipeline_run_id": pipeline_run_id,
+                    "dimension": getattr(_budget_exc, "dimension", "unknown"),
+                    "message": str(_budget_exc),
+                    "partial_results": self._collect_partial_fragments(ectx),
+                },
+            }
+            return
 
         # ── Step 5: Pipeline complete ─────────────────────────────────────
         # Guard: if the run was already cancelled (e.g. user rejected a review
@@ -1439,6 +1525,11 @@ class ExecutionEngine:
         # its running totals on pipeline_complete, so they must be present here for
         # EVERY pipeline (otherwise the card hides itself). Pricing matches the
         # per-run persistence in websocket.py (Haiku: $0.25/M in, $1.25/M out).
+        # OBS-01: persist the budget snapshot on COMPLETION (strictly conditional on
+        # fan-out activity — a run that never fanned out writes NO snapshot, so the 5
+        # characterization snapshots stay byte/event-identical, Pitfall 3).
+        await self._persist_budget_snapshot_if_active(ectx)
+
         from app.core.config import settings as _settings
         _tok_in = sum(r.get("input_tokens", 0) or 0 for r in results)
         _tok_out = sum(r.get("output_tokens", 0) or 0 for r in results)

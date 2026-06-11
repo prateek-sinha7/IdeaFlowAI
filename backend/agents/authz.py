@@ -348,6 +348,31 @@ class ScopedStore:
             if owned:
                 session.close()
 
+    async def persist_budget_snapshot(self, run_id: str, snapshot: dict) -> None:
+        """Write the fan-out ``BudgetSnapshot`` to ``workflow_runs.budget_snapshot_json``.
+
+        The 0014 forward column finally written (OBS-01): on run completion / abort
+        (BudgetExceeded) / cancel the engine persists the run's accumulated budget spend
+        (tokens / cost / subagents / depth / wall_clock). The row is resolved under the
+        owner+workspace scope filter so a cross-owner caller can never stamp another
+        owner's run (default-deny). A missing/cross-owner row is a no-op (the same
+        graceful degrade as the read path — audit must never abort the run).
+        """
+        from app.models.workflow import WorkflowRun
+
+        session, owned = self._acquire()
+        try:
+            query = session.query(WorkflowRun).filter(WorkflowRun.id == run_id)
+            query = self._scope_owner_ws(query, WorkflowRun)
+            row = query.first()
+            if row is None:
+                return
+            row.budget_snapshot_json = snapshot
+            session.commit()
+        finally:
+            if owned:
+                session.close()
+
     async def set_run_scope(
         self, run_id: str, owner_id: str, workspace_id: str
     ) -> None:

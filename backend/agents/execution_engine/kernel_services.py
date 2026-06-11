@@ -481,6 +481,30 @@ class KernelServices:
             logger.warning("workspace_budget_spent read failed: %s", exc)
             return {"subagents": 0, "tokens": 0}
 
+    async def persist_budget_snapshot(self, snapshot: Any) -> None:
+        """Persist a ``BudgetSnapshot`` to ``workflow_runs.budget_snapshot_json`` (OBS-01).
+
+        Called at the engine's run-termination boundaries (completion / abort / cancel).
+        Clones the ``record_exec_run`` None-degrade pattern EXACTLY: ``store is None →
+        return``; wrapped in try/except → ``logger.warning``; the snapshot write must
+        NEVER abort the run (audit must never break the live stream, Pitfall 6 / INV-3).
+        Serializes the dataclass snapshot into a plain dict for the JSON column.
+        """
+        store = getattr(self._ectx, "scoped_store", None)
+        if store is None:
+            return
+        payload = {
+            "tokens": getattr(snapshot, "tokens", 0),
+            "cost": getattr(snapshot, "cost", None),
+            "subagents": getattr(snapshot, "subagents", 0),
+            "depth": getattr(snapshot, "depth", 0),
+            "wall_clock_seconds": getattr(snapshot, "wall_clock_seconds", 0.0),
+        }
+        try:
+            await store.persist_budget_snapshot(self.run_id, payload)
+        except Exception as exc:  # noqa: BLE001 — snapshot persist must NEVER abort the run
+            logger.warning("persist_budget_snapshot failed: %s", exc)
+
     # ── Isolated-workspace alloc/reclaim handle (Phase 11 / FANOUT-05) ─────────
     async def allocate_isolated_workspace(
         self, scope: str, step: str, *, worker_index: int
