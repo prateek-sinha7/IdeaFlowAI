@@ -2891,6 +2891,28 @@ class ExecutionEngine:
                 continue
             try:
                 gate = registry.resolve("gate", name)
+                # ── [F1 / Phase 13] Streaming gate evaluation ─────────────────
+                # A gate exposing ``evaluate_stream`` (human/approval) streams its
+                # delegate events AS PRODUCED — so ``review_gate_ready`` reaches
+                # the dispatch loop (and the WS consumer) BEFORE the gate awaits
+                # the approval response, matching the working inline
+                # ``_run_review_gate`` ordering. Streamed event dicts ride a
+                # non-halting ``"pass"`` placeholder outcome (the caller only
+                # halts on ``block``/``wait_human``); the definitive outcome
+                # follows as the terminal WR-04 ``(None, outcome)`` sentinel.
+                # Duck-typed on the gate's capability surface — no workflow/agent
+                # names (SC-001/INV-1). Gates WITHOUT evaluate_stream (validation,
+                # security) keep the await-then-yield path byte-identically.
+                stream_fn = getattr(gate, "evaluate_stream", None)
+                if callable(stream_fn):
+                    async for item in stream_fn(step, ectx):
+                        if isinstance(item, dict):
+                            yield item, "pass"
+                        else:
+                            # Terminal GateOutcome → the WR-04 sentinel.
+                            yield None, getattr(item, "outcome", "pass")
+                            break
+                    continue
                 result = await gate.evaluate(step, ectx)
             except Exception as exc:  # noqa: BLE001 — a gate must never abort the run
                 logger.warning(

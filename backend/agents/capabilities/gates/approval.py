@@ -32,7 +32,7 @@ NO kernel/app import.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, AsyncGenerator
 
 from agents.capabilities.gates.base import (
     GATE_BLOCK,
@@ -99,8 +99,21 @@ class ApprovalGate:
 
     name = "approval"
 
-    async def evaluate(self, step: Any, ctx: Any) -> GateOutcome:
-        """First-exec pause (D-02/D-04); short-circuit on a prior approval (D-03)."""
+    async def evaluate_stream(
+        self, step: Any, ctx: Any
+    ) -> AsyncGenerator[Any, None]:
+        """Stream the review-gate events AS PRODUCED, then a terminal ``GateOutcome``.
+
+        F1 fix (Phase 13): same streaming protocol as ``HumanGate.evaluate_stream``
+        — each public delegate event is yielded the moment ``run_human_gate``
+        produces it, so ``review_gate_ready`` reaches the dispatch loop (and the WS
+        consumer) BEFORE the delegate resumes into ``await event.wait()``. The D-03
+        first-exec memory, the D-04 policy-snapshot payload, and the offline
+        never-auto-approve pause are UNCHANGED — only the event buffering moved.
+
+        Protocol: yields zero or more public gate event dicts, then exactly one
+        terminal ``GateOutcome`` (with ``events=[]`` — no double emission).
+        """
         step_id = getattr(step, "agent_id", None) or "?"
         runner = getattr(ctx, "runner", None)
 
@@ -120,27 +133,23 @@ class ApprovalGate:
                     ctx, step_id, "approval", GATE_PASS,
                     {"reason": "prior approval this run"},
                 )
-                return GateOutcome(outcome=GATE_PASS)
+                yield GateOutcome(outcome=GATE_PASS)
+                return
 
         # ── offline / no handle → pause for human (NEVER auto-approve) ─────────────
         delegate = getattr(runner, "run_human_gate", None)
         if delegate is None:
             detail = {"reason": "explicit human sign-off required before this step"}
             await write_gate_event(ctx, step_id, "approval", GATE_WAIT_HUMAN, detail)
-            return GateOutcome(
-                outcome=GATE_WAIT_HUMAN,
-                events=[
-                    {
-                        "type": "gate_wait_human",
-                        "data": {"step": step_id, "gate": "approval"},
-                    }
-                ],
-                detail=detail,
-            )
+            yield {
+                "type": "gate_wait_human",
+                "data": {"step": step_id, "gate": "approval"},
+            }
+            yield GateOutcome(outcome=GATE_WAIT_HUMAN, detail=detail)
+            return
 
         # ── D-02/D-04: delegate to the ONE HITL mechanism with the policy snapshot ──
         payload = _exec_policy_snapshot(step, ctx)
-        events: list[dict] = []
         rejected = False
         async for event in delegate(step, payload=payload):
             etype = event.get("type")
@@ -150,8 +159,30 @@ class ApprovalGate:
             if etype == _EDITED:
                 continue  # internal edit signal — not a public gate event
             # review_gate_ready / review_gate_approved flow through UNCHANGED (parity)
-            events.append(event)
+            # — yielded IMMEDIATELY so ready reaches the consumer pre-await (F1).
+            yield event
 
         outcome = GATE_BLOCK if rejected else GATE_PASS
         await write_gate_event(ctx, step_id, "approval", outcome, None)
-        return GateOutcome(outcome=outcome, events=events)
+        yield GateOutcome(outcome=outcome, events=[])
+
+    async def evaluate(self, step: Any, ctx: Any) -> GateOutcome:
+        """Thin collector over ``evaluate_stream`` (INV-12 single implementation).
+
+        Preserves the pre-streaming contract exactly: returns one ``GateOutcome``
+        whose ``events`` list carries every public event the stream produced
+        (incl. the offline ``gate_wait_human`` event) with the terminal's
+        ``outcome``/``detail``.
+        """
+        events: list[dict] = []
+        terminal: GateOutcome | None = None
+        async for item in self.evaluate_stream(step, ctx):
+            if isinstance(item, dict):
+                events.append(item)
+            else:
+                terminal = item
+        if terminal is None:  # defensive — the stream always yields one terminal
+            terminal = GateOutcome(outcome=GATE_PASS)
+        return GateOutcome(
+            outcome=terminal.outcome, events=events, detail=terminal.detail
+        )

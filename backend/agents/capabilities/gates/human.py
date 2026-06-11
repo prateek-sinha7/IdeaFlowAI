@@ -22,7 +22,7 @@ review gate is reached through ``ctx.runner`` — NO kernel/app import.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, AsyncGenerator
 
 from agents.capabilities.gates.base import (
     GATE_BLOCK,
@@ -48,21 +48,36 @@ class HumanGate:
 
     name = "human"
 
-    async def evaluate(self, step: Any, ctx: Any) -> GateOutcome:
-        """Route through the existing ``_run_review_gate`` (GATE-03 parity)."""
+    async def evaluate_stream(
+        self, step: Any, ctx: Any
+    ) -> AsyncGenerator[Any, None]:
+        """Stream the review-gate events AS PRODUCED, then a terminal ``GateOutcome``.
+
+        F1 fix (Phase 13): the delegate (``run_human_gate`` → ``_run_review_gate``)
+        yields ``review_gate_ready`` BEFORE it awaits the approval response. By
+        re-yielding each public event immediately (no list buffering), the ready
+        event flows up the generator chain to the engine's dispatch loop — and thus
+        the WS consumer — while the run is still PAUSED at ``await event.wait()``,
+        matching the working inline ``_should_gate`` → ``_run_review_gate`` ordering.
+
+        Protocol: yields zero or more public gate event dicts, then exactly one
+        terminal ``GateOutcome`` (with ``events=[]`` — the events were already
+        streamed; no double emission). Internal ``_gate_rejected`` / ``_gate_edited``
+        signals are consumed (they drive the outcome) and never re-surfaced.
+        """
         step_id = getattr(step, "agent_id", None) or "?"
         runner = getattr(ctx, "runner", None)
         delegate = getattr(runner, "run_human_gate", None)
         if delegate is None:
             # No HITL surface available (offline / no handle) → pause for human.
             await write_gate_event(ctx, step_id, "human", GATE_WAIT_HUMAN, None)
-            return GateOutcome(outcome=GATE_WAIT_HUMAN)
+            yield GateOutcome(outcome=GATE_WAIT_HUMAN)
+            return
 
         # The step's deliverable output drives the review payload (parity with the
         # inline path, which passes the agent's output). Sourced from ctx when set.
         output = getattr(ctx, "last_streamed", "") or ""
 
-        events: list[dict] = []
         rejected = False
         async for event in delegate(step, output=output):
             etype = event.get("type")
@@ -74,8 +89,28 @@ class HumanGate:
                 # internal edit signal — not a public gate event
                 continue
             # review_gate_ready / review_gate_approved flow through UNCHANGED (parity)
-            events.append(event)
+            # — yielded IMMEDIATELY so ready reaches the consumer pre-await (F1).
+            yield event
 
         outcome = GATE_BLOCK if rejected else GATE_PASS
         await write_gate_event(ctx, step_id, "human", outcome, None)
-        return GateOutcome(outcome=outcome, events=events)
+        yield GateOutcome(outcome=outcome, events=[])
+
+    async def evaluate(self, step: Any, ctx: Any) -> GateOutcome:
+        """Thin collector over ``evaluate_stream`` (INV-12 single implementation).
+
+        Preserves the pre-streaming contract exactly: returns one ``GateOutcome``
+        whose ``events`` list carries every public event the stream produced.
+        """
+        events: list[dict] = []
+        terminal: GateOutcome | None = None
+        async for item in self.evaluate_stream(step, ctx):
+            if isinstance(item, dict):
+                events.append(item)
+            else:
+                terminal = item
+        if terminal is None:  # defensive — the stream always yields one terminal
+            terminal = GateOutcome(outcome=GATE_PASS)
+        return GateOutcome(
+            outcome=terminal.outcome, events=events, detail=terminal.detail
+        )
