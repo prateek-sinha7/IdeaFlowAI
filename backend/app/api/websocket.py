@@ -562,8 +562,85 @@ async def websocket_chat(websocket: WebSocket):
                 if _reconnect_run_id:
                     running_task = _PIPELINE_TASKS.get(_reconnect_run_id)
                     running_queue = _PIPELINE_QUEUES.get(_reconnect_run_id)
+                    _has_live_task = bool(
+                        running_task
+                        and not running_task.done()
+                        and running_queue is not None
+                    )
 
-                    if running_task and not running_task.done() and running_queue is not None:
+                    # ── Durable run_events tail replay (RESUME-03 / API-05) ──────────
+                    # The reconnecting client may supply ``after_seq`` (the highest
+                    # ``seq`` it has already rendered). When ``after_seq`` is provided
+                    # OR there is NO live task (the process was restarted and the
+                    # in-memory queue/task are gone), FIRST replay the durable tail
+                    # from the persisted ``run_events`` log (``seq > after_seq``) BEFORE
+                    # attaching to the live queue, so a reconnect after a crash/restart
+                    # still receives every missed event. The replay is OWNER-SCOPED via
+                    # the default-deny ``ScopedStore`` (constructed with the reconnecting
+                    # user's id): a cross-owner reconnect resolves to ∅ (T-12-03-IDOR).
+                    # The FE dedupes by ``event_id`` (12-04), so a replayed event that
+                    # the live attach also delivers is idempotent client-side.
+                    #
+                    # ``after_seq`` defaults to 0 when ABSENT — so a legacy reconnect
+                    # (no ``after_seq``) WITH a live task replays nothing new only when
+                    # there are no persisted rows; but to keep the legacy live-attach
+                    # path byte-identical (the 5 snapshots + existing reconnect
+                    # behavior), the replay branch is entered ONLY when the client
+                    # explicitly sent ``after_seq`` OR there is no live task. A pure
+                    # legacy reconnect (no ``after_seq`` + live task) skips replay
+                    # entirely and runs the unchanged live-attach drainer below.
+                    _after_seq_raw = message_data.get("after_seq")
+                    _did_replay = False
+                    if _after_seq_raw is not None or not _has_live_task:
+                        # Int-coerce ``after_seq`` (the ``runs.py after:int`` precedent —
+                        # a non-int is rejected, never reaching the scoped read / raw SQL).
+                        try:
+                            _after_seq = int(_after_seq_raw) if _after_seq_raw is not None else 0
+                        except (TypeError, ValueError):
+                            await websocket.send_json({
+                                "type": "error", "chunk": None, "section": None,
+                                "data": {"error": "after_seq must be an integer",
+                                         "code": "invalid_after_seq", "recoverable": True},
+                            })
+                            continue
+                        from agents.authz import ScopedStore
+                        _replay_store = ScopedStore(owner_id=user.id)
+                        try:
+                            _missed = await _replay_store.read_events(
+                                _reconnect_run_id, after_seq=_after_seq
+                            )
+                        except Exception as _replay_exc:  # noqa: BLE001
+                            logger.warning(
+                                "reconnect replay read failed for %s: %s",
+                                _reconnect_run_id, _replay_exc,
+                            )
+                            _missed = []
+                        for _r in _missed:
+                            try:
+                                await websocket.send_json({
+                                    "type": _r.type, "chunk": None,
+                                    "section": None, "data": _r.payload_json,
+                                })
+                            except Exception:
+                                break
+                        _did_replay = True
+                        # When there is NO live task (restarted), the replayed tail plus
+                        # the run's CURRENT status is the complete response — report the
+                        # status so the client is not left silently hanging.
+                        if not _has_live_task:
+                            _run_row = await _replay_store.get_run(_reconnect_run_id)
+                            await websocket.send_json({
+                                "type": "pipeline_reconnected", "chunk": None, "section": None,
+                                "data": {
+                                    "pipeline_run_id": _reconnect_run_id,
+                                    "status": getattr(_run_row, "status", None),
+                                    "replayed_through_seq": _after_seq,
+                                    "live": False,
+                                    "message": "Replayed durable run_events tail (no live task)",
+                                },
+                            })
+
+                    if _has_live_task:
                         # Pipeline is still running — attach a new drainer
                         logger.info("Client reconnected to running pipeline run=%s", _reconnect_run_id)
                         try:
