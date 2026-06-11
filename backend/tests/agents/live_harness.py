@@ -599,13 +599,12 @@ async def drive_engine_pipeline(
 
     engine = ExecutionEngine()
 
-    # ── Artifact-store writes → no-op (no workflow_runs row in tests). ───────
-    _orig_store_store = engine._store.store
-
-    async def _noop_store(*a, **k):
-        return "artifact-id"
-
-    engine._store.store = _noop_store  # type: ignore[assignment]
+    # ── Artifact persistence: NO no-op needed post-Phase-5/12. The old
+    #    ``ArtifactStore.store`` method (whose FK INSERT aborted harness runs at
+    #    Phase 8) was deleted in the decoupling; the engine now persists through
+    #    the owner-scoped ScopedStore, which degrades gracefully without a
+    #    workflow_runs row. ``engine._store`` survives as the gate/questionnaire
+    #    event hub (get_review_event / set_questionnaire_responses) used below. ──
 
     # ── Planner: real by default; default-PROCEED stub only if requested. ────
     _orig_run_planner = engine._run_planner
@@ -657,6 +656,32 @@ async def drive_engine_pipeline(
     store = engine._store
     _pending_resume_tasks: list[asyncio.Task] = []
 
+    # ── Manifest-declared human gates (``gates: [human]`` on compiled steps, e.g.
+    #    prototype specify/plan) consume ``_run_review_gate`` INSIDE gate
+    #    evaluation (HumanGate → runner.run_human_gate → the engine method), so
+    #    ``review_gate_ready`` never reaches this consumer — and the gate CLEARS
+    #    its event on arming, so pre-approving the response can't unblock it
+    #    either. Wrap the engine's ``_run_review_gate`` to fire the approver
+    #    CONCURRENTLY the moment the gate yields ready — uniform for the legacy
+    #    inline path and the declared-gate delegate (which resolves
+    #    ``self._engine._run_review_gate`` at call time). Pass-through when
+    #    auto-resume is off (the TestLiveHITL manual pause→resume seam). The
+    #    engine instance is per-drive, so no restore is needed. ────────────────
+    _orig_review_gate = engine._run_review_gate
+
+    async def _auto_resume_review_gate(pipeline_run_id, agent_id, agent_name, output):
+        async for _gev in _orig_review_gate(pipeline_run_id, agent_id, agent_name, output):
+            if auto_resume_gates and _gev.get("type") == "review_gate_ready":
+                result.gated = True
+                _gdata = dict(_gev.get("data") or {})
+                _gkey = _gdata.get("gate_key") or f"{pipeline_run_id}:{agent_id}"
+                _pending_resume_tasks.append(
+                    asyncio.create_task(_apply_gate(store, approver, _gkey, _gdata))
+                )
+            yield _gev
+
+    engine._run_review_gate = _auto_resume_review_gate  # type: ignore[assignment]
+
     kwargs: dict[str, Any] = dict(
         agents=list(specs),
         user_message=brief,
@@ -688,16 +713,12 @@ async def drive_engine_pipeline(
                 )
 
             elif etype == "review_gate_ready":
+                # Approval (when auto_resume_gates) is scheduled by the
+                # ``_auto_resume_review_gate`` wrapper at the YIELD site — it
+                # covers BOTH the legacy inline path (whose events surface here)
+                # and the declared-gate delegate (whose events do not). Here we
+                # only record that a gate fired.
                 result.gated = True
-                if auto_resume_gates:
-                    gate_key = data.get("gate_key") or f"{run_id}:{data.get('agent_id')}"
-                    # The engine is BLOCKED on event.wait() inside this same async
-                    # generator; resolve the approver (sync OR async) + write the
-                    # response from a CONCURRENT task so the next `await` (which the
-                    # `async for` is about to make) lets the engine resume.
-                    _pending_resume_tasks.append(
-                        asyncio.create_task(_apply_gate(store, approver, gate_key, dict(data)))
-                    )
 
             elif etype == "questionnaire_ready":
                 # The REAL planner asked to clarify; auto-answer headlessly so the
@@ -728,7 +749,6 @@ async def drive_engine_pipeline(
         factory_mod.create_runner = _orig_factory_create_runner
         if _orig_engine_create_runner is not None:
             engine_mod.create_runner = _orig_engine_create_runner
-        engine._store.store = _orig_store_store  # type: ignore[assignment]
         engine._run_planner = _orig_run_planner  # type: ignore[assignment]
         engine_mod.compile_for_run = _orig_compile_for_run
         _settings.RUNS_ROOT = _orig_runs_root
