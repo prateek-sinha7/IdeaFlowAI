@@ -79,7 +79,11 @@ Your job: propose the minimal set of file edits that satisfies the task, followi
 
 ## Output format
 
-Return ONLY a valid JSON object. No markdown fences, no prose, no leading or trailing text. Schema:
+Return ONLY a valid JSON object. No markdown fences, no prose, no leading or trailing text.
+
+You have NO tools in this session. You must NOT emit `<function_calls>`, `<invoke>`, `write_todos`, or tool-call XML of any kind — there are no tools to call, and any such syntax corrupts the output. The ENTIRE response must be the single JSON object: nothing before it, nothing after it.
+
+Schema:
 
 ```
 {
@@ -108,17 +112,25 @@ If the task cannot be completed safely from the provided context, return ``{"sum
 
 _JSON_OBJECT_RE = re.compile(r"\{[\s\S]*\}")
 
+# F4 (13-02): fabricated tool-call XML pollution — live Haiku has returned
+# ``<function_calls><invoke name=read_file>...`` instead of (or wrapped around) the
+# JSON edit-plan. Non-greedy ``[\s\S]*?`` span (linear on max_tokens-capped output —
+# T-13-02-04); the strip only NARROWS what reaches the parser, never widens it
+# (T-13-02-01 — the downstream path-traversal validation on edits is unchanged).
+_FABRICATED_TOOL_XML_RE = re.compile(r"<function_calls>[\s\S]*?</function_calls>")
+
 
 def _extract_json(raw: str) -> dict[str, Any]:
     """Best-effort JSON extraction.
 
     The system prompt asks for "ONLY a valid JSON object", but real LLM
     outputs occasionally arrive wrapped in ``` ```json ``` fences or with a
-    one-line preamble. We strip the fences, then fall back to grabbing
-    the largest ``{...}`` span and parsing that. If both fail, the
+    one-line preamble. Fabricated ``<function_calls>`` XML spans (the F4 live
+    failure) are stripped FIRST, then fences, then we fall back to grabbing
+    the largest ``{...}`` span and parsing that. If all fail, the
     pipeline treats it as an agent error.
     """
-    text = raw.strip()
+    text = _FABRICATED_TOOL_XML_RE.sub("", raw).strip()
     if text.startswith("```"):
         # Trim the first fence line and a trailing fence if present.
         text = re.sub(r"^```[a-zA-Z]*\n", "", text)
@@ -131,6 +143,21 @@ def _extract_json(raw: str) -> dict[str, Any]:
     if match is None:
         raise ValueError("handoff coder returned no JSON object")
     return json.loads(match.group(0))
+
+
+# F4 (13-02): hard bound on parse-driven re-prompts — 2 TOTAL attempts (the original
+# plus ONE corrective retry). Never raised; never made configurable (T-13-02-02 DoS
+# disposition: persistent parse failure must fail loudly, not loop).
+_MAX_PARSE_ATTEMPTS = 2
+
+# The corrective suffix appended to the user message on the retry attempt — names the
+# failure and restates the output contract.
+_CORRECTIVE_SUFFIX = (
+    "\n\nIMPORTANT: your previous response was NOT a valid JSON object and could not "
+    "be parsed. Respond again with ONLY the single JSON object matching the schema in "
+    "the system prompt — no tool-call XML (no <function_calls>, no <invoke>), no "
+    "prose, no markdown fences, nothing before or after the JSON object."
+)
 
 
 class HandoffCoder:
@@ -180,35 +207,53 @@ class HandoffCoder:
         # the JSON edit-plan exactly as before. Lazy import keeps the module light.
         from app.agents.deep_agent_runner import DeepAgentRunner
 
-        runner = DeepAgentRunner(
-            system_prompt=self.system_prompt,
-            tools=[],
-            model=self._model_override,
-            max_tokens=self._max_tokens,
-            exclude_builtin_tools=True,  # text-only: no fs/native tools, pure edit-plan stream
-        )
+        # F4 (13-02): bounded parse-retry. Live Haiku has returned fabricated tool-call
+        # XML instead of the JSON edit-plan; one corrective re-prompt (naming the
+        # failure) recovers it. The one-shot stream + parse runs at most
+        # ``_MAX_PARSE_ATTEMPTS`` times; a FRESH runner is constructed per attempt
+        # (no checkpointer state to reuse — each attempt is an independent one-shot,
+        # never a re-implemented agent loop, INV-13). A RuntimeError from a runner
+        # ``error`` event is a runtime fault, NOT a parse fault — it propagates
+        # immediately and is never retried.
+        plan: dict[str, Any] | None = None
+        for attempt in range(1, _MAX_PARSE_ATTEMPTS + 1):
+            message = user_message if attempt == 1 else user_message + _CORRECTIVE_SUFFIX
+            runner = DeepAgentRunner(
+                system_prompt=self.system_prompt,
+                tools=[],
+                model=self._model_override,
+                max_tokens=self._max_tokens,
+                exclude_builtin_tools=True,  # text-only: no fs/native tools, pure edit-plan stream
+            )
 
-        # The runner streams ``{"type":"chunk","chunk":str}`` tokens and a terminal
-        # ``{"type":"done","output":str}`` carrying the full accumulated text. Prefer the
-        # ``done`` output (the authoritative full message) and fall back to the joined
-        # chunks if no ``done`` arrived (defensive — an error event would raise upstream).
-        parts: list[str] = []
-        final_output: str | None = None
-        async for event in runner.astream_events(user_message):
-            etype = event.get("type")
-            if etype == "chunk":
-                parts.append(event.get("chunk", ""))
-            elif etype == "done":
-                final_output = event.get("output", "")
-            elif etype == "error":
-                raise RuntimeError(f"handoff coder runtime error: {event.get('error')}")
-        raw = final_output if final_output is not None else "".join(parts)
+            # The runner streams ``{"type":"chunk","chunk":str}`` tokens and a terminal
+            # ``{"type":"done","output":str}`` carrying the full accumulated text. Prefer the
+            # ``done`` output (the authoritative full message) and fall back to the joined
+            # chunks if no ``done`` arrived (defensive — an error event would raise upstream).
+            parts: list[str] = []
+            final_output: str | None = None
+            async for event in runner.astream_events(message):
+                etype = event.get("type")
+                if etype == "chunk":
+                    parts.append(event.get("chunk", ""))
+                elif etype == "done":
+                    final_output = event.get("output", "")
+                elif etype == "error":
+                    raise RuntimeError(
+                        f"handoff coder runtime error: {event.get('error')}"
+                    )
+            raw = final_output if final_output is not None else "".join(parts)
 
-        try:
-            plan = _extract_json(raw)
-        except (json.JSONDecodeError, ValueError) as exc:
-            logger.warning("handoff coder JSON parse failed: %s; raw=%s", exc, raw[:500])
-            raise
+            try:
+                plan = _extract_json(raw)
+                break
+            except (json.JSONDecodeError, ValueError) as exc:
+                logger.warning(
+                    "handoff coder JSON parse failed: %s; raw=%s", exc, raw[:500]
+                )
+                if attempt >= _MAX_PARSE_ATTEMPTS:
+                    raise
+        assert plan is not None  # the loop either bound ``plan`` or raised
 
         edits = plan.get("edits")
         if not isinstance(edits, list):
