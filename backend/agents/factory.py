@@ -173,10 +173,19 @@ def create_runner(
     from app.agents.sandbox import RunSandbox
 
     spec = load_agent_spec(agent_id)
+    # Tools are resolved BEFORE prompt composition (13-02 / F4): the composed
+    # prompt needs to know whether the agent has literally zero callable tools
+    # so the anti-fabrication ``tool_availability`` preamble can be injected.
+    custom_tools, exclude_builtin_tools = _resolve_runner_tools(spec, ctx)
+    # ``no_tools`` is True ONLY for pure text-only agents (tools:[] with no
+    # MCP tools pre-warmed): exclude_builtin AND zero custom tools. Workspace/
+    # prototype agents flip exclude_builtin False; planning agents carry
+    # PLANNING_TOOLS; MCP-bound agents flip exclude_builtin False — none of
+    # those receive the preamble (their prompts stay byte-identical).
+    no_tools = exclude_builtin_tools and not custom_tools
     # Compose the system prompt — guardrails/skills/hooks/constitution/injection/
     # body, in the fixed injection order (see ``_compose_system_prompt``).
-    system_prompt = _compose_system_prompt(spec, ctx)
-    custom_tools, exclude_builtin_tools = _resolve_runner_tools(spec, ctx)
+    system_prompt = _compose_system_prompt(spec, ctx, no_tools=no_tools)
 
     # Per-run on-disk sandbox: <RUNS_ROOT>/<user>/<run>/. SHARED across every
     # agent in the pipeline run, so files (prototype.html, code-gen outputs)
@@ -253,7 +262,21 @@ def _select_runtime(agent_id: str, build: Callable[[], object]) -> object:
 # ---------------------------------------------------------------------------
 
 
-def _compose_system_prompt(spec, ctx: AgentContext) -> str:
+# F4 (13-02): anti-fabrication preamble for agents with ZERO callable tools.
+# Live Haiku fabricates Claude-internal tool syntax (<function_calls>/<invoke>/
+# write_todos XML) as plain text when the composed prompt implies file/tool
+# actions without bound tools. This terse, engineer-authored block (no
+# interpolated user input — T-13-02-03) frames the whole prompt via the
+# ``tool_availability`` slot, FIRST in the default assembly order.
+_NO_TOOLS_PREAMBLE = """## Tool Availability
+
+You have NO tools in this session. You must NEVER emit tool-call syntax of any
+kind — no <function_calls>, no <invoke>, no write_todos, read_file, write_file,
+edit_file, or to-do blocks. Any file content you produce must appear directly
+in your response as plain text. Respond with prose or structured text only."""
+
+
+def _compose_system_prompt(spec, ctx: AgentContext, *, no_tools: bool = False) -> str:
     """Compose the system prompt via the registered ``PromptAssemblyPolicy`` (08-05 / F1/F3).
 
     Builds a named-block mapping and delegates block ORDER + join to the
@@ -276,6 +299,13 @@ def _compose_system_prompt(spec, ctx: AgentContext) -> str:
     from agents.capabilities.skills.providers import extract_ui_skill_blocks
 
     blocks: dict[str, object] = {}
+
+    # -1. Tool-availability preamble (F4 / 13-02) — ONLY when the agent resolved
+    # to literally zero callable tools (text-only). The slot is FIRST in the
+    # default order so the constraint frames everything that follows. Tool-having
+    # agents never carry the key, so their composition stays byte-identical.
+    if no_tools:
+        blocks["tool_availability"] = _NO_TOOLS_PREAMBLE
 
     # 0. Injection content (od_prototype / od_ppt agents)
     injects = getattr(spec, "injects", []) or []

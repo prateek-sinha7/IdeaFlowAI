@@ -225,6 +225,10 @@ class TestPromptAssemblyPolicyParity:
         policy = self._policy()
         assert policy.name == "default"
         assert tuple(policy.order) == (
+            # tool_availability (13-02 / F4) is FIRST: the no-tools anti-fabrication
+            # preamble frames everything that follows. Emitted ONLY for agents
+            # resolved to zero callable tools — tool-having compositions unchanged.
+            "tool_availability",
             "injects",
             "guardrails",
             "skills",

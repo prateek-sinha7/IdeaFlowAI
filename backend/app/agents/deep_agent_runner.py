@@ -48,6 +48,7 @@ Construction (per plan §4 / Phase 1):
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable
 
 from deepagents import create_deep_agent
@@ -104,6 +105,37 @@ _BUILTIN_TOOLS: frozenset[str] = frozenset(
         "execute",
     }
 )
+
+
+# F4 (13-02): fabricated tool-call XML spans live Haiku emits AS PLAIN TEXT when a
+# tool-less prompt implies file/tool actions. Non-greedy ``[\s\S]*?`` spans (DOTALL-
+# equivalent) — linear on max_tokens-capped model output, no nested quantifiers
+# (T-13-02-04 ReDoS disposition).
+_FABRICATED_TOOL_XML_RE: re.Pattern[str] = re.compile(
+    r"<function_calls>[\s\S]*?</function_calls>"
+    r"|<invoke\b[^>]*>[\s\S]*?</invoke>"
+)
+
+
+def _strip_fabricated_tool_xml(text: str) -> str:
+    """Strip fabricated tool-call XML spans from a TOOL-LESS agent's done output (F4).
+
+    Removes ``<function_calls>...</function_calls>`` spans and standalone fabricated
+    ``<invoke ...>...</invoke>`` spans. Applied ONLY to the terminal ``done`` output of
+    agents constructed with ``exclude_builtin_tools=True`` and zero custom tools — a
+    tool-using agent's legitimate output is never touched.
+
+    Streamed ``chunk`` events are intentionally NOT filtered: this defense-in-depth
+    targets the AUTHORITATIVE output that feeds downstream agent context and
+    deliverables, not the live UI token stream.
+
+    When the pattern is absent the input is returned unchanged (same object), so
+    scripted-model characterization outputs (which never contain the pattern) stay
+    byte-identical.
+    """
+    if "<function_calls>" not in text and "<invoke" not in text:
+        return text
+    return _FABRICATED_TOOL_XML_RE.sub("", text)
 
 
 def _tool_name(tool: Any) -> str | None:
@@ -225,6 +257,12 @@ class DeepAgentRunner:
         # ── Tool exclusion: library sub-agents OFF (always), built-ins off
         #    for text-only agents (Task #25) ──────────────────────────────
         excluded = _BUILTIN_TOOLS if exclude_builtin_tools else frozenset({_LIBRARY_SUBAGENT_TOOL})
+
+        # F4 (13-02): sanitize fabricated tool-call XML from the terminal done
+        # output ONLY for tool-less agents (mirror of the factory's no_tools
+        # derivation: exclude_builtin AND zero custom tools). Tool-using agents'
+        # legitimate output is never touched.
+        self._sanitize_fabricated_xml: bool = exclude_builtin_tools and not self.tools
 
         # ── Disk filesystem backend (per-run sandbox), when provided ──────
         backend = None
@@ -446,6 +484,11 @@ class DeepAgentRunner:
                 }
                 return
 
+            # F4 (13-02): for TOOL-LESS agents only, strip fabricated tool-call
+            # XML from the authoritative done output (no-op when absent —
+            # characterization outputs stay byte-identical).
+            if self._sanitize_fabricated_xml:
+                full_output = _strip_fabricated_tool_xml(full_output)
             yield {"type": "done", "output": full_output}
 
         except Exception as exc:  # noqa: BLE001 — mirror the legacy swallow

@@ -37,7 +37,13 @@ from agents.capabilities.registry import register
 # The fixed prompt-block order (F1). MUST stay byte-identical to the factory's inline
 # ``_compose_system_prompt`` order (backend/CLAUDE.md / RESEARCH Pitfall 2). 08-06's
 # constitution fix plugs into the ``constitution`` slot — already present here.
+#
+# ``tool_availability`` (13-02 / F4) is FIRST: the anti-fabrication no-tools preamble
+# must frame everything that follows. The factory emits the block ONLY for agents
+# resolved to zero callable tools, so every tool-having agent's composition is
+# byte-identical (its blocks dict never contains the key).
 DEFAULT_ORDER: tuple[str, ...] = (
+    "tool_availability",
     "injects",
     "guardrails",
     "skills",
