@@ -296,8 +296,10 @@ def test_code_validators_registered():
     assert ("validator", "code_lint") in registry_mod._KNOWN
 
 
-def test_registry_count_is_fifty_three():
-    assert len(registry_mod._KNOWN) == 53
+def test_registry_count_is_fifty_nine():
+    # 53 (Phase 10) + 6 Phase-11 fan-out capabilities: the fanout_batch
+    # strategy, the spawn_subagents tool, and the 4 merge strategies.
+    assert len(registry_mod._KNOWN) == 59
 
 
 # ════════════════════════════════════════════════════════════════════════════

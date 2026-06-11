@@ -76,25 +76,27 @@ def fresh_db_url(tmp_path: Path) -> str:
 
 
 def test_0018_reversible_offline(fresh_db_url: str) -> None:
-    """``upgrade head`` -> ``downgrade -1`` -> ``upgrade head`` round-trips clean.
+    """``upgrade 0018`` -> ``downgrade -1`` -> ``upgrade head`` round-trips clean.
 
-    After the first ``upgrade head`` the ``exec_runs`` table exists with the
-    expected columns; ``downgrade -1`` drops it; a second ``upgrade head``
-    recreates it (mirror of the 0017 reversibility proof).
+    After ``upgrade 0018`` the ``exec_runs`` table exists with the expected
+    columns; ``downgrade -1`` (0018 -> 0017) drops it; an ``upgrade head``
+    recreates it (mirror of the 0017 reversibility proof). Pinned to revision
+    0018 (not ``head``) so later additive migrations (0019+) don't shift what
+    one downgrade step removes.
     """
     cfg = _make_config(fresh_db_url)
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, "0018")
     engine = create_engine(fresh_db_url)
     inspector = inspect(engine)
-    assert inspector.has_table("exec_runs"), "exec_runs missing after upgrade head"
+    assert inspector.has_table("exec_runs"), "exec_runs missing after upgrade 0018"
     cols = {c["name"] for c in inspector.get_columns("exec_runs")}
     assert _EXPECTED_EXEC_COLUMNS.issubset(cols), (
         f"exec_runs missing columns: {sorted(_EXPECTED_EXEC_COLUMNS - cols)}"
     )
     engine.dispose()
 
-    # downgrade -1 drops exec_runs (0018 is the head; -1 lands on 0017).
+    # downgrade -1 drops exec_runs (pinned at 0018; -1 lands on 0017).
     command.downgrade(cfg, "-1")
     engine = create_engine(fresh_db_url)
     inspector = inspect(engine)
