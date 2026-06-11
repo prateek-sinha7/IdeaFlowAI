@@ -117,6 +117,17 @@ class JsonTasksParser:
                 )
             )
 
+        # Reject DUPLICATE task ids BEFORE returning (WR-05 / T-12-06-INPUT). The wave
+        # builder's ``by_id`` map is last-wins, so a duplicate would silently drop the
+        # earlier task and can drive in-degrees negative — untrusted agent JSON must not
+        # do that. Named ValueError pre-spawn (zero wave_runs/subagent_runs rows), placed
+        # BEFORE the depends_on validation so the duplicate is reported first.
+        seen_ids: set[str] = set()
+        for t in tasks:
+            if t.id in seen_ids:
+                raise ValueError(f"json_tasks: duplicate task id '{t.id}'")
+            seen_ids.add(t.id)
+
         # Validate every depends_on ref against the known task ids BEFORE returning
         # (named ValueError pre-spawn — the scheduler never sees a dangling dep).
         ids = {t.id for t in tasks}

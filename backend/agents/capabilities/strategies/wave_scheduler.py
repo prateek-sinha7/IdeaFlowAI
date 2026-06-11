@@ -76,6 +76,14 @@ def build_waves(tasks: list[Task]) -> list[list[Task]]:
     """
     by_id = {t.id: t for t in tasks}
 
+    # WR-05 (defense-in-depth): reject DUPLICATE task ids before any work. The ``by_id``
+    # map is last-wins, so a duplicate silently drops the earlier task and the in-degree
+    # decrement loop (which iterates the ORIGINAL list) decrements twice → negative.
+    # json_tasks is the primary gate (untrusted agent JSON); THIS guard protects any other
+    # caller that builds tasks without it. Raises pre-spawn (zero wave_runs/subagent_runs).
+    if len(by_id) != len(tasks):
+        raise WaveBuildError("duplicate task id")
+
     # 1. Validate refs BEFORE any work (raise pre-spawn → zero rows).
     for t in tasks:
         for dep in t.depends_on:
