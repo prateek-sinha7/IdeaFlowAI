@@ -55,6 +55,13 @@ export interface StreamMessage {
 export interface WaveWorker {
   agent: string;
   status: string;
+  /**
+   * The per-wave worker index emitted by the backend (`data.worker`, 12-06
+   * contract). Worker leaves are keyed by this index so N parallel workers of
+   * the SAME agent (the `sample_wave` self×N shape) render as N distinct leaves
+   * instead of collapsing into one flapping leaf (CR-06 FE half).
+   */
+  worker?: number;
 }
 
 /**
@@ -65,6 +72,12 @@ export interface WaveWorker {
  */
 export interface WaveGroup {
   waveIndex: number;
+  /**
+   * The wave_scheduler step id this group belongs to (`data.step`, 12-06
+   * contract). Wave groups are keyed by `step:waveIndex` so two wave_scheduler
+   * steps in one run do not collide on their wave-index-0 groups (IN-06).
+   */
+  step?: string;
   taskIds: string[];
   status: string;
   workers: WaveWorker[];

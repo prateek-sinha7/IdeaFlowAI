@@ -232,15 +232,23 @@ export default function DashboardPage() {
     if (WAVE_EVENT_TYPES.includes(msg.type)) {
       const data = evData ?? {};
 
+      // 12-06 emit contract (flat on `data`): `wave_index` (number),
+      // `step` (string), `worker` (number). Consume these EXACT keys — a rename
+      // or nesting mismatch silently drops every subagent event again.
       const waveIndex =
         typeof data.wave_index === "number" ? (data.wave_index as number) : undefined;
       if (waveIndex === undefined) return;
+      // IN-06 — key wave groups by (step, waveIndex), not waveIndex alone, so two
+      // wave_scheduler steps in one run don't merge their wave-index-0 groups.
+      const step = typeof data.step === "string" ? (data.step as string) : undefined;
 
       setWaveGroups((prev) => {
         const next = prev.map((w) => ({ ...w, workers: [...w.workers] }));
-        let group = next.find((w) => w.waveIndex === waveIndex);
+        let group = next.find(
+          (w) => w.waveIndex === waveIndex && w.step === step,
+        );
         if (!group) {
-          group = { waveIndex, taskIds: [], status: "pending", workers: [] };
+          group = { waveIndex, step, taskIds: [], status: "pending", workers: [] };
           next.push(group);
         }
 
@@ -267,11 +275,23 @@ export default function DashboardPage() {
               : msg.type === "subagent_spawned"
               ? "running"
               : "completed";
-          const existing = group.workers.find((wk) => wk.agent === agent);
+          // CR-06 FE half — key the worker leaf by the `worker` INDEX, not the
+          // agent name, so N parallel workers of the SAME agent (the sample_wave
+          // self×N shape) render as N distinct leaves instead of collapsing into
+          // one flapping leaf. Fall back to the agent name when no worker index
+          // is present (legacy/unstamped events).
+          const workerIndex =
+            typeof data.worker === "number" ? (data.worker as number) : undefined;
+          const existing = group.workers.find((wk) =>
+            workerIndex !== undefined
+              ? wk.worker === workerIndex
+              : wk.worker === undefined && wk.agent === agent,
+          );
           if (existing) {
             existing.status = status;
+            existing.agent = agent;
           } else {
-            group.workers.push({ agent, status });
+            group.workers.push({ agent, status, worker: workerIndex });
           }
         }
 

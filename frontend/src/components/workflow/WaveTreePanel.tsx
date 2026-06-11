@@ -33,6 +33,9 @@ export interface WaveTreePanelProps {
 /** Normalize a free-string lifecycle status into a render bucket. */
 function statusKind(status: string): "running" | "completed" | "failed" | "pending" {
   const s = (status || "").toLowerCase();
+  // IN-05 — a cancelled wave/worker is TERMINAL, not pending: render it in the
+  // failed (terminal) bucket so it shows a terminal chip, not a grey pending one.
+  if (s.includes("cancel")) return "failed";
   if (s.includes("fail") || s.includes("error")) return "failed";
   if (s.includes("complete") || s.includes("done") || s.includes("success")) return "completed";
   if (s.includes("run") || s.includes("spawn") || s.includes("progress") || s.includes("start")) {
@@ -93,7 +96,7 @@ export function WaveTreePanel({ waves }: WaveTreePanelProps) {
         <div className="space-y-2.5 max-h-[260px] overflow-y-auto pr-1">
           {ordered.map((wave) => (
             <div
-              key={wave.waveIndex}
+              key={`${wave.step ?? ""}:${wave.waveIndex}`}
               className="border border-gray-100 rounded-lg px-2.5 py-1.5 bg-white"
             >
               <div className="flex items-center justify-between gap-2 mb-1">
@@ -115,7 +118,9 @@ export function WaveTreePanel({ waves }: WaveTreePanelProps) {
                 <div className="space-y-1 pl-4 border-l border-gray-100">
                   {wave.workers.map((worker, idx) => (
                     <div
-                      key={`${wave.waveIndex}-${worker.agent}-${idx}`}
+                      key={`${wave.step ?? ""}:${wave.waveIndex}-${
+                        worker.worker ?? `${worker.agent}-${idx}`
+                      }`}
                       className="flex items-center justify-between gap-2"
                     >
                       <span className="text-[10px] text-gray-700 truncate min-w-0">
