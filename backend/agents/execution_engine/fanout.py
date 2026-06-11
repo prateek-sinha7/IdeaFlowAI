@@ -116,6 +116,46 @@ def _select_workers(requests: list[dict], ctx: Any, step: Any) -> list[dict]:
     return selected
 
 
+def _apply_declared_fanout(requests: list[dict], step: Any) -> list[dict]:
+    """Honor the DECLARED ``FanoutSpec`` worker-selection fields (WR-06 / FANOUT-03).
+
+    The manifest declares pure data; the KERNEL honors it here (INV-5 — the
+    strategy only shapes requests):
+
+      * ``workers`` — heterogeneous fan-out: request ``i`` carrying the default
+        agent (``self``/``None``) maps to ``workers[i]``; each mapped name is then
+        validated against ``allowed_workers`` + the registry by ``_select_workers``
+        exactly like an explicitly-named request (rejected pre-spawn if disallowed);
+      * ``agent`` — the default worker for an agent-less request beyond the
+        ``workers`` list (``self`` keeps the step's own agent);
+      * ``count`` — the declared fan-out WIDTH: a longer request list is clamped
+        to it (the engine honors the declared width; it is not decorative).
+
+    A step with no ``FanoutSpec`` (or none of the fields populated) returns the
+    requests unchanged — every existing caller is untouched (parity).
+    """
+    fanout = getattr(step, "fanout", None)
+    if fanout is None:
+        return list(requests)
+    declared_workers = list(getattr(fanout, "workers", None) or [])
+    declared_agent = getattr(fanout, "agent", None)
+    count = getattr(fanout, "count", None)
+    out: list[dict] = []
+    for i, req in enumerate(requests):
+        agent = req.get("agent")
+        if agent in (None, "self"):
+            if i < len(declared_workers):
+                req = dict(req)
+                req["agent"] = declared_workers[i]
+            elif agent is None and declared_agent:
+                req = dict(req)
+                req["agent"] = declared_agent
+        out.append(req)
+    if count and int(count) > 0:
+        out = out[: int(count)]
+    return out
+
+
 def _resolve_concurrency(step: Any) -> int:
     """The effective parallel cap = ``min(declared_max_parallel, DEFAULT_MAX_CONCURRENCY)``.
 
@@ -216,6 +256,13 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
     # selected/reserved/allocated/spawned (the kernel's outer handler emits
     # pipeline_cancelled). A pre-wave cancel leaves zero subagent_runs rows.
     _check_cancel(ctx)
+
+    # (0b) Honor the DECLARED FanoutSpec worker-selection fields (WR-06): the
+    # declared ``workers`` map onto default-agent requests (heterogeneous fan-out),
+    # ``agent`` defaults an agent-less request, and ``count`` clamps the width —
+    # BEFORE selection so a declared named worker passes the same allow-list +
+    # registry validation as an explicitly-named one.
+    requests = _apply_declared_fanout(requests, step)
 
     # (1) Worker selection FIRST — a rejected worker raises before any spawn / row.
     selected = _select_workers(requests, ctx, step)

@@ -73,6 +73,15 @@ class FanoutBatchStrategy:
         requests = [{"agent": "self", "input": t.body} for t in tasks]
 
         if not requests:
+            # WR-06: a declared self×N width (fanout.count) with NO parsed tasks
+            # synthesizes count identical worker requests — the declared field is
+            # honored, not decorative. The kernel still owns selection/clamping.
+            fanout_spec = getattr(step, "fanout", None)
+            count = getattr(fanout_spec, "count", None) if fanout_spec is not None else None
+            if count and int(count) > 0:
+                requests = [{"agent": "self", "input": ""} for _ in range(int(count))]
+
+        if not requests:
             logger.warning(
                 "fanout_batch: no tasks parsed from source_step=%s — no workers spawned",
                 source_step,

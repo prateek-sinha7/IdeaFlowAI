@@ -170,6 +170,93 @@ async def test_unknown_worker_rejected_before_any_spawn():
 
 
 # ---------------------------------------------------------------------------
+# WR-06 — the declared FanoutSpec fields are CONSUMED (not decorative):
+# workers map heterogeneous requests, count clamps the width, and fanout_batch
+# synthesizes self×count when no tasks parse.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_declared_workers_map_heterogeneous_requests():
+    runner = _FakeRunner(
+        allowed_workers=["worker-b", "worker-c"],
+        known_agents={"worker-a", "worker-b", "worker-c"},
+    )
+    ctx = _make_ctx(runner)
+    fanout = SimpleNamespace(mode="sequential", max_parallel=None, agent="self",
+                             count=None, workers=["worker-b", "worker-c"])
+    step = SimpleNamespace(agent_id="worker-a", fanout=fanout)
+    requests = [{"agent": "self", "input": f"t{i}"} for i in range(3)]
+
+    await _collect(run_fanout(requests, ctx, step=step))
+
+    # Request 0/1 mapped onto the declared workers; request 2 (beyond the list)
+    # keeps the step's own agent (self).
+    assert [w["agent_id"] for w in runner.spawned] == ["worker-b", "worker-c", "worker-a"]
+
+
+@pytest.mark.asyncio
+async def test_declared_workers_still_validated_against_allow_list():
+    # A declared worker NOT in allowed_workers is rejected pre-spawn like any
+    # explicitly-named request (the mapping does not bypass FANOUT-03).
+    runner = _FakeRunner(allowed_workers=[], known_agents={"worker-a", "worker-b"})
+    ctx = _make_ctx(runner)
+    fanout = SimpleNamespace(mode="sequential", max_parallel=None, agent="self",
+                             count=None, workers=["worker-b"])
+    step = SimpleNamespace(agent_id="worker-a", fanout=fanout)
+
+    with pytest.raises(FanoutError):
+        await _collect(run_fanout([{"agent": "self", "input": "t"}], ctx, step=step))
+    assert runner.spawned == []
+
+
+@pytest.mark.asyncio
+async def test_declared_count_clamps_the_fanout_width():
+    runner = _FakeRunner(known_agents={"worker-a"})
+    ctx = _make_ctx(runner)
+    fanout = SimpleNamespace(mode="sequential", max_parallel=None, agent="self",
+                             count=2, workers=[])
+    step = SimpleNamespace(agent_id="worker-a", fanout=fanout)
+    requests = [{"agent": "self", "input": f"t{i}"} for i in range(5)]
+
+    await _collect(run_fanout(requests, ctx, step=step))
+
+    assert len(runner.spawned) == 2  # the declared width is honored
+
+
+@pytest.mark.asyncio
+async def test_fanout_batch_synthesizes_self_count_when_no_tasks():
+    """fanout_batch: count=3 with NO parsed tasks fans 3 self copies (WR-06)."""
+    from agents.capabilities.registry import CapabilityRegistry, discover
+
+    discover()
+    strategy = CapabilityRegistry().resolve("strategy", "fanout_batch")
+    funnel: dict = {}
+
+    class _StratRunner:
+        run_id = "run-z"
+
+        def latest_typed_content(self, producer_step):
+            return ""  # nothing to parse — no tasks
+
+        async def run_fanout(self, requests, ctx, *, step):
+            funnel["requests"] = requests
+            yield {"type": "subagent_result", "data": {"worker": 0, "status": "complete"}}
+
+    step = SimpleNamespace(
+        agent_id="worker-a",
+        task_source=SimpleNamespace(parser="heading_tasks", source_step="planner", spec_step=None),
+        fanout=SimpleNamespace(mode="parallel", max_parallel=3, agent="self", count=3, workers=[]),
+    )
+    ctx = SimpleNamespace(runner=_StratRunner(), depth=0)
+
+    _ = [ev async for ev in strategy.run(step, ctx)]
+
+    assert len(funnel.get("requests", [])) == 3
+    assert all(r["agent"] == "self" for r in funnel["requests"])
+
+
+# ---------------------------------------------------------------------------
 # FANOUT-04 — modes + concurrency cap
 # ---------------------------------------------------------------------------
 
