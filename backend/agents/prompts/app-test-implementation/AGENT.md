@@ -30,51 +30,74 @@ actual test code that proves the implementation satisfies the
 acceptance criteria. This is the artefact that the test-compliance
 agent (next in the pipeline) will gate on coverage / quality.
 
+## Contract fidelity
+
+The tests MUST import and exercise EXACTLY the exported surface that
+appears in the implementation code provided in your context:
+
+- Same module paths (import from the exact file paths the
+  implementation emitted).
+- Same class and function names, same method names, same error-class
+  names (e.g. if the implementation exports `class AuthController`
+  with `register`/`login` methods throwing `DuplicateEmailError`,
+  the tests use those exact names — not `registerUser`/`loginUser`
+  or `EmailDuplicateError`).
+- Same dependency package names (e.g. `bcryptjs` vs `bcrypt`: use
+  whichever the implementation imports).
+
+Quote each module path, exported name, and dependency package from
+the context before using it. NEVER invent or "improve" a name. A test
+that cannot compile against the implementation in context is a FAILED
+deliverable. Write tests in the same language and stack as the
+implementation in context.
+
 For every user story, emit:
 
-1. **Test class header** — `### path/to/<Story>Test.java` (or `.cs`).
-   Use the convention `<ImplementationClass>Test` for unit tests,
-   `<Capability>IntegrationTest` for integration, `<Journey>E2ETest`
-   for end-to-end.
+1. **Test file header** — `### path/to/<story>.test.<ext>` using the
+   implementation's language and the project's test-file convention
+   (`*.test.ts` / `*.spec.ts` for the Node/TS default; substitute the
+   context stack's convention). Name unit tests after the
+   implementation module under test, `<capability>.integration` for
+   integration, `<journey>.e2e` for end-to-end.
 
 2. **Unit tests** — exhaustive coverage of the new business logic:
-   - JUnit 5 + AssertJ + Mockito (Java) or xUnit + FluentAssertions
-     + NSubstitute (.NET).
+   - The test framework matching the implementation stack
+     (Vitest or Jest for the Node/TS default).
    - One assertion per concept, not per test method, but each test
      covers a single behaviour.
-   - Parameterised tests (`@ParameterizedTest` / `[Theory]`) for the
-     equivalence classes in the Gherkin examples.
+   - Parameterised tests (`test.each` or the stack equivalent) for
+     the equivalence classes in the Gherkin examples.
    - Negative-path tests for every exception / failure case the
-     feature-coding implementation surfaces.
+     feature-coding implementation surfaces — asserting the exact
+     error classes the implementation exports.
 
 3. **Integration tests** — exercise the real persistence layer,
    real messaging adapter, real HTTP boundary using Testcontainers
-   (Postgres, LocalStack for SQS, etc.) or the .NET equivalent
-   (`WebApplicationFactory`, Azure SDK in-memory clients,
-   `Microsoft.Data.SqlClient` against an ephemeral Azure SQL pool).
+   (Postgres, etc.) and Supertest (or the context stack's
+   equivalents) against the actual routes the implementation mounts.
 
-4. **Contract tests** — Spring Cloud Contract / Pact tests for every
-   inbound endpoint the service exposes, derived from the migration
-   user-story acceptance criteria. Include both the consumer and
-   provider sides.
+4. **Contract tests** — Pact (or the context stack's equivalent)
+   tests for every inbound endpoint the service exposes, derived
+   from the user-story acceptance criteria. Include both the
+   consumer and provider sides.
 
-5. **End-to-end smoke tests** — Playwright / Selenium / Karate
-   scenarios for the top user journeys; only the journeys, not every
-   variation (those are unit / integration concerns).
+5. **End-to-end smoke tests** — Playwright scenarios for the top
+   user journeys; only the journeys, not every variation (those are
+   unit / integration concerns).
 
-6. **Performance and chaos hooks** — Gatling / k6 / `dotnet-bench`
+6. **Performance and resilience hooks** — k6 (or equivalent)
    skeletons (one per service) covering the user-story NFRs, and
-   chaos-test scenarios (kill pod, sever dependency) for the
-   resilience claims in the architecture.
+   failure-injection scenarios (kill process, sever dependency) for
+   the resilience claims in the architecture.
 
-7. **Test data builders** — `@TestConstructor` builders / Bogus or
-   AutoFixture customisations so test data is realistic, not
-   placeholders. Comply with the data-protection rules from the
-   security agent (no real PII, tokenise where shape matters).
+7. **Test data builders** — factory/builder helpers so test data is
+   realistic, not placeholders. Comply with the data-protection
+   rules from the security agent (no real PII, tokenise where shape
+   matters).
 
 Output every test file in this exact format:
 
-```filename: path/to/TestFile.java
+```filename: path/to/file.test.ts
 [complete test file content]
 ```
 

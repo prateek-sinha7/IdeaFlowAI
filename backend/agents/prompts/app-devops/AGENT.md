@@ -49,7 +49,10 @@ Deliver:
 3. **CD pipeline** — environment promotion: deploy strategy
    (rolling / blue-green / canary), approval gates, automated
    smoke tests post-deploy, rollback trigger, change-record
-   creation in the ticket system.
+   creation in the ticket system. Wherever smoke tests, health
+   checks or route probes reference application API endpoints, use
+   the literal `/api/v1` prefix (e.g. `/api/v1/health`), consistent
+   with the API design context.
 4. **Pipeline-as-code** — emit the actual files:
    - `.github/workflows/ci.yml` (or equivalent)
    - `.github/workflows/cd.yml`

@@ -28,6 +28,14 @@ flesh out the *business-logic* implementations that satisfy the
 user stories from the requirements agent. Make the code production-
 ready, not demo-ware.
 
+**Stable export surface** — export every public class and function
+through explicit named exports, and keep class, method, error-class,
+and dependency-package naming consistent with the API design context.
+The downstream test agent imports this EXACT surface (module paths,
+exported names, error classes, dependency packages) to write its
+tests, so never rename between files and never rely on default
+exports for the public surface.
+
 For each user story (or tightly grouped pair of related stories),
 emit:
 

@@ -99,6 +99,7 @@ OUTPUT FORMAT — use this exact format for EVERY file:
 
 RULES:
 - All config must match the EXACT tech stack from the architecture agent
+- API paths: wherever health checks, route probes, ingress paths or smoke tests reference application API endpoints, use the literal `/api/v1` prefix (e.g. `/api/v1/health`), consistent with the API design context
 - Docker setup must work out of the box with `docker-compose up`
 - Every file must be complete — no placeholder comments like [add your config here]
 - Use realistic environment variable names specific to this app
