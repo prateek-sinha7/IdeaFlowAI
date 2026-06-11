@@ -165,36 +165,37 @@ class WaveSchedulerStrategy:
         # ── Partition into deterministic waves (raises pre-spawn on cycle/unknown ref) ─
         waves = build_waves(tasks)
 
-        # ── MID-WAVE resume skip-check (12-03 / WAVE-03, D-07) ─────────────────────
+        # ── MID-WAVE resume skip-check (12-03 / WAVE-03, D-07; CR-03/CR-04/WR-01) ──
         # On a durable IN-PROCESS RESUME (``ctx.is_resuming``) the strategy consults the
-        # durable rows via the runner handle (best-effort, None-degrading offline) to
-        # avoid re-spawning work that already completed before the restart:
-        #   * a wave whose ``wave_runs`` row is TERMINAL (completed) is skipped wholesale
-        #     (its workers' fragments are already durable — Phase 11 persists pre-merge);
-        #   * within the in-flight wave (the lowest non-terminal wave_index) only the
-        #     workers WITHOUT a terminal ``subagent_runs`` row are re-fanned-out.
-        # This is the SAME run_fanout path with a filtered task set (INV-12 single spawn
-        # home) — completed workers are NOT re-invoked. Dormant for a normal run
-        # (``is_resuming`` False ⇒ both sets empty ⇒ byte/event-identical).
+        # durable wave rows via the runner handle (best-effort, None-degrading offline) to
+        # avoid re-spawning a WHOLE wave that already completed before the restart:
+        #   * a wave whose ``wave_runs`` row is TERMINAL (completed) FOR THIS STEP is
+        #     skipped wholesale (its workers' fragments are already durable — Phase 11
+        #     persists pre-merge); the read is STEP-FILTERED (``step == step_id``) so a
+        #     second wave_scheduler step in the same run never consumes the FIRST step's
+        #     completed wave indices (CR-04 cross-step contamination).
+        #   * the FIRST INCOMPLETE wave is re-run in its ENTIRETY (every task) through
+        #     run_fanout. Waves run PARALLEL, so completion order != dispatch order — the
+        #     per-task identity needed for a correct partial skip is NOT on subagent_runs
+        #     (migration 0019: parent_step/worker_agent/depth/isolation/status only — no
+        #     task_id/worker_index). Re-running a completed file-writer worker is wasteful
+        #     but CORRECT (its fragment is overwritten deterministically into an isolated
+        #     workspace); skipping an INCOMPLETE one would be DATA LOSS (CR-03). The
+        #     per-task skip is the CR-03-followup deferral (CONTEXT.md Deferred Ideas):
+        #     an additive migration stamping task identity on subagent_runs enables it.
+        # This is the SAME run_fanout path (INV-12 single spawn home). Dormant for a normal
+        # run (``is_resuming`` False ⇒ empty set ⇒ byte/event-identical).
         _completed_wave_indices: set[int] = set()
-        _completed_worker_count = 0
-        if getattr(ctx, "is_resuming", False):
+        _wave_rows: list = []
+        _resuming = bool(getattr(ctx, "is_resuming", False))
+        if _resuming:
             _wave_rows = await runner.read_wave_runs()
             _completed_wave_indices = {
                 int(getattr(r, "wave_index", -1))
                 for r in _wave_rows
-                if getattr(r, "status", None) == "completed"
+                if getattr(r, "step", None) == step_id
+                and getattr(r, "status", None) == "completed"
             }
-            _sub_rows = await runner.read_subagent_runs()
-            # Terminal worker rows for THIS step (parent_step == step_id). The count of
-            # terminal workers tells the in-flight wave how many of its leading tasks
-            # already completed (run_fanout dispatches the requests in task order).
-            _completed_worker_count = sum(
-                1
-                for r in _sub_rows
-                if getattr(r, "parent_step", None) == step_id
-                and getattr(r, "status", None) in ("complete", "completed")
-            )
 
         # ── Dispatch each wave through the SINGLE kernel run_fanout spawn path ──────
         # Each wave persists ONE owner-scoped wave_runs row (running -> terminal) and
@@ -202,36 +203,34 @@ class WaveSchedulerStrategy:
         # reached via ctx.runner (best-effort, None-degrading offline) so the strategy
         # stays import-pure. All events are plain dicts — the engine's single emit
         # boundary stamps seq/event_id (zero websocket edits, Pattern 4).
-        # Running tally of workers completed in already-terminal waves, so the
-        # remaining ``_completed_worker_count`` applies to the first IN-FLIGHT wave only.
-        _workers_seen_in_completed_waves = 0
         for wave_index, wave in enumerate(waves):
             # MID-WAVE resume: a wave already driven to a terminal status before the
-            # restart is skipped wholesale (its fragments are durable). Tally its task
-            # count so the per-worker filter below targets the FIRST incomplete wave.
+            # restart is skipped wholesale (its fragments are durable). The
+            # ``_completed_wave_indices`` set is step-filtered (CR-04) so only THIS
+            # step's completed waves are skipped.
             if wave_index in _completed_wave_indices:
-                _workers_seen_in_completed_waves += len(wave)
                 continue
 
-            # Within the first incomplete wave, skip the LEADING workers that already
-            # reached a terminal subagent_runs status (run_fanout dispatches in task
-            # order, so the first N completed workers are the first N tasks). The
-            # completed fragments are reused (Phase 11 made them durable pre-merge);
-            # only the remaining tasks are re-fanned-out through the SAME run_fanout.
-            _wave_to_run = wave
-            if getattr(ctx, "is_resuming", False) and _completed_worker_count > 0:
-                _remaining_completed = _completed_worker_count - _workers_seen_in_completed_waves
-                if _remaining_completed > 0:
-                    _wave_to_run = wave[_remaining_completed:]
-                    # Tasks consumed by this filter are accounted for; a later wave
-                    # never re-applies the same completed-worker budget.
-                    _workers_seen_in_completed_waves += min(_remaining_completed, len(wave))
-                    if not _wave_to_run:
-                        # Every worker in this wave already completed — skip it.
-                        continue
+            # CR-03: the first incomplete wave re-runs in its ENTIRETY (no prefix skip).
+            task_ids = [t.id for t in wave]
+            requests = [{"agent": "self", "input": t.body} for t in wave]
 
-            task_ids = [t.id for t in _wave_to_run]
-            requests = [{"agent": "self", "input": t.body} for t in _wave_to_run]
+            # WR-01: on resume, before recording the re-entry row, flip any STALE
+            # pre-crash non-terminal (``running``) wave_runs row for THIS (step, wave) to a
+            # terminal ``superseded`` status (a new free-String value — the status column
+            # is free String, no sa.Enum, so this is NOT a schema change). Otherwise the
+            # pre-crash row stays ``running`` forever and ``_first_incomplete_step`` reads
+            # the wave step as permanently incomplete (the engine never lets the step finish).
+            if _resuming:
+                for r in _wave_rows:
+                    if (
+                        getattr(r, "step", None) == step_id
+                        and int(getattr(r, "wave_index", -1)) == wave_index
+                        and getattr(r, "status", None) == "running"
+                    ):
+                        _stale_id = getattr(r, "id", None)
+                        if _stale_id is not None:
+                            await runner.update_wave_run(_stale_id, status="superseded")
 
             row_id = await runner.record_wave_run(
                 step=step_id, wave_index=wave_index, task_ids=task_ids, status="running"

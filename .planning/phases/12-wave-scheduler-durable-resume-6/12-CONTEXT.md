@@ -173,6 +173,7 @@ Downstream agents MUST read `12-SPEC.md` before planning or implementing. Requir
 - **Prototype parallelism via fragment-merge** — MERGE-01 v2 (Q33).
 - **Real € price table + enforcement** — still dormant (P11 carry-over).
 - **FE repo-diff viewer** — the remaining 08-08 deferral; separate backing-data story.
+- **CR-03-followup: per-task skip on mid-wave resume** — additive migration adding task_id/worker_index to subagent_runs, enabling a correct per-task skip of completed workers on mid-wave resume (replaces the whole-wave re-run this phase ships). Whole-wave re-run is correct but wastes cost re-running already-completed file-writer workers; per-task skip removes that waste once task identity is durable.
 
 ### Reviewed Todos (not folded)
 None — `todo.match-phase 12` returned 0 matches.
