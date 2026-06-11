@@ -457,7 +457,14 @@ class WorkflowCompiler:
         # ``secrets`` stay OFF in the ceiling for BOTH trust levels this phase — they
         # remain gate-blocked at runtime (out of scope here), so a file-trust
         # ``network:true`` grant still intersects to False.
-        workflow_ceiling = ToolPermissions(exec=trusted)
+        # ``spawn_subagents`` rides the SAME trust-conditional ceiling as ``exec``
+        # (Phase 11 / FANOUT-03 / T-11-05-03): a TRUSTED (file/builtin) manifest may
+        # grant the privileged fan-out spawn, so it survives the intersection and binds
+        # True; an UNTRUSTED (user/db) manifest's ceiling collapses it OFF (and the
+        # CAP-03 ``_check_trust`` of the ``tool:spawn_subagents`` reference — which is
+        # ``user_allowed=False`` — already rejects the user/db grant upstream). Mirrors
+        # the exec posture exactly: the privilege is engineer-authored-only.
+        workflow_ceiling = ToolPermissions(exec=trusted, spawn_subagents=trusted)
         effective_tools = intersect_permissions(
             workflow_ceiling, workflow_ceiling, step_grant
         )

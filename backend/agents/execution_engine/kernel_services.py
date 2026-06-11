@@ -774,11 +774,19 @@ class KernelServices:
                 isolated_workspace=workspace,
             )
 
+        # FANOUT-04: thread the worker's per-worker input through the existing CURRENT
+        # TASK injection path so the worker sees ITS assigned slice (not just the shared
+        # context every sibling sees). The worker IS a per-task agent (one per fanned
+        # task), so it carries a 1-based task_number derived from its worker_index — the
+        # engine's generic context injector then emits the ``=== CURRENT TASK ===`` block
+        # carrying ``input`` (INV-1: agnostic — keyed on the build scratch, never a
+        # workflow name). A non-fanout single_shot step never routes through run_worker,
+        # so its byte/event parity is untouched (INV-3).
         async for event in self.run_agent(
             worker_step,
             ctx,
-            task_number=None,
-            total_tasks=None,
+            task_number=worker_index + 1,
+            total_tasks=worker_index + 1,
             task_block=input,
         ):
             yield event
