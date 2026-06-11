@@ -23,7 +23,7 @@ The plan sub-phases (0A/0B/0C, 1A/1B/1C, 4A/4B) are mapped to sequential GSD pha
 - [x] **Phase 9: Local Workspace Runtime + Repo Workflows (no exec) [4A]** - `RuntimeEnvironment` port + `LocalSandboxRuntime`; repo inventory/index/context-pack + `repo_diff`; MCP client + integrations (completed 2026-06-10)
 - [x] **Phase 10: Safe Local Exec (gated on N3) [4B]** - Constrained `exec` behind the `security` gate + `ExecutionPolicy`; compile/test/lint validators (completed 2026-06-10)
 - [x] **Phase 11: Engine-Owned Fan-Out + Merge [5]** - `spawn_subagents` + kernel `run_fanout`; isolation + merge-conflict flow; `BudgetManager`; subagent persistence (completed 2026-06-11)
-- [ ] **Phase 12: Wave Scheduler + Durable Resume [6]** - Topo wave scheduler; `wave_runs`; resume mid-wave; prototype stays sequential
+- [x] **Phase 12: Wave Scheduler + Durable Resume [6]** - Topo wave scheduler; `wave_runs`; resume mid-wave; prototype stays sequential (completed 2026-06-11)
 
 > **Deferred (plan Phase 7, OUT OF SCOPE this milestone):** ECS/EC2 runtime behind the unchanged `RuntimeEnvironment` port — a separate spec (§27). Tracked as v2 in REQUIREMENTS.md (ECS-01/02).
 
@@ -409,7 +409,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 12-04-PLAN.md — FE wave/subagent tree panel (additive sibling) + FE reconnect `after_seq` + `event_id` dedup adoption (clears the 08-08 deferral) [wave 4]
+- [x] 12-04-PLAN.md — FE wave/subagent tree panel (additive sibling) + FE reconnect `after_seq` + `event_id` dedup adoption (clears the 08-08 deferral) [wave 4]
 
 ## Progress
 
@@ -429,7 +429,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 9. Local Runtime + Repo (no exec) [4A] | 6/6 | Complete    | 2026-06-10 |
 | 10. Safe Local Exec [4B] | 5/5 | Complete    | 2026-06-10 |
 | 11. Fan-Out + Merge [5] | 5/5 | Complete    | 2026-06-11 |
-| 12. Wave Scheduler + Resume [6] | 1/4 | In Progress|  |
+| 12. Wave Scheduler + Resume [6] | 4/4 | Complete   | 2026-06-11 |
 
 ---
 *Roadmap created: 2026-06-06*
