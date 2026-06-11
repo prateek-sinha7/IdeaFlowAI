@@ -159,6 +159,18 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+async def _retry_sleep(seconds: float) -> None:
+    """Patchable backoff seam for the per-step retry wrapper (RESUME-02 / 12-02).
+
+    A module-level async function so scripted tests monkeypatch it to a no-op
+    (keeping the retry tests fast) without touching the wrapper's control flow.
+    Honors ``RetryPolicy.backoff_seconds`` between transient-classified attempts;
+    the bounded attempt loop (≤ ``max_attempts``) is the T-12-02-DOS guard.
+    """
+    if seconds and seconds > 0:
+        await asyncio.sleep(seconds)
+
+
 # ---------------------------------------------------------------------------
 # Declarative routing seam (MAN-04 / MAN-05)
 # ---------------------------------------------------------------------------
@@ -1400,7 +1412,9 @@ class ExecutionEngine:
                     continue
 
                 strategy = _registry.resolve("strategy", strategy_name)
-                async for event in strategy.run(step, ectx):
+                # RESUME-02 (D-10): the SINGLE per-step retry/reuse wrapper. Dormant
+                # (byte/event-identical) unless the step declares retry.max_attempts > 0.
+                async for event in self._dispatch_step_with_retry(step, ectx, strategy):
                     yield event
 
                 # ── [D-03] Post-step gates (validation) ──────────────────────────
@@ -3405,6 +3419,103 @@ class ExecutionEngine:
             if ref.producer_agent == producer_agent:
                 latest = ref.content
         return latest
+
+    # ──────────────────────────────────────────────────────────────────────
+    # RESUME-02 (12-02): the SINGLE per-step retry/reuse wrapper (D-10).
+    #
+    # Wraps the per-step ``strategy.run(step, ectx)`` dispatch at the ONE home
+    # (the engine dispatch loop — NOT inside strategies, NOT per-worker inside
+    # run_fanout). It is GATED STRICTLY: only when the compiled step declares
+    # ``retry.max_attempts > 0``. When the gate is FALSE the legacy path
+    # (``async for event in strategy.run(...): yield event``) runs UNCHANGED —
+    # byte/event-identical to today (Pitfall 4; existing manifests declare no
+    # retry, so the 5 characterization snapshots stay dormant).
+    # ──────────────────────────────────────────────────────────────────────
+
+    async def _dispatch_step_with_retry(self, step, ectx: ExecutionContext, strategy):
+        """Drive one step's strategy with retry-on-transient + content-hash reuse.
+
+        Gate-FALSE (no retry / max_attempts == 0): re-yield ``strategy.run`` events
+        unchanged (legacy parity). Gate-TRUE:
+          (a) compute the step input_hash; if a matching prior completion exists,
+              yield ``step_reused`` and SKIP execution (zero agent invocation);
+          (b) otherwise run the strategy in an attempt loop bounded by
+              ``max_attempts``; on success yield ``step_completed`` carrying the
+              ``input_hash`` + produced ``output_ref_id`` (so a later retry/restart
+              reuse-lookup can find it); on a TRANSIENT-classified error with
+              attempts remaining yield ``step_retry`` + ``await _retry_sleep`` and
+              loop; on a non-transient error OR exhaustion RE-RAISE (the existing
+              visible agent_error path — never swallowed).
+        """
+        # Strict gate: activate ONLY when ``step.retry and step.retry.max_attempts > 0``.
+        retry = getattr(step, "retry", None)
+        if not (retry and getattr(retry, "max_attempts", 0) > 0):
+            # Dormant: byte/event-identical legacy dispatch.
+            async for event in strategy.run(step, ectx):
+                yield event
+            return
+
+        from agents.model_policy import _is_transient_throttle
+
+        step_id = getattr(step, "agent_id", None)
+        input_hash = self._compute_step_input_hash(step, ectx)
+
+        # (a) Reuse path — a prior matching completion → skip the agent entirely.
+        reused_ref = await self._find_reused_completion(ectx, step_id, input_hash)
+        if reused_ref is not None:
+            yield {
+                "type": "step_reused",
+                "data": {
+                    "step": step_id,
+                    "input_hash": input_hash,
+                    "output_ref_id": reused_ref,
+                },
+            }
+            return
+
+        # (b) Bounded attempt loop (T-12-02-DOS: strictly ≤ max_attempts).
+        max_attempts = int(retry.max_attempts)
+        on = set(getattr(retry, "on", ["transient"]) or ["transient"])
+        attempt = 0
+        while True:
+            attempt += 1
+            # Snapshot existing refs for THIS step so we can identify the new one.
+            before_ids = {
+                r.id for r in ectx.artifacts.tree(ectx.run_id)
+                if r.producer_agent == step_id
+            }
+            try:
+                async for event in strategy.run(step, ectx):
+                    yield event
+            except Exception as exc:  # noqa: BLE001 — classify then retry or re-raise
+                transient = "transient" in on and _is_transient_throttle(exc)
+                if transient and attempt < max_attempts:
+                    yield {
+                        "type": "step_retry",
+                        "data": {
+                            "step": step_id,
+                            "attempt": attempt,
+                            "max": max_attempts,
+                        },
+                    }
+                    await _retry_sleep(getattr(retry, "backoff_seconds", 0.0))
+                    continue
+                # Non-transient OR attempts exhausted → surface the visible error.
+                raise
+            # Success: identify the artifact this step produced (newest ref).
+            output_ref_id = None
+            for ref in ectx.artifacts.tree(ectx.run_id):
+                if ref.producer_agent == step_id and ref.id not in before_ids:
+                    output_ref_id = ref.id
+            yield {
+                "type": "step_completed",
+                "data": {
+                    "step": step_id,
+                    "input_hash": input_hash,
+                    "output_ref_id": output_ref_id,
+                },
+            }
+            return
 
     # ──────────────────────────────────────────────────────────────────────
     # RESUME-02 (12-02): per-step retry/reuse — input-hash + reuse-lookup.
