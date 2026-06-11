@@ -1,194 +1,142 @@
 ---
 phase: 12-wave-scheduler-durable-resume-6
-reviewed: 2026-06-11T11:39:36Z
+reviewed: 2026-06-11T14:29:47Z
 depth: standard
-files_reviewed: 13
+files_reviewed: 12
 files_reviewed_list:
-  - backend/agents/capabilities/strategies/wave_scheduler.py
-  - backend/agents/capabilities/task_parsers/json_tasks.py
   - backend/agents/execution_engine/engine.py
+  - backend/agents/workflows/sample_wave/workflow.yaml
   - backend/app/api/websocket.py
-  - backend/tests/agents/test_json_tasks.py
-  - backend/tests/agents/test_restart_resume.py
-  - backend/tests/agents/test_wave_scheduler.py
-  - backend/tests/agents/test_ws_reconnect_replay.py
+  - backend/app/main.py
+  - backend/tests/agents/test_resume_marker_workspace.py
+  - backend/tests/agents/test_resume_ws_bridge.py
+  - backend/tests/agents/test_sample_wave_workflow.py
   - frontend/src/app/dashboard/page.tsx
-  - frontend/src/components/workflow/WaveTreePanel.tsx
-  - frontend/src/lib/wsReplayState.test.ts
-  - frontend/src/lib/wsReplayState.ts
-  - frontend/src/types/index.ts
+  - frontend/src/components/layout/DashboardLayout.tsx
+  - frontend/src/components/layout/DashboardLayout.waveMount.test.tsx
+  - frontend/src/hooks/useWorkflow.reconnect.test.ts
+  - frontend/src/hooks/useWorkflow.ts
 findings:
-  critical: 0
-  warning: 11
-  info: 6
-  total: 17
+  critical: 1
+  warning: 3
+  info: 3
+  total: 7
 status: issues_found
 ---
 
-# Phase 12: Code Review Report (Re-Review After Gap Closure)
+# Phase 12: Code Review Report (UAT Gap-Closure Delta — 12-08 / 12-09 / 12-10)
 
-**Reviewed:** 2026-06-11T11:39:36Z
-**Depth:** standard (re-review; diff base f8a0c9c2)
-**Files Reviewed:** 13
+**Reviewed:** 2026-06-11T14:29:47Z
+**Depth:** standard (delta review; diff base 274d4209)
+**Files Reviewed:** 12
 **Status:** issues_found
 
 ## Summary
 
-This is the re-review after gap-closure plans 12-05/12-06/12-07. **All six prior Criticals (CR-01..CR-06) are verified fixed in code, each with a regression test that fails on the pre-fix shape.** The in-scope warnings (WR-01, WR-03, WR-05) and infos (IN-05, IN-06) are also fixed — with one significant residue: the WR-01 fix landed only its strategy half. The new `superseded` status the strategy writes is recognized **nowhere else** — `_first_incomplete_step` still buckets any non-`completed` wave row as "running", so the permanent-incomplete classification WR-01 was meant to cure persists across a second restart (WR-09 below).
+Reviewed the gap-closure delta for plans 12-08 (FE wave panel + `pipeline_reconnected` handling), 12-09 (engine→WS live-task bridge, `workflow_runs.workspace_id` stamping, resume-marker workspace recovery), and 12-10 (sample_wave deliverable → `serialized_sandbox`).
 
-The new-issue hunt around the gap fixes surfaced six new Warnings, all in the resume tier: the `is_resuming`/planner-skip predicates are keyed on `_resume_from > 0` while the workspace-recovery predicate was correctly widened to `_is_resume` — so an offset-0 resume re-runs the planner into a forced clarify gate with no client and leaves the wave mid-wave skip dormant (WR-10); `resume_run`'s failure paths leave the run non-terminal forever, producing an infinite resume-attempt loop across restarts (WR-11); the resume driver task is created without holding a reference and can be garbage-collected mid-drive (WR-12); the resumed run's re-emitted `pipeline_start` makes the FE wipe its just-replayed dedup/wave state mid-replay (WR-13); and a wave step that declares `retry` re-runs already-completed waves on a transient retry because the durable skip is gated on `is_resuming` (WR-14). No new Criticals: none of these lose data — they waste model spend, strand runs in recoverable states, or degrade the reconnect UX.
+Verification evidence gathered during review:
+- All new tests pass offline: `test_resume_ws_bridge.py` + `test_resume_marker_workspace.py` (8 passed), `test_sample_wave_workflow.py` (3 passed), the two new vitest suites (9 passed).
+- `lint-imports`: 4 contracts kept, 0 broken — the kernel does not import `app.api`; the bridge is injected callables, wired only in `app/main.py`.
+- SC-001 holds: `grep sample_wave backend/agents/execution_engine/` is empty; the manifest change is pure data; `serialized_sandbox` is a registered capability (`agents/capabilities/deliverables/serialized_sandbox.py`), no kernel edit.
+- The deepagents runtime mandate is untouched by this delta.
 
-Five prior Warnings (WR-02, WR-04, WR-06, WR-07, WR-08) and four prior Infos (IN-01..IN-04) were deliberately deferred (the CR-03-followup per-task-skip deferral is recorded in 12-CONTEXT.md:176, Deferred Ideas) and are carried forward unchanged at their original severities.
-
-## Narrative Findings (AI reviewer)
-
-## Prior-Finding Verification
-
-### Criticals — all fixed
-
-| ID | Verdict | Evidence |
-|----|---------|----------|
-| CR-01 (resume seq restarts at 1) | **FIXED** | `engine.py:4049-4067` — `resume_run` recovers the original workspace, reads the durable tail, and seeds `counter = itertools.count(start)` with `start = max(seq)+1`. Regression: `test_restart_resume.py::test_resumed_events_seq_continues_past_durable_tail` (asserts min resumed seq == N+1 and that `read_events(after_seq=N)` is non-empty). |
-| CR-02 (WS replay scoped to `workspace_id IS NULL`) | **FIXED** | `websocket.py:608-638` — the handler recovers the run's workspace from a RunEvent row filtered by `owner_id == user.id` (never from client input), then builds `ScopedStore(owner_id=user.id, workspace_id=_recovered_ws)`. Regression: `test_ws_reconnect_replay.py::test_production_shaped_replay_recovers_workspace_and_returns_rows` (also proves the pre-fix construction returns 0 rows) and `::test_cross_owner_workspace_recovery_yields_empty_replay` (IDOR boundary holds). |
-| CR-03 (leading-N prefix skip drops parallel tasks) | **FIXED** | `wave_scheduler.py:222-224` — the first incomplete wave re-runs in its **entirety** (`task_ids = [t.id for t in wave]`, no slice; `_completed_worker_count` deleted). Regression: `test_restart_resume.py::test_midwave_resume_reruns_whole_inflight_wave_no_parallel_dropout` (terminal workers ≠ leading tasks; asserts wave 1 re-runs `{t3, t4}` whole). The per-task skip is the recorded CR-03-followup deferral (12-CONTEXT.md:176). |
-| CR-04 (cross-step wave-index contamination) | **FIXED** | `wave_scheduler.py:200-206` — `_completed_wave_indices` is step-filtered (`getattr(r, "step", None) == step_id`). Regression: `test_restart_resume.py::test_cross_step_does_not_skip_second_steps_waves`. |
-| CR-05 (FE dedupes only wave events) | **FIXED** | `page.tsx:200-214` — `shouldApplyEvent` runs at the **top** of `handleWebSocketMessage` before any routing; cursor advance (`page.tsx:216-221`) happens only after the dedup passes, so a duplicate never re-advances `after_seq`. Pure helper + tests: `wsReplayState.ts:32-40`, `wsReplayState.test.ts`. |
-| CR-06 (worker leaves never render / same-agent collapse) | **FIXED** | Backend half: `wave_scheduler.py:262-266` stamps `wave_index` + `step` onto `subagent_spawned`/`subagent_result` at the strategy re-yield boundary (copy-on-stamp, non-subagent events pass through unstamped). FE half: `page.tsx:283-294` keys worker leaves by the numeric `worker` index with agent-name fallback. Regression: `test_wave_scheduler.py::test_subagent_events_carry_wave_index_and_step`. `fanout.py` confirmed to emit `worker` as a number (`fanout.py:469,509,523`). |
-
-### In-scope Warnings/Infos — fixed
-
-- **WR-01 — FIXED (strategy half; see WR-09 for the engine-half residue):** `wave_scheduler.py:229-241` flips stale `running` rows for the re-entered `(step, wave_index)` to `superseded` before recording the re-entry row. Regression: `test_restart_resume.py::test_stale_running_wave_row_is_flipped_terminal_on_resume`.
-- **WR-03 — FIXED:** `page.tsx:336-345` resets seen-set/`lastSeqRef`/`waveGroups` on `pipeline_start` (re-recording `pipeline_start`'s own event_id post-reset); pure `resetReplayState` + tests (`wsReplayState.ts:60-64`, `wsReplayState.test.ts:36-75`). See WR-13 for a new interaction with resumed runs.
-- **WR-05 — FIXED:** `json_tasks.py:120-129` raises a named ValueError on a duplicate id (primary gate); `wave_scheduler.py:79-85` raises `WaveBuildError` defense-in-depth. Regressions: `test_json_tasks.py::test_duplicate_task_id_raises_named_valueerror`, `test_wave_scheduler.py::test_build_waves_rejects_duplicate_task_id_before_any_wave`.
-- **IN-05 — FIXED:** `WaveTreePanel.tsx:36-38` buckets `cancel*` as terminal (failed).
-- **IN-06 — FIXED:** wave groups keyed by `(step, waveIndex)` — `page.tsx:241-248`, React keys `WaveTreePanel.tsx:99` and `:121`.
+The architecture of the bridge (three optional injected callables, dormant-by-default, app-layer wiring) is sound and well-tested for the happy path. However, the adversarial pass found one authorization gap the bridge newly exposes (CR-01), a registry-entry leak on `resume_run`'s early-return paths (WR-01), a liveness race window that can reproduce the exact "running forever" hang 12-08 set out to fix (WR-02), and an error-handling inconsistency that silently swallows the AUTHZ fail-loud signal (WR-03).
 
 ## Critical Issues
 
-None found in this pass.
+### CR-01: `reconnect_pipeline` live-attach has no ownership check — the 12-09 bridge newly exposes auto-resumed runs' live event streams to any authenticated user with the run_id
+
+**File:** `backend/app/api/websocket.py:594-744` (live-attach branch 708-744; bridge registration 68-84)
+**Issue:** The `reconnect_pipeline` handler takes `pipeline_run_id` from the untrusted client payload (line 595) and computes `_has_live_task` directly from the process-global `_PIPELINE_TASKS`/`_PIPELINE_QUEUES` registries (lines 597-603). The durable-replay path is meticulously owner-scoped (`RunEvent.owner_id == user.id` at 663, `ScopedStore(owner_id=user.id, ...)` at 670 — a cross-owner replay resolves to ∅, per T-12-03-IDOR). The **live-attach drainer is not**: lines 708-744 attach the authenticated WebSocket to the run's live queue and stream every event (agent output, deliverable content, `pipeline_complete` with `final_output`) with **no check that `user.id` owns the run**.
+
+This hole pre-exists for `run_pipeline`-launched runs, but those runs' queues are registered only for the launching connection's lifetime and the launcher is by construction the owner. The 12-09 bridge changes the exposure: `_register_resume_queue`/`_register_resume_task` now place **auto-resumed runs** — runs whose owner is by definition *not currently connected* (the backend restarted) — into the same registries for the full duration of the resumed drive. Any other authenticated user who presents that run_id during the resume window live-attaches and receives the victim's full resumed tail. Run IDs are UUIDv4 (not guessable), which bounds practical exploitability, but the project's own AUTHZ-03 default-deny invariant ("a cross-owner read resolves to ∅") is violated at this seam, and run IDs do leak into client sessionStorage, logs, and history payloads.
+
+**Fix:** Owner-gate the live attach the same way the replay is gated — before entering the `_has_live_task` branch, resolve the run through the owner-scoped store and treat a miss as "no live task":
+```python
+if _has_live_task:
+    # AUTHZ-03: live attach is owner-gated — a run this principal does not
+    # own behaves exactly like a finished/unknown run (∅, never the stream).
+    _own_store = ScopedStore(owner_id=user.id, workspace_id=_recovered_ws)
+    if await _own_store.get_run(_reconnect_run_id) is None:
+        _has_live_task = False
+```
+(The `_recovered_ws` recovery at lines 657-672 already runs in the replay branch; hoist it or recompute it for the live branch. Note `get_run` now resolves for live runs because 12-09 Gap 2c stamps `workflow_runs.workspace_id` — the fix is enabled by this same delta.)
 
 ## Warnings
 
-### WR-09 (NEW): `_first_incomplete_step` does not recognize `superseded` as terminal — the WR-01 permanent-incomplete classification survives the fix
+### WR-01: `resume_run` early returns and queue-registration failure leak the registered `_PIPELINE_TASKS` entry — cleanup is gated on `live_queue is not None`
 
-**File:** `backend/agents/execution_engine/engine.py:3917-3920`; writer `backend/agents/capabilities/strategies/wave_scheduler.py:229-241`
-**Issue:** The strategy's WR-01 comment claims flipping the stale row to `superseded` prevents `_first_incomplete_step` from reading the wave step as permanently incomplete — but `_first_incomplete_step` was never updated: it buckets every row with `status != "completed"` into `running_wave_steps` (`else: running_wave_steps.add(sid)`). `superseded` appears nowhere in `engine.py`/`kernel_services.py`/`wave_run.py` (grep-verified). So after any resume that superseded a row, a **second** restart still classifies the wave step incomplete, the resume offset lands on the wave step, and the dispatch loop re-runs **every downstream step** from there (the loop only skips `i < _resume_from`; downstream steps get no content-hash reuse unless they declare `retry`) — including downstream steps whose durable evidence shows them complete, re-spending models and potentially overwriting a finished deliverable with different bytes. `failed` rows from a retried wave attempt poison the classification the same way.
-**Fix:**
+**File:** `backend/agents/execution_engine/engine.py:4071-4094, 4144-4153, 4195-4212`
+**Issue:** `restore_non_terminal_runs` registers the driver task in `_PIPELINE_TASKS` synchronously at the `create_task` site (lines 3049-3061). But `resume_run` has three early-return paths *before* queue registration — no `workflow_runs` row (4073), agent-resolution failure (4091), empty agent list (4094) — plus the path where `self._resume_register_queue(...)` itself raises (4148-4153, `live_queue = None`). In all of these, the `finally` block's cleanup never fires because `self._resume_cleanup(run_id)` is nested *inside* `if live_queue is not None:` (4200-4212). Result: a permanently stale (done) task entry in the process-global `_PIPELINE_TASKS` for each such run — a slow registry leak in a long-lived process, and a violation of the bridge's own stated contract ("a completed resume never leaves a stale live registration").
+**Fix:** Make cleanup unconditional on the hook, not on the queue:
 ```python
-if status == "completed":
-    terminal_wave_indices_by_step.setdefault(sid, set()).add(int(widx))
-elif status in ("superseded", "cancelled", "failed_superseded"):
-    pass  # terminal/replaced — not evidence of an in-flight wave
-else:
-    running_wave_steps.add(sid)
+finally:
+    if live_queue is not None:
+        try:
+            live_queue.put_nowait(None)
+        except Exception:
+            pass
+    if self._resume_cleanup is not None:   # ← no longer nested under live_queue
+        try:
+            self._resume_cleanup(run_id)
+        except Exception as _cl_exc:
+            logger.warning("resume_run(%s): bridge cleanup failed: %s", run_id, _cl_exc)
 ```
-and/or have `_first_incomplete_step` only treat a wave row as "running" when no later row for the same `(step, wave_index)` is terminal. Add a restart-after-resume regression test (two consecutive resumes over the same durable DB).
+`_cleanup_pipeline` is idempotent (`dict.pop(..., None)`), so this is safe on every path.
 
-### WR-10 (NEW): offset-0 resume — `is_resuming` and the planner-skip are keyed on `_resume_from > 0`, not `_is_resume`
+### WR-02: Task-registered-before-queue race window reproduces the "running forever" hang — and the FE's `live:false` + non-terminal branch has no recovery on a healthy connection
 
-**File:** `backend/agents/execution_engine/engine.py:699, 1117, 1130` (contrast the correctly-widened predicate at `:741`)
-**Issue:** The CR-01 gap fix deliberately widened the workspace-recovery predicate to `(_is_resume or _resume_from > 0)`, but the two other resume-sensitive switches still key on the offset alone. A resume whose offset computes to 0 — `_compute_resume_offset` failure (returns 0, `engine.py:4137-4142`), or a crash before any step completed — therefore runs as if it were a fresh run: (a) `skip_planner` stays False, so the planner **re-runs** and the manifest-default `clarify.mode: auto` forces `CLARIFY_REQUIRED` → the resumed run parks in `waiting_for_user` with **no connected client and no way to deliver the questions** (it already cleared clarify once before the crash); (b) `ectx.is_resuming` stays False, so a wave step reached at offset 0 skips the durable wave read entirely — completed waves are re-fanned-out (duplicate worker spawns/cost, duplicate `wave_runs` rows, and the WR-01 supersede flip never fires because `_resuming` is False in the strategy).
-**Fix:** Key both off the resume flag: `ectx.is_resuming = _is_resume or _resume_from > 0` and `_resuming = _is_resume or _resume_from > 0` at `engine.py:1117`. Decide clarify behavior for resumed runs explicitly (skip, or re-park via branch (a) semantics) rather than inheriting the fresh-run auto-clarify.
-
-### WR-11 (NEW): `resume_run` failure paths leave the run non-terminal forever — infinite resume-attempt loop across restarts
-
-**File:** `backend/agents/execution_engine/engine.py:3995-4018, 4093-4094`; classifier `engine.py:3036-3068`
-**Issue:** When `resume_run` bails (no `workflow_runs` row, empty/unresolvable agent list — e.g. a `custom` workflow with no static registry membership — or a mid-drive exception caught at `:4093`), it only logs and returns; the run keeps its non-terminal status. On the **next** restart `_is_resumable_in_flight` classifies it resumable again (the durable `run_events` evidence persists — and each attempt's `run_resuming` marker row itself is evidence), so the system stamps another marker and re-attempts the same doomed resume on **every** restart, forever. This is exactly the phantom-live-row condition the WR-05 branch (c) abandoned→failed path exists to prevent — branch (b)'s failure mode bypasses it.
-**Fix:** On a permanent resume failure (no agents / compile failure / non-transient drive exception), flip the run to `failed` with an explanatory error, mirroring branch (c). Optionally cap resume attempts by counting prior `run_resuming` markers before re-attempting.
-
-### WR-12 (NEW): the resume driver task is fire-and-forget — `asyncio.create_task` result is dropped and the task can be garbage-collected mid-drive
-
-**File:** `backend/agents/execution_engine/engine.py:3004-3006`
-**Issue:** `_asyncio.create_task(self.resume_run(pipeline_run_id))` keeps no reference to the returned task. The event loop holds only a weak reference to tasks (documented CPython asyncio pitfall, ruff RUF006): a resume mid-drive can be silently collected, halting the run with no log, no status flip, and no retry — the run then sits non-terminal until the next restart (compounding WR-11).
-**Fix:**
+**File:** `backend/agents/execution_engine/engine.py:3049-3061, 4068-4147`; `frontend/src/hooks/useWorkflow.ts:432-439`; `frontend/src/components/layout/DashboardLayout.tsx:520-549`
+**Issue:** The driver task is registered in `_PIPELINE_TASKS` synchronously at `create_task` (engine.py:3057), but the live queue is registered only *inside* `resume_run`, after multiple awaited DB round-trips (workflow_runs read, agent resolution, `_compute_resume_offset`, durable-tail seq read — lines 4068-4137). A client that reconnects in that window hits `_has_live_task == False` (websocket.py:599-603 requires `running_queue is not None`), gets `pipeline_reconnected {live: false, status: "generating"}`, and the FE branch at useWorkflow.ts:432-439 keeps `isRunning` true with **no retry**. The code comment claims "re-replay is driven by the existing reconnect effect on the next connection cycle / heartbeat" — but heartbeats are only emitted by an *attached* drainer (websocket.py:723-732), and the reconnect effect (DashboardLayout.tsx:520-549) fires only on a `connectionStatus` transition to "connected". On a healthy connection neither ever fires again, so the client never receives the resumed tail or the terminal event — the exact UAT Gap 2 hang, now confined to a race window but unrecoverable without a manual refresh when it hits. This window is most likely precisely after a backend restart, when every open client reconnects immediately and simultaneously with the restore scan.
+**Fix:** Close the window at the source — register the queue at the same synchronous site as the task in `restore_non_terminal_runs` (the bridge's `_get_or_create_queue` is idempotent, so `resume_run`'s later registration returns the same queue):
 ```python
-task = _asyncio.create_task(self.resume_run(pipeline_run_id))
-self._resume_tasks.add(task)          # engine-level set
-task.add_done_callback(self._resume_tasks.discard)
+if self._resume_register_queue is not None:
+    try:
+        self._resume_register_queue(pipeline_run_id)
+    except Exception: ...
+_resume_task = _asyncio.create_task(self.resume_run(pipeline_run_id))
+if self._resume_register_task is not None: ...
 ```
+Optionally also harden the FE: on `live:false` + non-terminal, schedule one bounded re-send of `reconnect_pipeline` (e.g., a single 5s `setTimeout`), which also covers any future backend path that produces this shape.
 
-### WR-13 (NEW): the resumed run re-emits `pipeline_start` mid-seq — the FE per-run reset wipes the just-replayed dedup/wave state during a durable reconnect
+### WR-03: The new `set_run_scope` call site swallows `PermissionError` — inconsistent with the revision seam's fail-loud contract, masking AUTHZ violations and silently regressing the very bug being fixed
 
-**File:** `frontend/src/app/dashboard/page.tsx:336-345`; emitter `backend/agents/execution_engine/engine.py:1280-1292`
-**Issue:** `_execute_impl` yields `pipeline_start` unconditionally, so a resumed run's durable tail contains a **second** `pipeline_start` (seq continuing past the pre-crash tail). The FE resets all replay state on **every** `pipeline_start` without checking run identity, so when a reconnecting client replays a resumed run's tail in order, the second `pipeline_start` (a) empties `waveGroups` mid-replay — and because the strategy skips completed waves silently (no re-emitted `wave_*` events), the pre-crash waves **never come back**: the §22 tree shows only the re-run waves after a restart; (b) clears the seen-event_id set and zeroes `lastSeqRef`; the cursor recovers from subsequent events, but if `pipeline_start` happens to be the last replayed event the next reconnect sends `after_seq=0` and re-applies the entire pre-crash tail **undeduped** (the seen-set was just cleared) — duplicated streamed text. Also, the reset never re-applies the resetting event's own `seq`, leaving the cursor one short until the next event.
-**Fix:** Reset only on a run-identity change (`data.pipeline_run_id !== activeRunIdRef.current`), not on every `pipeline_start`; after a reset, re-apply the triggering event's own `seq` to `lastSeqRef` alongside its event_id.
-
-### WR-14 (NEW): a wave step that declares `retry` re-runs already-completed waves on a transient retry — the durable wave skip is gated on `is_resuming`
-
-**File:** `backend/agents/capabilities/strategies/wave_scheduler.py:198-206`; wrapper `backend/agents/execution_engine/engine.py:3638-3662`
-**Issue:** `_dispatch_step_with_retry` re-invokes `strategy.run(step, ectx)` on a transient mid-wave failure. Within the same process `ectx.is_resuming` is False, so attempt 2 skips the `read_wave_runs()` consult entirely and re-dispatches from wave 0 — re-spawning every worker of every already-completed wave (amplified up to `max_attempts`), inserting duplicate `wave_runs` rows per index, and leaving attempt 1's `failed` row to poison `_first_incomplete_step` (WR-09). The `wave_scheduler` is `user_allowed=True` and `retry` is an open manifest knob, so a user-composed workflow hits this without any engine change. No shipped manifest declares retry on a wave step today, which is why no test catches it.
-**Fix:** Read the step-filtered completed wave indices unconditionally (the read is cheap and `None`-degrading offline) instead of gating on `is_resuming` — a normal first run has no completed rows, so behavior stays byte-identical; alternatively have the retry wrapper set `ectx.is_resuming = True` for re-attempts of a wave step, or document that wave steps must not declare `retry`.
-
-### WR-02 (CARRIED, deferred): `_first_incomplete_step` misclassifies a wave step as complete when the crash lands between waves
-
-**File:** `backend/agents/execution_engine/engine.py:3947-3957`
-**Issue:** Unchanged from the prior review: a wave step is "complete" with ≥1 terminal wave row and none running; a crash in the window after `update_wave_run(completed)` for wave k and before `record_wave_run` for wave k+1 leaves only terminal rows, so waves k+1..n are never executed and the run finalizes with a partial deliverable. Deliberately deferred.
-**Fix:** Persist/derive the expected wave count (re-run `build_waves` over the persisted plan, or persist `total_waves`) and treat the step incomplete unless all indices are terminal.
-
-### WR-04 (CARRIED, deferred): `_is_resumable_in_flight`'s `run_events`/`wave_runs` evidence reads are dead in production
-
-**File:** `backend/agents/execution_engine/engine.py:3055-3065`
-**Issue:** Unchanged: the classifier builds `ScopedStore(owner_id=..., workspace_id=wr.workspace_id)`; normal pipeline runs never write `workflow_runs.workspace_id`, so the strict scope filters to `workspace_id IS NULL` → ∅, and classification hinges solely on the artifact `tree()` visibility OR-branch. A run that crashed before its first typed artifact is force-failed instead of resumed. Note `resume_run` itself now recovers the workspace correctly (`engine.py:4052`) — only the classifier still has the dead reads. No test drives `restore_non_terminal_runs` end-to-end into a TRUE branch (b) (the mid-wave test calls `resume_run` directly). Deliberately deferred.
-**Fix:** Reuse `_recover_workspace_id(owner_id, wr.id)` before constructing the classifier's store; add an end-to-end branch (b) test.
-
-### WR-06 (CARRIED, deferred): cancellation mid-wave leaves the `wave_runs` row stuck `running`
-
-**File:** `backend/agents/capabilities/strategies/wave_scheduler.py:268-274`
-**Issue:** Unchanged: `except Exception` does not catch `asyncio.CancelledError`; a Stop mid-wave skips the terminal flip and the documented `cancelled` status is never written — the stuck `running` row then feeds the WR-09 classification poison. Deliberately deferred.
-**Fix:** `except asyncio.CancelledError: await runner.update_wave_run(row_id, status="cancelled"); raise` before the generic handler.
-
-### WR-07 (CARRIED, deferred): a resumed run cannot be cancelled (and never streams live)
-
-**File:** `backend/agents/execution_engine/engine.py:4066-4092`
-**Issue:** Unchanged: `resume_run` passes no `cancel_event` and registers nothing in `_PIPELINE_TASKS`/`_PIPELINE_QUEUES`, so the WS stop path has no handle on a resumed run and a connected client receives resumed events only by repeated reconnect-replays (no live drain). A runaway resumed run can only be stopped by killing the process — which auto-resumes it again (see WR-11). Deliberately deferred.
-**Fix:** Create + register an `asyncio.Event` and the driver task under the run id in the WS registries.
-
-### WR-08 (CARRIED, deferred — behavior shifted, see WR-10): planning/clarify-crashed runs are auto-resumed with planner state unreconciled
-
-**File:** `backend/agents/execution_engine/engine.py:1112-1136, 3036-3068`
-**Issue:** The original finding (planner force-skipped for runs that died in planning) has shifted shape: offset-0 resumes now **re-run** the planner (and hit the WR-10 forced-clarify hang), while offset>0 resumes still force-skip it without restoring the original run's planner overlay/clarify answers — the resumed run can execute under a different effective plan than the original. Deliberately deferred.
-**Fix:** Persist/restore the planning outcome (planning_context + clarify answers) before forcing the planner skip; gate branch (b) on durable evidence of build progress.
+**File:** `backend/agents/execution_engine/engine.py:781-791`
+**Issue:** The Gap 2c stamp wraps `scoped_store.set_run_scope(...)` in a blanket `except Exception` that logs a warning and proceeds — the comment explicitly includes "the IN-02 cross-owner PermissionError" in the swallowed set. The *other* caller of this exact seam (the revision path, engine.py:3380-3392) deliberately re-raises any non-`SQLAlchemyError` — `PermissionError` included — on the documented grounds that "a non-DB exception is a real bug." A `PermissionError` here means the WS layer created the `workflow_runs` row under a different principal than the engine derived (`owner_id = user_id or f"anon:..."`, line 696) — real principal drift. Swallowing it (a) hides the drift behind a warning log, and (b) leaves `workflow_runs.workspace_id` NULL, silently reinstating the null-`status` reconnect bug this stamp exists to fix, with no test or alert tripping. Same seam, two contradictory error contracts.
+**Fix:** Mirror the revision site's narrow degrade:
+```python
+except Exception as _stamp_exc:
+    from sqlalchemy.exc import SQLAlchemyError
+    if not isinstance(_stamp_exc, SQLAlchemyError):
+        raise  # PermissionError / principal drift is a real bug — fail loud
+    logger.warning("execute(): workflow_runs scope stamping failed for %s (%s) — proceeding",
+                   pipeline_run_id, _stamp_exc)
+```
+If best-effort-on-everything is genuinely intended for this site, at minimum log `PermissionError` at `error` level with an explicit "principal drift" message and document why this site diverges from engine.py:3386-3387.
 
 ## Info
 
-### IN-01 (CARRIED, deferred): `_did_replay` is assigned but never read
+### IN-01: `live: true` is documented and tested but never sent by any backend path
 
-**File:** `backend/app/api/websocket.py:593, 657`
-**Issue:** Unchanged dead variable.
-**Fix:** Remove it.
+**File:** `frontend/src/hooks/useWorkflow.ts:390-393`; `frontend/src/hooks/useWorkflow.reconnect.test.ts:128-140`; `backend/app/api/websocket.py:712-716`; `backend/tests/agents/test_resume_ws_bridge.py` (module docstring)
+**Issue:** The FE comment ("the 12-09 bridge adds `live: true` for an engine-attached resumed run") and the dedicated `live:true` test case describe a payload the backend never produces: the live-attach branch (websocket.py:712-716) sends `pipeline_reconnected` *without* a `live` key for both legacy and resumed runs. Behavior is correct (`live !== false` treats absent and true identically), but the documented contract is fictional — a future reader may rely on `live: true` to distinguish the bridge path.
+**Fix:** Either add `"live": True` to the live-attach payload (making the documented contract real and the branches symmetric), or correct the comments/docstrings to say the live path omits the key.
 
-### IN-02 (CARRIED, deferred): `replayed_through_seq` reports the requested `after_seq`, not the last replayed seq
+### IN-02: `_stamp_resume_marker` derives its owner from `wr.owner_id or wr.user_id` while every other resume read derives it from `user_id` — latent principal divergence loses the marker silently
 
-**File:** `backend/app/api/websocket.py:668`
-**Issue:** Unchanged: a client persisting this as its cursor would re-request the same tail.
-**Fix:** Report `_missed[-1].seq if _missed else _after_seq`.
+**File:** `backend/agents/execution_engine/engine.py:3156` vs `4127, 4227`
+**Issue:** The marker's recovery call is `_recover_workspace_id(owner_id, run_id)` with `owner_id = wr.owner_id or wr.user_id or f"anon:..."`, but `resume_run`/`_compute_resume_offset` (and the sink that wrote the durable rows) use `user_id or f"anon:..."`. Today `workflow_runs.owner_id == user_id` for all writers so the values coincide, but if they ever diverge the owner-scoped recovery returns `None`, the marker hits the documented best-effort except, and the double-drive audit marker is silently lost — with no signal beyond a warning log.
+**Fix:** Derive the marker's principal identically to the resume drive (`wr.user_id or f"anon:{wr.session_id or run_id}"`), or add a code comment asserting the `owner_id == user_id` invariant this relies on.
 
-### IN-03 (CARRIED, deferred): the fence regex extracts the first fenced block, not the JSON one
+### IN-03: Bridge wiring shares the restore scan's try block — a wiring import failure now also skips run restoration entirely
 
-**File:** `backend/agents/capabilities/task_parsers/json_tasks.py:37`
-**Issue:** Unchanged: `_FENCE_RE.search` picks the first ``` block anywhere in the prose; an unrelated fenced example before the ```json plan parses the wrong block. (Same family: a plain-JSON payload whose task `body` contains a ``` sequence gets the inner segment extracted and fails parse — error is clean, not a crash.)
-**Fix:** Prefer an explicitly `json`-tagged fence first, then fall back.
-
-### IN-04 (CARRIED, deferred): `_compute_resume_offset` fallback comment overclaims content-hash reuse, and mints orphan workspace rows
-
-**File:** `backend/agents/execution_engine/engine.py:4104-4119`
-**Issue:** Unchanged: the docstring still says re-driving from 0 reuses completed steps via the content-hash key, but reuse activates only for steps declaring `retry.max_attempts > 0` (no shipped manifest does) — an offset-0 resume re-invokes every model (and now also hits WR-10). The `create_workspace(run_id)` fallback still mints a workspace row just to compute an offset.
-**Fix:** Correct the comment; drop the `create_workspace` fallback (a `None` workspace yields no durable evidence → offset 0 anyway).
-
-### IN-07 (NEW): the `run_resuming` marker's payload lacks `seq`/`event_id` — invisible to the FE cursor and dedup on replay
-
-**File:** `backend/agents/execution_engine/engine.py:3087-3097`
-**Issue:** Every sink-persisted event carries `seq`/`event_id` **inside** `payload_json` (the wrapper stamps `data` before persisting), and the WS replay forwards `payload_json` as the frame's `data`. The marker is appended with `seq`/`event_id` only on the row columns, not in the payload — so a replayed marker never advances `lastSeqRef` and is never deduped (legacy passthrough). A reconnect whose tail ends at the marker re-replays it on every subsequent reconnect (harmless no-op, but inconsistent with the contiguous-cursor contract).
-**Fix:** Include `"seq": next_seq, "event_id": <uuid>` in the marker's `payload_json`.
-
-### IN-08 (NEW): the websocket replay branch is still never executed by a test — the suite mirrors its logic instead of driving it
-
-**File:** `backend/tests/agents/test_ws_reconnect_replay.py:158-199`; subject `backend/app/api/websocket.py:560-672`
-**Issue:** The prior CR-02 was masked by exactly this pattern (tests constructed the store differently than the handler). The new tests now faithfully **mirror** the handler's construction (including the owner-scoped workspace-recovery query, `:184-199`), which closes today's gap — but the handler code itself (predicate, int-coercion, recovery, send loop, status frame) still has zero direct coverage, so the mirror and the handler can silently drift again.
-**Fix:** Extract the replay branch into a small testable function (e.g. `replay_durable_tail(websocket, user_id, run_id, after_seq, has_live_task, session)`) and call it from both the handler and the tests.
+**File:** `backend/app/main.py:117-131`
+**Issue:** `from app.api import websocket as _ws_bridge` and the three hook assignments sit inside the same `try` as `await engine_instance.restore_non_terminal_runs()`. If the bridge import/assignment ever raises (circular-import drift, refactor), the blanket `except` logs "Startup restoration failed" and the pre-existing restore feature — which previously ran unconditionally — is silently skipped along with the bridge. Low likelihood today (the module is already imported by the app router), but the failure coupling is unnecessary.
+**Fix:** Wrap the bridge wiring in its own narrow try/except (log "bridge wiring failed — resumes will be durable-replay-only") so a wiring failure degrades to the pre-12-09 behavior instead of cancelling restoration.
 
 ---
 
-_Reviewed: 2026-06-11T11:39:36Z_
+_Reviewed: 2026-06-11T14:29:47Z_
 _Reviewer: Claude (gsd-code-reviewer)_
-_Depth: standard (re-review of gap-closure plans 12-05/12-06/12-07)_
+_Depth: standard_
