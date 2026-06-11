@@ -241,6 +241,21 @@ class WaveSchedulerStrategy:
             }
             try:
                 async for event in runner.run_fanout(requests, ctx, step=step):
+                    # CR-06 (backend half): stamp the current wave_index + step onto the
+                    # subagent_spawned/subagent_result events as the strategy re-yields
+                    # them, so the FE (12-07) can fold worker leaves into their wave group.
+                    # run_fanout itself stays the generic flat-fanout path (INV-12 single
+                    # spawn home, no notion of waves) — the wave_index is the wave
+                    # strategy's knowledge, stamped at ITS re-yield boundary. The CONTRACT
+                    # 12-07 reads (recorded in 12-06-SUMMARY.md): flat on event ``data`` —
+                    # ``wave_index`` (number), ``step`` (string), and the existing
+                    # ``worker`` (number, unchanged). A copy of the data dict is stamped so
+                    # a shared/re-used run_fanout dict is never mutated under the kernel.
+                    if event.get("type") in ("subagent_spawned", "subagent_result"):
+                        _data = dict(event.get("data") or {})
+                        _data["wave_index"] = wave_index
+                        _data["step"] = step_id
+                        event = {**event, "data": _data}
                     yield event
             except Exception:
                 await runner.update_wave_run(row_id, status="failed")
