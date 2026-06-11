@@ -225,6 +225,52 @@ async def test_summary_carries_per_worker_status_only():
 
 
 # ---------------------------------------------------------------------------
+# CR-05 — depth propagation: a worker-triggered NESTED fan-out sees depth+1
+# (so max_depth is enforceable, thread ids namespace with d{depth}, and the
+# nested subagent_runs rows record the nested level) — and the spawner's depth
+# is restored after the wave.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_nested_fanout_sees_incremented_depth_and_restores():
+    runner = _FakeRunner(known_agents={"worker-a"})
+    ctx = _make_ctx(runner)
+    step = _make_step("worker-a", mode="sequential")
+
+    nested: dict = {"worker_ctx_depths": [], "thread_ids": [], "inner_spawn_depth": None}
+    calls = {"n": 0}
+
+    async def _nesting_worker(step_, ctx_, *, worker_index, thread_id, agent_id, input, **kw):
+        nested["worker_ctx_depths"].append(ctx_.depth)
+        nested["thread_ids"].append(thread_id)
+        if calls["n"] == 0:
+            calls["n"] += 1
+            # The worker itself triggers a NESTED fan-out reusing the SAME ctx
+            # (exactly what _derive_fanout does for a spawn_subagents tool result).
+            async for ev in run_fanout([{"agent": "self", "input": "inner"}], ctx_, step=step_):
+                if ev["type"] == "subagent_spawned":
+                    nested["inner_spawn_depth"] = ev["data"]["depth"]
+        yield {"type": "agent_chunk", "data": {}}
+
+    runner.run_worker = _nesting_worker  # type: ignore[assignment]
+
+    await _collect(run_fanout([{"agent": "self", "input": "outer"}], ctx, step=step))
+
+    # The worker's execution scope ran at depth+1 (both the outer worker and the
+    # nested one saw the bumped ctx.depth at THEIR level).
+    assert nested["worker_ctx_depths"][0] == 1
+    # The nested fan-out level read depth=1 → its spawned event reports depth 1 and
+    # its child thread id carries the d1 namespace segment (no cross-level collision).
+    assert nested["inner_spawn_depth"] == 1
+    assert any(":d1:" in t for t in nested["thread_ids"][1:]), nested["thread_ids"]
+    # The nested child's subagent_runs row records the nested depth.
+    assert [r["depth"] for r in runner.recorded_rows] == [0, 1]
+    # The spawner's depth is restored after the wave.
+    assert ctx.depth == 0
+
+
+# ---------------------------------------------------------------------------
 # FANOUT-02 — declarative funnel via the fanout_batch strategy
 # ---------------------------------------------------------------------------
 

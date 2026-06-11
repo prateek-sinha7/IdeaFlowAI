@@ -413,7 +413,21 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
     # cancelled mid-flight, or aborts on BudgetExceeded (Pitfall 5 / RESUME-01). A
     # CancelledError from a boundary check or an in-flight worker propagates OUT (the
     # kernel's outer handler emits pipeline_cancelled); the teardown still runs first.
+    _depth_bumped = False
     try:
+        # ── Depth propagation for the workers' execution scope (CR-05) ───────
+        # A worker that itself triggers a fan-out (spawn_subagents → _derive_fanout,
+        # which reuses THIS shared ctx) must see depth+1 so the nested level
+        # reserves at the correct depth (max_depth enforceable), namespaces its
+        # child thread ids with the d{depth} segment, and records depth+1 on its
+        # subagent_runs rows. The bump scopes the whole wave (every worker at this
+        # level runs one level deeper than the spawner) and is restored in the
+        # ``finally`` so the parent run continues at its own depth.
+        try:
+            ctx.depth = depth + 1
+            _depth_bumped = True
+        except Exception:  # noqa: BLE001 — a read-only ctx degrades to unpropagated depth
+            pass
         if _is_sequential(step):
             # Sequential mode — strict order, one worker at a time. Cancel is checked
             # BETWEEN workers (RESUME-01): a cancelled run stops before the NEXT spawn,
@@ -525,6 +539,12 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
         ):
             yield ev
     finally:
+        # Restore the spawner's depth (CR-05) — the bump scoped only this wave.
+        if _depth_bumped:
+            try:
+                ctx.depth = depth
+            except Exception:  # noqa: BLE001 — best-effort restore
+                pass
         # Teardown EVERY allocated isolated workspace — the happy path AND the cancel
         # path AND the BudgetExceeded path all run this (Pitfall 5 / RESUME-01). Each
         # ``worktree`` is removed (git worktree remove + branch delete); each
