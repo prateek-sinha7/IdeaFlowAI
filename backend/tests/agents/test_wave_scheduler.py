@@ -114,3 +114,113 @@ def test_wave_scheduler_is_registered():
     reg = CapabilityRegistry()
     assert reg.is_registered("strategy", "wave_scheduler")
     assert WaveSchedulerStrategy().name == "wave_scheduler"
+
+
+# ===========================================================================
+# CR-06 backend half — subagent_* events carry the wave's wave_index + step so
+# the FE (12-07) can key worker leaves to their wave.
+# ===========================================================================
+
+
+class _StampFakeRunner:
+    """A ctx.runner whose run_fanout yields the flat subagent_* events fanout.py emits
+    (``{worker, agent, isolation, depth}`` — NO wave_index), so the test can assert the
+    STRATEGY stamps the current wave_index + step onto them as it re-yields per wave."""
+
+    def __init__(self):
+        self.recorded = []
+
+    def latest_typed_content(self, _step):
+        return ""
+
+    async def read_wave_runs(self):
+        return []
+
+    async def read_subagent_runs(self):
+        return []
+
+    async def record_wave_run(self, *, step, wave_index, task_ids, status):
+        self.recorded.append((step, wave_index))
+        return f"row-{wave_index}"
+
+    async def update_wave_run(self, row_id, *, status):
+        pass
+
+    async def run_fanout(self, requests, ctx, *, step=None):
+        # Mimic fanout.py: one subagent_spawned + one subagent_result per request, flat
+        # data dicts with NO wave_index (the strategy must inject it).
+        for i, _req in enumerate(requests):
+            yield {
+                "type": "subagent_spawned",
+                "data": {"worker": i, "agent": "w", "isolation": "shared_read", "depth": 0},
+            }
+        for i, _req in enumerate(requests):
+            yield {
+                "type": "subagent_result",
+                "data": {"worker": i, "agent": "w", "row_id": f"r{i}", "status": "complete"},
+            }
+        # A non-subagent event must pass through unchanged (no wave_index injected).
+        yield {"type": "agent_chunk", "data": {"text": "x"}}
+
+
+class _StampCtx:
+    def __init__(self, runner):
+        self.runner = runner
+        self.is_resuming = False
+
+
+class _StampStep:
+    def __init__(self, agent_id):
+        self.agent_id = agent_id
+        self.task_source = type("TS", (), {"source_step": "plan", "parser": "json_tasks"})()
+
+
+@pytest.mark.asyncio
+async def test_subagent_events_carry_wave_index_and_step():
+    """Every subagent_spawned/subagent_result emitted during a wave carries a numeric
+    ``wave_index`` matching its wave AND a ``step`` == step_id. FAILS on the pre-fix
+    re-yield (no wave_index/step on subagent events)."""
+    strat = WaveSchedulerStrategy()
+    runner = _StampFakeRunner()
+    ctx = _StampCtx(runner)
+    step = _StampStep("wave-step")
+
+    # wave 0 = [ta, tb] (disjoint); wave 1 = [tc deps ta].
+    tasks = [
+        _t("ta", targets=["a.txt"]),
+        _t("tb", targets=["b.txt"]),
+        _t("tc", depends_on=["ta"], targets=["c.txt"]),
+    ]
+
+    class _FakeParser:
+        def parse(self, _text):
+            return tasks
+
+    strat._registry = type("R", (), {"resolve": lambda self, k, n: _FakeParser()})()
+
+    events = [ev async for ev in strat.run(step, ctx)]
+
+    subagent_events = [
+        e for e in events if e.get("type") in ("subagent_spawned", "subagent_result")
+    ]
+    assert subagent_events, "no subagent events were re-yielded"
+    for e in subagent_events:
+        data = e["data"]
+        assert "wave_index" in data, f"subagent event missing wave_index: {e}"
+        assert isinstance(data["wave_index"], int), (
+            f"wave_index must be a number, got {type(data['wave_index'])}: {e}"
+        )
+        assert data.get("step") == "wave-step", f"subagent event missing step: {e}"
+        # The existing flat worker index is preserved (not renamed / nested).
+        assert "worker" in data and isinstance(data["worker"], int)
+
+    # The wave_index actually matches the wave the workers belong to: wave 0 workers carry
+    # wave_index 0, wave 1 workers carry wave_index 1.
+    wave_indices = sorted({e["data"]["wave_index"] for e in subagent_events})
+    assert wave_indices == [0, 1], f"subagent events did not span both waves: {wave_indices}"
+
+    # A non-subagent event is NOT stamped with wave_index (pass-through unchanged).
+    chunk = [e for e in events if e.get("type") == "agent_chunk"]
+    assert chunk and "wave_index" not in chunk[0]["data"], (
+        "a non-subagent event was wrongly stamped with wave_index"
+    )
