@@ -21,7 +21,7 @@ from typing import Any
 from agents.capabilities.registry import register
 
 
-@register("deliverable", "serialized_sandbox")
+@register("deliverable", "serialized_sandbox", user_allowed=True)
 class SerializedSandboxResolver:
     """Serialize the run sandbox to the ``filename:``-block bundle (``name='serialized_sandbox'``).
 

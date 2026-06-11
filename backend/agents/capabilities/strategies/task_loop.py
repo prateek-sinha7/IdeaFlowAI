@@ -122,7 +122,7 @@ def _now() -> str:
 # ===========================================================================
 
 
-@register("strategy", "task_loop")
+@register("strategy", "task_loop", user_allowed=True)
 class TaskLoopStrategy:
     """The prototype per-task sub-agent build loop (``name='task_loop'``).
 

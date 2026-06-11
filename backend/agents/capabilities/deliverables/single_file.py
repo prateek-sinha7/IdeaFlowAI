@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_NAME = "prototype.html"
 
 
-@register("deliverable", "single_file")
+@register("deliverable", "single_file", user_allowed=True)
 class SingleFileResolver:
     """Resolve a single named file from the sandbox (``name='single_file'``).
 

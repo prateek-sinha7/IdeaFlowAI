@@ -50,7 +50,7 @@ def _strip_json_fence(text: str) -> str:
     return stripped
 
 
-@register("task_parser", "json_tasks")
+@register("task_parser", "json_tasks", user_allowed=True)
 class JsonTasksParser:
     """Structured JSON task-list → ``list[Task]`` parser (depends_on/conflict_keys/targets).
 
