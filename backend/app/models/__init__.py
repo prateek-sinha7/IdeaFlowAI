@@ -32,6 +32,9 @@ from app.models.exec_runs import ExecRun  # noqa: F401
 # Phase 11 fan-out child audit model (0019) — imported here so Base.metadata sees
 # it for Alembic autogenerate/check (Pitfall 5).
 from app.models.subagent_run import SubagentRun  # noqa: F401
+# Phase 12 per-wave audit model (0020) — imported here so Base.metadata sees it for
+# Alembic autogenerate/check (Pitfall 5).
+from app.models.wave_run import WaveRun  # noqa: F401
 from app.models.handoff import (
     HandoffSession,
     UserApiKey,

@@ -79,6 +79,7 @@ _KNOWN: set[tuple[str, str]] = {
     ("strategy", "single_shot"),
     ("strategy", "task_loop"),
     ("strategy", "fanout_batch"),      # 11-01 / FANOUT-02 (user_allowed=True)
+    ("strategy", "wave_scheduler"),    # 12-01 / WAVE-01 (user_allowed=True)
     ("merge", "copy_disjoint"),        # 11-03 / FANOUT-07 (user_allowed=True)
     ("merge", "git_3way"),             # 11-03 / FANOUT-07 (user_allowed=True)
     ("merge", "json"),                 # 11-03 / FANOUT-07 (user_allowed=True)
@@ -99,6 +100,7 @@ _KNOWN: set[tuple[str, str]] = {
     ("context_provider", "opendesign"),
     ("context_provider", "previous_run"),
     ("task_parser", "heading_tasks"),
+    ("task_parser", "json_tasks"),     # 12-01 / WAVE-02 (structured task list)
     ("gate", "human"),
     ("gate", "validation"),
     ("gate", "approval"),   # 08-02

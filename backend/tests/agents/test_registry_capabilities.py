@@ -39,6 +39,7 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("strategy", "single_shot"),
     ("strategy", "task_loop"),
     ("strategy", "fanout_batch"),          # 11-01 / FANOUT-02
+    ("strategy", "wave_scheduler"),        # 12-01 / WAVE-01 (user_allowed=True)
     ("merge", "copy_disjoint"),            # 11-03 / FANOUT-07 (user_allowed=True)
     ("merge", "git_3way"),                 # 11-03 / FANOUT-07 (user_allowed=True)
     ("merge", "json"),                     # 11-03 / FANOUT-07 (user_allowed=True)
@@ -58,6 +59,7 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("context_provider", "opendesign"),
     ("context_provider", "previous_run"),
     ("task_parser", "heading_tasks"),
+    ("task_parser", "json_tasks"),         # 12-01 / WAVE-02 (structured task list)
     ("gate", "human"),
     ("gate", "validation"),
     ("gate", "approval"),   # 08-02
@@ -142,8 +144,10 @@ def test_registered_count_is_exactly_fifty() -> None:
     # the runner/workspace handle) = 53, plus the two 11-01 fan-out capabilities
     # (strategy:fanout_batch user_allowed=True FANOUT-02; tool:spawn_subagents
     # user_allowed=False FANOUT-01) = 55, plus the four 11-03 merge strategies
-    # (merge:copy_disjoint/git_3way/json/html_fragment user_allowed=True FANOUT-07) = 59.
-    assert len(_KNOWN) == 59
+    # (merge:copy_disjoint/git_3way/json/html_fragment user_allowed=True FANOUT-07) = 59,
+    # plus the two 12-01 wave capabilities (strategy:wave_scheduler user_allowed=True
+    # WAVE-01; task_parser:json_tasks WAVE-02) = 61.
+    assert len(_KNOWN) == 61
     assert set(_KNOWN) == set(_EXPECTED_NAMES)
 
 

@@ -1031,6 +1031,97 @@ class ScopedStore:
             if owned:
                 session.close()
 
+    # ------------------------------------------------------------------
+    # wave_runs — per-executed-wave audit (Phase 12 / WAVE-02)
+    #
+    # wave_runs carries owner_id + workspace_id (AUTHZ-01); every write stamps the
+    # helper principal so the default-deny read filter (_scope_owner_ws) scopes them.
+    # ONE row is written per executed wave at dispatch time (status='running') by the
+    # wave_scheduler strategy through the single kernel run_fanout spawn path, flipped
+    # terminal on wave completion. A cross-owner read returns nothing — the T-12-01-IDOR
+    # mitigation: a user can never read another owner's wave-scheduling state. This is
+    # the durable substrate the mid-wave resume (12-03) reads. Clones the
+    # record/update/read_subagent_run recipe EXACTLY.
+    # ------------------------------------------------------------------
+
+    async def record_wave_run(
+        self,
+        run_id: str,
+        *,
+        step: str,
+        wave_index: int,
+        task_ids: Any,
+        status: str,
+    ) -> str:
+        """Insert one ``wave_runs`` row stamped with the helper principal (WAVE-02).
+
+        ``status`` ∈ ``running | completed | failed | cancelled`` (free String). The
+        row carries owner_id + workspace_id so a cross-owner read returns nothing
+        (default-deny, T-12-01-IDOR). Returns the row id.
+        """
+        from app.models.wave_run import WaveRun
+
+        session, owned = self._acquire()
+        try:
+            row = WaveRun(
+                id=str(uuid.uuid4()),
+                run_id=run_id,
+                owner_id=self._owner_id,
+                workspace_id=self._workspace_id,
+                step=step,
+                wave_index=wave_index,
+                task_ids=list(task_ids),
+                status=status,
+            )
+            session.add(row)
+            session.commit()
+            return row.id
+        finally:
+            if owned:
+                session.close()
+
+    async def update_wave_run(self, row_id: str, *, status: str) -> None:
+        """Flip a ``wave_runs`` row terminal (default-deny scoped lookup).
+
+        The row is resolved under the owner+workspace scope filter so a cross-owner
+        caller can never mutate another owner's wave row. A missing/cross-owner row is
+        a no-op (the same graceful degrade as the read path).
+        """
+        from app.models.wave_run import WaveRun
+
+        session, owned = self._acquire()
+        try:
+            query = session.query(WaveRun).filter(WaveRun.id == row_id)
+            query = self._scope_owner_ws(query, WaveRun)
+            row = query.first()
+            if row is None:
+                return
+            row.status = status
+            session.commit()
+        finally:
+            if owned:
+                session.close()
+
+    async def read_wave_runs(self, run_id: str) -> list[Any]:
+        """Return the run's owner+workspace-scoped ``wave_runs`` rows (wave_index asc).
+
+        A cross-owner read returns nothing → the T-12-01-IDOR mitigation proof. Ordered
+        by ``wave_index`` asc / ``created_at`` asc so the 12-03 resume reads waves in
+        execution order.
+        """
+        from app.models.wave_run import WaveRun
+
+        session, owned = self._acquire()
+        try:
+            query = session.query(WaveRun).filter(WaveRun.run_id == run_id)
+            query = self._scope_owner_ws(query, WaveRun)
+            return query.order_by(
+                WaveRun.wave_index.asc(), WaveRun.created_at.asc()
+            ).all()
+        finally:
+            if owned:
+                session.close()
+
     async def workspace_budget_spent(self, workspace_id: str | None = None) -> dict:
         """Aggregate the workspace's ALREADY-spent fan-out budget (OBS-01 / default-deny).
 
