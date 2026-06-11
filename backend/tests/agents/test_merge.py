@@ -171,6 +171,29 @@ def test_json_same_key_differing_value_conflicts() -> None:
     assert set(result.conflicts[0]["sources"]) == {"w0", "w1"}
 
 
+def test_json_writer_backed_base_receives_merged_keys() -> None:
+    """WR-08: the merged document EXISTS — non-conflicting keys are written to the
+    base; a conflicting key is NEVER written (no silent overwrite)."""
+    strat = JsonMerge()
+
+    class _WritableBase:
+        def __init__(self):
+            self.written: dict = {}
+
+        def write(self, key, value):
+            self.written[key] = value
+
+    base = _WritableBase()
+    frags = [
+        _JsonFragment("w0", {"a": 1, "k": 1}),
+        _JsonFragment("w1", {"b": 2, "k": 2}),  # k conflicts
+    ]
+    result = strat.merge(base, frags)
+    assert base.written == {"a": 1, "b": 2}  # the merged doc accumulated
+    assert "k" not in base.written  # the conflicting key never landed
+    assert result.applied == ["a", "b"]
+
+
 # ---------------------------------------------------------------------------
 # html_fragment — section composition + conflict
 # ---------------------------------------------------------------------------
@@ -196,6 +219,29 @@ def test_html_fragment_same_section_overlap_conflicts() -> None:
     result = strat.merge({}, frags)
     assert not result.clean
     assert result.conflicts[0]["path"] == "main"
+
+
+def test_html_fragment_writer_backed_base_receives_sections() -> None:
+    """WR-08: composed sections are written to the base via set_section; a
+    conflicting section is NEVER written."""
+    strat = HtmlFragmentMerge()
+
+    class _SectionBase:
+        def __init__(self):
+            self.sections_written: dict = {}
+
+        def set_section(self, sid, html):
+            self.sections_written[sid] = html
+
+    base = _SectionBase()
+    frags = [
+        _SectionFragment("w0", {"header": "<h1>H</h1>", "main": "<div>A</div>"}),
+        _SectionFragment("w1", {"main": "<div>B</div>"}),  # main conflicts
+    ]
+    result = strat.merge(base, frags)
+    assert base.sections_written == {"header": "<h1>H</h1>"}
+    assert "main" not in base.sections_written
+    assert result.applied == ["header"]
 
 
 # ---------------------------------------------------------------------------

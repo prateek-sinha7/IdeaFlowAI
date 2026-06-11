@@ -54,6 +54,11 @@ class JsonMerge:
     def merge(self, base: Any, fragments: Any) -> MergeResult:
         result = MergeResult()
         base_doc = _as_dict(base)
+        # WR-08: the merged document must EXIST — mirror copy_disjoint and invoke a
+        # structural writer on the base when it exposes one (the live path); a plain
+        # dict/str base (offline tests) has no writer and the typed MergeResult is
+        # asserted directly.
+        writer = getattr(base, "write", None)
         # key -> (source_name, value) of the first claimant.
         claimed: dict[str, tuple[str, Any]] = {}
         conflicted: set[str] = set()  # evicted keys are NEVER applied (no silent overwrite)
@@ -84,7 +89,12 @@ class JsonMerge:
                     continue
                 claimed[key] = (frag_name, value)
 
+        # Apply the non-conflicting claims in deterministic key order — writing each
+        # merged key onto the base so the merged document accumulates (WR-08).
         for key in sorted(claimed.keys()):
+            _src, value = claimed[key]
+            if callable(writer):
+                writer(key, value)
             result.applied.append(key)
         return result
 

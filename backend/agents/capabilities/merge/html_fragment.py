@@ -55,6 +55,12 @@ class HtmlFragmentMerge:
     def merge(self, base: Any, fragments: Any) -> MergeResult:
         result = MergeResult()
         base_sections = _sections_of(base)
+        # WR-08: the composed document must EXIST — prefer a structural
+        # ``set_section(sid, html)`` writer on the base, falling back to a generic
+        # ``write``; a plain dict base (offline tests) has neither and the typed
+        # MergeResult is asserted directly.
+        set_section = getattr(base, "set_section", None)
+        writer = set_section if callable(set_section) else getattr(base, "write", None)
         claimed: dict[str, tuple[str, str]] = {}
         conflicted: set[str] = set()  # evicted sections are NEVER applied (no silent overwrite)
 
@@ -83,7 +89,12 @@ class HtmlFragmentMerge:
                     continue
                 claimed[sid] = (frag_name, html)
 
+        # Apply the non-conflicting sections in deterministic order — writing each
+        # composed section onto the base so the merged document accumulates (WR-08).
         for sid in sorted(claimed.keys()):
+            _src, html = claimed[sid]
+            if callable(writer):
+                writer(sid, html)
             result.applied.append(sid)
         return result
 
