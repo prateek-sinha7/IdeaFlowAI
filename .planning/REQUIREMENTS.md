@@ -130,9 +130,9 @@
 
 ### Wave Scheduler & Durable Resume (Phase 6)
 
-- [ ] **WAVE-01**: `wave_scheduler` strategy topo-sorts by `depends_on` + `conflict_keys` into waves, runs each wave via fan-out; deterministic builder, CP-SAT seam left (Q31/Q32)
-- [ ] **WAVE-02**: `wave_runs` persistence; a multi-file workflow runs disjoint tasks in parallel waves; prototype stays sequential (Q33 / Phase 6 Accept)
-- [ ] **WAVE-03**: Resume mid-wave via `subagent_runs`/`wave_runs` records after a restart (§21 / N8 — confirm)
+- [x] **WAVE-01**: `wave_scheduler` strategy topo-sorts by `depends_on` + `conflict_keys` into waves, runs each wave via fan-out; deterministic builder, CP-SAT seam left (Q31/Q32)
+- [x] **WAVE-02**: `wave_runs` persistence; a multi-file workflow runs disjoint tasks in parallel waves; prototype stays sequential (Q33 / Phase 6 Accept)
+- [x] **WAVE-03**: Resume mid-wave via `subagent_runs`/`wave_runs` records after a restart (§21 / N8 — confirm)
 
 ### Cancellation, Retry & Resume (cross-cutting; basic in Phase 0, hardened 5–6)
 

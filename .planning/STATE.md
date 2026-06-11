@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-11T08:54:17.498Z"
-last_activity: 2026-06-11 -- Phase 12 planning complete
+last_updated: "2026-06-11T09:11:06.221Z"
+last_activity: 2026-06-11 -- Phase 12 execution started
 progress:
   total_phases: 12
   completed_phases: 11
-  total_plans: 61
-  completed_plans: 61
+  total_plans: 65
+  completed_plans: 62
   percent: 92
 ---
 
@@ -20,16 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-10)
 
 **Core value:** A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001).
-**Current focus:** Phase 11 — engine-owned-fan-out-merge-5
+**Current focus:** Phase 12 — Wave Scheduler + Durable Resume [6]
 
 ## Current Position
 
-Phase: 12
-Plan: Not started
+Phase: 12 (Wave Scheduler + Durable Resume [6]) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-06-11 -- Phase 12 planning complete
+Last activity: 2026-06-11 -- 12-01 COMPLETE (wave scheduler foundation)
 
-Progress: [██████████] 98% (10/12 phases complete; 60/61 mapped plans complete)
+Progress: [██████████] 95% (11/12 phases complete; 62/65 mapped plans complete)
 
 ## Performance Metrics
 
@@ -116,6 +116,7 @@ Progress: [██████████] 98% (10/12 phases complete; 60/61 map
 | Phase 11 P03 | ~40min | 2 tasks | 14 files |
 | Phase 11 P04 | 45min | 2 tasks | 9 files |
 | Phase 11 P05 | ~30min | 2 tasks | 8 files |
+| Phase 12 P01 | ~30min | 3 tasks | 19 files |
 
 ## Accumulated Context
 
@@ -196,6 +197,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 11-03 (FANOUT-06/07/08): MergeStrategy port + 4 registered impls (copy_disjoint deterministic + overlap->conflict NEVER silent overwrite via eviction; git_3way via the ctx.runner git handle only; json/html_fragment) under the new merge kind (_KNOWN 55->59, user_allowed=True). Merge dispatch in run_fanout (_merge_fragments) engine-selects the strategy by name keyed on isolation scope (worktree->git_3way else copy_disjoint, INV-7/INV-1). merge_conflict first-class: owner-scoped merge_conflict ArtifactRef (truncated hunks, cross-owner read=empty) + merge_conflict event. 4 on_conflict policies: human_gate (default, the ONE durable run_human_gate HITL, no sibling gate), merge_agent (bounded MERGE_AGENT_MAX_ATTEMPTS=2 then human_gate fallback), partial, abort. write_fragment_artifact persists each worker output BEFORE merge (FANOUT-06) + the structured summary now carries the per-worker artifact_ref (consumed by 11-04/11-05). 5 characterization snapshots byte/event-identical; lint 4/0; 141 passed. Commits 363b7f0/6fe88d0.
 - [Phase ?]: 11-04 (FANOUT-09/OBS-01): the 11-01 reserve() stub now ENFORCES — BudgetManager.reserve raises BudgetExceeded (naming the dimension) reserve-before-spawn on subagents/concurrency/depth (depth+1>max_depth); tokens/wall-clock are check-at-boundary (note_tokens/note_wall_clock + arm() deadline, D-05). Defaults are module constants (8/4/2/900). Limits trust-conditional at compile (file may RAISE, user/db only LOWER, CompilerError naming the dimension); CompiledWorkflow.limits materialized; compiler defines its OWN ceiling constants (mirror) to keep import-linter agents.workflows↛execution_engine green. Per-workspace ceiling via ScopedStore.workspace_budget_spent (owner+ws aggregate, cross-owner ∅) + WORKSPACE_BUDGET_* seam (default None=uncapped). BudgetSnapshot persists to workflow_runs.budget_snapshot_json (0014 col) on completion/abort/cancel, STRICTLY conditional on fan-out activity (non-fanout writes nothing → 5 characterization snapshots byte/event-identical). BudgetExceeded graceful abort emits budget_aborted + surfaces 11-03 fragment artifacts; budget_warning at ≥80%/failed reserve. lint 4/0; 158 passed. Commits 79919d5/732ec9a.
 - [Phase ?]: [Phase 11]: 11-05 (FANOUT-11/RESUME-01 + SC-001 — PHASE CLOSE): cancellation propagates to fan-out children at every boundary — _check_cancel(ctx) raises CancelledError BEFORE the wave / BETWEEN sequential workers / BEFORE merge; parallel mode _gather_or_cancel cancels every in-flight worker (each flips its subagent_runs row terminal=cancelled) + _mark_open_cancelled flips pending rows; the kernel's existing outer CancelledError handler emits pipeline_cancelled (INV-12). run_fanout try/finally tears down EVERY allocated isolated workspace on the happy AND cancel AND BudgetExceeded paths (Pitfall 5 — zero residue); completed fragments preserved; KernelServices.teardown_isolated_workspace is the cancel-path entry. SC-001 PROVEN for fan-out: sample_fanout manifest at the real home fans 3 self-copies (copy_disjoint) using ONLY registered caps — 3 subagent_runs rows + 3 distinct merged files + is_registered(fanout_batch/copy_disjoint/spawn_subagents) + grep sample_fanout in engine == 0 (07-11 pattern; worker AGENT.md test-scoped per the sc001 precedent). Deviations: [Rule 1] run_worker threads worker input via task_number=worker_index+1 (workers were dropping their per-worker input — FANOUT-04 bug); [Rule 2] compiler ceiling permits spawn_subagents=trusted (mirrors exec) so the file-trusted grant binds, T-11-05-03. 5 characterization snapshots byte/event-identical; gate 253 passed/6 skipped; lint 4/0. Commits cab1e8a/de807e8. Phase 11 = 5/5 complete.
+- [Phase 12]: 12-01 (WAVE-01/02/03): wave_scheduler strategy (user_allowed=True) topo-sorts a json_tasks plan into deterministic waves via the pure build_waves Kahn-levels seam (stable tie-break by id; within-level conflict-key split; conflict_keys defaults to targets per Pitfall 6); WaveBuildError raised pre-spawn on a cycle / unknown depends_on ref (zero wave_runs/subagent_runs rows, T-12-01-INPUT). Each wave funnels through the UNMODIFIED kernel run_fanout (INV-12 single spawn path) so isolation/merge/budget/cancellation are inherited per wave. json_tasks parser carries depends_on/conflict_keys/targets; tolerates plain array / fenced ```json (extracted from WITHIN surrounding prose) / {"tasks":[...]} wrapper; malformed + unknown-dep raise named ValueErrors. Additive 0020 wave_runs (reversible offline, single 0019→0020 head, free-String status, named workflow_runs FK) + WaveRun ORM + default-deny ScopedStore.record/update/read_wave_run (cross-owner read=∅, update=no-op; T-12-01-IDOR) + None-degrading KernelServices.record/update_wave_run; wave_started/wave_completed/wave_failed plain-dict events via the single emit boundary (zero websocket edits, Pattern 4). _KNOWN 59→61 (strategy:wave_scheduler, task_parser:json_tasks); migration-ledger WAVE-PERSIST CHECK row + ratchets. SC-001 PROVEN for waves: sample_wave manifest at the real home runs 4 tasks in ≥2 waves (≥2 parallel workers in wave 1) merged copy_disjoint using ONLY registered caps — ≥2 wave_runs (distinct wave_index, terminal completed) + ≥4 subagent_runs + all 4 distinct merged files + grep sample_wave in engine=0 (worker AGENT.md test-scoped). Deviation [Rule 1]: pinned 0019/0020 reversibility tests to explicit revisions (0019↔0018, 0020↔0019) — the 0019 head/-1 round-trip went stale once 0020 chained on. 5 characterization snapshots byte/event-identical (waves dormant for existing workflows); lint-imports 4/0; 194 passed/7 skipped. Commits ecdf7e6/e415d09/63638f4/13e7b26.
 
 ### Pending Todos
 

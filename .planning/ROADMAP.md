@@ -397,7 +397,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 12-01-PLAN.md — `wave_scheduler` strategy + pure `build_waves` (topo by depends_on + conflict_keys, CP-SAT seam) + `json_tasks` parser + additive `0020 wave_runs` (migration/ORM/ScopedStore/KernelServices) + sample multi-file wave workflow (SC-001) + ledger/lockstep ratchets [wave 1]
+- [x] 12-01-PLAN.md — `wave_scheduler` strategy + pure `build_waves` (topo by depends_on + conflict_keys, CP-SAT seam) + `json_tasks` parser + additive `0020 wave_runs` (migration/ORM/ScopedStore/KernelServices) + sample multi-file wave workflow (SC-001) + ledger/lockstep ratchets [wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -429,7 +429,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 9. Local Runtime + Repo (no exec) [4A] | 6/6 | Complete    | 2026-06-10 |
 | 10. Safe Local Exec [4B] | 5/5 | Complete    | 2026-06-10 |
 | 11. Fan-Out + Merge [5] | 5/5 | Complete    | 2026-06-11 |
-| 12. Wave Scheduler + Resume [6] | 0/4 | Not started | - |
+| 12. Wave Scheduler + Resume [6] | 1/4 | In Progress|  |
 
 ---
 *Roadmap created: 2026-06-06*
