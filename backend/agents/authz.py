@@ -1006,6 +1006,40 @@ class ScopedStore:
             if owned:
                 session.close()
 
+    async def workspace_budget_spent(self, workspace_id: str | None = None) -> dict:
+        """Aggregate the workspace's ALREADY-spent fan-out budget (OBS-01 / default-deny).
+
+        Sums ``subagent_runs`` across ALL of the workspace's runs for THIS owner —
+        the per-workspace aggregate ``BudgetManager.reserve`` checks against the
+        configured workspace ceiling so a second run in the same workspace is refused
+        once the aggregate is exhausted (T-11-04-01 fork-bomb mitigation at the
+        workspace grain). Keyed ``owner_id + workspace_id`` (``_scope_owner_ws``) so a
+        cross-owner workspace's spend is NEVER counted (default-deny, T-11-04-04: a user
+        can never see or be throttled by another owner's workspace aggregate). Returns
+        ``{"subagents": <count>, "tokens": <sum>}``; a missing store / cross-owner read
+        returns zeros (graceful degrade, the read-path precedent).
+
+        ``workspace_id`` defaults to the helper's principal workspace when omitted.
+        """
+        from app.models.subagent_run import SubagentRun
+
+        ws_id = workspace_id or self._workspace_id
+        session, owned = self._acquire()
+        try:
+            query = session.query(SubagentRun)
+            # Scope to THIS owner; constrain to the target workspace (default-deny).
+            query = query.filter(
+                SubagentRun.owner_id == self._owner_id,
+                SubagentRun.workspace_id == ws_id,
+            )
+            rows = query.all()
+            subagents = len(rows)
+            tokens = sum(int(getattr(r, "tokens", 0) or 0) for r in rows)
+            return {"subagents": subagents, "tokens": tokens}
+        finally:
+            if owned:
+                session.close()
+
     # ------------------------------------------------------------------
     # assert_owns — the relocated L16 seam, now a real store lookup (D-07)
     # ------------------------------------------------------------------

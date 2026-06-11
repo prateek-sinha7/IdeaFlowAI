@@ -458,6 +458,29 @@ class KernelServices:
         except Exception as exc:  # noqa: BLE001 — audit must NEVER abort the run
             logger.warning("update_subagent_run(row=%s) failed: %s", row_id, exc)
 
+    async def workspace_budget_spent(self) -> dict:
+        """Return the workspace's already-spent fan-out budget aggregate (OBS-01).
+
+        The per-workspace ceiling read (T-11-04-01): ``run_fanout`` calls this BEFORE a
+        reserve when the run's BudgetManager carries a configured ``workspace_ceiling``,
+        so the reserve can refuse a spawn once the workspace aggregate is exhausted.
+        Delegates to the per-run ``ScopedStore.workspace_budget_spent`` so the aggregate
+        is owner+workspace-scoped (a cross-owner workspace's spend is never counted,
+        T-11-04-04). Best-effort: no store / a read failure degrades to zeros so the
+        offline path is untouched (the read-path precedent). Returns
+        ``{"subagents": <int>, "tokens": <int>}``.
+        """
+        store = getattr(self._ectx, "scoped_store", None)
+        if store is None:
+            return {"subagents": 0, "tokens": 0}
+        try:
+            return await store.workspace_budget_spent(
+                getattr(self._ectx, "workspace_id", None)
+            )
+        except Exception as exc:  # noqa: BLE001 — a ceiling read must never abort the run
+            logger.warning("workspace_budget_spent read failed: %s", exc)
+            return {"subagents": 0, "tokens": 0}
+
     # ── Isolated-workspace alloc/reclaim handle (Phase 11 / FANOUT-05) ─────────
     async def allocate_isolated_workspace(
         self, scope: str, step: str, *, worker_index: int

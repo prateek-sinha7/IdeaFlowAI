@@ -82,8 +82,8 @@ class _FakeRunner:
             self._live -= 1
 
 
-def _make_ctx(runner, *, depth=0):
-    return SimpleNamespace(runner=runner, depth=depth, budget=BudgetManager())
+def _make_ctx(runner, *, depth=0, budget=None):
+    return SimpleNamespace(runner=runner, depth=depth, budget=budget or BudgetManager())
 
 
 def _make_step(agent_id="worker-a", *, mode="parallel", max_parallel=None):
@@ -176,8 +176,14 @@ async def test_unknown_worker_rejected_before_any_spawn():
 @pytest.mark.asyncio
 async def test_parallel_mode_observes_concurrency_cap():
     # 10 workers, manifest asks for max_parallel=10, but the engine caps at 4.
+    # NOTE: with 11-04 the budget reserve ENFORCES the subagent cap; this test exercises
+    # the CONCURRENCY cap (≤4 live), so it raises the subagent budget to 10 so the
+    # total-count cap does not pre-empt the concurrency assertion.
+    from agents.execution_engine.budget import BudgetManager
+    from agents.workflows.plan import Limits
+
     runner = _FakeRunner(known_agents={"worker-a"}, worker_delay=0.02)
-    ctx = _make_ctx(runner)
+    ctx = _make_ctx(runner, budget=BudgetManager.from_limits(Limits(max_subagents=10)))
     step = _make_step("worker-a", mode="parallel", max_parallel=10)
     requests = [{"agent": "self", "input": f"t{i}"} for i in range(10)]
 

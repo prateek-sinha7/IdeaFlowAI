@@ -165,14 +165,53 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
     # (1) Worker selection FIRST — a rejected worker raises before any spawn / row.
     selected = _select_workers(requests, ctx, step)
 
-    # (2) Budget reserve BEFORE any spawn (the call site is the 11-04 enforcement seam).
+    # (2) Budget reserve BEFORE any spawn — the ENFORCEMENT point (FANOUT-09 / 11-04).
+    # ``reserve`` raises BudgetExceeded (naming the breached dimension) when this spawn
+    # would exceed total subagents / concurrency / depth / the per-workspace aggregate.
+    # Reserve-before-spawn (Pitfall 4): a refused reservation propagates BEFORE any
+    # allocate / run_worker / subagent_runs row, so the rejection has zero side effects.
+    # The wall-clock deadline is armed here (the first arm wins so a nested fan-out
+    # cannot extend the run's wall-clock budget). On BudgetExceeded the abort surfaces a
+    # budget_warning + the (zero, here — nothing spawned yet) completed fragments.
     budget = getattr(ctx, "budget", None)
     if budget is not None:
-        budget.reserve(
-            subagents=len(selected),
-            concurrency=_resolve_concurrency(step),
-            depth=depth,
-        )
+        arm = getattr(budget, "arm", None)
+        if callable(arm):
+            arm()
+        # The per-workspace already-spent aggregate (OBS-01) — read through the runner
+        # handle (default 0 when no handle/ceiling reachable, so the offline path is
+        # untouched). The aggregate is checked against the configured workspace ceiling.
+        workspace_spent = 0
+        ws_spent_fn = getattr(runner, "workspace_budget_spent", None)
+        if ws_spent_fn is not None and getattr(budget, "workspace_ceiling", None) is not None:
+            try:
+                workspace_spent = int((await ws_spent_fn()).get("subagents", 0))
+            except Exception as exc:  # noqa: BLE001 — a ceiling read failure degrades to 0
+                logger.debug("workspace_budget_spent read failed: %s", exc)
+                workspace_spent = 0
+        try:
+            budget.reserve(
+                subagents=len(selected),
+                concurrency=_resolve_concurrency(step),
+                depth=depth,
+                workspace_spent=workspace_spent,
+            )
+        except Exception as exc:  # the budget module's BudgetExceeded — surface + re-raise
+            # A failed reserve emits a visible budget_warning BEFORE the abort propagates
+            # (OBS-01) so the stream reports the breached ceiling; pending workers never
+            # spawn (we are still pre-spawn). No completed fragments exist yet at this
+            # single fan-out level, so the partial summary is empty — the engine surfaces
+            # any EARLIER level's persisted fragments on the abort path.
+            yield {
+                "type": "budget_warning",
+                "data": {
+                    "step": step_id,
+                    "dimension": getattr(exc, "dimension", "unknown"),
+                    "reason": "reserve_failed",
+                    "message": str(exc),
+                },
+            }
+            raise
 
     # (3) Isolation — the ENGINE selects the scope from the base workspace (INV-7,
     # never the manifest): has_git -> worktree, else sub_sandbox. When no allocator
@@ -314,6 +353,29 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
         for res in sorted(gathered, key=lambda r: r["worker"]):
             results.append(res)
             yield {"type": "subagent_result", "data": res}
+
+    # ── Budget warning at ≥80% consumption (OBS-01) ───────────────────────────
+    # After the workers are collected, emit a visible budget_warning when any ceiling
+    # is ≥ BUDGET_WARN_THRESHOLD (0.8) consumed — through the single emit boundary +
+    # the generic forward (zero websocket.py edits). Best-effort: a manager without the
+    # warn handle (a bare stub) is skipped (parity for the offline harness).
+    if budget is not None:
+        warn_fn = getattr(budget, "warn_threshold_reached", None)
+        if callable(warn_fn):
+            for dimension in ("subagents", "depth", "tokens", "wall_clock"):
+                try:
+                    breached = warn_fn(dimension)
+                except Exception:  # noqa: BLE001 — a warn read failure is non-fatal
+                    breached = False
+                if breached:
+                    yield {
+                        "type": "budget_warning",
+                        "data": {
+                            "step": step_id,
+                            "dimension": dimension,
+                            "reason": "threshold_reached",
+                        },
+                    }
 
     # ── (5b) Merge dispatch (FANOUT-07/08) ────────────────────────────────────
     # The fragments are integrated into the base workspace via the engine-selected

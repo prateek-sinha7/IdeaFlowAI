@@ -284,3 +284,99 @@ def test_no_grant_parity_holds_across_trust(_clean_registry) -> None:
         assert tools.write_files is False
         assert tools.network is False
         assert tools.secrets == []
+
+
+# ---------------------------------------------------------------------------
+# Trust-conditional Limits (FANOUT-09 / OBS-01) — file may RAISE, user/db only LOWER.
+# ---------------------------------------------------------------------------
+
+
+def _limits_manifest(limits: dict, *, strategy: str = "single_shot") -> WorkflowManifest:
+    """A one-step manifest carrying a workflow-level ``limits:`` block."""
+    return WorkflowManifest(
+        id="limits-demo",
+        steps=[{"agent": "demo-agent", "strategy": strategy}],
+        deliverable={},
+        planner="run",
+        clarify={"mode": "auto", "defaults": []},
+        context_providers=[],
+        seed_files={},
+        version=1,
+        limits=limits,
+    )
+
+
+def _register_user_allowed_strategy() -> None:
+    """Register a user-allowed strategy so the Limits trust rule (not the strategy
+    trust) is what a user/db Limits test exercises."""
+    @register("strategy", "ua_limits_strategy", user_allowed=True)
+    class _UALimitsStrategy:
+        name = "ua_limits_strategy"
+
+
+def test_no_limits_block_compiles_to_empty_limits(_clean_registry) -> None:
+    # Parity: an existing manifest with no limits block → an empty Limits (every cap
+    # None → run_fanout falls back to the module-constant defaults).
+    manifest = _single_step_manifest("single_shot")
+    compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="file")
+    assert compiled.limits.max_subagents is None
+    assert compiled.limits.max_depth is None
+    assert compiled.limits.wall_clock_seconds is None
+
+
+def test_file_trust_may_raise_a_limits_cap_above_the_ceiling(_clean_registry) -> None:
+    # A file (trusted) manifest may RAISE max_subagents above the default ceiling (8).
+    manifest = _limits_manifest({"max_subagents": 32, "max_depth": 5})
+    compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="file")
+    assert compiled.limits.max_subagents == 32
+    assert compiled.limits.max_depth == 5
+
+
+def test_builtin_trust_may_raise_a_limits_cap(_clean_registry) -> None:
+    manifest = _limits_manifest({"wall_clock_seconds": 3600})
+    compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="builtin")
+    assert compiled.limits.wall_clock_seconds == 3600
+
+
+def test_user_trust_raising_max_subagents_is_a_compiler_error(_clean_registry) -> None:
+    # A user manifest RAISING max_subagents above the default ceiling (8) is rejected.
+    _register_user_allowed_strategy()
+    manifest = _limits_manifest({"max_subagents": 16}, strategy="ua_limits_strategy")
+    with pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="user")
+    assert "max_subagents" in str(exc.value)
+
+
+def test_db_trust_raising_max_depth_is_a_compiler_error(_clean_registry) -> None:
+    _register_user_allowed_strategy()
+    manifest = _limits_manifest({"max_depth": 4}, strategy="ua_limits_strategy")
+    with pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="db")
+    assert "max_depth" in str(exc.value)
+
+
+def test_user_trust_lowering_a_limits_cap_is_allowed(_clean_registry) -> None:
+    # A user manifest may only LOWER — max_subagents=4 (≤ ceiling 8) compiles fine.
+    _register_user_allowed_strategy()
+    manifest = _limits_manifest(
+        {"max_subagents": 4, "max_depth": 1}, strategy="ua_limits_strategy"
+    )
+    compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="user")
+    assert compiled.limits.max_subagents == 4
+    assert compiled.limits.max_depth == 1
+
+
+def test_user_trust_max_tokens_is_not_a_raise(_clean_registry) -> None:
+    # max_tokens has no module-constant ceiling — a user manifest declaring it only
+    # constrains itself, so it is NEVER a "raise above the ceiling" rejection.
+    _register_user_allowed_strategy()
+    manifest = _limits_manifest({"max_tokens": 1_000_000}, strategy="ua_limits_strategy")
+    compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="user")
+    assert compiled.limits.max_tokens == 1_000_000
+
+
+def test_unknown_limits_key_is_rejected(_clean_registry) -> None:
+    manifest = _limits_manifest({"max_subagents": 4, "fork_bomb": True})
+    with pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="file")
+    assert "fork_bomb" in str(exc.value)

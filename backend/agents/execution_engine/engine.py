@@ -36,6 +36,7 @@ from agents.capabilities.context_providers.opendesign import (
     RAW_BLOCK_PREFIX as _RAW_BLOCK_PREFIX,
 )
 from agents.capabilities.registry import CapabilityRegistry
+from agents.execution_engine.budget import BudgetManager, BudgetSnapshot
 from agents.execution_engine.context import ExecutionContext
 from agents.execution_engine.resolver import WorkflowResolver
 from agents.execution_engine.state_machine import get_state_machine
@@ -729,6 +730,23 @@ class ExecutionEngine:
         # it only carries the declaration; the read/control-flow lives in the
         # provider/strategy, NOT in compiler.py.
         ectx.seed_files = dict(getattr(compiled, "seed_files", None) or {})
+        # ── Per-run fan-out BudgetManager (Phase 11 / FANOUT-09 / OBS-01) ────────
+        # Construct the ENFORCING per-run budget from the compiled workflow's Limits
+        # (trust-conditional, materialized by the compiler) over the module-constant
+        # defaults, plus the OPTIONAL per-workspace ceiling from the WORKSPACE_BUDGET
+        # settings seam (None = unset = uncapped; the workspace aggregate gate stays
+        # dormant). A PER-RUN object (INV-2 — never on the engine singleton); the single
+        # kernel run_fanout spawn path calls ``ectx.budget.reserve(...)`` BEFORE any
+        # spawn (Pitfall 4). A non-fanout run never reaches reserve, so this is inert for
+        # existing workflows (byte/event-identical — the budget is dormant until a
+        # fan-out step runs).
+        from app.core.config import settings as _budget_settings
+        ectx.budget = BudgetManager.from_limits(
+            getattr(compiled, "limits", None),
+            workspace_ceiling=getattr(
+                _budget_settings, "WORKSPACE_BUDGET_MAX_SUBAGENTS", None
+            ),
+        )
         # The "revise a prior run in place" setup (extract the existing artifact,
         # slim the message, compute the pre-edit baseline) is gated on the DECLARED
         # per-deliverable revision-intent flag ``compiled.deliverable.revises_existing``

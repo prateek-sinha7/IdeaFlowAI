@@ -115,6 +115,17 @@ class Settings(BaseSettings):
     # Retention for a finished run's sandbox dir before the cleanup sweep removes it.
     RUN_DIR_TTL_HOURS: int = 48
 
+    # ── Per-workspace fan-out budget ceilings (Phase 11 / OBS-01) ──────────────
+    # The OPTIONAL per-workspace aggregate ceilings the run-entry BudgetManager checks
+    # at reserve time against the workspace's already-spent fan-out budget (summed
+    # across the workspace's runs by ScopedStore.workspace_budget_spent). DEFAULT None
+    # = UNSET = uncapped (the per-run module-constant caps still apply; the workspace
+    # aggregate gate is simply dormant). No UI — this is the settings SEAM only; an
+    # operator sets it via the env var to cap a multi-run fork-bomb at the workspace
+    # grain (T-11-04-01). Mirrors the LocalExecutionPolicy cap-seam pattern.
+    WORKSPACE_BUDGET_MAX_SUBAGENTS: int | None = None
+    WORKSPACE_BUDGET_MAX_TOKENS: int | None = None
+
     # Base URL the IDE-side slash command and the MCP client use to reach
     # Flowin. Used to format the handoff URL returned by /api/handoff/receive.
     # Override in production to the public-facing URL (e.g. https://flowin.example).

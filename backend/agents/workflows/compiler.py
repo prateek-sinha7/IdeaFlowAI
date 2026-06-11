@@ -34,6 +34,7 @@ from agents.workflows.plan import (
     CompiledWorkflow,
     DeliverableSpec,
     FanoutSpec,
+    Limits,
     Step,
     TaskSource,
     ToolPermissions,
@@ -130,6 +131,30 @@ _ALLOWED_TOOLS_KEYS: frozenset[str] = frozenset(
 _TRUSTED_SOURCES: frozenset[str] = frozenset({"file", "builtin"})
 
 
+# ---------------------------------------------------------------------------
+# Trust-conditional Limits ceiling (FANOUT-09 / OBS-01 / 08-03/10-02 precedent)
+# ---------------------------------------------------------------------------
+
+# The static budget-ceiling defaults the trust gate enforces against. These MIRROR the
+# runtime module constants in ``agents.execution_engine.budget`` (DEFAULT_MAX_SUBAGENTS=8
+# / DEFAULT_MAX_DEPTH=2 / DEFAULT_WALL_CLOCK_SECONDS=900) but are DEFINED here so the
+# compiler never imports the kernel (the import-linter ``agents.workflows ↛
+# agents.execution_engine`` contract). The budget module is the RUNTIME enforcer; this is
+# the STATIC compile-time gate — a file/builtin manifest may RAISE a Limits cap above the
+# ceiling (engineer-authored, trusted), but a user/db manifest may only LOWER (it may not
+# raise a cap above the default ceiling — the 08-03 AGENT.md-only-lowers + 10-02 ceiling
+# precedent). The runtime concurrency clamp (min(declared, 4) in run_fanout) is the
+# backstop; THIS is the static gate.
+_LIMITS_DEFAULT_CEILING: dict[str, int] = {
+    "max_subagents": 8,
+    "max_depth": 2,
+    "wall_clock_seconds": 900,
+    # max_tokens has no module-constant default ceiling (uncapped unless declared); a
+    # user/db manifest declaring max_tokens only constrains itself, so it is never a
+    # "raise above the ceiling" — it is omitted from the raise-rejection set.
+}
+
+
 class WorkflowCompiler:
     """Thin, no-DSL manifest → ``CompiledWorkflow`` transform (MAN-02).
 
@@ -174,6 +199,17 @@ class WorkflowCompiler:
 
         deliverable = self._compile_deliverable(manifest, registry, trusted)
 
+        # ── Trust-conditional Limits materialization (FANOUT-09 / OBS-01) ─────
+        # The formerly declared-but-inert ``manifest.limits`` is now materialized into
+        # a typed ``Limits`` on the CompiledWorkflow (consumed by the run-entry
+        # BudgetManager.from_limits). Under a TRUSTED (file/builtin) manifest a Limits
+        # cap may RAISE above the default ceiling; under an UNTRUSTED (user/db) manifest
+        # a cap that RAISES any ceiling is a CompilerError naming the dimension (user/db
+        # may only LOWER — the 08-03/10-02 precedent).
+        limits = self._compile_limits(
+            getattr(manifest, "limits", None), trusted, where
+        )
+
         # ── Topo-validate the Step DAG (cycle-free, no duplicate agents) ──────
         self._validate_dag(steps)
 
@@ -195,6 +231,58 @@ class WorkflowCompiler:
             deliverable=deliverable,
             planner=manifest.planner,
             clarify=clarify,
+            limits=limits,
+        )
+
+    # ── Trust-conditional Limits (FANOUT-09 / OBS-01 / 08-03/10-02 precedent) ──
+
+    @staticmethod
+    def _compile_limits(raw_limits: object, trusted: bool, where: str) -> Limits:
+        """Materialize the workflow ``limits:`` dict → a typed ``Limits`` (trust-conditional).
+
+        ``None`` (no ``limits:`` key) → the empty ``Limits()`` (every cap ``None`` →
+        run_fanout falls back to the module-constant defaults; parity — every existing
+        manifest is untouched). A declared block coerces each value onto the ``Limits``
+        slot.
+
+        Trust rule (the static budget ceiling gate): under a TRUSTED (file/builtin)
+        manifest a cap may RAISE above ``_LIMITS_DEFAULT_CEILING`` (engineer-authored).
+        Under an UNTRUSTED (user/db) manifest a cap that RAISES any ceiling is a
+        ``CompilerError`` NAMING the offending dimension — a user/db manifest may only
+        LOWER a cap (08-03 AGENT.md-only-lowers + 10-02 ceiling precedent). ``max_tokens``
+        is omitted from the raise-rejection set (it has no module-constant ceiling; a
+        user/db manifest declaring it only constrains itself).
+        """
+        if raw_limits is None:
+            return Limits()
+        if not isinstance(raw_limits, dict):
+            raise CompilerError(
+                f"workflow 'limits' must be a mapping in {where}; "
+                f"got {type(raw_limits).__name__}"
+            )
+        allowed = {"max_tokens", "max_subagents", "max_depth", "wall_clock_seconds"}
+        extra = set(raw_limits) - allowed
+        if extra:
+            raise CompilerError(
+                f"unknown limits key(s) {sorted(extra)} in {where} — manifests are "
+                f"pure data; only {sorted(allowed)} are valid Limits caps (INV-5)"
+            )
+        if not trusted:
+            # A user/db manifest may only LOWER a cap. A declared value ABOVE the default
+            # ceiling RAISES it → reject naming the dimension (the static budget gate).
+            for dim, ceiling in _LIMITS_DEFAULT_CEILING.items():
+                declared = raw_limits.get(dim)
+                if declared is not None and int(declared) > ceiling:
+                    raise CompilerError(
+                        f"limits.{dim}={declared} raises the cap above the default "
+                        f"ceiling {ceiling} in {where} — a user/db manifest may only "
+                        f"LOWER a budget cap, never raise it (FANOUT-09 / CAP-03)"
+                    )
+        return Limits(
+            max_tokens=raw_limits.get("max_tokens"),
+            max_subagents=raw_limits.get("max_subagents"),
+            max_depth=raw_limits.get("max_depth"),
+            wall_clock_seconds=raw_limits.get("wall_clock_seconds"),
         )
 
     # ── Trust check (CAP-03 / D-02) ──────────────────────────────────────────
