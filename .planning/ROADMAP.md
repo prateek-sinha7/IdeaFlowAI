@@ -393,7 +393,7 @@ Plans:
   2. `wave_runs` persisted; a server restart resumes mid-wave via `subagent_runs`/`wave_runs`; idempotent step retry reuses artifacts on content-hash match
   3. Reconnect replays from the durable `run_events` log (`after=<seq>`, idempotent by `event_id`); `restore_non_terminal_runs` resumes at step granularity (waiting_for_user gates resume on user action)
 
-**Plans**: 7 plans (4 waves + 2 gap-closure waves)
+**Plans**: 10 plans (4 waves + 3 gap-closure waves)
 Plans:
 **Wave 1**
 
@@ -416,6 +416,12 @@ Plans:
 - [x] 12-05-PLAN.md — durable-resume/replay blockers: seed `resume_run` seq counter past the durable tail (CR-01) + recover `workspace_id` in the WS reconnect replay ScopedStore (CR-02) [wave 1, gap_closure] (completed 2026-06-11)
 - [x] 12-06-PLAN.md — mid-wave resume correctness: step-filter completed-wave set (CR-04) + re-run the whole in-flight wave instead of an unsafe parallel-order prefix skip (CR-03) + flip stale `running` wave row (WR-01) + stamp `wave_index`/`step` on subagent events (CR-06 backend half) + reject duplicate task ids pre-spawn (WR-05) [wave 1, gap_closure]
 - [x] 12-07-PLAN.md — FE wave tree: hoist `event_id` dedup to cover all event types (CR-05) + reset per-run replay/dedup/wave state (WR-03) + render worker leaves keyed by worker index, waves keyed by `step:waveIndex` (CR-06 FE half / IN-06) + cancelled→terminal (IN-05) + live render/reconnect human-verify [wave 2, gap_closure, depends 12-06]
+
+**Gap Closure 2** *(after 12-UAT live pass found Gap 1 dead wave panel, Gap 2 auto-resume reconnect, Gap 3 sample deliverable)*
+
+- [ ] 12-08-PLAN.md — FE: mount `WaveTreePanel` on the dashboard execution surface (thread `waveGroups` from page.tsx → DashboardLayout; Gap 1, no longer dead UI) + add the missing `pipeline_reconnected` handler in useWorkflow (resolve on live:false+terminal; Gap 2 FE half — stops the post-resume "running forever" hang) [wave 1, gap_closure]
+- [ ] 12-09-PLAN.md — BE: injected engine→WS live-task bridge so an auto-resumed run registers in `_PIPELINE_TASKS`/`_PIPELINE_QUEUES` (reconnect live-attaches; Gap 2a) + stamp `workflow_runs.workspace_id` consistently with the run_events sink via `set_run_scope` (non-null `pipeline_reconnected.status`; Gap 2c) + `_stamp_resume_marker` recovers the real workspace_id (no NOT NULL IntegrityError); import-linter-safe (no engine→app.api import) [wave 1, gap_closure]
+- [ ] 12-10-PLAN.md — manifest: switch `sample_wave` deliverable from `single_file name=merged.txt` (no step produces it) to `serialized_sandbox` (bundles the merged `part_*.txt` base the workers actually write) — no more "merged.txt not written — falling back to streamed output" warning; zero engine edits (SC-001) [wave 1, gap_closure]
 
 ## Progress
 
