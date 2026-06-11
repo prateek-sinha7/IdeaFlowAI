@@ -401,7 +401,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 12-02-PLAN.md — `Step.retry` consumption: one engine retry wrapper (transient-only) + `(run_id, step_id, input content_hash)` artifact reuse + `step_retry`/`step_reused` events [wave 2]
+- [x] 12-02-PLAN.md — `Step.retry` consumption: one engine retry wrapper (transient-only) + `(run_id, step_id, input content_hash)` artifact reuse + `step_retry`/`step_reused` events [wave 2]
 
 **Wave 3** *(blocked on Wave 2 completion)*
 

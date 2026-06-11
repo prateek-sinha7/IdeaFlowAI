@@ -137,7 +137,7 @@
 ### Cancellation, Retry & Resume (cross-cutting; basic in Phase 0, hardened 5–6)
 
 - [x] **RESUME-01**: Cooperative `cancel_event` checked per-chunk and at step/gate/fanout/wave boundaries; on cancel → mark `cancelled`, preserve partial artifacts, `teardown()` isolated workspaces, emit `pipeline_cancelled` (§21)
-- [ ] **RESUME-02**: Idempotent per-step retry `retry: {max, on}` for transient errors, keyed by `(run_id, step_id, input content_hash)`; reuses the existing artifact on hash match — distinct from the validator fix-loop (§21)
+- [x] **RESUME-02**: Idempotent per-step retry `retry: {max, on}` for transient errors, keyed by `(run_id, step_id, input content_hash)`; reuses the existing artifact on hash match — distinct from the validator fix-loop (§21)
 - [ ] **RESUME-03**: Reconnect = durable replay from `run_events` via `after=<last_seq>`, idempotent by `event_id` (§21/§22)
 - [ ] **RESUME-04**: Server restart = `restore_non_terminal_runs` extended to step granularity; `waiting_for_user` gates resume on user action; in-flight steps resume from checkpoint or re-run idempotently (§21)
 
@@ -248,7 +248,8 @@ Each v1 requirement maps to exactly one phase. Phases are GSD integers 1–12, m
 | OBS-01 | Phase 11 [5] | Complete |
 | RESUME-01 | Phase 11 [5] | Complete |
 | WAVE-01, WAVE-02, WAVE-03 | Phase 12 [6] | Pending |
-| RESUME-02, RESUME-03, RESUME-04 | Phase 12 [6] | Pending |
+| RESUME-02 | Phase 12 [6] | Complete |
+| RESUME-03, RESUME-04 | Phase 12 [6] | Pending |
 
 **Coverage:**
 
