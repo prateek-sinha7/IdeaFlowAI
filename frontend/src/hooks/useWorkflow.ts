@@ -432,10 +432,15 @@ export function handlePipelineMessage(
       // live:false + NON-terminal (or missing) status: the run is still
       // in-flight on the backend but this connection has no live task to
       // attach to. Keep isRunning true (the UI showing "running" is correct —
-      // the run IS running); re-replay is driven by the existing reconnect
-      // effect on the next connection cycle / heartbeat, bounded by the WS
-      // reconnect backoff in useWebSocket, and a terminal status will arrive
-      // on a later reconnect. No new retry loop here (T-12-08-02).
+      // the run IS running). Recovery (WR-02): the backend closes the
+      // task-registered-before-queue race at the source — the live queue is
+      // now registered synchronously with the driver task in
+      // restore_non_terminal_runs — so this shape only occurs while the
+      // restore scan has not yet reached the run. A later transition of
+      // connectionStatus to "connected" re-sends reconnect_pipeline (the
+      // DashboardLayout reconnect effect); heartbeats alone do NOT re-trigger
+      // it (they are only emitted by an already-attached drainer). No new
+      // retry loop here (T-12-08-02).
       return true;
     }
 

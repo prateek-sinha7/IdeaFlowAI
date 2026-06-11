@@ -3046,6 +3046,29 @@ class ExecutionEngine:
                         await self._stamp_resume_marker(wr)
                         import asyncio as _asyncio
 
+                        # ── WR-02: register the run's LIVE queue at the SAME
+                        # synchronous site as the driver task, BEFORE
+                        # create_task. resume_run registers the queue again
+                        # only after several awaited DB round-trips (run row,
+                        # agent resolution, resume offset, durable-tail seq);
+                        # a client reconnecting in that window saw a task with
+                        # NO queue → _has_live_task False → pipeline_reconnected
+                        # {live:false, status non-terminal} with no FE retry —
+                        # the UAT Gap 2 "running forever" hang confined to a
+                        # race window (most likely right after a restart, when
+                        # every open client reconnects during this scan). The
+                        # bridge's _get_or_create_queue is idempotent, so the
+                        # later registration inside resume_run returns this
+                        # same queue. Best-effort + dormant when unset.
+                        if self._resume_register_queue is not None:
+                            try:
+                                self._resume_register_queue(pipeline_run_id)
+                            except Exception as _q_exc:  # noqa: BLE001
+                                logger.warning(
+                                    "resume queue registration failed for "
+                                    "%s: %s",
+                                    pipeline_run_id, _q_exc,
+                                )
                         _resume_task = _asyncio.create_task(
                             self.resume_run(pipeline_run_id)
                         )
