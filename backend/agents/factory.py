@@ -108,6 +108,7 @@ def create_runner(
     checkpointer=None,
     interrupt_on: dict | None = None,
     thread_id: str | None = None,
+    run_sandbox=None,
 ):
     """Instantiate a DeepAgentRunner for the given agent ID and context.
 
@@ -150,6 +151,14 @@ def create_runner(
             per-run, keyed on ``ctx.run_id``). When ``None`` it falls back to
             ``ctx.run_id``. The engine passes a unique per-agent id (e.g.
             ``f"{pipeline_run_id}:{agent_id}"``).
+        run_sandbox: Optional RunSandbox-shaped sandbox OVERRIDE (Phase 11 /
+            FANOUT-05 / CR-02). When provided (a fan-out worker's engine-allocated
+            isolated workspace sandbox — the ``_ChildSandbox`` root), the runner's
+            deepagents FilesystemBackend is rooted at IT instead of the shared
+            per-run dir, so the worker's writes land isolated (two parallel
+            workers writing the same relpath cannot cross-contaminate before the
+            merge). ``None`` (every non-worker invocation) keeps the per-run
+            shared sandbox byte-identical (parity).
 
     Raises:
         FileNotFoundError: propagated from the loader if agent_id is unknown.
@@ -178,7 +187,12 @@ def create_runner(
     #     unsafe segments to its own "anonymous"/"run" fallbacks).
     #   - Missing run_id ⇒ "adhoc": gives an isolated, deterministic dir for the
     #     (engine-less) no-run-id case.
-    sandbox = RunSandbox(ctx.user_id or "anon", ctx.run_id or "adhoc")
+    if run_sandbox is not None:
+        # Phase 11 / FANOUT-05 (CR-02): a fan-out worker's engine-allocated
+        # ISOLATED sandbox overrides the shared per-run dir for THIS invocation.
+        sandbox = run_sandbox
+    else:
+        sandbox = RunSandbox(ctx.user_id or "anon", ctx.run_id or "adhoc")
     sandbox.ensure()
 
     # ``max_tokens`` is intentionally NOT passed: the runner's ``build_model``

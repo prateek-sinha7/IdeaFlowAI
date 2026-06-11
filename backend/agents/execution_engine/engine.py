@@ -1707,6 +1707,25 @@ class ExecutionEngine:
         async for fo_ev in runner.run_fanout(requests, ectx, step=step):
             yield fo_ev
 
+    @staticmethod
+    def _isolated_run_sandbox(ectx):
+        """The per-worker isolated sandbox override for THIS invocation (CR-02 / FANOUT-05).
+
+        A fan-out worker step view (built by ``KernelServices.run_worker``) carries
+        the engine-allocated ``isolated_workspace``; its RunSandbox-shaped
+        ``_sandbox`` (the ``_ChildSandbox`` rooted at the sub_sandbox/worktree dir)
+        overrides the shared per-run sandbox so the worker's deepagents disk writes
+        land ISOLATED — two parallel workers writing the same relpath cannot
+        cross-contaminate before the merge (T-11-02-02). Returns ``None`` for every
+        non-worker invocation, keeping the shared per-run sandbox byte-identical
+        (INV-3 parity — the override is dormant outside fan-out workers).
+        """
+        step = getattr(ectx, "current_step", None)
+        iso_ws = getattr(step, "isolated_workspace", None) if step is not None else None
+        if iso_ws is None:
+            return None
+        return getattr(iso_ws, "_sandbox", None)
+
     async def _run_agent(
         self,
         spec,
@@ -1845,6 +1864,11 @@ class ExecutionEngine:
                 ctx,
                 thread_id=thread_id,
                 checkpointer=ectx.checkpointer,
+                # Phase 11 / FANOUT-05 (CR-02): a fan-out worker invocation carries
+                # an engine-allocated ISOLATED workspace on its step view — its
+                # sandbox overrides the shared per-run dir so worker writes land
+                # isolated. None for every non-worker invocation (parity).
+                run_sandbox=self._isolated_run_sandbox(ectx),
             )
 
             output_chunks: list[str] = []

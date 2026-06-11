@@ -356,6 +356,67 @@ async def test_no_workspace_handle_degrades_to_shared_read():
     assert runner.reclaimed == []
 
 
+# ---------------------------------------------------------------------------
+# CR-02 — the LIVE write-isolation path: the worker step view's isolated
+# workspace is extracted by the engine and overrides the runner's disk sandbox.
+# ---------------------------------------------------------------------------
+
+
+def test_engine_extracts_isolated_sandbox_from_worker_step_view():
+    """_run_agent reads the worker step view's isolated_workspace._sandbox (CR-02)."""
+    from agents.execution_engine.engine import ExecutionEngine
+
+    sandbox = SimpleNamespace(root="/tmp/x")
+    iso_ws = SimpleNamespace(_sandbox=sandbox)
+    ectx = SimpleNamespace(current_step=SimpleNamespace(isolated_workspace=iso_ws))
+    assert ExecutionEngine._isolated_run_sandbox(ectx) is sandbox
+    # No step bound / no isolated workspace → None (shared-sandbox parity).
+    assert ExecutionEngine._isolated_run_sandbox(SimpleNamespace(current_step=None)) is None
+    assert ExecutionEngine._isolated_run_sandbox(
+        SimpleNamespace(current_step=SimpleNamespace(isolated_workspace=None))
+    ) is None
+
+
+@pytest.mark.asyncio
+async def test_two_workers_same_relpath_isolated_through_run_sandbox_override(runs_root):
+    """Two workers writing the SAME relpath land in DISTINCT roots through the
+    ``create_runner(run_sandbox=...)`` override — the CR-02 live seam, not a fake
+    that merely records the workspace (T-11-02-02 through the real disk backend)."""
+    import json as _json
+
+    from agents.factory import AgentContext, create_runner
+    from tests.agents._scripted_model import ScriptedFakeChatModel, _ScriptedTurn
+
+    base = _base_workspace(runs_root, has_git=False)
+    outputs: dict[int, str] = {}
+    for i in range(2):
+        child = base.allocate_sub_sandbox(step="build", worker_index=i)
+        fake = ScriptedFakeChatModel([
+            _ScriptedTurn(
+                texts=["writing "],
+                tool_calls=[(
+                    "write_file",
+                    _json.dumps({"file_path": "/out.txt", "content": f"worker-{i}"}),
+                    f"c{i}",
+                )],
+                usage=(5, 3),
+            ),
+            _ScriptedTurn(texts=["done."], usage=(2, 1)),
+        ])
+        ctx = AgentContext(
+            user_request="go", model=fake, user_id="owner-1", run_id="ws-run-1"
+        )
+        runner = create_runner("app-code-generator", ctx, run_sandbox=child._sandbox)
+        async for _ev in runner.astream_events("go"):
+            pass
+        outputs[i] = child.read_file("out.txt")
+
+    # Each worker's write landed in ITS OWN isolated root (no cross-contamination).
+    assert outputs == {0: "worker-0", 1: "worker-1"}
+    # The SHARED run root carries NO out.txt — nothing leaked into the base.
+    assert not (base._sandbox.root / "out.txt").exists()
+
+
 def test_fanout_never_reads_isolation_scope_from_manifest():
     """INV-7: fanout.py reads mode/count/workers but NEVER an isolation scope (T-11-02-03)."""
     import pathlib
