@@ -2,7 +2,8 @@
 #
 # A BRAND-NEW, NON-prototype FAN-OUT workflow defined by manifest + AGENT.md ONLY,
 # using ONLY already-registered capabilities (strategy: fanout_batch, merge:
-# copy_disjoint, tool: spawn_subagents, task_source.parser: heading_tasks) — proving
+# copy_disjoint, tool: spawn_subagents, task_source.parser: heading_tasks,
+# deliverable: serialized_sandbox) — proving
 # that a custom fanning workflow runs end-to-end with ZERO edits to
 # backend/agents/execution_engine/ (SC-001: the kernel knows no workflow by name;
 # all power lives in the registered capabilities). The 09-04 sample_brownfield /
@@ -19,6 +20,12 @@
 #     copy_disjoint merge integrates the 3 disjoint files into the base with NO
 #     conflict (deterministic).
 #
+# deliverable: serialized_sandbox — the workers write disjoint part_*.txt files,
+# copy_disjoint merges them into the run-sandbox base, and serialized_sandbox bundles
+# that merged base into the filename:-block deliverable. The declared deliverable
+# therefore resolves from files the workflow ACTUALLY PRODUCES (no single_file
+# fallback-to-streamed-output warning — UAT Gap 6 / F6, 13-04).
+#
 # tools.spawn_subagents is GRANTED at the fan-out step — the manifest is FILE-trusted
 # (compile trust='file'), so the privileged user_allowed=False grant is allowed (a
 # user/db manifest referencing spawn_subagents would be rejected by CAP-03; this is
@@ -30,8 +37,7 @@ clarify:
   mode: auto
   defaults: []
 deliverable:
-  strategy: single_file
-  name: merged.txt
+  strategy: serialized_sandbox
 context_providers: []
 seed_files: {}
 # The workflow-level named-worker allow-list (FANOUT-03). self×N needs no named

@@ -14,7 +14,11 @@ edit (the 09-04 sample_brownfield / 07-11 sc001_task_loop precedent). It declare
 ``mode: parallel``), each worker writing a distinct file (``part_1.txt`` /
 ``part_2.txt`` / ``part_3.txt``), merged ``copy_disjoint`` — using ONLY already-
 registered capabilities (``fanout_batch`` strategy + ``copy_disjoint`` merge +
-``spawn_subagents`` tool + ``heading_tasks`` parser). The worker AGENT.md specs are
+``spawn_subagents`` tool + ``heading_tasks`` parser + ``serialized_sandbox``
+deliverable). The declared deliverable is ``serialized_sandbox`` (13-04 / UAT Gap 6,
+F6): it bundles the merged part_*.txt base the workers actually produce into the
+``filename:``-block deliverable — so the run never hits the ``single_file``
+"falling back to streamed output" warning. The worker AGENT.md specs are
 test-scoped fixtures (the sc001_task_loop precedent — a real ``agents/prompts/``
 AGENT.md with ``pipeline_type: sample_fanout`` would break the loader's
 SUPPORTED_PIPELINE_TYPES schema gate, so the proven precedent keeps them test-scoped).
@@ -25,6 +29,9 @@ asserts, MIRRORING ``test_sc001_nonprototype_task_loop.py``:
   (2) 3 distinct files (``part_1.txt`` / ``part_2.txt`` / ``part_3.txt``) are produced
       in the merged base — deterministic, no conflict;
   (3) the structured summary names every worker's status + (offline) artifact slot;
+  (3b) the declared deliverable resolves from the PRODUCED files — the
+      ``serialized_sandbox`` bundle contains part_1/2/3.txt as ``filename:`` blocks
+      (no single_file fallback to streamed output — UAT Gap 6 / F6, 13-04);
   (4) the CONCEPTUAL SC-001 acceptance, exactly as the task_loop proof does it:
       (a) the workflow runs PURELY off registered capabilities —
           ``registry.is_registered("strategy","fanout_batch")`` /
@@ -354,6 +361,23 @@ async def test_sc001_fanout_spawns_three_workers_and_merges_distinct_files() -> 
         "copy_disjoint reported a conflict over disjoint files"
     )
 
+    # (3b) Gap 6 (13-04 / F6): the DECLARED deliverable (serialized_sandbox) resolves
+    # from the PRODUCED files — the final output is the filename:-block bundle of the
+    # merged part_*.txt base, NOT the single_file fallback to one worker's streamed
+    # text (the live-run degradation 8ffae37c fixed for sample_wave).
+    complete = [e for e in events if e.get("type") == "pipeline_complete"]
+    assert complete, "no pipeline_complete event emitted"
+    final_output = complete[-1]["data"]["final_output"]
+    assert final_output and final_output.strip(), "final deliverable is empty"
+    assert "(no files written)" not in final_output, (
+        "serialized_sandbox found no deliverable files — the merge did not land"
+    )
+    for part in ("part_1.txt", "part_2.txt", "part_3.txt"):
+        assert f"filename: {part}" in final_output, (
+            f"deliverable bundle missing produced file {part} — the declared "
+            "deliverable did not resolve from the produced merged base"
+        )
+
 
 def test_sc001_fanout_runs_on_registered_capabilities_only() -> None:
     """SC-001 (a): the workflow runs PURELY off already-registered capabilities."""
@@ -365,12 +389,19 @@ def test_sc001_fanout_runs_on_registered_capabilities_only() -> None:
     assert reg.is_registered("merge", "copy_disjoint"), "copy_disjoint merge not registered"
     assert reg.is_registered("tool", "spawn_subagents"), "spawn_subagents tool not registered"
     assert reg.is_registered("task_parser", "heading_tasks"), "heading_tasks parser not registered"
+    assert reg.is_registered("deliverable", "serialized_sandbox"), (
+        "serialized_sandbox deliverable not registered"
+    )
 
     # The manifest declares ONLY those registered capabilities (no kernel edit to run).
     manifest_text = (_MANIFEST_HOME / _FIXTURE_ID / "workflow.yaml").read_text(encoding="utf-8")
     assert "strategy: fanout_batch" in manifest_text
     assert "spawn_subagents: true" in manifest_text
     assert "parser: heading_tasks" in manifest_text
+    assert "strategy: serialized_sandbox" in manifest_text
+    # Gap 6 (13-04 / F6): no dangling merged.txt — the deliverable resolves from the
+    # files the workflow actually produces, not a never-written named file.
+    assert "merged.txt" not in manifest_text
 
 
 def test_sc001_fanout_kernel_names_no_workflow() -> None:
