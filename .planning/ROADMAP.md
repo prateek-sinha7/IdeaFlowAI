@@ -405,7 +405,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 12-03-PLAN.md — durable WS `reconnect_pipeline` `after_seq` replay (idempotent by `event_id`) + `resume_run` step-granular in-process auto-resume incl. mid-wave + three-way `restore_non_terminal_runs` (WR-05 fallback kept) [wave 3]
+- [x] 12-03-PLAN.md — durable WS `reconnect_pipeline` `after_seq` replay (idempotent by `event_id`) + `resume_run` step-granular in-process auto-resume incl. mid-wave + three-way `restore_non_terminal_runs` (WR-05 fallback kept) [wave 3] ✅ 2026-06-11
 
 **Wave 4** *(blocked on Wave 3 completion)*
 

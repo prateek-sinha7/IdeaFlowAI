@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-11T09:40:00.000Z"
-last_activity: 2026-06-11 -- 12-02 COMPLETE (per-step retry + content-hash reuse)
+last_updated: "2026-06-11T09:46:16.000Z"
+last_activity: 2026-06-11 -- 12-03 COMPLETE (durable resume tier — after_seq replay + resume_run + mid-wave)
 progress:
   total_phases: 12
   completed_phases: 11
   total_plans: 65
-  completed_plans: 63
-  percent: 92
+  completed_plans: 64
+  percent: 94
 ---
 
 # Project State
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 12 (Wave Scheduler + Durable Resume [6]) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
-Last activity: 2026-06-11 -- 12-02 COMPLETE (per-step retry + content-hash reuse)
+Last activity: 2026-06-11 -- 12-03 COMPLETE (durable resume tier — after_seq replay + resume_run + mid-wave)
 
-Progress: [██████████] 95% (11/12 phases complete; 63/65 mapped plans complete)
+Progress: [██████████] 95% (11/12 phases complete; 64/65 mapped plans complete)
 
 ## Performance Metrics
 
@@ -118,6 +118,7 @@ Progress: [██████████] 95% (11/12 phases complete; 63/65 map
 | Phase 11 P05 | ~30min | 2 tasks | 8 files |
 | Phase 12 P01 | ~30min | 3 tasks | 19 files |
 | Phase 12 P02 | ~25min | 2 tasks | 3 files |
+| Phase 12 P03 | ~20min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -200,6 +201,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 11]: 11-05 (FANOUT-11/RESUME-01 + SC-001 — PHASE CLOSE): cancellation propagates to fan-out children at every boundary — _check_cancel(ctx) raises CancelledError BEFORE the wave / BETWEEN sequential workers / BEFORE merge; parallel mode _gather_or_cancel cancels every in-flight worker (each flips its subagent_runs row terminal=cancelled) + _mark_open_cancelled flips pending rows; the kernel's existing outer CancelledError handler emits pipeline_cancelled (INV-12). run_fanout try/finally tears down EVERY allocated isolated workspace on the happy AND cancel AND BudgetExceeded paths (Pitfall 5 — zero residue); completed fragments preserved; KernelServices.teardown_isolated_workspace is the cancel-path entry. SC-001 PROVEN for fan-out: sample_fanout manifest at the real home fans 3 self-copies (copy_disjoint) using ONLY registered caps — 3 subagent_runs rows + 3 distinct merged files + is_registered(fanout_batch/copy_disjoint/spawn_subagents) + grep sample_fanout in engine == 0 (07-11 pattern; worker AGENT.md test-scoped per the sc001 precedent). Deviations: [Rule 1] run_worker threads worker input via task_number=worker_index+1 (workers were dropping their per-worker input — FANOUT-04 bug); [Rule 2] compiler ceiling permits spawn_subagents=trusted (mirrors exec) so the file-trusted grant binds, T-11-05-03. 5 characterization snapshots byte/event-identical; gate 253 passed/6 skipped; lint 4/0. Commits cab1e8a/de807e8. Phase 11 = 5/5 complete.
 - [Phase 12]: 12-01 (WAVE-01/02/03): wave_scheduler strategy (user_allowed=True) topo-sorts a json_tasks plan into deterministic waves via the pure build_waves Kahn-levels seam (stable tie-break by id; within-level conflict-key split; conflict_keys defaults to targets per Pitfall 6); WaveBuildError raised pre-spawn on a cycle / unknown depends_on ref (zero wave_runs/subagent_runs rows, T-12-01-INPUT). Each wave funnels through the UNMODIFIED kernel run_fanout (INV-12 single spawn path) so isolation/merge/budget/cancellation are inherited per wave. json_tasks parser carries depends_on/conflict_keys/targets; tolerates plain array / fenced ```json (extracted from WITHIN surrounding prose) / {"tasks":[...]} wrapper; malformed + unknown-dep raise named ValueErrors. Additive 0020 wave_runs (reversible offline, single 0019→0020 head, free-String status, named workflow_runs FK) + WaveRun ORM + default-deny ScopedStore.record/update/read_wave_run (cross-owner read=∅, update=no-op; T-12-01-IDOR) + None-degrading KernelServices.record/update_wave_run; wave_started/wave_completed/wave_failed plain-dict events via the single emit boundary (zero websocket edits, Pattern 4). _KNOWN 59→61 (strategy:wave_scheduler, task_parser:json_tasks); migration-ledger WAVE-PERSIST CHECK row + ratchets. SC-001 PROVEN for waves: sample_wave manifest at the real home runs 4 tasks in ≥2 waves (≥2 parallel workers in wave 1) merged copy_disjoint using ONLY registered caps — ≥2 wave_runs (distinct wave_index, terminal completed) + ≥4 subagent_runs + all 4 distinct merged files + grep sample_wave in engine=0 (worker AGENT.md test-scoped). Deviation [Rule 1]: pinned 0019/0020 reversibility tests to explicit revisions (0019↔0018, 0020↔0019) — the 0019 head/-1 round-trip went stale once 0020 chained on. 5 characterization snapshots byte/event-identical (waves dormant for existing workflows); lint-imports 4/0; 194 passed/7 skipped. Commits ecdf7e6/e415d09/63638f4/13e7b26.
 - [Phase 12]: 12-02 (RESUME-02): Step.retry is now LIVE. RetryPolicy.on (default ["transient"], pure data INV-5) + the SINGLE engine-side per-step retry/reuse wrapper _dispatch_step_with_retry at the ONE dispatch home (D-10, NOT inside strategies / run_fanout), strictly gated on step.retry.max_attempts>0 so absent/0 = byte/event-identical legacy path (Pitfall 4 dormancy). _compute_step_input_hash = CROSS-RESTART-STABLE sha256 over {"upstream": sorted([content_hashes]), "input": resolved_input} (canonical json.dumps sort_keys+separators; NO timestamp/uuid/unsorted — the shared key for retry re-entries AND 12-03 restart re-runs). _find_reused_completion queries the owner-scoped durable run_events (ScopedStore.read_events, T-12-02-REPLAY) for a prior step_completed/step_reused under the SAME (step_id, input_hash), confirms the output artifact still exists, returns output_ref_id (None offline → re-execute). Gate-TRUE: reuse → yield step_reused + ZERO agent call; else bounded attempt loop ≤max_attempts (T-12-02-DOS) — transient (06-03 _is_transient_throttle, ONE classifier home, no second list) + attempts remaining → step_retry + await module-level _retry_sleep(backoff) seam + loop; success → step_completed carrying input_hash+output_ref_id; non-transient OR exhaustion → re-raise the visible error (never swallowed). Events are plain dicts via the single emit boundary (zero websocket edits). 7 offline retry/reuse tests (fake-strategy, _retry_sleep no-op); 5 characterization snapshots byte/event-identical (retry dormant); lint-imports 4/0; 51 passed/7 skipped. Commits 9830f81/bb19844.
+- [Phase 12]: 12-03 (RESUME-03/04 + WAVE-03): the durable resume tier. (1) WS reconnect_pipeline after_seq branch replays the OWNER-SCOPED run_events tail (seq>after_seq) BEFORE the live attach, int-coerces after_seq (non-int rejected), survives a process restart (cleared _PIPELINE_QUEUES/_TASKS) by replaying from the DB + reporting status via ScopedStore.get_run; cross-owner reconnect=∅ (T-12-03-IDOR); legacy no-after_seq+live path byte-identical (clarify-gate restoration preserved). (2) resume_run(run_id) rebuilds the ExecutionContext via the SAME _execute_impl construction path (NO forked dispatch loop — _resume_from offset skips i<offset, planner/clarify suppressed; the grep gate `for i, spec in enumerate(ordered_agents)` stays 1, the completeness SCAN iterates by index). _first_incomplete_step derives completeness from durable artifact_refs/run_events/wave_runs (D-07, no step-status table); resume HYDRATES the typed graph (ArtifactGraph.adopt — id/hash/version preserved) + RECOVERS the original workspace_id from a durable row (Pitfall 2 — create_workspace mints a fresh id that would miss the owner+workspace-scoped mid-wave reads). (3) Mid-wave (WAVE-03): on ctx.is_resuming the wave_scheduler reads read_wave_runs/read_subagent_runs via ctx.runner and skips completed waves + completed LEADING workers, re-entering the SAME run_fanout with only the incomplete tasks (Phase-11 pre-merge fragment durability). (4) restore_non_terminal_runs three-way (D-08): (a) waiting_for_user re-arm UNCHANGED, (b) resumable in-flight (compilable manifest WITH any durable step state) stamps an additive run_resuming event BEFORE asyncio.create_task(self.resume_run) (double-drive guard, T-12-03-DOUBLEDRIVE) then auto-resumes in-process, (c) else WR-05 verbatim; NON_TERMINAL list + state machine untouched (additive event, Open Q2 — resume DORMANT for existing test runs, offline=False). 5 (×2) characterization snapshots byte/event-identical; lint 4/0; 52 passed/7 skipped (+46 wave/step/sample). Commits 97f63c16/83cfff4c.
 
 ### Pending Todos
 

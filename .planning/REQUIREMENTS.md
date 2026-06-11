@@ -138,8 +138,8 @@
 
 - [x] **RESUME-01**: Cooperative `cancel_event` checked per-chunk and at step/gate/fanout/wave boundaries; on cancel → mark `cancelled`, preserve partial artifacts, `teardown()` isolated workspaces, emit `pipeline_cancelled` (§21)
 - [x] **RESUME-02**: Idempotent per-step retry `retry: {max, on}` for transient errors, keyed by `(run_id, step_id, input content_hash)`; reuses the existing artifact on hash match — distinct from the validator fix-loop (§21)
-- [ ] **RESUME-03**: Reconnect = durable replay from `run_events` via `after=<last_seq>`, idempotent by `event_id` (§21/§22)
-- [ ] **RESUME-04**: Server restart = `restore_non_terminal_runs` extended to step granularity; `waiting_for_user` gates resume on user action; in-flight steps resume from checkpoint or re-run idempotently (§21)
+- [x] **RESUME-03**: Reconnect = durable replay from `run_events` via `after=<last_seq>`, idempotent by `event_id` (§21/§22)
+- [x] **RESUME-04**: Server restart = `restore_non_terminal_runs` extended to step granularity; `waiting_for_user` gates resume on user action; in-flight steps resume from checkpoint or re-run idempotently (§21)
 
 ### Agent Runtime, Skills, Hooks, MCP & Integrations (§30; lands across Phases 1B/3/4+)
 
@@ -247,9 +247,9 @@ Each v1 requirement maps to exactly one phase. Phases are GSD integers 1–12, m
 | FANOUT-01, FANOUT-02, FANOUT-03, FANOUT-04, FANOUT-10 (✅ 11-01); FANOUT-05, FANOUT-06, FANOUT-07, FANOUT-08, FANOUT-09, FANOUT-11 | Phase 11 [5] | In progress (5/11 complete) |
 | OBS-01 | Phase 11 [5] | Complete |
 | RESUME-01 | Phase 11 [5] | Complete |
-| WAVE-01, WAVE-02, WAVE-03 | Phase 12 [6] | Pending |
+| WAVE-01, WAVE-02, WAVE-03 | Phase 12 [6] | Complete |
 | RESUME-02 | Phase 12 [6] | Complete |
-| RESUME-03, RESUME-04 | Phase 12 [6] | Pending |
+| RESUME-03, RESUME-04 | Phase 12 [6] | Complete |
 
 **Coverage:**
 
