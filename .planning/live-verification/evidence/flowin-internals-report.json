@@ -1,0 +1,218 @@
+{
+  "completed": true,
+  "error": null,
+  "duration_s": 207.1,
+  "total_tokens": {
+    "input": 59337,
+    "output": 23830,
+    "total": 83167
+  },
+  "cost_usd": 0.0446,
+  "event_vocabulary": [
+    "agent_chunk",
+    "agent_complete",
+    "agent_input",
+    "agent_start",
+    "gate_status",
+    "pipeline_complete",
+    "pipeline_start",
+    "planner_complete",
+    "planner_start",
+    "questionnaire_complete",
+    "questionnaire_ready",
+    "workflow_validated"
+  ],
+  "planner_events": [
+    "planner_start",
+    "planner_complete",
+    "questionnaire_ready",
+    "questionnaire_complete"
+  ],
+  "agent_order": [
+    "started:domain-analyst",
+    "completed:domain-analyst",
+    "started:epic-architect",
+    "completed:epic-architect",
+    "started:story-estimator",
+    "completed:story-estimator",
+    "started:nfr-specialist",
+    "completed:nfr-specialist",
+    "started:backlog-reviewer",
+    "completed:backlog-reviewer",
+    "started:backlog-compiler",
+    "completed:backlog-compiler"
+  ],
+  "per_agent": {
+    "domain-analyst": {
+      "response_len": 6958,
+      "chunks": 668,
+      "tokens": {
+        "in": 3039,
+        "out": 1783,
+        "output_len_on_event": null
+      },
+      "routing": {
+        "declared_context_from": [],
+        "context_message_len": 2098,
+        "sources": [],
+        "brief_present": true
+      }
+    },
+    "epic-architect": {
+      "response_len": 15591,
+      "chunks": 1465,
+      "tokens": {
+        "in": 4808,
+        "out": 4166,
+        "output_len_on_event": null
+      },
+      "routing": {
+        "declared_context_from": [
+          "$previous"
+        ],
+        "context_message_len": 9129,
+        "sources": [
+          {
+            "declared": "$previous",
+            "resolved_to": "domain-analyst",
+            "src_output_len": 6958,
+            "contained_in_context": true
+          }
+        ],
+        "brief_present": true
+      }
+    },
+    "story-estimator": {
+      "response_len": 23341,
+      "chunks": 2122,
+      "tokens": {
+        "in": 7162,
+        "out": 6537,
+        "output_len_on_event": null
+      },
+      "routing": {
+        "declared_context_from": [
+          "$previous"
+        ],
+        "context_message_len": 17765,
+        "sources": [
+          {
+            "declared": "$previous",
+            "resolved_to": "epic-architect",
+            "src_output_len": 15591,
+            "contained_in_context": true
+          }
+        ],
+        "brief_present": true
+      }
+    },
+    "nfr-specialist": {
+      "response_len": 7109,
+      "chunks": 738,
+      "tokens": {
+        "in": 9470,
+        "out": 1995,
+        "output_len_on_event": null
+      },
+      "routing": {
+        "declared_context_from": [
+          "$previous"
+        ],
+        "context_message_len": 25508,
+        "sources": [
+          {
+            "declared": "$previous",
+            "resolved_to": "story-estimator",
+            "src_output_len": 23341,
+            "contained_in_context": true
+          }
+        ],
+        "brief_present": true
+      }
+    },
+    "backlog-reviewer": {
+      "response_len": 12067,
+      "chunks": 1329,
+      "tokens": {
+        "in": 15590,
+        "out": 3459,
+        "output_len_on_event": null
+      },
+      "routing": {
+        "declared_context_from": [
+          "epic-architect",
+          "story-estimator",
+          "nfr-specialist"
+        ],
+        "context_message_len": 48370,
+        "sources": [
+          {
+            "declared": "epic-architect",
+            "resolved_to": "epic-architect",
+            "src_output_len": 15591,
+            "contained_in_context": true
+          },
+          {
+            "declared": "story-estimator",
+            "resolved_to": "story-estimator",
+            "src_output_len": 23341,
+            "contained_in_context": true
+          },
+          {
+            "declared": "nfr-specialist",
+            "resolved_to": "nfr-specialist",
+            "src_output_len": 7109,
+            "contained_in_context": true
+          }
+        ],
+        "brief_present": true
+      }
+    },
+    "backlog-compiler": {
+      "response_len": 22896,
+      "chunks": 2119,
+      "tokens": {
+        "in": 19268,
+        "out": 5890,
+        "output_len_on_event": null
+      },
+      "routing": {
+        "declared_context_from": [
+          "epic-architect",
+          "story-estimator",
+          "nfr-specialist",
+          "backlog-reviewer"
+        ],
+        "context_message_len": 60516,
+        "sources": [
+          {
+            "declared": "epic-architect",
+            "resolved_to": "epic-architect",
+            "src_output_len": 15591,
+            "contained_in_context": true
+          },
+          {
+            "declared": "story-estimator",
+            "resolved_to": "story-estimator",
+            "src_output_len": 23341,
+            "contained_in_context": true
+          },
+          {
+            "declared": "nfr-specialist",
+            "resolved_to": "nfr-specialist",
+            "src_output_len": 7109,
+            "contained_in_context": true
+          },
+          {
+            "declared": "backlog-reviewer",
+            "resolved_to": "backlog-reviewer",
+            "src_output_len": 12067,
+            "contained_in_context": true
+          }
+        ],
+        "brief_present": true
+      }
+    }
+  },
+  "final_output_len": 22896
+}

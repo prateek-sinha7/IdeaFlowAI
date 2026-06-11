@@ -1,0 +1,643 @@
+{
+  "ws-user_stories": {
+    "terminal": "pipeline_complete",
+    "duration_s": 283.4,
+    "run_id": "14de5efa-b41d-4bbc-b0d4-ace6ed646ebc",
+    "n_frames": 11681,
+    "event_types": [
+      "agent_chunk",
+      "agent_complete",
+      "agent_input",
+      "agent_start",
+      "gate_status",
+      "pipeline_complete",
+      "pipeline_start",
+      "planner_complete",
+      "planner_start",
+      "questionnaire_complete",
+      "questionnaire_ready",
+      "workflow_title_update",
+      "workflow_validated"
+    ],
+    "questionnaires_answered": 1,
+    "gates_approved": 0,
+    "review_gate_ready_seen": 0,
+    "speculative_approvals": 0,
+    "reconnects": 0,
+    "errors": [],
+    "seq_span": [
+      1,
+      11680
+    ],
+    "seq_missing": [],
+    "wire_dup_event_ids": 0,
+    "tokens": {
+      "input": 69765,
+      "output": 31449
+    },
+    "wave_events": 0,
+    "subagents_spawned": 0,
+    "final_output_len": 43398,
+    "final_output_head": "# TEAM OKR TRACKING SAAS \u2014 FINAL PRODUCT BACKLOG\n\n# Epic: OKR Definition & Hierarchy Management [P0]\n**Business Value:** Teams can quickly define and cascade OKRs from company strategy to individual contributors, establishing a single sourc"
+  },
+  "ws-user_stories_revision": {
+    "terminal": "error",
+    "duration_s": 0.0,
+    "run_id": null,
+    "n_frames": 1,
+    "event_types": [
+      "error"
+    ],
+    "questionnaires_answered": 0,
+    "gates_approved": 0,
+    "review_gate_ready_seen": 0,
+    "speculative_approvals": 0,
+    "reconnects": 0,
+    "errors": [
+      {
+        "error": "No artifact of type 'user_stories' found for run '14de5efa-b41d-4bbc-b0d4-ace6ed646ebc'. Revision MUST NOT proceed without original context (FR-014).",
+        "code": "revision_validation_error",
+        "recoverable": false
+      }
+    ],
+    "seq_span": null,
+    "seq_missing": [],
+    "wire_dup_event_ids": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0
+    },
+    "wave_events": 0,
+    "subagents_spawned": 0,
+    "final_output_len": 0,
+    "final_output_head": ""
+  },
+  "ws-ppt": {
+    "terminal": "pipeline_complete",
+    "duration_s": 26.2,
+    "run_id": "89832079-da0b-44d6-b400-975251f654e1",
+    "n_frames": 875,
+    "event_types": [
+      "agent_chunk",
+      "agent_complete",
+      "agent_error",
+      "agent_input",
+      "agent_start",
+      "gate_status",
+      "pipeline_complete",
+      "pipeline_start",
+      "planner_complete",
+      "planner_start",
+      "questionnaire_complete",
+      "questionnaire_ready",
+      "workflow_title_update",
+      "workflow_validated"
+    ],
+    "questionnaires_answered": 1,
+    "gates_approved": 0,
+    "review_gate_ready_seen": 0,
+    "speculative_approvals": 0,
+    "reconnects": 0,
+    "errors": [],
+    "seq_span": [
+      1,
+      874
+    ],
+    "seq_missing": [],
+    "wire_dup_event_ids": 0,
+    "tokens": {
+      "input": 2824,
+      "output": 4327
+    },
+    "wave_events": 0,
+    "subagents_spawned": 0,
+    "final_output_len": 15515,
+    "final_output_head": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <title>B2B Analytics Startup \u2013 Investor Pitch</title>\n    <style>\n        * {\n            marg"
+  },
+  "ws-ppt_revision": {
+    "terminal": "error",
+    "duration_s": 0.0,
+    "run_id": null,
+    "n_frames": 1,
+    "event_types": [
+      "error"
+    ],
+    "questionnaires_answered": 0,
+    "gates_approved": 0,
+    "review_gate_ready_seen": 0,
+    "speculative_approvals": 0,
+    "reconnects": 0,
+    "errors": [
+      {
+        "error": "No artifact of type 'ppt' found for run '89832079-da0b-44d6-b400-975251f654e1'. Revision MUST NOT proceed without original context (FR-014).",
+        "code": "revision_validation_error",
+        "recoverable": false
+      }
+    ],
+    "seq_span": null,
+    "seq_missing": [],
+    "wire_dup_event_ids": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0
+    },
+    "wave_events": 0,
+    "subagents_spawned": 0,
+    "final_output_len": 0,
+    "final_output_head": ""
+  },
+  "ws-od_ppt": {
+    "terminal": "error",
+    "duration_s": 0.1,
+    "run_id": null,
+    "n_frames": 1,
+    "event_types": [
+      "error"
+    ],
+    "questionnaires_answered": 0,
+    "gates_approved": 0,
+    "review_gate_ready_seen": 0,
+    "speculative_approvals": 0,
+    "reconnects": 0,
+    "errors": [
+      {
+        "error": "PPT template '' not found",
+        "code": "template_not_found",
+        "recoverable": false
+      }
+    ],
+    "seq_span": null,
+    "seq_missing": [],
+    "wire_dup_event_ids": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0
+    },
+    "wave_events": 0,
+    "subagents_spawned": 0,
+    "final_output_len": 0,
+    "final_output_head": ""
+  },
+  "ws-prototype": {
+    "terminal": "pipeline_complete",
+    "duration_s": 12.1,
+    "run_id": "fc271c44-5648-4c91-b44a-b047a528c02c",
+    "n_frames": 26,
+    "event_types": [
+      "agent_error",
+      "agent_input",
+      "agent_start",
+      "gate_status",
+      "pipeline_complete",
+      "pipeline_start",
+      "planner_complete",
+      "planner_start",
+      "questionnaire_complete",
+      "questionnaire_ready",
+      "review_gate_approved",
+      "review_gate_ready",
+      "task_loop_progress",
+      "workflow_title_update",
+      "workflow_validated"
+    ],
+    "questionnaires_answered": 1,
+    "gates_approved": 2,
+    "review_gate_ready_seen": 2,
+    "speculative_approvals": 4,
+    "reconnects": 0,
+    "errors": [],
+    "seq_span": [
+      1,
+      25
+    ],
+    "seq_missing": [],
+    "wire_dup_event_ids": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0
+    },
+    "wave_events": 0,
+    "subagents_spawned": 0,
+    "final_output_len": 0,
+    "final_output_head": ""
+  },
+  "ws-prototype_revision": {
+    "terminal": "error",
+    "duration_s": 0.0,
+    "run_id": null,
+    "n_frames": 1,
+    "event_types": [
+      "error"
+    ],
+    "questionnaires_answered": 0,
+    "gates_approved": 0,
+    "review_gate_ready_seen": 0,
+    "speculative_approvals": 0,
+    "reconnects": 0,
+    "errors": [
+      {
+        "error": "No artifact of type 'prototype' found for run 'fc271c44-5648-4c91-b44a-b047a528c02c'. Revision MUST NOT proceed without original context (FR-014).",
+        "code": "revision_validation_error",
+        "recoverable": false
+      }
+    ],
+    "seq_span": null,
+    "seq_missing": [],
+    "wire_dup_event_ids": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0
+    },
+    "wave_events": 0,
+    "subagents_spawned": 0,
+    "final_output_len": 0,
+    "final_output_head": ""
+  },
+  "ws-app_builder": {
+    "terminal": "pipeline_cancelled",
+    "duration_s": 384.9,
+    "run_id": "44549ab1-aec4-4fc4-9f15-cd1386d32e6b",
+    "n_frames": 16352,
+    "event_types": [
+      "agent_chunk",
+      "agent_complete",
+      "agent_input",
+      "agent_start",
+      "gate_status",
+      "pipeline_cancelled",
+      "pipeline_start",
+      "planner_complete",
+      "planner_start",
+      "questionnaire_complete",
+      "questionnaire_ready",
+      "workflow_title_update",
+      "workflow_validated"
+    ],
+    "questionnaires_answered": 1,
+    "gates_approved": 0,
+    "review_gate_ready_seen": 0,
+    "speculative_approvals": 0,
+    "reconnects": 1,
+    "errors": [],
+    "seq_span": [
+      1,
+      16351
+    ],
+    "seq_missing": [],
+    "wire_dup_event_ids": 0,
+    "tokens": {
+      "input": 34313,
+      "output": 57663
+    },
+    "wave_events": 0,
+    "subagents_spawned": 0,
+    "final_output_len": 0,
+    "final_output_head": ""
+  },
+  "ws-custom": {
+    "terminal": "error",
+    "duration_s": 0.0,
+    "run_id": null,
+    "n_frames": 2,
+    "event_types": [
+      "error",
+      "workflow_validated"
+    ],
+    "questionnaires_answered": 0,
+    "gates_approved": 0,
+    "review_gate_ready_seen": 0,
+    "speculative_approvals": 0,
+    "reconnects": 0,
+    "errors": [
+      {
+        "error": "Workflow DAG is unsatisfiable: Agent 'report-generator' consumes 'documentation-agent' but no upstream agent produces it.",
+        "code": "workflow_unsatisfiable",
+        "recoverable": false,
+        "seq": 2,
+        "event_id": "63b4d699-df1e-489a-9eec-3d008f460fda"
+      }
+    ],
+    "seq_span": [
+      1,
+      2
+    ],
+    "seq_missing": [],
+    "wire_dup_event_ids": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0
+    },
+    "wave_events": 0,
+    "subagents_spawned": 0,
+    "final_output_len": 0,
+    "final_output_head": ""
+  },
+  "ws-sample_wave": {
+    "terminal": "pipeline_complete",
+    "duration_s": 23.9,
+    "run_id": "8554db20-7301-483c-9fc2-07b503d67e3e",
+    "n_frames": 288,
+    "event_types": [
+      "agent_chunk",
+      "agent_complete",
+      "agent_input",
+      "agent_start",
+      "gate_status",
+      "merge_completed",
+      "merge_started",
+      "pipeline_complete",
+      "pipeline_start",
+      "planner_complete",
+      "planner_start",
+      "questionnaire_complete",
+      "questionnaire_ready",
+      "subagent_result",
+      "subagent_spawned",
+      "wave_completed",
+      "wave_started",
+      "workflow_title_update",
+      "workflow_validated"
+    ],
+    "questionnaires_answered": 1,
+    "gates_approved": 0,
+    "review_gate_ready_seen": 0,
+    "speculative_approvals": 0,
+    "reconnects": 0,
+    "errors": [],
+    "seq_span": [
+      1,
+      287
+    ],
+    "seq_missing": [],
+    "wire_dup_event_ids": 0,
+    "tokens": {
+      "input": 2262,
+      "output": 1276
+    },
+    "wave_events": 4,
+    "subagents_spawned": 4,
+    "final_output_len": 385,
+    "final_output_head": "```filename: part_a.txt\nPart A: Initial data segment\nGenerated by task t1 in Wave 1\nStatus: Complete\n```\n\n```filename: part_b.txt\nPart B: Independent parallel segment\nGenerated by task t2 in Wave 1\nStatus: Complete\n```\n\n```filename: part_d."
+  },
+  "ws-sample_fanout": {
+    "terminal": "pipeline_complete",
+    "duration_s": 12.8,
+    "run_id": "dc5d08be-7fa3-4c28-a68c-528abfc8619a",
+    "n_frames": 186,
+    "event_types": [
+      "agent_chunk",
+      "agent_complete",
+      "agent_input",
+      "agent_start",
+      "gate_status",
+      "merge_completed",
+      "merge_started",
+      "pipeline_complete",
+      "pipeline_start",
+      "planner_complete",
+      "planner_start",
+      "questionnaire_complete",
+      "questionnaire_ready",
+      "subagent_result",
+      "subagent_spawned",
+      "workflow_title_update",
+      "workflow_validated"
+    ],
+    "questionnaires_answered": 1,
+    "gates_approved": 0,
+    "review_gate_ready_seen": 0,
+    "speculative_approvals": 0,
+    "reconnects": 0,
+    "errors": [],
+    "seq_span": [
+      1,
+      185
+    ],
+    "seq_missing": [],
+    "wire_dup_event_ids": 0,
+    "tokens": {
+      "input": 2210,
+      "output": 666
+    },
+    "wave_events": 0,
+    "subagents_spawned": 3,
+    "final_output_len": 248,
+    "final_output_head": "I'll create the part_2.txt file for Worker 2 with the required content.Done. Worker 2 has written `part_2.txt` with clear identification, timestamp, and description of work completed. The file is now ready for merge with the other workers' "
+  },
+  "ws-od_prototype": {
+    "terminal": "pipeline_complete",
+    "duration_s": 236.4,
+    "run_id": "c8af7c0b-9713-400e-8880-0566a44c28c5",
+    "n_frames": 3699,
+    "event_types": [
+      "agent_chunk",
+      "agent_complete",
+      "agent_input",
+      "agent_start",
+      "gate_status",
+      "pipeline_complete",
+      "pipeline_heartbeat",
+      "pipeline_start",
+      "planner_complete",
+      "planner_start",
+      "questionnaire_complete",
+      "questionnaire_ready",
+      "review_gate_approved",
+      "review_gate_ready",
+      "task_loop_progress",
+      "task_progress",
+      "tool_call",
+      "tool_result",
+      "workflow_title_update",
+      "workflow_validated"
+    ],
+    "questionnaires_answered": 1,
+    "gates_approved": 4,
+    "review_gate_ready_seen": 4,
+    "speculative_approvals": 118,
+    "reconnects": 0,
+    "errors": [],
+    "seq_span": [
+      1,
+      3690
+    ],
+    "seq_missing": [],
+    "wire_dup_event_ids": 0,
+    "tokens": {
+      "input": 967314,
+      "output": 28119
+    },
+    "wave_events": 0,
+    "subagents_spawned": 0,
+    "final_output_len": 28880,
+    "final_output_head": "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n  <title>Task Manager \u2014 dashboard</title>\n  <style>\n    /* \u2500\u2500\u2500 tokens \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+  },
+  "ws-od_ppt2": {
+    "terminal": "pipeline_complete",
+    "duration_s": 9.8,
+    "run_id": "9e5f7a45-41c9-4261-ac78-6179d8d686c0",
+    "n_frames": 139,
+    "event_types": [
+      "agent_chunk",
+      "agent_complete",
+      "agent_input",
+      "agent_start",
+      "gate_status",
+      "pipeline_complete",
+      "pipeline_start",
+      "planner_complete",
+      "planner_start",
+      "questionnaire_complete",
+      "questionnaire_ready",
+      "workflow_title_update",
+      "workflow_validated"
+    ],
+    "questionnaires_answered": 1,
+    "gates_approved": 0,
+    "review_gate_ready_seen": 0,
+    "speculative_approvals": 0,
+    "reconnects": 0,
+    "errors": [],
+    "seq_span": [
+      1,
+      138
+    ],
+    "seq_missing": [],
+    "wire_dup_event_ids": 0,
+    "tokens": {
+      "input": 13932,
+      "output": 558
+    },
+    "wave_events": 0,
+    "subagents_spawned": 0,
+    "final_output_len": 261,
+    "final_output_head": "I'm the **Deck QA Agent**. I'm ready to validate the HTML deck artifact from the Deck Engineer.\n\nHowever, I don't see the prior artifact in your message. Please share the HTML deck output so I can run the P0/P1 validation checklist and emit"
+  },
+  "ws-custom2": {
+    "terminal": "error",
+    "duration_s": 0.0,
+    "run_id": null,
+    "n_frames": 2,
+    "event_types": [
+      "error",
+      "workflow_validated"
+    ],
+    "questionnaires_answered": 0,
+    "gates_approved": 0,
+    "review_gate_ready_seen": 0,
+    "speculative_approvals": 0,
+    "reconnects": 0,
+    "errors": [
+      {
+        "error": "Workflow DAG is unsatisfiable: Agent 'documentation-agent' consumes 'performance-optimizer' but no upstream agent produces it.",
+        "code": "workflow_unsatisfiable",
+        "recoverable": false,
+        "seq": 2,
+        "event_id": "25a96d82-8fa3-4f0e-b5a1-c78d8498d99e"
+      }
+    ],
+    "seq_span": [
+      1,
+      2
+    ],
+    "seq_missing": [],
+    "wire_dup_event_ids": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0
+    },
+    "wave_events": 0,
+    "subagents_spawned": 0,
+    "final_output_len": 0,
+    "final_output_head": ""
+  },
+  "ws-app_builder2": {
+    "terminal": "pipeline_complete",
+    "duration_s": 1759.5,
+    "run_id": "f9970aa1-49f1-4cbc-ad9e-8d445b47c8b7",
+    "n_frames": 63161,
+    "event_types": [
+      "agent_chunk",
+      "agent_complete",
+      "agent_error",
+      "agent_input",
+      "agent_start",
+      "gate_status",
+      "pipeline_complete",
+      "pipeline_heartbeat",
+      "pipeline_start",
+      "planner_complete",
+      "planner_start",
+      "questionnaire_complete",
+      "questionnaire_ready",
+      "tool_call",
+      "tool_result",
+      "workflow_title_update",
+      "workflow_validated"
+    ],
+    "questionnaires_answered": 1,
+    "gates_approved": 0,
+    "review_gate_ready_seen": 0,
+    "speculative_approvals": 0,
+    "reconnects": 0,
+    "errors": [],
+    "seq_span": [
+      1,
+      63145
+    ],
+    "seq_missing": [],
+    "wire_dup_event_ids": 0,
+    "tokens": {
+      "input": 1401168,
+      "output": 274259
+    },
+    "wave_events": 0,
+    "subagents_spawned": 0,
+    "final_output_len": 1216159,
+    "final_output_head": "```filename: .github/deployment/dev.env\n# Development Environment Configuration\n# Source: .github/deployment/dev.env\n# Used by: CD pipeline for dev deployments\n\n# AWS Configuration\nAWS_REGION=us-east-1\nAWS_ACCOUNT_ID=123456789012\nECR_REGIST"
+  },
+  "ws-od_ppt3-fixed": {
+    "terminal": "pipeline_complete",
+    "duration_s": 128.3,
+    "run_id": "4c696b4d-05b4-47a0-beed-f83bc850272d",
+    "n_frames": 216,
+    "event_types": [
+      "agent_chunk",
+      "agent_error",
+      "agent_input",
+      "agent_start",
+      "gate_status",
+      "pipeline_complete",
+      "pipeline_heartbeat",
+      "pipeline_start",
+      "planner_complete",
+      "planner_start",
+      "questionnaire_complete",
+      "questionnaire_ready",
+      "tool_call",
+      "tool_result",
+      "workflow_title_update",
+      "workflow_validated"
+    ],
+    "questionnaires_answered": 1,
+    "gates_approved": 0,
+    "review_gate_ready_seen": 0,
+    "speculative_approvals": 0,
+    "reconnects": 0,
+    "errors": [],
+    "seq_span": [
+      1,
+      207
+    ],
+    "seq_missing": [],
+    "wire_dup_event_ids": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0
+    },
+    "wave_events": 0,
+    "subagents_spawned": 0,
+    "final_output_len": 0,
+    "final_output_head": ""
+  }
+}
