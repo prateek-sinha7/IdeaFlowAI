@@ -24,6 +24,7 @@ The plan sub-phases (0A/0B/0C, 1A/1B/1C, 4A/4B) are mapped to sequential GSD pha
 - [x] **Phase 10: Safe Local Exec (gated on N3) [4B]** - Constrained `exec` behind the `security` gate + `ExecutionPolicy`; compile/test/lint validators (completed 2026-06-10)
 - [x] **Phase 11: Engine-Owned Fan-Out + Merge [5]** - `spawn_subagents` + kernel `run_fanout`; isolation + merge-conflict flow; `BudgetManager`; subagent persistence (completed 2026-06-11)
 - [x] **Phase 12: Wave Scheduler + Durable Resume [6]** - Topo wave scheduler; `wave_runs`; resume mid-wave; prototype stays sequential (completed 2026-06-11)
+- [ ] **Phase 13: Live Verification Gap Closure** - Close the post-milestone live-Bedrock findings F1–F7 (.planning/live-verification/REPORT.md): declared-gate event delivery, run_revision FR-014 dead end, silent inject-halt completion, tool-XML prompt hygiene + handoff hardening, app_builder prompt re-templating, sample_fanout deliverable, test-infra repairs
 
 > **Deferred (plan Phase 7, OUT OF SCOPE this milestone):** ECS/EC2 runtime behind the unchanged `RuntimeEnvironment` port — a separate spec (§27). Tracked as v2 in REQUIREMENTS.md (ECS-01/02).
 
@@ -442,6 +443,25 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 10. Safe Local Exec [4B] | 5/5 | Complete    | 2026-06-10 |
 | 11. Fan-Out + Merge [5] | 5/5 | Complete    | 2026-06-11 |
 | 12. Wave Scheduler + Resume [6] | 10/10 | Complete    | 2026-06-11 |
+| 13. Live Verification Gap Closure | 0/? | Pending     | -          |
+
+### Phase 13: Live Verification Gap Closure
+
+**Goal**: Close the product gaps found by the 2026-06-11 post-milestone live-Bedrock verification pass (every workflow + all options on real Haiku 4.5, semantic review by Opus agents) — the findings register lives at `.planning/live-verification/REPORT.md`; the diagnosed gaps (root causes + file:line artifacts) are staged in `13-UAT.md` for `--gaps` planning.
+**Depends on**: Phase 12
+**Requirements**: None new — closes findings F1–F7 (post-milestone UAT; no REQUIREMENTS.md ids)
+**Success Criteria** (what must be TRUE):
+
+  1. A manifest-declared `gates: [human]` step surfaces `review_gate_ready` on the live WS stream BEFORE awaiting the response, so a UI client can approve and the run proceeds (F1)
+  2. `run_revision` with the FE's exact payload (`target_artifact_type: ppt_output` / `od_ppt_output`) against a completed parent run passes FR-014 and produces a revision run (F2)
+  3. A run whose agents hard-fail (e.g. missing od_context injects) terminates as a visible failure or fails fast at ingress — never `pipeline_complete` with an empty/improvised deliverable (F3)
+  4. Text-only agents emit no fabricated tool-call XML into prose on live Haiku, and the handoff coder reliably returns parseable JSON (prompt hygiene + bounded parse-retry) (F4)
+  5. All 15 app_builder agents produce role-conformant output: the three migration-templated prompts (code-compliance / test-compliance / sdlc-governance) re-templated for app_builder scope; devops agent emits files, not narration (F5)
+  6. sample_fanout resolves its declared deliverable from produced files with no single_file fallback warning; `test_phase3_token_delta_live` runs against the current engine; the phase-8 live sweep budget reflects real Haiku 4.5 spend (F6/F7)
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 13 --gaps to break down from 13-UAT.md)
 
 ---
 *Roadmap created: 2026-06-06*
