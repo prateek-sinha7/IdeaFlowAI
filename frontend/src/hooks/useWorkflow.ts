@@ -380,6 +380,65 @@ export function handlePipelineMessage(
       return true;
     }
 
+    case "pipeline_reconnected": {
+      // Phase 12 / 12-08 (RESUME-04 FE half, UAT Gap 2b) — previously this
+      // event was silently dropped, so after a backend restart mid-run the
+      // open page reconnected, the backend replayed the durable tail and
+      // reported the run's final status… and the FE ignored it: isRunning
+      // never resolved ("running forever" hang, screenshot 51-runE2-stuck).
+      //
+      // Backend payload (websocket.py — flattened onto `msg` by page.tsx):
+      //   { pipeline_run_id, live, status?, replayed_through_seq?, message }
+      // The legacy live-reconnect path omits `live` entirely; the 12-09 bridge
+      // adds `live: true` for an engine-attached resumed run.
+      const live = msg.live as boolean | undefined;
+      const status = (msg.status as string | null | undefined) ?? null;
+
+      // live:true (12-09 engine→WS attach) or absent (legacy live reconnect):
+      // a live task will stream the tail through the queue — keep running and
+      // let the subsequent agent_*/wave_*/pipeline_complete events drive state.
+      if (live !== false) return true;
+
+      const TERMINAL_STATUSES = ["completed", "failed", "cancelled", "error"];
+      if (status && TERMINAL_STATUSES.includes(status)) {
+        // No live task and the run already finished — the durable tail was
+        // replayed by the WS layer before this event, so resolve the run out
+        // of the running state (this is what stops the hang).
+        try {
+          sessionStorage.removeItem("active_pipeline_run_id");
+          sessionStorage.removeItem("active_pipeline_type");
+        } catch { /* non-fatal */ }
+
+        setPipelineState((prev) => {
+          // Mirror pipeline_complete's agent finalization on success; for
+          // failed/cancelled/error leave agents as-is but still resolve.
+          const updated = status === "completed"
+            ? prev.agents.map((a) =>
+                (a.status === "running" || a.status === "thinking" || a.status === "idle")
+                  ? { ...a, status: "done" as const, thinking: "" }
+                  : a
+              )
+            : prev.agents;
+          return {
+            ...prev,
+            isRunning: false,
+            agents: updated,
+            completedCount: updated.filter((a) => a.status === "done").length,
+          };
+        });
+        return true;
+      }
+
+      // live:false + NON-terminal (or missing) status: the run is still
+      // in-flight on the backend but this connection has no live task to
+      // attach to. Keep isRunning true (the UI showing "running" is correct —
+      // the run IS running); re-replay is driven by the existing reconnect
+      // effect on the next connection cycle / heartbeat, bounded by the WS
+      // reconnect backoff in useWebSocket, and a terminal status will arrive
+      // on a later reconnect. No new retry loop here (T-12-08-02).
+      return true;
+    }
+
     case "agent_input": {
       // Phase 3 (T043) — capture full input prompt and context sources for Thinking tab
       const agentId = msg.agent_id as string;
