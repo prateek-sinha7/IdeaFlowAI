@@ -221,6 +221,7 @@ def discover() -> None:
         "agents.capabilities.strategies.single_shot",
         "agents.capabilities.strategies.task_loop",
         "agents.capabilities.strategies.fanout_batch",  # 11-01 / FANOUT-02
+        "agents.capabilities.strategies.wave_scheduler",  # 12-01 / WAVE-01
         # 11-03 / FANOUT-07 — the merge layer (port + 4 impls). Import-pure: each
         # reaches git ONLY via the ctx.runner handle, never a capability-side subprocess.
         "agents.capabilities.merge.copy_disjoint",
@@ -228,6 +229,7 @@ def discover() -> None:
         "agents.capabilities.merge.json_merge",
         "agents.capabilities.merge.html_fragment",
         "agents.capabilities.task_parsers.heading_tasks",
+        "agents.capabilities.task_parsers.json_tasks",  # 12-01 / WAVE-02
         "agents.capabilities.deliverables.single_file",
         "agents.capabilities.deliverables.serialized_sandbox",
         "agents.capabilities.deliverables.streamed_text",
