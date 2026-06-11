@@ -1080,6 +1080,7 @@ export default function DashboardPage() {
       onClearPendingOdPpt={() => setPendingOdPptParams(null)}
       userTier={user?.tier ?? "basic"}
       userEmail={user?.email}
+      waves={waveGroups}
     />
   );
 }

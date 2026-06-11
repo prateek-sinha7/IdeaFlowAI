@@ -13,13 +13,14 @@ import { AccountSettings } from "@/components/settings/AccountSettings";
 import { AnalyticsPage } from "@/components/analytics/AnalyticsPage";
 import { IdeaInputPage } from "@/components/workflow/IdeaInputPage";
 import { AgentProgressPanel } from "@/components/workflow/AgentProgressPanel";
+import { WaveTreePanel } from "@/components/workflow/WaveTreePanel";
 import { PreviewPanel } from "@/components/preview/PreviewPanel";
 import { QuestionnairePanel } from "@/components/preview/QuestionnairePanel";
 import { ReviewGatePanel } from "@/components/preview/ReviewGatePanel";
 import { CompletionToast } from "@/components/ui/CompletionToast";
 import type { ToastItem } from "@/components/ui/CompletionToast";
 import { useNotifications } from "@/hooks/useNotifications";
-import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WorkflowRun, WorkflowType } from "@/types/index";
+import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WaveGroup, WorkflowRun, WorkflowType } from "@/types/index";
 import { canChainFrom, CHAIN_OPTIONS, CHAIN_BRIEF_KEY, CHAIN_FROM_KEY, CHAIN_SOURCE_RUN_ID_KEY, baseWorkflowType } from "@/lib/workflowChaining";
 import { getToken, getChainContext } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useWebSocket";
@@ -86,6 +87,11 @@ export interface DashboardLayoutProps {
   onClearPendingOdPpt?: () => void;
   userTier?: "basic" | "pro" | "enterprise";
   userEmail?: string;
+  // Phase 12 (WAVE-03) — wave groups assembled from the live `wave_*` /
+  // `subagent_*` WS events by dashboard/page.tsx. Optional + defaulted to []
+  // so existing callers/tests that omit it are unaffected; a non-wave run
+  // feeds an empty list and WaveTreePanel renders its own empty state.
+  waves?: WaveGroup[];
 }
 
 type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution";
@@ -209,6 +215,7 @@ export function DashboardLayout({
   onClearPendingOdPpt,
   userTier = "basic",
   userEmail,
+  waves = [],
 }: DashboardLayoutProps) {
   const router = useRouter();
   const [mainView, setMainView] = useState<MainView>(() => {
@@ -1172,6 +1179,14 @@ export function DashboardLayout({
                       // so the graceful agent state transition (running→idle) is skipped.
                     }}
                   />
+                </ErrorBoundary>
+                {/* Phase 12 (WAVE-03) — live wave/subagent tree. Rendered
+                    unconditionally so the panel slot is stable; WaveTreePanel
+                    owns the "No waves running." empty state for non-wave runs. */}
+                <ErrorBoundary fallbackLabel="WaveTree">
+                  <div className="px-3 pt-3 pb-3 border-t border-gray-200">
+                    <WaveTreePanel waves={waves} />
+                  </div>
                 </ErrorBoundary>
               </div>
 
