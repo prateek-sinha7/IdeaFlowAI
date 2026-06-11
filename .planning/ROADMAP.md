@@ -394,12 +394,21 @@ Plans:
   3. Reconnect replays from the durable `run_events` log (`after=<seq>`, idempotent by `event_id`); `restore_non_terminal_runs` resumes at step granularity (waiting_for_user gates resume on user action)
 
 **Plans**: 4 plans (4 waves)
-
 Plans:
+**Wave 1**
 
 - [ ] 12-01-PLAN.md — `wave_scheduler` strategy + pure `build_waves` (topo by depends_on + conflict_keys, CP-SAT seam) + `json_tasks` parser + additive `0020 wave_runs` (migration/ORM/ScopedStore/KernelServices) + sample multi-file wave workflow (SC-001) + ledger/lockstep ratchets [wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 12-02-PLAN.md — `Step.retry` consumption: one engine retry wrapper (transient-only) + `(run_id, step_id, input content_hash)` artifact reuse + `step_retry`/`step_reused` events [wave 2]
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 12-03-PLAN.md — durable WS `reconnect_pipeline` `after_seq` replay (idempotent by `event_id`) + `resume_run` step-granular in-process auto-resume incl. mid-wave + three-way `restore_non_terminal_runs` (WR-05 fallback kept) [wave 3]
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 12-04-PLAN.md — FE wave/subagent tree panel (additive sibling) + FE reconnect `after_seq` + `event_id` dedup adoption (clears the 08-08 deferral) [wave 4]
 
 ## Progress
