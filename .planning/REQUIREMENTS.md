@@ -124,7 +124,7 @@
 - [x] **FANOUT-06**: Results return both files/artifacts and a structured summary (Q16)
 - [x] **FANOUT-07**: `MergeStrategy` integrates fragments (copy_disjoint/git_3way/json/html_fragment) (§13)
 - [x] **FANOUT-08**: Merge-conflict flow — write a `merge_conflict` artifact + emit event; resolve per `on_conflict` policy (human_gate default | merge_agent (bounded) | partial | abort) (§13 / A6)
-- [ ] **FANOUT-09**: `BudgetManager` reserves-before-spawn and enforces total subagents, concurrency, tokens, cost, wall-clock, recursion, fan-out depth (`ctx.depth`); `BudgetExceeded` aborts gracefully with partial results (Q17/Q18/Q44)
+- [x] **FANOUT-09**: `BudgetManager` reserves-before-spawn and enforces total subagents, concurrency, tokens, cost, wall-clock, recursion, fan-out depth (`ctx.depth`); `BudgetExceeded` aborts gracefully with partial results (Q17/Q18/Q44)
 - [x] **FANOUT-10**: Each child → a `subagent_runs` row; events `subagent_spawned`/`subagent_result`/`merge_*` (§12/§18) ✅ 11-01 (subagent_runs row + subagent_spawned/subagent_result; merge_* lands 11-03)
 - [ ] **FANOUT-11**: Fan-out cancellation propagates to children (§21)
 
@@ -167,7 +167,7 @@
 
 ### Budgets & Observability (cross-cutting, §23)
 
-- [ ] **OBS-01**: `BudgetManager` enforces per-run AND per-workspace ceilings (tokens, €, subagents, depth, concurrency, wall-clock); reserve-before-spawn; graceful abort; snapshot persisted on the run (§23/§18)
+- [x] **OBS-01**: `BudgetManager` enforces per-run AND per-workspace ceilings (tokens, €, subagents, depth, concurrency, wall-clock); reserve-before-spawn; graceful abort; snapshot persisted on the run (§23/§18)
 - [x] **OBS-02**: Logging/tracing hooks bound to `*` emit OpenTelemetry-style spans/logs per lifecycle event → native observability; each firing lands in `hook_runs` (§23/§30)
 
 ### Anti-Duplication & Deletion Ledger (cross-cutting, INV-12/§31)
@@ -245,7 +245,7 @@ Each v1 requirement maps to exactly one phase. Phases are GSD integers 1–12, m
 | INTEG-01, INTEG-02 | Phase 9 [4A] | Pending |
 | EXEC-01, EXEC-02 | Phase 10 [4B] | Pending |
 | FANOUT-01, FANOUT-02, FANOUT-03, FANOUT-04, FANOUT-10 (✅ 11-01); FANOUT-05, FANOUT-06, FANOUT-07, FANOUT-08, FANOUT-09, FANOUT-11 | Phase 11 [5] | In progress (5/11 complete) |
-| OBS-01 | Phase 11 [5] | Pending |
+| OBS-01 | Phase 11 [5] | Complete |
 | RESUME-01 | Phase 11 [5] | Pending |
 | WAVE-01, WAVE-02, WAVE-03 | Phase 12 [6] | Pending |
 | RESUME-02, RESUME-03, RESUME-04 | Phase 12 [6] | Pending |

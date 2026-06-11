@@ -376,7 +376,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 1; landed after merge so the snapshot captures real worker activity)*
 
-- [ ] 11-04-PLAN.md — Budget enforcement: `BudgetManager.reserve()` (reserve-before-spawn; subagents/concurrency/depth + token/wall-clock at-boundary) + trust-conditional `Limits` + per-workspace ceiling (settings seam) + `BudgetSnapshot`→`budget_snapshot_json` + `budget_warning` (FANOUT-09, OBS-01) [wave 4]
+- [x] 11-04-PLAN.md — Budget enforcement: `BudgetManager.reserve()` (reserve-before-spawn; subagents/concurrency/depth + token/wall-clock at-boundary) + trust-conditional `Limits` + per-workspace ceiling (settings seam) + `BudgetSnapshot`→`budget_snapshot_json` + `budget_warning` (FANOUT-09, OBS-01) [wave 4]
 
 **Wave 5** *(blocked on Wave 3 + Wave 4 completion)*
 
@@ -418,7 +418,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 8. Capabilities Hardened [3] | 8/8 | Complete    | 2026-06-09 |
 | 9. Local Runtime + Repo (no exec) [4A] | 6/6 | Complete    | 2026-06-10 |
 | 10. Safe Local Exec [4B] | 5/5 | Complete    | 2026-06-10 |
-| 11. Fan-Out + Merge [5] | 3/5 | In Progress|  |
+| 11. Fan-Out + Merge [5] | 4/5 | In Progress|  |
 | 12. Wave Scheduler + Resume [6] | 0/3 | Not started | - |
 
 ---
