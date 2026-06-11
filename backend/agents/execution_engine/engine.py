@@ -1677,6 +1677,32 @@ class ExecutionEngine:
                 "deliverable", "streamed_text"
             ).resolve(ectx)
 
+        # ── F2 (13-05): persist the resolved deliverable as a generic ref ───────
+        # Write the run's final_output as a kind="deliverable" artifact_ref so a
+        # later run_revision can resolve the parent deliverable regardless of which
+        # workflow produced it (the FE targets a ``*_output`` type that no producer
+        # write ever persists — the FR-014 fallback chain in _handle_revision reads
+        # this ref). Guarded on a non-empty deliverable AND at least one completed
+        # agent: a run with no completed agents or an empty deliverable writes
+        # NOTHING (keeps the all-agents-failed path write-free, and artifact writes
+        # emit no WS events so the characterization snapshots stay byte/event
+        # identical). visibility="workspace" matches the producer-write policy
+        # (05-06) so the same-owner cross-run _handle_revision read passes the
+        # owner+visibility scope filter. SC-001: "deliverable" is a generic kind —
+        # no workflow name, no agent-id literal.
+        if final_output and results:
+            await self._dual_write_artifact(
+                ectx,
+                producer_agent=(
+                    ordered_agents[-1].id if ordered_agents else "deliverable"
+                ),
+                producer_step="deliverable",
+                content=final_output,
+                kind="deliverable",
+                location="artifact_refs/deliverable",
+                visibility="workspace",
+            )
+
         # (Prototype revisions are now produced by the agent editing
         # prototype.html in the workspace directly — see the output-capture
         # block above. The legacy REVISION_DIFF regex-merge has been removed.)

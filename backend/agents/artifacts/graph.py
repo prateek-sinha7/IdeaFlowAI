@@ -32,6 +32,9 @@ from dataclasses import dataclass, field
 
 # The closed ``kind`` vocabulary (snake_case — one name everywhere). The engine
 # maps each AGENT.md ``produces``/``consumes`` string to one of these in 05-04.
+# ``deliverable`` (13-05 / F2) labels the run-completion ref carrying the
+# resolved final_output — the generic, workflow-agnostic kind the FR-014
+# revision lookup falls back to.
 ARTIFACT_KINDS: frozenset[str] = frozenset(
     {
         "spec",
@@ -46,6 +49,7 @@ ARTIFACT_KINDS: frozenset[str] = frozenset(
         "merge_conflict",
         "summary",
         "patch",
+        "deliverable",
     }
 )
 
