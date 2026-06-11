@@ -75,30 +75,35 @@ def fresh_db_url(tmp_path: Path) -> str:
 
 
 def test_0019_reversible_offline(fresh_db_url: str) -> None:
-    """``upgrade head`` -> ``downgrade -1`` -> ``upgrade head`` round-trips clean."""
+    """``upgrade 0019`` -> ``downgrade 0018`` -> ``upgrade 0019`` round-trips clean.
+
+    Pinned to the explicit ``0019``/``0018`` revisions (NOT ``head``/``-1``) so the
+    test stays correct as later migrations chain on (12-01 added 0020 after 0019; a
+    ``head``/``-1`` round-trip would land on 0019, not 0018, and false-fail).
+    """
     cfg = _make_config(fresh_db_url)
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, "0019")
     engine = create_engine(fresh_db_url)
     inspector = inspect(engine)
-    assert inspector.has_table("subagent_runs"), "subagent_runs missing after upgrade head"
+    assert inspector.has_table("subagent_runs"), "subagent_runs missing after upgrade 0019"
     cols = {c["name"] for c in inspector.get_columns("subagent_runs")}
     assert _EXPECTED_SUBAGENT_COLUMNS.issubset(cols), (
         f"subagent_runs missing columns: {sorted(_EXPECTED_SUBAGENT_COLUMNS - cols)}"
     )
     engine.dispose()
 
-    # downgrade -1 drops subagent_runs (0019 is the head; -1 lands on 0018).
-    command.downgrade(cfg, "-1")
+    # downgrade to 0018 drops subagent_runs (the 0018→0019 step is reversible).
+    command.downgrade(cfg, "0018")
     engine = create_engine(fresh_db_url)
     inspector = inspect(engine)
     assert not inspector.has_table("subagent_runs"), (
-        "downgrade -1 must drop subagent_runs"
+        "downgrade to 0018 must drop subagent_runs"
     )
     engine.dispose()
 
-    # upgrade head recreates it.
-    command.upgrade(cfg, "head")
+    # upgrade back to 0019 recreates it.
+    command.upgrade(cfg, "0019")
     engine = create_engine(fresh_db_url)
     inspector = inspect(engine)
     assert inspector.has_table("subagent_runs"), "subagent_runs missing after re-upgrade"

@@ -69,28 +69,34 @@ def fresh_db_url(tmp_path: Path) -> str:
 
 
 def test_0020_reversible_offline(fresh_db_url: str) -> None:
-    """``upgrade head`` -> ``downgrade -1`` -> ``upgrade head`` round-trips clean (single head 0020)."""
+    """``upgrade 0020`` -> ``downgrade 0019`` -> ``upgrade 0020`` round-trips clean.
+
+    Pinned to the explicit ``0020``/``0019`` revisions (NOT ``head``/``-1``) so the
+    test stays correct as later migrations chain on (a future 0021 would make a
+    ``head``/``-1`` round-trip land on 0020, not 0019, and false-fail). 0020 is the
+    single head at this plan; the pinning proves the 0019→0020 step is reversible.
+    """
     cfg = _make_config(fresh_db_url)
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, "0020")
     engine = create_engine(fresh_db_url)
     inspector = inspect(engine)
-    assert inspector.has_table("wave_runs"), "wave_runs missing after upgrade head"
+    assert inspector.has_table("wave_runs"), "wave_runs missing after upgrade 0020"
     cols = {c["name"] for c in inspector.get_columns("wave_runs")}
     assert _EXPECTED_WAVE_COLUMNS.issubset(cols), (
         f"wave_runs missing columns: {sorted(_EXPECTED_WAVE_COLUMNS - cols)}"
     )
     engine.dispose()
 
-    # downgrade -1 drops wave_runs (0020 is the head; -1 lands on 0019).
-    command.downgrade(cfg, "-1")
+    # downgrade to 0019 drops wave_runs (the 0019→0020 step is reversible).
+    command.downgrade(cfg, "0019")
     engine = create_engine(fresh_db_url)
     inspector = inspect(engine)
-    assert not inspector.has_table("wave_runs"), "downgrade -1 must drop wave_runs"
+    assert not inspector.has_table("wave_runs"), "downgrade to 0019 must drop wave_runs"
     engine.dispose()
 
-    # upgrade head recreates it.
-    command.upgrade(cfg, "head")
+    # upgrade back to 0020 recreates it.
+    command.upgrade(cfg, "0020")
     engine = create_engine(fresh_db_url)
     inspector = inspect(engine)
     assert inspector.has_table("wave_runs"), "wave_runs missing after re-upgrade"
