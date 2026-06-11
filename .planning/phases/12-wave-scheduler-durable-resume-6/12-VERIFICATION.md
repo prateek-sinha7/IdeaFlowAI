@@ -42,7 +42,7 @@ human_verification: []
 
 ## Gap Closure Summary
 
-The milestone-end live UAT pass (12-UAT.md, status: diagnosed) found 2 major + 1 minor gaps after the phase had passed verification. All three were closed by plans 12-08/12-09/12-10; a delta code review (12-REVIEW.md) then found 1 Critical + 3 Warnings, all fixed (12-REVIEW-FIX.md, status: all_fixed). Every fix is verified directly in the codebase below — not from SUMMARY claims.
+The milestone-end live UAT pass (12-UAT.md, then in diagnosed state; now complete) found 2 major + 1 minor gaps after the phase had passed verification. All three were closed by plans 12-08/12-09/12-10; a delta code review (12-REVIEW.md) then found 1 Critical + 3 Warnings, all fixed (12-REVIEW-FIX.md, status: all_fixed). Every fix is verified directly in the codebase below — not from SUMMARY claims.
 
 | Gap / Finding | Fix Plan / Commit | Fix Location (verified) | Offline Evidence |
 |---|---|---|---|

@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-11T14:14:44.281Z"
-last_activity: 2026-06-11 -- Phase 12 execution started
+last_updated: "2026-06-11T15:22:50.917Z"
+last_activity: 2026-06-11
 progress:
   total_phases: 12
   completed_phases: 12
@@ -17,17 +17,19 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-10)
+See: .planning/PROJECT.md (updated 2026-06-11)
 
 **Core value:** A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001).
-**Current focus:** Phase 12 — wave-scheduler-durable-resume-6
+**Current focus:** Milestone v1.0 COMPLETE (12/12 phases) — ready for /gsd-complete-milestone
 
 ## Current Position
 
-Phase: 12 (wave-scheduler-durable-resume-6) — EXECUTING
-Plan: 4 of 10
-Status: Ready to execute
-Last activity: 2026-06-11 -- Phase 12 execution started
+Phase: 12 (wave-scheduler-durable-resume-6) — COMPLETE (final phase)
+Plan: 10/10 complete
+Status: Milestone v1.0 complete — ready to archive (/gsd-complete-milestone)
+Last activity: 2026-06-11 — Phase 12 UAT complete (milestone-end live re-pass, 4/4 deferred re-checks verified live)
+
+Session continuity: last session 2026-06-11; stopped at Phase 12 complete / milestone v1.0 100%; resume file: none
 
 Progress: [██████████] 100% (12/12 phases complete; 65/65 mapped plans complete)
 
@@ -35,7 +37,7 @@ Progress: [██████████] 100% (12/12 phases complete; 65/65 ma
 
 **Velocity:**
 
-- Total plans completed: 99
+- Total plans completed: 109
 - Average duration: ~7 min
 - Total execution time: ~0.35 hours
 
@@ -54,7 +56,7 @@ Progress: [██████████] 100% (12/12 phases complete; 65/65 ma
 | 09 | 6 | - | - |
 | 10 | 5 | - | - |
 | 11 | 5 | - | - |
-| 12 | 7 | - | - |
+| 12 | 10 | - | - |
 
 **Recent Trend:**
 
@@ -242,6 +244,8 @@ Open decision records to confirm before their phase (from plan §26):
 - CP-SAT scheduling · single-file fragment-merge · PR/commit push · DB-backed user workflows (REQUIREMENTS.md v2 / Out of Scope).
 
 ---
+*Last updated: 2026-06-11 — Phase 12 UAT COMPLETE + MILESTONE v1.0 COMPLETE (12/12 phases, 71/71 plans): /gsd-verify-work 12 executed the milestone-end live re-pass against the real stack (uvicorn :8000 + Next.js :3000 + real /ws/chat; scripted-model harness, AWS SSO expired — no re-check targets the model provider). ALL 4 deferred human_verification items VERIFIED LIVE: (1) WaveTreePanel rendered live wave groups + 2 distinct worker leaves per wave on the dashboard execution surface, badges flipping running→completed (cosmetic note: sits below the fold at 950px viewport until the column scrolls); (2) SIGKILL mid-wave-2 + restart — page reconnected with after_seq=17, LIVE-ATTACHED via the 12-09 bridge, received resumed tail seq 19..29 incl. pipeline_complete, resolved out of running (Stop gone; the stuck-forever behavior is fixed; INFO: seq-18 run_resuming audit marker raced the attach and is replay-only — FE has no handler, durable log contiguous); (3) zero single_file fallback warnings, deliverable = serialized_sandbox filename:-block bundle part_a..d.txt; (4) cross-owner reconnect_pipeline against a LIVE registered run demoted to ∅ replay + live:false + null status through the real handler (CR-01 owner gate). 12-UAT.md status complete (6 passed / 2 historical issues both resolved + re-verified); 12-VERIFICATION.md status passed (15/15 + live re-checks); security already clear (threats_open 0). Evidence: 12-UAT-EVIDENCE/results-recheck.json + screenshots. Next: /gsd-complete-milestone v1.0. — previous: 11-01 complete*
+<!-- prior footer retained below for history -->
 *Last updated: 2026-06-11 — 11-01 COMPLETE (fan-out foundation, FANOUT-01/02/03/04/10): the single kernel run_fanout spawn path landed with both entry points (declarative fanout_batch strategy + runtime spawn_subagents request-emitter tool) funneling through it; self×N / named worker selection (disallowed rejected pre-spawn, zero rows); parallel (≤cap 4 via Semaphore) / sequential modes; additive 0019 subagent_runs (reversible, owner-scoped, cross-owner read = ∅) + SubagentRun ORM + ScopedStore writer/updater/reader + KernelServices handles; BudgetManager with reserve() stub seam (enforcement → 11-04); FanoutSpec/allowed_workers compiler materialization; _KNOWN 53→55. 5 characterization snapshots byte/event-identical (fanout dormant); INV-1 + banned-pattern + migration-ledger green; lint-imports 4/0; 148 passed/6 skipped. Commits cdec230/903b704/26ee45c. Next: 11-02 (isolation: sub_sandbox/worktree). — previous: Phase 10 UAT-COMPLETE*
 <!-- prior footer retained below for history -->
 *Last updated: 2026-06-10 — Phase 10 UAT-COMPLETE: /gsd-verify-work 10 ran all 7 technical UAT checkpoints autonomously (239 tests total: hardened exec layer 20 + shell=True grep 0, exec_runs audit 7, compiler trust/GRANT-PATH/D-01 37 + ExecutionPolicy.check grep 0, security/approval gates + §15 host seam 32, code validators + EXEC-02/SC-001 90 + validator-subprocess grep 0, review-trio + ledger ratchets 32 + N3-RESOLVED greps, invariants 21 + lint-imports 4/0) — 7/7 PASS, 0 issues, 10-UAT.md status complete. Security already verified (10-SECURITY.md 31/31 threats CLOSED, threats_open: 0). Phase 10 transition was already applied post-execution (ROADMAP [x] 5/5, PROJECT.md evolved); STATE reconciled to Ready-to-plan Phase 11 (Fan-Out + Merge). — previous: Phase 09 SECURED + UAT-COMPLETE*
