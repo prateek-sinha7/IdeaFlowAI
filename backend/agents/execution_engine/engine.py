@@ -4041,6 +4041,28 @@ class ExecutionEngine:
         # Every step already complete → nothing left to drive.
         return len(ordered_agents)
 
+    def _fire_resume_cleanup(self, run_id: str) -> None:
+        """Invoke the injected bridge cleanup hook (best-effort, idempotent).
+
+        WR-01: ``restore_non_terminal_runs`` registers the driver task (and the
+        live queue) in the process-global WS registries synchronously at the
+        ``create_task`` site — so EVERY exit path of ``resume_run`` (including
+        the early returns before queue registration and a failed
+        ``_resume_register_queue``) must drop those entries, or a done task
+        leaks in ``_PIPELINE_TASKS`` forever (a slow registry leak in a
+        long-lived process). The app-layer ``_cleanup_pipeline`` pops are
+        idempotent (``dict.pop(..., None)``), so calling this on every path —
+        including paths where nothing was registered — is safe.
+        """
+        if self._resume_cleanup is None:
+            return
+        try:
+            self._resume_cleanup(run_id)
+        except Exception as _cl_exc:  # noqa: BLE001 — cleanup is best-effort
+            logger.warning(
+                "resume_run(%s): bridge cleanup failed: %s", run_id, _cl_exc
+            )
+
     async def resume_run(self, run_id: str) -> None:
         """Durably RESUME an interrupted in-flight run IN-PROCESS (RESUME-04 / D-06).
 
@@ -4070,6 +4092,8 @@ class ExecutionEngine:
             wr = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).first()
             if wr is None:
                 logger.warning("resume_run(%s): no workflow_runs row — skipping", run_id)
+                # WR-01: drop the task entry registered at the create_task site.
+                self._fire_resume_cleanup(run_id)
                 return
             pipeline_type = wr.type
             user_message = wr.input or ""
@@ -4088,9 +4112,13 @@ class ExecutionEngine:
             agents = get_pipeline_agents(pipeline_type)
         except Exception as exc:  # noqa: BLE001 — unknown pipeline → cannot resume
             logger.warning("resume_run(%s): cannot resolve agents (%s)", run_id, exc)
+            # WR-01: drop the task entry registered at the create_task site.
+            self._fire_resume_cleanup(run_id)
             return
         if not agents:
             logger.warning("resume_run(%s): empty agent list — nothing to resume", run_id)
+            # WR-01: drop the task entry registered at the create_task site.
+            self._fire_resume_cleanup(run_id)
             return
 
         # ── Compute the resume offset from the durable substrate ─────────────────────
@@ -4202,14 +4230,11 @@ class ExecutionEngine:
                     live_queue.put_nowait(None)
                 except Exception:  # noqa: BLE001
                     pass
-                if self._resume_cleanup is not None:
-                    try:
-                        self._resume_cleanup(run_id)
-                    except Exception as _cl_exc:  # noqa: BLE001
-                        logger.warning(
-                            "resume_run(%s): bridge cleanup failed: %s",
-                            run_id, _cl_exc,
-                        )
+            # WR-01: cleanup is gated on the HOOK, not the queue — a failed
+            # ``_resume_register_queue`` (live_queue None) must still drop the
+            # task entry registered at the restore create_task site, or the
+            # done task leaks in the process-global registry.
+            self._fire_resume_cleanup(run_id)
 
     async def _compute_resume_offset(
         self, run_id, user_id, session_id, pipeline_type, agents
