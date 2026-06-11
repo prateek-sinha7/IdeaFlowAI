@@ -225,6 +225,48 @@ async def test_summary_carries_per_worker_status_only():
 
 
 # ---------------------------------------------------------------------------
+# WR-01 — the runtime fulfilment point enforces the spawn_subagents grant: an
+# ungranted step's tool result is ignored (no spawn); a granted step's fulfils.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_derive_fanout_requires_spawn_subagents_grant():
+    import json as _json
+
+    from agents.execution_engine.engine import ExecutionEngine
+
+    engine = ExecutionEngine()
+    reached = {"n": 0}
+
+    class _Runner:
+        async def run_fanout(self, requests, ctx, *, step):
+            reached["n"] += 1
+            yield {"type": "subagent_spawned", "data": {"worker": 0}}
+
+    event = {
+        "tool": "spawn_subagents",
+        "result": _json.dumps({"fanout_request": ["t1"], "mode": "parallel"}),
+    }
+
+    # Ungranted step (tools.spawn_subagents False) → the request is IGNORED.
+    step_no = SimpleNamespace(
+        agent_id="a", tools=SimpleNamespace(spawn_subagents=False), fanout=None
+    )
+    ectx_no = SimpleNamespace(runner=_Runner(), current_step=step_no)
+    assert [e async for e in engine._derive_fanout(event, ectx_no)] == []
+    assert reached["n"] == 0
+
+    # Granted step → the SAME request is fulfilled through run_fanout.
+    step_yes = SimpleNamespace(
+        agent_id="a", tools=SimpleNamespace(spawn_subagents=True), fanout=None
+    )
+    ectx_yes = SimpleNamespace(runner=_Runner(), current_step=step_yes)
+    evs = [e async for e in engine._derive_fanout(event, ectx_yes)]
+    assert reached["n"] == 1 and evs
+
+
+# ---------------------------------------------------------------------------
 # CR-05 — depth propagation: a worker-triggered NESTED fan-out sees depth+1
 # (so max_depth is enforceable, thread ids namespace with d{depth}, and the
 # nested subagent_runs rows record the nested level) — and the spawner's depth

@@ -438,11 +438,17 @@ class WorkflowCompiler:
                 granted_priv.append("network")
             if step_grant.secrets:
                 granted_priv.append("secrets")
+            # WR-01 fail-loud symmetry: spawn_subagents is engineer-only too — the
+            # trust-conditional ceiling already collapses it OFF, but rejecting the
+            # grant NAMES it instead of silently dropping it.
+            if step_grant.spawn_subagents:
+                granted_priv.append("spawn_subagents")
             if granted_priv:
                 raise CompilerError(
                     f"step grant of {granted_priv!r} is not permitted for "
-                    f"{trust!r}-trust manifests in {where} — exec/network/secrets "
-                    f"are engineer-only (file/builtin trust)"
+                    f"{trust!r}-trust manifests in {where} — "
+                    f"exec/network/secrets/spawn_subagents are engineer-only "
+                    f"(file/builtin trust)"
                 )
 
         # D-01 GATES-REQUIRED: an exec-granting step MUST declare BOTH the

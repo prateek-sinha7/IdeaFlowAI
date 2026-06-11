@@ -1689,6 +1689,19 @@ class ExecutionEngine:
         step = getattr(ectx, "current_step", None)
         if runner is None or step is None:
             return
+        # WR-01 / T-11-01-01: the FULFILMENT point enforces the grant. The factory
+        # binds the tool purely off AGENT.md spec.tools (grant-driven binding is a
+        # later enforcement point), so an agent whose AGENT.md declares the tool
+        # set could emit a request the step never granted. The compiled effective
+        # ``step.tools.spawn_subagents`` is the engine-side ceiling — an ungranted
+        # request is logged and IGNORED (no spawn).
+        if not bool(getattr(getattr(step, "tools", None), "spawn_subagents", False)):
+            logger.warning(
+                "spawn_subagents tool result on step %r without an effective "
+                "tools.spawn_subagents grant — request ignored (T-11-01-01)",
+                getattr(step, "agent_id", None),
+            )
+            return
         raw = event.get("result", "")
         try:
             payload = json.loads(raw) if isinstance(raw, str) else (raw or {})

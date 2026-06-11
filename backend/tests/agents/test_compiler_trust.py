@@ -239,6 +239,26 @@ def test_user_trust_secrets_grant_raises_compiler_error(_clean_registry) -> None
     assert "secrets" in str(exc.value)
 
 
+def test_user_trust_spawn_subagents_grant_raises_compiler_error(_clean_registry) -> None:
+    """WR-01: spawn_subagents is engineer-only — a user/db grant fails LOUD (named)."""
+    _register_user_allowed_exec_palette()
+    manifest = _grant_step_manifest(
+        strategy="ua_strategy", tools={"spawn_subagents": True}
+    )
+    with pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="user")
+    assert "spawn_subagents" in str(exc.value)
+
+
+def test_file_trust_spawn_subagents_grant_survives_the_ceiling(_clean_registry) -> None:
+    """The engineer-authored grant still binds True under file trust (parity)."""
+    manifest = _grant_step_manifest(tools={"spawn_subagents": True})
+    compiled = WorkflowCompiler().compile(
+        manifest, CapabilityRegistry(), trust="file"
+    )
+    assert compiled.steps[0].tools.spawn_subagents is True
+
+
 # ---------------------------------------------------------------------------
 # D-01 — an exec-granting step MUST declare gates: [security, approval].
 # ---------------------------------------------------------------------------
