@@ -387,24 +387,25 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
                 except Exception as exc:  # noqa: BLE001 — a commit failure degrades to no fragment
                     logger.warning("fan-out worker %s worktree commit failed: %s", idx, exc)
 
-        # (5a) Fragment persistence BEFORE merge (FANOUT-06) — each worker's output
-        # persists as a typed lineage-tracked fragment artifact, so partial results
-        # survive an abort/cancel (11-04/11-05 consume the ref). Best-effort: a worker
-        # that wrote nothing (or no persist handle reachable) leaves artifact_ref=None.
-        artifact_ref = None
+        # (5a) Fragment persistence BEFORE merge (FANOUT-06 / WR-03) — EVERY file the
+        # worker wrote persists as a typed lineage-tracked fragment artifact (one ref
+        # per file), so a multi-file worker's FULL output survives an abort/cancel
+        # (11-04/11-05 consume the refs). Best-effort: a worker that wrote nothing
+        # (or no persist handle reachable) leaves artifact_refs empty.
+        artifact_refs: list = []
         write_fragment = getattr(runner, "write_fragment_artifact", None)
-        frag_files = _fragment_files(worker_ws)
+        frag_files = _fragment_files(worker_ws, base_commit=_spawn_point(base_workspace))
         if status == "complete" and write_fragment is not None and frag_files:
-            # Persist the worker's primary deliverable content (the concatenation is a
-            # stable digest of the fragment; the typed ref carries provenance + hash).
-            primary_path = sorted(frag_files.keys())[0]
-            artifact_ref = await write_fragment(
-                producer_step=step_id,
-                worker_agent=agent_id,
-                worker_index=idx,
-                content=frag_files[primary_path],
-                location=primary_path,
-            )
+            for relpath in sorted(frag_files.keys()):
+                ref = await write_fragment(
+                    producer_step=step_id,
+                    worker_agent=agent_id,
+                    worker_index=idx,
+                    content=frag_files[relpath],
+                    location=relpath,
+                )
+                if ref is not None:
+                    artifact_refs.append(ref)
 
         # Record the merge inputs for this worker (the merge reads them after collect).
         fragments_meta.append({
@@ -417,8 +418,11 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
         })
 
         result = {"worker": idx, "agent": agent_id, "row_id": row_id, "status": status}
-        if artifact_ref is not None:
-            result["artifact_ref"] = artifact_ref
+        if artifact_refs:
+            # Back-compat: artifact_ref carries the first (primary) ref; the full
+            # multi-file set rides artifact_refs (WR-03 — nothing is dropped).
+            result["artifact_ref"] = artifact_refs[0]
+            result["artifact_refs"] = list(artifact_refs)
         return result
 
     # The spawn + merge body runs inside a try/finally so the ``finally`` tears down
@@ -635,13 +639,19 @@ async def _mark_open_cancelled(runner: Any, open_rows: dict) -> None:
         open_rows.pop(idx, None)
 
 
-def _fragment_files(worker_ws: Any) -> dict[str, str]:
+def _fragment_files(worker_ws: Any, base_commit: str = "") -> dict[str, str]:
     """Return the relative-path → content map of a worker's isolated workspace.
 
     Reads the worker's written files from its ``_ChildSandbox`` root (the
     sub_sandbox/worktree dir). Returns an empty map when no workspace was allocated
     (shared_read / offline) or the dir is unreadable — the merge then has no fragment
     for that worker. Skips ``.git`` internals + unreadable/binary files.
+
+    WORKTREE scoping (WR-03): a worktree checkout contains the WHOLE repo, so the
+    fragment is restricted to the paths the worker actually CHANGED since the
+    spawn-point ``base_commit`` (read through the workspace's ``changed_since``
+    git handle). A failed/unavailable restriction degrades to NO fragment for a
+    worktree (never a whole-repo "fragment" of arbitrary unmodified files).
     """
     if worker_ws is None:
         return {}
@@ -649,13 +659,33 @@ def _fragment_files(worker_ws: Any) -> dict[str, str]:
     root = getattr(sandbox, "root", None)
     if root is None:
         return {}
+    restrict: set[str] | None = None
+    if getattr(worker_ws, "_worktree_branch", None):
+        changed_fn = getattr(worker_ws, "changed_since", None)
+        if callable(changed_fn):
+            try:
+                restrict = set(changed_fn(base_commit))
+            except Exception:  # noqa: BLE001 — restriction failure ⇒ no worktree fragment
+                restrict = set()
+        else:
+            restrict = set()  # no git handle ⇒ cannot scope ⇒ no whole-repo fragment
     files: dict[str, str] = {}
     try:
         for path in sorted(root.rglob("*")):
-            if not path.is_file() or ".git" in path.parts or ".worktrees" in path.parts:
+            if not path.is_file():
+                continue
+            # Exclude .git/.worktrees internals NESTED under the scanned root —
+            # checked on the RELATIVE parts (WR-03): a worktree workspace root
+            # itself lives under the parent's ``.worktrees/``, so an absolute-path
+            # check would wrongly exclude EVERY file of a worktree fragment.
+            rel_parts = path.relative_to(root).parts
+            if ".git" in rel_parts or ".worktrees" in rel_parts:
+                continue
+            rel = path.relative_to(root).as_posix()
+            if restrict is not None and rel not in restrict:
                 continue
             try:
-                files[path.relative_to(root).as_posix()] = path.read_text(encoding="utf-8")
+                files[rel] = path.read_text(encoding="utf-8")
             except (UnicodeDecodeError, OSError):
                 continue
     except OSError:

@@ -299,6 +299,29 @@ def test_worktree_worker_commit_then_merge_integrates_edits(runs_root):
     base.remove_worktree(wt)
 
 
+@requires_git
+def test_worktree_fragment_restricted_to_changed_paths(runs_root):
+    """WR-03: a worktree fragment carries ONLY the worker's changed paths — never
+    the whole checkout (which would persist arbitrary unmodified repo files)."""
+    from agents.execution_engine.fanout import _fragment_files
+
+    base = _base_workspace(runs_root, has_git=True)
+    _init_repo(base)
+    base_commit = base.spawn_point_commit()
+
+    wt = base.allocate_worktree(step="build", worker_index=0)
+    wt.write_file("new.txt", "worker output\n")
+
+    # Uncommitted change: scoped to the touched path (seed.txt excluded).
+    frag = _fragment_files(wt, base_commit=base_commit)
+    assert set(frag) == {"new.txt"}
+    # Committed change: still scoped via the diff against the spawn point.
+    wt.commit_all("worker 0")
+    frag_after = _fragment_files(wt, base_commit=base_commit)
+    assert set(frag_after) == {"new.txt"}
+    base.remove_worktree(wt)
+
+
 def test_commit_all_with_no_changes_is_tolerated(runs_root):
     if _GIT is None:
         pytest.skip("git not available")

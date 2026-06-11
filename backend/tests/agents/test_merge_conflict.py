@@ -181,6 +181,26 @@ async def test_fragment_artifacts_persist_and_summary_carries_ref():
     assert base.written == {"a.txt": "A", "b.txt": "B"}
 
 
+@pytest.mark.asyncio
+async def test_multi_file_worker_persists_every_fragment_file():
+    """WR-03: a multi-file worker persists ONE fragment ref PER file (none dropped)."""
+    base = _FakeBaseWorkspace()
+    runner = _MergeRunner(base, worker_files={0: {"a.txt": "A", "b.txt": "B"}})
+    ctx = _make_ctx(runner)
+    step = _make_step()
+
+    events = await _collect(run_fanout([{"agent": "self", "input": "t0"}], ctx, step=step))
+
+    # BOTH files persisted (the old code kept only the alphabetically-first one).
+    locations = {f["location"] for f in runner.fragment_artifacts}
+    assert locations == {"a.txt", "b.txt"}
+    results = [e for e in events if e["type"] == "subagent_result"]
+    assert len(results) == 1
+    assert len(results[0]["data"]["artifact_refs"]) == 2
+    # Back-compat: artifact_ref still carries the primary ref.
+    assert results[0]["data"]["artifact_ref"] == results[0]["data"]["artifact_refs"][0]
+
+
 # ---------------------------------------------------------------------------
 # FANOUT-08 — conflict writes a merge_conflict artifact + emits a merge_conflict event
 # ---------------------------------------------------------------------------

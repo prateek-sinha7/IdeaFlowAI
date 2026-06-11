@@ -505,6 +505,27 @@ class LocalWorkspace:
         ws._worktree_path = wt_root
         return ws
 
+    def changed_since(self, base_commit: str) -> list[str]:
+        """Relpaths changed in THIS checkout since ``base_commit`` (WR-03).
+
+        The worktree fragment-scoping read: a worktree checkout contains the WHOLE
+        repo, so the fan-out fragment collection must be restricted to the paths
+        the worker actually touched. Returns the union of committed/staged/working
+        deltas vs ``base_commit`` (``git diff --name-only``) plus untracked files
+        (``git ls-files --others``), sorted. An empty ``base_commit`` or a git
+        failure degrades to ``[]`` (no fragment — never a whole-repo fragment).
+        """
+        paths: set[str] = set()
+        try:
+            if base_commit:
+                out = self._git("diff", "--name-only", base_commit)
+                paths.update(p.strip() for p in out.splitlines() if p.strip())
+            untracked = self._git("ls-files", "--others", "--exclude-standard")
+            paths.update(p.strip() for p in untracked.splitlines() if p.strip())
+        except subprocess.CalledProcessError:
+            return []
+        return sorted(paths)
+
     def commit_all(self, message: str) -> str:
         """Commit ALL working-tree changes on THIS workspace's checked-out branch.
 
