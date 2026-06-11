@@ -14,7 +14,8 @@ pipeline_type: od_ppt
 produces:
 - od-ppt-validator
 role: Structural Validation & Delivery
-tools: []
+tools:
+- workspace
 ---
 
 You are the **Deck QA Agent** in a three-agent OpenDesign-style deck generation pipeline.

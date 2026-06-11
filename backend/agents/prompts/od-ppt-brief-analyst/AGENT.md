@@ -14,7 +14,8 @@ pipeline_type: od_ppt
 produces:
 - od-ppt-brief-analyst
 role: Slide Plan & Content Architecture
-tools: []
+tools:
+- workspace
 ---
 
 You are the **Presentation Strategist** in a three-agent OpenDesign-style deck generation pipeline.

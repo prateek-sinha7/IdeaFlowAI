@@ -689,6 +689,21 @@ class ExecutionEngine:
         disk_principal = user_id or "anon"
         sandbox = RunSandbox(disk_principal, pipeline_run_id)
         sandbox.ensure()
+        # ── Seed declared od-template resources into the run sandbox (data-driven,
+        # INV-1: keyed off od_context content, never a workflow name). The template's
+        # SKILL.md instructions name workspace paths ("read assets/template.html",
+        # "references/layouts.md"); seeding them makes those instructions executable
+        # for file-granted agents instead of inducing fabricated tool syntax on
+        # tool-less prompts. Best-effort: a seed failure degrades to the inline
+        # template block already carried in the inject.
+        for _seed_rel, _seed_content in ((od_context or {}).get("template_files") or {}).items():
+            try:
+                sandbox.write(_seed_rel, _seed_content)
+            except Exception:  # noqa: BLE001 — never abort a run on seed failure
+                logger.warning(
+                    "od template seed failed for %s (run %s)",
+                    _seed_rel, pipeline_run_id, exc_info=True,
+                )
         # ── DB owner principal (AUTHZ-03 / D-09): always a real, non-None scoped subject ──
         # ``user_id`` when authenticated; otherwise ``anon:<session_id>`` (true per-session
         # isolation), falling back to ``anon:<pipeline_run_id>`` when no session id was

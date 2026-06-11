@@ -208,6 +208,22 @@ def load_ppt_od_context(
         else:
             is_design_system_required = False
 
+    # ── Template workspace resources (seeded into the run sandbox by the engine).
+    # The template body is its SKILL.md, whose Workflow steps name file paths
+    # ("read assets/template.html", "references/layouts.md"). Carrying the actual
+    # files lets file-granted deck agents execute those steps instead of
+    # fabricating tool syntax against a tool-less prompt (live-model failure mode).
+    template_files: dict[str, str] = {}
+    seed = od_loader.get_template_seed(template_id)
+    if seed:
+        template_files["assets/template.html"] = seed
+    for _ref_name, _ref_content in (od_loader.get_template_references(template_id) or {}).items():
+        # get_template_references keys by stem; the SKILL.md instructions name the
+        # files with their .md extension — seed at the exact instructed paths.
+        if not _ref_name.endswith(".md"):
+            _ref_name = f"{_ref_name}.md"
+        template_files[f"references/{_ref_name}"] = _ref_content
+
     return {
         "template_id": template_id,
         "template_body": template.get("body", ""),
@@ -215,4 +231,5 @@ def load_ppt_od_context(
         "ds_body": ds_body,
         "craft_block": "",  # decks do not inject craft rules
         "is_design_system_required": is_design_system_required,
+        "template_files": template_files,
     }
