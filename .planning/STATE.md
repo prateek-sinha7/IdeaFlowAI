@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 last_updated: "2026-06-11T10:55:42.451Z"
-last_activity: 2026-06-11 -- 12-04 COMPLETE (FE wave/subagent tree panel + after_seq reconnect — RESUME-03 client half; live UAT deferred)
+last_activity: 2026-06-11 -- 12-05 COMPLETE (durable-resume gap closure CR-01 seq seeding + CR-02 WS replay workspace recovery — RESUME-03 blockers closed)
 progress:
   total_phases: 12
   completed_phases: 12
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 12 (Wave Scheduler + Durable Resume [6]) — COMPLETE
-Plan: 4 of 4
+Plan: 5 of 7 (gap-closure; 12-06/12-07 remain)
 Status: Ready to execute
-Last activity: 2026-06-11 -- 12-04 COMPLETE (FE wave/subagent tree panel + after_seq reconnect — RESUME-03 client half; live UAT deferred)
+Last activity: 2026-06-11 -- 12-05 COMPLETE (durable-resume gap closure CR-01 seq seeding + CR-02 WS replay workspace recovery — RESUME-03 blockers closed)
 
 Progress: [██████████] 100% (12/12 phases complete; 65/65 mapped plans complete)
 
@@ -120,6 +120,7 @@ Progress: [██████████] 100% (12/12 phases complete; 65/65 ma
 | Phase 12 P02 | ~25min | 2 tasks | 3 files |
 | Phase 12 P03 | ~20min | 2 tasks | 8 files |
 | Phase 12 P04 | ~12 min | 3 tasks | 5 files |
+| Phase 12 P05 | ~6 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -204,6 +205,7 @@ Recent decisions affecting current work:
 - [Phase 12]: 12-02 (RESUME-02): Step.retry is now LIVE. RetryPolicy.on (default ["transient"], pure data INV-5) + the SINGLE engine-side per-step retry/reuse wrapper _dispatch_step_with_retry at the ONE dispatch home (D-10, NOT inside strategies / run_fanout), strictly gated on step.retry.max_attempts>0 so absent/0 = byte/event-identical legacy path (Pitfall 4 dormancy). _compute_step_input_hash = CROSS-RESTART-STABLE sha256 over {"upstream": sorted([content_hashes]), "input": resolved_input} (canonical json.dumps sort_keys+separators; NO timestamp/uuid/unsorted — the shared key for retry re-entries AND 12-03 restart re-runs). _find_reused_completion queries the owner-scoped durable run_events (ScopedStore.read_events, T-12-02-REPLAY) for a prior step_completed/step_reused under the SAME (step_id, input_hash), confirms the output artifact still exists, returns output_ref_id (None offline → re-execute). Gate-TRUE: reuse → yield step_reused + ZERO agent call; else bounded attempt loop ≤max_attempts (T-12-02-DOS) — transient (06-03 _is_transient_throttle, ONE classifier home, no second list) + attempts remaining → step_retry + await module-level _retry_sleep(backoff) seam + loop; success → step_completed carrying input_hash+output_ref_id; non-transient OR exhaustion → re-raise the visible error (never swallowed). Events are plain dicts via the single emit boundary (zero websocket edits). 7 offline retry/reuse tests (fake-strategy, _retry_sleep no-op); 5 characterization snapshots byte/event-identical (retry dormant); lint-imports 4/0; 51 passed/7 skipped. Commits 9830f81/bb19844.
 - [Phase 12]: 12-03 (RESUME-03/04 + WAVE-03): the durable resume tier. (1) WS reconnect_pipeline after_seq branch replays the OWNER-SCOPED run_events tail (seq>after_seq) BEFORE the live attach, int-coerces after_seq (non-int rejected), survives a process restart (cleared _PIPELINE_QUEUES/_TASKS) by replaying from the DB + reporting status via ScopedStore.get_run; cross-owner reconnect=∅ (T-12-03-IDOR); legacy no-after_seq+live path byte-identical (clarify-gate restoration preserved). (2) resume_run(run_id) rebuilds the ExecutionContext via the SAME _execute_impl construction path (NO forked dispatch loop — _resume_from offset skips i<offset, planner/clarify suppressed; the grep gate `for i, spec in enumerate(ordered_agents)` stays 1, the completeness SCAN iterates by index). _first_incomplete_step derives completeness from durable artifact_refs/run_events/wave_runs (D-07, no step-status table); resume HYDRATES the typed graph (ArtifactGraph.adopt — id/hash/version preserved) + RECOVERS the original workspace_id from a durable row (Pitfall 2 — create_workspace mints a fresh id that would miss the owner+workspace-scoped mid-wave reads). (3) Mid-wave (WAVE-03): on ctx.is_resuming the wave_scheduler reads read_wave_runs/read_subagent_runs via ctx.runner and skips completed waves + completed LEADING workers, re-entering the SAME run_fanout with only the incomplete tasks (Phase-11 pre-merge fragment durability). (4) restore_non_terminal_runs three-way (D-08): (a) waiting_for_user re-arm UNCHANGED, (b) resumable in-flight (compilable manifest WITH any durable step state) stamps an additive run_resuming event BEFORE asyncio.create_task(self.resume_run) (double-drive guard, T-12-03-DOUBLEDRIVE) then auto-resumes in-process, (c) else WR-05 verbatim; NON_TERMINAL list + state machine untouched (additive event, Open Q2 — resume DORMANT for existing test runs, offline=False). 5 (×2) characterization snapshots byte/event-identical; lint 4/0; 52 passed/7 skipped (+46 wave/step/sample). Commits 97f63c16/83cfff4c.
 - [Phase ?]: 12-04: additive props-driven WaveTreePanel (08-08 sibling-panel reuse); parent routes wave_*/subagent_* events down + dedup by event_id; FE after_seq reconnect = RESUME-03 client half (idempotent replay); live render/reconnect UAT deferred to end-of-milestone live pass
+- [Phase 12]: 12-05 (RESUME-03 gap closure, CR-01+CR-02): (CR-01) resume_run seeds its event seq counter from the durable run_events tail — reads read_events(after_seq=0) under the RECOVERED owner+workspace scope and seeds itertools.count(max(seq)+1) instead of count(1), so resumed events continue the monotonic per-run seq (no collision with the pre-restart 1..N) and a client sending after_seq=N receives the resumed tail; offline (no tail) degrades to start=1 (byte/event-identical). Surfaced a Rule-1 bug: _execute_impl recovered the original workspace_id ONLY at offset>0, so an offset-0 resume of a run with a durable run_events tail minted a FRESH workspace and stamped resumed events under it → the after_seq read resolved to ∅ even after the seq fix. Added _is_resume to _execute_impl (threaded True from resume_run) + widened recovery to `_is_resume or _resume_from>0` (is_resuming/wave mid-wave filter stays offset>0). (CR-02) the WS reconnect replay branch recovers the run's workspace_id from a RunEvent row filtered by owner_id==user.id (a fresh _get_db() session — no DB session otherwise in scope) and passes it to ScopedStore(owner_id, workspace_id=recovered) — the owner+workspace predicate is PRESERVED (server-recovered value, never dropped, never from the reconnect payload, T-12-05-TENANT); pre-fix workspace_id=None scoped to `workspace_id IS NULL` → 0 production rows. Cross-owner reconnect recovers no row → ∅. Dispatch loop stays 1; 10 characterization snapshots byte/event-identical; lint 4/0; 55 passed/7 skipped (+44 adjacent). Commits 02202ea4/cb34ca82 (CR-01) + 11280c94/987e8262 (CR-02).
 
 ### Pending Todos
 
