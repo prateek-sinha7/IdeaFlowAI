@@ -443,7 +443,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 10. Safe Local Exec [4B] | 5/5 | Complete    | 2026-06-10 |
 | 11. Fan-Out + Merge [5] | 5/5 | Complete    | 2026-06-11 |
 | 12. Wave Scheduler + Resume [6] | 10/10 | Complete    | 2026-06-11 |
-| 13. Live Verification Gap Closure | 4/6 | In Progress|  |
+| 13. Live Verification Gap Closure | 5/6 | In Progress|  |
 
 ### Phase 13: Live Verification Gap Closure
 
@@ -459,7 +459,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
   5. All 15 app_builder agents produce role-conformant output: the three migration-templated prompts (code-compliance / test-compliance / sdlc-governance) re-templated for app_builder scope; devops agent emits files, not narration (F5)
   6. sample_fanout resolves its declared deliverable from produced files with no single_file fallback warning; `test_phase3_token_delta_live` runs against the current engine; the phase-8 live sweep budget reflects real Haiku 4.5 spend (F6/F7)
 
-**Plans:** 4/6 plans executed
+**Plans:** 5/6 plans executed
 Plans:
 **Wave 1**
 
@@ -470,7 +470,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 13-05-PLAN.md — run_revision FR-014: persist deliverable-kind ref at completion + fallback lookup chain + FE-exact regression (F2)
+- [x] 13-05-PLAN.md — run_revision FR-014: persist deliverable-kind ref at completion + fallback lookup chain + FE-exact regression (F2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
