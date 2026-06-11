@@ -393,7 +393,7 @@ Plans:
   2. `wave_runs` persisted; a server restart resumes mid-wave via `subagent_runs`/`wave_runs`; idempotent step retry reuses artifacts on content-hash match
   3. Reconnect replays from the durable `run_events` log (`after=<seq>`, idempotent by `event_id`); `restore_non_terminal_runs` resumes at step granularity (waiting_for_user gates resume on user action)
 
-**Plans**: 4 plans (4 waves)
+**Plans**: 7 plans (4 waves + 2 gap-closure waves)
 Plans:
 **Wave 1**
 
@@ -410,6 +410,12 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [x] 12-04-PLAN.md — FE wave/subagent tree panel (additive sibling) + FE reconnect `after_seq` + `event_id` dedup adoption (clears the 08-08 deferral) [wave 4]
+
+**Gap Closure** *(after 12-VERIFICATION found 4 blockers + CR-05 + triaged warnings)*
+
+- [ ] 12-05-PLAN.md — durable-resume/replay blockers: seed `resume_run` seq counter past the durable tail (CR-01) + recover `workspace_id` in the WS reconnect replay ScopedStore (CR-02) [wave 1, gap_closure]
+- [ ] 12-06-PLAN.md — mid-wave resume correctness: step-filter completed-wave set (CR-04) + re-run the whole in-flight wave instead of an unsafe parallel-order prefix skip (CR-03) + flip stale `running` wave row (WR-01) + stamp `wave_index`/`step` on subagent events (CR-06 backend half) + reject duplicate task ids pre-spawn (WR-05) [wave 1, gap_closure]
+- [ ] 12-07-PLAN.md — FE wave tree: hoist `event_id` dedup to cover all event types (CR-05) + reset per-run replay/dedup/wave state (WR-03) + render worker leaves keyed by worker index, waves keyed by `step:waveIndex` (CR-06 FE half / IN-06) + cancelled→terminal (IN-05) + live render/reconnect human-verify [wave 2, gap_closure, depends 12-06]
 
 ## Progress
 
