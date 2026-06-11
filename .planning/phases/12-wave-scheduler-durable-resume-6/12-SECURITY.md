@@ -1,3 +1,14 @@
+---
+phase: 12
+slug: wave-scheduler-durable-resume-6
+status: secured
+threats_open: 0
+threats_closed: 32
+asvs_level: 1
+block_on: high
+created: 2026-06-11
+---
+
 # SECURITY.md — Phase 12: Wave Scheduler + Durable Resume
 
 **Phase:** 12 — wave-scheduler-durable-resume-6
