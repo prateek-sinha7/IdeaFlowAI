@@ -14,8 +14,12 @@ edit (the 11-05 sample_fanout / 09-04 sample_brownfield precedent). It declares 
     workers);
   * t3 → part_c.txt depends_on [t1], t4 → part_d.txt depends_on [t2] → WAVE 2.
 merged ``copy_disjoint`` — using ONLY already-registered capabilities (``wave_scheduler``
-strategy + ``json_tasks`` parser + ``spawn_subagents`` tool + ``copy_disjoint`` merge).
-The worker AGENT.md specs are test-scoped fixtures (the sc001 precedent).
+strategy + ``json_tasks`` parser + ``spawn_subagents`` tool + ``copy_disjoint`` merge +
+``serialized_sandbox`` deliverable). The declared deliverable is ``serialized_sandbox``
+(12-10 / UAT Gap 3): it bundles the merged part_*.txt base the workers actually produce
+into the ``filename:``-block deliverable — so the run never hits the ``single_file``
+"falling back to streamed output" warning. The worker AGENT.md specs are test-scoped
+fixtures (the sc001 precedent).
 
 The test drives the workflow end-to-end OFFLINE (scripted model, no network) binding a
 REAL in-memory SQLite ScopedStore (RESEARCH Open Q3) so ``wave_runs`` / ``subagent_runs``
@@ -24,7 +28,10 @@ rows persist, and asserts:
   (2) >= 2 ``subagent_runs`` rows for a single wave (the 2 parallel workers in wave 1);
   (3) the merged base contains every task's file (part_a/b/c/d.txt);
   (4) wave lifecycle events (wave_started/wave_completed) fired;
-  (5) SC-001: the kernel names NO workflow (``grep sample_wave
+  (5) the declared deliverable resolves from the PRODUCED files — the
+      ``serialized_sandbox`` bundle contains part_a/b/c/d.txt as ``filename:`` blocks
+      (no single_file fallback to streamed output — UAT Gap 3, 12-10);
+  (6) SC-001: the kernel names NO workflow (``grep sample_wave
       backend/agents/execution_engine/`` == 0) and the proof artifacts live OUTSIDE the
       engine package.
 """
@@ -352,6 +359,22 @@ async def test_sample_wave_runs_multiple_waves_and_persists_wave_runs() -> None:
         "copy_disjoint reported a conflict over disjoint files"
     )
 
+    # (5) Gap 3 (12-10): the DECLARED deliverable (serialized_sandbox) resolves from
+    # the PRODUCED files — the final output is the filename:-block bundle of the
+    # merged part_*.txt base, NOT the single_file fallback to streamed planner text.
+    complete = [e for e in events if e.get("type") == "pipeline_complete"]
+    assert complete, "no pipeline_complete event emitted"
+    final_output = complete[-1]["data"]["final_output"]
+    assert final_output and final_output.strip(), "final deliverable is empty"
+    assert "(no files written)" not in final_output, (
+        "serialized_sandbox found no deliverable files — the merge did not land"
+    )
+    for part in ("part_a.txt", "part_b.txt", "part_c.txt", "part_d.txt"):
+        assert f"filename: {part}" in final_output, (
+            f"deliverable bundle missing produced file {part} — the declared "
+            "deliverable did not resolve from the produced merged base"
+        )
+
     session.close()
 
 
@@ -365,11 +388,16 @@ def test_sample_wave_runs_on_registered_capabilities_only() -> None:
     assert reg.is_registered("task_parser", "json_tasks")
     assert reg.is_registered("tool", "spawn_subagents")
     assert reg.is_registered("merge", "copy_disjoint")
+    assert reg.is_registered("deliverable", "serialized_sandbox")
 
     manifest_text = (_MANIFEST_HOME / _FIXTURE_ID / "workflow.yaml").read_text(encoding="utf-8")
     assert "strategy: wave_scheduler" in manifest_text
     assert "parser: json_tasks" in manifest_text
     assert "spawn_subagents: true" in manifest_text
+    assert "strategy: serialized_sandbox" in manifest_text
+    # Gap 3 (12-10): no dangling merged.txt — the deliverable resolves from the
+    # files the workflow actually produces, not a never-written named file.
+    assert "merged.txt" not in manifest_text
 
 
 def test_sample_wave_kernel_names_no_workflow() -> None:
