@@ -134,6 +134,36 @@ def _is_sequential(step: Any) -> bool:
     return bool(fanout is not None and getattr(fanout, "mode", None) == "sequential")
 
 
+def _note_wall_clock(budget: Any) -> None:
+    """Check the armed wall-clock deadline at a fan-out boundary (FANOUT-09 / CR-04).
+
+    Called BEFORE each sequential spawn, BEFORE each parallel worker enters
+    ``_run_one``, and BEFORE the merge — so a mid-flight breach aborts gracefully
+    (``BudgetExceeded`` propagates; pending workers never spawn; the ``finally``
+    teardown reclaims allocations; completed fragments are already persisted).
+    A budget without the handle (a bare stub / no budget bound) is a no-op.
+    """
+    if budget is None:
+        return
+    fn = getattr(budget, "note_wall_clock", None)
+    if callable(fn):
+        fn()  # raises BudgetExceeded past the armed deadline
+
+
+def _note_tokens(budget: Any, tokens: int) -> None:
+    """Accumulate a worker's reported token usage at the collect boundary (CR-04).
+
+    Raises ``BudgetExceeded`` once a declared ``max_tokens`` cap is breached
+    (check-at-boundary, D-05 — you cannot pre-reserve unknown token spend). A
+    budget without the handle / zero usage is a no-op.
+    """
+    if budget is None or not tokens:
+        return
+    fn = getattr(budget, "note_tokens", None)
+    if callable(fn):
+        fn(tokens)  # raises BudgetExceeded over a declared max_tokens
+
+
 def _check_cancel(ctx: Any) -> None:
     """Cooperative cancel check at a fan-out boundary (RESUME-01 / FANOUT-11).
 
@@ -302,6 +332,9 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
         # shared-workspace ``run_worker`` call shape stays byte-identical (the kwarg
         # is additive; an offline/shared_read run never threads it).
         worker_kwargs = {"workspace": worker_ws} if worker_ws is not None else {}
+        # The worker's reported token usage (read off its agent_complete event) —
+        # accumulated into the budget at the collect boundary (FANOUT-09 / CR-04).
+        worker_tokens = 0
         try:
             async for _child_event in runner.run_worker(
                 step, ctx,
@@ -311,8 +344,12 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
                 input=worker["input"],
                 **worker_kwargs,
             ):
-                # Child agent chunk events are NOT forwarded (D-03 — lifecycle-only).
-                pass
+                # Child agent chunk events are NOT forwarded (D-03 — lifecycle-only);
+                # the terminal agent_complete carries the worker's token usage.
+                if _child_event.get("type") == "agent_complete":
+                    worker_tokens += int(
+                        (_child_event.get("data") or {}).get("total_tokens") or 0
+                    )
         except asyncio.CancelledError:
             # This worker's task was cancelled (the run was stopped mid-flight). Flip
             # the row terminal ``cancelled`` (FANOUT-11) and re-raise so asyncio.gather
@@ -327,7 +364,15 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
             status = "failed"
         if row_id is not None:
             open_rows.pop(idx, None)
-            await runner.update_subagent_run(row_id, status=status)
+            await runner.update_subagent_run(
+                row_id, status=status, tokens=(worker_tokens or None)
+            )
+
+        # Check-at-boundary token accounting (FANOUT-09 / CR-04): accumulate this
+        # worker's usage; a declared max_tokens breach raises BudgetExceeded here —
+        # AFTER the row flipped terminal (no row left running) and BEFORE further
+        # spawns (the abort propagates through the spawn loop / gather).
+        _note_tokens(budget, worker_tokens)
 
         # (5a) Fragment persistence BEFORE merge (FANOUT-06) — each worker's output
         # persists as a typed lineage-tracked fragment artifact, so partial results
@@ -375,6 +420,10 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
             # so pending workers never start (FANOUT-11).
             for worker in selected:
                 _check_cancel(ctx)
+                # Wall-clock boundary BEFORE each sequential spawn (FANOUT-09 /
+                # CR-04): a mid-flight deadline breach aborts before the NEXT
+                # worker spawns — pending workers never start.
+                _note_wall_clock(budget)
                 yield {
                     "type": "subagent_spawned",
                     "data": {"worker": worker["index"], "agent": worker["agent_id"],
@@ -398,6 +447,10 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
 
             async def _bounded(worker: dict) -> dict:
                 async with sem:
+                    # Wall-clock boundary BEFORE each parallel worker (FANOUT-09 /
+                    # CR-04): a queued worker whose turn arrives past the deadline
+                    # never runs — BudgetExceeded propagates through the gather.
+                    _note_wall_clock(budget)
                     return await _run_one(worker)
 
             # Cancellation propagation (FANOUT-11): gather the worker tasks so a
@@ -427,6 +480,15 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
         if budget is not None:
             warn_fn = getattr(budget, "warn_threshold_reached", None)
             if callable(warn_fn):
+                # Refresh the snapshot FIRST (CR-04): wall-clock spend only updates
+                # via spent()/note_wall_clock, so without this the wall_clock warn
+                # below reads a stale 0.0 and can never fire.
+                spent_fn = getattr(budget, "spent", None)
+                if callable(spent_fn):
+                    try:
+                        spent_fn()
+                    except Exception:  # noqa: BLE001 — a snapshot refresh is best-effort
+                        pass
                 for dimension in ("subagents", "depth", "tokens", "wall_clock"):
                     try:
                         breached = warn_fn(dimension)
@@ -447,6 +509,10 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
         # write_fragment_artifact) so they survive this cancel; the merge is simply
         # skipped and the run terminates (FANOUT-11 — cancel before merge).
         _check_cancel(ctx)
+        # Wall-clock boundary BEFORE the merge (FANOUT-09 / CR-04): a run that
+        # breached the deadline mid-collect aborts here with its persisted
+        # fragments instead of starting the merge.
+        _note_wall_clock(budget)
 
         # ── (5b) Merge dispatch (FANOUT-07/08) ────────────────────────────────
         # The fragments are integrated into the base workspace via the engine-selected

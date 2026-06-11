@@ -224,6 +224,65 @@ def test_arm_is_idempotent_first_deadline_wins(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# CR-04 — the wall-clock / token boundaries are WIRED into run_fanout (not just
+# unit-invokable): a mid-flight breach aborts the fan-out at the next boundary.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_wall_clock_breach_mid_flight_stops_next_sequential_spawn(monkeypatch):
+    """run_fanout checks note_wall_clock BETWEEN sequential workers (CR-04)."""
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(budget_mod.time, "monotonic", lambda: clock["t"])
+
+    runner = _FakeRunner()
+    _orig = runner.run_worker
+
+    async def _slow(step, ctx, *, worker_index, thread_id, agent_id, input, **kw):
+        clock["t"] += 10.0  # worker 0 burns past the 5s deadline mid-flight
+        async for ev in _orig(
+            step, ctx, worker_index=worker_index, thread_id=thread_id,
+            agent_id=agent_id, input=input, **kw,
+        ):
+            yield ev
+
+    runner.run_worker = _slow  # type: ignore[assignment]
+    budget = BudgetManager.from_limits(Limits(wall_clock_seconds=5))
+    ctx = _make_ctx(runner, budget=budget)
+    step = _make_step(mode="sequential")
+    requests = [{"agent": "self", "input": f"t{i}"} for i in range(3)]
+
+    with pytest.raises(BudgetExceeded) as exc:
+        await _collect(run_fanout(requests, ctx, step=step))
+    assert exc.value.dimension == "wall_clock"
+    # Worker 0 ran; the breach aborted BEFORE worker 1 spawned (graceful mid-flight abort).
+    assert [w["index"] for w in runner.spawned] == [0]
+
+
+@pytest.mark.asyncio
+async def test_worker_token_usage_enforced_at_collect_boundary():
+    """run_fanout accumulates worker agent_complete tokens via note_tokens (CR-04)."""
+    runner = _FakeRunner()
+
+    async def _tokened(step, ctx, *, worker_index, thread_id, agent_id, input, **kw):
+        runner.spawned.append(dict(index=worker_index, agent_id=agent_id))
+        yield {"type": "agent_complete", "data": {"total_tokens": 80}}
+
+    runner.run_worker = _tokened  # type: ignore[assignment]
+    budget = BudgetManager.from_limits(Limits(max_tokens=100))
+    ctx = _make_ctx(runner, budget=budget)
+    step = _make_step(mode="sequential")
+    requests = [{"agent": "self", "input": f"t{i}"} for i in range(3)]
+
+    with pytest.raises(BudgetExceeded) as exc:
+        await _collect(run_fanout(requests, ctx, step=step))
+    assert exc.value.dimension == "tokens"
+    # Worker 0 (80 ≤ 100) collected clean; worker 1 breached (160 > 100) at ITS
+    # collect boundary; worker 2 never spawned.
+    assert [w["index"] for w in runner.spawned] == [0, 1]
+
+
+# ---------------------------------------------------------------------------
 # warn_threshold_reached (≥80%)
 # ---------------------------------------------------------------------------
 
