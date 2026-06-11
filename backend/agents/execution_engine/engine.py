@@ -3453,13 +3453,43 @@ class ExecutionEngine:
         await store.assert_owns(parent_run_id)
 
         # Retrieve the original artifact (latest by version asc) — owner-scoped.
+        #
+        # F2 (13-05) — FR-014 fallback lookup chain. The FE sends
+        # ``target_artifact_type`` values (DashboardLayout.tsx:388-403) that no
+        # producer write ever persists: run-path kinds are the _AGENT_KIND_MAP
+        # values + summary/planning_context/clarifications + the 13-05 completion
+        # "deliverable" ref. Resolve the parent original deterministically:
+        #   link 1 — exact target kind (revision-of-revision + any future
+        #            exact-kind producer; preserves the existing exact-kind tests)
+        #   link 2 — the kind="deliverable" completion ref (every NEW run —
+        #            written by the execute() terminal block)
+        #   link 3 — legacy kind="summary" (pre-fix completed runs: the final
+        #            agent's output lands as summary via the _AGENT_KIND_MAP
+        #            fallback)
+        # All links empty → the FR-014 ValueError, byte-unchanged. Latest-by-
+        # version semantics stay ``_refs[-1]``. SC-001: the chain introduces only
+        # the generic kinds "deliverable"/"summary" — no workflow-name literal;
+        # target_artifact_type is data passing through.
         _refs = await store.list_refs(parent_run_id, kind=target_artifact_type)
+        _resolved_kind = target_artifact_type
+        if not _refs:
+            _refs = await store.list_refs(parent_run_id, kind="deliverable")
+            _resolved_kind = "deliverable"
+        if not _refs:
+            _refs = await store.list_refs(parent_run_id, kind="summary")
+            _resolved_kind = "summary"
         original = _refs[-1] if _refs else None
         if original is None:
             raise ValueError(
                 f"No artifact of type {target_artifact_type!r} found for run {parent_run_id!r}. "
                 "Revision MUST NOT proceed without original context (FR-014)."
             )
+        # Live diagnosability (no new WS event — stream parity): name the chain
+        # link that resolved the parent original.
+        logger.info(
+            "FR-014 lookup resolved: target_kind=%r resolved_kind=%r ref=%s parent_run=%s",
+            target_artifact_type, _resolved_kind, original.id, parent_run_id,
+        )
 
         # CR-01: now that the parent artifact is resolved, its workspace is the
         # authoritative workspace for the whole revision run. Thread it onto the
@@ -3488,7 +3518,9 @@ class ExecutionEngine:
                 )
             _rev_sink.arm(store, pipeline_run_id)
 
-        # Version history = the same owner-scoped list (avoid a second query)
+        # Version history = the owner-scoped refs list of WHICHEVER chain link
+        # matched above (avoid a second query) — not unconditionally the
+        # exact-kind list (F2).
         version_history = _refs
 
         # Check if parent run predates Phase 3 (no planning_context artifact)
