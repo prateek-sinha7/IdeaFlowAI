@@ -367,6 +367,37 @@ async def test_abort_fails_the_run():
 
 
 # ---------------------------------------------------------------------------
+# WR-02 — a crashed merge strategy is reported as merge_failed (NOT a clean
+# merge_completed): the failure is first-class on the event stream.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_crashed_merge_strategy_emits_merge_failed():
+    base = _FakeBaseWorkspace()
+    runner = _MergeRunner(base, worker_files={0: {"a.txt": "A"}})
+
+    class _ExplodingStrategy:
+        name = "copy_disjoint"
+
+        def merge(self, base_, fragments_):
+            raise RuntimeError("merge blew up")
+
+    runner.resolve_merge_strategy = lambda name: _ExplodingStrategy()  # type: ignore[assignment]
+    ctx = _make_ctx(runner)
+    step = _make_step(on_conflict="human_gate")
+
+    events = await _collect(run_fanout([{"agent": "self", "input": "t0"}], ctx, step=step))
+
+    failed = [e for e in events if e["type"] == "merge_failed"]
+    assert len(failed) == 1
+    assert "merge blew up" in failed[0]["data"]["error"]
+    assert failed[0]["data"]["applied"] == []
+    # A crash is NEVER reported as a clean completion.
+    assert not any(e["type"] == "merge_completed" for e in events)
+
+
+# ---------------------------------------------------------------------------
 # CR-03 — the LIVE run_merge_agent handle exists on KernelServices (no fake-only
 # attribute): a designated worker runs bounded; an unknown worker degrades False.
 # ---------------------------------------------------------------------------

@@ -770,10 +770,16 @@ async def _merge_fragments(
 
     try:
         merge_result = strategy.merge(base, fragments)
-    except Exception as exc:  # noqa: BLE001 — a merge crash must not abort the run silently
+    except Exception as exc:  # noqa: BLE001 — a merge crash must not abort the run
+        # WR-02: a crashed merge is FIRST-CLASS — never reported as a clean
+        # merge_completed (consumers/audit would see success while nothing was
+        # integrated). The distinct merge_failed event names the error; the run
+        # continues (the crash never aborts the fan-out) but downstream sees the
+        # truth, mirroring the conflict path's no-silent-overwrite discipline.
         logger.warning("merge strategy %s raised: %s", strategy_name, exc)
-        yield {"type": "merge_completed",
-               "data": {"step": step_id, "strategy": strategy_name, "applied": [], "conflicts": 0}}
+        yield {"type": "merge_failed",
+               "data": {"step": step_id, "strategy": strategy_name,
+                        "error": str(exc), "applied": [], "conflicts": 0}}
         return
 
     if not getattr(merge_result, "conflicts", None):
