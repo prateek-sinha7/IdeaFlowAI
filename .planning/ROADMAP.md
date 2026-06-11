@@ -22,7 +22,7 @@ The plan sub-phases (0A/0B/0C, 1A/1B/1C, 4A/4B) are mapped to sequential GSD pha
 - [x] **Phase 8: Capabilities Hardened — Registry, Gates, Tool Perms, Runtime [3]** - CapabilityRegistry + trust; gate registry; least-privilege; AgentRuntimeAdapter + PromptAssemblyPolicy; delete F1–F5 (completed 2026-06-09)
 - [x] **Phase 9: Local Workspace Runtime + Repo Workflows (no exec) [4A]** - `RuntimeEnvironment` port + `LocalSandboxRuntime`; repo inventory/index/context-pack + `repo_diff`; MCP client + integrations (completed 2026-06-10)
 - [x] **Phase 10: Safe Local Exec (gated on N3) [4B]** - Constrained `exec` behind the `security` gate + `ExecutionPolicy`; compile/test/lint validators (completed 2026-06-10)
-- [ ] **Phase 11: Engine-Owned Fan-Out + Merge [5]** - `spawn_subagents` + kernel `run_fanout`; isolation + merge-conflict flow; `BudgetManager`; subagent persistence
+- [x] **Phase 11: Engine-Owned Fan-Out + Merge [5]** - `spawn_subagents` + kernel `run_fanout`; isolation + merge-conflict flow; `BudgetManager`; subagent persistence (completed 2026-06-11)
 - [ ] **Phase 12: Wave Scheduler + Durable Resume [6]** - Topo wave scheduler; `wave_runs`; resume mid-wave; prototype stays sequential
 
 > **Deferred (plan Phase 7, OUT OF SCOPE this milestone):** ECS/EC2 runtime behind the unchanged `RuntimeEnvironment` port — a separate spec (§27). Tracked as v2 in REQUIREMENTS.md (ECS-01/02).
@@ -380,7 +380,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 3 + Wave 4 completion)*
 
-- [ ] 11-05-PLAN.md — Cancellation + SC-001: cancel checks at fan-out boundaries + finally-teardown of every isolated workspace (no leaks) + terminal `cancelled` rows + `pipeline_cancelled` + the test-scoped sample fan-out workflow (manifest + AGENT.md only, zero engine edits) + phase exit gate (FANOUT-11, RESUME-01) [wave 5]
+- [x] 11-05-PLAN.md — Cancellation + SC-001: cancel checks at fan-out boundaries + finally-teardown of every isolated workspace (no leaks) + terminal `cancelled` rows + `pipeline_cancelled` + the test-scoped sample fan-out workflow (manifest + AGENT.md only, zero engine edits) + phase exit gate (FANOUT-11, RESUME-01) [wave 5]
 
 ### Phase 12: Wave Scheduler + Durable Resume [6]
 
@@ -418,7 +418,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 �
 | 8. Capabilities Hardened [3] | 8/8 | Complete    | 2026-06-09 |
 | 9. Local Runtime + Repo (no exec) [4A] | 6/6 | Complete    | 2026-06-10 |
 | 10. Safe Local Exec [4B] | 5/5 | Complete    | 2026-06-10 |
-| 11. Fan-Out + Merge [5] | 4/5 | In Progress|  |
+| 11. Fan-Out + Merge [5] | 5/5 | Complete   | 2026-06-11 |
 | 12. Wave Scheduler + Resume [6] | 0/3 | Not started | - |
 
 ---

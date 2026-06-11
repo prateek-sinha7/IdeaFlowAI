@@ -126,7 +126,7 @@
 - [x] **FANOUT-08**: Merge-conflict flow — write a `merge_conflict` artifact + emit event; resolve per `on_conflict` policy (human_gate default | merge_agent (bounded) | partial | abort) (§13 / A6)
 - [x] **FANOUT-09**: `BudgetManager` reserves-before-spawn and enforces total subagents, concurrency, tokens, cost, wall-clock, recursion, fan-out depth (`ctx.depth`); `BudgetExceeded` aborts gracefully with partial results (Q17/Q18/Q44)
 - [x] **FANOUT-10**: Each child → a `subagent_runs` row; events `subagent_spawned`/`subagent_result`/`merge_*` (§12/§18) ✅ 11-01 (subagent_runs row + subagent_spawned/subagent_result; merge_* lands 11-03)
-- [ ] **FANOUT-11**: Fan-out cancellation propagates to children (§21)
+- [x] **FANOUT-11**: Fan-out cancellation propagates to children (§21)
 
 ### Wave Scheduler & Durable Resume (Phase 6)
 
@@ -136,7 +136,7 @@
 
 ### Cancellation, Retry & Resume (cross-cutting; basic in Phase 0, hardened 5–6)
 
-- [ ] **RESUME-01**: Cooperative `cancel_event` checked per-chunk and at step/gate/fanout/wave boundaries; on cancel → mark `cancelled`, preserve partial artifacts, `teardown()` isolated workspaces, emit `pipeline_cancelled` (§21)
+- [x] **RESUME-01**: Cooperative `cancel_event` checked per-chunk and at step/gate/fanout/wave boundaries; on cancel → mark `cancelled`, preserve partial artifacts, `teardown()` isolated workspaces, emit `pipeline_cancelled` (§21)
 - [ ] **RESUME-02**: Idempotent per-step retry `retry: {max, on}` for transient errors, keyed by `(run_id, step_id, input content_hash)`; reuses the existing artifact on hash match — distinct from the validator fix-loop (§21)
 - [ ] **RESUME-03**: Reconnect = durable replay from `run_events` via `after=<last_seq>`, idempotent by `event_id` (§21/§22)
 - [ ] **RESUME-04**: Server restart = `restore_non_terminal_runs` extended to step granularity; `waiting_for_user` gates resume on user action; in-flight steps resume from checkpoint or re-run idempotently (§21)
@@ -246,7 +246,7 @@ Each v1 requirement maps to exactly one phase. Phases are GSD integers 1–12, m
 | EXEC-01, EXEC-02 | Phase 10 [4B] | Pending |
 | FANOUT-01, FANOUT-02, FANOUT-03, FANOUT-04, FANOUT-10 (✅ 11-01); FANOUT-05, FANOUT-06, FANOUT-07, FANOUT-08, FANOUT-09, FANOUT-11 | Phase 11 [5] | In progress (5/11 complete) |
 | OBS-01 | Phase 11 [5] | Complete |
-| RESUME-01 | Phase 11 [5] | Pending |
+| RESUME-01 | Phase 11 [5] | Complete |
 | WAVE-01, WAVE-02, WAVE-03 | Phase 12 [6] | Pending |
 | RESUME-02, RESUME-03, RESUME-04 | Phase 12 [6] | Pending |
 

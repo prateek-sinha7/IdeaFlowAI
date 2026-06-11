@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-06-11T03:26:30.761Z"
-last_activity: 2026-06-11 -- 11-04 complete (budget enforcement: reserve-before-spawn + snapshot persistence)
+status: verifying
+last_updated: "2026-06-11T03:47:19.015Z"
+last_activity: "2026-06-11 -- 11-04 complete (budget enforcement: reserve-before-spawn + snapshot persistence)"
 progress:
   total_phases: 12
-  completed_phases: 10
+  completed_phases: 11
   total_plans: 61
-  completed_plans: 60
-  percent: 98
+  completed_plans: 61
+  percent: 92
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 
 Phase: 11 (engine-owned-fan-out-merge-5) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-11 -- 11-04 complete (budget enforcement: reserve-before-spawn + snapshot persistence)
 
 Progress: [██████████] 98% (10/12 phases complete; 60/61 mapped plans complete)
@@ -114,6 +114,7 @@ Progress: [██████████] 98% (10/12 phases complete; 60/61 map
 | Phase 11 P02 | ~18min | 2 tasks | 5 files |
 | Phase 11 P03 | ~40min | 2 tasks | 14 files |
 | Phase 11 P04 | 45min | 2 tasks | 9 files |
+| Phase 11 P05 | ~30min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -193,6 +194,7 @@ Recent decisions affecting current work:
 - [Phase 11]: 11-02 (FANOUT-05): two engine-selected isolation scopes on LocalWorkspace (the single git-subprocess owner, Phase-9 D-10) — allocate_sub_sandbox (isolated child dir {run}/subagents/{step}/{i}/ via traversal-proof path_for) + allocate_worktree (git worktree add -b fanout/{step}/{i} off the working branch) + spawn_point_commit (the 11-03 3-way merge-base capture) + remove_worktree (happy-path worktree remove + branch delete, zero git-worktree-list orphans). The ENGINE (INV-7, NOT the manifest) selects the scope via fanout._select_isolation_scope: has_git->worktree else sub_sandbox; run_fanout binds each worker to its allocated isolated workspace (writes isolated, reads shared-read parent refs) + records the chosen scope on each child subagent_runs.isolation; no base-workspace handle degrades to shared_read (offline/non-exec parity). Two same-filename workers land in distinct dirs (T-11-02-02); each isolated ws stamped owner_id/workspace_id (T-11-02-05). Isolation is RUNTIME-LAYER code bound via the host seam (CONTEXT D-04 discretion), NOT a @register kind — _KNOWN stays 55, no test_registry_capabilities bump. Cancel-path teardown deferred to 11-05; happy-path reclaim after collect via reclaim_isolated_workspace. 5 characterization snapshots byte/event-identical; lint-imports 4/0; 124 passed. Commits 49aa7b9/395de75.
 - [Phase ?]: 11-03 (FANOUT-06/07/08): MergeStrategy port + 4 registered impls (copy_disjoint deterministic + overlap->conflict NEVER silent overwrite via eviction; git_3way via the ctx.runner git handle only; json/html_fragment) under the new merge kind (_KNOWN 55->59, user_allowed=True). Merge dispatch in run_fanout (_merge_fragments) engine-selects the strategy by name keyed on isolation scope (worktree->git_3way else copy_disjoint, INV-7/INV-1). merge_conflict first-class: owner-scoped merge_conflict ArtifactRef (truncated hunks, cross-owner read=empty) + merge_conflict event. 4 on_conflict policies: human_gate (default, the ONE durable run_human_gate HITL, no sibling gate), merge_agent (bounded MERGE_AGENT_MAX_ATTEMPTS=2 then human_gate fallback), partial, abort. write_fragment_artifact persists each worker output BEFORE merge (FANOUT-06) + the structured summary now carries the per-worker artifact_ref (consumed by 11-04/11-05). 5 characterization snapshots byte/event-identical; lint 4/0; 141 passed. Commits 363b7f0/6fe88d0.
 - [Phase ?]: 11-04 (FANOUT-09/OBS-01): the 11-01 reserve() stub now ENFORCES — BudgetManager.reserve raises BudgetExceeded (naming the dimension) reserve-before-spawn on subagents/concurrency/depth (depth+1>max_depth); tokens/wall-clock are check-at-boundary (note_tokens/note_wall_clock + arm() deadline, D-05). Defaults are module constants (8/4/2/900). Limits trust-conditional at compile (file may RAISE, user/db only LOWER, CompilerError naming the dimension); CompiledWorkflow.limits materialized; compiler defines its OWN ceiling constants (mirror) to keep import-linter agents.workflows↛execution_engine green. Per-workspace ceiling via ScopedStore.workspace_budget_spent (owner+ws aggregate, cross-owner ∅) + WORKSPACE_BUDGET_* seam (default None=uncapped). BudgetSnapshot persists to workflow_runs.budget_snapshot_json (0014 col) on completion/abort/cancel, STRICTLY conditional on fan-out activity (non-fanout writes nothing → 5 characterization snapshots byte/event-identical). BudgetExceeded graceful abort emits budget_aborted + surfaces 11-03 fragment artifacts; budget_warning at ≥80%/failed reserve. lint 4/0; 158 passed. Commits 79919d5/732ec9a.
+- [Phase ?]: [Phase 11]: 11-05 (FANOUT-11/RESUME-01 + SC-001 — PHASE CLOSE): cancellation propagates to fan-out children at every boundary — _check_cancel(ctx) raises CancelledError BEFORE the wave / BETWEEN sequential workers / BEFORE merge; parallel mode _gather_or_cancel cancels every in-flight worker (each flips its subagent_runs row terminal=cancelled) + _mark_open_cancelled flips pending rows; the kernel's existing outer CancelledError handler emits pipeline_cancelled (INV-12). run_fanout try/finally tears down EVERY allocated isolated workspace on the happy AND cancel AND BudgetExceeded paths (Pitfall 5 — zero residue); completed fragments preserved; KernelServices.teardown_isolated_workspace is the cancel-path entry. SC-001 PROVEN for fan-out: sample_fanout manifest at the real home fans 3 self-copies (copy_disjoint) using ONLY registered caps — 3 subagent_runs rows + 3 distinct merged files + is_registered(fanout_batch/copy_disjoint/spawn_subagents) + grep sample_fanout in engine == 0 (07-11 pattern; worker AGENT.md test-scoped per the sc001 precedent). Deviations: [Rule 1] run_worker threads worker input via task_number=worker_index+1 (workers were dropping their per-worker input — FANOUT-04 bug); [Rule 2] compiler ceiling permits spawn_subagents=trusted (mirrors exec) so the file-trusted grant binds, T-11-05-03. 5 characterization snapshots byte/event-identical; gate 253 passed/6 skipped; lint 4/0. Commits cab1e8a/de807e8. Phase 11 = 5/5 complete.
 
 ### Pending Todos
 
