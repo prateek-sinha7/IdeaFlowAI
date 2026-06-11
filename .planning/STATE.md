@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-last_updated: "2026-06-11T22:23:08.141Z"
-last_activity: 2026-06-11 — Phase 13 added; live-verification gaps staged for gap-closure planning
+status: executing
+last_updated: "2026-06-11T22:36:12.282Z"
+last_activity: 2026-06-11 -- Phase 13 execution started
 progress:
   total_phases: 13
   completed_phases: 12
-  total_plans: 71
-  completed_plans: 71
+  total_plans: 77
+  completed_plans: 72
   percent: 92
 ---
 
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-11)
 
 **Core value:** A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001).
-**Current focus:** Phase 13 — Live Verification Gap Closure (gaps diagnosed in 13-UAT.md, ready for /gsd-plan-phase 13 --gaps)
+**Current focus:** Phase 13 — live-verification-gap-closure
 
 ## Current Position
 
-Phase: 13 (live-verification-gap-closure) — added 2026-06-11 from the post-milestone live-Bedrock pass findings (F1–F7, .planning/live-verification/REPORT.md)
-Plan: Not started
-Status: Ready to plan — run /gsd-plan-phase 13 --gaps (13-UAT.md is staged in diagnosed status with root causes + artifacts)
-Last activity: 2026-06-11 — Phase 13 added; live-verification gaps staged for gap-closure planning
+Phase: 13 (live-verification-gap-closure) — EXECUTING
+Plan: 2 of 6
+Status: Ready to execute
+Last activity: 2026-06-11 -- Phase 13 execution started
 
 Session continuity: last session 2026-06-11; stopped at Phase 13 staged (diagnosed UAT ready for --gaps planning); resume file: none
 
@@ -129,6 +129,7 @@ Progress: [█████████░] 92% (12/13 phases complete; 65/65 map
 | Phase 12 P08 | 8min | 2 tasks | 5 files |
 | Phase 12 P09 | 10min | 2 tasks | 5 files |
 | Phase 12 P10 | 5min | 1 tasks | 2 files |
+| Phase 13 P01 | ~12min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -220,6 +221,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 12-09: engine→WS live-attach for auto-resumed runs = 3 injected callables (queue/task/cleanup, default None — dormant bridge byte-identical offline); wired only in app/main.py, kernel never imports app.api
 - [Phase ?]: 12-09: Gap 2c fixed via the EXISTING authz.set_run_scope seam in _execute_impl (NOT owner-only get_run scoping); _stamp_resume_marker sources its workspace from _recover_workspace_id so the run_resuming marker persists matching the sink scope (NOT NULL fix)
 - [Phase ?]: 12-10: Gap 3 closed by a deliverable-strategy swap to the registered serialized_sandbox (manifest-data-only, dangling name: merged.txt removed) — declared deliverable resolves from the copy_disjoint-merged part_*.txt base; no-fallback asserted via the resolved deliverable bytes, not caplog; zero engine edits (SC-001 held)
+- [Phase 13]: 13-01: Streaming gate protocol — evaluate_stream yields delegate events as produced + terminal GateOutcome(events=[]); evaluate() is a thin collector (INV-12); engine duck-types the streaming branch (SC-001) with the WR-04 (None,outcome) sentinel carrying the definitive outcome
 
 ### Pending Todos
 
