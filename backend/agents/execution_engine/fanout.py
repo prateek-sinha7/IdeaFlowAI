@@ -498,6 +498,20 @@ async def run_fanout(requests: list[dict], ctx: Any, *, step: Any) -> AsyncItera
                 # own handler ran — e.g. pending tasks that never entered _run_one).
                 await _mark_open_cancelled(runner, open_rows)
                 raise
+            except Exception:
+                # WR-04: a NON-worker exception (allocate / record_subagent_run /
+                # a budget boundary raising out of one task) re-raises from the
+                # gather while the SIBLING tasks keep running detached — the
+                # ``finally`` teardown would then rmtree workspaces under
+                # in-flight workers and their rows would stay ``running`` forever.
+                # Mirror the cancel path: cancel + await every outstanding task
+                # (each in-flight worker's own CancelledError handler flips its
+                # row), mark the still-open rows cancelled, THEN propagate.
+                for t in tasks:
+                    t.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                await _mark_open_cancelled(runner, open_rows)
+                raise
             # Preserve worker order in the result stream.
             for res in sorted(gathered, key=lambda r: r["worker"]):
                 results.append(res)

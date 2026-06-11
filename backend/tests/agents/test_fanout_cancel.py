@@ -228,6 +228,43 @@ async def test_cancel_mid_parallel_zero_workspace_residue():
 
 
 # ---------------------------------------------------------------------------
+# WR-04 — a NON-worker exception (e.g. allocate crash) cancels in-flight
+# siblings before propagating: no orphaned tasks, no rows left running.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_non_worker_exception_cancels_siblings_and_flips_rows():
+    runner = _CancelRunner(known_agents={"worker-a"}, block=True)
+    _orig_alloc = runner.allocate_isolated_workspace
+
+    async def _failing_alloc(scope, step, *, worker_index):
+        if worker_index == 2:
+            await asyncio.sleep(0.05)  # let the sibling workers enter run_worker first
+            raise RuntimeError("allocation exploded")
+        return await _orig_alloc(scope, step, worker_index=worker_index)
+
+    runner.allocate_isolated_workspace = _failing_alloc  # type: ignore[assignment]
+    ctx = _make_ctx(runner)  # NO cancel_event — the pure exception path
+    step = _make_step("worker-a")
+    requests = [{"agent": "self", "input": f"t-{i}"} for i in range(3)]
+
+    with pytest.raises(RuntimeError, match="allocation exploded"):
+        async for _ev in run_fanout(requests, ctx, step=step):
+            pass
+
+    # The blocking siblings were CANCELLED, not orphaned: every recorded row
+    # reached terminal cancelled (none left running forever).
+    assert runner.recorded_rows, "siblings never recorded rows before the crash"
+    assert {u["status"] for u in runner.updated_rows} == {"cancelled"}
+    recorded_ids = {r["id"] for r in runner.recorded_rows}
+    updated_ids = {u["id"] for u in runner.updated_rows}
+    assert recorded_ids == updated_ids, "a row was left running (orphaned sibling)"
+    # And the teardown ran only after the siblings stopped — zero residue.
+    assert all(ws.torn_down for ws in runner.allocated)
+
+
+# ---------------------------------------------------------------------------
 # RESUME-01 — cancel BETWEEN sequential workers
 # ---------------------------------------------------------------------------
 
