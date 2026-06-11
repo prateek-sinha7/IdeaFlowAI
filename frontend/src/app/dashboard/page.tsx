@@ -1011,6 +1011,7 @@ export default function DashboardPage() {
       onSelectWorkflowRun={handleSelectWorkflowRun}
       questionnaireData={questionnaireData}
       activePipelineRunId={activePipelineRunId}
+      getLastSeq={getLastSeq}
       onSubmitQuestionnaire={submitQuestionnaire}
       reviewGateData={reviewGateData}
       onApproveReview={(gateKey, editedContent) => {

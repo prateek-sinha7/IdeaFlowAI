@@ -54,6 +54,10 @@ export interface DashboardLayoutProps {
   questionnaireData?: { questions: { id: string; question: string; options: string[] }[] } | null;
   // Phase 2 (Universal Engine) — clarify gate resume wiring.
   activePipelineRunId?: string | null;
+  // Phase 12 (RESUME-03) — reads the last-received seq for the active run so the
+  // reconnect_pipeline send can include `after_seq` for the durable replay
+  // (12-03). Returns 0 on a fresh load (no recorded seq ⇒ full-tail replay).
+  getLastSeq?: () => number;
   onSubmitQuestionnaire?: (pipelineRunId: string, responses: Array<{ question_id: string; answer: string }>) => void;
   // Review gate — shown when an agent with gate: Human_Gate completes
   reviewGateData?: {
@@ -194,6 +198,7 @@ export function DashboardLayout({
   onSelectWorkflowRun,
   questionnaireData,
   activePipelineRunId,
+  getLastSeq,
   onSubmitQuestionnaire,
   reviewGateData,
   onApproveReview,
@@ -517,9 +522,15 @@ export function DashboardLayout({
       || (typeof window !== "undefined" && !!sessionStorage.getItem("active_pipeline_run_id"));
 
     if (runId && isRunning && websocketSend) {
+      // Phase 12 (RESUME-03) — send the last-received seq as after_seq so the
+      // durable replay (12-03) delivers exactly the missed tail. 0 on a fresh
+      // load (no recorded seq) ⇒ the backend replays the full tail from 0; a
+      // legacy client that never recorded a seq is byte-identical (after_seq 0).
+      const afterSeq = getLastSeq ? getLastSeq() : 0;
       websocketSend(JSON.stringify({
         type: "reconnect_pipeline",
         pipeline_run_id: runId,
+        after_seq: afterSeq,
       }));
       // If we recovered from sessionStorage but pipelineState doesn't know,
       // at least update the run ID ref so future reconnects work
