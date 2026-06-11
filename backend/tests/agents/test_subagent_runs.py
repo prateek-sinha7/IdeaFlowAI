@@ -315,3 +315,54 @@ def test_compiler_materializes_fanout_and_allowed_workers():
     assert step.fanout.count == 3
     assert step.fanout.agent == "self"
     assert compiled.allowed_workers == ["worker-a", "worker-b"]
+
+
+def test_compiler_materializes_on_conflict_and_merge_agent():
+    """CR-03: on_conflict + fanout.merge_agent survive compilation (not dropped)."""
+    from agents.capabilities.registry import CapabilityRegistry, discover
+    from agents.workflows.compiler import CompilerError, WorkflowCompiler
+    from agents.workflows.manifest import WorkflowManifest
+
+    discover()
+    registry = CapabilityRegistry()
+
+    def _manifest(on_conflict="abort", merge_agent="merge-worker"):
+        return WorkflowManifest(
+            id="conflict-wf",
+            steps=[
+                {
+                    "agent": "worker-a",
+                    "strategy": "single_shot",
+                    "on_conflict": on_conflict,
+                    "fanout": {"mode": "parallel", "merge_agent": merge_agent},
+                }
+            ],
+            deliverable={"strategy": "streamed_text", "name": "out.txt"},
+            planner="skip",
+            clarify={"mode": "off", "defaults": []},
+        )
+
+    compiled = WorkflowCompiler().compile(_manifest(), registry)
+    step = compiled.steps[0]
+    # The authored policy is carried — NOT silently downgraded to human_gate.
+    assert step.on_conflict == "abort"
+    # The designated merge worker is materialized onto the FanoutSpec.
+    assert step.fanout.merge_agent == "merge-worker"
+
+    # An omitted on_conflict keeps the human_gate default (parity).
+    no_policy = WorkflowCompiler().compile(
+        WorkflowManifest(
+            id="default-wf",
+            steps=[{"agent": "worker-a", "strategy": "single_shot"}],
+            deliverable={}, planner="skip", clarify={"mode": "off", "defaults": []},
+        ),
+        registry,
+    )
+    assert no_policy.steps[0].on_conflict == "human_gate"
+
+    # An unknown policy is a fail-loud CompilerError (never a silent fallback).
+    import pytest as _pytest
+
+    with _pytest.raises(CompilerError) as exc:
+        WorkflowCompiler().compile(_manifest(on_conflict="overwrite"), registry)
+    assert "on_conflict" in str(exc.value)

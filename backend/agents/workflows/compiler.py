@@ -94,10 +94,19 @@ _ALLOWED_TASK_SOURCE_KEYS: frozenset[str] = frozenset(
 
 # EXACTLY the keys a step ``fanout:`` dict may declare (D-08 at the nested level /
 # Phase 11 / FANOUT-03). ``mode``/``max_parallel`` are the original fields;
-# ``agent``/``count``/``workers`` select the worker. Pure data (INV-5): the run_fanout
-# kernel owns the selection control flow, the compiler only materializes the data.
+# ``agent``/``count``/``workers`` select the worker; ``merge_agent`` designates the
+# bounded merge worker for ``on_conflict: merge_agent`` (FANOUT-08 / §13). Pure data
+# (INV-5): the run_fanout kernel owns the selection control flow, the compiler only
+# materializes the data.
 _ALLOWED_FANOUT_KEYS: frozenset[str] = frozenset(
-    {"mode", "max_parallel", "agent", "count", "workers"}
+    {"mode", "max_parallel", "agent", "count", "workers", "merge_agent"}
+)
+
+# EXACTLY the §13 on_conflict policy set a step may declare (FANOUT-08). The kernel
+# ``_resolve_conflict`` dispatches on these four; an unknown policy is rejected at
+# compile time (fail-loud) rather than silently falling back to human_gate.
+_ALLOWED_ON_CONFLICT: frozenset[str] = frozenset(
+    {"human_gate", "merge_agent", "partial", "abort"}
 )
 
 # EXACTLY the keys a step ``tools:`` grant block may declare (D-08 at the nested
@@ -476,6 +485,17 @@ class WorkflowCompiler:
         # (parity — every existing manifest is untouched).
         fanout = self._compile_fanout(raw.get("fanout"), where)
 
+        # ── Declared on_conflict policy (Phase 11 / §13 / FANOUT-08 / CR-03) ──
+        # Carry the authored policy onto the compiled Step (it was silently dropped
+        # before — a manifest declaring ``on_conflict: abort`` was downgraded to the
+        # human_gate default). Validated against the §13 four-policy set, fail-loud.
+        on_conflict = raw.get("on_conflict", "human_gate") or "human_gate"
+        if on_conflict not in _ALLOWED_ON_CONFLICT:
+            raise CompilerError(
+                f"unknown on_conflict policy {on_conflict!r} in {where} — must be "
+                f"one of {sorted(_ALLOWED_ON_CONFLICT)} (§13 / FANOUT-08)"
+            )
+
         return Step(
             agent_id=agent_id,
             strategy=strategy,
@@ -487,6 +507,7 @@ class WorkflowCompiler:
             post_step=post_step,
             tools=effective_tools,
             fanout=fanout,
+            on_conflict=on_conflict,
         )
 
     @staticmethod
@@ -520,6 +541,8 @@ class WorkflowCompiler:
             agent=raw_fanout.get("agent"),
             count=raw_fanout.get("count"),
             workers=workers,
+            # The designated merge worker for on_conflict=merge_agent (§13 / CR-03).
+            merge_agent=raw_fanout.get("merge_agent"),
         )
 
     @staticmethod

@@ -367,6 +367,69 @@ async def test_abort_fails_the_run():
 
 
 # ---------------------------------------------------------------------------
+# CR-03 — the LIVE run_merge_agent handle exists on KernelServices (no fake-only
+# attribute): a designated worker runs bounded; an unknown worker degrades False.
+# ---------------------------------------------------------------------------
+
+
+def _real_ks_for_merge_agent():
+    from agents.execution_engine.kernel_services import KernelServices
+
+    calls: list[dict] = []
+
+    class _Ectx:
+        scoped_store = None
+        depth = 0
+        build_task_number = ""
+        build_task_total = ""
+        current_task_block = ""
+        current_prototype_skeleton = ""
+        current_step = None
+        od_context = None
+
+    class _FakeEngine:
+        async def _run_agent(self_inner, spec, *a, **k):
+            calls.append({"agent": spec.id})
+            yield {"type": "agent_chunk", "data": {"chunk": "resolved"}}
+
+    ks = KernelServices(
+        engine=_FakeEngine(),
+        ectx=_Ectx(),
+        sandbox=None,
+        ordered_agents=[SimpleNamespace(id="merge-worker", name="M", role="r", icon="i")],
+        user_message="go",
+        pipeline_run_id="run-ma",
+        pipeline_type="custom",
+        planning_context={},
+        attached_skills=None,
+        attached_hooks=None,
+        model_id=None,
+        results=[],
+        cancel_event=None,
+    )
+    return ks, calls
+
+
+@pytest.mark.asyncio
+async def test_kernel_services_run_merge_agent_runs_designated_worker():
+    """The live handle runs the designated merge worker over the payload (CR-03)."""
+    ks, calls = _real_ks_for_merge_agent()
+    payload = {"strategy": "copy_disjoint", "conflicts": [{"path": "x"}]}
+    resolved = await ks.run_merge_agent("merge-worker", payload, attempt=1)
+    assert resolved is True
+    assert calls == [{"agent": "merge-worker"}]
+
+
+@pytest.mark.asyncio
+async def test_kernel_services_run_merge_agent_unknown_worker_degrades_false():
+    """An unknown merge worker returns False (the caller falls back to human_gate)."""
+    ks, calls = _real_ks_for_merge_agent()
+    resolved = await ks.run_merge_agent("no-such-worker", {"conflicts": []}, attempt=1)
+    assert resolved is False
+    assert calls == []
+
+
+# ---------------------------------------------------------------------------
 # Owner-scoping: a cross-owner read of the merge_conflict ArtifactRef = ∅
 # ---------------------------------------------------------------------------
 

@@ -718,6 +718,59 @@ class KernelServices:
             logger.debug("resolve_merge_strategy(%s) failed: %s", name, exc)
             return None
 
+    # ── Bounded merge-agent invocation (Phase 11 / FANOUT-08 / §13 / CR-03) ───
+    async def run_merge_agent(
+        self, merge_worker: str, payload: Any, *, attempt: int = 1
+    ) -> bool:
+        """Run the designated merge-agent worker ONCE over a conflict payload.
+
+        The live handle behind the ``on_conflict: merge_agent`` policy: the kernel
+        ``_run_merge_agent`` calls this ≤ ``MERGE_AGENT_MAX_ATTEMPTS`` times then
+        falls back to human_gate (the caller owns the bound — Pitfall 8). One call
+        = ONE bounded ``run_agent`` invocation of the designated worker, with the
+        serialized conflict payload threaded as its CURRENT TASK block so the
+        worker sees the conflicting paths/hunks it must resolve in the base
+        workspace. Returns ``True`` when the worker run completed without raising
+        (the attempt is counted resolved; the merged base is what downstream
+        consumes), ``False`` on any failure — including an unknown worker id —
+        so the caller counts the attempt and ultimately falls back to the ONE
+        durable human_gate. Events are consumed internally (lifecycle-only fan-out
+        stream discipline, D-03).
+        """
+        import json as _json
+
+        try:
+            step_view = SimpleNamespace(
+                agent_id=merge_worker,
+                strategy="single_shot",
+                gates=[],
+                hooks=[],
+                task_source=None,
+                post_step=None,
+                tools=None,
+                fanout=None,
+                isolated_workspace=None,
+            )
+            conflict_block = _json.dumps(payload, default=str, sort_keys=True)
+            async for _event in self.run_agent(
+                step_view,
+                self._ectx,
+                task_number=attempt,
+                total_tasks=attempt,
+                task_block=(
+                    "Resolve the following fan-out merge conflict in the "
+                    f"workspace (attempt {attempt}):\n{conflict_block}"
+                ),
+            ):
+                pass  # consumed internally — the conflict flow re-emits its own events
+            return True
+        except Exception as exc:  # noqa: BLE001 — a failed attempt counts, never aborts
+            logger.warning(
+                "run_merge_agent(worker=%s attempt=%s) failed: %s",
+                merge_worker, attempt, exc,
+            )
+            return False
+
     # ── Named-worker registry existence check (Phase 11 / FANOUT-03 / CR-01) ──
     def agent_exists(self, agent_id: str) -> bool:
         """True when ``agent_id`` resolves as a runnable fan-out worker (FANOUT-03).
