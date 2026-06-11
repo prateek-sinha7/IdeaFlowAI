@@ -604,7 +604,38 @@ async def websocket_chat(websocket: WebSocket):
                             })
                             continue
                         from agents.authz import ScopedStore
-                        _replay_store = ScopedStore(owner_id=user.id)
+
+                        # ── Recover the run's workspace_id BEFORE the replay read (CR-02 /
+                        # T-12-05-TENANT) ────────────────────────────────────────────────
+                        # The engine sink stamps every run_events row with the run's REAL
+                        # non-null workspace_id. A ScopedStore with workspace_id=None scopes
+                        # the read to ``workspace_id IS NULL`` and matches ZERO production
+                        # rows. Recover the workspace from a RunEvent row ALREADY FILTERED
+                        # BY ``owner_id == user.id`` (never from the client payload — a row
+                        # that is not the authenticated user's never feeds the workspace_id,
+                        # so the recovered value can never become a cross-tenant read
+                        # primitive; a non-owner run → no row → None → ∅ replay, identical
+                        # to the cross-owner IDOR ∅). Then construct the replay store with
+                        # BOTH the owner_id AND the recovered workspace_id so the read keeps
+                        # the full owner+workspace default-deny scoping.
+                        from app.models.run_event import RunEvent
+
+                        _ws_db = _get_db()
+                        try:
+                            _run_evt_row = (
+                                _ws_db.query(RunEvent)
+                                .filter(
+                                    RunEvent.run_id == _reconnect_run_id,
+                                    RunEvent.owner_id == user.id,
+                                )
+                                .first()
+                            )
+                            _recovered_ws = getattr(_run_evt_row, "workspace_id", None)
+                        finally:
+                            _ws_db.close()
+                        _replay_store = ScopedStore(
+                            owner_id=user.id, workspace_id=_recovered_ws
+                        )
                         try:
                             _missed = await _replay_store.read_events(
                                 _reconnect_run_id, after_seq=_after_seq
