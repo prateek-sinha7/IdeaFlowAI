@@ -309,7 +309,8 @@ export default function DashboardPage() {
     // are also routed to the workflow handler so the planning stage is visible.
     const pipelineTypes = [
       "pipeline_start", "agent_start", "agent_thinking", "agent_chunk",
-      "agent_complete", "agent_error", "pipeline_complete", "pipeline_cancelled",
+      "agent_complete", "agent_error", "pipeline_complete", "pipeline_failed",
+      "pipeline_cancelled",
       "planner_start", "planner_complete", "planner_timeout", "planner_error",
       "gate_status", "clarification_limit_reached",
       // Phase 3 (T043/T044) — Thinking tab: agent_input carries inputPrompt +
@@ -366,6 +367,34 @@ export default function DashboardPage() {
         }
 
         // Refresh workflow runs from backend after pipeline completes
+        const currentToken = getToken();
+        if (currentToken) {
+          getWorkflows(currentToken, { limit: 50 })
+            .then((runs) => setRecentRuns(runs))
+            .catch(() => {});
+        }
+      }
+
+      // F3 (13-06): terminal failure — every agent hard-failed. No deliverable
+      // extraction (there is none); surface the failure through the same chat
+      // error surface "error" events use, and refresh the runs list so the run
+      // shows its failed status.
+      if (msg.type === "pipeline_failed" && msg.data) {
+        const data = msg.data as Record<string, unknown>;
+        const failedAgents = (data.agents_failed as string[]) || [];
+        const errorText = (data.error as string) || "Pipeline failed";
+        const failureMsg: ChatMessage = {
+          id: crypto.randomUUID(),
+          chatSessionId: "",
+          role: "assistant",
+          content:
+            `Error: ${errorText}` +
+            (failedAgents.length ? ` (agents failed: ${failedAgents.join(", ")})` : "") +
+            ` [code:pipeline_failed] [recoverable:false]`,
+          createdAt: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, failureMsg]);
+
         const currentToken = getToken();
         if (currentToken) {
           getWorkflows(currentToken, { limit: 50 })

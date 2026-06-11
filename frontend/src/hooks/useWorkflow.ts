@@ -345,6 +345,45 @@ export function handlePipelineMessage(
       return true;
     }
 
+    case "pipeline_failed": {
+      // F3 (13-06): terminal failure — EVERY agent in the run hard-failed.
+      // The backend emits this instead of pipeline_complete (no deliverable,
+      // state machine in "failed"). Mirror pipeline_cancelled's teardown:
+      // resolve isRunning, clear the persisted run id, and surface the failed
+      // agents through the per-agent error state the hook already maintains
+      // (each agent normally got its own agent_error first; this is the
+      // belt-and-braces terminal sweep so nothing stays spinning).
+      const totalDuration = (msg.total_duration as number) || null;
+      const failedIds = (msg.agents_failed as string[]) || [];
+      const error = (msg.error as string) || "Pipeline failed";
+
+      try {
+        sessionStorage.removeItem("active_pipeline_run_id");
+        sessionStorage.removeItem("active_pipeline_type");
+      } catch { /* non-fatal */ }
+
+      setPipelineState((prev) => {
+        const updated: AgentRunState[] = prev.agents.map((a) => {
+          if (a.status === "error") return a; // already carries its own error
+          if (failedIds.includes(a.id)) {
+            return { ...a, status: "error" as const, error: a.error || error, thinking: "" };
+          }
+          // Any agent still animating resolves to idle (run is over).
+          return a.status === "thinking" || a.status === "running"
+            ? { ...a, status: "idle" as const, thinking: "" }
+            : a;
+        });
+        return {
+          ...prev,
+          agents: updated,
+          isRunning: false,
+          totalDuration,
+          completedCount: updated.filter((a) => a.status === "done").length,
+        };
+      });
+      return true;
+    }
+
     case "pipeline_cancelled": {
       // Clear the persisted run ID
       try {
