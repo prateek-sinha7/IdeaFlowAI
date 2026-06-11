@@ -177,6 +177,113 @@ def test_legacy_reconnect_skips_replay_branch():
 
 
 # ---------------------------------------------------------------------------
+# CR-02 — the PRODUCTION-shaped replay (no explicit workspace_id) returns rows
+# ---------------------------------------------------------------------------
+
+
+def _recover_workspace_id(session, *, run_id: str, owner_id: str):
+    """Recover the run's workspace_id from an OWNER-SCOPED RunEvent row.
+
+    This mirrors EXACTLY how the websocket.py reconnect replay branch recovers the
+    workspace before constructing the replay ScopedStore (CR-02 fix): the lookup is
+    filtered by ``owner_id == user.id`` so a row that is not the authenticated user's
+    never feeds the workspace_id (T-12-05-TENANT — never from client input).
+    """
+    from app.models.run_event import RunEvent
+
+    row = (
+        session.query(RunEvent)
+        .filter(RunEvent.run_id == run_id, RunEvent.owner_id == owner_id)
+        .first()
+    )
+    return getattr(row, "workspace_id", None)
+
+
+@pytest.mark.asyncio
+async def test_production_shaped_replay_recovers_workspace_and_returns_rows(db_session):
+    """CR-02 (RESUME-03): the replay store constructed as the HANDLER constructs it —
+    with NO explicit workspace_id — must still return the run's persisted rows.
+
+    Production run_events rows carry a REAL non-null workspace_id (the engine sink
+    stamps ``ectx.workspace_id``). The pre-fix handler built ``ScopedStore(owner_id=
+    user.id)`` with ``workspace_id=None``, so ``read_events`` scoped to
+    ``workspace_id IS NULL`` and matched ZERO production rows. The fix RECOVERS the
+    run's workspace_id from an owner-scoped RunEvent row BEFORE constructing the store.
+
+    This test stamps rows under a real workspace ("ws-prod"), recovers the workspace
+    the SAME way the handler does (owner-scoped lookup, NOT by passing it explicitly),
+    and asserts the replay is non-empty. It FAILS on the pre-fix construction (no
+    workspace recovery ⇒ workspace_id IS NULL ⇒ 0 rows).
+    """
+    # Seed rows under the run's REAL workspace, via the engine-sink-shaped append.
+    seed_store = ScopedStore(owner_id="alice", workspace_id="ws-prod", session=db_session)
+    db_session.add(
+        WorkflowRun(
+            id="run-prod", user_id="alice", owner_id="alice",
+            workspace_id="ws-prod", status="generating", type="prototype",
+            input="seed",
+        )
+    )
+    db_session.commit()
+    await _seed_events(seed_store, "run-prod", 4)
+
+    # ── The PRODUCTION path: recover the workspace from an owner-scoped row, then build
+    # the replay store WITHOUT passing workspace_id explicitly. ──────────────────────
+    _recovered_ws = _recover_workspace_id(db_session, run_id="run-prod", owner_id="alice")
+    assert _recovered_ws == "ws-prod", "must recover the run's real workspace_id"
+    replay_store = ScopedStore(
+        owner_id="alice", workspace_id=_recovered_ws, session=db_session
+    )
+    rows = await replay_store.read_events("run-prod", after_seq=0)
+    assert [r.seq for r in rows] == [1, 2, 3, 4], (
+        "production-shaped replay must return the run's rows (pre-fix: 0 rows, "
+        "workspace_id IS NULL)"
+    )
+
+    # Proof the pre-fix construction (no workspace recovery) returns NOTHING — the
+    # exact production defect CR-02 closes.
+    prefix_store = ScopedStore(owner_id="alice", session=db_session)
+    assert await prefix_store.read_events("run-prod", after_seq=0) == [], (
+        "the pre-fix ScopedStore(owner_id=...) with no workspace_id must match 0 rows"
+    )
+
+
+@pytest.mark.asyncio
+async def test_cross_owner_workspace_recovery_yields_empty_replay(db_session):
+    """CR-02 / T-12-05-TENANT: the workspace recovery is OWNER-SCOPED — a cross-owner
+    reconnect recovers NO workspace row and the replay is ∅ (the IDOR boundary holds).
+    """
+    seed_store = ScopedStore(owner_id="alice", workspace_id="ws-prod", session=db_session)
+    db_session.add(
+        WorkflowRun(
+            id="run-prod", user_id="alice", owner_id="alice",
+            workspace_id="ws-prod", status="generating", type="prototype",
+            input="seed",
+        )
+    )
+    db_session.commit()
+    await _seed_events(seed_store, "run-prod", 3)
+
+    # Mallory reconnects with alice's run id: the owner-scoped recovery finds no row,
+    # so the recovered workspace is None → the replay (workspace_id IS NULL) is empty.
+    _mallory_ws = _recover_workspace_id(db_session, run_id="run-prod", owner_id="mallory")
+    assert _mallory_ws is None, "cross-owner recovery must not leak the run's workspace"
+    mallory_store = ScopedStore(
+        owner_id="mallory", workspace_id=_mallory_ws, session=db_session
+    )
+    assert await mallory_store.read_events("run-prod", after_seq=0) == [], (
+        "cross-owner reconnect must replay ∅ (T-12-05-TENANT / IDOR boundary)"
+    )
+
+    # The true owner still recovers ws-prod and reads the rows.
+    _alice_ws = _recover_workspace_id(db_session, run_id="run-prod", owner_id="alice")
+    alice_store = ScopedStore(
+        owner_id="alice", workspace_id=_alice_ws, session=db_session
+    )
+    assert len(await alice_store.read_events("run-prod", after_seq=0)) == 3
+
+
+# ---------------------------------------------------------------------------
 # (4) cross-owner reconnect resolves to ∅ (T-12-03-IDOR)
 # ---------------------------------------------------------------------------
 
