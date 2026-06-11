@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-11T13:52:12.837Z"
+last_updated: "2026-06-11T14:07:28.074Z"
 last_activity: 2026-06-11 -- Phase 12 execution started
 progress:
   total_phases: 12
   completed_phases: 11
   total_plans: 71
-  completed_plans: 69
+  completed_plans: 70
   percent: 92
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 12 (wave-scheduler-durable-resume-6) — EXECUTING
-Plan: 2 of 10
+Plan: 3 of 10
 Status: Ready to execute
 Last activity: 2026-06-11 -- Phase 12 execution started
 
@@ -125,6 +125,7 @@ Progress: [██████████] 100% (12/12 phases complete; 65/65 ma
 | Phase 12 P06 | ~14min | 3 tasks | 6 files |
 | Phase 12 P07 | ~16min | 3 tasks | 5 files |
 | Phase 12 P08 | 8min | 2 tasks | 5 files |
+| Phase 12 P09 | 10min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -213,6 +214,8 @@ Recent decisions affecting current work:
 - [Phase 12]: 12-06: mid-wave resume corrected — whole-in-flight-wave re-run (CR-03 no parallel-order data loss), step-filtered _completed_wave_indices (CR-04 no cross-step), stale running wave_runs row flipped 'superseded' on resume (WR-01); subagent_* events carry wave_index+step (CR-06 backend half); duplicate task ids raise pre-spawn in parser + build_waves (WR-05). CR-03-followup per-task-skip deferred (needs task identity on subagent_runs).
 - [Phase 12]: 12-08: live:false+non-terminal pipeline_reconnected keeps isRunning true (self-contained, no reconnectPending flag); re-replay rides existing reconnect cycle bounded by useWebSocket backoff
 - [Phase 12]: 12-08: WaveTreePanel rendered unconditionally on the execution surface — panel owns its empty state, stable slot for non-wave runs
+- [Phase ?]: 12-09: engine→WS live-attach for auto-resumed runs = 3 injected callables (queue/task/cleanup, default None — dormant bridge byte-identical offline); wired only in app/main.py, kernel never imports app.api
+- [Phase ?]: 12-09: Gap 2c fixed via the EXISTING authz.set_run_scope seam in _execute_impl (NOT owner-only get_run scoping); _stamp_resume_marker sources its workspace from _recover_workspace_id so the run_resuming marker persists matching the sink scope (NOT NULL fix)
 
 ### Pending Todos
 
