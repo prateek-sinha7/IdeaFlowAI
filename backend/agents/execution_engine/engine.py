@@ -1532,7 +1532,17 @@ class ExecutionEngine:
                 # registry-driven entry point that delegates to the SAME review gate.
                 _halted = False
                 async for _ge, _outcome in self._evaluate_gates(
-                    step, ectx, _registry, phase="pre"
+                    step, ectx, _registry, phase="pre",
+                    # WR-02 (13 review fix): when the legacy inline review gate
+                    # will fire for THIS agent (_should_gate — AGENT.md
+                    # ``gate: Human_Gate`` or an explicit gate_agent_ids opt-in),
+                    # the declared ``human`` gate is the SAME mechanism reviewing
+                    # the SAME agent (same gate_key) — evaluating both
+                    # double-prompts the user (pre-step with an empty payload,
+                    # then post-step with the real output). Dedupe: the inline
+                    # gate wins (the legacy, output-bearing UX); the declared
+                    # ``human`` gate is skipped for this step only.
+                    inline_gated=self._should_gate(spec, ectx),
                 ):
                     # WR-04: skip the terminal (None, outcome) sentinel when
                     # forwarding (keeps the emitted stream identical) but still
@@ -1572,6 +1582,18 @@ class ExecutionEngine:
                         if _failed_id:
                             _failed_agent_ids.add(_failed_id)
                     yield event
+
+                # ── WR-02 (13 review fix): keep the review payload fresh ─────────
+                # Declared pre-step HITL gates source their review payload from
+                # ``ectx.last_streamed`` (gates/human.py), which used to be set
+                # ONLY at the terminal deliverable block — every declared gate
+                # opened with an EMPTY payload. Refresh it per completed step so
+                # the gate before step N reviews step N-1's output. The terminal
+                # block re-assigns it from the same ``results[-1]["output"]``
+                # value, so deliverable resolution is byte-identical (no event is
+                # emitted here — characterization parity holds).
+                if results:
+                    ectx.last_streamed = results[-1].get("output", "") or ""
 
                 # ── [D-03] Post-step gates (validation) ──────────────────────────
                 # Post-step gates (validation) evaluate AFTER the strategy completes:
@@ -2957,6 +2979,7 @@ class ExecutionEngine:
         registry,
         *,
         phase: str,
+        inline_gated: bool = False,
     ) -> AsyncGenerator[tuple[dict, str], None]:
         """Evaluate a step's declared ``gates: [...]`` for one phase (D-03).
 
@@ -2984,6 +3007,21 @@ class ExecutionEngine:
             if phase == "post" and not is_post:
                 continue
             if phase == "pre" and is_post:
+                continue
+            # ── WR-02 (13 review fix): inline-gate dedupe ─────────────────────
+            # ``human`` delegates to the SAME _run_review_gate the inline
+            # ``_should_gate`` path drives, keyed on the SAME gate_key. When the
+            # inline gate fires for this step, evaluating the declared ``human``
+            # gate too would double-prompt (pre-step empty payload + post-step
+            # real output). Skip it; the inline (output-bearing) gate is the
+            # single review for this agent. Gate-CAPABILITY name, not a
+            # workflow/agent name (SC-001) — same idiom as _POST_STEP_GATES.
+            if name == "human" and inline_gated and phase == "pre":
+                logger.info(
+                    "declared 'human' gate on step %s skipped — the inline "
+                    "review gate already covers this agent (WR-02 dedupe)",
+                    getattr(step, "agent_id", "?"),
+                )
                 continue
             try:
                 gate = registry.resolve("gate", name)

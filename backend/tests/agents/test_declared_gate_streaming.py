@@ -228,3 +228,139 @@ async def test_declared_human_gate_streams_ready_before_approval_and_resumes() -
     assert "pipeline_complete" in types, (
         f"run never reached pipeline_complete after gate approval; got {types[-5:]}"
     )
+
+
+@pytest.mark.asyncio
+async def test_default_run_single_gate_per_agent_with_real_payload() -> None:
+    """WR-02 (13 review fix): a DEFAULT run (no ``gate_agent_ids`` override) must
+    pause exactly ONCE per gated agent, with the agent's REAL output as payload.
+
+    Pre-fix, prototype-specify/plan double-prompted: the manifest-declared
+    ``gates:[human]`` fired pre-step with an EMPTY payload (``ectx.last_streamed``
+    was never set mid-run), then the inline AGENT.md ``gate: Human_Gate`` fired
+    post-step with the real output — four pauses per run, two of them empty,
+    sharing one gate_key per agent. The dedupe lets the inline (output-bearing)
+    gate be the single review for an agent both paths cover.
+    """
+    import agents.execution_engine.engine as engine_mod
+    import agents.factory as factory_mod
+    from agents.execution_engine.engine import ExecutionEngine
+    from agents.registry import get_pipeline_agents
+    from app.core.config import settings as _settings
+
+    _settings.RUNS_ROOT = _RUNS_ROOT
+
+    _orig_compile_for_run = engine_mod.compile_for_run
+
+    def _patched_compile_for_run(pipeline_type, _orig=_orig_compile_for_run):
+        compiled = _orig(pipeline_type)
+        compiled.clarify.mode = "off"
+        return compiled
+
+    engine_mod.compile_for_run = _patched_compile_for_run
+
+    specs = get_pipeline_agents("prototype")
+    gated_ids = {s.id for s in specs if getattr(s, "gate", None) == "Human_Gate"}
+    assert gated_ids == {"prototype-specify", "prototype-plan"}, (
+        f"precondition: the static inline gate set changed: {gated_ids}"
+    )
+
+    _orig_create_runner = factory_mod.create_runner
+    _orig_engine_create_runner = getattr(engine_mod, "create_runner", None)
+
+    def _patched_create_runner(agent_id, ctx, **kw):
+        ctx.model = ScriptedFakeChatModel(_scripts_for(agent_id))
+        return _orig_create_runner(agent_id, ctx, **kw)
+
+    factory_mod.create_runner = _patched_create_runner
+    engine_mod.create_runner = _patched_create_runner
+
+    engine = ExecutionEngine()
+
+    async def _fake_run_planner(
+        user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs
+    ):
+        return engine._default_planning_context(user_message), "PROCEED"
+
+    engine._run_planner = _fake_run_planner  # type: ignore[assignment]
+
+    _orig_store_write = getattr(engine._store, "store", None)
+
+    async def _noop_store(*a, **k):
+        return "artifact-id"
+
+    engine._store.store = _noop_store  # type: ignore[assignment]
+
+    run_id = f"default-gate-{uuid.uuid4().hex[:8]}"
+    od_context = {
+        "template_body": (
+            "## Workflow\nUse .card and .grid classes. "
+            "Build pages into <section data-page>."
+        ),
+        "template_id": "web-prototype",
+        "ds_id": "default",
+        "ds_body": (
+            ":root{--bg:#fff;--fg:#111;--accent:#06f;--surface:#f6f6f6;"
+            "--border:#ddd;--muted:#888;}"
+        ),
+        "craft_block": "Keep markup semantic; wire every nav link.",
+        "is_design_system_required": True,
+    }
+
+    events: list[dict] = []
+    # DEFAULT run: gate_agent_ids is NOT passed — the inline static rule applies.
+    gen = engine.execute(
+        agents=list(specs),
+        user_message="Build me a thing for managing tasks.",
+        pipeline_run_id=run_id,
+        pipeline_type="prototype",
+        user_id="harness-user",
+        od_context=od_context,
+    )
+
+    try:
+        while True:
+            try:
+                ev = await asyncio.wait_for(gen.__anext__(), timeout=_EVENT_TIMEOUT_S)
+            except StopAsyncIteration:
+                break
+            events.append(ev)
+            if ev.get("type") == "review_gate_ready":
+                await engine._store.set_review_response(
+                    ev["data"]["gate_key"], approved=True
+                )
+    finally:
+        await gen.aclose()
+        factory_mod.create_runner = _orig_create_runner
+        if _orig_engine_create_runner is not None:
+            engine_mod.create_runner = _orig_engine_create_runner
+        engine_mod.compile_for_run = _orig_compile_for_run
+        if _orig_store_write is not None:
+            engine._store.store = _orig_store_write  # type: ignore[assignment]
+        else:
+            try:
+                del engine._store.store
+            except AttributeError:
+                pass
+
+    readies = [e for e in events if e.get("type") == "review_gate_ready"]
+
+    # ── THE WR-02 REGRESSION ASSERTIONS ───────────────────────────────────────
+    # Exactly ONE pause per gated agent (no declared+inline double-prompt) …
+    ready_agents = [(e.get("data") or {}).get("agent_id") for e in readies]
+    assert sorted(ready_agents) == sorted(gated_ids), (
+        f"expected exactly one review_gate_ready per gated agent {sorted(gated_ids)}; "
+        f"got {ready_agents} (a duplicate means the declared+inline double-prompt "
+        "is back; a missing one means the gate never opened)"
+    )
+    # … and every pause carries a REAL (non-empty) review payload.
+    for e in readies:
+        out = (e.get("data") or {}).get("output")
+        assert isinstance(out, str) and out.strip(), (
+            f"review_gate_ready for {(e.get('data') or {}).get('agent_id')} "
+            f"carried an EMPTY payload: {out!r}"
+        )
+
+    assert any(e.get("type") == "pipeline_complete" for e in events), (
+        "default gated run never completed after approvals"
+    )
