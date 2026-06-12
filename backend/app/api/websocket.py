@@ -1846,13 +1846,17 @@ async def _handle_revision_execution(
             id=pipeline_run_id,
             user_id=user.id,
             # CR-01 / AUTHZ-03: stamp the owner at creation so the row is
-            # never owner-None. The workspace is the PARENT artifact's
-            # workspace (only resolvable inside the engine), so
-            # _handle_revision writes workspace_id back via
-            # ScopedStore.set_run_scope once `original` is read. Until
-            # then the row carries a real owner + (transiently) a null
-            # workspace; the engine writeback completes the scope so the
-            # owner+workspace-scoped /events get_run resolves it.
+            # never owner-None. The workspace is transiently NULL here:
+            # execute() — the 14-03 dispatch chokepoint — mints the revision
+            # run's OWN workspace and completes the scope via its
+            # set_run_scope, so the run row and its run_events carry that
+            # minted workspace (NOT the parent's; the pre-14 in-method
+            # writeback was deleted, WR-04). Only the post-dispatch
+            # exact-kind lineage ref is stamped with the PARENT artifact's
+            # workspace (engine.py write_ref workspace_id=original
+            # .workspace_id) so the owner+workspace scope filter holds for
+            # revision-of-revision reads. Proven by
+            # test_revision_run_events_persist_and_resolve_on_real_db.
             owner_id=user.id,
             # Link the revision run to its parent so lineage stays intact
             # (parent_run_id is an enforced FK — only set when the parent
