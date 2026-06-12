@@ -613,3 +613,75 @@ async def test_overlap_guard_rejects_second_run_revision(ws_env, ws_user, monkey
         f"expected one pipeline_already_running rejection: {ws.sent}"
     )
     assert rejections[0]["data"]["recoverable"] is True
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# WR-03 (14 review) — reconnect drainer preserves the revision section contract
+# ────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_reconnect_drainer_preserves_revision_section(ws_env, ws_user, monkeypatch):
+    """WR-03 (14 review): a client reconnecting to a LIVE revision run receives
+    the remaining stream with ``section = <target_artifact_type>`` (derived
+    from the run row's ``*_revision`` type — the inverse of the WR-06 alias
+    transform), the same frame shape the revision drainer pins above — never
+    ``section: None`` (which would mis-route post-reconnect frames in an FE
+    that routes on section)."""
+    ws_module, TestingSession = ws_env
+
+    monkeypatch.setattr(ws_module, "_authenticate_token", lambda token, db: ws_user)
+    # The AUTHZ-03 live-attach gate resolves the run through a default-deny
+    # ScopedStore, which opens app.models.database.SessionLocal — wire it onto
+    # the test DB (the test_revision_intelligence.py idiom).
+    monkeypatch.setattr(
+        "app.models.database.SessionLocal", TestingSession, raising=False
+    )
+
+    # A live revision run owned by the reconnecting principal.
+    run_id = str(uuid.uuid4())
+    db = TestingSession()
+    try:
+        db.add(WorkflowRun(
+            id=run_id, user_id=ws_user.id, owner_id=ws_user.id,
+            workspace_id="ws-rev", title="Revision: x",
+            type="od_ppt_revision", status="revising", input="x",
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    # Simulate the in-flight revision: a real (blocked) bg task + a queue
+    # pre-loaded with the remaining stream (one mid-run event + the terminal).
+    release = asyncio.Event()
+
+    async def _blocked():
+        await release.wait()
+
+    live_task = asyncio.create_task(_blocked())
+    queue: asyncio.Queue = asyncio.Queue()
+    await queue.put({"type": "agent_chunk", "data": {"text": "slide html..."}})
+    await queue.put({"type": "pipeline_complete",
+                     "data": {"final_output": "<html>revised</html>"}})
+    monkeypatch.setitem(ws_module._PIPELINE_TASKS, run_id, live_task)
+    monkeypatch.setitem(ws_module._PIPELINE_QUEUES, run_id, queue)
+
+    ws = _ScriptedLoopWebSocket([
+        {"type": "reconnect_pipeline", "pipeline_run_id": run_id},
+    ])
+    try:
+        await asyncio.wait_for(ws_module.websocket_chat(ws), timeout=10.0)
+    finally:
+        release.set()
+        live_task.cancel()
+
+    forwarded = [
+        f for f in ws.sent if f["type"] in ("agent_chunk", "pipeline_complete")
+    ]
+    assert len(forwarded) == 2, f"live frames not forwarded on reconnect: {ws.sent}"
+    for frame in forwarded:
+        assert frame["section"] == "od_ppt_output", (
+            "reconnect drainer must preserve the revision frame contract "
+            f"(section = TARGET artifact type), got {frame['section']!r}"
+        )
+        assert frame["chunk"] is None

@@ -644,6 +644,16 @@ async def websocket_chat(websocket: WebSocket):
                     # no-live-task path, so a run this principal does not own behaves
                     # exactly like a finished/unknown run (∅ replay + live:false,
                     # never the stream).
+                    # WR-03 (14 review fix): revision runs pin section = the
+                    # TARGET artifact type on EVERY frame (the
+                    # test_run_revision_ws_dispatch contract) — a reconnect
+                    # mid-revision must not switch the stream to section: None
+                    # or the FE revision panel mis-routes the remainder.
+                    # Derived below from the owner-filtered run row's type via
+                    # the INVERSE of the WR-06 alias transform (generic suffix
+                    # transform — no workflow-name literal); non-revision runs
+                    # keep the legacy section: None byte-identically.
+                    _reattach_section = None
                     if _has_live_task:
                         from agents.authz import ScopedStore as _GateStore
                         from app.models.workflow import WorkflowRun as _GateRun
@@ -659,6 +669,11 @@ async def websocket_chat(websocket: WebSocket):
                                 .first()
                             )
                             _gate_ws = getattr(_gate_row, "workspace_id", None)
+                            _gate_run_type = getattr(_gate_row, "type", None) or ""
+                            if _gate_run_type.endswith("_revision"):
+                                _reattach_section = (
+                                    f"{_gate_run_type.removesuffix('_revision')}_output"
+                                )
                         finally:
                             _gate_db.close()
                         _own_store = _GateStore(
@@ -788,7 +803,8 @@ async def websocket_chat(websocket: WebSocket):
                                 except asyncio.TimeoutError:
                                     try:
                                         await websocket.send_json({
-                                            "type": "pipeline_heartbeat", "chunk": None, "section": None,
+                                            "type": "pipeline_heartbeat", "chunk": None,
+                                            "section": _reattach_section,
                                             "data": {"pipeline_run_id": _reconnect_run_id,
                                                      "timestamp": datetime.now(timezone.utc).isoformat()},
                                         })
@@ -798,9 +814,13 @@ async def websocket_chat(websocket: WebSocket):
                                 if event is None:
                                     break
                                 try:
+                                    # WR-03: _reattach_section preserves the
+                                    # revision frame contract (section = TARGET
+                                    # artifact type); None for non-revision runs.
                                     await websocket.send_json({
                                         "type": event["type"], "chunk": None,
-                                        "section": None, "data": event.get("data", {}),
+                                        "section": _reattach_section,
+                                        "data": event.get("data", {}),
                                     })
                                 except Exception:
                                     await running_queue.put(event)
