@@ -805,7 +805,14 @@ async def websocket_chat(websocket: WebSocket):
                                 except Exception:
                                     await running_queue.put(event)
                                     break
-                                if event["type"] in ("pipeline_complete", "pipeline_cancelled", "error"):
+                                # IN-02 (13 review fix): pipeline_failed (F3 total
+                                # collapse) and budget_aborted are terminals too —
+                                # break immediately instead of idling until the bg
+                                # task's None sentinel (post-DB-persist latency).
+                                if event["type"] in (
+                                    "pipeline_complete", "pipeline_cancelled",
+                                    "error", "pipeline_failed", "budget_aborted",
+                                ):
                                     break
                         except Exception:
                             pass
@@ -1706,7 +1713,10 @@ async def _handle_workflow_execution(
             if utype == "pipeline_complete":
                 final_output = event.get("data", {}).get("final_output", "")
                 break
-            elif utype in ("pipeline_cancelled", "error"):
+            # IN-02 (13 review fix): pipeline_failed (F3 total collapse) and
+            # budget_aborted are terminals — break here like the other
+            # terminals instead of idling until the bg task's None sentinel.
+            elif utype in ("pipeline_cancelled", "error", "pipeline_failed", "budget_aborted"):
                 break
 
     except asyncio.CancelledError:
