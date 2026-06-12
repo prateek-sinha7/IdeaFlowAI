@@ -1,23 +1,57 @@
 """T058 — Unit tests for revision intelligence (Phase 6 / FR-014).
 
-Rewritten in 05-06 to the typed ``ScopedStore`` / ``artifact_refs`` API: the thin
-``ArtifactStore`` is no longer the artifact path for ``_handle_revision`` — the
-cross-run parent reads + the revision write go through the owner-scoped persisted
-``ScopedStore`` against ``artifact_refs`` (assert_owns-gated, T-5-SEED).
+Rewritten in 05-06 to the typed ``ScopedStore`` / ``artifact_refs`` API, then in
+14-04 to the REAL-dispatch contract: ``_handle_revision`` no longer echoes the
+composed revision context back as the "revision" (the Phase-3 stub deleted in
+14-03) — it dispatches the registry's real revision pipeline
+(``get_pipeline_agents(<derived WR-06 alias>)``) through the public
+``execute()`` chokepoint against SCRIPTED models (offline, no Bedrock).
 
-Tests:
+What this suite owns (vs ``test_run_revision_fe_contract.py``, which owns the
+ORGANIC-parent E2E + revision-of-revision): the SEEDED-parent matrix — every
+pre-dispatch guard plus each FR-014 chain link driven from hand-seeded
+``artifact_refs`` rows.
+
+Guard tests (fire BEFORE dispatch — no scripted wiring needed, semantics kept
+byte-meaning-identical from the pre-14 suite):
   - _handle_revision raises ValueError for empty / whitespace instruction
-  - _handle_revision raises ValueError for non-existent artifact
-  - _handle_revision stores result as a new ArtifactRef with derived_from + version==1
-  - _handle_revision annotates run with planning_context_unavailable when no planning_context
-  - _handle_revision includes original artifact, version history, instruction as separate inputs
-  - planning_context available path prepends the planning context verbatim
+  - _handle_revision raises ValueError for a falsy owner principal (AUTHZ-03)
+  - _handle_revision raises the FR-014 ValueError (byte-exact message) for a
+    non-existent artifact — and on a realistic parent with no chain-link match
   - CROSS-OWNER DENIAL (T-5-SEED): a second owner revising the first owner's
-    parent run raises PermissionError before any read.
+    parent run raises PermissionError BEFORE any event — on both the simple
+    and the realistic-parent variants
+  - link 3 skips "[Error: ...]" placeholders; all-placeholders raises FR-014
+  - clarifications round-trip via artifact_refs (store-level, dispatch-free)
 
-Offline / in-memory SQLite / no API key — ``SessionLocal`` is monkeypatched onto
-a shared StaticPool engine so every ``ScopedStore`` (engine path, no injected
-session) hits the test DB.
+Proceed-path tests (REAL dispatch — scripted wiring via ``_dispatch_wiring``):
+  - the revision stores a NEW exact-kind ref on the revision run with
+    derived_from lineage; content == execute()'s final_output (the scripted
+    REVISED deck, unwrapped — never the context blob)
+  - the three-section context contract ("three separate structured inputs,
+    NOT concatenated") is the agents' INPUT, observable on the forwarded
+    ``agent_input`` event's ``context_message``
+  - the "=== PLANNING CONTEXT" prefix is absent/present in the dispatched
+    context_message (the stub-only terminal payload key is GONE — see the
+    proceed-path tests for the rationale comments)
+  - run_events persistence comes from execute()'s chokepoint: ledger rows
+    exist with contiguous, non-duplicated seq (single stamping source)
+  - the FR-014 chain (deliverable link / summary fallback / placeholder
+    filter) proves WHICH link resolved via the resolved parent content
+    reaching the dispatched agent input
+
+Targeting rule (RESEARCH Pitfall 1): every proceed-path test targets
+``od_ppt_output`` or ``ppt_output`` ONLY — the two kinds whose derived WR-06
+aliases (``od_ppt_revision`` / ``ppt_revision``) carry ``planner: skip``
+manifests (14-01). Any other ``*_output`` target would derive a
+``planner: run`` manifest and hang at the clarify gate. The pre-14 suite's
+"spec" proceed-path targets are re-targeted accordingly; guard tests keep
+their original targets (they never reach dispatch).
+
+Offline / in-memory SQLite / no API key — ``SessionLocal`` is monkeypatched
+onto a shared StaticPool engine so every ``ScopedStore`` (engine path, no
+injected session) hits the test DB; models scripted via
+``tests.agents._scripted_model``.
 """
 
 from __future__ import annotations
@@ -25,21 +59,54 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from contextlib import contextmanager
 
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+# Register every table the engine's ScopedStore path touches on Base.metadata
+# BEFORE create_all: workflow_runs, artifact_refs, workspaces, run_events,
+# run_capabilities (execute() records capabilities + arms the run-events sink).
+import app.models.artifact_ref  # noqa: F401
+import app.models.run_capabilities  # noqa: F401
+import app.models.run_event  # noqa: F401
+import app.models.workflow  # noqa: F401
+import app.models.workspace  # noqa: F401
 from agents.authz import ScopedStore
 from agents.execution_engine.engine import ExecutionEngine
 from app.models.artifact_ref import ArtifactRef
 from app.models.database import Base
+from app.models.run_event import RunEvent
 from app.models.workflow import WorkflowRun
+from tests.agents._scripted_model import (
+    _RUNS_ROOT,
+    ScriptedFakeChatModel,
+    _scripts_for,
+)
 
 OWNER = "owner-x"
 OTHER_OWNER = "owner-y"
 WS = "ws-x"
+
+# The deterministic REVISED decks the 14-01 harness scripts. The last agent of
+# each revision pipeline streams "<narration>\n<artifact>{deck}</artifact>";
+# the declared ``ppt`` deliverable strategy unwraps it, so ``final_output``
+# must be EXACTLY the raw deck HTML between the artifact tags. Expected bytes
+# are DERIVED from the harness (single source — never duplicated as literals).
+#
+# od_ppt_revision is a 1-step pipeline (od-ppt-revision-agent IS the
+# deliverable producer); ppt_revision is 2 steps and the deliverable is the
+# ASSEMBLER's deck (ppt-revision-assembler, the LAST agent).
+_OD_REV_TURN_TEXT = _scripts_for("od-ppt-revision-agent")[0].texts[0]
+EXPECTED_OD_REVISED_DECK = _OD_REV_TURN_TEXT.split("<artifact>", 1)[1].split(
+    "</artifact>", 1
+)[0]
+_PPT_ASM_TURN_TEXT = _scripts_for("ppt-revision-assembler")[0].texts[0]
+EXPECTED_PPT_REVISED_DECK = _PPT_ASM_TURN_TEXT.split("<artifact>", 1)[1].split(
+    "</artifact>", 1
+)[0]
 
 
 @pytest.fixture
@@ -129,7 +196,103 @@ def _seed_ref(
 
 
 # ---------------------------------------------------------------------------
-# Validation guards
+# Scripted dispatch wiring (14-04) — the _scripted_model.py idiom, shared by
+# every proceed-path test below. Guards never need it (they raise pre-dispatch).
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _dispatch_wiring():
+    """Wire ``_handle_revision``'s execute() dispatch onto SCRIPTED models.
+
+    Mirrors the ``tests/agents/_scripted_model._drive`` dispatch idiom:
+      * ``settings.RUNS_ROOT`` → the harness temp root (RunSandbox reads it at
+        __init__; the default /app/runs is not writable locally);
+      * BOTH ``agents.factory.create_runner`` AND
+        ``agents.execution_engine.engine.create_runner`` patched to inject
+        ``ScriptedFakeChatModel(_scripts_for(agent_id))`` as ``ctx.model``
+        (the engine imported the name at module load, so both globals matter);
+      * both restored in ``finally`` so repeated dispatches in one pytest
+        process never accumulate patches.
+
+    ``planner: skip`` on the two revision manifests (14-01) means no
+    planner/clarify patching is needed.
+    """
+    import agents.execution_engine.engine as engine_mod
+    import agents.factory as factory_mod
+    from app.core.config import settings as _settings
+
+    _settings.RUNS_ROOT = _RUNS_ROOT
+
+    _orig_create_runner = factory_mod.create_runner
+    _orig_engine_create_runner = engine_mod.create_runner
+
+    def _patched_create_runner(agent_id, ctx, **kw):
+        ctx.model = ScriptedFakeChatModel(_scripts_for(agent_id))
+        return _orig_create_runner(agent_id, ctx, **kw)
+
+    factory_mod.create_runner = _patched_create_runner
+    engine_mod.create_runner = _patched_create_runner
+    try:
+        yield
+    finally:
+        factory_mod.create_runner = _orig_create_runner
+        engine_mod.create_runner = _orig_engine_create_runner
+
+
+async def _dispatch_revision(
+    engine: ExecutionEngine,
+    *,
+    parent_run_id: str,
+    target_artifact_type: str,
+    instruction: str,
+    pipeline_run_id: str | None = None,
+) -> tuple[str, list[dict]]:
+    """Drive ``_handle_revision`` through the real execute() dispatch against
+    scripted models and return ``(revision_run_id, captured_events)``.
+
+    Each call mints a UNIQUE ``pipeline_run_id`` — the state-machine singleton
+    raises StateMachineError on id reuse within one pytest process.
+    """
+    revision_run_id = pipeline_run_id or f"run-rev-int-{uuid.uuid4().hex[:12]}"
+    sent: list[dict] = []
+
+    async def websocket_send_fn(event: dict) -> None:
+        sent.append(event)
+
+    with _dispatch_wiring():
+        await engine._handle_revision(
+            parent_run_id=parent_run_id,
+            target_artifact_type=target_artifact_type,
+            instruction=instruction,
+            pipeline_run_id=revision_run_id,
+            websocket_send_fn=websocket_send_fn,
+            owner_id=OWNER,
+        )
+    return revision_run_id, sent
+
+
+def _context_message(sent: list[dict]) -> str:
+    """The composed revision context the FIRST dispatched agent received —
+    forwarded verbatim on the ``agent_input`` event (the three-section
+    contract is the agents' INPUT after 14-03, not the run's output)."""
+    agent_inputs = [e for e in sent if e["type"] == "agent_input"]
+    assert agent_inputs, "expected a forwarded agent_input event"
+    return agent_inputs[0]["data"]["context_message"]
+
+
+def _original_section(context_message: str, target_artifact_type: str) -> str:
+    """The body of the ``=== ORIGINAL ARTIFACT ===`` section — evidence of
+    WHICH FR-014 chain link resolved the parent original."""
+    marker = f"=== ORIGINAL ARTIFACT (type: {target_artifact_type}) ==="
+    assert marker in context_message, f"missing {marker!r} in the dispatched context"
+    return context_message.split(marker, 1)[1].split(
+        "=== END ORIGINAL ARTIFACT ===", 1
+    )[0]
+
+
+# ---------------------------------------------------------------------------
+# Validation guards (kept byte-meaning-identical — they fire BEFORE dispatch)
 # ---------------------------------------------------------------------------
 
 
@@ -166,6 +329,37 @@ async def test_whitespace_only_instruction_raises(engine: ExecutionEngine, db_fa
 
 
 @pytest.mark.asyncio
+async def test_falsy_owner_raises(engine: ExecutionEngine, db_factory) -> None:
+    """AUTHZ-03: a falsy owner principal fails LOUD at the seam (ValueError,
+    mirroring ClarifyEngine.run's falsy-owner guard) — never encoded as a
+    downstream write error, never reaching any read or dispatch."""
+    events: list[dict] = []
+
+    async def ws(e: dict) -> None:  # pragma: no cover - never reached
+        events.append(e)
+
+    with pytest.raises(ValueError, match="real owner_id"):
+        await engine._handle_revision(
+            parent_run_id="run-parent",
+            target_artifact_type="spec",
+            instruction="Fix the introduction section",
+            pipeline_run_id="run-rev-falsy-none",
+            websocket_send_fn=ws,
+            owner_id=None,
+        )
+    with pytest.raises(ValueError, match="real owner_id"):
+        await engine._handle_revision(
+            parent_run_id="run-parent",
+            target_artifact_type="spec",
+            instruction="Fix the introduction section",
+            pipeline_run_id="run-rev-falsy-empty",
+            websocket_send_fn=ws,
+            owner_id="",
+        )
+    assert events == []
+
+
+@pytest.mark.asyncio
 async def test_nonexistent_artifact_raises(engine: ExecutionEngine, db_factory) -> None:
     parent = "run-no-artifacts"
     _seed_run(db_factory, run_id=parent, owner_id=OWNER)  # owned, but no refs
@@ -173,7 +367,7 @@ async def test_nonexistent_artifact_raises(engine: ExecutionEngine, db_factory) 
     async def ws(e: dict) -> None:  # pragma: no cover - never reached
         pass
 
-    with pytest.raises(ValueError, match="No artifact"):
+    with pytest.raises(ValueError, match="No artifact") as excinfo:
         await engine._handle_revision(
             parent_run_id=parent,
             target_artifact_type="spec",
@@ -182,121 +376,162 @@ async def test_nonexistent_artifact_raises(engine: ExecutionEngine, db_factory) 
             websocket_send_fn=ws,
             owner_id=OWNER,
         )
+    # FR-014 message pinned BYTE-EXACT to engine.py's f-string.
+    assert str(excinfo.value) == (
+        "No artifact of type 'spec' found for run 'run-no-artifacts'. "
+        "Revision MUST NOT proceed without original context (FR-014)."
+    )
 
 
 # ---------------------------------------------------------------------------
-# Successful revision
+# Successful revision — REAL dispatch (scripted models), chain link 1 (exact kind)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_revision_stores_new_version_with_lineage(engine: ExecutionEngine, db_factory) -> None:
+    """The revision run persists a NEW exact-kind ref whose content is
+    execute()'s final_output (the scripted REVISED deck, unwrapped) with
+    derived_from == the seeded parent original (FR-014 chain link 1).
+
+    Re-targeted from "spec" to "od_ppt_output" (14-04): only the two flipped
+    ``planner: skip`` manifests are run_revision-dispatchable. The pre-14 stub
+    assertions (final_output containing the three ``===`` section markers,
+    ref content == the context blob) are GONE — the context is the agents'
+    INPUT now, covered below.
+    """
     parent = "run-parent-ok"
     _seed_run(db_factory, run_id=parent, owner_id=OWNER)
     original_id = _seed_ref(
         db_factory,
         run_id=parent,
         owner_id=OWNER,
-        kind="spec",
-        content="# Original Spec\n\nSection 1: Introduction\nSection 2: Requirements",
+        kind="od_ppt_output",
+        content="<!doctype html><html><body><section class='deck-slide'>Original Title</section></body></html>",
     )
 
-    events: list[dict] = []
-
-    async def ws(e: dict) -> None:
-        events.append(e)
-
-    await engine._handle_revision(
+    rev_run_id, sent = await _dispatch_revision(
+        engine,
         parent_run_id=parent,
-        target_artifact_type="spec",
-        instruction="Improve the Introduction section",
-        pipeline_run_id="run-rev-ok",
-        websocket_send_fn=ws,
-        owner_id=OWNER,
+        target_artifact_type="od_ppt_output",
+        instruction="Improve the title slide",
     )
 
-    complete_events = [e for e in events if e["type"] == "pipeline_complete"]
+    complete_events = [e for e in sent if e["type"] == "pipeline_complete"]
     assert len(complete_events) == 1
+    final_output = complete_events[0]["data"]["final_output"]
+    # The scripted REVISED deck, unwrapped by the declared ppt deliverable
+    # strategy — raw HTML, never the composed context blob.
+    assert final_output == EXPECTED_OD_REVISED_DECK
+    assert "=== ORIGINAL ARTIFACT" not in final_output
 
     # The revision artifact landed in the revision run via ScopedStore.
     store = ScopedStore(owner_id=OWNER)
-    refs = await store.list_refs("run-rev-ok", kind="spec")
-    assert refs, "revision artifact not persisted"
-    revision = refs[-1]
+    refs = await store.list_refs(rev_run_id, kind="od_ppt_output")
+    assert len(refs) == 1, "expected exactly one exact-kind revision ref"
+    revision = refs[0]
+    assert revision.content == final_output
     assert revision.derived_from == original_id
-    assert revision.version == 1
+    assert revision.run_id == rev_run_id
+    assert revision.visibility == "workspace"
+    # Owner/workspace stamped from the original (the lineage write lands the
+    # ref in the PARENT artifact's workspace so the scope filter holds).
+    assert revision.owner_id == OWNER
+    assert revision.workspace_id == WS
 
 
 @pytest.mark.asyncio
 async def test_revision_contains_three_separate_inputs(engine: ExecutionEngine, db_factory) -> None:
+    """The three-section contract ("three separate structured inputs, NOT
+    concatenated") is the dispatched agents' INPUT — observable on the
+    forwarded ``agent_input`` event's context_message (after 14-03 it is no
+    longer the run's output)."""
     parent = "run-parent-3inputs"
     _seed_run(db_factory, run_id=parent, owner_id=OWNER)
-    original_content = "# Spec\n\nSection 1: Introduction\nSection 2: Requirements"
-    _seed_ref(db_factory, run_id=parent, owner_id=OWNER, kind="spec", content=original_content)
-
-    events: list[dict] = []
-
-    async def ws(e: dict) -> None:
-        events.append(e)
-
-    instruction = "Improve the Introduction section only"
-    await engine._handle_revision(
-        parent_run_id=parent,
-        target_artifact_type="spec",
-        instruction=instruction,
-        pipeline_run_id="run-rev-3inputs",
-        websocket_send_fn=ws,
-        owner_id=OWNER,
+    original_content = (
+        "<!doctype html><html><body><section class='deck-slide'>Intro</section></body></html>"
+    )
+    _seed_ref(
+        db_factory, run_id=parent, owner_id=OWNER, kind="od_ppt_output", content=original_content
     )
 
-    complete = next(e for e in events if e["type"] == "pipeline_complete")
-    final_output = complete["data"]["final_output"]
+    instruction = "Improve the Introduction slide only"
+    _, sent = await _dispatch_revision(
+        engine,
+        parent_run_id=parent,
+        target_artifact_type="od_ppt_output",
+        instruction=instruction,
+    )
 
-    assert "=== ORIGINAL ARTIFACT" in final_output
-    assert "=== VERSION HISTORY" in final_output
-    assert "=== REVISION INSTRUCTION" in final_output
+    context_message = _context_message(sent)
 
-    # Original content + instruction preserved verbatim.
-    assert original_content in final_output
-    assert instruction in final_output
+    assert "=== ORIGINAL ARTIFACT (type: od_ppt_output) ===" in context_message
+    assert "=== VERSION HISTORY ===" in context_message
+    assert "=== REVISION INSTRUCTION ===" in context_message
 
-    orig_pos = final_output.index("=== ORIGINAL ARTIFACT")
-    hist_pos = final_output.index("=== VERSION HISTORY")
-    instr_pos = final_output.index("=== REVISION INSTRUCTION")
+    # Original content + instruction preserved verbatim INSIDE their sections.
+    original_section = _original_section(context_message, "od_ppt_output")
+    assert original_content in original_section
+    instruction_section = context_message.split("=== REVISION INSTRUCTION ===", 1)[1].split(
+        "=== END REVISION INSTRUCTION ===", 1
+    )[0]
+    assert instruction in instruction_section
+
+    orig_pos = context_message.index("=== ORIGINAL ARTIFACT")
+    hist_pos = context_message.index("=== VERSION HISTORY")
+    instr_pos = context_message.index("=== REVISION INSTRUCTION")
     assert orig_pos < hist_pos < instr_pos
 
 
 @pytest.mark.asyncio
-async def test_planning_context_unavailable_when_no_planning_artifact(
+async def test_planning_context_prefix_absent_when_no_planning_artifact(
     engine: ExecutionEngine, db_factory
 ) -> None:
+    """No planning_context artifact on the parent → the "=== PLANNING CONTEXT"
+    prefix is ABSENT from the dispatched context_message.
+
+    (The stub-only terminal payload key that used to annotate
+    pipeline_complete was deleted with the stub in 14-03 — the observable
+    contract is the dispatched INPUT prefix now, hence the rename from the
+    pre-14 test name.)
+    """
     parent = "run-parent-no-planning"
     _seed_run(db_factory, run_id=parent, owner_id=OWNER)
-    _seed_ref(db_factory, run_id=parent, owner_id=OWNER, kind="spec", content="# Spec")
-
-    events: list[dict] = []
-
-    async def ws(e: dict) -> None:
-        events.append(e)
-
-    await engine._handle_revision(
-        parent_run_id=parent,
-        target_artifact_type="spec",
-        instruction="Fix section 2",
-        pipeline_run_id="run-rev-no-planning",
-        websocket_send_fn=ws,
+    _seed_ref(
+        db_factory,
+        run_id=parent,
         owner_id=OWNER,
+        kind="od_ppt_output",
+        content="<!doctype html><html><body>deck</body></html>",
     )
 
-    complete = next(e for e in events if e["type"] == "pipeline_complete")
-    assert complete["data"]["planning_context_unavailable"] is True
+    _, sent = await _dispatch_revision(
+        engine,
+        parent_run_id=parent,
+        target_artifact_type="od_ppt_output",
+        instruction="Fix slide 2",
+    )
+
+    context_message = _context_message(sent)
+    assert "=== PLANNING CONTEXT" not in context_message
+    # The run still completed normally (real dispatch, real terminal pair).
+    assert [e for e in sent if e["type"] == "pipeline_complete"]
 
 
 @pytest.mark.asyncio
 async def test_planning_context_available_when_present(engine: ExecutionEngine, db_factory) -> None:
+    """A planning_context artifact on the parent → the "=== PLANNING CONTEXT"
+    guardrail block is PREPENDED to the dispatched context_message, verbatim
+    content included."""
     parent = "run-parent-with-planning"
     _seed_run(db_factory, run_id=parent, owner_id=OWNER)
-    _seed_ref(db_factory, run_id=parent, owner_id=OWNER, kind="spec", content="# Spec")
+    _seed_ref(
+        db_factory,
+        run_id=parent,
+        owner_id=OWNER,
+        kind="od_ppt_output",
+        content="<!doctype html><html><body>deck</body></html>",
+    )
     _seed_ref(
         db_factory,
         run_id=parent,
@@ -305,26 +540,20 @@ async def test_planning_context_available_when_present(engine: ExecutionEngine, 
         content=json.dumps({"inferred_intent": "Build a login feature", "execution_gate": "PROCEED"}),
     )
 
-    events: list[dict] = []
-
-    async def ws(e: dict) -> None:
-        events.append(e)
-
-    await engine._handle_revision(
+    _, sent = await _dispatch_revision(
+        engine,
         parent_run_id=parent,
-        target_artifact_type="spec",
-        instruction="Fix section 2",
-        pipeline_run_id="run-rev-with-planning",
-        websocket_send_fn=ws,
-        owner_id=OWNER,
+        target_artifact_type="od_ppt_output",
+        instruction="Fix slide 2",
     )
 
-    complete = next(e for e in events if e["type"] == "pipeline_complete")
-    assert complete["data"]["planning_context_unavailable"] is False
-
-    final_output = complete["data"]["final_output"]
-    assert "PLANNING CONTEXT" in final_output
-    assert "Build a login feature" in final_output
+    context_message = _context_message(sent)
+    assert "=== PLANNING CONTEXT" in context_message
+    assert "Build a login feature" in context_message
+    # The planning guardrail is a PREFIX — it precedes the original artifact.
+    assert context_message.index("=== PLANNING CONTEXT") < context_message.index(
+        "=== ORIGINAL ARTIFACT"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -355,6 +584,9 @@ async def test_cross_owner_revision_denied(engine: ExecutionEngine, db_factory) 
             owner_id=OTHER_OWNER,  # NOT the parent owner
         )
 
+    # The denial fired BEFORE any event was emitted (assert_owns is first).
+    assert events == []
+
     # No revision artifact must have been written for the attacker's run.
     attacker_store = ScopedStore(owner_id=OTHER_OWNER)
     refs = await attacker_store.list_refs("run-rev-cross-owner", kind="spec")
@@ -362,7 +594,7 @@ async def test_cross_owner_revision_denied(engine: ExecutionEngine, db_factory) 
 
 
 # ---------------------------------------------------------------------------
-# CR-01 regression: revision run_events persist + /events resolution on a real DB
+# Revision run_events persist + resolve on a real DB — execute()'s chokepoint
 # ---------------------------------------------------------------------------
 
 
@@ -370,22 +602,16 @@ async def test_cross_owner_revision_denied(engine: ExecutionEngine, db_factory) 
 async def test_revision_run_events_persist_and_resolve_on_real_db(
     engine: ExecutionEngine, db_factory
 ) -> None:
-    """CR-01 (iteration-2 BLOCKER) regression.
+    """The revision run's ledger comes from execute()'s chokepoint (14-03):
+    the single stamping source persists every dispatched event to
+    ``run_events`` with contiguous, NON-duplicated seq — a reintroduced second
+    counter (the deleted duplicate stamping path, RESEARCH Pitfall 2) fails
+    this test.
 
-    The round-1 WR-06 fix routed revision emits through a ``_RunEventSink``, but on
-    a REAL DB it (a) stamped ``run_events.workspace_id = None`` (NOT NULL) → the
-    IntegrityError was swallowed by the WR-02 narrow-catch, so NO ledger row landed,
-    and (b) left the revision ``workflow_runs`` row owner/workspace-None, so the
-    owner+workspace-scoped ``get_run`` (and therefore the /events endpoint) 404'd.
-
-    This test creates the revision ``workflow_runs`` row exactly as the WS layer
-    does (owner set, workspace UNSET), drives ``_handle_revision``, then asserts:
-      1. ``run_events`` rows actually persisted (the sink got a real workspace).
-      2. The revision run row had its scope stamped back (owner + workspace).
-      3. An owner+workspace-scoped ``ScopedStore`` (mirroring the /events endpoint
-         that builds ``ScopedStore(owner, workflow_run.workspace_id)``) resolves
-         the run AND replays the stamped ``pipeline_start``/``pipeline_complete``
-         events — i.e. the run no longer 404s.
+    Workspace delta (RESEARCH Pitfall 2 note): execute() mints the revision
+    run's OWN workspace — it does NOT inherit the parent artifact's
+    workspace. The scope for the /events-endpoint-mirroring read is therefore
+    recovered from the PERSISTED rows, never from the parent.
     """
     parent = "run-parent-events"
     _seed_run(db_factory, run_id=parent, owner_id=OWNER, workspace_id=WS)
@@ -393,14 +619,15 @@ async def test_revision_run_events_persist_and_resolve_on_real_db(
         db_factory,
         run_id=parent,
         owner_id=OWNER,
-        kind="spec",
-        content="# Spec\n\nSection 1",
+        kind="od_ppt_output",
+        content="<!doctype html><html><body><section class='deck-slide'>S1</section></body></html>",
         workspace_id=WS,
     )
 
-    rev_run_id = "run-rev-events"
-    # Mirror websocket.py: revision run created with a real owner but NO workspace
-    # (the workspace is the parent artifact's workspace, resolved in the engine).
+    rev_run_id = f"run-rev-events-{uuid.uuid4().hex[:8]}"
+    # Mirror websocket.py: the revision run row is created with a real owner
+    # but NO workspace — execute()'s organic envelope (workspace mint +
+    # set_run_scope) stamps the run's OWN workspace during dispatch.
     s = db_factory()
     try:
         s.add(
@@ -408,9 +635,9 @@ async def test_revision_run_events_persist_and_resolve_on_real_db(
                 id=rev_run_id,
                 user_id=OWNER,
                 owner_id=OWNER,        # AUTHZ-03 — never None at creation
-                workspace_id=None,     # transiently null — engine stamps it back
+                workspace_id=None,     # transiently null — execute() stamps it
                 title="Revision: x",
-                type="spec_revision",
+                type="od_ppt_revision",
                 status="revising",
                 input="x",
             )
@@ -419,46 +646,65 @@ async def test_revision_run_events_persist_and_resolve_on_real_db(
     finally:
         s.close()
 
-    events: list[dict] = []
-
-    async def ws(e: dict) -> None:
-        events.append(e)
-
-    await engine._handle_revision(
+    _, sent = await _dispatch_revision(
+        engine,
         parent_run_id=parent,
-        target_artifact_type="spec",
-        instruction="Tighten section 1",
+        target_artifact_type="od_ppt_output",
+        instruction="Tighten slide 1",
         pipeline_run_id=rev_run_id,
-        websocket_send_fn=ws,
-        owner_id=OWNER,
     )
+    assert [e for e in sent if e["type"] == "pipeline_complete"]
 
-    # (2) The revision run row had its scope stamped back to the parent workspace.
+    # (1) Ledger rows persisted at the chokepoint — recover the MINTED
+    # workspace from the persisted rows themselves (owner-scoped raw read).
     chk = db_factory()
     try:
-        row = chk.query(WorkflowRun).filter(WorkflowRun.id == rev_run_id).first()
-        assert row is not None
-        assert row.owner_id == OWNER
-        assert row.workspace_id == WS, "revision run workspace not stamped back (CR-01)"
+        rows = (
+            chk.query(RunEvent)
+            .filter(RunEvent.run_id == rev_run_id, RunEvent.owner_id == OWNER)
+            .order_by(RunEvent.seq.asc())
+            .all()
+        )
+        assert rows, "no run_events rows persisted for the revision run"
+        workspaces = {r.workspace_id for r in rows}
+        assert len(workspaces) == 1, "every ledger row must carry ONE workspace"
+        minted_ws = workspaces.pop()
+        assert minted_ws, "run_events.workspace_id must never be None (AUTHZ-01)"
+
+        # seq is contiguous from 1 with NO duplicates — the single-stamping
+        # regression trap: a second counter would duplicate or skip.
+        seqs = [r.seq for r in rows]
+        assert seqs == list(range(1, len(seqs) + 1)), (
+            f"seq must be contiguous 1..N with no duplicates; got {seqs}"
+        )
+        # The terminal pipeline_complete row is present in the ledger.
+        types = [r.type for r in rows]
+        assert "pipeline_start" in types
+        assert "pipeline_complete" in types
+        assert all(r.owner_id == OWNER for r in rows)
     finally:
         chk.close()
 
-    # (3) Mirror the /events endpoint: ScopedStore(owner, workflow_run.workspace_id).
-    endpoint_store = ScopedStore(owner_id=OWNER, workspace_id=WS)
-    resolved = await endpoint_store.get_run(rev_run_id)
-    assert resolved is not None, "revision run 404s under owner+workspace scope (CR-01)"
+    # (2) The revision run row carries the MINTED workspace (set_run_scope).
+    chk2 = db_factory()
+    try:
+        row = chk2.query(WorkflowRun).filter(WorkflowRun.id == rev_run_id).first()
+        assert row is not None
+        assert row.owner_id == OWNER
+        assert row.workspace_id == minted_ws, (
+            "revision run workspace must be execute()'s minted workspace"
+        )
+    finally:
+        chk2.close()
 
-    # (1) The stamped lifecycle events actually persisted and replay in seq order.
-    rows = await endpoint_store.read_events(rev_run_id, after_seq=0)
-    types = [r.type for r in rows]
-    assert "pipeline_start" in types, "pipeline_start run_events row missing (CR-01)"
-    assert "pipeline_complete" in types, "pipeline_complete run_events row missing (CR-01)"
-    # Every persisted row carries the real workspace (AUTHZ-01, never None).
-    assert all(r.workspace_id == WS for r in rows)
-    assert all(r.owner_id == OWNER for r in rows)
-    # seq is monotonic per run (idempotent replay contract, API-05).
-    seqs = [r.seq for r in rows]
-    assert seqs == sorted(seqs) and len(set(seqs)) == len(seqs)
+    # (3) Mirror the /events endpoint: ScopedStore(owner, workflow_run.workspace_id)
+    # resolves the run AND replays the persisted events in seq order.
+    endpoint_store = ScopedStore(owner_id=OWNER, workspace_id=minted_ws)
+    resolved = await endpoint_store.get_run(rev_run_id)
+    assert resolved is not None, "revision run 404s under owner+workspace scope"
+    replayed = await endpoint_store.read_events(rev_run_id, after_seq=0)
+    assert [r.type for r in replayed] == types
+    assert [r.seq for r in replayed] == seqs
 
 
 # ---------------------------------------------------------------------------
@@ -504,15 +750,16 @@ async def test_clarifications_round_trip_via_artifact_refs(db_factory) -> None:
 # ---------------------------------------------------------------------------
 # F2 / 13-UAT.md Gap 2 — realistic persistence (de-masked seeds)
 #
-# The pre-13-05 scenarios above seed parents with EXACTLY the kind they target
-# ("spec" → target "spec"), which masked the FE contract: no real run ever
-# persists the FE's target kinds ("ppt_output"/"od_ppt_output") — the run path
-# persists per-agent kinds (_AGENT_KIND_MAP values, falling back to "summary")
-# plus summary/planning_context/clarifications and, since 13-05, a completion
+# The exact-kind scenarios above seed parents with EXACTLY the kind they
+# target, covering FR-014 chain link 1. No real run ever persists the FE's
+# target kinds ("ppt_output"/"od_ppt_output") — the run path persists
+# per-agent kinds (_AGENT_KIND_MAP values, falling back to "summary") plus
+# summary/planning_context/clarifications and, since 13-05, a completion
 # kind="deliverable" ref. These scenarios seed parents the way the RUN PATH
 # actually persists and send the FE-exact target — proving the FR-014 fallback
-# chain (exact → deliverable → summary) without weakening the guard. The
-# exact-kind tests above stay: they now cover chain link 1.
+# chain (exact → deliverable → summary) without weakening the guard. After
+# 14-03 the proof of WHICH link resolved is the resolved parent content
+# reaching the DISPATCHED AGENT INPUT (the stub's echoed output is gone).
 # ---------------------------------------------------------------------------
 
 
@@ -582,33 +829,35 @@ async def test_fe_target_resolves_deliverable_ref_on_realistic_parent(
 ) -> None:
     """(a) F2 / Gap 2: the FE-exact target "ppt_output" against a parent seeded
     the way a NEW (post-13-05) run persists proceeds via chain link 2 — the
-    kind="deliverable" completion ref — and resolves ITS content."""
+    kind="deliverable" completion ref — and the DELIVERABLE content reaches
+    the dispatched agent input as the ORIGINAL ARTIFACT (14-03 real dispatch:
+    the 2-step ppt_revision pipeline runs; the ASSEMBLER's scripted deck is
+    the final deliverable)."""
     parent = "run-parent-realistic-new"
     contents = _seed_realistic_parent(
         db_factory, run_id=parent, owner_id=OWNER, with_deliverable=True
     )
 
-    events: list[dict] = []
-
-    async def ws(e: dict) -> None:
-        events.append(e)
-
-    await engine._handle_revision(
+    _, sent = await _dispatch_revision(
+        engine,
         parent_run_id=parent,
         target_artifact_type="ppt_output",  # FE-exact (DashboardLayout.tsx)
         instruction="Make the title slide bolder",
-        pipeline_run_id="run-rev-realistic-new",
-        websocket_send_fn=ws,
-        owner_id=OWNER,
     )
 
-    complete = next(e for e in events if e["type"] == "pipeline_complete")
-    final_output = complete["data"]["final_output"]
+    context_message = _context_message(sent)
     # The DELIVERABLE ref's content is the resolved original (not a summary).
-    assert contents["deliverable"] in final_output
-    assert "=== ORIGINAL ARTIFACT (type: ppt_output) ===" in final_output
-    # planning_context still resolves alongside the chain.
-    assert complete["data"]["planning_context_unavailable"] is False
+    original_section = _original_section(context_message, "ppt_output")
+    assert contents["deliverable"] in original_section
+    assert contents["summary_v2"] not in original_section
+    # planning_context still resolves alongside the chain — prefix PRESENT.
+    assert "=== PLANNING CONTEXT" in context_message
+
+    # The 2-step ppt_revision pipeline completed for real: final_output is the
+    # ASSEMBLER's scripted deck (the LAST agent), unwrapped.
+    completes = [e for e in sent if e["type"] == "pipeline_complete"]
+    assert len(completes) == 1
+    assert completes[0]["data"]["final_output"] == EXPECTED_PPT_REVISED_DECK
 
 
 @pytest.mark.asyncio
@@ -617,32 +866,26 @@ async def test_fe_target_falls_back_to_summary_on_legacy_parent(
 ) -> None:
     """(b) F2 / Gap 2: a PRE-13-05 legacy parent (no deliverable ref) resolves
     via chain link 3 — the latest kind="summary" ref (the final agent's output
-    under the _AGENT_KIND_MAP fallback) — and the revision proceeds."""
+    under the _AGENT_KIND_MAP fallback) — and ITS content reaches the
+    dispatched agent input as the ORIGINAL ARTIFACT."""
     parent = "run-parent-realistic-legacy"
     contents = _seed_realistic_parent(
         db_factory, run_id=parent, owner_id=OWNER, with_deliverable=False
     )
 
-    events: list[dict] = []
-
-    async def ws(e: dict) -> None:
-        events.append(e)
-
-    await engine._handle_revision(
+    _, sent = await _dispatch_revision(
+        engine,
         parent_run_id=parent,
         target_artifact_type="ppt_output",
         instruction="Tighten the closing slide",
-        pipeline_run_id="run-rev-realistic-legacy",
-        websocket_send_fn=ws,
-        owner_id=OWNER,
     )
 
-    complete = next(e for e in events if e["type"] == "pipeline_complete")
-    final_output = complete["data"]["final_output"]
+    context_message = _context_message(sent)
     # Latest-by-version summary (the FINAL agent's output) is the original.
-    assert contents["summary_v2"] in final_output
+    original_section = _original_section(context_message, "ppt_output")
+    assert contents["summary_v2"] in original_section
     # version_history is the MATCHED link's refs list (both summary versions).
-    assert "2 version(s) exist" in final_output
+    assert "2 version(s) exist" in context_message
 
 
 @pytest.mark.asyncio
@@ -652,7 +895,8 @@ async def test_summary_fallback_skips_error_placeholder_refs(
     """IN-06 (13 review fix): on a legacy degraded parent whose FINAL agent
     errored, the latest summary ref is the "[Error: ...]" placeholder a failed
     agent typed-writes under its mapped kind. Link 3 must skip placeholders and
-    resolve the latest REAL summary, never the error blob."""
+    resolve the latest REAL summary into the dispatched agent input — never
+    the error blob."""
     parent = "run-parent-legacy-degraded"
     _seed_run(db_factory, run_id=parent, owner_id=OWNER)
     real_content = "Real composer output: <section class='deck-slide'>Title</section>"
@@ -677,25 +921,18 @@ async def test_summary_fallback_skips_error_placeholder_refs(
         producer_agent="od-ppt-validator",
     )
 
-    events: list[dict] = []
-
-    async def ws(e: dict) -> None:
-        events.append(e)
-
-    await engine._handle_revision(
+    _, sent = await _dispatch_revision(
+        engine,
         parent_run_id=parent,
         target_artifact_type="ppt_output",
         instruction="Tighten the closing slide",
-        pipeline_run_id="run-rev-legacy-degraded",
-        websocket_send_fn=ws,
-        owner_id=OWNER,
     )
 
-    complete = next(e for e in events if e["type"] == "pipeline_complete")
-    final_output = complete["data"]["final_output"]
+    context_message = _context_message(sent)
     # The real (non-placeholder) summary resolves as the revision original.
-    assert real_content in final_output
-    assert "[Error:" not in final_output
+    original_section = _original_section(context_message, "ppt_output")
+    assert real_content in original_section
+    assert "[Error:" not in context_message
 
 
 @pytest.mark.asyncio
@@ -785,6 +1022,9 @@ async def test_fe_target_cross_owner_still_denied_on_realistic_parent(
             websocket_send_fn=ws,
             owner_id=OTHER_OWNER,  # NOT the parent owner
         )
+
+    # The denial fired BEFORE any event was emitted (assert_owns is first).
+    assert events == []
 
     # Nothing was written for the attacker's revision run.
     attacker_store = ScopedStore(owner_id=OTHER_OWNER)
