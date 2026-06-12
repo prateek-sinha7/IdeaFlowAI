@@ -1810,11 +1810,25 @@ class ExecutionEngine:
         # owner+visibility scope filter. SC-001: "deliverable" is a generic kind —
         # no workflow name, no agent-id literal.
         if final_output and results:
+            # IN-05 (13 review fix): attribute the deliverable ref to the agent
+            # that ACTUALLY produced its content — the latest typed ref with
+            # byte-identical content (e.g. prototype-build via the single_file
+            # resolver) — not blindly the final manifest agent (which may be a
+            # validator that produced nothing). Falls back to the last agent
+            # when no typed ref matches (resolver-transformed output, e.g. the
+            # ppt carousel sanitize). Lineage metadata only: content/kind/hash
+            # and the event stream are unchanged (artifact writes emit no WS
+            # events — INV-3 snapshots unaffected). No agent-id literal (SC-001).
+            _deliverable_producer = (
+                ordered_agents[-1].id if ordered_agents else "deliverable"
+            )
+            for _ref in reversed(ectx.artifacts.tree(ectx.run_id)):
+                if _ref.content == final_output:
+                    _deliverable_producer = _ref.producer_agent
+                    break
             await self._dual_write_artifact(
                 ectx,
-                producer_agent=(
-                    ordered_agents[-1].id if ordered_agents else "deliverable"
-                ),
+                producer_agent=_deliverable_producer,
                 producer_step="deliverable",
                 content=final_output,
                 kind="deliverable",
