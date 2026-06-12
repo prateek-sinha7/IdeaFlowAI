@@ -426,6 +426,48 @@ async def test_cancellation_lands_row_cancelled(ws_env, ws_user, monkeypatch):
 
 
 # ────────────────────────────────────────────────────────────────────────────
+# WR-02 (14 review) — degraded completion persists "degraded", not "completed"
+# ────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_degraded_completion_records_degraded_not_completed(
+    ws_env, ws_user, monkeypatch
+):
+    """WR-02 (14 review): ``pipeline_complete`` carrying ``data.status ==
+    "degraded"`` + ``agents_failed`` (an agent errored unrecovered) persists
+    "degraded" — mirroring the run_pipeline mapping (13 IN-03) — never
+    "completed" (the FE revision-parent lookup keys on completed, so a lying
+    status would offer a partial deliverable as a future revision parent)."""
+    ws_module, TestingSession = ws_env
+    parent_id = _seed_parent(TestingSession, ws_user.id)
+
+    async def _degraded(kwargs):
+        send = kwargs["websocket_send_fn"]
+        await send({"type": "pipeline_complete",
+                    "data": {"final_output": "<html>partial deck</html>",
+                             "status": "degraded",
+                             "agents_failed": ["ppt-revision-assembler"]}})
+
+    stub = _install_stub(monkeypatch, _degraded)
+    ws = _FakeWebSocket()
+
+    await ws_module._handle_revision_execution(
+        ws, ws_user, parent_id, "ppt_output", "Fix the deck.",
+    )
+
+    row = _row(TestingSession, stub.calls[0]["pipeline_run_id"])
+    assert row is not None
+    assert row.status == "degraded", (
+        f"a degraded completion must persist 'degraded' (got {row.status!r}) — "
+        "never 'completed' (FE revision-parent lookup) nor 'failed' "
+        "(a deliverable DID complete)"
+    )
+    assert row.status != "completed"
+    assert row.completed_at is not None
+
+
+# ────────────────────────────────────────────────────────────────────────────
 # WR-01 (14 review) — post-terminal state_restoration_failed is delivered
 # ────────────────────────────────────────────────────────────────────────────
 

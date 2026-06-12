@@ -1784,10 +1784,12 @@ async def _handle_revision_execution(
 
     Terminal-status fidelity (RESEARCH Pitfall 4): the revision WorkflowRun's
     terminal status follows the AUTHORITATIVE terminal event observed on the
-    forwarded stream — ``pipeline_complete`` → "completed", ``pipeline_failed``
-    or no terminal → "failed", cancellation → "cancelled". Never an
-    unconditional "completed" flip (a failed revision recorded as completed
-    would be offered as a revision parent by the FE's status === "completed"
+    forwarded stream — a clean ``pipeline_complete`` → "completed", a
+    ``pipeline_complete`` carrying ``data.status == "degraded"`` → "degraded"
+    (WR-02, mirroring the run_pipeline mapping), ``pipeline_failed`` or no
+    terminal → "failed", cancellation → "cancelled". Never an unconditional
+    "completed" flip (a failed/degraded revision recorded as completed would
+    be offered as a revision parent by the FE's status === "completed"
     lookup); no terminal path leaves the row "revising".
     """
     import uuid as _uuid_mod
@@ -1867,15 +1869,25 @@ async def _handle_revision_execution(
         """
         pipeline_complete_seen = False
         pipeline_failed_seen = False
+        degraded_seen = False
 
         async def _queue_send(event: dict) -> None:
             """The websocket_send_fn handed to the engine — the WS layer
             observes terminal events from the stream it forwards (no
             _handle_revision signature change)."""
-            nonlocal pipeline_complete_seen, pipeline_failed_seen
+            nonlocal pipeline_complete_seen, pipeline_failed_seen, degraded_seen
             etype = event.get("type")
             if etype == "pipeline_complete":
                 pipeline_complete_seen = True
+                # WR-02 (14 review fix): execute() emits pipeline_complete with
+                # status "degraded" + agents_failed when an agent errored
+                # unrecovered. Mirror the run_pipeline mapping (13 IN-03): a
+                # degraded revision must never be recorded "completed" — the
+                # FE's revision-parent lookup keys on status === "completed",
+                # so a lying status offers a partial deliverable as a future
+                # revision parent.
+                if event.get("data", {}).get("status") == "degraded":
+                    degraded_seen = True
             elif etype == "pipeline_failed":
                 pipeline_failed_seen = True
             await event_queue.put(event)
@@ -1908,9 +1920,12 @@ async def _handle_revision_execution(
                 owner_id=user.id,
             )
             # Terminal status follows the authoritative terminal event:
-            # completed iff a clean pipeline_complete was observed.
+            # degraded if the completion carried status "degraded" (WR-02),
+            # completed iff a CLEAN pipeline_complete was observed.
             _persist_terminal_status(
-                "completed"
+                "degraded"
+                if degraded_seen
+                else "completed"
                 if (pipeline_complete_seen and not pipeline_failed_seen)
                 else "failed"
             )
