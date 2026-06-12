@@ -859,9 +859,12 @@ async def websocket_chat(websocket: WebSocket):
                 continue
 
             # Handle revision requests (Phase 3 / T054, FR-014).
-            # Creates a new WorkflowRun with parent_run_id and runs the revision
-            # agent with the original artifact, version history, and instruction
-            # as three separate structured inputs.
+            # Ingress validation stays inline (byte-identical error frames);
+            # everything else (WorkflowRun row, engine dispatch, terminal
+            # status) lives in _handle_revision_execution, dispatched as a
+            # background task so the receive loop stays responsive — that is
+            # what lets cancel_pipeline / pings / reconnects be processed
+            # while a multi-minute revision runs (Phase 14, RESEARCH Pitfall 3).
             if msg_type == "run_revision":
                 _rev_parent_run_id = message_data.get("parent_run_id")
                 _rev_target_type = message_data.get("target_artifact_type")
@@ -883,98 +886,15 @@ async def websocket_chat(websocket: WebSocket):
                     })
                     continue
 
-                import uuid as _uuid_mod
-                _rev_pipeline_run_id = str(_uuid_mod.uuid4())
-
-                # Create a new WorkflowRun with parent_run_id
-                _rev_db = _get_db()
-                try:
-                    _rev_wr = WorkflowRun(
-                        # WorkflowRun.id is the single run identifier (see the main
-                        # pipeline path). The revision engine writes the new artifact
-                        # version with run_id == this id, and the state machine looks
-                        # the run up by id.
-                        id=_rev_pipeline_run_id,
-                        user_id=user.id,
-                        # CR-01 / AUTHZ-03: stamp the owner at creation so the row is
-                        # never owner-None. The workspace is the PARENT artifact's
-                        # workspace (only resolvable inside the engine), so
-                        # _handle_revision writes workspace_id back via
-                        # ScopedStore.set_run_scope once `original` is read. Until
-                        # then the row carries a real owner + (transiently) a null
-                        # workspace; the engine writeback completes the scope so the
-                        # owner+workspace-scoped /events get_run resolves it.
-                        owner_id=user.id,
-                        # Link the revision run to its parent so lineage stays intact
-                        # (parent_run_id is an enforced FK — only set when the parent
-                        # row actually exists, else creation would abort).
-                        parent_run_id=(
-                            _rev_parent_run_id
-                            if _rev_db.query(WorkflowRun.id)
-                            .filter(WorkflowRun.id == _rev_parent_run_id)
-                            .first()
-                            else None
-                        ),
-                        title=f"Revision: {_rev_instruction[:50]}",
-                        # WR-06 (13 review fix): store the FE-routed revision
-                        # alias (ppt_revision / od_ppt_revision), matching the
-                        # engine's emitted pipeline_type — the FE's
-                        # revision-of-revision lookup matches runs on
-                        # ``workflowType + "_revision"``, which the verbatim
-                        # ``{target}_revision`` (= ppt_output_revision) never hit.
-                        type=f"{_rev_target_type.removesuffix('_output')}_revision",
-                        status="revising",
-                        input=_rev_instruction,
-                        agent_count=1,
+                # Mirror the run_pipeline dispatch: assigning the task to
+                # current_pipeline_task is what makes the cancel_pipeline
+                # handler able to cancel a running revision.
+                current_pipeline_task = asyncio.create_task(
+                    _handle_revision_execution(
+                        websocket, user, _rev_parent_run_id,
+                        _rev_target_type, _rev_instruction,
                     )
-                    _rev_db.add(_rev_wr)
-                    _rev_db.commit()
-                    _rev_db.refresh(_rev_wr)
-                    _rev_workflow_run_id = _rev_wr.id
-                finally:
-                    _rev_db.close()
-
-                async def _send_revision_event(event: dict) -> None:
-                    await websocket.send_json({
-                        "type": event["type"], "chunk": None,
-                        "section": _rev_target_type, "data": event["data"],
-                    })
-
-                from agents.execution_engine.engine import get_execution_engine as _get_engine
-                _rev_engine = _get_engine()
-                try:
-                    await _rev_engine._handle_revision(
-                        parent_run_id=_rev_parent_run_id,
-                        target_artifact_type=_rev_target_type,
-                        instruction=_rev_instruction,
-                        pipeline_run_id=_rev_pipeline_run_id,
-                        websocket_send_fn=_send_revision_event,
-                        model_id=getattr(user, "preferred_model", None) or None,
-                        owner_id=user.id,
-                    )
-                    # Mark revision run completed
-                    _rev_db2 = _get_db()
-                    try:
-                        _rev_wr2 = _rev_db2.query(WorkflowRun).filter(WorkflowRun.id == _rev_workflow_run_id).first()
-                        if _rev_wr2:
-                            _rev_wr2.status = "completed"
-                            _rev_wr2.completed_at = datetime.now(timezone.utc)
-                            _rev_db2.commit()
-                    finally:
-                        _rev_db2.close()
-                except ValueError as _rev_err:
-                    await websocket.send_json({
-                        "type": "error", "chunk": None, "section": None,
-                        "data": {"error": str(_rev_err), "code": "revision_validation_error",
-                                 "recoverable": False},
-                    })
-                except Exception as _rev_err:
-                    logger.error("Revision failed: %s", _rev_err, exc_info=True)
-                    await websocket.send_json({
-                        "type": "error", "chunk": None, "section": None,
-                        "data": {"error": f"Revision failed: {_rev_err}",
-                                 "code": "revision_error", "recoverable": True},
-                    })
+                )
                 continue
 
             # Handle questionnaire answer submission (Phase 2 — replaces the
@@ -1820,3 +1740,255 @@ async def _handle_workflow_execution(
                 db.commit()
         finally:
             db.close()
+
+
+async def _handle_revision_execution(
+    websocket: WebSocket,
+    user: User,
+    parent_run_id: str,
+    target_artifact_type: str,
+    instruction: str,
+) -> None:
+    """Run a ``run_revision`` request — queue-decoupled (Phase 14, 14-02).
+
+    The extracted execution half of the WS ``run_revision`` branch, mirroring
+    ``_handle_workflow_execution``'s background-task + per-run-queue + drainer
+    pattern: the revision engine runs as a background task writing events to a
+    per-run queue keyed by the revision ``pipeline_run_id``; this coroutine
+    drains the queue to the WebSocket. The run is registered in
+    ``_PIPELINE_TASKS`` / ``_PIPELINE_QUEUES`` (cancellable via cancel_pipeline,
+    reconnect-discoverable via the owner-gated reconnect path) and cleaned by
+    ``_cleanup_pipeline``.
+
+    Terminal-status fidelity (RESEARCH Pitfall 4): the revision WorkflowRun's
+    terminal status follows the AUTHORITATIVE terminal event observed on the
+    forwarded stream — ``pipeline_complete`` → "completed", ``pipeline_failed``
+    or no terminal → "failed", cancellation → "cancelled". Never an
+    unconditional "completed" flip (a failed revision recorded as completed
+    would be offered as a revision parent by the FE's status === "completed"
+    lookup); no terminal path leaves the row "revising".
+    """
+    import uuid as _uuid_mod
+
+    # app → agents is a legal import direction (the reverse is the
+    # import-linter-forbidden one); imported locally to keep websocket.py's
+    # import-time graph unchanged (matching the engine import below).
+    from agents.registry import get_pipeline_agents
+
+    pipeline_run_id = str(_uuid_mod.uuid4())
+
+    # WR-06 (13 review fix): the FE-routed revision alias (ppt_revision /
+    # od_ppt_revision), matching the engine's emitted pipeline_type — the FE's
+    # revision-of-revision lookup matches runs on ``workflowType + "_revision"``,
+    # which the verbatim ``{target}_revision`` (= ppt_output_revision) never hit.
+    revision_pipeline_type = f"{target_artifact_type.removesuffix('_output')}_revision"
+
+    # RESEARCH Pitfall 6: agent_count reflects the REAL registry membership of
+    # the derived revision pipeline (ppt_revision=2, od_ppt_revision=1) — never
+    # a hardcoded 1. An unknown target yields an empty list (closed registry
+    # lookup, no dispatch implication at this layer) → cosmetic fallback 1; the
+    # dispatch itself fails later at the engine's pre-dispatch guard.
+    _rev_agents = get_pipeline_agents(revision_pipeline_type)
+
+    # Create the revision WorkflowRun (fields byte-identical to the pre-14-02
+    # inline branch EXCEPT the derived agent_count above).
+    db = _get_db()
+    try:
+        wr = WorkflowRun(
+            # WorkflowRun.id is the single run identifier (see the main
+            # pipeline path). The revision engine writes the new artifact
+            # version with run_id == this id, and the state machine looks
+            # the run up by id.
+            id=pipeline_run_id,
+            user_id=user.id,
+            # CR-01 / AUTHZ-03: stamp the owner at creation so the row is
+            # never owner-None. The workspace is the PARENT artifact's
+            # workspace (only resolvable inside the engine), so
+            # _handle_revision writes workspace_id back via
+            # ScopedStore.set_run_scope once `original` is read. Until
+            # then the row carries a real owner + (transiently) a null
+            # workspace; the engine writeback completes the scope so the
+            # owner+workspace-scoped /events get_run resolves it.
+            owner_id=user.id,
+            # Link the revision run to its parent so lineage stays intact
+            # (parent_run_id is an enforced FK — only set when the parent
+            # row actually exists, else creation would abort).
+            parent_run_id=(
+                parent_run_id
+                if db.query(WorkflowRun.id)
+                .filter(WorkflowRun.id == parent_run_id)
+                .first()
+                else None
+            ),
+            title=f"Revision: {instruction[:50]}",
+            type=revision_pipeline_type,
+            status="revising",
+            input=instruction,
+            agent_count=len(_rev_agents) or 1,
+        )
+        db.add(wr)
+        db.commit()
+        db.refresh(wr)
+        workflow_run_id = wr.id
+    finally:
+        db.close()
+
+    event_queue = _get_or_create_queue(pipeline_run_id)
+
+    async def _run_revision_to_queue() -> None:
+        """Run the revision engine and push all events into the queue.
+
+        Never touches the WS. Owns the terminal status persistence — every
+        exit path (return / ValueError / CancelledError / Exception) writes a
+        terminal status keyed on the observed terminal state, so the row can
+        never be left "revising".
+        """
+        pipeline_complete_seen = False
+        pipeline_failed_seen = False
+
+        async def _queue_send(event: dict) -> None:
+            """The websocket_send_fn handed to the engine — the WS layer
+            observes terminal events from the stream it forwards (no
+            _handle_revision signature change)."""
+            nonlocal pipeline_complete_seen, pipeline_failed_seen
+            etype = event.get("type")
+            if etype == "pipeline_complete":
+                pipeline_complete_seen = True
+            elif etype == "pipeline_failed":
+                pipeline_failed_seen = True
+            await event_queue.put(event)
+
+        def _persist_terminal_status(status: str) -> None:
+            sdb = _get_db()
+            try:
+                swr = (
+                    sdb.query(WorkflowRun)
+                    .filter(WorkflowRun.id == workflow_run_id)
+                    .first()
+                )
+                if swr:
+                    swr.status = status
+                    swr.completed_at = datetime.now(timezone.utc)
+                    sdb.commit()
+            finally:
+                sdb.close()
+
+        from agents.execution_engine.engine import get_execution_engine
+
+        try:
+            await get_execution_engine()._handle_revision(
+                parent_run_id=parent_run_id,
+                target_artifact_type=target_artifact_type,
+                instruction=instruction,
+                pipeline_run_id=pipeline_run_id,
+                websocket_send_fn=_queue_send,
+                model_id=getattr(user, "preferred_model", None) or None,
+                owner_id=user.id,
+            )
+            # Terminal status follows the authoritative terminal event:
+            # completed iff a clean pipeline_complete was observed.
+            _persist_terminal_status(
+                "completed"
+                if (pipeline_complete_seen and not pipeline_failed_seen)
+                else "failed"
+            )
+        except ValueError as exc:
+            await event_queue.put({
+                "type": "error",
+                "data": {"error": str(exc), "code": "revision_validation_error",
+                         "recoverable": False},
+            })
+            _persist_terminal_status("failed")
+        except asyncio.CancelledError:
+            # run_pipeline precedent (_run_pipeline_to_queue): absorb the
+            # cancellation, surface pipeline_cancelled, persist "cancelled".
+            logger.info("Revision task cancelled — run=%s", workflow_run_id)
+            await event_queue.put({
+                "type": "pipeline_cancelled",
+                "data": {"message": "Revision cancelled"},
+            })
+            _persist_terminal_status("cancelled")
+        except Exception as exc:
+            logger.error("Revision failed: %s", exc, exc_info=True)
+            await event_queue.put({
+                "type": "error",
+                "data": {"error": f"Revision failed: {exc}",
+                         "code": "revision_error", "recoverable": True},
+            })
+            _persist_terminal_status("failed")
+        finally:
+            # Signal queue consumers that the revision is done
+            await event_queue.put(None)
+            _cleanup_pipeline(pipeline_run_id)
+
+    # Start the revision as a background task (independent of WS connection)
+    revision_bg_task = asyncio.create_task(_run_revision_to_queue())
+    _PIPELINE_TASKS[pipeline_run_id] = revision_bg_task
+
+    # ── Drain the queue to the WebSocket ─────────────────────────────────
+    # Mirrors the run_pipeline drainer. Every drained frame preserves the
+    # pre-14-02 _send_revision_event FE contract: {type, chunk: None,
+    # section: <target_artifact_type>, data} — section is the TARGET artifact
+    # type, not the pipeline type. Error events from the background task ride
+    # the same wrapper.
+    try:
+        while True:
+            try:
+                event = await asyncio.wait_for(event_queue.get(), timeout=10.0)
+            except asyncio.TimeoutError:
+                # Send a heartbeat to detect dead connections.
+                try:
+                    await websocket.send_json({
+                        "type": "pipeline_heartbeat",
+                        "chunk": None,
+                        "section": target_artifact_type,
+                        "data": {"pipeline_run_id": pipeline_run_id,
+                                 "timestamp": datetime.now(timezone.utc).isoformat()},
+                    })
+                except Exception:
+                    # WS is dead — exit drainer, revision continues in background
+                    logger.info(
+                        "WS send failed during heartbeat — disconnecting revision drainer for run=%s (revision continues)",
+                        pipeline_run_id,
+                    )
+                    break
+                continue
+
+            if event is None:
+                # Revision finished — sentinel received
+                break
+
+            try:
+                await websocket.send_json({
+                    "type": event["type"], "chunk": None,
+                    "section": target_artifact_type, "data": event.get("data", {}),
+                })
+            except Exception:
+                # WS died — put the event back and exit drainer
+                # Revision keeps running; reconnect will resume
+                logger.info(
+                    "WS send failed — disconnecting revision drainer for run=%s (revision continues in background)",
+                    pipeline_run_id,
+                )
+                await event_queue.put(event)  # put it back for the next consumer
+                break
+
+            if event["type"] in (
+                "pipeline_complete", "pipeline_cancelled", "error",
+                "pipeline_failed", "budget_aborted",
+            ):
+                break
+
+    except asyncio.CancelledError:
+        # The outer task was cancelled (cancel_pipeline / connection closed) —
+        # propagate to the background engine task, whose CancelledError path
+        # persists "cancelled" (mirrors _handle_workflow_execution).
+        revision_bg_task.cancel()
+        raise
+
+    # Let the background task finish its terminal persistence + cleanup so
+    # callers awaiting this coroutine observe the final row state.
+    try:
+        await asyncio.wait_for(revision_bg_task, timeout=5.0)
+    except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+        pass
