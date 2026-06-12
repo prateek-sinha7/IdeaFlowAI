@@ -152,6 +152,33 @@ def _get_db() -> Session:
     return SessionLocal()
 
 
+def _review_gate_owned_by(gate_key: str, user_id: str) -> bool:
+    """True iff the run named in ``gate_key`` (``{run_id}:{agent_id}``) belongs
+    to ``user_id``.
+
+    The gate response is a cross-run WRITE — ``approved``/``edited_content``
+    resolve the named run's HITL gate and are folded into its results — so it
+    must be owner-gated like every other cross-run surface (13-REVIEW CR-01 /
+    T-13-01-01). Ownership is matched on ``WorkflowRun.user_id``: it is set at
+    every creation site, whereas ``owner_id`` is a nullable Phase-5 backfill
+    the main WS creation path leaves unset. An unknown run and an unowned run
+    are indistinguishable to the caller (no run-existence oracle) — both deny.
+    """
+    run_id = (gate_key or "").split(":", 1)[0]
+    if not run_id:
+        return False
+    db = _get_db()
+    try:
+        row = (
+            db.query(WorkflowRun.id)
+            .filter(WorkflowRun.id == run_id, WorkflowRun.user_id == user_id)
+            .first()
+        )
+    finally:
+        db.close()
+    return row is not None
+
+
 def _extract_message_text(content: Any) -> str:
     """Pull plain text out of a chat-model response ``content`` payload.
 
@@ -970,6 +997,17 @@ async def websocket_chat(websocket: WebSocket):
                         "type": "error", "chunk": None, "section": None,
                         "data": {"error": "approve_review requires gate_key",
                                  "code": "missing_gate_key", "recoverable": True},
+                    })
+                    continue
+                # Only the run's owner may resolve its review gate (13-REVIEW
+                # CR-01 / T-13-01-01) — this handler is the live boundary for
+                # HITL approval, including the N3 exec sign-off gate. Deny
+                # without revealing whether the run exists.
+                if not _review_gate_owned_by(gate_key, user.id):
+                    await websocket.send_json({
+                        "type": "error", "chunk": None, "section": None,
+                        "data": {"error": "Unknown gate_key",
+                                 "code": "invalid_gate_key", "recoverable": True},
                     })
                     continue
                 store = get_artifact_store()
