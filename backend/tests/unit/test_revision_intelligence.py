@@ -646,6 +646,90 @@ async def test_fe_target_falls_back_to_summary_on_legacy_parent(
 
 
 @pytest.mark.asyncio
+async def test_summary_fallback_skips_error_placeholder_refs(
+    engine: ExecutionEngine, db_factory
+) -> None:
+    """IN-06 (13 review fix): on a legacy degraded parent whose FINAL agent
+    errored, the latest summary ref is the "[Error: ...]" placeholder a failed
+    agent typed-writes under its mapped kind. Link 3 must skip placeholders and
+    resolve the latest REAL summary, never the error blob."""
+    parent = "run-parent-legacy-degraded"
+    _seed_run(db_factory, run_id=parent, owner_id=OWNER)
+    real_content = "Real composer output: <section class='deck-slide'>Title</section>"
+    _seed_ref(
+        db_factory,
+        run_id=parent,
+        owner_id=OWNER,
+        kind="summary",
+        content=real_content,
+        version=1,
+        producer_step="od-ppt-composer",
+        producer_agent="od-ppt-composer",
+    )
+    _seed_ref(
+        db_factory,
+        run_id=parent,
+        owner_id=OWNER,
+        kind="summary",
+        content="[Error: model timed out after 3 attempts]",
+        version=2,
+        producer_step="od-ppt-validator",
+        producer_agent="od-ppt-validator",
+    )
+
+    events: list[dict] = []
+
+    async def ws(e: dict) -> None:
+        events.append(e)
+
+    await engine._handle_revision(
+        parent_run_id=parent,
+        target_artifact_type="ppt_output",
+        instruction="Tighten the closing slide",
+        pipeline_run_id="run-rev-legacy-degraded",
+        websocket_send_fn=ws,
+        owner_id=OWNER,
+    )
+
+    complete = next(e for e in events if e["type"] == "pipeline_complete")
+    final_output = complete["data"]["final_output"]
+    # The real (non-placeholder) summary resolves as the revision original.
+    assert real_content in final_output
+    assert "[Error:" not in final_output
+
+
+@pytest.mark.asyncio
+async def test_summary_fallback_all_error_placeholders_raises_fr014(
+    engine: ExecutionEngine, db_factory
+) -> None:
+    """IN-06: when EVERY summary ref is an error placeholder, link 3 stays
+    empty and the FR-014 guard fires — garbage never resolves as an original."""
+    parent = "run-parent-all-errors"
+    _seed_run(db_factory, run_id=parent, owner_id=OWNER)
+    _seed_ref(
+        db_factory,
+        run_id=parent,
+        owner_id=OWNER,
+        kind="summary",
+        content="[Error: ThrottlingException]",
+        version=1,
+    )
+
+    async def ws(e: dict) -> None:  # pragma: no cover - never reached
+        pass
+
+    with pytest.raises(ValueError, match="No artifact"):
+        await engine._handle_revision(
+            parent_run_id=parent,
+            target_artifact_type="ppt_output",
+            instruction="Revise anything",
+            pipeline_run_id="run-rev-all-errors",
+            websocket_send_fn=ws,
+            owner_id=OWNER,
+        )
+
+
+@pytest.mark.asyncio
 async def test_fe_target_still_raises_fr014_when_no_chain_link_matches(
     engine: ExecutionEngine, db_factory
 ) -> None:

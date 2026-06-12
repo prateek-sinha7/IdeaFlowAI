@@ -3768,7 +3768,19 @@ class ExecutionEngine:
             _refs = await store.list_refs(parent_run_id, kind="deliverable")
             _resolved_kind = "deliverable"
         if not _refs:
-            _refs = await store.list_refs(parent_run_id, kind="summary")
+            # IN-06 (13 review fix): a failed agent typed-writes
+            # "[Error: {exc}]" under its mapped kind — summary for unmapped
+            # agents. On a legacy (pre-13-05) degraded parent whose FINAL
+            # agent errored, the latest summary ref is that placeholder, so
+            # the unfiltered link-3 read would "resolve" garbage as the
+            # revision original instead of raising FR-014. Skip error
+            # placeholders; if every summary ref is one, the link stays
+            # empty and the FR-014 ValueError fires (byte-unchanged).
+            _refs = [
+                r
+                for r in await store.list_refs(parent_run_id, kind="summary")
+                if not r.content.startswith("[Error:")
+            ]
             _resolved_kind = "summary"
         original = _refs[-1] if _refs else None
         if original is None:
