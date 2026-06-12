@@ -114,12 +114,21 @@ def test_compiled_clarify_defaults_match_engine_dict(pipeline_type: str) -> None
 
 # ── compile_for_run sources the planner flag (MAN-04, concern 4) ────────────
 
+# Phase 14 carve-out: the two run_revision-dispatched manifests declare
+# planner: skip (clarify-auto would hang a dispatched revision at the clarify
+# event.wait()). Sibling trap: tests/agents/test_manifest_parity.py
+# (_RUN_REVISION_DISPATCHED) — keep both carve-outs in lockstep.
+_RUN_REVISION_DISPATCHED = frozenset({"ppt_revision", "od_ppt_revision"})
+
 
 @pytest.mark.parametrize("pipeline_type", _DISPATCHABLE + ["od_prototype"])
 def test_compiled_planner_is_run_everywhere(pipeline_type: str) -> None:
-    """Every dispatchable manifest declares planner: run (SKIP_PLANNER_FOR_PROTOTYPE
-    is False today — RESEARCH Pitfall 1), so the engine's skip_planner is always
-    False and the planner/clarifier runs for every pipeline (byte-identical).
+    """Every dispatchable manifest declares planner: run — EXCEPT the two
+    run_revision-dispatched manifests (planner: skip as of Phase 14; see
+    _RUN_REVISION_DISPATCHED above and the sibling trap in
+    test_manifest_parity.py). For every other pipeline the engine's
+    skip_planner stays False and the planner/clarifier runs (byte-identical).
     """
     compiled = compile_for_run(pipeline_type)
-    assert compiled.planner == "run"
+    expected = "skip" if pipeline_type in _RUN_REVISION_DISPATCHED else "run"
+    assert compiled.planner == expected
