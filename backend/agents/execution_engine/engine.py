@@ -1549,6 +1549,32 @@ class ExecutionEngine:
                     # honor its outcome so a no-event block halts the step.
                     if _ge is not None:
                         yield _ge
+                    if _outcome == "cancel":
+                        # ── WR-03 (13 review fix): declared-gate rejection ────
+                        # The user clicked Reject at a declared human/approval
+                        # pause — run-cancellation parity with the inline
+                        # _run_review_gate path (which the _gate_rejected
+                        # handler in _run_agent cancels). Without this the run
+                        # kept executing downstream agents and terminated as a
+                        # completion while the state machine sat stranded in
+                        # waiting_for_user.
+                        _cur = self._state_machine.get_state(pipeline_run_id)
+                        if _cur not in ("cancelled", "failed"):
+                            self._state_machine.transition(
+                                pipeline_run_id, "cancelled"
+                            )
+                        await self._persist_budget_snapshot_if_active(ectx)
+                        yield {
+                            "type": "pipeline_cancelled",
+                            "data": {
+                                "pipeline_run_id": pipeline_run_id,
+                                "reason": (
+                                    f"User rejected at the review gate "
+                                    f"before {spec.name}"
+                                ),
+                            },
+                        }
+                        return
                     if _outcome in ("block", "wait_human"):
                         _halted = True
                 if _halted:
@@ -2972,6 +2998,12 @@ class ExecutionEngine:
     # gate name defaults to pre-step (fail-safe: evaluate it before the work).
     _POST_STEP_GATES = frozenset({"validation"})
 
+    # WR-03 (13 review fix): gates whose ``block`` outcome is an EXPLICIT human
+    # rejection (the user clicked Reject at the HITL pause) — run-cancellation
+    # parity with the inline _run_review_gate path, not a mere step skip.
+    # Gate-capability names, not workflow/agent names (SC-001).
+    _HITL_GATES = frozenset({"human", "approval"})
+
     async def _evaluate_gates(
         self,
         step,
@@ -3039,24 +3071,38 @@ class ExecutionEngine:
                 # security) keep the await-then-yield path byte-identically.
                 stream_fn = getattr(gate, "evaluate_stream", None)
                 if callable(stream_fn):
+                    outcome = "pass"
                     async for item in stream_fn(step, ectx):
                         if isinstance(item, dict):
                             yield item, "pass"
                         else:
-                            # Terminal GateOutcome → the WR-04 sentinel.
-                            yield None, getattr(item, "outcome", "pass")
+                            # Terminal GateOutcome → captured; the WR-04
+                            # sentinel is yielded below (shared with the
+                            # awaited path so WR-03 cancel mapping applies).
+                            outcome = getattr(item, "outcome", "pass")
                             break
-                    continue
-                result = await gate.evaluate(step, ectx)
+                else:
+                    result = await gate.evaluate(step, ectx)
+                    outcome = getattr(result, "outcome", "pass")
+                    for event in getattr(result, "events", None) or []:
+                        yield event, outcome
             except Exception as exc:  # noqa: BLE001 — a gate must never abort the run
                 logger.warning(
                     "gate %r on step %s raised (%s) — treating as pass",
                     name, getattr(step, "agent_id", "?"), exc,
                 )
                 continue
-            outcome = getattr(result, "outcome", "pass")
-            for event in getattr(result, "events", None) or []:
-                yield event, outcome
+            # ── WR-03 (13 review fix): HITL rejection cancels the RUN ─────────
+            # A ``block`` from a human/approval gate is the user clicking Reject
+            # at the review pause. The inline path cancels the pipeline on
+            # rejection; the declared path used to merely skip the step and let
+            # the run continue to a "successful" completion with the state
+            # machine stranded in waiting_for_user. Surface a distinct
+            # ``cancel`` sentinel the dispatch loop acts on; no further gates
+            # evaluate (the run is over).
+            if outcome == "block" and name in self._HITL_GATES:
+                yield None, "cancel"
+                return
             # WR-04: surface the outcome INDEPENDENTLY of event emission. A
             # blocking gate that emits zero events (``GateOutcome`` with
             # ``outcome="block"``/``"wait_human"`` but an empty ``events`` list)

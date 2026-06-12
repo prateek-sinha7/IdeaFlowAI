@@ -364,3 +364,132 @@ async def test_default_run_single_gate_per_agent_with_real_payload() -> None:
     assert any(e.get("type") == "pipeline_complete" for e in events), (
         "default gated run never completed after approvals"
     )
+
+
+@pytest.mark.asyncio
+async def test_declared_gate_rejection_cancels_the_run() -> None:
+    """WR-03 (13 review fix): Reject at a declared gate CANCELS the run.
+
+    Pre-fix, a declared human gate mapped rejection to a step-skip: the run kept
+    executing downstream agents and terminated as a pipeline_complete with the
+    state machine stranded in ``waiting_for_user``. Rejection must mirror the
+    inline path: ``pipeline_cancelled`` terminal, state ``cancelled``, no
+    ``pipeline_complete``, no further agents.
+    """
+    import agents.execution_engine.engine as engine_mod
+    import agents.factory as factory_mod
+    from agents.execution_engine.engine import ExecutionEngine
+    from agents.registry import get_pipeline_agents
+    from app.core.config import settings as _settings
+
+    _settings.RUNS_ROOT = _RUNS_ROOT
+
+    _orig_compile_for_run = engine_mod.compile_for_run
+
+    def _patched_compile_for_run(pipeline_type, _orig=_orig_compile_for_run):
+        compiled = _orig(pipeline_type)
+        compiled.clarify.mode = "off"
+        return compiled
+
+    engine_mod.compile_for_run = _patched_compile_for_run
+
+    specs = get_pipeline_agents("prototype")
+
+    _orig_create_runner = factory_mod.create_runner
+    _orig_engine_create_runner = getattr(engine_mod, "create_runner", None)
+
+    def _patched_create_runner(agent_id, ctx, **kw):
+        ctx.model = ScriptedFakeChatModel(_scripts_for(agent_id))
+        return _orig_create_runner(agent_id, ctx, **kw)
+
+    factory_mod.create_runner = _patched_create_runner
+    engine_mod.create_runner = _patched_create_runner
+
+    engine = ExecutionEngine()
+
+    async def _fake_run_planner(
+        user_message, pipeline_run_id, model_id, cancel_event, ptype="custom", **kwargs
+    ):
+        return engine._default_planning_context(user_message), "PROCEED"
+
+    engine._run_planner = _fake_run_planner  # type: ignore[assignment]
+
+    _orig_store_write = getattr(engine._store, "store", None)
+
+    async def _noop_store(*a, **k):
+        return "artifact-id"
+
+    engine._store.store = _noop_store  # type: ignore[assignment]
+
+    run_id = f"declared-reject-{uuid.uuid4().hex[:8]}"
+    od_context = {
+        "template_body": "## Workflow\nBuild pages into <section data-page>.",
+        "template_id": "web-prototype",
+        "ds_id": "default",
+        "ds_body": ":root{--bg:#fff;--fg:#111;}",
+        "craft_block": "Keep markup semantic.",
+        "is_design_system_required": True,
+    }
+
+    events: list[dict] = []
+    gen = engine.execute(
+        agents=list(specs),
+        user_message="Build me a thing for managing tasks.",
+        pipeline_run_id=run_id,
+        pipeline_type="prototype",
+        user_id="harness-user",
+        od_context=od_context,
+        gate_agent_ids=[],  # declared gates ONLY (the WR-03 surface under test)
+    )
+
+    try:
+        while True:
+            try:
+                ev = await asyncio.wait_for(gen.__anext__(), timeout=_EVENT_TIMEOUT_S)
+            except StopAsyncIteration:
+                break
+            events.append(ev)
+            if ev.get("type") == "review_gate_ready":
+                # ── REJECT the first declared gate (the user clicks Reject). ──
+                await engine._store.set_review_response(
+                    ev["data"]["gate_key"], approved=False
+                )
+    finally:
+        await gen.aclose()
+        factory_mod.create_runner = _orig_create_runner
+        if _orig_engine_create_runner is not None:
+            engine_mod.create_runner = _orig_engine_create_runner
+        engine_mod.compile_for_run = _orig_compile_for_run
+        if _orig_store_write is not None:
+            engine._store.store = _orig_store_write  # type: ignore[assignment]
+        else:
+            try:
+                del engine._store.store
+            except AttributeError:
+                pass
+
+    types = [e.get("type") for e in events]
+
+    # The run terminated as a CANCELLATION, not a completion.
+    assert "pipeline_cancelled" in types, (
+        f"rejection never produced pipeline_cancelled; got {types}"
+    )
+    assert "pipeline_complete" not in types, (
+        "a rejected run must NEVER terminate as pipeline_complete (WR-03)"
+    )
+    # Exactly one gate opened — the run stopped at the rejection (no second
+    # declared gate, no downstream agents).
+    readies = [e for e in events if e.get("type") == "review_gate_ready"]
+    assert len(readies) == 1, f"expected one gate before cancellation: {readies}"
+    rejected_agent = readies[0]["data"]["agent_id"]
+    later_starts = [
+        e for e in events
+        if e.get("type") == "agent_start"
+        and types.index("pipeline_cancelled") < events.index(e)
+    ]
+    assert later_starts == [], "agents kept running after the cancellation"
+    assert rejected_agent == "prototype-specify"
+
+    # The state machine landed in the terminal "cancelled" state — NOT stranded
+    # in waiting_for_user.
+    assert engine._state_machine.get_state(run_id) == "cancelled"
