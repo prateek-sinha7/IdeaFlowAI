@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: resolved
 phase: 13-live-verification-gap-closure
 source: [.planning/live-verification/REPORT.md]
 started: 2026-06-11T19:00:00Z
-updated: 2026-06-11T22:05:00Z
+updated: 2026-06-12T00:04:48Z
 provenance: >
   Gaps found by the 2026-06-11 post-milestone live-Bedrock verification pass
   (real Haiku 4.5: phase-8 live suites 43/46, full WS product-path driver, an
@@ -87,7 +87,7 @@ blocked: 0
 ## Gaps
 
 - truth: "A manifest-declared gates:[human] step surfaces review_gate_ready to the connected client BEFORE awaiting the response, so the user can approve from the UI and the run proceeds"
-  status: failed
+  status: resolved
   reason: "Live WS evidence: review_gate_ready+review_gate_approved arrive together only AFTER an external unblock; a real UI run hangs at the first declared gate with no signal to approve"
   severity: major
   test: 1
@@ -105,7 +105,7 @@ blocked: 0
   debug_session: "diagnosed live 2026-06-11 (.planning/live-verification/REPORT.md F1; ws-prototype frames + async task-stack dumps)"
 
 - truth: "run_revision with the FE's exact payload (target_artifact_type: ppt_output / od_ppt_output) against a completed parent run passes FR-014 validation and produces a revision run"
-  status: failed
+  status: resolved
   reason: "FE-exact replay against a live completed ppt run: 'No artifact of type ppt_output found for run ... (FR-014)' — every run_revision fails; PPT revision is user-broken whenever a completed run id exists"
   severity: major
   test: 2
@@ -124,7 +124,7 @@ blocked: 0
   debug_session: "diagnosed live 2026-06-11 (REPORT.md F2; FE-exact WS replay + grep evidence)"
 
 - truth: "A run whose agents hard-fail (e.g. missing od_context for injects-declaring agents) terminates as a visible failure or fails fast at ingress — never pipeline_complete with an empty or improvised deliverable"
-  status: failed
+  status: resolved
   reason: "ws-prototype: 4/4 agents agent_error'd ('no template body loaded'), run ended pipeline_complete with final_output='' in 12s. ws-ppt: 2/3 agents halted; the validator improvised the entire deck solo and the run 'passed'"
   severity: major
   test: 3
@@ -143,7 +143,7 @@ blocked: 0
   debug_session: "diagnosed live 2026-06-11 (REPORT.md F3; ws-prototype/ws-ppt frames + Opus per-agent review)"
 
 - truth: "Text-only (tools:[]) agents emit no fabricated tool-call XML in prose on live Haiku, and the handoff coder reliably returns a parseable JSON edit-plan"
-  status: failed
+  status: resolved
   reason: "4 Opus reviewers independently flagged raw <function_calls>/write_todos XML inside prose outputs across user_stories/custom/app_builder/dotnet; handoff coder returned tool-XML instead of JSON in 1 of 2 live runs (agent_error 'handoff coder returned no JSON object')"
   severity: major
   test: 4
@@ -162,7 +162,7 @@ blocked: 0
   debug_session: "diagnosed live 2026-06-11 (REPORT.md F4; od_ppt2 frames, handoff failure log, 4 Opus reviews)"
 
 - truth: "All 15 app_builder agents produce role-conformant, on-domain output with consistent cross-agent contracts (impl matches tests; one API prefix)"
-  status: failed
+  status: resolved
   reason: "Opus 15-agent audit: 4 agents dead (2 empty, 1 refused asking 'Java or .NET?', 1 narration-only); auth tests cannot compile against the auth implementation; API design says /api/* while CI/CD targets /api/v1/*"
   severity: major
   test: 5
@@ -183,7 +183,7 @@ blocked: 0
   debug_session: "diagnosed 2026-06-11 (REPORT.md F5; Opus app_builder audit over capture packets)"
 
 - truth: "sample_fanout resolves its declared deliverable from produced files (no single_file fallback warning)"
-  status: failed
+  status: resolved
   reason: "Live run: 'merged.txt not written by agent — falling back to streamed output' (1 hit); final output degraded to one worker's streamed text despite a perfect 3-worker fan-out + copy_disjoint merge"
   severity: minor
   test: 6
@@ -196,7 +196,7 @@ blocked: 0
   debug_session: "diagnosed live 2026-06-11 (REPORT.md F6)"
 
 - truth: "test_phase3_token_delta_live drives the live compaction token-delta measurement against the current engine"
-  status: failed
+  status: resolved
   reason: "AttributeError: 'ExecutionEngine' object has no attribute '_build_context_message' — collection-time monkeypatch target deleted by the Phase-7 decoupling"
   severity: minor
   test: 7
@@ -209,7 +209,7 @@ blocked: 0
   debug_session: "diagnosed 2026-06-11 (REPORT.md F7)"
 
 - truth: "The phase-8 live sweep's soft cost ceiling reflects real Haiku 4.5 spend so a clean sweep passes"
-  status: failed
+  status: resolved
   reason: "BudgetExceededError: cost $5.9400 exceeds soft ceiling $5.0000 on an otherwise-clean sweep (18.7M tokens — 17.5M input from context accumulation)"
   severity: cosmetic
   test: 8
