@@ -909,7 +909,13 @@ async def websocket_chat(websocket: WebSocket):
                             else None
                         ),
                         title=f"Revision: {_rev_instruction[:50]}",
-                        type=f"{_rev_target_type}_revision",
+                        # WR-06 (13 review fix): store the FE-routed revision
+                        # alias (ppt_revision / od_ppt_revision), matching the
+                        # engine's emitted pipeline_type — the FE's
+                        # revision-of-revision lookup matches runs on
+                        # ``workflowType + "_revision"``, which the verbatim
+                        # ``{target}_revision`` (= ppt_output_revision) never hit.
+                        type=f"{_rev_target_type.removesuffix('_output')}_revision",
                         status="revising",
                         input=_rev_instruction,
                         agent_count=1,

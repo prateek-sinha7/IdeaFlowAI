@@ -101,7 +101,11 @@ async def test_fe_exact_run_revision_against_a_completed_run(db_factory) -> None
     completes = [e for e in sent if e["type"] == "pipeline_complete"]
     assert len(completes) == 1, "expected exactly one revision pipeline_complete"
     data = completes[0]["data"]
-    assert data["pipeline_type"] == "od_ppt_output_revision"
+    # WR-06 (13 review fix): the emitted pipeline_type is the FE-ROUTED revision
+    # alias (the dashboard preview routing matches od_ppt_revision — the verbatim
+    # "od_ppt_output_revision" matched no branch, so the revision never reached
+    # the preview panel).
+    assert data["pipeline_type"] == "od_ppt_revision"
 
     # ── 4) The revision context embeds the PARENT deliverable content — the
     # FR-014 chain resolved the run's organically-persisted completion ref.

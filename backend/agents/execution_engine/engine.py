@@ -3792,12 +3792,26 @@ class ExecutionEngine:
                 f"=== END PLANNING CONTEXT ===\n\n"
             ) + revision_context
 
+        # ── WR-06 (13 review fix): FE-routable revision pipeline_type ───────────
+        # The FE sends ``*_output`` artifact KINDS as the revision target
+        # (ppt_output / od_ppt_output) but routes pipeline_complete previews on
+        # the WORKFLOW revision aliases (ppt_revision / od_ppt_revision /
+        # prototype_revision / user_stories_revision). Emitting
+        # ``{target}_revision`` verbatim produced ``ppt_output_revision`` —
+        # matched by NO FE branch, so the revision's final_output was never
+        # routed to the preview panel. Normalize with a GENERIC suffix
+        # transform (no workflow-name literal — SC-001); non-``*_output``
+        # targets are unchanged.
+        revision_pipeline_type = (
+            f"{target_artifact_type.removesuffix('_output')}_revision"
+        )
+
         # Run the appropriate revision agent (use the pipeline's revision type)
         # For now, emit the revision as a single-agent pipeline
         await websocket_send_fn({
             "type": "pipeline_start",
             "data": {
-                "pipeline_type": f"{target_artifact_type}_revision",
+                "pipeline_type": revision_pipeline_type,
                 "pipeline_run_id": pipeline_run_id,
                 "agent_count": 1,
                 "agents": [{"id": "revision-agent", "name": "Revision Agent",
@@ -3852,7 +3866,8 @@ class ExecutionEngine:
         await websocket_send_fn({
             "type": "pipeline_complete",
             "data": {
-                "pipeline_type": f"{target_artifact_type}_revision",
+                # WR-06: the FE-routed alias (see revision_pipeline_type above).
+                "pipeline_type": revision_pipeline_type,
                 "pipeline_run_id": pipeline_run_id,
                 "total_duration": 0.0,
                 "agents_completed": 1,
