@@ -1487,6 +1487,13 @@ async def _handle_workflow_execution(
     current_agent: dict = {}
     any_agent_errored = False
     first_agent_error_msg: Optional[str] = None
+    # IN-03 (13 review fix): the pipeline_complete payload is the authoritative
+    # terminal truth (WR-05 semantics) — capture it so DB persistence agrees
+    # with what the FE was told, instead of flipping ANY run with an
+    # agent_error to "failed" (which marked degraded AND recovered-timeout
+    # completions as failures — three surfaces disagreed).
+    pipeline_complete_seen = False
+    degraded_failed_agents: Optional[list] = None  # non-None ⇒ status "degraded"
 
     event_queue = _get_or_create_queue(pipeline_run_id)
 
@@ -1494,6 +1501,7 @@ async def _handle_workflow_execution(
         """Run the engine and push all events into the queue. Never touches WS."""
         nonlocal final_output, agent_outputs_collector, current_agent
         nonlocal any_agent_errored, first_agent_error_msg
+        nonlocal pipeline_complete_seen, degraded_failed_agents
 
         try:
             async for update in engine.execute(
@@ -1569,6 +1577,14 @@ async def _handle_workflow_execution(
                     current_agent = {}
                 elif utype == "pipeline_complete":
                     final_output = update["data"].get("final_output", "")
+                    # IN-03: capture the WR-05 terminal payload semantics —
+                    # status "degraded" + agents_failed are present ONLY when
+                    # some agent errored and never completed.
+                    pipeline_complete_seen = True
+                    if update["data"].get("status") == "degraded":
+                        degraded_failed_agents = list(
+                            update["data"].get("agents_failed", [])
+                        )
 
             # ── Pipeline completed successfully — persist immediately ──────
             # This runs INSIDE the background task, after the async for loop
@@ -1582,9 +1598,27 @@ async def _handle_workflow_execution(
                         # Always write output and agent_outputs — the outer block
                         # may have already set status to "completed" but with NULL output
                         # due to the race condition. We fix it here with real data.
-                        wr.status = "failed" if any_agent_errored else "completed"
-                        if any_agent_errored:
-                            wr.error = first_agent_error_msg
+                        # IN-03 (13 review fix): status follows the authoritative
+                        # terminal payload (WR-05). A degraded completion persists
+                        # the distinct "degraded" status (free-string column — no
+                        # migration, Q3) instead of "failed"; a clean
+                        # pipeline_complete (incl. a recovered-timeout agent that
+                        # errored then completed) persists "completed". Runs that
+                        # ended WITHOUT pipeline_complete (pipeline_failed /
+                        # budget_aborted / gate-cancel) keep the legacy
+                        # errored→failed mapping.
+                        if degraded_failed_agents is not None:
+                            wr.status = "degraded"
+                            wr.error = first_agent_error_msg or (
+                                "degraded: agent(s) failed: "
+                                + ", ".join(degraded_failed_agents)
+                            )
+                        elif pipeline_complete_seen:
+                            wr.status = "completed"
+                        else:
+                            wr.status = "failed" if any_agent_errored else "completed"
+                            if any_agent_errored:
+                                wr.error = first_agent_error_msg
                         if final_output:
                             wr.output = final_output
                         if agent_outputs_collector:
@@ -1740,9 +1774,20 @@ async def _handle_workflow_execution(
             # Only write if output/agents are still missing — the bg task should have written them
             if wr and (wr.output is None or wr.agent_outputs is None):
                 if wr.status == "running":
-                    wr.status = "failed" if any_agent_errored else "completed"
-                    if any_agent_errored:
-                        wr.error = first_agent_error_msg
+                    # IN-03: mirror the bg-task persistence — status follows the
+                    # terminal payload, not the bare any_agent_errored flag.
+                    if degraded_failed_agents is not None:
+                        wr.status = "degraded"
+                        wr.error = first_agent_error_msg or (
+                            "degraded: agent(s) failed: "
+                            + ", ".join(degraded_failed_agents)
+                        )
+                    elif pipeline_complete_seen:
+                        wr.status = "completed"
+                    else:
+                        wr.status = "failed" if any_agent_errored else "completed"
+                        if any_agent_errored:
+                            wr.error = first_agent_error_msg
                     wr.completed_at = datetime.now(timezone.utc)
                     wr.duration = round((datetime.now(timezone.utc) - execution_start).total_seconds(), 1)
                 if final_output and wr.output is None:

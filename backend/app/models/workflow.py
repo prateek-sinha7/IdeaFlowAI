@@ -24,6 +24,9 @@ class WorkflowRun(Base):
     # Extended status values (Phase 3):
     # clarifying | waiting_for_user | planning | analyzing | generating |
     # revising | completed | failed | cancelled
+    # Phase 13 (IN-03): degraded — the run COMPLETED with a deliverable but
+    # one or more agents failed and never completed (WR-05 terminal payload
+    # status: "degraded"). Distinct from "failed" (no deliverable at all).
     input = Column(Text, nullable=False)  # The user's idea/prompt
     output = Column(Text, nullable=True)  # JSON string of final output
     agent_outputs = Column(Text, nullable=True)  # JSON array of per-agent thinking/output

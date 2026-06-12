@@ -312,6 +312,14 @@ export function handlePipelineMessage(
     case "pipeline_complete": {
       const totalDuration = (msg.total_duration as number) || null;
 
+      // IN-03 (13 review fix): a degraded completion (WR-05) carries
+      // status:"degraded" + agents_failed — agents that errored and never
+      // completed. Surface them as per-agent error states (parity with the
+      // pipeline_failed sweep) instead of flipping the whole run to success,
+      // and expose the degraded flag on the pipeline state.
+      const isDegraded = (msg.status as string) === "degraded";
+      const degradedFailedIds = isDegraded ? ((msg.agents_failed as string[]) || []) : [];
+
       // Clear the persisted run ID — pipeline is done
       try {
         sessionStorage.removeItem("active_pipeline_run_id");
@@ -320,17 +328,25 @@ export function handlePipelineMessage(
 
       setPipelineState((prev) => {
         // Mark any agents still in running/thinking/idle state as done
-        // (handles fast pipelines where agent_complete events were batched)
-        const updated = prev.agents.map((a) =>
-          (a.status === "running" || a.status === "thinking" || a.status === "idle")
+        // (handles fast pipelines where agent_complete events were batched),
+        // EXCEPT degraded-run failed agents, which resolve to error.
+        const updated = prev.agents.map((a) => {
+          if (degradedFailedIds.includes(a.id)) {
+            return a.status === "error"
+              ? a // already carries its own agent_error detail
+              : { ...a, status: "error" as const, error: a.error || "Agent failed (run degraded)", thinking: "" };
+          }
+          return (a.status === "running" || a.status === "thinking" || a.status === "idle")
             ? { ...a, status: "done" as const, thinking: "" }
-            : a
-        );
+            : a;
+        });
         return {
           ...prev,
           isRunning: false,
           totalDuration,
           agents: updated,
+          degraded: isDegraded || undefined,
+          degradedFailedAgents: isDegraded ? degradedFailedIds : undefined,
           completedCount: updated.filter((a) => a.status === "done").length,
           // Prefer the backend's authoritative totals, but fall back to the
           // values accumulated from agent_complete so a missing field never

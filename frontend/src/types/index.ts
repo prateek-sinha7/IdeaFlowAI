@@ -395,6 +395,11 @@ export interface PipelineRunState {
   // Prototype build progress — per-task completion from report_task_complete tool
   protoCompletedTasks?: Array<{ number: number; title: string; summary: string }>;
   protoCompletedTaskCount?: number;
+  // Phase 13 (IN-03) — pipeline_complete arrived with status:"degraded":
+  // the run produced a deliverable but the agents in degradedFailedAgents
+  // errored and never completed (WR-05 semantics). Not a full success.
+  degraded?: boolean;
+  degradedFailedAgents?: string[];
 }
 
 export type PipelineMessageType =

@@ -366,6 +366,27 @@ export default function DashboardPage() {
           }
         }
 
+        // IN-03 (13 review fix): a degraded completion (WR-05) is not a full
+        // success — surface a warning through the chat (mirrors the
+        // pipeline_failed pattern below) naming the agents that errored and
+        // never completed. The deliverable above still routes to the preview.
+        if (data.status === "degraded") {
+          const degradedAgents = (data.agents_failed as string[]) || [];
+          const degradedMsg: ChatMessage = {
+            id: crypto.randomUUID(),
+            chatSessionId: "",
+            role: "assistant",
+            content:
+              `Warning: run completed degraded — the deliverable was produced, but ` +
+              (degradedAgents.length
+                ? `these agents failed: ${degradedAgents.join(", ")}.`
+                : `some agents failed.`) +
+              ` [code:pipeline_degraded] [recoverable:false]`,
+            createdAt: new Date().toISOString(),
+          };
+          setMessages((prev) => [...prev, degradedMsg]);
+        }
+
         // Refresh workflow runs from backend after pipeline completes
         const currentToken = getToken();
         if (currentToken) {
