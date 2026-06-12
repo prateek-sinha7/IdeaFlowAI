@@ -147,6 +147,7 @@ Progress: [██████████] 100% (14/14 phases complete; 81/81 pl
 ### Roadmap Evolution
 
 - Phase 14 added (2026-06-12): run_revision real revision loop (F2 end-to-end) — replace the Phase-3 echo stub in `_handle_revision` with real revision-pipeline dispatch through execute(); deliverable becomes a genuinely revised artifact with derived_from lineage. Source: 13-REVIEW WR-06 deferred scope / live-pass F2 residue.
+- Phase 15 added (2026-06-13): Live-Pass Prompt Contract Closure — LV-02 (od-ppt-validator deck re-emission contract) + sdlc-governance anti-fabrication + app-infra-generator /api/v1 adherence; prompt bodies + tests only, zero engine edits. Source: REPORT-2026-06-12 (LV-02 + residuals).
 
 ### Decisions
 

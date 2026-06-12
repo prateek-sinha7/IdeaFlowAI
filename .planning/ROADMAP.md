@@ -504,6 +504,25 @@ Plans:
 
 - [x] 14-04-PLAN.md — `test_revision_intelligence` real-dispatch rewrite (guards kept verbatim) + phase-gate battery + SC-001/INV-3 grep sweep + SC4 live deferral recording
 
+### Phase 15: Live-Pass Prompt Contract Closure
+
+**Goal:** Close the three prompt-shaped findings of the 2026-06-12 milestone-end live re-pass (`.planning/live-verification/REPORT-2026-06-12.md`) so the od_ppt deliverable/revision chain carries a real deck and the last live-model adherence gaps get prompt contracts. AGENT.md bodies + tests only — ZERO engine/capability edits (SC-001); the LV-02 resolver alternative (fallback in `deliverable: ppt`) is explicitly rejected as INV-3-sensitive.
+**Requirements**: none new — closes live findings LV-02 (major) + two F4/F5 residuals
+**Depends on:** Phase 14
+
+**Success Criteria**:
+1. LV-02 closed: `od-ppt-validator` AGENT.md carries an output contract (always re-emit the complete corrected deck wrapped in `<artifact>`); on a live od_ppt run the resolved `final_output` is the deck (contains `<section class="slide">`, not QA narration), and an FE-exact `od_ppt_output` revision returns a revised deck (Phase-14 SC4 content unblocked).
+2. sdlc-governance residual closed: the sdlc-governance agent family (`app-`/`dotnet-`/`mulesoft-sdlc-governance`) AGENT.md bodies carry anti-fabrication output contracts (begin directly with deliverable content; never emit tool-call syntax); live streams show zero `<function_calls>`/`<invoke>` preambles.
+3. infra-generator residual closed: `app-infra-generator` AGENT.md makes the `/api/v1` prefix contract forceful and positionally prominent; a live app_builder infra output targets `/api/v1` routes consistently with api-design/devops.
+4. Offline pins land (13-03 precedent): AGENT.md contract-grep tests for all five prompts + a scripted-model pin that the ppt deliverable resolution yields the validator's re-emitted artifact deck; characterization goldens byte-identical (prompt bodies are not characterization inputs for the 5 snapshot pipelines — verify).
+5. Live re-check recorded: one od_ppt run + one revision (≈$0.10) demonstrating criteria 1; criteria 2–3 evidence may ride the same session or the next scheduled live pass if quota-constrained (record disposition either way).
+
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 15 to break down)
+
 ---
 *Roadmap created: 2026-06-06*
 *Source: specs/003-workflow-engine-decoupling/plan.md §25 (12 active phases; plan Phase 7 / ECS deferred to v2)*
