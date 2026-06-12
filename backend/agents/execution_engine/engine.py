@@ -3663,11 +3663,18 @@ class ExecutionEngine:
         model_id: str | None = None,
         owner_id: str | None = None,
     ) -> None:
-        """Handle a revision request (FR-014).
+        """Handle a revision request (FR-014) — real revision-pipeline dispatch.
 
         Retrieves the original Artifact, version history, and instruction as
-        three separate structured inputs (NOT concatenated). Stores the result
-        as a new Artifact version with derived_from.
+        three separate structured inputs (NOT concatenated), composes them into
+        the revision context, then dispatches the registry's revision pipeline
+        (``get_pipeline_agents(<derived WR-06 alias>)``) through the normal
+        ``execute()`` chokepoint — real agents on the deepagents runtime
+        (INV-13), every event stamped (seq/event_id) and persisted to
+        ``run_events`` by execute() itself (PERSIST-03/SAFE-03). The final
+        REVISED deliverable is then persisted under the exact target kind with
+        ``derived_from`` so a revision-of-revision resolves it via FR-014
+        chain link 1.
 
         Cross-run reads of the PARENT run's artifacts go through the owner-scoped
         persisted ``ScopedStore`` against ``artifact_refs`` (the per-run in-memory
@@ -3678,17 +3685,18 @@ class ExecutionEngine:
         thin store returned → INV-3 byte-identity preserved.
 
         Raises ValueError for invalid inputs (empty instruction, missing artifact,
-        falsy owner_id).
+        falsy owner_id, unmapped target type).
         """
         if not instruction or not instruction.strip():
             raise ValueError("Revision instruction must not be empty.")
 
         # IN-01 / AUTHZ-03: a real owner principal is REQUIRED. The signature keeps
-        # a keyword default for back-compat, but the sink-arm + scope-writeback below
-        # are gated on ``if owner_id and _rev_ws_id:`` — a falsy owner would silently
-        # skip run_events persistence and run-scope stamping, encoding the precondition
-        # in a downstream ``write_ref`` ValueError instead of failing loud at the seam.
-        # Mirror ClarifyEngine.run's falsy-owner guard so the contract is explicit.
+        # a keyword default for back-compat, but owner_id threads to execute() as
+        # user_id (the run principal every scoped write/stamp derives from) and to
+        # the cross-run ScopedStore reads below — a falsy owner would encode the
+        # precondition in a downstream ``write_ref`` ValueError instead of failing
+        # loud at the seam. Mirror ClarifyEngine.run's falsy-owner guard so the
+        # contract is explicit.
         if not owner_id:
             raise ValueError(
                 "_handle_revision requires a real owner_id (AUTHZ-03)"
@@ -3696,48 +3704,16 @@ class ExecutionEngine:
 
         # Owner-scoped persisted store for the cross-run parent reads + revision
         # write. owner_id is the run owner (user.id at the WS call site). No
-        # workspace_id is threaded YET — the cross-run reads below are
+        # workspace_id is threaded — the cross-run reads below are
         # visibility-scoped (the parent's artifacts are written
-        # visibility="workspace" by the Task-1 producer writes, so they resolve
+        # visibility="workspace" by the producer writes, so they resolve
         # through the owner+visibility filter for the same owner without a
-        # workspace match). The real workspace is resolved from the parent
-        # artifact's row (``original.workspace_id``) AFTER the read and threaded
-        # back onto the store + sink + revision run row below (CR-01).
+        # workspace match), and the post-dispatch lineage write stamps the
+        # parent artifact's workspace (``original.workspace_id``) on the ref
+        # itself. The dispatched execute() run mints the revision run's OWN
+        # workspace, calls set_run_scope, and arms the run-events sink at its
+        # chokepoint (INV-12 — no duplicate stamping/persist path here).
         store = ScopedStore(owner_id=owner_id)
-
-        # WR-06: revision runs are invoked OUTSIDE the execute() wrapper, so their
-        # events would otherwise carry no seq/event_id and write no run_events row —
-        # leaving a revision run with artifacts but an empty event ledger, breaking
-        # the idempotent-replay contract (API-05) for that run class. Route every
-        # revision emit through the SAME stamping+persist path execute() uses: arm a
-        # run-events sink with this run's scoped store and stamp a monotonic seq +
-        # unique event_id onto each event's data before sending. Persist is
-        # best-effort (offline harness has no workflow_runs FK row → degrade).
-        #
-        # CR-01: the sink is armed LATER (after ``original.workspace_id`` is known)
-        # rather than here, because ``append_event`` stamps the store's
-        # ``workspace_id`` into ``run_events.workspace_id`` (NOT NULL, AUTHZ-01).
-        # Arming with a workspace-less store would IntegrityError on every persist
-        # (then degrade to a silent warning under the WR-02 narrow-catch), so NO
-        # revision ledger row would ever land on a real DB. The first emit
-        # (``pipeline_start``) is below the read, so deferring the arm is safe.
-        _rev_sink = _RunEventSink()
-        _rev_counter = itertools.count(1)
-        _raw_send_fn = websocket_send_fn
-
-        async def _stamped_send(event: dict) -> None:
-            data = event.get("data")
-            if not isinstance(data, dict):
-                data = {}
-                event["data"] = data
-            _seq = next(_rev_counter)
-            _eid = str(uuid.uuid4())
-            data["seq"] = _seq
-            data["event_id"] = _eid
-            await _rev_sink.persist(_seq, _eid, event.get("type", ""), data)
-            await _raw_send_fn(event)
-
-        websocket_send_fn = _stamped_send
 
         # T-5-SEED: assert the caller owns the parent run BEFORE any cross-run read.
         # A cross-owner caller raises PermissionError (never reads another owner's
@@ -3795,33 +3771,6 @@ class ExecutionEngine:
             target_artifact_type, _resolved_kind, original.id, parent_run_id,
         )
 
-        # CR-01: now that the parent artifact is resolved, its workspace is the
-        # authoritative workspace for the whole revision run. Thread it onto the
-        # store so ``append_event`` can satisfy ``run_events.workspace_id`` NOT NULL
-        # (AUTHZ-01), scope the revision ``workflow_runs`` row with the SAME
-        # (owner_id, workspace_id) so the /events endpoint's owner+workspace-scoped
-        # ``get_run`` resolves it (else every revision run 404s — CR-01 / AUTHZ-03),
-        # and only THEN arm the sink. ``original.workspace_id`` is non-None because
-        # the producer write stamped it (artifact_refs.workspace_id NOT NULL).
-        _rev_ws_id = getattr(original, "workspace_id", None)
-        if owner_id and _rev_ws_id:
-            store._workspace_id = _rev_ws_id
-            try:
-                await store.set_run_scope(pipeline_run_id, owner_id, _rev_ws_id)
-            except Exception as _scope_exc:  # noqa: BLE001 — never break the revision on persist
-                # WR-02 parity: degrade ONLY the offline-harness DB condition
-                # (no schema → SQLAlchemyError); a non-DB exception is a real bug.
-                from sqlalchemy.exc import SQLAlchemyError
-
-                if not isinstance(_scope_exc, SQLAlchemyError):
-                    raise
-                logger.warning(
-                    "revision run scope writeback failed for %s (%s) — proceeding "
-                    "(typed-substrate DB write degraded; stream unaffected)",
-                    pipeline_run_id, _scope_exc,
-                )
-            _rev_sink.arm(store, pipeline_run_id)
-
         # Version history = the owner-scoped refs list of WHICHEVER chain link
         # matched above (avoid a second query) — not unconditionally the
         # exact-kind list (F2).
@@ -3871,76 +3820,120 @@ class ExecutionEngine:
             f"{target_artifact_type.removesuffix('_output')}_revision"
         )
 
-        # Run the appropriate revision agent (use the pipeline's revision type)
-        # For now, emit the revision as a single-agent pipeline
-        await websocket_send_fn({
-            "type": "pipeline_start",
-            "data": {
-                "pipeline_type": revision_pipeline_type,
-                "pipeline_run_id": pipeline_run_id,
-                "agent_count": 1,
-                "agents": [{"id": "revision-agent", "name": "Revision Agent",
-                             "role": "Intelligent Revision", "icon": "✏️", "order": 1}],
-            },
-        })
+        # ── Real dispatch (Phase 14 / F2): the registry revision pipeline runs
+        # through the normal execute() chokepoint. The derived alias resolves the
+        # ordered AgentSpec list from the SAME registry source _execute_impl
+        # asserts compiled-plan membership against (RESEARCH Pitfall 6) — pass it
+        # EXACTLY, never filtered (a plan↔registry mismatch raises RuntimeError
+        # mid-dispatch). SC-001: the alias is data-derived above; no
+        # workflow-name literal enters the kernel.
+        from agents.registry import get_pipeline_agents
 
-        # Store the revision result as a new artifact version
-        # (In a full implementation, this would run a DeepAgent revision loop)
-        # For Phase 3, we store the instruction + context as the revision artifact
-        # and mark it with derived_from_artifact_id
-        try:
-            # Build a typed ArtifactRef (graph computes id/content_hash/version)
-            # for the revision result, derived_from the parent original. The
-            # revision row lands in the revision RUN (pipeline_run_id); persist it
-            # owner-scoped via the same ScopedStore. visibility="workspace" keeps it
-            # consistent with the producer writes (a future revision-of-revision can
-            # read it cross-run for the same owner).
-            _rev_graph = ArtifactGraph()
-            _rev_ref = _rev_graph.write_ref(
-                run_id=pipeline_run_id,
-                owner_id=owner_id,
-                # Land the revision in the SAME workspace as the parent original so
-                # the owner+workspace scope filter holds (workspace_id is NOT NULL).
-                workspace_id=original.workspace_id,
-                kind=target_artifact_type,
-                producer_step="revision",
-                producer_agent="revision-agent",
-                task_id=None,
-                content=revision_context,
-                location=f"artifact_refs/{target_artifact_type}",
-                derived_from=original.id,
-                visibility="workspace",
+        agents = get_pipeline_agents(revision_pipeline_type)
+        if not agents:
+            # Pre-dispatch fail-fast for an unmapped target (RESEARCH Pitfall 7):
+            # without this, compile_for_run would FileNotFoundError mid-execute().
+            # The WS layer maps ValueError → revision_validation_error, so the FE
+            # gets an actionable message. SC-001: interpolates data only.
+            raise ValueError(
+                f"No revision pipeline is registered for target_artifact_type "
+                f"{target_artifact_type!r} (derived pipeline "
+                f"{revision_pipeline_type!r})."
             )
-            new_artifact_id = await store.write_ref(_rev_ref)
-            logger.info(
-                "Revision stored: parent_run=%s type=%s new_artifact=%s planning_unavailable=%s",
-                parent_run_id, target_artifact_type, new_artifact_id, planning_context_unavailable,
-            )
-        except Exception as exc:  # noqa: BLE001 — preserve the state_restoration_failed emit
-            await websocket_send_fn({
-                "type": "state_restoration_failed",
-                "data": {
-                    "pipeline_run_id": pipeline_run_id,
-                    "parent_run_id": parent_run_id,
-                    "error": str(exc),
-                    "timestamp": _now(),
-                },
-            })
-            return
 
-        await websocket_send_fn({
-            "type": "pipeline_complete",
-            "data": {
-                # WR-06: the FE-routed alias (see revision_pipeline_type above).
-                "pipeline_type": revision_pipeline_type,
-                "pipeline_run_id": pipeline_run_id,
-                "total_duration": 0.0,
-                "agents_completed": 1,
-                "agents_total": 1,
-                "final_output": revision_context,
-                "planning_context_unavailable": planning_context_unavailable,
-            },
-        })
+        # Forward-and-capture dispatch: every event yielded by execute() arrives
+        # ALREADY stamped (seq/event_id) and persisted to run_events at the
+        # chokepoint (PERSIST-03/SAFE-03) — forward each one VERBATIM through the
+        # RAW caller-supplied sender; never mutate, never re-persist. execute()
+        # also mints the revision run's own workspace, calls set_run_scope and
+        # records run_capabilities — the former in-method duplicates of all three
+        # are deleted (INV-12).
+        #
+        # od_context=None (settled Phase-14 design wrinkle): no revision agent
+        # declares template/design_system injects (pinned executable by
+        # test_run_revision_revision_agents_declare_no_template_injects); the
+        # 13-06 missing_template_context guard lives only at the run_pipeline WS
+        # ingress, which this path never traverses; and the parent deck embedded
+        # in revision_context already physically realizes the template.
+        # gate_agent_ids=[]: no inter-agent HITL gate on a panel revision — None
+        # would fall back to the static gate set.
+        final_output: str | None = None
+        terminal_failed = False
+        async for event in self.execute(
+            agents=agents,
+            user_message=revision_context,
+            pipeline_run_id=pipeline_run_id,
+            pipeline_type=revision_pipeline_type,
+            user_id=owner_id,
+            model_id=model_id,
+            od_context=None,
+            gate_agent_ids=[],
+            parent_run_id=parent_run_id,
+        ):
+            if event.get("type") == "pipeline_complete":
+                final_output = event.get("data", {}).get("final_output")
+            elif event.get("type") == "pipeline_failed":
+                terminal_failed = True
+            await websocket_send_fn(event)
+
+        # ── Post-dispatch exact-kind lineage write (FR-014 chain link 1) ────────
+        # Persist the REVISED deliverable under the exact target kind with
+        # derived_from so a revision-of-revision resolves THIS run's output via
+        # chain link 1. execute()'s terminal block already wrote the generic
+        # kind="deliverable" ref (chain link 2) — both refs coexisting is
+        # intentional. Guarded: a failed dispatch or empty deliverable writes
+        # NOTHING under the exact kind (a failed revision must never become a
+        # future revision parent — composes with the WS layer's terminal-status
+        # fidelity).
+        if final_output and not terminal_failed:
+            try:
+                # Build a typed ArtifactRef (graph computes id/content_hash/version)
+                # for the revision result, derived_from the parent original. The
+                # revision row lands in the revision RUN (pipeline_run_id); persist
+                # it owner-scoped via the same ScopedStore. visibility="workspace"
+                # keeps it consistent with the producer writes (a future
+                # revision-of-revision can read it cross-run for the same owner).
+                _rev_graph = ArtifactGraph()
+                _rev_ref = _rev_graph.write_ref(
+                    run_id=pipeline_run_id,
+                    owner_id=owner_id,
+                    # Land the revision in the SAME workspace as the parent original
+                    # so the owner+workspace scope filter holds (workspace_id is
+                    # NOT NULL).
+                    workspace_id=original.workspace_id,
+                    kind=target_artifact_type,
+                    producer_step="revision",
+                    # Derived from the resolved spec list (IN-05 spirit, SC-001 —
+                    # no agent-id literal): revision pipelines are 1-2 single_shot
+                    # steps and the LAST agent's streamed output is the declared
+                    # deliverable.
+                    producer_agent=agents[-1].id,
+                    task_id=None,
+                    content=final_output,
+                    location=f"artifact_refs/{target_artifact_type}",
+                    derived_from=original.id,
+                    visibility="workspace",
+                )
+                new_artifact_id = await store.write_ref(_rev_ref)
+                logger.info(
+                    "Revision stored: parent_run=%s type=%s new_artifact=%s planning_unavailable=%s",
+                    parent_run_id, target_artifact_type, new_artifact_id, planning_context_unavailable,
+                )
+            except Exception as exc:  # noqa: BLE001 — preserve the state_restoration_failed emit
+                # RESEARCH Open Q2 (resolved): keep the event vocabulary on a
+                # lineage-persist failure but do NOT fail the run — the dispatch
+                # already completed, and the terminal-block kind="deliverable" ref
+                # keeps FR-014 chain link 2 functional for revision-of-revision.
+                await websocket_send_fn({
+                    "type": "state_restoration_failed",
+                    "data": {
+                        "pipeline_run_id": pipeline_run_id,
+                        "parent_run_id": parent_run_id,
+                        "error": str(exc),
+                        "timestamp": _now(),
+                    },
+                })
+                return
 
     def _build_context_sources(
         self,
