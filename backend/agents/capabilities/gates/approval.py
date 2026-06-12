@@ -32,7 +32,10 @@ NO kernel/app import.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, AsyncGenerator
+
+logger = logging.getLogger(__name__)
 
 from agents.capabilities.gates.base import (
     GATE_BLOCK,
@@ -157,6 +160,16 @@ class ApprovalGate:
                 rejected = True
                 continue  # internal signal — not re-surfaced as a gate event
             if etype == _EDITED:
+                # WR-04 (13 review fix): an approval gate reviews the D-04 exec
+                # POLICY SNAPSHOT — there is no upstream artifact an edit could
+                # apply to. The edit is EXPLICITLY discarded (logged, never
+                # silent) rather than threaded like the human gate's.
+                logger.warning(
+                    "approval gate on step %s: edited_content ignored — the "
+                    "approval payload is a policy snapshot, not an editable "
+                    "artifact (WR-04)",
+                    step_id,
+                )
                 continue  # internal edit signal — not a public gate event
             # review_gate_ready / review_gate_approved flow through UNCHANGED (parity)
             # — yielded IMMEDIATELY so ready reaches the consumer pre-await (F1).

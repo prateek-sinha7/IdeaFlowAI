@@ -574,20 +574,29 @@ def _engine():
     return ExecutionEngine()
 
 
-async def _collect_gates(engine, step, ctx, *, phase):
-    """Drain the engine's _evaluate_gates generator into a (events, outcomes) pair."""
+async def _collect_gates(engine, step, ctx, *, phase, details=None):
+    """Drain the engine's _evaluate_gates generator into a (events, outcomes) pair.
+
+    The generator yields ``(event, outcome, detail)`` 3-tuples (the 13-review
+    WR-04 fix threads the terminal ``GateOutcome.detail`` — e.g. the human
+    gate's edited content — through the sentinel). Pass a ``details`` list to
+    additionally capture every yielded detail.
+    """
     from agents.capabilities.registry import CapabilityRegistry
 
     events, outcomes = [], []
-    async for ev, outcome in engine._evaluate_gates(
+    async for ev, outcome, detail in engine._evaluate_gates(
         step, ctx, CapabilityRegistry(), phase=phase
     ):
-        # WR-04: the generator now yields a terminal (None, outcome) sentinel so
-        # the halt is observable even with zero events. Mirror the real callers:
-        # skip the None event when collecting events, always record the outcome.
+        # WR-04: the generator now yields a terminal (None, outcome, detail)
+        # sentinel so the halt is observable even with zero events. Mirror the
+        # real callers: skip the None event when collecting events, always
+        # record the outcome.
         if ev is not None:
             events.append(ev)
         outcomes.append(outcome)
+        if details is not None:
+            details.append(detail)
     return events, outcomes
 
 
@@ -695,6 +704,126 @@ async def test_engine_gate_that_raises_is_swallowed_not_aborting():
     step = _GatedStep(gates=["validation"])
     events, outcomes = await _collect_gates(engine, step, _Ctx(_RecordingRunner()), phase="post")
     assert events == [] and outcomes == []
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# WR-04 (13 review fix) — declared-gate edits are THREADED upstream, not dropped
+# ════════════════════════════════════════════════════════════════════════════
+
+
+_EDIT_REVIEW_SCRIPT = [
+    {"type": "review_gate_ready", "data": {"gate_key": "run-x:step-x"}},
+    {"type": "review_gate_approved", "data": {"edited": True}},
+    {"type": "_gate_edited", "edited_content": "EDITED SPEC"},
+]
+
+
+@pytest.mark.asyncio
+async def test_human_gate_threads_edited_content_into_outcome_detail():
+    """Approve-with-edits at the human gate lands the content on GateOutcome.detail
+    (pre-fix it was consumed with ``continue`` and silently lost)."""
+    runner = _RecordingRunner(review_events=list(_EDIT_REVIEW_SCRIPT))
+    gate = CapabilityRegistry().resolve("gate", "human")
+
+    result = await gate.evaluate(_Step(), _Ctx(runner))
+    assert result.outcome == GATE_PASS
+    assert result.detail == {"edited_content": "EDITED SPEC"}
+    # The gate_events audit row stays CONTENT-FREE (no user payload persisted).
+    assert runner.gate_events[-1]["detail"] == {"edited": True}
+
+
+@pytest.mark.asyncio
+async def test_human_gate_without_edit_has_no_detail():
+    runner = _RecordingRunner(review_events=[
+        {"type": "review_gate_ready", "data": {"gate_key": "run-x:step-x"}},
+        {"type": "review_gate_approved", "data": {"edited": False}},
+    ])
+    gate = CapabilityRegistry().resolve("gate", "human")
+
+    result = await gate.evaluate(_Step(), _Ctx(runner))
+    assert result.outcome == GATE_PASS
+    assert result.detail is None
+    assert runner.gate_events[-1]["detail"] is None
+
+
+@pytest.mark.asyncio
+async def test_approval_gate_explicitly_ignores_edited_content():
+    """The approval payload is a POLICY SNAPSHOT — an edit has nothing to apply
+    to. The gate discards it explicitly (logged) and threads NO detail."""
+    runner = _RecordingRunner(review_events=list(_EDIT_REVIEW_SCRIPT))
+    gate = CapabilityRegistry().resolve("gate", "approval")
+    step = _Step(tools=_ToolGrant(exec=True), gates=["security", "approval"], trust="file")
+
+    result = await gate.evaluate(step, _Ctx(runner))
+    assert result.outcome == GATE_PASS
+    assert result.detail is None
+
+
+@pytest.mark.asyncio
+async def test_engine_sentinel_carries_human_gate_edit_detail():
+    """_evaluate_gates' terminal sentinel forwards the gate's detail so the
+    dispatch loop can apply the edit (the WR-04 3-tuple protocol)."""
+    engine = _engine()
+    runner = _RecordingRunner(review_events=list(_EDIT_REVIEW_SCRIPT))
+    step = _GatedStep(gates=["human"])
+
+    details: list = []
+    events, outcomes = await _collect_gates(
+        engine, step, _Ctx(runner), phase="pre", details=details
+    )
+    assert GATE_PASS in outcomes
+    assert {"edited_content": "EDITED SPEC"} in details
+
+
+@pytest.mark.asyncio
+async def test_apply_declared_gate_edit_rewrites_upstream_artifact_and_result(monkeypatch):
+    """The kernel applies a declared-gate edit to the UPSTREAM step: a new typed
+    ref version + the results entry + the running review payload (inline parity)."""
+    engine = _engine()
+
+    writes: list[dict] = []
+
+    async def _record_dual_write(ectx, **kw):
+        writes.append(kw)
+
+    monkeypatch.setattr(engine, "_dual_write_artifact", _record_dual_write)
+
+    class _Spec:
+        id = "agent-a"
+        name = "Agent A"
+
+    class _Ectx:
+        last_streamed = "ORIGINAL"
+
+    results = [{"agent_id": "agent-a", "output": "ORIGINAL"}]
+    ectx = _Ectx()
+
+    await engine._apply_declared_gate_edit("EDITED", results, [_Spec()], ectx)
+
+    assert results[-1]["output"] == "EDITED"
+    assert ectx.last_streamed == "EDITED"
+    assert len(writes) == 1
+    assert writes[0]["content"] == "EDITED"
+    assert writes[0]["producer_agent"] == "agent-a"
+    assert writes[0]["kind"] == "summary"  # unmapped agent id → fallback kind
+    assert writes[0]["location"] == "artifact_refs/agent-a"
+
+
+@pytest.mark.asyncio
+async def test_apply_declared_gate_edit_with_no_upstream_is_dropped(monkeypatch):
+    """No completed upstream step (gate before the FIRST agent) → nothing to
+    apply; the edit is dropped with a warning, never raising."""
+    engine = _engine()
+
+    async def _boom(*a, **k):  # must never be reached
+        raise AssertionError("no artifact write expected")
+
+    monkeypatch.setattr(engine, "_dual_write_artifact", _boom)
+
+    class _Ectx:
+        last_streamed = ""
+
+    await engine._apply_declared_gate_edit("EDITED", [], [], _Ectx())
 
 
 # ════════════════════════════════════════════════════════════════════════════

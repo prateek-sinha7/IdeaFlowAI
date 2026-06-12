@@ -1531,7 +1531,7 @@ class ExecutionEngine:
                 # (parity); a declared ``gates:[human]`` step is the additive
                 # registry-driven entry point that delegates to the SAME review gate.
                 _halted = False
-                async for _ge, _outcome in self._evaluate_gates(
+                async for _ge, _outcome, _gdetail in self._evaluate_gates(
                     step, ectx, _registry, phase="pre",
                     # WR-02 (13 review fix): when the legacy inline review gate
                     # will fire for THIS agent (_should_gate — AGENT.md
@@ -1577,6 +1577,23 @@ class ExecutionEngine:
                         return
                     if _outcome in ("block", "wait_human"):
                         _halted = True
+                    # ── WR-04 (13 review fix): apply a declared-gate edit ─────
+                    # The human gate threads an approve-with-edits payload on
+                    # the terminal sentinel's detail. A declared pre-step gate
+                    # reviews the PREVIOUS step's output (ectx.last_streamed),
+                    # so the edit re-writes THAT step's artifact + results
+                    # entry — exactly what the inline path does post-step
+                    # (engine._run_agent's _gate_edited handler). No upstream
+                    # output yet (first step) → nothing to apply (logged).
+                    _edited = (
+                        _gdetail.get("edited_content")
+                        if isinstance(_gdetail, dict)
+                        else None
+                    )
+                    if _edited:
+                        await self._apply_declared_gate_edit(
+                            _edited, results, ordered_agents, ectx
+                        )
                 if _halted:
                     # The step is halted at its boundary — skip the strategy + the
                     # post-step gates/post_step for this agent (additive halt).
@@ -1629,7 +1646,7 @@ class ExecutionEngine:
                 # ``gate_blocked`` event (the deliverable already produced; this is the
                 # declarative post-build validation entry point, NOT the inline
                 # task_loop build-loop validation which stays put per D-06).
-                async for _ge, _outcome in self._evaluate_gates(
+                async for _ge, _outcome, _gdetail in self._evaluate_gates(
                     step, ectx, _registry, phase="post"
                 ):
                     # WR-04: skip the terminal (None, outcome) sentinel — post-step
@@ -3012,16 +3029,19 @@ class ExecutionEngine:
         *,
         phase: str,
         inline_gated: bool = False,
-    ) -> AsyncGenerator[tuple[dict, str], None]:
+    ) -> AsyncGenerator[tuple[dict, str, dict | None], None]:
         """Evaluate a step's declared ``gates: [...]`` for one phase (D-03).
 
-        Yields ``(event, outcome)`` for every additive event a gate emits so the
-        caller can both forward the event AND act on the outcome (a pre-step
-        ``block``/``wait_human`` halts the step). After a gate's events, yields a
-        terminal ``(None, outcome)`` sentinel so the halt decision is observable
-        EVEN when the gate emits zero events (WR-04); the caller skips the ``None``
-        event when forwarding, so the emitted stream is unchanged. Gates evaluate
-        in DECLARED order;
+        Yields ``(event, outcome, detail)`` for every additive event a gate emits
+        so the caller can both forward the event AND act on the outcome (a
+        pre-step ``block``/``wait_human`` halts the step). After a gate's events,
+        yields a terminal ``(None, outcome, detail)`` sentinel so the halt
+        decision is observable EVEN when the gate emits zero events (WR-04); the
+        caller skips the ``None`` event when forwarding, so the emitted stream is
+        unchanged. ``detail`` is the terminal ``GateOutcome.detail`` (e.g. the
+        human gate's ``edited_content`` the kernel applies upstream — WR-04
+        review fix); event yields carry ``None``. Gates evaluate in DECLARED
+        order;
         only the gates belonging to ``phase`` (``pre``|``post``) run here. Each gate
         returns a ``GateOutcome`` (outcome + additive events); the kernel owns the
         yield so the gate impls stay simple async functions.
@@ -3072,20 +3092,23 @@ class ExecutionEngine:
                 stream_fn = getattr(gate, "evaluate_stream", None)
                 if callable(stream_fn):
                     outcome = "pass"
+                    detail = None
                     async for item in stream_fn(step, ectx):
                         if isinstance(item, dict):
-                            yield item, "pass"
+                            yield item, "pass", None
                         else:
                             # Terminal GateOutcome → captured; the WR-04
                             # sentinel is yielded below (shared with the
                             # awaited path so WR-03 cancel mapping applies).
                             outcome = getattr(item, "outcome", "pass")
+                            detail = getattr(item, "detail", None)
                             break
                 else:
                     result = await gate.evaluate(step, ectx)
                     outcome = getattr(result, "outcome", "pass")
+                    detail = getattr(result, "detail", None)
                     for event in getattr(result, "events", None) or []:
-                        yield event, outcome
+                        yield event, outcome, None
             except Exception as exc:  # noqa: BLE001 — a gate must never abort the run
                 logger.warning(
                     "gate %r on step %s raised (%s) — treating as pass",
@@ -3101,7 +3124,7 @@ class ExecutionEngine:
             # ``cancel`` sentinel the dispatch loop acts on; no further gates
             # evaluate (the run is over).
             if outcome == "block" and name in self._HITL_GATES:
-                yield None, "cancel"
+                yield None, "cancel", detail
                 return
             # WR-04: surface the outcome INDEPENDENTLY of event emission. A
             # blocking gate that emits zero events (``GateOutcome`` with
@@ -3115,7 +3138,57 @@ class ExecutionEngine:
             # for every existing path (characterization snapshots stay byte/event
             # identical — a gate that already emits its event yields the same
             # events, only an extra non-forwarded ``None`` sentinel follows).
-            yield None, outcome
+            yield None, outcome, detail
+
+    async def _apply_declared_gate_edit(
+        self,
+        edited: str,
+        results: list[dict],
+        ordered_agents: list,
+        ectx: ExecutionContext,
+    ) -> None:
+        """Apply an approve-with-edits payload from a DECLARED gate (WR-04).
+
+        A declared pre-step human gate reviews the PREVIOUS step's output, so
+        the user's edit re-writes that step's typed artifact as a NEW ref
+        version (``_latest_typed_content`` then serves the edit to downstream
+        consumers — ART-03) and updates the ``results`` entry, mirroring the
+        inline ``_gate_edited`` handler in ``_run_agent`` byte-for-byte. With no
+        completed upstream step there is nothing to apply — logged, not silent.
+        """
+        if not results:
+            logger.warning(
+                "declared-gate edit received before any step completed — "
+                "no upstream artifact to apply it to; edit dropped (WR-04)"
+            )
+            return
+        prev_id = results[-1].get("agent_id")
+        prev_spec = next((s for s in ordered_agents if s.id == prev_id), None)
+        if prev_spec is None:
+            logger.warning(
+                "declared-gate edit: no spec found for upstream agent %r — "
+                "edit dropped (WR-04)", prev_id,
+            )
+            return
+        _ek = self._artifact_kind_for(prev_spec)
+        _ek_html_loc = (
+            getattr(getattr(ectx, "deliverable", None), "name", None)
+            or "prototype.html"
+        )
+        await self._dual_write_artifact(
+            ectx,
+            producer_agent=prev_spec.id,
+            producer_step=prev_spec.id,
+            content=edited,
+            kind=_ek,
+            location=(
+                _ek_html_loc if _ek == "html_file" else f"artifact_refs/{prev_spec.id}"
+            ),
+        )
+        results[-1] = {**results[-1], "output": edited}
+        # Keep the running review payload consistent with the applied edit
+        # (the WR-02 per-step refresh would otherwise lag one gate behind).
+        ectx.last_streamed = edited
 
     async def _run_review_gate(
         self,

@@ -79,6 +79,7 @@ class HumanGate:
         output = getattr(ctx, "last_streamed", "") or ""
 
         rejected = False
+        edited_content: str | None = None
         async for event in delegate(step, output=output):
             etype = event.get("type")
             if etype == _REJECTED:
@@ -86,15 +87,32 @@ class HumanGate:
                 # internal signal — not re-surfaced as a gate event
                 continue
             if etype == _EDITED:
-                # internal edit signal — not a public gate event
+                # WR-04 (13 review fix): the user approved WITH edits. The edit
+                # used to be consumed and dropped here — silent loss of user
+                # input while the engine confirmed ``edited: true``. Capture it
+                # and thread it on the terminal outcome ``detail`` so the kernel
+                # can apply it to the upstream artifact (inline-path parity).
+                # Still not a public gate event (parity — the inline path emits
+                # no extra event for an edit either).
+                edited_content = event.get("edited_content")
                 continue
             # review_gate_ready / review_gate_approved flow through UNCHANGED (parity)
             # — yielded IMMEDIATELY so ready reaches the consumer pre-await (F1).
             yield event
 
         outcome = GATE_BLOCK if rejected else GATE_PASS
-        await write_gate_event(ctx, step_id, "human", outcome, None)
-        yield GateOutcome(outcome=outcome, events=[])
+        # The audit row keeps a CONTENT-FREE detail (no user payload persisted in
+        # gate_events); the edited content itself rides the GateOutcome only.
+        await write_gate_event(
+            ctx, step_id, "human", outcome,
+            {"edited": True} if (edited_content and not rejected) else None,
+        )
+        detail = (
+            {"edited_content": edited_content}
+            if (edited_content and not rejected)
+            else None
+        )
+        yield GateOutcome(outcome=outcome, events=[], detail=detail)
 
     async def evaluate(self, step: Any, ctx: Any) -> GateOutcome:
         """Thin collector over ``evaluate_stream`` (INV-12 single implementation).
