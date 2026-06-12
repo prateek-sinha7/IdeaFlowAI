@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-06-12T12:37:15.433Z"
-last_activity: "2026-06-12 -- Completed 14-03-PLAN.md (real execute() dispatch in _handle_revision + FE-exact real-dispatch contract)"
+status: verifying
+last_updated: "2026-06-12T12:52:48.577Z"
+last_activity: 2026-06-12 -- Completed 14-04-PLAN.md (revision intelligence suite on the real-dispatch contract + phase gate green)
 progress:
   total_phases: 14
-  completed_phases: 13
+  completed_phases: 14
   total_plans: 81
-  completed_plans: 80
-  percent: 99
+  completed_plans: 81
+  percent: 100
 ---
 
 # Project State
@@ -26,12 +26,12 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 
 Phase: 14 (run_revision real revision loop (F2 end-to-end)) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
-Last activity: 2026-06-12 -- Completed 14-03-PLAN.md (real execute() dispatch in _handle_revision + FE-exact real-dispatch contract)
+Status: Phase complete — ready for verification
+Last activity: 2026-06-12 -- Completed 14-04-PLAN.md (revision intelligence suite on the real-dispatch contract + phase gate green)
 
-Session continuity: last session 2026-06-12; stopped at Completed 14-03-PLAN.md; resume file: none
+Session continuity: last session 2026-06-12; stopped at Completed 14-04-PLAN.md (phase 14 complete — ready for verification); resume file: none
 
-Progress: [██████████] 99% (13/14 phases complete; 80/81 plans complete; Phase 14 3/4 plans done)
+Progress: [██████████] 100% (14/14 phases complete; 81/81 plans complete; Phase 14 4/4 plans done)
 
 ## Performance Metrics
 
@@ -139,6 +139,7 @@ Progress: [██████████] 99% (13/14 phases complete; 80/81 pla
 | Phase 14 P01 | ~8min | 2 tasks | 5 files |
 | Phase 14 P02 | ~18min | 2 tasks | 2 files |
 | Phase 14 P03 | ~10min | 2 tasks | 2 files |
+| Phase 14 P04 | 13min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -247,6 +248,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 14-02: bg-task error frames ride the drainer wrapper (section=target_artifact_type, was None); ingress validation frames stay byte-identical with section None
 - [Phase ?]: 14-02: revision drainer mirrors run_pipeline terminal-type breaks + bounded post-drain await of the bg task so direct awaiters observe the final persisted row state
 - [Phase 14]: 14-03: _handle_revision dispatches via execute() with od_context=None + gate_agent_ids=[] (settled wrinkle); lineage write guarded final_output and not terminal_failed with producer_agent=agents[-1].id; state_restoration_failed kept on lineage-persist failure without failing the run
+- [Phase 14]: 14-04: proceed-path revision tests re-targeted to od_ppt_output/ppt_output only (the two planner: skip manifests); composed-context contracts (three sections, planning prefix) asserted on the dispatched agent_input context_message, never final_output; run_events pinned at execute()'s chokepoint with minted-workspace scope recovered from persisted rows
 
 ### Pending Todos
 

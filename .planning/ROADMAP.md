@@ -481,7 +481,7 @@ Plans:
 **Goal:** `run_revision` produces a real revised artifact, not the Phase-3 echo stub. `_handle_revision` (engine.py:3656) currently resolves the parent via the FR-014 chain, composes the three-section revision context, then writes that context back as the "revision" and emits `pipeline_complete` with `total_duration: 0.0` — no model ever runs. Close it by dispatching the registry's real revision pipelines (`ppt_revision` / `od_ppt_revision` / …, via the WR-06 generic alias) through the normal `execute()` path with the composed context as input, and persisting the run's actual deliverable as the `derived_from` artifact.
 **Requirements**: None new — completes live-pass finding F2 beyond its 13-05/WR-06 scoped fixes (validation + FE routing). Known design wrinkle to settle in planning: `od_*_revision` agents may declare `injects: [template, design_system]`, which interacts with the 13-06 `missing_template_context` ingress guard when revising from a completed parent (re-resolve the parent's template vs. exempt revision dispatch).
 **Depends on:** Phase 13
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 
 **Success Criteria** (what must be TRUE):
 
@@ -502,7 +502,7 @@ Plans:
 
 **Wave 3** *(blocked on 14-03)*
 
-- [ ] 14-04-PLAN.md — `test_revision_intelligence` real-dispatch rewrite (guards kept verbatim) + phase-gate battery + SC-001/INV-3 grep sweep + SC4 live deferral recording
+- [x] 14-04-PLAN.md — `test_revision_intelligence` real-dispatch rewrite (guards kept verbatim) + phase-gate battery + SC-001/INV-3 grep sweep + SC4 live deferral recording
 
 ---
 *Roadmap created: 2026-06-06*
