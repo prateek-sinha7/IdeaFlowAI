@@ -1030,3 +1030,53 @@ async def test_fe_target_cross_owner_still_denied_on_realistic_parent(
     attacker_store = ScopedStore(owner_id=OTHER_OWNER)
     refs = await attacker_store.list_refs("run-rev-realistic-cross-owner", kind="ppt_output")
     assert refs == []
+
+
+# ---------------------------------------------------------------------------
+# CR-02 (14 review) — planner-flow targets rejected BEFORE dispatch
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_planner_run_target_rejected_before_dispatch(
+    engine: ExecutionEngine, db_factory
+) -> None:
+    """CR-02 (14 review): a target whose derived alias resolves a REGISTERED
+    revision pipeline carrying ``planner: run`` (e.g. ``prototype_output`` →
+    ``prototype_revision``) is rejected with ValueError BEFORE dispatch —
+    never parked at the clarify gate's no-timeout ``event.wait()``.
+
+    The FR-014 artifact guard does NOT block this exploit: the deliverable
+    chain link (link 2) resolves for ANY target kind, so an owned completed
+    parent satisfies it — only the planner predicate stops the dispatch. The
+    predicate is manifest DATA (``compiled.planner`` — SC-001): flipping a
+    manifest to ``planner: skip`` makes its target dispatchable with no
+    engine edit, and this test starts failing for that target by design."""
+    parent = "run-parent-planner-run"
+    # Realistic owned parent WITH a deliverable ref — FR-014 link 2 matches,
+    # proving the rejection comes from the planner guard, not the lookup.
+    _seed_realistic_parent(
+        db_factory, run_id=parent, owner_id=OWNER, with_deliverable=True
+    )
+
+    events: list[dict] = []
+
+    async def ws(e: dict) -> None:
+        events.append(e)
+
+    with pytest.raises(ValueError, match="not revision-dispatchable"):
+        await engine._handle_revision(
+            parent_run_id=parent,
+            target_artifact_type="prototype_output",
+            instruction="Make the hero section bolder",
+            pipeline_run_id="run-rev-planner-run",
+            websocket_send_fn=ws,
+            owner_id=OWNER,
+        )
+
+    # The guard fired pre-dispatch: no event was emitted, nothing was written
+    # for the rejected revision run (no stuck task, no "revising" leak).
+    assert events == []
+    store = ScopedStore(owner_id=OWNER)
+    refs = await store.list_refs("run-rev-planner-run", kind="prototype_output")
+    assert refs == []

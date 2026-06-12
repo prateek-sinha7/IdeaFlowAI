@@ -3841,6 +3841,26 @@ class ExecutionEngine:
                 f"{revision_pipeline_type!r})."
             )
 
+        # ── CR-02 (14 review fix): planner-flow pipelines are NOT revision-
+        # dispatchable. The derived alias resolves ANY registered ``*_revision``
+        # pipeline, but only a ``planner: skip`` manifest can run headless from
+        # the revision panel — a ``planner: run`` manifest parks the dispatch at
+        # the clarify gate's no-timeout ``await event.wait()`` waiting for a
+        # questionnaire round-trip the panel never sends, leaking a permanently
+        # stuck background task + a row frozen "revising". Fail fast at the
+        # seam instead; the WS layer maps ValueError → revision_validation_error.
+        # SC-001: the predicate is the compiled manifest's DATA
+        # (``compiled.planner``), never a workflow-name literal — flipping a
+        # manifest to ``planner: skip`` makes it dispatchable with no engine
+        # edit.
+        if compile_for_run(revision_pipeline_type).planner != "skip":
+            raise ValueError(
+                f"target_artifact_type {target_artifact_type!r} is not "
+                f"revision-dispatchable: pipeline {revision_pipeline_type!r} "
+                f"requires the planner/clarify flow the revision panel cannot "
+                f"drive (manifest declares planner: run)."
+            )
+
         # Forward-and-capture dispatch: every event yielded by execute() arrives
         # ALREADY stamped (seq/event_id) and persisted to run_events at the
         # chokepoint (PERSIST-03/SAFE-03) — forward each one VERBATIM through the
