@@ -423,3 +423,102 @@ async def test_cancellation_lands_row_cancelled(ws_env, ws_user, monkeypatch):
     # Cleanup ran despite cancellation.
     assert run_id not in ws_module._PIPELINE_QUEUES
     assert run_id not in ws_module._PIPELINE_TASKS
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Receive-loop-level pins (14 review fixes) — drive the REAL websocket_chat
+# endpoint with scripted inbound frames so the loop's own guards (not just the
+# extracted coroutine) are under test.
+# ════════════════════════════════════════════════════════════════════════════
+
+
+class _ScriptedLoopWebSocket:
+    """Drives the REAL ``websocket_chat`` receive loop: scripted inbound JSON
+    frames, captured outbound frames, ``WebSocketDisconnect`` once the script
+    is exhausted (the loop's normal client-went-away exit)."""
+
+    def __init__(self, frames: list[dict]) -> None:
+        import json as _json
+
+        self._frames = [_json.dumps(f) for f in frames]
+        self.sent: list[dict] = []
+        self.headers: dict = {}
+        self.query_params = {"token": "test-token"}
+        self.accepted = False
+
+    async def accept(self, subprotocol=None) -> None:
+        self.accepted = True
+
+    async def close(self, code=None, reason=None) -> None:
+        pass
+
+    async def send_json(self, payload: dict) -> None:
+        self.sent.append(payload)
+
+    async def receive_text(self) -> str:
+        if self._frames:
+            # Yield once so a just-created background task gets scheduled
+            # before the next frame is delivered (mirrors a real socket's
+            # at-least-one-event-loop-tick gap between frames).
+            await asyncio.sleep(0)
+            return self._frames.pop(0)
+        from fastapi import WebSocketDisconnect
+
+        raise WebSocketDisconnect(code=1000)
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# CR-01 (14 review) — run_revision overlap guard
+# ────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_overlap_guard_rejects_second_run_revision(ws_env, ws_user, monkeypatch):
+    """CR-01 (14 review): a run_revision frame while one is already in flight
+    is rejected with ``pipeline_already_running`` (the run_pipeline guard,
+    byte-identical error frame) — the in-flight task's cancel handle
+    (``current_pipeline_task``) is never overwritten and NO second execution
+    starts (pre-14 the inline ``await`` serialized this; the background-task
+    dispatch must guard it explicitly)."""
+    ws_module, TestingSession = ws_env
+
+    monkeypatch.setattr(ws_module, "_authenticate_token", lambda token, db: ws_user)
+
+    release = asyncio.Event()
+    calls: list[tuple] = []
+
+    async def _stub_revision_execution(websocket, user, parent_run_id, target, instruction):
+        calls.append((parent_run_id, target, instruction))
+        await release.wait()  # stays in flight until the endpoint cancels it
+
+    monkeypatch.setattr(ws_module, "_handle_revision_execution", _stub_revision_execution)
+
+    frame = {
+        "type": "run_revision",
+        "parent_run_id": "parent-1",
+        "target_artifact_type": "od_ppt_output",
+        "instruction": "Tighten slide 1.",
+    }
+    ws = _ScriptedLoopWebSocket([frame, dict(frame)])
+
+    try:
+        # The endpoint returns after the script exhausts (WebSocketDisconnect),
+        # cancelling the still-pending revision task on its way out.
+        await asyncio.wait_for(ws_module.websocket_chat(ws), timeout=10.0)
+    finally:
+        release.set()
+
+    # Exactly ONE execution started — the second frame never dispatched.
+    assert len(calls) == 1, (
+        f"overlap guard missing: {len(calls)} revision executions started "
+        "from one connection"
+    )
+    rejections = [
+        f for f in ws.sent
+        if f.get("type") == "error"
+        and f.get("data", {}).get("code") == "pipeline_already_running"
+    ]
+    assert len(rejections) == 1, (
+        f"expected one pipeline_already_running rejection: {ws.sent}"
+    )
+    assert rejections[0]["data"]["recoverable"] is True

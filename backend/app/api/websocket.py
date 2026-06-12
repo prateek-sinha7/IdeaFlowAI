@@ -866,6 +866,28 @@ async def websocket_chat(websocket: WebSocket):
             # what lets cancel_pipeline / pings / reconnects be processed
             # while a multi-minute revision runs (Phase 14, RESEARCH Pitfall 3).
             if msg_type == "run_revision":
+                # CR-01 (14 review fix): reject overlapping runs BEFORE anything
+                # else — identical to the run_pipeline guard above, because the
+                # connection-level invariant ("a single connection can run at
+                # most one pipeline at a time") covers revisions too. Without
+                # this, a second run_revision (double-click race / misbehaving
+                # client) would overwrite current_pipeline_task — the ONLY
+                # handle cancel_pipeline uses — leaving the in-flight run
+                # uncancellable from its own connection while both drainers
+                # interleave send_json on the same WS; a frame loop could
+                # accumulate unbounded concurrent revision tasks.
+                if current_pipeline_task is not None and not current_pipeline_task.done():
+                    await websocket.send_json({
+                        "type": "error",
+                        "chunk": None,
+                        "section": None,
+                        "data": {
+                            "error": "Pipeline already running. Cancel the current one first.",
+                            "code": "pipeline_already_running",
+                            "recoverable": True,
+                        },
+                    })
+                    continue
                 _rev_parent_run_id = message_data.get("parent_run_id")
                 _rev_target_type = message_data.get("target_artifact_type")
                 _rev_instruction = message_data.get("instruction", "").strip()
