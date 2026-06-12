@@ -481,7 +481,7 @@ Plans:
 **Goal:** `run_revision` produces a real revised artifact, not the Phase-3 echo stub. `_handle_revision` (engine.py:3656) currently resolves the parent via the FR-014 chain, composes the three-section revision context, then writes that context back as the "revision" and emits `pipeline_complete` with `total_duration: 0.0` — no model ever runs. Close it by dispatching the registry's real revision pipelines (`ppt_revision` / `od_ppt_revision` / …, via the WR-06 generic alias) through the normal `execute()` path with the composed context as input, and persisting the run's actual deliverable as the `derived_from` artifact.
 **Requirements**: None new — completes live-pass finding F2 beyond its 13-05/WR-06 scoped fixes (validation + FE routing). Known design wrinkle to settle in planning: `od_*_revision` agents may declare `injects: [template, design_system]`, which interacts with the 13-06 `missing_template_context` ingress guard when revising from a completed parent (re-resolve the parent's template vs. exempt revision dispatch).
 **Depends on:** Phase 13
-**Plans:** 1/4 plans executed
+**Plans:** 2/4 plans executed
 
 **Success Criteria** (what must be TRUE):
 
@@ -494,7 +494,7 @@ Plans:
 **Wave 1**
 
 - [x] 14-01-PLAN.md — Manifest planner flips (ppt_revision/od_ppt_revision → skip) + both planner parity traps + design-wrinkle pin + scripted revision-agent harness entries
-- [ ] 14-02-PLAN.md — WS run_revision queue dispatch (`_handle_revision_execution`) + terminal-status fidelity + agent_count derivation + handler regression suite
+- [x] 14-02-PLAN.md — WS run_revision queue dispatch (`_handle_revision_execution`) + terminal-status fidelity + agent_count derivation + handler regression suite
 
 **Wave 2** *(blocked on 14-01)*
 

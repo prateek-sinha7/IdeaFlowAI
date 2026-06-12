@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-12T12:05:19.059Z"
-last_activity: 2026-06-12 -- Phase 14 execution started
+last_updated: "2026-06-12T12:20:25.694Z"
+last_activity: "2026-06-12 -- Completed 14-02-PLAN.md (run_revision queue dispatch + terminal-status fidelity)"
 progress:
   total_phases: 14
   completed_phases: 13
   total_plans: 81
-  completed_plans: 78
+  completed_plans: 79
   percent: 93
 ---
 
@@ -25,13 +25,13 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 ## Current Position
 
 Phase: 14 (run_revision real revision loop (F2 end-to-end)) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
-Last activity: 2026-06-12 -- Completed 14-01-PLAN.md (planner: skip flip + parity-trap carve-outs + revision harness)
+Last activity: 2026-06-12 -- Completed 14-02-PLAN.md (run_revision queue dispatch + terminal-status fidelity)
 
-Session continuity: last session 2026-06-12; stopped at Completed 14-01-PLAN.md; resume file: none
+Session continuity: last session 2026-06-12; stopped at Completed 14-02-PLAN.md; resume file: none
 
-Progress: [██████████] 96% (13/14 phases complete; 78/81 plans complete; Phase 14 1/4 plans done)
+Progress: [██████████] 98% (13/14 phases complete; 79/81 plans complete; Phase 14 2/4 plans done)
 
 ## Performance Metrics
 
@@ -137,6 +137,7 @@ Progress: [██████████] 96% (13/14 phases complete; 78/81 pla
 | Phase 13 P05 | ~8 min | 3 tasks | 4 files |
 | Phase 13 P06 | ~16 min | 3 tasks | 6 files |
 | Phase 14 P01 | ~8min | 2 tasks | 5 files |
+| Phase 14 P02 | ~18min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -241,6 +242,9 @@ Recent decisions affecting current work:
 - [Phase 13]: 13-06: total-collapse (no results + agent_errors) -> pipeline_failed terminal + state 'failed' before deliverable resolution; partial failure -> strictly-conditional status='degraded'+agents_failed on pipeline_complete (clean runs byte-identical, no re-baseline)
 - [Phase 13]: 13-06: WS ingress guard keyed on declared spec.injects (mirrors factory._compose_injection exactly) rejects template-less template-inject runs with missing_template_context before engine spin-up; bare prototype/ppt stay admissible but template-required, fail-fast (F3 item 3)
 - [Phase 14]: 14-01: ppt_revision + od_ppt_revision flipped to planner: skip (data-only, INV-5) — run_revision dispatch bypasses planner + clarify (clarify-auto would hang at event.wait()); two-id carve-out pinned in BOTH planner parity traps; design wrinkle executable via test_run_revision_revision_agents_declare_no_template_injects (inject-declaring revision agents fail CI until template_id persistence, Q3-additive)
+- [Phase ?]: 14-02: CancelledError absorbed in _run_revision_to_queue (run_pipeline precedent); outer drainer cancels bg task + re-raises — cancel_pipeline lands the revision row 'cancelled'
+- [Phase ?]: 14-02: bg-task error frames ride the drainer wrapper (section=target_artifact_type, was None); ingress validation frames stay byte-identical with section None
+- [Phase ?]: 14-02: revision drainer mirrors run_pipeline terminal-type breaks + bounded post-drain await of the bg task so direct awaiters observe the final persisted row state
 
 ### Pending Todos
 
