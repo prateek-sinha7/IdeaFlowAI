@@ -12,13 +12,19 @@ provenance: >
   Root causes were diagnosed live during that pass with file:line evidence —
   no separate diagnose step needed; ready for /gsd-plan-phase 13 --gaps.
 deferral: >
-  Quota-blocked live re-checks (NOT code gaps, excluded from Gaps below):
-  (a) od_ppt live retest of the 8ba8f626 template-seeding fix — seeding proven
-  offline + 14 real read_file/glob tool calls observed live before the Bedrock
-  daily quota killed the streams; re-run after quota reset, expect a real
-  template-driven deck; (b) clean re-captures of dotnet_to_azure + chat
-  (quota-throttled) and mulesoft with a source-repo input attached (the bare
-  brief gives the inventory agent nothing to inventory).
+  FULFILLED 2026-06-12 (milestone-end live re-pass — .planning/live-verification/
+  REPORT-2026-06-12.md): (a) od_ppt retest DONE — template seeding works (real
+  glob/read_file on seeded files; composer streamed a 21K template-driven deck)
+  but surfaced NEW finding LV-02: the ppt deliverable resolution returned the
+  validator's QA narration instead of the composer's deck (od-ppt-validator
+  output-contract gap, F5 family); (b) dotnet_to_azure + chat re-captured CLEAN
+  un-throttled (13 agents / ~1MB file-bundle deliverable, final XML-clean;
+  residual stream-level tool-XML confined to the sdlc-governance agent family);
+  mulesoft WITH an embedded source listing VERIFIED — the inventory agent
+  produced a faithful 5-flow estate inventory (10/13 agents before quota).
+  F1/F4/F5 live re-confirms also done: F1 PASS both gate paths; F4 PASS on
+  product paths (0 XML) with the sdlc-governance residual noted; F5 PASS 5/5
+  fixed agents + 3 minor residuals (see REPORT-2026-06-12.md).
 ---
 
 ## Current Test

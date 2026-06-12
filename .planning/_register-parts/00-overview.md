@@ -4,7 +4,7 @@
 >
 > **Source files this overview summarizes (all read in full):** `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, `.planning/config.json`.
 > **Authoritative full specification:** `specs/003-workflow-engine-decoupling/plan.md` — nothing in it may be dropped; every requirement traces back to it.
-> **Per-phase detail:** the 13 sections that follow (Phase 1…13), each summarizing one `.planning/phases/<NN-…>/` folder and pointing to the exact file + heading for any detail.
+> **Per-phase detail:** the 14 sections that follow (Phase 1…14), each summarizing one `.planning/phases/<NN-…>/` folder and pointing to the exact file + heading for any detail.
 
 ### 1. What This Project Is
 
@@ -19,9 +19,10 @@ Audience: engineers building/operating Flowin's agent workflows, and (via the dy
 
 ### 3. Milestone & Phase Status (reconciled)
 
-- **Milestone v1.0: COMPLETE on plans — 13/13 phases, 77/77 plans, 117/117 requirements** (`STATE.md` 100%). Phases 1–12 were the planned milestone (**71 plans**, all 117 v1 requirements mapped 1:1, coverage 117/117); Phase 13 added 6 post-milestone gap-closure plans. Verified offline + a milestone-end live re-pass on 2026-06-11. → `ROADMAP.md` (Progress table), `STATE.md` (footer).
+- **Milestone v1.0: COMPLETE on plans — 14/14 phases, 81/81 plans, 117/117 requirements** (`STATE.md` 100%). Phases 1–12 were the planned milestone (**71 plans**, all 117 v1 requirements mapped 1:1, coverage 117/117); Phase 13 added 6 + Phase 14 added 4 post-milestone plans. Verified offline + a milestone-end live re-pass on 2026-06-11. → `ROADMAP.md` (Progress table), `STATE.md` (footer).
 - **Phase 13 (Live Verification Gap Closure): COMPLETE (2026-06-12), 6/6 plans — verified PASSED.** Added AFTER v1.0 was marked complete, to close the product gaps (live findings **F1–F8**) found by a post-milestone **live-Bedrock** verification pass on real Haiku 4.5; **F1–F7 closed in code**, **F8** is an environment-only re-run deferral. → `.planning/live-verification/REPORT.md`, Phase 13 section.
-  - *Review/security backlog CLEARED:* the `13-REVIEW.md` **Critical** (`approve_review` ownership/IDOR) **and all 7 Warnings (WR-01…WR-07)** are now **FIXED** (`13-REVIEW-FIX.md` `status: all_fixed`; `13-SECURITY.md` `threats_open: 0`, 17/17 closed). *⚠ Still open:* the **6 Info-tier advisories (IN-01…IN-06)**, one **deferred feature** (the `run_revision` DeepAgent revision loop — F2 now routes the revision to the FE but its deliverable is still the Phase-3 stub), and the **end-of-milestone live re-pass** (F1/F4/F5 on real Haiku + F8 re-captures, deferred per project convention). Milestone status is `verifying`. See the Phase 13 section §6/§7 before shipping.
+  - *Review/security backlog CLEARED:* the `13-REVIEW.md` **Critical** (`approve_review` ownership/IDOR) **and all 7 Warnings (WR-01…WR-07)** are now **FIXED** (`13-REVIEW-FIX.md` `status: all_fixed`; `13-SECURITY.md` `threats_open: 0`, 17/17 closed). *⚠ Still open:* the **6 Info-tier advisories (IN-01…IN-06)** and the **end-of-milestone live re-pass** (F1/F4/F5 on real Haiku + F8 re-captures, deferred per project convention). The one **deferred feature** Phase 13 left — the `run_revision` real revision loop — was **CLOSED by Phase 14** (below). Milestone status is `verifying`. See the Phase 13 section §6/§7 before shipping.
+- **Phase 14 (run_revision real revision loop, F2 end-to-end): COMPLETE (2026-06-12), 4/4 plans — verified.** Closes the Phase-13 deferred feature: `run_revision` now dispatches the registry's real revision pipelines through `execute()` (a model runs) and persists the revised artifact with `derived_from` lineage; the Phase-3 echo stub (`_stamped_send`, fake `total_duration: 0.0`) is deleted (INV-12). Code review went iter-1 (2 CR / 4 WR) → all fixed → iter-2 clean (0/0); `14-SECURITY.md` threats_open: 0. SC4 (live Bedrock confirm) deferred to the milestone-end live pass. → Phase 14 section.
 - **v2 (deferred, intentionally unmapped):** ECS-01/02 (remote runtime), SCHED-01 (CP-SAT), MERGE-01 (single-file fragment merge), GIT-01 (PR/commit push), WF-DB-01 (DB-backed user workflows). → `REQUIREMENTS.md` (## v2 Requirements / ## Out of Scope).
 
 ### 4. Architecture & Hard Constraints (apply to EVERY phase — do not violate)
@@ -41,7 +42,7 @@ Audience: engineers building/operating Flowin's agent workflows, and (via the dy
 
 From plan §4: **16 verified couplings L1–L16** in `engine.py` (literal name frozensets, `_resolve_final_output`, carousel sanitize, revision seeding, skip-planner, clarify defaults, build-loop dispatch, HTML readback, build-loop internals, context injection, dead skeleton, singleton per-run state, untyped `accumulated_outputs`, unchecked parent seeding) and **5 factory leaks F1–F5** (inline prompt order, closed tool switch, inline skills/hooks, constitution no-op R12, hardcoded `create_deep_agent`). **D1** (dead `_handle_revision`) was **VOIDED** — it is LIVE (the `run_revision` PPT-revision handler at `app/api/websocket.py:625`). By milestone end L1–L16 + F1–F5 are resolved/deleted or kept as documented **live survivors** (CHECK ledger rows). The operational mirror with status + deleting commit SHA is `specs/003-…/migration-ledger.md`, asserted by `tests/test_migration_ledger.py`.
 
-### 6. The 13 Phases (strangler order, strictly sequential)
+### 6. The 14 Phases (strangler order, strictly sequential)
 
 Plan sub-phases (0A/0B/0C, 1A/1B/1C, 4A/4B) map 1:1 to GSD integer phases 1–12; each phase name carries its plan id `[0A]…[6]` tracing to plan §25. Phase 13 is a post-milestone addition (no plan-id).
 
@@ -59,7 +60,8 @@ Plan sub-phases (0A/0B/0C, 1A/1B/1C, 4A/4B) map 1:1 to GSD integer phases 1–12
 | 10 | Safe Local Exec (gated on N3) [4B] | 5/5 | ✅ 06-10 | Constrained `exec` behind `security` gate + `ExecutionPolicy`; compile/test/lint validators |
 | 11 | Engine-Owned Fan-Out + Merge [5] | 5/5 | ✅ 06-11 | `spawn_subagents` + kernel `run_fanout`; isolation + merge-conflict flow; `BudgetManager`; subagent persistence |
 | 12 | Wave Scheduler + Durable Resume [6] | 10/10 | ✅ 06-11 | Topo wave scheduler; `wave_runs`; resume mid-wave; prototype stays sequential |
-| 13 | Live Verification Gap Closure | 6/6 | ✅ 06-12 (verified; ⚠ 1 Critical open) | Closed post-milestone live-Bedrock findings F1–F8 (declared-gate event streaming, run_revision deliverable contract, pipeline_failed semantics, tool-XML prompt hygiene, app_builder prompt re-templating, sample_fanout deliverable, test-infra repairs) |
+| 13 | Live Verification Gap Closure | 6/6 | ✅ 06-12 (verified; review backlog fixed + security-cleared) | Closed post-milestone live-Bedrock findings F1–F8 (declared-gate event streaming, run_revision deliverable contract, pipeline_failed semantics, tool-XML prompt hygiene, app_builder prompt re-templating, sample_fanout deliverable, test-infra repairs) |
+| 14 | run_revision Real Revision Loop (F2 end-to-end) | 4/4 | ✅ 06-12 (verified) | Real revision dispatch through `execute()` + `derived_from` lineage; deletes the Phase-3 echo stub — closes the Phase-13 deferred feature |
 
 > **Deferred (plan Phase 7, OUT OF SCOPE this milestone):** ECS/EC2 runtime behind the unchanged `RuntimeEnvironment` port — a separate spec (§27); tracked as v2 (ECS-01/02).
 
@@ -78,6 +80,7 @@ Plan sub-phases (0A/0B/0C, 1A/1B/1C, 4A/4B) map 1:1 to GSD integer phases 1–12
 - **FANOUT-01..11, OBS-01, RESUME-01** → Phase 11 (fan-out + merge)
 - **WAVE-01..03, RESUME-02..04** → Phase 12 (wave scheduler + durable resume)
 - **(no new REQ-IDs; closes findings F1–F7)** → Phase 13 (live-verification gap closure)
+- **(no new REQ-IDs; completes live finding F2 end-to-end)** → Phase 14 (run_revision real revision loop)
 
 Per-phase requirement counts (=117): P1=11 · P2=5 · P3=3 · P4=6 · P5=14 · P6=5 · P7=9 · P8=29 · P9=14 · P10=2 · P11=13 · P12=6. → `REQUIREMENTS.md` (## Traceability).
 
@@ -113,4 +116,4 @@ Each `.planning/phases/<NN-…>/` folder contains:
 - `NN-SECURITY.md` (some) — threat model + mitigations. `NN-VALIDATION.md` (some) — Nyquist/test coverage.
 - `NN-VERIFICATION.md` — goal-backward verification verdict. `NN-UAT.md` (some) — user-acceptance evidence. `deferred-items.md` (some) — out-of-scope carry-forward.
 
-The 13 sections that follow summarize each folder and point to the exact file + heading for any detail.
+The 14 sections that follow summarize each folder and point to the exact file + heading for any detail.

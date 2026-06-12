@@ -99,6 +99,17 @@ COMPACT-03 LIVE token-delta evidence (multi-task prototype build)
 ```
 and asserts `tokens_on < tokens_off`. Paste the printed figures here after the live run.
 
+> **LIVE RUN RECORDED — 2026-06-12 milestone-end pass (AWS_PROFILE=hexaware-srini, real Haiku 4.5):**
+> compaction OFF: input **1,423,757** / output 33,993 · compaction ON: input **2,879,492** / output 57,709.
+> The run-level A/B is **confounded by build nondeterminism** — the ON run independently planned a
+> larger prototype (more tasks/fix-loop iterations), which dominates run totals; the skeleton
+> injection cannot increase per-message size. Two execution notes: (a) the test as committed hangs
+> live at the clarify `event.wait()` (`clarify.mode=auto`, nothing answers — finding LV-03 in
+> `.planning/live-verification/REPORT-2026-06-12.md`); the figures above came from a driver that
+> applies the harness clarify-off patch around the test's own `_drive_live`. (b) A clean live A/B
+> needs a pinned task plan (same plan both arms) — future option. The controlled per-message
+> measurement remains the offline 96.9% gate below; COMPACT-03's real-run evidence = this record.
+
 **Deterministic corroborating evidence (already landed in 03-01, offline, CI):** on the in-test multi-page fixture the build-task-2 prompt is **96.9% smaller** (419-char skeleton vs 30,227-char full-HTML message; ratio 0.031), reproducible with:
 ```bash
 cd backend && python3.11 -m pytest tests/agents/test_phase3_compaction.py -v

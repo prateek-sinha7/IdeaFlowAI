@@ -132,3 +132,33 @@ No gaps. All four roadmap success criteria are observably true in the codebase: 
 
 _Verified: 2026-06-12T15:45:00Z_
 _Verifier: Claude (gsd-verifier)_
+
+---
+
+## SC4 LIVE-CONFIRM — closed 2026-06-12 (milestone-end live re-pass)
+
+The three deferred live items were executed against real Bedrock Haiku 4.5 + Postgres
+checkpointer (evidence: `.planning/live-verification/REPORT-2026-06-12.md`, frames in
+`/tmp/flowin-live-evidence/ws2b-od_ppt_revision*`):
+
+1. **FE-exact `run_revision` frame → real revision loop: MECHANICS PASS.** Real `execute()`
+   dispatch (a model ran; 118-frame revision stream), FR-014 chain resolution logged
+   (deliverable link for the parent; exact-kind chain link 1 for revision-of-revision),
+   `derived_from` lineage rows persisted owner/workspace-scoped, terminal-status fidelity
+   (completed / cancelled — cancelled runs write NO exact-kind ref), seq contiguous from the
+   single stamping chokepoint, frames carry `section: od_ppt_output`.
+   **"Revised deck in the preview" content: BLOCKED by NEW finding LV-02** (od_ppt's
+   `deliverable: ppt` resolution returned the validator's QA narration, not the composer's
+   21K template-driven deck, so the revision chain inherited narration — a parent-deliverable
+   issue OUTSIDE Phase 14's surface; the loop faithfully revised what FR-014 gave it).
+2. **Live cancel/reconnect during a revision: PASS.** `cancel_pipeline` mid-revision → bg task
+   cancelled, row `cancelled` (ack non-delivery = known IN-02; the durable log persists
+   `pipeline_cancelled`, replayable). Second-socket live-attach mid-revision → live frames with
+   `section: od_ppt_output` incl. terminal (WR-03 contract); durable-replay frames carry
+   `section: None` (known IN-04). Client-drop mid-revision → cancel-on-disconnect (pre-existing
+   policy, now observed on the revision path).
+3. **A1 (no clarifying questionnaire on revisions): CONFIRMED.** Zero `questionnaire_ready`
+   frames across all four live revision runs (`planner: skip` live).
+
+SC4 disposition: **mechanics verified live; content acceptance tracked under LV-02** (new
+backlog item — od-ppt-validator output contract / ppt deliverable resolution).
