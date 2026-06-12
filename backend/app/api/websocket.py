@@ -1953,6 +1953,7 @@ async def _handle_revision_execution(
     # section: <target_artifact_type>, data} — section is the TARGET artifact
     # type, not the pipeline type. Error events from the background task ride
     # the same wrapper.
+    terminal_break = False  # WR-01: True only when a terminal event broke the loop
     try:
         while True:
             try:
@@ -1999,6 +2000,7 @@ async def _handle_revision_execution(
                 "pipeline_complete", "pipeline_cancelled", "error",
                 "pipeline_failed", "budget_aborted",
             ):
+                terminal_break = True
                 break
 
     except asyncio.CancelledError:
@@ -2014,3 +2016,30 @@ async def _handle_revision_execution(
         await asyncio.wait_for(revision_bg_task, timeout=5.0)
     except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
         pass
+
+    # ── WR-01 (14 review fix): residual drain after a terminal break ─────
+    # The engine emits state_restoration_failed AFTER the terminal
+    # pipeline_complete (the post-dispatch exact-kind lineage write runs
+    # post-emit since 14-03), so it lands on the queue after the terminal
+    # break above — previously queued for nobody and discarded by
+    # _cleanup_pipeline, making a failed FR-014 chain-link-1 lineage write
+    # invisible to the client. The bg task has now finished (awaited with
+    # grace), so forward any residual non-sentinel events on the same
+    # wrapper. Scoped to the terminal-break exit ONLY: a WS-death break
+    # leaves the queue intact for the reconnect drainer.
+    if terminal_break and revision_bg_task.done():
+        while True:
+            try:
+                residual = event_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            if residual is None:
+                break
+            try:
+                await websocket.send_json({
+                    "type": residual["type"], "chunk": None,
+                    "section": target_artifact_type,
+                    "data": residual.get("data", {}),
+                })
+            except Exception:
+                break

@@ -425,6 +425,55 @@ async def test_cancellation_lands_row_cancelled(ws_env, ws_user, monkeypatch):
     assert run_id not in ws_module._PIPELINE_TASKS
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# WR-01 (14 review) — post-terminal state_restoration_failed is delivered
+# ────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_state_restoration_failed_after_terminal_is_delivered(
+    ws_env, ws_user, monkeypatch
+):
+    """WR-01 (14 review): the engine emits ``state_restoration_failed`` AFTER
+    the terminal ``pipeline_complete`` (the post-dispatch exact-kind lineage
+    write runs post-emit since 14-03). The drainer breaks on the terminal —
+    the residual drain must still forward the post-terminal event on the same
+    wrapper instead of silently discarding it with the queue."""
+    ws_module, TestingSession = ws_env
+    parent_id = _seed_parent(TestingSession, ws_user.id)
+
+    async def _complete_then_lineage_failure(kwargs):
+        send = kwargs["websocket_send_fn"]
+        await send({"type": "pipeline_complete",
+                    "data": {"final_output": "<html>revised deck</html>"}})
+        # The lineage write failed AFTER the terminal emit (engine.py order).
+        await send({"type": "state_restoration_failed",
+                    "data": {"error": "artifact_refs write refused"}})
+
+    stub = _install_stub(monkeypatch, _complete_then_lineage_failure)
+    ws = _FakeWebSocket()
+
+    await ws_module._handle_revision_execution(
+        ws, ws_user, parent_id, "od_ppt_output", "Fix slide 1.",
+    )
+
+    types = [f["type"] for f in ws.sent]
+    assert "state_restoration_failed" in types, (
+        f"post-terminal event silently dropped — sent={types}"
+    )
+    # It rides the same drainer wrapper (section = TARGET artifact type) and
+    # arrives AFTER the terminal it trails.
+    srf = [f for f in ws.sent if f["type"] == "state_restoration_failed"][0]
+    assert srf["section"] == "od_ppt_output"
+    assert srf["chunk"] is None
+    assert types.index("pipeline_complete") < types.index("state_restoration_failed")
+
+    # A lineage-persist failure does NOT fail the run (RESEARCH Open Q2): the
+    # dispatch completed, so the row stays "completed".
+    row = _row(TestingSession, stub.calls[0]["pipeline_run_id"])
+    assert row is not None and row.status == "completed"
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # Receive-loop-level pins (14 review fixes) — drive the REAL websocket_chat
 # endpoint with scripted inbound frames so the loop's own guards (not just the
