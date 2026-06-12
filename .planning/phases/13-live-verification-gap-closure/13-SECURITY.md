@@ -34,7 +34,7 @@ created: 2026-06-12
 
 | Threat ID | Category | Component | Disposition | Mitigation | Status |
 |-----------|----------|-----------|-------------|------------|--------|
-| T-13-01-01 | Elevation of privilege | approve_review (websocket.py) approving another user's gate | accept | gate_key embeds the run's UUID; review events live in the per-process ArtifactStore keyed by that UUID; run is owner-scoped at ingress — no new ingress surface added | closed |
+| T-13-01-01 | Elevation of privilege | approve_review (websocket.py) approving another user's gate | mitigate | REOPENED by 13-REVIEW CR-01 (plan-time accept rationale falsified: handler had no ownership check), re-closed 2026-06-12: `_review_gate_owned_by` (websocket.py:155-179) resolves the run from gate_key and requires the authenticated principal to own it; guard at :1006 (`continue` on deny) precedes the sole non-test `set_review_response` call site :1014 (grep: only store.py:89 def + websocket.py:1014); ownership keys on `WorkflowRun.user_id` (nullable=False, workflow.py:20; set at both WS creation sites :891/:1431) NOT the nullable Phase-5 `owner_id` backfill (workflow.py:55) the main creation path :1426-1441 leaves NULL; unknown and unowned runs are indistinguishable (single combined id+user_id filter :172-176; identical "Unknown gate_key"/invalid_gate_key error :1007-1012); regression suite tests/unit/test_approve_review_ownership.py 7/7 passed (owner-allowed with owner_id NULL, cross-user denied, unknown-run denied, 3× malformed-key denied, source-order pin guard-before-write) | closed |
 | T-13-01-02 | Tampering | streamed gate events injected by a malicious capability | accept | capabilities are file-trusted engineer-authored code (CAP-03 gates user-trust manifests); streaming branch resolves gates from the same registry | closed |
 | T-13-01-03 | Denial of service | a gate stream that never terminates blocking the run | accept | identical exposure to the previously awaited evaluate(); fix makes the human-wait VISIBLE (ready event reaches the UI), reducing the hang class | closed |
 | T-13-02-01 | Tampering | _extract_json fallback grabbing a {...} span from polluted text | mitigate | `_FABRICATED_TOOL_XML_RE.sub("", raw)` applied first in `_extract_json` (backend/app/agents/handoff/coder.py:120,133) — strip only removes spans, never widens parser input; downstream `_safe_workspace_join` path-traversal validation (handoff_pipeline.py:165-189) untouched by phase 13; pinned by test_handoff_coder_hardening.py:128,137 | closed |
@@ -61,7 +61,7 @@ created: 2026-06-12
 
 | Risk ID | Threat Ref | Rationale | Accepted By | Date |
 |---------|------------|-----------|-------------|------|
-| AR-13-01 | T-13-01-01 | gate_key embeds run UUID; run owner-scoped at ingress; no new ingress surface | plan-time threat model (13-01-PLAN.md) | 2026-06-12 |
+| ~~AR-13-01~~ | T-13-01-01 | WITHDRAWN 2026-06-12 — rationale falsified by 13-REVIEW CR-01 (handler performed no run-ownership check; "owner-scoped at ingress" did not hold for the approve_review write path). Disposition changed to mitigate; see threat register row. | 13-REVIEW CR-01 / re-audit | 2026-06-12 |
 | AR-13-02 | T-13-01-02 | capabilities are file-trusted engineer-authored code; CAP-03 gates user-trust manifests | plan-time threat model (13-01-PLAN.md) | 2026-06-12 |
 | AR-13-03 | T-13-01-03 | exposure identical to awaited evaluate(); fix makes the wait visible, reducing hang class | plan-time threat model (13-01-PLAN.md) | 2026-06-12 |
 | AR-13-04 | T-13-02-03 | preamble is static engineer text, no interpolated user input, constrains output form only | plan-time threat model (13-02-PLAN.md) | 2026-06-12 |
@@ -81,6 +81,7 @@ created: 2026-06-12
 | Audit Date | Threats Total | Closed | Open | Run By |
 |------------|---------------|--------|------|--------|
 | 2026-06-12 | 17 | 17 | 0 | gsd-security-auditor (read-only audit; evidence suites: test_handoff_coder_hardening 6 passed, test_loader 44 passed, test_revision_intelligence + test_run_revision_fe_contract 15 passed, test_pipeline_failure_semantics + test_run_pipeline_validation + test_characterization_prototype 58 passed, test_text_only_prompt_hygiene 10 passed) |
+| 2026-06-12 (re-audit) | 1 (T-13-01-01, reopened by 13-REVIEW CR-01) | 1 | 0 | gsd-security-auditor (scoped re-audit; disposition accept→mitigate; evidence: websocket.py:155-179/:1006/:1014, workflow.py:20/:55, test_approve_review_ownership.py 7 passed in 0.25s) |
 
 ---
 

@@ -84,6 +84,15 @@ emitted `pipeline_type` matches no FE routing branch.
 
 ### CR-01: `approve_review` has no ownership check — any authenticated user can approve, reject, or inject edited content into another user's gated run
 
+> **RESOLVED 2026-06-12** (via /gsd-secure-phase 13 re-audit): `_review_gate_owned_by`
+> resolves the run from `gate_key` and requires the authenticated principal to own it
+> before `set_review_response` is reachable (deny = same `invalid_gate_key` error as an
+> unknown key — no run-existence oracle). Ownership keys on `WorkflowRun.user_id` (NOT
+> the nullable `owner_id` backfill the main creation path leaves NULL — the suggested
+> snippet's column choice, kept; an `owner_id` filter would have locked owners out of
+> their own gates). Regression: `tests/unit/test_approve_review_ownership.py` (7/7).
+> Auditor-verified; SECURITY.md T-13-01-01 flipped accept→mitigate, AR-13-01 withdrawn.
+
 **File:** `backend/app/api/websocket.py:963-977`
 **Issue:** The handler reads `gate_key`, `approved`, and `edited_content` from the client
 message and calls `store.set_review_response(gate_key, ...)` with no verification that
