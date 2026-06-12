@@ -3033,6 +3033,14 @@ class ExecutionEngine:
     # Gate-capability names, not workflow/agent names (SC-001).
     _HITL_GATES = frozenset({"human", "approval"})
 
+    # WR-07 (13 review fix): gates that FAIL CLOSED. A raised exception in a
+    # validation-class gate degrades to pass (a gate failure must never abort a
+    # run); for the security/HITL controls the same swallow would let a step
+    # execute WITHOUT the required sign-off — inverting the control's purpose.
+    # An exception in these maps to ``block`` (the step is skipped, the run
+    # continues). Gate-capability names, not workflow/agent names (SC-001).
+    _FAIL_CLOSED_GATES = frozenset({"security", "approval", "human"})
+
     async def _evaluate_gates(
         self,
         step,
@@ -3060,8 +3068,12 @@ class ExecutionEngine:
 
         Additive-only (INV-3): every event a gate yields is a NEW ``gate_*`` /
         ``validation_warning`` type flowing through the generic forward — no
-        existing event is renamed/removed. A gate that raises is swallowed (a gate
-        failure must never abort the run); the step proceeds as if the gate passed.
+        existing event is renamed/removed. A VALIDATION-class gate that raises is
+        swallowed (a gate failure must never abort the run) and the step proceeds
+        as if it passed; ``security``/``approval``/``human`` FAIL CLOSED — an
+        exception maps to ``block`` (WR-07). Once a gate blocks (or waits for a
+        human) the remaining declared gates are NOT evaluated (WR-07
+        short-circuit); an HITL rejection short-circuits via ``cancel`` (WR-03).
         """
         declared = list(getattr(step, "gates", None) or [])
         if not declared:
@@ -3122,6 +3134,19 @@ class ExecutionEngine:
                     for event in getattr(result, "events", None) or []:
                         yield event, outcome, None
             except Exception as exc:  # noqa: BLE001 — a gate must never abort the run
+                # ── WR-07 (13 review fix): scope the fail-open swallow ────────
+                # security/approval/human FAIL CLOSED: a raised gate (e.g. a
+                # StateMachineError mid-HITL-stream) maps to ``block`` — the
+                # step is skipped rather than executing WITHOUT its required
+                # sign-off. Validation-class gates keep the fail-open degrade.
+                if name in self._FAIL_CLOSED_GATES:
+                    logger.warning(
+                        "gate %r on step %s raised (%s) — FAIL-CLOSED: "
+                        "treating as gate_blocked (WR-07)",
+                        name, getattr(step, "agent_id", "?"), exc,
+                    )
+                    yield None, "block", {"gate": name, "reason": f"gate error: {exc}"}
+                    return
                 logger.warning(
                     "gate %r on step %s raised (%s) — treating as pass",
                     name, getattr(step, "agent_id", "?"), exc,
@@ -3151,6 +3176,14 @@ class ExecutionEngine:
             # identical — a gate that already emits its event yields the same
             # events, only an extra non-forwarded ``None`` sentinel follows).
             yield None, outcome, detail
+            # ── WR-07 (13 review fix): short-circuit on a blocking outcome ────
+            # The step is halted regardless of the remaining declared gates —
+            # evaluating them anyway could open a full HITL pause (declared
+            # ``gates: [security, human]`` with security blocking used to ask
+            # the user to approve a step that cannot run). Clean-run parity:
+            # every gate passing never reaches this return.
+            if outcome in ("block", "wait_human"):
+                return
 
     async def _apply_declared_gate_edit(
         self,

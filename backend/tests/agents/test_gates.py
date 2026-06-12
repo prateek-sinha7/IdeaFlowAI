@@ -707,6 +707,84 @@ async def test_engine_gate_that_raises_is_swallowed_not_aborting():
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# WR-07 (13 review fix) — blocking outcome short-circuits; HITL/security gates
+# FAIL CLOSED on a raised exception
+# ════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_blocking_gate_short_circuits_remaining_declared_gates():
+    """gates:[security, human] with security blocking — the human gate must NOT
+    open an HITL pause for a step that will be skipped regardless (pre-fix the
+    loop continued to the next gate and asked the user to approve a dead step)."""
+    engine = _engine()
+    runner = _RecordingRunner(review_events=[
+        {"type": "review_gate_ready", "data": {"gate_key": "run-x:step-x"}},
+        {"type": "review_gate_approved", "data": {"edited": False}},
+    ])
+    # network=True → the real security gate BLOCKS unconditionally.
+    step = _GatedStep(gates=["security", "human"], tools=_ToolGrant(network=True))
+
+    events, outcomes = await _collect_gates(engine, step, _Ctx(runner), phase="pre")
+    assert GATE_BLOCK in outcomes
+    # The human gate's HITL delegate was NEVER invoked …
+    assert runner.delegate_payloads == [], (
+        "the human gate opened a pause after a blocking security gate (WR-07)"
+    )
+    # … and no review_gate_* event leaked into the stream.
+    assert not any(e.get("type", "").startswith("review_gate") for e in events)
+
+
+@pytest.mark.asyncio
+async def test_fail_closed_gate_exception_maps_to_block_not_pass():
+    """A raised security/approval/human gate must FAIL CLOSED: pre-fix the broad
+    swallow treated it as PASS and the step executed WITHOUT its sign-off."""
+    engine = _engine()
+
+    class _BoomSecurity:
+        name = "security"
+
+        async def evaluate(self, step, ctx):
+            raise RuntimeError("boom mid-gate")
+
+    registry_mod._IMPLS[("gate", "security")] = _BoomSecurity()
+    step = _GatedStep(gates=["security"], tools=_ToolGrant(exec=True))
+
+    details: list = []
+    events, outcomes = await _collect_gates(
+        engine, step, _Ctx(_RecordingRunner()), phase="pre", details=details
+    )
+    assert events == []  # no UI event — the sentinel alone carries the halt
+    assert outcomes == [GATE_BLOCK], (
+        f"a raised fail-closed gate must yield exactly one block sentinel: {outcomes}"
+    )
+    assert details and details[0] and details[0]["gate"] == "security"
+
+
+@pytest.mark.asyncio
+async def test_raising_hitl_gate_blocks_and_stops_gate_evaluation():
+    """A raised HUMAN gate fails closed too — and short-circuits what follows."""
+    engine = _engine()
+
+    class _BoomHuman:
+        name = "human"
+
+        async def evaluate_stream(self, step, ctx):
+            raise RuntimeError("StateMachineError analogue")
+            yield  # pragma: no cover — makes this an async generator
+
+    registry_mod._IMPLS[("gate", "human")] = _BoomHuman()
+    step = _GatedStep(gates=["human", "security"], tools=_ToolGrant(exec=True))
+
+    events, outcomes = await _collect_gates(
+        engine, step, _Ctx(_RecordingRunner()), phase="pre"
+    )
+    # block (not pass, not cancel — an exception is not a user rejection), and
+    # the trailing security gate never evaluated (single sentinel).
+    assert outcomes == [GATE_BLOCK]
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # WR-04 (13 review fix) — declared-gate edits are THREADED upstream, not dropped
 # ════════════════════════════════════════════════════════════════════════════
 
