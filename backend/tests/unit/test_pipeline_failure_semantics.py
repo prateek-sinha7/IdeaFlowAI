@@ -162,7 +162,9 @@ async def test_all_agents_failed_emits_pipeline_failed_not_complete(
     assert data["agents_completed"] == 0
     assert data["agents_total"] == 2
     assert data["agents_failed"] == sorted(all_ids)
-    assert data["error"] == "all agents failed"
+    # IN-04 (13 review fix): neutral message — gate-skipped agents are neither
+    # completed nor failed, so the old "all agents failed" could overstate.
+    assert data["error"] == "no agent completed"
     assert data["pipeline_type"] == "user_stories"
     assert data["pipeline_run_id"] == run_id
     assert "total_duration" in data and "timestamp" in data

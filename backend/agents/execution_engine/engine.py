@@ -1726,7 +1726,13 @@ class ExecutionEngine:
                     "agents_completed": 0,
                     "agents_total": len(ordered_agents),
                     "agents_failed": sorted(_failed_agent_ids),
-                    "error": "all agents failed",
+                    # IN-04 (13 review fix): neutral message — the branch fires
+                    # on "no agent completed AND at least one errored", but
+                    # agents skipped by a pre-step gate block are neither
+                    # completed nor failed, so "all agents failed" could
+                    # overstate the failure set (agents_failed is the precise
+                    # list; agents_total counts every manifest step).
+                    "error": "no agent completed",
                     "timestamp": _now(),
                 },
             }
