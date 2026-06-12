@@ -116,18 +116,30 @@ _FABRICATED_TOOL_XML_RE: re.Pattern[str] = re.compile(
     r"|<invoke\b[^>]*>[\s\S]*?</invoke>"
 )
 
+# WR-01 (13 review fix): a TRUNCATED span — output cut at max_tokens mid-XML — has
+# no closing tag, so the paired regex above leaves it intact. Any opener that
+# SURVIVES the paired sub is by definition unmatched; strip from it to
+# end-of-string. ``<invoke\b`` (no ``>`` required) also catches a cut mid-attribute
+# (e.g. ``<invoke name="wri``). Linear — single pass, no nested quantifiers.
+_UNTERMINATED_TOOL_XML_RE: re.Pattern[str] = re.compile(
+    r"(?:<function_calls>|<invoke\b)[\s\S]*\Z"
+)
+
 
 def _strip_fabricated_tool_xml(text: str) -> str:
-    """Strip fabricated tool-call XML spans from a TOOL-LESS agent's done output (F4).
+    """Strip fabricated tool-call XML spans from a TOOL-LESS agent's output (F4).
 
     Removes ``<function_calls>...</function_calls>`` spans and standalone fabricated
-    ``<invoke ...>...</invoke>`` spans. Applied ONLY to the terminal ``done`` output of
-    agents constructed with ``exclude_builtin_tools=True`` and zero custom tools — a
-    tool-using agent's legitimate output is never touched.
+    ``<invoke ...>...</invoke>`` spans, plus an UNTERMINATED trailing span (output
+    truncated at max_tokens mid-XML — WR-01). Applied ONLY to the authoritative
+    output of agents constructed with ``exclude_builtin_tools=True`` and zero custom
+    tools — a tool-using agent's legitimate output is never touched.
 
     Streamed ``chunk`` events are intentionally NOT filtered: this defense-in-depth
     targets the AUTHORITATIVE output that feeds downstream agent context and
-    deliverables, not the live UI token stream.
+    deliverables, not the live UI token stream. The engine applies the SAME
+    transform to its chunk-joined output via :meth:`DeepAgentRunner.sanitize_output`
+    (WR-01 — the engine never consumes the ``done`` event).
 
     When the pattern is absent the input is returned unchanged (same object), so
     scripted-model characterization outputs (which never contain the pattern) stay
@@ -135,7 +147,8 @@ def _strip_fabricated_tool_xml(text: str) -> str:
     """
     if "<function_calls>" not in text and "<invoke" not in text:
         return text
-    return _FABRICATED_TOOL_XML_RE.sub("", text)
+    cleaned = _FABRICATED_TOOL_XML_RE.sub("", text)
+    return _UNTERMINATED_TOOL_XML_RE.sub("", cleaned)
 
 
 def _tool_name(tool: Any) -> str | None:
@@ -512,6 +525,21 @@ class DeepAgentRunner:
                 raise
             logger.exception("DeepAgentRunner.astream_events failed: %s", exc)
             yield {"type": "error", "error": str(exc)}
+
+    def sanitize_output(self, text: str) -> str:
+        """Sanitize an externally-assembled authoritative output (WR-01, 13 review fix).
+
+        The engine builds each agent's authoritative output from the streamed
+        ``chunk`` events (never from ``done``), so the done-event sanitization
+        above never reaches the pipeline path. The engine calls THIS method
+        (duck-typed — no kernel import of this module) on its chunk-joined
+        output. Identity for tool-using agents (``_sanitize_fabricated_xml`` is
+        False) and for clean text (same-object return), so characterization
+        outputs stay byte-identical.
+        """
+        if self._sanitize_fabricated_xml and text:
+            return _strip_fabricated_tool_xml(text)
+        return text
 
     async def _gate_payload(self) -> dict[str, Any] | None:
         """Return a JSON-serializable HITL ``gate`` payload, or ``None`` if not paused.

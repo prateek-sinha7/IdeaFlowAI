@@ -2382,6 +2382,18 @@ class ExecutionEngine:
 
             output = "".join(output_chunks)
 
+            # ── WR-01 (13 review fix): sanitize fabricated tool-call XML HERE ────────
+            # The runner's done-event sanitizer (F4 / 13-02) is inert on this path —
+            # the engine assembles the authoritative output from ``chunk`` events and
+            # never consumes ``done``. Apply the SAME transform to the chunk-joined
+            # output, duck-typed on the runner's capability surface (no app-module
+            # import, no workflow/agent-name branch — SC-001). The runner method is a
+            # no-op for tool-using agents and a same-object identity for clean text,
+            # so the characterization snapshots stay byte-identical.
+            _sanitize_fn = getattr(agent, "sanitize_output", None)
+            if callable(_sanitize_fn):
+                output = _sanitize_fn(output)
+
             # ── Single-file deliverable: read the named file from the run sandbox ─────
             # (INV-1, migrated L10) An agent whose run produces a single on-disk file
             # (deliverable.strategy == "single_file", e.g. the prototype build loop)

@@ -12,9 +12,21 @@ without bound tools. Two offline-verifiable defenses are pinned here:
 2. **Output sanitation** (defense-in-depth): ``_strip_fabricated_tool_xml`` removes
    fabricated ``<function_calls>``/``<invoke>`` spans from the terminal done output of
    tool-less agents; clean strings pass through unchanged (identity).
+
+3. **Engine-path sanitation** (WR-01, 13 review fix): the engine assembles each
+   agent's authoritative output from ``chunk`` events (never ``done``), so the
+   runner-level sanitizer alone never protected the pipeline path. The engine now
+   applies ``DeepAgentRunner.sanitize_output`` (duck-typed) to its chunk-joined
+   output — pinned here by driving the PUBLIC ``engine.execute()`` with a scripted
+   model that emits fabricated XML in its chunks. Truncated (unterminated) spans
+   are stripped to end-of-string.
 """
 
 from __future__ import annotations
+
+import uuid
+
+import pytest
 
 from agents.factory import (
     _NO_TOOLS_PREAMBLE,
@@ -154,3 +166,138 @@ class TestStripFabricatedToolXml:
             "<function_calls><invoke name='b'></invoke></function_calls>"
         )
         assert _strip_fabricated_tool_xml(polluted) == "kept"
+
+    def test_unterminated_function_calls_span_stripped_to_eos(self):
+        """WR-01: output cut at max_tokens mid-span — no closing tag exists."""
+        truncated = (
+            "## Epic 1: Onboarding\nProse kept.\n"
+            '<function_calls>\n<invoke name="write_file">\n<parameter name="pa'
+        )
+        cleaned = _strip_fabricated_tool_xml(truncated)
+        assert cleaned == "## Epic 1: Onboarding\nProse kept.\n"
+
+    def test_unterminated_invoke_cut_mid_attribute_stripped(self):
+        """WR-01: truncation can land mid-attribute (no closing ``>`` either)."""
+        truncated = 'Summary done.\n<invoke name="wri'
+        cleaned = _strip_fabricated_tool_xml(truncated)
+        assert cleaned == "Summary done.\n"
+
+    def test_paired_spans_still_removed_before_unterminated_pass(self):
+        """A closed span followed by a truncated one — both go, prose between stays."""
+        polluted = (
+            "<function_calls><invoke name='a'></invoke></function_calls>"
+            "kept prose"
+            "<function_calls><invoke name='b'>"
+        )
+        assert _strip_fabricated_tool_xml(polluted) == "kept prose"
+
+
+# ---------------------------------------------------------------------------
+# 4. ENGINE-path sanitation (WR-01) — the chunk-joined authoritative output
+# ---------------------------------------------------------------------------
+
+
+_POLLUTED_CHUNKS = [
+    "## Epics\nProse kept.\n",
+    "<function_calls>\n<invoke name=\"write_file\">\n"
+    "<parameter name=\"path\">epics.md</parameter>\n</invoke>\n</function_calls>\n",
+    "Tail kept.\n",
+]
+_EXPECTED_SANITIZED = "## Epics\nProse kept.\n\nTail kept.\n"
+
+
+@pytest.mark.asyncio
+async def test_engine_pipeline_path_strips_fabricated_xml_from_authoritative_output(
+    tmp_path, monkeypatch
+):
+    """WR-01 regression: ``_run_agent`` builds output from ``chunk`` events — the
+    persisted/forwarded authoritative output must be SANITIZED on that path.
+
+    Drives the PUBLIC ``engine.execute()`` over two real tool-less user_stories
+    agents with a scripted model whose chunks carry a fabricated XML span. The
+    UI ``agent_chunk`` stream is deliberately unfiltered (parity); the
+    ``agent_complete.output_length`` and the run's ``final_output`` must reflect
+    the sanitized output.
+    """
+    import agents.execution_engine.engine as engine_mod
+    import agents.factory as factory_mod
+    from agents.execution_engine.engine import ExecutionEngine
+    from agents.registry import get_pipeline_agents
+    from app.core.config import settings as _settings
+    from tests.agents._scripted_model import ScriptedFakeChatModel, _ScriptedTurn
+
+    monkeypatch.setattr(_settings, "RUNS_ROOT", str(tmp_path), raising=False)
+
+    # Planner + clarify off (offline — no model call, no WS round-trip).
+    _orig_compile = engine_mod.compile_for_run
+
+    def _patched_compile(pipeline_type, _orig=_orig_compile):
+        compiled = _orig(pipeline_type)
+        compiled.planner = "skip"
+        compiled.clarify.mode = "off"
+        return compiled
+
+    monkeypatch.setattr(engine_mod, "compile_for_run", _patched_compile)
+
+    specs = get_pipeline_agents("user_stories")[:2]
+    assert all(s.tools == [] for s in specs), "precondition: tool-less agents"
+    polluted_agent_id = specs[-1].id  # last agent → its output IS final_output
+
+    _orig_create_runner = factory_mod.create_runner
+
+    def _patched_create_runner(agent_id, ctx, **kw):
+        texts = (
+            list(_POLLUTED_CHUNKS)
+            if agent_id == polluted_agent_id
+            else [f"{agent_id} clean output."]
+        )
+        ctx.model = ScriptedFakeChatModel([_ScriptedTurn(texts=texts, usage=(12, 7))])
+        return _orig_create_runner(agent_id, ctx, **kw)
+
+    monkeypatch.setattr(factory_mod, "create_runner", _patched_create_runner)
+    monkeypatch.setattr(engine_mod, "create_runner", _patched_create_runner)
+
+    engine = ExecutionEngine()
+
+    async def _noop_store(*a, **k):
+        return "artifact-id"
+
+    monkeypatch.setattr(engine._store, "store", _noop_store, raising=False)
+
+    events: list[dict] = []
+    async for ev in engine.execute(
+        agents=list(specs),
+        user_message="Build a backlog.",
+        pipeline_run_id=f"wr01-{uuid.uuid4().hex[:8]}",
+        pipeline_type="user_stories",
+        gate_agent_ids=[],
+    ):
+        events.append(ev)
+
+    # The UI chunk stream is NOT filtered (parity — chunks flow as produced).
+    polluted_chunks = [
+        e for e in events
+        if e.get("type") == "agent_chunk"
+        and e["data"]["agent_id"] == polluted_agent_id
+    ]
+    assert any("<function_calls>" in e["data"]["chunk"] for e in polluted_chunks), (
+        "precondition: the scripted model streamed the fabricated span"
+    )
+
+    # The AUTHORITATIVE output (agent_complete.output_length) is sanitized.
+    complete = next(
+        e for e in events
+        if e.get("type") == "agent_complete"
+        and e["data"]["agent_id"] == polluted_agent_id
+    )
+    assert complete["data"]["output_length"] == len(_EXPECTED_SANITIZED), (
+        "agent_complete.output_length must reflect the SANITIZED chunk-joined "
+        f"output ({len(_EXPECTED_SANITIZED)}), got {complete['data']['output_length']}"
+    )
+
+    # The run deliverable carries no fabricated XML; the prose survived.
+    final = next(e for e in events if e.get("type") == "pipeline_complete")
+    final_output = final["data"]["final_output"]
+    assert "<function_calls>" not in final_output
+    assert "<invoke" not in final_output
+    assert "Prose kept." in final_output and "Tail kept." in final_output
