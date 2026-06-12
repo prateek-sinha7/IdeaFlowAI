@@ -197,3 +197,49 @@ def test_art04_retention_overrides_persist_verbatim() -> None:
     )
     assert keep.retention == "keep"
     assert days.retention == "days:30"
+
+
+# ── IN-01 (13 review fix) — ARTIFACT_KINDS advisory validation ─────────────────
+
+
+def _write_kind(graph: ArtifactGraph, kind: str) -> ArtifactRef:
+    return graph.write_ref(
+        run_id="run-1",
+        owner_id="alice",
+        workspace_id="ws-1",
+        kind=kind,
+        producer_step="step",
+        producer_agent="agent",
+        task_id=None,
+        content="content",
+        location="loc",
+    )
+
+
+def test_in01_unknown_kind_warns_but_write_proceeds(caplog) -> None:
+    """An out-of-vocabulary kind logs a WARNING (observable typo) yet still writes."""
+    import logging as _logging
+
+    graph = ArtifactGraph()
+    with caplog.at_level(_logging.WARNING, logger="agents.artifacts.graph"):
+        ref = _write_kind(graph, "speling_mistake")
+    assert ref.kind == "speling_mistake"  # advisory — the write must proceed
+    assert graph.get(ref.id) is not None
+    assert any(
+        "outside ARTIFACT_KINDS" in r.message for r in caplog.records
+    ), "expected the IN-01 advisory warning for an unknown kind"
+
+
+def test_in01_vocabulary_and_revision_target_kinds_do_not_warn(caplog) -> None:
+    """Vocabulary kinds (incl. clarifications/planning_context) and the *_output
+    revision-target carve-out write silently."""
+    import logging as _logging
+
+    graph = ArtifactGraph()
+    with caplog.at_level(_logging.WARNING, logger="agents.artifacts.graph"):
+        for kind in ("spec", "deliverable", "clarifications", "planning_context",
+                     "ppt_output", "od_ppt_output"):
+            _write_kind(graph, kind)
+    assert not [
+        r for r in caplog.records if "outside ARTIFACT_KINDS" in r.message
+    ], "known kinds / *_output carve-out must not trigger the advisory warning"

@@ -27,14 +27,28 @@ carries no secret material.
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 from dataclasses import dataclass, field
 
-# The closed ``kind`` vocabulary (snake_case — one name everywhere). The engine
+logger = logging.getLogger(__name__)
+
+# The ``kind`` vocabulary (snake_case — one name everywhere). The engine
 # maps each AGENT.md ``produces``/``consumes`` string to one of these in 05-04.
 # ``deliverable`` (13-05 / F2) labels the run-completion ref carrying the
 # resolved final_output — the generic, workflow-agnostic kind the FR-014
-# revision lookup falls back to.
+# revision lookup falls back to. ``clarifications`` / ``planning_context``
+# are the run-metadata kinds written by the clarify engine and the planner
+# seed (real persisted kinds — added in IN-01 so the vocabulary matches
+# every production writer).
+#
+# IN-01 (13 review fix): the vocabulary is ADVISORY-ENFORCED — ``write_ref``
+# logs a WARNING (never raises) for a kind outside this set, so a typo'd kind
+# that would silently miss every FR-014 chain link is observable in logs
+# without breaking any write path. Carve-out: ``*_output`` kinds are the
+# FE-supplied revision-target kinds (``ppt_output`` / ``od_ppt_output`` —
+# data passing through ``_handle_revision``; a generic suffix, no
+# workflow-name literal, SC-001) and do not warn.
 ARTIFACT_KINDS: frozenset[str] = frozenset(
     {
         "spec",
@@ -50,6 +64,8 @@ ARTIFACT_KINDS: frozenset[str] = frozenset(
         "summary",
         "patch",
         "deliverable",
+        "clarifications",
+        "planning_context",
     }
 )
 
@@ -121,7 +137,22 @@ class ArtifactGraph:
         The graph generates ``id``, computes ``content_hash`` as a deterministic
         sha256 over the UTF-8 ``content`` (D-01), and assigns ``version`` as
         ``1 + count of existing refs with the same (run_id, kind)``.
+
+        ``kind`` is advisory-validated against ``ARTIFACT_KINDS`` (IN-01): an
+        out-of-vocabulary kind logs a WARNING (it would silently miss every
+        typed ``consumes`` route and FR-014 chain link) but the write proceeds —
+        the vocabulary must never break a run. ``*_output`` kinds (the
+        FE-supplied revision-target kinds flowing through ``_handle_revision``)
+        are the documented carve-out and do not warn.
         """
+        if kind not in ARTIFACT_KINDS and not kind.endswith("_output"):
+            logger.warning(
+                "artifact kind %r is outside ARTIFACT_KINDS — typed consumes "
+                "routing and the FR-014 revision lookup match kinds EXACTLY, "
+                "so a typo here is silently unroutable (IN-01 advisory; "
+                "write proceeds)",
+                kind,
+            )
         content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
         version = 1 + sum(
             1 for r in self._refs if r.run_id == run_id and r.kind == kind
