@@ -317,19 +317,23 @@ engine_mod.create_runner = _patched_create_runner       # engine imported it by 
 4. **The template isn't needed:** the composed revision context embeds the COMPLETE parent deck HTML — the physical realization of the template — and the revision prompts mandate surgical edits that preserve theme/fonts/structure ("NEVER change the visual theme"). Re-injecting the raw template SKILL.md would invite regeneration, the opposite of the surgical contract.
 5. **Forward-compatibility:** if a future od revision agent declares `injects: [template, ...]`, the `run_pipeline` ingress guard already protects that path, and the dispatch path would need a template source — at that point the additive fix is persisting `template_id` on `WorkflowRun` (additive migration per Q3) and reloading `load_ppt_od_context` at revision dispatch. Out of scope now; optionally pin the decision with a regression test asserting revision-pipeline agents declare no `template` inject (makes the design choice executable).
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **WS dispatch concurrency model** — inline await (current) vs background task + queue (run_pipeline pattern).
    - What we know: inline blocks the receive loop for the full model run (Pitfall 3); the queue infrastructure exists and is proven.
    - What's unclear: whether the planner scopes the queue refactor into this phase or accepts inline-blocking as a recorded limitation for SC4's live pass.
    - Recommendation: adopt the queue pattern — it is mostly relocation of the dispatch call, and the live milestone-end pass (SC4) will exercise cancel/reconnect behavior.
+   - **RESOLVED:** adopted by plan 14-02 — the WS `run_revision` branch moves onto the background-task + per-run-queue + drainer pattern (`_handle_revision_execution`), with terminal-status fidelity, agent_count derivation, and cancellation pinned by `test_run_revision_ws_dispatch.py`.
 2. **Error-event vocabulary for the post-dispatch lineage write** — the stub emits `state_restoration_failed` when its write fails.
    - What we know: tests pin that event today; after the refactor the run itself has already completed when the lineage write runs.
    - Recommendation (Claude's discretion): keep emitting `state_restoration_failed` on lineage-persist failure (preserves the vocabulary and FE handling), but do not fail the run — the deliverable ref from the terminal block still exists (chain link 2 keeps revision-of-revision functional).
+   - **RESOLVED:** adopted by plan 14-03 Task 1 — `state_restoration_failed` is kept on lineage-persist failure (event vocabulary preserved) and the run is NOT failed; the terminal-block `kind="deliverable"` ref keeps chain link 2 functional.
 3. **`producer_agent` on the exact-kind ref** — stub hardcodes `"revision-agent"`.
    - Recommendation: use the actual final agent id from the dispatched run (mirrors the IN-05 fix in the terminal block); content/kind/hash unchanged, lineage metadata only. No agent-id literal — derive from the resolved spec list.
+   - **RESOLVED:** adopted by plan 14-03 Task 1 — `producer_agent=agents[-1].id`, derived from the resolved spec list (no literal, IN-05 spirit).
 4. **`user_stories_revision` / `app_builder_revision` / `prototype_revision` scope** — these ride `run_pipeline` (FE verified), not `run_revision`.
    - Recommendation: explicitly out of scope; only the two run_revision-dispatched manifests flip. State this in the plan to prevent scope creep.
+   - **RESOLVED:** adopted by plan 14-01 as an explicit scope guard — `prototype_revision`, `user_stories_revision`, and `app_builder_revision` ride `run_pipeline` and are OUT OF SCOPE; only the two run_revision-dispatched manifests (`ppt_revision`, `od_ppt_revision`) flip, pinned by 14-01's INV-3 acceptance criterion (`git diff --stat` zero changes on the three untouched workflows).
 
 ## Environment Availability
 
