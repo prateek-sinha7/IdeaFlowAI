@@ -1,5 +1,6 @@
 {
   "model_profile": "inherit",
+  "context_window": 1000000,
   "commit_docs": true,
   "parallelization": false,
   "search_gitignored": false,
