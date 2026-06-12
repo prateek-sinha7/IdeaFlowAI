@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-12T12:20:25.694Z"
-last_activity: "2026-06-12 -- Completed 14-02-PLAN.md (run_revision queue dispatch + terminal-status fidelity)"
+last_updated: "2026-06-12T12:37:15.433Z"
+last_activity: "2026-06-12 -- Completed 14-03-PLAN.md (real execute() dispatch in _handle_revision + FE-exact real-dispatch contract)"
 progress:
   total_phases: 14
   completed_phases: 13
   total_plans: 81
-  completed_plans: 79
-  percent: 93
+  completed_plans: 80
+  percent: 99
 ---
 
 # Project State
@@ -25,13 +25,13 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 ## Current Position
 
 Phase: 14 (run_revision real revision loop (F2 end-to-end)) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
-Last activity: 2026-06-12 -- Completed 14-02-PLAN.md (run_revision queue dispatch + terminal-status fidelity)
+Last activity: 2026-06-12 -- Completed 14-03-PLAN.md (real execute() dispatch in _handle_revision + FE-exact real-dispatch contract)
 
-Session continuity: last session 2026-06-12; stopped at Completed 14-02-PLAN.md; resume file: none
+Session continuity: last session 2026-06-12; stopped at Completed 14-03-PLAN.md; resume file: none
 
-Progress: [██████████] 98% (13/14 phases complete; 79/81 plans complete; Phase 14 2/4 plans done)
+Progress: [██████████] 99% (13/14 phases complete; 80/81 plans complete; Phase 14 3/4 plans done)
 
 ## Performance Metrics
 
@@ -138,6 +138,7 @@ Progress: [██████████] 98% (13/14 phases complete; 79/81 pla
 | Phase 13 P06 | ~16 min | 3 tasks | 6 files |
 | Phase 14 P01 | ~8min | 2 tasks | 5 files |
 | Phase 14 P02 | ~18min | 2 tasks | 2 files |
+| Phase 14 P03 | ~10min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -245,6 +246,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 14-02: CancelledError absorbed in _run_revision_to_queue (run_pipeline precedent); outer drainer cancels bg task + re-raises — cancel_pipeline lands the revision row 'cancelled'
 - [Phase ?]: 14-02: bg-task error frames ride the drainer wrapper (section=target_artifact_type, was None); ingress validation frames stay byte-identical with section None
 - [Phase ?]: 14-02: revision drainer mirrors run_pipeline terminal-type breaks + bounded post-drain await of the bg task so direct awaiters observe the final persisted row state
+- [Phase 14]: 14-03: _handle_revision dispatches via execute() with od_context=None + gate_agent_ids=[] (settled wrinkle); lineage write guarded final_output and not terminal_failed with producer_agent=agents[-1].id; state_restoration_failed kept on lineage-persist failure without failing the run
 
 ### Pending Todos
 
