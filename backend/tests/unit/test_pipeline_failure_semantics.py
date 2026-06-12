@@ -223,6 +223,162 @@ async def test_clean_run_payload_carries_no_degraded_keys(
     assert engine._state_machine.get_state(run_id) == "completed"
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# WR-05 (13 review fix): recoverable error + completion from the SAME agent
+# (the agent-timeout degrade shape) is NOT a failure
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def _make_timeout_shaped_stub(timeout_ids: set[str]):
+    """Agents in ``timeout_ids`` emit a recoverable ``agent_error`` and then
+    CONTINUE — appending a (partial/fallback) result and emitting
+    ``agent_complete`` — exactly the engine's agent-timeout interleaving."""
+
+    async def _stub(
+        self, spec, index, ordered_agents, user_message, sandbox,
+        pipeline_run_id, pipeline_type, planning_context, attached_skills,
+        attached_hooks, model_id, results, cancel_event, ectx,
+    ):
+        yield {
+            "type": "agent_start",
+            "data": {"agent_id": spec.id, "name": spec.name, "role": spec.role,
+                     "icon": spec.icon, "index": index, "total": len(ordered_agents)},
+        }
+        if spec.id in timeout_ids:
+            yield {
+                "type": "agent_error",
+                "data": {"agent_id": spec.id,
+                         "error": "Agent timed out after 600s — using best available output",
+                         "recoverable": True},
+            }
+            # …and CONTINUES (timeout degrade path): partial output is used.
+        results.append({
+            "agent_id": spec.id, "name": spec.name, "role": spec.role,
+            "icon": spec.icon, "output": f"{spec.id} output", "duration": 0.01,
+            "input_tokens": 1, "output_tokens": 1, "total_tokens": 2,
+        })
+        yield {
+            "type": "agent_complete",
+            "data": {"agent_id": spec.id, "name": spec.name, "duration": 0.01,
+                     "output_length": len(f"{spec.id} output"), "index": index,
+                     "total": len(ordered_agents), "input_tokens": 1,
+                     "output_tokens": 1, "total_tokens": 2},
+        }
+
+    return _stub
+
+
+@pytest.mark.asyncio
+async def test_recovered_timeout_agent_is_not_listed_as_failed(
+    _offline_engine_env, monkeypatch
+):
+    """An agent that emits a recoverable agent_error and then COMPLETES (timeout
+    degrade) must not flip the run to "degraded" — pre-fix it appeared in BOTH
+    agents_completed and agents_failed (a contradictory payload), and a
+    timeout-only run lost its clean-completion presentation."""
+    specs = get_pipeline_agents("user_stories")[:2]
+    monkeypatch.setattr(
+        ExecutionEngine, "_run_agent", _make_timeout_shaped_stub({specs[0].id})
+    )
+
+    engine = ExecutionEngine()
+    run_id = str(uuid.uuid4())
+    events: list[dict] = []
+    async for event in engine.execute(
+        agents=specs,
+        user_message="build a backlog",
+        pipeline_run_id=run_id,
+        pipeline_type="user_stories",
+        session_id="sess-f3",
+    ):
+        events.append(event)
+
+    assert _events_of(events, "pipeline_failed") == []
+    complete = _events_of(events, "pipeline_complete")
+    assert len(complete) == 1
+
+    data = complete[0]["data"]
+    # Both agents completed — the recovered timeout is NOT a failure.
+    assert data["agents_completed"] == 2
+    assert "status" not in data, (
+        f"recovered timeout flipped the run to degraded: {data!r}"
+    )
+    assert "agents_failed" not in data, (
+        f"an agent appears in BOTH agents_completed and agents_failed: {data!r}"
+    )
+    assert engine._state_machine.get_state(run_id) == "completed"
+
+
+@pytest.mark.asyncio
+async def test_unrecovered_failure_alongside_recovered_timeout_lists_only_the_failure(
+    _offline_engine_env, monkeypatch
+):
+    """Mixed run: agent 1 times out but recovers (error + complete), agent 2
+    hard-fails (error, no complete) → degraded, agents_failed lists ONLY agent 2."""
+    specs = get_pipeline_agents("user_stories")[:2]
+    recovered_id, failed_id = specs[0].id, specs[1].id
+
+    def _mixed_stub():
+        async def _stub(
+            self, spec, index, ordered_agents, user_message, sandbox,
+            pipeline_run_id, pipeline_type, planning_context, attached_skills,
+            attached_hooks, model_id, results, cancel_event, ectx,
+        ):
+            yield {
+                "type": "agent_start",
+                "data": {"agent_id": spec.id, "name": spec.name, "role": spec.role,
+                         "icon": spec.icon, "index": index,
+                         "total": len(ordered_agents)},
+            }
+            if spec.id == failed_id:
+                yield {
+                    "type": "agent_error",
+                    "data": {"agent_id": spec.id, "error": "hard failure",
+                             "recoverable": True},
+                }
+                return  # hard fail — no result, no agent_complete
+            yield {
+                "type": "agent_error",
+                "data": {"agent_id": spec.id, "error": "timed out",
+                         "recoverable": True},
+            }
+            results.append({
+                "agent_id": spec.id, "name": spec.name, "role": spec.role,
+                "icon": spec.icon, "output": "partial", "duration": 0.01,
+                "input_tokens": 1, "output_tokens": 1, "total_tokens": 2,
+            })
+            yield {
+                "type": "agent_complete",
+                "data": {"agent_id": spec.id, "name": spec.name, "duration": 0.01,
+                         "output_length": 7, "index": index,
+                         "total": len(ordered_agents), "input_tokens": 1,
+                         "output_tokens": 1, "total_tokens": 2},
+            }
+
+        return _stub
+
+    monkeypatch.setattr(ExecutionEngine, "_run_agent", _mixed_stub())
+
+    engine = ExecutionEngine()
+    run_id = str(uuid.uuid4())
+    events: list[dict] = []
+    async for event in engine.execute(
+        agents=specs,
+        user_message="build a backlog",
+        pipeline_run_id=run_id,
+        pipeline_type="user_stories",
+        session_id="sess-f3",
+    ):
+        events.append(event)
+
+    data = _events_of(events, "pipeline_complete")[0]["data"]
+    assert data["status"] == "degraded"
+    assert data["agents_failed"] == [failed_id], (
+        "agents_failed must list ONLY the agent that never completed"
+    )
+    assert data["agents_completed"] == 1
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # WS ingress guard — handler-level (mirrors test_pipeline_cancel.py's driving)
 # ════════════════════════════════════════════════════════════════════════════

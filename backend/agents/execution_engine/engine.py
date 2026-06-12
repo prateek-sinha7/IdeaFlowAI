@@ -1850,9 +1850,21 @@ class ExecutionEngine:
         # keys. A clean run's payload is byte-identical — neither key is present
         # (mirrors the OBS-01 conditional-snapshot pattern; the 5 characterization
         # snapshots gate this parity).
-        if results and _failed_agent_ids:
+        # WR-05 (13 review fix): key the failure set on agents that did NOT
+        # subsequently complete. A RECOVERABLE agent_error (the agent-timeout
+        # degrade path emits one, then continues with partial/fallback output and
+        # appends to results) is a completion, not a failure — pre-fix such an
+        # agent appeared in BOTH agents_completed and agents_failed, and a
+        # timeout-only run flipped to "degraded" (a behavior change for runs
+        # that previously presented as clean completions). The total-collapse
+        # branch above is unaffected (results is empty there, so the
+        # subtraction removes nothing).
+        _unrecovered_failed = _failed_agent_ids - {
+            r.get("agent_id") for r in results
+        }
+        if results and _unrecovered_failed:
             _pipeline_complete_data["status"] = "degraded"
-            _pipeline_complete_data["agents_failed"] = sorted(_failed_agent_ids)
+            _pipeline_complete_data["agents_failed"] = sorted(_unrecovered_failed)
         yield {
             "type": "pipeline_complete",
             "data": _pipeline_complete_data,
