@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-12T11:55:50.120Z"
-last_activity: 2026-06-12 -- Phase 14 planning complete
+last_updated: "2026-06-12T12:05:19.059Z"
+last_activity: 2026-06-12 -- Phase 14 execution started
 progress:
-  total_phases: 13
+  total_phases: 14
   completed_phases: 13
-  total_plans: 77
-  completed_plans: 77
-  percent: 100
+  total_plans: 81
+  completed_plans: 78
+  percent: 93
 ---
 
 # Project State
@@ -20,18 +20,18 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-11)
 
 **Core value:** A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001).
-**Current focus:** Phase 13 — live-verification-gap-closure
+**Current focus:** Phase 14 — run_revision real revision loop (F2 end-to-end)
 
 ## Current Position
 
-Phase: 13
-Plan: Not started
+Phase: 14 (run_revision real revision loop (F2 end-to-end)) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-06-12 -- Phase 14 planning complete
+Last activity: 2026-06-12 -- Completed 14-01-PLAN.md (planner: skip flip + parity-trap carve-outs + revision harness)
 
-Session continuity: last session 2026-06-12; stopped at Completed 13-06-PLAN.md; resume file: none
+Session continuity: last session 2026-06-12; stopped at Completed 14-01-PLAN.md; resume file: none
 
-Progress: [██████████] 100% (12/13 phases complete; 77/77 plans complete; Phase 13 gap-closure 6/6 — ready for verification)
+Progress: [██████████] 96% (13/14 phases complete; 78/81 plans complete; Phase 14 1/4 plans done)
 
 ## Performance Metrics
 
@@ -136,6 +136,7 @@ Progress: [██████████] 100% (12/13 phases complete; 77/77 pl
 | Phase 13 P04 | ~10min | 2 tasks | 4 files |
 | Phase 13 P05 | ~8 min | 3 tasks | 4 files |
 | Phase 13 P06 | ~16 min | 3 tasks | 6 files |
+| Phase 14 P01 | ~8min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -239,6 +240,7 @@ Recent decisions affecting current work:
 - [Phase 13]: 13-05: run-completion deliverable persist guarded on (final_output AND results) — generic kind=deliverable / visibility=workspace; FR-014 lookup is a 3-link chain (exact target kind -> deliverable -> summary) with version_history from the matched link; SC-001 held (no *_output literal in the kernel)
 - [Phase 13]: 13-06: total-collapse (no results + agent_errors) -> pipeline_failed terminal + state 'failed' before deliverable resolution; partial failure -> strictly-conditional status='degraded'+agents_failed on pipeline_complete (clean runs byte-identical, no re-baseline)
 - [Phase 13]: 13-06: WS ingress guard keyed on declared spec.injects (mirrors factory._compose_injection exactly) rejects template-less template-inject runs with missing_template_context before engine spin-up; bare prototype/ppt stay admissible but template-required, fail-fast (F3 item 3)
+- [Phase 14]: 14-01: ppt_revision + od_ppt_revision flipped to planner: skip (data-only, INV-5) — run_revision dispatch bypasses planner + clarify (clarify-auto would hang at event.wait()); two-id carve-out pinned in BOTH planner parity traps; design wrinkle executable via test_run_revision_revision_agents_declare_no_template_injects (inject-declaring revision agents fail CI until template_id persistence, Q3-additive)
 
 ### Pending Todos
 
