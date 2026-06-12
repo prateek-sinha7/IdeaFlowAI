@@ -341,6 +341,61 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
             )
         ]
 
+    # ── Phase-14 revision agents (tools=[], text-only): deterministic turns ──
+    # for the run_revision dispatch tests (od_ppt_revision / ppt_revision are
+    # the two manifests the FE run_revision frame dispatches through execute()).
+    # Same discipline as the od-ppt block above: the LAST agent of each pipeline
+    # emits the deliverable wrapped in a single <artifact> tag, plain markup the
+    # carousel sanitizer passes through (no translateX/vw, no .stage/.slide),
+    # FIXED text + usage per turn. The REVISED decks are byte-distinct from the
+    # od-ppt-validator parent deck (and from each other) so unwrap + lineage
+    # assertions can tell parent vs revision content apart.
+    if agent_id == "od-ppt-revision-agent":
+        # The ONLY step of od_ppt_revision → its streamed output IS the
+        # deliverable (strategy: ppt takes the last agent's streamed text).
+        revised = (
+            "<!doctype html><html><head><title>Revised Deck</title></head>"
+            "<body>"
+            "<section class='deck-slide'>Revised Title</section>"
+            "<section class='deck-slide'>Problem</section>"
+            "<section class='deck-slide'>Solution</section>"
+            "<section class='deck-slide'>Call To Action</section>"
+            "</body></html>"
+        )
+        return [
+            _ScriptedTurn(
+                texts=[f"Revised per instruction.\n<artifact>{revised}</artifact>"],
+                usage=(24, 16),
+            )
+        ]
+    if agent_id == "ppt-revision-agent":
+        # First of two ppt_revision steps — narration only (no artifact tag);
+        # its text feeds the assembler, whose output is the deliverable.
+        return [
+            _ScriptedTurn(
+                texts=["Applying the requested slide edits to the deck code."],
+                usage=(30, 18),
+            )
+        ]
+    if agent_id == "ppt-revision-assembler":
+        # LAST ppt_revision step → its streamed output IS the deliverable.
+        # Deck bytes distinct from BOTH the od-ppt-validator deck and the
+        # od-ppt-revision-agent deck above.
+        revised = (
+            "<!doctype html><html><head><title>Revised Assembly</title></head>"
+            "<body>"
+            "<section class='deck-slide'>Revised Opening</section>"
+            "<section class='deck-slide'>Revised Body</section>"
+            "<section class='deck-slide'>Revised Close</section>"
+            "</body></html>"
+        )
+        return [
+            _ScriptedTurn(
+                texts=[f"Assembled the revised deck.\n<artifact>{revised}</artifact>"],
+                usage=(26, 15),
+            )
+        ]
+
     # ── prototype-build (tools=prototype_emit_only): runs once per task. ──────
     # NEW world: write_file(file_path="prototype.html", content=…) +
     #            report_task_complete(task_number/task_title/summary).
