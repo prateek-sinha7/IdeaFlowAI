@@ -139,6 +139,10 @@ Progress: [██████████] 100% (12/13 phases complete; 77/77 pl
 
 ## Accumulated Context
 
+### Roadmap Evolution
+
+- Phase 14 added (2026-06-12): run_revision real revision loop (F2 end-to-end) — replace the Phase-3 echo stub in `_handle_revision` with real revision-pipeline dispatch through execute(); deliverable becomes a genuinely revised artifact with derived_from lineage. Source: 13-REVIEW WR-06 deferred scope / live-pass F2 residue.
+
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table (and the plan's §32 decision log + §31 ledger).

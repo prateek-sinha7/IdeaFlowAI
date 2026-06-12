@@ -476,6 +476,24 @@ Plans:
 
 - [x] 13-06-PLAN.md — pipeline_failed terminal semantics + degraded completion + missing_template_context ingress guard + FE handling (F3)
 
+### Phase 14: run_revision real revision loop (F2 end-to-end)
+
+**Goal:** `run_revision` produces a real revised artifact, not the Phase-3 echo stub. `_handle_revision` (engine.py:3656) currently resolves the parent via the FR-014 chain, composes the three-section revision context, then writes that context back as the "revision" and emits `pipeline_complete` with `total_duration: 0.0` — no model ever runs. Close it by dispatching the registry's real revision pipelines (`ppt_revision` / `od_ppt_revision` / …, via the WR-06 generic alias) through the normal `execute()` path with the composed context as input, and persisting the run's actual deliverable as the `derived_from` artifact.
+**Requirements**: None new — completes live-pass finding F2 beyond its 13-05/WR-06 scoped fixes (validation + FE routing). Known design wrinkle to settle in planning: `od_*_revision` agents may declare `injects: [template, design_system]`, which interacts with the 13-06 `missing_template_context` ingress guard when revising from a completed parent (re-resolve the parent's template vs. exempt revision dispatch).
+**Depends on:** Phase 13
+**Plans:** 0 plans
+
+**Success Criteria** (what must be TRUE):
+
+  1. `run_revision` against a completed parent run drives the real revision pipeline agents (model runs observed) and the final deliverable is a revised artifact reflecting the instruction — not the instruction/context blob
+  2. The revision artifact persists with `derived_from` lineage to the parent original, owner/workspace-scoped, and revision-of-revision still resolves (FR-014 chain link 1)
+  3. Stub-pinning tests (`test_revision_intelligence`, `test_run_revision_fe_contract`) updated to the real-dispatch contract; characterization goldens stay byte/event-identical for non-revision runs (INV-3); no workflow-name literal added to the kernel (SC-001)
+  4. Live-confirmed on real Bedrock as part of the milestone-end live pass (FE-exact `run_revision` frame → revised deck in the preview)
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 14 to break down)
+
 ---
 *Roadmap created: 2026-06-06*
 *Source: specs/003-workflow-engine-decoupling/plan.md §25 (12 active phases; plan Phase 7 / ECS deferred to v2)*
