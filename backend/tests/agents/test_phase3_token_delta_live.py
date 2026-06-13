@@ -197,6 +197,15 @@ async def _drive_live(*, compaction_on: bool) -> list[dict]:
         ctx.model = build_model(getattr(ctx, "model", None))
         return _real_create_runner(agent_id, ctx, **kw)
 
+    # Snapshot the engine-module ``create_runner`` global BEFORE patching it (the
+    # engine resolves the bare ``create_runner`` name against its own module
+    # namespace), and restore it in the ``finally`` — mirroring the established
+    # ``_scripted_model._drive`` precedent (it snapshots ``_orig_engine_create_runner``
+    # for this same global because "leaking a nested wrapper or a stale patch would
+    # corrupt later runs"). Without this, ``engine_mod.create_runner`` would stay bound
+    # to ``_live_create_runner`` after ``_drive_live`` returns, silently routing any
+    # later engine-driving test in the session through live Bedrock. (WR-01)
+    _orig_engine_create_runner = engine_mod.create_runner
     engine_mod.create_runner = _live_create_runner
     factory_create_runner_orig = None
     try:
@@ -308,6 +317,7 @@ async def _drive_live(*, compaction_on: bool) -> list[dict]:
         return events
     finally:
         engine_mod.compile_for_run = _orig_compile_for_run
+        engine_mod.create_runner = _orig_engine_create_runner
         if factory_create_runner_orig is not None:
             factory_mod.create_runner = factory_create_runner_orig
 
