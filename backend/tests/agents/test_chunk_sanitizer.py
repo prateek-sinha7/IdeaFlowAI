@@ -215,3 +215,32 @@ async def test_clean_stream_passes_through_unchanged_for_toolless_agent() -> Non
         "clean tool-less stream was perturbed (must be byte-identical, per-chunk): "
         f"emitted={emitted!r} expected={deltas!r}"
     )
+
+
+@pytest.mark.asyncio
+async def test_lone_lt_and_html_at_boundaries_chunk_identical_for_toolless_agent() -> None:
+    """WR-01: tool-less prose with ``<`` / ``<div>`` / ``a < b`` at chunk boundaries.
+
+    A tool-less agent streaming HTML/JSX/markdown/inequalities legitimately ends
+    deltas on a bare ``<`` (or a ``<d`` that is NOT a tool-XML opener). Pre-fix the
+    partial-opener guard held ANY proper prefix of an opener — including a lone ``<`` —
+    coalescing/suppressing those deltas. Post-fix the hold fires only on a >= 2-char
+    prefix of a REAL opener (``<f``/``<i``+), so these deltas pass through
+    chunk-boundary-IDENTICAL (not merely join-identical).
+    """
+    deltas = [
+        "Use the ",
+        "<",
+        "div> wrapper and the ",
+        "<",
+        "Input> field. Note a ",
+        "a < b",
+        " comparison.",
+    ]
+    emitted = await _drive_single_agent(_TOOLLESS_AGENT, _TOOLLESS_PIPELINE, deltas)
+
+    assert emitted == deltas, (
+        "tool-less prose with a lone `<` / `<div>` / `a < b` at chunk boundaries was "
+        "perturbed (WR-01: must be per-chunk byte-identical, no coalescing): "
+        f"emitted={emitted!r} expected={deltas!r}"
+    )

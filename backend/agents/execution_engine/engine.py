@@ -224,9 +224,16 @@ class _ChunkStreamSanitizer:
         # ends with a non-empty proper prefix of some opener token. Hold from there so
         # the next chunk can complete it. Only matters when it would hold EARLIER than
         # (1) — a partial prefix is by construction at the very end of the text.
+        #
+        # WR-01: require the held prefix to be at least 2 chars (``<f``/``<i`` and
+        # longer), so a LONE ``<`` — common in legit tool-less prose (HTML/JSX tags,
+        # comparison operators like ``a < b``) — is NEVER buffered. This keeps chunk
+        # granularity byte-identical for ordinary tool-less streams. A lone ``<``
+        # followed in the next delta by ``function_calls>``/``invoke`` is still caught:
+        # the joined text re-scans for the complete/partial opener on the next ``feed``.
         for opener in _TOOL_XML_OPENERS:
-            # Longest proper prefix of `opener` that is a suffix of `text`.
-            for plen in range(len(opener) - 1, 0, -1):
+            # Longest proper prefix of `opener` (length >= 2) that is a suffix of `text`.
+            for plen in range(len(opener) - 1, 1, -1):  # stop at 2, never hold a lone "<"
                 if text.endswith(opener[:plen]):
                     pos = len(text) - plen
                     if hold == -1 or pos < hold:
