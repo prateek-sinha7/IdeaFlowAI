@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-06-13T14:24:16.000Z"
-last_activity: 2026-06-13 -- Completed 17-02-PLAN.md (ISS-010)
+status: verifying
+last_updated: "2026-06-13T14:31:05.924Z"
+last_activity: 2026-06-13 -- Completed 17-03-PLAN.md (ISS-011)
 progress:
   total_phases: 17
-  completed_phases: 16
+  completed_phases: 17
   total_plans: 91
-  completed_plans: 90
-  percent: 99
+  completed_plans: 91
+  percent: 100
 ---
 
 # Project State
@@ -26,12 +26,12 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 
 Phase: 17 (Test-Infra and Verification-Gap Closure) — EXECUTING
 Plan: 3 of 3
-Status: Executing Phase 17
-Last activity: 2026-06-13 -- Completed 17-02-PLAN.md (ISS-010)
+Status: Phase complete — ready for verification
+Last activity: 2026-06-13 -- Completed 17-03-PLAN.md (ISS-011)
 
-Session continuity: last session 2026-06-13; stopped at Completed 17-02-PLAN.md (ISS-010 closed by an offline in-memory-exporter test: inject via the hook's own _build_span_processor → SimpleSpanProcessor(InMemorySpanExporter()) + reset module-private _TRACER, drive the real OtelTracingHook.handle, assert 1 span hook.before_step + flowin.hook/event/agent_id + scope flowin.agents.hooks.otel_tracing + hook_runs row + continue; parallel OTLP-pkg-absent→console-degrade test; avoided the global-set_tracer_provider false-green landmine; 10 otel tests green, goldens 10/10, lint-imports 4/0, test-only diff; ISS-010 DEFERRED→FIXED-by-test, live collector smoke deferred); resume file: none
+Session continuity: last session 2026-06-13; stopped at Completed 17-03-PLAN.md (ISS-011 closed by-test, skip-on-mid-sweep-expiry: test_phase8_live.py gains a per-test live_skip_reason() re-check — autouse fixture bound to TestLiveHITL only — that pytest.skip()s with the re-run-after-`aws sso login` reason when creds lapse mid-sweep, converting a 0-token assertion FAIL into a clean SKIP; test_live_gate_is_consistent_and_self_skipping relaxed to assert gate correctness per point-in-time, dropping the strict _LIVE_SKIP == live_skip_reason() cross-time equality that assumed an immortal SSO session; an OFFLINE expired-creds simulation [monkeypatch live_harness.live_skip_reason] + a no-op complement pin the recurring-mode contract; model_policy.py transient classification deliberately UNTOUCHED — widening it would mask real AccessDenied/ValidationException, INV-3; 8 offline phase8 tests green [TestOfflineHITL + self_skipping + mid_sweep + recheck_is_noop], goldens 10/10, lint-imports 4/0, test-only diff; ISS-011 MONITORING→FIXED [17-03, by-test], Part-1 live re-run [3 HITL cases after aws sso login, sub-$0.05] DEFERRED to next Bedrock pass; Phase 17 = 3/3 complete); resume file: none
 
-Progress: [██████████] 100% (90 plans complete; Phase 17 2/3 plans done — 17-01 ISS-003 + 17-02 ISS-010 closed)
+Progress: [██████████] 100% (91 plans complete; Phase 17 3/3 plans done — 17-01 ISS-003 + 17-02 ISS-010 + 17-03 ISS-011 closed)
 
 ## Performance Metrics
 
@@ -150,6 +150,7 @@ Progress: [██████████] 100% (90 plans complete; Phase 17 2/3
 | Phase 16 P02 | ~30 min | 2 tasks | 4 files |
 | Phase 16 P03 | ~12 min | 2 tasks | 2 files |
 | Phase 17 P01 | ~4 min | 2 tasks | 1 files |
+| Phase 17 P03 | 12min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -163,6 +164,7 @@ Progress: [██████████] 100% (90 plans complete; Phase 17 2/3
 Decisions are logged in PROJECT.md Key Decisions table (and the plan's §32 decision log + §31 ledger).
 Recent decisions affecting current work:
 
+- [Phase 17]: 17-03 (ISS-011): skip-on-expiry lives entirely in the test harness (a per-test live_skip_reason() re-check on TestLiveHITL); model_policy.py transient-error classification left UNCHANGED — widening _TRANSIENT_SUBSTRINGS to retry expired SSO would mask real AccessDenied/ValidationException (INV-3) and an expired token can't be refreshed by a botocore retry. Self-check relaxed to assert gate correctness per point-in-time (no strict cross-time equality — the SSO session is NOT immortal across a multi-hour sweep). Part-1 live re-run (3 HITL cases after aws sso login) DEFERRED to next Bedrock pass (not blocking; phase exit is offline-deterministic).
 - Init: Granularity=fine → 12 sequential phases mapped 1:1 to plan §25 sub-phases (0A…6); ECS (plan Phase 7) deferred to v2
 - Init: Research skipped — plan.md is the authoritative complete spec (plan-ingestion preference)
 - Init: Models=quality (Opus); execution=sequential (strangler safety); git tracking=on

@@ -560,9 +560,10 @@ Plans:
 **Goal:** Close the 3 test-infra / verification-gap issues of cluster C from the 2026-06-13 deep investigation — all **test-harness-only**, zero production code, no INV-3 exposure. (1) ISS-003: the live token-delta test hangs forever at the clarify gate because its `_drive_live` sets a dead flag instead of compiling clarify off. (2) ISS-010: OTLP span export is unverifiable here (no collector) — close it with a deterministic in-memory-exporter test rather than a live collector. (3) ISS-011: the Phase-8 HITL live-tail tests fail on mid-sweep SSO-token expiry, not a product defect — make the harness skip (not fail) on expiry and re-confirm offline. Outcome: the three are deterministically closeable offline; the live re-runs that need fresh credentials are recorded as deferred, not blocking.
 **Requirements**: ISS-003, ISS-010, ISS-011 (.planning/ISSUES-REGISTER.md — "Deep Root-Cause Investigation", cluster C)
 **Depends on:** Phase 16
-**Plans:** 3 plans (1 wave — three file-disjoint test-only fixes; sequential under use_worktrees=false)
+**Plans:** 3/3 plans complete
 
 **Success Criteria:**
+
 1. `test_phase3_token_delta_live._drive_live` compiles `clarify.mode="off"` (mirroring the shared harness) instead of the dead `ALWAYS_CLARIFY` flag; a fault-injected drive returns instead of hanging at the clarify `event.wait()`; the offline collection still skips cleanly. (ISS-003)
 2. A deterministic offline test asserts the OTLP hook emits a span with the right attributes via an injected `InMemorySpanExporter` (the hook's module-private `_TRACER` is reset; `_build_span_processor` monkeypatched), plus a graceful-degrade case when the OTLP exporter pkg/endpoint is absent. ISS-010 closed by test, not by a live collector. (ISS-010)
 3. The Phase-8 HITL live-tail tests SKIP (not fail) on mid-sweep SSO/credential expiry via a per-test `live_skip_reason()` re-check, and the collection self-check no longer asserts strict collection-vs-runtime equality; `TestOfflineHITL` stays green offline. (ISS-011)
@@ -573,4 +574,4 @@ Plans:
 
 - [x] 17-01-PLAN.md — ISS-003: replace the dead `ALWAYS_CLARIFY` flag in `_drive_live` with the `compile_for_run` clarify-off wrap + a bounded offline fault-injection regression test (SC1) ✅ 2026-06-13 (1 passed / 1 skipped offline; goldens 10/10; lint-imports 4/0; test-only diff)
 - [x] 17-02-PLAN.md — ISS-010: in-memory `InMemorySpanExporter` span-capture test (via the hook's own `_build_span_processor` + `_TRACER` reset) + OTLP graceful-degrade test; close DEFERRED→FIXED-by-test (SC2) ✅ 2026-06-13 (10 otel tests green [8+2]; 1 span hook.before_step + flowin.hook/event/agent_id + scope flowin.agents.hooks.otel_tracing; OTLP-pkg-absent→console degrade; goldens 10/10; lint-imports 4/0; test-only diff; ISS-010 FIXED-by-test)
-- [ ] 17-03-PLAN.md — ISS-011: per-test `live_skip_reason()` re-check (SKIP not FAIL on mid-sweep expiry) + relaxed self-check + offline expired-creds skip simulation; transient classification untouched (SC3)
+- [x] 17-03-PLAN.md — ISS-011: per-test `live_skip_reason()` re-check (SKIP not FAIL on mid-sweep expiry) + relaxed self-check + offline expired-creds skip simulation; transient classification untouched (SC3)
