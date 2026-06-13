@@ -505,7 +505,9 @@ export interface CapabilityModelEntry {
   user_allowed: boolean;
 }
 
-/** The full palette payload the composer renders. */
+/** The full capability-registry payload; the relocated AgentModelPicker
+ *  (AgentsPopup Agents tab) renders its `model_catalog`. (The legacy
+ *  WorkflowComposer that rendered the full palette was deleted in ISS-014.) */
 export interface CapabilitiesPalette {
   capabilities: CapabilityEntry[];
   model_catalog: CapabilityModelEntry[];
