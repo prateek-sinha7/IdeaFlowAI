@@ -27,11 +27,14 @@ run_id, after_seq=...)`` — the SAME default-deny path these tests exercise.
 
 from __future__ import annotations
 
+import asyncio
+
 import app.api.websocket as ws_mod
 import app.models  # noqa: F401 — register every model on Base.metadata
 import pytest
 from agents.authz import ScopedStore
 from app.models.database import Base
+from app.models.user import User
 from app.models.workflow import WorkflowRun
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -305,3 +308,232 @@ async def test_cross_owner_reconnect_replays_nothing(db_session):
     # The true owner still resolves both (the filter is not a blanket deny).
     assert len(await alice.read_events("run-1", after_seq=0)) == 3
     assert (await alice.get_run("run-1")) is not None
+
+
+# ===========================================================================
+# Cluster B (16-03) — the REAL handler drives the replay/reconnect frame
+# contract end-to-end (mirror of the WR-03 live-attach contract test
+# test_reconnect_drainer_preserves_revision_section, onto the REPLAY branch).
+#
+# These drive ``websocket_chat`` for real (a scripted-loop FakeWebSocket) so the
+# assertions pin the actual frames Task 1 emits:
+#   - ISS-008: a durable-REPLAY of a ``*_revision`` run stamps every replayed
+#     frame with ``section == "<base>_output"`` (the WR-06 inverse); a
+#     non-revision run keeps ``section is None`` (byte-identical to today).
+#   - ISS-009: the live-attach ``pipeline_reconnected`` ack carries ``live: True``;
+#     the no-live-task ack carries ``live: False``.
+# ===========================================================================
+
+
+class _ScriptedLoopWebSocket:
+    """Drives the REAL ``websocket_chat`` receive loop: scripted inbound JSON
+    frames, captured outbound frames, ``WebSocketDisconnect`` once the script is
+    exhausted (the loop's normal client-went-away exit). Mirror of the harness in
+    tests/unit/test_run_revision_ws_dispatch.py."""
+
+    def __init__(self, frames: list[dict]) -> None:
+        import json as _json
+
+        self._frames = [_json.dumps(f) for f in frames]
+        self.sent: list[dict] = []
+        self.headers: dict = {}
+        self.query_params = {"token": "test-token"}
+        self.accepted = False
+
+    async def accept(self, subprotocol=None) -> None:
+        self.accepted = True
+
+    async def close(self, code=None, reason=None) -> None:
+        pass
+
+    async def send_json(self, payload: dict) -> None:
+        self.sent.append(payload)
+
+    async def receive_text(self) -> str:
+        if self._frames:
+            await asyncio.sleep(0)
+            return self._frames.pop(0)
+        from fastapi import WebSocketDisconnect
+
+        raise WebSocketDisconnect(code=1000)
+
+
+@pytest.fixture
+def handler_env(monkeypatch):
+    """In-memory SQLite wired into BOTH ws_mod._get_db (the owner-scoped run-row /
+    workspace recovery reads) AND app.models.database.SessionLocal (the default-deny
+    ScopedStore the replay/get_run path opens) — the WR-03 idiom."""
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    TestingSession = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    Base.metadata.create_all(bind=engine)
+    monkeypatch.setattr(ws_mod, "_get_db", lambda: TestingSession())
+    monkeypatch.setattr(
+        "app.models.database.SessionLocal", TestingSession, raising=False
+    )
+    try:
+        yield TestingSession
+    finally:
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+
+def _seed_user(TestingSession) -> User:
+    db = TestingSession()
+    try:
+        import uuid as _uuid
+
+        u = User(
+            id=str(_uuid.uuid4()),
+            email=f"rc-{_uuid.uuid4().hex[:8]}@example.com",
+            password_hash="x",
+        )
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+        return u
+    finally:
+        db.close()
+
+
+async def _seed_run_and_events(
+    TestingSession, *, run_id: str, owner_id: str, run_type: str, n: int,
+    status: str = "completed", workspace_id: str = "ws-rc",
+) -> None:
+    db = TestingSession()
+    try:
+        db.add(WorkflowRun(
+            id=run_id, user_id=owner_id, owner_id=owner_id,
+            workspace_id=workspace_id, status=status, type=run_type,
+            input="seed brief",
+        ))
+        db.commit()
+    finally:
+        db.close()
+    store = ScopedStore(owner_id=owner_id, workspace_id=workspace_id)
+    for seq in range(1, n + 1):
+        await store.append_event(
+            run_id, seq=seq, event_id=f"evt-{seq}",
+            type=f"agent_chunk_{seq}",
+            payload_json={"seq": seq, "event_id": f"evt-{seq}"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_replay_revision_run_stamps_target_section_and_live_false_ack(
+    handler_env, monkeypatch,
+):
+    """ISS-008 (mirror of WR-03 onto the REPLAY branch): a durable replay of a
+    ``*_revision`` run (no live task — restarted process) stamps every replayed
+    frame with ``section == "<base>_output"`` (the WR-06 inverse), and the
+    no-live-task ``pipeline_reconnected`` ack carries ``live: False``."""
+    TestingSession = handler_env
+    user = _seed_user(TestingSession)
+    monkeypatch.setattr(ws_mod, "_authenticate_token", lambda token, db: user)
+    # No live task → the durable-replay branch (restarted process).
+    monkeypatch.setattr(ws_mod, "_PIPELINE_TASKS", {}, raising=False)
+    monkeypatch.setattr(ws_mod, "_PIPELINE_QUEUES", {}, raising=False)
+
+    run_id = "run-rev-replay"
+    await _seed_run_and_events(
+        TestingSession, run_id=run_id, owner_id=user.id,
+        run_type="od_ppt_revision", n=3,
+    )
+
+    ws = _ScriptedLoopWebSocket([
+        {"type": "reconnect_pipeline", "pipeline_run_id": run_id, "after_seq": 0},
+    ])
+    await asyncio.wait_for(ws_mod.websocket_chat(ws), timeout=10.0)
+
+    replayed = [f for f in ws.sent if str(f["type"]).startswith("agent_chunk_")]
+    assert len(replayed) == 3, f"durable tail not replayed: {ws.sent}"
+    for frame in replayed:
+        assert frame["section"] == "od_ppt_output", (
+            "durable replay of a *_revision run must stamp section = the WR-06 "
+            f"inverse (od_ppt_output), got {frame['section']!r}"
+        )
+        assert frame["chunk"] is None
+
+    acks = [f for f in ws.sent if f["type"] == "pipeline_reconnected"]
+    assert len(acks) == 1, f"expected one no-live-task ack: {ws.sent}"
+    assert acks[0]["data"]["live"] is False, (
+        "the no-live-task reconnect ack must carry live: False"
+    )
+
+
+@pytest.mark.asyncio
+async def test_replay_non_revision_run_keeps_section_none(handler_env, monkeypatch):
+    """Non-revision control (ISS-008): a durable replay of a ``prototype`` run
+    keeps ``section is None`` — byte-identical to today and to the live-attach
+    contract (the WR-06 inverse returns None for a non-``*_revision`` type)."""
+    TestingSession = handler_env
+    user = _seed_user(TestingSession)
+    monkeypatch.setattr(ws_mod, "_authenticate_token", lambda token, db: user)
+    monkeypatch.setattr(ws_mod, "_PIPELINE_TASKS", {}, raising=False)
+    monkeypatch.setattr(ws_mod, "_PIPELINE_QUEUES", {}, raising=False)
+
+    run_id = "run-proto-replay"
+    await _seed_run_and_events(
+        TestingSession, run_id=run_id, owner_id=user.id,
+        run_type="prototype", n=2,
+    )
+
+    ws = _ScriptedLoopWebSocket([
+        {"type": "reconnect_pipeline", "pipeline_run_id": run_id, "after_seq": 0},
+    ])
+    await asyncio.wait_for(ws_mod.websocket_chat(ws), timeout=10.0)
+
+    replayed = [f for f in ws.sent if str(f["type"]).startswith("agent_chunk_")]
+    assert len(replayed) == 2, f"durable tail not replayed: {ws.sent}"
+    for frame in replayed:
+        assert frame["section"] is None, (
+            "a non-revision replay must keep section: None (byte-identical to "
+            f"today), got {frame['section']!r}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_live_attach_reconnect_ack_carries_live_true(handler_env, monkeypatch):
+    """ISS-009: a reconnect to a LIVE run receives a ``pipeline_reconnected`` ack
+    carrying ``live: True`` (symmetric with the no-live-task ``live: False``)."""
+    TestingSession = handler_env
+    user = _seed_user(TestingSession)
+    monkeypatch.setattr(ws_mod, "_authenticate_token", lambda token, db: user)
+
+    run_id = "run-live-attach"
+    await _seed_run_and_events(
+        TestingSession, run_id=run_id, owner_id=user.id,
+        run_type="prototype", n=1, status="generating",
+    )
+
+    # Simulate the in-flight run: a real (blocked) bg task + a queue pre-loaded
+    # with the terminal so the live-attach drainer attaches, acks, drains, breaks.
+    release = asyncio.Event()
+
+    async def _blocked():
+        await release.wait()
+
+    live_task = asyncio.create_task(_blocked())
+    queue: asyncio.Queue = asyncio.Queue()
+    await queue.put({"type": "pipeline_complete", "data": {"final_output": "<html/>"}})
+    monkeypatch.setitem(ws_mod._PIPELINE_TASKS, run_id, live_task)
+    monkeypatch.setitem(ws_mod._PIPELINE_QUEUES, run_id, queue)
+
+    # A legacy reconnect (no after_seq) + live task → straight to the live attach.
+    ws = _ScriptedLoopWebSocket([
+        {"type": "reconnect_pipeline", "pipeline_run_id": run_id},
+    ])
+    try:
+        await asyncio.wait_for(ws_mod.websocket_chat(ws), timeout=10.0)
+    finally:
+        release.set()
+        live_task.cancel()
+
+    acks = [f for f in ws.sent if f["type"] == "pipeline_reconnected"]
+    assert len(acks) == 1, f"expected one live-attach ack: {ws.sent}"
+    assert acks[0]["data"]["live"] is True, (
+        "the live-attach reconnect ack must carry live: True (ISS-009)"
+    )
