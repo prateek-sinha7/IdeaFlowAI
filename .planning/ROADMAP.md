@@ -604,7 +604,7 @@ Plans:
 **Goal:** Close cluster D of the 2026-06-13 deep investigation with DURABLE structural fixes (not prompt-only "ask the model nicely") for the three prompt/deliverable-adherence residuals — so they can't silently regress on a non-deterministic model. (1) ISS-006: thread a single shared canonical DB-accessor literal (`getDatabase`) through the app_builder producer + consumer prompts so the generated Jest global-setup imports what the impl exports (no TS2305) + an offline grep pin. (2) ISS-005: add a pure-stdlib `api_prefix` deliverable-validator wired as an EVENT-FREE `post_step` on the app_builder infra-generator step (NOT a `gates:[validation]` gate — that emits events → breaks the golden) that deterministically catches missing `/api/v1` prefixes. (3) ISS-004: apply the existing `_strip_fabricated_tool_xml` sanitizer to the STREAMED `agent_chunk` path (with chunk-straddle buffering) for tool-less agents, so fabricated tool-XML never reaches the live UI stream (today it's stripped only from the accumulated output). INV-3-critical throughout: the validator is event-free, the sanitizer is same-object on clean text + goldens normalize chunks, prompt edits don't perturb scripted goldens — all 5 characterization goldens stay byte-identical. The deferred LIVE re-confirms (ISS-004 chunks clean, ISS-005 `/api/v1` present, ISS-006 no getDb error) run on the now-active `default` Bedrock profile in the consolidated live + Playwright pass after this phase.
 **Requirements**: ISS-006, ISS-005, ISS-004 (.planning/ISSUES-REGISTER.md — "Deep Root-Cause Investigation", cluster D)
 **Depends on:** Phase 18
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 **Success Criteria:**
 
@@ -617,4 +617,4 @@ Plans:
 
 - [x] 19-01-PLAN.md — ISS-006: shared canonical `getDatabase` accessor literal across producer + consumer prompts + offline grep pin
 - [x] 19-02-PLAN.md — ISS-005: pure-stdlib `api_prefix` validator wired as an event-free `post_step` on the app_builder infra-generator step
-- [ ] 19-03-PLAN.md — ISS-004: engine streamed-`agent_chunk` sanitizer (reuse `_strip_fabricated_tool_xml`) with chunk-straddle buffer for tool-less agents
+- [x] 19-03-PLAN.md — ISS-004: engine streamed-`agent_chunk` sanitizer (reuse `_strip_fabricated_tool_xml`) with chunk-straddle buffer for tool-less agents
