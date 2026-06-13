@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-last_updated: "2026-06-12T13:36:14.781Z"
-last_activity: 2026-06-12
+status: executing
+last_updated: "2026-06-13T00:25:33.037Z"
+last_activity: 2026-06-13 -- Phase 15 execution started
 progress:
-  total_phases: 14
+  total_phases: 15
   completed_phases: 14
-  total_plans: 81
-  completed_plans: 81
-  percent: 100
+  total_plans: 84
+  completed_plans: 82
+  percent: 93
 ---
 
 # Project State
@@ -20,18 +20,18 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-11)
 
 **Core value:** A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001).
-**Current focus:** Phase 14 — run_revision real revision loop (F2 end-to-end)
+**Current focus:** Phase 15 — live-pass-prompt-contract-closure
 
 ## Current Position
 
-Phase: 14
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-06-12
+Phase: 15 (live-pass-prompt-contract-closure) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-06-13 -- Phase 15 execution started
 
-Session continuity: last session 2026-06-12; stopped at Completed 14-04-PLAN.md (phase 14 complete — ready for verification); resume file: none
+Session continuity: last session 2026-06-13; stopped at Completed 15-01-PLAN.md (prompt contracts landed — 15-02 pins next); resume file: none
 
-Progress: [██████████] 100% (14/14 phases complete; 81/81 plans complete; Phase 14 4/4 plans done)
+Progress: [██████████] 98% (14/15 phases complete; 82/84 plans complete; Phase 15 1/3 plans done)
 
 ## Performance Metrics
 
@@ -141,6 +141,7 @@ Progress: [██████████] 100% (14/14 phases complete; 81/81 pl
 | Phase 14 P02 | ~18min | 2 tasks | 2 files |
 | Phase 14 P03 | ~10min | 2 tasks | 2 files |
 | Phase 14 P04 | 13min | 2 tasks | 1 files |
+| Phase 15 P01 | ~3min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -251,6 +252,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 14-02: revision drainer mirrors run_pipeline terminal-type breaks + bounded post-drain await of the bg task so direct awaiters observe the final persisted row state
 - [Phase 14]: 14-03: _handle_revision dispatches via execute() with od_context=None + gate_agent_ids=[] (settled wrinkle); lineage write guarded final_output and not terminal_failed with producer_agent=agents[-1].id; state_restoration_failed kept on lineage-persist failure without failing the run
 - [Phase 14]: 14-04: proceed-path revision tests re-targeted to od_ppt_output/ppt_output only (the two planner: skip manifests); composed-context contracts (three sections, planning prefix) asserted on the dispatched agent_input context_message, never final_output; run_events pinned at execute()'s chokepoint with minted-workspace scope recovered from persisted rows
+- [Phase 15]: 15-01: LV-02 contract worded as exactly-ONE-artifact (never last/final artifact) to match unwrap_artifact first-match regex; sdlc anti-tool-XML line byte-identical across the family with per-pipeline deliverable-start tailoring (app=filename: block, dotnet/mulesoft=first Markdown heading); app-infra bottom RULES /api/v1 bullet kept as reinforcement
 
 ### Pending Todos
 

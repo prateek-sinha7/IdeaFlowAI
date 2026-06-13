@@ -511,17 +511,18 @@ Plans:
 **Depends on:** Phase 14
 
 **Success Criteria**:
+
 1. LV-02 closed: `od-ppt-validator` AGENT.md carries an output contract (always re-emit the complete corrected deck wrapped in `<artifact>`); on a live od_ppt run the resolved `final_output` is the deck (contains `<section class="slide">`, not QA narration), and an FE-exact `od_ppt_output` revision returns a revised deck (Phase-14 SC4 content unblocked).
 2. sdlc-governance residual closed: the sdlc-governance agent family (`app-`/`dotnet-`/`mulesoft-sdlc-governance`) AGENT.md bodies carry anti-fabrication output contracts (begin directly with deliverable content; never emit tool-call syntax); live streams show zero `<function_calls>`/`<invoke>` preambles.
 3. infra-generator residual closed: `app-infra-generator` AGENT.md makes the `/api/v1` prefix contract forceful and positionally prominent; a live app_builder infra output targets `/api/v1` routes consistently with api-design/devops.
 4. Offline pins land (13-03 precedent): AGENT.md contract-grep tests for all five prompts + a scripted-model pin that the ppt deliverable resolution yields the validator's re-emitted artifact deck; characterization goldens byte-identical (prompt bodies are not characterization inputs for the 5 snapshot pipelines — verify).
 5. Live re-check recorded: one od_ppt run + one revision (≈$0.10) demonstrating criteria 1; criteria 2–3 evidence may ride the same session or the next scheduled live pass if quota-constrained (record disposition either way).
 
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
 
-- [ ] 15-01-PLAN.md — Prompt output contracts on the five AGENT.md bodies: od-ppt-validator exactly-ONE-artifact complete-deck re-emission (LV-02), 3x sdlc-governance anti-fabrication (F4), app-infra-generator top-of-body /api/v1 contract (F5) — bodies only, frontmatter untouched
+- [x] 15-01-PLAN.md — Prompt output contracts on the five AGENT.md bodies: od-ppt-validator exactly-ONE-artifact complete-deck re-emission (LV-02), 3x sdlc-governance anti-fabrication (F4), app-infra-generator top-of-body /api/v1 contract (F5) — bodies only, frontmatter untouched
 - [ ] 15-02-PLAN.md — Durable pins: new tests/agents/test_prompt_contracts.py (prompt_body pins + frontmatter freeze + LV-02 harness composition test via drive_engine_pipeline per-agent model) + full targeted offline gate proving 5 characterization goldens byte-identical (INV-3)
 - [ ] 15-03-PLAN.md — Live re-check: one od_ppt run + one FE-exact od_ppt_output revision on real Haiku (~$0.10) with deck evidence, or explicit quota/SSO deferral; disposition record PHASE-15-RECHECK.md (criteria 2-3 as next-live-pass items)
 
