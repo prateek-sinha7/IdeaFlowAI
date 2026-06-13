@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Internal AI Platform Overview</title>
+  
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    /* Design tokens - corporate-clean theme */
+    :root {
+      --bg: #ffffff;
+      --bg-soft: #f8f9fa;
+      --surface: #ffffff;
+      --surface-2: #f5f6f7;
+      --border: #e0e0e0;
+      --text-1: #1a1a1a;
+      --text-2: #4a4a4a;
+      --text-3: #8a8a8a;
+      --accent: #003d82;
+      --accent-2: #0052a3;
+      --accent-3: #e8f0f9;
+      --good: #2d7a2d;
+      --warn: #f59e0b;
+      --bad: #d32f2f;
+      --grad: linear-gradient(135deg, #003d82 0%, #0052a3 100%);
+      --grad-soft: linear-gradient(135deg, #e8f0f9 0%, #f5f6f7 100%);
+      --radius-sm: 4px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+      --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+      --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      --font-display: 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: var(--bg);
+      color: var(--text-1);
+      font-family: var(--font-sans);
+      font-size: 16px;
+      line-height: 1.5;
+    }
+
+    .deck {
+      position: relative;
+      width: 100%;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .stage {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      transition: transform 0.6s ease-in-out;
+    }
+
+    .slide {
+      min-width: 100vw;
+      height: 100vh;
+      display: grid;
+      align-content: center;
+      padding: 60px 80px;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .slide.is-active {
+      opacity: 1;
+    }
+
+    /* Typography */
+    h1 {
+      font-family: var(--font-display);
+      font-size: 3.5rem;
+      font-weight: 700;
+      line-height: 1.1;
+      color: var(--text-1);
+      margin-bottom: 1rem;
+    }
+
+    h2 {
+      font-family: var(--font-display);
+      font-size: 2.5rem;
+      font-weight: 700;
+      line-height: 1.2;
+      color: var(--text-1);
+      margin-bottom: 1.5rem;
+    }
+
+    h3 {
+      font-family: var(--font-display);
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--text-1);
+      margin-bottom: 0.75rem;
+    }
+
+    p {
+      color: var(--text-2);
+      font-size: 1.125rem;
+      line-height: 1.6;
+      margin-bottom: 1rem;
+    }
+
+    .kicker {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 1rem;
+    }
+
+    .lede {
+      font-size: 1.375rem;
+      color: var(--text-2);
+      font-weight: 500;
+      max-width: 600px;
+      line-height: 1.7;
+    }
+
+    .eyebrow {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text-3);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 1.5rem;
+    }
+
+    /* Card system */
+    .card {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 2rem;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .card-soft {
+      background: var(--bg-soft);
+      border: none;
+    }
+
+    .card-outline {
+      background: transparent;
+      border: 2px solid var(--accent);
+      color: var(--accent);
+    }
+
+    .card-accent {
+      background: var(--accent-3);
+      border: 1px solid rgba(0, 61, 130, 0.1);
+    }
+
+    /* Grid layouts */
+    .grid {
+      display: grid;
+      gap: 2rem;
+      margin: 2rem 0;
+    }
+
+    .grid.g2 {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    .grid.g3 {
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    .grid.g4 {
+      grid-template-columns: repeat(4, 1fr);
+    }
+
+    /* Lists */
+    ul {
+      list-style: none;
+      margin: 1.5rem 0;
+    }
+
+    ul li {
+      position: relative;
+      padding-left: 1.75rem;
+      margin-bottom: 1rem;
+      color: var(--text-2);
+    }
+
+    ul li:before {
+      content: "▸";
+      position: absolute;
+      left: 0;
+      color: var(--accent);
+      font-weight: bold;
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-block;
+      padding: 0.875rem 1.75rem;
+      font-size: 1rem;
+      font-weight: 600;
+      border-radius: var(--radius-md);
+      border: none;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      text-decoration: none;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: var(--accent-2);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .btn-secondary {
+      background: var(--surface-2);
+      color: var(--text-1);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover {
+      background: var(--bg-soft);
+    }
+
+    /* Stat highlight */
+    .stat {
+      text-align: center;
+      padding: 2rem;
+    }
+
+    .stat-number {
+      font-size: 3.5rem;
+      font-weight: 700;
+      color: var(--accent);
+      line-height: 1;
+      margin-bottom: 0.5rem;
+    }
+
+    .stat-label {
+      font-size: 1.125rem;
+      color: var(--text-2);
+      font-weight: 500;
+    }
+
+    .stat-unit {
+      font-size: 0.875rem;
+      color: var(--text-3);
+      margin-left: 0.25rem;
+    }
+
+    /* Animations */
+    @keyframes fade-in {
+      from {
+        opacity: 0;
+      }
+      to {
+        opacity: 1;
+      }
+    }
+
+    @keyframes fade-up {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes slide-in-left {
+      from {
+        opacity: 0;
+        transform: translateX(-40px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+
+    .anim-fade-up {
+      animation: fade-up 0.8s ease-out forwards;
+    }
+
+    .anim-fade-in {
+      animation: fade-in 0.8s ease-out forwards;
+    }
+
+    .anim-slide-left {
+      animation: slide-in-left 0.8s ease-out forwards;
+    }
+
+    .slide h1,
+    .slide h2 {
+      animation: fade-up 0.8s ease-out;
+    }
+
+    .slide p:first-of-type {
+      animation: fade-up 0.8s ease-out 0.1s both;
+    }
+
+    .slide ul {
+      animation: fade-up 0.8s ease-out 0.2s both;
+    }
+
+    .grid > * {
+      animation: fade-up 0.8s ease-out forwards;
+    }
+
+    .grid > :nth-child(1) {
+      animation-delay: 0.2s;
+    }
+
+    .grid > :nth-child(2) {
+      animation-delay: 0.35s;
+    }
+
+    .grid > :nth-child(3) {
+      animation-delay: 0.5s;
+    }
+
+    .grid > :nth-child(4) {
+      animation-delay: 0.65s;
+    }
+
+    /* Slide-specific layouts */
+    .slide.cover {
+      background: var(--grad);
+      color: white;
+      text-align: center;
+      justify-content: center;
+      padding: 60px 80px;
+    }
+
+    .slide.cover h1 {
+      color: white;
+      font-size: 4rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .slide.cover .lede {
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 1.5rem;
+      max-width: 700px;
+      margin: 0 auto 2rem;
+    }
+
+    .pill-row {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 2rem;
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 0.5rem 1.25rem;
+      background: rgba(255, 255, 255, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      border-radius: 20px;
+      color: white;
+      font-size: 0.95rem;
+      font-weight: 500;
+    }
+
+    /* Three column cards */
+    .feature-card {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 2rem;
+      text-align: left;
+    }
+
+    .feature-card h3 {
+      color: var(--accent);
+      margin-bottom: 1rem;
+    }
+
+    .feature-icon {
+      font-size: 2.5rem;
+      margin-bottom: 1rem;
+      line-height: 1;
+    }
+
+    /* Footer */
+    .deck-footer {
+      position: absolute;
+      bottom: 20px;
+      left: 0;
+      right: 0;
+      padding: 0 40px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.875rem;
+      color: var(--text-3);
+      pointer-events: none;
+    }
+
+    .slide-number {
+      font-weight: 600;
+      color: var(--text-2);
+    }
+
+    .progress-bar {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      height: 3px;
+      background: var(--accent);
+      transition: width 0.6s ease-in-out;
+    }
+
+    /* CTA slide */
+    .slide.cta-section {
+      background: var(--grad);
+      color: white;
+      text-align: center;
+    }
+
+    .slide.cta-section h2 {
+      color: white;
+      font-size: 3rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .slide.cta-section p {
+      color: rgba(255, 255, 255, 0.95);
+      font-size: 1.25rem;
+      margin-bottom: 2rem;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .cta-buttons {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 2rem;
+    }
+
+    .cta-buttons .btn {
+      min-width: 180px;
+    }
+
+    .btn-light {
+      background: white;
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .btn-light:hover {
+      background: rgba(255, 255, 255, 0.95);
+    }
+
+    .btn-outline {
+      background: transparent;
+      color: white;
+      border: 2px solid white;
+    }
+
+    .btn-outline:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    /* Notes (hidden by default, visible in presenter mode) */
+    .notes {
+      display: none;
+    }
+
+    /* Responsive */
+    @media (max-width: 1024px) {
+      .slide {
+        padding: 40px 60px;
+      }
+
+      h1 {
+        font-size: 2.5rem;
+      }
+
+      h2 {
+        font-size: 2rem;
+      }
+
+      .grid.g3 {
+        grid-template-columns: 1fr;
+      }
+
+      .stat-number {
+        font-size: 2.5rem;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .slide {
+        padding: 30px 40px;
+      }
+
+      h1 {
+        font-size: 2rem;
+      }
+
+      h2 {
+        font-size: 1.5rem;
+      }
+
+      p {
+        font-size: 1rem;
+      }
+
+      .grid.g2 {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Keyboard hint (optional) */
+    .keyboard-hint {
+      position: fixed;
+      bottom: 10px;
+      right: 10px;
+      font-size: 0.75rem;
+      color: var(--text-3);
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="deck" id="deck">
+    <div class="stage" id="stage">
+      
+      <!-- Slide 1: Cover -->
+      <section class="slide cover is-active">
+        <h1>Internal AI Platform</h1>
+        <p class="lede">Unified intelligence for enterprise-wide decision making</p>
+        <div class="pill-row">
+          <span class="pill">Unified</span>
+          <span class="pill">Intelligent</span>
+          <span class="pill">Scalable</span>
+        </div>
+        <div class="notes">Welcome to the internal AI platform overview. This 5-slide deck introduces our new unified intelligence system designed to streamline enterprise decision-making. The platform integrates data across departments, provides predictive insights, and scales with organizational needs. We're here to show you how this will improve efficiency and reduce manual processes.</div>
+      </section>
+
+      <!-- Slide 2: Current State & Problem -->
+      <section class="slide">
+        <p class="kicker">The Challenge Today</p>
+        <h2>Fragmented Intelligence</h2>
+        <ul>
+          <li><strong>Data silos:</strong> Critical insights spread across disconnected systems and teams</li>
+          <li><strong>Manual workflows:</strong> Hours spent consolidating and analyzing data across tools</li>
+          <li><strong>Slow decisions:</strong> Delays in accessing reliable, unified information</li>
+          <li><strong>Limited scalability:</strong> Current tools can't adapt to growing organizational complexity</li>
+        </ul>
+        <div class="notes">Today, our teams face a fragmented intelligence landscape. Data lives in different places—CRM, analytics platforms, internal databases—making it hard to get a complete picture. This fragmentation leads to manual workarounds, delayed decisions, and frustrated teams. Our new AI platform solves this by centralizing intelligence in one place with real-time insights and automated workflows.</div>
+      </section>
+
+      <!-- Slide 3: Core Features -->
+      <section class="slide">
+        <p class="kicker">What We're Building</p>
+        <h2>Three Core Capabilities</h2>
+        <div class="grid g3">
+          <div class="feature-card">
+            <div class="feature-icon">🔗</div>
+            <h3>Unified Data Hub</h3>
+            <p>Connect all enterprise data sources—CRM, analytics, databases, third-party APIs—in a single, queryable intelligence layer.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">🧠</div>
+            <h3>Predictive Intelligence</h3>
+            <p>AI-powered models detect patterns, forecast outcomes, and surface anomalies in real time across all business domains.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">⚡</div>
+            <h3>Instant Automation</h3>
+            <p>Trigger workflows, alerts, and actions based on AI insights—eliminating manual handoffs and accelerating response times.</p>
+          </div>
+        </div>
+        <div class="notes">The platform is built on three pillars. First, a unified data hub that brings together all our enterprise data—no more silos. Second, predictive intelligence powered by machine learning to help us see patterns and forecast outcomes. Third, instant automation so that insights drive action without manual intervention. Together, these three capabilities transform how we make decisions.</div>
+      </section>
+
+      <!-- Slide 4: Impact & Value -->
+      <section class="slide">
+        <p class="kicker">Expected Outcomes</p>
+        <h2>Real Business Impact</h2>
+        <div class="grid g4">
+          <div class="stat">
+            <div class="stat-number">40<span class="stat-unit">%</span></div>
+            <div class="stat-label">Faster Analysis</div>
+          </div>
+          <div class="stat">
+            <div class="stat-number">60<span class="stat-unit">%</span></div>
+            <div class="stat-label">Manual Work Reduced</div>
+          </div>
+          <div class="stat">
+            <div class="stat-number">3x</div>
+            <div class="stat-label">More Insights</div>
+          </div>
+          <div class="stat">
+            <div class="stat-number">$2M</div>
+            <div class="stat-label">Annual Efficiency Gain</div>
+          </div>
+        </div>
+        <div class="notes">Based on pilot testing with key teams, we're seeing significant impact. Analysis cycles are 40% faster because data is centralized and instantly accessible. We're eliminating 60% of manual data consolidation work, freeing teams to focus on strategy. AI is surfacing three times more actionable insights than before. And conservatively, we're projecting $2 million in annual efficiency gains across the organization through automation and faster decision-making.</div>
+      </section>
+
+      <!-- Slide 5: Call to Action -->
+      <section class="slide cta-section">
+        <h2>Let's Move Forward Together</h2>
+        <p>Early access pilot teams are forming now. Join us to shape the future of enterprise intelligence.</p>
+        <div class="cta-buttons">
+          <a href="#" class="btn btn-light">Join Pilot Program</a>
+          <a href="#" class="btn btn-outline">Learn More</a>
+        </div>
+        <div class="notes">We're looking for pilot teams to help us refine the platform and demonstrate value. If your team is interested in participating in the early access program, reach out to the AI Platform team. We'll be rolling out to the broader organization over the next two quarters. Questions? See the technical documentation or reach out directly.</div>
+      </section>
+
+    </div>
+
+    <div class="progress-bar" id="progressBar"></div>
+    <div class="deck-footer">
+      <span>Internal AI Platform Overview</span>
+      <span class="slide-number"><span id="slideNum">1</span> / <span id="slideTotal">5</span></span>
+    </div>
+  </div>
+
+  <div class="keyboard-hint">
+    <div>← → or Space to navigate</div>
+    <div>Press ? for more controls</div>
+  </div>
+
+  <script>
+    // Navigation and runtime
+    const deck = document.getElementById('deck');
+    const stage = document.getElementById('stage');
+    const slides = document.querySelectorAll('.slide');
+    const slideNum = document.getElementById('slideNum');
+    const slideTotal = document.getElementById('slideTotal');
+    const progressBar = document.getElementById('progressBar');
+    
+    let currentSlide = 0;
+    const totalSlides = slides.length;
+
+    slideTotal.textContent = totalSlides;
+
+    function updateSlide(n) {
+      currentSlide = (n + totalSlides) % totalSlides;
+      
+      // Update stage transform for carousel effect
+      stage.style.transform = `translateX(${-currentSlide * 100}vw)`;
+      
+      // Update active class
+      slides.forEach((slide, idx) => {
+        slide.classList.remove('is-active');
+        if (idx === currentSlide) {
+          slide.classList.add('is-active');
+        }
+      });
+      
+      slideNum.textContent = currentSlide + 1;
+      
+      // Update progress bar
+      const progress = ((currentSlide + 1) / totalSlides) * 100;
+      progressBar.style.width = progress + '%';
+    }
+
+    function nextSlide() {
+      updateSlide(currentSlide + 1);
+    }
+
+    function prevSlide() {
+      updateSlide(currentSlide - 1);
+    }
+
+    // Keyboard controls
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === ' ') {
+        nextSlide();
+      } else if (e.key === 'ArrowLeft') {
+        prevSlide();
+      } else if (e.key === 'Home') {
+        updateSlide(0);
+      } else if (e.key === 'End') {
+        updateSlide(totalSlides - 1);
+      }
+    });
+
+    // Handle hash-based navigation
+    function handleHash() {
+      const hash = window.location.hash.slice(1);
+      if (hash.startsWith('slide-')) {
+        const n = parseInt(hash.split('-')[1]) - 1;
+        if (n >= 0 && n < totalSlides) {
+          updateSlide(n);
+        }
+      }
+    }
+
+    window.addEventListener('hashchange', handleHash);
+    handleHash();
+
+    // Initialize
+    updateSlide(0);
+  </script>
+</body>
+</html>
