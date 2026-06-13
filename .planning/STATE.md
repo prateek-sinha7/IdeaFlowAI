@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-last_updated: "2026-06-13T13:46:07.458Z"
-last_activity: 2026-06-13
+status: executing
+last_updated: "2026-06-13T14:18:00.000Z"
+last_activity: 2026-06-13 -- Completed 17-01-PLAN.md (ISS-003)
 progress:
-  total_phases: 16
+  total_phases: 17
   completed_phases: 16
-  total_plans: 88
-  completed_plans: 88
-  percent: 100
+  total_plans: 91
+  completed_plans: 89
+  percent: 98
 ---
 
 # Project State
@@ -20,18 +20,18 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-11)
 
 **Core value:** A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001).
-**Current focus:** Phase 16 — Terminal-State Integrity and Reconnect Frame-Contract
+**Current focus:** Phase 17 — Test-Infra and Verification-Gap Closure
 
 ## Current Position
 
-Phase: 16
-Plan: Not started
-Status: Phase 16 plans complete — ready for phase verification
-Last activity: 2026-06-13
+Phase: 17 (Test-Infra and Verification-Gap Closure) — EXECUTING
+Plan: 2 of 3
+Status: Executing Phase 17
+Last activity: 2026-06-13 -- Completed 17-01-PLAN.md (ISS-003)
 
-Session continuity: last session 2026-06-13; stopped at Completed 16-03-PLAN.md (ISS-008 durable-replay revision section via the WR-06 inverse + ISS-009 live-attach pipeline_reconnected ack live:true; handler-driven cluster-B tests; INV-3 parity green, lint-imports 4/0, zero migrations); resume file: none
+Session continuity: last session 2026-06-13; stopped at Completed 17-01-PLAN.md (ISS-003 _drive_live clarify-off compile_for_run wrap replaces the dead ALWAYS_CLARIFY flag; bounded offline fault-injection regression proves no hang; live test stays SSO-gated; goldens 10/10, lint-imports 4/0, test-only diff); resume file: none
 
-Progress: [██████████] 100% (88/88 plans complete; Phase 16 4/4 plans done — pending verification)
+Progress: [██████████] 100% (89 plans complete; Phase 17 1/3 plans done — 17-01 ISS-003 closed)
 
 ## Performance Metrics
 
@@ -149,6 +149,7 @@ Progress: [██████████] 100% (88/88 plans complete; Phase 16 
 | Phase 16 P04 | ~9 min | 2 tasks | 5 files |
 | Phase 16 P02 | ~30 min | 2 tasks | 4 files |
 | Phase 16 P03 | ~12 min | 2 tasks | 2 files |
+| Phase 17 P01 | ~4 min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
