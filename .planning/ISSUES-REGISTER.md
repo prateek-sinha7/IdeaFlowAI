@@ -76,6 +76,7 @@
 - **E · Custom-workflow UX completeness** — ISS-014 (delete dead composer) + ISS-015 (WONTFIX/doc) + ISS-021 (generic deliverable renderer) + ISS-019 (wave-fold CSS): FE-weighted, zero INV-3 exposure.
 
 ## Notes
+- **Live + Playwright re-confirmation (2026-06-13, `default` Bedrock):** `.planning/live-verification/CAMPAIGN-2026-06-13-phases16-19.md` — ISS-019/021/007(+002)/014/005/006 **live+visually confirmed**; ISS-008/009 reconnect-contract live (revision-section/`live:true` offline); ISS-016(major)/017/004 **offline-fault-injection proven** (no clean live failure trigger on a healthy `default`: `model_overrides` validated pre-Bedrock, srini SSO-expired). No product defect surfaced.
 - This register is append-only by ID. When an issue is fixed, flip Status to FIXED and cite the closing commit/phase; don't delete the row.
 - UI-campaign findings land here as scenarios run (a row per real product issue; harness/driver gaps tagged `harness`).
 - The IN-01..IN-06 advisories from phases 12–14 are tracked in the per-phase REVIEW.md files; only the ones independently re-observed this pass are surfaced here (ISS-007/008/009) to avoid duplicating the phase registers.
