@@ -64,6 +64,43 @@ describe("PreviewPanel — generic mimetype-dispatched deliverable (ISS-021, liv
     expect(screen.queryByText(/output will appear here/i)).not.toBeInTheDocument();
   });
 
+  // ─── CR-01 (18 review) regression lock ──────────────────────────────────────
+  // `custom` is the ACTUAL pipeline_type the live agent-composer emits. It must
+  // NOT be a known render branch (which routed it to MarkdownPreview → escaped
+  // HTML). A LIVE custom run with text/html must render the SANDBOXED iframe,
+  // agreeing with the reopen surface. A live custom markdown run must still
+  // render MarkdownPreview (no regression to existing markdown-custom reports).
+  it("CR-01 — LIVE `custom` + text/html → SANDBOXED iframe (NOT MarkdownPreview)", () => {
+    const { container } = render(
+      <PreviewPanel
+        workflowType="custom"
+        isStreaming={false}
+        genericDeliverable={{ mimetype: "text/html", filename: "custom.html", content: HTML_DELIVERABLE }}
+      />,
+    );
+
+    const iframe = container.querySelector("iframe");
+    expect(iframe).not.toBeNull();
+    expect(iframe!.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(iframe!.getAttribute("sandbox") || "").not.toContain("allow-same-origin");
+    expect(iframe!.getAttribute("srcdoc")).toContain("Custom Output");
+    // The bug was: custom HTML rendered through MarkdownPreview (escaped text).
+    expect(screen.queryByTestId("markdown-preview")).not.toBeInTheDocument();
+  });
+
+  it("CR-01 — LIVE `custom` + text/markdown → MarkdownPreview (no regression)", () => {
+    const { container } = render(
+      <PreviewPanel
+        workflowType="custom"
+        isStreaming={false}
+        genericDeliverable={{ mimetype: "text/markdown", content: "# Custom report\n\nbody" }}
+      />,
+    );
+
+    expect(screen.getByTestId("markdown-preview")).toBeInTheDocument();
+    expect(container.querySelector("iframe")).toBeNull();
+  });
+
   it("unknown type + text/markdown → renders MarkdownPreview (NOT an iframe)", () => {
     const { container } = render(
       <PreviewPanel

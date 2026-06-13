@@ -395,22 +395,31 @@ export default function DashboardPage() {
         const pipelineType = data.pipeline_type as string;
 
         if (finalOutput && pipelineType) {
-          if (pipelineType === "user_stories" || pipelineType === "user_stories_revision" || pipelineType === "app_builder" || pipelineType === "app_builder_revision" || pipelineType === "custom") {
+          if (pipelineType === "user_stories" || pipelineType === "user_stories_revision" || pipelineType === "app_builder" || pipelineType === "app_builder_revision") {
             setUserStoryContent(finalOutput);
           } else if (pipelineType === "ppt" || pipelineType === "ppt_revision" || pipelineType === "od_ppt" || pipelineType === "od_ppt_revision") {
             setPptContent(finalOutput);
           } else if (pipelineType === "prototype" || pipelineType === "prototype_revision" || pipelineType === "od_prototype") {
             setPrototypeContent(finalOutput);
           } else {
-            // ISS-021 (18-03) — generic fallback: any pipeline_type matching none
-            // of the known branches feeds the generic deliverable channel. The
-            // mimetype is the DECLARED `deliverable_mimetype` from the
-            // pipeline_complete event (18-01 emits it from ectx.deliverable);
-            // never routed into the user_story/markdown branch (REJECTED — escapes
-            // HTML) and never keyed on the workflow name (SC-001). This is the
-            // structural "no known branch matched" else.
+            // ISS-021 (18-03) + CR-01 (18 review fix): any pipeline_type matching
+            // none of the known branches — INCLUDING the live agent-composer's
+            // `custom` — feeds the generic deliverable channel. `custom` was
+            // previously a KNOWN branch routed into setUserStoryContent →
+            // MarkdownPreview (escaped HTML); that contradicted the reopen surface
+            // (which already treats `custom` structurally) and was the exact
+            // root-cause bug this phase eliminates. The mimetype is the DECLARED
+            // `deliverable_mimetype` from the pipeline_complete event (18-01 emits
+            // it from ectx.deliverable, authoritative on the live path), with the
+            // SHARED deriveDeliverableMimetype helper as a defensive fallback for
+            // older runs / forward-compat where the key is absent — the IDENTICAL
+            // heuristic the reopen surfaces apply, so live and reopen agree. Never
+            // routed into the user_story/markdown branch (REJECTED — escapes HTML)
+            // and never keyed on the workflow name (SC-001). This is the structural
+            // "no known branch matched" else.
             setGenericDeliverable({
-              mimetype: (data.deliverable_mimetype as string | undefined) || undefined,
+              mimetype: (data.deliverable_mimetype as string | undefined)
+                || deriveDeliverableMimetype(finalOutput),
               filename: (data.deliverable_filename as string | undefined) || undefined,
               content: finalOutput,
             });

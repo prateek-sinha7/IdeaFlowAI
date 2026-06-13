@@ -360,7 +360,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
     : detectedType === "app_builder_revision" ? "app_builder"
     : detectedType;
   const activeContent =
-    renderType === "user_stories" || renderType === "app_builder" || renderType === "custom"
+    renderType === "user_stories" || renderType === "app_builder"
       ? userStoryContent
       : renderType === "ppt"
       ? pptContent
@@ -371,7 +371,12 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // matches NONE of the known render branches AND a generic deliverable is
   // present. This is the structural "no known branch matched" fallback — never a
   // workflow-name check (SC-001). The four bespoke renderers below are untouched.
-  const KNOWN_RENDER_TYPES = ["user_stories", "ppt", "prototype", "app_builder", "custom"] as const;
+  // CR-01 (18 review fix): `custom` is NO LONGER a known render type — the live
+  // agent-composer's `custom` deliverable now flows into the generic
+  // mimetype-dispatched channel (text/html → sandboxed iframe), exactly mirroring
+  // the reopen surface. Keeping `custom` here routed it to MarkdownPreview and
+  // escaped HTML — the contradiction the phase was chartered to remove.
+  const KNOWN_RENDER_TYPES = ["user_stories", "ppt", "prototype", "app_builder"] as const;
   const isKnownRenderType = (KNOWN_RENDER_TYPES as readonly string[]).includes(renderType);
   const hasGenericDeliverable = !isKnownRenderType && !!genericDeliverable?.content;
 
@@ -507,10 +512,11 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               ) : (
                 <>
                   {renderType === "user_stories" && userStoryContent && <UserStoryPreview content={userStoryContent} onRevise={onReviseUserStory} />}
-                  {(renderType === "app_builder" || renderType === "custom") && userStoryContent && (
-                    renderType === "app_builder"
-                      ? <AppBuilderIDEPreview content={userStoryContent} agentOutputs={agentOutputs} onRevise={onReviseAppBuilder} />
-                      : <MarkdownPreview content={userStoryContent} />
+                  {/* CR-01 (18 review fix): `custom` removed from this branch — it
+                      no longer routes to MarkdownPreview (escaped HTML). A `custom`
+                      deliverable now flows through the generic channel below. */}
+                  {renderType === "app_builder" && userStoryContent && (
+                    <AppBuilderIDEPreview content={userStoryContent} agentOutputs={agentOutputs} onRevise={onReviseAppBuilder} />
                   )}
                   {renderType === "ppt" && (pptContent || pptxCode) && <PPTPreview content={pptContent} isStreaming={isStreaming} pptxCode={pptxCode} onRevise={onRevisePpt} pipelineType={rawPipelineType || workflowType} />}
                   {renderType === "prototype" && prototypeContent && <PrototypePreview content={prototypeContent} isStreaming={isStreaming} onRevise={onRevisePrototype} />}
