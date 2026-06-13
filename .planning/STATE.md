@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-13T00:25:33.037Z"
-last_activity: 2026-06-13 -- Phase 15 execution started
+last_updated: "2026-06-13T00:33:28.624Z"
+last_activity: 2026-06-13 -- Completed 15-02-PLAN.md (durable contract pins + INV-3 gate green)
 progress:
   total_phases: 15
   completed_phases: 14
   total_plans: 84
-  completed_plans: 82
+  completed_plans: 83
   percent: 93
 ---
 
@@ -25,13 +25,13 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 ## Current Position
 
 Phase: 15 (live-pass-prompt-contract-closure) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
-Last activity: 2026-06-13 -- Phase 15 execution started
+Last activity: 2026-06-13 -- Completed 15-02-PLAN.md (durable contract pins + INV-3 gate green)
 
-Session continuity: last session 2026-06-13; stopped at Completed 15-01-PLAN.md (prompt contracts landed — 15-02 pins next); resume file: none
+Session continuity: last session 2026-06-13; stopped at Completed 15-02-PLAN.md (durable contract pins + INV-3 gate green — 15-03 live re-check next); resume file: none
 
-Progress: [██████████] 98% (14/15 phases complete; 82/84 plans complete; Phase 15 1/3 plans done)
+Progress: [██████████] 99% (14/15 phases complete; 83/84 plans complete; Phase 15 2/3 plans done)
 
 ## Performance Metrics
 
@@ -142,6 +142,7 @@ Progress: [██████████] 98% (14/15 phases complete; 82/84 pla
 | Phase 14 P03 | ~10min | 2 tasks | 2 files |
 | Phase 14 P04 | 13min | 2 tasks | 1 files |
 | Phase 15 P01 | ~3min | 3 tasks | 5 files |
+| Phase 15 P02 | ~9min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -253,6 +254,7 @@ Recent decisions affecting current work:
 - [Phase 14]: 14-03: _handle_revision dispatches via execute() with od_context=None + gate_agent_ids=[] (settled wrinkle); lineage write guarded final_output and not terminal_failed with producer_agent=agents[-1].id; state_restoration_failed kept on lineage-persist failure without failing the run
 - [Phase 14]: 14-04: proceed-path revision tests re-targeted to od_ppt_output/ppt_output only (the two planner: skip manifests); composed-context contracts (three sections, planning prefix) asserted on the dispatched agent_input context_message, never final_output; run_events pinned at execute()'s chokepoint with minted-workspace scope recovered from persisted rows
 - [Phase 15]: 15-01: LV-02 contract worded as exactly-ONE-artifact (never last/final artifact) to match unwrap_artifact first-match regex; sdlc anti-tool-XML line byte-identical across the family with per-pipeline deliverable-start tailoring (app=filename: block, dotnet/mulesoft=first Markdown heading); app-infra bottom RULES /api/v1 bullet kept as reinforcement
+- [Phase ?]: 15-02: LV-02 composition pin drives REAL engine+PptResolver with a per-test contract-shaped validator model; zero edits to golden-pinned _scripted_model.py
 
 ### Pending Todos
 
