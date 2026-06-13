@@ -164,7 +164,7 @@ describe("PreviewPanel — terminal-empty degraded/failed affordance (ISS-017)",
     expect(screen.getByText("proto-builder")).toBeInTheDocument();
   });
 
-  it("reopen+cancelled (reopenedRunStatus='cancelled', no content) → shows the affordance", () => {
+  it("reopen+cancelled (reopenedRunStatus='cancelled', no content) → shows the cancelled-specific copy, NOT the failed/degraded copy", () => {
     render(
       <PreviewPanel
         workflowType="prototype"
@@ -173,8 +173,31 @@ describe("PreviewPanel — terminal-empty degraded/failed affordance (ISS-017)",
       />,
     );
 
+    // IN-03: a deliberate user cancel must NOT be labelled "failed or degraded".
+    expect(screen.getByText(/this run was cancelled/i)).toBeInTheDocument();
+    expect(screen.queryByText(/failed or degraded/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(NEUTRAL_COPY)).not.toBeInTheDocument();
+  });
+
+  it("reopen+degraded (reopenedRunStatus='degraded', no content) → shows the affordance with the wired failed-agent list (WR-01 + IN-01)", () => {
+    render(
+      <PreviewPanel
+        workflowType="prototype"
+        isStreaming={false}
+        reopenedRunStatus={"degraded" as WorkflowStatus}
+        reopenedFailedAgents={["domain-analyst", "story-estimator"]}
+      />,
+    );
+
+    // WR-01: a degraded run reopened from history with no partial deliverable
+    // surfaces the failure affordance, not the neutral empty-state.
     expect(screen.getByText(AFFORDANCE_COPY)).toBeInTheDocument();
     expect(screen.queryByText(NEUTRAL_COPY)).not.toBeInTheDocument();
+    // IN-01: the real reopened failed-agent ids appear (not an empty list).
+    expect(screen.getByText("domain-analyst")).toBeInTheDocument();
+    expect(screen.getByText("story-estimator")).toBeInTheDocument();
+    // A degraded reopen is NOT a cancel — keeps the failed/degraded copy.
+    expect(screen.queryByText(/this run was cancelled/i)).not.toBeInTheDocument();
   });
 
   it("reopen+completed (reopenedRunStatus undefined) terminal+empty → keeps the neutral empty-state", () => {

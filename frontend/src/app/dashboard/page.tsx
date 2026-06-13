@@ -11,6 +11,24 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, WorkflowStatus, User, WaveGroup } from "@/types/index";
 import type { ChatMode } from "@/components/chat/ChatInput";
 
+// IN-01 (16 review): the backend persists a degraded run's failed-agent ids into
+// wr.error as "...agent(s) failed: <id1>, <id2>" (websocket.py). Parse those ids
+// back out so the history-reopen affordance lists the real failed agents instead
+// of an empty list. Returns undefined when the marker is absent (e.g. a plain
+// failure message), so the affordance simply omits the agent list. Server-keyed —
+// no client guess about which agents failed.
+const _FAILED_AGENTS_MARKER = /agent\(s\) failed:\s*(.+)$/i;
+function parseFailedAgentIds(error: string | undefined): string[] | undefined {
+  if (!error) return undefined;
+  const match = error.match(_FAILED_AGENTS_MARKER);
+  if (!match) return undefined;
+  const ids = match[1]
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return ids.length > 0 ? ids : undefined;
+}
+
 /**
  * Dashboard page - the main authenticated view.
  * Manages WebSocket connection, workflow runs, and streaming content.
@@ -48,6 +66,11 @@ export default function DashboardPage() {
   // terminal-empty degraded/failed affordance on the history path. Cleared
   // (undefined) for fresh/live runs and successful reopens.
   const [reopenedRunStatus, setReopenedRunStatus] = useState<WorkflowStatus | undefined>(undefined);
+  // Phase 16 (IN-01): the failed-agent list for a history-reopened terminal run,
+  // parsed from the persisted run detail. Threaded to PreviewPanel so the reopen
+  // affordance lists the real failed agents (not an empty list). Cleared on every
+  // reopen/new-run alongside reopenedRunStatus.
+  const [reopenedFailedAgents, setReopenedFailedAgents] = useState<string[] | undefined>(undefined);
   const [currentMode, setCurrentMode] = useState<ChatMode>("default");
   const [chatTitleUpdate, setChatTitleUpdate] = useState<{ chat_session_id: string; title: string } | null>(null);
   const [processSteps, setProcessSteps] = useState<ProcessStep[]>([]);
@@ -1004,6 +1027,7 @@ export default function DashboardPage() {
       // ISS-017 (16-04): reset the reopened-run failure signal until the run
       // detail loads — avoids a stale affordance leaking across reopens.
       setReopenedRunStatus(undefined);
+      setReopenedFailedAgents(undefined);
 
       // Load the workflow output from backend
       const currentToken = getToken();
@@ -1012,7 +1036,14 @@ export default function DashboardPage() {
       try {
         const fullRun = await getWorkflow(currentToken, run.id);
 
-        if (fullRun.output && fullRun.status === "completed") {
+        // WR-01 (16 review): "degraded" is a terminal status ISS-016 now persists
+        // for partially-failed runs — it carries a real (partial) deliverable. Treat
+        // it like "completed" for content so the partial deliverable still renders on
+        // the history-reopen path (it previously fell through to the neutral empty
+        // state). Keyed on the generic server status field, never a workflow name.
+        const isContentTerminal =
+          fullRun.status === "completed" || fullRun.status === "degraded";
+        if (fullRun.output && isContentTerminal) {
           if (fullRun.type === "user_stories" || fullRun.type === "user_stories_revision") {
             setUserStoryContent(fullRun.output);
           } else if (fullRun.type === "ppt" || fullRun.type === "ppt_revision" || fullRun.type === "od_ppt" || fullRun.type === "od_ppt_revision") {
@@ -1022,16 +1053,28 @@ export default function DashboardPage() {
           }
         }
 
-        // ISS-017 (16-04): a reopened run that ended failed/cancelled sets no
-        // content (unchanged above) — thread its persisted server status down so
-        // PreviewPanel shows the terminal-empty degraded/failed affordance on the
-        // history path. This keys on the SERVER status, not a client empty guess.
-        // A completed (success) reopen clears the signal (undefined).
+        // ISS-017 (16-04) + WR-01 (16 review): a reopened run that ended
+        // failed/cancelled/degraded WITH no content sets no content (unchanged
+        // above) — thread its persisted server status down so PreviewPanel shows the
+        // terminal-empty degraded/failed affordance on the history path. This keys on
+        // the SERVER status, not a client empty guess. "degraded" is included so a
+        // degraded run with NO partial deliverable still surfaces the affordance
+        // rather than the neutral empty-state (CONTEXT A2: affordance on BOTH the live
+        // and history paths). A completed (success) reopen clears the signal.
         setReopenedRunStatus(
-          fullRun.status === "failed" || fullRun.status === "cancelled"
+          fullRun.status === "failed" ||
+            fullRun.status === "cancelled" ||
+            fullRun.status === "degraded"
             ? fullRun.status
             : undefined,
         );
+
+        // IN-01 (16 review): wire the reopened run's failed-agent list so the
+        // affordance lists the real agents (not an empty list). The backend persists
+        // it into wr.error as "...agent(s) failed: <id1>, <id2>" for a degraded run
+        // (websocket.py); parse those ids when present so the history-reopen
+        // affordance matches the live path. Server-keyed; no client guess.
+        setReopenedFailedAgents(parseFailedAgentIds(fullRun.error));
       } catch (err) {
         console.error("Failed to load workflow output:", err);
       }
@@ -1116,11 +1159,13 @@ export default function DashboardPage() {
       websocketSend={send}
       pipelineState={pipelineState}
       reopenedRunStatus={reopenedRunStatus}
+      reopenedFailedAgents={reopenedFailedAgents}
       onStartPipeline={(type, message, agentIds, attachedSkills, attachedHooks, extraParams) => {
         const isRevision = type.endsWith("_revision");
         // ISS-017 (16-04): any new run clears the history-reopen failure signal
         // so a prior failed reopen never bleeds the affordance into a live run.
         setReopenedRunStatus(undefined);
+        setReopenedFailedAgents(undefined);
         if (!isRevision) {
           // Fresh run — clear previous preview content
           setUserStoryContent("");

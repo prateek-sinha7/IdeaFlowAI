@@ -14,6 +14,7 @@ import {
   GitBranch,
   CheckCircle2,
   XCircle,
+  AlertTriangle,
   Loader2,
   Clock,
 } from "lucide-react";
@@ -56,6 +57,10 @@ const STATUS_ICON: Record<WorkflowStatus, typeof Loader2> = {
   completed: CheckCircle2,
   failed: XCircle,
   cancelled: XCircle,
+  // Phase 16 (WR-01): "degraded" is a partial-failure terminal; "revising" is an
+  // in-progress re-run. Map both so the sidebar status maps stay exhaustive.
+  degraded: AlertTriangle,
+  revising: Loader2,
 };
 
 const STATUS_COLOR: Record<WorkflowStatus, string> = {
@@ -63,6 +68,8 @@ const STATUS_COLOR: Record<WorkflowStatus, string> = {
   completed: "text-green-400",
   failed: "text-red-400",
   cancelled: "text-amber-400",
+  degraded: "text-amber-400",
+  revising: "text-blue-400",
 };
 
 /**

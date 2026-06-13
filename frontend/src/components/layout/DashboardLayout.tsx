@@ -58,6 +58,10 @@ export interface DashboardLayoutProps {
   // terminal-empty degraded/failed affordance on the history path. Undefined for
   // fresh/live runs and successful reopens.
   reopenedRunStatus?: import("@/types/index").WorkflowStatus;
+  // Phase 16 (IN-01) — the failed-agent ids of a history-reopened terminal run,
+  // parsed from the persisted run detail. Threaded to PreviewPanel so the reopen
+  // affordance lists the real failed agents instead of an empty list.
+  reopenedFailedAgents?: string[];
   questionnaireData?: { questions: { id: string; question: string; options: string[] }[] } | null;
   // Phase 2 (Universal Engine) — clarify gate resume wiring.
   activePipelineRunId?: string | null;
@@ -205,6 +209,7 @@ export function DashboardLayout({
   websocketSend,
   pipelineState,
   reopenedRunStatus,
+  reopenedFailedAgents,
   onStartPipeline,
   onResetPipeline,
   recentRuns,
@@ -1248,6 +1253,7 @@ export function DashboardLayout({
                       agents={pipelineState?.agents}
                       pipelineState={pipelineState}
                       reopenedRunStatus={reopenedRunStatus}
+                      reopenedFailedAgents={reopenedFailedAgents}
                     />
                   )}
                 </ErrorBoundary>

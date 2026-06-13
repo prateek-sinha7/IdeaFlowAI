@@ -198,9 +198,13 @@ const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
 function DegradedRunAffordance({
   failedAgents,
   onRetry,
+  cancelled,
 }: {
   failedAgents?: string[];
   onRetry?: (instruction: string) => void;
+  // IN-03 (16 review): true when the terminal state is a deliberate user cancel,
+  // so the copy reads "cancelled" rather than "failed or degraded".
+  cancelled?: boolean;
 }) {
   const hasFailedAgents = !!(failedAgents && failedAgents.length > 0);
   return (
@@ -210,10 +214,14 @@ function DegradedRunAffordance({
           <AlertTriangle className="h-6 w-6 text-amber-500" />
         </div>
         <p className="text-sm font-semibold text-gray-900">
-          This run did not complete successfully
+          {cancelled
+            ? "This run was cancelled"
+            : "This run did not complete successfully"}
         </p>
         <p className="text-xs text-gray-500">
-          No deliverable was produced. The run ended in a failed or degraded state.
+          {cancelled
+            ? "The run was stopped before producing a deliverable."
+            : "No deliverable was produced. The run ended in a failed or degraded state."}
         </p>
         {hasFailedAgents && (
           <div className="w-full rounded-md border border-amber-100 bg-amber-50/60 px-3 py-2 text-left">
@@ -282,9 +290,21 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, i
   const isStillRunning = !!(isStreaming || pipelineState?.isRunning);
   const isTerminal = !isStillRunning;
   const liveFailureSignal = !!(pipelineState?.failed || pipelineState?.degraded);
-  const reopenFailureSignal = reopenedRunStatus === "failed" || reopenedRunStatus === "cancelled";
+  // WR-01 (16 review): "degraded" is a terminal failure-signal status ISS-016 now
+  // persists. A degraded run reopened with NO partial deliverable must surface the
+  // affordance (CONTEXT A2: on BOTH the live and history paths) — not the neutral
+  // empty-state. Keyed on the SERVER status, never a client empty==failed guess.
+  const reopenFailureSignal =
+    reopenedRunStatus === "failed" ||
+    reopenedRunStatus === "cancelled" ||
+    reopenedRunStatus === "degraded";
   const terminalFailure = liveFailureSignal || reopenFailureSignal;
   const showFailureAffordance = !hasContent && isTerminal && terminalFailure;
+  // IN-03 (16 review): a cancelled run is a deliberate user Stop, not a failure —
+  // the affordance copy must say so rather than "failed or degraded". Live cancel
+  // carries no failed/degraded flag (useWorkflow resets agents to idle), so the
+  // cancelled signal is the reopened server status only.
+  const isCancelledTerminal = reopenedRunStatus === "cancelled";
   const failedAgentNames =
     pipelineState?.failedAgents ||
     pipelineState?.degradedFailedAgents ||
@@ -379,6 +399,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, i
                 <DegradedRunAffordance
                   failedAgents={failedAgentNames}
                   onRetry={onRevisePrototype || onRevisePpt || onReviseUserStory || onReviseAppBuilder}
+                  cancelled={isCancelledTerminal}
                 />
               ) : !hasContent ? (
                 <div className="flex items-center justify-center h-full">

@@ -245,7 +245,11 @@ export interface Story {
 
 export type WorkflowType = "user_stories" | "user_stories_revision" | "ppt" | "ppt_revision" | "od_ppt" | "od_ppt_revision" | "prototype" | "prototype_revision" | "od_prototype" | "app_builder" | "app_builder_revision" | "custom" | "migration" | "mulesoft_to_springboot" | "dotnet_to_azure";
 
-export type WorkflowStatus = "running" | "completed" | "failed" | "cancelled";
+// Phase 16 (WR-01): ISS-016 newly persists "degraded" for a partially-failed
+// run (websocket.py), and the revision drainer can persist "revising". The raw
+// status is cast through this union at api.ts:288 (`raw.status as ...`); include
+// both so the cast is honest and the history-reopen comparisons type-check.
+export type WorkflowStatus = "running" | "completed" | "failed" | "cancelled" | "degraded" | "revising";
 
 export interface WorkflowRun {
   id: string;
