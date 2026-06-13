@@ -93,12 +93,14 @@ def test_sdlc_governance_anti_fabrication_contract(agent_id: str) -> None:
     body = load_agent_spec(agent_id).prompt_body
 
     # Shared contract lines (byte-identical anti-tool-XML sentence across the
-    # family; forbidden tokens named exactly once, tersely — Pitfall 7).
+    # family).
     assert "You have NO tools" in body
-    assert "<function_calls>" in body
-    assert "<invoke>" in body
-    assert "write_todos" in body
     assert "Begin your response DIRECTLY with" in body
+
+    # Pitfall 7: forbidden tokens named exactly ONCE, tersely — repeating
+    # tool-XML tokens through the body re-primes the fabrication F4 fixed.
+    for token in ("<function_calls>", "<invoke>", "write_todos"):
+        assert body.count(token) == 1, f"{token!r} must appear exactly once"
 
     if agent_id == "app-sdlc-governance":
         # app_builder deliverable = filename: fenced blocks.
@@ -108,8 +110,10 @@ def test_sdlc_governance_anti_fabrication_contract(agent_id: str) -> None:
         assert "Read the concrete choices" not in body
     else:
         # dotnet/mulesoft deliverable = structured Markdown (Pitfall 5: no
-        # filename-block contamination of the migration pipelines).
+        # filename-block contamination of the migration pipelines — their
+        # bodies must never grow app-style `filename:` blocks).
         assert "the first Markdown heading" in body
+        assert "filename:" not in body
 
 
 # ===========================================================================
