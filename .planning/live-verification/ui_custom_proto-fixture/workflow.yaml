@@ -1,0 +1,67 @@
+# ui_custom_proto — UI-campaign SC-001 proof manifest (2026-06-13, session-only).
+# A BRAND-NEW custom workflow mimicking the prototype pipeline (task_loop build +
+# heading_tasks + single_file HTML deliverable + html_skeleton compaction +
+# html_static/html_render validators + a human gate) WITH an internal fan-out
+# (fanout_batch, 3 self workers, copy_disjoint merge) — manifest + AGENT.md only,
+# zero engine edits. NOT product-exposed; admitted via the UI-campaign launcher.
+id: ui_custom_proto
+version: 1
+planner: run
+clarify:
+  mode: auto
+  defaults: [target_audience, scope]
+deliverable:
+  strategy: single_file
+  name: prototype.html
+context_providers: []
+seed_files: {}
+allowed_workers:
+  - ui-proto-researcher
+steps:
+  - agent: ui-proto-factfind
+    strategy: single_shot
+    gates: []
+    tools:
+      read_files: true
+      write_files: true
+      exec: false
+  - agent: ui-proto-researcher
+    strategy: fanout_batch
+    gates: []
+    on_conflict: human_gate
+    task_source:
+      kind: parsed
+      parser: heading_tasks
+      target: tasks.md
+      source_step: ui-proto-factfind
+    fanout:
+      mode: parallel
+      max_parallel: 3
+      agent: self
+      count: 3
+    tools:
+      read_files: true
+      write_files: true
+      exec: false
+      spawn_subagents: true
+  - agent: ui-proto-plan
+    strategy: single_shot
+    gates: [human]
+    tools:
+      read_files: true
+      write_files: true
+      exec: false
+  - agent: ui-proto-build
+    strategy: task_loop
+    gates: []
+    task_source:
+      kind: parsed
+      parser: heading_tasks
+      target: tasks.md
+      source_step: ui-proto-plan
+      spec_step: ui-proto-factfind
+    validators: [html_static, html_render]
+    compaction: html_skeleton
+  - agent: ui-proto-validate
+    strategy: single_shot
+    gates: []

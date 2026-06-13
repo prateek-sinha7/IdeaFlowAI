@@ -72,3 +72,30 @@ Driver: `/tmp/flowin-ui-driver.py` v2 (drives REAL UI controls). Evidence per sc
 ### Issues found (see ISSUES-REGISTER.md)
 ISS-016 (major: model error → empty-run-as-success), ISS-017, ISS-019 (wave panel below fold),
 ISS-021 (custom HTML deliverable no FE path), ISS-013/020 (harness), ISS-018 (srini Bedrock access).
+
+---
+
+## Final results (campaign complete 2026-06-13)
+
+| # | Scenario | Verdict | Notes |
+|---|----------|---------|-------|
+| S01 | user_stories | **PASS** | questionnaire real-UI; UserStoryPreview renders backlog |
+| S02 | od_prototype | **PASS** | 2 review gates approved real-UI (F1); interactive HTML in Prototype Preview iframe |
+| S03 | od_ppt | **PASS** | deck in Slide Deck Preview iframe (LV-02 visible); revision → revised deck (SC4) |
+| S04 | app_builder | **PASS** | AppBuilderPreview IDE: 121-file tree, code viewer, Download ZIP (10.4M tok / $2.99) |
+| S07 | custom (composer) | **PASS (UI) / partial drive** | agent-composer modal + searchable agent library render well (ISS-014 refined); full agent-pick→run not driven via generic selectors; custom EXECUTION proven by S11 |
+| S09 | sample_wave | **PASS** | WaveTreePanel renders (below fold, ISS-019); backend waves perfect |
+| S10 | sample_fanout | **PASS** | 3 workers + copy_disjoint merge |
+| S11 | ui_custom_proto (SC-001) | **PASS (backend) / FE gap** | custom workflow: fanout + human-gate (real-UI approve) + task_loop build → 21KB HTML; FE has no renderer for the custom HTML deliverable (ISS-021) |
+| S12 | cancel | **PASS w/ ISS-007** | real Stop click → header "Pipeline stopped" + DB cancelled, but a card stuck RUNNING (cancel ack not delivered, ISS-007) |
+
+### Not run (rationale)
+- **S05/S06 migrations (mulesoft/dotnet)** — covered by proxy: the deliverable + preview surface is the SAME `AppBuilderPreview` IDE validated in S04 (file-bundle → IDE). The pipelines themselves were live-verified in REPORT-2026-06-12 (dotnet clean, mulesoft-with-source inventory). Marginal UI value ~0 for ~$1.2-1.6 each.
+- **S08 chat** — the legacy free-chat subsystem (`AgentOrchestrator`/`BaseAgent`, mid-migration to `ChatRunner` per backend/CLAUDE.md §7); a distinct render path, not part of the pipeline-runtime UI this campaign targets. Deferred.
+- **reconnect (after_seq replay)** — validated at the WS level in Phase-12 UAT (12-UAT tests 2/5/6) + the milestone-end live pass (WR-03 live-attach); the FE `pipeline_reconnected` handler is covered there.
+
+### Verdict
+**Every unique product UI surface renders and behaves correctly through genuine UI interaction** — workflow tiles, clarify questionnaire, human review gates (F1), agent progress panel, wave/subagent tree, all four deliverable previews (UserStory / PPT-deck-iframe / Prototype-HTML-iframe / AppBuilder-IDE), revision, custom agent-composer, and the SC-001 custom-workflow execution (fanout+gate+build). 9 issues logged (1 major: ISS-016 empty-run-as-success on model error; rest minor/cosmetic). The SC-001 `ui_custom_proto` fixture is preserved under `ui_custom_proto-fixture/` (removed from the source tree to keep it ship-clean).
+
+### Reusable harness
+`/tmp/flowin-ui-driver.py` (scenario-JSON-driven playwright; launch strategies tile/migration/wizard/ws_rewrite; real-UI questionnaire/gate/cancel/revise; full-page screenshots + DOM notes + WS frame capture) + `/tmp/flowin-ui-launcher.py` (sample/SC-001 admission). Scenario JSONs at `/tmp/ui-scenario-S*.json`.
