@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# playwright e2e run artifacts (the suite + fixtures ARE committed; outputs are not)
+/test-results/
+/e2e/.report/
+/playwright/.cache/

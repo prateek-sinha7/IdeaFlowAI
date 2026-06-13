@@ -1,0 +1,203 @@
+/**
+ * TS-U — Revision runs (F2 end-to-end), the mocked-UI-observable slice.
+ *
+ * The revision loop is driven entirely through the real per-preview "Revise"
+ * bars (PPTPreview / UserStoryPreview), which only render when the live
+ * execution surface wires their `onRevise` callback. The two dispatch shapes
+ * differ by design and are asserted as the EXACT outbound frame:
+ *
+ *   - PPT      → handleRevisePpt (DashboardLayout). When a completed parent run
+ *               id resolves from recentRuns it sends a `run_revision` frame:
+ *               { type:"run_revision", parent_run_id, target_artifact_type, instruction }.
+ *               The parent id comes from currentWorkflowRunId =
+ *               recentRuns.find(r => (r.type===workflowType || r.type===workflowType+"_revision")
+ *               && r.status==="completed"). After an od_ppt run completes the
+ *               DashboardLayout normalises pipeline_type od_ppt → workflowType
+ *               "ppt" (line 312), so the parent lookup is for a `ppt` run and the
+ *               emitted target_artifact_type is "ppt_output" (NOT od_ppt_output —
+ *               isOdPpt is computed from the normalised workflowType).
+ *
+ *   - user_stories → handleReviseUserStory → onStartPipeline("user_stories_revision",…)
+ *               → useWorkflow.startPipeline → a `run_pipeline` frame with
+ *               pipeline_type:"user_stories_revision" and the instruction embedded
+ *               in the (delimited) message.
+ *
+ * Setup runs the parent pipeline through the home → "execution view" so the
+ * preview's Revise bar mounts. od_ppt/user_stories both seed default agents and
+ * mount the execution surface for any pipeline type (FIXTURE-CONTRACT §1).
+ *
+ * NOTE on the parent-run lookup: we seed mockApi.setRuns([... a completed run])
+ * so currentWorkflowRunId resolves to a real id. After pipeline_complete the app
+ * re-fetches GET /api/runs (page.tsx), which returns exactly mockApi.runs — so
+ * the seeded run persists through the refresh.
+ *
+ * Cases TS-U-03/04/05/06/08 are backend/persistence/reconnect concerns not
+ * observable in the mocked UI and are marked test.fixme with the BE/live owner.
+ */
+import { test, expect } from "../fixtures/test";
+import { AGENTS, runAgent, SAMPLE_DECK, SAMPLE_BACKLOG } from "../fixtures/scenarios";
+import { makeRun } from "../fixtures/mockApi";
+
+// A *different* deck so the post-revision iframe content is provably the new one.
+const REVISED_DECK = `<!DOCTYPE html><html><body>${Array.from({ length: 6 })
+  .map((_, i) => `<section class="slide">Revised Slide ${i + 1}</section>`)
+  .join("")}</body></html>`;
+
+test.describe("TS-U — revision runs", () => {
+  test("TS-U-01 od_ppt revise sends run_revision and renders the revised deck", async ({ dashboard, mockWs, mockApi }) => {
+    // A completed parent run so currentWorkflowRunId resolves. After the od_ppt
+    // run the workflowType normalises to "ppt", so the parent lookup matches a
+    // run of type "ppt" (or "ppt_revision"). type:"ppt" is the match.
+    mockApi.setRuns([makeRun({ id: "parent-ppt-1", title: "ROI deck", type: "ppt", status: "completed" })]);
+
+    await dashboard.goto();
+    // od_ppt from home routes to the templates wizard, so we can't go through the
+    // home picker. Instead drive the execution surface directly: enter via the
+    // user_stories home row to reach the execution view, then play the od_ppt run.
+    // (The execution surface / preview mounts for whatever pipeline_start declares.)
+    await dashboard.runWith({ workflow: "Generate product requirements", idea: "An ROI deck" });
+
+    // ── Complete an od_ppt run ───────────────────────────────────────────────
+    const agents = AGENTS.od_ppt;
+    mockWs.start(agents, { pipelineType: "od_ppt" });
+    for (const a of agents) await runAgent(mockWs, a.id);
+    mockWs.complete({ pipelineType: "od_ppt", finalOutput: SAMPLE_DECK });
+
+    // The PPT preview renders the deck iframe + the Revise bar.
+    await expect(dashboard.deckIframe()).toBeVisible();
+    const revInput = dashboard.page.getByPlaceholder(/Request changes, e\.g\. "Make slide 3 title bigger"/);
+    await expect(revInput).toBeVisible();
+    const reviseBtn = dashboard.page.getByRole("button", { name: /Revise/ });
+    await expect(reviseBtn).toBeVisible();
+
+    // ── Type a change + click Revise → assert the outbound run_revision frame ──
+    await revInput.fill("Add a slide about ROI");
+    await reviseBtn.click();
+
+    const frame = await mockWs.waitForClientFrame("run_revision");
+    expect(frame.parent_run_id).toBe("parent-ppt-1");
+    // od_ppt normalised → ppt ⇒ target is "ppt_output" (see header note).
+    expect(frame.target_artifact_type).toBe("ppt_output");
+    expect(frame.instruction).toBe("Add a slide about ROI");
+
+    // ── Drive the revision run → revised deck shows ──────────────────────────
+    mockWs.start(agents, { pipelineType: "od_ppt_revision" });
+    for (const a of agents) await runAgent(mockWs, a.id);
+    mockWs.complete({ pipelineType: "od_ppt_revision", finalOutput: REVISED_DECK });
+
+    // The deck iframe is still present and now carries the revised content.
+    const deck = dashboard.deckIframe();
+    await expect(deck).toBeVisible();
+    await expect
+      .poll(async () => deck.getAttribute("srcdoc"), { timeout: 10000 })
+      .toContain("Revised Slide");
+  });
+
+  test("TS-U-02 a revision run shows NO clarify questionnaire", async ({ dashboard, mockWs, mockApi }) => {
+    mockApi.setRuns([makeRun({ id: "parent-ppt-2", title: "Deck", type: "ppt", status: "completed" })]);
+
+    await dashboard.goto();
+    await dashboard.runWith({ workflow: "Generate product requirements", idea: "An ROI deck" });
+
+    const agents = AGENTS.od_ppt;
+    mockWs.start(agents, { pipelineType: "od_ppt" });
+    for (const a of agents) await runAgent(mockWs, a.id);
+    mockWs.complete({ pipelineType: "od_ppt", finalOutput: SAMPLE_DECK });
+
+    await expect(dashboard.deckIframe()).toBeVisible();
+    await dashboard.page.getByPlaceholder(/Request changes, e\.g\. "Make slide 3 title bigger"/).fill("Add a slide about ROI");
+    await dashboard.page.getByRole("button", { name: /Revise/ }).click();
+    await mockWs.waitForClientFrame("run_revision");
+
+    // Drive the revision run to completion WITHOUT ever emitting questionnaire_ready
+    // (revisions skip clarify — manifest planner: skip). The Quick Setup
+    // questionnaire must never appear.
+    mockWs.start(agents, { pipelineType: "od_ppt_revision" });
+    for (const a of agents) await runAgent(mockWs, a.id);
+    mockWs.complete({ pipelineType: "od_ppt_revision", finalOutput: REVISED_DECK });
+
+    await expect(dashboard.deckIframe()).toBeVisible();
+    // No clarify form at any point of the revision run.
+    await expect(dashboard.questionnaireTitle()).toHaveCount(0);
+  });
+
+  test("TS-U-07 user-story revise sends a user_stories_revision run_pipeline frame", async ({ dashboard, mockWs }) => {
+    await dashboard.goto();
+    await dashboard.runWith({ workflow: "Generate product requirements", idea: "Refunds backlog" });
+
+    // ── Complete a user_stories run so the backlog + Revise bar render ───────
+    const agents = AGENTS.user_stories;
+    mockWs.start(agents, { pipelineType: "user_stories" });
+    for (const a of agents) await runAgent(mockWs, a.id);
+    mockWs.complete({ pipelineType: "user_stories", finalOutput: SAMPLE_BACKLOG });
+
+    await expect(dashboard.page.getByText("Product Backlog").first()).toBeVisible();
+    const revInput = dashboard.page.getByPlaceholder(/Request changes, e\.g\. "Add a story for password reset"/);
+    await expect(revInput).toBeVisible();
+    const reviseBtn = dashboard.page.getByRole("button", { name: /Revise/ });
+    await expect(reviseBtn).toBeVisible();
+
+    // ── Type a change + click Revise → assert the outbound run_pipeline frame ─
+    // The first run_pipeline (the parent run) was already sent by runWith, so we
+    // wait for the SECOND one whose pipeline_type is the revision.
+    await revInput.fill("Add a story for password reset");
+    await reviseBtn.click();
+
+    const frame = await mockWs.waitForClientFrame(
+      (f) => f.type === "run_pipeline" && f.pipeline_type === "user_stories_revision",
+    );
+    expect(frame.pipeline_type).toBe("user_stories_revision");
+    // The change instruction is embedded in the (delimited) revision message.
+    expect(String(frame.message)).toContain("Add a story for password reset");
+    expect(String(frame.message)).toContain("=== EXISTING PRODUCT BACKLOG ===");
+  });
+
+  // ── Backend / persistence / reconnect concerns — not mocked-UI observable ──
+  // These assert engine/DB behaviour (lineage rows, terminal-status fidelity,
+  // surgical-diff merge, reconnect live-attach sectioning) that the mocked WS/UI
+  // cannot exercise. They are covered by the Phase 14/15 backend tests and the
+  // live campaign (TS-V); kept here as a visible register of the full suite.
+
+  test.fixme(
+    "TS-U-03 lineage: revision persists derived_from to the parent; failed revision writes nothing",
+    () => {
+      // Owner/workspace-scoped derived_from ref is a persistence concern (no row
+      // is observable through the mocked REST/WS). Covered by Phase 14 BE tests.
+    },
+  );
+
+  test.fixme(
+    "TS-U-04 revision-of-revision resolves via FR-014 chain link and produces a 2nd deliverable",
+    () => {
+      // Chain-link resolution is engine/DB behaviour; the mocked UI has no parent
+      // chain to resolve. Covered by Phase 14 BE tests + live TS-V.
+    },
+  );
+
+  test.fixme(
+    "TS-U-05 terminal fidelity: revision lands completed/degraded/failed/cancelled, never stuck 'revising'",
+    () => {
+      // The persisted terminal status (and the never-stuck-'revising' guarantee)
+      // is a DB/state-machine assertion not surfaced by the mocked UI. Covered by
+      // Phase 14/15 BE tests.
+    },
+  );
+
+  test.fixme(
+    "TS-U-06 surgical-diff prototype revise: agent returns only changed sections, engine merges full HTML",
+    () => {
+      // The diff-merge happens in the engine; the mocked WS just delivers a final
+      // output. The merge correctness is a backend concern. Covered by BE tests;
+      // UI authoring tracked in TEST-REGISTER.
+    },
+  );
+
+  test.fixme(
+    "TS-U-08 reconnect during revision: live-attach frames carry section={base}_output; panels rebuild",
+    () => {
+      // Mid-revision reconnect sectioning is a backend/live-attach concern; the
+      // mocked harness has no durable replay backend. Covered live (29 frames) /
+      // TS-V.
+    },
+  );
+});

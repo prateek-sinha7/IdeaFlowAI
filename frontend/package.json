@@ -7,7 +7,12 @@
     "build": "next build",
     "start": "next start",
     "test": "vitest --run",
-    "lint": "eslint"
+    "lint": "eslint",
+    "e2e": "playwright test --project=mocked",
+    "e2e:headed": "playwright test --project=mocked --headed",
+    "e2e:ui": "playwright test --project=mocked --ui",
+    "e2e:live": "playwright test --project=live",
+    "e2e:report": "playwright show-report e2e/.report"
   },
   "dependencies": {
     "lucide-react": "^1.14.0",
@@ -21,6 +26,7 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.0",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
