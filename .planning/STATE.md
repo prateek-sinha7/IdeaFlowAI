@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-13T15:19:00.000Z"
-last_activity: 2026-06-13 -- Completed 18-01-PLAN.md (ISS-021 backend deliverable contract)
+last_updated: "2026-06-13T15:28:05.578Z"
+last_activity: 2026-06-13 -- Completed 18-02-PLAN.md (ISS-019 flex-budget left execution column, CSS-only)
 progress:
   total_phases: 18
   completed_phases: 17
   total_plans: 96
-  completed_plans: 92
-  percent: 96
+  completed_plans: 94
+  percent: 94
 ---
 
 # Project State
@@ -25,8 +25,8 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 ## Current Position
 
 Phase: 18 (Custom-Workflow UX Completeness) — EXECUTING
-Plan: 3 of 5
-Status: Executing Phase 18
+Plan: 4 of 5
+Status: Ready to execute
 Last activity: 2026-06-13 -- Completed 18-02-PLAN.md (ISS-019 flex-budget left execution column, CSS-only)
 
 Session continuity: last session 2026-06-13; stopped at Completed 18-02-PLAN.md (ISS-019: CSS-only flex budget of the left dashboard execution column so the WaveTreePanel "Wave / Subagent Tree" heading clears the 1440×950 fold while AgentProgressPanel still scrolls its cards internally — three className edits in DashboardLayout.tsx: column wrapper → flex flex-col overflow-hidden [dropped column-level overflow-y-auto]; new agent wrapper flex-1 min-h-0 overflow-hidden; wave wrapper flex-shrink-0 max-h-[40%] overflow-y-auto; NO AgentProgressPanel.tsx/WaveTreePanel.tsx change — each panel already owns its internal scroll; structural Vitest assertion pins the three className contracts [jsdom has no layout engine — true visual proof heading ≤ 950 deferred to live Playwright pass]; tsc clean, 4/4 FE tests green, FE-only diff; commits af61f1d3 [fix task1] + 81ed1719 [test task2]); resume file: none
@@ -155,6 +155,7 @@ Progress: [██████████] 100% (92 plans complete; Phase 18 2/5
 | Phase 16 P03 | ~12 min | 2 tasks | 2 files |
 | Phase 17 P01 | ~4 min | 2 tasks | 1 files |
 | Phase 17 P03 | 12min | 2 tasks | 2 files |
+| Phase 18 P05 | 2min | 1 tasks | 3 files |
 
 ## Accumulated Context
 
