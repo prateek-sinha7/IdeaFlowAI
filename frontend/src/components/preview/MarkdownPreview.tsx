@@ -5,6 +5,17 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { FileText, Copy, Check, ChevronRight, ChevronDown, RefreshCw } from "lucide-react";
 
+// ─── WR-03 (18 review) — raw-HTML escaping is a SECURITY invariant ────────────
+// MarkdownPreview is the generic deliverable `text/markdown` render path
+// (PreviewPanel.GenericDeliverablePreview + the history reopen surface). It MUST
+// NOT execute embedded raw HTML: a custom workflow could mis-declare
+// `text/markdown` for an HTML payload (or embed `<script>` in a markdown
+// deliverable), and an UNsandboxed HTML render here would defeat the iframe
+// sandbox (T-18-05) the `text/html` path enforces. This is upheld structurally
+// by react-markdown's DEFAULT behavior: NO `rehype-raw` (and no rehypePlugins of
+// any kind) is configured below, so raw HTML is escaped to literal text rather
+// than parsed into live DOM. DO NOT add `rehype-raw` here without routing the
+// result through the same `sandbox="allow-scripts"` iframe the HTML path uses.
 interface MarkdownPreviewProps {
   content?: string;
   onRevise?: (instruction: string) => void;
