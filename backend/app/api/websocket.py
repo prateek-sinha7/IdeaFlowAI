@@ -775,7 +775,23 @@ async def websocket_chat(websocket: WebSocket):
                         # BOTH the owner_id AND the recovered workspace_id so the read keeps
                         # the full owner+workspace default-deny scoping.
                         from app.models.run_event import RunEvent
+                        from app.models.workflow import WorkflowRun as _ReplayRun
 
+                        # ISS-008 (16-03): derive the replay `section` ONCE before the
+                        # replay loop, the SAME way the live-attach drainer computes
+                        # `_reattach_section` (:698-718). `section` is a WS-frame-wrapper
+                        # field, NEVER persisted (RunEvent has no `section` column) — so a
+                        # revision run replayed on reconnect must re-derive it from the
+                        # OWNER-SCOPED run row's `type` via the INVERSE of the WR-06 alias
+                        # transform (generic `removesuffix('_revision')` + `_output`; NO
+                        # workflow-name literal — SC-001). A non-revision run → None →
+                        # byte-identical to today and to the live-attach contract.
+                        # T-16-03-TENANT: the run-row read is filtered by
+                        # `owner_id == user.id` in the SAME owner-scoped session that
+                        # recovers the workspace — a cross-owner reconnect resolves ∅ →
+                        # `_replay_section` stays None and leaks no section for a run the
+                        # principal does not own (no new/unscoped DB session).
+                        _replay_section = None
                         _ws_db = _get_db()
                         try:
                             _run_evt_row = (
@@ -787,6 +803,19 @@ async def websocket_chat(websocket: WebSocket):
                                 .first()
                             )
                             _recovered_ws = getattr(_run_evt_row, "workspace_id", None)
+                            _replay_run_row = (
+                                _ws_db.query(_ReplayRun)
+                                .filter(
+                                    _ReplayRun.id == _reconnect_run_id,
+                                    _ReplayRun.owner_id == user.id,
+                                )
+                                .first()
+                            )
+                            _replay_run_type = getattr(_replay_run_row, "type", None) or ""
+                            if _replay_run_type.endswith("_revision"):
+                                _replay_section = (
+                                    f"{_replay_run_type.removesuffix('_revision')}_output"
+                                )
                         finally:
                             _ws_db.close()
                         _replay_store = ScopedStore(
@@ -806,7 +835,7 @@ async def websocket_chat(websocket: WebSocket):
                             try:
                                 await websocket.send_json({
                                     "type": _r.type, "chunk": None,
-                                    "section": None, "data": _r.payload_json,
+                                    "section": _replay_section, "data": _r.payload_json,
                                 })
                             except Exception:
                                 break
@@ -834,6 +863,12 @@ async def websocket_chat(websocket: WebSocket):
                             await websocket.send_json({
                                 "type": "pipeline_reconnected", "chunk": None, "section": None,
                                 "data": {"pipeline_run_id": _reconnect_run_id,
+                                         # ISS-009 (16-03): the live-attach ack is now
+                                         # symmetric + self-describing — `live: True`,
+                                         # mirroring the no-live-task ack's `live: False`
+                                         # (:825). The FE keeps its tolerant
+                                         # `live !== false` guard (useWorkflow.ts:455).
+                                         "live": True,
                                          "message": "Reconnected — resuming pipeline stream"},
                             })
                         except Exception:
