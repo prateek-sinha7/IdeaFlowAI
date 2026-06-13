@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-13T15:28:05.578Z"
+last_updated: "2026-06-13T15:41:54.331Z"
 last_activity: 2026-06-13 -- Completed 18-02-PLAN.md (ISS-019 flex-budget left execution column, CSS-only)
 progress:
   total_phases: 18
   completed_phases: 17
   total_plans: 96
-  completed_plans: 94
+  completed_plans: 95
   percent: 94
 ---
 
@@ -25,15 +25,17 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 ## Current Position
 
 Phase: 18 (Custom-Workflow UX Completeness) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
-Last activity: 2026-06-13 -- Completed 18-02-PLAN.md (ISS-019 flex-budget left execution column, CSS-only)
+Last activity: 2026-06-13 -- Completed 18-03-PLAN.md (ISS-021 FE: generic mimetype-dispatched deliverable renderer on live + reopen)
 
-Session continuity: last session 2026-06-13; stopped at Completed 18-02-PLAN.md (ISS-019: CSS-only flex budget of the left dashboard execution column so the WaveTreePanel "Wave / Subagent Tree" heading clears the 1440×950 fold while AgentProgressPanel still scrolls its cards internally — three className edits in DashboardLayout.tsx: column wrapper → flex flex-col overflow-hidden [dropped column-level overflow-y-auto]; new agent wrapper flex-1 min-h-0 overflow-hidden; wave wrapper flex-shrink-0 max-h-[40%] overflow-y-auto; NO AgentProgressPanel.tsx/WaveTreePanel.tsx change — each panel already owns its internal scroll; structural Vitest assertion pins the three className contracts [jsdom has no layout engine — true visual proof heading ≤ 950 deferred to live Playwright pass]; tsc clean, 4/4 FE tests green, FE-only diff; commits af61f1d3 [fix task1] + 81ed1719 [test task2]); resume file: none
+Session continuity: last session 2026-06-13; stopped at Completed 18-03-PLAN.md (ISS-021 FE: a workflow-agnostic, mimetype-dispatched deliverable renderer for ANY unknown pipeline_type on BOTH the live PreviewPanel path AND the history-reopen WorkflowHistory detail view — text/html→a SANDBOXED iframe [sandbox="allow-scripts", NO allow-same-origin, T-18-05 — asserted as a blocking test on EACH surface], text/markdown→MarkdownPreview, application/zip→AppBuilder bundle, unknown→safe download; the live path dispatches on the DECLARED deliverable_mimetype [18-01 emits it], the reopen path derives the mimetype from the persisted output shape [<!doctype/<html→text/html else text/markdown] via a SHARED exported deriveDeliverableMimetype helper imported by BOTH page.tsx's reopen block AND WorkflowHistory.tsx so the two reopen surfaces cannot diverge; WorkflowHistory's old isMarkdown=isCustom escaped-HTML path REMOVED for HTML deliverables [isGeneric structural fallback, never a workflow name — SC-001]; one generic deliverable row in results/FilesTab.tsx; threaded the generic channel through DashboardLayout [Rule-3 plumbing]; SC-001 grep over PreviewPanel.tsx/results/FilesTab.tsx/history/WorkflowHistory.tsx = 0; tsc clean, 27 new + 41-sweep vitest green, FE-only diff; commits 5f6ca616 [task1] + 3ae12120 [task2] + 13d1ad0c [task3]); resume file: none
+
+Prior session: stopped at Completed 18-02-PLAN.md (ISS-019: CSS-only flex budget of the left dashboard execution column so the WaveTreePanel "Wave / Subagent Tree" heading clears the 1440×950 fold while AgentProgressPanel still scrolls its cards internally — three className edits in DashboardLayout.tsx: column wrapper → flex flex-col overflow-hidden [dropped column-level overflow-y-auto]; new agent wrapper flex-1 min-h-0 overflow-hidden; wave wrapper flex-shrink-0 max-h-[40%] overflow-y-auto; NO AgentProgressPanel.tsx/WaveTreePanel.tsx change — each panel already owns its internal scroll; structural Vitest assertion pins the three className contracts [jsdom has no layout engine — true visual proof heading ≤ 950 deferred to live Playwright pass]; tsc clean, 4/4 FE tests green, FE-only diff; commits af61f1d3 [fix task1] + 81ed1719 [test task2]); resume file: none
 
 Prior session: stopped at Completed 18-01-PLAN.md (ISS-021 backend: type-driven deliverable contract — DeliverableSpec.mimetype optional declared shape hint + thin compiler pass-through [mimetype=raw.get('mimetype'), no defaulting, INV-5]; import-pure _mimetype.default_mimetype helper + per-resolver default_mimetype staticmethods [single_file infers from declared name ext: .html/.htm→text/html, .md→text/markdown, else application/octet-stream; serialized_sandbox→application/zip; streamed_text→text/markdown; ppt→text/html — derived from the DECLARED strategy/name, NOT content-sniffed, SC-001]; engine emits deliverable_mimetype + deliverable_filename UNCONDITIONALLY on every pipeline_complete from getattr(ectx.deliverable,'mimetype',None) or the per-resolver default, beside final_output [clean + degraded; no new cross-boundary import]; INV-3 guard: both keys added to _VOLATILE_STRIP_KEYS [mirrors model_id/estimated_cost_usd] so the 5 characterization goldens stay byte-identical; PROVEN 27/27 green [5 goldens byte-identical, NO SNAPSHOT_UPDATE], lint-imports 4/0, zero migrations; commits e9bfae82 [feat task1] + 2a607e57 [feat task2]); resume file: none
 
-Progress: [██████████] 100% (92 plans complete; Phase 18 2/5 — 18-02 ISS-019 left-column flex budget closed)
+Progress: [██████████] 99% (95 plans complete; Phase 18 4/5 — 18-03 ISS-021 FE generic deliverable renderer closed; 18-04 ISS-014 composer-delete remaining)
 
 ## Performance Metrics
 
@@ -156,6 +158,7 @@ Progress: [██████████] 100% (92 plans complete; Phase 18 2/5
 | Phase 17 P01 | ~4 min | 2 tasks | 1 files |
 | Phase 17 P03 | 12min | 2 tasks | 2 files |
 | Phase 18 P05 | 2min | 1 tasks | 3 files |
+| Phase 18 P03 | 12 min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -272,6 +275,7 @@ Recent decisions affecting current work:
 - [Phase 15]: 15-03: LIVE branch taken — LV-02 CLOSED live (run 8c060c35 deck resolution + revision 4a027d51 revised deck, $0.092 Haiku 4.5); F4/F5 residuals NEXT-LIVE-PASS with named checks
 - [Phase 16]: 16-02: ISS-007/002 — cancel_pipeline sets a per-run cooperative cancel_event (resolved via a connection-scoped run_id_sink) instead of destructive current_pipeline_task.cancel(); the bg task survives + the drainer forwards pipeline_cancelled to the live wire. Engine pre-agent break (:1509) now emits pipeline_cancelled (not pipeline_complete). Single mechanism per drainer (cooperative event; WR-01 residual-drain stays a fallback only). Cooperative pipeline_cancelled normal-yield persists DB "cancelled" (Rule 2 add; else mis-marked completed). 3 queue-get drainers → asyncio.timeout(). Disconnect path keeps destructive cancel. INV-3: 5 goldens byte/event-identical, lint 4/0, zero migrations; SC-001 grep 0. Commits edd975f1/2256ccd8.
 - [Phase 16]: 16-03: ISS-008/009 — durable-replay branch derives _replay_section ONCE before the loop from the OWNER-SCOPED WorkflowRun.type (added to the same _ws_db session that recovers the workspace; RunEvent.type is the event type, NOT the run type) via the WR-06 inverse (f"{run_type.removesuffix('_revision')}_output" when *_revision else None), applied at the replay send (was hardcoded section:None) — a *_revision reconnect stamps section==<base>_output like live-attach, non-revision stays section:None byte-identically. Live-attach pipeline_reconnected ack gains live:True (symmetric with the no-live-task live:False). T-16-03-TENANT: cross-owner reconnect resolves ∅ → no section leak. Cluster-B tests drive the REAL websocket_chat handler (scripted-loop FakeWebSocket). INV-3: 5 goldens byte/event-identical, lint 4/0, zero migrations; SC-001 grep (removesuffix count=3, no workflow-name literal). Phase 16 all 4 plans done. Commits 3cd8e785/28be4693.
+- [Phase 18]: 18-03 (ISS-021 FE): generic mimetype-dispatched deliverable renderer on live + reopen; HTML→sandboxed iframe (allow-scripts, no allow-same-origin) on BOTH surfaces; shared deriveDeliverableMimetype helper reconciles the two reopen surfaces; SC-001 grep 0; no per-workflow FE branch — SC-001 — a brand-new custom workflow renders faithfully with zero FE edits
 
 ### Pending Todos
 

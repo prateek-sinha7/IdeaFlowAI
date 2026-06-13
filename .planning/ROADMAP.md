@@ -581,7 +581,7 @@ Plans:
 **Goal:** Close cluster E of the 2026-06-13 deep investigation — the "custom workflows are backend-complete but UI-incomplete / has orphaned dual UI" gap. (1) ISS-021: a custom workflow's non-markdown deliverable (HTML/zip) has no faithful FE path — add a type-driven generic deliverable contract (BE emits a `mimetype`/filename hint on `pipeline_complete`; FE renders any declared deliverable via a generic mimetype-dispatched renderer + Files row) so a brand-new SC-001 workflow renders with ZERO per-workflow FE code. (2) ISS-014: delete the orphaned, unrouted capability-palette composer (`WorkflowComposer.tsx` + `CapabilityPalette.tsx` — INV-3/12 dual-impl), and relocate the per-agent model picker into the live agent-composer wiring `model_overrides` into the run path (delivers MODEL-03 reachably); keep the `/api/capabilities` contract (API-02). (3) ISS-019: the WaveTreePanel sits below the 1440×950 fold — fix the left-column flex budget so both panels are visible without scrolling. (4) ISS-015: record the WONTFIX disposition for the generic pipeline-type picker (by-design; the wizards + agent-composer are the intended launch surfaces; a manifest-driven picker is v2/WF-DB-01). FE-weighted; one INV-3-sensitive BE addition (the additive `pipeline_complete` field, neutralized via `_VOLATILE_STRIP_KEYS`). Offline-verifiable; visual confirmation deferred to the Playwright pass.
 **Requirements**: ISS-021, ISS-014, ISS-019, ISS-015 (.planning/ISSUES-REGISTER.md — "Deep Root-Cause Investigation", cluster E)
 **Depends on:** Phase 17
-**Plans:** 3/5 plans executed
+**Plans:** 4/5 plans executed
 
 **Success Criteria:**
 
@@ -595,6 +595,6 @@ Plans:
 
 - [x] 18-01-PLAN.md — ISS-021 backend: DeliverableSpec.mimetype + emit deliverable_mimetype/deliverable_filename on pipeline_complete + _VOLATILE_STRIP_KEYS parity guard (wave 1) — Complete 2026-06-13
 - [x] 18-02-PLAN.md — ISS-019: flex-budget the left execution column so the wave panel is above the 1440x950 fold (CSS-only, wave 1) — Complete 2026-06-13 (af61f1d3, 81ed1719; live-Playwright fold proof deferred)
-- [ ] 18-03-PLAN.md — ISS-021 frontend: generic mimetype-dispatched deliverable renderer (HTML->sandboxed iframe / md->markdown / zip->bundle) + generic Files row, live + reopen (wave 2)
+- [x] 18-03-PLAN.md — ISS-021 frontend: generic mimetype-dispatched deliverable renderer (HTML->sandboxed iframe / md->markdown / zip->bundle) + generic Files row, live + reopen (wave 2)
 - [ ] 18-04-PLAN.md — ISS-014: delete the orphaned WorkflowComposer/CapabilityPalette + relocate the per-agent model picker into the live AgentsPopup wiring model_overrides (wave 3)
 - [x] 18-05-PLAN.md — ISS-015 WONTFIX disposition + ISS-014 doc reconciliation (issues/requirements/impl registers, wave 1)
