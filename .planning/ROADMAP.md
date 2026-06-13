@@ -526,6 +526,30 @@ Plans:
 - [x] 15-02-PLAN.md — Durable pins: new tests/agents/test_prompt_contracts.py (prompt_body pins + frontmatter freeze + LV-02 harness composition test via drive_engine_pipeline per-agent model) + full targeted offline gate proving 5 characterization goldens byte-identical (INV-3)
 - [x] 15-03-PLAN.md — Live re-check: one od_ppt run + one FE-exact od_ppt_output revision on real Haiku (~$0.10) with deck evidence, or explicit quota/SSO deferral; disposition record PHASE-15-RECHECK.md (criteria 2-3 as next-live-pass items)
 
----
-*Roadmap created: 2026-06-06*
-*Source: specs/003-workflow-engine-decoupling/plan.md §25 (12 active phases; plan Phase 7 / ECS deferred to v2)*
+### Phase 16: Terminal-State Integrity and Reconnect Frame-Contract
+
+**Goal:** Make abnormal run outcomes faithful end-to-end. A run whose agents failed on a runner-surfaced model/tool error must end `pipeline_failed` (not an empty `pipeline_complete` with DONE badges); a cancelled run must deliver `pipeline_cancelled` to the live wire so in-flight agent cards clear; the Preview must show a degraded/failed affordance instead of a neutral empty-state for a terminal run with no content; and durable-replay/reconnect frames must match live frames (revision `section`, ack `live`). Engine + WebSocket + one FE affordance only — zero new tables/migrations, INV-3 byte/event parity preserved, SC-001 honored (every new branch keys on a generic event type, never a workflow/model name).
+**Requirements**: ISS-016, ISS-017, ISS-007, ISS-002, ISS-008, ISS-009 (.planning/ISSUES-REGISTER.md — "Deep Root-Cause Investigation", clusters A+B)
+**Depends on:** Phase 15
+**Plans:** 4 plans (3 waves)
+
+**Success Criteria:**
+1. A runner-surfaced model/tool error (e.g. `ValidationException`) on every agent ends the run `pipeline_failed` with `agent_error`s — never an empty `pipeline_complete`; a partial failure ends `status:degraded`. (ISS-016)
+2. A real `cancel_pipeline` delivers `pipeline_cancelled` on the live wire so the FE clears all in-flight agent cards, with the DB row `cancelled`; `test_pipeline_cancel.py` passes deterministically. (ISS-007/002)
+3. The Preview pane shows a degraded/failed affordance (not the neutral "Output will appear here") for a terminal run with no content, on both live and history-reopen, keyed on the server signal. (ISS-017)
+4. Durable-replay revision frames carry the real `section` (matching live-attach) and the live-attach `pipeline_reconnected` ack carries `live:true`. (ISS-008/009)
+5. INV-3 parity holds: the 5 characterization goldens (prototype/od_prototype/prototype_revision/od_ppt/app_builder) stay byte-identical; lint-imports stays 4 kept / 0 broken; zero new tables/migrations.
+
+Plans:
+**Wave 1** *(A1 engine error-arm + A2 FE affordance run in parallel — disjoint files)*
+
+- [ ] 16-01-PLAN.md — A1 · ISS-016: engine `error` consume-arm → routes a runner-surfaced error into the agent_error→pipeline_failed/degraded machinery (no empty agent_complete) + ScriptedNonTransientError fault-injection test + flip test_non_transient_propagates [wave 1]
+- [ ] 16-04-PLAN.md — A2 · ISS-017: FE terminal-empty degraded/failed affordance keyed on the server signal (live pipeline_failed/degraded + history-reopen status) + additive PipelineRunState `failed` flag + PreviewPanel component test [wave 1]
+
+**Wave 2** *(A3 cancel — edits engine.py after 16-01)*
+
+- [ ] 16-02-PLAN.md — A3 · ISS-007/002: cooperative `cancel_event` for cancel_pipeline (set, not destructive task.cancel) + engine pre-agent cancel gap → pipeline_cancelled + asyncio.timeout() at the 3 drainers + keep destructive cancel on disconnect-only + deterministic cancel tests [wave 2, depends 16-01]
+
+**Wave 3** *(B reconnect-contract — edits websocket.py after 16-02)*
+
+- [ ] 16-03-PLAN.md — B · ISS-008/009: durable-replay `_replay_section` via the WR-06 inverse + live-attach ack `live:true` + revision-replay section assertion (mirror the WR-03 live-attach contract) [wave 3, depends 16-02]
