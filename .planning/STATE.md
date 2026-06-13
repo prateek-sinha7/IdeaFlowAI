@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-last_updated: "2026-06-13T00:43:56.676Z"
-last_activity: 2026-06-13 -- Completed 15-03-PLAN.md (live re-check CLOSED — LV-02 live deck evidence; Phase 15 all plans done)
+status: executing
+last_updated: "2026-06-13T12:47:18.653Z"
+last_activity: 2026-06-13 -- Phase 16 execution started
 progress:
-  total_phases: 15
+  total_phases: 16
   completed_phases: 15
-  total_plans: 84
-  completed_plans: 84
-  percent: 100
+  total_plans: 88
+  completed_plans: 85
+  percent: 94
 ---
 
 # Project State
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-11)
 
 **Core value:** A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001).
-**Current focus:** Phase 15 — live-pass-prompt-contract-closure
+**Current focus:** Phase 16 — Terminal-State Integrity and Reconnect Frame-Contract
 
 ## Current Position
 
-Phase: 15 (live-pass-prompt-contract-closure) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
-Last activity: 2026-06-13 -- Completed 15-03-PLAN.md (live re-check CLOSED — LV-02 live deck evidence; Phase 15 all plans done)
+Phase: 16 (Terminal-State Integrity and Reconnect Frame-Contract) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-06-13 -- Phase 16 execution started
 
 Session continuity: last session 2026-06-13; stopped at Completed 15-03-PLAN.md (live re-check disposition recorded — phase ready for verification); resume file: none
 
@@ -144,6 +144,7 @@ Progress: [██████████] 100% (15/15 phases complete; 84/84 pl
 | Phase 15 P01 | ~3min | 3 tasks | 5 files |
 | Phase 15 P02 | ~9min | 2 tasks | 1 files |
 | Phase 15 P03 | ~7min | 2 tasks | 3 files |
+| Phase 16 P01 | ~18 min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
