@@ -575,3 +575,25 @@ Plans:
 - [x] 17-01-PLAN.md — ISS-003: replace the dead `ALWAYS_CLARIFY` flag in `_drive_live` with the `compile_for_run` clarify-off wrap + a bounded offline fault-injection regression test (SC1) ✅ 2026-06-13 (1 passed / 1 skipped offline; goldens 10/10; lint-imports 4/0; test-only diff)
 - [x] 17-02-PLAN.md — ISS-010: in-memory `InMemorySpanExporter` span-capture test (via the hook's own `_build_span_processor` + `_TRACER` reset) + OTLP graceful-degrade test; close DEFERRED→FIXED-by-test (SC2) ✅ 2026-06-13 (10 otel tests green [8+2]; 1 span hook.before_step + flowin.hook/event/agent_id + scope flowin.agents.hooks.otel_tracing; OTLP-pkg-absent→console degrade; goldens 10/10; lint-imports 4/0; test-only diff; ISS-010 FIXED-by-test)
 - [x] 17-03-PLAN.md — ISS-011: per-test `live_skip_reason()` re-check (SKIP not FAIL on mid-sweep expiry) + relaxed self-check + offline expired-creds skip simulation; transient classification untouched (SC3)
+
+### Phase 18: Custom-Workflow UX Completeness
+
+**Goal:** Close cluster E of the 2026-06-13 deep investigation — the "custom workflows are backend-complete but UI-incomplete / has orphaned dual UI" gap. (1) ISS-021: a custom workflow's non-markdown deliverable (HTML/zip) has no faithful FE path — add a type-driven generic deliverable contract (BE emits a `mimetype`/filename hint on `pipeline_complete`; FE renders any declared deliverable via a generic mimetype-dispatched renderer + Files row) so a brand-new SC-001 workflow renders with ZERO per-workflow FE code. (2) ISS-014: delete the orphaned, unrouted capability-palette composer (`WorkflowComposer.tsx` + `CapabilityPalette.tsx` — INV-3/12 dual-impl), and relocate the per-agent model picker into the live agent-composer wiring `model_overrides` into the run path (delivers MODEL-03 reachably); keep the `/api/capabilities` contract (API-02). (3) ISS-019: the WaveTreePanel sits below the 1440×950 fold — fix the left-column flex budget so both panels are visible without scrolling. (4) ISS-015: record the WONTFIX disposition for the generic pipeline-type picker (by-design; the wizards + agent-composer are the intended launch surfaces; a manifest-driven picker is v2/WF-DB-01). FE-weighted; one INV-3-sensitive BE addition (the additive `pipeline_complete` field, neutralized via `_VOLATILE_STRIP_KEYS`). Offline-verifiable; visual confirmation deferred to the Playwright pass.
+**Requirements**: ISS-021, ISS-014, ISS-019, ISS-015 (.planning/ISSUES-REGISTER.md — "Deep Root-Cause Investigation", cluster E)
+**Depends on:** Phase 17
+**Plans:** 5 plans
+
+**Success Criteria:**
+1. A custom/unknown-type workflow whose declared deliverable is HTML renders in a sandboxed iframe (and markdown→markdown, zip/bundle→file view) via a GENERIC mimetype-dispatched renderer — no per-workflow FE branch (SC-001); the resolved deliverable is also listed + downloadable in the Files tab. BE emits `deliverable_mimetype`/`deliverable_filename` on `pipeline_complete`, added to `_VOLATILE_STRIP_KEYS` so the 5 characterization goldens stay byte-identical. (ISS-021)
+2. `WorkflowComposer.tsx` + `CapabilityPalette.tsx` are deleted (proven unrouted; no broken imports; FE build + tests green); the per-agent model picker is relocated into the live agent-composer and `model_overrides` reaches the `run_pipeline` payload (or, if relocation is too invasive, deleted with MODEL-03's FE-half recorded as v2 — decision recorded); `/api/capabilities` + `test_capabilities_api.py` retained. (ISS-014)
+3. At 1440×950 during an active wave run, the "WAVE / SUBAGENT TREE" heading is fully visible WITHOUT scrolling (heading bottom ≤ viewport height) while the agent panel still scrolls internally — a CSS-only flex-budget fix, no clipped content. (ISS-019)
+4. ISS-015 dispositioned WONTFIX in the register with a crisp by-design rationale (wizards + agent-composer are the launch surfaces; generic manifest-driven picker = v2/WF-DB-01). (ISS-015)
+5. INV-3 parity holds (5 goldens byte-identical, lint-imports 4/0, zero new tables/migrations); SC-001 honored (generic mimetype dispatch + no workflow-name FE branch); FE `tsc --noEmit` + vitest green.
+
+Plans:
+
+- [ ] 18-01-PLAN.md — ISS-021 backend: DeliverableSpec.mimetype + emit deliverable_mimetype/deliverable_filename on pipeline_complete + _VOLATILE_STRIP_KEYS parity guard (wave 1)
+- [ ] 18-02-PLAN.md — ISS-019: flex-budget the left execution column so the wave panel is above the 1440x950 fold (CSS-only, wave 1)
+- [ ] 18-03-PLAN.md — ISS-021 frontend: generic mimetype-dispatched deliverable renderer (HTML->sandboxed iframe / md->markdown / zip->bundle) + generic Files row, live + reopen (wave 2)
+- [ ] 18-04-PLAN.md — ISS-014: delete the orphaned WorkflowComposer/CapabilityPalette + relocate the per-agent model picker into the live AgentsPopup wiring model_overrides (wave 3)
+- [ ] 18-05-PLAN.md — ISS-015 WONTFIX disposition + ISS-014 doc reconciliation (issues/requirements/impl registers, wave 1)
