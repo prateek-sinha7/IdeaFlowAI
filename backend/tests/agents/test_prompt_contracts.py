@@ -21,8 +21,9 @@ the Phase-15 contract lines durable:
     app-infra-generator body carries the top-of-body API PATH CONTRACT with
     concrete /api/v1 examples, positioned above OUTPUT FORMAT.
   * ``test_contract_agents_frontmatter_frozen`` — T-15-01 mitigation made
-    durable: the five edited agents' frontmatter (order / pipeline_type /
-    tools) is frozen; 15-01 was bodies-only.
+    durable: the five edited agents' behavior-bearing frontmatter (order /
+    pipeline_type / tools / guardrails / context_from / max_tokens / injects /
+    gate) is frozen; 15-01 was bodies-only.
   * ``test_od_ppt_deck_resolution_with_contract_shaped_validator`` — the LV-02
     composition pin: a contract-shaped scripted validator (multi-sentence QA
     narration FIRST, then a single artifact-wrapped COMPLETE deck — the live
@@ -143,24 +144,103 @@ def test_infra_generator_api_v1_contract() -> None:
 # ===========================================================================
 
 
-@pytest.mark.parametrize(
-    ("agent_id", "order", "pipeline_type", "tools"),
-    [
-        ("od-ppt-validator", 3, "od_ppt", ["workspace"]),
-        ("app-sdlc-governance", 15, "app_builder", []),
-        ("dotnet-sdlc-governance", 13, "dotnet_to_azure", []),
-        ("mulesoft-sdlc-governance", 13, "mulesoft_to_springboot", []),
-        ("app-infra-generator", 10, "app_builder", ["workspace"]),
-    ],
-)
-def test_contract_agents_frontmatter_frozen(
-    agent_id: str, order: int, pipeline_type: str, tools: list[str]
-) -> None:
-    """The five contract agents' frontmatter is byte-stable (bodies-only phase)."""
+# Frozen expectations captured from the current frontmatter. Every field here
+# is behavior-bearing: guardrails change the composed system prompt the
+# contract lines live in; context_from changes what "already included in this
+# message as context" actually contains; max_tokens / injects / gate change
+# output limits, template injection, and gating identity.
+_FROZEN_FRONTMATTER = {
+    "od-ppt-validator": {
+        "order": 3,
+        "pipeline_type": "od_ppt",
+        "tools": ["workspace"],
+        "guardrails": [],
+        "context_from": ["$previous"],
+        "max_tokens": 32768,
+        "injects": [],
+        "gate": None,
+    },
+    "app-sdlc-governance": {
+        "order": 15,
+        "pipeline_type": "app_builder",
+        "tools": [],
+        "guardrails": [],
+        "context_from": [
+            "material-analyzer",
+            "app-system-design",
+            "app-security-architecture",
+            "app-code-compliance",
+            "app-devops",
+            "app-test-compliance",
+        ],
+        "max_tokens": 12000,
+        "injects": [],
+        "gate": None,
+    },
+    "dotnet-sdlc-governance": {
+        "order": 13,
+        "pipeline_type": "dotnet_to_azure",
+        "tools": [],
+        "guardrails": ["dotnet"],
+        "context_from": [
+            "dotnet-security-architecture",
+            "dotnet-azure-bicep",
+            "dotnet-code-compliance",
+            "dotnet-test-compliance",
+            "dotnet-validation",
+        ],
+        "max_tokens": 12000,
+        "injects": [],
+        "gate": None,
+    },
+    "mulesoft-sdlc-governance": {
+        "order": 13,
+        "pipeline_type": "mulesoft_to_springboot",
+        "tools": [],
+        "guardrails": ["mulesoft", "java-spring"],
+        "context_from": [
+            "mulesoft-security-architecture",
+            "mulesoft-aws-infra",
+            "mulesoft-code-compliance",
+            "mulesoft-test-compliance",
+            "mulesoft-validation",
+        ],
+        "max_tokens": 12000,
+        "injects": [],
+        "gate": None,
+    },
+    "app-infra-generator": {
+        "order": 10,
+        "pipeline_type": "app_builder",
+        "tools": ["workspace"],
+        "guardrails": [],
+        "context_from": ["material-analyzer", "app-code-generator"],
+        "max_tokens": 16000,
+        "injects": [],
+        "gate": None,
+    },
+}
+
+
+@pytest.mark.parametrize("agent_id", sorted(_FROZEN_FRONTMATTER))
+def test_contract_agents_frontmatter_frozen(agent_id: str) -> None:
+    """All behavior-bearing frontmatter fields are frozen (bodies-only phase).
+
+    Pins order / pipeline_type / tools / guardrails / context_from /
+    max_tokens / injects / gate so a future "cleanup" cannot silently change
+    the composed prompt, context routing, or runtime identity the Phase-15
+    contract lines depend on.
+    """
     spec = load_agent_spec(agent_id)
-    assert spec.order == order
-    assert spec.pipeline_type == pipeline_type
-    assert list(spec.tools) == tools
+    frozen = _FROZEN_FRONTMATTER[agent_id]
+    assert spec.order == frozen["order"]
+    assert spec.pipeline_type == frozen["pipeline_type"]
+    assert list(spec.tools) == frozen["tools"]
+    assert list(spec.guardrails) == frozen["guardrails"]
+    assert list(spec.context_from) == frozen["context_from"]
+    assert spec.max_tokens == frozen["max_tokens"]
+    assert list(spec.injects) == frozen["injects"]
+    assert spec.gate == frozen["gate"]
 
 
 # ===========================================================================
