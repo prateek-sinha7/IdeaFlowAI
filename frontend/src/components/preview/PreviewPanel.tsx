@@ -145,6 +145,89 @@ function AppBuilderIDEPreview({
   return <AppBuilderPreview files={files} onRevise={onRevise} projectName={projectName} />;
 }
 
+// ─── ISS-021 (18-03) — generic mimetype-dispatched deliverable renderer ───────
+// Used as a FALLBACK for ANY pipeline_type that matched none of the four known
+// render branches. Dispatch is on the DECLARED mimetype (SC-001 — never a
+// workflow name):
+//   • text/html         → a SANDBOXED iframe (sandbox="allow-scripts", NO
+//                          allow-same-origin — reuses the PPTPreview non-od_ppt
+//                          pattern). A custom workflow's HTML is semi-trusted →
+//                          unsandboxed/same-origin would be stored-XSS-adjacent
+//                          (T-18-05). This sandbox is a BLOCKING security
+//                          mitigation, asserted in the component tests.
+//   • text/markdown     → MarkdownPreview.
+//   • application/zip…  → the AppBuilder file-bundle view (parsed from content).
+//   • anything else     → a safe download affordance — never inline/execute an
+//                          unknown type (T-18-06).
+function GenericDeliverablePreview({
+  deliverable,
+  agentOutputs,
+}: {
+  deliverable: GenericDeliverable;
+  agentOutputs?: import("@/components/results/FilesTab").AgentOutputItem[];
+}) {
+  const mimetype = (deliverable.mimetype || "").toLowerCase();
+  const content = deliverable.content || "";
+
+  // HTML → sandboxed iframe (NO allow-same-origin — see T-18-05 above).
+  if (mimetype === "text/html" || mimetype.startsWith("text/html")) {
+    return (
+      <div className="h-full flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <iframe
+            srcDoc={content}
+            className="w-full h-full border-0"
+            title="Deliverable Preview"
+            sandbox="allow-scripts"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Markdown (or markdown-ish text) → MarkdownPreview.
+  if (mimetype === "text/markdown" || mimetype === "text/x-markdown" || mimetype.startsWith("text/markdown")) {
+    return <MarkdownPreview content={content} />;
+  }
+
+  // Zip / bundle → the AppBuilder file-bundle view (reuses the IDE parser).
+  if (mimetype === "application/zip" || mimetype === "application/x-zip-compressed" || mimetype.includes("zip")) {
+    return <AppBuilderIDEPreview content={content} agentOutputs={agentOutputs} />;
+  }
+
+  // Unknown / other → a safe download affordance (never inline/execute).
+  return (
+    <div className="flex h-full items-center justify-center px-6">
+      <div className="flex max-w-sm flex-col items-center gap-3 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100">
+          <FolderDown className="h-6 w-6 text-gray-500" />
+        </div>
+        <p className="text-sm font-semibold text-gray-900">Deliverable ready</p>
+        <p className="text-xs text-gray-500">
+          This deliverable ({deliverable.mimetype || "unknown type"}) can be downloaded from the Files tab.
+        </p>
+        <button
+          onClick={() => {
+            const blob = new Blob([content], { type: deliverable.mimetype || "application/octet-stream" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = deliverable.filename || "deliverable";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }}
+          className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
+        >
+          <Download className="h-3.5 w-3.5" />
+          Download {deliverable.filename || "deliverable"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 type PanelTab = "preview" | "files" | "thinking";
 
 interface PreviewPanelProps {
@@ -282,7 +365,17 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
       : renderType === "ppt"
       ? pptContent
       : prototypeContent;
-  const hasContent = !!(userStoryContent || pptContent || prototypeContent || pptxCode);
+
+  // ─── ISS-021 (18-03) — generic deliverable fallback ─────────────────────────
+  // The generic mimetype-dispatched renderer is taken ONLY when `renderType`
+  // matches NONE of the known render branches AND a generic deliverable is
+  // present. This is the structural "no known branch matched" fallback — never a
+  // workflow-name check (SC-001). The four bespoke renderers below are untouched.
+  const KNOWN_RENDER_TYPES = ["user_stories", "ppt", "prototype", "app_builder", "custom"] as const;
+  const isKnownRenderType = (KNOWN_RENDER_TYPES as readonly string[]).includes(renderType);
+  const hasGenericDeliverable = !isKnownRenderType && !!genericDeliverable?.content;
+
+  const hasContent = !!(userStoryContent || pptContent || prototypeContent || pptxCode || hasGenericDeliverable);
 
   // ─── ISS-017 (16-04) — terminal-empty degraded/failed affordance ────────────
   // A TERMINAL run (not streaming) with no content must show a failure
@@ -421,6 +514,10 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
                   )}
                   {renderType === "ppt" && (pptContent || pptxCode) && <PPTPreview content={pptContent} isStreaming={isStreaming} pptxCode={pptxCode} onRevise={onRevisePpt} pipelineType={rawPipelineType || workflowType} />}
                   {renderType === "prototype" && prototypeContent && <PrototypePreview content={prototypeContent} isStreaming={isStreaming} onRevise={onRevisePrototype} />}
+                  {/* ISS-021 (18-03) — generic fallback for any unknown render type */}
+                  {hasGenericDeliverable && genericDeliverable && (
+                    <GenericDeliverablePreview deliverable={genericDeliverable} agentOutputs={agentOutputs} />
+                  )}
                 </>
               )}
             </motion.div>
@@ -434,7 +531,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               transition={{ duration: 0.15 }}
               className="absolute inset-0"
             >
-              <FilesTab workflowType={renderType} userStoryContent={userStoryContent} pptContent={pptContent} prototypeContent={prototypeContent} agentOutputs={agentOutputs} />
+              <FilesTab workflowType={renderType} userStoryContent={userStoryContent} pptContent={pptContent} prototypeContent={prototypeContent} agentOutputs={agentOutputs} genericDeliverable={hasGenericDeliverable ? genericDeliverable : undefined} />
             </motion.div>
           )}
           {activeTab === "thinking" && (

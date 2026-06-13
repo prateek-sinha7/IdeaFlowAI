@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { exportUserStories } from "@/lib/exporters/storyExporter";
 import { ENV } from "@/lib/env";
-import type { WorkflowType } from "@/types/index";
+import type { WorkflowType, GenericDeliverable } from "@/types/index";
 
 interface FilesTabProps {
   workflowType: WorkflowType;
@@ -21,6 +21,21 @@ interface FilesTabProps {
   // entries with non-empty output should be passed). For history runs the
   // parent passes WorkflowRun.agentOutputs which the API already returns.
   agentOutputs?: AgentOutputItem[];
+  // ISS-021 (18-03) — generic deliverable for any pipeline_type that matched no
+  // known FE render branch. When present it yields ONE generic deliverable row
+  // (using the resolved mimetype + filename), keeping the per-agent .md outputs
+  // grouped as "Agent outputs". Dispatch on mimetype, never a workflow name.
+  genericDeliverable?: GenericDeliverable;
+}
+
+// ─── ISS-021 (18-03) — mimetype → file metadata for the generic deliverable row ──
+function genericDeliverableExtension(mimetype?: string): { ext: string; format: string; icon: typeof FileText } {
+  const m = (mimetype || "").toLowerCase();
+  if (m.includes("html")) return { ext: "html", format: "HTML (.html)", icon: Layout };
+  if (m.includes("markdown")) return { ext: "md", format: "Markdown (.md)", icon: FileText };
+  if (m.includes("zip")) return { ext: "zip", format: "ZIP Archive", icon: Package };
+  if (m.includes("json")) return { ext: "json", format: "JSON (.json)", icon: FileText };
+  return { ext: "bin", format: mimetype || "Binary", icon: Package };
 }
 
 export interface AgentOutputItem {
@@ -144,7 +159,7 @@ function SectionHeader({ label, count }: { label: string; count: number }) {
   );
 }
 
-export function FilesTab({ workflowType, userStoryContent, pptContent, prototypeContent, agentOutputs }: FilesTabProps) {
+export function FilesTab({ workflowType, userStoryContent, pptContent, prototypeContent, agentOutputs, genericDeliverable }: FilesTabProps) {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   // ── App Builder: split agent outputs into docs + code files (memoized) ───
@@ -274,6 +289,27 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
     const t = prototypeContent.match(/<title>(.+?)<\/title>/i);
     if (t) name = t[1].replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 40);
     files.push({ id: "prototype-html", name: `${name}.html`, type: "HTML Prototype", icon: Layout, size: formatSize(prototypeContent.length), format: "HTML (.html)", content: prototypeContent, mimeType: "text/html" });
+  }
+
+  // ── ISS-021 (18-03) — generic deliverable row ─────────────────────────────
+  // ONE row for any pipeline_type that matched no known branch above. Reuses
+  // FileItem.mimeType + the existing downloadBlob path. Filename from the
+  // resolved deliverable_filename when present, else derived from the mimetype.
+  // Only when no known-branch file was already produced for this content (the
+  // generic channel is mutually exclusive with the four known types).
+  if (genericDeliverable?.content && files.length === 0) {
+    const { ext, format, icon } = genericDeliverableExtension(genericDeliverable.mimetype);
+    const name = genericDeliverable.filename || `deliverable.${ext}`;
+    files.push({
+      id: "generic-deliverable",
+      name,
+      type: "Deliverable",
+      icon,
+      size: formatSize(genericDeliverable.content.length),
+      format,
+      content: genericDeliverable.content,
+      mimeType: genericDeliverable.mimetype || "application/octet-stream",
+    });
   }
 
   const handleDownload = useCallback(async (file: FileItem) => {

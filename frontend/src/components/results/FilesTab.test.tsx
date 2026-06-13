@@ -110,3 +110,63 @@ describe("FilesTab — per-agent output section", () => {
     expect(screen.getByText("01-agent-x.md")).toBeInTheDocument();
   });
 });
+
+// ─── ISS-021 (18-03) — generic deliverable row ────────────────────────────────
+describe("FilesTab — generic deliverable row (ISS-021)", () => {
+  it("a present generic deliverable yields exactly ONE generic row, with the resolved filename", () => {
+    render(
+      <FilesTab
+        // An unknown pipeline_type that hits no known FileTab branch.
+        workflowType={"ui_custom_proto" as never}
+        genericDeliverable={{ mimetype: "text/html", filename: "custom.html", content: "<!doctype html><html></html>" }}
+      />,
+    );
+    // Exactly one generic row, named from the resolved filename.
+    expect(screen.getByText("custom.html")).toBeInTheDocument();
+    expect(screen.getByText(/^1 file available$/i)).toBeInTheDocument();
+  });
+
+  it("derives a filename from the mimetype when deliverable_filename is absent", () => {
+    render(
+      <FilesTab
+        workflowType={"ui_custom_proto" as never}
+        genericDeliverable={{ mimetype: "text/markdown", content: "# md" }}
+      />,
+    );
+    expect(screen.getByText("deliverable.md")).toBeInTheDocument();
+  });
+
+  it("the generic row coexists with the per-agent .md outputs (both visible)", () => {
+    render(
+      <FilesTab
+        workflowType={"ui_custom_proto" as never}
+        genericDeliverable={{ mimetype: "text/html", filename: "out.html", content: "<!doctype html><html></html>" }}
+        agentOutputs={[
+          { name: "Agent One", output: "one" },
+          { name: "Agent Two", output: "two" },
+        ]}
+      />,
+    );
+    // Generic deliverable row + both per-agent rows.
+    expect(screen.getByText("out.html")).toBeInTheDocument();
+    expect(screen.getByText(/agent outputs \(2\)/i)).toBeInTheDocument();
+    expect(screen.getByText("01-agent-one.md")).toBeInTheDocument();
+    expect(screen.getByText("02-agent-two.md")).toBeInTheDocument();
+    // 1 deliverable + 2 agent files = 3 total.
+    expect(screen.getByText(/^3 files available$/i)).toBeInTheDocument();
+  });
+
+  it("does NOT add a generic row for a known type (the generic channel is a fallback only)", () => {
+    render(
+      <FilesTab
+        workflowType={"user_stories"}
+        userStoryContent={"# Stories\nbody"}
+        // Even if a stale generic deliverable were passed, a known-type final
+        // file already exists → the generic row is suppressed (files.length>0).
+        genericDeliverable={{ mimetype: "text/html", filename: "stale.html", content: "<!doctype html>" }}
+      />,
+    );
+    expect(screen.getByText("stories.md")).toBeInTheDocument();
+    expect(screen.queryByText("stale.html")).not.toBeInTheDocument();
+  });
+});
