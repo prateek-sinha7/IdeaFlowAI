@@ -1,0 +1,246 @@
+"""Phase 15 prompt output-contract pins (LV-02 / F4-residual / F5-residual).
+
+Durable upgrade of 13-03's grep-only acceptance. Per D-04.
+
+13-03 shipped its prompt output-contracts with shell-grep acceptance gates that
+lived ONLY in the plan's verify blocks — no persistent test pinned the contract
+lines, so a future prompt rewrite could silently drop them. This module makes
+the Phase-15 contract lines durable:
+
+  * ``test_od_ppt_validator_deck_reemission_contract`` — LV-02 (D-01): the
+    od-ppt-validator body carries the exactly-ONE-artifact complete-deck
+    re-emission contract, positioned ABOVE the validation checklist, with no
+    duplicate contract heading (the old bottom contract was deleted).
+  * ``test_sdlc_governance_anti_fabrication_contract`` — F4-residual (D-02):
+    all three sdlc-governance bodies carry the no-tools / never-emit-tool-XML /
+    begin-directly contract, with the deliverable-start line tailored per
+    pipeline (app = filename: fenced block; dotnet/mulesoft = first Markdown
+    heading) and the app fabrication trigger ("Read the concrete choices")
+    defused.
+  * ``test_infra_generator_api_v1_contract`` — F5-residual (D-03): the
+    app-infra-generator body carries the top-of-body API PATH CONTRACT with
+    concrete /api/v1 examples, positioned above OUTPUT FORMAT.
+  * ``test_contract_agents_frontmatter_frozen`` — T-15-01 mitigation made
+    durable: the five edited agents' frontmatter (order / pipeline_type /
+    tools) is frozen; 15-01 was bodies-only.
+  * ``test_od_ppt_deck_resolution_with_contract_shaped_validator`` — the LV-02
+    composition pin: a contract-shaped scripted validator (multi-sentence QA
+    narration FIRST, then a single artifact-wrapped COMPLETE deck — the live
+    LV-02 evidence shape) driven through the REAL engine + REAL PptResolver +
+    REAL prompts resolves ``final_output`` to the deck, not the narration.
+
+All pins assert on ``load_agent_spec(id).prompt_body`` — the parser the factory
+composes from (test_guardrails.py precedent) — so a pinned line is proven to
+survive frontmatter parsing, not just to exist in the file.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from tests.agents._scripted_model import (
+    ScriptedFakeChatModel,
+    _ScriptedTurn,
+    _scripts_for,
+)
+from tests.agents.live_harness import drive_engine_pipeline
+
+from agents.loader import load_agent_spec
+
+
+# ===========================================================================
+# LV-02 (D-01) — od-ppt-validator deck re-emission contract.
+# ===========================================================================
+
+
+def test_od_ppt_validator_deck_reemission_contract() -> None:
+    """The validator body demands exactly ONE artifact = the complete deck."""
+    body = load_agent_spec("od-ppt-validator").prompt_body
+
+    # The exactly-one-artifact rule (unwrap_artifact is FIRST-match — a small
+    # status artifact before the deck would win the unwrap; RESEARCH Pitfall 2).
+    assert "exactly ONE <artifact>" in body
+    # The artifact content is the full corrected deck...
+    assert "complete corrected HTML deck" in body
+    # ...even on a clean pass (re-emit, never report).
+    assert "even when you change nothing" in body
+
+    # Positional prominence: the contract sits ABOVE the validation checklist
+    # (live evidence showed a bottom-of-body contract losing to the checklist
+    # framing above it).
+    assert body.index("exactly ONE <artifact>") < body.index("## VALIDATION CHECKLIST")
+
+    # No dual-contract drift: the old bottom `## OUTPUT CONTRACT` was deleted;
+    # exactly one contract heading exists.
+    assert body.count("## OUTPUT CONTRACT") == 1
+
+
+# ===========================================================================
+# F4-residual (D-02) — sdlc-governance family anti-fabrication contract.
+# ===========================================================================
+
+_SDLC_AGENT_IDS = (
+    "app-sdlc-governance",
+    "dotnet-sdlc-governance",
+    "mulesoft-sdlc-governance",
+)
+
+
+@pytest.mark.parametrize("agent_id", _SDLC_AGENT_IDS)
+def test_sdlc_governance_anti_fabrication_contract(agent_id: str) -> None:
+    """Each sdlc-governance body carries the no-tools / no-tool-XML contract."""
+    body = load_agent_spec(agent_id).prompt_body
+
+    # Shared contract lines (byte-identical anti-tool-XML sentence across the
+    # family; forbidden tokens named exactly once, tersely — Pitfall 7).
+    assert "You have NO tools" in body
+    assert "<function_calls>" in body
+    assert "<invoke>" in body
+    assert "write_todos" in body
+    assert "Begin your response DIRECTLY with" in body
+
+    if agent_id == "app-sdlc-governance":
+        # app_builder deliverable = filename: fenced blocks.
+        assert "fenced block" in body
+        # The F4 fabrication trigger is defused: the read-priming phrasing that
+        # elicited simulated <invoke name="read_file"> calls is gone.
+        assert "Read the concrete choices" not in body
+    else:
+        # dotnet/mulesoft deliverable = structured Markdown (Pitfall 5: no
+        # filename-block contamination of the migration pipelines).
+        assert "the first Markdown heading" in body
+
+
+# ===========================================================================
+# F5-residual (D-03) — app-infra-generator /api/v1 path contract.
+# ===========================================================================
+
+
+def test_infra_generator_api_v1_contract() -> None:
+    """The infra body carries a forceful top-of-body /api/v1 contract."""
+    body = load_agent_spec("app-infra-generator").prompt_body
+
+    # Contract + concrete examples + reinforcement bullet (15-01 shipped 8
+    # literals; >= 6 is the gate so cosmetic edits have headroom).
+    assert body.count("/api/v1") >= 6
+    assert "API PATH CONTRACT" in body
+
+    # Positional prominence: the contract precedes the OUTPUT FORMAT spec
+    # (the old bottom-of-body RULES bullet was ignored live — 0x in 3,083 lines).
+    assert body.index("API PATH CONTRACT") < body.index("OUTPUT FORMAT")
+
+    # Concrete examples survive: healthcheck curl + nginx location block.
+    assert "/api/v1/health" in body
+    assert "location /api/v1/" in body
+
+
+# ===========================================================================
+# Frontmatter freeze — T-15-01 mitigation made durable.
+# 15-01 edited bodies ONLY; the five agents' identity/ordering/tool grants are
+# frozen here so a future "cleanup" cannot silently change behavior.
+# NOTE: od-ppt-validator's tools=[workspace] is INTENTIONAL (frontmatter is
+# authoritative); do not "normalize" it to [] (RESEARCH Pitfall 4).
+# ===========================================================================
+
+
+@pytest.mark.parametrize(
+    ("agent_id", "order", "pipeline_type", "tools"),
+    [
+        ("od-ppt-validator", 3, "od_ppt", ["workspace"]),
+        ("app-sdlc-governance", 15, "app_builder", []),
+        ("dotnet-sdlc-governance", 13, "dotnet_to_azure", []),
+        ("mulesoft-sdlc-governance", 13, "mulesoft_to_springboot", []),
+        ("app-infra-generator", 10, "app_builder", ["workspace"]),
+    ],
+)
+def test_contract_agents_frontmatter_frozen(
+    agent_id: str, order: int, pipeline_type: str, tools: list[str]
+) -> None:
+    """The five contract agents' frontmatter is byte-stable (bodies-only phase)."""
+    spec = load_agent_spec(agent_id)
+    assert spec.order == order
+    assert spec.pipeline_type == pipeline_type
+    assert list(spec.tools) == tools
+
+
+# ===========================================================================
+# LV-02 composition pin — contract-shaped validator output resolves to the
+# deck through the REAL engine + REAL PptResolver + REAL prompts (only the
+# model is scripted). Reproduces the live LV-02 evidence shape: multi-sentence
+# QA narration FIRST, single artifact-wrapped COMPLETE deck second — and
+# asserts the narration does NOT win the unwrap.
+#
+# ZERO edits to _scripted_model.py / live_harness.py (the od_ppt goldens pin
+# that module's validator bytes — RESEARCH Pitfall 1): the contract-shaped
+# validator is a PER-TEST model injected via the per-agent model factory.
+# ===========================================================================
+
+# A small COMPLETE deck on the LV-02 evidence shape: full <!DOCTYPE html>
+# document, <section class="slide"> elements (first one active), minimal nav
+# script. No <style> block → sanitize_carousel_deck_html is a no-op on it.
+_DECK = (
+    "<!DOCTYPE html><html><head><title>Phase 15 LV-02 pin</title></head><body>"
+    '<section class="slide active"><h1>Title</h1></section>'
+    '<section class="slide"><h2>Closing</h2></section>'
+    "<script>document.addEventListener('keydown',()=>{});</script>"
+    "</body></html>"
+)
+
+# Multi-sentence QA commentary FIRST — the live LV-02 failure shape (the
+# validator streamed 1,350 chars of narration before a small artifact).
+# Contains no `<artifact` token, so it cannot win the first-match unwrap.
+_NARRATION = "Running the final QA pass. P0 checks complete - one fix applied.\n"
+
+
+def _model_for(agent_id: str) -> ScriptedFakeChatModel:
+    """Per-agent factory: contract-shaped validator, stock scripts otherwise."""
+    if agent_id == "od-ppt-validator":
+        return ScriptedFakeChatModel(
+            [
+                _ScriptedTurn(
+                    texts=[
+                        _NARRATION,
+                        '<artifact identifier="deck" type="text/html" title="Deck">'
+                        + _DECK
+                        + "</artifact>",
+                    ],
+                    usage=(22, 14),
+                )
+            ]
+        )
+    return ScriptedFakeChatModel(_scripts_for(agent_id))
+
+
+@pytest.mark.asyncio
+async def test_od_ppt_deck_resolution_with_contract_shaped_validator() -> None:
+    """Contract-shaped validator output → resolved final_output IS the deck."""
+    result = await drive_engine_pipeline(
+        "od_ppt",
+        model=_model_for,
+        fake_planner=True,
+        gate_agent_ids=(),
+        # The od_ppt agents declare injects=[template, design_system]; seed the
+        # od_context exactly as _scripted_model._drive does so _compose_injection
+        # does not raise TemplateMissingError.
+        od_context={
+            "template_body": "## Workflow\nUse .card and .grid classes. Build pages into <section data-page>.",
+            "template_id": "web-prototype",
+            "ds_id": "default",
+            "ds_body": ":root{--bg:#fff;--fg:#111;--accent:#06f;--surface:#f6f6f6;--border:#ddd;--muted:#888;}",
+            "craft_block": "Keep markup semantic; wire every nav link.",
+            "is_design_system_required": True,
+        },
+    )
+
+    assert result.completed is True
+    assert result.error is None
+
+    fo = result.final_output
+    assert isinstance(fo, str)
+    # The resolver unwrapped the single artifact → the deck, from byte one.
+    assert fo.lstrip().startswith("<!DOCTYPE html>")
+    assert '<section class="slide"' in fo
+    # The QA narration did NOT win — the LV-02 failure mode.
+    assert "Running the final QA pass" not in fo
+    # Engine world mirrors deliverable == final_output.
+    assert result.deliverable == fo
