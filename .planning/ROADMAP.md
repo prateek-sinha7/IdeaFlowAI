@@ -531,7 +531,7 @@ Plans:
 **Goal:** Make abnormal run outcomes faithful end-to-end. A run whose agents failed on a runner-surfaced model/tool error must end `pipeline_failed` (not an empty `pipeline_complete` with DONE badges); a cancelled run must deliver `pipeline_cancelled` to the live wire so in-flight agent cards clear; the Preview must show a degraded/failed affordance instead of a neutral empty-state for a terminal run with no content; and durable-replay/reconnect frames must match live frames (revision `section`, ack `live`). Engine + WebSocket + one FE affordance only — zero new tables/migrations, INV-3 byte/event parity preserved, SC-001 honored (every new branch keys on a generic event type, never a workflow/model name).
 **Requirements**: ISS-016, ISS-017, ISS-007, ISS-002, ISS-008, ISS-009 (.planning/ISSUES-REGISTER.md — "Deep Root-Cause Investigation", clusters A+B)
 **Depends on:** Phase 15
-**Plans:** 1/4 plans executed
+**Plans:** 2/4 plans executed
 
 **Success Criteria:**
 
@@ -545,7 +545,7 @@ Plans:
 **Wave 1** *(A1 engine error-arm + A2 FE affordance run in parallel — disjoint files)*
 
 - [x] 16-01-PLAN.md — A1 · ISS-016: engine `error` consume-arm → routes a runner-surfaced error into the agent_error→pipeline_failed/degraded machinery (no empty agent_complete) + ScriptedNonTransientError fault-injection test + flip test_non_transient_propagates [wave 1]
-- [ ] 16-04-PLAN.md — A2 · ISS-017: FE terminal-empty degraded/failed affordance keyed on the server signal (live pipeline_failed/degraded + history-reopen status) + additive PipelineRunState `failed` flag + PreviewPanel component test [wave 1]
+- [x] 16-04-PLAN.md — A2 · ISS-017: FE terminal-empty degraded/failed affordance keyed on the server signal (live pipeline_failed/degraded + history-reopen status) + additive PipelineRunState `failed` flag + PreviewPanel component test [wave 1]
 
 **Wave 2** *(A3 cancel — edits engine.py after 16-01)*
 
