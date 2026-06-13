@@ -167,7 +167,14 @@ class _ChunkStreamSanitizer:
     buffer never silently swallows legitimate trailing content.
     """
 
-    __slots__ = ("_sanitize", "_buffer")
+    __slots__ = ("_sanitize", "_buffer", "_active")
+
+    # A fabricated-tool-XML PROBE: a tool-less runner's sanitize_output strips this to
+    # empty; a tool-using runner's identity no-op returns it unchanged. Used ONCE at
+    # construction to decide whether buffering is needed at all (so a tool-using stream
+    # is byte-AND-chunk-identical, not merely join-identical). Generic — the probe is a
+    # behavioral test of the runner capability, NOT a workflow/agent-name check (SC-001).
+    _PROBE = "<function_calls><invoke name=\"_probe_\"></invoke></function_calls>"
 
     def __init__(self, sanitize: Callable[[str], str] | None) -> None:
         # ``sanitize`` is the runner's duck-typed ``sanitize_output`` (identity for
@@ -175,6 +182,12 @@ class _ChunkStreamSanitizer:
         # runner exposes no such capability → pass-through identity.
         self._sanitize: Callable[[str], str] = sanitize if callable(sanitize) else (lambda t: t)
         self._buffer: str = ""
+        # Is the sanitizer ACTUALLY active (tool-less)? Probe once: if it strips the
+        # fabricated-XML probe, buffering is needed; if it returns the probe unchanged
+        # (tool-using identity / no capability), the buffer stays fully inert so every
+        # chunk passes through verbatim — same chunks, same boundaries (the plan's
+        # "tool-using stream untouched" contract). SC-001: behavioral probe, no name.
+        self._active: bool = self._sanitize(self._PROBE) != self._PROBE
 
     @staticmethod
     def _hold_from_index(text: str) -> int:
@@ -232,6 +245,10 @@ class _ChunkStreamSanitizer:
         Clean text with no opener passes through unbuffered + unchanged (the runner's
         same-object identity → byte-identical, no latency).
         """
+        if not self._active:
+            # Tool-using agent (or no sanitize capability): pass through verbatim —
+            # same chunk, same boundary, no buffering (the plan's "untouched" contract).
+            return chunk
         joined = self._buffer + chunk
         if "<function_calls>" not in joined and "<invoke" not in joined:
             # Fast path: no (complete) opener token anywhere. A trailing PARTIAL opener
