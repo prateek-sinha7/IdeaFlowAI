@@ -37,6 +37,13 @@ router = APIRouter()
 
 _PIPELINE_QUEUES: dict[str, asyncio.Queue] = {}
 _PIPELINE_TASKS: dict[str, asyncio.Task] = {}  # pipeline_run_id → background task
+# ISS-007 (16-02): per-run COOPERATIVE cancel signal. The Stop button
+# (``cancel_pipeline``) sets this event instead of destructively cancelling the
+# drainer task; the engine observes it (per-chunk / pre-agent) and emits
+# ``pipeline_cancelled`` through the normal persisted+drained path, so the live
+# wire receives the terminal and the FE clears its in-flight cards. Keyed by
+# pipeline_run_id only (SC-001 — no workflow/model name).
+_CANCEL_EVENTS: dict[str, asyncio.Event] = {}
 
 
 def _get_or_create_queue(pipeline_run_id: str) -> asyncio.Queue:
@@ -48,6 +55,7 @@ def _get_or_create_queue(pipeline_run_id: str) -> asyncio.Queue:
 def _cleanup_pipeline(pipeline_run_id: str) -> None:
     _PIPELINE_QUEUES.pop(pipeline_run_id, None)
     _PIPELINE_TASKS.pop(pipeline_run_id, None)
+    _CANCEL_EVENTS.pop(pipeline_run_id, None)
 
 
 # ---------------------------------------------------------------------------
@@ -496,6 +504,13 @@ async def websocket_chat(websocket: WebSocket):
     # (blocker A3) and lets WebSocketDisconnect propagate cancellation to the
     # task. A single connection can run at most one pipeline at a time.
     current_pipeline_task: asyncio.Task | None = None
+    # ISS-007 (16-02): the run_id of the in-flight pipeline for THIS connection,
+    # published BACK by the handler (which mints the id internally) via the
+    # single-element ``run_id_sink`` below. ``cancel_pipeline`` resolves this run's
+    # cooperative ``_CANCEL_EVENTS`` entry from it. Connection-scoped — a cancel
+    # can only ever reach the run THIS authenticated connection started
+    # (T-16-02-TENANT: no cross-connection / client-supplied-run-id lookup).
+    _run_id_sink: list[str] = []
 
     # Message loop
     try:
@@ -574,6 +589,10 @@ async def websocket_chat(websocket: WebSocket):
 
                 # ── Unified routing — every pipeline goes through the
                 #    Universal Execution_Engine (Phase 2, T020). ───────────
+                # Reset the per-connection run_id sink — the handler republishes
+                # this run's id into it once minted, so cancel_pipeline resolves
+                # the right cooperative event (ISS-007).
+                _run_id_sink.clear()
                 current_pipeline_task = asyncio.create_task(
                     _handle_workflow_execution(
                         websocket, pipeline_content, pipeline_type,
@@ -588,6 +607,7 @@ async def websocket_chat(websocket: WebSocket):
                         custom_ds_body=message_data.get("custom_design_system_body") or None,
                         custom_template_body=message_data.get("custom_template_body") or None,
                         source_workflow_run_id=message_data.get("source_workflow_run_id") or None,
+                        run_id_sink=_run_id_sink,
                     )
                 )
                 continue
@@ -595,13 +615,35 @@ async def websocket_chat(websocket: WebSocket):
             # Handle pipeline cancellation
             if msg_type == "cancel_pipeline":
                 logger.info(f"Pipeline cancellation requested by user={user.id}")
-                if current_pipeline_task is not None and not current_pipeline_task.done():
-                    # Issue cancellation; the task itself (in
-                    # _handle_pipeline_execution) catches CancelledError,
-                    # marks the WorkflowRun as "cancelled" (A6), and sends
-                    # pipeline_cancelled to the client. We deliberately do
-                    # NOT send the ack here — doing so would race with the
-                    # task's own ack and the WorkflowRun update.
+                _cancel_run_id = _run_id_sink[0] if _run_id_sink else None
+                _cancel_event = (
+                    _CANCEL_EVENTS.get(_cancel_run_id) if _cancel_run_id else None
+                )
+                if (
+                    current_pipeline_task is not None
+                    and not current_pipeline_task.done()
+                    and _cancel_event is not None
+                ):
+                    # ISS-007 (16-02): COOPERATIVE cancel. Set the per-run
+                    # cancel_event instead of destructively cancelling the
+                    # drainer task (the old `current_pipeline_task.cancel()`,
+                    # which killed the drainer in its `except CancelledError`
+                    # BEFORE the bg task's `pipeline_cancelled` frame could be
+                    # drained → the live wire got no terminal, the FE card
+                    # stayed RUNNING). The bg task keeps running; the engine
+                    # observes the event (per-chunk / pre-agent), emits
+                    # `pipeline_cancelled` through the normal persisted+drained
+                    # path; the still-alive drainer forwards it to the WS and
+                    # breaks on the terminal. We deliberately do NOT send a sync
+                    # ack here — that would race the bg task's own ack + the
+                    # WorkflowRun "cancelled" write (the cooperative event is
+                    # precisely what removes that race).
+                    _cancel_event.set()
+                elif current_pipeline_task is not None and not current_pipeline_task.done():
+                    # Defensive: a live task with no resolvable cooperative event
+                    # (e.g. the run_id sink not yet populated). Fall back to the
+                    # destructive cancel so a Stop still terminates the run; the
+                    # durable replay covers the (rare) missed live ack.
                     current_pipeline_task.cancel()
                 else:
                     # Idempotent: nothing to cancel, but the client expects an
@@ -799,7 +841,13 @@ async def websocket_chat(websocket: WebSocket):
                         try:
                             while True:
                                 try:
-                                    event = await asyncio.wait_for(running_queue.get(), timeout=10.0)
+                                    # ISS-007 (16-02): asyncio.timeout() is the
+                                    # correct CPython-3.11 primitive — unlike
+                                    # asyncio.wait_for() it does not swallow a
+                                    # result-vs-cancel race at the await boundary
+                                    # (defense-in-depth for cooperative cancel).
+                                    async with asyncio.timeout(10.0):
+                                        event = await running_queue.get()
                                 except asyncio.TimeoutError:
                                     try:
                                         await websocket.send_json({
@@ -930,11 +978,15 @@ async def websocket_chat(websocket: WebSocket):
 
                 # Mirror the run_pipeline dispatch: assigning the task to
                 # current_pipeline_task is what makes the cancel_pipeline
-                # handler able to cancel a running revision.
+                # handler able to cancel a running revision. The run_id sink is
+                # republished by the handler so cancel_pipeline resolves the
+                # cooperative cancel_event for this revision run (ISS-007).
+                _run_id_sink.clear()
                 current_pipeline_task = asyncio.create_task(
                     _handle_revision_execution(
                         websocket, user, _rev_parent_run_id,
                         _rev_target_type, _rev_instruction,
+                        run_id_sink=_run_id_sink,
                     )
                 )
                 continue
@@ -1216,6 +1268,7 @@ async def _handle_workflow_execution(
     custom_ds_body: str | None = None,
     custom_template_body: str | None = None,
     source_workflow_run_id: str | None = None,
+    run_id_sink: list | None = None,
 ) -> None:
     """Unified pipeline handler — routes every pipeline through the Universal
     Execution_Engine (Phase 2, T020).
@@ -1381,6 +1434,18 @@ async def _handle_workflow_execution(
 
     # ── Create WorkflowRun record ─────────────────────────────────────────
     pipeline_run_id = str(_uuid.uuid4())
+    # ISS-007 (16-02): register this run's COOPERATIVE cancel event and publish
+    # the run id back to the connection loop so cancel_pipeline (the Stop button)
+    # resolves THIS run's event and sets it (instead of destructively cancelling
+    # the drainer). Owner/connection-scoped: only the connection that started the
+    # run holds the sink, so a cancel can never reach another owner's run
+    # (T-16-02-TENANT). The event is passed to engine.execute below; the engine
+    # observes it per-chunk / pre-agent and emits pipeline_cancelled.
+    cancel_event = asyncio.Event()
+    _CANCEL_EVENTS[pipeline_run_id] = cancel_event
+    if run_id_sink is not None:
+        run_id_sink.clear()
+        run_id_sink.append(pipeline_run_id)
     workflow_run_id = None
     execution_start = datetime.now(timezone.utc)
     monotonic_start = time.monotonic()
@@ -1456,6 +1521,13 @@ async def _handle_workflow_execution(
     # completions as failures — three surfaces disagreed).
     pipeline_complete_seen = False
     degraded_failed_agents: Optional[list] = None  # non-None ⇒ status "degraded"
+    # ISS-007 (16-02): the engine emits pipeline_cancelled as a NORMAL yield on
+    # the cooperative path (cancel_event observed per-chunk / pre-agent) — NOT
+    # via CancelledError. The async-for then completes normally and falls into
+    # the success-persist block below, which (without this flag) would mis-mark a
+    # cooperatively-cancelled run "completed". Track it so the persist block
+    # writes "cancelled", matching the destructive-path CancelledError handler.
+    pipeline_cancelled_seen = False
 
     event_queue = _get_or_create_queue(pipeline_run_id)
 
@@ -1464,6 +1536,7 @@ async def _handle_workflow_execution(
         nonlocal final_output, agent_outputs_collector, current_agent
         nonlocal any_agent_errored, first_agent_error_msg
         nonlocal pipeline_complete_seen, degraded_failed_agents
+        nonlocal pipeline_cancelled_seen
 
         try:
             async for update in engine.execute(
@@ -1471,6 +1544,10 @@ async def _handle_workflow_execution(
                 user_message=content,
                 pipeline_run_id=pipeline_run_id,
                 pipeline_type=pipeline_type,
+                # ISS-007 (16-02): cooperative cancel — cancel_pipeline sets this
+                # event; the engine observes it (per-chunk / pre-agent) and emits
+                # pipeline_cancelled through this same drained path.
+                cancel_event=cancel_event,
                 user_id=user.id,
                 # D-09 anon-principal source: the WS chat session id. For authed runs
                 # owner_id == user_id so this is unused; threaded so an unauthenticated
@@ -1547,6 +1624,11 @@ async def _handle_workflow_execution(
                         degraded_failed_agents = list(
                             update["data"].get("agents_failed", [])
                         )
+                elif utype == "pipeline_cancelled":
+                    # ISS-007 (16-02): cooperative cancel terminal observed as a
+                    # normal yield — flag it so the persist block writes
+                    # "cancelled" (not "completed").
+                    pipeline_cancelled_seen = True
 
             # ── Pipeline completed successfully — persist immediately ──────
             # This runs INSIDE the background task, after the async for loop
@@ -1569,7 +1651,16 @@ async def _handle_workflow_execution(
                         # ended WITHOUT pipeline_complete (pipeline_failed /
                         # budget_aborted / gate-cancel) keep the legacy
                         # errored→failed mapping.
-                        if degraded_failed_agents is not None:
+                        if pipeline_cancelled_seen:
+                            # ISS-007 (16-02): cooperative cancel — the engine
+                            # emitted pipeline_cancelled as a normal terminal and
+                            # the async-for ended cleanly. Persist "cancelled"
+                            # (parity with the destructive-path CancelledError
+                            # handler) instead of falling through to "completed".
+                            wr.status = "cancelled"
+                            if not wr.completed_at:
+                                wr.completed_at = datetime.now(timezone.utc)
+                        elif degraded_failed_agents is not None:
                             wr.status = "degraded"
                             wr.error = first_agent_error_msg or (
                                 "degraded: agent(s) failed: "
@@ -1665,8 +1756,14 @@ async def _handle_workflow_execution(
     try:
         while True:
             try:
-                # Use a short timeout so we can send WS-level pings periodically
-                event = await asyncio.wait_for(event_queue.get(), timeout=10.0)
+                # Use a short timeout so we can send WS-level pings periodically.
+                # ISS-007 (16-02): asyncio.timeout() (not asyncio.wait_for) — the
+                # correct CPython-3.11 primitive; it does not swallow a
+                # result-vs-cancel race at the await boundary, removing the latent
+                # path where a cooperatively-emitted pipeline_cancelled could be
+                # lost (defense-in-depth).
+                async with asyncio.timeout(10.0):
+                    event = await event_queue.get()
             except asyncio.TimeoutError:
                 # Send a heartbeat to detect dead connections.
                 try:
@@ -1790,6 +1887,7 @@ async def _handle_revision_execution(
     parent_run_id: str,
     target_artifact_type: str,
     instruction: str,
+    run_id_sink: list | None = None,
 ) -> None:
     """Run a ``run_revision`` request — queue-decoupled (Phase 14, 14-02).
 
@@ -1820,6 +1918,15 @@ async def _handle_revision_execution(
     from agents.registry import get_pipeline_agents
 
     pipeline_run_id = str(_uuid_mod.uuid4())
+    # ISS-007 (16-02): per-run cooperative cancel event (Stop button) for the
+    # revision run — registered + published to the connection sink exactly like
+    # the run_pipeline path so cancel_pipeline sets THIS run's event cooperatively
+    # instead of destructively cancelling the drainer.
+    cancel_event = asyncio.Event()
+    _CANCEL_EVENTS[pipeline_run_id] = cancel_event
+    if run_id_sink is not None:
+        run_id_sink.clear()
+        run_id_sink.append(pipeline_run_id)
 
     # WR-06 (13 review fix): the FE-routed revision alias (ppt_revision /
     # od_ppt_revision), matching the engine's emitted pipeline_type — the FE's
@@ -1894,13 +2001,19 @@ async def _handle_revision_execution(
         pipeline_complete_seen = False
         pipeline_failed_seen = False
         degraded_seen = False
+        # ISS-007 (16-02): cooperative cancel terminal observed on the forwarded
+        # stream (engine emits pipeline_cancelled as a normal yield).
+        pipeline_cancelled_seen = False
 
         async def _queue_send(event: dict) -> None:
             """The websocket_send_fn handed to the engine — the WS layer
             observes terminal events from the stream it forwards (no
             _handle_revision signature change)."""
             nonlocal pipeline_complete_seen, pipeline_failed_seen, degraded_seen
+            nonlocal pipeline_cancelled_seen
             etype = event.get("type")
+            if etype == "pipeline_cancelled":
+                pipeline_cancelled_seen = True
             if etype == "pipeline_complete":
                 pipeline_complete_seen = True
                 # WR-02 (14 review fix): execute() emits pipeline_complete with
@@ -1942,12 +2055,16 @@ async def _handle_revision_execution(
                 websocket_send_fn=_queue_send,
                 model_id=getattr(user, "preferred_model", None) or None,
                 owner_id=user.id,
+                cancel_event=cancel_event,
             )
             # Terminal status follows the authoritative terminal event:
+            # cancelled if a cooperative pipeline_cancelled was observed (ISS-007),
             # degraded if the completion carried status "degraded" (WR-02),
             # completed iff a CLEAN pipeline_complete was observed.
             _persist_terminal_status(
-                "degraded"
+                "cancelled"
+                if pipeline_cancelled_seen
+                else "degraded"
                 if degraded_seen
                 else "completed"
                 if (pipeline_complete_seen and not pipeline_failed_seen)
@@ -1996,7 +2113,11 @@ async def _handle_revision_execution(
     try:
         while True:
             try:
-                event = await asyncio.wait_for(event_queue.get(), timeout=10.0)
+                # ISS-007 (16-02): asyncio.timeout() — the correct CPython-3.11
+                # primitive (no result-vs-cancel swallow), matching the main
+                # drainer; defense-in-depth for cooperative cancel delivery.
+                async with asyncio.timeout(10.0):
+                    event = await event_queue.get()
             except asyncio.TimeoutError:
                 # Send a heartbeat to detect dead connections.
                 try:

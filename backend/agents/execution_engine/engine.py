@@ -1507,8 +1507,30 @@ class ExecutionEngine:
                 if i < _resume_from:
                     continue
                 if cancel_event and cancel_event.is_set():
+                    # ── ISS-007 (16-02): pre-agent cooperative cancel ─────────
+                    # The Stop button sets the cooperative cancel_event; the
+                    # per-chunk check inside a running agent routes through the
+                    # outer ``except asyncio.CancelledError`` clean-terminal
+                    # (:1670-1678). But a cancel observed at the STEP BOUNDARY
+                    # (between agents, or before the first agent) hits THIS
+                    # break — which previously fell through to the Step-5
+                    # ``pipeline_complete`` terminal (:1741), so the live wire
+                    # got the wrong terminal and the FE card never cleared.
+                    # Emit ``pipeline_cancelled`` here (mirroring the outer
+                    # cooperative terminal at :1670-1678 and the WR-03
+                    # declared-gate reject precedent at :1561-1577) and RETURN
+                    # before deliverable resolution — keyed on the generic
+                    # cancel signal only (no workflow/model name, SC-001).
                     logger.info("Workflow cancelled before agent %s", spec.id)
-                    break
+                    _cur = self._state_machine.get_state(pipeline_run_id)
+                    if _cur not in ("cancelled", "failed"):
+                        self._state_machine.transition(pipeline_run_id, "cancelled")
+                    await self._persist_budget_snapshot_if_active(ectx)
+                    yield {
+                        "type": "pipeline_cancelled",
+                        "data": {"pipeline_run_id": pipeline_run_id},
+                    }
+                    return
 
                 # Resolve the per-step strategy capability by manifest name (D-02).
                 # Fall back to single_shot when a step is absent from the compiled
@@ -3717,6 +3739,7 @@ class ExecutionEngine:
         websocket_send_fn,
         model_id: str | None = None,
         owner_id: str | None = None,
+        cancel_event: asyncio.Event | None = None,
     ) -> None:
         """Handle a revision request (FR-014) — real revision-pipeline dispatch.
 
@@ -3939,6 +3962,10 @@ class ExecutionEngine:
             user_message=revision_context,
             pipeline_run_id=pipeline_run_id,
             pipeline_type=revision_pipeline_type,
+            # ISS-007 (16-02): thread the cooperative cancel event so the Stop
+            # button cancels a running revision through the engine's per-chunk /
+            # pre-agent observation → pipeline_cancelled on the forwarded stream.
+            cancel_event=cancel_event,
             user_id=owner_id,
             model_id=model_id,
             od_context=None,

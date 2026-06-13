@@ -578,7 +578,9 @@ async def test_overlap_guard_rejects_second_run_revision(ws_env, ws_user, monkey
     release = asyncio.Event()
     calls: list[tuple] = []
 
-    async def _stub_revision_execution(websocket, user, parent_run_id, target, instruction):
+    async def _stub_revision_execution(
+        websocket, user, parent_run_id, target, instruction, run_id_sink=None
+    ):
         calls.append((parent_run_id, target, instruction))
         await release.wait()  # stays in flight until the endpoint cancels it
 

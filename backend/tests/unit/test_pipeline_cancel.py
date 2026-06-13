@@ -83,11 +83,21 @@ class FakeWebSocket:
 
 
 class _StubEngine:
-    """Stub ExecutionEngine whose execute() pacing we control."""
+    """Stub ExecutionEngine whose execute() pacing we control.
+
+    ISS-007 (16-02): the stub now models the REAL engine's cooperative cancel
+    contract — it observes ``cancel_event`` per-chunk and, when set, emits a
+    ``pipeline_cancelled`` terminal (mirroring engine.py:1670-1678 / the pre-agent
+    break) instead of running to ``pipeline_complete``. This is what lets the
+    cancel-ack test exercise the cooperative path the fix introduces (cancel_event
+    .set()) rather than the destructive ``task.cancel()`` that ISS-007 proved
+    drops the live-wire terminal.
+    """
 
     behaviour: str = "slow"  # "slow" | "fast" | "raise"
 
     async def execute(self, **kwargs):
+        cancel_event = kwargs.get("cancel_event")
         if _StubEngine.behaviour == "raise":
             yield {"type": "pipeline_start", "data": {"agents": []}}
             await asyncio.sleep(0)
@@ -100,6 +110,12 @@ class _StubEngine:
         }}
         chunk_count = 2 if _StubEngine.behaviour == "fast" else 50
         for i in range(chunk_count):
+            # Cooperative cancel — observe the event per-chunk and emit the
+            # clean terminal (mirrors engine.py's per-chunk + pre-agent checks).
+            if cancel_event is not None and cancel_event.is_set():
+                yield {"type": "pipeline_cancelled", "data": {
+                    "pipeline_run_id": kwargs.get("pipeline_run_id")}}
+                return
             yield {"type": "agent_chunk", "data": {"agent_id": "stub-agent", "chunk": f"c{i}"}}
             await asyncio.sleep(0.02 if _StubEngine.behaviour == "fast" else 0.05)
         yield {"type": "agent_complete", "data": {"agent_id": "stub-agent", "name": "Stub", "duration": 0.1}}
@@ -165,26 +181,39 @@ def _last_run(in_memory_db, user_id: str) -> WorkflowRun | None:
 
 
 def test_cancel_marks_workflow_cancelled_and_sends_ack(in_memory_db, make_user, stub_engine):
+    """ISS-007 + ISS-002: a real Stop (cooperative cancel_event.set(), exactly
+    what the cancel_pipeline handler now does) delivers EXACTLY ONE
+    pipeline_cancelled to the live wire (the FakeWebSocket sent-list) AND marks
+    the WorkflowRun cancelled — deterministically, with no result-vs-cancel race
+    (the drainer is NOT destroyed; it forwards the engine's terminal)."""
     user = make_user()
 
     async def scenario():
         ws = FakeWebSocket()
+        # The connection-loop sink the handler republishes its run_id into — the
+        # same handle cancel_pipeline resolves the cooperative event from.
+        run_id_sink: list = []
         task = asyncio.create_task(
             ws_module._handle_workflow_execution(
                 ws, "build me a thing", "user_stories",
                 chat_session_id=None, token="t", user=user,
+                run_id_sink=run_id_sink,
             )
         )
         await asyncio.sleep(0.15)
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        # Mirror the real cancel_pipeline Stop click: resolve THIS run's
+        # cooperative event and set it (no destructive task.cancel()).
+        run_id = run_id_sink[0]
+        ws_module._CANCEL_EVENTS[run_id].set()
+        # The handler completes NORMALLY (the drainer forwards pipeline_cancelled
+        # then breaks on the terminal) — no CancelledError.
+        await asyncio.wait_for(task, timeout=5.0)
         return ws, task
 
     ws, task = _run(scenario())
-    assert task.cancelled() is True
+    assert task.cancelled() is False
     cancels = [m for m in ws.sent if m.get("type") == "pipeline_cancelled"]
-    assert len(cancels) == 1
+    assert len(cancels) == 1, f"expected exactly one live-wire ack; got {ws.sent}"
     wr = _last_run(in_memory_db, user.id)
     assert wr is not None
     assert wr.status == "cancelled"
