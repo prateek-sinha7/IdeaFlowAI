@@ -244,3 +244,48 @@ async def test_lone_lt_and_html_at_boundaries_chunk_identical_for_toolless_agent
         "perturbed (WR-01: must be per-chunk byte-identical, no coalescing): "
         f"emitted={emitted!r} expected={deltas!r}"
     )
+
+
+@pytest.mark.asyncio
+async def test_never_closed_opener_flushed_and_stripped_at_stream_end() -> None:
+    """WR-04: a ``<function_calls>`` opener that NEVER closes is flushed + stripped at EOF.
+
+    The held buffer holds the tail from an unterminated opener; if the stream ends
+    before the close arrives, ``flush()`` sanitizes + emits that tail (an unterminated
+    opener at EOF is stripped, mirroring the runner's ``_UNTERMINATED_TOOL_XML_RE``).
+    The legit content BEFORE the opener must survive; the fabricated opener must NOT
+    leak. This pins the data-loss safety contract for the never-closed-opener case.
+    """
+    deltas = [
+        "Real answer text. ",
+        '<function_calls><invoke name="read_file"><parameter name="path">app.py',
+        # stream ENDS here — the close </function_calls> NEVER arrives.
+    ]
+    emitted = await _drive_single_agent(_TOOLLESS_AGENT, _TOOLLESS_PIPELINE, deltas)
+    joined = "".join(emitted)
+
+    # The legit prefix is never swallowed by the held buffer / flush.
+    assert "Real answer text. " in joined, f"legit prefix lost at flush: {joined!r}"
+    # The never-closed fabricated opener is stripped (not leaked) at the flush.
+    assert "<function_calls>" not in joined and "<invoke" not in joined, (
+        f"never-closed opener leaked through the flush: {joined!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_benign_held_tail_survives_flush_no_content_loss() -> None:
+    """WR-04: a benign trailing tail held at EOF is flushed VERBATIM (no content loss).
+
+    When the final delta leaves a benign partial-opener tail held (``<f`` — a >=2-char
+    prefix of ``<function_calls>`` that never completes), ``flush()`` must return it
+    unchanged (``_strip_fabricated_tool_xml`` no-ops a benign partial). The joined
+    emitted output therefore equals the joined input — the tail survives. This pins
+    the OTHER direction of the flush contract: a held benign tail is NOT swallowed.
+    """
+    deltas = ["Result is ", "x <f"]  # final "<f" is held (>=2-char partial), never completed
+    emitted = await _drive_single_agent(_TOOLLESS_AGENT, _TOOLLESS_PIPELINE, deltas)
+
+    assert "".join(emitted) == "".join(deltas), (
+        "a benign held tail was not flushed verbatim at stream end (content lost): "
+        f"emitted={emitted!r} input={deltas!r}"
+    )
