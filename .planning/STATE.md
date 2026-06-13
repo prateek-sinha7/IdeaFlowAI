@@ -25,13 +25,15 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 ## Current Position
 
 Phase: 18 (Custom-Workflow UX Completeness) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Executing Phase 18
-Last activity: 2026-06-13 -- Completed 18-01-PLAN.md (ISS-021 backend deliverable contract)
+Last activity: 2026-06-13 -- Completed 18-02-PLAN.md (ISS-019 flex-budget left execution column, CSS-only)
 
-Session continuity: last session 2026-06-13; stopped at Completed 18-01-PLAN.md (ISS-021 backend: type-driven deliverable contract — DeliverableSpec.mimetype optional declared shape hint + thin compiler pass-through [mimetype=raw.get('mimetype'), no defaulting, INV-5]; import-pure _mimetype.default_mimetype helper + per-resolver default_mimetype staticmethods [single_file infers from declared name ext: .html/.htm→text/html, .md→text/markdown, else application/octet-stream; serialized_sandbox→application/zip; streamed_text→text/markdown; ppt→text/html — derived from the DECLARED strategy/name, NOT content-sniffed, SC-001]; engine emits deliverable_mimetype + deliverable_filename UNCONDITIONALLY on every pipeline_complete from getattr(ectx.deliverable,'mimetype',None) or the per-resolver default, beside final_output [clean + degraded; no new cross-boundary import]; INV-3 guard: both keys added to _VOLATILE_STRIP_KEYS [mirrors model_id/estimated_cost_usd] so the 5 characterization goldens stay byte-identical; PROVEN 27/27 green [5 goldens byte-identical, NO SNAPSHOT_UPDATE], lint-imports 4/0, zero migrations; commits e9bfae82 [feat task1] + 2a607e57 [feat task2]); resume file: none
+Session continuity: last session 2026-06-13; stopped at Completed 18-02-PLAN.md (ISS-019: CSS-only flex budget of the left dashboard execution column so the WaveTreePanel "Wave / Subagent Tree" heading clears the 1440×950 fold while AgentProgressPanel still scrolls its cards internally — three className edits in DashboardLayout.tsx: column wrapper → flex flex-col overflow-hidden [dropped column-level overflow-y-auto]; new agent wrapper flex-1 min-h-0 overflow-hidden; wave wrapper flex-shrink-0 max-h-[40%] overflow-y-auto; NO AgentProgressPanel.tsx/WaveTreePanel.tsx change — each panel already owns its internal scroll; structural Vitest assertion pins the three className contracts [jsdom has no layout engine — true visual proof heading ≤ 950 deferred to live Playwright pass]; tsc clean, 4/4 FE tests green, FE-only diff; commits af61f1d3 [fix task1] + 81ed1719 [test task2]); resume file: none
 
-Progress: [██████████] 100% (92 plans complete; Phase 18 1/5 — 18-01 ISS-021 backend deliverable contract closed)
+Prior session: stopped at Completed 18-01-PLAN.md (ISS-021 backend: type-driven deliverable contract — DeliverableSpec.mimetype optional declared shape hint + thin compiler pass-through [mimetype=raw.get('mimetype'), no defaulting, INV-5]; import-pure _mimetype.default_mimetype helper + per-resolver default_mimetype staticmethods [single_file infers from declared name ext: .html/.htm→text/html, .md→text/markdown, else application/octet-stream; serialized_sandbox→application/zip; streamed_text→text/markdown; ppt→text/html — derived from the DECLARED strategy/name, NOT content-sniffed, SC-001]; engine emits deliverable_mimetype + deliverable_filename UNCONDITIONALLY on every pipeline_complete from getattr(ectx.deliverable,'mimetype',None) or the per-resolver default, beside final_output [clean + degraded; no new cross-boundary import]; INV-3 guard: both keys added to _VOLATILE_STRIP_KEYS [mirrors model_id/estimated_cost_usd] so the 5 characterization goldens stay byte-identical; PROVEN 27/27 green [5 goldens byte-identical, NO SNAPSHOT_UPDATE], lint-imports 4/0, zero migrations; commits e9bfae82 [feat task1] + 2a607e57 [feat task2]); resume file: none
+
+Progress: [██████████] 100% (92 plans complete; Phase 18 2/5 — 18-02 ISS-019 left-column flex budget closed)
 
 ## Performance Metrics
 
@@ -68,6 +70,7 @@ Progress: [██████████] 100% (92 plans complete; Phase 18 1/5
 - Trend: —
 
 *Updated after each plan completion*
+| Phase 18 P02 | ~6 min | 2 tasks | 2 files |
 | Phase 07 P11 | ~40 min | 3 tasks | 15 files |
 | Phase 01 P02 | ~12 min | 2 tasks | 11 files |
 | Phase 01 P04 | ~9 min | 3 tasks | 4 files |
