@@ -269,6 +269,11 @@ async def _drive_live(*, compaction_on: bool) -> list[dict]:
                         msg = msg.replace(skeleton_block, _full_html_block(current_html))
                 return msg
 
+            # Safe with NO restore ONLY because ``engine`` is a fresh per-call
+            # ``ExecutionEngine()`` instance (this is an instance-attribute override,
+            # not a class/module patch), so the override dies with this local engine.
+            # If a future refactor reused one engine across both A/B drives, this would
+            # silently carry into the compaction-ON run — restore it then. (IN-02)
             engine._compose_context_message = _full_html_compose_ctx  # type: ignore[assignment]
 
         async def _fake_run_planner(user_message, pipeline_run_id, model_id,
