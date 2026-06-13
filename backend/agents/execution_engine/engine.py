@@ -1839,11 +1839,19 @@ class ExecutionEngine:
         ectx.last_streamed = results[-1]["output"] if results else ""
 
         _deliverable_strategy = compiled.deliverable.strategy or "streamed_text"
+        # WR-01 (18 review fix): the EFFECTIVE strategy is the one that actually
+        # produced the emitted bytes. It starts as the DECLARED strategy and is
+        # reassigned to "streamed_text" when the fallback below fires, so the
+        # emitted deliverable_mimetype (computed at :~1917) always matches the
+        # bytes the FE receives — never the declared "serialized_sandbox" →
+        # "application/zip" while final_output is markdown text.
+        _effective_strategy = _deliverable_strategy
         _resolver = _CAPABILITY_REGISTRY.resolve("deliverable", _deliverable_strategy)
         final_output = _resolver.resolve(ectx)
         if final_output is None:
             # The declared resolver did not claim the deliverable (serialized_sandbox
             # with 0 files) — fall back to the streamed-text resolver (legacy parity).
+            _effective_strategy = "streamed_text"
             final_output = _CAPABILITY_REGISTRY.resolve(
                 "deliverable", "streamed_text"
             ).resolve(ectx)
@@ -1914,8 +1922,13 @@ class ExecutionEngine:
             default_mimetype as _default_mimetype,
         )
         _deliverable_name = getattr(ectx.deliverable, "name", None)
+        # WR-01 (18 review fix): derive the default from the EFFECTIVE strategy
+        # (the resolver that actually produced the bytes), not the DECLARED one, so
+        # a serialized_sandbox→streamed_text fallback advertises text/markdown (the
+        # real bytes) rather than application/zip. The author-declared `mimetype`
+        # still wins when present; only the computed default tracks the fallback.
         _deliverable_mimetype = getattr(ectx.deliverable, "mimetype", None) or (
-            _default_mimetype(_deliverable_strategy, _deliverable_name)
+            _default_mimetype(_effective_strategy, _deliverable_name)
         )
         _pipeline_complete_data = {
             "pipeline_type": pipeline_type,
