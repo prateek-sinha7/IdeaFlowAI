@@ -511,9 +511,14 @@ class DeepAgentRunner:
             # documented "promote to raise" the docstring above (and 451/307) already
             # anticipates — scoped STRICTLY to transient throttles. Everything else
             # (validation/auth/generic errors) keeps the existing swallow path:
-            # ``yield {"type":"error", ...}`` UNCHANGED, so non-throttle behavior is
-            # byte/semantically identical to today (the engine ignores ``error``
-            # events) — INV-3 parity for the non-throttle path is preserved.
+            # ``yield {"type":"error", ...}`` UNCHANGED. Phase 16 (ISS-016) REVERSED
+            # the old assumption: the engine's ``_run_agent`` consume loop now has an
+            # ``error`` arm that turns this yield into a recoverable ``agent_error``
+            # (and a ``pipeline_failed`` / ``status:degraded`` terminal) — it no longer
+            # ignores the event. INV-3 parity for the non-throttle path therefore holds
+            # NOT because the engine drops the event, but because the scripted golden
+            # model never raises, so this swallow (and the engine's new arm) is DORMANT
+            # on every characterization golden — the runner's output bytes are unchanged.
             from agents.model_policy import _is_transient_throttle
 
             if _is_transient_throttle(exc):
