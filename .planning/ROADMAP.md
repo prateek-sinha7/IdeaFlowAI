@@ -518,13 +518,13 @@ Plans:
 4. Offline pins land (13-03 precedent): AGENT.md contract-grep tests for all five prompts + a scripted-model pin that the ppt deliverable resolution yields the validator's re-emitted artifact deck; characterization goldens byte-identical (prompt bodies are not characterization inputs for the 5 snapshot pipelines — verify).
 5. Live re-check recorded: one od_ppt run + one revision (≈$0.10) demonstrating criteria 1; criteria 2–3 evidence may ride the same session or the next scheduled live pass if quota-constrained (record disposition either way).
 
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 
 - [x] 15-01-PLAN.md — Prompt output contracts on the five AGENT.md bodies: od-ppt-validator exactly-ONE-artifact complete-deck re-emission (LV-02), 3x sdlc-governance anti-fabrication (F4), app-infra-generator top-of-body /api/v1 contract (F5) — bodies only, frontmatter untouched
 - [x] 15-02-PLAN.md — Durable pins: new tests/agents/test_prompt_contracts.py (prompt_body pins + frontmatter freeze + LV-02 harness composition test via drive_engine_pipeline per-agent model) + full targeted offline gate proving 5 characterization goldens byte-identical (INV-3)
-- [ ] 15-03-PLAN.md — Live re-check: one od_ppt run + one FE-exact od_ppt_output revision on real Haiku (~$0.10) with deck evidence, or explicit quota/SSO deferral; disposition record PHASE-15-RECHECK.md (criteria 2-3 as next-live-pass items)
+- [x] 15-03-PLAN.md — Live re-check: one od_ppt run + one FE-exact od_ppt_output revision on real Haiku (~$0.10) with deck evidence, or explicit quota/SSO deferral; disposition record PHASE-15-RECHECK.md (criteria 2-3 as next-live-pass items)
 
 ---
 *Roadmap created: 2026-06-06*
