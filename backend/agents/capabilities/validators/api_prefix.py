@@ -71,10 +71,18 @@ _INFRA_GLOBS = (
 #   * an nginx ``location`` block (``location /health {``);
 #   * a bare healthcheck path option (``--health-cmd`` / ``test:`` ``/health``).
 _ENDPOINT_RES = (
-    # Any http(s)://host[:port]/path URL (curl/healthcheck/smoke). The host segment
-    # ``[^/\s]+`` consumes ``host:port`` so the capture begins at the first ``/`` of
-    # the URL PATH — never the ``//`` of the scheme separator.
-    re.compile(r"https?://[^/\s]+(/[A-Za-z0-9_\-/]*)"),
+    # An APP-LOCAL http(s)://host[:port]/path URL (curl/healthcheck/smoke). WR-02:
+    # the host is constrained to app-local references — ``localhost`` / ``127.0.0.1`` /
+    # ``0.0.0.0`` / a docker-compose service name (a bare ``[A-Za-z0-9_-]+`` token with
+    # NO dot, i.e. NOT a public FQDN). Hosts containing a ``.`` (``deb.nodesource.com``,
+    # ``github.com``, ``registry.terraform.io``) are EXTERNAL package/registry/release
+    # URLs that have nothing to do with the app's API surface, so they are NOT scanned
+    # (they were audit-row noise that undermined the deterministic backstop). The host
+    # alternation consumes ``host[:port]`` so the capture begins at the URL PATH's first
+    # ``/`` — never the ``//`` of the scheme separator.
+    re.compile(
+        r"https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0|[A-Za-z0-9_-]+)(?::\d+)?(/[A-Za-z0-9_\-/]*)"
+    ),
     # nginx: location [=|~|~*|^~] /path {
     re.compile(r"\blocation\s+(?:[=~^*]+\s+)?(/[A-Za-z0-9_\-/]*)"),
 )

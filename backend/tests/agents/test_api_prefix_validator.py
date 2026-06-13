@@ -196,6 +196,60 @@ async def test_nginx_location_violation_is_flagged(tmp_path, db_session):
 
 
 @pytest.mark.asyncio
+async def test_external_urls_yield_zero_issues(tmp_path, db_session):
+    """WR-02: EXTERNAL package/registry/release URLs are NOT app endpoints → zero issues.
+
+    A Dockerfile/CI line that downloads from ``deb.nodesource.com`` / ``github.com`` /
+    ``registry.terraform.io`` (FQDN hosts containing a dot) must NOT be flagged as an
+    ``/api/v1`` violation — those are external infra references, not the app's API
+    surface. Pre-fix these polluted the audit rows; post-fix the URL arm is constrained
+    to app-local hosts only.
+    """
+    target, runner = _make_target(
+        tmp_path,
+        db_session,
+        infra_files={
+            "Dockerfile": (
+                "FROM node:20\n"
+                "RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash -\n"
+                "RUN wget https://github.com/foo/bar/releases/download/v1/tool\n"
+            ),
+            "ci.yml": (
+                "steps:\n"
+                "  - run: terraform init\n"
+                "  - uses: https://registry.terraform.io/providers/hashicorp/aws\n"
+            ),
+        },
+    )
+    validator = ApiPrefixValidator()
+    issues = await validator.validate(target)
+    assert issues == [], (
+        f"external (FQDN) URLs must yield ZERO issues, got {issues!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_bare_app_healthcheck_url_is_flagged(tmp_path, db_session):
+    """WR-02: a bare app-local ``http://localhost:8080/health`` URL → exactly one issue."""
+    target, runner = _make_target(
+        tmp_path,
+        db_session,
+        infra_files={
+            "Dockerfile": (
+                "FROM node:20\n"
+                "HEALTHCHECK CMD curl -f http://localhost:8080/health || exit 1\n"
+            ),
+        },
+    )
+    validator = ApiPrefixValidator()
+    issues = await validator.validate(target)
+    assert [i.severity for i in issues] == ["P2"], (
+        f"a bare app-local /health URL must yield exactly one P2 issue, got {issues!r}"
+    )
+    assert "/health" in issues[0].message
+
+
+@pytest.mark.asyncio
 async def test_clean_api_v1_target_yields_zero_issues(tmp_path, db_session):
     """Endpoints all under ``/api/v1`` → zero issues (a row may still be recorded)."""
     target, runner = _make_target(
