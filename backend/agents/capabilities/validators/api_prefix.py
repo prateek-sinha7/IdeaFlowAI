@@ -85,6 +85,19 @@ _ENDPOINT_RES = (
     ),
     # nginx: location [=|~|~*|^~] /path {
     re.compile(r"\blocation\s+(?:[=~^*]+\s+)?(/[A-Za-z0-9_\-/]*)"),
+    # WR-03: a bare healthcheck path with NO ``http://`` prefix — a docker-compose
+    # ``test:`` array, a Docker ``HEALTHCHECK``, or a ``--health-cmd`` that names a
+    # path-only endpoint (e.g. ``test: ["CMD", "wget", "-qO-", "/health"]``). Scoped to
+    # the healthcheck CONTEXT (the regex must see one of those tokens first) so it does
+    # NOT match arbitrary ``/path`` tokens elsewhere in the file. This is the
+    # bare-healthcheck shape the docstring advertises and the exact false-negative
+    # ISS-005 exists to catch (an infra step that violates /api/v1 via a path-only
+    # healthcheck). The leading whitespace/quote delimiter is NON-capturing so the path
+    # stays in group(1) like every other pattern; ``[^\n]*?`` is lazy so the FIRST
+    # path token after the healthcheck keyword (the endpoint) is captured.
+    re.compile(
+        r"(?:--health-cmd|HEALTHCHECK|test:)[^\n]*?(?:\s|\")(/[A-Za-z0-9_\-/]+)"
+    ),
 )
 
 # Endpoint paths that are NOT application API surface — infra/static roots that

@@ -250,6 +250,55 @@ async def test_bare_app_healthcheck_url_is_flagged(tmp_path, db_session):
 
 
 @pytest.mark.asyncio
+async def test_bare_path_compose_healthcheck_is_flagged(tmp_path, db_session):
+    """WR-03: a path-only compose ``test:`` healthcheck (no http:// prefix) → one issue.
+
+    A ``test: ["CMD", "wget", "-qO-", "/health"]`` names a bare ``/health`` endpoint
+    with no scheme/host — the false-negative the docstring claims to cover. The new
+    healthcheck-context regex flags it (scoped to the ``test:``/``HEALTHCHECK``/
+    ``--health-cmd`` keyword so arbitrary ``/path`` tokens are NOT swept up).
+    """
+    target, runner = _make_target(
+        tmp_path,
+        db_session,
+        infra_files={
+            "docker-compose.yml": (
+                "services:\n"
+                "  app:\n"
+                "    healthcheck:\n"
+                '      test: ["CMD", "wget", "-qO-", "/health"]\n'
+            ),
+        },
+    )
+    validator = ApiPrefixValidator()
+    issues = await validator.validate(target)
+    assert [i.severity for i in issues] == ["P2"], (
+        f"a bare-path compose test: healthcheck must yield one P2 issue, got {issues!r}"
+    )
+    assert "/health" in issues[0].message
+
+
+@pytest.mark.asyncio
+async def test_bare_path_healthcheck_under_api_v1_is_clean(tmp_path, db_session):
+    """WR-03: a bare-path healthcheck already under ``/api/v1`` → zero issues."""
+    target, runner = _make_target(
+        tmp_path,
+        db_session,
+        infra_files={
+            "docker-compose.yml": (
+                "services:\n"
+                "  app:\n"
+                "    healthcheck:\n"
+                '      test: ["CMD", "wget", "-qO-", "/api/v1/health"]\n'
+            ),
+        },
+    )
+    validator = ApiPrefixValidator()
+    issues = await validator.validate(target)
+    assert issues == [], f"a /api/v1 bare-path healthcheck must be clean, got {issues!r}"
+
+
+@pytest.mark.asyncio
 async def test_clean_api_v1_target_yields_zero_issues(tmp_path, db_session):
     """Endpoints all under ``/api/v1`` → zero issues (a row may still be recorded)."""
     target, runner = _make_target(
