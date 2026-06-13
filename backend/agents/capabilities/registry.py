@@ -61,13 +61,14 @@ logger = logging.getLogger(__name__)
 # merge:           copy_disjoint, git_3way, json, html_fragment  (11-03 / FANOUT-07, user_allowed=True)
 # validator:       html_static, html_render, spec_plan_coverage, task_done_when, design_quality  (08-04)
 #                  code_compile, code_test, code_lint  (10-04 / EXEC-02 — exec via the handle)
+#                  api_prefix  (19-02 / ISS-005 — infra /api/v1 backstop, user_allowed=True)
 # deliverable:     single_file, serialized_sandbox, streamed_text, ppt
 # context_provider: opendesign, previous_run
 # task_parser:     heading_tasks
 # gate:            human, validation, approval, security  (08-02)
 # tool:            workspace, prototype, prototype_emit_only, planning  (08-03 / F2)
 # compaction:      html_skeleton
-# post_step:       revision_validation
+# post_step:       revision_validation, api_prefix_audit  (19-02 / ISS-005 — event-free infra audit)
 # model_catalog:   default  (the ModelCatalog data capability — name-only, D-03)
 # runtime:         langchain_deepagents  (08-05 / F5 — AgentRuntimeAdapter, wraps DeepAgentRunner)
 # prompt:          default  (08-05 / F1 — PromptAssemblyPolicy, fixed block order)
@@ -87,6 +88,7 @@ _KNOWN: set[tuple[str, str]] = {
     ("validator", "html_static"),
     ("validator", "html_render"),
     ("validator", "spec_plan_coverage"),   # 08-04 / Tier#4
+    ("validator", "api_prefix"),           # 19-02 / ISS-005 — infra /api/v1 backstop (user_allowed=True)
     ("validator", "task_done_when"),       # 08-04 / Tier#5
     ("validator", "design_quality"),       # 08-04 / Tier#6 (warnings-first)
     ("validator", "code_compile"),         # 10-04 / EXEC-02 — py_compile via the exec handle
@@ -112,6 +114,7 @@ _KNOWN: set[tuple[str, str]] = {
     ("tool", "spawn_subagents"),       # 11-01 / FANOUT-01 (user_allowed=False)
     ("compaction", "html_skeleton"),
     ("post_step", "revision_validation"),
+    ("post_step", "api_prefix_audit"),     # 19-02 / ISS-005 — event-free infra audit
     ("model_catalog", "default"),
     ("runtime", "langchain_deepagents"),   # 08-05 / F5
     ("prompt", "default"),                 # 08-05 / F1
@@ -242,11 +245,13 @@ def discover() -> None:
         "agents.capabilities.context_providers.previous_run",
         "agents.capabilities.compaction.html_skeleton",
         "agents.capabilities.post_steps.revision_validation",
+        "agents.capabilities.post_steps.api_prefix_audit",  # 19-02 / ISS-005 — event-free infra audit
         # Pure-stdlib kernel-side Tier validators (08-04 / D-05). Imported by module
         # (NOT via the validators package __init__) so importing
         # ``agents.capabilities.validators.severity`` stays @register/discover-clean
         # for the 08-02 gate (08-01 Issues-Encountered: keep severity import-light).
         "agents.capabilities.validators.spec_plan_coverage",
+        "agents.capabilities.validators.api_prefix",  # 19-02 / ISS-005 — infra /api/v1 backstop
         "agents.capabilities.validators.task_done_when",
         # 10-04 / EXEC-02 — the three code validators that drive gated exec. They
         # reach exec ONLY via the runner/workspace handle (never spawn directly,

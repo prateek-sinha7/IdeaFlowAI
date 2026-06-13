@@ -46,6 +46,13 @@ steps:
   - agent: app-infra-generator
     strategy: single_shot
     gates: []
+    # post_step (19-02 / ISS-005): after the infra-generator writes its 12 infra
+    # files, run the api_prefix validator EVENT-FREE (side effects only — writes a
+    # validation_results audit row, emits NO event) so endpoints missing /api/v1 are
+    # caught deterministically without perturbing the byte-identical app_builder
+    # golden. NOT gates:[validation] (that emits a validation_warning event the
+    # golden has no slot for → breaks INV-3).
+    post_step: api_prefix_audit
   - agent: app-code-compliance
     strategy: single_shot
     gates: []

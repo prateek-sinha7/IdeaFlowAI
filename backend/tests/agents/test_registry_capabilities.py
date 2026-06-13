@@ -47,6 +47,7 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("validator", "html_static"),
     ("validator", "html_render"),
     ("validator", "spec_plan_coverage"),   # 08-04 / Tier#4
+    ("validator", "api_prefix"),           # 19-02 / ISS-005 — infra /api/v1 backstop (user_allowed=True)
     ("validator", "task_done_when"),       # 08-04 / Tier#5
     ("validator", "design_quality"),       # 08-04 / Tier#6
     ("validator", "code_compile"),         # 10-04 / EXEC-02 — py_compile via the exec handle
@@ -71,6 +72,7 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("tool", "spawn_subagents"),       # 11-01 / FANOUT-01 (user_allowed=False)
     ("compaction", "html_skeleton"),
     ("post_step", "revision_validation"),
+    ("post_step", "api_prefix_audit"),     # 19-02 / ISS-005 — event-free infra audit
     ("model_catalog", "default"),
     ("runtime", "langchain_deepagents"),   # 08-05 / F5
     ("prompt", "default"),                 # 08-05 / F1
@@ -146,8 +148,10 @@ def test_registered_count_is_exactly_fifty() -> None:
     # user_allowed=False FANOUT-01) = 55, plus the four 11-03 merge strategies
     # (merge:copy_disjoint/git_3way/json/html_fragment user_allowed=True FANOUT-07) = 59,
     # plus the two 12-01 wave capabilities (strategy:wave_scheduler user_allowed=True
-    # WAVE-01; task_parser:json_tasks WAVE-02) = 61.
-    assert len(_KNOWN) == 61
+    # WAVE-01; task_parser:json_tasks WAVE-02) = 61, plus the two 19-02 capabilities
+    # (validator:api_prefix user_allowed=True + post_step:api_prefix_audit, ISS-005 —
+    # the event-free infra /api/v1 backstop) = 63.
+    assert len(_KNOWN) == 63
     assert set(_KNOWN) == set(_EXPECTED_NAMES)
 
 
