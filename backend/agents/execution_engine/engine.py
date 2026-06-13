@@ -116,6 +116,160 @@ def _sanitize_agent_error(raw: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# ISS-004 (19-03): streamed agent_chunk sanitizer + chunk-straddle buffer
+# ---------------------------------------------------------------------------
+# The 13-02 sanitizer (`_strip_fabricated_tool_xml`, reused here via the runner's
+# duck-typed `sanitize_output`) cleans the AUTHORITATIVE chunk-joined output at the
+# post-loop locus (~:2645). But the engine YIELDS each raw `chunk` as an
+# `agent_chunk` event BEFORE accumulation/sanitization, so fabricated
+# `<function_calls>`/`<invoke ...>` reaches the LIVE UI stream (plus the
+# durable-replay collector + the reconnect tail). This buffer routes each YIELDED
+# chunk through the SAME runner sanitizer — but a naive per-chunk pass misses a
+# `<function_calls>…</function_calls>` span SPLIT across two chunk deltas: chunk 1
+# ends with an unterminated `<function_calls>` opener, chunk 2 carries the close.
+# Sanitizing chunk 1 alone would strip from the opener to EOF (the runner's
+# `_UNTERMINATED_TOOL_XML_RE`) and silently swallow the legitimate tail of chunk 2.
+# So we HOLD the tail from an unterminated opener, append the next chunk, and only
+# sanitize+yield once the span closes (or at stream end). SC-001: gated ONLY on the
+# generic tool-less runner capability (`sanitize_output` is an identity no-op for
+# tool-using agents), never a workflow/agent-name literal.
+
+# Opener / matching-close tokens (mirror the runner's `_FABRICATED_TOOL_XML_RE`
+# openers — we do NOT hand-roll a divergent STRIPPING regex; the actual stripping is
+# delegated to the runner's `sanitize_output`. These tokens are used ONLY to detect
+# WHERE an unterminated span begins so the buffer can hold its tail). `<invoke` has no
+# trailing `>` so a split mid-attribute (`<invoke name="read_`) is still an opener.
+_TOOL_XML_OPENERS: tuple[str, ...] = ("<function_calls>", "<invoke")
+# Each opener's matching CLOSE tag — a span is COMPLETE once its close has arrived.
+_TOOL_XML_CLOSE_FOR: dict[str, str] = {
+    "<function_calls>": "</function_calls>",
+    "<invoke": "</invoke>",
+}
+
+
+class _ChunkStreamSanitizer:
+    """Per-agent-stream buffer that strips fabricated tool-XML from yielded chunks.
+
+    Wraps the runner's duck-typed ``sanitize_output`` (the SAME 13-02
+    ``_strip_fabricated_tool_xml`` transform applied to the authoritative output).
+    For a tool-USING agent ``sanitize_output`` is an identity no-op, so this buffer
+    passes every chunk through verbatim (the gate is the runner capability itself,
+    NOT a workflow name — SC-001). For a tool-less agent it removes complete
+    ``<function_calls>…</function_calls>`` / ``<invoke …>…</invoke>`` spans AND holds
+    an UNTERMINATED trailing opener until the next chunk supplies the close (or until
+    stream end), so a span split across two chunk deltas is still stripped.
+
+    The held buffer only ever spans from an unterminated opener to the (eventual)
+    close or stream end — bounded by one agent's output (T-19-03-03: no unbounded
+    growth, reuses the runner's linear single-pass regex). At stream end any residual
+    held tail is flushed through the sanitizer (an unterminated opener at EOF is
+    stripped, mirroring the runner's WR-01 ``_UNTERMINATED_TOOL_XML_RE``), so the
+    buffer never silently swallows legitimate trailing content.
+    """
+
+    __slots__ = ("_sanitize", "_buffer")
+
+    def __init__(self, sanitize: Callable[[str], str] | None) -> None:
+        # ``sanitize`` is the runner's duck-typed ``sanitize_output`` (identity for
+        # tool-using agents / clean text — same-object return). ``None`` when the
+        # runner exposes no such capability → pass-through identity.
+        self._sanitize: Callable[[str], str] = sanitize if callable(sanitize) else (lambda t: t)
+        self._buffer: str = ""
+
+    @staticmethod
+    def _hold_from_index(text: str) -> int:
+        """Index from which ``text`` must be HELD (an open/partial span), or ``-1``.
+
+        Scans for the earliest position that begins an UNTERMINATED tool-XML span:
+
+        * a complete opener token (``<function_calls>`` / ``<invoke``) whose matching
+          CLOSE (``</function_calls>`` / ``</invoke>``) has NOT yet arrived — the span
+          straddles into a future chunk, so hold from the opener; OR
+        * a trailing PARTIAL opener token (e.g. ``…<inv`` / ``…<function_cal``) — the
+          opener itself is split across the delta boundary, so hold the partial tail
+          until the next chunk completes (or refutes) it.
+
+        Complete, already-closed spans are NOT held (the sanitizer strips them in
+        place). Returns ``-1`` when nothing needs holding.
+        """
+        hold = -1
+        # (1) Earliest complete opener token whose matching close has not yet arrived.
+        for opener in _TOOL_XML_OPENERS:
+            start = 0
+            while True:
+                pos = text.find(opener, start)
+                if pos == -1:
+                    break
+                close = _TOOL_XML_CLOSE_FOR[opener]
+                if text.find(close, pos + len(opener)) == -1:
+                    # No matching close yet → this opener begins an open span.
+                    if hold == -1 or pos < hold:
+                        hold = pos
+                    break  # earliest unclosed instance of THIS opener found
+                start = pos + len(opener)
+        # (2) A trailing PARTIAL opener token (the opener itself is split): the text
+        # ends with a non-empty proper prefix of some opener token. Hold from there so
+        # the next chunk can complete it. Only matters when it would hold EARLIER than
+        # (1) — a partial prefix is by construction at the very end of the text.
+        for opener in _TOOL_XML_OPENERS:
+            # Longest proper prefix of `opener` that is a suffix of `text`.
+            for plen in range(len(opener) - 1, 0, -1):
+                if text.endswith(opener[:plen]):
+                    pos = len(text) - plen
+                    if hold == -1 or pos < hold:
+                        hold = pos
+                    break
+        return hold
+
+    def feed(self, chunk: str) -> str:
+        """Accept one streamed chunk; return the safe-to-yield (sanitized) prefix.
+
+        Concatenates any held buffer + the new chunk. If the joined text contains a
+        tool-XML span whose close has NOT yet arrived (or a trailing partial opener
+        token), HOLD from that point onward in the buffer and yield only the
+        sanitized prefix before it (possibly empty). Otherwise sanitize the whole
+        joined text (stripping any complete span) and yield it, clearing the buffer.
+        Clean text with no opener passes through unbuffered + unchanged (the runner's
+        same-object identity → byte-identical, no latency).
+        """
+        joined = self._buffer + chunk
+        if "<function_calls>" not in joined and "<invoke" not in joined:
+            # Fast path: no (complete) opener token anywhere. A trailing PARTIAL opener
+            # (e.g. the text ends with `<inv`) still has to be held — fall through.
+            hold_idx = self._hold_from_index(joined)
+            if hold_idx == -1:
+                self._buffer = ""
+                return joined
+
+        hold_idx = self._hold_from_index(joined)
+        if hold_idx == -1:
+            # Every span present is COMPLETE (closed) → sanitize-strip + yield all.
+            self._buffer = ""
+            return self._sanitize(joined)
+
+        # An open/partial span begins at hold_idx → hold its RAW tail for the next
+        # chunk's close; yield only the sanitized prefix before it (the prefix cannot
+        # contain an unclosed span by construction, but may hold an earlier COMPLETE
+        # span the sanitizer strips).
+        self._buffer = joined[hold_idx:]
+        prefix = joined[:hold_idx]
+        return self._sanitize(prefix) if prefix else ""
+
+    def flush(self) -> str:
+        """At stream end, sanitize + return any residual held tail (then clear).
+
+        An unterminated opener still held at EOF is stripped here (mirrors the
+        runner's WR-01 ``_UNTERMINATED_TOOL_XML_RE``), so the buffer never swallows
+        legitimate trailing content silently. Returns ``""`` when nothing is held.
+        """
+        if not self._buffer:
+            return ""
+        out = self._sanitize(self._buffer)
+        self._buffer = ""
+        return out
+
+
+# ---------------------------------------------------------------------------
 # Durable run_events sink (PERSIST-03 / D-11)
 # ---------------------------------------------------------------------------
 
@@ -2325,6 +2479,17 @@ class ExecutionEngine:
 
             output_chunks: list[str] = []
 
+            # ── ISS-004 (19-03): streamed agent_chunk sanitizer (chunk-straddle) ──
+            # The buffer is (re)constructed per retry-attempt below (so a fallback
+            # re-stream gets a fresh one), keyed on the runner's duck-typed
+            # `sanitize_output` — the SAME transform the post-loop authoritative block
+            # (~:2645) uses. It is an identity no-op for tool-using agents (and for
+            # clean text), so the buffer is inert there and only strips fabricated
+            # tool-XML from the YIELDED chunks of a tool-less agent. SC-001: keyed on
+            # the generic runner capability, NOT a workflow/agent-name literal. The
+            # authoritative `output_chunks` path is unchanged (it still accumulates the
+            # RAW chunk) so the post-loop sanitize_output keeps the goldens byte-identical.
+
             # Per-agent timeouts are DISABLED for every pipeline — agents run to
             # completion instead of being cut off mid-generation. Cutting an agent
             # off silently fell back to the PREVIOUS agent's output, which corrupted
@@ -2409,6 +2574,10 @@ class ExecutionEngine:
                 # Reset per-attempt accumulators so a retried attempt re-streams from
                 # scratch (Pitfall 4) — the deliverable reflects the successful attempt.
                 output_chunks = []
+                # ISS-004: a fresh chunk-straddle buffer per attempt so a re-stream
+                # never inherits a held tail from the throttled prior attempt (the FE
+                # discards prior agent_chunk events on agent_model_fallback/reset_output).
+                _chunk_sanitizer = _ChunkStreamSanitizer(getattr(agent, "sanitize_output", None))
                 agent_input_tokens = 0
                 agent_output_tokens = 0
                 # task_progress records appended this attempt (so a retry does not double
@@ -2421,8 +2590,18 @@ class ExecutionEngine:
                                 raise asyncio.CancelledError()
                             etype = event["type"]
                             if etype == "chunk":
+                                # Authoritative path UNCHANGED: accumulate the RAW chunk
+                                # so the post-loop sanitize_output (~:2645) still produces
+                                # the byte-identical golden final_output (INV-3).
                                 output_chunks.append(event["chunk"])
-                                yield {"type": "agent_chunk", "data": {"agent_id": spec.id, "chunk": event["chunk"]}}
+                                # ISS-004: the YIELDED chunk is routed through the
+                                # chunk-straddle sanitizer (no-op identity for tool-using
+                                # agents / clean text). `feed` returns the safe-to-yield
+                                # prefix, holding an unterminated tool-XML opener until its
+                                # close arrives. Suppress empty deltas (nothing to stream).
+                                _safe_chunk = _chunk_sanitizer.feed(event["chunk"])
+                                if _safe_chunk:
+                                    yield {"type": "agent_chunk", "data": {"agent_id": spec.id, "chunk": _safe_chunk}}
                             elif etype == "usage":
                                 agent_input_tokens += event.get("input_tokens", 0)
                                 agent_output_tokens += event.get("output_tokens", 0)
@@ -2495,6 +2674,14 @@ class ExecutionEngine:
                                 agent_error_raw = str(event.get("error", "") or "")[:500]
                                 agent_error_message = _sanitize_agent_error(agent_error_raw)
                                 break
+                    # ISS-004 (19-03): flush any residual held tail through the
+                    # chunk-straddle sanitizer at stream end. An unterminated tool-XML
+                    # opener still held at EOF is stripped (mirrors the runner's WR-01
+                    # _UNTERMINATED_TOOL_XML_RE); a clean held tail flushes verbatim so
+                    # legitimate trailing content is never silently swallowed.
+                    _flushed_chunk = _chunk_sanitizer.flush()
+                    if _flushed_chunk:
+                        yield {"type": "agent_chunk", "data": {"agent_id": spec.id, "chunk": _flushed_chunk}}
                     # Stream consumed cleanly (no throttle) — done, exit the retry loop.
                     break
                 except asyncio.TimeoutError:
