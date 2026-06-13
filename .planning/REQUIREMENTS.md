@@ -164,6 +164,7 @@
 - [x] **API-04**: `GET /api/runs/{id}/artifacts` → typed artifact tree (lineage); `GET /api/runs/{id}/diff` → repo diff (§22)
 - [x] **API-05**: `GET /api/runs/{id}/events?after=<seq>` → durable event replay (monotonic seq + event_id) for reconnect/resume (§22/§21)
 - [x] **API-06**: Dynamic composer + capability palette + per-agent model picker; validator/issue panel; subagent + wave tree; artifact/diff viewer (reuse app-builder `FilesTab`/`AppBuilderPreview`) — additive panels (§22)
+  - _Migration-ledger note (ISS-014, Phase 18 / deletion-as-superseded):_ the **capability-palette composer** half of API-06 (`WorkflowComposer.tsx` + `CapabilityPalette.tsx`) was orphaned dead UI (mounted by no route; INV-3/12 dual-impl) and is **DELETED-as-superseded** by the live `AgentsPopup` agent-composer (the "Compose a custom workflow" → Workflow-configuration modal, which is the real shipped composer). Deletion lands in plan **18-04**; rationale recorded here in 18-05. The per-agent **model picker** is relocated into the live `AgentsPopup` (locked-preferred — threads `model_overrides` for MODEL-03 end-to-end); if relocation proves too invasive it is carried to v2 (final disposition recorded in the 18-04 SUMMARY). **RETAINED:** the `GET /api/capabilities` endpoint + `test_capabilities_api.py` (API-02 registry-reflection contract + model-catalog source) — only the orphaned palette-panel UI is removed, the API contract and the agent-composer stand.
 
 ### Budgets & Observability (cross-cutting, §23)
 
@@ -238,7 +239,7 @@ Each v1 requirement maps to exactly one phase. Phases are GSD integers 1–12, m
 | SKILL-01 | Phase 8 [3] | Done (08-05) |
 | HOOK-01, HOOK-02, HOOK-03, HOOK-04 | Phase 8 [3] | Done (08-07) |
 | OBS-02 | Phase 8 [3] | Done (08-07) |
-| API-02, API-03, API-06 | Phase 8 [3] | Done (08-08; API-06 human-verified) |
+| API-02, API-03, API-06 | Phase 8 [3] | Done (08-08; API-06 human-verified). API-06 palette-composer UI deleted-as-superseded by the live agent-composer (ISS-014, Phase 18 — deletion 18-04, reconciled 18-05); `/api/capabilities` + API-02 contract RETAINED. |
 | RUNTIME-01, RUNTIME-02, RUNTIME-03 | Phase 9 [4A] | Done (09-01/09-02) |
 | REPO-01, REPO-02, REPO-03, REPO-04, REPO-05 | Phase 9 [4A] | Done (09-03/09-04) |
 | MCP-01, MCP-02, MCP-03, MCP-04 | Phase 9 [4A] | Done (09-05) |
