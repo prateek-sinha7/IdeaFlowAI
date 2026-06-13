@@ -168,4 +168,35 @@ describe("DashboardLayout — WaveTreePanel mount on the execution surface (12-0
 
     expect(screen.getByText("No waves running.")).toBeInTheDocument();
   });
+
+  // ISS-019 — structural OFFLINE proof of the left-column flex budget.
+  // jsdom has no layout engine, so we assert the className contract that
+  // PRODUCES the layout (column flex parent; agent flexes; wave non-shrinking)
+  // rather than pixel positions. The TRUE visual proof — the "Wave / Subagent
+  // Tree" heading bottom ≤ 950 at 1440×950 WITHOUT scroll — runs in the
+  // dedicated live Playwright pass after this phase (CONTEXT deferred item).
+  it("flex-budgets the left execution column so the wave panel clears the fold", () => {
+    renderLayout([RUNNING_WAVE]);
+
+    // Anchor 1: the agent-panel wrapper — the AgentProgressPanel stub's parent.
+    const agentWrapper = screen.getByTestId("stub-agent-progress").parentElement!;
+    expect(agentWrapper.className).toContain("flex-1");
+    expect(agentWrapper.className).toContain("min-h-0");
+
+    // Anchor 2: the wave-panel wrapper — the nearest ancestor of the wave
+    // heading that carries the flex-shrink-0 budget class.
+    const waveWrapper = screen
+      .getByText("Wave / Subagent Tree")
+      .closest("div.flex-shrink-0");
+    expect(waveWrapper).not.toBeNull();
+    expect(waveWrapper!.className).toContain("max-h-[40%]");
+
+    // Anchor 3: the column wrapper — the common flex-col parent that owns
+    // height. Walk up from the agent wrapper (ErrorBoundary → column div).
+    const column = agentWrapper.closest("div.flex.flex-col");
+    expect(column).not.toBeNull();
+    // The column itself must NOT scroll — scroll lives inside the two regions.
+    expect(column!.className).not.toContain("overflow-y-auto");
+    expect(column!.className).toContain("overflow-hidden");
+  });
 });
