@@ -1166,9 +1166,15 @@ export function DashboardLayout({
               className="h-full flex flex-col md:flex-row"
               style={{ background: "#f5f5f0" }}
             >
-              {/* Left Panel — Agent Progress */}
-              <div className="w-full md:w-[340px] lg:w-[360px] flex-shrink-0 h-[45vh] md:h-full border-b md:border-b-0 md:border-r border-gray-200 overflow-y-auto bg-white">
+              {/* Left Panel — Agent Progress.
+                  ISS-019: the column is a height-owning flex parent. The agent
+                  panel flexes to remaining space + scrolls its own cards; the
+                  wave panel is a non-shrinking bottom region that stays above
+                  the 1440×950 fold. The column itself no longer scrolls — scroll
+                  lives inside the two child regions. */}
+              <div className="w-full md:w-[340px] lg:w-[360px] flex-shrink-0 h-[45vh] md:h-full border-b md:border-b-0 md:border-r border-gray-200 flex flex-col overflow-hidden bg-white">
                 <ErrorBoundary fallbackLabel="AgentProgress">
+                  <div className="flex-1 min-h-0 overflow-hidden">
                   <AgentProgressPanel
                     pipelineState={pipelineState || { isRunning: false, pipeline_type: "", agents: [], currentAgentIndex: -1, totalDuration: null, completedCount: 0 }}
                     workflowType={workflowType}
@@ -1191,12 +1197,16 @@ export function DashboardLayout({
                       // so the graceful agent state transition (running→idle) is skipped.
                     }}
                   />
+                  </div>
                 </ErrorBoundary>
                 {/* Phase 12 (WAVE-03) — live wave/subagent tree. Rendered
                     unconditionally so the panel slot is stable; WaveTreePanel
-                    owns the "No waves running." empty state for non-wave runs. */}
+                    owns the "No waves running." empty state for non-wave runs.
+                    ISS-019: non-shrinking bottom region (flex-shrink-0) capped
+                    at 40% so it never eats the agent panel; its own
+                    max-h-[260px] list scrolls within. */}
                 <ErrorBoundary fallbackLabel="WaveTree">
-                  <div className="px-3 pt-3 pb-3 border-t border-gray-200">
+                  <div className="flex-shrink-0 max-h-[40%] overflow-y-auto px-3 pt-3 pb-3 border-t border-gray-200">
                     <WaveTreePanel waves={waves} />
                   </div>
                 </ErrorBoundary>
