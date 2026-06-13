@@ -277,7 +277,13 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     const isGeneric = !isUserStory && !isAppBuilder && !isPpt && !isPrototype;
     const genericMimetype = isGeneric ? deriveDeliverableMimetype(selectedOutput) : undefined;
     const isGenericHtml = isGeneric && genericMimetype === "text/html";
-    const isGenericMarkdown = isGeneric && genericMimetype !== "text/html";
+    // WR-02 (18 review fix): a serialized-sandbox bundle deliverable now derives
+    // to application/zip (not text/markdown), so route it to the file-bundle view
+    // — matching the live GenericDeliverablePreview dispatch — instead of a flat
+    // MarkdownPreview / `.md` download. Markdown is the residual case.
+    const isGenericBundle = isGeneric && genericMimetype === "application/zip";
+    const isGenericMarkdown = isGeneric && !isGenericHtml && !isGenericBundle;
+    const genericBundleFiles = isGenericBundle && selectedOutput ? parseFilesForIDE(selectedOutput) : [];
     const agentOutputs = detailAgentOutputs;
 
     return (
@@ -572,6 +578,15 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                         />
                       </div>
                     </div>
+                  )}
+                  {/* WR-02 (18 review fix): a serialized-sandbox / zip bundle →
+                      the file-bundle view (matching the live path), not a flat
+                      MarkdownPreview. Falls back to MarkdownPreview when the
+                      bundle yields no parseable files. */}
+                  {isGenericBundle && selectedOutput && (
+                    genericBundleFiles.length > 0
+                      ? <AppBuilderPreview files={genericBundleFiles} projectName={ideProjectName} />
+                      : <MarkdownPreview content={selectedOutput} />
                   )}
                   {isGenericMarkdown && selectedOutput && <MarkdownPreview content={selectedOutput} />}
                   {isPpt && selectedOutput && (

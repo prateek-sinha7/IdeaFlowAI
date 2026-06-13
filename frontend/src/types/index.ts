@@ -321,14 +321,36 @@ export interface GenericDeliverable {
 // render, so they share THIS single helper. It is a FE RENDER heuristic on the
 // already-persisted output shape — distinct from the REJECTED backend
 // content-sniff (the manifest DECLARES the shape live; this only covers reopen
-// where the declared mimetype was not persisted). An `<!doctype`/`<html` prefix
-// (case-insensitive, leading whitespace tolerated) → `text/html`; everything
-// else → `text/markdown`. Empty/whitespace output → `text/markdown` (nothing to
-// frame).
+// where the declared mimetype was not persisted).
+//
+//   • `<!doctype`/`<html` prefix (case-insensitive, leading whitespace
+//     tolerated)                         → `text/html`
+//   • a serialized-sandbox file bundle   → `application/zip`  (WR-02)
+//   • everything else / empty / null     → `text/markdown`    (nothing to frame)
+//
+// WR-02 (18 review fix): the helper previously only ever returned text/html or
+// text/markdown, so a custom serialized-sandbox bundle was mis-typed to markdown
+// on reopen (and offered as a `.md` download) while the live path carries the
+// true `application/zip`. The bundle is recognised structurally — the same
+// ```filename: …``` fenced-block shape the AppBuilder bundle parser consumes —
+// so live and reopen now agree for zip/bundle custom deliverables too. (The
+// ideal fix is persisting the declared mimetype on the run row; until that
+// additive column lands this content heuristic keeps the two surfaces in sync —
+// recorded as a known reopen limitation in 18-REVIEW-FIX.md.)
+const _BUNDLE_FILENAME_BLOCK = /```\s*filename:\s*[^\n]+\n/i;
+
 export function deriveDeliverableMimetype(output: string | null | undefined): string {
-  const trimmed = (output ?? "").trimStart().toLowerCase();
+  const raw = output ?? "";
+  const trimmed = raw.trimStart().toLowerCase();
   if (trimmed.startsWith("<!doctype") || trimmed.startsWith("<html")) {
     return "text/html";
+  }
+  // A serialized-sandbox / app-bundle deliverable is a markdown carrier of
+  // ```filename: path``` fenced blocks — type it as a bundle so the reopen
+  // surface renders the file-bundle view and offers a bundle download (matching
+  // the live serialized_sandbox → application/zip default), not a flat `.md`.
+  if (_BUNDLE_FILENAME_BLOCK.test(raw)) {
+    return "application/zip";
   }
   return "text/markdown";
 }

@@ -30,6 +30,20 @@ describe("deriveDeliverableMimetype — shared reopen heuristic", () => {
     expect(deriveDeliverableMimetype("<div>hello</div>")).toBe("text/markdown");
   });
 
+  // ─── WR-02 (18 review) — serialized-sandbox bundle detection ────────────────
+  it("a ```filename: …``` bundle → application/zip (not mis-typed to markdown)", () => {
+    const bundle = "Here is the app:\n\n```filename: app/main.py\nprint('hi')\n```\n";
+    expect(deriveDeliverableMimetype(bundle)).toBe("application/zip");
+  });
+
+  it("bundle detection is case-insensitive on the filename: marker", () => {
+    expect(deriveDeliverableMimetype("```FILENAME: a.ts\nx\n```")).toBe("application/zip");
+  });
+
+  it("markdown that merely mentions the word filename (no fenced block) stays text/markdown", () => {
+    expect(deriveDeliverableMimetype("The filename is config.json — see below.")).toBe("text/markdown");
+  });
+
   it("empty / null / whitespace output → text/markdown (nothing to frame)", () => {
     expect(deriveDeliverableMimetype("")).toBe("text/markdown");
     expect(deriveDeliverableMimetype(null)).toBe("text/markdown");
