@@ -80,8 +80,17 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
         }));
       }
 
-      // Extra context fields (e.g. template_id for od_prototype) are merged
-      // at the top level so the backend can read them from message_data.
+      // Extra context fields are merged at the top level so the backend can
+      // read them from message_data. This is the single ingress for run-level
+      // params threaded through IdeaInputPage's `extraParams`, including:
+      //   - `template_id` (od_prototype),
+      //   - `gate_agent_ids` (Phase 6 per-run Human-review gate selection),
+      //   - `model_overrides` (ISS-014 / MODEL-03 — agentId→modelId from the
+      //     relocated per-agent AgentModelPicker; backend validates + persists
+      //     it via _validate_model_overrides in websocket.py). Omitted when no
+      //     model is picked, so the payload stays byte-identical for plain runs.
+      // The generic Object.assign is the ONLY send site — do not also assign
+      // `payload.model_overrides` separately or it would double-send.
       if (context) {
         Object.assign(payload, context);
       }

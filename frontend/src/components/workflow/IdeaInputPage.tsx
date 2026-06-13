@@ -188,6 +188,16 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
     gateSelectionRef.current = { ids, touched };
   }, []);
 
+  // ISS-014 (MODEL-03): per-agent model overrides selected in the relocated
+  // AgentModelPicker (AgentsPopup Agents tab). Held in a ref so the popup
+  // reporting its selection doesn't re-render this page, and so `handleRun`
+  // always reads the latest value. An empty map ⇒ we omit `model_overrides`
+  // entirely (the run_pipeline payload stays byte-identical to before).
+  const modelOverridesRef = useRef<Record<string, string>>({});
+  const handleModelOverridesChange = useCallback((overrides: Record<string, string>) => {
+    modelOverridesRef.current = overrides;
+  }, []);
+
   useEffect(() => {
     setPipelineAgents(LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).sort((a, b) => a.order - b.order));
   }, [effectiveType]);
@@ -213,7 +223,18 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
     // section; otherwise omit it entirely so the backend keeps its static default
     // (the run_pipeline payload is byte-identical to before this feature).
     const { ids, touched } = gateSelectionRef.current;
-    const extraParams = touched ? { gate_agent_ids: ids } : undefined;
+    // ISS-014 (MODEL-03): include per-agent model_overrides only when the user
+    // actually picked a non-default model for ≥1 agent. An unselected picker
+    // emits an empty map → omitted → byte-identical payload (preserves INV-3).
+    const overrides = modelOverridesRef.current;
+    const hasOverrides = Object.keys(overrides).length > 0;
+    const extraParams =
+      touched || hasOverrides
+        ? {
+            ...(touched ? { gate_agent_ids: ids } : {}),
+            ...(hasOverrides ? { model_overrides: overrides } : {}),
+          }
+        : undefined;
     onRun(ideaInput.trim(), pipelineAgents.map((a) => a.id), effectiveType, extraParams);
   };
 
@@ -469,6 +490,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
         onRemoveAgent={handleRemoveAgent}
         onReorder={handleReorderAgents}
         canAddMore={canAddMore}
+        onModelOverridesChange={handleModelOverridesChange}
       />
     </div>
   );

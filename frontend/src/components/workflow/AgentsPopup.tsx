@@ -8,6 +8,7 @@ import {
   Puzzle, Webhook, Search, Check,
 } from "lucide-react";
 import { AgentLibrary } from "./AgentLibrary";
+import { AgentModelPicker } from "./AgentModelPicker";
 import type { AgentDef, WorkflowType, AttachedSkill, AttachedHook } from "@/types/index";
 import { SKILLS, SKILL_CATEGORIES, type SkillDef } from "@/data/skills";
 import { HOOKS, HOOK_EVENTS, type HookDef } from "@/data/hooks";
@@ -30,6 +31,13 @@ interface AgentsPopupProps {
   onDetachSkill?: (skillId: string) => void;
   onAttachHook?: (hook: AttachedHook) => void;
   onDetachHook?: (hookId: string) => void;
+  /**
+   * ISS-014 (MODEL-03): per-agent model overrides selected in the relocated
+   * AgentModelPicker (agentId -> modelId). Reported upward so IdeaInputPage can
+   * thread it into the run_pipeline payload as `model_overrides`. Additive —
+   * omit to ignore per-agent model selection (payload stays byte-identical).
+   */
+  onModelOverridesChange?: (modelOverrides: Record<string, string>) => void;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -713,6 +721,7 @@ const COLS = 3;
 export function AgentsPopup({
   isOpen, onClose, agents, pipelineType,
   onAddAgent, onRemoveAgent, onReorder, canAddMore = true,
+  onModelOverridesChange,
 }: AgentsPopupProps) {
   const { attachedSkills, attachedHooks } = useSkillsHooks();
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -958,6 +967,18 @@ export function AgentsPopup({
                       </div>
                     ))}
                   </div>
+                </div>
+
+                {/* ISS-014 (MODEL-03): per-agent model picker, relocated here
+                    from the deleted WorkflowComposer. Populated from the live
+                    /api/capabilities model catalog (user_allowed only). A
+                    selection threads up via onModelOverridesChange →
+                    IdeaInputPage extraParams → run_pipeline model_overrides. */}
+                <div className="mx-6 mb-4 px-1 flex-shrink-0">
+                  <AgentModelPicker
+                    agents={agents.map((a) => ({ id: a.id, name: a.name }))}
+                    onChange={onModelOverridesChange}
+                  />
                 </div>
               </>
             ) : (
