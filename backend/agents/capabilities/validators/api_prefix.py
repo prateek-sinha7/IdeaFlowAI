@@ -46,7 +46,6 @@ API_PREFIX = "/api/v1"
 class Issue:
     severity: str
     message: str
-    validator: str = "api_prefix"
 
 
 # The infra-file globs an infra-generator writes. Confined to the sandbox root
@@ -108,12 +107,11 @@ _EXEMPT_PREFIXES = ("/", "/static", "/_next", "/assets", "/favicon.ico", "/metri
 def _is_violation(path: str) -> bool:
     """Return ``True`` iff ``path`` is an app endpoint NOT under ``API_PREFIX``."""
     p = path.rstrip("/") or "/"
+    # ``/`` (the nginx default catch-all) is the first ``_EXEMPT_PREFIXES`` entry, so the
+    # membership check below already returns for it — no separate root branch needed.
     if p in _EXEMPT_PREFIXES or p.startswith("/static") or p.startswith("/_next"):
         return False
-    if p == API_PREFIX or p.startswith(API_PREFIX + "/") or p == API_PREFIX:
-        return False
-    # A bare root "/" is the nginx default catch-all, not an app endpoint.
-    if p == "/":
+    if p == API_PREFIX or p.startswith(API_PREFIX + "/"):
         return False
     return True
 

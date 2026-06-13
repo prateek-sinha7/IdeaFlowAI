@@ -20,8 +20,8 @@ across chunk boundaries, and assert:
 
 Fully OFFLINE/deterministic — scripted model, temp ``RUNS_ROOT``, no Bedrock. SC-001: the
 sanitizer keys on the generic tool-less runner capability, never a workflow/agent name —
-proven here by using a real tool-less (``domain-analyst``) vs tool-using (``app-code-generator``)
-agent, NOT a named branch.
+proven here by using a real tool-less (``domain-analyst``, tools:[]) vs tool-using
+(``prototype-revision-agent``, tools:[workspace]) agent, NOT a named branch.
 """
 
 from __future__ import annotations

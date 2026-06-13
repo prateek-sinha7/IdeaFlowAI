@@ -7,7 +7,8 @@ WHY a post_step and NOT a ``gates: [validation]`` gate: the ``validation`` gate 
 a ``validation_warning`` event when residual (non-critical) issues exist — but the
 85-event app_builder characterization golden contains NO such event, so a gate would
 break INV-3 byte/event-identity. A post_step is side-effects-only (the engine invokes
-it at engine.py:~1720 and yields NOTHING from it), so the run's event stream is
+it at the declared-post_step seam in ``_run_step``, engine.py:1889-1891, and yields
+NOTHING from it), so the run's event stream is
 untouched and the golden stays byte-identical. The ``validation_results`` audit row
 the validator writes is NOT golden-tracked, so it does not perturb parity either.
 

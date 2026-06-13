@@ -365,8 +365,8 @@ def test_resolve_returns_instances_for_both_new_pairs():
 
     This directly proves ``discover()``'s ``_builtin_modules`` tuple fired ``@register``
     on BOTH new modules → ``_IMPLS`` is bound → ``resolve()`` returns an instance
-    instead of raising ``RuntimeError("known but has no bound impl")`` at the engine
-    post_step seam (engine.py:~1720).
+    instead of raising ``RuntimeError("known but has no bound impl")`` at the declared
+    post_step seam in ``_run_step`` (engine.py:1889-1891).
     """
     reg = CapabilityRegistry()
     post = reg.resolve("post_step", "api_prefix_audit")
