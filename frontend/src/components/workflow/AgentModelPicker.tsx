@@ -1,17 +1,21 @@
 "use client";
 
 /**
- * AgentModelPicker — per-agent model picker populated from the capability
- * palette's model catalog (the `model_catalog` kind, API-02 / MODEL-04 / D-11).
+ * AgentModelPicker — per-agent model picker populated from the live
+ * capability-registry model catalog (the `model_catalog` kind, API-02 /
+ * MODEL-04 / D-11).
+ *
+ * Home (ISS-014): this is the PRIMARY model-selection surface inside the
+ * AgentsPopup Agents tab. The legacy WorkflowComposer/CapabilityPalette that
+ * once hosted it were deleted; there is no composer to look for.
  *
  * Fetches the live `/api/capabilities` model catalog on mount and lets the user
  * pick a model PER AGENT. The selection is reported upward via `onChange`
  * (agentId -> modelId) so it feeds the existing per-run `model_overrides` path —
  * an unselected agent simply keeps the run default (no override emitted).
  *
- * Models come from the live palette catalog (id/label/tier), never a hardcoded
- * list; only `user_allowed` models are offered. Additive sibling panel — it does
- * not change the existing composer behavior.
+ * Models come from the live registry catalog (id/label/tier), never a hardcoded
+ * list; only `user_allowed` models are offered.
  */
 
 import { useEffect, useState } from "react";
