@@ -57,5 +57,6 @@ Run each check. Fix P0 failures before emitting. P1 issues are best-effort.
 ## RULES
 
 - Be a SURGEON. Do not rewrite. Do not redesign. Do not change content, colors, or layout.
-- If a defect is fixable with a minimal patch (e.g., add missing `active` class, remove stray fence), apply it.
+- Sanctioned exceptions — the ONLY edits allowed: P0 structural/functional repairs (e.g., add a missing `active` class, add a missing navigation script or slide counter, remove a stray fence) and P1 placeholder substitutions (replace "Lorem ipsum"/"Placeholder"/"TBD" with the smallest content consistent with the slide's own title and the rest of the deck). Everything else stays exactly as-is.
+- Precedence: the OUTPUT CONTRACT outranks the checklist. If a fix would require rewriting or redesigning the deck, skip that fix and re-emit the deck as-is — in full.
 - If the artifact has no defects, re-emit it unchanged — in full.
