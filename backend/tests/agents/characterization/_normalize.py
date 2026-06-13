@@ -128,6 +128,16 @@ _VOLATILE_STRIP_KEYS = frozenset(
         # does not weaken the contiguity check.
         "seq",
         "event_id",
+        # ── Additive-but-parity-neutral pipeline_complete keys (ISS-021 / 18-01) ─
+        # The engine now emits a DECLARED deliverable shape hint on every
+        # pipeline_complete: ``deliverable_mimetype`` (the resolved/declared
+        # mimetype) + ``deliverable_filename`` (the declared output name). Both are
+        # metadata-only additions (the deliverable BYTES are unchanged) and NOT in
+        # _REQUIRED_DATA_KEYS, so they are STRIPPED here — mirroring the
+        # model_id/estimated_cost_usd precedent — keeping the 5 characterization
+        # event goldens byte-identical (INV-3).
+        "deliverable_mimetype",
+        "deliverable_filename",
     }
 )
 

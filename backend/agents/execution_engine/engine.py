@@ -1903,6 +1903,20 @@ class ExecutionEngine:
         from app.core.config import settings as _settings
         _tok_in = sum(r.get("input_tokens", 0) or 0 for r in results)
         _tok_out = sum(r.get("output_tokens", 0) or 0 for r in results)
+        # ── ISS-021 (18-01): the DECLARED deliverable shape hint ────────────────
+        # Surface a type-driven deliverable contract on EVERY pipeline_complete so
+        # the FE renderer (18-03) dispatches on a mimetype, never a workflow name
+        # (SC-001). Sourced ONLY from the already-resolved ``ectx.deliverable``
+        # (set at :953/:1838) — no new plumbing, no cross-boundary import: prefer
+        # the author-DECLARED ``mimetype``, else the per-resolver default computed
+        # from the DECLARED strategy/name (never content-sniffed from the bytes).
+        from agents.capabilities.deliverables._mimetype import (
+            default_mimetype as _default_mimetype,
+        )
+        _deliverable_name = getattr(ectx.deliverable, "name", None)
+        _deliverable_mimetype = getattr(ectx.deliverable, "mimetype", None) or (
+            _default_mimetype(_deliverable_strategy, _deliverable_name)
+        )
         _pipeline_complete_data = {
             "pipeline_type": pipeline_type,
             "pipeline_run_id": pipeline_run_id,
@@ -1910,6 +1924,8 @@ class ExecutionEngine:
             "agents_completed": len(results),
             "agents_total": len(ordered_agents),
             "final_output": final_output,
+            "deliverable_mimetype": _deliverable_mimetype,
+            "deliverable_filename": _deliverable_name,
             "total_input_tokens": _tok_in,
             "total_output_tokens": _tok_out,
             "total_tokens": _tok_in + _tok_out,
