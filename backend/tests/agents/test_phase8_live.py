@@ -117,6 +117,30 @@ _LIVE_SKIP = live_skip_reason()
 requires_live = pytest.mark.skipif(_LIVE_SKIP is not None, reason=_LIVE_SKIP or "")
 
 
+def _skip_if_creds_lapsed_mid_sweep() -> None:
+    """Runtime re-check: SKIP (not FAIL) when creds have lapsed mid-sweep (ISS-011).
+
+    ``_LIVE_SKIP`` / the ``@requires_live`` mark are captured at COLLECTION time. On a
+    multi-hour live sweep the default-profile SSO session can expire AFTER collection
+    decided the suite was runnable — STS then stops resolving, the model call is
+    swallowed to an ``error`` with 0 tokens, and the live assertions (``require_tokens``)
+    FAIL spuriously, indistinguishable from a real regression.
+
+    This re-evaluates the SINGLE runtime source of truth (:func:`live_skip_reason`,
+    already runtime-callable) at each live-test start and turns a mid-sweep credential
+    lapse into a clean ``pytest.skip`` with the exact re-run command — NOT a failure.
+    It is resolved via the ``live_harness`` module (not the collection-time bound name)
+    so the offline expired-creds simulation can monkeypatch it deterministically.
+    """
+    from tests.agents import live_harness
+
+    reason = live_harness.live_skip_reason()
+    if reason is not None:
+        pytest.skip(
+            "AWS SSO session expired mid-sweep — re-run after `aws sso login`: " + reason
+        )
+
+
 # ===========================================================================
 # Shared offline fixtures — scripted models + briefs.
 #
@@ -528,6 +552,16 @@ class TestLivePipelines:
 @requires_live
 class TestLiveHITL:
     """LIVE HITL on/off against the real model (gated on RUN_LIVE_BEDROCK=1)."""
+
+    @pytest.fixture(autouse=True)
+    def _recheck_creds_at_runtime(self) -> None:
+        """ISS-011: re-check creds at each live-HITL test start (mid-sweep expiry → SKIP).
+
+        Bound to this LIVE class only (autouse here, NOT a session/module fixture) so the
+        runtime re-check never touches ``TestOfflineHITL`` / ``TestOfflineProof`` — those
+        prove the gate seams are sound with no creds and must stay green offline.
+        """
+        _skip_if_creds_lapsed_mid_sweep()
 
     @pytest.mark.asyncio
     async def test_live_gates_off_completes_without_gating(self) -> None:
@@ -1007,18 +1041,80 @@ class TestCollectionSelfCheck:
         """
         from tests.agents.live_harness import live_enabled
 
-        # _LIVE_SKIP (captured at collection) must equal the live source of truth
-        # (proves the @requires_live mark and the runtime gate agree — no drift).
-        assert _LIVE_SKIP == live_skip_reason()
+        # ISS-011: do NOT assert strict ``_LIVE_SKIP == live_skip_reason()``. ``_LIVE_SKIP``
+        # is captured ONCE at collection (line ~116); the runtime ``live_skip_reason()`` is
+        # re-evaluated here. The old strict cross-time equality assumed the SSO session is
+        # IMMORTAL across a multi-hour sweep — but the default-profile token can legitimately
+        # expire mid-sweep (collection-valid → runtime-expired), which made this self-check
+        # FAIL on a benign credential lapse. We now assert the GATE'S correctness, not
+        # byte-equality across the run, and tolerate that drift. The runtime mid-sweep lapse
+        # is handled by TestLiveHITL's per-test re-check (skip, not fail).
+
+        # The @requires_live mark IS captured at collection — pairing it with the
+        # collection-time _LIVE_SKIP is still valid (no cross-time drift there).
+        assert requires_live.kwargs.get("reason") == (_LIVE_SKIP or "")
+
+        # Gate correctness at the COLLECTION snapshot: a reason ⇒ not enabled (with a
+        # human-readable message); no reason ⇒ enabled. (Stated against _LIVE_SKIP, the
+        # value the @requires_live mark actually gates on, so this never depends on a
+        # mid-run credential lapse.)
         if _LIVE_SKIP is None:
-            # Fully opted in WITH resolvable creds — the live cases WOULD run.
+            # Fully opted in WITH resolvable creds at collection — the live cases WOULD run.
+            assert requires_live.kwargs.get("reason") in ("", None)
+        else:
+            # Not opted in (or creds unavailable) at collection — the live cases SKIP.
+            assert _LIVE_SKIP.strip(), "a skip must carry a human-readable reason"
+
+        # Gate correctness at RUNTIME (the source of truth the per-test re-check uses):
+        # a reason ⇒ not enabled (non-empty message); no reason ⇒ enabled. We assert
+        # the gate's INTERNAL consistency at each point in time, NOT equality across time.
+        runtime_reason = live_skip_reason()
+        if runtime_reason is None:
             assert live_enabled() is True
         else:
-            # Not opted in (or creds unavailable) — the live cases SKIP with a reason.
             assert live_enabled() is False
-            assert _LIVE_SKIP.strip(), "a skip must carry a human-readable reason"
-            # The mark the LIVE classes carry is the active skip with that reason.
-            assert requires_live.kwargs.get("reason") == _LIVE_SKIP
+            assert runtime_reason.strip(), "a runtime skip must carry a human-readable reason"
+
+    def test_live_hitl_skips_on_mid_sweep_credential_expiry(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ISS-011: a mid-sweep credential lapse SKIPS the live HITL re-check (never FAILS).
+
+        Simulates the recurring fault offline (no Bedrock, no AWS): monkeypatch the
+        ``live_skip_reason`` symbol the runtime re-check resolves (on the ``live_harness``
+        MODULE) so it returns a non-None expiry reason — as if the default-profile SSO
+        token expired AFTER collection decided the suite was runnable. The per-test guard
+        must then raise ``pytest.skip.Exception`` (a SKIP outcome), NOT let the live
+        assertions fail on 0 tokens. This pins the recurring-mode contract deterministically.
+        """
+        from tests.agents import live_harness
+
+        expiry_reason = (
+            "AWS credentials did not resolve: ExpiredTokenException: The security token "
+            "included in the request is expired"
+        )
+        monkeypatch.setattr(live_harness, "live_skip_reason", lambda: expiry_reason)
+
+        with pytest.raises(pytest.skip.Exception) as excinfo:
+            _skip_if_creds_lapsed_mid_sweep()
+
+        msg = str(excinfo.value)
+        assert "aws sso login" in msg, "the skip must carry the re-run command"
+        assert expiry_reason in msg, "the skip must surface the underlying expiry reason"
+
+    def test_live_hitl_recheck_is_noop_when_creds_resolve(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ISS-011: when creds DO resolve at runtime, the re-check is a no-op (no skip).
+
+        The complement of the expiry simulation — with ``live_skip_reason() is None`` the
+        guard must NOT raise, so a genuinely-opted-in live run proceeds to the real model.
+        """
+        from tests.agents import live_harness
+
+        monkeypatch.setattr(live_harness, "live_skip_reason", lambda: None)
+        # Must not raise pytest.skip.Exception (nor anything else).
+        _skip_if_creds_lapsed_mid_sweep()
 
     @pytest.mark.asyncio
     async def test_offline_proof_helpers_are_callable(self) -> None:
