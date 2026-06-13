@@ -140,6 +140,60 @@ def test_infra_generator_api_v1_contract() -> None:
 
 
 # ===========================================================================
+# ISS-006 (Phase 19) — shared canonical getDatabase DB-accessor literal across
+# the app_builder producer (app-code-generator) + consumer
+# (app-test-implementation) prompt bodies.
+#
+# Root cause: producer emitted the DB module exporting `getDatabase`; consumer
+# emitted `tests/setup.ts` importing a model-invented `getDb` → TS2305 at test
+# build. The 13-03 shared-literal fix threads ONE canonical named-export literal
+# `getDatabase` through both bodies (and the consumer's Contract-fidelity rule
+# now explicitly names the global-setup file). This pin fails if either side
+# drops the literal or the global-setup contract — the regression backstop a
+# non-deterministic model can't talk its way past.
+#
+# Asserts on load_agent_spec(id).prompt_body (the parser the factory composes
+# from — the established pin pattern), NOT the raw file.
+# ===========================================================================
+
+
+def test_getdatabase_accessor_contract_shared() -> None:
+    """Producer + consumer bodies share the canonical `getDatabase` literal.
+
+    Reverting EITHER side trips an explicit assert below:
+      * drop it from the producer  → first assert fails;
+      * drop it from the consumer  → second assert fails;
+      * drop the global-setup file token from the consumer → third assert fails.
+    """
+    producer = load_agent_spec("app-code-generator").prompt_body
+    consumer = load_agent_spec("app-test-implementation").prompt_body
+
+    # Producer: the DB module exports the accessor as the canonical NAMED export.
+    assert "getDatabase" in producer, (
+        "app-code-generator body must carry the canonical DB-accessor literal "
+        "`getDatabase` (the named-export contract the consumer imports against)"
+    )
+    # The contract is a NAMED export, never a default — the exact phrasing the
+    # producer must keep so the consumer's named import compiles.
+    assert "NAMED export" in producer and "default export" in producer, (
+        "app-code-generator body must state the accessor is a NAMED export and "
+        "never a default export"
+    )
+
+    # Consumer: the same literal — single source of truth (13-03 pattern).
+    assert "getDatabase" in consumer, (
+        "app-test-implementation body must carry the SAME canonical literal "
+        "`getDatabase` (a divergent name re-introduces the ISS-006 TS2305 drift)"
+    )
+    # Consumer: the Contract-fidelity rule now explicitly names the Jest/Vitest
+    # global-setup file — the scope gap that was the ISS-006 root cause.
+    assert ("tests/setup.ts" in consumer) or ("globalSetup" in consumer), (
+        "app-test-implementation body must name the global-setup file "
+        "(`tests/setup.ts` / `globalSetup`) inside the Contract-fidelity rule"
+    )
+
+
+# ===========================================================================
 # Frontmatter freeze — T-15-01 mitigation made durable.
 # 15-01 edited bodies ONLY; the five agents' identity/ordering/tool grants are
 # frozen here so a future "cleanup" cannot silently change behavior.
