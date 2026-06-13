@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-13T16:38:46.215Z"
+last_updated: "2026-06-13T16:52:06.818Z"
 last_activity: 2026-06-13 -- Phase 19 execution started
 progress:
   total_phases: 19
   completed_phases: 18
   total_plans: 99
-  completed_plans: 97
+  completed_plans: 98
   percent: 95
 ---
 
@@ -25,17 +25,19 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 ## Current Position
 
 Phase: 19 (Prompt and Deliverable Adherence) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
-Last activity: 2026-06-13 -- Phase 19 execution started
+Last activity: 2026-06-13 -- Completed 19-02-PLAN.md (ISS-005)
 
-Session continuity: last session 2026-06-13; stopped at Completed 18-03-PLAN.md (ISS-021 FE: a workflow-agnostic, mimetype-dispatched deliverable renderer for ANY unknown pipeline_type on BOTH the live PreviewPanel path AND the history-reopen WorkflowHistory detail view — text/html→a SANDBOXED iframe [sandbox="allow-scripts", NO allow-same-origin, T-18-05 — asserted as a blocking test on EACH surface], text/markdown→MarkdownPreview, application/zip→AppBuilder bundle, unknown→safe download; the live path dispatches on the DECLARED deliverable_mimetype [18-01 emits it], the reopen path derives the mimetype from the persisted output shape [<!doctype/<html→text/html else text/markdown] via a SHARED exported deriveDeliverableMimetype helper imported by BOTH page.tsx's reopen block AND WorkflowHistory.tsx so the two reopen surfaces cannot diverge; WorkflowHistory's old isMarkdown=isCustom escaped-HTML path REMOVED for HTML deliverables [isGeneric structural fallback, never a workflow name — SC-001]; one generic deliverable row in results/FilesTab.tsx; threaded the generic channel through DashboardLayout [Rule-3 plumbing]; SC-001 grep over PreviewPanel.tsx/results/FilesTab.tsx/history/WorkflowHistory.tsx = 0; tsc clean, 27 new + 41-sweep vitest green, FE-only diff; commits 5f6ca616 [task1] + 3ae12120 [task2] + 13d1ad0c [task3]); resume file: none
+Session continuity: last session 2026-06-13; stopped at Completed 19-02-PLAN.md (ISS-005: a deterministic /api/v1 backstop. New pure-stdlib `api_prefix` Validator [backend/agents/capabilities/validators/api_prefix.py] modeled verbatim on spec_plan_coverage — globs the run sandbox for infra files [Dockerfile*, *.yml/*.yaml, nginx *.conf, .github/workflows/*], regex-flags app endpoints not under the single API_PREFIX='/api/v1' constant [https?://host/path URLs + nginx location blocks], emits one P2 Issue per violation, writes a validation_results audit row via target.runner.record_validation_result; import-pure, sandbox-confined, degrade-not-crash. Wired as an EVENT-FREE api_prefix_audit post_step [mirrors revision_validation] on the app_builder app-infra-generator step in workflow.yaml — NOT gates:[validation] [that emits a validation_warning event the 85-event app_builder golden has no slot for → breaks INV-3]. Registered on BOTH registry surfaces: the _KNOWN literal [compiler is_registered] AND discover()'s _builtin_modules import tuple [runtime @register → _IMPLS] so resolve('post_step','api_prefix_audit') + resolve('validator','api_prefix') each return an instance at runtime, not raise [the latent blocker the revised plan flagged]; drift guard _EXPECTED_NAMES += both pairs, len(_KNOWN) 61→63. PROVEN: 94 unit tests green [resolve-returns-instance + gate-wiring fault-injection emits validation_warning, golden would FAIL]; 5 characterization goldens byte/event-identical [app_builder UNCHANGED — the post_step is event-free + DB rows untracked], NO SNAPSHOT_UPDATE; lint-imports 4/0; zero migrations. Pre-existing unrelated failure test_phase5_revision_validation::test_event_types_subset_of_documented_vocabulary [gate_blocked in the offline harness] logged to deferred-items.md [proven pre-existing with changes stashed]. LIVE re-confirm deferred to the consolidated Bedrock/Playwright pass. Commits a9a90cd7 [feat task1 validator] + 5ee40626 [feat task2 post_step+registry+manifest+drift-guard]); resume file: none
+
+Prior session: stopped at Completed 18-03-PLAN.md (ISS-021 FE: a workflow-agnostic, mimetype-dispatched deliverable renderer for ANY unknown pipeline_type on BOTH the live PreviewPanel path AND the history-reopen WorkflowHistory detail view — text/html→a SANDBOXED iframe [sandbox="allow-scripts", NO allow-same-origin, T-18-05 — asserted as a blocking test on EACH surface], text/markdown→MarkdownPreview, application/zip→AppBuilder bundle, unknown→safe download; the live path dispatches on the DECLARED deliverable_mimetype [18-01 emits it], the reopen path derives the mimetype from the persisted output shape [<!doctype/<html→text/html else text/markdown] via a SHARED exported deriveDeliverableMimetype helper imported by BOTH page.tsx's reopen block AND WorkflowHistory.tsx so the two reopen surfaces cannot diverge; WorkflowHistory's old isMarkdown=isCustom escaped-HTML path REMOVED for HTML deliverables [isGeneric structural fallback, never a workflow name — SC-001]; one generic deliverable row in results/FilesTab.tsx; threaded the generic channel through DashboardLayout [Rule-3 plumbing]; SC-001 grep over PreviewPanel.tsx/results/FilesTab.tsx/history/WorkflowHistory.tsx = 0; tsc clean, 27 new + 41-sweep vitest green, FE-only diff; commits 5f6ca616 [task1] + 3ae12120 [task2] + 13d1ad0c [task3]); resume file: none
 
 Prior session: stopped at Completed 18-02-PLAN.md (ISS-019: CSS-only flex budget of the left dashboard execution column so the WaveTreePanel "Wave / Subagent Tree" heading clears the 1440×950 fold while AgentProgressPanel still scrolls its cards internally — three className edits in DashboardLayout.tsx: column wrapper → flex flex-col overflow-hidden [dropped column-level overflow-y-auto]; new agent wrapper flex-1 min-h-0 overflow-hidden; wave wrapper flex-shrink-0 max-h-[40%] overflow-y-auto; NO AgentProgressPanel.tsx/WaveTreePanel.tsx change — each panel already owns its internal scroll; structural Vitest assertion pins the three className contracts [jsdom has no layout engine — true visual proof heading ≤ 950 deferred to live Playwright pass]; tsc clean, 4/4 FE tests green, FE-only diff; commits af61f1d3 [fix task1] + 81ed1719 [test task2]); resume file: none
 
 Prior session: stopped at Completed 18-01-PLAN.md (ISS-021 backend: type-driven deliverable contract — DeliverableSpec.mimetype optional declared shape hint + thin compiler pass-through [mimetype=raw.get('mimetype'), no defaulting, INV-5]; import-pure _mimetype.default_mimetype helper + per-resolver default_mimetype staticmethods [single_file infers from declared name ext: .html/.htm→text/html, .md→text/markdown, else application/octet-stream; serialized_sandbox→application/zip; streamed_text→text/markdown; ppt→text/html — derived from the DECLARED strategy/name, NOT content-sniffed, SC-001]; engine emits deliverable_mimetype + deliverable_filename UNCONDITIONALLY on every pipeline_complete from getattr(ectx.deliverable,'mimetype',None) or the per-resolver default, beside final_output [clean + degraded; no new cross-boundary import]; INV-3 guard: both keys added to _VOLATILE_STRIP_KEYS [mirrors model_id/estimated_cost_usd] so the 5 characterization goldens stay byte-identical; PROVEN 27/27 green [5 goldens byte-identical, NO SNAPSHOT_UPDATE], lint-imports 4/0, zero migrations; commits e9bfae82 [feat task1] + 2a607e57 [feat task2]); resume file: none
 
-Progress: [██████████] 99% (95 plans complete; Phase 18 4/5 — 18-03 ISS-021 FE generic deliverable renderer closed; 18-04 ISS-014 composer-delete remaining)
+Progress: [██████████] 99% (97 plans complete; Phase 19 2/3 — 19-01 ISS-006 + 19-02 ISS-005 closed; 19-03 ISS-004 chunk sanitizer remaining)
 
 ## Performance Metrics
 
