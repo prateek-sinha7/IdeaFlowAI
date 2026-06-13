@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-06-13T13:19:00.000Z"
-last_activity: 2026-06-13 -- Completed 16-03-PLAN.md (ISS-008/009 reconnect frame-contract) — Phase 16 all 4 plans done
+status: verifying
+last_updated: "2026-06-13T13:46:07.458Z"
+last_activity: 2026-06-13
 progress:
   total_phases: 16
-  completed_phases: 15
+  completed_phases: 16
   total_plans: 88
   completed_plans: 88
   percent: 100
@@ -24,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 
 ## Current Position
 
-Phase: 16 (Terminal-State Integrity and Reconnect Frame-Contract) — ALL PLANS EXECUTED (ready for verification)
-Plan: 4 of 4 (complete)
+Phase: 16
+Plan: Not started
 Status: Phase 16 plans complete — ready for phase verification
-Last activity: 2026-06-13 -- Completed 16-03-PLAN.md (ISS-008/009 reconnect frame-contract)
+Last activity: 2026-06-13
 
 Session continuity: last session 2026-06-13; stopped at Completed 16-03-PLAN.md (ISS-008 durable-replay revision section via the WR-06 inverse + ISS-009 live-attach pipeline_reconnected ack live:true; handler-driven cluster-B tests; INV-3 parity green, lint-imports 4/0, zero migrations); resume file: none
 
@@ -37,7 +37,7 @@ Progress: [██████████] 100% (88/88 plans complete; Phase 16 
 
 **Velocity:**
 
-- Total plans completed: 119
+- Total plans completed: 123
 - Average duration: ~7 min
 - Total execution time: ~0.35 hours
 
@@ -59,6 +59,7 @@ Progress: [██████████] 100% (88/88 plans complete; Phase 16 
 | 12 | 10 | - | - |
 | 13 | 6 | - | - |
 | 14 | 4 | - | - |
+| 16 | 4 | - | - |
 
 **Recent Trend:**
 

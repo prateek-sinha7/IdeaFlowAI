@@ -531,7 +531,7 @@ Plans:
 **Goal:** Make abnormal run outcomes faithful end-to-end. A run whose agents failed on a runner-surfaced model/tool error must end `pipeline_failed` (not an empty `pipeline_complete` with DONE badges); a cancelled run must deliver `pipeline_cancelled` to the live wire so in-flight agent cards clear; the Preview must show a degraded/failed affordance instead of a neutral empty-state for a terminal run with no content; and durable-replay/reconnect frames must match live frames (revision `section`, ack `live`). Engine + WebSocket + one FE affordance only — zero new tables/migrations, INV-3 byte/event parity preserved, SC-001 honored (every new branch keys on a generic event type, never a workflow/model name).
 **Requirements**: ISS-016, ISS-017, ISS-007, ISS-002, ISS-008, ISS-009 (.planning/ISSUES-REGISTER.md — "Deep Root-Cause Investigation", clusters A+B)
 **Depends on:** Phase 15
-**Plans:** 4/4 plans executed
+**Plans:** 4/4 plans complete
 
 **Success Criteria:**
 
