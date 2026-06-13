@@ -305,9 +305,9 @@ cd backend && python3.11 -m pytest tests/agents/test_loader.py -q \
 | A2 | The "Read the concrete choices…" framing is the F4 fabrication trigger (inference from live preamble shape: 5× `<invoke name="read_file">`) | Current Bodies §2 | Contract line still prophylactically forbids tool-XML, so the fix holds regardless of the precise trigger |
 | A3 | `CaptureResult` from `drive_engine_pipeline` exposes the event list such that `pipeline_complete.final_output` is reachable (verified events carry it; the exact accessor name was not read this session) | Harness | Trivial — test author reads `live_harness.py` `CaptureResult` definition while writing the test |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Live re-check timing/budget** — CONTEXT locks the criteria (~$0.10, one od_ppt run + one FE-exact `od_ppt_output` revision) and allows recording as next-live-pass items if quota-constrained. Per the defer-live-verification project convention, the plan should mark phase completion on offline evidence + a recorded live-check item (Bedrock SSO/quota state on execution day decides). Recommendation: a `checkpoint:human-verify`-style closing task that either runs the cheap live check or records it.
+1. **Live re-check timing/budget** — RESOLVED: per D-05 (locked) — 15-03 implements the offline-evidence + recorded-deferral path. — CONTEXT locks the criteria (~$0.10, one od_ppt run + one FE-exact `od_ppt_output` revision) and allows recording as next-live-pass items if quota-constrained. Per the defer-live-verification project convention, the plan should mark phase completion on offline evidence + a recorded live-check item (Bedrock SSO/quota state on execution day decides). Recommendation: a `checkpoint:human-verify`-style closing task that either runs the cheap live check or records it.
 
 ## Environment Availability
 
