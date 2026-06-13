@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-06-13T15:41:54.331Z"
-last_activity: 2026-06-13 -- Completed 18-02-PLAN.md (ISS-019 flex-budget left execution column, CSS-only)
+status: verifying
+last_updated: "2026-06-13T15:52:09.870Z"
+last_activity: "2026-06-13 -- Completed 18-03-PLAN.md (ISS-021 FE: generic mimetype-dispatched deliverable renderer on live + reopen)"
 progress:
   total_phases: 18
-  completed_phases: 17
+  completed_phases: 18
   total_plans: 96
-  completed_plans: 95
-  percent: 94
+  completed_plans: 96
+  percent: 100
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 
 Phase: 18 (Custom-Workflow UX Completeness) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-13 -- Completed 18-03-PLAN.md (ISS-021 FE: generic mimetype-dispatched deliverable renderer on live + reopen)
 
 Session continuity: last session 2026-06-13; stopped at Completed 18-03-PLAN.md (ISS-021 FE: a workflow-agnostic, mimetype-dispatched deliverable renderer for ANY unknown pipeline_type on BOTH the live PreviewPanel path AND the history-reopen WorkflowHistory detail view — text/html→a SANDBOXED iframe [sandbox="allow-scripts", NO allow-same-origin, T-18-05 — asserted as a blocking test on EACH surface], text/markdown→MarkdownPreview, application/zip→AppBuilder bundle, unknown→safe download; the live path dispatches on the DECLARED deliverable_mimetype [18-01 emits it], the reopen path derives the mimetype from the persisted output shape [<!doctype/<html→text/html else text/markdown] via a SHARED exported deriveDeliverableMimetype helper imported by BOTH page.tsx's reopen block AND WorkflowHistory.tsx so the two reopen surfaces cannot diverge; WorkflowHistory's old isMarkdown=isCustom escaped-HTML path REMOVED for HTML deliverables [isGeneric structural fallback, never a workflow name — SC-001]; one generic deliverable row in results/FilesTab.tsx; threaded the generic channel through DashboardLayout [Rule-3 plumbing]; SC-001 grep over PreviewPanel.tsx/results/FilesTab.tsx/history/WorkflowHistory.tsx = 0; tsc clean, 27 new + 41-sweep vitest green, FE-only diff; commits 5f6ca616 [task1] + 3ae12120 [task2] + 13d1ad0c [task3]); resume file: none
@@ -159,6 +159,7 @@ Progress: [██████████] 99% (95 plans complete; Phase 18 4/5 
 | Phase 17 P03 | 12min | 2 tasks | 2 files |
 | Phase 18 P05 | 2min | 1 tasks | 3 files |
 | Phase 18 P03 | 12 min | 3 tasks | 10 files |
+| Phase 18 P04 | 8 min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
