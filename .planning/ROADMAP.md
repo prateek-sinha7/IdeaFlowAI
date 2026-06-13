@@ -572,5 +572,5 @@ Plans:
 **Wave 1**
 
 - [x] 17-01-PLAN.md — ISS-003: replace the dead `ALWAYS_CLARIFY` flag in `_drive_live` with the `compile_for_run` clarify-off wrap + a bounded offline fault-injection regression test (SC1) ✅ 2026-06-13 (1 passed / 1 skipped offline; goldens 10/10; lint-imports 4/0; test-only diff)
-- [ ] 17-02-PLAN.md — ISS-010: in-memory `InMemorySpanExporter` span-capture test (via the hook's own `_build_span_processor` + `_TRACER` reset) + OTLP graceful-degrade test; close DEFERRED→FIXED-by-test (SC2)
+- [x] 17-02-PLAN.md — ISS-010: in-memory `InMemorySpanExporter` span-capture test (via the hook's own `_build_span_processor` + `_TRACER` reset) + OTLP graceful-degrade test; close DEFERRED→FIXED-by-test (SC2) ✅ 2026-06-13 (10 otel tests green [8+2]; 1 span hook.before_step + flowin.hook/event/agent_id + scope flowin.agents.hooks.otel_tracing; OTLP-pkg-absent→console degrade; goldens 10/10; lint-imports 4/0; test-only diff; ISS-010 FIXED-by-test)
 - [ ] 17-03-PLAN.md — ISS-011: per-test `live_skip_reason()` re-check (SKIP not FAIL on mid-sweep expiry) + relaxed self-check + offline expired-creds skip simulation; transient classification untouched (SC3)
