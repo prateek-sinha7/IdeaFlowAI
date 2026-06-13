@@ -592,7 +592,7 @@ Plans:
 
 Plans:
 
-- [ ] 18-01-PLAN.md — ISS-021 backend: DeliverableSpec.mimetype + emit deliverable_mimetype/deliverable_filename on pipeline_complete + _VOLATILE_STRIP_KEYS parity guard (wave 1)
+- [x] 18-01-PLAN.md — ISS-021 backend: DeliverableSpec.mimetype + emit deliverable_mimetype/deliverable_filename on pipeline_complete + _VOLATILE_STRIP_KEYS parity guard (wave 1) — Complete 2026-06-13
 - [ ] 18-02-PLAN.md — ISS-019: flex-budget the left execution column so the wave panel is above the 1440x950 fold (CSS-only, wave 1)
 - [ ] 18-03-PLAN.md — ISS-021 frontend: generic mimetype-dispatched deliverable renderer (HTML->sandboxed iframe / md->markdown / zip->bundle) + generic Files row, live + reopen (wave 2)
 - [ ] 18-04-PLAN.md — ISS-014: delete the orphaned WorkflowComposer/CapabilityPalette + relocate the per-agent model picker into the live AgentsPopup wiring model_overrides (wave 3)
