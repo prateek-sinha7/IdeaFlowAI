@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from agents.capabilities.deliverables._mimetype import default_mimetype
 from agents.capabilities.registry import register
 
 
@@ -30,6 +31,11 @@ class SerializedSandboxResolver:
     """
 
     name = "serialized_sandbox"
+
+    @staticmethod
+    def default_mimetype(deliverable_name: str | None = None) -> str:
+        """Default deliverable shape hint (ISS-021): a sandbox bundle → application/zip."""
+        return default_mimetype("serialized_sandbox", deliverable_name)
 
     def resolve(self, ctx: Any) -> Any:
         runner = ctx.runner

@@ -677,10 +677,15 @@ class WorkflowCompiler:
         # DECLARED revision-intent (07-10 / WR-04): copied verbatim onto the compiled
         # model (default False). Coerced to bool so a truthy/None YAML scalar lands as
         # a clean flag; NO workflow-name knowledge lives here (INV-1).
+        # ``mimetype`` is a thin pass-through (ISS-021 / 18-01): copied verbatim from
+        # the manifest (default None). NO defaulting logic lives here — the
+        # per-resolver default is computed at emission time (INV-5: no DSL/defaulting
+        # in the compiler).
         return DeliverableSpec(
             strategy=strategy,
             name=raw.get("name"),
             revises_existing=bool(raw.get("revises_existing", False)),
+            mimetype=raw.get("mimetype"),
         )
 
     # ── DAG validation (no duplicate agents, no cycle) ───────────────────────

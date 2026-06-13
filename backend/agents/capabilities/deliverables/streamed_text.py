@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 from agents.capabilities.deliverables._artifact import unwrap_artifact
+from agents.capabilities.deliverables._mimetype import default_mimetype
 from agents.capabilities.registry import register
 
 
@@ -27,6 +28,11 @@ class StreamedTextResolver:
     """
 
     name = "streamed_text"
+
+    @staticmethod
+    def default_mimetype(deliverable_name: str | None = None) -> str:
+        """Default deliverable shape hint (ISS-021): streamed text → text/markdown."""
+        return default_mimetype("streamed_text", deliverable_name)
 
     def resolve(self, ctx: Any) -> Any:
         last_streamed = getattr(ctx, "last_streamed", "") or ""

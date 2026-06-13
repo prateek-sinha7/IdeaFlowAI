@@ -284,6 +284,11 @@ class DeliverableSpec:
     strategy: str | None = None   # capability name (deliverable resolver)
     name: str | None = None       # e.g. "prototype.html"
     revises_existing: bool = False  # DECLARED revision-intent (07-10 / WR-04/WR-06)
+    # DECLARED deliverable shape hint (ISS-021 / 18-01): an optional author-set
+    # mimetype the engine emits on pipeline_complete so the FE renderer dispatches
+    # on a type, not a workflow name (SC-001). Default None → the per-resolver
+    # default is computed at emission time (NOT in the compiler — INV-5).
+    mimetype: str | None = None
 
 
 @dataclass

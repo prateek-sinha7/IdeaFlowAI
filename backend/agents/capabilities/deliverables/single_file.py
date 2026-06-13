@@ -26,6 +26,7 @@ import logging
 from typing import Any
 
 from agents.capabilities.deliverables._artifact import unwrap_artifact
+from agents.capabilities.deliverables._mimetype import default_mimetype
 from agents.capabilities.registry import register
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,11 @@ class SingleFileResolver:
     """
 
     name = "single_file"
+
+    @staticmethod
+    def default_mimetype(deliverable_name: str | None) -> str:
+        """Default deliverable shape hint (ISS-021): infer from the declared name ext."""
+        return default_mimetype("single_file", deliverable_name)
 
     def resolve(self, ctx: Any) -> Any:
         runner = ctx.runner

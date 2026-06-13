@@ -36,6 +36,7 @@ from agents.capabilities.deliverables._artifact import (
     sanitize_carousel_deck_html,
     unwrap_artifact,
 )
+from agents.capabilities.deliverables._mimetype import default_mimetype
 from agents.capabilities.registry import register
 
 
@@ -49,6 +50,11 @@ class PptResolver:
     """
 
     name = "ppt"
+
+    @staticmethod
+    def default_mimetype(deliverable_name: str | None = None) -> str:
+        """Default deliverable shape hint (ISS-021): a deck is HTML → text/html."""
+        return default_mimetype("ppt", deliverable_name)
 
     def resolve(self, ctx: Any) -> Any:
         last_streamed = getattr(ctx, "last_streamed", "") or ""
