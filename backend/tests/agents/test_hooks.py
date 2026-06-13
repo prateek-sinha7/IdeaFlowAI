@@ -634,3 +634,122 @@ async def test_otel_tracing_emits_no_ws_event_string():
     # The only recorded side effect is the audit row (no event stream touched).
     assert len(runner.hook_runs) == 1
     assert runner.hook_runs[0]["hook"] == "otel_tracing"
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# ISS-010 (Phase 17) — close the OTLP verification gap deterministically OFFLINE.
+#
+# "Declaration-driven hooks → legacy pipelines emit no spans" is true and proven
+# (all 18 manifests declare no ``hooks:``). The remaining gap was: given a
+# collector + a hook-declaring step, DO spans actually export? Prove it WITHOUT a
+# live collector by driving the REAL ``OtelTracingHook.handle`` through an injected
+# ``InMemorySpanExporter`` and asserting exactly 1 span with the right attrs/scope.
+#
+# THE #1 LANDMINE (LOCKED): the hook caches a module-private ``_TRACER`` and does
+# NOT call ``trace.set_tracer_provider()``, so a global-provider test would MISS
+# its spans → FALSE GREEN. Inject via the module's OWN factory
+# (``_build_span_processor``) + reset ``_TRACER=None`` so ``_get_tracer()`` rebuilds
+# the provider/tracer through the patched factory. ``SimpleSpanProcessor`` is
+# synchronous, so no ``force_flush`` is needed.
+#
+# REJECTED hacks: stand up a live OTLP collector / install
+# ``opentelemetry-exporter-otlp`` (env-dependent, non-deterministic, adds a
+# deliberately-optional dep); a global ``set_tracer_provider(InMemory…)`` test
+# (silently misses the hook's own ``_TRACER`` → false green).
+# ════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_otel_tracing_exports_one_span_with_attrs_via_in_memory_exporter(
+    monkeypatch,
+):
+    """The hook EXPORTS exactly 1 span (right attrs + scope) through an injected in-memory exporter (ISS-010).
+
+    Injection seam (LOCKED): monkeypatch the hook's OWN ``_build_span_processor``
+    factory to a ``SimpleSpanProcessor(InMemorySpanExporter())`` and reset the
+    module-private ``_TRACER`` to ``None`` — the hook does NOT use the global
+    provider, so a ``set_tracer_provider`` approach would silently miss its
+    ``_TRACER`` (false green). Driving the real ``handle`` then proves the span
+    machinery + the audit row are both intact.
+    """
+    from agents.capabilities.hooks import otel_tracing as otel
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+        InMemorySpanExporter,
+    )
+
+    exporter = InMemorySpanExporter()  # HOLD the ref — read finished spans off it.
+    # Inject via the hook's OWN factory (mandatory — NOT a global provider).
+    monkeypatch.setattr(otel, "_build_span_processor", lambda: SimpleSpanProcessor(exporter))
+    # Reset the cached tracer so _get_tracer() rebuilds through the patched factory.
+    monkeypatch.setattr(otel, "_TRACER", None)
+
+    hook = otel.OtelTracingHook()
+    runner = _RecordingRunner()
+    ctx = _Ctx(runner)
+
+    result = await hook.handle({"event": "before_step", "agent_id": "build"}, ctx)
+
+    # SimpleSpanProcessor is synchronous — the span is already finished + exported.
+    spans = exporter.get_finished_spans()
+    assert len(spans) == 1
+    span = spans[0]
+    assert span.name == "hook.before_step"
+    assert span.attributes["flowin.hook"] == "otel_tracing"
+    assert span.attributes["flowin.event"] == "before_step"
+    assert span.attributes["flowin.agent_id"] == "build"
+    # The instrumentation scope is the hook's tracer identity (process-wide).
+    assert span.instrumentation_scope.name == otel._TRACER_NAME
+    assert span.instrumentation_scope.name == "flowin.agents.hooks.otel_tracing"
+
+    # The audit half stays intact: continue + one hook_runs row with span=True.
+    assert result.outcome == HOOK_CONTINUE
+    assert len(runner.hook_runs) == 1
+    row = runner.hook_runs[0]
+    assert row["hook"] == "otel_tracing"
+    assert row["event"] == "before_step"
+    assert row["outcome"] == HOOK_CONTINUE
+    assert row["detail"]["span"] is True
+    assert row["detail"]["agent_id"] == "build"
+
+    # No patched tracer leaks into the other otel tests: the monkeypatch fixture
+    # reverts ``_build_span_processor``; explicitly null ``_TRACER`` so the next
+    # ``_get_tracer()`` rebuilds through the real factory.
+    monkeypatch.setattr(otel, "_TRACER", None)
+
+
+def test_otel_build_span_processor_degrades_to_console_when_otlp_pkg_absent(
+    monkeypatch,
+):
+    """``_build_span_processor`` degrades to a console processor when the OTLP exporter pkg is absent (ISS-010).
+
+    Pins the env-degradation contract (otel_tracing.py:96-101): with
+    ``OTEL_EXPORTER_OTLP_ENDPOINT`` set but the OTLP exporter import forced to fail,
+    the factory must fall back to ``SimpleSpanProcessor(ConsoleSpanExporter())``
+    (NOT a BatchSpanProcessor/OTLP) — a non-blocking observability hook must never
+    break the run because an optional exporter is absent. This is DISTINCT from
+    ``..._degrades_to_noop_span_when_otel_unavailable`` (api/sdk absent).
+    """
+    import sys
+
+    from agents.capabilities.hooks import otel_tracing as otel
+    from opentelemetry.sdk.trace.export import (
+        ConsoleSpanExporter,
+        SimpleSpanProcessor,
+    )
+
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+    # Force the lazy ``from ...trace_exporter import OTLPSpanExporter`` to raise so
+    # the ``except Exception`` branch degrades to console (the OTLP pkg is optional).
+    monkeypatch.setitem(
+        sys.modules,
+        "opentelemetry.exporter.otlp.proto.grpc.trace_exporter",
+        None,
+    )
+
+    proc = otel._build_span_processor()
+
+    # Console-degrade path: a SimpleSpanProcessor over a ConsoleSpanExporter — NOT
+    # the BatchSpanProcessor(OTLP) the endpoint-configured happy path would build.
+    assert isinstance(proc, SimpleSpanProcessor)
+    assert isinstance(proc.span_exporter, ConsoleSpanExporter)
