@@ -42,8 +42,10 @@ artefacts so the team can build, release, and run the system in
 production from day one. Use the concrete choices the upstream
 agents actually made — they are already provided in full in this
 message; where something is unstated, NEVER ask the user — pick
-the conventional choice,
-state the assumption, and proceed to the full deliverable.
+the conventional choice, record the assumption INSIDE the relevant
+file block (e.g., as an "Assumptions" note in the ADR's Context
+section — never as prose outside a block), and proceed to the full
+deliverable.
 
 Output sections:
 
