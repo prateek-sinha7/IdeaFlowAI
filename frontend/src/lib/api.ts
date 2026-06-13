@@ -513,7 +513,9 @@ export interface CapabilitiesPalette {
 
 /**
  * Fetch the live capability-registry palette (API-02). Auth-gated (JWT); the
- * CapabilityPalette + AgentModelPicker render from this — never a hardcoded list.
+ * relocated per-agent AgentModelPicker (AgentsPopup Agents tab) renders its
+ * model catalog from this — never a hardcoded list. (ISS-014: the legacy
+ * CapabilityPalette/WorkflowComposer that also consumed it were deleted.)
  */
 export async function getCapabilities(
   token: string

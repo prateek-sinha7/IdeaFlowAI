@@ -1,7 +1,8 @@
 /**
  * Phase 12 / 12-08 (WAVE-03 FE half, UAT Gap 1) — proves WaveTreePanel is
  * mounted on the dashboard EXECUTION surface (no longer dead UI inside the
- * unrouted WorkflowComposer). Renders the real DashboardLayout with
+ * legacy unrouted composer, which was deleted in ISS-014). Renders the real
+ * DashboardLayout with
  * pipelineState.isRunning=true (which flips mainView to "execution") and
  * asserts the `waves` prop reaches WaveTreePanel:
  *   - non-empty waves → the "Wave / Subagent Tree" heading + the worker agent
