@@ -8,7 +8,7 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 import { useWorkflow } from "@/hooks/useWorkflow";
 import { shouldApplyEvent, resetReplayState } from "@/lib/wsReplayState";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, User, WaveGroup } from "@/types/index";
+import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, WorkflowStatus, User, WaveGroup } from "@/types/index";
 import type { ChatMode } from "@/components/chat/ChatInput";
 
 /**
@@ -42,6 +42,12 @@ export default function DashboardPage() {
   const [userStoryContent, setUserStoryContent] = useState<string>("");
   const [pptContent, setPptContent] = useState<string>("");
   const [prototypeContent, setPrototypeContent] = useState<string>("");
+  // ISS-017 (16-04) — the persisted status of a history-reopened run. When a
+  // failed/cancelled run is reopened it sets no content (unchanged), so this
+  // server-persisted status is threaded into PreviewPanel to render the
+  // terminal-empty degraded/failed affordance on the history path. Cleared
+  // (undefined) for fresh/live runs and successful reopens.
+  const [reopenedRunStatus, setReopenedRunStatus] = useState<WorkflowStatus | undefined>(undefined);
   const [currentMode, setCurrentMode] = useState<ChatMode>("default");
   const [chatTitleUpdate, setChatTitleUpdate] = useState<{ chat_session_id: string; title: string } | null>(null);
   const [processSteps, setProcessSteps] = useState<ProcessStep[]>([]);
@@ -995,6 +1001,9 @@ export default function DashboardPage() {
       setUserStoryContent("");
       setPptContent("");
       setPrototypeContent("");
+      // ISS-017 (16-04): reset the reopened-run failure signal until the run
+      // detail loads — avoids a stale affordance leaking across reopens.
+      setReopenedRunStatus(undefined);
 
       // Load the workflow output from backend
       const currentToken = getToken();
@@ -1012,6 +1021,17 @@ export default function DashboardPage() {
             setPrototypeContent(fullRun.output);
           }
         }
+
+        // ISS-017 (16-04): a reopened run that ended failed/cancelled sets no
+        // content (unchanged above) — thread its persisted server status down so
+        // PreviewPanel shows the terminal-empty degraded/failed affordance on the
+        // history path. This keys on the SERVER status, not a client empty guess.
+        // A completed (success) reopen clears the signal (undefined).
+        setReopenedRunStatus(
+          fullRun.status === "failed" || fullRun.status === "cancelled"
+            ? fullRun.status
+            : undefined,
+        );
       } catch (err) {
         console.error("Failed to load workflow output:", err);
       }
@@ -1095,8 +1115,12 @@ export default function DashboardPage() {
       processSteps={processSteps}
       websocketSend={send}
       pipelineState={pipelineState}
+      reopenedRunStatus={reopenedRunStatus}
       onStartPipeline={(type, message, agentIds, attachedSkills, attachedHooks, extraParams) => {
         const isRevision = type.endsWith("_revision");
+        // ISS-017 (16-04): any new run clears the history-reopen failure signal
+        // so a prior failed reopen never bleeds the affordance into a live run.
+        setReopenedRunStatus(undefined);
         if (!isRevision) {
           // Fresh run — clear previous preview content
           setUserStoryContent("");

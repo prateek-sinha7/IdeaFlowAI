@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Eye, FolderDown, Brain, PanelRightClose, Copy, Check, Download, ExternalLink, Loader2 } from "lucide-react";
+import { Eye, FolderDown, Brain, PanelRightClose, Copy, Check, Download, ExternalLink, Loader2, AlertTriangle } from "lucide-react";
 import { UserStoryPreview } from "./UserStoryPreview";
 import { PPTPreview } from "./PPTPreview";
 import { PrototypePreview } from "./PrototypePreview";
@@ -172,6 +172,16 @@ interface PreviewPanelProps {
   agents?: import("@/types/index").AgentRunState[];
   // Full pipeline state for the enhanced Thinking tab
   pipelineState?: import("@/types/index").PipelineRunState;
+  // Phase 16 (ISS-017) — history-reopen server signal. When a persisted run is
+  // reopened with status "failed"/"cancelled", the live pipelineState carries no
+  // failed/degraded flag (it reflects the new/idle run), so the reopened run's
+  // status is threaded here. PreviewPanel renders the terminal-empty
+  // degraded/failed affordance when this is "failed"/"cancelled" — the
+  // history-path counterpart of the live pipelineState.failed/.degraded signal.
+  // Keyed on the SERVER-persisted status, never a client empty==failed guess.
+  reopenedRunStatus?: import("@/types/index").WorkflowStatus;
+  // Optional failed-agent names carried by the reopened run detail payload.
+  reopenedFailedAgents?: string[];
 }
 
 const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
@@ -180,7 +190,63 @@ const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
   { id: "thinking", label: "Thinking", icon: Brain },
 ];
 
-export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState }: PreviewPanelProps) {
+// ─── ISS-017 (16-04) — terminal-empty degraded/failed affordance ──────────────
+// Rendered (instead of the neutral "Output will appear here") when a run is
+// TERMINAL, has no content, AND carries a server-derived failure signal
+// (pipelineState.failed/.degraded on live; the reopened run status on history).
+// Surfaces the failed-agent names when present + a "view details"/retry hint.
+function DegradedRunAffordance({
+  failedAgents,
+  onRetry,
+}: {
+  failedAgents?: string[];
+  onRetry?: (instruction: string) => void;
+}) {
+  const hasFailedAgents = !!(failedAgents && failedAgents.length > 0);
+  return (
+    <div className="flex h-full items-center justify-center px-6">
+      <div className="flex max-w-sm flex-col items-center gap-3 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-50">
+          <AlertTriangle className="h-6 w-6 text-amber-500" />
+        </div>
+        <p className="text-sm font-semibold text-gray-900">
+          This run did not complete successfully
+        </p>
+        <p className="text-xs text-gray-500">
+          No deliverable was produced. The run ended in a failed or degraded state.
+        </p>
+        {hasFailedAgents && (
+          <div className="w-full rounded-md border border-amber-100 bg-amber-50/60 px-3 py-2 text-left">
+            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-amber-700">
+              Failed agents
+            </p>
+            <ul className="space-y-0.5">
+              {failedAgents!.map((name) => (
+                <li key={name} className="text-xs text-amber-800">
+                  {name}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {onRetry ? (
+          <button
+            onClick={() => onRetry("Retry this run")}
+            className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
+          >
+            View details / retry
+          </button>
+        ) : (
+          <p className="mt-1 text-[11px] text-gray-400">
+            Open the Thinking tab to view details.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>("preview");
   const [copied, setCopied] = useState(false);
 
@@ -203,6 +269,27 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, i
       ? pptContent
       : prototypeContent;
   const hasContent = !!(userStoryContent || pptContent || prototypeContent || pptxCode);
+
+  // ─── ISS-017 (16-04) — terminal-empty degraded/failed affordance ────────────
+  // A TERMINAL run (not streaming) with no content must show a failure
+  // affordance, not the neutral "Output will appear here". The signal MUST come
+  // from the server, never a client-side `terminal && !content` guess (the
+  // REJECTED hack — re-creates the IN-03 FE-vs-DB disagreement and mislabels a
+  // legitimately-empty completed run). The server-derived sources are:
+  //   • live path  — pipelineState.failed (pipeline_failed) or .degraded
+  //     (pipeline_complete status:"degraded"), set by useWorkflow.
+  //   • history path — the reopened run's persisted status ("failed"/"cancelled").
+  const isStillRunning = !!(isStreaming || pipelineState?.isRunning);
+  const isTerminal = !isStillRunning;
+  const liveFailureSignal = !!(pipelineState?.failed || pipelineState?.degraded);
+  const reopenFailureSignal = reopenedRunStatus === "failed" || reopenedRunStatus === "cancelled";
+  const terminalFailure = liveFailureSignal || reopenFailureSignal;
+  const showFailureAffordance = !hasContent && isTerminal && terminalFailure;
+  const failedAgentNames =
+    pipelineState?.failedAgents ||
+    pipelineState?.degradedFailedAgents ||
+    reopenedFailedAgents ||
+    [];
 
   const handleTabChange = (tabId: PanelTab) => { setActiveTab(tabId); onTabSelect?.(tabId); };
   const handleCopy = () => {
@@ -288,7 +375,12 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, i
               transition={{ duration: 0.15 }}
               className="absolute inset-0 overflow-y-auto"
             >
-              {!hasContent ? (
+              {showFailureAffordance ? (
+                <DegradedRunAffordance
+                  failedAgents={failedAgentNames}
+                  onRetry={onRevisePrototype || onRevisePpt || onReviseUserStory || onReviseAppBuilder}
+                />
+              ) : !hasContent ? (
                 <div className="flex items-center justify-center h-full">
                   <p className="text-xs text-gray-400">Output will appear here</p>
                 </div>

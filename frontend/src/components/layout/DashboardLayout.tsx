@@ -52,6 +52,12 @@ export interface DashboardLayoutProps {
   onResetPipeline?: () => void;
   recentRuns?: WorkflowRun[];
   onSelectWorkflowRun?: (run: WorkflowRun) => void;
+  // Phase 16 (ISS-017) — the persisted status of a history-reopened run. When a
+  // failed/cancelled run is reopened it carries no content, so the run's
+  // server-persisted status is threaded down to PreviewPanel to render the
+  // terminal-empty degraded/failed affordance on the history path. Undefined for
+  // fresh/live runs and successful reopens.
+  reopenedRunStatus?: import("@/types/index").WorkflowStatus;
   questionnaireData?: { questions: { id: string; question: string; options: string[] }[] } | null;
   // Phase 2 (Universal Engine) — clarify gate resume wiring.
   activePipelineRunId?: string | null;
@@ -198,6 +204,7 @@ export function DashboardLayout({
   processSteps,
   websocketSend,
   pipelineState,
+  reopenedRunStatus,
   onStartPipeline,
   onResetPipeline,
   recentRuns,
@@ -1240,6 +1247,7 @@ export function DashboardLayout({
                       }
                       agents={pipelineState?.agents}
                       pipelineState={pipelineState}
+                      reopenedRunStatus={reopenedRunStatus}
                     />
                   )}
                 </ErrorBoundary>

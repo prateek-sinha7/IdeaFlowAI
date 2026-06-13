@@ -400,6 +400,14 @@ export interface PipelineRunState {
   // errored and never completed (WR-05 semantics). Not a full success.
   degraded?: boolean;
   degradedFailedAgents?: string[];
+  // Phase 16 (ISS-017) — pipeline_failed arrived: a terminal failure where
+  // the run did not complete successfully (no deliverable). Set by the
+  // useWorkflow pipeline_failed handler. Additive, mirrors degraded/* above.
+  // Keyed on the SERVER signal (the pipeline_failed event ISS-016 produces),
+  // NOT a client-side empty==failed guess. Consumed by PreviewPanel to render
+  // a degraded/failed affordance instead of the neutral empty-state.
+  failed?: boolean;
+  failedAgents?: string[];
 }
 
 export type PipelineMessageType =

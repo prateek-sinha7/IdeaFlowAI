@@ -395,6 +395,13 @@ export function handlePipelineMessage(
           isRunning: false,
           totalDuration,
           completedCount: updated.filter((a) => a.status === "done").length,
+          // ISS-017 (16-04): surface an additive server `failed` signal on the
+          // run state (mirrors the degraded/degradedFailedAgents pattern in the
+          // pipeline_complete handler). PreviewPanel keys its terminal-empty
+          // degraded/failed affordance on this server-derived flag — NOT a
+          // client-side empty==failed guess.
+          failed: true,
+          failedAgents: failedIds,
         };
       });
       return true;
