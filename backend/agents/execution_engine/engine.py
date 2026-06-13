@@ -86,6 +86,36 @@ def _log_event(
 
 
 # ---------------------------------------------------------------------------
+# WR-02 (16 review) — client-facing sanitization of runner error text
+# ---------------------------------------------------------------------------
+
+# Stable, leak-free message placed on the client-facing ``agent_error`` event.
+# The chat path routes provider exceptions through
+# ``app.agents.llm_errors.map_exception`` to a secret-free triple; the engine
+# only holds the runner's stringified ``str(exc)`` (the runner stays as-is, A1),
+# so we cannot inspect the botocore error code to pick a granular message —
+# ``map_exception`` itself falls back to ``internal_error`` ("Something went
+# wrong…") for any non-exception input. We therefore emit a fixed generic
+# message and keep the raw provider text server-side only (logged). This makes a
+# leak structurally impossible: a non-throttle Bedrock fault's ``str(exc)`` can
+# carry ARNs / region / model-id / config, none of which reach the browser.
+_GENERIC_AGENT_ERROR_MESSAGE = "The model rejected this request."
+
+
+def _sanitize_agent_error(raw: str) -> str:
+    """Return a bounded, secret-free client-facing message for a runner error.
+
+    ``raw`` is the runner's ``str(exc)`` (already bounded to 500 chars upstream).
+    It can carry provider ARNs / region / model-id / internal config for a
+    non-throttle Bedrock fault, so it is NEVER returned verbatim — the caller
+    keeps it in the server log only. We return a fixed generic message
+    (WR-02 / T-16-01-ID: bounded, no stack frames, no secrets). Keyed on nothing
+    in ``raw`` — no provider/model/workflow text match (SC-001).
+    """
+    return _GENERIC_AGENT_ERROR_MESSAGE
+
+
+# ---------------------------------------------------------------------------
 # Durable run_events sink (PERSIST-03 / D-11)
 # ---------------------------------------------------------------------------
 
@@ -2291,6 +2321,10 @@ class ExecutionEngine:
             # flag stays False on the characterization goldens (INV-3 dormant arm).
             agent_errored = False
             agent_error_message = ""
+            # WR-02 (16 review): the raw runner ``str(exc)`` is kept server-side
+            # only (log) — never placed on the client-facing event. See the
+            # ``error`` arm + the agent_errored post-loop block below.
+            agent_error_raw = ""
             agent_input_tokens = 0
             agent_output_tokens = 0
 
@@ -2415,12 +2449,22 @@ class ExecutionEngine:
                                 # hard-failed run terminated as a clean pipeline_complete.
                                 # Branch keys on the GENERIC event type only — no provider /
                                 # model / workflow text match (SC-001).
-                                # Record the fault (bounded message — no stack frames / internal
-                                # paths, T-16-01-ID) and break out of the stream so the post-loop
+                                # Record the fault and break out of the stream so the post-loop
                                 # ``agent_errored`` branch emits a recoverable agent_error and
                                 # SKIPS the result-append + agent_complete for this agent.
+                                # WR-02 (16 review): the runner forwards the raw ``str(exc)`` which,
+                                # for a non-throttle Bedrock fault, can carry ARNs / region /
+                                # model-id / internal config. The chat path routes provider errors
+                                # through ``app.agents.llm_errors.map_exception`` to a stable,
+                                # secret-free user message; mirror that here. The engine only holds
+                                # the stringified message (the runner stays as-is, A1), so we keep
+                                # the raw text SERVER-SIDE (the warning log below) and place only a
+                                # bounded, generic, leak-free message on the client-facing event
+                                # (T-16-01-ID: bounded, no stack frames, no secrets). Keyed on the
+                                # generic event type only — no provider/model/workflow match (SC-001).
                                 agent_errored = True
-                                agent_error_message = str(event.get("error", "") or "")[:500]
+                                agent_error_raw = str(event.get("error", "") or "")[:500]
+                                agent_error_message = _sanitize_agent_error(agent_error_raw)
                                 break
                     # Stream consumed cleanly (no throttle) — done, exit the retry loop.
                     break
@@ -2534,13 +2578,18 @@ class ExecutionEngine:
             # A1 the error path must NOT append a completed result, so this agent stays
             # in _failed_agent_ids and is NOT in results → the engine terminal machinery
             # maps it to pipeline_failed (all-fail) / status:degraded (partial). The
-            # message is the runner's bounded str(exc) (no traceback / internal path —
-            # T-16-01-ID). No F3 re-key, no runner edit, no text match (SC-001).
+            # client-facing message is the SANITIZED, bounded text (no traceback /
+            # provider ARN / region / model-id — WR-02, T-16-01-ID); the raw str(exc)
+            # is logged server-side only. No F3 re-key, no runner edit, no text match
+            # (SC-001).
             if agent_errored:
+                # WR-02 (16 review): log the RAW provider message server-side for
+                # operator triage (the warning log is not client-visible), but emit
+                # only the sanitized, leak-free message on the agent_error event.
                 logger.warning(
                     "Agent %s: runner surfaced an error event — marking failed (no "
-                    "completion): %s",
-                    spec.id, agent_error_message,
+                    "completion). raw=%s | client=%s",
+                    spec.id, agent_error_raw, agent_error_message,
                 )
                 _log_event("agent_error", pipeline_run_id, agent_id=spec.id,
                            error=agent_error_message)
