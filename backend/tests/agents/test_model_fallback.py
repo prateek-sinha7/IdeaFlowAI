@@ -254,14 +254,89 @@ async def test_multi_entry_chain_exhaustion_reraises() -> None:
 # ===========================================================================
 
 
+async def _drive_execute_single_non_transient(*, primary: str):
+    """Drive the FULL ``ExecutionEngine.execute()`` for a single text-only agent whose
+    runner hits a non-transient error, returning the emitted event list.
+
+    Patches ``create_runner`` so the agent's runner is built on a
+    ``ScriptedFakeChatModel([], raise_exc=ScriptedNonTransientError())``: the real
+    ``DeepAgentRunner`` swallows that non-throttle exception into a
+    ``{"type":"error"}`` event (deep_agent_runner.py:507-527), which the engine's new
+    ISS-016 ``error`` arm consumes → marks the agent failed (no completion) → the
+    single-agent run collapses to ``pipeline_failed`` via the F3 terminal block.
+    """
+    import uuid
+
+    import agents.factory as factory_mod
+    import agents.execution_engine.engine as engine_mod
+    from agents.execution_engine.engine import ExecutionEngine
+    from agents.registry import get_pipeline_agents
+    from app.core.config import settings as _settings
+    from tests.agents._scripted_model import _RUNS_ROOT
+
+    _settings.RUNS_ROOT = _RUNS_ROOT
+
+    _orig_create_runner = factory_mod.create_runner
+    _orig_engine_create_runner = getattr(engine_mod, "create_runner", None)
+    _orig_compile = engine_mod.compile_for_run
+
+    def _patched_create_runner(agent_id, ctx, **kw):
+        ctx.model = ScriptedFakeChatModel([], raise_exc=ScriptedNonTransientError())
+        return _orig_create_runner(agent_id, ctx, **kw)
+
+    # Skip the Deep-Planner model call (offline) — mirror test_pipeline_failure_semantics.
+    def _patched_compile(pipeline_type, _orig=_orig_compile):
+        compiled = _orig(pipeline_type)
+        compiled.planner = "skip"
+        return compiled
+
+    factory_mod.create_runner = _patched_create_runner
+    engine_mod.create_runner = _patched_create_runner
+    engine_mod.compile_for_run = _patched_compile
+
+    engine = ExecutionEngine()
+
+    async def _noop_dual_write(*a, **k):
+        return None
+
+    engine._dual_write_artifact = _noop_dual_write  # type: ignore[assignment]
+
+    spec = get_pipeline_agents("user_stories")[0]  # a single text-only agent
+    run_id = str(uuid.uuid4())
+    events: list[dict] = []
+    try:
+        async for ev in engine.execute(
+            agents=[spec],
+            user_message="Build me a thing.",
+            pipeline_run_id=run_id,
+            pipeline_type="user_stories",
+            session_id="non-transient-test",
+        ):
+            events.append(ev)
+    finally:
+        factory_mod.create_runner = _orig_create_runner
+        if _orig_engine_create_runner is not None:
+            engine_mod.create_runner = _orig_engine_create_runner
+        engine_mod.compile_for_run = _orig_compile
+
+    return events, spec.id, engine, run_id
+
+
 @pytest.mark.asyncio
 async def test_non_transient_propagates() -> None:
     """A non-transient error (ValidationException analogue) is NOT classified as a
     throttle: the runner keeps the existing ``{"type":"error"}`` path (no re-raise), so
     the engine consume loop sees no throttle and NEVER advances the chain — only the
-    primary runner is ever built (no model switch). Parity with today's non-throttle
-    error handling is preserved (the run ends without a model switch, not with one)."""
-    _results, built_for, _events, _thread_ids = await _drive_one_agent(
+    primary runner is ever built (no model switch).
+
+    ISS-016 (corrected contract): the engine's new ``error`` consume-arm now CONSUMES
+    that runner ``error`` event instead of dropping it — so the fault is SURFACED. The
+    agent emits an ``agent_error`` (no empty ``agent_complete``), and a single-agent run
+    collapses to ``pipeline_failed`` rather than riding through as a clean
+    ``pipeline_complete``. Pre-fix this test only asserted ``built_for`` and never
+    checked the emitted events — it encoded the swallow bug as the expected contract."""
+    # (1) Per-agent: no model switch on a non-throttle (chain never advances).
+    _results, built_for, events, _thread_ids = await _drive_one_agent(
         primary=PRIMARY_STANDARD,
         throttle_ids=set(),
         non_transient_ids={PRIMARY_STANDARD},
@@ -269,3 +344,26 @@ async def test_non_transient_propagates() -> None:
 
     # The engine never advanced the chain: only the primary runner was ever built.
     assert built_for == [PRIMARY_STANDARD], built_for
+    # ISS-016: the runner error is now surfaced as an agent_error (was swallowed).
+    errs = _agent_error_events(events)
+    assert errs, "expected the runner error to surface as an agent_error event"
+    assert errs[-1]["data"]["agent_id"] == "domain-analyst"
+    # No completed result was recorded (no empty agent_complete for the failed agent).
+    assert not _results, "a runner-errored agent must not record a completed result"
+    assert not [e for e in events if e.get("type") == "agent_complete"], (
+        "ISS-016: a failed agent must NOT emit an (empty) agent_complete"
+    )
+
+    # (2) End-to-end: a single-agent run collapses to pipeline_failed (F3 terminal).
+    full_events, agent_id, engine, run_id = await _drive_execute_single_non_transient(
+        primary=PRIMARY_STANDARD,
+    )
+    failed = [e for e in full_events if e.get("type") == "pipeline_failed"]
+    assert len(failed) == 1, (
+        f"single-agent non-transient run must end pipeline_failed: {full_events}"
+    )
+    assert [e for e in full_events if e.get("type") == "pipeline_complete"] == [], (
+        "a totally-failed run must NEVER emit pipeline_complete (ISS-016/F3)"
+    )
+    assert agent_id in failed[0]["data"]["agents_failed"]
+    assert engine._state_machine.get_state(run_id) == "failed"

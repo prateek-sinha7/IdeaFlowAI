@@ -2261,6 +2261,14 @@ class ExecutionEngine:
             # branch produced (chunk→agent_chunk, usage→token accumulation,
             # tool_call→tool_call, tool_result→tool_result).
             timed_out = False
+            # ── ISS-016 (A1): runner ``error``-event capture ────────────────────
+            # The runner (deep_agent_runner.py:507-527) swallows every non-throttle
+            # exception into ``yield {"type":"error","error":str(exc)}`` and returns.
+            # The consume loop below now branches on that event (the ``error`` arm),
+            # recording the failure here. The scripted model never raises, so this
+            # flag stays False on the characterization goldens (INV-3 dormant arm).
+            agent_errored = False
+            agent_error_message = ""
             agent_input_tokens = 0
             agent_output_tokens = 0
 
@@ -2375,6 +2383,23 @@ class ExecutionEngine:
                                 elif event.get("tool") == "spawn_subagents":
                                     async for _fo_ev in self._derive_fanout(event, ectx):
                                         yield _fo_ev
+                            elif etype == "error":
+                                # ── ISS-016 (A1): consume the runner's swallowed-error event ──
+                                # The runner (deep_agent_runner.py:507-527) yields
+                                # ``{"type":"error","error":str(exc)}`` for every non-throttle
+                                # fault (e.g. a model-side validation reject) and returns.
+                                # WITHOUT this arm the event was dropped, the stream "ended
+                                # clean" with output="", and an empty agent_complete fired → a
+                                # hard-failed run terminated as a clean pipeline_complete.
+                                # Branch keys on the GENERIC event type only — no provider /
+                                # model / workflow text match (SC-001).
+                                # Record the fault (bounded message — no stack frames / internal
+                                # paths, T-16-01-ID) and break out of the stream so the post-loop
+                                # ``agent_errored`` branch emits a recoverable agent_error and
+                                # SKIPS the result-append + agent_complete for this agent.
+                                agent_errored = True
+                                agent_error_message = str(event.get("error", "") or "")[:500]
+                                break
                     # Stream consumed cleanly (no throttle) — done, exit the retry loop.
                     break
                 except asyncio.TimeoutError:
@@ -2476,6 +2501,36 @@ class ExecutionEngine:
                         "recoverable": True,
                     },
                 }
+
+            # ── ISS-016 (A1): runner ``error``-event → recoverable agent_error ──────
+            # A runner-surfaced fault marks the agent failed. Emit the SAME recoverable
+            # agent_error shape the timeout path uses above (so the dispatch loop's
+            # _failed_agent_ids collector at :1620-1627 records spec.id), then RETURN —
+            # explicitly SKIPPING the ``output = "".join(output_chunks)`` build below,
+            # the result-append, and the agent_complete yield. This is the deliberate
+            # divergence from the timeout path (which keeps the completion): per CONTEXT
+            # A1 the error path must NOT append a completed result, so this agent stays
+            # in _failed_agent_ids and is NOT in results → the engine terminal machinery
+            # maps it to pipeline_failed (all-fail) / status:degraded (partial). The
+            # message is the runner's bounded str(exc) (no traceback / internal path —
+            # T-16-01-ID). No F3 re-key, no runner edit, no text match (SC-001).
+            if agent_errored:
+                logger.warning(
+                    "Agent %s: runner surfaced an error event — marking failed (no "
+                    "completion): %s",
+                    spec.id, agent_error_message,
+                )
+                _log_event("agent_error", pipeline_run_id, agent_id=spec.id,
+                           error=agent_error_message)
+                yield {
+                    "type": "agent_error",
+                    "data": {
+                        "agent_id": spec.id,
+                        "error": agent_error_message or "Agent run failed",
+                        "recoverable": True,
+                    },
+                }
+                return
 
             output = "".join(output_chunks)
 
