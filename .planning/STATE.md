@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-06-13T14:31:05.924Z"
-last_activity: 2026-06-13 -- Completed 17-03-PLAN.md (ISS-011)
+last_updated: "2026-06-13T14:49:00.610Z"
+last_activity: 2026-06-13
 progress:
   total_phases: 17
   completed_phases: 17
@@ -24,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 
 ## Current Position
 
-Phase: 17 (Test-Infra and Verification-Gap Closure) — EXECUTING
-Plan: 3 of 3
+Phase: 17
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-06-13 -- Completed 17-03-PLAN.md (ISS-011)
+Last activity: 2026-06-13
 
 Session continuity: last session 2026-06-13; stopped at Completed 17-03-PLAN.md (ISS-011 closed by-test, skip-on-mid-sweep-expiry: test_phase8_live.py gains a per-test live_skip_reason() re-check — autouse fixture bound to TestLiveHITL only — that pytest.skip()s with the re-run-after-`aws sso login` reason when creds lapse mid-sweep, converting a 0-token assertion FAIL into a clean SKIP; test_live_gate_is_consistent_and_self_skipping relaxed to assert gate correctness per point-in-time, dropping the strict _LIVE_SKIP == live_skip_reason() cross-time equality that assumed an immortal SSO session; an OFFLINE expired-creds simulation [monkeypatch live_harness.live_skip_reason] + a no-op complement pin the recurring-mode contract; model_policy.py transient classification deliberately UNTOUCHED — widening it would mask real AccessDenied/ValidationException, INV-3; 8 offline phase8 tests green [TestOfflineHITL + self_skipping + mid_sweep + recheck_is_noop], goldens 10/10, lint-imports 4/0, test-only diff; ISS-011 MONITORING→FIXED [17-03, by-test], Part-1 live re-run [3 HITL cases after aws sso login, sub-$0.05] DEFERRED to next Bedrock pass; Phase 17 = 3/3 complete); resume file: none
 
@@ -37,7 +37,7 @@ Progress: [██████████] 100% (91 plans complete; Phase 17 3/3
 
 **Velocity:**
 
-- Total plans completed: 123
+- Total plans completed: 126
 - Average duration: ~7 min
 - Total execution time: ~0.35 hours
 
@@ -60,6 +60,7 @@ Progress: [██████████] 100% (91 plans complete; Phase 17 3/3
 | 13 | 6 | - | - |
 | 14 | 4 | - | - |
 | 16 | 4 | - | - |
+| 17 | 3 | - | - |
 
 **Recent Trend:**
 
