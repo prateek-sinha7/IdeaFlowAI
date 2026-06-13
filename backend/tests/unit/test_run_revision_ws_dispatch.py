@@ -364,41 +364,49 @@ async def test_agent_count_derives_from_registry_membership(ws_env, ws_user, mon
 
 @pytest.mark.asyncio
 async def test_cancellation_lands_row_cancelled(ws_env, ws_user, monkeypatch):
+    """ISS-007 (16-02): a real Stop on a running revision (cooperative
+    cancel_event.set(), exactly what cancel_pipeline now does) delivers
+    pipeline_cancelled ON THE LIVE WIRE (the FakeWebSocket sent-list) — NOT
+    merely stuck on the in-queue residue — AND lands the row 'cancelled'. The
+    drainer is NOT destroyed; it forwards the engine's cooperative terminal."""
     ws_module, TestingSession = ws_env
     parent_id = _seed_parent(TestingSession, ws_user.id)
 
     entered = asyncio.Event()
 
-    async def _long_running(kwargs):
-        entered.set()  # dispatch started — the test may now cancel
-        await asyncio.sleep(60)  # stands in for a multi-minute model run
+    async def _cooperative(kwargs):
+        # Model the real engine's cooperative contract: stream until the
+        # cancel_event is observed, then emit pipeline_cancelled (engine.py's
+        # per-chunk / pre-agent terminal) through the forwarded send fn.
+        send = kwargs["websocket_send_fn"]
+        cancel_event = kwargs.get("cancel_event")
+        await send({"type": "pipeline_start", "data": {"agents": []}})
+        entered.set()  # dispatch started — the test may now Stop
+        for _ in range(600):  # ~60s ceiling; the cancel arrives well before
+            if cancel_event is not None and cancel_event.is_set():
+                await send({"type": "pipeline_cancelled",
+                            "data": {"pipeline_run_id": kwargs["pipeline_run_id"]}})
+                return
+            await asyncio.sleep(0.05)
 
-    stub = _install_stub(monkeypatch, _long_running)
+    stub = _install_stub(monkeypatch, _cooperative)
     ws = _FakeWebSocket()
 
     outer = asyncio.create_task(ws_module._handle_revision_execution(
         ws, ws_user, parent_id, "od_ppt_output", "Take your time.",
     ))
-    # Event-driven determinism: cancel only after the engine dispatch started
-    # (the row exists and the bg task is awaiting the engine).
+    # Event-driven determinism: Stop only after the engine dispatch started
+    # (the row exists, the cancel_event is registered, the bg task is running).
     await asyncio.wait_for(entered.wait(), timeout=5.0)
 
     run_id = stub.calls[0]["pipeline_run_id"]
-    # Hold direct references BEFORE cancelling — _cleanup_pipeline pops the
-    # registries, but the held queue still carries the terminal events.
-    held_queue = ws_module._PIPELINE_QUEUES[run_id]
-    bg_task = ws_module._PIPELINE_TASKS[run_id]
+    # Mirror cancel_pipeline's cooperative Stop: set THIS run's event. The bg
+    # task keeps running, emits pipeline_cancelled, the drainer forwards it.
+    ws_module._CANCEL_EVENTS[run_id].set()
 
-    outer.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await outer
-
-    # The bg task absorbs the cancellation (run_pipeline precedent), persists
-    # the terminal state, and finishes.
-    try:
-        await asyncio.wait_for(bg_task, timeout=5.0)
-    except asyncio.CancelledError:
-        pass
+    # The handler completes NORMALLY (the drainer forwards the terminal then
+    # breaks) — no CancelledError, no destroyed drainer.
+    await asyncio.wait_for(outer, timeout=5.0)
 
     row = _row(TestingSession, run_id)
     assert row is not None
@@ -408,19 +416,19 @@ async def test_cancellation_lands_row_cancelled(ws_env, ws_user, monkeypatch):
     )
     assert row.status not in ("revising", "completed")
 
-    # A pipeline_cancelled frame was queued (drainer died with the outer task)
-    # or sent before the drainer exited.
-    queued_types: list[str] = []
-    while not held_queue.empty():
-        item = held_queue.get_nowait()
-        if item is not None:
-            queued_types.append(item.get("type"))
+    # ISS-007: pipeline_cancelled REACHED THE LIVE WIRE (ws.sent) — the whole
+    # point of the cooperative fix. The frame rides the drainer wrapper with
+    # section == target_artifact_type.
     sent_types = [f["type"] for f in ws.sent]
-    assert "pipeline_cancelled" in (queued_types + sent_types), (
-        f"no pipeline_cancelled observed — queued={queued_types} sent={sent_types}"
+    assert "pipeline_cancelled" in sent_types, (
+        f"pipeline_cancelled must reach the WS sent-list (live wire), not just "
+        f"the in-queue residue — sent={sent_types}"
     )
+    cancel_frame = next(f for f in ws.sent if f["type"] == "pipeline_cancelled")
+    assert cancel_frame["section"] == "od_ppt_output"
+    assert cancel_frame["chunk"] is None
 
-    # Cleanup ran despite cancellation.
+    # Cleanup ran.
     assert run_id not in ws_module._PIPELINE_QUEUES
     assert run_id not in ws_module._PIPELINE_TASKS
 
