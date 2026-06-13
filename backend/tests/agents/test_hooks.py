@@ -712,9 +712,10 @@ async def test_otel_tracing_exports_one_span_with_attrs_via_in_memory_exporter(
     assert row["detail"]["span"] is True
     assert row["detail"]["agent_id"] == "build"
 
-    # No patched tracer leaks into the other otel tests: the monkeypatch fixture
-    # reverts ``_build_span_processor``; explicitly null ``_TRACER`` so the next
-    # ``_get_tracer()`` rebuilds through the real factory.
+    # Belt-and-suspenders only: ``monkeypatch`` already reverts ``_TRACER`` to its
+    # pre-test value on teardown (it dedupes by ``(target, name)`` and restores the
+    # original captured at the first ``setattr``), so no patched tracer can leak into
+    # the other otel tests. This explicit null is redundant for isolation. (IN-01)
     monkeypatch.setattr(otel, "_TRACER", None)
 
 
