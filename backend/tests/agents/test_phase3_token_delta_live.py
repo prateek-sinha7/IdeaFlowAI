@@ -91,10 +91,15 @@ def _skip_reason() -> str | None:
     return None
 
 
-# Module-level gate: evaluated at collection so the whole module skips cleanly
+# Live gate — evaluated at collection so the LIVE evidence test skips cleanly
 # (rather than erroring) in a credential-less / CI environment. Keeping the
-# default suite green is the point of the opt-in design.
-pytestmark = pytest.mark.skipif(_skip_reason() is not None, reason=_skip_reason() or "")
+# default suite green is the point of the opt-in design. This is a per-TEST
+# decorator (not a module ``pytestmark``) so the OFFLINE fault-injection
+# regression test below still runs without creds, while ``test_token_delta_live``
+# remains opt-in / SSO-gated exactly as before.
+_requires_live_bedrock = pytest.mark.skipif(
+    _skip_reason() is not None, reason=_skip_reason() or ""
+)
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +175,21 @@ async def _drive_live(*, compaction_on: bool) -> list[dict]:
     from app.core.config import settings as _settings
 
     _settings.RUNS_ROOT = _scripted_model._RUNS_ROOT  # type: ignore[attr-defined]
-    engine_mod.ALWAYS_CLARIFY = False
+
+    # ── Disable the auto-clarify gate (the clarifier needs live WS round-trips). ─
+    # The former module-level auto-clarify flag was DELETED in 07-05; the
+    # "force CLARIFY_REQUIRED on every run" behavior is now declared per-workflow by
+    # the manifest ``clarify.mode`` ("auto"), read off the CompiledWorkflow at run
+    # entry. This driver has no live WS round-trip, so — exactly as the other live
+    # harnesses do (`_scripted_model.py:506-513`, `live_harness.py:556-563`) — we wrap
+    # ``compile_for_run`` to flip the compiled ``clarify.mode`` to "off", disabling the
+    # auto-clarify override precisely as the deleted module flag (set False) used
+    # to. The planner still runs; only the PROCEED→CLARIFY_REQUIRED forcing is
+    # suppressed (clarify emits no ``input_tokens``), so this removes a HANG, not the
+    # A/B token-delta measurement. ``ClarifySpec`` is a mutable dataclass
+    # (``agents/workflows/plan.py:289-298``) so the in-place write is valid. Restored
+    # in the existing ``finally`` (across both OFF then ON ``_drive_live`` calls).
+    _orig_compile_for_run = engine_mod.compile_for_run
 
     # Live model for every agent (Bedrock Haiku via build_model, or a local
     # Anthropic key if configured) — NOT the scripted fake.
@@ -185,6 +204,13 @@ async def _drive_live(*, compaction_on: bool) -> list[dict]:
 
         factory_create_runner_orig = factory_mod.create_runner
         factory_mod.create_runner = _live_create_runner
+
+        def _patched_compile_for_run(pipeline_type, _orig=_orig_compile_for_run):
+            compiled = _orig(pipeline_type)
+            compiled.clarify.mode = "off"
+            return compiled
+
+        engine_mod.compile_for_run = _patched_compile_for_run
 
         engine = ExecutionEngine()
 
@@ -281,15 +307,75 @@ async def _drive_live(*, compaction_on: bool) -> list[dict]:
             events.append(ev)
         return events
     finally:
+        engine_mod.compile_for_run = _orig_compile_for_run
         if factory_create_runner_orig is not None:
             factory_mod.create_runner = factory_create_runner_orig
 
 
 # ---------------------------------------------------------------------------
-# The test.
+# Offline fault-injection regression test (ISS-003) — runs WITHOUT live Bedrock.
+#
+# Pre-fix, ``_drive_live`` poked a DEAD module attribute (the auto-clarify flag set
+# False, deleted in 07-05) and NEVER set ``compiled.clarify.mode="off"``,
+# so ``prototype``'s ``clarify.mode="auto"`` forced the gate and the run blocked
+# forever at ``clarify_engine.py await event.wait()`` (no answerer / no WS client) —
+# an ``asyncio.wait_for(_drive_live(...), 10)`` would raise ``TimeoutError``. Post-fix
+# the ``compile_for_run`` clarify-off wrap suppresses the gate and the drive RETURNS.
+# This test reproduces that bound deterministically: it injects a per-agent scripted
+# model (NO Bedrock) so the whole multi-task prototype build runs offline, then asserts
+# the drive returns inside a 10s timeout (no hang). It is NOT gated on live creds.
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.asyncio
+async def test_drive_live_does_not_hang_at_clarify_gate(monkeypatch) -> None:
+    """ISS-003 regression: the clarify-off wrap defeats the auto-clarify hang offline.
+
+    Drives the real ``_drive_live`` multi-task prototype build with a per-agent
+    scripted model (no live Bedrock) and asserts ``asyncio.wait_for(..., 10)`` RETURNS
+    instead of hanging at the clarify ``event.wait()``. Documented evidence: pre-fix
+    (dead auto-clarify module flag, no ``clarify.mode="off"``) this drive raised
+    ``asyncio.TimeoutError`` at the forced clarify gate; post-fix it returns.
+    """
+    import asyncio
+
+    import agents.factory as factory_mod
+    from app.agents import model_factory as model_factory_mod
+
+    from tests.agents._scripted_model import ScriptedFakeChatModel, _scripts_for
+
+    _orig_create_runner = factory_mod.create_runner
+
+    # Per-agent scripted runner: inject a scripted model (so each agent's stream
+    # terminates immediately) then defer to the REAL create_runner — the same
+    # pattern _scripted_model._drive uses. _drive_live's _live_create_runner first
+    # calls build_model(ctx.model); we stub that to a no-op passthrough so no
+    # Bedrock client is ever constructed (the scripted ctx.model is what runs).
+    def _scripted_create_runner(agent_id, ctx, **kw):
+        ctx.model = ScriptedFakeChatModel(_scripts_for(agent_id))
+        return _orig_create_runner(agent_id, ctx, **kw)
+
+    monkeypatch.setattr(factory_mod, "create_runner", _scripted_create_runner)
+    # build_model is called by _drive_live's _live_create_runner BEFORE the real
+    # create_runner; stub it so it never touches Bedrock and returns the already-set
+    # scripted instance (create_runner re-sets ctx.model to the scripted model anyway).
+    monkeypatch.setattr(
+        model_factory_mod, "build_model", lambda *a, **k: ScriptedFakeChatModel([])
+    )
+
+    # The drive MUST return within the bound. Pre-fix this raised asyncio.TimeoutError
+    # at the forced clarify gate; post-fix the clarify-off wrap lets it complete.
+    events = await asyncio.wait_for(_drive_live(compaction_on=True), timeout=10)
+
+    assert isinstance(events, list), "the offline drive must return its event list"
+
+
+# ---------------------------------------------------------------------------
+# The live evidence test.
+# ---------------------------------------------------------------------------
+
+
+@_requires_live_bedrock
 @pytest.mark.asyncio
 async def test_token_delta_live() -> None:
     """Live evidence: build-task-2+ compaction reduces accumulated input tokens.
