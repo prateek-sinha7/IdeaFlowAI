@@ -17,6 +17,7 @@ import { AppBuilderPreview, type ParsedFile } from "@/components/preview/AppBuil
 import { FilesTab } from "@/components/results/FilesTab";
 import { AgentThinkingTab } from "@/components/results/AgentThinkingTab";
 import type { WorkflowRun, WorkflowType, AgentRunState } from "@/types/index";
+import { deriveDeliverableMimetype } from "@/types/index";
 import { availableChainTargets } from "@/lib/workflowChaining";
 
 interface WorkflowHistoryProps {
@@ -263,10 +264,20 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     const workflowType = selectedRun.type as WorkflowType;
     const isUserStory = workflowType === "user_stories" || workflowType === "user_stories_revision";
     const isAppBuilder = detailIsAppBuilder;
-    const isCustom = workflowType === "custom";
-    const isMarkdown = isCustom;
     const isPpt = workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt" || workflowType === "od_ppt_revision";
     const isPrototype = workflowType === "prototype" || workflowType === "prototype_revision" || workflowType === "od_prototype";
+    // ─── ISS-021 (18-03) — 2nd facet: the reopen generic fallback ─────────────
+    // The OLD `isMarkdown = isCustom` swallowed HTML deliverables into
+    // MarkdownPreview (escaped HTML). Replace it with a structural "no known
+    // branch matched" flag so `custom` AND any unknown selectedRun.type fall
+    // into a mimetype-dispatched generic path. The deliverable mimetype is
+    // derived from the persisted output via the SHARED deriveDeliverableMimetype
+    // helper — the IDENTICAL rule page.tsx's reopen block applies, so the two
+    // reopen surfaces cannot diverge. SC-001: never a workflow-name check.
+    const isGeneric = !isUserStory && !isAppBuilder && !isPpt && !isPrototype;
+    const genericMimetype = isGeneric ? deriveDeliverableMimetype(selectedOutput) : undefined;
+    const isGenericHtml = isGeneric && genericMimetype === "text/html";
+    const isGenericMarkdown = isGeneric && genericMimetype !== "text/html";
     const agentOutputs = detailAgentOutputs;
 
     return (
@@ -546,7 +557,23 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                         ? <MarkdownPreview content={selectedOutput} />
                         : <div className="flex flex-col items-center justify-center h-full gap-2"><FileText className="h-8 w-8 text-gray-200" /><p className="text-[12px] text-gray-400">No preview available</p></div>
                   )}
-                  {isMarkdown && selectedOutput && <MarkdownPreview content={selectedOutput} />}
+                  {/* ISS-021 (18-03) — generic reopen fallback: HTML → the SAME
+                      sandboxed iframe as the live path (T-18-05: allow-scripts,
+                      NO allow-same-origin); markdown/other → MarkdownPreview (this
+                      preserves the prior `custom` markdown behavior). */}
+                  {isGenericHtml && selectedOutput && (
+                    <div className="h-full flex flex-col overflow-hidden">
+                      <div className="flex-1 min-h-0 overflow-hidden">
+                        <iframe
+                          srcDoc={selectedOutput}
+                          className="w-full h-full border-0"
+                          title="Deliverable Preview"
+                          sandbox="allow-scripts"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {isGenericMarkdown && selectedOutput && <MarkdownPreview content={selectedOutput} />}
                   {isPpt && selectedOutput && (
                     <PPTPreview
                       content={selectedOutput}
@@ -569,9 +596,14 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
               /* Files tab */
               <FilesTab
                 workflowType={workflowType}
-                userStoryContent={(isUserStory || isMarkdown || isAppBuilder) ? selectedOutput || undefined : undefined}
+                userStoryContent={(isUserStory || isAppBuilder) ? selectedOutput || undefined : undefined}
                 pptContent={isPpt ? selectedOutput || undefined : undefined}
                 prototypeContent={isPrototype ? selectedOutput || undefined : undefined}
+                genericDeliverable={
+                  isGeneric && selectedOutput
+                    ? { mimetype: genericMimetype, filename: undefined, content: selectedOutput }
+                    : undefined
+                }
                 agentOutputs={
                   agentOutputs.length > 0
                     ? agentOutputs
