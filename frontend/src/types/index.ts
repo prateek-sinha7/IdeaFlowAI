@@ -289,6 +289,50 @@ export interface AgentThinkingEntry {
   duration: number | null;
 }
 
+// ─── ISS-021 (18-01 BE → 18-03 FE) — type-driven deliverable contract ─────────
+// The `pipeline_complete` event now carries two ADDITIVE keys sourced from the
+// resolved `ectx.deliverable` (18-01): the declared mimetype + filename. The FE
+// dispatches the generic fallback renderer on the DECLARED mimetype (live),
+// never a workflow name (SC-001). Optional so existing consumers/tests are
+// unaffected; the four known branches ignore them.
+export interface PipelineCompleteData {
+  final_output?: string;
+  pipeline_type?: string;
+  status?: string;
+  deliverable_mimetype?: string;
+  deliverable_filename?: string;
+}
+
+// A single generic deliverable channel for ANY pipeline_type that matched none
+// of the known FE render branches — carried from `pipeline_complete` live and
+// derived from the persisted run output on history-reopen. PreviewPanel +
+// FilesTab dispatch on `mimetype` (text/html → sandboxed iframe, text/markdown
+// → MarkdownPreview, application/zip → bundle view).
+export interface GenericDeliverable {
+  mimetype?: string;
+  filename?: string;
+  content?: string;
+}
+
+// ─── ISS-021 reopen heuristic (shared) ────────────────────────────────────────
+// On the history-REOPEN path there is no `deliverable_mimetype` event — the
+// persisted run carries only the output bytes. Both reopen surfaces (page.tsx's
+// generic channel AND WorkflowHistory.tsx's detail view) MUST agree on what to
+// render, so they share THIS single helper. It is a FE RENDER heuristic on the
+// already-persisted output shape — distinct from the REJECTED backend
+// content-sniff (the manifest DECLARES the shape live; this only covers reopen
+// where the declared mimetype was not persisted). An `<!doctype`/`<html` prefix
+// (case-insensitive, leading whitespace tolerated) → `text/html`; everything
+// else → `text/markdown`. Empty/whitespace output → `text/markdown` (nothing to
+// frame).
+export function deriveDeliverableMimetype(output: string | null | undefined): string {
+  const trimmed = (output ?? "").trimStart().toLowerCase();
+  if (trimmed.startsWith("<!doctype") || trimmed.startsWith("<html")) {
+    return "text/html";
+  }
+  return "text/markdown";
+}
+
 export interface AgentDef {
   id: string;
   name: string;

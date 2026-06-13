@@ -20,7 +20,7 @@ import { ReviewGatePanel } from "@/components/preview/ReviewGatePanel";
 import { CompletionToast } from "@/components/ui/CompletionToast";
 import type { ToastItem } from "@/components/ui/CompletionToast";
 import { useNotifications } from "@/hooks/useNotifications";
-import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WaveGroup, WorkflowRun, WorkflowType } from "@/types/index";
+import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WaveGroup, WorkflowRun, WorkflowType, GenericDeliverable } from "@/types/index";
 import { canChainFrom, CHAIN_OPTIONS, CHAIN_BRIEF_KEY, CHAIN_FROM_KEY, CHAIN_SOURCE_RUN_ID_KEY, baseWorkflowType } from "@/lib/workflowChaining";
 import { getToken, getChainContext } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useWebSocket";
@@ -35,6 +35,11 @@ export interface DashboardLayoutProps {
   userStoryContent: string;
   pptContent: string;
   prototypeContent: string;
+  // ISS-021 (18-03) — generic deliverable channel for any pipeline_type that
+  // matched no known FE render branch (live pipeline_complete + history-reopen).
+  // Threaded straight down to PreviewPanel/FilesTab; the mimetype drives the
+  // generic fallback renderer (SC-001 — never a workflow-name branch).
+  genericDeliverable?: GenericDeliverable;
   connectionStatus: ConnectionStatus;
   onSendMessage: (content: string) => void;
   onSendMessageWithMode?: (content: string, mode: ChatMode) => void;
@@ -195,6 +200,7 @@ export function DashboardLayout({
   userStoryContent,
   pptContent,
   prototypeContent,
+  genericDeliverable,
   connectionStatus,
   onSendMessage,
   onSendMessageWithMode,
@@ -1245,6 +1251,7 @@ export function DashboardLayout({
                       userStoryContent={userStoryContent || undefined}
                       pptContent={pptContent || undefined}
                       prototypeContent={prototypeContent || undefined}
+                      genericDeliverable={genericDeliverable}
                       isStreaming={isStreaming}
                       workflowType={workflowType}
                       rawPipelineType={pipelineState?.pipeline_type || workflowType}

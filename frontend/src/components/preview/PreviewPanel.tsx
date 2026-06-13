@@ -10,7 +10,7 @@ import { MarkdownPreview } from "./MarkdownPreview";
 import { FilesTab } from "@/components/results/FilesTab";
 import { AgentThinkingTab } from "@/components/results/AgentThinkingTab";
 import { AppBuilderPreview, type ParsedFile } from "./AppBuilderPreview";
-import type { WorkflowType } from "@/types/index";
+import type { WorkflowType, GenericDeliverable } from "@/types/index";
 import { getToken } from "@/lib/api";
 import { ENV } from "@/lib/env";
 
@@ -151,6 +151,12 @@ interface PreviewPanelProps {
   userStoryContent?: string;
   pptContent?: string;
   prototypeContent?: string;
+  // ISS-021 (18-03) — generic deliverable channel for ANY pipeline_type that
+  // matched none of the known render branches. The renderer (added below)
+  // dispatches on `mimetype`: text/html → sandboxed iframe, text/markdown →
+  // MarkdownPreview, application/zip → bundle view. SC-001: dispatch is on the
+  // declared mimetype, never a workflow name.
+  genericDeliverable?: GenericDeliverable;
   isStreaming?: boolean;
   onCollapse?: () => void;
   initialTab?: string;
@@ -254,7 +260,7 @@ function DegradedRunAffordance({
   );
 }
 
-export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents }: PreviewPanelProps) {
+export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>("preview");
   const [copied, setCopied] = useState(false);
 

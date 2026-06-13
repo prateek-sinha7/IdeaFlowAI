@@ -8,7 +8,8 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 import { useWorkflow } from "@/hooks/useWorkflow";
 import { shouldApplyEvent, resetReplayState } from "@/lib/wsReplayState";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, WorkflowStatus, User, WaveGroup } from "@/types/index";
+import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, WorkflowStatus, User, WaveGroup, GenericDeliverable } from "@/types/index";
+import { deriveDeliverableMimetype } from "@/types/index";
 import type { ChatMode } from "@/components/chat/ChatInput";
 
 // IN-01 (16 review): the backend persists a degraded run's failed-agent ids into
@@ -71,6 +72,14 @@ export default function DashboardPage() {
   // affordance lists the real failed agents (not an empty list). Cleared on every
   // reopen/new-run alongside reopenedRunStatus.
   const [reopenedFailedAgents, setReopenedFailedAgents] = useState<string[] | undefined>(undefined);
+  // ISS-021 (18-03) — generic deliverable channel. A pipeline_complete (live) or
+  // history-reopen whose pipeline_type matched NONE of the known FE render
+  // branches feeds this single channel: the declared/derived mimetype + filename
+  // + content. PreviewPanel + FilesTab dispatch on the mimetype (text/html →
+  // sandboxed iframe, text/markdown → MarkdownPreview, application/zip → bundle).
+  // Structural fallback — NEVER keyed on a workflow name (SC-001). Cleared on
+  // every new run / reopen alongside the other content state.
+  const [genericDeliverable, setGenericDeliverable] = useState<GenericDeliverable | undefined>(undefined);
   const [currentMode, setCurrentMode] = useState<ChatMode>("default");
   const [chatTitleUpdate, setChatTitleUpdate] = useState<{ chat_session_id: string; title: string } | null>(null);
   const [processSteps, setProcessSteps] = useState<ProcessStep[]>([]);
@@ -392,6 +401,19 @@ export default function DashboardPage() {
             setPptContent(finalOutput);
           } else if (pipelineType === "prototype" || pipelineType === "prototype_revision" || pipelineType === "od_prototype") {
             setPrototypeContent(finalOutput);
+          } else {
+            // ISS-021 (18-03) — generic fallback: any pipeline_type matching none
+            // of the known branches feeds the generic deliverable channel. The
+            // mimetype is the DECLARED `deliverable_mimetype` from the
+            // pipeline_complete event (18-01 emits it from ectx.deliverable);
+            // never routed into the user_story/markdown branch (REJECTED — escapes
+            // HTML) and never keyed on the workflow name (SC-001). This is the
+            // structural "no known branch matched" else.
+            setGenericDeliverable({
+              mimetype: (data.deliverable_mimetype as string | undefined) || undefined,
+              filename: (data.deliverable_filename as string | undefined) || undefined,
+              content: finalOutput,
+            });
           }
         }
 
@@ -1009,6 +1031,7 @@ export default function DashboardPage() {
           setUserStoryContent("");
           setPptContent("");
           setPrototypeContent("");
+          setGenericDeliverable(undefined);
         }
       } catch (err) {
         console.error("Failed to load chat:", err);
@@ -1024,6 +1047,7 @@ export default function DashboardPage() {
       setUserStoryContent("");
       setPptContent("");
       setPrototypeContent("");
+      setGenericDeliverable(undefined);
       // ISS-017 (16-04): reset the reopened-run failure signal until the run
       // detail loads — avoids a stale affordance leaking across reopens.
       setReopenedRunStatus(undefined);
@@ -1050,6 +1074,18 @@ export default function DashboardPage() {
             setPptContent(fullRun.output);
           } else if (fullRun.type === "prototype" || fullRun.type === "prototype_revision" || fullRun.type === "od_prototype") {
             setPrototypeContent(fullRun.output);
+          } else {
+            // ISS-021 (18-03) — generic reopen fallback. No deliverable_mimetype
+            // is persisted on the run row, so derive it from the output shape via
+            // the SHARED deriveDeliverableMimetype helper — the IDENTICAL rule
+            // WorkflowHistory.tsx (the user-visible reopen surface) applies, so
+            // the two reopen surfaces cannot diverge. Structural "no known branch"
+            // else; never a workflow-name check (SC-001).
+            setGenericDeliverable({
+              mimetype: deriveDeliverableMimetype(fullRun.output),
+              filename: undefined,
+              content: fullRun.output,
+            });
           }
         }
 
@@ -1091,6 +1127,7 @@ export default function DashboardPage() {
     setUserStoryContent("");
     setPptContent("");
     setPrototypeContent("");
+    setGenericDeliverable(undefined);
   }, []);
 
   // Handle deleting a chat session
@@ -1113,6 +1150,7 @@ export default function DashboardPage() {
         setUserStoryContent("");
         setPptContent("");
         setPrototypeContent("");
+        setGenericDeliverable(undefined);
       }
     },
     [activeChatId]
@@ -1145,6 +1183,7 @@ export default function DashboardPage() {
       userStoryContent={userStoryContent}
       pptContent={pptContent}
       prototypeContent={prototypeContent}
+      genericDeliverable={genericDeliverable}
       connectionStatus={connectionStatus}
       onSendMessage={handleSendMessage}
       onSendMessageWithMode={handleSendMessageWithMode}
@@ -1171,6 +1210,7 @@ export default function DashboardPage() {
           setUserStoryContent("");
           setPptContent("");
           setPrototypeContent("");
+          setGenericDeliverable(undefined);
           pptContentRef.current = "";
           prototypeContentRef.current = "";
           userStoryContentRef.current = "";
