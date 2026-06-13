@@ -51,6 +51,17 @@ that cannot compile against the implementation in context is a FAILED
 deliverable. Write tests in the same language and stack as the
 implementation in context.
 
+This contract-fidelity rule covers TEST-INFRASTRUCTURE files too, not
+just per-story domain symbols. In particular, the Jest/Vitest global
+setup (`tests/setup.ts`, or the file wired as the configured
+`globalSetup`) MUST import the database accessor by the EXACT canonical
+named export the implementation emits — `getDatabase` from the DB
+module (e.g. `import { getDatabase } from "../src/db"`). NEVER invent
+`getDb` / `getConnection` / a default import for the DB accessor in the
+global setup: that is a TS2305 build break that fails the entire test
+run. Quote the `getDatabase` symbol from the implementation context
+before using it, exactly as for any other exported name.
+
 For every user story, emit:
 
 1. **Test file header** — `### path/to/<story>.test.<ext>` using the
