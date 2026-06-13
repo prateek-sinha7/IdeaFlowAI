@@ -531,7 +531,7 @@ Plans:
 **Goal:** Make abnormal run outcomes faithful end-to-end. A run whose agents failed on a runner-surfaced model/tool error must end `pipeline_failed` (not an empty `pipeline_complete` with DONE badges); a cancelled run must deliver `pipeline_cancelled` to the live wire so in-flight agent cards clear; the Preview must show a degraded/failed affordance instead of a neutral empty-state for a terminal run with no content; and durable-replay/reconnect frames must match live frames (revision `section`, ack `live`). Engine + WebSocket + one FE affordance only — zero new tables/migrations, INV-3 byte/event parity preserved, SC-001 honored (every new branch keys on a generic event type, never a workflow/model name).
 **Requirements**: ISS-016, ISS-017, ISS-007, ISS-002, ISS-008, ISS-009 (.planning/ISSUES-REGISTER.md — "Deep Root-Cause Investigation", clusters A+B)
 **Depends on:** Phase 15
-**Plans:** 2/4 plans executed
+**Plans:** 3/4 plans executed
 
 **Success Criteria:**
 
@@ -549,7 +549,7 @@ Plans:
 
 **Wave 2** *(A3 cancel — edits engine.py after 16-01)*
 
-- [ ] 16-02-PLAN.md — A3 · ISS-007/002: cooperative `cancel_event` for cancel_pipeline (set, not destructive task.cancel) + engine pre-agent cancel gap → pipeline_cancelled + asyncio.timeout() at the 3 drainers + keep destructive cancel on disconnect-only + deterministic cancel tests [wave 2, depends 16-01]
+- [x] 16-02-PLAN.md — A3 · ISS-007/002: cooperative `cancel_event` for cancel_pipeline (set, not destructive task.cancel) + engine pre-agent cancel gap → pipeline_cancelled + asyncio.timeout() at the 3 drainers + keep destructive cancel on disconnect-only + deterministic cancel tests [wave 2, depends 16-01]
 
 **Wave 3** *(B reconnect-contract — edits websocket.py after 16-02)*
 

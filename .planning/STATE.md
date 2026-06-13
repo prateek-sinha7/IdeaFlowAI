@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-13T12:55:50.014Z"
-last_activity: 2026-06-13 -- Phase 16 execution started
+last_updated: "2026-06-13T13:10:00.000Z"
+last_activity: 2026-06-13 -- Completed 16-02-PLAN.md (ISS-007/002 cooperative cancel)
 progress:
   total_phases: 16
   completed_phases: 15
   total_plans: 88
-  completed_plans: 86
-  percent: 94
+  completed_plans: 87
+  percent: 95
 ---
 
 # Project State
@@ -25,13 +25,13 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 ## Current Position
 
 Phase: 16 (Terminal-State Integrity and Reconnect Frame-Contract) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
-Last activity: 2026-06-13 -- Completed 16-04-PLAN.md (ISS-017 FE degraded affordance)
+Last activity: 2026-06-13 -- Completed 16-02-PLAN.md (ISS-007/002 cooperative cancel delivery)
 
-Session continuity: last session 2026-06-13; stopped at Completed 16-04-PLAN.md (ISS-017 FE terminal-empty degraded/failed affordance, server-keyed, live + reopen); resume file: none
+Session continuity: last session 2026-06-13; stopped at Completed 16-02-PLAN.md (ISS-007/002 cooperative cancel_event for cancel_pipeline → pipeline_cancelled on the live wire; engine pre-agent cancel gap closed; asyncio.timeout() drainers; deterministic cancel tests); resume file: none
 
-Progress: [██████████] 98% (86/88 plans complete; Phase 16 2/4 plans done)
+Progress: [██████████] 99% (87/88 plans complete; Phase 16 3/4 plans done)
 
 ## Performance Metrics
 
@@ -146,6 +146,7 @@ Progress: [██████████] 98% (86/88 plans complete; Phase 16 2
 | Phase 15 P03 | ~7min | 2 tasks | 3 files |
 | Phase 16 P01 | ~18 min | 2 tasks | 3 files |
 | Phase 16 P04 | ~9 min | 2 tasks | 5 files |
+| Phase 16 P02 | ~30 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -259,6 +260,7 @@ Recent decisions affecting current work:
 - [Phase 15]: 15-01: LV-02 contract worded as exactly-ONE-artifact (never last/final artifact) to match unwrap_artifact first-match regex; sdlc anti-tool-XML line byte-identical across the family with per-pipeline deliverable-start tailoring (app=filename: block, dotnet/mulesoft=first Markdown heading); app-infra bottom RULES /api/v1 bullet kept as reinforcement
 - [Phase ?]: 15-02: LV-02 composition pin drives REAL engine+PptResolver with a per-test contract-shaped validator model; zero edits to golden-pinned _scripted_model.py
 - [Phase 15]: 15-03: LIVE branch taken — LV-02 CLOSED live (run 8c060c35 deck resolution + revision 4a027d51 revised deck, $0.092 Haiku 4.5); F4/F5 residuals NEXT-LIVE-PASS with named checks
+- [Phase 16]: 16-02: ISS-007/002 — cancel_pipeline sets a per-run cooperative cancel_event (resolved via a connection-scoped run_id_sink) instead of destructive current_pipeline_task.cancel(); the bg task survives + the drainer forwards pipeline_cancelled to the live wire. Engine pre-agent break (:1509) now emits pipeline_cancelled (not pipeline_complete). Single mechanism per drainer (cooperative event; WR-01 residual-drain stays a fallback only). Cooperative pipeline_cancelled normal-yield persists DB "cancelled" (Rule 2 add; else mis-marked completed). 3 queue-get drainers → asyncio.timeout(). Disconnect path keeps destructive cancel. INV-3: 5 goldens byte/event-identical, lint 4/0, zero migrations; SC-001 grep 0. Commits edd975f1/2256ccd8.
 
 ### Pending Todos
 
