@@ -155,6 +155,76 @@ async def test_clarify_engine_max_rounds():
 
 
 @pytest.mark.asyncio
+async def test_clarify_engine_skip_clarification_force_proceeds_round_1():
+    """ISS-027: submit with skip_clarification=True breaks the loop on round 1.
+
+    The bug: "Skip all & run directly" sent EMPTY responses (no flag), which left
+    missing_information unchanged, so the engine re-asked up to MAX rounds. With
+    the force-proceed flag the engine must stop after the FIRST questionnaire_ready
+    and PROCEED — no re-ask, no clarification_limit_reached.
+    """
+    engine = ClarifyEngine()
+    store = get_artifact_store()
+    pipeline_run_id = "run-clarify-skip"
+    events = []
+
+    async def ws(e):
+        events.append(e)
+        if e["type"] == "questionnaire_ready":
+            # Same EMPTY submission as the buggy skip — but WITH force-proceed.
+            await store.set_questionnaire_responses(
+                pipeline_run_id,
+                [],
+                skip_clarification=True,
+            )
+
+    # 5 unresolved items: without the flag this is exactly the max-rounds case
+    # above (re-asks 3×). With the flag it must proceed after round 1.
+    ctx = {
+        "execution_gate": "CLARIFY_REQUIRED",
+        "missing_information": ["a", "b", "c", "d", "e"],
+        "explicit_constraints": [],
+    }
+    result = await engine.run(pipeline_run_id, ctx, ws, owner_id="user-test")
+
+    types = [e["type"] for e in events]
+    # Asked exactly ONCE, then proceeded — no re-ask, no limit-reached banner.
+    assert types.count("questionnaire_ready") == 1
+    assert "questionnaire_complete" in types
+    assert "clarification_limit_reached" not in types
+    assert result["execution_gate"] == "PROCEED"
+
+
+@pytest.mark.asyncio
+async def test_clarify_engine_empty_submit_without_flag_still_loops():
+    """ISS-027 regression guard: an empty submit WITHOUT the flag keeps the old
+    behavior (re-asks all MAX rounds), so the force-proceed short-circuit is gated
+    strictly on the explicit flag and nothing else changed for ordinary submits."""
+    engine = ClarifyEngine()
+    store = get_artifact_store()
+    pipeline_run_id = "run-clarify-noflag"
+    events = []
+
+    async def ws(e):
+        events.append(e)
+        if e["type"] == "questionnaire_ready":
+            # Empty submit, default flag (False) — the pre-fix skip payload.
+            await store.set_questionnaire_responses(pipeline_run_id, [])
+
+    ctx = {
+        "execution_gate": "CLARIFY_REQUIRED",
+        "missing_information": ["a", "b", "c", "d", "e"],
+        "explicit_constraints": [],
+    }
+    result = await engine.run(pipeline_run_id, ctx, ws, owner_id="user-test")
+
+    types = [e["type"] for e in events]
+    assert types.count("questionnaire_ready") == MAX_CLARIFICATION_ROUNDS
+    assert "clarification_limit_reached" in types
+    assert result["execution_gate"] == "PROCEED"
+
+
+@pytest.mark.asyncio
 async def test_clarify_engine_caps_questions_at_5():
     """Question count is capped at min(5, missing_count)."""
     engine = ClarifyEngine()

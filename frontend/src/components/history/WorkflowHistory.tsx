@@ -14,11 +14,20 @@ import { UserStoryPreview } from "@/components/preview/UserStoryPreview";
 import { PrototypePreview } from "@/components/preview/PrototypePreview";
 import { MarkdownPreview } from "@/components/preview/MarkdownPreview";
 import { AppBuilderPreview, type ParsedFile } from "@/components/preview/AppBuilderPreview";
+// ISS-017 (gap-fix) — the SAME terminal-failure affordance the live PreviewPanel
+// path renders, reused here so the history-reopen detail view shows it too
+// (instead of the neutral "No preview available") for a terminal-empty
+// failed/cancelled/degraded run. ONE component → live + history cannot drift.
+import { DegradedRunAffordance } from "@/components/preview/PreviewPanel";
 import { FilesTab } from "@/components/results/FilesTab";
 import { AgentThinkingTab } from "@/components/results/AgentThinkingTab";
 import type { WorkflowRun, WorkflowType, AgentRunState } from "@/types/index";
 import { deriveDeliverableMimetype } from "@/types/index";
 import { availableChainTargets } from "@/lib/workflowChaining";
+// ISS-017 (gap-fix) — SHARED failed-agent-id parser (no dual-impl). The IDENTICAL
+// parser app/dashboard/page.tsx uses for the live-reopen path; lists the real
+// failed agents from the persisted run `error`.
+import { parseFailedAgentIds } from "@/lib/parseFailedAgents";
 
 interface WorkflowHistoryProps {
   onBack: () => void;
@@ -286,6 +295,28 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     const genericBundleFiles = isGenericBundle && selectedOutput ? parseFilesForIDE(selectedOutput) : [];
     const agentOutputs = detailAgentOutputs;
 
+    // ─── ISS-017 (gap-fix) — history-reopen terminal-failure affordance ───────
+    // A reopened run that ended failed/cancelled/degraded WITH no usable content
+    // must show the SAME DegradedRunAffordance the live PreviewPanel path renders,
+    // not the neutral "No preview available". This is the history-reopen half of
+    // SC3 (CONTEXT A2: affordance on BOTH live and history-reopen) — the surface
+    // users actually reach (WorkflowHistory at mainView="history").
+    //
+    // STRICTLY server-status-gated: keyed on the PERSISTED `selectedRun.status`,
+    // never a client `empty==failed` guess (the REJECTED hack — it re-creates the
+    // IN-03 FE-vs-DB disagreement and would mislabel a legitimately-empty
+    // completed run). It fires only inside the existing `!selectedOutput` neutral
+    // branch, so a terminal run WITH content always renders the content.
+    const reopenTerminalFailure =
+      selectedRun.status === "failed" ||
+      selectedRun.status === "cancelled" ||
+      selectedRun.status === "degraded";
+    // IN-03 (16 review): a deliberate user cancel reads "cancelled", not "failed".
+    const reopenCancelled = selectedRun.status === "cancelled";
+    // IN-01 (16 review): list the real failed-agent ids parsed from the persisted
+    // run error (shared parser); omitted when the marker is absent.
+    const reopenFailedAgents = parseFailedAgentIds(selectedRun.error);
+
     return (
       <div className="h-full flex" style={{ background: "#f5f5f0" }}>
         {/* Left sidebar — white panel */}
@@ -544,10 +575,20 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
               </div>
             ) : detailTab === "preview" ? (
               !selectedOutput && !isAppBuilder ? (
-                <div className="flex flex-col items-center justify-center h-full gap-2">
-                  <FileText className="h-8 w-8 text-gray-200" />
-                  <p className="text-[12px] text-gray-400">No preview available</p>
-                </div>
+                // ISS-017 (gap-fix): a reopened terminal-FAILED/cancelled/degraded
+                // run with no content shows the SAME affordance the live path uses
+                // (server-status-gated), not the neutral "No preview available".
+                reopenTerminalFailure ? (
+                  <DegradedRunAffordance
+                    failedAgents={reopenFailedAgents}
+                    cancelled={reopenCancelled}
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full gap-2">
+                    <FileText className="h-8 w-8 text-gray-200" />
+                    <p className="text-[12px] text-gray-400">No preview available</p>
+                  </div>
+                )
               ) : (
                 <div className="h-full overflow-auto">
                   {isUserStory && selectedOutput && (
@@ -561,7 +602,12 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                       ? <AppBuilderPreview files={ideFiles} projectName={ideProjectName} onRevise={onReviseAppBuilder ? (instruction) => onReviseAppBuilder(instruction, selectedOutput || "") : undefined} />
                       : selectedOutput
                         ? <MarkdownPreview content={selectedOutput} />
-                        : <div className="flex flex-col items-center justify-center h-full gap-2"><FileText className="h-8 w-8 text-gray-200" /><p className="text-[12px] text-gray-400">No preview available</p></div>
+                        // ISS-017 (gap-fix): a terminal-failed app_builder reopen
+                        // with no files and no output shows the affordance too
+                        // (server-status-gated), mirroring the live path.
+                        : reopenTerminalFailure
+                          ? <DegradedRunAffordance failedAgents={reopenFailedAgents} cancelled={reopenCancelled} />
+                          : <div className="flex flex-col items-center justify-center h-full gap-2"><FileText className="h-8 w-8 text-gray-200" /><p className="text-[12px] text-gray-400">No preview available</p></div>
                   )}
                   {/* ISS-021 (18-03) — generic reopen fallback: HTML → the SAME
                       sandboxed iframe as the live path (T-18-05: allow-scripts,

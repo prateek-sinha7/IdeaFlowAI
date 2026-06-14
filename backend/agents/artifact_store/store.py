@@ -41,6 +41,11 @@ class ArtifactStore:
         # asyncio.Event registry for Human_Gate pause/resume (in-memory, per-process)
         self._resume_events: dict[str, asyncio.Event] = {}
         self._questionnaire_responses: dict[str, list[dict]] = {}
+        # Per-run force-proceed flag (ISS-027): set when the user chose
+        # "Skip all & run directly". The ClarifyEngine reads it after the resume
+        # event fires to break out of the clarify loop immediately instead of
+        # re-asking the same questions for the remaining rounds.
+        self._questionnaire_force_proceed: dict[str, bool] = {}
 
     # ------------------------------------------------------------------
     # Human_Gate pause/resume (in-memory — per-process asyncio.Events)
@@ -58,14 +63,26 @@ class ArtifactStore:
         self,
         pipeline_run_id: str,
         responses: list[dict],
+        skip_clarification: bool = False,
     ) -> None:
-        """Store questionnaire responses and set the resume event."""
+        """Store questionnaire responses and set the resume event.
+
+        Args:
+            skip_clarification: ISS-027 force-proceed. When True the user chose
+                "Skip all & run directly"; the ClarifyEngine reads this flag once
+                the resume event fires and proceeds immediately (PROCEED) rather
+                than re-evaluating and re-asking for the remaining rounds. The
+                flag is keyed per-run and consumed by the clarify loop; it stays
+                False for ordinary answer submissions (byte-identical default).
+        """
         self._questionnaire_responses[pipeline_run_id] = responses
+        self._questionnaire_force_proceed[pipeline_run_id] = bool(skip_clarification)
         event = await self.get_resume_event(pipeline_run_id)
         event.set()
         logger.debug(
-            "ArtifactStore: questionnaire responses set for run=%s (%d responses)",
-            pipeline_run_id, len(responses),
+            "ArtifactStore: questionnaire responses set for run=%s (%d responses, "
+            "skip_clarification=%s)",
+            pipeline_run_id, len(responses), skip_clarification,
         )
 
     async def get_questionnaire_responses(
@@ -74,6 +91,18 @@ class ArtifactStore:
     ) -> list[dict] | None:
         """Retrieve questionnaire responses. None if not yet submitted."""
         return self._questionnaire_responses.get(pipeline_run_id)
+
+    async def get_questionnaire_force_proceed(
+        self,
+        pipeline_run_id: str,
+    ) -> bool:
+        """Whether the last questionnaire submission requested force-proceed (ISS-027).
+
+        False when no submission has set it (the byte-identical default), so the
+        clarify loop only short-circuits when the user explicitly chose
+        "Skip all & run directly".
+        """
+        return self._questionnaire_force_proceed.get(pipeline_run_id, False)
 
     # ------------------------------------------------------------------
     # Review_Gate pause/resume — used by prototype spec/plan review gates

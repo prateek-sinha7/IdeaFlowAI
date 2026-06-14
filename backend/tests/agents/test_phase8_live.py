@@ -437,8 +437,33 @@ _DEFAULT_GATE_AGENT: dict[str, str] = {
 # ===========================================================================
 
 
+class _LiveCredsRecheckMixin:
+    """Shared autouse mid-sweep credential re-check for the LIVE classes (ISS-011).
+
+    The ``@requires_live`` mark / ``_LIVE_SKIP`` gate is captured ONCE at collection.
+    On a multi-hour live sweep the default-profile SSO session can expire AFTER
+    collection decided the suite was runnable — STS then stops resolving, the model
+    call is swallowed to an ``error`` with 0 tokens, and the ``require_tokens=True``
+    assertions FAIL spuriously. Both ``TestLivePipelines`` (which runs FIRST, ~2.8h)
+    and ``TestLiveHITL`` carry that identical exposure, so the runtime re-check lives
+    HERE, on a shared base BOTH inherit (no per-class duplication / dual-impl), rather
+    than only on ``TestLiveHITL``.
+
+    The fixture is autouse + ``function``-scoped, so it fires at EACH live-test start
+    and turns a mid-sweep lapse into a clean ``pytest.skip`` (not a failure). It is a
+    no-op when creds still resolve — and it never raises a SKIP for a genuine assertion
+    failure, which is raised from the test body AFTER this fixture returns. It is bound
+    only to the LIVE classes that inherit it, so ``TestOfflineHITL`` / ``TestOfflineProof``
+    (which prove the gate seams with no creds) stay green offline.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _recheck_creds_at_runtime(self) -> None:
+        _skip_if_creds_lapsed_mid_sweep()
+
+
 @requires_live
-class TestLivePipelines:
+class TestLivePipelines(_LiveCredsRecheckMixin):
     """LIVE Bedrock per-pipeline cases — gated on RUN_LIVE_BEDROCK=1 + creds.
 
     Collected into a class-level list so a session-cost summary + budget assertion
@@ -550,18 +575,13 @@ class TestLivePipelines:
 
 
 @requires_live
-class TestLiveHITL:
-    """LIVE HITL on/off against the real model (gated on RUN_LIVE_BEDROCK=1)."""
+class TestLiveHITL(_LiveCredsRecheckMixin):
+    """LIVE HITL on/off against the real model (gated on RUN_LIVE_BEDROCK=1).
 
-    @pytest.fixture(autouse=True)
-    def _recheck_creds_at_runtime(self) -> None:
-        """ISS-011: re-check creds at each live-HITL test start (mid-sweep expiry → SKIP).
-
-        Bound to this LIVE class only (autouse here, NOT a session/module fixture) so the
-        runtime re-check never touches ``TestOfflineHITL`` / ``TestOfflineProof`` — those
-        prove the gate seams are sound with no creds and must stay green offline.
-        """
-        _skip_if_creds_lapsed_mid_sweep()
+    Inherits the autouse mid-sweep credential re-check from ``_LiveCredsRecheckMixin``
+    (ISS-011), shared with ``TestLivePipelines`` so both live classes skip — not fail —
+    on a mid-sweep SSO lapse.
+    """
 
     @pytest.mark.asyncio
     async def test_live_gates_off_completes_without_gating(self) -> None:

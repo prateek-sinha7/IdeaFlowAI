@@ -284,7 +284,14 @@ const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
 // TERMINAL, has no content, AND carries a server-derived failure signal
 // (pipelineState.failed/.degraded on live; the reopened run status on history).
 // Surfaces the failed-agent names when present + a "view details"/retry hint.
-function DegradedRunAffordance({
+//
+// EXPORTED (no-dual-impl / INV-3): the history-reopen surface
+// (components/history/WorkflowHistory.tsx) renders the SAME affordance for a
+// terminal-empty failed/cancelled/degraded run, gated on the persisted
+// `selectedRun.status`. Keeping ONE affordance component means the live path and
+// the history-reopen path cannot drift. SC3 (CONTEXT A2): affordance on BOTH live
+// and history-reopen.
+export function DegradedRunAffordance({
   failedAgents,
   onRetry,
   cancelled,

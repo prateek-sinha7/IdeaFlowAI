@@ -34,7 +34,13 @@ and dependency-package naming consistent with the API design context.
 The downstream test agent imports this EXACT surface (module paths,
 exported names, error classes, dependency packages) to write its
 tests, so never rename between files and never rely on default
-exports for the public surface.
+exports for the public surface. In particular, when your ORM /
+repository code reaches for the database connection, import the DB
+accessor as the canonical NAMED export `getDatabase` that the
+code-generation agent emits — never an alias such as `getDb` and never
+a default import; the test implementation and the Jest/Vitest global
+setup import that same `getDatabase` symbol, so a divergent name is a
+build break across files.
 
 For each user story (or tightly grouped pair of related stories),
 emit:

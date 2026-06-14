@@ -158,15 +158,28 @@ def test_infra_generator_api_v1_contract() -> None:
 
 
 def test_getdatabase_accessor_contract_shared() -> None:
-    """Producer + consumer bodies share the canonical `getDatabase` literal.
+    """Producer + consumer + feature-impl bodies share the `getDatabase` literal.
 
-    Reverting EITHER side trips an explicit assert below:
-      * drop it from the producer  → first assert fails;
-      * drop it from the consumer  → second assert fails;
-      * drop the global-setup file token from the consumer → third assert fails.
+    Reverting ANY of the three named-export sides trips an explicit assert below:
+      * drop it from the producer            → first assert fails;
+      * drop it from the consumer            → third assert fails;
+      * drop the global-setup file token     → fourth assert fails;
+      * drop it from feature-implementation  → fifth assert fails (ISS-006 GAP 1:
+        the producer at app-code-generator/AGENT.md names "feature implementation"
+        as a consumer that imports `getDatabase` by name, yet feature-impl emits
+        the ORM/repository code that imports the accessor — closing the unpinned
+        3rd-node drift surface).
+
+    ISS-006 GAP 2: the pin guards BOTH the right name's presence AND the wrong
+    name's ABSENCE — every body must be free of a divergent `getDb` IMPORT form
+    (`import { getDb` / `{ getDb }`). We assert on the import FORM, never the bare
+    `getDb` token, because the producer/consumer carry deliberate NEGATIVE-EXAMPLE
+    mentions ("never an alias such as `getDb`") that a bare-token absence assert
+    would false-positive on.
     """
     producer = load_agent_spec("app-code-generator").prompt_body
     consumer = load_agent_spec("app-test-implementation").prompt_body
+    feature = load_agent_spec("app-feature-implementation").prompt_body
 
     # Producer: the DB module exports the accessor as the canonical NAMED export.
     assert "getDatabase" in producer, (
@@ -191,6 +204,35 @@ def test_getdatabase_accessor_contract_shared() -> None:
         "app-test-implementation body must name the global-setup file "
         "(`tests/setup.ts` / `globalSetup`) inside the Contract-fidelity rule"
     )
+
+    # Feature-implementation: the previously-unpinned 3rd node. The producer
+    # explicitly names "feature implementation" as a by-name `getDatabase`
+    # importer, and feature-impl emits the ORM/repository code that reaches for
+    # the accessor — so it must carry the same canonical literal.
+    assert "getDatabase" in feature, (
+        "app-feature-implementation body must carry the SAME canonical literal "
+        "`getDatabase` — its ORM/repository code imports the DB accessor the "
+        "producer emits, and the producer names it as a by-name importer "
+        "(ISS-006 GAP 1: the unpinned 3rd-node drift surface)"
+    )
+
+    # GAP 2 — divergent-import ABSENCE across ALL THREE bodies. Assert on the
+    # IMPORT form, NOT the bare `getDb` token: the producer/consumer keep
+    # intentional "never an alias such as `getDb`" negative examples, so a
+    # bare-token absence assert would false-positive on those deliberate lines.
+    for label, body in (
+        ("app-code-generator", producer),
+        ("app-test-implementation", consumer),
+        ("app-feature-implementation", feature),
+    ):
+        assert "import { getDb }" not in body, (
+            f"{label} body must not show a divergent `import {{ getDb }}` form "
+            "(only the canonical `getDatabase` import is allowed)"
+        )
+        assert "{ getDb }" not in body, (
+            f"{label} body must not show a divergent `{{ getDb }}` named-import "
+            "form (only the canonical `getDatabase` import is allowed)"
+        )
 
 
 # ===========================================================================
@@ -329,6 +371,18 @@ _DECK = (
 # Contains no `<artifact` token, so it cannot win the first-match unwrap.
 _NARRATION = "Running the final QA pass. P0 checks complete - one fix applied.\n"
 
+# The od_ppt agents declare injects=[template, design_system]; seed the
+# od_context exactly as _scripted_model._drive does so _compose_injection does
+# not raise TemplateMissingError. Shared across all three composition pins.
+_OD_PPT_CONTEXT = {
+    "template_body": "## Workflow\nUse .card and .grid classes. Build pages into <section data-page>.",
+    "template_id": "web-prototype",
+    "ds_id": "default",
+    "ds_body": ":root{--bg:#fff;--fg:#111;--accent:#06f;--surface:#f6f6f6;--border:#ddd;--muted:#888;}",
+    "craft_block": "Keep markup semantic; wire every nav link.",
+    "is_design_system_required": True,
+}
+
 
 def _model_for(agent_id: str) -> ScriptedFakeChatModel:
     """Per-agent factory: contract-shaped validator, stock scripts otherwise."""
@@ -357,17 +411,7 @@ async def test_od_ppt_deck_resolution_with_contract_shaped_validator() -> None:
         model=_model_for,
         fake_planner=True,
         gate_agent_ids=(),
-        # The od_ppt agents declare injects=[template, design_system]; seed the
-        # od_context exactly as _scripted_model._drive does so _compose_injection
-        # does not raise TemplateMissingError.
-        od_context={
-            "template_body": "## Workflow\nUse .card and .grid classes. Build pages into <section data-page>.",
-            "template_id": "web-prototype",
-            "ds_id": "default",
-            "ds_body": ":root{--bg:#fff;--fg:#111;--accent:#06f;--surface:#f6f6f6;--border:#ddd;--muted:#888;}",
-            "craft_block": "Keep markup semantic; wire every nav link.",
-            "is_design_system_required": True,
-        },
+        od_context=dict(_OD_PPT_CONTEXT),
     )
 
     assert result.completed is True
@@ -381,4 +425,132 @@ async def test_od_ppt_deck_resolution_with_contract_shaped_validator() -> None:
     # The QA narration did NOT win — the LV-02 failure mode.
     assert "Running the final QA pass" not in fo
     # Engine world mirrors deliverable == final_output.
+    assert result.deliverable == fo
+
+
+# ===========================================================================
+# LV-02 NEGATIVE composition pins — DOCUMENT the failure mode the od-ppt-validator
+# OUTPUT CONTRACT must prevent, by driving the REAL engine + REAL PptResolver +
+# REAL prompts with a validator that VIOLATES the contract. These make the
+# contract's necessity test-visible: the positive pin above passes even if the
+# contract were deleted (the resolver always skips leading plain text and unwraps
+# the deck), so it does NOT exercise the real LV-02 failure shape. The two pins
+# below close that blind spot.
+#
+# They are DOCUMENTATION of the resolver's behaviour, NOT a change to it:
+# `agents/capabilities/deliverables/ppt.py` + `_artifact.py` stay READ-ONLY
+# anchors (15-CONTEXT.md ## LV-02 fix approach — the engine-side resolver
+# fallback was REJECTED; the fix lives in the validator's output contract).
+#
+# Same ZERO-edit discipline as the positive pin: stock `_scripts_for` for every
+# agent except a PER-TEST contract-VIOLATING validator injected via the factory.
+# ===========================================================================
+
+
+def _model_narration_only(agent_id: str) -> ScriptedFakeChatModel:
+    """Per-agent factory: a validator that emits NARRATION ONLY — no `<artifact>`.
+
+    The exact LV-02 failure mode: the validator reports a QA pass as plain prose
+    and never re-emits the deck inside an `<artifact>` tag. With no `<artifact`
+    token in the stream, `unwrap_artifact` returns the text unchanged
+    (`_artifact.py:38`) — so the narration, not a deck, becomes `final_output`.
+    """
+    if agent_id == "od-ppt-validator":
+        return ScriptedFakeChatModel(
+            [
+                _ScriptedTurn(
+                    texts=[
+                        _NARRATION,
+                        "All slides verified. Nothing to change; the deck is ready.",
+                    ],
+                    usage=(20, 12),
+                )
+            ]
+        )
+    return ScriptedFakeChatModel(_scripts_for(agent_id))
+
+
+def _model_status_artifact_first(agent_id: str) -> ScriptedFakeChatModel:
+    """Per-agent factory: a validator that emits a STATUS artifact, THEN the deck.
+
+    Reproduces why the contract's "exactly ONE `<artifact>` / never a status
+    artifact" clause is load-bearing: `unwrap_artifact` is FIRST-match
+    (`_artifact.py:35`, `re.search`), so a small leading `<artifact>QA pass…`
+    wins the unwrap and the real deck that follows is discarded.
+    """
+    if agent_id == "od-ppt-validator":
+        return ScriptedFakeChatModel(
+            [
+                _ScriptedTurn(
+                    texts=[
+                        "<artifact>QA pass: 0 P0 issues, 1 fix applied.</artifact>\n",
+                        '<artifact identifier="deck" type="text/html" title="Deck">'
+                        + _DECK
+                        + "</artifact>",
+                    ],
+                    usage=(22, 14),
+                )
+            ]
+        )
+    return ScriptedFakeChatModel(_scripts_for(agent_id))
+
+
+@pytest.mark.asyncio
+async def test_od_ppt_narration_only_validator_does_not_resolve_to_deck() -> None:
+    """Narration-only validator (no `<artifact>`) → final_output is NOT a deck.
+
+    This DOCUMENTS the LV-02 failure mode the od-ppt-validator OUTPUT CONTRACT
+    exists to prevent: when the validator emits no `<artifact>`, the resolver has
+    no deck to unwrap and the QA narration leaks through as the deliverable.
+    """
+    result = await drive_engine_pipeline(
+        "od_ppt",
+        model=_model_narration_only,
+        fake_planner=True,
+        gate_agent_ids=(),
+        od_context=dict(_OD_PPT_CONTEXT),
+    )
+
+    assert result.completed is True
+    assert result.error is None
+
+    fo = result.final_output
+    assert isinstance(fo, str)
+    # The resolver returned the raw narration — NOT a deck. This is the failure
+    # the contract must prevent; pinning it makes the contract's necessity
+    # test-visible.
+    assert "<section class=\"slide\"" not in fo
+    assert "<!DOCTYPE html" not in fo
+    assert fo.lstrip().lower().startswith("running the final qa pass") or "QA pass" in fo
+    # Engine world still mirrors deliverable == final_output (the leak is in the
+    # CONTENT, not the wiring).
+    assert result.deliverable == fo
+
+
+@pytest.mark.asyncio
+async def test_od_ppt_status_artifact_first_wins_unwrap_over_deck() -> None:
+    """A leading STATUS `<artifact>` wins the FIRST-match unwrap over the deck.
+
+    Proves WHY the contract's "exactly ONE artifact / never a status artifact"
+    clause is load-bearing: `unwrap_artifact` is first-match, so a small status
+    artifact emitted BEFORE the real deck is extracted and the deck is dropped.
+    """
+    result = await drive_engine_pipeline(
+        "od_ppt",
+        model=_model_status_artifact_first,
+        fake_planner=True,
+        gate_agent_ids=(),
+        od_context=dict(_OD_PPT_CONTEXT),
+    )
+
+    assert result.completed is True
+    assert result.error is None
+
+    fo = result.final_output
+    assert isinstance(fo, str)
+    # The STATUS artifact's inner text won the unwrap...
+    assert "QA pass" in fo
+    # ...and the real deck that followed was discarded (first-match unwrap).
+    assert "<section class=\"slide\"" not in fo
+    assert "<!DOCTYPE html" not in fo
     assert result.deliverable == fo

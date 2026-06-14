@@ -63,6 +63,36 @@ async def test_get_questionnaire_responses_returns_none_before_submission(
     assert result is None
 
 
+@pytest.mark.asyncio
+async def test_force_proceed_defaults_false_and_for_plain_submit(
+    store: ArtifactStore,
+) -> None:
+    """ISS-027: the force-proceed flag is False before any submit and stays False
+    for an ordinary answer submission (byte-identical default)."""
+    pipeline_run_id = "pipeline-q-noflag"
+    assert await store.get_questionnaire_force_proceed("pipeline-never") is False
+
+    await store.set_questionnaire_responses(
+        pipeline_run_id, [{"question_id": "q1", "answer": "Option A"}]
+    )
+    assert await store.get_questionnaire_force_proceed(pipeline_run_id) is False
+
+
+@pytest.mark.asyncio
+async def test_force_proceed_set_when_skip_clarification(
+    store: ArtifactStore,
+) -> None:
+    """ISS-027: skip_clarification=True records the force-proceed flag per run."""
+    pipeline_run_id = "pipeline-q-skip"
+    await store.set_questionnaire_responses(
+        pipeline_run_id, [], skip_clarification=True
+    )
+    assert await store.get_questionnaire_force_proceed(pipeline_run_id) is True
+    # The resume event is still set (the run unblocks regardless of the flag).
+    event = await store.get_resume_event(pipeline_run_id)
+    assert event.is_set()
+
+
 # ---------------------------------------------------------------------------
 # Review gate (prototype spec/plan review)
 # ---------------------------------------------------------------------------

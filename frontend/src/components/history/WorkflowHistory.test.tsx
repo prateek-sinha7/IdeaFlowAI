@@ -167,3 +167,105 @@ describe("WorkflowHistory — Suggested next steps", () => {
     );
   });
 });
+
+// ─────────────────────────────────────────────────────────────────
+// ISS-017 (gap-fix) — history-reopen terminal-failure affordance.
+//
+// The live PreviewPanel path showed a degraded/failed affordance for a
+// terminal-empty run, but the REAL history surface (WorkflowHistory detail)
+// showed the neutral "No preview available" — SC3 was only half-met. These
+// cases prove the affordance now renders on the history-reopen path too,
+// STRICTLY gated on the persisted server status (no client empty==failed guess).
+// ─────────────────────────────────────────────────────────────────
+
+const AFFORDANCE_COPY = /this run did not complete successfully/i;
+const CANCELLED_COPY = /this run was cancelled/i;
+const NEUTRAL_COPY = /no preview available/i;
+
+describe("WorkflowHistory — terminal-failure affordance on reopen (ISS-017)", () => {
+  it("reopening a FAILED run with empty output renders the affordance + the failed-agents list (not 'No preview available')", async () => {
+    await renderAndOpenRun(
+      makeRun({
+        type: "user_stories",
+        status: "failed",
+        output: "",
+        // Persisted failed-agent ids parsed by the SHARED parseFailedAgentIds.
+        error: "Pipeline failed — agent(s) failed: story-writer, story-estimator",
+      }),
+    );
+
+    expect(screen.getByText(AFFORDANCE_COPY)).toBeInTheDocument();
+    expect(screen.queryByText(NEUTRAL_COPY)).not.toBeInTheDocument();
+    // The real persisted failed-agent ids appear (shared parser, no dual-impl).
+    expect(screen.getByText("story-writer")).toBeInTheDocument();
+    expect(screen.getByText("story-estimator")).toBeInTheDocument();
+    // A failure is NOT a cancel — keeps the failed/degraded copy.
+    expect(screen.queryByText(CANCELLED_COPY)).not.toBeInTheDocument();
+  });
+
+  it("reopening a CANCELLED run with empty output renders the cancelled-specific copy (not failed/degraded, not neutral)", async () => {
+    await renderAndOpenRun(
+      makeRun({
+        type: "prototype",
+        status: "cancelled",
+        output: "",
+        error: undefined,
+      }),
+    );
+
+    // IN-03: a deliberate user Stop reads "cancelled", not "failed or degraded".
+    expect(screen.getByText(CANCELLED_COPY)).toBeInTheDocument();
+    expect(screen.queryByText(/failed or degraded/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(NEUTRAL_COPY)).not.toBeInTheDocument();
+  });
+
+  it("reopening a DEGRADED run with empty output renders the affordance + the wired failed-agent list", async () => {
+    await renderAndOpenRun(
+      makeRun({
+        type: "ppt",
+        status: "degraded",
+        output: "",
+        error: "Run degraded — agent(s) failed: ppt-validator",
+      }),
+    );
+
+    expect(screen.getByText(AFFORDANCE_COPY)).toBeInTheDocument();
+    expect(screen.queryByText(NEUTRAL_COPY)).not.toBeInTheDocument();
+    expect(screen.getByText("ppt-validator")).toBeInTheDocument();
+    // A degraded reopen is NOT a cancel.
+    expect(screen.queryByText(CANCELLED_COPY)).not.toBeInTheDocument();
+  });
+
+  it("reopening a COMPLETED run WITH content renders the content, NOT the affordance and NOT the neutral state", async () => {
+    await renderAndOpenRun(
+      makeRun({
+        type: "user_stories",
+        status: "completed",
+        output: "# Real user stories\n\nAs a user...",
+      }),
+    );
+
+    // The deliverable renders (mocked UserStoryPreview marker); no affordance.
+    expect(screen.getByTestId("userstory-preview")).toBeInTheDocument();
+    expect(screen.queryByText(AFFORDANCE_COPY)).not.toBeInTheDocument();
+    expect(screen.queryByText(CANCELLED_COPY)).not.toBeInTheDocument();
+    expect(screen.queryByText(NEUTRAL_COPY)).not.toBeInTheDocument();
+  });
+
+  it("reopening a FAILED run that DID produce content renders the content, NOT the affordance (content wins; server-status-gated only inside the empty branch)", async () => {
+    // A failed run that still persisted a partial deliverable must show it — the
+    // affordance fires only in the !selectedOutput neutral branch, never as a
+    // client 'status==failed → hide content' guess.
+    await renderAndOpenRun(
+      makeRun({
+        type: "user_stories",
+        status: "failed",
+        output: "# Partial user stories\n\nPartial content...",
+        error: "Pipeline failed — agent(s) failed: story-writer",
+      }),
+    );
+
+    expect(screen.getByTestId("userstory-preview")).toBeInTheDocument();
+    expect(screen.queryByText(AFFORDANCE_COPY)).not.toBeInTheDocument();
+  });
+});

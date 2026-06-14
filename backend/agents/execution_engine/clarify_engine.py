@@ -156,6 +156,13 @@ class ClarifyEngine:
 
             responses = await self._store.get_questionnaire_responses(pipeline_run_id)
             responses = responses or []
+            # ISS-027: did the user click "Skip all & run directly"? That submit
+            # carries a force-proceed flag the FE sets explicitly; here it means
+            # "stop clarifying and run now", regardless of how many ambiguities
+            # remain. Ordinary answer submissions leave it False (byte-identical).
+            force_proceed = await self._store.get_questionnaire_force_proceed(
+                pipeline_run_id
+            )
 
             # Persist Q&A pairs and merge answers into the planning_context
             await self._persist_qa(pipeline_run_id, questions, responses, round_num)
@@ -172,6 +179,15 @@ class ClarifyEngine:
                     },
                 }
             )
+
+            # ISS-027 force-proceed: the user explicitly asked to skip remaining
+            # clarification, so bypass the rest of the loop (no re-ask) and run
+            # with the best-available context. This is the real behavior the
+            # "Skip all & run directly" label promises; before, an empty submit
+            # left missing_information unchanged and the loop re-asked up to 3×.
+            if force_proceed:
+                merged_context["execution_gate"] = "PROCEED"
+                return merged_context
 
             # Re-evaluate: if no more missing information, proceed
             if not merged_context.get("missing_information"):

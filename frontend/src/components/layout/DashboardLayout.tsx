@@ -74,7 +74,7 @@ export interface DashboardLayoutProps {
   // reconnect_pipeline send can include `after_seq` for the durable replay
   // (12-03). Returns 0 on a fresh load (no recorded seq ⇒ full-tail replay).
   getLastSeq?: () => number;
-  onSubmitQuestionnaire?: (pipelineRunId: string, responses: Array<{ question_id: string; answer: string }>) => void;
+  onSubmitQuestionnaire?: (pipelineRunId: string, responses: Array<{ question_id: string; answer: string }>, skipClarification?: boolean) => void;
   // Review gate — shown when an agent with gate: Human_Gate completes
   reviewGateData?: {
     gateKey: string;
@@ -927,13 +927,16 @@ export function DashboardLayout({
   }, [activePipelineRunId, onSubmitQuestionnaire, pendingPipelineRun, questionnaireQuestions, onStartPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
 
   // Skip questionnaire.
-  // New flow: submit empty answers to resume the paused run with best-available
-  // context. Legacy flow: start the pipeline with the un-enriched message.
+  // New flow (ISS-027): submit empty answers WITH skip_clarification=true so the
+  // backend ClarifyEngine force-proceeds immediately and runs with best-available
+  // context — instead of re-asking the same questions for up to 3 rounds (which
+  // an empty submit alone triggered, contradicting the "run directly" label).
+  // Legacy flow: start the pipeline with the un-enriched message.
   const handleQuestionnaireSkip = useCallback(() => {
     if (activePipelineRunId && onSubmitQuestionnaire) {
       setQuestionnaireQuestions([]);
       setQuestionnaireLoading(false);
-      onSubmitQuestionnaire(activePipelineRunId, []);
+      onSubmitQuestionnaire(activePipelineRunId, [], true);
       return;
     }
 

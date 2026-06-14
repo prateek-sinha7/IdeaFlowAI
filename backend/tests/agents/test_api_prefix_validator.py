@@ -196,6 +196,205 @@ async def test_nginx_location_violation_is_flagged(tmp_path, db_session):
 
 
 @pytest.mark.asyncio
+async def test_k8s_httpget_probe_path_violation_is_flagged(tmp_path, db_session):
+    """GAP-1: a k8s ``livenessProbe``/``readinessProbe`` ``httpGet`` ``path: /healthz``
+    missing ``/api/v1`` IS now flagged.
+
+    Standard infra-generator k8s manifest output (already globbed by ``_INFRA_GLOBS`` as
+    ``*.yaml``). Pre-fix the URL/location/healthcheck arms matched none of it, so a
+    ``/api/v1`` violation in a probe path sailed through clean (false negative). The
+    httpGet-scoped ``path:`` arm now catches it.
+    """
+    target, runner = _make_target(
+        tmp_path,
+        db_session,
+        infra_files={
+            "k8s/deployment.yaml": (
+                "spec:\n"
+                "  containers:\n"
+                "  - name: app\n"
+                "    livenessProbe:\n"
+                "      httpGet:\n"
+                "        path: /healthz\n"
+                "        port: 8080\n"
+                "    readinessProbe:\n"
+                "      httpGet:\n"
+                "        port: 8080\n"
+                "        path: /ready\n"
+            ),
+        },
+    )
+    validator = ApiPrefixValidator()
+    issues = await validator.validate(target)
+    # Both the liveness (/healthz) and readiness (/ready) probe paths violate.
+    assert [i.severity for i in issues] == ["P2", "P2"], (
+        f"both k8s httpGet probe paths must be flagged, got {issues!r}"
+    )
+    messages = " ".join(i.message for i in issues)
+    assert "/healthz" in messages and "/ready" in messages
+
+
+@pytest.mark.asyncio
+async def test_ingress_rule_path_violation_is_flagged(tmp_path, db_session):
+    """GAP-1: a k8s Ingress rule ``path: /products`` (with sibling ``pathType:``) missing
+    ``/api/v1`` IS now flagged.
+
+    The Ingress ``path:`` is recognised by its sibling ``pathType:`` line (the Ingress v1
+    signature) — so it is scoped to genuine route declarations and not arbitrary
+    ``path:`` keys.
+    """
+    target, runner = _make_target(
+        tmp_path,
+        db_session,
+        infra_files={
+            "k8s/ingress.yaml": (
+                "spec:\n"
+                "  rules:\n"
+                "  - http:\n"
+                "      paths:\n"
+                "      - path: /products\n"
+                "        pathType: Prefix\n"
+            ),
+        },
+    )
+    validator = ApiPrefixValidator()
+    issues = await validator.validate(target)
+    assert [i.severity for i in issues] == ["P2"], (
+        f"an ingress rule path /products must be flagged, got {issues!r}"
+    )
+    assert "/products" in issues[0].message
+
+
+@pytest.mark.asyncio
+async def test_nginx_regex_location_anchor_is_flagged(tmp_path, db_session):
+    """GAP-2a: an nginx regex-location ``location ~ ^/users/`` IS now flagged.
+
+    Pre-fix the ``^`` anchor after the ``~`` modifier blocked the path capture, so a
+    regex-location violation was a false negative. The ``location`` arm now consumes an
+    optional ``^`` before the path.
+    """
+    target, runner = _make_target(
+        tmp_path,
+        db_session,
+        infra_files={
+            "nginx.conf": (
+                "server {\n"
+                "  location ~ ^/users/ {\n"
+                "    proxy_pass http://app;\n"
+                "  }\n"
+                "}\n"
+            ),
+        },
+    )
+    validator = ApiPrefixValidator()
+    issues = await validator.validate(target)
+    assert [i.severity for i in issues] == ["P2"], (
+        f"a regex-location ~ ^/users/ must be flagged, got {issues!r}"
+    )
+    assert "/users" in issues[0].message
+
+
+@pytest.mark.asyncio
+async def test_nginx_proxy_pass_target_is_not_flagged(tmp_path, db_session):
+    """GAP-2b: an nginx ``proxy_pass http://backend/users/;`` upstream target is NOT
+    flagged (no false positive).
+
+    A ``proxy_pass`` target is INTERNAL upstream routing, not the public ``/api/v1``
+    surface — flagging it polluted the audit row. Here the public ``location`` is
+    compliant (``/api/v1/``) and only the internal ``proxy_pass`` names ``/users/``, so
+    the file must yield ZERO issues.
+    """
+    target, runner = _make_target(
+        tmp_path,
+        db_session,
+        infra_files={
+            "nginx.conf": (
+                "server {\n"
+                "  location /api/v1/ {\n"
+                "    proxy_pass http://backend/users/;\n"
+                "  }\n"
+                "}\n"
+            ),
+        },
+    )
+    validator = ApiPrefixValidator()
+    issues = await validator.validate(target)
+    assert issues == [], (
+        f"an internal proxy_pass target must NOT be flagged (false positive), got {issues!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_k8s_and_ingress_under_api_v1_are_clean(tmp_path, db_session):
+    """GAP-5: a compliant ``/api/v1`` k8s httpGet probe + Ingress path → zero issues."""
+    target, runner = _make_target(
+        tmp_path,
+        db_session,
+        infra_files={
+            "k8s/deployment.yaml": (
+                "spec:\n"
+                "  containers:\n"
+                "  - name: app\n"
+                "    livenessProbe:\n"
+                "      httpGet:\n"
+                "        path: /api/v1/healthz\n"
+                "        port: 8080\n"
+            ),
+            "k8s/ingress.yaml": (
+                "spec:\n"
+                "  rules:\n"
+                "  - http:\n"
+                "      paths:\n"
+                "      - path: /api/v1/products\n"
+                "        pathType: Prefix\n"
+            ),
+        },
+    )
+    validator = ApiPrefixValidator()
+    issues = await validator.validate(target)
+    assert issues == [], (
+        f"compliant /api/v1 probe + ingress paths must be clean, got {issues!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_yaml_hostpath_and_cache_path_not_flagged(tmp_path, db_session):
+    """Conservative scoping: unrelated YAML ``path:`` keys (k8s ``hostPath`` volume, a
+    GitHub-Actions cache ``path:``) are NOT swept up as endpoints (no false positive).
+
+    These are filesystem paths, not app routes. They are NOT inside an ``httpGet:`` block
+    and have no sibling ``pathType:``, so the ``path:`` arm must skip them — preferring a
+    false NEGATIVE over a false POSITIVE where ambiguous.
+    """
+    target, runner = _make_target(
+        tmp_path,
+        db_session,
+        infra_files={
+            "k8s/volume.yaml": (
+                "spec:\n"
+                "  volumes:\n"
+                "  - name: data\n"
+                "    hostPath:\n"
+                "      path: /var/lib/appdata\n"
+            ),
+            ".github/workflows/ci.yml": (
+                "jobs:\n"
+                "  build:\n"
+                "    steps:\n"
+                "    - uses: actions/cache@v3\n"
+                "      with:\n"
+                "        path: /home/runner/.cache/pip\n"
+            ),
+        },
+    )
+    validator = ApiPrefixValidator()
+    issues = await validator.validate(target)
+    assert issues == [], (
+        f"unrelated filesystem path: keys must NOT be flagged, got {issues!r}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_external_urls_yield_zero_issues(tmp_path, db_session):
     """WR-02: EXTERNAL package/registry/release URLs are NOT app endpoints → zero issues.
 

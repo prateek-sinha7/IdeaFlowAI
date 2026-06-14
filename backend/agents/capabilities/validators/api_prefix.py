@@ -10,8 +10,13 @@ templated. This validator is the DETERMINISTIC backstop.
 Heuristic (stdlib only): glob the run sandbox for the infra files an
 infra-generator writes (``Dockerfile*``, ``*.yml``/``*.yaml``, nginx ``*.conf``,
 ``.github/workflows/*``); regex-scan each for app-endpoint references — healthcheck
-paths, nginx ``location`` blocks, smoke ``curl`` URLs — that are NOT under the single
-``API_PREFIX`` (``/api/v1``) constant. Each violation is a P2 (``MEDIUM``) ``Issue``.
+paths, nginx ``location`` blocks (incl. ``^``-anchored regex-locations), smoke ``curl``
+URLs, and the ``path:`` route of a k8s ``httpGet`` probe / Ingress rule — that are NOT
+under the single ``API_PREFIX`` (``/api/v1``) constant. An nginx ``proxy_pass`` target
+is INTERNAL upstream routing (not the public surface) and is excluded, and unrelated
+YAML ``path:`` keys (``hostPath``/``mountPath``/CI cache) are NOT swept up: detection
+stays conservative, preferring a missed audit row to a false one. Each violation is a
+P2 (``MEDIUM``) ``Issue``.
 Absent/empty sandbox or unreadable file → no issues (the check degrades, never
 crashes). It reads ONLY within the run sandbox root (path-traversal safety via the
 sandbox's own ``path_for`` / ``root``; mirror ``spec_plan_coverage``'s confinement).
@@ -64,40 +69,100 @@ _INFRA_GLOBS = (
 )
 
 # App-endpoint reference shapes. Each captures the referenced path so the message can
-# name the offending endpoint. Linear single-pass alternation (no nested quantifiers →
-# no catastrophic backtracking, T-19-02-02):
-#   * a healthcheck / smoke ``curl`` URL (``curl http://host:port/health``);
-#   * an nginx ``location`` block (``location /health {``);
-#   * a bare healthcheck path option (``--health-cmd`` / ``test:`` ``/health``).
-_ENDPOINT_RES = (
-    # An APP-LOCAL http(s)://host[:port]/path URL (curl/healthcheck/smoke). WR-02:
-    # the host is constrained to app-local references — ``localhost`` / ``127.0.0.1`` /
-    # ``0.0.0.0`` / a docker-compose service name (a bare ``[A-Za-z0-9_-]+`` token with
-    # NO dot, i.e. NOT a public FQDN). Hosts containing a ``.`` (``deb.nodesource.com``,
-    # ``github.com``, ``registry.terraform.io``) are EXTERNAL package/registry/release
-    # URLs that have nothing to do with the app's API surface, so they are NOT scanned
-    # (they were audit-row noise that undermined the deterministic backstop). The host
-    # alternation consumes ``host[:port]`` so the capture begins at the URL PATH's first
-    # ``/`` — never the ``//`` of the scheme separator.
-    re.compile(
-        r"https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0|[A-Za-z0-9_-]+)(?::\d+)?(/[A-Za-z0-9_\-/]*)"
-    ),
-    # nginx: location [=|~|~*|^~] /path {
-    re.compile(r"\blocation\s+(?:[=~^*]+\s+)?(/[A-Za-z0-9_\-/]*)"),
-    # WR-03: a bare healthcheck path with NO ``http://`` prefix — a docker-compose
-    # ``test:`` array, a Docker ``HEALTHCHECK``, or a ``--health-cmd`` that names a
-    # path-only endpoint (e.g. ``test: ["CMD", "wget", "-qO-", "/health"]``). Scoped to
-    # the healthcheck CONTEXT (the regex must see one of those tokens first) so it does
-    # NOT match arbitrary ``/path`` tokens elsewhere in the file. This is the
-    # bare-healthcheck shape the docstring advertises and the exact false-negative
-    # ISS-005 exists to catch (an infra step that violates /api/v1 via a path-only
-    # healthcheck). The leading whitespace/quote delimiter is NON-capturing so the path
-    # stays in group(1) like every other pattern; ``[^\n]*?`` is lazy so the FIRST
-    # path token after the healthcheck keyword (the endpoint) is captured.
-    re.compile(
-        r"(?:--health-cmd|HEALTHCHECK|test:)[^\n]*?(?:\s|\")(/[A-Za-z0-9_\-/]+)"
-    ),
+# name the offending endpoint. Every regex below is a LINEAR single pass (no nested
+# quantifiers → no catastrophic backtracking, T-19-02-02): the only multi-line scoping
+# (k8s httpGet probe / Ingress rule) is done by a line-oriented Python scan in
+# ``_iter_endpoint_paths`` rather than a multi-line regex, so a pathological infra file
+# can never make a bounded-but-lazy line-hopping group blow up.
+#
+# An APP-LOCAL http(s)://host[:port]/path URL (curl/healthcheck/smoke). WR-02: the host
+# is constrained to app-local references — ``localhost`` / ``127.0.0.1`` / ``0.0.0.0`` /
+# a docker-compose service name (a bare ``[A-Za-z0-9_-]+`` token with NO dot, i.e. NOT a
+# public FQDN). Hosts containing a ``.`` (``deb.nodesource.com``, ``github.com``,
+# ``registry.terraform.io``) are EXTERNAL package/registry/release URLs that have nothing
+# to do with the app's API surface, so they are NOT scanned (they were audit-row noise
+# that undermined the deterministic backstop). The host alternation consumes ``host[:port]``
+# so the capture begins at the URL PATH's first ``/`` — never the ``//`` of the scheme
+# separator. A match preceded on its line by ``proxy_pass`` is dropped in the scan (see
+# ``_iter_endpoint_paths``): an nginx ``proxy_pass`` target is INTERNAL upstream routing,
+# not the public ``/api/v1`` surface, so flagging it would be a false positive.
+_URL_RE = re.compile(
+    r"https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0|[A-Za-z0-9_-]+)(?::\d+)?(/[A-Za-z0-9_\-/]*)"
 )
+# nginx: location [=|~|~*|^~] [^]/path {  — the optional ``\^?`` consumes the regex-location
+# anchor (``location ~ ^/users/``) so the capture still begins at the leading ``/`` of the
+# path (without it the ``^`` blocked the ``/`` capture and a regex-location violation was
+# a false NEGATIVE).
+_LOCATION_RE = re.compile(r"\blocation\s+(?:[=~^*]+\s+)?\^?(/[A-Za-z0-9_\-/]*)")
+# WR-03: a bare healthcheck path with NO ``http://`` prefix — a docker-compose ``test:``
+# array, a Docker ``HEALTHCHECK``, or a ``--health-cmd`` that names a path-only endpoint
+# (e.g. ``test: ["CMD", "wget", "-qO-", "/health"]``). Scoped to the healthcheck CONTEXT
+# (the regex must see one of those tokens first) so it does NOT match arbitrary ``/path``
+# tokens elsewhere in the file. The leading whitespace/quote delimiter is NON-capturing so
+# the path stays in group(1); ``[^\n]*?`` is lazy so the FIRST path token after the
+# healthcheck keyword (the endpoint) is captured.
+_HEALTHCHECK_RE = re.compile(
+    r"(?:--health-cmd|HEALTHCHECK|test:)[^\n]*?(?:\s|\")(/[A-Za-z0-9_\-/]+)"
+)
+# A YAML ``path:`` key whose value is an ABSOLUTE path. On its own this is too broad (it
+# would also catch ``hostPath``/``mountPath``/actions-cache filesystem paths), so the scan
+# only yields it when it is inside an ``httpGet:`` probe block OR is the route of an Ingress
+# rule (signalled by a sibling ``pathType:`` line) — the two infra-generator YAML forms
+# (k8s probes + Ingress) that the docstring covers but the URL/location/healthcheck arms
+# missed entirely (a ``/api/v1`` violation in a probe/ingress path was a false NEGATIVE).
+# ``\bpath:`` requires a word boundary so ``hostPath:`` / ``subPath:`` are not matched.
+_PATH_VALUE_RE = re.compile(r"""\bpath:\s*["']?(/[A-Za-z0-9_\-/]+)""")
+_HTTPGET_RE = re.compile(r"\bhttpGet:")
+_PATHTYPE_RE = re.compile(r"\bpathType:")
+# A ``proxy_pass`` keyword (nginx upstream routing) — used to suppress the URL arm on the
+# same line (its target is internal, not the public API surface).
+_PROXY_PASS_RE = re.compile(r"\bproxy_pass\b")
+
+# How many lines after an ``httpGet:`` key a ``path:`` value is still treated as that
+# probe's route. k8s probe blocks are 2–4 keys deep; 8 is a safe, bounded window.
+_HTTPGET_PROXIMITY = 8
+
+
+def _line_prefix(text: str, start: int) -> str:
+    """Return the text on the SAME line as ``start``, up to (not including) ``start``."""
+    line_start = text.rfind("\n", 0, start) + 1
+    return text[line_start:start]
+
+
+def _iter_endpoint_paths(text: str):
+    """Yield every endpoint path referenced in ``text`` (one ``str`` per reference).
+
+    Linear: each regex is a single non-backtracking pass and the httpGet/Ingress scoping
+    is a one-pass line walk — no multi-line nested quantifier (T-19-02-02). The yielded
+    paths are NOT yet violation-checked; the caller applies ``_is_violation``.
+    """
+    # URL arm — drop any match whose line is an nginx ``proxy_pass`` (internal upstream
+    # routing, NOT the public surface → flagging it would be a false positive).
+    for m in _URL_RE.finditer(text):
+        if _PROXY_PASS_RE.search(_line_prefix(text, m.start())):
+            continue
+        yield m.group(1)
+    # nginx ``location`` blocks (incl. regex-locations with a ``^`` anchor).
+    for m in _LOCATION_RE.finditer(text):
+        yield m.group(1)
+    # Bare (scheme-less) healthcheck paths, scoped to the healthcheck keyword.
+    for m in _HEALTHCHECK_RE.finditer(text):
+        yield m.group(1)
+    # k8s ``httpGet:`` probe paths + Ingress-rule paths, scoped by a line walk so unrelated
+    # ``path:`` keys (hostPath / mountPath / actions cache) are never swept up.
+    lines = text.splitlines()
+    httpget_window = 0
+    for idx, line in enumerate(lines):
+        if _HTTPGET_RE.search(line):
+            httpget_window = _HTTPGET_PROXIMITY
+            continue
+        pm = _PATH_VALUE_RE.search(line)
+        if pm:
+            next_line = lines[idx + 1] if idx + 1 < len(lines) else ""
+            if httpget_window > 0 or _PATHTYPE_RE.search(next_line):
+                yield pm.group(1)
+        if httpget_window > 0:
+            httpget_window -= 1
 
 # Endpoint paths that are NOT application API surface — infra/static roots that
 # legitimately live outside ``/api/v1`` (so flagging them would be a false positive).
@@ -173,19 +238,17 @@ class ApiPrefixValidator:
                 # crashes (degrade-not-crash, like spec_plan_coverage on absent text).
                 continue
             rel = _rel_name(infra_file, sandbox)
-            for endpoint_re in _ENDPOINT_RES:
-                for m in endpoint_re.finditer(text):
-                    path = m.group(1)
-                    if _is_violation(path):
-                        issues.append(
-                            Issue(
-                                severity="P2",
-                                message=(
-                                    f"infra file '{rel}' references endpoint "
-                                    f"'{path}' not under {API_PREFIX}"
-                                ),
-                            )
+            for path in _iter_endpoint_paths(text):
+                if _is_violation(path):
+                    issues.append(
+                        Issue(
+                            severity="P2",
+                            message=(
+                                f"infra file '{rel}' references endpoint "
+                                f"'{path}' not under {API_PREFIX}"
+                            ),
                         )
+                    )
 
         await _record(target, "api_prefix", issues)
         return issues

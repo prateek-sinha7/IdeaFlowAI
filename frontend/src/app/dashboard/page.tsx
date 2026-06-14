@@ -11,24 +11,11 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, WorkflowStatus, User, WaveGroup, GenericDeliverable } from "@/types/index";
 import { deriveDeliverableMimetype } from "@/types/index";
 import type { ChatMode } from "@/components/chat/ChatInput";
-
-// IN-01 (16 review): the backend persists a degraded run's failed-agent ids into
-// wr.error as "...agent(s) failed: <id1>, <id2>" (websocket.py). Parse those ids
-// back out so the history-reopen affordance lists the real failed agents instead
-// of an empty list. Returns undefined when the marker is absent (e.g. a plain
-// failure message), so the affordance simply omits the agent list. Server-keyed —
-// no client guess about which agents failed.
-const _FAILED_AGENTS_MARKER = /agent\(s\) failed:\s*(.+)$/i;
-function parseFailedAgentIds(error: string | undefined): string[] | undefined {
-  if (!error) return undefined;
-  const match = error.match(_FAILED_AGENTS_MARKER);
-  if (!match) return undefined;
-  const ids = match[1]
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return ids.length > 0 ? ids : undefined;
-}
+// IN-01 (16 review): SHARED failed-agent-id parser (single source of truth, no
+// dual-impl). Consumed by both this live-reopen path and WorkflowHistory's
+// history-reopen detail view so the two surfaces parse the persisted run `error`
+// identically. See lib/parseFailedAgents.ts for the marker contract.
+import { parseFailedAgentIds } from "@/lib/parseFailedAgents";
 
 /**
  * Dashboard page - the main authenticated view.

@@ -1035,6 +1035,11 @@ async def websocket_chat(websocket: WebSocket):
                 from agents.artifact_store.store import get_artifact_store
                 pipeline_run_id = message_data.get("pipeline_run_id")
                 responses = message_data.get("responses") or []
+                # ISS-027: "Skip all & run directly" sends skip_clarification=True
+                # so the ClarifyEngine force-proceeds instead of re-asking the same
+                # questions for the remaining rounds. Absent/false for ordinary
+                # answer submissions.
+                skip_clarification = bool(message_data.get("skip_clarification", False))
                 if not pipeline_run_id:
                     await websocket.send_json({
                         "type": "error", "chunk": None, "section": None,
@@ -1043,7 +1048,9 @@ async def websocket_chat(websocket: WebSocket):
                     })
                     continue
                 store = get_artifact_store()
-                await store.set_questionnaire_responses(pipeline_run_id, responses)
+                await store.set_questionnaire_responses(
+                    pipeline_run_id, responses, skip_clarification=skip_clarification
+                )
                 continue
 
             # Handle review gate approval/rejection.

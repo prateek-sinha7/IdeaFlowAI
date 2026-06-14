@@ -9,7 +9,7 @@ export interface UseWorkflowReturn {
   resetPipeline: () => void;
   isRunning: boolean;
   handleMessage: (msg: { type: string; [key: string]: unknown }) => boolean;
-  submitQuestionnaire: (pipelineRunId: string, responses: Array<{ question_id: string; answer: string }>) => void;
+  submitQuestionnaire: (pipelineRunId: string, responses: Array<{ question_id: string; answer: string }>, skipClarification?: boolean) => void;
 }
 
 const INITIAL_STATE: PipelineRunState = {
@@ -116,12 +116,15 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
   // Phase 2 — submit clarification answers to resume a paused pipeline.
   // The Clarify_Engine (inside the ExecutionEngine) is awaiting an asyncio.Event
   // keyed by pipeline_run_id; this sets it and resumes the run from the gate.
+  // skipClarification (ISS-027): set by "Skip all & run directly" so the backend
+  // ClarifyEngine force-proceeds immediately instead of re-asking up to 3 rounds.
   const submitQuestionnaire = useCallback(
-    (pipelineRunId: string, responses: Array<{ question_id: string; answer: string }>) => {
+    (pipelineRunId: string, responses: Array<{ question_id: string; answer: string }>, skipClarification = false) => {
       websocketSend(JSON.stringify({
         type: "submit_questionnaire",
         pipeline_run_id: pipelineRunId,
         responses,
+        skip_clarification: skipClarification,
       }));
     },
     [websocketSend]
