@@ -184,7 +184,7 @@
 - [x] **UXFIX-04**: The generic mimetype-dispatched deliverable renderer is the PRIMARY dispatch path; the 4 first-party types become routed entries rendering identically (no visual regression) (Phase 22 / D-21)
 - [x] **DECIDE-01**: (N9) Artifact retention = keep-by-default (run artifacts retained indefinitely); `run_ttl`/`days:N` opt-in overrides; ART-04 updated; the 3 stale open-question labels (REPO-02/REPO-04/FANOUT-05) reconciled — WAVE-03 (N8) left out of scope (Phase 22 / D-22)
 - [ ] **DECIDE-02**: (N11) Premium-model policy = open to all tiers (no per-tier premium gating); global default stays Haiku with an ordered fallback chain; MODEL-05 updated; the model-picker tier filter removed (Phase 22 / D-23)
-- [ ] **LIVE-01**: One consolidated live-Bedrock confirmation pass on the AWS `default` profile (acct 473293451041, `claude-haiku-4-5`) records per-item evidence for the 8 standing deferrals (or an explicit disposition); phase completion gates on offline evidence (deferred to milestone-end, Phase 22 / D-24)
+- [x] **LIVE-01**: One consolidated live-Bedrock confirmation pass on the AWS `default` profile (acct 473293451041, `claude-haiku-4-5`) records per-item evidence for the 8 standing deferrals (or an explicit disposition); phase completion gates on offline evidence (deferred to milestone-end, Phase 22 / D-24)
 
 ### Budgets & Observability (cross-cutting, §23)
 

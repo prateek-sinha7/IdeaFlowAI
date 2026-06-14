@@ -711,7 +711,7 @@ Plans:
   7. One consolidated live-Bedrock pass on the `default` profile records evidence for the standing live deferrals, or an explicit re-deferral disposition is recorded if ISS-018 still blocks.
   8. Invariants hold: 5 characterization goldens byte-identical (INV-3) · kernel name-free (SC-001 grep 0) · `create_deep_agent` only in the adapter (INV-13) · import-linter 4/0 · additive migrations only.
 
-**Plans:** 5/9 plans executed
+**Plans:** 6/9 plans executed
 Plans:
 **Wave 1**
 
@@ -720,7 +720,7 @@ Plans:
 - [x] 22-03-PLAN.md — UXFIX-02: additive migration 0022 + WorkflowRun deliverable_mimetype/_filename + reopen-from-persisted (wave 1)
 - [x] 22-07-PLAN.md — UXFIX-01/03/04: data-driven catalog as home + authored display_name + generic-primary deliverable dispatch (wave 1)
 - [x] 22-08-PLAN.md — DECIDE-01/02: ART-04 keep-by-default + MODEL-05 premium-open + reconcile 3 confirm labels + register 17 families (wave 1)
-- [ ] 22-09-PLAN.md — LIVE-01: per-item offline evidence record for the 8 standing deferrals (deferred live pass, default profile / Haiku 4.5) (wave 1)
+- [x] 22-09-PLAN.md — LIVE-01: per-item offline evidence record for the 8 standing deferrals (deferred live pass, default profile / Haiku 4.5) (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
