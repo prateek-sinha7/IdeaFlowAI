@@ -631,8 +631,9 @@ Plans:
 4. Backend change is additive-only — `user_launchable`+display fields on the manifest schema, surfaced through the existing endpoint; no new tables, no migration.
 5. INV-3 parity holds (5 characterization goldens byte-identical) · `lint-imports` 4/0 · a mocked Playwright e2e spec asserts filtering + launch + gating · manifest-schema unit test covers the new optional fields while strict-key still rejects `when/if/for/expr`.
 **Depends on:** Phase 19
-**Plans:** 0 plans
+**Plans:** 2 plans (1 wave — 20-01 BE + 20-02 FE are independent: the FE e2e mocks the API, no files_modified overlap)
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 20 to break down)
+- [ ] 20-01-PLAN.md — BACKEND: additive `user_launchable`/`display_name`/`description`/`icon`/`launch_surface` manifest fields + `_optional_bool`/`_optional_str` + `_ALLOWED_TOP_KEYS` widening + surface via `GET /api/workflows` + set flags on the 7 launchable YAMLs + manifest/workflows_api tests + INV-3 goldens-parity + lint-imports 4/0 [wave 1]
+- [ ] 20-02-PLAN.md — FRONTEND: `getWorkflowDefinitions`+`WorkflowSummary` (api.ts) + `WorkflowCatalog.tsx` (data-driven CreationHub) + `"catalog"` DashboardLayout view + AppHeader nav button + mocked Playwright `ts-z.catalog.spec.ts` + vitest [wave 1]
