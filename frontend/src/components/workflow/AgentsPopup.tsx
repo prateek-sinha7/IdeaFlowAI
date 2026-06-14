@@ -1,14 +1,23 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   X, Plus, ArrowRight, Lock, GripVertical, Info,
-  Clock, Zap, BookMarked, CheckCircle2, ChevronRight,
-  Puzzle, Webhook, Search, Check,
+  Clock, Zap, BookMarked, CheckCircle2, ChevronRight, ChevronDown,
+  Puzzle, Webhook, Search, Check, Boxes, AlertCircle, Settings2,
 } from "lucide-react";
 import { AgentLibrary } from "./AgentLibrary";
 import { AgentModelPicker } from "./AgentModelPicker";
+// NOTE: the API fetcher `getCapabilities` is aliased to `fetchCapabilities` to
+// avoid the NAME COLLISION with the local `getCapabilities(agent)` helper below
+// (the local one derives display strings from an agent description; the import
+// fetches the live `/api/capabilities` registry payload — D-02 reuse shell).
+import {
+  getCapabilities as fetchCapabilities,
+  getToken,
+  type CapabilityEntry,
+} from "@/lib/api";
 import type { AgentDef, WorkflowType, AttachedSkill, AttachedHook } from "@/types/index";
 import { SKILLS, SKILL_CATEGORIES, type SkillDef } from "@/data/skills";
 import { HOOKS, HOOK_EVENTS, type HookDef } from "@/data/hooks";
@@ -45,6 +54,13 @@ interface AgentsPopupProps {
    * the picker starts empty (the normal compose-from-scratch default).
    */
   initialModelOverrides?: Record<string, string>;
+  /**
+   * SURF-03 — the opened launchable workflow's declared per-step capabilities
+   * (compiled projection). Threaded into the embedded palette so the composer
+   * shows what the workflow already uses before composing. Absent on
+   * compose-from-scratch.
+   */
+  declaredCapabilities?: { step: string; capabilities: string[] }[];
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -721,6 +737,265 @@ function SkillsHooksTab({ pipelineType }: { pipelineType: WorkflowType }) {
 }
 
 
+// ─── CapabilityPaletteSection (SURF-01/03 + EMP-02) ───────────────────────────
+
+/**
+ * Title-case a capability `kind` for the per-group header. Derived ENTIRELY from
+ * the payload `kind` (e.g. "context_provider" → "Context providers") — there is
+ * NO hardcoded kind list anywhere (SC-001). `s` underscores become spaces; the
+ * first letter is capitalised; a trailing pluralisation makes the group header
+ * read naturally ("Validators", "Gates", "Strategies").
+ */
+function titleCaseKind(kind: string): string {
+  const spaced = kind.replace(/_/g, " ").trim();
+  if (!spaced) return kind;
+  const base = spaced.charAt(0).toUpperCase() + spaced.slice(1);
+  // Naive English pluralisation sufficient for capability kinds.
+  if (/[^aeiou]y$/.test(base)) return base.slice(0, -1) + "ies";
+  if (/(s|x|z|ch|sh)$/.test(base)) return base + "es";
+  return base + "s";
+}
+
+/**
+ * The embedded capability palette (D-01). Renders EVERY capability kind from the
+ * live `GET /api/capabilities` registry payload, grouped by `kind`, reusing the
+ * AgentModelPicker fetch/loading/error/empty shell (D-02). Each row is driven
+ * entirely by the fetched payload — name, registry-authored description, the
+ * trust state, the security-gated flag, and an expandable config-schema
+ * affordance (only when `config_schema` is non-empty). `user_allowed=false` caps
+ * render visible-but-LOCKED (EMP-02 / D-04): Lock icon, engineer-only microcopy,
+ * `aria-disabled="true"`, non-selectable.
+ *
+ * Exported so it can be render-tested in isolation; it remains EMBEDDED in the
+ * AgentsPopup composer (NOT a standalone CapabilityPalette.tsx — Pitfall 1).
+ *
+ * SURF-03: `declaredCapabilities` (optional) carries the opened launchable
+ * workflow's compiled per-step capability projection so the composer shows what
+ * the workflow already declares before the user composes — driven by the
+ * projection, never a hardcoded description.
+ */
+export function CapabilityPaletteSection({
+  token,
+  declaredCapabilities,
+}: {
+  /** Optional JWT override (defaults to the stored token), mirroring the picker. */
+  token?: string | null;
+  /**
+   * SURF-03 — the opened workflow's declared per-step capabilities (compiled
+   * projection): `[{ step, capabilities: ["validator:code_test", ...] }]`.
+   * Absent on compose-from-scratch; rendered as a read-only declared-caps strip.
+   */
+  declaredCapabilities?: { step: string; capabilities: string[] }[];
+}) {
+  const [capabilities, setCapabilities] = useState<CapabilityEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    let cancelled = false;
+    const jwt = token ?? getToken();
+    if (!jwt) {
+      setError("Not authenticated.");
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    fetchCapabilities(jwt)
+      .then((palette) => {
+        if (cancelled) return;
+        // Render the WHOLE registry payload — including user_allowed=false caps
+        // (they render locked, never hidden; SURF-01 "every kind visible").
+        setCapabilities(palette.capabilities);
+        setError(null);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setError(e?.message ?? "Failed to load capabilities.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  // Group rows by the payload `kind` — preserve first-seen order; NO hardcoded
+  // kind list (SC-001). The group set is whatever the registry returns.
+  const groups: { kind: string; rows: CapabilityEntry[] }[] = [];
+  for (const cap of capabilities) {
+    let g = groups.find((x) => x.kind === cap.kind);
+    if (!g) {
+      g = { kind: cap.kind, rows: [] };
+      groups.push(g);
+    }
+    g.rows.push(cap);
+  }
+
+  const toggle = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  return (
+    <div className="flex flex-col">
+      <div className="flex items-center gap-1.5 mb-2">
+        <Boxes className="h-3.5 w-3.5 text-[#1B2A4A]" />
+        <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">
+          Capabilities
+        </p>
+      </div>
+
+      {/* SURF-03: declared per-step capabilities of the opened workflow (compiled
+          projection) — read-only, shown before composing. */}
+      {declaredCapabilities && declaredCapabilities.length > 0 && (
+        <div className="mb-2 rounded-lg bg-[#1B2A4A]/5 border border-[#1B2A4A]/15 px-2.5 py-1.5">
+          <p className="text-[9px] font-semibold text-[#1B2A4A] uppercase tracking-widest mb-1">
+            Declared by this workflow
+          </p>
+          <div className="space-y-0.5">
+            {declaredCapabilities.map((d) => (
+              <div key={d.step} className="flex items-start gap-1.5 text-[10px]">
+                <span className="font-semibold text-gray-700 truncate max-w-[120px]">
+                  {d.step}
+                </span>
+                <span className="text-gray-500 flex-1 min-w-0">
+                  {d.capabilities.join(" · ")}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {loading && (
+        <p className="text-[11px] text-gray-400 py-2">Loading capabilities…</p>
+      )}
+
+      {error && (
+        <div className="flex items-center gap-1.5 text-[11px] text-red-600 bg-red-50 rounded-lg px-2.5 py-1.5">
+          <AlertCircle className="h-3 w-3 flex-shrink-0" />
+          {error}
+        </div>
+      )}
+
+      {!loading && !error && capabilities.length === 0 && (
+        <div className="py-2">
+          <p className="text-[11px] font-semibold text-gray-500">
+            No capabilities available
+          </p>
+          <p className="text-[10px] text-gray-400">
+            The capability registry returned nothing. Reload, or contact support
+            if this persists.
+          </p>
+        </div>
+      )}
+
+      {!loading && !error && capabilities.length > 0 && (
+        <div className="space-y-3 max-h-[200px] overflow-y-auto pr-1">
+          {groups.map((group) => (
+            <div key={group.kind} role="group" aria-label={group.kind}>
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-1">
+                {titleCaseKind(group.kind)}
+              </p>
+              <div className="space-y-1.5">
+                {group.rows.map((cap) => {
+                  const rowKey = `${cap.kind}:${cap.name}`;
+                  const locked = !cap.user_allowed;
+                  const hasSchema =
+                    cap.config_schema &&
+                    Object.keys(cap.config_schema).length > 0;
+                  const isOpen = expanded.has(rowKey);
+                  return (
+                    <div
+                      key={rowKey}
+                      data-cap-row
+                      aria-disabled={locked ? "true" : undefined}
+                      title={
+                        locked
+                          ? "This capability requires elevated trust and isn't available to compose. Contact your workspace admin."
+                          : undefined
+                      }
+                      className={`rounded-lg border px-2.5 py-1.5 ${
+                        locked
+                          ? "bg-gray-50 border-gray-100 opacity-80 cursor-not-allowed"
+                          : "bg-gray-50 border-gray-100"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        {locked && (
+                          <Lock className="h-3 w-3 text-gray-400 flex-shrink-0" />
+                        )}
+                        <p
+                          className={`text-[11px] font-semibold truncate flex-1 min-w-0 ${
+                            locked ? "text-gray-400" : "text-gray-800"
+                          }`}
+                        >
+                          {cap.name}
+                        </p>
+                        {locked && (
+                          <span className="text-[10px] text-gray-400 flex-shrink-0">
+                            Engineer-only
+                          </span>
+                        )}
+                        {cap.security_gated && !locked && (
+                          <Lock className="h-3 w-3 text-gray-400 flex-shrink-0" />
+                        )}
+                        {hasSchema && (
+                          <button
+                            type="button"
+                            onClick={() => toggle(rowKey)}
+                            aria-expanded={isOpen}
+                            aria-label={`Configuration for ${cap.name}`}
+                            className="flex items-center justify-center h-5 w-5 rounded text-gray-400 hover:text-[#1B2A4A] flex-shrink-0"
+                          >
+                            <Settings2 className="h-3 w-3" />
+                            {isOpen ? (
+                              <ChevronDown className="h-2.5 w-2.5" />
+                            ) : (
+                              <ChevronRight className="h-2.5 w-2.5" />
+                            )}
+                          </button>
+                        )}
+                      </div>
+                      {cap.description && (
+                        <p
+                          className={`text-[11px] ${
+                            locked ? "text-gray-400" : "text-gray-500"
+                          }`}
+                        >
+                          {cap.description}
+                        </p>
+                      )}
+                      {hasSchema && isOpen && (
+                        <div className="mt-1 rounded-md bg-white border border-gray-100 px-2 py-1 space-y-0.5">
+                          {Object.keys(cap.config_schema).map((field) => (
+                            <p
+                              key={field}
+                              className="text-[10px] text-gray-500 font-mono"
+                            >
+                              {field}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 // ─── AgentsPopup (main) ───────────────────────────────────────────────────────
 
 const COLS = 3;
@@ -729,6 +1004,7 @@ export function AgentsPopup({
   isOpen, onClose, agents, pipelineType,
   onAddAgent, onRemoveAgent, onReorder, canAddMore = true,
   onModelOverridesChange, initialModelOverrides,
+  declaredCapabilities,
 }: AgentsPopupProps) {
   const { attachedSkills, attachedHooks } = useSkillsHooks();
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -986,6 +1262,17 @@ export function AgentsPopup({
                     agents={agents.map((a) => ({ id: a.id, name: a.name }))}
                     onChange={onModelOverridesChange}
                     initialOverrides={initialModelOverrides}
+                  />
+                </div>
+
+                {/* SURF-01/03 + EMP-02 (D-01/D-02/D-04): the embedded capability
+                    palette — every registered capability kind from the live
+                    /api/capabilities registry, grouped by kind, with locked rows
+                    for user_allowed=false caps. Embedded here (NOT a standalone
+                    CapabilityPalette.tsx — Pitfall 1). */}
+                <div className="mx-6 mb-4 px-1 flex-shrink-0">
+                  <CapabilityPaletteSection
+                    declaredCapabilities={declaredCapabilities}
                   />
                 </div>
               </>
