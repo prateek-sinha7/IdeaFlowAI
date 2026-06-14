@@ -15,7 +15,7 @@ import type { ChatMode } from "@/components/chat/ChatInput";
 // dual-impl). Consumed by both this live-reopen path and WorkflowHistory's
 // history-reopen detail view so the two surfaces parse the persisted run `error`
 // identically. See lib/parseFailedAgents.ts for the marker contract.
-import { parseFailedAgentIds } from "@/lib/parseFailedAgents";
+import { parseFailedAgentIds, buildAgentNameById } from "@/lib/parseFailedAgents";
 
 /**
  * Dashboard page - the main authenticated view.
@@ -59,6 +59,12 @@ export default function DashboardPage() {
   // affordance lists the real failed agents (not an empty list). Cleared on every
   // reopen/new-run alongside reopenedRunStatus.
   const [reopenedFailedAgents, setReopenedFailedAgents] = useState<string[] | undefined>(undefined);
+  // ISS-024 (16 review IN-02): id→name lookup for a history-reopened run's failed
+  // agents, built from the reopened run detail's persisted agentOutputs
+  // ({agent_id,name}). The live pipelineState reflects the new/idle run and so
+  // can't name a reopened run's agents — this carries the names down to
+  // PreviewPanel's DegradedRunAffordance. Cleared alongside reopenedFailedAgents.
+  const [reopenedAgentNameById, setReopenedAgentNameById] = useState<Record<string, string> | undefined>(undefined);
   // ISS-021 (18-03) — generic deliverable channel. A pipeline_complete (live) or
   // history-reopen whose pipeline_type matched NONE of the known FE render
   // branches feeds this single channel: the declared/derived mimetype + filename
@@ -1048,6 +1054,7 @@ export default function DashboardPage() {
       // detail loads — avoids a stale affordance leaking across reopens.
       setReopenedRunStatus(undefined);
       setReopenedFailedAgents(undefined);
+      setReopenedAgentNameById(undefined);
 
       // Load the workflow output from backend
       const currentToken = getToken();
@@ -1107,6 +1114,15 @@ export default function DashboardPage() {
         // (websocket.py); parse those ids when present so the history-reopen
         // affordance matches the live path. Server-keyed; no client guess.
         setReopenedFailedAgents(parseFailedAgentIds(fullRun.error));
+        // ISS-024 (16 review IN-02): build the id→name lookup for those failed
+        // agents from the reopened run detail's persisted agentOutputs
+        // ({agent_id,name}) so PreviewPanel's affordance shows human names. Unknown
+        // ids fall back to the raw id inside DegradedRunAffordance (never blank).
+        setReopenedAgentNameById(
+          buildAgentNameById(
+            (fullRun.agentOutputs || []).map((a) => ({ id: a.agent_id, name: a.name })),
+          ),
+        );
       } catch (err) {
         console.error("Failed to load workflow output:", err);
       }
@@ -1195,12 +1211,14 @@ export default function DashboardPage() {
       pipelineState={pipelineState}
       reopenedRunStatus={reopenedRunStatus}
       reopenedFailedAgents={reopenedFailedAgents}
+      reopenedAgentNameById={reopenedAgentNameById}
       onStartPipeline={(type, message, agentIds, attachedSkills, attachedHooks, extraParams) => {
         const isRevision = type.endsWith("_revision");
         // ISS-017 (16-04): any new run clears the history-reopen failure signal
         // so a prior failed reopen never bleeds the affordance into a live run.
         setReopenedRunStatus(undefined);
         setReopenedFailedAgents(undefined);
+        setReopenedAgentNameById(undefined);
         if (!isRevision) {
           // Fresh run — clear previous preview content
           setUserStoryContent("");

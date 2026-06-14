@@ -25,3 +25,38 @@ export function parseFailedAgentIds(error: string | undefined): string[] | undef
     .filter(Boolean);
   return ids.length > 0 ? ids : undefined;
 }
+
+// ISS-024 (16 review IN-02) — shared agent-id→name resolution.
+//
+// The failed-agent lists carried into the terminal-failure DegradedRunAffordance
+// are raw agent IDs (e.g. "prototype-build", "app-sdlc-governance"), but the
+// affordance must show human NAMES (e.g. "Build Agent", "SDLC Governance"). The
+// id→name source differs per surface — the LIVE path has pipelineState.agents
+// ({id,name}); the HISTORY-reopen path has the persisted agentOutputs
+// ({agent_id,name}) — so each call site builds the {id→name} map from its own
+// source and both feed it through this ONE resolver (INV-3 / no-dual-impl).
+//
+// Fallback (REQUIRED): an id absent from the map resolves to the raw id, so
+// older runs / unknown agents never render blank — they degrade to the id,
+// exactly the prior behaviour.
+
+/** Build an id→name lookup from any list of agents carrying an id + name. */
+export function buildAgentNameById(
+  agents: ReadonlyArray<{ id: string; name?: string | null }> | undefined,
+): Record<string, string> {
+  const map: Record<string, string> = {};
+  if (!agents) return map;
+  for (const a of agents) {
+    if (a && a.id && a.name) map[a.id] = a.name;
+  }
+  return map;
+}
+
+/** Resolve agent ids to human names, falling back to the raw id when unknown. */
+export function resolveAgentNames(
+  ids: ReadonlyArray<string> | undefined,
+  nameById: Record<string, string> | undefined,
+): string[] {
+  if (!ids) return [];
+  return ids.map((id) => (nameById && nameById[id]) || id);
+}

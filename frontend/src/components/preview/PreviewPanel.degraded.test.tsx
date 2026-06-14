@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import React from "react";
 
 import { PreviewPanel } from "./PreviewPanel";
-import type { PipelineRunState, WorkflowStatus } from "@/types/index";
+import type { AgentRunState, PipelineRunState, WorkflowStatus } from "@/types/index";
 
 // ─── Motion mock (same as the other PreviewPanel-area component tests) ────────
 // Strips animation-only props so role/text queries still find rendered nodes.
@@ -59,11 +59,27 @@ function makePipelineState(overrides: Partial<PipelineRunState> = {}): PipelineR
   };
 }
 
+// ISS-024 — a minimal {id,name} agent for the live id→name resolution cases.
+function makeAgent(id: string, name: string): AgentRunState {
+  return {
+    id,
+    name,
+    role: "",
+    icon: "",
+    status: "error",
+    output: "",
+    thinking: "",
+    duration: null,
+    error: null,
+    index: 0,
+  };
+}
+
 const AFFORDANCE_COPY = /this run did not complete successfully/i;
 const NEUTRAL_COPY = /output will appear here/i;
 
 describe("PreviewPanel — terminal-empty degraded/failed affordance (ISS-017)", () => {
-  it("terminal+failed (pipelineState.failed) → shows the affordance, hides the neutral empty-state, lists failed agents", () => {
+  it("terminal+failed (pipelineState.failed) → shows the affordance, hides the neutral empty-state, lists the failed agent's NAME (ISS-024)", () => {
     render(
       <PreviewPanel
         workflowType="user_stories"
@@ -72,17 +88,21 @@ describe("PreviewPanel — terminal-empty degraded/failed affordance (ISS-017)",
           isRunning: false,
           failed: true,
           failedAgents: ["story-writer"],
+          // ISS-024: pipelineState.agents carries the id→name source on the live
+          // path — the affordance must surface the NAME, not the raw id.
+          agents: [makeAgent("story-writer", "Story Writer")],
         })}
       />,
     );
 
     expect(screen.getByText(AFFORDANCE_COPY)).toBeInTheDocument();
     expect(screen.queryByText(NEUTRAL_COPY)).not.toBeInTheDocument();
-    // The provided failed-agent name appears in the affordance.
-    expect(screen.getByText("story-writer")).toBeInTheDocument();
+    // ISS-024: the human NAME appears, not the raw id.
+    expect(screen.getByText("Story Writer")).toBeInTheDocument();
+    expect(screen.queryByText("story-writer")).not.toBeInTheDocument();
   });
 
-  it("terminal+degraded (pipelineState.degraded) → shows the affordance, hides the neutral empty-state", () => {
+  it("terminal+degraded (pipelineState.degraded) → shows the affordance, hides the neutral empty-state, lists the failed agent's NAME (ISS-024)", () => {
     render(
       <PreviewPanel
         workflowType="ppt"
@@ -92,13 +112,38 @@ describe("PreviewPanel — terminal-empty degraded/failed affordance (ISS-017)",
           isRunning: false,
           degraded: true,
           degradedFailedAgents: ["ppt-validator"],
+          agents: [makeAgent("ppt-validator", "Slide Validator")],
         })}
       />,
     );
 
     expect(screen.getByText(AFFORDANCE_COPY)).toBeInTheDocument();
     expect(screen.queryByText(NEUTRAL_COPY)).not.toBeInTheDocument();
-    expect(screen.getByText("ppt-validator")).toBeInTheDocument();
+    // ISS-024: human NAME, not the id.
+    expect(screen.getByText("Slide Validator")).toBeInTheDocument();
+    expect(screen.queryByText("ppt-validator")).not.toBeInTheDocument();
+  });
+
+  it("ISS-024: a failed-agent id absent from pipelineState.agents falls back to the raw id (never blank)", () => {
+    render(
+      <PreviewPanel
+        workflowType="user_stories"
+        isStreaming={false}
+        pipelineState={makePipelineState({
+          isRunning: false,
+          failed: true,
+          failedAgents: ["story-writer", "unknown-agent"],
+          // Only one agent is named; the other id has no name source.
+          agents: [makeAgent("story-writer", "Story Writer")],
+        })}
+      />,
+    );
+
+    expect(screen.getByText(AFFORDANCE_COPY)).toBeInTheDocument();
+    // Resolved name for the known id…
+    expect(screen.getByText("Story Writer")).toBeInTheDocument();
+    // …and a fallback to the raw id for the unknown one (not blank).
+    expect(screen.getByText("unknown-agent")).toBeInTheDocument();
   });
 
   it("streaming+empty (isRunning, no terminal flag) → keeps the neutral empty-state, NOT the affordance", () => {
@@ -149,18 +194,40 @@ describe("PreviewPanel — terminal-empty degraded/failed affordance (ISS-017)",
     expect(screen.queryByText(NEUTRAL_COPY)).not.toBeInTheDocument();
   });
 
-  it("reopen+failed (reopenedRunStatus='failed', no content) → shows the affordance via the history-path server signal", () => {
+  it("reopen+failed (reopenedRunStatus='failed', no content) → shows the affordance + the reopened agent's NAME via reopenedAgentNameById (ISS-024)", () => {
     render(
       <PreviewPanel
         workflowType="prototype"
         isStreaming={false}
         reopenedRunStatus={"failed" as WorkflowStatus}
         reopenedFailedAgents={["proto-builder"]}
+        // ISS-024: the live pipelineState can't name a reopened run's agents — the
+        // dashboard threads the id→name map built from the run detail's
+        // agentOutputs. The affordance must surface the NAME.
+        reopenedAgentNameById={{ "proto-builder": "Build Agent" }}
       />,
     );
 
     expect(screen.getByText(AFFORDANCE_COPY)).toBeInTheDocument();
     expect(screen.queryByText(NEUTRAL_COPY)).not.toBeInTheDocument();
+    // ISS-024: the human NAME appears, not the raw id.
+    expect(screen.getByText("Build Agent")).toBeInTheDocument();
+    expect(screen.queryByText("proto-builder")).not.toBeInTheDocument();
+  });
+
+  it("ISS-024: reopen+failed with NO name map falls back to the raw id (older runs, never blank)", () => {
+    render(
+      <PreviewPanel
+        workflowType="prototype"
+        isStreaming={false}
+        reopenedRunStatus={"failed" as WorkflowStatus}
+        reopenedFailedAgents={["proto-builder"]}
+        // No reopenedAgentNameById (e.g. an older run with no agentOutputs) — the
+        // raw id must still render rather than a blank list item.
+      />,
+    );
+
+    expect(screen.getByText(AFFORDANCE_COPY)).toBeInTheDocument();
     expect(screen.getByText("proto-builder")).toBeInTheDocument();
   });
 

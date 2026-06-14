@@ -86,6 +86,23 @@ function makeRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
   };
 }
 
+// ISS-024 — a persisted agent_output entry ({agent_id,name}) used as the
+// history surface's id→name source for the failed-agents affordance.
+function makeAgentOutput(
+  agentId: string,
+  name: string,
+): import("@/types/index").AgentThinkingEntry {
+  return {
+    agent_id: agentId,
+    name,
+    role: "Agent",
+    icon: "",
+    thinking: "",
+    output: "",
+    duration: null,
+  };
+}
+
 beforeEach(() => {
   mockGetToken.mockReset().mockReturnValue("test-token");
   mockGetWorkflows.mockReset();
@@ -183,7 +200,7 @@ const CANCELLED_COPY = /this run was cancelled/i;
 const NEUTRAL_COPY = /no preview available/i;
 
 describe("WorkflowHistory — terminal-failure affordance on reopen (ISS-017)", () => {
-  it("reopening a FAILED run with empty output renders the affordance + the failed-agents list (not 'No preview available')", async () => {
+  it("reopening a FAILED run with empty output renders the affordance + the failed agents' NAMES (ISS-024), not raw ids", async () => {
     await renderAndOpenRun(
       makeRun({
         type: "user_stories",
@@ -191,16 +208,45 @@ describe("WorkflowHistory — terminal-failure affordance on reopen (ISS-017)", 
         output: "",
         // Persisted failed-agent ids parsed by the SHARED parseFailedAgentIds.
         error: "Pipeline failed — agent(s) failed: story-writer, story-estimator",
+        // ISS-024: the history surface's id→name source is the persisted
+        // agentOutputs ({agent_id,name}); the affordance must show the NAMES.
+        agentOutputs: [
+          makeAgentOutput("story-writer", "Story Writer"),
+          makeAgentOutput("story-estimator", "Story Estimator"),
+        ],
       }),
     );
 
     expect(screen.getByText(AFFORDANCE_COPY)).toBeInTheDocument();
     expect(screen.queryByText(NEUTRAL_COPY)).not.toBeInTheDocument();
-    // The real persisted failed-agent ids appear (shared parser, no dual-impl).
-    expect(screen.getByText("story-writer")).toBeInTheDocument();
-    expect(screen.getByText("story-estimator")).toBeInTheDocument();
+    // ISS-024: the human NAMES appear (resolved from agentOutputs), not raw ids.
+    // (queryByText for the id would also match the sidebar agent card, so we
+    // assert presence of the names — the affordance list item — instead.)
+    expect(screen.getAllByText("Story Writer").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Story Estimator").length).toBeGreaterThan(0);
     // A failure is NOT a cancel — keeps the failed/degraded copy.
     expect(screen.queryByText(CANCELLED_COPY)).not.toBeInTheDocument();
+  });
+
+  it("reopening a FAILED run whose agentOutputs DON'T name a failed id falls back to the raw id (ISS-024, never blank)", async () => {
+    await renderAndOpenRun(
+      makeRun({
+        type: "user_stories",
+        status: "failed",
+        output: "",
+        error: "Pipeline failed — agent(s) failed: story-writer, ghost-agent",
+        // Only one of the two failed ids has a name source — the other must
+        // fall back to its raw id rather than render blank.
+        agentOutputs: [makeAgentOutput("story-writer", "Story Writer")],
+      }),
+    );
+
+    expect(screen.getByText(AFFORDANCE_COPY)).toBeInTheDocument();
+    // Known id → resolved name.
+    expect(screen.getAllByText("Story Writer").length).toBeGreaterThan(0);
+    // Unknown id → raw-id fallback (no agentOutputs card for it, so this is the
+    // affordance list item).
+    expect(screen.getByText("ghost-agent")).toBeInTheDocument();
   });
 
   it("reopening a CANCELLED run with empty output renders the cancelled-specific copy (not failed/degraded, not neutral)", async () => {

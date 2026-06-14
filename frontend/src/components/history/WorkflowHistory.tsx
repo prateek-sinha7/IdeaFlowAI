@@ -27,7 +27,10 @@ import { availableChainTargets } from "@/lib/workflowChaining";
 // ISS-017 (gap-fix) — SHARED failed-agent-id parser (no dual-impl). The IDENTICAL
 // parser app/dashboard/page.tsx uses for the live-reopen path; lists the real
 // failed agents from the persisted run `error`.
-import { parseFailedAgentIds } from "@/lib/parseFailedAgents";
+// ISS-024 (16 review IN-02) — id→name resolution for the failed-agents list,
+// SHARED with the live PreviewPanel path (no dual-impl). The history-reopen
+// source for names is the persisted run detail's agentOutputs ({agent_id,name}).
+import { parseFailedAgentIds, buildAgentNameById } from "@/lib/parseFailedAgents";
 
 interface WorkflowHistoryProps {
   onBack: () => void;
@@ -316,6 +319,14 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     // IN-01 (16 review): list the real failed-agent ids parsed from the persisted
     // run error (shared parser); omitted when the marker is absent.
     const reopenFailedAgents = parseFailedAgentIds(selectedRun.error);
+    // ISS-024 (16 review IN-02): resolve those ids → human names. The history
+    // surface's name source is the persisted agentOutputs ({agent_id,name}); map
+    // it into the {id,name} shape the SHARED resolver expects. Unknown ids fall
+    // back to the raw id inside DegradedRunAffordance, so older runs whose error
+    // names an agent absent from agentOutputs still render the id (never blank).
+    const reopenAgentNameById = buildAgentNameById(
+      detailAgentOutputs.map((a) => ({ id: a.agent_id, name: a.name })),
+    );
 
     return (
       <div className="h-full flex" style={{ background: "#f5f5f0" }}>
@@ -581,6 +592,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                 reopenTerminalFailure ? (
                   <DegradedRunAffordance
                     failedAgents={reopenFailedAgents}
+                    agentNameById={reopenAgentNameById}
                     cancelled={reopenCancelled}
                   />
                 ) : (
@@ -606,7 +618,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                         // with no files and no output shows the affordance too
                         // (server-status-gated), mirroring the live path.
                         : reopenTerminalFailure
-                          ? <DegradedRunAffordance failedAgents={reopenFailedAgents} cancelled={reopenCancelled} />
+                          ? <DegradedRunAffordance failedAgents={reopenFailedAgents} agentNameById={reopenAgentNameById} cancelled={reopenCancelled} />
                           : <div className="flex flex-col items-center justify-center h-full gap-2"><FileText className="h-8 w-8 text-gray-200" /><p className="text-[12px] text-gray-400">No preview available</p></div>
                   )}
                   {/* ISS-021 (18-03) — generic reopen fallback: HTML → the SAME

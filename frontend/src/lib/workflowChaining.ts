@@ -25,7 +25,12 @@ export interface ChainOption {
  *
  * prototype and ppt require wizard flows (template + DS selection) so they
  * redirect to their respective wizard pages instead of firing directly.
- * user_stories and app_builder fire directly via the standard pipeline path.
+ * user_stories fires directly via the standard pipeline path.
+ *
+ * NOTE: app_builder is deliberately NOT a chain-TO target. It is a
+ * heavyweight, full-stack pipeline launched explicitly from the Creation Hub,
+ * not a lightweight "suggested next step". It remains chainable FROM (see
+ * CHAINABLE_FROM_TYPES) so you can still chain OUT of an app_builder run.
  */
 export const CHAIN_OPTIONS: readonly ChainOption[] = [
   {
@@ -46,11 +51,6 @@ export const CHAIN_OPTIONS: readonly ChainOption[] = [
     description: "Build interactive UI",
     requiresWizard: true,
     wizardPath: "/workflow/prototype/templates",
-  },
-  {
-    type: "app_builder",
-    label: "App Builder",
-    description: "Build a full-stack application",
   },
 ];
 

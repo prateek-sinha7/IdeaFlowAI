@@ -203,6 +203,26 @@ _DOCUMENTED_EVENT_TYPES = frozenset(
         "error",
         "summary",
         "state_restoration_failed",
+        # ── Declared-gate dispatch events (§9 gate capabilities) ─────────────
+        # Additive events the kernel forwards from ``_evaluate_declared_gates``
+        # (engine.py:1879-1886 post-step / the pre-step gate loop) when a step
+        # declares ``gates: [...]``. Each is GENUINELY emitted by a registered
+        # gate capability and reaches the WS drainer verbatim:
+        #   * ``gate_blocked``      — validation gate block-critical
+        #     (agents/capabilities/gates/validation.py:115) + the security gate
+        #     net/secrets/exec deny (gates/security.py:78,144). The
+        #     ``prototype_revision`` step declares ``gates: [validation]`` with
+        #     ``validators: [html_static, html_render]``; a CRITICAL static issue
+        #     on the edited prototype.html emits this (the ISS-026 stale-vocab
+        #     miss — the event was legit, the documented set was incomplete).
+        #   * ``validation_warning`` — validation gate warn-non-critical residual
+        #     (gates/validation.py:132), the other outcome of the SAME
+        #     ``[validation]`` gate the revision step declares.
+        #   * ``gate_wait_human``   — approval gate offline / no-HITL-handle pause
+        #     (gates/approval.py:148).
+        "gate_blocked",
+        "validation_warning",
+        "gate_wait_human",
     }
 )
 

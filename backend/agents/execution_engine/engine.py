@@ -1905,6 +1905,23 @@ class ExecutionEngine:
             # stays byte/event-identical (no snapshot written when nothing fanned out).
             await self._persist_budget_snapshot_if_active(ectx)
             yield {"type": "pipeline_cancelled", "data": {"pipeline_run_id": pipeline_run_id}}
+            # ── ISS-023 (IN-04): single canonical pipeline_cancelled on the ───────
+            # cooperative per-chunk cancel path. The Stop button sets ``cancel_event``;
+            # the per-chunk check (:2613) raises CancelledError, which lands HERE. If we
+            # re-raise, the cancellation propagates out of ``execute()`` into the
+            # websocket bg task's ``except CancelledError`` (_run_pipeline_to_queue),
+            # which enqueues a SECOND pipeline_cancelled — a discarded duplicate (the
+            # drainer breaks on the first terminal; _cleanup_pipeline drops the rest).
+            # On the COOPERATIVE path we have already yielded the one true terminal, so
+            # RETURN (the async-for ends normally, mirroring the pre-agent/between-agent
+            # cooperative terminals at :1737-1741 / :1797-1807 which yield+return). Only
+            # a GENUINE destructive ``task.cancel()`` (the WebSocketDisconnect path /
+            # the no-event defensive fallback — cancel_event NOT set) re-raises, so the
+            # disconnect cleanup that depends on the propagating CancelledError is
+            # preserved. Keyed on the generic cooperative signal only (no workflow /
+            # model / agent name — SC-001).
+            if cancel_event is not None and cancel_event.is_set():
+                return
             raise
         except BudgetExceeded as _budget_exc:
             # OBS-01 graceful abort: a fan-out reserve/boundary breach aborts the run.
@@ -2138,12 +2155,38 @@ class ExecutionEngine:
         # that previously presented as clean completions). The total-collapse
         # branch above is unaffected (results is empty there, so the
         # subtraction removes nothing).
-        _unrecovered_failed = _failed_agent_ids - {
-            r.get("agent_id") for r in results
+        #
+        # ── ISS-028: key the unrecovered decision on (agent_id, task_number) ─────
+        # The plain ``_failed_agent_ids - {completed agent_ids}`` collapsed on the
+        # agent_id, so in the task_loop — where ONE agent_id (e.g. prototype-build)
+        # runs across all tasks — a task K completion masked a task K+1 hard error:
+        # the agent_id was in BOTH sets, subtracted to ∅, and a HALF-BUILT
+        # deliverable reported a clean pipeline_complete. Subtract the COMPLETED
+        # ``(agent_id, task_number)`` pairs from the per-invocation failure pairs
+        # (``ectx.failed_invocations``, populated at every _run_agent agent_error)
+        # instead. The single-shot timeout-recovery case is preserved: the error +
+        # the completion share one invocation → the SAME ("" task_number) pair →
+        # subtracted (WR-05 intact). DORMANT on the goldens (all tasks succeed →
+        # failed_invocations is empty → no degraded key → INV-3 byte-identical). The
+        # ``agents_failed`` payload stays a sorted agent_id list (the FE / DB
+        # contract is unchanged; only the DECISION gained task granularity). A
+        # defensive floor keeps any _failed_agent_ids agent that completed NOTHING
+        # at all, so a future agent_error path that skips the recorder can't silently
+        # regress to a clean completion.
+        _completed_pairs = {
+            (r.get("agent_id"), r.get("task_number", "") or "") for r in results
         }
-        if results and _unrecovered_failed:
+        _completed_agent_ids = {r.get("agent_id") for r in results}
+        _unrecovered_agents = {
+            agent_id
+            for (agent_id, task_number) in getattr(ectx, "failed_invocations", set())
+            if (agent_id, task_number) not in _completed_pairs
+        }
+        # Floor (no regression): an errored agent with zero completions anywhere.
+        _unrecovered_agents |= (_failed_agent_ids - _completed_agent_ids)
+        if results and _unrecovered_agents:
             _pipeline_complete_data["status"] = "degraded"
-            _pipeline_complete_data["agents_failed"] = sorted(_unrecovered_failed)
+            _pipeline_complete_data["agents_failed"] = sorted(_unrecovered_agents)
         yield {
             "type": "pipeline_complete",
             "data": _pipeline_complete_data,
@@ -2355,6 +2398,26 @@ class ExecutionEngine:
         if iso_ws is None:
             return None
         return getattr(iso_ws, "_sandbox", None)
+
+    @staticmethod
+    def _record_failed_invocation(ectx, agent_id: str) -> None:
+        """ISS-028: record an UNRECOVERED ``(agent_id, task_number)`` failure pair.
+
+        Called at every ``_run_agent`` ``agent_error`` emission so the terminal
+        degraded decision (``_execute_impl``) can key on the per-invocation pair
+        rather than collapsing on ``agent_id`` alone. ``task_number`` is read from the
+        per-task build scratch (``ectx.build_task_number`` — set by
+        ``KernelServices.run_agent`` for a task_loop invocation, "" for a single_shot
+        agent). A later successful task of the SAME agent_id appends a result under a
+        DIFFERENT pair, so it no longer masks this failure (the ISS-028 root cause).
+        A timeout that emits a recoverable ``agent_error`` then completes in the SAME
+        invocation records + completes the SAME pair, so it still subtracts cleanly
+        (WR-05 preserved). Best-effort: never abort the run on a bookkeeping miss.
+        """
+        try:
+            ectx.failed_invocations.add((agent_id, getattr(ectx, "build_task_number", "") or ""))
+        except Exception:  # noqa: BLE001 — failure bookkeeping must never break the run
+            pass
 
     async def _run_agent(
         self,
@@ -2799,6 +2862,13 @@ class ExecutionEngine:
                     fallback = results[-1].get("output", "")
                     output_chunks = [fallback] if fallback else output_chunks
                     logger.info("Agent %s: using previous agent output as fallback (%d chars)", spec.id, len(fallback))
+                # ISS-028: record the (agent_id, task_number) failure pair. The
+                # timeout path RECOVERS — it falls through to results.append below
+                # under the SAME task_number, so this pair is subtracted out by the
+                # terminal degraded decision (WR-05 timeout-recovery preserved). The
+                # pair-keying only changes behavior when a DIFFERENT task of the same
+                # agent_id failed (the ISS-028 task_loop edge).
+                self._record_failed_invocation(ectx, spec.id)
                 yield {
                     "type": "agent_error",
                     "data": {
@@ -2833,6 +2903,14 @@ class ExecutionEngine:
                 )
                 _log_event("agent_error", pipeline_run_id, agent_id=spec.id,
                            error=agent_error_message)
+                # ISS-028: record the (agent_id, task_number) failure pair. This arm
+                # RETURNS without a results.append, so the pair stays UNRECOVERED — a
+                # task_loop where an earlier task of this same agent_id completed no
+                # longer masks this hard failure (the agent_id-only subtraction at the
+                # terminal zeroed it → a half-built deliverable lied as clean
+                # pipeline_complete). All-fail still maps to pipeline_failed via the
+                # untouched _failed_agent_ids branch.
+                self._record_failed_invocation(ectx, spec.id)
                 yield {
                     "type": "agent_error",
                     "data": {
@@ -2979,6 +3057,14 @@ class ExecutionEngine:
                 "icon": spec.icon, "output": output, "duration": duration,
                 "input_tokens": agent_input_tokens, "output_tokens": agent_output_tokens,
                 "total_tokens": agent_total_tokens,
+                # ISS-028: the task identity of THIS completed invocation ("" for a
+                # single_shot agent) so the terminal degraded decision can subtract
+                # COMPLETED (agent_id, task_number) pairs from ectx.failed_invocations.
+                # An internal-only field — results never reaches the wire / a snapshot
+                # (the WS layer builds its agent_outputs from EVENTS, and every reader
+                # of ``results`` uses .get()/["output"]/["agent_id"]/len), so INV-3
+                # byte-parity is unaffected.
+                "task_number": getattr(ectx, "build_task_number", "") or "",
             })
             _log_event("agent_complete", pipeline_run_id, agent_id=spec.id,
                        duration_ms=duration * 1000)
@@ -3050,6 +3136,8 @@ class ExecutionEngine:
         except (FileNotFoundError, PermissionError) as exc:
             # Missing AGENT.md or template — fatal
             _log_event("agent_error", pipeline_run_id, agent_id=spec.id, error=str(exc))
+            # ISS-028: unrecovered (agent_id, task_number) failure — no results.append.
+            self._record_failed_invocation(ectx, spec.id)
             yield {"type": "agent_error", "data": {"agent_id": spec.id, "error": str(exc), "recoverable": False}}
         except Exception as exc:
             # If the run is already in a terminal state (cancelled/failed), don't
@@ -3065,6 +3153,9 @@ class ExecutionEngine:
                     return  # Stop the agent loop cleanly
             logger.exception("Agent %s failed", spec.id)
             _log_event("agent_error", pipeline_run_id, agent_id=spec.id, error=str(exc))
+            # ISS-028: unrecovered (agent_id, task_number) failure — this handler
+            # writes an [Error:…] placeholder but never appends to results.
+            self._record_failed_invocation(ectx, spec.id)
             yield {"type": "agent_error", "data": {"agent_id": spec.id, "error": str(exc), "recoverable": True}}
             # Typed-write the error placeholder so a downstream consumer reading from
             # the typed graph sees it (the SOLE artifact path since 05-07; parity).

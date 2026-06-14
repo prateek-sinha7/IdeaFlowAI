@@ -136,6 +136,18 @@ class ExecutionContext:
     # TaskLoopStrategy alongside current_task_block.
     build_task_number: str = ""
     build_task_total: str = ""
+    # failed_invocations: ISS-028 — the set of ``(agent_id, task_number)`` pairs whose
+    # ``_run_agent`` invocation surfaced an ``agent_error`` and did NOT recover (no
+    # ``results`` entry for the SAME pair). The terminal degraded decision subtracts the
+    # COMPLETED ``(agent_id, task_number)`` pairs from this set, so a same-agent task_loop
+    # where task K completes but task K+1 hard-errors is correctly ``degraded`` (the
+    # agent_id-only subtraction it replaced zeroed it out — a half-built deliverable
+    # reported as a clean ``pipeline_complete``). ``task_number`` is "" for a single_shot
+    # agent, so the single-invocation timeout-recovery case (WR-05) still subtracts
+    # cleanly. Empty for every all-success run → DORMANT on the characterization goldens
+    # (the scripted model never errors mid-loop), so INV-3 byte-parity holds. Per-run
+    # (CTX-02 — never on the engine singleton).
+    failed_invocations: set = field(default_factory=set)
 
     # ── Prototype-revision group (set defaults; conditionally populated in execute()) ─
     # revision_original_html: the seeded ORIGINAL prototype.html (pre-edit); read back

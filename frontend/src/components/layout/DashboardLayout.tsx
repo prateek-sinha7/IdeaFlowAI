@@ -67,6 +67,10 @@ export interface DashboardLayoutProps {
   // parsed from the persisted run detail. Threaded to PreviewPanel so the reopen
   // affordance lists the real failed agents instead of an empty list.
   reopenedFailedAgents?: string[];
+  // ISS-024 (16 review IN-02) — id→name lookup for a history-reopened run's
+  // failed agents (the live pipelineState can't name them). Threaded straight to
+  // PreviewPanel's DegradedRunAffordance; unknown ids fall back to the raw id.
+  reopenedAgentNameById?: Record<string, string>;
   questionnaireData?: { questions: { id: string; question: string; options: string[] }[] } | null;
   // Phase 2 (Universal Engine) — clarify gate resume wiring.
   activePipelineRunId?: string | null;
@@ -216,6 +220,7 @@ export function DashboardLayout({
   pipelineState,
   reopenedRunStatus,
   reopenedFailedAgents,
+  reopenedAgentNameById,
   onStartPipeline,
   onResetPipeline,
   recentRuns,
@@ -1274,6 +1279,7 @@ export function DashboardLayout({
                       pipelineState={pipelineState}
                       reopenedRunStatus={reopenedRunStatus}
                       reopenedFailedAgents={reopenedFailedAgents}
+                      reopenedAgentNameById={reopenedAgentNameById}
                     />
                   )}
                 </ErrorBoundary>

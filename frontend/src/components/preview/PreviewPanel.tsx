@@ -13,6 +13,8 @@ import { AppBuilderPreview, type ParsedFile } from "./AppBuilderPreview";
 import type { WorkflowType, GenericDeliverable } from "@/types/index";
 import { getToken } from "@/lib/api";
 import { ENV } from "@/lib/env";
+// ISS-024 — shared id→name resolution for the failed-agents list (no dual-impl).
+import { buildAgentNameById, resolveAgentNames } from "@/lib/parseFailedAgents";
 
 // ─── Agents whose output contains ```filename: ``` code blocks ────────────────
 const CODE_PRODUCING_AGENT_IDS = new Set([
@@ -271,6 +273,12 @@ interface PreviewPanelProps {
   reopenedRunStatus?: import("@/types/index").WorkflowStatus;
   // Optional failed-agent names carried by the reopened run detail payload.
   reopenedFailedAgents?: string[];
+  // ISS-024 (16 review IN-02) — id→name lookup for the reopened run's failed
+  // agents. The live pipelineState reflects the new/idle run, so it cannot name
+  // a reopened run's agents; the dashboard builds this from the reopened run
+  // detail's persisted agentOutputs and threads it here. Unknown ids still fall
+  // back to the raw id inside DegradedRunAffordance.
+  reopenedAgentNameById?: Record<string, string>;
 }
 
 const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
@@ -293,16 +301,30 @@ const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
 // and history-reopen.
 export function DegradedRunAffordance({
   failedAgents,
+  agentNameById,
   onRetry,
   cancelled,
 }: {
+  // Raw agent IDs (e.g. "prototype-build"). Resolved to human names below.
   failedAgents?: string[];
+  // ISS-024 (16 review IN-02) — id→name lookup for the failed-agents list. The
+  // LIVE path builds it from pipelineState.agents; the HISTORY-reopen path from
+  // the persisted agentOutputs. Unknown ids fall back to the raw id (never
+  // blank), so older runs keep working. When omitted, every id falls back —
+  // identical to the pre-ISS-024 (raw-id) behaviour.
+  agentNameById?: Record<string, string>;
   onRetry?: (instruction: string) => void;
   // IN-03 (16 review): true when the terminal state is a deliberate user cancel,
   // so the copy reads "cancelled" rather than "failed or degraded".
   cancelled?: boolean;
 }) {
   const hasFailedAgents = !!(failedAgents && failedAgents.length > 0);
+  // ISS-024: resolve ids → names once; fallback to the raw id keeps older runs
+  // and unknown agents intact (never blank).
+  const failedAgentEntries = (failedAgents || []).map((id) => ({
+    id,
+    label: resolveAgentNames([id], agentNameById)[0],
+  }));
   return (
     <div className="flex h-full items-center justify-center px-6">
       <div className="flex max-w-sm flex-col items-center gap-3 text-center">
@@ -325,9 +347,9 @@ export function DegradedRunAffordance({
               Failed agents
             </p>
             <ul className="space-y-0.5">
-              {failedAgents!.map((name) => (
-                <li key={name} className="text-xs text-amber-800">
-                  {name}
+              {failedAgentEntries.map(({ id, label }) => (
+                <li key={id} className="text-xs text-amber-800">
+                  {label}
                 </li>
               ))}
             </ul>
@@ -350,7 +372,7 @@ export function DegradedRunAffordance({
   );
 }
 
-export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents }: PreviewPanelProps) {
+export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>("preview");
   const [copied, setCopied] = useState(false);
 
@@ -416,11 +438,24 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // carries no failed/degraded flag (useWorkflow resets agents to idle), so the
   // cancelled signal is the reopened server status only.
   const isCancelledTerminal = reopenedRunStatus === "cancelled";
+  // NOTE: these are agent IDs (failedAgents/degradedFailedAgents on live;
+  // reopenedFailedAgents on history). They are resolved to human names inside
+  // DegradedRunAffordance via the agentNameById map built below.
   const failedAgentNames =
     pipelineState?.failedAgents ||
     pipelineState?.degradedFailedAgents ||
     reopenedFailedAgents ||
     [];
+  // ISS-024 (16 review IN-02) — id→name lookup for the failed-agents list.
+  // LIVE source: pipelineState.agents carries {id,name} for the run's agents.
+  // HISTORY-reopen source: reopenedAgentNameById (built by the dashboard from the
+  // reopened run detail's persisted agentOutputs, since the live pipelineState
+  // reflects the new/idle run and can't name a reopened run's agents).
+  // Unknown ids fall back to the raw id inside DegradedRunAffordance.
+  const failedAgentNameById = {
+    ...(reopenedAgentNameById || {}),
+    ...buildAgentNameById(pipelineState?.agents),
+  };
 
   const handleTabChange = (tabId: PanelTab) => { setActiveTab(tabId); onTabSelect?.(tabId); };
   const handleCopy = () => {
@@ -509,6 +544,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               {showFailureAffordance ? (
                 <DegradedRunAffordance
                   failedAgents={failedAgentNames}
+                  agentNameById={failedAgentNameById}
                   onRetry={onRevisePrototype || onRevisePpt || onReviseUserStory || onReviseAppBuilder}
                   cancelled={isCancelledTerminal}
                 />
