@@ -267,3 +267,57 @@ def test_non_mapping_top_level_rejected(tmp_path: Path):
 
     with pytest.raises(ManifestValidationError):
         load_manifest("demo", base)
+
+
+# ---------------------------------------------------------------------------
+# UXFIX-01 / D-18 — authored display_name on the REAL launchable manifests
+# ---------------------------------------------------------------------------
+#
+# Phase 22 / 22-07: the data-driven catalog (the new home landing, UXFIX-03)
+# renders each launchable workflow's authored `display_name`. The P20 BE coalesce
+# fix (workflows.py:230-237) carries ONLY the manifest's EXPLICIT display_name
+# (None unless a YAML declares one) so the FE fallback to getWorkflowLabel(id)
+# still wins where unauthored. These tests pin the authoring contract against the
+# REAL repo manifests (not synthetic) so a regression is caught:
+#   - every launchable workflow that SHOULD carry a friendly name authors one;
+#   - `custom` (the user-composed entry) intentionally stays unauthored so the
+#     composer-driven FE fallback label is used (BE display_name is None).
+
+from agents.execution_engine.engine import _WORKFLOWS_DIR  # noqa: E402
+
+# Launchable manifests that MUST author a non-empty display_name (UXFIX-01).
+_AUTHORED_DISPLAY_NAME = (
+    "user_stories",
+    "prototype",
+    "ppt",
+    "app_builder",
+    "mulesoft_to_springboot",
+    "dotnet_to_azure",
+)
+
+# Launchable manifests intentionally left WITHOUT a display_name — the FE falls
+# back to its composer/getWorkflowLabel label (BE fallback null by design).
+_UNAUTHORED_DISPLAY_NAME = ("custom",)
+
+
+@pytest.mark.parametrize("workflow_id", _AUTHORED_DISPLAY_NAME)
+def test_display_name_authored_on_real_launchable_manifest(workflow_id: str):
+    m = load_manifest(workflow_id, _WORKFLOWS_DIR)
+    assert m.user_launchable is True, (
+        f"{workflow_id} is expected to be a launchable manifest"
+    )
+    assert isinstance(m.display_name, str) and m.display_name.strip(), (
+        f"{workflow_id} must author a non-empty display_name (UXFIX-01/D-18); "
+        f"got {m.display_name!r}"
+    )
+
+
+@pytest.mark.parametrize("workflow_id", _UNAUTHORED_DISPLAY_NAME)
+def test_display_name_null_where_intentionally_unauthored(workflow_id: str):
+    # The BE fallback stays None ONLY where deliberately unauthored — so the FE
+    # fallback label is used and the P20 coalesce fix is not defeated.
+    m = load_manifest(workflow_id, _WORKFLOWS_DIR)
+    assert m.display_name is None, (
+        f"{workflow_id} is intentionally unauthored; BE display_name must be "
+        f"None (FE fallback owns the label); got {m.display_name!r}"
+    )
