@@ -6,7 +6,6 @@ import { motion, AnimatePresence } from "motion/react";
 import { WifiOff, RefreshCw, Brain, Sparkles, Loader2 } from "lucide-react";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { AppHeader } from "./AppHeader";
-import { CreationHub } from "@/components/home/CreationHub";
 import { WorkflowCatalog } from "@/components/catalog/WorkflowCatalog";
 import { LibraryPage } from "@/components/library/LibraryPage";
 import { WorkflowHistory } from "@/components/history/WorkflowHistory";
@@ -1066,7 +1065,13 @@ export function DashboardLayout({
       {/* Main Content */}
       <div className="flex-1 min-h-0">
         <AnimatePresence mode="wait">
-          {/* HOME — Full-width cards */}
+          {/* HOME — the data-driven WorkflowCatalog is the DEFAULT landing
+              (UXFIX-03 / D-20). The hardcoded `CreationHub.WORKFLOWS` array no
+              longer drives the default home — the catalog sources its rows from
+              `GET /api/workflows`, so a brand-new launchable manifest appears
+              with zero FE edit (SC-001). This is a re-route, not a new visual:
+              the same launch/select wiring (`handleSelectFeature` +
+              `handleLaunchSaved`, P21) is preserved. */}
           {mainView === "home" && (
             <motion.div
               key="home"
@@ -1076,23 +1081,10 @@ export function DashboardLayout({
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <CreationHub onSelectFeature={handleSelectFeature} userTier={userTier} />
-            </motion.div>
-          )}
-
-          {/* CATALOG — Data-driven workflow gallery (copy of the HOME block) */}
-          {mainView === "catalog" && (
-            <motion.div
-              key="catalog"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="h-full"
-            >
               <WorkflowCatalog onSelectFeature={handleSelectFeature} onLaunchSaved={handleLaunchSaved} userTier={userTier} />
             </motion.div>
           )}
+
 
           {/* LIBRARY — Agent catalog */}
           {mainView === "library" && (

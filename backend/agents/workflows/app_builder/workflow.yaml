@@ -8,7 +8,9 @@ id: app_builder
 version: 1
 # Catalog (Plan 20-01): declared launchability — inert metadata read by
 # GET /api/workflows, never by the compiler/kernel (INV-3 parity).
+# display_name (UXFIX-01/22-07): authored friendly catalog label — presentation only.
 user_launchable: true
+display_name: "Full App Builder"
 planner: run
 clarify:
   mode: auto

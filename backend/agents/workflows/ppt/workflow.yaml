@@ -7,7 +7,10 @@
 id: ppt
 version: 1
 # Catalog (Plan 20-01): declared launchability + wizard launch surface — inert.
+# display_name (UXFIX-01/22-07): authored friendly catalog label — presentation
+# only, never read by the compiler/kernel (INV-3 parity preserved).
 user_launchable: true
+display_name: "Presentation Deck"
 launch_surface: "wizard"
 planner: run
 clarify:

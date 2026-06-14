@@ -15,6 +15,9 @@ version: 1
 # Catalog (Plan 20-01): declared launchability + wizard launch surface — inert
 # metadata read by GET /api/workflows, never by the compiler/kernel (INV-3 parity).
 user_launchable: true
+# display_name (UXFIX-01/22-07): authored friendly catalog label — presentation
+# only, never read by the compiler/kernel (INV-3 parity preserved).
+display_name: "Interactive Prototype"
 launch_surface: "wizard"
 planner: run
 clarify:

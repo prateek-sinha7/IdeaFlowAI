@@ -137,15 +137,35 @@ class TestList:
             )
             assert by_id[wid]["launch_surface"] is None
 
-        # display_name carries ONLY the manifest's EXPLICIT label (WR-01): no
-        # current manifest declares one, so it is None for every listed row —
-        # the FE then falls back to the friendly WORKFLOW_LABELS map instead of
-        # rendering the title-cased raw id. `name` keeps the _display_name value
-        # for back-compat consumers (asserted via test_list_entries_carry_metadata).
-        for w in by_id.values():
-            assert w["display_name"] is None, (
-                f"{w['id']} display_name should be None until a manifest "
-                f"declares one (got {w['display_name']!r})"
+        # display_name carries ONLY the manifest's EXPLICIT label (WR-01 /
+        # UXFIX-01-D-18): the BE never coalesces to the title-cased raw id, so a
+        # row's display_name is exactly what its manifest authors (or None where
+        # intentionally unauthored — the FE then falls back to the friendly
+        # WORKFLOW_LABELS map). `name` keeps the _display_name value for
+        # back-compat consumers (asserted via test_list_entries_carry_metadata).
+        #
+        # 22-07 authored friendly names on the launchable manifests; `custom`
+        # (the user-composed entry) stays unauthored on purpose. Assert BOTH
+        # halves of the coalesce contract: authored rows carry their verbatim
+        # label, and the deliberately-unauthored row stays None.
+        authored = {
+            "user_stories": "User Stories",
+            "prototype": "Interactive Prototype",
+            "ppt": "Presentation Deck",
+            "app_builder": "Full App Builder",
+            "mulesoft_to_springboot": "MuleSoft to Spring Boot",
+            "dotnet_to_azure": ".NET to Azure",
+        }
+        for wid, label in authored.items():
+            if wid in by_id:
+                assert by_id[wid]["display_name"] == label, (
+                    f"{wid} must carry its authored display_name verbatim "
+                    f"(got {by_id[wid]['display_name']!r})"
+                )
+        if "custom" in by_id:
+            assert by_id["custom"]["display_name"] is None, (
+                "custom is intentionally unauthored; BE display_name must be "
+                f"None (got {by_id['custom']['display_name']!r})"
             )
 
     def test_list_does_not_query_workflow_run(self, client):
