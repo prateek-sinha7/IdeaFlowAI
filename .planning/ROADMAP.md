@@ -666,3 +666,61 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [x] 21-03-PLAN.md — FRONTEND launch wiring + e2e: load-bearing `IdeaInputPage` `initialAgentIds`/`initialModelOverrides` preload + guarded re-derive, `onLaunchSaved` prop threaded through `DashboardLayout`, mocked Playwright spec (compose→Save→appears→rename→launch) [wave 3, depends 21-01, 21-02]
+
+### Phase 22: Capability Surfacing and User Empowerment - Universal Runtime UX Completeness
+
+**Goal:** Cash the SC-001 dividend at the UX layer. The kernel + registry already expose ~70 capabilities, but the product surface uses ~a dozen — every advanced capability (fan-out, waves, the Tier#4/5/6 validators, MCP servers, integration providers, executable hooks, exec, repo, merge, isolation, retry, per-step/per-workflow model selection) is sample/fixture-proven or registered-but-unused, and the user has no way to see or opt into them. This phase makes **every registered capability surface visually** in the UI (sourced from the live `GET /api/capabilities` registry, grouped by kind, trust/tier-gated) and gives the user the **power to compose and launch** workflows that opt into the user-allowed ones — through the EXISTING run path, with no kernel workflow-name branches. It also closes the latent wiring gaps the v1.0 audit found: the `model:`/`retry:`/`injects:` manifest keys the compiler silently drops, the friendly-label/reopen-mimetype/home-landing UX gaps, the two open design decisions (N9 artifact retention, N11 premium-model policy), and a consolidated live-Bedrock re-confirm pass. Full evidence: `.planning/v1.0-MILESTONE-AUDIT.md` + the capability-adoption audit + the deferral-ledger sweep (2026-06-14).
+
+**Depends on:** Phase 21 (reuses the catalog + saved-workflows composer + `/api/capabilities` + `/api/user-workflows` CRUD; extends, never forks)
+
+**Requirements** (new families for this phase — to be added to REQUIREMENTS.md at plan time):
+
+- **Capability surfacing (visual):**
+  - **SURF-01** — One capability palette/inspector reads the live `GET /api/capabilities` registry and renders EVERY capability kind grouped by kind (strategies · deliverables · validators incl. Tier#4/5/6 `spec_plan_coverage`/`task_done_when`/`design_quality` · gates · context_providers · compaction · task_parsers · merge · isolation · hooks · skills · tools · mcp_servers · integration_providers · runtimes · model_catalog · limits), each showing name, description, `user_allowed`/trust flag, security-gated flag, and config schema — no hardcoded capability list in the FE (SC-001).
+  - **SURF-02** — `/api/capabilities` extended additively so every registered capability supplies the display metadata the palette needs; the empty `config_schema: {}` stub (P8) is filled per capability (auth + permission scopes preserved, API-02 contract intact).
+  - **SURF-03** — For each launchable workflow the composer shows which capabilities it currently declares (from `GET /api/workflows/{id}` / the compiled plan) so the user can SEE what a workflow uses before composing.
+- **User empowerment (compose + use):**
+  - **EMP-01** — The live agent-composer lets a user opt a workflow's step(s) into user-allowed capabilities (validators, human/validation gates, context providers, deliverable type, compaction, fan-out, retry, model selection, limits); the selection reaches the run path (saved-workflow payload → compiler/engine) and demonstrably takes effect.
+  - **EMP-02** — Trust/tier gating enforced in UI AND server: `user_allowed=False` capabilities (exec, `spawn_subagents`, `security`/`approval` gates, powerful MCP servers) render visible-but-locked (engineer-only / upgrade affordance), never user-composable; the compiler's `_check_trust` (CAP-03) rejects a smuggled grant, re-validated at SAVE and at LAUNCH.
+  - **EMP-03** — Saved user workflows (Phase 21) persist the richer per-step capability selections (additive column/JSON on the reused `workflows` table), owner-scoped (IDOR→404), re-validated at launch.
+  - **EMP-04** — When a user selects a capability that requires a gate (security/validation/approval), the composer auto-attaches the required gate; the compiler's exec⇒`gates:[security,approval]` coupling (D-01) and the §13 policies stay enforced.
+- **Latent manifest-key wiring (verified accepted-but-dropped — `compiler.py:231`/`:505`):**
+  - **WIRE-01** — The compiler materializes top-level `model:` and per-step `model:` into `CompiledWorkflow.model`/`Step.model` so manifest-declared model selection is honored by `ModelResolver`'s step/workflow tiers (today silently dropped); INV-3 goldens byte-identical.
+  - **WIRE-02** — The compiler materializes per-step `retry:` into `Step.retry` so a manifest can enable the transient-retry wrapper (RESUME-02 reachable from a manifest, not only programmatically).
+  - **WIRE-03** — The compiler materializes per-step `injects:` (or removes the key and fails loud) — no allow-listed step key may silently no-op; a test asserts every `_ALLOWED_STEP_KEYS` entry is either consumed or rejected.
+- **UX / data-faithfulness fixes (v1.0 audit warnings):**
+  - **UXFIX-01** — The catalog shows the friendly `display_name`/`WORKFLOW_LABELS` (not the title-cased raw id): author `display_name:` on the launchable manifests or leave the BE fallback null (P20 WR-01).
+  - **UXFIX-02** — `deliverable_mimetype`/`deliverable_filename` persist on the run row (additive column, carries owner_id+workspace_id) and drive history-reopen so a custom BINARY deliverable re-renders faithfully (P18 reopen gap).
+  - **UXFIX-03** — The data-driven catalog is the home landing (resolve the home-vs-`CreationHub` dual surface) so "no hardcoded name list" holds on the default view (P20 SC-1 / integration warning).
+  - **UXFIX-04** — The generic mimetype-dispatched deliverable renderer is the PRIMARY dispatch path (first-party branches collapse into it or are proven equivalent) so the SC-001 dividend isn't fallback-only (P18 integration warning).
+- **Open decisions + live confirmation:**
+  - **DECIDE-01** — Resolve N9 (artifact retention default — `run_ttl`=48h vs `keep`/`days:N`); update ART-04 + reconcile the stale "confirm" labels (REPO-02 N6/N10, REPO-04 N5/N7, FANOUT-05 N2).
+  - **DECIDE-02** — Resolve N11 (premium-model policy + default fallback chain); update MODEL-05 and reflect the tier policy in the model picker (which models a tier may select).
+  - **LIVE-01** — One consolidated live-Bedrock re-confirmation pass on the `default` profile records evidence for the standing deferrals (COMPACT-03 token delta · P6 CR-02 checkpointer fallback · P8 OTLP collector · P13 F1/F4/F5 · P14 SC4 · P16 SC1/SC2 · P19 ISS-004) — or an explicit re-deferral disposition if ISS-018 (the `hexaware-srini` entitlement) still blocks.
+
+**Invariants (bind every plan):** SC-001 (the user composer routes through the capability registry + `trust=user/db`, never a workflow-name branch; activates the built-but-dormant untrusted-manifest path) · INV-3 (5 characterization goldens byte-identical) · INV-13 (`create_deep_agent` only inside the `langchain_deepagents` adapter) · Ports & Adapters (import-linter 4 kept / 0 broken) · INV-5 (no DSL; strict-key rejection preserved) · additive migrations only (every new table/column carries `owner_id` + `workspace_id`).
+
+**Success Criteria** (what must be TRUE):
+
+  1. Every registered capability kind is visible in the UI palette, sourced from a live `GET /api/capabilities` fetch, grouped by kind, each showing name / description / trust (`user_allowed`) / security-gated flag / config schema — and the FE carries no hardcoded capability name list (SC-001).
+  2. A user can compose a workflow from the UI that opts into ≥1 previously-unsurfaced user-allowed capability (e.g. a validator + a human gate + a non-default model + retry), SAVE it, and LAUNCH it through the existing run path — and the selection demonstrably reaches execution (the validator fires / the chosen model is used / retry activates).
+  3. Privileged capabilities (exec, `spawn_subagents`, `security`/`approval` gates, powerful MCP/integration servers) render visible-but-locked for an unentitled user and are server-rejected if smuggled into a save/launch payload (CAP-03), re-validated at SAVE and LAUNCH.
+  4. Manifest `model:` and `retry:` keys are materialized by the compiler and take effect (a manifest-declared model/retry changes behavior); `injects:` works or fails loud — a test proves no `_ALLOWED_STEP_KEYS` entry is accepted-but-dropped.
+  5. The data-driven catalog is the home landing showing friendly names; a custom binary deliverable re-renders faithfully on history-reopen; the generic mimetype renderer is the primary deliverable dispatch path.
+  6. N9 and N11 are decided and recorded in REQUIREMENTS.md (ART-04 / MODEL-05 updated, the 3 stale "confirm" labels reconciled); the model picker reflects the N11 tier policy.
+  7. One consolidated live-Bedrock pass on the `default` profile records evidence for the standing live deferrals, or an explicit re-deferral disposition is recorded if ISS-018 still blocks.
+  8. Invariants hold: 5 characterization goldens byte-identical (INV-3) · kernel name-free (SC-001 grep 0) · `create_deep_agent` only in the adapter (INV-13) · import-linter 4/0 · additive migrations only.
+
+**Plans:** 9 plans (in 3 waves)
+
+Plans:
+
+- [ ] 22-01-PLAN.md — WIRE-01/02/03: compiler materializes model:/retry:/injects: + the parametrized _ALLOWED_STEP_KEYS consumed-or-raises guard (wave 1)
+- [ ] 22-02-PLAN.md — SURF-02: registry _META + describe(); /api/capabilities supplies description + security_gated + populated config_schema additively (wave 1)
+- [ ] 22-03-PLAN.md — UXFIX-02: additive migration 0022 + WorkflowRun deliverable_mimetype/_filename + reopen-from-persisted (wave 1)
+- [ ] 22-07-PLAN.md — UXFIX-01/03/04: data-driven catalog as home + authored display_name + generic-primary deliverable dispatch (wave 1)
+- [ ] 22-08-PLAN.md — DECIDE-01/02: ART-04 keep-by-default + MODEL-05 premium-open + reconcile 3 confirm labels + register 17 families (wave 1)
+- [ ] 22-09-PLAN.md — LIVE-01: per-item offline evidence record for the 8 standing deferrals (deferred live pass, default profile / Haiku 4.5) (wave 1)
+- [ ] 22-04-PLAN.md — EMP-02/03/01: activate trust=user compile at save+launch + persist selections in manifest_json + selection-reaches-execution proof (wave 2)
+- [ ] 22-05-PLAN.md — SURF-01/03 + EMP-02: embedded grouped capability palette in AgentsPopup with visible-but-locked rows (wave 2)
+- [ ] 22-06-PLAN.md — EMP-01/04 + DECIDE-02: per-agent Advanced expander (validator/gate/model/retry) + auto-attach + drop the model-picker tier filter (wave 3)
