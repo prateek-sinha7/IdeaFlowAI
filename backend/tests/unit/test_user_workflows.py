@@ -150,6 +150,39 @@ def test_post_persists_owner_stamped_user_row(api, db_session):
     assert row.workspace_id == "owner"
 
 
+def test_post_persists_description_in_dedicated_column(api, db_session):
+    """WR-03: ``description`` round-trips via the DEDICATED ``description`` column,
+    NOT the overloaded ``constitution_ref`` (whose semantic is a workflow_memory
+    key). Asserts the column carries the text AND ``constitution_ref`` stays NULL.
+    """
+    client, _ = api
+    r = client.post(
+        "/api/user-workflows",
+        json=_valid_body(description="A bespoke competitive-research flow"),
+    )
+    assert r.status_code == 201, r.text
+    data = r.json()
+    assert data["description"] == "A bespoke competitive-research flow"
+
+    row = db_session.query(WorkflowDefinition).filter_by(id=data["id"]).first()
+    assert row.description == "A bespoke competitive-research flow"
+    # The overload is gone — constitution_ref is NOT used for description.
+    assert row.constitution_ref is None
+
+
+def test_patch_updates_description_in_dedicated_column(api, db_session):
+    """WR-03: PATCH-editing the description writes the dedicated column."""
+    client, _ = api
+    _make_wf(db_session, wf_id="d-row", user_id="owner", name="Desc", source="user")
+    r = client.patch("/api/user-workflows/d-row", json={"description": "edited blurb"})
+    assert r.status_code == 200, r.text
+    assert r.json()["description"] == "edited blurb"
+
+    row = db_session.query(WorkflowDefinition).filter_by(id="d-row").first()
+    assert row.description == "edited blurb"
+    assert row.constitution_ref is None
+
+
 # --- POST: validation (save == launch) ------------------------------------
 
 
@@ -187,6 +220,18 @@ def test_post_rejects_override_targeting_non_member_agent(api):
         "/api/user-workflows",
         json=_valid_body(agent_ids=[_AGENT_A], model_overrides={_AGENT_B: _MODEL_ID}),
     )
+    assert r.status_code == 422, r.text
+
+
+def test_post_rejects_empty_agent_ids(api):
+    """WR-02: an empty ``agent_ids`` persists an unrunnable orphan row → 422.
+
+    The subset check is trivially satisfied for ``[]`` (``rejected == []``), so
+    the guard lives at the schema (``Field(min_length=1)``). The API is the
+    security boundary even though the FE disables Save at zero agents.
+    """
+    client, _ = api
+    r = client.post("/api/user-workflows", json=_valid_body(agent_ids=[]))
     assert r.status_code == 422, r.text
 
 
@@ -277,9 +322,11 @@ def test_model_has_new_columns():
     cols = set(WorkflowDefinition.__table__.columns.keys())
     assert "base_pipeline_type" in cols
     assert "model_overrides" in cols
-    # Both nullable (additive, no constraint relaxation).
+    assert "description" in cols  # WR-03: dedicated description column
+    # All nullable (additive, no constraint relaxation).
     assert WorkflowDefinition.__table__.columns["base_pipeline_type"].nullable
     assert WorkflowDefinition.__table__.columns["model_overrides"].nullable
+    assert WorkflowDefinition.__table__.columns["description"].nullable
 
 
 def test_migration_adds_then_drops_columns():
@@ -301,9 +348,9 @@ def test_migration_adds_then_drops_columns():
     command.upgrade(cfg, "head")
     eng = create_engine(url)
     cols = {c["name"] for c in inspect(eng).get_columns("workflows")}
-    assert "base_pipeline_type" in cols and "model_overrides" in cols
+    assert {"base_pipeline_type", "model_overrides", "description"} <= cols
 
     command.downgrade(cfg, "-1")
     eng2 = create_engine(url)
     cols2 = {c["name"] for c in inspect(eng2).get_columns("workflows")}
-    assert "base_pipeline_type" not in cols2 and "model_overrides" not in cols2
+    assert not ({"base_pipeline_type", "model_overrides", "description"} & cols2)

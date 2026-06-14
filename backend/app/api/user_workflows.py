@@ -60,7 +60,10 @@ class SaveUserWorkflowRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=2000)
     base_pipeline_type: str
-    agent_ids: list[str]
+    # WR-02: a saved workflow must carry ≥1 agent — an empty list persists an
+    # unrunnable orphan row (the launch path can never run it). The subset check
+    # below is trivially satisfied by an empty list, so guard it at the schema.
+    agent_ids: list[str] = Field(min_length=1)
     model_overrides: dict[str, str] | None = None
 
 
@@ -140,7 +143,7 @@ def _project(row: WorkflowDefinition) -> UserWorkflowResponse:
     return UserWorkflowResponse(
         id=row.id,
         name=row.name,
-        description=row.constitution_ref,
+        description=row.description,
         base_pipeline_type=row.base_pipeline_type,
         agent_ids=agent_ids,
         model_overrides=row.model_overrides,
@@ -235,7 +238,7 @@ def create_user_workflow(
         name=body.name,
         agents=json.dumps(body.agent_ids),
         artifact_edges="[]",
-        constitution_ref=body.description,
+        description=body.description,
         source="user",
         base_pipeline_type=body.base_pipeline_type,
         model_overrides=body.model_overrides,
@@ -303,7 +306,7 @@ def update_user_workflow(
         row.name = body.name
 
     if body.description is not None:
-        row.constitution_ref = body.description
+        row.description = body.description
 
     if body.model_overrides is not None:
         try:

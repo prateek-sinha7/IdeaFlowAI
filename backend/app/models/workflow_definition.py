@@ -40,6 +40,7 @@ class WorkflowDefinition(Base):
     version = Column(Integer, nullable=False, default=1, server_default="1")
     base_pipeline_type = Column(String, nullable=True)       # Phase 21: saved-workflow base type ("custom" v1)
     model_overrides = Column(JSON, nullable=True)            # Phase 21: persisted per-agent {agent_id: model_id}
+    description = Column(String, nullable=True)              # Phase 21 (WR-03): user free-text blurb (dedicated; NOT constitution_ref)
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )

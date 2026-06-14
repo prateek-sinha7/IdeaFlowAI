@@ -1,13 +1,17 @@
 """0021 — additive saved user-workflows (Phase 21).
 
 Reuse the dormant ``workflows`` table (``WorkflowDefinition``) for
-``source="user"`` rows — NO new table (REUSE-TABLE-INV12). Add exactly two
+``source="user"`` rows — NO new table (REUSE-TABLE-INV12). Add exactly three
 nullable columns the saved-workflow router persists:
 
   * ``base_pipeline_type`` (String, nullable) — the saved-workflow base type
     ("custom" in v1).
   * ``model_overrides`` (JSON, nullable) — the persisted per-agent
     ``{agent_id: model_id}`` override map.
+  * ``description`` (String, nullable) — the user-supplied free-text blurb. A
+    DEDICATED column (WR-03): description was previously overloaded onto
+    ``constitution_ref`` (whose semantic is a workflow_memory key), a latent
+    footgun for any future cross-source ``constitution_ref`` reader.
 
 Plus ``ix_workflows_owner_source`` backing the owner-scoped GET list query
 (``WHERE owner_id … AND source …``).
@@ -33,6 +37,7 @@ def upgrade() -> None:
     with op.batch_alter_table("workflows") as b:
         b.add_column(sa.Column("base_pipeline_type", sa.String(), nullable=True))
         b.add_column(sa.Column("model_overrides", sa.JSON(), nullable=True))
+        b.add_column(sa.Column("description", sa.String(), nullable=True))
     op.create_index(
         "ix_workflows_owner_source", "workflows", ["owner_id", "source"]
     )
@@ -41,5 +46,6 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("ix_workflows_owner_source", table_name="workflows")
     with op.batch_alter_table("workflows") as b:
+        b.drop_column("description")
         b.drop_column("model_overrides")
         b.drop_column("base_pipeline_type")
