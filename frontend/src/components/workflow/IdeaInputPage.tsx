@@ -51,6 +51,11 @@ interface IdeaInputPageProps {
   // the existing custom/idea flow (the seed branch is purely additive).
   initialAgentIds?: string[];                       // saved-workflow agent seed
   initialModelOverrides?: Record<string, string>;   // saved-workflow per-agent model seed
+  // WR-01 — saved-workflow Advanced-lever seed (the persisted compact selections
+  // map from manifest_json). When a saved row is launched, threading this in lets the
+  // composer re-load AND re-send the user-composed levers. Absent ⇒ no selections
+  // (byte-identical to the existing custom/idea flow — additive only).
+  initialSelections?: Record<string, Record<string, unknown>>;
 }
 
 const TYPE_CONFIG: Record<WorkflowType, {
@@ -167,7 +172,7 @@ const TYPE_CONFIG: Record<WorkflowType, {
   },
 };
 
-export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, initialModelOverrides }: IdeaInputPageProps) {
+export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, initialModelOverrides, initialSelections }: IdeaInputPageProps) {
   const [ideaInput, setIdeaInput] = useState("");
   const [showAgents, setShowAgents] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; size: string }[]>([]);
@@ -229,7 +234,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   // byte-identical — INV-3). Threads into the createUserWorkflow payload as the
   // EXACT compact shape 22-04 persists in manifest_json; `onRun`/launch stay
   // pure data (SC-001).
-  const selectionsRef = useRef<Record<string, Record<string, unknown>>>({});
+  const selectionsRef = useRef<Record<string, Record<string, unknown>>>(initialSelections ?? {});
   const handleSelectionsChange = useCallback(
     (selections: Record<string, Record<string, unknown>>) => {
       selectionsRef.current = selections;
@@ -271,11 +276,19 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     // emits an empty map → omitted → byte-identical payload (preserves INV-3).
     const overrides = modelOverridesRef.current;
     const hasOverrides = Object.keys(overrides).length > 0;
+    // WR-01 (EMP-01): include the per-agent Advanced-expander selections so the
+    // backend overlay (engine._apply_selections) actually applies the user-composed
+    // levers at launch — previously selections only reached SAVE, never a run. Mirror
+    // the model_overrides discipline: include ONLY when ≥1 lever is set, so an
+    // untouched composer emits a byte-identical payload (INV-3 / SC-001).
+    const selections = selectionsRef.current;
+    const hasSelections = Object.keys(selections).length > 0;
     const extraParams =
-      touched || hasOverrides
+      touched || hasOverrides || hasSelections
         ? {
             ...(touched ? { gate_agent_ids: ids } : {}),
             ...(hasOverrides ? { model_overrides: overrides } : {}),
+            ...(hasSelections ? { selections } : {}),
           }
         : undefined;
     onRun(ideaInput.trim(), pipelineAgents.map((a) => a.id), effectiveType, extraParams);
@@ -606,6 +619,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
         onModelOverridesChange={handleModelOverridesChange}
         onSelectionsChange={handleSelectionsChange}
         initialModelOverrides={initialModelOverrides}
+        initialSelections={initialSelections}
       />
     </div>
   );

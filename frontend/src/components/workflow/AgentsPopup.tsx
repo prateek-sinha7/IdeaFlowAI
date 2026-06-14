@@ -64,6 +64,13 @@ interface AgentsPopupProps {
    */
   initialModelOverrides?: Record<string, string>;
   /**
+   * WR-01 — seed the Advanced expander's per-step selections map when launching a
+   * saved workflow, so the persisted `manifest_json` levers (validators / gates /
+   * model / retry) re-load AND re-send on launch. Absent ⇒ the expander starts empty
+   * (compose-from-scratch). Additive — preserves the byte-identical no-selections path.
+   */
+  initialSelections?: SelectionsMap;
+  /**
    * SURF-03 — the opened launchable workflow's declared per-step capabilities
    * (compiled projection). Threaded into the embedded palette so the composer
    * shows what the workflow already uses before composing. Absent on
@@ -1053,12 +1060,15 @@ export function AdvancedExpander({
   agents,
   onSelectionsChange,
   token,
+  initialSelections,
 }: {
   agents: { id: string; name: string }[];
   /** Reports the compact per-step selections map upward (the 22-04 shape). */
   onSelectionsChange?: (selections: SelectionsMap) => void;
   /** Optional JWT override (defaults to the stored token), mirroring the picker. */
   token?: string | null;
+  /** WR-01 — seed the per-step selections when launching a saved workflow. */
+  initialSelections?: SelectionsMap;
 }) {
   const [validatorOptions, setValidatorOptions] = useState<string[]>([]);
   const [gateOptions, setGateOptions] = useState<string[]>([]);
@@ -1066,7 +1076,7 @@ export function AdvancedExpander({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [selections, setSelections] = useState<SelectionsMap>({});
+  const [selections, setSelections] = useState<SelectionsMap>(initialSelections ?? {});
 
   useEffect(() => {
     let cancelled = false;
@@ -1357,7 +1367,7 @@ export function AgentsPopup({
   isOpen, onClose, agents, pipelineType,
   onAddAgent, onRemoveAgent, onReorder, canAddMore = true,
   onModelOverridesChange, initialModelOverrides,
-  onSelectionsChange,
+  onSelectionsChange, initialSelections,
   declaredCapabilities,
 }: AgentsPopupProps) {
   const { attachedSkills, attachedHooks } = useSkillsHooks();
@@ -1635,6 +1645,7 @@ export function AgentsPopup({
                   <AdvancedExpander
                     agents={agents.map((a) => ({ id: a.id, name: a.name }))}
                     onSelectionsChange={onSelectionsChange}
+                    initialSelections={initialSelections}
                   />
                 </div>
 

@@ -663,7 +663,7 @@ export function DashboardLayout({
   // WorkflowType) cannot express. We stash it here and thread it into IdeaInputPage
   // as the launch-preload seeds. Cleared on a normal select so a non-saved launch
   // starts from the empty filter (no stale seed bleed — T-21-12).
-  const [savedComposition, setSavedComposition] = useState<{ agentIds: string[]; modelOverrides: Record<string, string> } | null>(null);
+  const [savedComposition, setSavedComposition] = useState<{ agentIds: string[]; modelOverrides: Record<string, string>; selections: Record<string, Record<string, unknown>> } | null>(null);
 
   // Navigate from Home to Input page
   const handleSelectFeature = useCallback((type: WorkflowType) => {
@@ -678,7 +678,13 @@ export function DashboardLayout({
   // sends agent_ids + merges model_overrides) → re-validated server-side at launch
   // (SC-001: pure-data replay, no engine/run-path edit, no `if saved` fork).
   const handleLaunchSaved = useCallback((saved: UserWorkflowSummary) => {
-    setSavedComposition({ agentIds: saved.agent_ids, modelOverrides: saved.model_overrides ?? {} });
+    // WR-01: carry the persisted Advanced-lever selections so the launched saved
+    // workflow re-loads AND re-sends them (previously selections never reached launch).
+    setSavedComposition({
+      agentIds: saved.agent_ids,
+      modelOverrides: saved.model_overrides ?? {},
+      selections: saved.selections ?? {},
+    });
     setWorkflowType(saved.base_pipeline_type as WorkflowType);
     setMainView("input");
   }, []);
@@ -1195,6 +1201,7 @@ export function DashboardLayout({
                 onRun={handleRunPipeline}
                 initialAgentIds={savedComposition?.agentIds}
                 initialModelOverrides={savedComposition?.modelOverrides}
+                initialSelections={savedComposition?.selections}
               />
             </motion.div>
           )}

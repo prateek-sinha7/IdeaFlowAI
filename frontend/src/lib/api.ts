@@ -593,6 +593,11 @@ export interface UserWorkflowSummary {
   base_pipeline_type: string;
   agent_ids: string[];
   model_overrides?: Record<string, string> | null;
+  // WR-01 (EMP-03) — the persisted compact per-step Advanced-lever selections map
+  // (the `manifest_json` shape the backend `_project` round-trips). Carried so a
+  // launched saved workflow can re-load AND re-send its composed levers. NULL/absent
+  // ⇒ no selections (parity with a Phase-21 save that declared none).
+  selections?: Record<string, Record<string, unknown>> | null;
   created_at?: string;
   updated_at?: string;
 }
