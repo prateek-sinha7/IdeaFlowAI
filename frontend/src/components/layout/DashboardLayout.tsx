@@ -7,6 +7,7 @@ import { WifiOff, RefreshCw, Brain, Sparkles, Loader2 } from "lucide-react";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { AppHeader } from "./AppHeader";
 import { CreationHub } from "@/components/home/CreationHub";
+import { WorkflowCatalog } from "@/components/catalog/WorkflowCatalog";
 import { LibraryPage } from "@/components/library/LibraryPage";
 import { WorkflowHistory } from "@/components/history/WorkflowHistory";
 import { AccountSettings } from "@/components/settings/AccountSettings";
@@ -113,7 +114,7 @@ export interface DashboardLayoutProps {
   waves?: WaveGroup[];
 }
 
-type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution";
+type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution" | "catalog";
 
 // ─── Planning overlay — shown while the planner analyzes the brief ─────────────
 const PLANNING_STEPS = [
@@ -967,7 +968,7 @@ export function DashboardLayout({
   }, [activePipelineRunId, onSubmitQuestionnaire, pendingPipelineRun, onStartPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
 
   // Header navigation — free navigation even while pipeline runs
-  const handleNavigate = useCallback((page: "home" | "library" | "history" | "settings" | "analytics") => {
+  const handleNavigate = useCallback((page: "home" | "library" | "history" | "settings" | "analytics" | "catalog") => {
     setMainView(page as MainView);
   }, []);
 
@@ -982,6 +983,7 @@ export function DashboardLayout({
 
   // Map mainView to header page type
   const headerPage = mainView === "library" ? "library" :
+    mainView === "catalog" ? "catalog" :
     mainView === "history" ? "history" :
     mainView === "settings" ? "history" :
     mainView === "input" ? "workflow" :
@@ -1055,6 +1057,20 @@ export function DashboardLayout({
               className="h-full"
             >
               <CreationHub onSelectFeature={handleSelectFeature} userTier={userTier} />
+            </motion.div>
+          )}
+
+          {/* CATALOG — Data-driven workflow gallery (copy of the HOME block) */}
+          {mainView === "catalog" && (
+            <motion.div
+              key="catalog"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="h-full"
+            >
+              <WorkflowCatalog onSelectFeature={handleSelectFeature} userTier={userTier} />
             </motion.div>
           )}
 

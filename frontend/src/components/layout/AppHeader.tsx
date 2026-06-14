@@ -13,6 +13,7 @@ import {
   ChevronDown,
   BarChart2,
   CreditCard,
+  LayoutGrid,
 } from "lucide-react";
 import { NotificationPanel } from "@/components/ui/NotificationPanel";
 import type { PipelineNotification } from "@/hooks/useNotifications";
@@ -21,8 +22,8 @@ import type { Tier } from "@/lib/entitlements";
 import { TIER_LABELS } from "@/lib/entitlements";
 
 interface AppHeaderProps {
-  currentPage: "home" | "library" | "workflow" | "execution" | "history" | "analytics";
-  onNavigate: (page: "home" | "library" | "history" | "settings" | "analytics") => void;
+  currentPage: "home" | "library" | "workflow" | "execution" | "history" | "analytics" | "catalog";
+  onNavigate: (page: "home" | "library" | "history" | "settings" | "analytics" | "catalog") => void;
   onLogout: () => void;
   userEmail?: string;
   userTier?: Tier;
@@ -107,6 +108,17 @@ export function AppHeader({
         >
           <BookOpen className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
           <span className="hidden sm:inline">Library</span>
+        </button>
+        <button
+          onClick={() => onNavigate("catalog")}
+          className={`flex items-center gap-1 sm:gap-1.5 rounded-md px-2.5 sm:px-3 py-1.5 text-[10px] sm:text-xs font-medium transition-all ${
+            currentPage === "catalog"
+              ? "bg-white text-gray-900"
+              : "text-gray-400 hover:text-white border border-transparent"
+          }`}
+        >
+          <LayoutGrid className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+          <span className="hidden sm:inline">Catalog</span>
         </button>
       </nav>
 
