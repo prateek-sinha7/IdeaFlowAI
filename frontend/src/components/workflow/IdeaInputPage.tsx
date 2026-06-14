@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { AgentsPopup } from "./AgentsPopup";
 import { ReviewGatesSection } from "./ReviewGatesSection";
-import { LIBRARY_AGENTS } from "./AgentLibraryData";
+import { LIBRARY_AGENTS, ALL_LIBRARY_AGENTS } from "./AgentLibraryData";
 import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
@@ -184,13 +184,16 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   const effectiveType: WorkflowType = isMigrationMeta && migrationChoice ? migrationChoice : workflowType;
 
   // Phase 21 (LAUNCH-EXISTING-PATH §4.6) — when launching a saved workflow, seed
-  // `pipelineAgents` from the persisted `initialAgentIds` (resolve each id through
-  // LIBRARY_AGENTS) instead of the empty-for-custom `LIBRARY_AGENTS.filter(type)`.
+  // `pipelineAgents` from the persisted `initialAgentIds` instead of the
+  // empty-for-custom `LIBRARY_AGENTS.filter(type)`. Resolve each id through
+  // ALL_LIBRARY_AGENTS (LIBRARY_AGENTS ∪ CUSTOM_AGENTS) — the SAME superset the
+  // composer's AgentLibrary uses — because saved custom workflows reference the
+  // CUSTOM_AGENTS, which are NOT in the base LIBRARY_AGENTS list.
   // Absent ⇒ the existing derive is preserved byte-for-byte.
   const [pipelineAgents, setPipelineAgents] = useState<AgentDef[]>(() =>
     initialAgentIds?.length
       ? (initialAgentIds
-          .map((id) => LIBRARY_AGENTS.find((a) => a.id === id))
+          .map((id) => ALL_LIBRARY_AGENTS.find((a) => a.id === id))
           .filter(Boolean) as AgentDef[])
       : LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).sort((a, b) => a.order - b.order)
   );
