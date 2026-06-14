@@ -154,3 +154,57 @@ def test_no_injects_no_injection_block():
     prompt = _compose_system_prompt(spec, ctx)
     assert "CRITICAL OUTPUT RULES" not in prompt
     assert prompt.strip().startswith("ROLE PROMPT BODY") or "ROLE PROMPT BODY" in prompt
+
+
+# ---------------------------------------------------------------------------
+# WIRE-03 — per-step injects merge (D-16, materialize-and-consume)
+# ---------------------------------------------------------------------------
+#
+# The compiled ``Step.injects`` reach the factory via ``AgentContext.step_injects``
+# (engine threads them off ``ectx.current_step``). ``_compose_system_prompt`` merges
+# them order-stably with ``spec.injects`` (AGENT.md). The merge keys on the generic
+# ``step_injects`` list — NO workflow/agent-name branch (SC-001).
+
+
+def test_step_injects_empty_is_byte_identical_no_op():
+    """step_injects == [] → composed prompt is byte-identical to the AGENT.md-only
+    path. This IS the mechanical INV-3 proof (the goldens declare no per-step injects).
+    """
+    spec = _Spec(injects=["template", "design_system", "craft"])
+    od = _od_context()
+    baseline = _compose_system_prompt(
+        spec, AgentContext(user_request="x", od_context=od)
+    )
+    with_empty = _compose_system_prompt(
+        spec, AgentContext(user_request="x", od_context=od, step_injects=[])
+    )
+    assert with_empty == baseline
+
+
+def test_step_injects_merge_is_order_stable_no_duplication():
+    """spec.injects=["template"] + step_injects=["craft"] → effective ["template",
+    "craft"]; the craft section is appended exactly once after template.
+    """
+    spec = _Spec(injects=["template"])
+    od = _od_context()
+    ctx = AgentContext(user_request="x", od_context=od, step_injects=["craft"])
+
+    prompt = _compose_system_prompt(spec, ctx)
+
+    # Both sections present (template from AGENT.md, craft from the step merge).
+    assert "ACTIVE TEMPLATE SKILL: web-prototype" in prompt
+    assert "CRAFT RULES BLOCK" in prompt
+    # Order-stable: template (spec) before craft (step-appended).
+    assert prompt.index("ACTIVE TEMPLATE SKILL") < prompt.index("CRAFT RULES BLOCK")
+    # No duplication of the craft block.
+    assert prompt.count("CRAFT RULES BLOCK") == 1
+
+
+def test_step_injects_no_duplicate_when_already_in_spec():
+    """A step inject already declared in spec.injects is NOT applied twice."""
+    spec = _Spec(injects=["template", "craft"])
+    od = _od_context()
+    ctx = AgentContext(user_request="x", od_context=od, step_injects=["craft"])
+
+    prompt = _compose_system_prompt(spec, ctx)
+    assert prompt.count("CRAFT RULES BLOCK") == 1

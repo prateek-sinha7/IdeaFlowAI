@@ -224,3 +224,109 @@ def test_no_name_branch() -> None:
         assert literal not in code
     assert "eval(" not in code
     assert "exec(" not in code
+
+
+# ---------------------------------------------------------------------------
+# WIRE-01 — model: materialization (top-level + per-step) (D-14)
+# ---------------------------------------------------------------------------
+
+
+def test_model_per_step_materialized() -> None:
+    # A per-step ``model: {model: <id>}`` must reach ``compiled.steps[i].model.model``
+    # so ModelResolver tier-2 (model_policy.py:95) resolves the declared id.
+    compiled = WorkflowCompiler().compile(
+        _manifest(
+            steps=[
+                {
+                    "agent": "a",
+                    "strategy": "single_shot",
+                    "model": {"model": "claude-per-step", "max_tokens": 1234},
+                }
+            ]
+        ),
+        CapabilityRegistry(),
+    )
+    step = compiled.steps[0]
+    assert step.model is not None
+    assert step.model.model == "claude-per-step"
+    assert step.model.max_tokens == 1234
+
+
+def test_model_top_level_materialized() -> None:
+    # A top-level ``model: {model: <id>}`` must reach ``compiled.model.model`` so
+    # ModelResolver tier-4 (model_policy.py:101) resolves the workflow default.
+    compiled = WorkflowCompiler().compile(
+        _manifest(model={"model": "claude-workflow-default"}),
+        CapabilityRegistry(),
+    )
+    assert compiled.model.model == "claude-workflow-default"
+
+
+def test_model_absent_is_parity_default() -> None:
+    # No ``model:`` anywhere → per-step Step.model is None and the workflow default
+    # is the empty ModelPolicy (model is None) — byte-parity with pre-WIRE behavior.
+    compiled = WorkflowCompiler().compile(_manifest(), CapabilityRegistry())
+    assert all(s.model is None for s in compiled.steps)
+    assert compiled.model.model is None
+
+
+# ---------------------------------------------------------------------------
+# WIRE-02 — per-step retry: materialization (D-15)
+# ---------------------------------------------------------------------------
+
+
+def test_retry_per_step_materialized() -> None:
+    # A per-step ``retry: {max_attempts: 2}`` must reach ``compiled.steps[i].retry``
+    # so the RESUME-02 wrapper (engine.py:4511, gated on step.retry.max_attempts>0)
+    # activates.
+    compiled = WorkflowCompiler().compile(
+        _manifest(
+            steps=[
+                {
+                    "agent": "a",
+                    "strategy": "single_shot",
+                    "retry": {"max_attempts": 2},
+                }
+            ]
+        ),
+        CapabilityRegistry(),
+    )
+    step = compiled.steps[0]
+    assert step.retry is not None
+    assert step.retry.max_attempts == 2
+
+
+def test_retry_absent_keeps_wrapper_dormant() -> None:
+    # No ``retry:`` → Step.retry is None → the wrapper stays dormant (parity).
+    compiled = WorkflowCompiler().compile(_manifest(), CapabilityRegistry())
+    assert all(s.retry is None for s in compiled.steps)
+
+
+# ---------------------------------------------------------------------------
+# WIRE-03 — per-step injects: materialization (D-16, consume side in factory)
+# ---------------------------------------------------------------------------
+
+
+def test_injects_per_step_materialized() -> None:
+    # A per-step ``injects: [...]`` must reach ``compiled.steps[i].injects`` so the
+    # factory injection seam (factory.py:310-315) merges it with AGENT.md injects.
+    compiled = WorkflowCompiler().compile(
+        _manifest(
+            steps=[
+                {
+                    "agent": "a",
+                    "strategy": "single_shot",
+                    "injects": ["template", "craft"],
+                }
+            ]
+        ),
+        CapabilityRegistry(),
+    )
+    assert compiled.steps[0].injects == ["template", "craft"]
+
+
+def test_injects_absent_is_empty_list_parity() -> None:
+    # No ``injects:`` → Step.injects == [] → the factory merge is a provable no-op
+    # (INV-3: the goldens declare no per-step injects).
+    compiled = WorkflowCompiler().compile(_manifest(), CapabilityRegistry())
+    assert all(s.injects == [] for s in compiled.steps)
