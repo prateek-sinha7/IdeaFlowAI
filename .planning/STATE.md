@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-last_updated: "2026-06-13T17:23:14.670Z"
-last_activity: 2026-06-13
+status: executing
+last_updated: "2026-06-14T09:23:31.840Z"
+last_activity: 2026-06-14 -- Phase 20 planning complete
 progress:
   total_phases: 19
   completed_phases: 19
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 
 Phase: 19
 Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-06-13
+Status: Ready to execute
+Last activity: 2026-06-14 -- Phase 20 planning complete
 
 Session continuity: last session 2026-06-13; stopped at Completed 19-03-PLAN.md (ISS-004: the deterministic backstop for the streamed agent_chunk path. The 13-02 sanitizer (_strip_fabricated_tool_xml) was applied only to the AUTHORITATIVE chunk-joined output (sanitize_output post-loop), but the engine YIELDS each raw chunk as agent_chunk BEFORE accumulation — so fabricated <function_calls>/<invoke name="read_file"> tool-XML reached the LIVE UI stream + durable-replay collector + reconnect tail. New module-level _ChunkStreamSanitizer [engine.py] wraps the runner's duck-typed sanitize_output with a SPAN-STRADDLE buffer: _hold_from_index() finds the earliest open/partial tool-XML span [an opener token without its matching close, OR a trailing proper-prefix of an opener token split mid-tag like …<inv | oke…]; feed() yields the sanitized prefix and HOLDS the raw tail until the close arrives in a later chunk; flush() strips a never-closed opener at stream end [mirrors the runner's WR-01 _UNTERMINATED_TOOL_XML_RE] so legit trailing content is never swallowed. Probe-gated: feed a fabricated-XML probe to sanitize_output ONCE at construction — a tool-less runner strips it [active → buffer], a tool-using runner returns it unchanged [inactive → bypass buffering entirely so tool-using streams stay byte-AND-chunk-identical, not merely join-identical]. Wired at the agent_chunk yield gated on that generic runner capability — NO workflow/agent-name literal [SC-001]; authoritative output_chunks left RAW so the post-loop sanitize keeps the 5 goldens byte-identical [INV-3]; buffer rebuilt per retry-attempt so a model-fallback re-stream never inherits a stale held tail. New fault-injection test [tests/agents/test_chunk_sanitizer.py] drives the real _run_agent stream loop via execute() single-agent pipelines with a ScriptedFakeChatModel splitting <function_calls> across two deltas: tool-less domain-analyst → no <function_calls>/<invoke in the emitted stream + legit content both sides preserved; tool-using prototype-revision-agent → emitted chunks byte+chunk-identical; single-chunk stripped; clean stream no-op. PROVEN: 4 fault-injection tests green; 5 characterization goldens byte/event-identical [NO SNAPSHOT_UPDATE]; test_phase3_cutover_verify 6/6; lint-imports 4/0; SC-001 grep 0; zero migrations; no FE change. LIVE re-confirm [real Haiku sdlc-governance run → 0 tool-XML in live chunks] deferred to the consolidated Bedrock/Playwright pass. Commits 21f4d571 [feat task1 sanitizer+buffer] + 0a901b41 [test task2 fault-injection+probe-gate]); resume file: none
 

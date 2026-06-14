@@ -625,14 +625,15 @@ Plans:
 **Requirements**: REUSE MANDATE (first-class) — reuse existing UI elements and flows wherever possible: CreationHub rows+launch fork+tier gating, DashboardLayout view-state machine, AppHeader nav, AgentModelPicker data-fetch shell, entitlements helpers, the existing run_pipeline + template-wizard launch paths. Additive backend only: `user_launchable`/`display_name`/`description`/`icon`/`launch_surface` on the manifest schema + surfaced via the existing `GET /api/workflows`. Invariants: INV-3 (5 goldens byte-identical) · SC-001 (launchability keyed on the declared flag, never a hardcoded name list) · Ports & Adapters (import-linter 4 kept/0 broken) · INV-5 (no DSL; control-flow keys stay rejected) · additive-only (no new tables/migrations). Full file:line-grounded spec: `20-SPEC.md` in this phase directory.
 
 **Success Criteria**:
+
 1. Catalog renders ONLY `user_launchable` ∧ tier-entitled workflows from a live `GET /api/workflows` fetch — no hardcoded name list; test fixtures (`sample_*`), revisions (`*_revision`), and `od_*` internal types never appear.
 2. Idea-box workflows launch through the existing single `run_pipeline` send site; `prototype`/`ppt` route into the existing template wizard (no bare run); gated workflows show the existing lock/upgrade affordance.
 3. Net-new UI is minimal and reuse-bound — the catalog is a data-driven CreationHub mounted as one new DashboardLayout view; each new file names the existing analog it copied.
 4. Backend change is additive-only — `user_launchable`+display fields on the manifest schema, surfaced through the existing endpoint; no new tables, no migration.
 5. INV-3 parity holds (5 characterization goldens byte-identical) · `lint-imports` 4/0 · a mocked Playwright e2e spec asserts filtering + launch + gating · manifest-schema unit test covers the new optional fields while strict-key still rejects `when/if/for/expr`.
+
 **Depends on:** Phase 19
 **Plans:** 2 plans (1 wave — 20-01 BE + 20-02 FE are independent: the FE e2e mocks the API, no files_modified overlap)
-
 Plans:
 
 - [ ] 20-01-PLAN.md — BACKEND: additive `user_launchable`/`display_name`/`description`/`icon`/`launch_surface` manifest fields + `_optional_bool`/`_optional_str` + `_ALLOWED_TOP_KEYS` widening + surface via `GET /api/workflows` + set flags on the 7 launchable YAMLs + manifest/workflows_api tests + INV-3 goldens-parity + lint-imports 4/0 [wave 1]
