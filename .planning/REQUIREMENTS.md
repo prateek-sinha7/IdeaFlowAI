@@ -367,7 +367,7 @@ Each v1 requirement maps to exactly one phase, **one row per requirement** (REQ-
 | UXFIX-02 | Phase 22 | Planned (22-03) |
 | UXFIX-03 | Phase 22 | Planned (22-07) |
 | UXFIX-04 | Phase 22 | Planned (22-07) |
-| DECIDE-01 | Phase 22 | Complete (22-08; ART-04 keep-by-default recorded; REPO-02/REPO-04/FANOUT-05 confirm labels reconciled; WAVE-03 N8 left out of scope) |
+| DECIDE-01 | Phase 22 | Complete (22-08; ART-04 keep-by-default recorded; 3 stale open-question labels reconciled; N8 wave-resume left out of scope) |
 | DECIDE-02 | Phase 22 | Planned (22-06, 22-08) |
 | LIVE-01 | Phase 22 | Planned (22-09) |
 | ECS-01 | v2 (deferred) | Deferred — v2, intentionally unmapped (remote runtime; separate spec §27) |
