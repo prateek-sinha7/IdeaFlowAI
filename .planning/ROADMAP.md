@@ -638,3 +638,21 @@ Plans:
 
 - [x] 20-01-PLAN.md — BACKEND: additive `user_launchable`/`display_name`/`description`/`icon`/`launch_surface` manifest fields + `_optional_bool`/`_optional_str` + `_ALLOWED_TOP_KEYS` widening + surface via `GET /api/workflows` + set flags on the 7 launchable YAMLs + manifest/workflows_api tests + INV-3 goldens-parity + lint-imports 4/0 [wave 1]
 - [x] 20-02-PLAN.md — FRONTEND: `getWorkflowDefinitions`+`WorkflowSummary` (api.ts) + `WorkflowCatalog.tsx` (data-driven CreationHub) + `"catalog"` DashboardLayout view + AppHeader nav button + mocked Playwright `ts-z.catalog.spec.ts` + vitest [wave 1]
+
+### Phase 21: Saved Workflows — User-Authored, Named, Persisted Custom Workflows
+
+**Goal:** Let a user compose a custom workflow (agents + per-agent models), **name and save** it from BOTH the catalog AND the main-page custom-workflow composer, see it in the catalog as their own **renameable/deletable** "Your workflows" entry, and launch it through the EXISTING run path. Persistence **completes the half-built `workflows` table** (reuse, not a new table) with the milestone's first additive table-migration; everything else is reuse.
+**Requirements**: REUSE-FIRST — persistence REUSES the dormant `WorkflowDefinition`/`workflows` table (`source="user"`) and REMOVES the dead `engine.py` `_persist_workflow_definition` writer it supersedes (INV-12); FE reuses `DeleteModal` (NameWorkflowModal), `WorkflowHistory` kebab (row menu), `admin*` api.ts fetchers (CRUD), the catalog rows + `IdeaInputPage`/`AgentsPopup` Save buttons; run reuses `run_pipeline` (saved `{base_pipeline_type, agent_ids, model_overrides}` re-validated at launch). Additive backend: migration `0021` (+`base_pipeline_type`, +`model_overrides` nullable cols) + a new owner-scoped `/api/user-workflows` CRUD router. Invariants: INV-3 (5 goldens byte-identical — the only engine edit removes a custom-only dead write, dormant on the non-custom goldens) · INV-12 (delete the superseded writer) · SC-001 (saved workflow = pure data, no new pipeline name) · Ports & Adapters (import-linter 4/0; `app→agents` legal) · additive-migration-only (2 nullable cols; `owner_id`+`workspace_id` already present, stamped on create) · security (owner-scoped CRUD IDOR→404; `agent_ids`/`model_overrides` re-validated at save AND launch). Full file:line spec: `21-SPEC.md`.
+
+**Success Criteria**:
+1. A user composing a custom workflow can **Save** it (name + optional description) from the main-page composer AND from the catalog; it persists as a `source="user"` `workflows` row scoped to `owner_id`/`workspace_id`/`user_id`.
+2. The catalog shows a **"Your workflows"** section listing the user's saved workflows (friendly name), with a per-row menu to **Rename / Duplicate / Delete**; built-in (manifest) rows stay read-only.
+3. Launching a saved workflow replays `{base_pipeline_type, agent_ids, model_overrides}` through the EXISTING `run_pipeline` path; `agent_ids` + `model_overrides` are re-validated at launch (a since-disallowed agent/model is rejected, not smuggled).
+4. Persistence REUSES the `workflows` table (additive migration `0021` adds only 2 nullable columns; no new table) AND the dead `engine.py` writer it supersedes is **removed** (INV-12 — no dual write); CRUD is owner-scoped (cross-owner read/rename/delete → 404).
+5. INV-3 holds — the 5 characterization goldens stay byte-identical (the engine-writer removal is dormant on the non-custom goldens; proven by running the suite) · `lint-imports` 4/0 · backend CRUD + authz tests + a mocked Playwright spec (save → appears in catalog → rename → launch) pass.
+**Depends on:** Phase 20
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 21 to break down)
