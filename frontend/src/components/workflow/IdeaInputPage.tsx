@@ -44,6 +44,13 @@ interface IdeaInputPageProps {
   // `gate_agent_ids` toggle — present only when the user touches the Review-gates
   // section; omitted otherwise so the backend uses its static default.
   onRun: (message: string, agentIds: string[], resolvedType: WorkflowType, extraParams?: Record<string, unknown>) => void;
+  // Phase 21 (LAUNCH-EXISTING-PATH §4.6) — saved-workflow launch preload. When a
+  // saved row is launched, `DashboardLayout` threads its persisted composition in
+  // here so the composer mounts PRE-LOADED instead of re-deriving from the (empty
+  // for `custom`) `LIBRARY_AGENTS.filter(type)`. Absent ⇒ behavior is byte-for-byte
+  // the existing custom/idea flow (the seed branch is purely additive).
+  initialAgentIds?: string[];                       // saved-workflow agent seed
+  initialModelOverrides?: Record<string, string>;   // saved-workflow per-agent model seed
 }
 
 const TYPE_CONFIG: Record<WorkflowType, {
@@ -160,7 +167,7 @@ const TYPE_CONFIG: Record<WorkflowType, {
   },
 };
 
-export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProps) {
+export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, initialModelOverrides }: IdeaInputPageProps) {
   const [ideaInput, setIdeaInput] = useState("");
   const [showAgents, setShowAgents] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; size: string }[]>([]);
@@ -176,8 +183,16 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
   const [migrationChoice, setMigrationChoice] = useState<WorkflowType | null>(null);
   const effectiveType: WorkflowType = isMigrationMeta && migrationChoice ? migrationChoice : workflowType;
 
+  // Phase 21 (LAUNCH-EXISTING-PATH §4.6) — when launching a saved workflow, seed
+  // `pipelineAgents` from the persisted `initialAgentIds` (resolve each id through
+  // LIBRARY_AGENTS) instead of the empty-for-custom `LIBRARY_AGENTS.filter(type)`.
+  // Absent ⇒ the existing derive is preserved byte-for-byte.
   const [pipelineAgents, setPipelineAgents] = useState<AgentDef[]>(() =>
-    LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).sort((a, b) => a.order - b.order)
+    initialAgentIds?.length
+      ? (initialAgentIds
+          .map((id) => LIBRARY_AGENTS.find((a) => a.id === id))
+          .filter(Boolean) as AgentDef[])
+      : LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).sort((a, b) => a.order - b.order)
   );
 
   const { attachedSkills, attachedHooks } = useSkillsHooks();
@@ -197,14 +212,20 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
   // reporting its selection doesn't re-render this page, and so `handleRun`
   // always reads the latest value. An empty map ⇒ we omit `model_overrides`
   // entirely (the run_pipeline payload stays byte-identical to before).
-  const modelOverridesRef = useRef<Record<string, string>>({});
+  // Phase 21 (LAUNCH-EXISTING-PATH §4.6) — seed the override ref from the saved
+  // workflow's persisted per-agent models; absent ⇒ empty map (existing default).
+  const modelOverridesRef = useRef<Record<string, string>>(initialModelOverrides ?? {});
   const handleModelOverridesChange = useCallback((overrides: Record<string, string>) => {
     modelOverridesRef.current = overrides;
   }, []);
 
   useEffect(() => {
+    // Phase 21 (gotcha #1) — GUARD: when launching a saved workflow the seed lives
+    // in `pipelineAgents` already; the empty-for-custom re-derive would clobber it
+    // on the first effect run, so bail out and keep the seed.
+    if (initialAgentIds?.length) return;
     setPipelineAgents(LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).sort((a, b) => a.order - b.order));
-  }, [effectiveType]);
+  }, [effectiveType, initialAgentIds]);
 
   // Reset the sub-choice when the parent switches us off the migration meta-type.
   useEffect(() => {
