@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-06-14T21:37:35.915Z"
-last_activity: "2026-06-14 -- Completed 22-04-PLAN.md (EMP-02/03/01 — saved-workflow capability selections: trust=user backstop at save AND launch + manifest_json persistence + selection-reaches-execution overlay)"
+last_updated: "2026-06-14T22:21:15.154Z"
+last_activity: 2026-06-14
 progress:
   total_phases: 22
   completed_phases: 22
@@ -24,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 
 ## Current Position
 
-Phase: 22 (Capability Surfacing and User Empowerment - Universal Runtime UX Completeness) — EXECUTING
-Plan: 9 of 9
+Phase: 22
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-06-14 -- Completed 22-04-PLAN.md (EMP-02/03/01 — saved-workflow capability selections: trust=user backstop at save AND launch + manifest_json persistence + selection-reaches-execution overlay)
+Last activity: 2026-06-14
 
 Session continuity: last session 2026-06-14; stopped at Completed 22-04-PLAN.md (EMP-02/03/01 wave-2 back-fill. Activated the dormant trust="user" compile path [compiler._check_trust] as the AUTHORITATIVE server gate at BOTH save [user_workflows.py] AND launch [websocket.py] — a smuggled/tampered user_allowed=False capability [security/approval gate, exec/spawn grant, ceiling-raising Limits] is server-rejected at each site [CAP-03; the FE lock is advisory only]. New agents/workflows/selections.py is the SINGLE synth seam shared by save + launch [synthesize_manifest({base,agent_ids,selections}) → WorkflowManifest; EMP-04 auto-attaches the validation gate when validators are selected; reserved __workflow__ key carries workflow-level limits; synth deliverable = user-allowed single_file so a clean map never false-rejects]. EMP-03: the compact per-step selections map {agent_id:{validators?,gates?,model?,retry?}} round-trips through the REUSED dormant manifest_json column [zero migration, D-11], owner-scoped via _owned() IDOR→404 [save→list→reopen identical; cross-owner GET→404]. EMP-01: ExecutionEngine._apply_selections overlays the user-composed validators/gates/model/retry onto the file-compiled plan BY AGENT_ID [generic, name-free, SC-001] after re-compiling trust=user; proven the validator+its validation gate reach the compiled step [validators fire], ModelResolver resolves the chosen non-default model [tier-2], and the retry wrapper activates under an injected transient fault — all via the EXISTING run_pipeline path [no new endpoint, no kernel branch]. Rule-2 fix: single_shot strategy → user_allowed=True [the safe default per-step strategy every user workflow uses; without it trust=user rejected ALL saved workflows]. PROVEN: test_user_workflows_selections.py 14/14; test_compiler.py 32/32 [+7 trust=user cases]; 5 characterization goldens byte/event-identical [42 passed, NO SNAPSHOT_UPDATE, INV-3]; banned-patterns 11/11 + SC-001 grep 0 on the routed launch path; lint-imports 4 kept/0 broken; test_run_pipeline_validation 50/50; test_capabilities_api 12/12; zero migrations. Pre-existing unrelated test_user_workflows::test_migration_adds_then_drops_columns failure logged to deferred-items.md [proven via git stash on clean HEAD]. Commits 80473fa5 [feat save-side] + 53f9cfd6 [feat launch+EMP-01]; resume file: none.
 
@@ -59,7 +59,7 @@ Progress: [██████████] 100% (99 plans complete; Phase 19 3/3
 
 **Velocity:**
 
-- Total plans completed: 141
+- Total plans completed: 150
 - Average duration: ~7 min
 - Total execution time: ~0.35 hours
 
@@ -87,6 +87,7 @@ Progress: [██████████] 100% (99 plans complete; Phase 19 3/3
 | 19 | 3 | - | - |
 | 20 | 2 | - | - |
 | 21 | 3 | - | - |
+| 22 | 9 | - | - |
 
 **Recent Trend:**
 
