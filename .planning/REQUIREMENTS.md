@@ -46,7 +46,7 @@
 - [x] **ART-01**: `ArtifactGraph` + `ArtifactRef` — typed, content-addressed, owner-scoped DAG replaces loose `accumulated_outputs: dict[str,str]` (L15 / §17 / INV-10)
 - [x] **ART-02**: Every artifact write records producer step/agent/task, content hash, location, version, parents, visibility, retention (INV-10)
 - [x] **ART-03**: Typed `produces`/`consumes` routing replaces string matching; revision lineage tracked via `parents`/`derived_from` (§17)
-- [x] **ART-04**: Default retention `run_ttl` (= 48h sandbox TTL); `keep`/`days:N` overrides (N9 — confirm)
+- [x] **ART-04**: Default retention = **keep-by-default** — run artifacts are retained indefinitely; `run_ttl`/`days:N` are opt-in overrides (N9 — DECIDED keep-by-default, Phase 22 / DECIDE-01)
 - [x] **PERSIST-01**: Migration adds `artifact_refs`, extends `workflow_runs` (+ workspace_id, owner_id, parent_run_id, source_run_id, plan_id, status, budget_snapshot_json), adds `workspaces`, `run_events` — additive only, every table carries `owner_id` + `workspace_id` (§18 / Q3)
 - [x] **PERSIST-02**: Dual-write typed refs alongside the legacy mirror; reads migrate incrementally; the `accumulated_outputs` mirror is deleted in this phase once reads migrate (L15 / §31)
 - [x] **PERSIST-03**: `run_events` rows carry monotonic per-run `seq` + `event_id` for durable replay/resume; index (run_id, seq) (§18/§21)
@@ -61,7 +61,7 @@
 - [x] **MODEL-02**: `ModelPolicy` carries model id, `max_tokens` (doc-only; runtime caps at `MAX_OUTPUT_TOKENS`), `cost_class` (cheap/standard/premium), ordered `fallback` chain on throttle/error (§20)
 - [x] **MODEL-03**: User per-agent `model_overrides: {agent_id → model_id}` applied at the top of the order and persisted per run (A12 / §18 `run_capabilities`)
 - [x] **MODEL-04**: `ModelCatalog` registered capability lists selectable models (label, provider, cost_class, context window, `user_allowed`); surfaced via `/api/capabilities` (§20)
-- [x] **MODEL-05**: Global default stays Haiku; per-step/workflow model honored (Phase 1C Accept / N11 — confirm premium policy + fallback chain)
+- [x] **MODEL-05**: Global default stays Haiku with an ordered `fallback` chain on throttle/error; per-step/workflow model honored; premium (`cost_class=premium`) models selectable by ALL tiers — **premium-open-to-all-tiers** (no per-tier premium gating) (Phase 1C Accept / N11 — DECIDED premium-open-to-all-tiers, Phase 22 / DECIDE-02)
 
 ### Prototype as Manifest — Parity Proof (Phase 2)
 
@@ -104,9 +104,9 @@
 - [x] **RUNTIME-02**: One `Workspace` abstraction (fs + optional git + optional exec + `ExecutionPolicy`); prototype's `RunSandbox` becomes a `has_git=False, exec=off` Workspace — no engine fork repo-vs-artifact (R3/§14)
 - [x] **RUNTIME-03**: `repositories` + `workspaces` rows persisted (§18)
 - [x] **REPO-01**: `RepoInventory` (`kind=repo_inventory`) — file tree, language stats, dependency graph, ignore rules (`.gitignore` + `.flowinignore`), binary-file skip, size caps, optional summaries (§15)
-- [x] **REPO-02**: `RepoIndex` (optional, large repos) behind a port; default grep/glob for small repos; threshold = N6 (§15 — confirm N6/N10)
+- [x] **REPO-02**: `RepoIndex` (optional, large repos) behind a port; default grep/glob for small repos; threshold = N6 (§15 — N6/N10 SETTLED: shipped at deliverable parity in Phase 9 [4A], 09-03/09-04; decision recorded, no open question)
 - [x] **REPO-03**: `ContextPack` (`kind=context_pack`) — targeted per-task subset via a `context_selector` capability, lineage-tracked; surfaced via the `repo` context provider (§15)
-- [x] **REPO-04**: `repo_diff` `DeliverableResolver` produces app-builder-style file tree + per-file diff (Q-N7 — confirm N5/N7)
+- [x] **REPO-04**: `repo_diff` `DeliverableResolver` produces app-builder-style file tree + per-file diff (Q-N7 — N5/N7 SETTLED: shipped at deliverable parity in Phase 9 [4A], 09-03/09-04; decision recorded, no open question)
 - [x] **REPO-05**: A sample brownfield workflow runs end-to-end locally without execution (clone → branch → inventory → agents read/edit/search → diff surface); prototype unaffected (Phase 4A Accept)
 
 ### Safe Local Exec — Gated on N3 (Phase 4B)
@@ -120,7 +120,7 @@
 - [x] **FANOUT-02**: Kernel `run_fanout(requests, ctx)` funnels both declarative (`step.fanout`) and runtime (tool) entry points (§12) ✅ 11-01
 - [x] **FANOUT-03**: Worker selection — `agent="self"` (N copies) or a named worker from `allowed_workers` + registry (Q14) ✅ 11-01
 - [x] **FANOUT-04**: Mode parallel (capped `asyncio.gather`) or sequential; engine enforces `max_concurrency` (Q15) ✅ 11-01
-- [x] **FANOUT-05**: `IsolationProvider.allocate(scope)` → shared_read | sub_sandbox | worktree; writes default isolated (Q20/Q34 — confirm N2)
+- [x] **FANOUT-05**: `IsolationProvider.allocate(scope)` → shared_read | sub_sandbox | worktree; writes default isolated (Q20/Q34 — N2 SETTLED: shipped in Phase 11 [5]; writes-default-isolated decision recorded, no open question)
 - [x] **FANOUT-06**: Results return both files/artifacts and a structured summary (Q16)
 - [x] **FANOUT-07**: `MergeStrategy` integrates fragments (copy_disjoint/git_3way/json/html_fragment) (§13)
 - [x] **FANOUT-08**: Merge-conflict flow — write a `merge_conflict` artifact + emit event; resolve per `on_conflict` policy (human_gate default | merge_agent (bounded) | partial | abort) (§13 / A6)
@@ -182,7 +182,7 @@
 - [x] **UXFIX-02**: `deliverable_mimetype`/`deliverable_filename` persist on the `WorkflowRun` row (additive columns, owner_id+workspace_id scope) and drive history-reopen so a custom binary deliverable re-renders faithfully (Phase 22 / D-19)
 - [x] **UXFIX-03**: The data-driven catalog is the home landing so "no hardcoded name list" holds on the default view; `CreationHub.WORKFLOWS` no longer drives the default landing (Phase 22 / D-20)
 - [x] **UXFIX-04**: The generic mimetype-dispatched deliverable renderer is the PRIMARY dispatch path; the 4 first-party types become routed entries rendering identically (no visual regression) (Phase 22 / D-21)
-- [ ] **DECIDE-01**: (N9) Artifact retention = keep-by-default (run artifacts retained indefinitely); `run_ttl`/`days:N` opt-in overrides; ART-04 updated; the 3 stale "confirm" labels (REPO-02/REPO-04/FANOUT-05) reconciled (Phase 22 / D-22)
+- [x] **DECIDE-01**: (N9) Artifact retention = keep-by-default (run artifacts retained indefinitely); `run_ttl`/`days:N` opt-in overrides; ART-04 updated; the 3 stale open-question labels (REPO-02/REPO-04/FANOUT-05) reconciled — WAVE-03 (N8) left out of scope (Phase 22 / D-22)
 - [ ] **DECIDE-02**: (N11) Premium-model policy = open to all tiers (no per-tier premium gating); global default stays Haiku with an ordered fallback chain; MODEL-05 updated; the model-picker tier filter removed (Phase 22 / D-23)
 - [ ] **LIVE-01**: One consolidated live-Bedrock confirmation pass on the AWS `default` profile (acct 473293451041, `claude-haiku-4-5`) records per-item evidence for the 8 standing deferrals (or an explicit disposition); phase completion gates on offline evidence (deferred to milestone-end, Phase 22 / D-24)
 
