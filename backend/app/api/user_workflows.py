@@ -65,19 +65,29 @@ class SaveUserWorkflowRequest(BaseModel):
     # below is trivially satisfied by an empty list, so guard it at the schema.
     agent_ids: list[str] = Field(min_length=1)
     model_overrides: dict[str, str] | None = None
+    # EMP-03 (D-11): the compact per-step capability-selections map
+    # ``{agent_id: {validators?, gates?, model?, retry?, ...}}`` (see
+    # ``agents.workflows.selections``). Persisted into the reused
+    # ``workflows.manifest_json`` column (zero migration). ``None`` / absent ==
+    # "no selections" (parity with a P21 saved workflow). Re-validated at SAVE
+    # (and again at LAUNCH) by compiling the synthesized manifest with
+    # ``trust="user"`` — the CAP-03 server backstop (the FE lock is advisory only).
+    selections: dict[str, dict] | None = None
 
 
 class UpdateUserWorkflowRequest(BaseModel):
-    """PATCH body — rename + optional description / model_overrides edit.
+    """PATCH body — rename + optional description / model_overrides / selections edit.
 
     Every field is optional; an absent field leaves the stored value untouched.
     When ``model_overrides`` is supplied it is re-validated against the stored
-    composition (save == launch).
+    composition (save == launch); when ``selections`` is supplied it is
+    re-synthesized + re-compiled with ``trust="user"`` (the CAP-03 backstop).
     """
 
     name: str | None = Field(default=None, min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=2000)
     model_overrides: dict[str, str] | None = None
+    selections: dict[str, dict] | None = None
 
 
 class UserWorkflowResponse(BaseModel):
@@ -89,6 +99,9 @@ class UserWorkflowResponse(BaseModel):
     base_pipeline_type: str | None = None
     agent_ids: list[str]
     model_overrides: dict[str, str] | None = None
+    # EMP-03: the round-tripped compact selections map (None when the row never
+    # persisted any — ``manifest_json IS NULL``).
+    selections: dict[str, dict] | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -134,12 +147,58 @@ def _validate_model_overrides(
     return None
 
 
+def _compile_selections_trust_user(
+    base_pipeline_type: str,
+    agent_ids: list[str],
+    selections: dict | None,
+) -> None:
+    """The CAP-03 server backstop — re-validate user-authored selections.
+
+    Synthesizes a ``WorkflowManifest`` from ``{base_pipeline_type, agent_ids,
+    selections}`` (the SINGLE synth seam, shared with the launch handler) and
+    compiles it with ``trust="user"``. The dormant ``_check_trust`` path
+    (compiler.py) rejects any reference that is registered but NOT ``user_allowed``
+    (a smuggled ``gate: security`` / exec / spawn / filesystem-MCP), and
+    ``_compile_limits`` rejects a ceiling-raising Limits cap — each as a
+    ``CompilerError`` NAMING the offending ``(kind, name)``. The FE lock is NOT a
+    security control; THIS is.
+
+    Raises:
+        HTTPException(422): when the selections reference a non-user-allowed
+            capability (or otherwise fail the trust=user compile) — the detail
+            carries the compiler's ``(kind, name)`` message.
+    """
+    if not selections:
+        return  # no selections → nothing to re-validate (parity)
+
+    from agents.capabilities.registry import CapabilityRegistry
+    from agents.workflows.compiler import CompilerError, WorkflowCompiler
+    from agents.workflows.selections import has_selections, synthesize_manifest
+
+    if not has_selections(selections):
+        return
+
+    manifest = synthesize_manifest(base_pipeline_type, agent_ids, selections)
+    try:
+        WorkflowCompiler().compile(
+            manifest, CapabilityRegistry(), trust="user"
+        )
+    except CompilerError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Rejected selection: {exc}",
+        ) from exc
+
+
 def _project(row: WorkflowDefinition) -> UserWorkflowResponse:
     """Project an ORM row to the API response (parse ``agents`` JSON)."""
     try:
         agent_ids = json.loads(row.agents) if row.agents else []
     except (ValueError, TypeError):
         agent_ids = []
+    # EMP-03: the compact selections map round-trips through ``manifest_json``
+    # (NULL → None == no selections).
+    selections = row.manifest_json if isinstance(row.manifest_json, dict) else None
     return UserWorkflowResponse(
         id=row.id,
         name=row.name,
@@ -147,6 +206,7 @@ def _project(row: WorkflowDefinition) -> UserWorkflowResponse:
         base_pipeline_type=row.base_pipeline_type,
         agent_ids=agent_ids,
         model_overrides=row.model_overrides,
+        selections=selections,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -214,6 +274,14 @@ def create_user_workflow(
     if err:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=err)
 
+    # EMP-02 (CAP-03): re-validate user-authored per-step selections with
+    # trust="user" BEFORE any row is created — a smuggled non-user-allowed
+    # capability (or ceiling-raising Limits) is server-rejected here (fail-fast,
+    # no orphan row). The SAME check re-fires at launch (a tampered row).
+    _compile_selections_trust_user(
+        body.base_pipeline_type, body.agent_ids, body.selections
+    )
+
     # Per-user name uniqueness (API-level; the shared table also holds file rows).
     existing = (
         db.query(WorkflowDefinition)
@@ -242,6 +310,9 @@ def create_user_workflow(
         source="user",
         base_pipeline_type=body.base_pipeline_type,
         model_overrides=body.model_overrides,
+        # EMP-03 (D-11): persist the compact selections map into the reused
+        # dormant ``manifest_json`` column (zero migration). NULL == no selections.
+        manifest_json=(body.selections or None),
     )
     db.add(row)
     db.commit()
@@ -319,6 +390,23 @@ def update_user_workflow(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=err
             )
         row.model_overrides = body.model_overrides
+
+    if body.selections is not None:
+        # EMP-02/03: a selections edit re-compiles trust="user" (CAP-03 backstop)
+        # against the row's stored composition, then persists the new map into
+        # ``manifest_json``. An empty map clears the persisted selections.
+        try:
+            current_agent_ids_list = (
+                json.loads(row.agents) if row.agents else []
+            )
+        except (ValueError, TypeError):
+            current_agent_ids_list = []
+        _compile_selections_trust_user(
+            row.base_pipeline_type or "custom",
+            current_agent_ids_list,
+            body.selections,
+        )
+        row.manifest_json = body.selections or None
 
     db.commit()
     db.refresh(row)

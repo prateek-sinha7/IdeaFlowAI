@@ -34,6 +34,12 @@ from agents.capabilities.registry import register
 @register(
     "strategy",
     "single_shot",
+    # EMP-02 (22-04): the default per-step strategy must be user-grantable — a
+    # user-composed custom workflow runs one agent per step via single_shot, so a
+    # trust="user" compile of ANY saved workflow's steps would otherwise reject the
+    # safe default. Running one agent once carries no privilege (no exec/spawn/
+    # network), so it is user-allowed like task_loop/fanout_batch/wave_scheduler.
+    user_allowed=True,
     description="Run the step's agent exactly once and emit its output (the default strategy).",
 )
 class SingleShotStrategy:

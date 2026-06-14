@@ -330,3 +330,121 @@ def test_injects_absent_is_empty_list_parity() -> None:
     # (INV-3: the goldens declare no per-step injects).
     compiled = WorkflowCompiler().compile(_manifest(), CapabilityRegistry())
     assert all(s.injects == [] for s in compiled.steps)
+
+
+# ---------------------------------------------------------------------------
+# trust="user" rejection (CAP-03 / EMP-02 / 22-04) — the FIRST caller of the
+# dormant untrusted-manifest compile path. A user/db manifest referencing a
+# capability that is registered but NOT user_allowed raises CompilerError naming
+# the (kind, name). One privileged cap per family is asserted.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "overrides, bad_kind, bad_name",
+    [
+        # security gate (engineer-only — couples privileged exec/network/secrets)
+        (
+            {"steps": [{"agent": "a", "strategy": "single_shot", "gates": ["security"]}]},
+            "gate",
+            "security",
+        ),
+        # approval gate (engineer-only)
+        (
+            {"steps": [{"agent": "a", "strategy": "single_shot", "gates": ["approval"]}]},
+            "gate",
+            "approval",
+        ),
+    ],
+)
+def test_trust_user_rejects_privileged_gate(overrides, bad_kind, bad_name) -> None:
+    with pytest.raises(CompilerError) as ei:
+        WorkflowCompiler().compile(
+            _manifest(**overrides), CapabilityRegistry(), trust="user"
+        )
+    msg = str(ei.value)
+    assert bad_kind in msg and bad_name in msg
+    assert "user-allowed" in msg or "user_allowed" in msg
+
+
+def test_trust_user_rejects_exec_grant() -> None:
+    # An exec tools grant is engineer-only — a user/db manifest granting it is a
+    # CompilerError NAMING exec (the GRANT-PATH EXEC-01 rule).
+    with pytest.raises(CompilerError) as ei:
+        WorkflowCompiler().compile(
+            _manifest(
+                steps=[
+                    {
+                        "agent": "a",
+                        "strategy": "single_shot",
+                        "tools": {"exec": True},
+                    }
+                ]
+            ),
+            CapabilityRegistry(),
+            trust="user",
+        )
+    assert "exec" in str(ei.value)
+
+
+def test_trust_user_rejects_spawn_subagents_grant() -> None:
+    with pytest.raises(CompilerError) as ei:
+        WorkflowCompiler().compile(
+            _manifest(
+                steps=[
+                    {
+                        "agent": "a",
+                        "strategy": "single_shot",
+                        "tools": {"spawn_subagents": True},
+                    }
+                ]
+            ),
+            CapabilityRegistry(),
+            trust="user",
+        )
+    assert "spawn_subagents" in str(ei.value)
+
+
+def test_trust_user_rejects_ceiling_raising_limits() -> None:
+    # A user/db manifest may only LOWER a budget cap; raising max_subagents above
+    # the default ceiling is a CompilerError naming the dimension (CAP-03).
+    with pytest.raises(CompilerError) as ei:
+        WorkflowCompiler().compile(
+            _manifest(
+                steps=[{"agent": "a", "strategy": "single_shot"}],
+                deliverable={"strategy": "single_file", "name": "out.md"},
+                context_providers=[],
+                limits={"max_subagents": 999},
+            ),
+            CapabilityRegistry(),
+            trust="user",
+        )
+    assert "max_subagents" in str(ei.value) and "ceiling" in str(ei.value)
+
+
+def test_trust_user_allows_clean_user_caps() -> None:
+    # A clean user composition (single_shot + user-allowed validator + validation
+    # gate + non-default model + retry) compiles cleanly under trust="user".
+    compiled = WorkflowCompiler().compile(
+        _manifest(
+            steps=[
+                {
+                    "agent": "a",
+                    "strategy": "single_shot",
+                    "gates": ["validation"],
+                    "validators": ["spec_plan_coverage"],
+                    "model": {"model": "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"},
+                    "retry": {"max_attempts": 2},
+                }
+            ],
+            deliverable={"strategy": "single_file", "name": "out.md"},
+            context_providers=[],
+        ),
+        CapabilityRegistry(),
+        trust="user",
+    )
+    s0 = compiled.steps[0]
+    assert s0.validators == ["spec_plan_coverage"]
+    assert "validation" in s0.gates
+    assert s0.model.model == "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    assert s0.retry.max_attempts == 2
