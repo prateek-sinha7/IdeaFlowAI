@@ -633,8 +633,8 @@ Plans:
 5. INV-3 parity holds (5 characterization goldens byte-identical) · `lint-imports` 4/0 · a mocked Playwright e2e spec asserts filtering + launch + gating · manifest-schema unit test covers the new optional fields while strict-key still rejects `when/if/for/expr`.
 
 **Depends on:** Phase 19
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 
 - [x] 20-01-PLAN.md — BACKEND: additive `user_launchable`/`display_name`/`description`/`icon`/`launch_surface` manifest fields + `_optional_bool`/`_optional_str` + `_ALLOWED_TOP_KEYS` widening + surface via `GET /api/workflows` + set flags on the 7 launchable YAMLs + manifest/workflows_api tests + INV-3 goldens-parity + lint-imports 4/0 [wave 1]
-- [ ] 20-02-PLAN.md — FRONTEND: `getWorkflowDefinitions`+`WorkflowSummary` (api.ts) + `WorkflowCatalog.tsx` (data-driven CreationHub) + `"catalog"` DashboardLayout view + AppHeader nav button + mocked Playwright `ts-z.catalog.spec.ts` + vitest [wave 1]
+- [x] 20-02-PLAN.md — FRONTEND: `getWorkflowDefinitions`+`WorkflowSummary` (api.ts) + `WorkflowCatalog.tsx` (data-driven CreationHub) + `"catalog"` DashboardLayout view + AppHeader nav button + mocked Playwright `ts-z.catalog.spec.ts` + vitest [wave 1]
