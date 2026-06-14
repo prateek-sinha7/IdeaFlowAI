@@ -653,7 +653,7 @@ Plans:
 5. INV-3 holds — the 5 characterization goldens stay byte-identical (the engine-writer removal is dormant on the non-custom goldens; proven by running the suite) · `lint-imports` 4/0 · backend CRUD + authz tests + a mocked Playwright spec (save → appears in catalog → rename → launch) pass.
 
 **Depends on:** Phase 20
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 Plans:
 **Wave 1**
 
@@ -661,7 +661,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 21-02-PLAN.md — FRONTEND save + persistence + catalog: api.ts CRUD + `UserWorkflowSummary`, `NameWorkflowModal` (⟵DeleteModal), "Your workflows" section + per-row kebab (rename/duplicate/delete) + "+ Create workflow" in `WorkflowCatalog`, "Save workflow" button in `IdeaInputPage`, catalog vitest [wave 2, depends 21-01]
+- [x] 21-02-PLAN.md — FRONTEND save + persistence + catalog: api.ts CRUD + `UserWorkflowSummary`, `NameWorkflowModal` (⟵DeleteModal), "Your workflows" section + per-row kebab (rename/duplicate/delete) + "+ Create workflow" in `WorkflowCatalog`, "Save workflow" button in `IdeaInputPage`, catalog vitest [wave 2, depends 21-01]
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
