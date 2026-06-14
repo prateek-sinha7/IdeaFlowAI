@@ -15,6 +15,7 @@ from app.api.agents import router as agents_router
 from app.api.workflows import router as workflows_router
 from app.api.capabilities import router as capabilities_router
 from app.api.runs import router as runs_router
+from app.api.user_workflows import router as user_workflows_router
 from app.api.websocket import router as websocket_router
 from app.api.handoff import router as handoff_router
 from app.api.settings import router as settings_router
@@ -158,6 +159,7 @@ app.include_router(agents_router)
 app.include_router(workflows_router)
 app.include_router(capabilities_router)
 app.include_router(runs_router)
+app.include_router(user_workflows_router)
 app.include_router(websocket_router)
 app.include_router(handoff_router)
 app.include_router(settings_router)
