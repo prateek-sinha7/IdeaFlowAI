@@ -261,6 +261,9 @@ interface RawWorkflowRun {
   error: string | null;
   token_usage: string | null;
   model_id: string | null;
+  // UXFIX-02 (22-03 / D-19): persisted declared/resolved deliverable shape.
+  deliverable_mimetype?: string | null;
+  deliverable_filename?: string | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -291,6 +294,8 @@ function normalizeWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
     agentOutputs,
     tokenUsage,
     modelId: raw.model_id ?? undefined,
+    deliverableMimetype: raw.deliverable_mimetype ?? undefined,
+    deliverableFilename: raw.deliverable_filename ?? undefined,
     agentCount: raw.agent_count,
     duration: raw.duration ?? undefined,
     error: raw.error ?? undefined,

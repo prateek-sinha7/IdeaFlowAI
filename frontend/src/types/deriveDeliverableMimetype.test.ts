@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { deriveDeliverableMimetype } from "./index";
+import { deriveDeliverableMimetype, resolveReopenMimetype } from "./index";
 
 // ─── ISS-021 (18-03 Task 1) — shared reopen mimetype-derivation heuristic ─────
 // This is the SINGLE source of truth both reopen surfaces (page.tsx generic
@@ -49,5 +49,37 @@ describe("deriveDeliverableMimetype — shared reopen heuristic", () => {
     expect(deriveDeliverableMimetype(null)).toBe("text/markdown");
     expect(deriveDeliverableMimetype(undefined)).toBe("text/markdown");
     expect(deriveDeliverableMimetype("   \n  ")).toBe("text/markdown");
+  });
+});
+
+// ─── UXFIX-02 (22-03 Task 2) — persisted-first reopen resolution ──────────────
+// resolveReopenMimetype is the SINGLE resolution both reopen surfaces call: it
+// prefers the PERSISTED deliverable_mimetype on the run row (so a binary
+// deliverable re-renders true to type) and falls back to the text heuristic only
+// for legacy NULL rows. This is what closes the P18 reopen gap (UXFIX-02).
+describe("resolveReopenMimetype — persisted-first, heuristic fallback", () => {
+  it("a persisted application/zip wins over the text heuristic (binary deliverable recovers its true type)", () => {
+    // The output text would sniff to text/html, but the persisted mimetype is
+    // authoritative — the binary deliverable re-renders as a zip on reopen.
+    expect(
+      resolveReopenMimetype("application/zip", "<!doctype html><html></html>"),
+    ).toBe("application/zip");
+  });
+
+  it("any persisted mimetype is preferred verbatim", () => {
+    expect(resolveReopenMimetype("text/markdown", "<!doctype html>")).toBe("text/markdown");
+    expect(resolveReopenMimetype("application/pdf", "# heading")).toBe("application/pdf");
+  });
+
+  it("a NULL/absent persisted mimetype (legacy row) falls back to the text heuristic (parity)", () => {
+    expect(resolveReopenMimetype(null, "<!doctype html>")).toBe("text/html");
+    expect(resolveReopenMimetype(undefined, "# heading")).toBe("text/markdown");
+    const bundle = "```filename: app/main.py\nprint('hi')\n```\n";
+    expect(resolveReopenMimetype(null, bundle)).toBe("application/zip");
+  });
+
+  it("an empty-string persisted mimetype is treated as absent → heuristic fallback", () => {
+    expect(resolveReopenMimetype("", "<!doctype html>")).toBe("text/html");
+    expect(resolveReopenMimetype("   ", "# heading")).toBe("text/markdown");
   });
 });

@@ -9,7 +9,7 @@ import { useWorkflow } from "@/hooks/useWorkflow";
 import { shouldApplyEvent, resetReplayState } from "@/lib/wsReplayState";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, WorkflowStatus, User, WaveGroup, GenericDeliverable } from "@/types/index";
-import { deriveDeliverableMimetype } from "@/types/index";
+import { deriveDeliverableMimetype, resolveReopenMimetype } from "@/types/index";
 import type { ChatMode } from "@/components/chat/ChatInput";
 // IN-01 (16 review): SHARED failed-agent-id parser (single source of truth, no
 // dual-impl). Consumed by both this live-reopen path and WorkflowHistory's
@@ -1078,15 +1078,20 @@ export default function DashboardPage() {
           } else if (fullRun.type === "prototype" || fullRun.type === "prototype_revision" || fullRun.type === "od_prototype") {
             setPrototypeContent(fullRun.output);
           } else {
-            // ISS-021 (18-03) — generic reopen fallback. No deliverable_mimetype
-            // is persisted on the run row, so derive it from the output shape via
-            // the SHARED deriveDeliverableMimetype helper — the IDENTICAL rule
-            // WorkflowHistory.tsx (the user-visible reopen surface) applies, so
-            // the two reopen surfaces cannot diverge. Structural "no known branch"
-            // else; never a workflow-name check (SC-001).
+            // ISS-021 (18-03) / UXFIX-02 (22-03) — generic reopen fallback.
+            // Prefer the PERSISTED deliverable_mimetype on the run row (22-03
+            // backend) so a binary deliverable (e.g. application/zip) re-renders
+            // faithfully; fall back to the SHARED deriveDeliverableMimetype text
+            // heuristic ONLY for legacy NULL rows — the IDENTICAL resolution
+            // WorkflowHistory.tsx applies (resolveReopenMimetype), so the two
+            // reopen surfaces cannot diverge. Structural "no known branch" else;
+            // never a workflow-name check (SC-001).
             setGenericDeliverable({
-              mimetype: deriveDeliverableMimetype(fullRun.output),
-              filename: undefined,
+              mimetype: resolveReopenMimetype(
+                fullRun.deliverableMimetype,
+                fullRun.output,
+              ),
+              filename: fullRun.deliverableFilename,
               content: fullRun.output,
             });
           }

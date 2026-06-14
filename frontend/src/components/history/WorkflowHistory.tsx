@@ -22,7 +22,7 @@ import { DegradedRunAffordance } from "@/components/preview/PreviewPanel";
 import { FilesTab } from "@/components/results/FilesTab";
 import { AgentThinkingTab } from "@/components/results/AgentThinkingTab";
 import type { WorkflowRun, WorkflowType, AgentRunState } from "@/types/index";
-import { deriveDeliverableMimetype } from "@/types/index";
+import { resolveReopenMimetype } from "@/types/index";
 import { availableChainTargets } from "@/lib/workflowChaining";
 // ISS-017 (gap-fix) — SHARED failed-agent-id parser (no dual-impl). The IDENTICAL
 // parser app/dashboard/page.tsx uses for the live-reopen path; lists the real
@@ -282,12 +282,17 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     // The OLD `isMarkdown = isCustom` swallowed HTML deliverables into
     // MarkdownPreview (escaped HTML). Replace it with a structural "no known
     // branch matched" flag so `custom` AND any unknown selectedRun.type fall
-    // into a mimetype-dispatched generic path. The deliverable mimetype is
-    // derived from the persisted output via the SHARED deriveDeliverableMimetype
-    // helper — the IDENTICAL rule page.tsx's reopen block applies, so the two
-    // reopen surfaces cannot diverge. SC-001: never a workflow-name check.
+    // into a mimetype-dispatched generic path. UXFIX-02 (22-03): the deliverable
+    // mimetype PREFERS the persisted `deliverableMimetype` on the run row (so a
+    // binary deliverable, e.g. application/zip, re-renders faithfully), and falls
+    // back to the deriveDeliverableMimetype text heuristic only for legacy NULL
+    // rows — via the SHARED resolveReopenMimetype helper, the IDENTICAL rule
+    // page.tsx's reopen block applies, so the two reopen surfaces cannot diverge.
+    // SC-001: never a workflow-name check.
     const isGeneric = !isUserStory && !isAppBuilder && !isPpt && !isPrototype;
-    const genericMimetype = isGeneric ? deriveDeliverableMimetype(selectedOutput) : undefined;
+    const genericMimetype = isGeneric
+      ? resolveReopenMimetype(selectedRun.deliverableMimetype, selectedOutput)
+      : undefined;
     const isGenericHtml = isGeneric && genericMimetype === "text/html";
     // WR-02 (18 review fix): a serialized-sandbox bundle deliverable now derives
     // to application/zip (not text/markdown), so route it to the file-bundle view

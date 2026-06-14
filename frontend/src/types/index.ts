@@ -272,6 +272,12 @@ export interface WorkflowRun {
     }>;
   };
   modelId?: string;
+  // UXFIX-02 (22-03 / D-19): the persisted declared/resolved deliverable shape.
+  // History-reopen prefers this over deriveDeliverableMimetype so a binary
+  // deliverable (e.g. application/zip) re-renders faithfully; absent on legacy
+  // NULL rows → the heuristic fallback applies (parity).
+  deliverableMimetype?: string;
+  deliverableFilename?: string;
   createdAt: string;
   completedAt?: string;
   duration?: number;
@@ -353,6 +359,25 @@ export function deriveDeliverableMimetype(output: string | null | undefined): st
     return "application/zip";
   }
   return "text/markdown";
+}
+
+// ─── UXFIX-02 (22-03 / D-19) reopen resolution (shared) ───────────────────────
+// The single resolution BOTH reopen surfaces (page.tsx's generic channel AND
+// WorkflowHistory.tsx's detail view) call so they cannot diverge (the 18-03
+// shared-helper invariant). Prefer the PERSISTED `deliverable_mimetype` written
+// on the run row (22-03 backend) — so a custom BINARY deliverable (e.g.
+// application/zip) re-renders true to type — and fall back to the
+// `deriveDeliverableMimetype` text heuristic ONLY for legacy rows where the
+// persisted value is NULL/absent. SC-001: structural, never a workflow-name check.
+export function resolveReopenMimetype(
+  persistedMimetype: string | null | undefined,
+  output: string | null | undefined,
+): string {
+  const persisted = (persistedMimetype ?? "").trim();
+  if (persisted) {
+    return persisted;
+  }
+  return deriveDeliverableMimetype(output);
 }
 
 export interface AgentDef {
