@@ -618,3 +618,21 @@ Plans:
 - [x] 19-01-PLAN.md — ISS-006: shared canonical `getDatabase` accessor literal across producer + consumer prompts + offline grep pin
 - [x] 19-02-PLAN.md — ISS-005: pure-stdlib `api_prefix` validator wired as an event-free `post_step` on the app_builder infra-generator step
 - [x] 19-03-PLAN.md — ISS-004: engine streamed-`agent_chunk` sanitizer (reuse `_strip_fabricated_tool_xml`) with chunk-straddle buffer for tool-less agents
+
+### Phase 20: Workflow Catalog — Data-Driven Browse-and-Launch (realizes WF-DB-01 / closes ISS-015)
+
+**Goal:** Replace the hardcoded home tiles with a data-driven catalog that reads the live `GET /api/workflows` list, shows only user-ready workflows (a new additive `user_launchable` manifest flag) the user's tier entitles, and launches each through the EXISTING run flow — proving the SC-001 dividend: zero engine/kernel edits, no new tables or migrations. Reuse-first: every new surface is bound to an existing analog and net-new UI is minimized.
+**Requirements**: REUSE MANDATE (first-class) — reuse existing UI elements and flows wherever possible: CreationHub rows+launch fork+tier gating, DashboardLayout view-state machine, AppHeader nav, AgentModelPicker data-fetch shell, entitlements helpers, the existing run_pipeline + template-wizard launch paths. Additive backend only: `user_launchable`/`display_name`/`description`/`icon`/`launch_surface` on the manifest schema + surfaced via the existing `GET /api/workflows`. Invariants: INV-3 (5 goldens byte-identical) · SC-001 (launchability keyed on the declared flag, never a hardcoded name list) · Ports & Adapters (import-linter 4 kept/0 broken) · INV-5 (no DSL; control-flow keys stay rejected) · additive-only (no new tables/migrations). Full file:line-grounded spec: `20-SPEC.md` in this phase directory.
+
+**Success Criteria**:
+1. Catalog renders ONLY `user_launchable` ∧ tier-entitled workflows from a live `GET /api/workflows` fetch — no hardcoded name list; test fixtures (`sample_*`), revisions (`*_revision`), and `od_*` internal types never appear.
+2. Idea-box workflows launch through the existing single `run_pipeline` send site; `prototype`/`ppt` route into the existing template wizard (no bare run); gated workflows show the existing lock/upgrade affordance.
+3. Net-new UI is minimal and reuse-bound — the catalog is a data-driven CreationHub mounted as one new DashboardLayout view; each new file names the existing analog it copied.
+4. Backend change is additive-only — `user_launchable`+display fields on the manifest schema, surfaced through the existing endpoint; no new tables, no migration.
+5. INV-3 parity holds (5 characterization goldens byte-identical) · `lint-imports` 4/0 · a mocked Playwright e2e spec asserts filtering + launch + gating · manifest-schema unit test covers the new optional fields while strict-key still rejects `when/if/for/expr`.
+**Depends on:** Phase 19
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 20 to break down)

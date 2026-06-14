@@ -175,6 +175,7 @@ Progress: [██████████] 100% (99 plans complete; Phase 19 3/3
 
 - Phase 14 added (2026-06-12): run_revision real revision loop (F2 end-to-end) — replace the Phase-3 echo stub in `_handle_revision` with real revision-pipeline dispatch through execute(); deliverable becomes a genuinely revised artifact with derived_from lineage. Source: 13-REVIEW WR-06 deferred scope / live-pass F2 residue.
 - Phase 15 added (2026-06-13): Live-Pass Prompt Contract Closure — LV-02 (od-ppt-validator deck re-emission contract) + sdlc-governance anti-fabrication + app-infra-generator /api/v1 adherence; prompt bodies + tests only, zero engine edits. Source: REPORT-2026-06-12 (LV-02 + residuals).
+- Phase 20 added (2026-06-14): Workflow Catalog — data-driven browse-and-launch (realizes WF-DB-01 / closes ISS-015). Additive-only, reuse-first: new `user_launchable`+display fields on the manifest schema surfaced via the existing `GET /api/workflows`; FE catalog reuses CreationHub/DashboardLayout/AppHeader/AgentModelPicker/entitlements + the existing run_pipeline + template-wizard launch paths. Zero engine/kernel edits, no new tables/migrations. Full file:line spec: `20-SPEC.md`. Source: BE/FE reuse maps (this session).
 
 ### Decisions
 
