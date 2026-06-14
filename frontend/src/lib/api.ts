@@ -527,3 +527,38 @@ export async function getCapabilities(
     headers: authHeaders(token),
   });
 }
+
+/**
+ * A manifest-derived workflow discovery row from the authenticated
+ * `GET /api/workflows` listing (Plan 20-01). Mirrors the BE `WorkflowSummary`
+ * shape: `user_launchable` is the DECLARED product-visibility flag (SC-001 —
+ * the catalog filters on it, never a hardcoded workflow-name list), and the
+ * presentation fields (`display_name`/`icon`/`launch_surface`) are inert
+ * catalog metadata for the data-driven WorkflowCatalog.
+ */
+export interface WorkflowSummary {
+  id: string;
+  name: string;
+  description: string;
+  step_count: number;
+  steps: { agent_id: string; name: string; gate: string | null }[];
+  user_launchable: boolean;
+  display_name?: string | null;
+  icon?: string | null;
+  launch_surface?: string | null;
+}
+
+/**
+ * Fetch the live, manifest-derived workflow catalog (Plan 20-02). Auth-gated
+ * (JWT); the data-driven WorkflowCatalog renders its rows from this list —
+ * never a hardcoded list (SC-001). Named `getWorkflowDefinitions` because
+ * `getWorkflows` is already taken by the run-history fetcher (`/api/runs`).
+ */
+export async function getWorkflowDefinitions(
+  token: string
+): Promise<WorkflowSummary[]> {
+  return request<WorkflowSummary[]>("/api/workflows", {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+}
