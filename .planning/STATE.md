@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-14T09:23:31.840Z"
-last_activity: 2026-06-14 -- Phase 20 planning complete
+last_updated: "2026-06-14T09:31:38.383Z"
+last_activity: 2026-06-14 -- Phase 20 execution started
 progress:
-  total_phases: 19
+  total_phases: 20
   completed_phases: 19
-  total_plans: 99
-  completed_plans: 99
-  percent: 100
+  total_plans: 101
+  completed_plans: 100
+  percent: 95
 ---
 
 # Project State
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-11)
 
 **Core value:** A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001).
-**Current focus:** Phase 19 — Prompt and Deliverable Adherence
+**Current focus:** Phase 20 — workflow-catalog-data-driven-browse-and-launch-gallery-reali
 
 ## Current Position
 
-Phase: 19
-Plan: Not started
+Phase: 20 (workflow-catalog-data-driven-browse-and-launch-gallery-reali) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-06-14 -- Phase 20 planning complete
+Last activity: 2026-06-14 -- Phase 20 execution started
 
 Session continuity: last session 2026-06-13; stopped at Completed 19-03-PLAN.md (ISS-004: the deterministic backstop for the streamed agent_chunk path. The 13-02 sanitizer (_strip_fabricated_tool_xml) was applied only to the AUTHORITATIVE chunk-joined output (sanitize_output post-loop), but the engine YIELDS each raw chunk as agent_chunk BEFORE accumulation — so fabricated <function_calls>/<invoke name="read_file"> tool-XML reached the LIVE UI stream + durable-replay collector + reconnect tail. New module-level _ChunkStreamSanitizer [engine.py] wraps the runner's duck-typed sanitize_output with a SPAN-STRADDLE buffer: _hold_from_index() finds the earliest open/partial tool-XML span [an opener token without its matching close, OR a trailing proper-prefix of an opener token split mid-tag like …<inv | oke…]; feed() yields the sanitized prefix and HOLDS the raw tail until the close arrives in a later chunk; flush() strips a never-closed opener at stream end [mirrors the runner's WR-01 _UNTERMINATED_TOOL_XML_RE] so legit trailing content is never swallowed. Probe-gated: feed a fabricated-XML probe to sanitize_output ONCE at construction — a tool-less runner strips it [active → buffer], a tool-using runner returns it unchanged [inactive → bypass buffering entirely so tool-using streams stay byte-AND-chunk-identical, not merely join-identical]. Wired at the agent_chunk yield gated on that generic runner capability — NO workflow/agent-name literal [SC-001]; authoritative output_chunks left RAW so the post-loop sanitize keeps the 5 goldens byte-identical [INV-3]; buffer rebuilt per retry-attempt so a model-fallback re-stream never inherits a stale held tail. New fault-injection test [tests/agents/test_chunk_sanitizer.py] drives the real _run_agent stream loop via execute() single-agent pipelines with a ScriptedFakeChatModel splitting <function_calls> across two deltas: tool-less domain-analyst → no <function_calls>/<invoke in the emitted stream + legit content both sides preserved; tool-using prototype-revision-agent → emitted chunks byte+chunk-identical; single-chunk stripped; clean stream no-op. PROVEN: 4 fault-injection tests green; 5 characterization goldens byte/event-identical [NO SNAPSHOT_UPDATE]; test_phase3_cutover_verify 6/6; lint-imports 4/0; SC-001 grep 0; zero migrations; no FE change. LIVE re-confirm [real Haiku sdlc-governance run → 0 tool-XML in live chunks] deferred to the consolidated Bedrock/Playwright pass. Commits 21f4d571 [feat task1 sanitizer+buffer] + 0a901b41 [test task2 fault-injection+probe-gate]); resume file: none
 
@@ -168,6 +168,7 @@ Progress: [██████████] 100% (99 plans complete; Phase 19 3/3
 | Phase 18 P04 | 8 min | 2 tasks | 9 files |
 | Phase 19 P01 | ~5 min | 2 tasks | 3 files |
 | Phase 19 P03 | 9min | 2 tasks | 2 files |
+| Phase 20 P01 | 12 min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -287,6 +288,7 @@ Recent decisions affecting current work:
 - [Phase 16]: 16-03: ISS-008/009 — durable-replay branch derives _replay_section ONCE before the loop from the OWNER-SCOPED WorkflowRun.type (added to the same _ws_db session that recovers the workspace; RunEvent.type is the event type, NOT the run type) via the WR-06 inverse (f"{run_type.removesuffix('_revision')}_output" when *_revision else None), applied at the replay send (was hardcoded section:None) — a *_revision reconnect stamps section==<base>_output like live-attach, non-revision stays section:None byte-identically. Live-attach pipeline_reconnected ack gains live:True (symmetric with the no-live-task live:False). T-16-03-TENANT: cross-owner reconnect resolves ∅ → no section leak. Cluster-B tests drive the REAL websocket_chat handler (scripted-loop FakeWebSocket). INV-3: 5 goldens byte/event-identical, lint 4/0, zero migrations; SC-001 grep (removesuffix count=3, no workflow-name literal). Phase 16 all 4 plans done. Commits 3cd8e785/28be4693.
 - [Phase 18]: 18-03 (ISS-021 FE): generic mimetype-dispatched deliverable renderer on live + reopen; HTML→sandboxed iframe (allow-scripts, no allow-same-origin) on BOTH surfaces; shared deriveDeliverableMimetype helper reconciles the two reopen surfaces; SC-001 grep 0; no per-workflow FE branch — SC-001 — a brand-new custom workflow renders faithfully with zero FE edits
 - [Phase 19]: 19-03 (ISS-004): sanitize the streamed agent_chunk path via a per-stream chunk-straddle buffer reusing the runner's _strip_fabricated_tool_xml; probe-gate buffering on the tool-less runner capability so tool-using streams stay byte-AND-chunk-identical (SC-001); authoritative output_chunks left RAW so the 5 goldens stay byte-identical (INV-3).
+- [Phase ?]: Plan 20-01: list_workflows reads the manifest by REAL PIPELINE_AGENTS id (no resolve_alias); the additive read is guarded to defaults on load failure (single bad manifest can't break the listing).
 
 ### Pending Todos
 
