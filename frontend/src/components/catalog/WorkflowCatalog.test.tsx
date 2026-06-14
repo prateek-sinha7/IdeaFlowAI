@@ -1,7 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import React from "react";
-import type { WorkflowSummary } from "@/lib/api";
+import type { WorkflowSummary, UserWorkflowSummary } from "@/lib/api";
 
 // ─────────────────────────────────────────────────────────────────
 // Mocks. Hoisted by vitest before module imports.
@@ -11,15 +12,27 @@ import type { WorkflowSummary } from "@/lib/api";
 // keep working). This pins the two-gate filter (user_launchable ∧
 // canRunPipeline) + the friendly-label fallback deterministically, with NO
 // backend — the launch-navigation assertions live in the mocked e2e.
+//
+// Phase 21 adds the second list (getUserWorkflows) + the saved-row CRUD
+// fetchers, so the "Your workflows" section + kebab render deterministically.
 // ─────────────────────────────────────────────────────────────────
 
 const mockGetToken = vi.fn(() => "test-token");
 const mockGetWorkflowDefinitions =
   vi.fn<(token: string) => Promise<WorkflowSummary[]>>();
+const mockGetUserWorkflows =
+  vi.fn<(token: string) => Promise<UserWorkflowSummary[]>>();
+const mockCreateUserWorkflow = vi.fn();
+const mockRenameUserWorkflow = vi.fn();
+const mockDeleteUserWorkflow = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   getToken: () => mockGetToken(),
   getWorkflowDefinitions: (token: string) => mockGetWorkflowDefinitions(token),
+  getUserWorkflows: (token: string) => mockGetUserWorkflows(token),
+  createUserWorkflow: (...args: unknown[]) => mockCreateUserWorkflow(...args),
+  renameUserWorkflow: (...args: unknown[]) => mockRenameUserWorkflow(...args),
+  deleteUserWorkflow: (...args: unknown[]) => mockDeleteUserWorkflow(...args),
 }));
 
 // next/navigation router — the catalog calls useRouter() for the wizard fork.
@@ -128,10 +141,11 @@ describe("WorkflowCatalog two-gate filter + friendly label", () => {
     vi.clearAllMocks();
     mockGetToken.mockReturnValue("test-token");
     mockGetWorkflowDefinitions.mockResolvedValue(MIXED);
+    mockGetUserWorkflows.mockResolvedValue([]); // no saved rows by default
   });
 
   it("renders entitled launchables, hides non-launchable + revision/od_* rows, shows gated rows locked, and uses friendly labels", async () => {
-    render(<WorkflowCatalog onSelectFeature={vi.fn()} userTier="basic" />);
+    render(<WorkflowCatalog onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="basic" />);
 
     // The entitled launchable shows its FRIENDLY label.
     await waitFor(() =>
@@ -169,7 +183,7 @@ describe("WorkflowCatalog two-gate filter + friendly label", () => {
   // BE (now returning display_name=null, WR-01) never exercises, so without
   // this assertion an author-declared display_name could silently be ignored.
   it("renders an explicit display_name over the friendly getWorkflowLabel value (precedence)", async () => {
-    render(<WorkflowCatalog onSelectFeature={vi.fn()} userTier="basic" />);
+    render(<WorkflowCatalog onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="basic" />);
 
     // The explicit manifest display_name is shown...
     await waitFor(() =>
@@ -185,5 +199,101 @@ describe("WorkflowCatalog two-gate filter + friendly label", () => {
     // Conversely, the no-display_name row (`custom`) DOES fall back to the
     // friendly map ("Custom Workflow"), confirming both branches are live.
     expect(screen.getByText("Custom Workflow")).toBeInTheDocument();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// Phase 21 — the "Your workflows" section + per-row kebab (CRUD-OWNER-SCOPED).
+//   - saved rows render their OWN name (user rows, never the manifest rule);
+//   - each saved row exposes a Rename/Duplicate/Delete kebab;
+//   - built-in manifest rows do NOT (read-only, UI-SPEC §4);
+//   - Delete → confirm → deleteUserWorkflow called + row optimistically removed.
+// ─────────────────────────────────────────────────────────────────
+
+const SAVED: UserWorkflowSummary[] = [
+  {
+    id: "uw-1",
+    name: "My saved workflow",
+    description: "A custom composition.",
+    base_pipeline_type: "custom",
+    agent_ids: ["a1", "a2"],
+    model_overrides: null,
+  },
+];
+
+describe("WorkflowCatalog — 'Your workflows' section + kebab (Phase 21)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetToken.mockReturnValue("test-token");
+    mockGetWorkflowDefinitions.mockResolvedValue(MIXED);
+    mockGetUserWorkflows.mockResolvedValue(SAVED);
+    mockDeleteUserWorkflow.mockResolvedValue(undefined);
+  });
+
+  it("renders the saved row's own name under a 'Your workflows' heading", async () => {
+    render(<WorkflowCatalog onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="enterprise" />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Your workflows")).toBeInTheDocument(),
+    );
+    // The saved row renders its OWN name (not a friendly-label remap).
+    expect(screen.getByText("My saved workflow")).toBeInTheDocument();
+  });
+
+  it("launches a saved workflow via onLaunchSaved when its row is clicked", async () => {
+    const onLaunchSaved = vi.fn();
+    render(<WorkflowCatalog onSelectFeature={vi.fn()} onLaunchSaved={onLaunchSaved} userTier="enterprise" />);
+
+    const row = await screen.findByText("My saved workflow");
+    await userEvent.click(row);
+    expect(onLaunchSaved).toHaveBeenCalledTimes(1);
+    expect(onLaunchSaved.mock.calls[0][0]).toMatchObject({ id: "uw-1" });
+  });
+
+  it("exposes a Rename/Duplicate/Delete kebab on a saved row but not on built-in rows", async () => {
+    render(<WorkflowCatalog onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="enterprise" />);
+
+    await screen.findByText("My saved workflow");
+
+    // Built-in rows are read-only — the kebab menu items never appear for them
+    // until a kebab is opened. There is exactly ONE kebab toggle (the saved row).
+    // Open it and assert the three actions appear.
+    const buttons = screen.getAllByRole("button");
+    // The kebab toggle is the icon-only button inside the saved-row's relative
+    // container; opening any kebab reveals the three items. Find + click it.
+    // (Built-in rows render an ArrowRight/Lock, NOT a MoreHorizontal toggle.)
+    // Click each button until the menu opens (deterministic: only one toggles it).
+    for (const b of buttons) {
+      await userEvent.click(b);
+      if (screen.queryByText("Rename")) break;
+    }
+
+    expect(screen.getByText("Rename")).toBeInTheDocument();
+    expect(screen.getByText("Duplicate")).toBeInTheDocument();
+    expect(screen.getByText("Delete")).toBeInTheDocument();
+  });
+
+  it("Delete → confirm calls deleteUserWorkflow and optimistically removes the row", async () => {
+    render(<WorkflowCatalog onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="enterprise" />);
+
+    await screen.findByText("My saved workflow");
+
+    // Open the kebab.
+    for (const b of screen.getAllByRole("button")) {
+      await userEvent.click(b);
+      if (screen.queryByText("Delete")) break;
+    }
+    // Click "Delete" in the menu → confirm modal opens.
+    await userEvent.click(screen.getByText("Delete"));
+    // The confirm modal's primary action is the gray-900 "Delete" button.
+    const confirmButtons = screen.getAllByText("Delete");
+    await userEvent.click(confirmButtons[confirmButtons.length - 1]);
+
+    await waitFor(() => expect(mockDeleteUserWorkflow).toHaveBeenCalledTimes(1));
+    expect(mockDeleteUserWorkflow.mock.calls[0][1]).toBe("uw-1");
+    // Optimistically removed from the list.
+    await waitFor(() =>
+      expect(screen.queryByText("My saved workflow")).toBeNull(),
+    );
   });
 });
