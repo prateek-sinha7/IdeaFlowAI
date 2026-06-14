@@ -711,7 +711,7 @@ Plans:
   7. One consolidated live-Bedrock pass on the `default` profile records evidence for the standing live deferrals, or an explicit re-deferral disposition is recorded if ISS-018 still blocks.
   8. Invariants hold: 5 characterization goldens byte-identical (INV-3) · kernel name-free (SC-001 grep 0) · `create_deep_agent` only in the adapter (INV-13) · import-linter 4/0 · additive migrations only.
 
-**Plans:** 8/9 plans executed
+**Plans:** 9/9 plans complete
 Plans:
 **Wave 1**
 
@@ -729,4 +729,4 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 22-06-PLAN.md — EMP-01/04 + DECIDE-02: per-agent Advanced expander (validator/gate/model/retry) + auto-attach + drop the model-picker tier filter (wave 3)
+- [x] 22-06-PLAN.md — EMP-01/04 + DECIDE-02: per-agent Advanced expander (validator/gate/model/retry) + auto-attach + drop the model-picker tier filter (wave 3)
