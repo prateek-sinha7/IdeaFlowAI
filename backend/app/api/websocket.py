@@ -1563,6 +1563,16 @@ async def _handle_workflow_execution(
     # completions as failures — three surfaces disagreed).
     pipeline_complete_seen = False
     degraded_failed_agents: Optional[list] = None  # non-None ⇒ status "degraded"
+    # UXFIX-02 (22-03 / D-19): capture the DECLARED/resolved deliverable shape the
+    # engine emits on pipeline_complete (engine.py:2117-2128 — already in
+    # _VOLATILE_STRIP_KEYS, INV-3-safe) so the run-finalize persist writes them
+    # onto the two additive WorkflowRun columns. History-reopen then drives the
+    # deliverable mimetype from the persisted value (so a binary deliverable, e.g.
+    # application/zip, re-renders faithfully) instead of the FE text heuristic.
+    # Keyed GENERICALLY on the emitted deliverable values — NOT a workflow name
+    # (SC-001). Legacy NULL rows fall back to the FE heuristic (parity).
+    deliverable_mimetype: Optional[str] = None
+    deliverable_filename: Optional[str] = None
     # ISS-007 (16-02): the engine emits pipeline_cancelled as a NORMAL yield on
     # the cooperative path (cancel_event observed per-chunk / pre-agent) — NOT
     # via CancelledError. The async-for then completes normally and falls into
@@ -1579,6 +1589,7 @@ async def _handle_workflow_execution(
         nonlocal any_agent_errored, first_agent_error_msg
         nonlocal pipeline_complete_seen, degraded_failed_agents
         nonlocal pipeline_cancelled_seen
+        nonlocal deliverable_mimetype, deliverable_filename
 
         try:
             async for update in engine.execute(
@@ -1662,6 +1673,11 @@ async def _handle_workflow_execution(
                     # status "degraded" + agents_failed are present ONLY when
                     # some agent errored and never completed.
                     pipeline_complete_seen = True
+                    # UXFIX-02 (22-03): capture the emitted deliverable shape so
+                    # the run-finalize persist writes the two additive columns
+                    # (engine emits these unconditionally on pipeline_complete).
+                    deliverable_mimetype = update["data"].get("deliverable_mimetype")
+                    deliverable_filename = update["data"].get("deliverable_filename")
                     if update["data"].get("status") == "degraded":
                         degraded_failed_agents = list(
                             update["data"].get("agents_failed", [])
@@ -1716,6 +1732,16 @@ async def _handle_workflow_execution(
                                 wr.error = first_agent_error_msg
                         if final_output:
                             wr.output = final_output
+                        # UXFIX-02 (22-03 / D-19): persist the DECLARED/resolved
+                        # deliverable shape so reopen drives the mimetype from the
+                        # persisted value (a binary deliverable re-renders true to
+                        # type). Generic — keyed on the emitted values, no workflow
+                        # name (SC-001). Only write when emitted (legacy NULL stays
+                        # NULL → FE heuristic fallback, parity).
+                        if deliverable_mimetype is not None:
+                            wr.deliverable_mimetype = deliverable_mimetype
+                        if deliverable_filename is not None:
+                            wr.deliverable_filename = deliverable_filename
                         if agent_outputs_collector:
                             wr.agent_outputs = json.dumps(agent_outputs_collector)
                         # Aggregate token usage across all agents
@@ -1893,6 +1919,12 @@ async def _handle_workflow_execution(
                     wr.duration = round((datetime.now(timezone.utc) - execution_start).total_seconds(), 1)
                 if final_output and wr.output is None:
                     wr.output = final_output
+                # UXFIX-02 (22-03): mirror the bg-task persist for the additive
+                # deliverable-shape columns (only when still missing / emitted).
+                if deliverable_mimetype is not None and wr.deliverable_mimetype is None:
+                    wr.deliverable_mimetype = deliverable_mimetype
+                if deliverable_filename is not None and wr.deliverable_filename is None:
+                    wr.deliverable_filename = deliverable_filename
                 if agent_outputs_collector and wr.agent_outputs is None:
                     wr.agent_outputs = json.dumps(agent_outputs_collector)
                 db.commit()

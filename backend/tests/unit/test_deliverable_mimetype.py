@@ -169,3 +169,48 @@ async def test_pipeline_complete_mimetype_never_null_when_deliverable_present() 
     assert completes, "no pipeline_complete event emitted"
     data = completes[-1].get("data") or {}
     assert data.get("deliverable_mimetype") is not None
+
+
+# ── 22-03 (UXFIX-02 / D-19): persist the emitted shape on the WorkflowRun row ──
+
+
+def test_workflow_run_has_deliverable_shape_columns() -> None:
+    """The two additive nullable columns exist on the WorkflowRun model (D-19).
+
+    History-reopen drives the deliverable mimetype from the PERSISTED value (so a
+    binary deliverable, e.g. application/zip, re-renders faithfully) — legacy NULL
+    rows fall back to the FE deriveDeliverableMimetype heuristic (parity).
+    """
+    from app.models.workflow import WorkflowRun
+
+    cols = {c.name: c for c in WorkflowRun.__table__.columns}
+    assert "deliverable_mimetype" in cols
+    assert "deliverable_filename" in cols
+    # Additive nullable — existing rows stay NULL (no narrowing, no backfill).
+    assert cols["deliverable_mimetype"].nullable is True
+    assert cols["deliverable_filename"].nullable is True
+
+
+def test_migration_0022_is_additive_only() -> None:
+    """Migration 0022 is single-head additive (down_revision 0021), upgrade adds
+    ONLY the two columns, and contains no drop/alter-narrow of existing columns
+    (T-22-03-01). Source-level assertion — no DB round-trip required."""
+    import pathlib
+
+    mig = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "alembic"
+        / "versions"
+        / "0022_workflow_run_deliverable_mimetype.py"
+    )
+    src = mig.read_text()
+    assert 'revision = "0022"' in src
+    assert 'down_revision = "0021"' in src
+    # upgrade() body: additive add_column only; no destructive ops on existing cols.
+    upgrade_body = src.split("def upgrade")[1].split("def downgrade")[0]
+    assert "add_column" in upgrade_body
+    assert "deliverable_mimetype" in upgrade_body
+    assert "deliverable_filename" in upgrade_body
+    assert "drop_column" not in upgrade_body
+    assert "alter_column" not in upgrade_body
+    assert "drop_table" not in upgrade_body

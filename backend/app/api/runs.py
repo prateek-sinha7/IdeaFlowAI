@@ -89,6 +89,11 @@ class WorkflowRunResponse(BaseModel):
     duration: Optional[float] = None
     error: Optional[str] = None
     token_usage: Optional[str] = None
+    # UXFIX-02 (22-03 / D-19): the persisted declared/resolved deliverable shape
+    # so history-reopen drives the deliverable mimetype from the persisted value
+    # (legacy rows NULL → FE deriveDeliverableMimetype heuristic fallback, parity).
+    deliverable_mimetype: Optional[str] = None
+    deliverable_filename: Optional[str] = None
     created_at: datetime
     completed_at: Optional[datetime] = None
 

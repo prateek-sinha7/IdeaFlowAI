@@ -61,6 +61,17 @@ class WorkflowRun(Base):
     plan_id = Column(String, nullable=True)              # Phase 4 forward field
     budget_snapshot_json = Column(JSON, nullable=True)   # Phase 11 forward field
 
+    # Phase 22 columns (added additively by migration 0022 — UXFIX-02 / D-19).
+    # The engine ALREADY emits deliverable_mimetype/deliverable_filename on every
+    # pipeline_complete (engine.py:2117-2128) and both keys are in
+    # _VOLATILE_STRIP_KEYS (INV-3-safe by construction). Persist them on the run
+    # row so history-reopen drives the deliverable mimetype from the DECLARED/
+    # resolved value, not the text-sniff heuristic — so a binary deliverable
+    # (e.g. application/zip) re-renders faithfully. Nullable: legacy rows stay
+    # NULL and fall back to the FE deriveDeliverableMimetype heuristic (parity).
+    deliverable_mimetype = Column(String, nullable=True)
+    deliverable_filename = Column(String, nullable=True)
+
     user = relationship("User", back_populates="workflow_runs")
     parent_run = relationship("WorkflowRun", remote_side=[id])
     # (The legacy ``artifacts`` -> WorkflowArtifact relationship was removed in 05-07
