@@ -9,10 +9,16 @@ registered ``(kind, name)`` it reports:
   * ``user_allowed``     — the CAP-03 trust flag (``is_user_allowed``): privileged
     kinds (exec/secrets/spawn/runtimes) surface ``False`` and the UI gates them
     off the user-grantable palette (T-08-08-ID);
-  * ``config_schema``    — a forward-compat per-capability config slot. The
-    capability ports (``base.py``) are one-method Protocols with no declared
-    config schema today, so this is an empty object now; it is the stable place
-    a future per-capability JSON schema lands without an API-shape change.
+  * ``description``      — a concise human-readable blurb, authored on the
+    capability's ``@register`` decorator and projected from the registry's
+    ``_META`` via ``describe`` (SURF-02 / D-08 — registry self-describes);
+  * ``security_gated``   — a DERIVED flag (``not user_allowed``): privileged
+    capabilities the user palette gates off (RESEARCH discretion A2 — no second
+    stored source);
+  * ``config_schema``    — a per-capability config slot, populated from the
+    registry (D-09): JSON-Schema-lite for caps that take config, legitimately
+    ``{}`` for caps that take none. Surfaced via ``describe`` — the registry is
+    the single source of truth (NO static metadata map in this API layer, D-08).
 
 The model catalog (the ``model_catalog`` kind) is surfaced **expanded** under a
 separate ``model_catalog`` key — the per-model records from
@@ -54,13 +60,28 @@ router = APIRouter(prefix="/api/capabilities", tags=["capabilities"])
 
 
 class CapabilityEntry(BaseModel):
-    """One palette entry — a registered ``(kind, name)`` with its trust flag."""
+    """One palette entry — a registered ``(kind, name)`` with its trust + metadata.
+
+    All fields beyond ``kind``/``name``/``user_allowed`` are ADDITIVE (SURF-02 /
+    D-10): the API-02 contract keeps every existing key. ``description`` and
+    ``config_schema`` are projected from the registry's ``_META`` via
+    ``describe`` (D-08 — the registry self-describes; there is NO static metadata
+    map here). ``security_gated`` is DERIVED from the trust flag (``not
+    user_allowed``, RESEARCH discretion A2) — no second stored source.
+    """
 
     kind: str
     name: str
     user_allowed: bool
-    # Forward-compat per-capability config slot. Empty today (the ports declare
-    # no config schema); the stable place a future JSON schema lands.
+    # Concise human-readable blurb, authored on the capability's @register
+    # decorator and surfaced via ``registry.describe`` (D-08).
+    description: str = ""
+    # Derived security flag: a capability that is NOT user-grantable is gated off
+    # the user palette (``not user_allowed``). Test-assertable, no second source.
+    security_gated: bool = False
+    # Per-capability config slot, populated from ``registry.describe`` (D-09):
+    # JSON-Schema-lite for caps that take config, legitimately ``{}`` for caps
+    # that take none. No longer the literal ``{}`` stub.
     config_schema: dict = {}
 
 
@@ -108,12 +129,17 @@ def list_capabilities(
             # Surfaced expanded under model_catalog below — not as a single
             # opaque palette row.
             continue
+        meta = registry.describe(kind, name)
+        user_allowed = registry.is_user_allowed(kind, name)
         capabilities.append(
             CapabilityEntry(
                 kind=kind,
                 name=name,
-                user_allowed=registry.is_user_allowed(kind, name),
-                config_schema={},
+                user_allowed=user_allowed,
+                description=meta["description"],
+                # Derived from the trust flag (D-02) — no separate stored source.
+                security_gated=not user_allowed,
+                config_schema=meta["config_schema"],
             )
         )
 

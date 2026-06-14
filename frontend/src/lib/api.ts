@@ -484,12 +484,18 @@ export async function adminDeleteUser(
 
 /**
  * One palette entry from `GET /api/capabilities` — a registered capability
- * `(kind, name)` with its CAP-03 trust flag and a forward-compat config slot.
+ * `(kind, name)` with its CAP-03 trust flag, a registry-authored `description`,
+ * a derived `security_gated` flag (`!user_allowed`), and a populated
+ * per-capability `config_schema` (SURF-02). All metadata is registry-sourced
+ * (D-08) — the embedded palette renders entirely from this payload (SC-001),
+ * never a hardcoded capability-name list.
  */
 export interface CapabilityEntry {
   kind: string;
   name: string;
   user_allowed: boolean;
+  description: string;
+  security_gated: boolean;
   config_schema: Record<string, unknown>;
 }
 

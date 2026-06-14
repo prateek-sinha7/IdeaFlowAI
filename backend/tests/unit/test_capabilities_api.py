@@ -97,9 +97,55 @@ class TestPaletteShape:
         caps = body["capabilities"]
         assert caps, "palette is empty"
         for entry in caps:
+            # Existing keys preserved (API-02 / D-10 — additive, none removed).
             assert set(("kind", "name", "user_allowed")).issubset(entry), entry
             assert "config_schema" in entry, entry
             assert isinstance(entry["user_allowed"], bool), entry
+            # SURF-02 additive metadata — every entry carries description +
+            # security_gated + a config_schema slot.
+            assert "description" in entry, entry
+            assert isinstance(entry["description"], str), entry
+            assert "security_gated" in entry, entry
+            assert isinstance(entry["security_gated"], bool), entry
+            assert isinstance(entry["config_schema"], dict), entry
+
+    def test_security_gated_is_derived_from_user_allowed(self, authed_client):
+        # security_gated is DERIVED (not a second stored source): it is exactly
+        # the inverse of user_allowed for every entry (RESEARCH discretion A2).
+        body = authed_client.get("/api/capabilities").json()
+        for entry in body["capabilities"]:
+            assert entry["security_gated"] is (not entry["user_allowed"]), entry
+
+    def test_privileged_entry_is_security_gated(self, authed_client):
+        # At least one privileged capability (user_allowed=False, e.g. a runtime)
+        # surfaces security_gated=True.
+        body = authed_client.get("/api/capabilities").json()
+        gated = [e for e in body["capabilities"] if e["security_gated"]]
+        assert gated, "no security_gated capability in palette"
+        for e in gated:
+            assert e["user_allowed"] is False, e
+
+    def test_descriptions_authored_for_surfaced_caps(self, authed_client):
+        # The registry-authored descriptions surface non-empty for the
+        # capabilities the palette renders (D-08 — registry-sourced).
+        body = authed_client.get("/api/capabilities").json()
+        described = [e for e in body["capabilities"] if e["description"].strip()]
+        assert described, "no capability carries an authored description"
+
+    def test_config_schema_populated_for_config_taking_caps(self, authed_client):
+        # config_schema is no longer the literal {} stub for every entry: at
+        # least one config-taking capability returns a non-empty schema (D-09).
+        body = authed_client.get("/api/capabilities").json()
+        with_schema = [e for e in body["capabilities"] if e["config_schema"]]
+        assert with_schema, "no capability carries a populated config_schema"
+        # The security gate authors its exec/network/secrets/spawn config shape.
+        sec = [
+            e
+            for e in body["capabilities"]
+            if e["kind"] == "gate" and e["name"] == "security"
+        ]
+        assert sec, "security gate missing from palette"
+        assert sec[0]["config_schema"], "security gate config_schema is the {} stub"
 
     def test_runtime_skill_hook_kinds_present(self, authed_client):
         body = authed_client.get("/api/capabilities").json()
