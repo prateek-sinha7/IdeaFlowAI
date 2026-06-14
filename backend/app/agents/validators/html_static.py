@@ -53,7 +53,12 @@ def _worst_label(issues: list[Issue]) -> str | None:
     return None
 
 
-@register("validator", "html_static", user_allowed=True)
+@register(
+    "validator",
+    "html_static",
+    user_allowed=True,
+    description="Run stdlib structural checks over a single-file HTML prototype (routes, handlers, is-active).",
+)
 class HtmlStaticValidator:
     """Wraps ``static_check`` as a registered ``Validator`` (``name='html_static'``).
 

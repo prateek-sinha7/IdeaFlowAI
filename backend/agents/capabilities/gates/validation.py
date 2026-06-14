@@ -44,7 +44,23 @@ logger = logging.getLogger(__name__)
 _CRITICAL_LABEL = "CRITICAL"
 
 
-@register("gate", "validation", user_allowed=True)
+@register(
+    "gate",
+    "validation",
+    user_allowed=True,
+    description="Block the run on critical validator findings; surface non-critical issues as warnings.",
+    config_schema={
+        "type": "object",
+        "properties": {
+            "block_on": {
+                "type": "string",
+                "description": "Minimum severity label that blocks the run.",
+                "enum": ["critical", "high", "medium", "low"],
+                "default": "critical",
+            },
+        },
+    },
+)
 class ValidationGate:
     """Runs declared validators + applies block-critical/warn-non-critical (``name='validation'``).
 

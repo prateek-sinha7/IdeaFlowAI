@@ -39,7 +39,12 @@ _REJECTED = "_gate_rejected"
 _EDITED = "_gate_edited"
 
 
-@register("gate", "human", user_allowed=True)
+@register(
+    "gate",
+    "human",
+    user_allowed=True,
+    description="Pause the run for a human review gate (HITL) and resume on approval.",
+)
 class HumanGate:
     """HITL review gate (``name='human'``) delegating to the unchanged review gate.
 

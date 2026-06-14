@@ -32,7 +32,27 @@ logger = logging.getLogger(__name__)
 _DEFAULT_PARSER = "heading_tasks"
 
 
-@register("strategy", "fanout_batch", user_allowed=True)
+@register(
+    "strategy",
+    "fanout_batch",
+    user_allowed=True,
+    description="Fan a task list out to parallel worker sub-agents in one batch, then merge their results.",
+    config_schema={
+        "type": "object",
+        "properties": {
+            "merge": {
+                "type": "string",
+                "description": "Capability name of the merge strategy that combines the worker outputs.",
+                "enum": ["copy_disjoint", "git_3way", "json", "html_fragment"],
+            },
+            "max_parallel": {
+                "type": "integer",
+                "description": "Optional cap on concurrent workers (defaults to the kernel concurrency limit).",
+                "minimum": 1,
+            },
+        },
+    },
+)
 class FanoutBatchStrategy:
     """Declarative fan-out: parse a task list → worker requests → run_fanout.
 

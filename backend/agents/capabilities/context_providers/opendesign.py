@@ -38,7 +38,11 @@ from agents.capabilities.registry import register
 RAW_BLOCK_PREFIX = "\x00RAW\x00"
 
 
-@register("context_provider", "opendesign")
+@register(
+    "context_provider",
+    "opendesign",
+    description="Inject OpenDesign template / design-system / craft context into the agent prompt.",
+)
 class OpenDesignProvider:
     """Compose the od / template / example injection blocks (``name='opendesign'``).
 

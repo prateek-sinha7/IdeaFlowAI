@@ -46,7 +46,22 @@ _FAILED_RE = re.compile(r"\b(\d+)\s+(failed|error|errors)\b")
 _FAILED_LINE_RE = re.compile(r"^FAILED\s+\S+", re.MULTILINE)
 
 
-@register("validator", "code_test", user_allowed=True)
+@register(
+    "validator",
+    "code_test",
+    user_allowed=True,
+    description="Run pytest over the generated code via the exec handle and surface failures as issues.",
+    config_schema={
+        "type": "object",
+        "properties": {
+            "timeout_s": {
+                "type": "integer",
+                "description": "Wall-clock cap for the test run, in seconds.",
+                "minimum": 1,
+            },
+        },
+    },
+)
 class CodeTestValidator:
     """Run the run's tests via ``pytest -p no:cacheprovider`` (``name='code_test'``).
 

@@ -54,7 +54,12 @@ class HookBlock:
     content: str = ""
 
 
-@register("hook", "behavioral", user_allowed=True)
+@register(
+    "hook",
+    "behavioral",
+    user_allowed=True,
+    description="Non-executable behavioral hook: inject user-attached output-format guidance into the prompt.",
+)
 class BehavioralHookProvider:
     """The ``behavioral`` non-executable hook sub-type (``name='behavioral'``).
 

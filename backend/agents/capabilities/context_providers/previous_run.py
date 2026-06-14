@@ -112,7 +112,11 @@ def _slim_revision_message(user_message: str, artifact_name: str) -> str:
     ).strip()
 
 
-@register("context_provider", "previous_run")
+@register(
+    "context_provider",
+    "previous_run",
+    description="Seed the run with a prior run's outputs (e.g. revision over a parent run).",
+)
 class PreviousRunProvider:
     """Ownership-checked parent-run seed (``name='previous_run'``).
 

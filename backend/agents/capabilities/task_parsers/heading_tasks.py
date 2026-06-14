@@ -86,7 +86,12 @@ def _extract_task_title(block: str, task_num: int) -> str:
     return f"Task {task_num}"
 
 
-@register("task_parser", "heading_tasks", user_allowed=True)
+@register(
+    "task_parser",
+    "heading_tasks",
+    user_allowed=True,
+    description="Parse a tasks document into tasks by markdown headings (flat task list).",
+)
 class HeadingTasksParser:
     """``## Task N:`` (with ``<tasks>`` fallback) plan-text → ``list[Task]`` parser.
 

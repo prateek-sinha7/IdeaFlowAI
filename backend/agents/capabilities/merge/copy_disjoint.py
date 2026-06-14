@@ -43,7 +43,12 @@ def _name_of(obj: Any, fallback: str) -> str:
     return str(getattr(obj, "name", None) or fallback)
 
 
-@register("merge", "copy_disjoint", user_allowed=True)
+@register(
+    "merge",
+    "copy_disjoint",
+    user_allowed=True,
+    description="Merge fan-out worker outputs by copying disjoint file sets (no overlap conflict resolution).",
+)
 class CopyDisjointMerge:
     """Copy disjoint fragment files into base; report same-path overlaps as conflicts.
 

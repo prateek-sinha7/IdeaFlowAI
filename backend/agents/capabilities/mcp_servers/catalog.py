@@ -50,7 +50,12 @@ class _McpServerBase:
 # ---------------------------------------------------------------------------
 
 
-@register("mcp_server", "github", user_allowed=True)
+@register(
+    "mcp_server",
+    "github",
+    user_allowed=True,
+    description="Read-scoped GitHub MCP server (issues / PRs / repo metadata).",
+)
 class GithubMcpServer(_McpServerBase):
     """GitHub MCP server — read-scoped (issues / PRs / repo metadata)."""
 
@@ -61,7 +66,12 @@ class GithubMcpServer(_McpServerBase):
     powerful = False
 
 
-@register("mcp_server", "gitlab", user_allowed=True)
+@register(
+    "mcp_server",
+    "gitlab",
+    user_allowed=True,
+    description="Read-scoped GitLab MCP server (issues / MRs / project metadata).",
+)
 class GitlabMcpServer(_McpServerBase):
     """GitLab MCP server — read-scoped."""
 
@@ -72,7 +82,12 @@ class GitlabMcpServer(_McpServerBase):
     powerful = False
 
 
-@register("mcp_server", "jira", user_allowed=True)
+@register(
+    "mcp_server",
+    "jira",
+    user_allowed=True,
+    description="Read-scoped Jira MCP server (issues / projects).",
+)
 class JiraMcpServer(_McpServerBase):
     """Jira MCP server — read-scoped (issues / projects)."""
 
@@ -83,7 +98,12 @@ class JiraMcpServer(_McpServerBase):
     powerful = False
 
 
-@register("mcp_server", "slack", user_allowed=True)
+@register(
+    "mcp_server",
+    "slack",
+    user_allowed=True,
+    description="Post-scoped Slack MCP server (post_message / list_channels — the one user-grantable write).",
+)
 class SlackMcpServer(_McpServerBase):
     """Slack MCP server — post-scoped (the one write the user palette allows).
 
@@ -110,7 +130,12 @@ class SlackMcpServer(_McpServerBase):
 # ---------------------------------------------------------------------------
 
 
-@register("mcp_server", "filesystem", user_allowed=False)
+@register(
+    "mcp_server",
+    "filesystem",
+    user_allowed=False,
+    description="Powerful filesystem MCP server (read/write disk); behind the security gate + secrets.",
+)
 class FilesystemMcpServer(_McpServerBase):
     """Filesystem MCP server — POWERFUL (read/write disk). security gate + secrets (MCP-04)."""
 
@@ -121,7 +146,12 @@ class FilesystemMcpServer(_McpServerBase):
     powerful = True
 
 
-@register("mcp_server", "postgres", user_allowed=False)
+@register(
+    "mcp_server",
+    "postgres",
+    user_allowed=False,
+    description="Powerful Postgres MCP server (arbitrary SQL); behind the security gate + secrets.",
+)
 class PostgresMcpServer(_McpServerBase):
     """Postgres MCP server — POWERFUL (arbitrary SQL). security gate + secrets (MCP-04)."""
 

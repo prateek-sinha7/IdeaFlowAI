@@ -22,7 +22,12 @@ from agents.capabilities.deliverables._mimetype import default_mimetype
 from agents.capabilities.registry import register
 
 
-@register("deliverable", "serialized_sandbox", user_allowed=True)
+@register(
+    "deliverable",
+    "serialized_sandbox",
+    user_allowed=True,
+    description="Resolve the deliverable as the whole run sandbox serialized into filename-block output (code-gen bundle).",
+)
 class SerializedSandboxResolver:
     """Serialize the run sandbox to the ``filename:``-block bundle (``name='serialized_sandbox'``).
 

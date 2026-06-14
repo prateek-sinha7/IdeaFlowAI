@@ -93,7 +93,12 @@ def _exec_policy_snapshot(step: Any, ctx: Any) -> dict:
     }
 
 
-@register("gate", "approval", user_allowed=False)
+@register(
+    "gate",
+    "approval",
+    user_allowed=False,
+    description="Require an explicit privileged approval before the step proceeds.",
+)
 class ApprovalGate:
     """Explicit exec sign-off gate (``name='approval'``) delegating to the HITL machinery.
 

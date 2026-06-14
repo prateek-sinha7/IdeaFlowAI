@@ -34,7 +34,21 @@ logger = logging.getLogger(__name__)
 _DEFAULT_NAME = "prototype.html"
 
 
-@register("deliverable", "single_file", user_allowed=True)
+@register(
+    "deliverable",
+    "single_file",
+    user_allowed=True,
+    description="Resolve the deliverable as a single named file read back from the run sandbox.",
+    config_schema={
+        "type": "object",
+        "properties": {
+            "filename": {
+                "type": "string",
+                "description": "Sandbox file name to read back as the deliverable (the extension drives the default mimetype).",
+            },
+        },
+    },
+)
 class SingleFileResolver:
     """Resolve a single named file from the sandbox (``name='single_file'``).
 

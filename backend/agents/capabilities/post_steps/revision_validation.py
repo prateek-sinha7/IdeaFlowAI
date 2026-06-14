@@ -38,7 +38,11 @@ logger = logging.getLogger(__name__)
 _DEFAULT_ARTIFACT_NAME = "prototype.html"
 
 
-@register("post_step", "revision_validation")
+@register(
+    "post_step",
+    "revision_validation",
+    description="After a revision step, run the validation fix-loop over the revised deliverable.",
+)
 class RevisionValidationPostStep:
     """Pre-edit baseline + post-edit Both-validation fix-loop (``name='revision_validation'``).
 

@@ -52,7 +52,11 @@ _FLOWINIGNORE = ".flowinignore"
 _DEP_FILES = ("requirements.txt", "pyproject.toml", "package.json")
 
 
-@register("repo_inventory", "default")
+@register(
+    "repo_inventory",
+    "default",
+    description="Build a kernel-side stdlib inventory of the source repo (files/structure).",
+)
 class RepoInventory:
     """Build the structural map of a cloned repo (``name='default'``).
 

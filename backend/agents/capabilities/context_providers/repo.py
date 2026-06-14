@@ -27,7 +27,11 @@ from agents.capabilities.registry import register
 logger = logging.getLogger(__name__)
 
 
-@register("context_provider", "repo")
+@register(
+    "context_provider",
+    "repo",
+    description="Surface a targeted repo context pack (symbols/files) to the agent for brownfield work.",
+)
 class RepoProvider:
     """Surface the targeted repo ContextPack to agents (``name='repo'``).
 

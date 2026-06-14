@@ -23,7 +23,12 @@ from agents.capabilities.registry import register
 _SNIPPET_CAP = 256
 
 
-@register("merge", "git_3way", user_allowed=True)
+@register(
+    "merge",
+    "git_3way",
+    user_allowed=True,
+    description="Merge overlapping fan-out worker outputs via a git three-way merge.",
+)
 class Git3WayMerge:
     """Merge per-worker worktree branches back to base via the runner merge handle.
 

@@ -122,7 +122,29 @@ def _now() -> str:
 # ===========================================================================
 
 
-@register("strategy", "task_loop", user_allowed=True)
+@register(
+    "strategy",
+    "task_loop",
+    user_allowed=True,
+    description="Parse the step's deliverable into tasks and run one isolated sub-agent per task, with an optional bounded validation fix-loop.",
+    config_schema={
+        "type": "object",
+        "properties": {
+            "task_parser": {
+                "type": "string",
+                "description": "Capability name of the task_parser that splits the work into tasks.",
+                "enum": ["heading_tasks", "json_tasks"],
+                "default": "heading_tasks",
+            },
+            "max_fix_attempts": {
+                "type": "integer",
+                "description": "Bound on the per-task validation fix-loop (0 disables fixing).",
+                "minimum": 0,
+                "default": 2,
+            },
+        },
+    },
+)
 class TaskLoopStrategy:
     """The prototype per-task sub-agent build loop (``name='task_loop'``).
 

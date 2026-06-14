@@ -49,7 +49,11 @@ class _AuditTarget:
     task_meta: dict = field(default_factory=dict)
 
 
-@register("post_step", "api_prefix_audit")
+@register(
+    "post_step",
+    "api_prefix_audit",
+    description="After a step, run an event-free infra audit for endpoints not under the /api/v1 prefix.",
+)
 class ApiPrefixAuditPostStep:
     """Runs the ``api_prefix`` validator side-effects-only (``name='api_prefix_audit'``).
 

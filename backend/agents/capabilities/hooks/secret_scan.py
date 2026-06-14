@@ -85,7 +85,12 @@ def scan_for_secret(payload: str) -> str | None:
     return None
 
 
-@register("hook", "secret_scan", user_allowed=True)
+@register(
+    "hook",
+    "secret_scan",
+    user_allowed=True,
+    description="Blocking executable hook: scan agent output for secrets and halt on a hit.",
+)
 class SecretScanHook:
     """The ``secret_scan`` blocking executable hook (``name='secret_scan'``).
 

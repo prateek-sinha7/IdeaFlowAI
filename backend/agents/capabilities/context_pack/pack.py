@@ -91,7 +91,11 @@ def context_selector(
     return ordered[:MAX_NEIGHBORS]
 
 
-@register("context_pack", "default")
+@register(
+    "context_pack",
+    "default",
+    description="Assemble a kernel-side targeted context subset of the repo for the agent.",
+)
 class ContextPack:
     """Build a targeted file/snippet subset for a task (``name='default'``).
 

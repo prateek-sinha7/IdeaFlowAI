@@ -56,7 +56,12 @@ DEFAULT_ORDER: tuple[str, ...] = (
 _JOIN = "\n\n"
 
 
-@register("prompt", "default", user_allowed=True)
+@register(
+    "prompt",
+    "default",
+    user_allowed=True,
+    description="The default prompt-assembly policy (injects, guardrails, skills, hooks, constitution, body).",
+)
 class DefaultPromptAssemblyPolicy:
     """The default ``PromptAssemblyPolicy`` — fixed order, ``"\\n\\n"`` join (``name='default'``).
 

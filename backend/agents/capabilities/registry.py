@@ -158,6 +158,14 @@ _KNOWN: set[tuple[str, str]] = {
 # ---------------------------------------------------------------------------
 _IMPLS: dict[tuple[str, str], object] = {}
 _TRUST: dict[tuple[str, str], bool] = {}
+# Per-capability display metadata (D-08). Sibling to ``_TRUST``: a SINGLE source
+# of truth for the palette's ``description`` + ``config_schema``, recorded by the
+# ``@register`` decorator at impl-module import (inside ``discover()``). The API
+# layer projects this via ``describe`` — there is deliberately NO static metadata
+# map in ``app/api/`` (that would be a second hardcoded source eroding SC-001: a
+# newly ``@register``'d capability would appear in the live ``_KNOWN`` enumeration
+# but WITHOUT metadata).
+_META: dict[tuple[str, str], dict] = {}
 _DISCOVERED = False
 
 
@@ -165,7 +173,12 @@ _T = TypeVar("_T")
 
 
 def register(
-    kind: str, name: str, *, user_allowed: bool = False
+    kind: str,
+    name: str,
+    *,
+    user_allowed: bool = False,
+    description: str = "",
+    config_schema: dict | None = None,
 ) -> Callable[[type[_T]], type[_T]]:
     """Self-registration decorator: bind ``(kind,name)->impl`` at module import (D-01).
 
@@ -175,7 +188,12 @@ def register(
         ``runtime`` kinds register here too);
       * instantiates the class once and binds the instance into ``_IMPLS``;
       * records ``user_allowed`` into ``_TRUST`` (D-02 — privileged capabilities
-        default ``user_allowed=False`` and stay off the user palette).
+        default ``user_allowed=False`` and stay off the user palette);
+      * records ``description`` + ``config_schema`` into ``_META`` (D-08 — the
+        single source of truth the ``/api/capabilities`` palette projects). Both
+        are additive-optional (D-09): ``description`` defaults to ``""`` and
+        ``config_schema`` to ``{}`` for capabilities that author no metadata, so
+        the thin one-method Protocol ports stay unchanged.
 
     Built-ins decorate their existing Phase-7 impl classes so ``discover()``
     reproduces the exact ``_IMPLS`` set the deleted ``install()`` produced (INV-12).
@@ -186,6 +204,10 @@ def register(
         _KNOWN.add((kind, name))
         _IMPLS[(kind, name)] = cls()
         _TRUST[(kind, name)] = user_allowed
+        _META[(kind, name)] = {
+            "description": description,
+            "config_schema": config_schema or {},
+        }
         return cls
 
     return _decorate
@@ -344,6 +366,20 @@ class CapabilityRegistry:
         if not _DISCOVERED:
             discover()
         return _TRUST.get((kind, name), False)
+
+    def describe(self, kind: str, name: str) -> dict:
+        """Return the capability's display metadata ``{description, config_schema}`` (D-08).
+
+        Ensures impls are discovered so ``_META`` is bound (mirroring
+        ``is_user_allowed``), then reads it. A capability with no recorded
+        metadata (name-only data capabilities, or an unknown reference) returns
+        the safe default ``{"description": "", "config_schema": {}}`` — never a
+        ``KeyError``. This is the SINGLE accessor the ``/api/capabilities``
+        palette projects; no static metadata map lives in the API layer.
+        """
+        if not _DISCOVERED:
+            discover()
+        return _META.get((kind, name), {"description": "", "config_schema": {}})
 
     def resolve(self, kind: str, name: str) -> object:
         """Return the impl instance bound to ``(kind, name)`` (D-02).

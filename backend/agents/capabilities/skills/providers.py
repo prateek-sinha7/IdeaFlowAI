@@ -54,7 +54,12 @@ class SkillBlock:
     source: str = ""
 
 
-@register("skill", "ui", user_allowed=True)
+@register(
+    "skill",
+    "ui",
+    user_allowed=True,
+    description="Inject UI-attached skill documents (per-request capability docs) into the agent prompt.",
+)
 class UiSkillProvider:
     """The LIVE skill source — UI-attached skills (``name='ui'``).
 
@@ -106,21 +111,36 @@ class _EmptyForwardSkillProvider:
         return []
 
 
-@register("skill", "disk", user_allowed=True)
+@register(
+    "skill",
+    "disk",
+    user_allowed=True,
+    description="Disk-backed skill source (inert until a disk source is wired).",
+)
 class DiskSkillProvider(_EmptyForwardSkillProvider):
     """Disk-backed skills (``name='disk'``) — inert until a disk source is wired."""
 
     name = "disk"
 
 
-@register("skill", "template", user_allowed=True)
+@register(
+    "skill",
+    "template",
+    user_allowed=True,
+    description="Template-bundled skill source (inert until a template source is wired).",
+)
 class TemplateSkillProvider(_EmptyForwardSkillProvider):
     """Template-bundled skills (``name='template'``) — inert until wired."""
 
     name = "template"
 
 
-@register("skill", "repo", user_allowed=True)
+@register(
+    "skill",
+    "repo",
+    user_allowed=True,
+    description="Repo-backed skill source (inert until a repo source is wired).",
+)
 class RepoSkillProvider(_EmptyForwardSkillProvider):
     """Repo-backed skills (``name='repo'``) — inert until a repo source is wired."""
 

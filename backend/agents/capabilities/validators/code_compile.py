@@ -66,7 +66,22 @@ _DRIVER = (
 )
 
 
-@register("validator", "code_compile", user_allowed=True)
+@register(
+    "validator",
+    "code_compile",
+    user_allowed=True,
+    description="Compile the generated Python via py_compile through the exec handle and surface syntax errors as issues.",
+    config_schema={
+        "type": "object",
+        "properties": {
+            "timeout_s": {
+                "type": "integer",
+                "description": "Wall-clock cap for the compile run, in seconds.",
+                "minimum": 1,
+            },
+        },
+    },
+)
 class CodeCompileValidator:
     """Compile the run's Python files via ``py_compile`` (``name='code_compile'``).
 

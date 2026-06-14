@@ -129,7 +129,28 @@ def build_waves(tasks: list[Task]) -> list[list[Task]]:
     return waves
 
 
-@register("strategy", "wave_scheduler", user_allowed=True)
+@register(
+    "strategy",
+    "wave_scheduler",
+    user_allowed=True,
+    description="Schedule a structured task list into dependency-ordered waves, fanning each wave out concurrently.",
+    config_schema={
+        "type": "object",
+        "properties": {
+            "task_parser": {
+                "type": "string",
+                "description": "Capability name of the task_parser that yields the structured task list with dependencies.",
+                "enum": ["json_tasks", "heading_tasks"],
+                "default": "json_tasks",
+            },
+            "merge": {
+                "type": "string",
+                "description": "Capability name of the merge strategy applied per wave.",
+                "enum": ["copy_disjoint", "git_3way", "json", "html_fragment"],
+            },
+        },
+    },
+)
 class WaveSchedulerStrategy:
     """Declarative wave scheduler: parse a structured task list → waves → run_fanout.
 

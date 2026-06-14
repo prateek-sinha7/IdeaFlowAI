@@ -48,7 +48,22 @@ class Issue:
 _FINDING_RE = re.compile(r"^(?P<path>[^:\s][^:]*):(?P<line>\d+):(?P<col>\d+):\s+(?P<rest>.+)$")
 
 
-@register("validator", "code_lint", user_allowed=True)
+@register(
+    "validator",
+    "code_lint",
+    user_allowed=True,
+    description="Run ruff lint over the generated code via the exec handle and surface findings as issues.",
+    config_schema={
+        "type": "object",
+        "properties": {
+            "timeout_s": {
+                "type": "integer",
+                "description": "Wall-clock cap for the lint run, in seconds.",
+                "minimum": 1,
+            },
+        },
+    },
+)
 class CodeLintValidator:
     """Lint the run's Python files via ``ruff check`` (``name='code_lint'``).
 

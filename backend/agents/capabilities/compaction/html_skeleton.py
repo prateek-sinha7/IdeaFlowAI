@@ -26,7 +26,11 @@ import re as _re
 from agents.capabilities.registry import register
 
 
-@register("compaction", "html_skeleton")
+@register(
+    "compaction",
+    "html_skeleton",
+    description="Compact prior HTML context down to a structural skeleton to fit the model context window.",
+)
 class HtmlSkeletonCompaction:
     """Compact a full prototype HTML into its skeleton state-map (``name='html_skeleton'``).
 

@@ -54,7 +54,12 @@ TOOL_PLANNING_SET = "planning"
 TOOL_SPAWN_SUBAGENTS = "spawn_subagents"  # Phase 11 / FANOUT-01 (user_allowed=False)
 
 
-@register("tool", "workspace", user_allowed=True)
+@register(
+    "tool",
+    "workspace",
+    user_allowed=True,
+    description="Code-gen workspace: native filesystem tools writing deliverables to the run sandbox.",
+)
 class WorkspaceToolProvider:
     """Code-gen tool set: native fs tools only (``name='workspace'``).
 
@@ -69,7 +74,12 @@ class WorkspaceToolProvider:
         return ([], False)
 
 
-@register("tool", "prototype", user_allowed=True)
+@register(
+    "tool",
+    "prototype",
+    user_allowed=True,
+    description="Prototype tool set: native filesystem tools plus the report_task_complete progress signal.",
+)
 class PrototypeToolProvider:
     """Prototype tool set: ``report_task_complete`` + native fs (``name='prototype'``).
 
@@ -84,7 +94,12 @@ class PrototypeToolProvider:
         return ([TOOL_REPORT_TASK_COMPLETE], False)
 
 
-@register("tool", "prototype_emit_only", user_allowed=True)
+@register(
+    "tool",
+    "prototype_emit_only",
+    user_allowed=True,
+    description="Emit-only prototype tool set: same bindings as prototype (report_task_complete plus native fs).",
+)
 class PrototypeEmitOnlyToolProvider:
     """Prototype-emit tool set — same binding as ``prototype`` (``name='prototype_emit_only'``).
 
@@ -98,7 +113,12 @@ class PrototypeEmitOnlyToolProvider:
         return ([TOOL_REPORT_TASK_COMPLETE], False)
 
 
-@register("tool", "planning", user_allowed=True)
+@register(
+    "tool",
+    "planning",
+    user_allowed=True,
+    description="Planning tool set: the deep-planner stub tools only, with no disk access.",
+)
 class PlanningToolProvider:
     """Planning tool set: the stub ``PLANNING_TOOLS``, no disk (``name='planning'``).
 
@@ -113,7 +133,12 @@ class PlanningToolProvider:
         return ([TOOL_PLANNING_SET], True)
 
 
-@register("tool", "spawn_subagents", user_allowed=False)
+@register(
+    "tool",
+    "spawn_subagents",
+    user_allowed=False,
+    description="Privileged fan-out request emitter; the engine fulfils spawns via the single kernel run_fanout path.",
+)
 class SpawnSubagentsToolProvider:
     """Fan-out request-emitter tool set (``name='spawn_subagents'``, FANOUT-01).
 

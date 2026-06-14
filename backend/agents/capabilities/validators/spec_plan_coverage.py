@@ -52,7 +52,12 @@ def _keywords(topic: str) -> set[str]:
     return {w for w in re.findall(r"[a-z0-9]+", topic) if len(w) >= 4}
 
 
-@register("validator", "spec_plan_coverage", user_allowed=True)
+@register(
+    "validator",
+    "spec_plan_coverage",
+    user_allowed=True,
+    description="Check that every spec requirement is covered by a plan task and flag gaps as issues.",
+)
 class SpecPlanCoverageValidator:
     """Tier#4 pre-build coverage analyzer (``name='spec_plan_coverage'``)."""
 

@@ -120,7 +120,12 @@ def _get_tracer() -> Any:
     return _TRACER
 
 
-@register("hook", "otel_tracing", user_allowed=True)
+@register(
+    "hook",
+    "otel_tracing",
+    user_allowed=True,
+    description="Non-blocking executable hook: emit OpenTelemetry traces for the run.",
+)
 class OtelTracingHook:
     """The ``otel_tracing`` non-blocking observability hook (``name='otel_tracing'``).
 

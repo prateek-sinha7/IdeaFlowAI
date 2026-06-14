@@ -39,7 +39,12 @@ _ALT_RE = re.compile(r"\balt\s*=", re.IGNORECASE)
 _TITLE_RE = re.compile(r"<title\b[^>]*>.*?</title>", re.IGNORECASE | re.DOTALL)
 
 
-@register("validator", "design_quality", user_allowed=True)
+@register(
+    "validator",
+    "design_quality",
+    user_allowed=True,
+    description="Assess design-quality heuristics on a prototype and surface findings as warnings-first issues.",
+)
 class DesignQualityValidator:
     """Tier#6 warnings-first design validator (``name='design_quality'``).
 

@@ -81,7 +81,12 @@ class _IntegrationProviderBase:
 # ---------------------------------------------------------------------------
 
 
-@register("integration_provider", "github", user_allowed=True)
+@register(
+    "integration_provider",
+    "github",
+    user_allowed=True,
+    description="GitHub integration provider bridging the github catalog MCP server (github_read).",
+)
 class GithubIntegrationProvider(_IntegrationProviderBase):
     """GitHub integration — bridges the ``github`` catalog MCP server (github_read)."""
 
@@ -89,7 +94,12 @@ class GithubIntegrationProvider(_IntegrationProviderBase):
     scope = "github_read"
 
 
-@register("integration_provider", "gitlab", user_allowed=True)
+@register(
+    "integration_provider",
+    "gitlab",
+    user_allowed=True,
+    description="GitLab integration provider bridging the gitlab catalog MCP server (gitlab_read).",
+)
 class GitlabIntegrationProvider(_IntegrationProviderBase):
     """GitLab integration — bridges the ``gitlab`` catalog MCP server (gitlab_read)."""
 
@@ -97,7 +107,12 @@ class GitlabIntegrationProvider(_IntegrationProviderBase):
     scope = "gitlab_read"
 
 
-@register("integration_provider", "jira", user_allowed=True)
+@register(
+    "integration_provider",
+    "jira",
+    user_allowed=True,
+    description="Jira integration provider bridging the jira catalog MCP server (jira_read).",
+)
 class JiraIntegrationProvider(_IntegrationProviderBase):
     """Jira integration — bridges the ``jira`` catalog MCP server (jira_read)."""
 
@@ -105,7 +120,12 @@ class JiraIntegrationProvider(_IntegrationProviderBase):
     scope = "jira_read"
 
 
-@register("integration_provider", "slack", user_allowed=True)
+@register(
+    "integration_provider",
+    "slack",
+    user_allowed=True,
+    description="Slack integration provider bridging the slack catalog MCP server (slack_post).",
+)
 class SlackIntegrationProvider(_IntegrationProviderBase):
     """Slack integration — bridges the ``slack`` catalog MCP server (slack_post)."""
 

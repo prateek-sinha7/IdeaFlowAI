@@ -43,7 +43,11 @@ _DEFAULT_BASE = "main"
 _DEFAULT_WORK = "work"
 
 
-@register("deliverable", "repo_diff")
+@register(
+    "deliverable",
+    "repo_diff",
+    description="Resolve the deliverable as a brownfield diff-only patch against the source repo.",
+)
 class RepoDiffResolver:
     """Resolve the brownfield repo edit as a diff-only deliverable (``name='repo_diff'``).
 

@@ -617,7 +617,11 @@ class LocalWorkspace:
         return {"conflicts": [], "snippet": ""}
 
 
-@register("runtime_env", "local")
+@register(
+    "runtime_env",
+    "local",
+    description="Local on-disk sandbox runtime environment (the ECS/container-swap seam).",
+)
 class LocalSandboxRuntime:
     """The local-disk ``RuntimeEnvironment`` — provisions ``LocalWorkspace``s.
 

@@ -40,7 +40,11 @@ from agents.capabilities.deliverables._mimetype import default_mimetype
 from agents.capabilities.registry import register
 
 
-@register("deliverable", "ppt")
+@register(
+    "deliverable",
+    "ppt",
+    description="Resolve the deliverable as an HTML slide-deck (PPT) read back from the run sandbox.",
+)
 class PptResolver:
     """Carousel-sanitize + artifact-unwrap the streamed deck (``name='ppt'``).
 

@@ -31,7 +31,12 @@ from agents.capabilities.validators.severity import map_severity  # single sourc
 from app.agents.validators.html_static import Issue, _record
 
 
-@register("validator", "html_render", user_allowed=True)
+@register(
+    "validator",
+    "html_render",
+    user_allowed=True,
+    description="Render a single-file HTML prototype in headless Chromium and flag nav/console-error failures.",
+)
 class HtmlRenderValidator:
     """Wraps ``render_check`` as a registered ``Validator`` (``name='html_render'``).
 

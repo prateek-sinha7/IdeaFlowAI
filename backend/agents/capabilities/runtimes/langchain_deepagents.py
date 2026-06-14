@@ -35,7 +35,12 @@ from typing import Any
 from agents.capabilities.registry import register
 
 
-@register("runtime", "langchain_deepagents", user_allowed=False)
+@register(
+    "runtime",
+    "langchain_deepagents",
+    user_allowed=False,
+    description="The canonical agent runtime: every agent runs on LangChain deepagents (INV-13).",
+)
 class LangChainDeepAgentsRuntime:
     """The default ``AgentRuntimeAdapter`` — wraps ``DeepAgentRunner`` (INV-13).
 

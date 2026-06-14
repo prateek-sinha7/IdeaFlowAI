@@ -215,7 +215,12 @@ def _infra_files(sandbox: Any) -> list[Path]:
     return found
 
 
-@register("validator", "api_prefix", user_allowed=True)
+@register(
+    "validator",
+    "api_prefix",
+    user_allowed=True,
+    description="Audit generated infra/app files for endpoints not under the canonical /api/v1 prefix.",
+)
 class ApiPrefixValidator:
     """Flags infra endpoints lacking the ``/api/v1`` prefix (``name='api_prefix'``).
 

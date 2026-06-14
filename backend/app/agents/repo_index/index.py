@@ -131,7 +131,11 @@ def should_build_index(*, declared: bool, file_count: int) -> bool:
     return bool(declared) or file_count > REPO_INDEX_FILE_THRESHOLD
 
 
-@register("repo_index", "tree_sitter")
+@register(
+    "repo_index",
+    "tree_sitter",
+    description="Build an app-side symbol index of the source repo via tree-sitter (isolated).",
+)
 class RepoIndex:
     """The optional symbol index over a cloned repo (``name='tree_sitter'``).
 

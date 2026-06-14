@@ -20,7 +20,11 @@ from agents.capabilities.deliverables._mimetype import default_mimetype
 from agents.capabilities.registry import register
 
 
-@register("deliverable", "streamed_text")
+@register(
+    "deliverable",
+    "streamed_text",
+    description="Resolve the deliverable as the agent's streamed text output (no sandbox file read).",
+)
 class StreamedTextResolver:
     """Return the artifact-unwrapped streamed deliverable (``name='streamed_text'``).
 

@@ -39,7 +39,12 @@ def _name_of(obj: Any, fallback: str) -> str:
     return str(getattr(obj, "name", None) or fallback)
 
 
-@register("merge", "json", user_allowed=True)
+@register(
+    "merge",
+    "json",
+    user_allowed=True,
+    description="Merge fan-out worker outputs by deep-merging their JSON documents.",
+)
 class JsonMerge:
     """Shallow key-level JSON merge; same-key differing-value → reported conflict.
 

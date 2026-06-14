@@ -39,7 +39,37 @@ from agents.capabilities.registry import register
 _ENGINEER_TRUST = frozenset({"file", "builtin"})
 
 
-@register("gate", "security", user_allowed=False)
+@register(
+    "gate",
+    "security",
+    user_allowed=False,
+    description="Enforce the security posture before a privileged step (exec/network/secrets/spawn default OFF).",
+    config_schema={
+        "type": "object",
+        "properties": {
+            "exec": {
+                "type": "boolean",
+                "description": "Allow code execution for the gated step.",
+                "default": False,
+            },
+            "network": {
+                "type": "boolean",
+                "description": "Allow outbound network access for the gated step.",
+                "default": False,
+            },
+            "secrets": {
+                "type": "boolean",
+                "description": "Allow secret access for the gated step.",
+                "default": False,
+            },
+            "spawn_subagents": {
+                "type": "boolean",
+                "description": "Allow the step to spawn sub-agents.",
+                "default": False,
+            },
+        },
+    },
+)
 class SecurityGate:
     """Profile-conditional exec gate + default-deny network/secrets (``name='security'``).
 

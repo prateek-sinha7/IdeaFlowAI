@@ -41,7 +41,12 @@ def _name_of(obj: Any, fallback: str) -> str:
     return str(getattr(obj, "name", None) or fallback)
 
 
-@register("merge", "html_fragment", user_allowed=True)
+@register(
+    "merge",
+    "html_fragment",
+    user_allowed=True,
+    description="Merge fan-out worker outputs by concatenating their HTML fragments into one document.",
+)
 class HtmlFragmentMerge:
     """Compose disjoint HTML section fragments; same-section overlap → conflict.
 

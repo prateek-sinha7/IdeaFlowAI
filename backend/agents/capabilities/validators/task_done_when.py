@@ -38,7 +38,12 @@ def _keywords(text: str) -> set[str]:
     return {w for w in re.findall(r"[a-z0-9]+", (text or "").lower()) if len(w) >= 4}
 
 
-@register("validator", "task_done_when", user_allowed=True)
+@register(
+    "validator",
+    "task_done_when",
+    user_allowed=True,
+    description="Verify each task's declared done-when criteria are satisfied and flag unmet criteria as issues.",
+)
 class TaskDoneWhenValidator:
     """Tier#5 per-task acceptance checker (``name='task_done_when'``)."""
 

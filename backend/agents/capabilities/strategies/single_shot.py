@@ -31,7 +31,11 @@ from typing import Any, AsyncIterator
 from agents.capabilities.registry import register
 
 
-@register("strategy", "single_shot")
+@register(
+    "strategy",
+    "single_shot",
+    description="Run the step's agent exactly once and emit its output (the default strategy).",
+)
 class SingleShotStrategy:
     """Run one agent for the step and re-yield its events (``name='single_shot'``).
 
