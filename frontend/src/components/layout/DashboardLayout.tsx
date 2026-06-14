@@ -24,6 +24,7 @@ import { useNotifications } from "@/hooks/useNotifications";
 import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WaveGroup, WorkflowRun, WorkflowType, GenericDeliverable } from "@/types/index";
 import { canChainFrom, CHAIN_OPTIONS, CHAIN_BRIEF_KEY, CHAIN_FROM_KEY, CHAIN_SOURCE_RUN_ID_KEY, baseWorkflowType } from "@/lib/workflowChaining";
 import { getToken, getChainContext } from "@/lib/api";
+import type { UserWorkflowSummary } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useWebSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
@@ -658,9 +659,28 @@ export function DashboardLayout({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingOdPptParams]);
 
+  // Phase 21 (LAUNCH-EXISTING-PATH §4.6) — a saved workflow carries a persisted
+  // composition (`agent_ids` + `model_overrides`) that `onSelectFeature` (a bare
+  // WorkflowType) cannot express. We stash it here and thread it into IdeaInputPage
+  // as the launch-preload seeds. Cleared on a normal select so a non-saved launch
+  // starts from the empty filter (no stale seed bleed — T-21-12).
+  const [savedComposition, setSavedComposition] = useState<{ agentIds: string[]; modelOverrides: Record<string, string> } | null>(null);
+
   // Navigate from Home to Input page
   const handleSelectFeature = useCallback((type: WorkflowType) => {
+    setSavedComposition(null);
     setWorkflowType(type);
+    setMainView("input");
+  }, []);
+
+  // Launch a saved workflow — mirrors handleSelectFeature but carries the saved
+  // composition into state so IdeaInputPage mounts PRE-LOADED. Run then flows
+  // UNCHANGED through handleRunPipeline → useWorkflow.startPipeline (which already
+  // sends agent_ids + merges model_overrides) → re-validated server-side at launch
+  // (SC-001: pure-data replay, no engine/run-path edit, no `if saved` fork).
+  const handleLaunchSaved = useCallback((saved: UserWorkflowSummary) => {
+    setSavedComposition({ agentIds: saved.agent_ids, modelOverrides: saved.model_overrides ?? {} });
+    setWorkflowType(saved.base_pipeline_type as WorkflowType);
     setMainView("input");
   }, []);
 
@@ -1070,7 +1090,7 @@ export function DashboardLayout({
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <WorkflowCatalog onSelectFeature={handleSelectFeature} userTier={userTier} />
+              <WorkflowCatalog onSelectFeature={handleSelectFeature} onLaunchSaved={handleLaunchSaved} userTier={userTier} />
             </motion.div>
           )}
 
@@ -1181,6 +1201,8 @@ export function DashboardLayout({
                 workflowType={workflowType}
                 onBack={handleGoHome}
                 onRun={handleRunPipeline}
+                initialAgentIds={savedComposition?.agentIds}
+                initialModelOverrides={savedComposition?.modelOverrides}
               />
             </motion.div>
           )}
