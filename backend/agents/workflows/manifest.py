@@ -66,6 +66,18 @@ class WorkflowManifest:
     allowed_workers: list = field(default_factory=list)
     version: int = 1
 
+    # ── Catalog / presentation (Plan 20-01) — inert, additive ─────────────
+    # Discovery metadata for the data-driven workflow catalog. NEVER read by the
+    # compiler/kernel (parity proof 20-SPEC §4) — defaults keep every existing
+    # golden manifest byte-identical (INV-3). `user_launchable` gates whether a
+    # workflow shows in the user-facing catalog; it does NOT authorize a run
+    # (launch stays tier-gated server-side, T-20-02). Pure data (INV-5).
+    user_launchable: bool = False
+    display_name: str | None = None
+    description: str | None = None
+    icon: str | None = None
+    launch_surface: str | None = None
+
     # ── Forward / inert (D-06) ────────────────────────────────────────────
     model: dict | None = None
     limits: dict | None = None
@@ -90,6 +102,13 @@ _ALLOWED_TOP_KEYS: frozenset[str] = frozenset(
         "deliverable",
         "limits",
         "steps",
+        # ── Catalog / presentation (Plan 20-01) — presentation/visibility only,
+        # never control flow; when/if/for/expr stay rejected (INV-5). ────────
+        "user_launchable",
+        "display_name",
+        "description",
+        "icon",
+        "launch_surface",
     }
 )
 
@@ -182,6 +201,13 @@ def _build_manifest(data: object, path: Path) -> WorkflowManifest:
     allowed_workers = _optional_list(data, "allowed_workers", file_str)
     version = _optional_int(data, "version", file_str, default=1)
 
+    # ── Catalog / presentation fields (Plan 20-01) — inert, type-checked ───
+    user_launchable = _optional_bool(data, "user_launchable", file_str, default=False)
+    display_name = _optional_str(data, "display_name", file_str)
+    description = _optional_str(data, "description", file_str)
+    icon = _optional_str(data, "icon", file_str)
+    launch_surface = _optional_str(data, "launch_surface", file_str)
+
     # ── Forward / inert fields (D-06) — type-checked, not consumed ─────────
     model = _optional_dict(data, "model", file_str, default_factory=lambda: None)
     limits = _optional_dict(data, "limits", file_str, default_factory=lambda: None)
@@ -196,6 +222,11 @@ def _build_manifest(data: object, path: Path) -> WorkflowManifest:
         seed_files=seed_files,
         allowed_workers=allowed_workers,
         version=version,
+        user_launchable=user_launchable,
+        display_name=display_name,
+        description=description,
+        icon=icon,
+        launch_surface=launch_surface,
         model=model,
         limits=limits,
     )
@@ -265,6 +296,44 @@ def _optional_int(data: dict, key: str, file_str: str, default: int) -> int:
     if not isinstance(value, int) or isinstance(value, bool):
         raise ManifestValidationError(
             f"{file_str}: field '{key}' must be an integer, got "
+            f"{type(value).__name__!r} ({value!r})"
+        )
+    return value
+
+
+def _optional_bool(data: dict, key: str, file_str: str, default: bool) -> bool:
+    """Extract an optional boolean field (names the field on error).
+
+    The INVERSE of ``_optional_int``'s bool trap: ``bool`` IS an ``int`` subclass,
+    so an int like ``user_launchable: 1`` must NOT be silently accepted as a
+    truthy bool. Accept ONLY a real ``bool``; reject everything else (including
+    ints/strings) naming the field. Returns ``default`` when the key is absent or
+    null.
+    """
+    value = data.get(key, default)
+    if value is None:
+        return default
+    if not isinstance(value, bool):
+        raise ManifestValidationError(
+            f"{file_str}: field '{key}' must be a boolean, got "
+            f"{type(value).__name__!r} ({value!r})"
+        )
+    return value
+
+
+def _optional_str(data: dict, key: str, file_str: str) -> str | None:
+    """Extract an optional string field (names the field on error).
+
+    Mirrors ``_optional_int``'s shape but returns ``str | None`` (default
+    ``None``): absent or null → ``None``; a non-string value is rejected naming
+    the field.
+    """
+    value = data.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ManifestValidationError(
+            f"{file_str}: field '{key}' must be a string, got "
             f"{type(value).__name__!r} ({value!r})"
         )
     return value

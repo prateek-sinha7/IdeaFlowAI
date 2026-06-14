@@ -103,6 +103,71 @@ def test_missing_field_named(tmp_path: Path, missing: str):
 
 
 # ---------------------------------------------------------------------------
+# Optional catalog/presentation fields (Plan 20-01) — inert, additive
+# ---------------------------------------------------------------------------
+
+
+def test_loads_optional_catalog_fields(tmp_path: Path):
+    # A manifest declaring all 5 new keys parses each into its typed field.
+    doc = _WELL_FORMED + (
+        "user_launchable: true\n"
+        "display_name: Demo Workflow\n"
+        "description: A demo\n"
+        "icon: rocket\n"
+        "launch_surface: wizard\n"
+    )
+    base = _write_manifest(tmp_path, "demo", doc)
+
+    m = load_manifest("demo", base)
+
+    assert m.user_launchable is True
+    assert m.display_name == "Demo Workflow"
+    assert m.description == "A demo"
+    assert m.icon == "rocket"
+    assert m.launch_surface == "wizard"
+
+
+def test_optional_catalog_fields_default_when_absent(tmp_path: Path):
+    # The well-formed manifest declares NONE of the 5 keys → defaults.
+    base = _write_manifest(tmp_path, "demo", _WELL_FORMED)
+
+    m = load_manifest("demo", base)
+
+    assert m.user_launchable is False
+    assert m.display_name is None
+    assert m.description is None
+    assert m.icon is None
+    assert m.launch_surface is None
+
+
+def test_user_launchable_rejects_non_bool(tmp_path: Path):
+    # bool is an int subclass; `user_launchable: 1` (an int) must NOT be silently
+    # accepted as truthy — the helper accepts only real bools and names the field.
+    doc = _WELL_FORMED + "user_launchable: 1\n"
+    base = _write_manifest(tmp_path, "demo", doc)
+
+    with pytest.raises(ManifestValidationError) as exc:
+        load_manifest("demo", base)
+
+    assert "user_launchable" in str(exc.value), (
+        f"error message must name 'user_launchable': {exc.value}"
+    )
+
+
+def test_display_name_rejects_non_str(tmp_path: Path):
+    # A non-string display_name is rejected, naming the field.
+    doc = _WELL_FORMED + "display_name:\n  - not\n  - a\n  - string\n"
+    base = _write_manifest(tmp_path, "demo", doc)
+
+    with pytest.raises(ManifestValidationError) as exc:
+        load_manifest("demo", base)
+
+    assert "display_name" in str(exc.value), (
+        f"error message must name 'display_name': {exc.value}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Strict-key rejection — names the unknown key (D-08 / INV-5)
 # ---------------------------------------------------------------------------
 
