@@ -1377,14 +1377,6 @@ class ExecutionEngine:
                 f"registry={_membership_ids}"
             )
 
-        # Persist custom workflow definition (T061, FR-013)
-        await self._persist_workflow_definition(
-            user_id=user_id,
-            pipeline_type=pipeline_type,
-            agents=ordered_agents,
-            validation_result=validation,
-        )
-
         # ── Step 2: Run the Deep_Planner_Agent (gate) ─────────────────────
         # RESUME-04: a resumed run (``_resume_from > 0``) does NOT re-run the planner
         # or the clarifier — it already cleared its planning gate before the restart.
@@ -4018,93 +4010,6 @@ class ExecutionEngine:
             )
         except Exception as exc:  # noqa: BLE001 — the marker is best-effort audit
             logger.warning("_stamp_resume_marker(%s) failed: %s", run_id, exc)
-
-    # ------------------------------------------------------------------
-    # Custom Workflow persistence (T061)
-    # ------------------------------------------------------------------
-
-    async def _persist_workflow_definition(
-        self,
-        user_id: str | None,
-        pipeline_type: str,
-        agents: list,
-        validation_result,
-    ) -> str | None:
-        """Persist a custom Workflow definition to the `workflows` table.
-
-        Only persists when user_id is set and the pipeline_type is 'custom'
-        or when the workflow was explicitly composed (not a standard pipeline).
-        Returns the workflow definition ID, or None if not persisted.
-
-        The 1–50 agent limit is enforced here (Deep_Planner_Agent is prepended
-        automatically and does NOT count toward the limit).
-        """
-        if not user_id:
-            return None
-
-        # Only persist explicitly custom workflows (not standard pipeline types).
-        # This is a PERSISTENCE-SCOPE check (which workflow definitions to save to the
-        # DB), NOT routed-path workflow dispatch — it never selects engine behavior by
-        # workflow identity (INV-1 is a property of the routed EXECUTION path). Written
-        # as a registry-membership predicate (no workflow-name routing branch).
-        from agents.registry import PIPELINE_AGENTS
-
-        _is_standard_pipeline = (
-            pipeline_type in PIPELINE_AGENTS and pipeline_type != "custom"
-        )
-        if _is_standard_pipeline:
-            return None
-
-        # Enforce 1–50 agent limit (Deep_Planner_Agent excluded)
-        non_planner = [a for a in agents if a.id != "deep-planner"]
-        if len(non_planner) > 50:
-            logger.warning(
-                "Custom workflow exceeds 50-agent limit (%d agents) — not persisted",
-                len(non_planner),
-            )
-            return None
-
-        try:
-            import json as _json
-            import uuid as _uuid
-            from datetime import datetime, timezone as _tz
-            from app.models.database import SessionLocal
-            from app.models.workflow_definition import WorkflowDefinition
-
-            agent_ids = [a.id for a in non_planner]
-            artifact_edges = [
-                {
-                    "from_agent": e.from_agent_id,
-                    "to_agent": e.to_agent_id,
-                    "artifact_type": e.artifact_type,
-                }
-                for e in validation_result.edges
-            ]
-
-            db = SessionLocal()
-            try:
-                wf = WorkflowDefinition(
-                    id=str(_uuid.uuid4()),
-                    user_id=user_id,
-                    name=f"{pipeline_type} workflow",
-                    agents=_json.dumps(agent_ids),
-                    artifact_edges=_json.dumps(artifact_edges),
-                    created_at=datetime.now(_tz.utc),
-                    updated_at=datetime.now(_tz.utc),
-                )
-                db.add(wf)
-                db.commit()
-                db.refresh(wf)
-                logger.info(
-                    "Custom workflow persisted: id=%s agents=%d",
-                    wf.id, len(agent_ids),
-                )
-                return wf.id
-            finally:
-                db.close()
-        except Exception as exc:
-            logger.warning("Failed to persist workflow definition: %s", exc)
-            return None
 
     # ------------------------------------------------------------------
     # Revision intelligence (T053)

@@ -38,6 +38,8 @@ class WorkflowDefinition(Base):
     source = Column(String, nullable=False, default="file", server_default="file")
     manifest_json = Column(JSON, nullable=True)
     version = Column(Integer, nullable=False, default=1, server_default="1")
+    base_pipeline_type = Column(String, nullable=True)       # Phase 21: saved-workflow base type ("custom" v1)
+    model_overrides = Column(JSON, nullable=True)            # Phase 21: persisted per-agent {agent_id: model_id}
     created_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
