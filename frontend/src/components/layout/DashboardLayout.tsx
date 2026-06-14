@@ -1202,6 +1202,14 @@ export function DashboardLayout({
                 initialAgentIds={savedComposition?.agentIds}
                 initialModelOverrides={savedComposition?.modelOverrides}
                 initialSelections={savedComposition?.selections}
+                // SURF-03 — the backend workflow id whose compiled per-step
+                // capabilities the composer surfaces. For a built-in launchable
+                // workflow opened from the catalog, `workflowType` IS the workflow id
+                // (WorkflowCatalog launches via `row.id as WorkflowType`); for a saved
+                // workflow it is the persisted `base_pipeline_type` (set in
+                // handleLaunchSaved). Unknown ids (e.g. `custom`/`migration` meta) 404
+                // server-side and the strip simply does not render.
+                workflowId={workflowType}
               />
             </motion.div>
           )}

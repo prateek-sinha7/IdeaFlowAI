@@ -13,7 +13,7 @@ import { LIBRARY_AGENTS, ALL_LIBRARY_AGENTS } from "./AgentLibraryData";
 import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
-import { createUserWorkflow, getToken } from "@/lib/api";
+import { createUserWorkflow, getToken, getWorkflowDetail } from "@/lib/api";
 import { AnimatePresence } from "motion/react";
 import type { WorkflowType, AgentDef, AttachedSkill, AttachedHook } from "@/types/index";
 
@@ -56,6 +56,13 @@ interface IdeaInputPageProps {
   // composer re-load AND re-send the user-composed levers. Absent ⇒ no selections
   // (byte-identical to the existing custom/idea flow — additive only).
   initialSelections?: Record<string, Record<string, unknown>>;
+  // SURF-03 — the known backend workflow id of the launchable/saved workflow being
+  // opened in the composer (built-in: the workflow id == the resolved pipeline type;
+  // saved: its `base_pipeline_type`). When present, the composer fetches the compiled
+  // per-step capability projection (GET /api/workflows/{id}) and surfaces it as the
+  // AgentsPopup "Declared by this workflow" strip. Absent (a brand-new from-scratch
+  // composition) ⇒ no fetch and the strip does not render (nothing declared yet).
+  workflowId?: string;
 }
 
 const TYPE_CONFIG: Record<WorkflowType, {
@@ -172,7 +179,7 @@ const TYPE_CONFIG: Record<WorkflowType, {
   },
 };
 
-export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, initialModelOverrides, initialSelections }: IdeaInputPageProps) {
+export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, initialModelOverrides, initialSelections, workflowId }: IdeaInputPageProps) {
   const [ideaInput, setIdeaInput] = useState("");
   const [showAgents, setShowAgents] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; size: string }[]>([]);
@@ -241,6 +248,58 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     },
     [],
   );
+
+  // SURF-03 — when a launchable/saved workflow is opened with a known backend
+  // workflow id, fetch its compiled per-step capability projection
+  // (GET /api/workflows/{id}) and surface it as the AgentsPopup "Declared by this
+  // workflow" strip. Mirrors the AgentModelPicker / CapabilityPaletteSection fetch
+  // idiom (useEffect + cancelled guard); no new fetch shell. When there is no id
+  // (a brand-new from-scratch composition) the fetch is skipped, `declaredCapabilities`
+  // stays undefined, and the strip does not render (nothing declared yet). The
+  // projection is registry/manifest-sourced (SC-001) — no hardcoded capability list.
+  const [declaredCapabilities, setDeclaredCapabilities] = useState<
+    { step: string; capabilities: string[] }[] | undefined
+  >(undefined);
+  useEffect(() => {
+    if (!workflowId) {
+      setDeclaredCapabilities(undefined);
+      return;
+    }
+    let cancelled = false;
+    const jwt = getToken();
+    if (!jwt) {
+      setDeclaredCapabilities(undefined);
+      return;
+    }
+    getWorkflowDetail(jwt, workflowId)
+      .then((detail) => {
+        if (cancelled) return;
+        // Map each compiled step to its declared capabilities, sourced entirely
+        // from the projection (strategy + gates + validators + compaction +
+        // task_source kind) — no hardcoded names. Steps with zero declared caps
+        // are omitted so the strip stays terse.
+        const mapped = detail.steps
+          .map((s) => {
+            const caps: string[] = [];
+            if (s.strategy) caps.push(`strategy:${s.strategy}`);
+            for (const g of s.gates) caps.push(`gate:${g}`);
+            for (const v of s.validators) caps.push(`validator:${v}`);
+            if (s.compaction) caps.push(`compaction:${s.compaction}`);
+            if (s.task_source?.kind) caps.push(`task_source:${s.task_source.kind}`);
+            return { step: s.name || s.agent_id, capabilities: caps };
+          })
+          .filter((d) => d.capabilities.length > 0);
+        setDeclaredCapabilities(mapped.length > 0 ? mapped : undefined);
+      })
+      .catch(() => {
+        // Unknown id (404) or transient error ⇒ treat as "nothing declared":
+        // leave it undefined so the strip simply does not render (no noisy UI).
+        if (!cancelled) setDeclaredCapabilities(undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workflowId]);
 
   useEffect(() => {
     // Phase 21 (gotcha #1) — GUARD: when launching a saved workflow the seed lives
@@ -620,6 +679,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
         onSelectionsChange={handleSelectionsChange}
         initialModelOverrides={initialModelOverrides}
         initialSelections={initialSelections}
+        declaredCapabilities={declaredCapabilities}
       />
     </div>
   );

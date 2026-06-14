@@ -574,6 +574,70 @@ export async function getWorkflowDefinitions(
   });
 }
 
+/**
+ * One compiled step of a workflow definition from `GET /api/workflows/{id}`
+ * (SURF-03). Mirrors the BE `WorkflowStepDetail` (backend/app/api/workflows.py):
+ * the per-step DECLARED capabilities sourced from the compiled `ExecutionPlan`
+ * — `strategy`, `gates`, `validators`, optional `compaction`, and the
+ * `task_source` kind. All registry/manifest-sourced (SC-001) — never a hardcoded
+ * per-step capability list.
+ */
+export interface WorkflowStepDetail {
+  agent_id: string;
+  name: string;
+  role: string;
+  order: number;
+  strategy: string;
+  gates: string[];
+  validators: string[];
+  compaction?: string | null;
+  task_source?: { kind: string; parser?: string | null; target?: string | null } | null;
+  declared_gate?: string | null;
+}
+
+/** The compiled deliverable spec for a workflow (BE `WorkflowDeliverable`). */
+export interface WorkflowDeliverable {
+  strategy?: string | null;
+  name?: string | null;
+}
+
+/**
+ * The full compiled definition for one known workflow id from
+ * `GET /api/workflows/{id}` (API-01 / SURF-03). Mirrors the BE `WorkflowDetail`
+ * (backend/app/api/workflows.py:108). Auth-gated (JWT); the composer fetches
+ * this to surface a launchable workflow's per-step DECLARED capabilities
+ * (sourced from the compiled plan) BEFORE composing — never a hardcoded
+ * description.
+ */
+export interface WorkflowDetail {
+  id: string;
+  name: string;
+  description: string;
+  planner: string;
+  clarify_mode: string;
+  clarify_defaults: string[];
+  context_providers: string[];
+  deliverable: WorkflowDeliverable;
+  steps: WorkflowStepDetail[];
+}
+
+/**
+ * Fetch the full compiled definition for a known workflow id (API-01 / SURF-03).
+ * Auth-gated (JWT). Named `getWorkflowDetail` because `getWorkflow` is already
+ * taken by the run-history fetcher (`/api/runs/{id}`) and `getWorkflowDefinitions`
+ * by the catalog listing. An unknown id raises 404 server-side (the caller treats
+ * that as "nothing declared" — the SURF-03 strip simply does not render).
+ */
+export async function getWorkflowDetail(
+  token: string,
+  workflowId: string
+): Promise<WorkflowDetail> {
+  return request<WorkflowDetail>(`/api/workflows/${encodeURIComponent(workflowId)}`, {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+}
+
 // --- Saved (user-authored) workflows API (Phase 21) ---
 
 /**
