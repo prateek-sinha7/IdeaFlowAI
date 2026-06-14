@@ -174,4 +174,58 @@ describe("PreviewPanel — generic mimetype-dispatched deliverable (ISS-021, liv
     // The bespoke user-stories renderer wins; no generic iframe.
     expect(screen.getByTestId("user-story-preview")).toBeInTheDocument();
   });
+
+  // ─── 22-07 (UXFIX-04 / D-21) — generic mimetype renderer is PRIMARY ──────────
+  // The dispatch is a mimetype-dispatch TABLE: the generic renderer is the
+  // PRIMARY route and the 4 first-party types are registered entries the
+  // dispatcher routes to. A custom/unknown deliverable renders via the generic
+  // path as the primary route (not reached only after 4 first-party branches
+  // fail), and the first-party types still render identically (no regression).
+  describe("22-07 UXFIX-04 — generic-primary mimetype-dispatch table", () => {
+    it("a custom deliverable renders via the generic path as the PRIMARY route", () => {
+      const { container } = render(
+        <PreviewPanel
+          workflowType="custom"
+          isStreaming={false}
+          genericDeliverable={{ mimetype: "text/html", filename: "out.html", content: HTML_DELIVERABLE }}
+        />,
+      );
+      // Primary route → the generic sandboxed iframe, with the P18 contract.
+      const iframe = container.querySelector("iframe");
+      expect(iframe).not.toBeNull();
+      expect(iframe!.getAttribute("sandbox")).toBe("allow-scripts");
+      expect(iframe!.getAttribute("sandbox") || "").not.toContain("allow-same-origin");
+    });
+
+    it("each of the 4 first-party types routes through the dispatch table and renders its bespoke renderer (no regression)", () => {
+      const cases: { type: string; props: Record<string, unknown>; testid: string }[] = [
+        { type: "user_stories", props: { userStoryContent: "# S" }, testid: "user-story-preview" },
+        { type: "ppt", props: { pptContent: "<html>deck</html>" }, testid: "ppt-preview" },
+        { type: "prototype", props: { prototypeContent: "<html>proto</html>" }, testid: "proto-preview" },
+        { type: "app_builder", props: { userStoryContent: "```filename: a.py\nx\n```" }, testid: "appbuilder-preview" },
+      ];
+      for (const c of cases) {
+        const { unmount, container } = render(
+          <PreviewPanel workflowType={c.type as never} isStreaming={false} {...c.props} />,
+        );
+        expect(screen.getByTestId(c.testid)).toBeInTheDocument();
+        // A first-party type must NOT leak into the generic iframe.
+        expect(container.querySelector("iframe")).toBeNull();
+        unmount();
+      }
+    });
+
+    it("a brand-new (unmapped) workflow type with a markdown deliverable routes generically with ZERO first-party branch", () => {
+      // SC-001 dividend: a workflow the FE has never heard of still renders via
+      // the mimetype-keyed table — no per-workflow-name branch needed.
+      render(
+        <PreviewPanel
+          workflowType={"totally_new_workflow_2026" as never}
+          isStreaming={false}
+          genericDeliverable={{ mimetype: "text/markdown", content: "# Brand new\n\nbody" }}
+        />,
+      );
+      expect(screen.getByTestId("markdown-preview")).toBeInTheDocument();
+    });
+  });
 });
