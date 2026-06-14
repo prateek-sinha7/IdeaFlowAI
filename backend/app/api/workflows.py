@@ -227,10 +227,14 @@ def list_workflows(
                 step_count=len(compiled.steps),
                 steps=steps,
                 user_launchable=bool(manifest and manifest.user_launchable),
-                display_name=(
-                    (manifest.display_name if manifest else None)
-                    or _display_name(workflow_id)
-                ),
+                # Carry ONLY the manifest's EXPLICIT display_name (None unless a
+                # YAML declares one). Do NOT coalesce to _display_name(id): the
+                # title-cased raw id ("Mulesoft To Springboot") must NEVER be the
+                # rendered label (UI-SPEC §4 / WR-01). When None, the FE falls
+                # back to the friendly WORKFLOW_LABELS map; an authored
+                # display_name still wins. `name` keeps _display_name for
+                # back-compat consumers.
+                display_name=(manifest.display_name if manifest else None),
                 icon=manifest.icon if manifest else None,
                 launch_surface=manifest.launch_surface if manifest else None,
             )

@@ -160,4 +160,30 @@ describe("WorkflowCatalog two-gate filter + friendly label", () => {
     expect(screen.queryByText("raw-user-stories-name")).toBeNull();
     expect(screen.queryByText("raw-custom-name")).toBeNull();
   });
+
+  // WR-02: pin the label PRECEDENCE branch (display_name over getWorkflowLabel).
+  // user_stories carries an explicit display_name ("Generate product
+  // requirements") that differs from BOTH its raw `name` AND its friendly
+  // WORKFLOW_LABELS value ("User Stories"). The explicit display_name must win;
+  // the friendly-map value must NOT leak through. This is the branch the real
+  // BE (now returning display_name=null, WR-01) never exercises, so without
+  // this assertion an author-declared display_name could silently be ignored.
+  it("renders an explicit display_name over the friendly getWorkflowLabel value (precedence)", async () => {
+    render(<WorkflowCatalog onSelectFeature={vi.fn()} userTier="basic" />);
+
+    // The explicit manifest display_name is shown...
+    await waitFor(() =>
+      expect(
+        screen.getByText("Generate product requirements"),
+      ).toBeInTheDocument(),
+    );
+    // ...and the friendly-map fallback ("User Stories" =
+    // getWorkflowLabel("user_stories")) is NOT rendered for that row, proving
+    // display_name takes precedence over WORKFLOW_LABELS.
+    expect(screen.queryByText("User Stories")).toBeNull();
+
+    // Conversely, the no-display_name row (`custom`) DOES fall back to the
+    // friendly map ("Custom Workflow"), confirming both branches are live.
+    expect(screen.getByText("Custom Workflow")).toBeInTheDocument();
+  });
 });

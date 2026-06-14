@@ -137,9 +137,16 @@ class TestList:
             )
             assert by_id[wid]["launch_surface"] is None
 
-        # display_name is never null for a listed row (falls back to _display_name).
+        # display_name carries ONLY the manifest's EXPLICIT label (WR-01): no
+        # current manifest declares one, so it is None for every listed row —
+        # the FE then falls back to the friendly WORKFLOW_LABELS map instead of
+        # rendering the title-cased raw id. `name` keeps the _display_name value
+        # for back-compat consumers (asserted via test_list_entries_carry_metadata).
         for w in by_id.values():
-            assert w["display_name"], f"{w['id']} has empty display_name"
+            assert w["display_name"] is None, (
+                f"{w['id']} display_name should be None until a manifest "
+                f"declares one (got {w['display_name']!r})"
+            )
 
     def test_list_does_not_query_workflow_run(self, client):
         # The router imports no DB session; a clean list call must succeed with
