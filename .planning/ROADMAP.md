@@ -651,8 +651,10 @@ Plans:
 4. Persistence REUSES the `workflows` table (additive migration `0021` adds only 2 nullable columns; no new table) AND the dead `engine.py` writer it supersedes is **removed** (INV-12 — no dual write); CRUD is owner-scoped (cross-owner read/rename/delete → 404).
 5. INV-3 holds — the 5 characterization goldens stay byte-identical (the engine-writer removal is dormant on the non-custom goldens; proven by running the suite) · `lint-imports` 4/0 · backend CRUD + authz tests + a mocked Playwright spec (save → appears in catalog → rename → launch) pass.
 **Depends on:** Phase 20
-**Plans:** 0 plans
+**Plans:** 3 plans (3 waves)
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 21 to break down)
+- [ ] 21-01-PLAN.md — BACKEND spine: reuse the `workflows` table (`source="user"`) +2 nullable cols, additive migration `0021`, owner-scoped `/api/user-workflows` CRUD router (save==launch validation, IDOR→404), REMOVE the dead `_persist_workflow_definition` writer (INV-12), BE tests + 5-goldens parity + alembic up/down + lint-imports [wave 1]
+- [ ] 21-02-PLAN.md — FRONTEND save + persistence + catalog: api.ts CRUD + `UserWorkflowSummary`, `NameWorkflowModal` (⟵DeleteModal), "Your workflows" section + per-row kebab (rename/duplicate/delete) + "+ Create workflow" in `WorkflowCatalog`, "Save workflow" button in `IdeaInputPage`, catalog vitest [wave 2, depends 21-01]
+- [ ] 21-03-PLAN.md — FRONTEND launch wiring + e2e: load-bearing `IdeaInputPage` `initialAgentIds`/`initialModelOverrides` preload + guarded re-derive, `onLaunchSaved` prop threaded through `DashboardLayout`, mocked Playwright spec (compose→Save→appears→rename→launch) [wave 3, depends 21-01, 21-02]
