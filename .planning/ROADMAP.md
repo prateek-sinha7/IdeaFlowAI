@@ -712,8 +712,8 @@ Plans:
   8. Invariants hold: 5 characterization goldens byte-identical (INV-3) · kernel name-free (SC-001 grep 0) · `create_deep_agent` only in the adapter (INV-13) · import-linter 4/0 · additive migrations only.
 
 **Plans:** 9 plans (in 3 waves)
-
 Plans:
+**Wave 1**
 
 - [ ] 22-01-PLAN.md — WIRE-01/02/03: compiler materializes model:/retry:/injects: + the parametrized _ALLOWED_STEP_KEYS consumed-or-raises guard (wave 1)
 - [ ] 22-02-PLAN.md — SURF-02: registry _META + describe(); /api/capabilities supplies description + security_gated + populated config_schema additively (wave 1)
@@ -721,6 +721,12 @@ Plans:
 - [ ] 22-07-PLAN.md — UXFIX-01/03/04: data-driven catalog as home + authored display_name + generic-primary deliverable dispatch (wave 1)
 - [ ] 22-08-PLAN.md — DECIDE-01/02: ART-04 keep-by-default + MODEL-05 premium-open + reconcile 3 confirm labels + register 17 families (wave 1)
 - [ ] 22-09-PLAN.md — LIVE-01: per-item offline evidence record for the 8 standing deferrals (deferred live pass, default profile / Haiku 4.5) (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 22-04-PLAN.md — EMP-02/03/01: activate trust=user compile at save+launch + persist selections in manifest_json + selection-reaches-execution proof (wave 2)
 - [ ] 22-05-PLAN.md — SURF-01/03 + EMP-02: embedded grouped capability palette in AgentsPopup with visible-but-locked rows (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 22-06-PLAN.md — EMP-01/04 + DECIDE-02: per-agent Advanced expander (validator/gate/model/retry) + auto-attach + drop the model-picker tier filter (wave 3)

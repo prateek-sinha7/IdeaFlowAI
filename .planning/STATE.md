@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-last_updated: "2026-06-14T19:02:05.317Z"
-last_activity: 2026-06-14
+status: executing
+last_updated: "2026-06-14T19:51:32.888Z"
+last_activity: 2026-06-14 -- Phase 22 planning complete
 progress:
   total_phases: 22
   completed_phases: 21
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 
 Phase: 21
 Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-06-14
+Status: Ready to execute
+Last activity: 2026-06-14 -- Phase 22 planning complete
 
 Session continuity: last session 2026-06-14; stopped at Completed 21-03-PLAN.md (saved-workflows LAUNCH wiring + mocked Playwright spec — the FINAL plan; Phase 21 complete, ready for verification. IdeaInputPage.tsx: added initialAgentIds?/initialModelOverrides? props [the load-bearing launch preload]; the pipelineAgents useState initializer seeds from initialAgentIds [resolved via ALL_LIBRARY_AGENTS = LIBRARY_AGENTS ∪ CUSTOM_AGENTS, the same superset the composer's AgentLibrary uses — Rule 1 bug fix: saved custom workflows reference CUSTOM_AGENTS which are ABSENT from base LIBRARY_AGENTS, so resolving via the base list loaded 0 agents and the launch silently no-op'd] when present, else the existing LIBRARY_AGENTS.filter[type] derive; the re-derive effect is GUARDED with an early return on initialAgentIds?.length so the seed survives the first effect run [gotcha #1]; modelOverridesRef seeded from initialModelOverrides ?? {} [gotcha #3]; onRun UNCHANGED — the seed flows through the existing run payload [SC-001 pure data, no fork]. DashboardLayout.tsx: savedComposition state {agentIds,modelOverrides}|null + UserWorkflowSummary import; handleLaunchSaved[saved] mirrors handleSelectFeature [stash the saved triple, setWorkflowType=base_pipeline_type, mainView=input]; handleSelectFeature clears the seed [T-21-12 no stale bleed]; onLaunchSaved={handleLaunchSaved} passed to WorkflowCatalog; initialAgentIds/initialModelOverrides threaded to IdeaInputPage; handleRunPipeline UNTOUCHED [no engine/run-path fork, SC-001]. ts-z2.saved-workflows.spec.ts [NEW, tier enterprise]: TS-Z2-01 compose custom [catalog '+ Create workflow'→composer→Advanced→'+ Add agent'→AgentLibrary '+ Add'→'Save workflow'→NameWorkflowModal] asserts POST fired with base_pipeline_type=custom + non-empty agent_ids; TS-Z2-02 saved row appears in 'Your workflows' [stateful GET] → rename via kebab→NameWorkflowModal prefilled→PATCH label updates → launch the row → IdeaInputPage PRE-LOADED [2 seeded agents, Run enabled, NOT 'Add agents first']. Stateful per-spec mock of **/api/user-workflows** [double-star so PATCH/DELETE on /{id} match, not the catch-all] registered AFTER goto [reverse-precedence]; fixtures/ untouched. PROVEN: tsc clean for touched files [only the 2 pre-existing e2e/fixtures/mockApi.ts TS2352 errors remain — out of scope]; e2e 2/2 green; vitest regression 12/12 green [IdeaInputPage.modelOverrides + DashboardLayout.waveMount + WorkflowCatalog]; SC-001 grep 'if (saved'=0; FE-only diff. Commits e49ccac7 [feat task1 preload props+guard] + e6b38a9b [feat task2 handleLaunchSaved+wiring] + 569aa93d [fix Rule-1 ALL_LIBRARY_AGENTS seed] + 1c42455c [test task3 mocked Playwright]); resume file: none.
 
