@@ -17,6 +17,7 @@ import {
   getCapabilities as fetchCapabilities,
   getToken,
   type CapabilityEntry,
+  type CapabilityModelEntry,
 } from "@/lib/api";
 import type { AgentDef, WorkflowType, AttachedSkill, AttachedHook } from "@/types/index";
 import { SKILLS, SKILL_CATEGORIES, type SkillDef } from "@/data/skills";
@@ -47,6 +48,14 @@ interface AgentsPopupProps {
    * omit to ignore per-agent model selection (payload stays byte-identical).
    */
   onModelOverridesChange?: (modelOverrides: Record<string, string>) => void;
+  /**
+   * EMP-01 (D-05) — the per-agent Advanced expander's compact selections map
+   * (agentId -> {validators?, gates?, model?, retry?}). Reported upward so
+   * IdeaInputPage can thread it into the save payload as `selections` (the EXACT
+   * shape 22-04 persists in manifest_json and `_apply_selections` consumes).
+   * Additive — omit to ignore advanced lever selection.
+   */
+  onSelectionsChange?: (selections: SelectionsMap) => void;
   /**
    * WR-01 (LAUNCH-EXISTING-PATH §4.6) — seed the AgentModelPicker's internal
    * overrides map when launching a saved workflow, so editing one agent's model
@@ -996,6 +1005,350 @@ export function CapabilityPaletteSection({
 }
 
 
+// ─── AdvancedExpander (EMP-01 / EMP-04, D-05/D-06/D-07) ───────────────────────
+
+/**
+ * The compact per-step selections map the composer authors — the EXACT shape
+ * 22-04 persists in `manifest_json` and `_apply_selections` overlays onto the
+ * file-compiled plan BY AGENT_ID (generic, name-free; SC-001). An unselected
+ * lever omits its key (parity with the "Default" model semantics).
+ */
+export type StepSelection = {
+  validators?: string[];
+  gates?: string[];
+  model?: string;
+  retry?: number;
+};
+export type SelectionsMap = Record<string, StepSelection>;
+
+/**
+ * EMP-04 (D-07) coupling — MIRRORS the server-side rule in
+ * `backend/agents/workflows/selections.py`: a step that selects ≥1 validator
+ * REQUIRES the `validation` gate (the registered seam that actually runs a
+ * step's declared validators). The composer auto-attaches it here so the user
+ * sees the coupling inline; the compiler's §13 coupling check stays the
+ * authoritative server backstop (it RAISES on a missing gate — never
+ * auto-injects, RESEARCH anti-pattern).
+ */
+const COUPLED_GATE = "validation";
+const COUPLED_GATE_LABEL = "validation";
+
+/** The retry lever options (max_attempts). 0/unset ⇒ no retry override. */
+const RETRY_OPTIONS = [1, 2, 3];
+
+/**
+ * Per-agent "Advanced" expander (collapsed by default; D-05, agent ≈ step).
+ * Exposes the representative lever-set — Validator → Gate → Model → Retry
+ * (EMP-01) — sourced ENTIRELY from the live `/api/capabilities` palette payload
+ * (user_allowed caps of the relevant kinds + the model catalog), never a
+ * hardcoded option list (SC-001). Selecting a lever updates a per-step
+ * selections map reported upward via `onSelectionsChange` (pure data — no new
+ * run endpoint). Selecting a validator auto-attaches the `validation` gate
+ * inline + announces it (EMP-04, `role="status"`).
+ *
+ * Exported so it can be render-tested in isolation; it remains EMBEDDED in the
+ * AgentsPopup composer.
+ */
+export function AdvancedExpander({
+  agents,
+  onSelectionsChange,
+  token,
+}: {
+  agents: { id: string; name: string }[];
+  /** Reports the compact per-step selections map upward (the 22-04 shape). */
+  onSelectionsChange?: (selections: SelectionsMap) => void;
+  /** Optional JWT override (defaults to the stored token), mirroring the picker. */
+  token?: string | null;
+}) {
+  const [validatorOptions, setValidatorOptions] = useState<string[]>([]);
+  const [gateOptions, setGateOptions] = useState<string[]>([]);
+  const [modelOptions, setModelOptions] = useState<CapabilityModelEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [selections, setSelections] = useState<SelectionsMap>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    const jwt = token ?? getToken();
+    if (!jwt) {
+      setError("Not authenticated.");
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    fetchCapabilities(jwt)
+      .then((palette) => {
+        if (cancelled) return;
+        // Lever OPTIONS come from the palette payload (kind-keyed), filtered to
+        // user_allowed caps of the relevant kinds — NEVER a hardcoded list
+        // (SC-001). A locked (user_allowed=false) cap is never an option.
+        setValidatorOptions(
+          palette.capabilities
+            .filter((c) => c.kind === "validator" && c.user_allowed)
+            .map((c) => c.name),
+        );
+        setGateOptions(
+          palette.capabilities
+            .filter((c) => c.kind === "gate" && c.user_allowed)
+            .map((c) => c.name),
+        );
+        // DECIDE-02: the model lever offers the WHOLE catalog (all tiers).
+        setModelOptions(palette.model_catalog);
+        setError(null);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setError(e?.message ?? "Failed to load capabilities.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  const toggle = (agentId: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(agentId)) next.delete(agentId);
+      else next.add(agentId);
+      return next;
+    });
+
+  // Apply a lever change → rebuild the selection for one agent, omitting any
+  // unset key (parity with "Default"), and report the whole map upward.
+  const updateLever = (
+    agentId: string,
+    patch: Partial<StepSelection>,
+  ) =>
+    setSelections((prev) => {
+      const cur: StepSelection = { ...(prev[agentId] ?? {}) };
+      // Apply the patch; an empty/undefined value clears the key (no override).
+      for (const [k, v] of Object.entries(patch)) {
+        const key = k as keyof StepSelection;
+        if (v === undefined || v === "" || (Array.isArray(v) && v.length === 0)) {
+          delete cur[key];
+        } else {
+          // @ts-expect-error — keyed assignment across the union is safe here.
+          cur[key] = v;
+        }
+      }
+      // EMP-04 (D-07): a validator selection requires the `validation` gate.
+      // Auto-attach it (deduped) so the validators actually fire at run time —
+      // mirroring selections.py. Removing all validators drops the auto gate
+      // unless the user explicitly picked it.
+      if (cur.validators && cur.validators.length > 0) {
+        const gates = new Set(cur.gates ?? []);
+        gates.add(COUPLED_GATE);
+        cur.gates = Array.from(gates);
+      }
+      const next: SelectionsMap = { ...prev };
+      if (Object.keys(cur).length === 0) delete next[agentId];
+      else next[agentId] = cur;
+      onSelectionsChange?.(next);
+      return next;
+    });
+
+  if (loading) {
+    return (
+      <div className="flex flex-col">
+        <p className="text-[11px] text-gray-400 py-2">Loading levers…</p>
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="flex items-center gap-1.5 text-[11px] text-red-600 bg-red-50 rounded-lg px-2.5 py-1.5">
+        <AlertCircle className="h-3 w-3 flex-shrink-0" />
+        {error}
+      </div>
+    );
+  }
+  if (agents.length === 0) {
+    return (
+      <p className="text-[11px] text-gray-400 py-2">
+        Add agents to assign per-agent levers.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col space-y-1.5 max-h-[240px] overflow-y-auto pr-1">
+      {agents.map((agent) => {
+        const isOpen = expanded.has(agent.id);
+        const region = `advanced-${agent.id}`;
+        const sel = selections[agent.id] ?? {};
+        const autoAttached =
+          (sel.validators?.length ?? 0) > 0 &&
+          (sel.gates ?? []).includes(COUPLED_GATE);
+        return (
+          <div key={agent.id} className="flex flex-col">
+            <button
+              type="button"
+              onClick={() => toggle(agent.id)}
+              aria-expanded={isOpen}
+              aria-controls={region}
+              className="flex items-center gap-1.5 text-left text-[11px] font-semibold text-gray-700 hover:text-[#1B2A4A] py-1"
+            >
+              {isOpen ? (
+                <ChevronDown className="h-3 w-3 flex-shrink-0" />
+              ) : (
+                <ChevronRight className="h-3 w-3 flex-shrink-0" />
+              )}
+              <Settings2 className="h-3 w-3 flex-shrink-0 text-[#1B2A4A]" />
+              <span className="truncate flex-1 min-w-0">
+                Advanced — {agent.name}
+              </span>
+              <span className="text-[9px] text-gray-400 flex-shrink-0">
+                Validator · Gate · Model · Retry
+              </span>
+            </button>
+
+            {isOpen && (
+              <div id={region} className="space-y-1.5 pl-4">
+                {/* Validator lever (EMP-01) */}
+                <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-1.5">
+                  <label
+                    htmlFor={`${region}-validator`}
+                    className="text-[11px] font-semibold text-gray-700 flex-1 min-w-0"
+                  >
+                    Validator
+                  </label>
+                  <select
+                    id={`${region}-validator`}
+                    aria-label={`Validator for ${agent.name}`}
+                    value={sel.validators?.[0] ?? ""}
+                    onChange={(e) =>
+                      updateLever(agent.id, {
+                        validators: e.target.value ? [e.target.value] : [],
+                      })
+                    }
+                    className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-[#1B2A4A] max-w-[140px]"
+                  >
+                    <option value="">Default</option>
+                    {validatorOptions.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Gate lever (EMP-01) */}
+                <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-1.5">
+                  <label
+                    htmlFor={`${region}-gate`}
+                    className="text-[11px] font-semibold text-gray-700 flex-1 min-w-0"
+                  >
+                    Gate
+                  </label>
+                  <select
+                    id={`${region}-gate`}
+                    aria-label={`Gate for ${agent.name}`}
+                    value={
+                      // Show the user-picked gate (the one that is NOT the
+                      // auto-attached coupling gate) as the select value.
+                      (sel.gates ?? []).find((g) => g !== COUPLED_GATE) ?? ""
+                    }
+                    onChange={(e) => {
+                      const picked = e.target.value;
+                      const keepCoupled =
+                        (sel.validators?.length ?? 0) > 0 ? [COUPLED_GATE] : [];
+                      const gates = picked
+                        ? [...keepCoupled, picked]
+                        : keepCoupled;
+                      updateLever(agent.id, { gates });
+                    }}
+                    className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-[#1B2A4A] max-w-[140px]"
+                  >
+                    <option value="">Default</option>
+                    {gateOptions.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Model lever (EMP-01 / DECIDE-02) */}
+                <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-1.5">
+                  <label
+                    htmlFor={`${region}-model`}
+                    className="text-[11px] font-semibold text-gray-700 flex-1 min-w-0"
+                  >
+                    Model
+                  </label>
+                  <select
+                    id={`${region}-model`}
+                    aria-label={`Model for ${agent.name}`}
+                    value={sel.model ?? ""}
+                    onChange={(e) =>
+                      updateLever(agent.id, { model: e.target.value })
+                    }
+                    className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-[#1B2A4A] max-w-[140px]"
+                  >
+                    <option value="">Default</option>
+                    {modelOptions.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Retry lever (EMP-01) */}
+                <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-1.5">
+                  <label
+                    htmlFor={`${region}-retry`}
+                    className="text-[11px] font-semibold text-gray-700 flex-1 min-w-0"
+                  >
+                    Retry
+                  </label>
+                  <select
+                    id={`${region}-retry`}
+                    aria-label={`Retry for ${agent.name}`}
+                    value={sel.retry ?? ""}
+                    onChange={(e) =>
+                      updateLever(agent.id, {
+                        retry: e.target.value
+                          ? Number(e.target.value)
+                          : undefined,
+                      })
+                    }
+                    className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-[#1B2A4A] max-w-[140px]"
+                  >
+                    <option value="">Default</option>
+                    {RETRY_OPTIONS.map((n) => (
+                      <option key={n} value={n}>
+                        {n} {n === 1 ? "attempt" : "attempts"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* EMP-04 (D-07): auto-attach inline notice — a polite live
+                    region so the gate-added message is announced. */}
+                {autoAttached && (
+                  <div
+                    role="status"
+                    className="flex items-center gap-1.5 text-[10px] text-[#1B2A4A] bg-[#1B2A4A]/5 border border-[#1B2A4A]/15 rounded-md px-2 py-1"
+                  >
+                    <Info className="h-3 w-3 flex-shrink-0" />
+                    Added required {COUPLED_GATE_LABEL} gate — this capability
+                    needs it.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── AgentsPopup (main) ───────────────────────────────────────────────────────
 
 const COLS = 3;
@@ -1004,6 +1357,7 @@ export function AgentsPopup({
   isOpen, onClose, agents, pipelineType,
   onAddAgent, onRemoveAgent, onReorder, canAddMore = true,
   onModelOverridesChange, initialModelOverrides,
+  onSelectionsChange,
   declaredCapabilities,
 }: AgentsPopupProps) {
   const { attachedSkills, attachedHooks } = useSkillsHooks();
@@ -1262,6 +1616,25 @@ export function AgentsPopup({
                     agents={agents.map((a) => ({ id: a.id, name: a.name }))}
                     onChange={onModelOverridesChange}
                     initialOverrides={initialModelOverrides}
+                  />
+                </div>
+
+                {/* EMP-01/04 (D-05/D-06/D-07): the per-agent Advanced expander —
+                    Validator → Gate → Model → Retry levers sourced from the live
+                    palette (user_allowed caps + the model catalog). The compact
+                    selections map threads up via onSelectionsChange →
+                    IdeaInputPage save payload → 22-04 manifest_json. A validator
+                    selection auto-attaches the validation gate inline. */}
+                <div className="mx-6 mb-4 px-1 flex-shrink-0">
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <Settings2 className="h-3.5 w-3.5 text-[#1B2A4A]" />
+                    <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">
+                      Advanced
+                    </p>
+                  </div>
+                  <AdvancedExpander
+                    agents={agents.map((a) => ({ id: a.id, name: a.name }))}
+                    onSelectionsChange={onSelectionsChange}
                   />
                 </div>
 

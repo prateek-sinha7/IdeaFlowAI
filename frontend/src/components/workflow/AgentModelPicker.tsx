@@ -15,7 +15,9 @@
  * an unselected agent simply keeps the run default (no override emitted).
  *
  * Models come from the live registry catalog (id/label/tier), never a hardcoded
- * list; only `user_allowed` models are offered.
+ * list. DECIDE-02 (D-23): premium models are offered to ALL tiers — the picker
+ * lists every catalog entry; the server `_validate_model_overrides` (22-04) is
+ * the authoritative allow-list.
  */
 
 import { useEffect, useState } from "react";
@@ -72,8 +74,12 @@ export function AgentModelPicker({
     getCapabilities(jwt)
       .then((palette) => {
         if (cancelled) return;
-        // Only offer user-allowed models in the picker.
-        setModels(palette.model_catalog.filter((m) => m.user_allowed));
+        // DECIDE-02 (D-23): premium models are offered to ALL tiers — the
+        // `user_allowed` tier filter that used to gate premium catalog entries
+        // out of non-premium tiers is dropped. Every catalog entry the registry
+        // returns is offered; the authoritative allow-list stays the server-side
+        // `_validate_model_overrides` (22-04), not this picker.
+        setModels(palette.model_catalog);
         setError(null);
       })
       .catch((e) => {

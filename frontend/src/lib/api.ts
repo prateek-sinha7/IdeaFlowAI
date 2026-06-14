@@ -626,6 +626,15 @@ export async function createUserWorkflow(
     base_pipeline_type: string;
     agent_ids: string[];
     model_overrides?: Record<string, string>;
+    /**
+     * EMP-01/03 (D-05/D-11) — the per-agent Advanced-expander selections map
+     * (agentId -> {validators?, gates?, model?, retry?, ...}). The compact shape
+     * 22-04 persists verbatim in `manifest_json` and `_apply_selections` overlays
+     * onto the file-compiled plan by agent_id. Omitted when empty (the payload
+     * stays byte-identical — INV-3). The server re-compiles `trust="user"`
+     * before persisting (the authoritative CAP-03 backstop).
+     */
+    selections?: Record<string, Record<string, unknown>>;
   }
 ): Promise<UserWorkflowSummary> {
   return request<UserWorkflowSummary>("/api/user-workflows", {

@@ -222,6 +222,21 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     modelOverridesRef.current = overrides;
   }, []);
 
+  // EMP-01 (D-05) — the per-agent Advanced-expander selections map. Held in a
+  // ref (like model_overrides) so the popup reporting a selection doesn't
+  // re-render this page, and so `handleSaveWorkflow` always reads the latest.
+  // An empty map ⇒ we omit `selections` entirely (the save payload stays
+  // byte-identical — INV-3). Threads into the createUserWorkflow payload as the
+  // EXACT compact shape 22-04 persists in manifest_json; `onRun`/launch stay
+  // pure data (SC-001).
+  const selectionsRef = useRef<Record<string, Record<string, unknown>>>({});
+  const handleSelectionsChange = useCallback(
+    (selections: Record<string, Record<string, unknown>>) => {
+      selectionsRef.current = selections;
+    },
+    [],
+  );
+
   useEffect(() => {
     // Phase 21 (gotcha #1) — GUARD: when launching a saved workflow the seed lives
     // in `pipelineAgents` already; the empty-for-custom re-derive would clobber it
@@ -283,6 +298,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
       return;
     }
     const overrides = modelOverridesRef.current;
+    const selections = selectionsRef.current;
     try {
       await createUserWorkflow(jwt, {
         name,
@@ -290,6 +306,9 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
         base_pipeline_type: effectiveType,
         agent_ids: pipelineAgents.map((a) => a.id),
         model_overrides: Object.keys(overrides).length > 0 ? overrides : undefined,
+        // EMP-01/03: the Advanced-expander selections (omitted when empty so the
+        // payload stays byte-identical). Server re-compiles trust="user" (22-04).
+        selections: Object.keys(selections).length > 0 ? selections : undefined,
       });
       setSavedConfirm(true);
       setTimeout(() => setSavedConfirm(false), 2500);
@@ -585,6 +604,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
         onReorder={handleReorderAgents}
         canAddMore={canAddMore}
         onModelOverridesChange={handleModelOverridesChange}
+        onSelectionsChange={handleSelectionsChange}
         initialModelOverrides={initialModelOverrides}
       />
     </div>
