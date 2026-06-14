@@ -5,12 +5,16 @@ import { motion } from "motion/react";
 import {
   ArrowLeft, ArrowRight, Paperclip, File, X, FileText,
   Presentation, Layout, Settings2, Mic, MicOff, GitBranch,
+  Save, Check,
 } from "lucide-react";
 import { AgentsPopup } from "./AgentsPopup";
 import { ReviewGatesSection } from "./ReviewGatesSection";
 import { LIBRARY_AGENTS } from "./AgentLibraryData";
+import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
+import { createUserWorkflow, getToken } from "@/lib/api";
+import { AnimatePresence } from "motion/react";
 import type { WorkflowType, AgentDef, AttachedSkill, AttachedHook } from "@/types/index";
 
 // Migration is a meta-pipeline: the home page sends `workflowType="migration"`
@@ -238,6 +242,38 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
     onRun(ideaInput.trim(), pipelineAgents.map((a) => a.id), effectiveType, extraParams);
   };
 
+  // Phase 21 (SAVE-FROM-BOTH composer entry) — "Save workflow" persists the
+  // composer as a named, reusable workflow. The payload is the EXACT triple
+  // `onRun` already sends — base_pipeline_type, agent_ids, model_overrides —
+  // so saving is pure data: no new pipeline name, no `if saved_workflow:` fork
+  // (SC-001). Server re-validates with the launch predicates (save == launch).
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [savedConfirm, setSavedConfirm] = useState(false);
+  const handleSaveWorkflow = async (name: string, description: string) => {
+    setShowSaveModal(false);
+    setSaveError(null);
+    const jwt = getToken();
+    if (!jwt) {
+      setSaveError("Not authenticated.");
+      return;
+    }
+    const overrides = modelOverridesRef.current;
+    try {
+      await createUserWorkflow(jwt, {
+        name,
+        description: description || undefined,
+        base_pipeline_type: effectiveType,
+        agent_ids: pipelineAgents.map((a) => a.id),
+        model_overrides: Object.keys(overrides).length > 0 ? overrides : undefined,
+      });
+      setSavedConfirm(true);
+      setTimeout(() => setSavedConfirm(false), 2500);
+    } catch (e) {
+      setSaveError((e as Error)?.message ?? "Failed to save workflow.");
+    }
+  };
+
   const defaultAgentIds = new Set(LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).map((a) => a.id));
   const optionalAgentCount = pipelineAgents.filter((a) => !defaultAgentIds.has(a.id)).length;
   const maxOptional = effectiveType === "custom" ? 8 : 5;
@@ -383,20 +419,54 @@ export function IdeaInputPage({ workflowType, onBack, onRun }: IdeaInputPageProp
                 )}
               </div>
 
-              {/* Run button */}
-              <button
-                onClick={handleRun}
-                disabled={!ideaInput.trim() || pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
-                className="flex items-center gap-2 rounded-xl bg-gray-900 text-white px-5 py-2.5 text-[13px] font-semibold hover:bg-gray-800 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                {pipelineAgents.length === 0
-                  ? "Add agents first"
-                  : isMigrationMeta && !migrationChoice
-                  ? "Pick a migration path"
-                  : "Run workflow"}
-                <ArrowRight className="h-4 w-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Save workflow — SAVE-FROM-BOTH composer entry (Phase 21).
+                    Reuses the gray-900 pill style; persists the composer triple. */}
+                {savedConfirm ? (
+                  <span className="flex items-center gap-1.5 rounded-xl px-3 py-2.5 text-[12px] font-semibold text-green-600 bg-green-50 border border-green-100">
+                    <Check className="h-3.5 w-3.5" /> Saved
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => { setSaveError(null); setShowSaveModal(true); }}
+                    disabled={pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
+                    className="flex items-center gap-1.5 rounded-xl border border-gray-200 px-4 py-2.5 text-[12px] font-medium text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Save this composition as a reusable workflow"
+                  >
+                    <Save className="h-3.5 w-3.5" /> Save workflow
+                  </button>
+                )}
+
+                {/* Run button */}
+                <button
+                  onClick={handleRun}
+                  disabled={!ideaInput.trim() || pipelineAgents.length === 0 || (isMigrationMeta && !migrationChoice)}
+                  className="flex items-center gap-2 rounded-xl bg-gray-900 text-white px-5 py-2.5 text-[13px] font-semibold hover:bg-gray-800 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  {pipelineAgents.length === 0
+                    ? "Add agents first"
+                    : isMigrationMeta && !migrationChoice
+                    ? "Pick a migration path"
+                    : "Run workflow"}
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              </div>
             </div>
+
+            {saveError && (
+              <div className="px-4 pb-3 -mt-1 text-[11px] text-red-600">{saveError}</div>
+            )}
+
+            {/* Save modal — reuses NameWorkflowModal (Phase 21). */}
+            <AnimatePresence>
+              {showSaveModal && (
+                <NameWorkflowModal
+                  title="Save workflow"
+                  onSave={handleSaveWorkflow}
+                  onCancel={() => setShowSaveModal(false)}
+                />
+              )}
+            </AnimatePresence>
           </div>
         </motion.div>
 
