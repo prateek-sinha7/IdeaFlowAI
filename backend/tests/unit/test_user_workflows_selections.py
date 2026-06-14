@@ -322,3 +322,109 @@ def test_emp01_retry_activates_under_injected_transient_fault(monkeypatch):
     assert "step_retry" in types          # retry ACTIVATED (would be absent if dormant)
     assert "step_completed" in types       # recovered after the transient fault
     assert strategy.calls == 2             # exactly one retry then success
+
+
+# ---------------------------------------------------------------------------
+# CR-01 / WR-04 — a per-step ``model`` selection NOT in the ModelCatalog allow-list
+# is rejected at BOTH save and launch (the model-id allow-list bypass).
+# ---------------------------------------------------------------------------
+
+_DISALLOWED_MODEL = "openai-gpt-totally-not-allowed"
+
+
+def test_save_rejects_disallowed_selection_model(api):
+    """A selection ``model`` id outside the catalog → 422 at SAVE (no orphan row)."""
+    client, _ = api
+    selections = {_AGENT_A: {"model": _DISALLOWED_MODEL}}
+    r = client.post("/api/user-workflows", json=_save_body(selections))
+    assert r.status_code == 422, r.text
+    detail = r.json()["detail"].lower()
+    assert "not an allowed model" in detail
+    assert _DISALLOWED_MODEL in r.json()["detail"]
+    # No orphan config persisted.
+    assert client.get("/api/user-workflows").json() == []
+
+
+def test_save_accepts_allowed_selection_model(api):
+    """A catalog model id still saves cleanly (the check is not over-broad)."""
+    client, _ = api
+    selections = {_AGENT_A: {"model": _NON_DEFAULT_MODEL}}
+    r = client.post("/api/user-workflows", json=_save_body(selections))
+    assert r.status_code == 201, r.text
+
+
+def test_launch_rejects_disallowed_selection_model():
+    """A crafted/tampered selections payload requesting a disallowed model id is
+    rejected at LAUNCH before execute (CR-01 — the WS chokepoint)."""
+    tampered = {_AGENT_A: {"model": _DISALLOWED_MODEL}}
+    err = _revalidate_selections_trust_user("custom", [_AGENT_A, _AGENT_B], tampered)
+    assert err is not None
+    assert "not an allowed model" in err.lower()
+    assert _DISALLOWED_MODEL in err
+
+
+def test_launch_accepts_allowed_selection_model():
+    clean = {_AGENT_A: {"model": _NON_DEFAULT_MODEL}}
+    assert _revalidate_selections_trust_user("custom", [_AGENT_A], clean) is None
+
+
+def test_model_resolver_rejects_disallowed_step_model():
+    """Defense-in-depth (CR-01): even if a disallowed id reaches a compiled Step,
+    the ModelResolver tier-2 catalog check refuses it before build_model."""
+    from agents.model_policy import ModelResolver
+    from agents.workflows.plan import ModelPolicy, Step
+
+    step = Step(agent_id=_AGENT_A, strategy="single_shot",
+                model=ModelPolicy(model=_DISALLOWED_MODEL))
+
+    class _Spec:
+        id = _AGENT_A
+        model = None
+
+    resolver = ModelResolver(haiku_default=_DEFAULT_MODEL)
+    with pytest.raises(ValueError, match="not a known, allowed catalog model"):
+        resolver.resolve(_Spec(), step)
+
+
+# ---------------------------------------------------------------------------
+# CR-02 — a Retry lever emitted as a BARE numeric value (the FE <select> value)
+# is coerced to the compiler's ``{max_attempts: N}`` shape so save+launch succeed
+# and the RESUME-02 retry wrapper is reachable.
+# ---------------------------------------------------------------------------
+
+
+def test_save_accepts_bare_numeric_retry(api):
+    """The FE emits ``retry`` as a bare value; save must NOT 422 (it is coerced)."""
+    client, _ = api
+    for retry_value in (2, "3"):
+        selections = {_AGENT_A: {"retry": retry_value}}
+        r = client.post("/api/user-workflows",
+                        json=_save_body(selections, name=f"wf-{retry_value}"))
+        assert r.status_code == 201, r.text
+
+
+def test_launch_accepts_bare_numeric_retry():
+    selections = {_AGENT_A: {"retry": 2}}
+    assert _revalidate_selections_trust_user("custom", [_AGENT_A], selections) is None
+
+
+def test_bare_retry_coerces_and_reaches_compiled_step():
+    """A bare numeric retry overlays a live ``RetryPolicy(max_attempts=N>0)`` onto the
+    compiled step — proving the RESUME-02 wrapper is reachable end-to-end (CR-02)."""
+    from agents.execution_engine.engine import ExecutionEngine, compile_for_run
+
+    selections = {_AGENT_A: {"retry": 4}}
+    overlaid = ExecutionEngine._apply_selections(compile_for_run("custom"), selections)
+    step = next(s for s in overlaid.steps if s.agent_id == _AGENT_A)
+    assert step.retry is not None and step.retry.max_attempts == 4
+
+
+def test_zero_retry_omits_no_wrapper():
+    """A 0 / unset retry is treated as 'no retry' (omitted) — parity, the wrapper
+    stays dormant (no step_retry path)."""
+    from agents.workflows.selections import _coerce_retry, _synthesize_step
+
+    assert _coerce_retry(0) is None
+    assert _coerce_retry("0") is None
+    step = _synthesize_step(_AGENT_A, {"retry": 0})
+    assert "retry" not in step

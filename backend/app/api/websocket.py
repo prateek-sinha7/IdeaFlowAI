@@ -174,10 +174,23 @@ def _revalidate_selections_trust_user(
     human-readable error message naming the offending ``(kind, name)`` (the caller
     emits the existing error-event shape and refuses the run before execute).
     """
-    from agents.workflows.selections import has_selections
+    from agents.workflows.selections import (
+        has_selections,
+        validate_selection_model_ids,
+    )
 
     if not has_selections(selections):
         return None
+
+    # CR-01: a per-step ``model`` selection takes a different route than the
+    # ``model_overrides`` map and is never catalog-validated by the trust=user
+    # compile (the compiler accepts any string model id). Enforce the SAME allow-list
+    # the MODEL-03 chokepoint applies, at the LAUNCH chokepoint, before execute — so a
+    # crafted ``run_pipeline`` selections payload cannot route to an unintended /
+    # disallowed provider via ``build_model``.
+    _model_error = validate_selection_model_ids(selections)
+    if _model_error is not None:
+        return _model_error
 
     from agents.capabilities.registry import CapabilityRegistry
     from agents.workflows.compiler import CompilerError, WorkflowCompiler
@@ -516,7 +529,7 @@ async def websocket_chat(websocket: WebSocket):
         await websocket.accept(subprotocol=echo_subprotocol)
     else:
         await websocket.accept()
-    print(f"[WS] Connection accepted via {auth_method}, validating token...")
+    logger.debug("[WS] Connection accepted via %s, validating token...", auth_method)
 
     # Validate JWT and get user
     db = _get_db()
@@ -532,7 +545,7 @@ async def websocket_chat(websocket: WebSocket):
         db.close()
 
     logger.info(f"WebSocket connected: user={user.id}")
-    print(f"[WS] Authenticated user={user.id}, entering message loop")
+    logger.debug("[WS] Authenticated user=%s, entering message loop", user.id)
 
     # Track the in-flight pipeline (if any) for this connection. Pipelines run
     # as background tasks so the receive loop stays responsive — that's what
@@ -573,7 +586,10 @@ async def websocket_chat(websocket: WebSocket):
 
             # Handle pipeline execution requests
             if msg_type == "run_pipeline":
-                print(f"[WS] Received run_pipeline: type={message_data.get('pipeline_type')}")
+                logger.debug(
+                    "[WS] Received run_pipeline: type=%s",
+                    message_data.get("pipeline_type"),
+                )
                 # Reject overlapping runs — the UI should never send a second
                 # run_pipeline while one is in flight, but a misbehaving client
                 # or a double-click race would otherwise spawn parallel

@@ -102,6 +102,19 @@ class ModelResolver:
             or self._session_model_id                                       # 5a session model_id
             or self._haiku_default                                          # 5b global Haiku
         )
+        # CR-01 defense-in-depth: catalog-validate tier-2 ``step.model`` when it is
+        # the SELECTED tier. ``step.model`` originates from a user-composed
+        # ``selections`` map (synth → compiler ``_compile_model_policy``, which accepts
+        # any string id). The WS / save chokepoints now allow-list it, but the kernel
+        # must never trust an unvalidated id regardless of caller — so the resolver is
+        # the last line before ``build_model``. (Tier-1 ``override`` is validated at the
+        # MODEL-03 ingress chokepoint; lower tiers 4/5 are catalog-trusted upstream.)
+        if override is None and step_model is not None:
+            if not self._catalog.is_allowed(step_model):
+                raise ValueError(
+                    f"step.model {step_model!r} for agent "
+                    f"{getattr(spec, 'id', '?')!r} is not a known, allowed catalog model"
+                )
         # Validate tier 3 ONLY when no higher-precedence tier resolved — i.e. when
         # AgentSpec.model is actually the selected tier. An invalid AGENT.md model
         # id must not block a run that a tier-1 override or tier-2 step.model would

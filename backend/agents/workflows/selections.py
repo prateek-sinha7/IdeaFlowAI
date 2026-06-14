@@ -46,6 +46,35 @@ _LEVER_KEYS: frozenset[str] = frozenset(
 )
 
 
+def _coerce_retry(retry: object) -> dict | None:
+    """Coerce a per-step ``retry`` selection into the compiler's mapping shape (CR-02).
+
+    The FE emits ``retry`` as a bare value (a ``<select>`` ``e.target.value`` string,
+    or a number once coerced FE-side). The compiler's ``_compile_retry_policy`` requires
+    a ``{"max_attempts": N, ...}`` mapping. This bridges the two shapes at the SINGLE
+    synth seam so save and launch behave identically:
+
+      - an ``int``/``float`` (or a numeric ``str``) → ``{"max_attempts": int(n)}``;
+        ``0`` (or a non-positive value) → ``None`` (no retry — omit the key).
+      - a ``dict`` → passed through unchanged (the compiler validates/strict-key-checks
+        it; an explicit ``{"max_attempts": 0}`` keeps the compiler's own semantics).
+      - anything else → passed through unchanged so the compiler raises NAMING it
+        (this module never silently drops an unknown shape — INV-5).
+    """
+    if isinstance(retry, bool):  # bool is an int subclass — never a retry count
+        return retry  # type: ignore[return-value]  # let the compiler reject it
+    if isinstance(retry, (int, float)):
+        n = int(retry)
+        return {"max_attempts": n} if n > 0 else None
+    if isinstance(retry, str):
+        try:
+            n = int(retry.strip())
+        except (ValueError, AttributeError):
+            return retry  # type: ignore[return-value]  # non-numeric → compiler rejects
+        return {"max_attempts": n} if n > 0 else None
+    return retry  # type: ignore[return-value]  # dict (or other) → compiler handles
+
+
 def _synthesize_step(agent_id: str, sel: dict | None) -> dict:
     """Build ONE raw step dict for ``agent_id`` from its selections (EMP-04 coupling).
 
@@ -86,7 +115,15 @@ def _synthesize_step(agent_id: str, sel: dict | None) -> dict:
 
     retry = sel.get("retry")
     if retry is not None:
-        step["retry"] = retry
+        # CR-02: the FE emits ``retry`` as a bare scalar (the ``<select>`` value),
+        # but the compiler's ``_compile_retry_policy`` requires a mapping. Coerce a
+        # numeric (or numeric-string) scalar into the canonical
+        # ``{"max_attempts": N}`` shape; pass an explicit dict through unchanged.
+        # 0 / empty → "no retry" (omit the key so the RESUME-02 wrapper stays
+        # dormant — parity with a step that declared no retry).
+        coerced = _coerce_retry(retry)
+        if coerced is not None:
+            step["retry"] = coerced
 
     for key in ("injects", "compaction", "post_step", "fix", "fanout",
                 "on_conflict", "tools", "hooks", "task_source", "depends_on"):
@@ -142,6 +179,40 @@ def synthesize_manifest(
         clarify={"mode": "auto", "defaults": []},
         limits=wf_limits,
     )
+
+
+def validate_selection_model_ids(selections: dict | None) -> str | None:
+    """Reject any per-step ``model`` selection not in the ModelCatalog allow-list.
+
+    CR-01 / WR-04 (the model-id allow-list bypass): a per-step ``model`` supplied via
+    ``selections`` takes a DIFFERENT route than the ``model_overrides`` map
+    (``_synthesize_step`` → ``_compile_model_policy``), which accepts any string id —
+    so an unknown / disallowed / unintended-provider id would otherwise flow straight
+    into ``build_model``. This walks the selections and enforces the SAME allow-list
+    (``ModelCatalog().is_allowed`` — which also consults ``user_allowed``, IN-02) that
+    ``_validate_model_overrides`` applies, so save and launch reject identically.
+
+    Returns ``None`` when every selection model is allowed (or none is set), else a
+    human-readable error string in the same shape the caller's other rejections use.
+    Pure data: imports only the kernel-pure catalog (no app.* reach, INV legal direction).
+    """
+    if not selections:
+        return None
+    from agents.capabilities.model_catalog import ModelCatalog
+
+    catalog = ModelCatalog()
+    for agent_id, sel in selections.items():
+        if not isinstance(sel, dict):
+            continue  # malformed per-agent entry — the trust=user compile rejects it
+        model = sel.get("model")
+        if model is None:
+            continue
+        if not isinstance(model, str) or not catalog.is_allowed(model):
+            return (
+                f"selection for {agent_id!r} requests model {model!r}, "
+                f"which is not an allowed model"
+            )
+    return None
 
 
 def has_selections(selections: dict | None) -> bool:

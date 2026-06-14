@@ -173,10 +173,24 @@ def _compile_selections_trust_user(
 
     from agents.capabilities.registry import CapabilityRegistry
     from agents.workflows.compiler import CompilerError, WorkflowCompiler
-    from agents.workflows.selections import has_selections, synthesize_manifest
+    from agents.workflows.selections import (
+        has_selections,
+        synthesize_manifest,
+        validate_selection_model_ids,
+    )
 
     if not has_selections(selections):
         return
+
+    # CR-01 / WR-04: a per-step ``model`` selection bypasses the ``model_overrides``
+    # chokepoint, so catalog-validate it here too (save == launch invariant). Reject
+    # a disallowed / unknown model id at SAVE so it never persists as orphan config.
+    _model_error = validate_selection_model_ids(selections)
+    if _model_error is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Rejected selection: {_model_error}",
+        )
 
     manifest = synthesize_manifest(base_pipeline_type, agent_ids, selections)
     try:
