@@ -99,6 +99,48 @@ class TestList:
         # Names resolve via the membership fallback, not bare agent ids.
         assert all(s["name"] for s in ppt["steps"])
 
+    def test_list_carries_launchable_flags(self, client):
+        # Plan 20-01: launchability is a DECLARED manifest flag surfaced per row,
+        # never a hardcoded name list. The 5 plain-run launchables + prototype/ppt
+        # report user_launchable=true; prototype/ppt additionally carry
+        # launch_surface=="wizard"; everything else stays false.
+        resp = client.get("/api/workflows")
+        assert resp.status_code == 200, resp.text
+        by_id = {w["id"]: w for w in resp.json()}
+
+        launchable_plain = {
+            "app_builder",
+            "user_stories",
+            "custom",
+            "mulesoft_to_springboot",
+            "dotnet_to_azure",
+        }
+        for wid in launchable_plain:
+            assert by_id[wid]["user_launchable"] is True, f"{wid} should be launchable"
+            assert by_id[wid]["launch_surface"] is None, f"{wid} has no wizard surface"
+
+        for wid in ("prototype", "ppt"):
+            assert by_id[wid]["user_launchable"] is True, f"{wid} should be launchable"
+            assert by_id[wid]["launch_surface"] == "wizard", f"{wid} is a wizard tile"
+
+        # Non-launchables: revisions / reverse_engineer / od_* / chat stay false.
+        non_launchable = {
+            wid
+            for wid in by_id
+            if wid.endswith("_revision")
+            or wid in {"reverse_engineer", "chat", "od_ppt"}
+        }
+        assert non_launchable, "expected at least one non-launchable id to assert on"
+        for wid in non_launchable:
+            assert by_id[wid]["user_launchable"] is False, (
+                f"{wid} must NOT be user_launchable"
+            )
+            assert by_id[wid]["launch_surface"] is None
+
+        # display_name is never null for a listed row (falls back to _display_name).
+        for w in by_id.values():
+            assert w["display_name"], f"{w['id']} has empty display_name"
+
     def test_list_does_not_query_workflow_run(self, client):
         # The router imports no DB session; a clean list call must succeed with
         # no get_db override present (proves no WorkflowRun dependency).

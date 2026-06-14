@@ -5,6 +5,8 @@
 # (engine.py:757). Pure data — no control-flow/DSL.
 id: user_stories
 version: 1
+# Catalog (Plan 20-01): declared launchability — inert metadata.
+user_launchable: true
 planner: run
 clarify:
   mode: auto

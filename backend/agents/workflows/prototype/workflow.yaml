@@ -12,6 +12,10 @@
 # engine._pipeline_defaults["prototype"] (engine.py:756).
 id: prototype
 version: 1
+# Catalog (Plan 20-01): declared launchability + wizard launch surface — inert
+# metadata read by GET /api/workflows, never by the compiler/kernel (INV-3 parity).
+user_launchable: true
+launch_surface: "wizard"
 planner: run
 clarify:
   mode: auto

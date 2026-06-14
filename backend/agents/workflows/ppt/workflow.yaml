@@ -6,6 +6,9 @@
 # clarify.defaults verbatim from engine._pipeline_defaults["ppt"] (engine.py:754).
 id: ppt
 version: 1
+# Catalog (Plan 20-01): declared launchability + wizard launch surface — inert.
+user_launchable: true
+launch_surface: "wizard"
 planner: run
 clarify:
   mode: auto

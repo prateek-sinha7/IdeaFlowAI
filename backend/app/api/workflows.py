@@ -33,9 +33,10 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from agents.execution_engine.engine import compile_for_run
+from agents.execution_engine.engine import _WORKFLOWS_DIR, compile_for_run
 from agents.loader import load_agent_spec
 from agents.registry import PIPELINE_AGENTS, get_pipeline_agents
+from agents.workflows.manifest import load_manifest
 from app.core.dependencies import get_current_user
 from app.models.user import User
 
@@ -63,13 +64,23 @@ class WorkflowStepSummary(BaseModel):
 
 
 class WorkflowSummary(BaseModel):
-    """List-view metadata for one authored workflow."""
+    """List-view metadata for one authored workflow.
+
+    The catalog fields (Plan 20-01) are sourced from the DECLARED manifest flag —
+    ``user_launchable`` gates whether the user-facing catalog shows the row (it
+    does NOT authorize a run; launch stays tier-gated server-side, T-20-02). The
+    sibling per-item trust-flag pattern is ``capabilities.py``'s ``user_allowed``.
+    """
 
     id: str
     name: str
     description: str
     step_count: int
     steps: list[WorkflowStepSummary] = Field(default_factory=list)
+    user_launchable: bool = False
+    display_name: Optional[str] = None
+    icon: Optional[str] = None
+    launch_surface: Optional[str] = None
 
 
 class WorkflowStepDetail(BaseModel):
@@ -176,6 +187,14 @@ def list_workflows(
     for workflow_id in PIPELINE_AGENTS:
         compiled = compile_for_run(workflow_id)
         spec_by_id = _spec_by_id(workflow_id)
+        # Additive manifest read for the declared catalog metadata (Plan 20-01).
+        # list_workflows iterates real PIPELINE_AGENTS keys (never aliases), so we
+        # load by the real id directly. A single bad manifest must NOT break the
+        # listing — degrade to defaults (mirrors the _spec_by_id try/except posture).
+        try:
+            manifest = load_manifest(workflow_id, _WORKFLOWS_DIR)
+        except Exception:
+            manifest = None
         step_specs = [
             spec_by_id[s.agent_id]
             for s in compiled.steps
@@ -201,9 +220,19 @@ def list_workflows(
             WorkflowSummary(
                 id=workflow_id,
                 name=_display_name(workflow_id),
-                description=_describe(workflow_id, step_specs),
+                description=(
+                    (manifest.description if manifest else None)
+                    or _describe(workflow_id, step_specs)
+                ),
                 step_count=len(compiled.steps),
                 steps=steps,
+                user_launchable=bool(manifest and manifest.user_launchable),
+                display_name=(
+                    (manifest.display_name if manifest else None)
+                    or _display_name(workflow_id)
+                ),
+                icon=manifest.icon if manifest else None,
+                launch_surface=manifest.launch_surface if manifest else None,
             )
         )
     return out

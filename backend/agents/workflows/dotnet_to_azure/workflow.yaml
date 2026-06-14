@@ -4,6 +4,8 @@
 # engine._pipeline_defaults["dotnet_to_azure"] (engine.py:760).
 id: dotnet_to_azure
 version: 1
+# Catalog (Plan 20-01): declared launchability — inert metadata.
+user_launchable: true
 planner: run
 clarify:
   mode: auto

@@ -4,6 +4,8 @@
 # — this is also the fallback list every revision/absent id reuses (parity trap #2).
 id: custom
 version: 1
+# Catalog (Plan 20-01): declared launchability — inert metadata.
+user_launchable: true
 planner: run
 clarify:
   mode: auto
