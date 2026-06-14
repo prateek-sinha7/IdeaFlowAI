@@ -17,7 +17,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CapabilityModelEntry } from "@/lib/api";
 
@@ -96,5 +96,50 @@ describe("AgentModelPicker — WR-01 seeded-override merge", () => {
 
     await userEvent.selectOptions(selects[0], "model-x");
     expect(onChange).toHaveBeenLastCalledWith({ "agent-a": "model-x" });
+  });
+});
+
+/**
+ * DECIDE-02 (D-23) — the tier filter is DROPPED: premium (`cost_class=premium`)
+ * models are offered to ALL tiers. Previously the picker did
+ * `palette.model_catalog.filter((m) => m.user_allowed)` at :76, which gated
+ * premium catalog entries out of non-premium tiers. After the drop EVERY catalog
+ * entry the registry returns is an offered option (the authoritative allow-list
+ * is still the server `_validate_model_overrides`, 22-04).
+ */
+describe("AgentModelPicker — DECIDE-02 premium offered to all tiers", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("offers a premium model to a non-premium-tier user (tier filter removed)", async () => {
+    const catalog: CapabilityModelEntry[] = [
+      {
+        id: "haiku", label: "Haiku", description: "", tier: "free",
+        cost_class: "standard", provider: "anthropic", context_window: 200000,
+        user_allowed: true,
+      },
+      {
+        id: "opus-premium", label: "Opus (Premium)", description: "", tier: "free",
+        cost_class: "premium", provider: "anthropic", context_window: 200000,
+        // The capability that the dropped filter used to exclude: a catalog
+        // entry not flagged user_allowed. After DECIDE-02 it is still offered.
+        user_allowed: false,
+      },
+    ];
+    mockGetCapabilities.mockResolvedValue({ model_catalog: catalog });
+
+    render(<AgentModelPicker agents={[{ id: "agent-a", name: "Agent A" }]} onChange={vi.fn()} />);
+
+    const select = (await waitFor(() => {
+      const found = screen.getByRole("combobox");
+      return found;
+    })) as HTMLSelectElement;
+
+    // The "Default" no-override option survives.
+    expect(within(select).getByText("Default")).toBeInTheDocument();
+    // The premium model is now a selectable option for this free-tier user.
+    expect(within(select).getByText("Opus (Premium)")).toBeInTheDocument();
+    expect(within(select).getByText("Haiku")).toBeInTheDocument();
   });
 });
