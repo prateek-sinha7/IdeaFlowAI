@@ -162,12 +162,32 @@ test.describe("TS-G — pre-run Review-gates section", () => {
   });
 
   // TS-G-04 — the section self-hides when there are zero agents (returns null).
-  // From IdeaInputPage we cannot reach a 0-agent state for a seeded workflow:
-  // user_stories always seeds its six defaults and the UI offers no "remove all"
-  // affordance from this surface. The null-render path is covered by the vitest
-  // unit ("renders nothing when the agent list is empty"). Standalone fixme so it
-  // skips ONLY this case (a bare test.fixme in the describe body skips the group).
-  test("TS-G-04 hidden when no agents", async () => {
-    test.fixme(true, "can't reach 0-agent state for a seeded workflow via UI");
+  // We CAN reach a real 0-agent IdeaInputPage: the `custom` workflow seeds NO
+  // default agents. Its agents live in the separate CUSTOM_AGENTS array, which
+  // IdeaInputPage does NOT use for seeding — it seeds from
+  // `LIBRARY_AGENTS.filter(a => a.pipeline_type === effectiveType)`, and no
+  // LIBRARY_AGENTS row carries `pipeline_type: "custom"`. So on the custom page
+  // `pipelineAgents` starts as [] → <ReviewGatesSection> receives an empty list
+  // and returns null → the "Review gates" header is absent. `custom` is
+  // enterprise-gated, so we navigate as an enterprise user.
+  test("TS-G-04 hidden when no agents (custom workflow seeds zero agents)", async ({ dashboard }) => {
+    const page = dashboard.page;
+
+    // CONTRAST: the seeded `user_stories` page (from beforeEach) DOES show the
+    // header — proving the null-render below is genuinely agent-count-driven.
+    await expect(gatesHeader(page)).toBeVisible();
+
+    // Navigate fresh to the custom IdeaInputPage as an enterprise user (full
+    // page reload discards the prior user_stories state).
+    await dashboard.goto({ tier: "enterprise" });
+    await dashboard.selectWorkflow("Compose a custom workflow");
+    // Confirm we're on the custom IdeaInputPage (its heading copy), and that it
+    // truly has zero agents — the Run button reads "Add agents first".
+    await expect(page.getByRole("heading", { name: "Describe the task" })).toBeVisible();
+    await dashboard.fillIdea("Research the competitive landscape for AI coding assistants.");
+    await expect(dashboard.runButton()).toContainText("Add agents first");
+
+    // 0 agents → ReviewGatesSection returns null → no "Review gates" header.
+    await expect(gatesHeader(page)).toHaveCount(0);
   });
 });

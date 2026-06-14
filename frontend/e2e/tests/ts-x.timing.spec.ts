@@ -21,6 +21,14 @@
 import { test, expect } from "../fixtures/test";
 import { AGENTS, runAgent, playFailedRun, SAMPLE_BACKLOG } from "../fixtures/scenarios";
 
+// A self-contained styled HTML deliverable for the prototype iframe. The
+// <style> already present means injectTweaksIntoHtml has something to override;
+// any tweak appends/replaces a `<style id="flowin-tweaks">` block, changing the
+// rendered HTML → a brand-new Blob URL (URL.createObjectURL is unique per call),
+// which re-keys + re-srcs the iframe. That src change is what we observe.
+const PROTOTYPE_HTML =
+  "<!DOCTYPE html><html><head><style>body{background:#fff}</style></head><body><h1>App</h1></body></html>";
+
 test.describe("TS-X — timing budgets", () => {
   // ── TS-X-01 — client ping every 20000ms while the WS is open ────────────────
   // useWebSocket starts a setInterval(…, 20000) on ws.onopen that sends
@@ -166,14 +174,83 @@ test.describe("TS-X-03 — questionnaire auto-advance (cross-ref)", () => {
   });
 });
 
-// ── TS-X-04 — prototype tweaks 400ms debounce ─────────────────────────────────
-// Standalone-wrapped fixme: the 400ms token-change → iframe-rebuild debounce
-// lives inside the TweaksPanel, reachable only through a deep prototype build
-// interaction (templates → spec gate → plan gate → build → tweaks). Out of reach
-// of the mocked-WS execution surface used here; deferred.
-test.describe("TS-X-04 — prototype tweaks debounce (cross-ref)", () => {
-  test.fixme(true, "tweaks debounce: deep prototype interaction, defer");
-  test("prototype tweaks debounce 400ms before iframe rebuild", async () => {
-    // Intentionally empty — deep prototype interaction; deferred.
+// ── TS-X-04 — prototype tweaks 400ms debounce → iframe rebuild ────────────────
+// The TweaksPanel is reachable in mocked mode the same way TS-O-05 reaches the
+// prototype iframe: complete an od_prototype run with HTML final_output → the
+// PrototypePreview renders iframe[title="Prototype Preview"] off a Blob URL,
+// keyed on that URL. A tweak re-renders the HTML (injects a flowin-tweaks <style>
+// block) → a fresh Blob URL → the iframe's src/key change. We assert that change.
+//
+// Two rebuild paths in PrototypePreview, both proven here:
+//   • token change (Typography font button → onTokenChange → scheduleRebuild):
+//     DEBOUNCED 400ms — this is the TS-X-04 budget under test.
+//   • theme preset (Dark → onApplyPreset): IMMEDIATE (setTimeout 0).
+// Both end in setRenderedHtml(injectTweaksIntoHtml(...)) → new Blob URL.
+test.describe("TS-X-04 — prototype tweaks debounce → iframe rebuild", () => {
+  test("a Tweaks change rebuilds the prototype iframe (token change debounced 400ms; preset immediate)", async ({
+    dashboard,
+    mockWs,
+  }) => {
+    // ── Reach the prototype preview (mirror TS-O-05) ──────────────────────────
+    await dashboard.goto();
+    await dashboard.runWith({ workflow: "Generate product requirements", idea: "A todo app" });
+
+    const agents = AGENTS.od_prototype;
+    mockWs.start(agents, { pipelineType: "od_prototype" });
+    for (const a of agents) await runAgent(mockWs, a.id);
+    mockWs.complete({ pipelineType: "od_prototype", finalOutput: PROTOTYPE_HTML });
+
+    // PrototypePreview builds the Blob URL on an effect tick — poll for the iframe.
+    const iframe = dashboard.prototypeIframe();
+    await expect(iframe).toBeVisible({ timeout: 10000 });
+
+    // Capture the pristine (no-tweaks) Blob URL the iframe currently points at.
+    // It must be a blob: URL so a later inequality is meaningful, not "" → "".
+    const beforeSrc = await iframe.getAttribute("src");
+    expect(beforeSrc).toMatch(/^blob:/);
+
+    // ── Open the Tweaks panel ─────────────────────────────────────────────────
+    // NOTE: the toggle button ALSO has the accessible name "Tweaks" (its label
+    // span), so we can't assert the panel by that text alone. Instead assert the
+    // three collapsible Section header buttons (exact) — they exist only inside
+    // the open panel — plus the Typography section's unique "Font family" label.
+    await dashboard.page.locator('button[title="Open tweaks panel"]').click();
+    for (const section of ["Theme", "Colors", "Typography"]) {
+      await expect(dashboard.page.getByRole("button", { name: section, exact: true })).toBeVisible();
+    }
+    await expect(dashboard.page.getByText("Font family")).toBeVisible();
+
+    // ── DEBOUNCED path (the TS-X-04 budget): change a typography token ─────────
+    // Clicking a font option calls onTokenChange("--font-sans", …) → scheduleRebuild,
+    // which setTimeout(400)s the setRenderedHtml. So the iframe src must change, but
+    // only AFTER the debounce — we give it the 400ms + a rebuild/Blob margin (≤1.5s).
+    // "Inter" differs from the default "System UI", so the token genuinely changes.
+    await dashboard.page.getByRole("button", { name: "Inter", exact: true }).click();
+
+    // The rebuild fires once: a NEW Blob URL replaces beforeSrc. expect.poll (never a
+    // hard sleep) waits up to 1.5s for the debounced rebuild to land.
+    await expect
+      .poll(async () => iframe.getAttribute("src"), {
+        message: "iframe src should change after the 400ms-debounced token tweak",
+        timeout: 1500,
+      })
+      .not.toBe(beforeSrc);
+
+    const afterTokenSrc = await iframe.getAttribute("src");
+    expect(afterTokenSrc).toMatch(/^blob:/);
+
+    // ── IMMEDIATE path: apply the Dark preset → another rebuild ───────────────
+    // onApplyPreset rebuilds via setTimeout(0), so this src change should be quick.
+    // Asserting a SECOND distinct rebuild proves tweaks repeatedly re-key the iframe
+    // (not a one-shot), and exercises the immediate (non-debounced) branch too.
+    await dashboard.page.getByRole("button", { name: "Dark", exact: true }).click();
+    await expect
+      .poll(async () => iframe.getAttribute("src"), {
+        message: "iframe src should change again after the immediate Dark preset",
+        timeout: 1500,
+      })
+      .not.toBe(afterTokenSrc);
+
+    await expect(iframe).toBeVisible();
   });
 });

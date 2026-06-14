@@ -63,18 +63,10 @@ test.describe("TS-E — per-agent model selection (AgentModelPicker)", () => {
     }
   });
 
-  // The alternate-state copies — "Add agents to assign per-agent models." (no
-  // agents), "Loading model catalog…" (in-flight fetch), and "Not authenticated."
-  // (no JWT) — are not cleanly reachable in mocked mode: user_stories ALWAYS
-  // seeds 6 agents (so agents.length is never 0), dashboard.goto() always seeds
-  // the JWT, and mockApi resolves /api/capabilities synchronously (the loading
-  // copy is too transient to assert). Triggering them would need fixture/route
-  // surgery the fixture contract says to avoid. Covered by unit-level rendering
-  // of AgentModelPicker instead.
-  test.fixme(
-    "TS-E-01b no-agents / loading / no-jwt copy (un-mockable here)",
-    async () => {},
-  );
+  // The alternate-state copies are covered by their own describe block below
+  // (TS-E-01b-*), since they need a DIFFERENT setup than this block's beforeEach
+  // (no-agents uses the `custom` workflow; loading installs a route override
+  // BEFORE the picker mounts) — so they can't share the user_stories beforeEach.
 
   test("TS-E-02 catalog reflects backend (user_allowed only)", async ({ page }) => {
     const firstSelect = page.locator("select").first();
@@ -141,4 +133,116 @@ test.describe("TS-E — per-agent model selection (AgentModelPicker)", () => {
       expect(Object.keys(overrides)).toHaveLength(0);
     }
   });
+});
+
+/**
+ * TS-E-01b — the AgentModelPicker's ALTERNATE render states (was a single
+ * fixme covering all of them). Each state needs a bespoke setup, so they live
+ * in their own describe (no shared beforeEach) and are split into one test per
+ * state so partial coverage is explicit:
+ *
+ *   • no-agents  ("Add agents to assign per-agent models.") → REAL test.
+ *       The `custom` workflow seeds ZERO agents (verified at runtime: the
+ *       Agents tab reads "Agents (0)" and the picker renders 0 <select>s), so
+ *       agents.length === 0 and the no-agents copy renders. Note: we open via
+ *       openAdvanced() (NOT openModelPicker()) because openModelPicker asserts
+ *       "Per-Agent Model" which is non-unique under strict mode here — we assert
+ *       the no-agents <p> directly, which IS unique.
+ *
+ *   • loading    ("Loading model catalog…")               → REAL test.
+ *       A per-test route override DELAYS GET /api/capabilities by 1.5s. Because
+ *       page.route is additive and the most-recently-added handler wins, this
+ *       override (in the TEST, not a fixture) beats the mockApi handler. We open
+ *       the picker and assert the loading copy shows while the fetch is in flight.
+ *
+ *   • no-jwt / fetch-failure copy                          → stays FIXME (below).
+ *       See the precise reasons on the test.fixme.
+ */
+test.describe("TS-E-01b — AgentModelPicker alternate states", () => {
+  test("TS-E-01b-noagents shows the no-agents copy (custom seeds 0 agents)", async ({
+    dashboard,
+    page,
+  }) => {
+    // `custom` is the only workflow that seeds 0 agents → agents.length === 0.
+    await dashboard.goto({ tier: "enterprise" });
+    await dashboard.selectWorkflow("Compose a custom workflow");
+    await dashboard.fillIdea(
+      "Research the competitive landscape for AI coding assistants",
+    );
+
+    // Open the Advanced popup (Agents tab is default; the AgentModelPicker is its
+    // footer). We deliberately use openAdvanced(), not openModelPicker(), because
+    // the latter asserts the (here non-unique) "Per-Agent Model" header.
+    await dashboard.openAdvanced();
+
+    // Sanity: the Agents tab confirms there really are 0 agents…
+    await expect(
+      page.getByRole("button", { name: /Agents \(0\)/ }),
+    ).toBeVisible();
+    // …and there are no per-agent <select> rows.
+    await expect(page.locator("select")).toHaveCount(0);
+
+    // The no-agents branch copy is shown (catalog loaded, no error, 0 agents).
+    await expect(
+      page.getByText("Add agents to assign per-agent models."),
+    ).toBeVisible();
+  });
+
+  test("TS-E-01b-loading shows the loading copy while /api/capabilities is in flight", async ({
+    dashboard,
+    page,
+  }) => {
+    // Land on user_stories (seeds 6 agents) so the picker mounts and fetches.
+    await dashboard.goto({ tier: "enterprise" });
+    await dashboard.selectWorkflow("Generate product requirements");
+    await dashboard.fillIdea("Generate epics for a refunds workflow");
+
+    // Per-test route override (additive; most-recent handler wins) that DELAYS
+    // the capabilities fetch long enough to observe the loading state. This is a
+    // TEST-level page.route — not a fixture edit — which the contract allows.
+    await page.route("**/api/capabilities", async (route) => {
+      await new Promise((r) => setTimeout(r, 1500));
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ capabilities: [], model_catalog: [] }),
+      });
+    });
+
+    // Open Advanced → the picker mounts and kicks off the (now-delayed) fetch.
+    await dashboard.openAdvanced();
+
+    // While the fetch is in flight the picker shows the loading copy. Assert it
+    // appears within the delay window (well under 1.5s).
+    await expect(page.getByText("Loading model catalog…")).toBeVisible({
+      timeout: 1000,
+    });
+
+    // And once the (empty) catalog resolves, the loading copy goes away — proving
+    // it was the transient in-flight state, not a stuck spinner.
+    await expect(page.getByText("Loading model catalog…")).toBeHidden({
+      timeout: 4000,
+    });
+  });
+
+  // no-jwt ("Not authenticated.") and the fetch-failure COPY ("Failed to load
+  // models.") are NOT reachable in mocked mode:
+  //
+  //   • no-jwt: the picker only renders inside the dashboard, but the dashboard
+  //     has a route guard — navigating without a token redirects straight to
+  //     /login (verified: url becomes …/login, the home heading never mounts), so
+  //     the AgentModelPicker (and its "Not authenticated." branch) is never
+  //     reached. Clearing the token mid-session would likewise bounce to /login.
+  //
+  //   • "Failed to load models." copy: that string is only the FALLBACK used when
+  //     the rejected error has a nullish `.message`. A route → 500 surfaces the
+  //     response body / statusText instead (e.g. the red error box shows "{}"),
+  //     and route.abort() yields a TypeError whose message is "Failed to fetch" —
+  //     neither is nullish, so the literal "Failed to load models." copy can't be
+  //     produced via route manipulation. (The error UI itself IS reachable, but
+  //     asserting this exact copy would be a false assertion.)
+  test.fixme(
+    "TS-E-01b-nojwt-and-failcopy: no-jwt redirects to /login (picker never mounts); 500/abort surface the body/statusText, never the literal 'Failed to load models.' fallback",
+    async () => {},
+  );
 });

@@ -5,7 +5,7 @@
  *
  * Creds come from env (falling back to the seed-script defaults):
  *   E2E_BASE_PASSWORD (default "flowin-e2e-pass")
- *   E2E_<TIER>_EMAIL  (default qa-<tier>@flowin.test)
+ *   E2E_<TIER>_EMAIL  (default qa-<tier>@flowinqa.com)
  */
 import { test as base, expect, type Page } from "@playwright/test";
 import { TOKEN_KEY } from "./constants";
@@ -14,7 +14,7 @@ const API = process.env.E2E_API_URL || "http://localhost:8000";
 const PASSWORD = process.env.E2E_BASE_PASSWORD || "flowin-e2e-pass";
 
 function emailFor(tier: "basic" | "pro" | "enterprise") {
-  return process.env[`E2E_${tier.toUpperCase()}_EMAIL`] || `qa-${tier}@flowin.test`;
+  return process.env[`E2E_${tier.toUpperCase()}_EMAIL`] || `qa-${tier}@flowinqa.com`;
 }
 
 export async function loginLive(page: Page, tier: "basic" | "pro" | "enterprise" = "enterprise") {

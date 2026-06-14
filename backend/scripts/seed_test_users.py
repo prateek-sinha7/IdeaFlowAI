@@ -11,10 +11,10 @@ Usage (from backend/, python3.11, no venv):
     E2E_BASE_PASSWORD=secret python3.11 scripts/seed_test_users.py   # custom pw
 
 Creates:
-    qa-basic@flowin.test       (tier=basic)
-    qa-pro@flowin.test         (tier=pro)
-    qa-enterprise@flowin.test  (tier=enterprise)
-    qa-admin@flowin.test       (tier=enterprise, is_admin=True)
+    qa-basic@flowinqa.com       (tier=basic)
+    qa-pro@flowinqa.com         (tier=pro)
+    qa-enterprise@flowinqa.com  (tier=enterprise)
+    qa-admin@flowinqa.com       (tier=enterprise, is_admin=True)
 
 Password for all: env E2E_BASE_PASSWORD or "flowin-e2e-pass".
 Safe to re-run: existing users are updated in place (password + tier reset).
@@ -34,10 +34,10 @@ from app.core.security import hash_password  # noqa: E402
 PASSWORD = os.environ.get("E2E_BASE_PASSWORD", "flowin-e2e-pass")
 
 SEED_USERS = [
-    {"email": "qa-basic@flowin.test", "tier": "basic", "is_admin": False},
-    {"email": "qa-pro@flowin.test", "tier": "pro", "is_admin": False},
-    {"email": "qa-enterprise@flowin.test", "tier": "enterprise", "is_admin": False},
-    {"email": "qa-admin@flowin.test", "tier": "enterprise", "is_admin": True},
+    {"email": "qa-basic@flowinqa.com", "tier": "basic", "is_admin": False},
+    {"email": "qa-pro@flowinqa.com", "tier": "pro", "is_admin": False},
+    {"email": "qa-enterprise@flowinqa.com", "tier": "enterprise", "is_admin": False},
+    {"email": "qa-admin@flowinqa.com", "tier": "enterprise", "is_admin": True},
 ]
 
 

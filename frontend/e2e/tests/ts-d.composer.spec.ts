@@ -11,7 +11,7 @@
  * first (an agent from another category is "optional" relative to user_stories).
  */
 import { test, expect } from "../fixtures/test";
-import type { Locator } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 /** Select user_stories + type a brief so the IdeaInputPage seeds agents, then
  *  open the composer. Stays on the input view (no Run) — the popup lives there. */
@@ -40,6 +40,37 @@ async function agentsTabCount(dashboard: import("../fixtures/dashboard").Dashboa
   const label = await agentsTab(dashboard).textContent();
   const m = label?.match(/\((\d+)\)/);
   return m ? Number(m[1]) : NaN;
+}
+
+/** Add `n` optional agents to the flow from the App Builder library category.
+ *  App Builder agents are "optional" relative to user_stories ⇒ draggable +
+ *  removable. The library closes after each add, so we reopen each time. */
+async function addOptionalAgents(
+  dashboard: import("../fixtures/dashboard").DashboardPage, n: number,
+) {
+  const page = dashboard.page;
+  for (let i = 0; i < n; i++) {
+    await page.getByRole("button", { name: "Browse agent library →" }).click();
+    await expect(page.getByRole("heading", { name: "Add agent" })).toBeVisible();
+    await page.getByRole("button", { name: "App Builder", exact: true }).click();
+    await page.locator('[title="Add agent"]').first().click();
+    await expect(page.getByRole("heading", { name: "Add agent" })).toHaveCount(0);
+  }
+}
+
+/** Names (in flow-grid DOM order) of the OPTIONAL agent cards — i.e. the
+ *  draggable cards that carry a "Remove agent" button. Read from the DOM so we
+ *  observe the post-reorder order exactly as React renders it. */
+async function optionalCardNames(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll('[draggable="true"]'))
+      .filter((card) => card.querySelector('[title="Remove agent"]'))
+      .map((card) => {
+        const nameEl = Array.from(card.querySelectorAll("p"))
+          .find((p) => p.className.includes("text-gray-900"));
+        return (nameEl?.textContent ?? "").trim();
+      }),
+  );
 }
 
 test.describe("TS-D — agent composer", () => {
@@ -155,11 +186,49 @@ test.describe("TS-D — agent composer", () => {
     await expect(dashboard.page.getByText("Suggested Hooks")).toBeVisible();
   });
 
-  // TS-D-04 (drag-reorder): HTML5 drag-and-drop reorder is non-deterministic to
-  // assert in Playwright (dragTo rarely fires the native dragover/drop sequence
-  // motion/react needs, and there is no stable post-reorder signal to assert on).
-  test.fixme("TS-D-04 drag-reorder of an unlocked agent card", async ({ dashboard }) => {
+  // TS-D-04 (drag-reorder): the cards use native HTML5 DnD (onDragStart sets the
+  // dragged index in React state, onDrop splices the array and calls onReorder).
+  // Playwright's `dragTo` uses mouse events and does NOT fire the native
+  // dragstart/dragover/drop sequence these handlers listen on — so we dispatch
+  // the DOM DnD events directly with ONE shared DataTransfer (a real drag carries
+  // a single DataTransfer across the whole gesture). handleReorderAgents just
+  // does setPipelineAgents(reordered) with no re-sort, so the new order renders
+  // verbatim and we assert the two optional cards swapped places.
+  test("TS-D-04 drag-reorder of an unlocked agent card", async ({ dashboard }) => {
+    const page = dashboard.page;
     await openComposer(dashboard);
-    // Intentionally unimplemented — HTML5 drag-reorder is flaky to assert.
+
+    // Two optional (draggable, removable) agents — user_stories' 6 defaults are
+    // all Core/Required (not reorderable), so add two from another category.
+    await addOptionalAgents(dashboard, 2);
+
+    // They land adjacent in the grid (inserted just before the locked compiler),
+    // both draggable. Capture their current order.
+    const before = await optionalCardNames(page);
+    expect(before).toHaveLength(2);
+    expect(before[0]).not.toBe(before[1]);
+
+    // Locate each optional card (draggable card carrying a "Remove agent" button)
+    // by its unique agent name.
+    const cardByName = (name: string): Locator =>
+      page.locator('[draggable="true"]')
+        .filter({ has: page.locator('[title="Remove agent"]') })
+        .filter({ hasText: name });
+    const source = cardByName(before[1]); // drag the 2nd optional…
+    const target = cardByName(before[0]); // …onto the 1st
+    await expect(source).toHaveCount(1);
+    await expect(target).toHaveCount(1);
+
+    // Native HTML5 drag-and-drop with a shared DataTransfer across the gesture.
+    const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
+    await source.dispatchEvent("dragstart", { dataTransfer });
+    await target.dispatchEvent("dragover", { dataTransfer });
+    await target.dispatchEvent("drop", { dataTransfer });
+    await source.dispatchEvent("dragend", { dataTransfer });
+
+    // onDrop spliced the dragged card out and re-inserted it at the target index
+    // ⇒ the two optional cards swapped order (same set, no add/drop). Assert the
+    // exact resulting order, and that nothing was added or lost.
+    await expect.poll(() => optionalCardNames(page)).toEqual([before[1], before[0]]);
   });
 });

@@ -15,7 +15,7 @@ test.describe("TS-A — auth, routing & tiers", () => {
 
   test("TS-A-02 login stores JWT and lands on the dashboard home", async ({ page }) => {
     await page.goto("/login");
-    await page.locator("#email").fill("qa-enterprise@flowin.test");
+    await page.locator("#email").fill("qa-enterprise@flowinqa.com");
     await page.locator("#password").fill("flowin-e2e-pass");
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page.getByRole("heading", { name: "What would you like to build today?" })).toBeVisible();

@@ -85,7 +85,7 @@ export class MockApi {
   constructor(opts: MockApiOptions) {
     this.user = {
       id: "u-test",
-      email: "qa@flowin.test",
+      email: "qa@flowinqa.com",
       tier: "enterprise",
       is_admin: false,
       ...opts.user,

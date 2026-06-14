@@ -66,19 +66,33 @@ async function openModelPicker(page: Page) {
   await expect(page.getByText("Per-Agent Model")).toBeVisible();
 }
 
-/** Same clarify-tolerance as TS-V: dismiss "Quick Setup" if it appears. */
-async function dismissClarifyIfPresent(page: Page, graceMs = 90_000) {
-  const quickSetup = page.getByRole("heading", { name: "Quick Setup" });
-  try {
-    await quickSetup.waitFor({ state: "visible", timeout: graceMs });
-  } catch {
-    return;
+/**
+ * Same clarify-tolerance as TS-V: the real clarify engine asks UP TO 3 ROUNDS of
+ * "Quick Setup" before `clarification_limit_reached` starts the pipeline, each a
+ * fresh panel needing its own submit. So we LOOP — dismiss each round (preferring
+ * the primary "run with what we have" submit, falling back to "Skip all & run
+ * directly") until the run proceeds, capped to avoid an infinite loop. The next
+ * `waitFor visible` after the final round times out (no new panel) and returns
+ * cleanly; the `state: "hidden"` wait prevents racing the same round twice.
+ * Timeouts stay generous (real Bedrock; ~30–60s of clarify before agents start).
+ */
+async function dismissClarifyRounds(
+  page: Page,
+  { maxRounds = 5, perRoundMs = 90_000 }: { maxRounds?: number; perRoundMs?: number } = {},
+) {
+  for (let round = 0; round < maxRounds; round++) {
+    const quickSetup = page.getByRole("heading", { name: "Quick Setup" });
+    try {
+      await quickSetup.waitFor({ state: "visible", timeout: round === 0 ? perRoundMs : 60_000 });
+    } catch {
+      return; // no (more) questionnaire → planner/limit proceeded.
+    }
+    const runDefaults = page.getByRole("button", { name: /Run with defaults|Run .* Pipeline|Continue with/ });
+    const skip = page.getByRole("button", { name: "Skip all & run directly" });
+    if (await runDefaults.count()) await runDefaults.first().click();
+    else if (await skip.count()) await skip.first().click();
+    await quickSetup.waitFor({ state: "hidden", timeout: 30_000 }).catch(() => {});
   }
-  const skip = page.getByRole("button", { name: "Skip all & run directly" });
-  const runDefaults = page.getByRole("button", { name: /Run with defaults|Run .* Pipeline|Continue with/ });
-  if (await skip.count()) await skip.first().click();
-  else if (await runDefaults.count()) await runDefaults.first().click();
-  await expect(quickSetup).toBeHidden({ timeout: 30_000 }).catch(() => {});
 }
 
 test.describe("TS-W — per-agent model override (LIVE)", () => {
@@ -120,8 +134,8 @@ test.describe("TS-W — per-agent model override (LIVE)", () => {
     await expect(runButton(page)).toBeEnabled();
     await runButton(page).click();
 
-    // user_stories may clarify first — tolerate it.
-    await dismissClarifyIfPresent(page);
+    // user_stories may clarify first (up to 3 rounds) — tolerate it.
+    await dismissClarifyRounds(page);
 
     // Wait for the real deliverable (run completed) — the Product Backlog header.
     await expect(

@@ -38,7 +38,9 @@ RUNS_ROOT=/tmp/flowin-runs AWS_PROFILE=default AWS_REGION=eu-central-1 \
 # 3. run the live project
 cd ../frontend && npm run e2e:live
 ```
-`fixtures/live.ts` logs in via the real `POST /api/auth/login` (creds default to the seed script's `qa-<tier>@flowin.test` / `flowin-e2e-pass`, overridable via `E2E_*` env).
+`fixtures/live.ts` logs in via the real `POST /api/auth/login` (creds default to the seed script's `qa-<tier>@flowinqa.com` / `flowin-e2e-pass`, overridable via `E2E_*` env).
+
+**Live timing notes (real-Bedrock, measured 2026-06-14):** `user_stories` ≈ 5 min (3 clarify rounds + 6 agents); `custom`/SC-001 ≈ 2 min; model-override ≈ 6 min. **`app_builder` is the long pole — ~40–45 min** for all 15 agents (a single run reached 14/15 DONE in 39 min, several agents emitting 300–480K tokens). So **TS-V-04 verifies only that app_builder *runs* live** (≥3 agents complete with real output, no errors) within a 16-min budget; the full 15-agent IDE deliverable is a **nightly-only** assertion, and the IDE *render* itself is proven deterministically in mocked TS-O-03. The clarify engine asks up to **3 rounds** before `clarification_limit_reached` → agents start; `dismissClarifyRounds` loops to handle this (see ISS-027 for the "Skip all & run directly" UX caveat).
 
 ## Layout
 
