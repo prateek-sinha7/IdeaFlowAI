@@ -1,10 +1,11 @@
 ---
 phase: 22
 slug: capability-surfacing-and-user-empowerment-universal-runtime-
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-06-14
+reviewed_at: 2026-06-14
 ---
 
 # Phase 22 — UI Design Contract
