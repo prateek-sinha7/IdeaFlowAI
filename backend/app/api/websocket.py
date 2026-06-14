@@ -155,6 +155,42 @@ def _validate_model_overrides(
     return None
 
 
+def _revalidate_selections_trust_user(
+    base_pipeline_type: str,
+    agent_ids: list[str],
+    selections: dict | None,
+) -> str | None:
+    """LAUNCH-side CAP-03 re-validation of persisted per-step selections (Pitfall 3).
+
+    EMP-02 / T-22-04-02: the FE lock + the SAVE-time check are NOT sufficient — a
+    saved row could be TAMPERED after save (its ``manifest_json`` mutated to
+    reference a ``user_allowed=False`` capability). So the launch path re-synthesizes
+    the SAME ``WorkflowManifest`` (the shared ``agents.workflows.selections`` synth
+    seam — no duplicated logic) and re-compiles it with ``trust="user"`` BEFORE
+    execute. The dormant ``_check_trust`` path rejects any non-user-allowed reference
+    (or ceiling-raising Limits), so a tampered row is REJECTED at launch, not run.
+
+    Returns ``None`` when the selections are clean (or empty — parity), else a
+    human-readable error message naming the offending ``(kind, name)`` (the caller
+    emits the existing error-event shape and refuses the run before execute).
+    """
+    from agents.workflows.selections import has_selections
+
+    if not has_selections(selections):
+        return None
+
+    from agents.capabilities.registry import CapabilityRegistry
+    from agents.workflows.compiler import CompilerError, WorkflowCompiler
+    from agents.workflows.selections import synthesize_manifest
+
+    manifest = synthesize_manifest(base_pipeline_type, agent_ids, selections)
+    try:
+        WorkflowCompiler().compile(manifest, CapabilityRegistry(), trust="user")
+    except CompilerError as exc:
+        return f"Rejected persisted selection: {exc}"
+    return None
+
+
 def _get_db() -> Session:
     """Create a new database session for WebSocket use."""
     return SessionLocal()
@@ -571,6 +607,13 @@ async def websocket_chat(websocket: WebSocket):
                 # _handle_workflow_execution, once the agent set is resolved.
                 # Absent → {} (the frontend doesn't send it until Phase 8).
                 model_overrides = message_data.get("model_overrides") or {}
+                # EMP-01/02 (22-04): the per-step capability-selections map a saved
+                # workflow launch replays (the FE composer sends it, mirroring
+                # agent_ids/model_overrides — pure data, SC-001). Re-validated with
+                # trust="user" at launch (a tampered/smuggled cap is rejected here,
+                # not only at save — Pitfall 3). Absent → None (every existing run is
+                # byte-identical — no overlay, no re-compile).
+                selections = message_data.get("selections") or None
 
                 # Tier gate — map od_* aliases to their base type for the check
                 from app.core.entitlements import can_run_pipeline
@@ -601,6 +644,7 @@ async def websocket_chat(websocket: WebSocket):
                         attached_hooks=attached_hooks,
                         gate_agent_ids=gate_agent_ids,
                         model_overrides=model_overrides,
+                        selections=selections,
                         template_id=message_data.get("template_id"),
                         design_system_id=message_data.get("design_system_id"),
                         discovery=message_data.get("discovery"),
@@ -1304,6 +1348,7 @@ async def _handle_workflow_execution(
     attached_hooks: list[dict] | None = None,
     gate_agent_ids: list[str] | None = None,
     model_overrides: dict | None = None,
+    selections: dict | None = None,
     template_id: str | None = None,
     design_system_id: str | None = None,
     discovery: dict | None = None,
@@ -1474,6 +1519,23 @@ async def _handle_workflow_execution(
         })
         return
 
+    # ── EMP-02 launch-side trust=user re-validation (Pitfall 3) ───────────────
+    # Re-compile the persisted/replayed per-step selections with trust="user"
+    # BEFORE any run starts — a tampered/smuggled non-user-allowed capability is
+    # rejected at LAUNCH, not only at save. Empty/absent selections → no-op (every
+    # existing run is byte-identical). Done here, after the agent set is resolved,
+    # so the synth manifest carries this run's exact agents.
+    _selection_error = _revalidate_selections_trust_user(
+        base_pipeline_type, [spec.id for spec in agents], selections
+    )
+    if _selection_error is not None:
+        await websocket.send_json({
+            "type": "error", "chunk": None, "section": None,
+            "data": {"error": _selection_error,
+                     "code": "invalid_selection", "recoverable": False},
+        })
+        return
+
     # ── Create WorkflowRun record ─────────────────────────────────────────
     pipeline_run_id = str(_uuid.uuid4())
     # ISS-007 (16-02): register this run's COOPERATIVE cancel event and publish
@@ -1613,6 +1675,7 @@ async def _handle_workflow_execution(
                 gate_agent_ids=gate_agent_ids,
                 parent_run_id=parent_run_id,
                 model_overrides=model_overrides,
+                selections=selections,
             ):
                 await event_queue.put({"type": update["type"], "data": update.get("data", {})})
                 # Track state for DB persistence

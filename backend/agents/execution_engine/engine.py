@@ -738,6 +738,7 @@ class ExecutionEngine:
         gate_agent_ids: list[str] | None = None,
         parent_run_id: str | None = None,
         model_overrides: dict[str, str] | None = None,
+        selections: dict | None = None,
     ) -> AsyncGenerator[dict, None]:
         """Public entry — the SINGLE outward emit boundary (PERSIST-03 / D-11).
 
@@ -777,6 +778,7 @@ class ExecutionEngine:
             gate_agent_ids=gate_agent_ids,
             parent_run_id=parent_run_id,
             model_overrides=model_overrides,
+            selections=selections,
             _sink=sink,
         ):
             # Stamp exactly once, at the boundary, so seq is contiguous across the
@@ -811,6 +813,7 @@ class ExecutionEngine:
         gate_agent_ids: list[str] | None = None,
         parent_run_id: str | None = None,
         model_overrides: dict[str, str] | None = None,
+        selections: dict | None = None,
         _sink: "_RunEventSink | None" = None,
         _resume_from: int = 0,
         _is_resume: bool = False,
@@ -1125,6 +1128,16 @@ class ExecutionEngine:
         # DECLARED ``previous_run`` provider, NOT a ``pipeline_type`` name branch
         # (INV-1). No legacy `pipeline_type` dispatch fallback (INV-12).
         compiled = compile_for_run(pipeline_type)
+        # ── EMP-01 (22-04): apply user-composed per-step selections onto the plan ──
+        # A saved/custom workflow may carry a compact per-step selections map
+        # (validators / gates / non-default model / retry) the user composed. It is
+        # applied GENERICALLY by agent_id onto the file-compiled steps — never a
+        # workflow/agent-name branch (SC-001) — AFTER re-compiling the selections
+        # through the SAME trust="user" path the WS layer already gated on, so the
+        # overlay can only carry user-allowed levers. ``selections`` is None/empty for
+        # every existing run (and all 5 goldens) → a pure no-op (byte/event-identical,
+        # INV-3): the overlay function returns ``compiled`` unchanged.
+        compiled = self._apply_selections(compiled, selections)
         # Bind the declared deliverable spec onto the context at run entry (INV-1) so
         # the per-agent mid-stream transforms in _run_agent (the single-file disk
         # readback + the ppt carousel sanitize) key off compiled.deliverable.strategy.
@@ -4501,6 +4514,82 @@ class ExecutionEngine:
     # byte/event-identical to today (Pitfall 4; existing manifests declare no
     # retry, so the 5 characterization snapshots stay dormant).
     # ──────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _apply_selections(compiled, selections: dict | None):
+        """Overlay user-composed per-step selections onto the compiled plan (EMP-01).
+
+        ``selections`` is the compact ``{agent_id: {validators, gates, model, retry,
+        ...}}`` map a saved/custom workflow carries. It is re-compiled through the
+        SAME thin ``trust="user"`` path (the synth seam in
+        ``agents.workflows.selections`` + ``WorkflowCompiler.compile(trust="user")``)
+        — so the overlay can ONLY carry user-allowed levers — then the selected
+        levers are merged onto the matching file-compiled ``Step`` BY AGENT_ID
+        (generic, name-free — SC-001). A step the user did not touch is unchanged.
+
+        ``None`` / empty selections → ``compiled`` returned UNCHANGED (every existing
+        run + all 5 goldens take this path → byte/event-identical, INV-3). Any compile
+        failure (a tampered map that slipped past the WS gate) degrades to the
+        unchanged plan rather than crashing the run — the WS layer is the authoritative
+        rejection site (this is the defense-in-depth backstop).
+        """
+        from agents.workflows.selections import has_selections
+
+        if not has_selections(selections):
+            return compiled
+
+        import dataclasses
+
+        from agents.capabilities.registry import CapabilityRegistry
+        from agents.workflows.compiler import WorkflowCompiler
+        from agents.workflows.selections import synthesize_manifest
+
+        agent_ids = [s.agent_id for s in compiled.steps]
+        try:
+            user_compiled = WorkflowCompiler().compile(
+                synthesize_manifest(compiled.id, agent_ids, selections),
+                CapabilityRegistry(),
+                trust="user",
+            )
+        except Exception:  # noqa: BLE001 — WS layer already gated; degrade safely
+            logger.warning(
+                "engine: user selections failed trust=user re-compile at run entry "
+                "— proceeding with the unmodified plan (the WS layer is the "
+                "authoritative rejection site)"
+            )
+            return compiled
+
+        # Index the user-compiled levers by agent_id and merge onto the file steps.
+        _user_by_agent = {s.agent_id: s for s in user_compiled.steps}
+        _sel_map = selections or {}
+        new_steps = []
+        for step in compiled.steps:
+            sel = _sel_map.get(step.agent_id)
+            user_step = _user_by_agent.get(step.agent_id)
+            if not sel or user_step is None:
+                new_steps.append(step)
+                continue
+            # Merge ONLY the levers the user actually selected (present in ``sel``) —
+            # de-duplicating gates/validators so a step that already declared one
+            # keeps a single entry. The model/retry overlay wins when selected.
+            patch: dict = {}
+            if sel.get("validators"):
+                merged_v = list(dict.fromkeys([*step.validators, *user_step.validators]))
+                patch["validators"] = merged_v
+            if user_step.gates:
+                merged_g = list(dict.fromkeys([*step.gates, *user_step.gates]))
+                patch["gates"] = merged_g
+            if sel.get("model") and user_step.model is not None:
+                patch["model"] = user_step.model
+            if sel.get("retry") and user_step.retry is not None:
+                patch["retry"] = user_step.retry
+            if sel.get("injects"):
+                patch["injects"] = list(
+                    dict.fromkeys([*step.injects, *user_step.injects])
+                )
+            new_steps.append(dataclasses.replace(step, **patch) if patch else step)
+
+        return dataclasses.replace(compiled, steps=new_steps)
 
     async def _dispatch_step_with_retry(self, step, ectx: ExecutionContext, strategy):
         """Drive one step's strategy with retry-on-transient + content-hash reuse.

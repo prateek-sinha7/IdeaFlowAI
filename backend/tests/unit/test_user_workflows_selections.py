@@ -186,3 +186,139 @@ def test_cross_owner_get_is_404(api):
     rg = client.get(f"/api/user-workflows/{other_id}")
     assert rg.status_code == 404
     assert "not found" in rg.json()["detail"].lower()
+
+
+# ===========================================================================
+# Task 2 — LAUNCH-side trust=user re-validation + EMP-01 selection-reaches-exec
+# ===========================================================================
+
+import asyncio  # noqa: E402
+
+import pytest as _pytest  # noqa: E402
+
+from app.api.websocket import _revalidate_selections_trust_user  # noqa: E402
+
+
+# ---------------------------------------------------------------------------
+# T-22-04-02 — a tampered persisted row is REJECTED at launch (Pitfall 3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("smuggled_gate", ["security", "approval"])
+def test_launch_rejects_tampered_row(smuggled_gate):
+    """A row whose manifest_json was mutated AFTER save to reference a
+    user_allowed=False cap is rejected at LAUNCH (not only at save)."""
+    tampered = {_AGENT_A: {"gates": [smuggled_gate]}}
+    err = _revalidate_selections_trust_user("custom", [_AGENT_A, _AGENT_B], tampered)
+    assert err is not None
+    assert smuggled_gate in err
+    assert "user-allowed" in err.lower() or "user_allowed" in err.lower()
+
+
+def test_launch_rejects_tampered_ceiling_limits():
+    tampered = {"__workflow__": {"limits": {"max_subagents": 999}}}
+    err = _revalidate_selections_trust_user("custom", [_AGENT_A], tampered)
+    assert err is not None and "ceiling" in err.lower()
+
+
+def test_launch_accepts_clean_selections():
+    """A clean persisted map passes launch re-validation (None == no error)."""
+    clean = {_AGENT_A: {"validators": [_USER_VALIDATOR], "retry": {"max_attempts": 2}}}
+    assert _revalidate_selections_trust_user("custom", [_AGENT_A, _AGENT_B], clean) is None
+
+
+def test_launch_empty_selections_is_noop_parity():
+    assert _revalidate_selections_trust_user("custom", [_AGENT_A], None) is None
+    assert _revalidate_selections_trust_user("custom", [_AGENT_A], {}) is None
+
+
+# ---------------------------------------------------------------------------
+# EMP-01 — the selection reaches execution through the EXISTING run path:
+#   (a) the chosen validator + its validation gate land on the compiled Step,
+#   (b) ModelResolver resolves the chosen non-default model from that Step,
+#   (c) the retry wrapper activates under an injected transient fault.
+# Driven save→launch via the SAME overlay the engine applies at run entry
+# (ExecutionEngine._apply_selections over the file-compiled `custom` plan).
+# ---------------------------------------------------------------------------
+
+
+def _compose_launch_overlay():
+    """Compose the selections a user would save, then apply them onto the
+    file-compiled `custom` plan exactly as the engine does at run entry."""
+    from agents.execution_engine.engine import ExecutionEngine, compile_for_run
+
+    selections = {
+        _AGENT_A: {
+            "validators": [_USER_VALIDATOR],
+            "model": _NON_DEFAULT_MODEL,
+            "retry": {"max_attempts": 3},
+        }
+    }
+    base = compile_for_run("custom")
+    overlaid = ExecutionEngine._apply_selections(base, selections)
+    step = next(s for s in overlaid.steps if s.agent_id == _AGENT_A)
+    return base, overlaid, step, selections
+
+
+def test_emp01_validator_and_gate_reach_compiled_step():
+    base, overlaid, step, _ = _compose_launch_overlay()
+    # (a) the user-selected validator + its EMP-04 auto-attached validation gate
+    # land on the matching compiled step — so the validation gate FIRES the
+    # validator at run time (validation_* events / gate_events rows).
+    assert _USER_VALIDATOR in step.validators
+    assert "validation" in step.gates
+    # An untouched step is unchanged (no bleed).
+    other = next(s for s in overlaid.steps if s.agent_id == _AGENT_B)
+    base_other = next(s for s in base.steps if s.agent_id == _AGENT_B)
+    assert other.validators == base_other.validators
+    assert other.gates == base_other.gates
+
+
+def test_emp01_chosen_model_resolves_via_modelresolver():
+    _, _, step, _ = _compose_launch_overlay()
+    from agents.model_policy import ModelResolver
+
+    class _Spec:
+        id = _AGENT_A
+        model = None
+
+    resolver = ModelResolver(haiku_default=_DEFAULT_MODEL)
+    # (b) the chosen non-default per-step model (tier 2) is what ModelResolver
+    # resolves for this agent — proving the selection reaches model selection.
+    assert resolver.resolve(_Spec(), step) == _NON_DEFAULT_MODEL
+
+
+def test_emp01_retry_activates_under_injected_transient_fault(monkeypatch):
+    _, _, step, _ = _compose_launch_overlay()
+    # (c) the overlaid step carries retry.max_attempts > 0, so the engine's single
+    # retry wrapper activates under an injected transient fault (it would be DORMANT
+    # — no step_retry — without the selection).
+    assert step.retry is not None and step.retry.max_attempts == 3
+
+    import agents.execution_engine.engine as engine_mod
+    from agents.execution_engine.engine import ExecutionEngine
+
+    from tests.agents.test_step_retry import (
+        _FakeCtx,
+        _FakeStrategy,
+        ScriptedThrottleError,
+    )
+
+    async def _noop(_s):
+        return None
+
+    monkeypatch.setattr(engine_mod, "_retry_sleep", _noop)
+
+    engine = ExecutionEngine()
+    # Throttle once then succeed — the wrapper must emit step_retry then complete.
+    strategy = _FakeStrategy([ScriptedThrottleError(), None], step_agent=_AGENT_A)
+    ctx = _FakeCtx()
+
+    async def _drive():
+        return [ev async for ev in engine._dispatch_step_with_retry(step, ctx, strategy)]
+
+    events = asyncio.get_event_loop().run_until_complete(_drive())
+    types = [e["type"] for e in events]
+    assert "step_retry" in types          # retry ACTIVATED (would be absent if dormant)
+    assert "step_completed" in types       # recovered after the transient fault
+    assert strategy.calls == 2             # exactly one retry then success
