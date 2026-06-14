@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, type ReactNode } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Eye, FolderDown, Brain, PanelRightClose, Copy, Check, Download, ExternalLink, Loader2, AlertTriangle } from "lucide-react";
 import { UserStoryPreview } from "./UserStoryPreview";
@@ -457,6 +457,56 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
     ...buildAgentNameById(pipelineState?.agents),
   };
 
+  // ─── UXFIX-04 / D-21 (22-07) — generic-primary deliverable dispatch TABLE ────
+  // The 4 first-party render types are REGISTERED ENTRIES in a dispatch table
+  // keyed on the structural `renderType` (never a workflow name — SC-001). Each
+  // entry returns its bespoke renderer ONLY when its content is present; an entry
+  // that yields `null` (no first-party content) falls through to the PRIMARY
+  // route — the generic mimetype-dispatched renderer (GenericDeliverablePreview).
+  // This inverts the legacy "4 branches + generic fallback-last" into
+  // "generic-primary + first-party routed entries" with NO visual regression:
+  // a first-party type with content renders exactly as before; a custom/unknown
+  // type (or a first-party type lacking first-party content) renders via the
+  // generic path as the primary route. CR-01 stays intact (`custom` is NOT a
+  // first-party entry → it routes generic), as does the P18 sandbox contract
+  // (owned by GenericDeliverablePreview).
+  const FIRST_PARTY_RENDERERS: Record<string, () => ReactNode | null> = {
+    user_stories: () =>
+      userStoryContent
+        ? <UserStoryPreview content={userStoryContent} onRevise={onReviseUserStory} />
+        : null,
+    app_builder: () =>
+      userStoryContent
+        ? <AppBuilderIDEPreview content={userStoryContent} agentOutputs={agentOutputs} onRevise={onReviseAppBuilder} />
+        : null,
+    ppt: () =>
+      (pptContent || pptxCode)
+        ? <PPTPreview content={pptContent} isStreaming={isStreaming} pptxCode={pptxCode} onRevise={onRevisePpt} pipelineType={rawPipelineType || workflowType} />
+        : null,
+    prototype: () =>
+      prototypeContent
+        ? <PrototypePreview content={prototypeContent} isStreaming={isStreaming} onRevise={onRevisePrototype} />
+        : null,
+  };
+
+  const renderDeliverable = (): ReactNode => {
+    // 1) First-party routed entry (if this renderType is registered AND its
+    //    first-party content is present). A registered entry that yields null
+    //    (no first-party content) deliberately falls through to the generic
+    //    primary route below.
+    const firstParty = FIRST_PARTY_RENDERERS[renderType]?.();
+    if (firstParty) return firstParty;
+
+    // 2) PRIMARY route — the generic mimetype-dispatched renderer. Taken for any
+    //    custom/unknown deliverable, and for any first-party type that lacked
+    //    first-party content but carries a generic deliverable.
+    if (genericDeliverable?.content) {
+      return <GenericDeliverablePreview deliverable={genericDeliverable} agentOutputs={agentOutputs} />;
+    }
+
+    return null;
+  };
+
   const handleTabChange = (tabId: PanelTab) => { setActiveTab(tabId); onTabSelect?.(tabId); };
   const handleCopy = () => {
     if (activeContent) {
@@ -553,21 +603,18 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
                   <p className="text-xs text-gray-400">Output will appear here</p>
                 </div>
               ) : (
-                <>
-                  {renderType === "user_stories" && userStoryContent && <UserStoryPreview content={userStoryContent} onRevise={onReviseUserStory} />}
-                  {/* CR-01 (18 review fix): `custom` removed from this branch — it
-                      no longer routes to MarkdownPreview (escaped HTML). A `custom`
-                      deliverable now flows through the generic channel below. */}
-                  {renderType === "app_builder" && userStoryContent && (
-                    <AppBuilderIDEPreview content={userStoryContent} agentOutputs={agentOutputs} onRevise={onReviseAppBuilder} />
-                  )}
-                  {renderType === "ppt" && (pptContent || pptxCode) && <PPTPreview content={pptContent} isStreaming={isStreaming} pptxCode={pptxCode} onRevise={onRevisePpt} pipelineType={rawPipelineType || workflowType} />}
-                  {renderType === "prototype" && prototypeContent && <PrototypePreview content={prototypeContent} isStreaming={isStreaming} onRevise={onRevisePrototype} />}
-                  {/* ISS-021 (18-03) — generic fallback for any unknown render type */}
-                  {hasGenericDeliverable && genericDeliverable && (
-                    <GenericDeliverablePreview deliverable={genericDeliverable} agentOutputs={agentOutputs} />
-                  )}
-                </>
+                // ─── UXFIX-04 / D-21 (22-07) — generic-primary dispatch TABLE ──
+                // The deliverable renderer is dispatched through a single table
+                // where the generic mimetype-dispatched renderer is the PRIMARY
+                // route and the 4 first-party types are registered routed entries
+                // the dispatcher routes to (NOT 4 branches + a fallback-last
+                // generic). Dispatch is keyed on `renderType` (a structural
+                // render-shape), never a workflow NAME — a brand-new workflow
+                // renders via the generic path with zero new branch (SC-001).
+                // No visual regression: each first-party entry renders the exact
+                // same bespoke renderer as before; the generic entry preserves
+                // the CR-01 fix + the P18 sandboxed-iframe security contract.
+                <>{renderDeliverable()}</>
               )}
             </motion.div>
           )}
