@@ -169,7 +169,7 @@
 ### Capability Surfacing & User Empowerment (Phase 22)
 
 - [ ] **SURF-01**: One capability palette/inspector reads the live `GET /api/capabilities` registry and renders EVERY capability kind grouped by kind, each showing name / description / `user_allowed` (trust) flag / security-gated flag / config schema — no hardcoded capability-name list in the FE (SC-001); embedded in `AgentsPopup` (Phase 22 / D-01)
-- [ ] **SURF-02**: `/api/capabilities` extended additively so every registered capability supplies `description` + a security-gated flag + a populated per-capability `config_schema` (the `{}` stub filled); auth + permission scopes preserved (API-02 intact) (Phase 22 / D-08)
+- [x] **SURF-02**: `/api/capabilities` extended additively so every registered capability supplies `description` + a security-gated flag + a populated per-capability `config_schema` (the `{}` stub filled); auth + permission scopes preserved (API-02 intact) (Phase 22 / D-08)
 - [ ] **SURF-03**: For each launchable workflow the composer shows which capabilities each step declares, sourced from the compiled plan (`GET /api/workflows/{id}` / compiled projection), not a hardcoded description (Phase 22)
 - [ ] **EMP-01**: The live composer lets a user opt step(s) into user-allowed capabilities — at minimum a validator + a human/validation gate + a non-default model + retry — and the selection reaches the run path (saved-workflow payload → compiler/engine) and demonstrably takes effect at execution (Phase 22 / D-05)
 - [ ] **EMP-02**: Trust/tier gating enforced in UI AND server: `user_allowed=False` capabilities render visible-but-locked, never user-composable; a smuggled privileged grant is server-rejected by compiling with `trust="user"` (`_check_trust` / CAP-03), re-validated at SAVE and at LAUNCH (Phase 22 / D-04/D-12)
@@ -354,7 +354,7 @@ Each v1 requirement maps to exactly one phase, **one row per requirement** (REQ-
 | DEL-03 | Phase 1 [0A] | Complete (P1 verified — passed, 2026-06-06; 01-03) |
 | DEL-04 | Phase 1 [0A] | Complete (P1 verified — passed, 2026-06-06; 01-03) |
 | SURF-01 | Phase 22 | Planned (22-05) |
-| SURF-02 | Phase 22 | Planned (22-02) |
+| SURF-02 | Phase 22 | Complete (22-02; tests + lint-imports + SC-001 green) |
 | SURF-03 | Phase 22 | Planned (22-05) |
 | EMP-01 | Phase 22 | Planned (22-04, 22-06) |
 | EMP-02 | Phase 22 | Planned (22-04, 22-05) |
