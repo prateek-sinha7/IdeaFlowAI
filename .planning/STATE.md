@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-06-14T21:19:01.895Z"
-last_activity: 2026-06-14 -- Completed 22-09-PLAN.md (LIVE-01 per-item evidence record for the 8 standing live-Bedrock deferrals)
+last_updated: "2026-06-14T21:26:07.749Z"
+last_activity: "2026-06-14 -- Completed 22-04-PLAN.md (EMP-02/03/01 — saved-workflow capability selections: trust=user backstop at save AND launch + manifest_json persistence + selection-reaches-execution overlay)"
 progress:
   total_phases: 22
   completed_phases: 21
   total_plans: 113
-  completed_plans: 111
+  completed_plans: 112
   percent: 95
 ---
 
@@ -196,6 +196,7 @@ Progress: [██████████] 100% (99 plans complete; Phase 19 3/3
 | Phase 22 P08 | ~12min | 1 tasks | 1 files |
 | Phase 22 P09 | ~6 min | 1 tasks | 2 files |
 | Phase 22 P04 | 18min | 2 tasks | 7 files |
+| Phase 22 P05 | 12min | 2 tasks | 2 files |
 
 ## Accumulated Context
 

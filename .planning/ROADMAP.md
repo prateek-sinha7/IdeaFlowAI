@@ -711,7 +711,7 @@ Plans:
   7. One consolidated live-Bedrock pass on the `default` profile records evidence for the standing live deferrals, or an explicit re-deferral disposition is recorded if ISS-018 still blocks.
   8. Invariants hold: 5 characterization goldens byte-identical (INV-3) · kernel name-free (SC-001 grep 0) · `create_deep_agent` only in the adapter (INV-13) · import-linter 4/0 · additive migrations only.
 
-**Plans:** 7/9 plans executed
+**Plans:** 8/9 plans executed
 Plans:
 **Wave 1**
 
@@ -725,7 +725,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 22-04-PLAN.md — EMP-02/03/01: activate trust=user compile at save+launch + persist selections in manifest_json + selection-reaches-execution proof (wave 2)
-- [ ] 22-05-PLAN.md — SURF-01/03 + EMP-02: embedded grouped capability palette in AgentsPopup with visible-but-locked rows (wave 2)
+- [x] 22-05-PLAN.md — SURF-01/03 + EMP-02: embedded grouped capability palette in AgentsPopup with visible-but-locked rows (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
