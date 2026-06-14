@@ -367,6 +367,11 @@ class Step:
     on_conflict: str = "human_gate"                          # §13
     retry: RetryPolicy | None = None                         # §21
     injects: list[str] = field(default_factory=list)
+    # Declared step-to-step DAG edges (consumed by _validate_dag's Kahn topo-sort).
+    # Empty for every linear-sequence manifest (parity); a declared list is the
+    # forward-safe DAG surface the compiler materializes so it is not accepted-but-
+    # dropped (D-17). Pure data (INV-5) — the compiler only RECORDS the edges.
+    depends_on: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

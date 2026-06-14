@@ -69,6 +69,13 @@ class AgentContext:
     # none → snapshots byte-identical, exactly like the Constitution no-op). These
     # tools AUGMENT the deepagents runtime, they never replace it (INV-13).
     prewarmed_mcp_tools: list = field(default_factory=list)
+    # step_injects (WIRE-03 / D-16): the compiled ``Step.injects`` for THIS agent's
+    # step, threaded off ``ectx.current_step`` by the engine. Merged order-stably with
+    # the AGENT.md-derived ``spec.injects`` at the injection seam in
+    # ``_compose_system_prompt`` (generic, keyed on this list — NO workflow/agent-name
+    # branch, SC-001). Empty for every step that declares no per-step ``injects:`` (all
+    # 5 characterization goldens) → the merge is a provable no-op → byte-identical (INV-3).
+    step_injects: list[str] = field(default_factory=list)
 
 
 class TemplateMissingError(Exception):
@@ -308,7 +315,17 @@ def _compose_system_prompt(spec, ctx: AgentContext, *, no_tools: bool = False) -
         blocks["tool_availability"] = _NO_TOOLS_PREAMBLE
 
     # 0. Injection content (od_prototype / od_ppt agents)
-    injects = getattr(spec, "injects", []) or []
+    # WIRE-03 / D-16: merge the AGENT.md-derived spec.injects (the live source) with
+    # the compiled per-step Step.injects (ctx.step_injects), order-stable and
+    # de-duplicated. The merge keys on the GENERIC step_injects list — NO workflow/
+    # agent-name branch (SC-001). When ctx.step_injects == [] (every step that
+    # declares no per-step injects:, incl. all 5 goldens) this returns exactly
+    # spec.injects → identical _compose_injection input → byte-identical prompt (INV-3).
+    spec_injects = getattr(spec, "injects", []) or []
+    step_injects = getattr(ctx, "step_injects", []) or []
+    injects = list(spec_injects) + [
+        i for i in step_injects if i not in spec_injects
+    ]
     if injects:
         injection_block = _compose_injection(spec, ctx, injects)
         if injection_block:

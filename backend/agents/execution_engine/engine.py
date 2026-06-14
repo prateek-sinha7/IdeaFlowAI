@@ -2516,6 +2516,15 @@ class ExecutionEngine:
                 # tool set under this running loop WITHOUT awaiting. Empty when no MCP
                 # scope is active → graceful no-op (parity; snapshots byte-identical).
                 prewarmed_mcp_tools=list(getattr(ectx, "prewarmed_mcp_tools", None) or []),
+                # step_injects (WIRE-03 / D-16): the compiled Step.injects for THIS step,
+                # read GENERICALLY off ectx.current_step (the compiled Step bound by the
+                # strategy handle before this call — the SAME seam current_step.hooks uses,
+                # NOT a spec.id/pipeline_type branch, SC-001). The factory merges it with
+                # spec.injects (AGENT.md). [] for every step declaring no per-step injects:
+                # (all 5 goldens) → the merge is a no-op → byte-identical (INV-3).
+                step_injects=list(
+                    getattr(getattr(ectx, "current_step", None), "injects", None) or []
+                ),
             )
 
             # Capture the resolved primary model ID *now*, before create_runner — it is

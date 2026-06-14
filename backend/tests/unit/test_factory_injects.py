@@ -181,21 +181,33 @@ def test_step_injects_empty_is_byte_identical_no_op():
     assert with_empty == baseline
 
 
-def test_step_injects_merge_is_order_stable_no_duplication():
-    """spec.injects=["template"] + step_injects=["craft"] → effective ["template",
-    "craft"]; the craft section is appended exactly once after template.
+def test_step_injects_merge_adds_step_inject_no_duplication():
+    """spec.injects=["template"] + step_injects=["craft"] → the effective inject SET
+    is order-stable ["template", "craft"]: the step-declared craft is added (the
+    AGENT.md-only path would render NO craft) exactly once.
+
+    Note: the canonical SECTION render order inside ``_compose_injection`` is fixed
+    (critical → design_system → craft → template) and independent of the effective
+    list order — the merge's contract is SET membership + de-duplication, not section
+    placement. So we assert craft is now present (it was absent in the spec-only path)
+    and not doubled, NOT a template-vs-craft section position.
     """
     spec = _Spec(injects=["template"])
     od = _od_context()
-    ctx = AgentContext(user_request="x", od_context=od, step_injects=["craft"])
 
+    # Baseline: spec-only path renders template, NO craft.
+    baseline = _compose_system_prompt(
+        spec, AgentContext(user_request="x", od_context=od)
+    )
+    assert "CRAFT RULES BLOCK" not in baseline
+
+    # Merge: the step adds craft.
+    ctx = AgentContext(user_request="x", od_context=od, step_injects=["craft"])
     prompt = _compose_system_prompt(spec, ctx)
 
     # Both sections present (template from AGENT.md, craft from the step merge).
     assert "ACTIVE TEMPLATE SKILL: web-prototype" in prompt
     assert "CRAFT RULES BLOCK" in prompt
-    # Order-stable: template (spec) before craft (step-appended).
-    assert prompt.index("ACTIVE TEMPLATE SKILL") < prompt.index("CRAFT RULES BLOCK")
     # No duplication of the craft block.
     assert prompt.count("CRAFT RULES BLOCK") == 1
 

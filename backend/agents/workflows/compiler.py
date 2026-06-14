@@ -34,7 +34,10 @@ from agents.workflows.plan import (
     CompiledWorkflow,
     DeliverableSpec,
     FanoutSpec,
+    FixPolicy,
     Limits,
+    ModelPolicy,
+    RetryPolicy,
     Step,
     TaskSource,
     ToolPermissions,
@@ -228,9 +231,20 @@ class WorkflowCompiler:
             defaults=list(clarify_raw.get("defaults", []) or []),
         )
 
+        # ── WIRE-01: top-level model: → CompiledWorkflow.model (D-14) ─────────
+        # The manifest top-level ``model:`` is the workflow-default policy (ModelResolver
+        # tier 4, model_policy.py:101). Absent → the empty ``ModelPolicy()`` default
+        # (model is None) so every existing manifest resolves exactly as today (parity).
+        workflow_model = (
+            self._compile_model_policy(manifest.model, where)
+            if getattr(manifest, "model", None) is not None
+            else ModelPolicy()
+        )
+
         return CompiledWorkflow(
             id=manifest.id,
             steps=steps,
+            model=workflow_model,
             context_providers=list(manifest.context_providers),
             seed_files=dict(manifest.seed_files),
             # Phase 11 / FANOUT-03: the workflow-level named-worker allow-list, pure data
@@ -502,6 +516,19 @@ class WorkflowCompiler:
                 f"one of {sorted(_ALLOWED_ON_CONFLICT)} (§13 / FANOUT-08)"
             )
 
+        # ── WIRE-01/02/03 + fix/depends_on: declared-but-inert keys made live ──
+        # These keys were already in _ALLOWED_STEP_KEYS but the constructor dropped
+        # them (accepted-but-dropped — D-17). Materialize them now, mirroring the
+        # fanout/on_conflict inert-field-made-live precedent above. A step omitting
+        # a key keeps the dataclass default (None / []), so every existing manifest
+        # is byte-identical (parity) — the 5 characterization goldens declare none
+        # of these per-step keys, so the merge/resolve consumers see the same input.
+        model = self._compile_model_policy(raw.get("model"), where)        # WIRE-01
+        retry = self._compile_retry_policy(raw.get("retry"), where)        # WIRE-02
+        injects = list(raw.get("injects") or [])                          # WIRE-03
+        fix = self._compile_fix_policy(raw.get("fix"), where)
+        depends_on = list(raw.get("depends_on") or [])
+
         return Step(
             agent_id=agent_id,
             strategy=strategy,
@@ -514,6 +541,11 @@ class WorkflowCompiler:
             tools=effective_tools,
             fanout=fanout,
             on_conflict=on_conflict,
+            model=model,
+            retry=retry,
+            injects=injects,
+            fix=fix,
+            depends_on=depends_on,
         )
 
     @staticmethod
@@ -550,6 +582,100 @@ class WorkflowCompiler:
             # The designated merge worker for on_conflict=merge_agent (§13 / CR-03).
             merge_agent=raw_fanout.get("merge_agent"),
         )
+
+    @staticmethod
+    def _compile_model_policy(raw_model: object, where: str) -> "ModelPolicy | None":
+        """Map a step/workflow ``model:`` dict → a typed ``ModelPolicy`` (WIRE-01 / D-14).
+
+        ``None`` (no ``model:`` key) → ``None`` for a step (ModelResolver tier-2 sees
+        no per-step override — parity). A declared block strict-key rejects any
+        non-ModelPolicy field (INV-5 at the nested level) and coerces each value onto
+        the ModelPolicy slot. The compiler only RECORDS the policy — ModelResolver
+        (model_policy.py tiers 2/4) owns the precedence/fallback control flow.
+        """
+        if raw_model is None:
+            return None
+        if not isinstance(raw_model, dict):
+            raise CompilerError(
+                f"step/workflow 'model' must be a mapping in {where}; "
+                f"got {type(raw_model).__name__}"
+            )
+        allowed = {"model", "max_tokens", "cost_class", "fallback"}
+        extra = set(raw_model) - allowed
+        if extra:
+            raise CompilerError(
+                f"unknown model key(s) {sorted(extra)} in {where} — manifests are "
+                f"pure data; only {sorted(allowed)} are valid ModelPolicy keys (INV-5)"
+            )
+        return ModelPolicy(
+            model=raw_model.get("model"),
+            max_tokens=raw_model.get("max_tokens"),
+            cost_class=raw_model.get("cost_class", "standard"),
+            fallback=list(raw_model.get("fallback", []) or []),
+        )
+
+    @staticmethod
+    def _compile_retry_policy(raw_retry: object, where: str) -> "RetryPolicy | None":
+        """Map a step ``retry:`` dict → a typed ``RetryPolicy`` (WIRE-02 / D-15).
+
+        ``None`` (no ``retry:`` key) → ``None`` (the RESUME-02 wrapper stays dormant —
+        parity). A declared block strict-key rejects any non-RetryPolicy field (INV-5)
+        and coerces each value onto the slot. The compiler only RECORDS the policy —
+        the engine retry wrapper (gated on ``step.retry.max_attempts > 0``) owns the
+        control flow.
+        """
+        if raw_retry is None:
+            return None
+        if not isinstance(raw_retry, dict):
+            raise CompilerError(
+                f"step 'retry' must be a mapping in {where}; "
+                f"got {type(raw_retry).__name__}"
+            )
+        allowed = {"max_attempts", "backoff_seconds", "on"}
+        extra = set(raw_retry) - allowed
+        if extra:
+            raise CompilerError(
+                f"unknown retry key(s) {sorted(extra)} in {where} — manifests are "
+                f"pure data; only {sorted(allowed)} are valid RetryPolicy keys (INV-5)"
+            )
+        kwargs: dict = {}
+        if "max_attempts" in raw_retry:
+            kwargs["max_attempts"] = int(raw_retry["max_attempts"])
+        if "backoff_seconds" in raw_retry:
+            kwargs["backoff_seconds"] = float(raw_retry["backoff_seconds"])
+        if "on" in raw_retry:
+            kwargs["on"] = list(raw_retry["on"] or [])
+        return RetryPolicy(**kwargs)
+
+    @staticmethod
+    def _compile_fix_policy(raw_fix: object, where: str) -> "FixPolicy | None":
+        """Map a step ``fix:`` dict → a typed ``FixPolicy`` (forward surface / D-17).
+
+        ``None`` (no ``fix:`` key) → ``None`` (no validation fix-loop — parity). A
+        declared block strict-key rejects any non-FixPolicy field (INV-5) and coerces
+        each value onto the slot. Materialized so ``fix:`` is not accepted-but-dropped
+        (D-17); the compiler only RECORDS the policy.
+        """
+        if raw_fix is None:
+            return None
+        if not isinstance(raw_fix, dict):
+            raise CompilerError(
+                f"step 'fix' must be a mapping in {where}; "
+                f"got {type(raw_fix).__name__}"
+            )
+        allowed = {"mode", "max_attempts"}
+        extra = set(raw_fix) - allowed
+        if extra:
+            raise CompilerError(
+                f"unknown fix key(s) {sorted(extra)} in {where} — manifests are "
+                f"pure data; only {sorted(allowed)} are valid FixPolicy keys (INV-5)"
+            )
+        kwargs: dict = {}
+        if "mode" in raw_fix:
+            kwargs["mode"] = raw_fix["mode"]
+        if "max_attempts" in raw_fix:
+            kwargs["max_attempts"] = int(raw_fix["max_attempts"])
+        return FixPolicy(**kwargs)
 
     @staticmethod
     def _compile_tool_grant(raw_tools: object, where: str) -> ToolPermissions:
