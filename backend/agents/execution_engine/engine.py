@@ -4541,7 +4541,7 @@ class ExecutionEngine:
         import dataclasses
 
         from agents.capabilities.registry import CapabilityRegistry
-        from agents.workflows.compiler import WorkflowCompiler
+        from agents.workflows.compiler import CompilerError, WorkflowCompiler
         from agents.workflows.selections import synthesize_manifest
 
         agent_ids = [s.agent_id for s in compiled.steps]
@@ -4551,7 +4551,14 @@ class ExecutionEngine:
                 CapabilityRegistry(),
                 trust="user",
             )
-        except Exception:  # noqa: BLE001 — WS layer already gated; degrade safely
+        except CompilerError:
+            # WR-03: narrow the catch to the ONLY expected rejection (a tampered map
+            # that slipped past the WS gate). This is the documented defense-in-depth
+            # backstop — the WS layer is the authoritative rejection site, so a
+            # CompilerError here degrades safely to the unmodified plan. An UNEXPECTED
+            # exception type (e.g. an AttributeError/TypeError from a future refactor)
+            # is a programmer error and MUST propagate, not be silently swallowed —
+            # otherwise the overlay fails open invisibly.
             logger.warning(
                 "engine: user selections failed trust=user re-compile at run entry "
                 "— proceeding with the unmodified plan (the WS layer is the "
@@ -5105,6 +5112,18 @@ class ExecutionEngine:
                 )
                 live_queue = None
 
+        # ── WR-02 (KNOWN LIMITATION — tracked in phase deferred-items.md) ────────────
+        # ``resume_run`` reconstructs the run identity from the ``workflow_runs`` row
+        # (type / input / user / session / parent) but does NOT re-thread the launch-time
+        # ``selections`` overlay: those user-composed levers (selected validators / gates
+        # / per-step model / retry) are not persisted on the run row, so a backend-restart-
+        # resumed run re-drives the BARE file-compiled plan. This is a faithfulness gap,
+        # NOT a security issue — a resumed run can only ever apply LESS privilege than the
+        # engineer authored (the overlay only ever ADDS user-allowed levers). Fixing it
+        # requires persisting ``selections`` on the run (additive nullable column / run
+        # JSON) and re-threading them through resume_run → _execute_impl → _apply_selections;
+        # deferred out of this fix pass (no new migration here — per the review scope).
+        #
         # ── Re-drive through the SAME seq/event sink as a fresh run (so resumed events
         # persist + replay via the after_seq branch). _execute_impl rebuilds the
         # ExecutionContext via its one construction path and skips i < offset. ─────────
