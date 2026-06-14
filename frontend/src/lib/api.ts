@@ -562,3 +562,100 @@ export async function getWorkflowDefinitions(
     headers: authHeaders(token),
   });
 }
+
+// --- Saved (user-authored) workflows API (Phase 21) ---
+
+/**
+ * A saved, user-authored workflow row from `GET /api/user-workflows`
+ * (owner-scoped, `source="user"`). Mirrors the BE `UserWorkflowResponse`
+ * (backend/app/api/user_workflows.py): a saved workflow is pure data — the
+ * composer triple `{base_pipeline_type, agent_ids, model_overrides}` plus a
+ * user-chosen `name`/`description` — so a saved row can never carry something
+ * the launch path would reject (the server re-validates with the launch
+ * predicates at save time). Type analog: `WorkflowSummary` (above), with the
+ * three composition fields added.
+ */
+export interface UserWorkflowSummary {
+  id: string;
+  name: string;
+  description?: string | null;
+  base_pipeline_type: string;
+  agent_ids: string[];
+  model_overrides?: Record<string, string> | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/**
+ * List the caller's saved workflows (owner-scoped server-side). GET analog of
+ * `getWorkflowDefinitions` — there is NO `user_launchable` filter here: every
+ * `source="user"` row the user owns is always shown in the "Your workflows"
+ * catalog section.
+ */
+export async function getUserWorkflows(
+  token: string
+): Promise<UserWorkflowSummary[]> {
+  return request<UserWorkflowSummary[]>("/api/user-workflows", {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+}
+
+/**
+ * Persist a saved workflow from the composer's own state (POST analog of
+ * `adminCreateUser`). Body = the composer triple + a name/description; the
+ * server re-validates with the launch predicates (save == launch) and
+ * owner-stamps the row.
+ */
+export async function createUserWorkflow(
+  token: string,
+  body: {
+    name: string;
+    description?: string;
+    base_pipeline_type: string;
+    agent_ids: string[];
+    model_overrides?: Record<string, string>;
+  }
+): Promise<UserWorkflowSummary> {
+  return request<UserWorkflowSummary>("/api/user-workflows", {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Rename / edit a saved workflow (PATCH analog of `adminUpdateTier`). Only the
+ * caller's own `source="user"` rows are mutable (server IDOR→404).
+ */
+export async function renameUserWorkflow(
+  token: string,
+  id: string,
+  body: { name?: string; description?: string }
+): Promise<UserWorkflowSummary> {
+  return request<UserWorkflowSummary>(`/api/user-workflows/${id}`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Delete a saved workflow (DELETE analog of `adminDeleteUser` — the manual
+ * `fetch` + `ApiError` 204 idiom, since there is no JSON body to parse). Only
+ * the caller's own rows are deletable (server IDOR→404).
+ */
+export async function deleteUserWorkflow(
+  token: string,
+  id: string
+): Promise<void> {
+  const url = `${BASE_URL}/api/user-workflows/${id}`;
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: authHeaders(token),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new ApiError(response.status, body.detail ?? body);
+  }
+}
