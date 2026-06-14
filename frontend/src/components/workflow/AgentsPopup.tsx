@@ -38,6 +38,13 @@ interface AgentsPopupProps {
    * omit to ignore per-agent model selection (payload stays byte-identical).
    */
   onModelOverridesChange?: (modelOverrides: Record<string, string>) => void;
+  /**
+   * WR-01 (LAUNCH-EXISTING-PATH §4.6) — seed the AgentModelPicker's internal
+   * overrides map when launching a saved workflow, so editing one agent's model
+   * MERGES into (not replaces) the persisted overrides for the others. Absent ⇒
+   * the picker starts empty (the normal compose-from-scratch default).
+   */
+  initialModelOverrides?: Record<string, string>;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -721,7 +728,7 @@ const COLS = 3;
 export function AgentsPopup({
   isOpen, onClose, agents, pipelineType,
   onAddAgent, onRemoveAgent, onReorder, canAddMore = true,
-  onModelOverridesChange,
+  onModelOverridesChange, initialModelOverrides,
 }: AgentsPopupProps) {
   const { attachedSkills, attachedHooks } = useSkillsHooks();
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -978,6 +985,7 @@ export function AgentsPopup({
                   <AgentModelPicker
                     agents={agents.map((a) => ({ id: a.id, name: a.name }))}
                     onChange={onModelOverridesChange}
+                    initialOverrides={initialModelOverrides}
                   />
                 </div>
               </>

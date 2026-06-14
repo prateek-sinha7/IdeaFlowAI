@@ -165,8 +165,12 @@ export function WorkflowCatalog({
     }
   };
 
-  // Delete → DeleteModal confirm → deleteUserWorkflow → optimistic removal
-  // (analog WorkflowHistory.tsx:159-175).
+  // Delete → DeleteModal confirm → deleteUserWorkflow → remove the row ONLY
+  // after the server delete RESOLVES (WR-04). Removing unconditionally after the
+  // try/catch meant a failed delete (network/404) set savedError AND still made
+  // the row vanish — only to reappear on the next mount (it was never deleted),
+  // masking the failure. This matches the Rename/Duplicate handlers, which only
+  // mutate state inside the success path.
   const handleDeleteConfirm = async () => {
     const id = deleteConfirmId;
     if (!id) return;
@@ -175,10 +179,10 @@ export function WorkflowCatalog({
     if (!jwt) return;
     try {
       await deleteUserWorkflow(jwt, id);
+      setUserWorkflows((prev) => prev.filter((w) => w.id !== id));
     } catch (e) {
       setSavedError((e as Error)?.message ?? "Delete failed.");
     }
-    setUserWorkflows((prev) => prev.filter((w) => w.id !== id));
   };
 
   // Launch fork ⟵ CreationHub.tsx:27-38, but wizard routing is read from

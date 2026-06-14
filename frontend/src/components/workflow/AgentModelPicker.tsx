@@ -31,6 +31,16 @@ export interface AgentModelPickerProps {
   agents: { id: string; name: string }[];
   /** Reports the per-agent model overrides (agentId -> modelId). */
   onChange?: (modelOverrides: Record<string, string>) => void;
+  /**
+   * WR-01 (LAUNCH-EXISTING-PATH §4.6) — seed the picker's internal overrides
+   * map on mount (launch-replay of a saved workflow). Without it the picker
+   * starts empty and, since `onChange` emits its WHOLE map, the first edit of
+   * ANY agent's model would replace the seeded overrides wholesale — silently
+   * dropping the persisted models for the other agents. Seeding the internal
+   * state makes a change MERGE rather than replace. Absent ⇒ empty (the normal
+   * no-seed default; every agent shows "Default").
+   */
+  initialOverrides?: Record<string, string>;
   /** Optional token override (defaults to the stored JWT). */
   token?: string | null;
 }
@@ -38,12 +48,17 @@ export interface AgentModelPickerProps {
 export function AgentModelPicker({
   agents,
   onChange,
+  initialOverrides,
   token,
 }: AgentModelPickerProps) {
   const [models, setModels] = useState<CapabilityModelEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [overrides, setOverrides] = useState<Record<string, string>>({});
+  // WR-01: seed from `initialOverrides` so a launch-replay starts reconciled
+  // with the persisted models (the select shows them, and edits MERGE).
+  const [overrides, setOverrides] = useState<Record<string, string>>(
+    initialOverrides ?? {},
+  );
 
   useEffect(() => {
     let cancelled = false;

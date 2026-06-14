@@ -291,9 +291,36 @@ describe("WorkflowCatalog — 'Your workflows' section + kebab (Phase 21)", () =
 
     await waitFor(() => expect(mockDeleteUserWorkflow).toHaveBeenCalledTimes(1));
     expect(mockDeleteUserWorkflow.mock.calls[0][1]).toBe("uw-1");
-    // Optimistically removed from the list.
+    // Removed from the list only after the server delete RESOLVED.
     await waitFor(() =>
       expect(screen.queryByText("My saved workflow")).toBeNull(),
     );
+  });
+
+  // WR-04: a FAILED server delete must KEEP the row (no optimistic removal on
+  // error) and surface the error — otherwise the row vanishes then reappears on
+  // the next mount, masking the failure.
+  it("Delete → keeps the row and surfaces an error when the server delete fails", async () => {
+    mockDeleteUserWorkflow.mockRejectedValueOnce(new Error("Network down"));
+    render(<WorkflowCatalog onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="enterprise" />);
+
+    await screen.findByText("My saved workflow");
+
+    // Open the kebab → click "Delete" → confirm.
+    for (const b of screen.getAllByRole("button")) {
+      await userEvent.click(b);
+      if (screen.queryByText("Delete")) break;
+    }
+    await userEvent.click(screen.getByText("Delete"));
+    const confirmButtons = screen.getAllByText("Delete");
+    await userEvent.click(confirmButtons[confirmButtons.length - 1]);
+
+    await waitFor(() => expect(mockDeleteUserWorkflow).toHaveBeenCalledTimes(1));
+    // The error is surfaced...
+    await waitFor(() =>
+      expect(screen.getByText("Network down")).toBeInTheDocument(),
+    );
+    // ...and the row STAYS (it was never actually deleted server-side).
+    expect(screen.getByText("My saved workflow")).toBeInTheDocument();
   });
 });

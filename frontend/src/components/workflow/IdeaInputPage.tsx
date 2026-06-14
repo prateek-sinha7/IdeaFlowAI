@@ -585,6 +585,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
         onReorder={handleReorderAgents}
         canAddMore={canAddMore}
         onModelOverridesChange={handleModelOverridesChange}
+        initialModelOverrides={initialModelOverrides}
       />
     </div>
   );
