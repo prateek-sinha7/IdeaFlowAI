@@ -653,7 +653,7 @@ Plans:
 5. INV-3 holds — the 5 characterization goldens stay byte-identical (the engine-writer removal is dormant on the non-custom goldens; proven by running the suite) · `lint-imports` 4/0 · backend CRUD + authz tests + a mocked Playwright spec (save → appears in catalog → rename → launch) pass.
 
 **Depends on:** Phase 20
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 Plans:
 **Wave 1**
 
@@ -665,4 +665,4 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 21-03-PLAN.md — FRONTEND launch wiring + e2e: load-bearing `IdeaInputPage` `initialAgentIds`/`initialModelOverrides` preload + guarded re-derive, `onLaunchSaved` prop threaded through `DashboardLayout`, mocked Playwright spec (compose→Save→appears→rename→launch) [wave 3, depends 21-01, 21-02]
+- [x] 21-03-PLAN.md — FRONTEND launch wiring + e2e: load-bearing `IdeaInputPage` `initialAgentIds`/`initialModelOverrides` preload + guarded re-derive, `onLaunchSaved` prop threaded through `DashboardLayout`, mocked Playwright spec (compose→Save→appears→rename→launch) [wave 3, depends 21-01, 21-02]
