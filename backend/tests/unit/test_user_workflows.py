@@ -350,7 +350,11 @@ def test_migration_adds_then_drops_columns():
     cols = {c["name"] for c in inspect(eng).get_columns("workflows")}
     assert {"base_pipeline_type", "model_overrides", "description"} <= cols
 
-    command.downgrade(cfg, "-1")
+    # Downgrade to the revision immediately BEFORE the Phase-21 migration (0021)
+    # so this asserts 0021's own reversibility regardless of any later migrations
+    # appended after it (e.g. Phase 22's additive 0022). A bare "-1" would only
+    # undo whatever the current head is, not the P21 migration under test.
+    command.downgrade(cfg, "0020")
     eng2 = create_engine(url)
     cols2 = {c["name"] for c in inspect(eng2).get_columns("workflows")}
     assert not ({"base_pipeline_type", "model_overrides", "description"} & cols2)
