@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-06-14T20:48:54.212Z"
+last_updated: "2026-06-14T20:54:55.223Z"
 last_activity: 2026-06-14 -- Completed 22-07-PLAN.md (UXFIX-01/03/04 catalog-as-home + authored display_name + generic-primary deliverable dispatch)
 progress:
   total_phases: 22
   completed_phases: 21
   total_plans: 113
-  completed_plans: 108
+  completed_plans: 109
   percent: 95
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 ## Current Position
 
 Phase: 22 (Capability Surfacing and User Empowerment - Universal Runtime UX Completeness) — EXECUTING
-Plan: 5 of 9
+Plan: 6 of 9
 Status: Ready to execute
 Last activity: 2026-06-14 -- Completed 22-07-PLAN.md (UXFIX-01/03/04 catalog-as-home + authored display_name + generic-primary deliverable dispatch)
 
@@ -189,6 +189,7 @@ Progress: [██████████] 100% (99 plans complete; Phase 19 3/3
 | Phase 22 P02 | 22 | 2 tasks | 51 files |
 | Phase 22 P03 | 14 | 2 tasks | 9 files |
 | Phase 22 P07 | 11min | 2 tasks | 14 files |
+| Phase 22 P08 | ~12min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -318,6 +319,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Capability display metadata is registry-owned (@register description=/config_schema= -> _META, projected via describe); NO static map in the API layer (D-08, SC-001)
 - [Phase ?]: security_gated is derived (not user_allowed), not a stored boolean (RESEARCH A2)
 - [Phase ?]: 22-03: persist deliverable_mimetype/deliverable_filename on WorkflowRun (migration 0022, additive); reopen prefers persisted value via shared resolveReopenMimetype (heuristic only for legacy NULL); INV-3 goldens byte-identical
+- [Phase ?]: 22-08: ART-04 keep-by-default retention (DECIDE-01/D-22) + MODEL-05 premium-open-to-all-tiers/Haiku+fallback (DECIDE-02/D-23) recorded; REPO-02/REPO-04/FANOUT-05 confirm labels reconciled; WAVE-03 N8 untouched
 
 ### Pending Todos
 
