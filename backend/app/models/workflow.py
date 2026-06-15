@@ -72,6 +72,16 @@ class WorkflowRun(Base):
     deliverable_mimetype = Column(String, nullable=True)
     deliverable_filename = Column(String, nullable=True)
 
+    # WR-02 (added additively by migration 0023). The launch-time per-step
+    # selections map — {agent_id: {validators, gates, model, retry, ...}} — the
+    # EXACT shape _apply_selections overlays (engine.py:4519). Persisted at run
+    # CREATION so a backend-restart resume (resume_run) can re-apply the same
+    # user-composed levers (re-validated trust="user" at overlay time). Nullable:
+    # every legacy/non-composed run stays NULL → _apply_selections(None) is a
+    # no-op → INV-3 byte/event parity. The row already carries owner_id/
+    # workspace_id scope (above), so no new authz surface (D-12).
+    selections_json = Column(JSON, nullable=True)
+
     user = relationship("User", back_populates="workflow_runs")
     parent_run = relationship("WorkflowRun", remote_side=[id])
     # (The legacy ``artifacts`` -> WorkflowArtifact relationship was removed in 05-07

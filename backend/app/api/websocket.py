@@ -1598,6 +1598,13 @@ async def _handle_workflow_execution(
             session_id=user.id,
             # Phase 3 (T056): revision chaining — link to the source run (validated)
             parent_run_id=parent_run_id,
+            # WR-02 — persist the launch-validated per-step selections so
+            # resume_run can re-apply them (re-validated trust="user" at launch
+            # :1544 via _revalidate_selections_trust_user and AGAIN on resume at
+            # _apply_selections overlay time). Persisted at row CREATION (not
+            # finalize) so the row carries selections BEFORE the run can crash —
+            # a backend-restart resume must find them. None for non-composed runs.
+            selections_json=selections,
         )
         db.add(workflow_run)
         db.commit()

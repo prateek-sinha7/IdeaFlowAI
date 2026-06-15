@@ -170,3 +170,43 @@ def test_migration_0016_down_revision_is_0015() -> None:
     # And 0016 is the new head.
     heads = list(script.get_heads())
     assert heads == ["0016"], f"expected single head 0016, got {heads}"
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 4. WR-02 — migration 0023 (workflow_runs.selections_json) ledger
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def test_migration_0023_down_revision_is_0022() -> None:
+    """0023's down_revision is exactly "0022" and 0023 is the SINGLE head — the
+    head chain is unbroken (WR-02)."""
+    script = ScriptDirectory.from_config(_make_config("sqlite://"))
+    rev = script.get_revision("0023")
+    assert rev is not None, "revision 0023 not found in the migration ledger"
+    assert rev.down_revision == "0022", (
+        f"0023 down_revision is {rev.down_revision!r}, expected '0022'"
+    )
+    heads = list(script.get_heads())
+    assert heads == ["0023"], f"expected single head 0023, got {heads}"
+
+
+def test_migration_0023_is_additive_only() -> None:
+    """Migration 0023 is single-head additive (down_revision 0022); upgrade adds
+    ONLY the selections_json column and contains no drop/alter-narrow of existing
+    columns (WR-02). Source-level assertion — no DB round-trip required."""
+    mig = (
+        _BACKEND_DIR
+        / "alembic"
+        / "versions"
+        / "0023_workflow_run_selections.py"
+    )
+    src = mig.read_text()
+    assert 'revision = "0023"' in src
+    assert 'down_revision = "0022"' in src
+    # upgrade() body: additive add_column only; no destructive ops on existing cols.
+    upgrade_body = src.split("def upgrade")[1].split("def downgrade")[0]
+    assert "add_column" in upgrade_body
+    assert "selections_json" in upgrade_body
+    assert "drop_column" not in upgrade_body
+    assert "alter_column" not in upgrade_body
+    assert "drop_table" not in upgrade_body
