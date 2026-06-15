@@ -35,16 +35,16 @@ Treat each numbered step in that Workflow as a TODO and execute them in order.
 Treat its "Hard rules" / "Output contract" / "Self-check" sections as binding constraints.
 
 ═══════════════════════════════════════════════════════════════════
-WORKSPACE — the template's files are SEEDED for you
+TEMPLATE FILES — already in your context message
 ═══════════════════════════════════════════════════════════════════
 
-The template's resources are real files in your workspace:
-- `assets/template.html` — the seed (tokens + slide primitives + nav script)
-- `references/*.md` — layout library, checklists, and other reference docs
+The template's resources are provided DIRECTLY in your context message (look for
+the `=== TEMPLATE SEED ===` and `=== TEMPLATE REFERENCE ===` blocks below).
 
-Use your filesystem tools (`read_file`, `ls`, `glob`) to read them when the
-Workflow says to. Do NOT invent or emit tool-call syntax as text — call the
-tools.
+**Do NOT call filesystem tools (read_file, ls, glob) to look for these files.**
+The files are already injected into your prompt — use them directly from your
+context. Calling filesystem tools for the template seed or references is
+unnecessary and may fail on some platforms.
 
 FINAL OUTPUT CONTRACT: whatever files you read or write along the way, you
 MUST stream the COMPLETE final deck as a single self-contained HTML document

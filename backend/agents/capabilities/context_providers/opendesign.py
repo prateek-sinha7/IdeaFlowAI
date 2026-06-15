@@ -114,9 +114,14 @@ class OpenDesignProvider:
                 # prototype-plan, tools=[]) must NOT see a full working HTML doc — it
                 # nudges them to copy/continue it instead of writing the spec /
                 # decomposing into tasks.
+                # EXTENDED: "workspace" tool set is also a builder (od-ppt-composer).
+                # The vellum SKILL.md workflow says "Clone example.html" — the composer
+                # must receive example.html in its context to follow that instruction.
+                # Without this, the composer has no visual reference and invents a deck
+                # from scratch instead of following the template's identity.
                 example_html = None
                 if (
-                    is_builder
+                    (is_builder or "workspace" in spec_tools)
                     and runner is not None
                     and hasattr(runner, "template_example")
                 ):

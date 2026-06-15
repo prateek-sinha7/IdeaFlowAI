@@ -45,7 +45,12 @@ export default function PrototypeTemplatesPage() {
     setAuthChecked(true);
     // Check if we arrived via a chain action
     const from = sessionStorage.getItem("chain.from");
-    if (from) setChainFrom(from);
+    if (from) {
+      setChainFrom(from);
+      // Clear chain.from immediately after reading into component state so
+      // it doesn't persist across fresh navigations to this page.
+      sessionStorage.removeItem("chain.from");
+    }
     // Read the structured context block from the previous pipeline
     const ctx = sessionStorage.getItem("chain.context_block");
     if (ctx) setChainContextBlock(ctx);

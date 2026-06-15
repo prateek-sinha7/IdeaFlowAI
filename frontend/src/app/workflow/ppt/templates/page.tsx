@@ -38,7 +38,13 @@ export default function PPTTemplatesPage() {
     if (!token) { router.replace("/login"); return; }
     setAuthChecked(true);
     const from = sessionStorage.getItem("chain.from");
-    if (from) setChainFrom(from);
+    if (from) {
+      setChainFrom(from);
+      // Clear chain.from immediately after reading into component state so
+      // it doesn't persist across fresh navigations to this page. The value
+      // is captured in chainFrom state and no longer needed in sessionStorage.
+      sessionStorage.removeItem("chain.from");
+    }
     const ctx = sessionStorage.getItem("chain.context_block");
     if (ctx) setChainContextBlock(ctx);
   }, [router]);
