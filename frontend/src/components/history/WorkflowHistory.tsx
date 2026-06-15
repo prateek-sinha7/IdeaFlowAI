@@ -125,6 +125,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   const [searchQuery, setSearchQuery] = useState("");
   const [detailTab, setDetailTab] = useState<"preview" | "files" | "thinking">("preview");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -166,12 +167,15 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     if (!deleteConfirmId) return;
     const token = getToken();
     if (!token) return;
+    setDeleteError(null);
     try {
       await deleteWorkflow(token, deleteConfirmId);
       setRuns((prev) => prev.filter((r) => r.id !== deleteConfirmId));
       if (selectedRun?.id === deleteConfirmId) { setSelectedRun(null); setSelectedOutput(null); }
-    } catch {}
-    finally { setDeleteConfirmId(null); }
+      setDeleteConfirmId(null);
+    } catch {
+      setDeleteError("Failed to delete run. Please try again.");
+    }
   }, [deleteConfirmId, selectedRun]);
 
   const filteredRuns = runs.filter((r) => {
@@ -696,7 +700,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
 
         {/* Delete modal */}
         <AnimatePresence>
-          {deleteConfirmId && <DeleteModal onConfirm={handleDeleteConfirm} onCancel={() => setDeleteConfirmId(null)} />}
+          {deleteConfirmId && <DeleteModal onConfirm={handleDeleteConfirm} onCancel={() => { setDeleteConfirmId(null); setDeleteError(null); }} error={deleteError} />}
         </AnimatePresence>
       </div>
     );
@@ -914,7 +918,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
 
       {/* Delete modal */}
       <AnimatePresence>
-        {deleteConfirmId && <DeleteModal onConfirm={handleDeleteConfirm} onCancel={() => setDeleteConfirmId(null)} />}
+        {deleteConfirmId && <DeleteModal onConfirm={handleDeleteConfirm} onCancel={() => { setDeleteConfirmId(null); setDeleteError(null); }} error={deleteError} />}
       </AnimatePresence>
 
       {/* Close menu on outside click */}
@@ -925,7 +929,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   );
 }
 
-function DeleteModal({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+function DeleteModal({ onConfirm, onCancel, error }: { onConfirm: () => void; onCancel: () => void; error?: string | null }) {
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -954,6 +958,9 @@ function DeleteModal({ onConfirm, onCancel }: { onConfirm: () => void; onCancel:
         <p className="text-[12px] text-gray-500 leading-relaxed mb-5">
           The workflow run and all its output will be permanently deleted.
         </p>
+        {error && (
+          <p className="text-[11px] text-red-500 mb-3 px-1">{error}</p>
+        )}
         <div className="flex gap-2">
           <button
             onClick={onCancel}

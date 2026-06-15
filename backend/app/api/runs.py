@@ -29,9 +29,19 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user
+from app.models.artifact_ref import ArtifactRef
 from app.models.database import get_db
+from app.models.exec_runs import ExecRun
+from app.models.gate_events import GateEvent
+from app.models.hook_runs import HookRun
+from app.models.run_capabilities import RunCapabilities
+from app.models.run_event import RunEvent
+from app.models.subagent_run import SubagentRun
 from app.models.user import User
+from app.models.validation_results import ValidationResult
+from app.models.wave_run import WaveRun
 from app.models.workflow import WorkflowRun
+from app.models.workflow_clarification import WorkflowClarification
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
@@ -280,7 +290,14 @@ def delete_run(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Delete a workflow run.
+    """Delete a workflow run and all its child rows.
+
+    Cleans up all 9 child tables that FK into workflow_runs before deleting
+    the parent row — required because PRAGMA foreign_keys=ON (database.py)
+    enforces FK integrity and none of the child tables declare ON DELETE CASCADE.
+
+    Also handles the self-referential parent_run_id FK: child WorkflowRun rows
+    (revision chains) have their parent_run_id nulled before the parent is deleted.
 
     Returns 204 No Content on success.
     Returns 404 if the workflow does not exist or does not belong to the user.
@@ -295,6 +312,28 @@ def delete_run(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Workflow run not found",
         )
+
+    # ── Delete child rows in dependency order before removing the parent ──────
+    # All 9 audit tables FK into workflow_runs.id with no ON DELETE CASCADE.
+    # Column names differ per table — confirmed from each model file.
+    db.query(RunEvent).filter(RunEvent.run_id == workflow_id).delete(synchronize_session=False)
+    db.query(ArtifactRef).filter(ArtifactRef.run_id == workflow_id).delete(synchronize_session=False)
+    db.query(WorkflowClarification).filter(WorkflowClarification.workflow_run_id == workflow_id).delete(synchronize_session=False)
+    db.query(GateEvent).filter(GateEvent.run_id == workflow_id).delete(synchronize_session=False)
+    db.query(HookRun).filter(HookRun.run_id == workflow_id).delete(synchronize_session=False)
+    db.query(ExecRun).filter(ExecRun.run_id == workflow_id).delete(synchronize_session=False)
+    db.query(RunCapabilities).filter(RunCapabilities.run_id == workflow_id).delete(synchronize_session=False)
+    db.query(ValidationResult).filter(ValidationResult.run_id == workflow_id).delete(synchronize_session=False)
+    db.query(SubagentRun).filter(SubagentRun.parent_run_id == workflow_id).delete(synchronize_session=False)
+    db.query(WaveRun).filter(WaveRun.run_id == workflow_id).delete(synchronize_session=False)
+
+    # ── Self-referential FK: null out parent_run_id on any child revision runs ─
+    # Deleting the parent while revision children point to it via parent_run_id
+    # would also violate the self-referential FK. Null the reference instead of
+    # cascade-deleting the child runs (preserves the revision run history).
+    db.query(WorkflowRun).filter(WorkflowRun.parent_run_id == workflow_id).update(
+        {WorkflowRun.parent_run_id: None}, synchronize_session=False
+    )
 
     db.delete(workflow_run)
     db.commit()
