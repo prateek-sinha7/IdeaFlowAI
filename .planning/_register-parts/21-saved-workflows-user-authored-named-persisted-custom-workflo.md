@@ -76,6 +76,8 @@ Also superseded (logical, not a code deletion): decision **Q5** ("DB-backed user
 
 **Live verification campaign (`.planning/live-verification/CAMPAIGN-2026-06-14-phase21-saved-workflows.md`) — ALL GREEN:** dev DB migrated `0020→0021` (3 nullable cols added, no new table), backend restarted on Phase-21 code (`alembic=0021`, `/api/user-workflows`→403 unauth). Real CRUD smoke **12/12** (owner-stamped create, list/get/rename, empty-`agent_ids`→422, bogus-agent→422, basic-tier→403, IDOR get/patch/delete→404/404/404, owner delete→204). Live Playwright `ts-z2.saved-workflows.live.spec.ts` (real login + real CRUD) **1 passed, stable ×5** (save-persists → appears → rename → launch-preloads with 2 saved agents → delete cleanup). No product defects. (A full Bedrock *run* of a launched saved workflow exercises the already-proven existing run path; not re-run.)
 
+**UI review (`21-UI-REVIEW.md`, 2026-06-14):** code-only 6-pillar audit (dev server auth-gated → no screenshots), **22/24** — reuse-first contract honored (zero net-new color/typography/spacing). **3 open WARNINGs** (a11y/UX, all inherited-analog gaps but named in the UI-SPEC as acceptance): (1) `NameWorkflowModal`/delete-confirm/kebab have no Esc-close or focus-trap; (2) the icon-only kebab button has no `aria-label`; (3) the saved-list error banner is non-dismissable / can persist stale. Fixes proposed, not applied — carried forward (§7).
+
 **Commits:** features `014c0959`/`9d733d54`/`d1d2ab3a` (21-01), `d4254093`/`40ecc797`/`84d4e769` (21-02), `e49ccac7`/`e6b38a9b`/`569aa93d`/`1c42455c` (21-03); review fixes `420cea39` (WR-02/03), `460e9264` (WR-01/04); live `43cce1bc` + campaign doc `2d88001f`.
 
 ### 7. Gotchas, Survivors & Carry-Forward
@@ -87,6 +89,7 @@ Also superseded (logical, not a code deletion): decision **Q5** ("DB-backed user
 - **`model_overrides` live in a REF** (`modelOverridesRef.current`) — read `.current` on Save; the picker has no value-prop by default (WR-01 addressed the launch-replay seed; if extending the picker, seed its internal state from the saved overrides or merge-not-replace on change).
 - **Column-count drift across docs:** the SPEC/ROADMAP/21-VERIFICATION say "2 nullable columns"; the FINAL landed migration has **3** (`description` added by WR-03). Trust the code (`workflow_definition.py:41-43`, `0021:38-40`), not the planning prose, on column count.
 - **`deferred-items.md`:** 2 PRE-EXISTING TS2352 errors in `frontend/e2e/fixtures/mockApi.ts` (readonly-tuple casts on `CAPABILITIES`/`MODEL_CATALOG`) — confirmed identical on HEAD, untouched by Phase 21, outside its `files_modified`, do not affect any Phase 21 gate. Owned by the e2e-fixtures cleanup task, NOT a saved-workflows concern.
+- **Open UI-review WARNINGs (`21-UI-REVIEW.md`, not yet fixed):** add Esc-close + focus-trap to `NameWorkflowModal`/delete-confirm/kebab; add `aria-label="Workflow options"` to the kebab button (`WorkflowCatalog.tsx:364`); make the saved-list error banner dismissable/auto-clear (mirror the composer's 2.5s `savedConfirm`). All three are inherited-analog a11y gaps the UI-SPEC named as acceptance — fix here AND ideally backport to the analogs (`DeleteModal`, WorkflowHistory kebab).
 - **Carry-forward (remaining WF-DB-01 scope, all explicitly deferred — `21-CONTEXT.md` `<deferred>`):** saving non-`custom` base types; sharing/marketplace; org/workspace-shared workflows; versioning beyond the existing `version` column. These are deliberate v-next, NOT gaps.
 
 ### 8. File Index (every file in this folder)
@@ -105,6 +108,7 @@ Also superseded (logical, not a code deletion): decision **Q5** ("DB-backed user
 | `21-03-SUMMARY.md` | Launch outcome: preload props + guard + wiring; e2e 2/2; declares Phase 21 FE-complete; 1 Rule-1 bug-fix (resolve seed against `ALL_LIBRARY_AGENTS`). |
 | `21-REVIEW.md` | Deep code review: 0 critical / 4 warning / 4 info; core contract sound; WR-01 (override clobber), WR-02 (empty agent_ids), WR-03 (constitution_ref overload), WR-04 (optimistic-delete-on-error). |
 | `21-VERIFICATION.md` | gsd-verifier PASS, 5/5 truths, 0 overrides; all gates run green (42 goldens, lint 4/0, 16 CRUD, alembic reversible, 6 vitest, 2 e2e, both grep guards 0). (Predates the WR-fix pass → records "2 cols"/"16 tests".) |
+| `21-UI-REVIEW.md` | 6-pillar UI audit (2026-06-14), **22/24**, code-only (auth-gated dev server, no screenshots); 3 open WARNING a11y/UX fixes (Esc/focus-trap, kebab `aria-label`, dismissable error banner). Open before touching the saved-workflows modals/kebab. |
 | `deferred-items.md` | The 2 pre-existing TS2352 `e2e/fixtures/mockApi.ts` errors (out of scope; owned by e2e-fixtures cleanup). |
 | `.gitkeep` | Empty placeholder. |
 
