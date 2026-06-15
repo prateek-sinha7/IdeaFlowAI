@@ -5032,6 +5032,25 @@ class ExecutionEngine:
             user_id = wr.user_id
             session_id = wr.session_id
             parent_run_id = wr.parent_run_id
+            # WR-02: the launch-time per-step selections overlay, persisted on the
+            # row at run creation (websocket.py, migration 0023). Legacy/non-
+            # composed runs are None → the resume takes the has_selections None
+            # branch in _apply_selections (engine.py:4538) → byte/event-identical
+            # resume (INV-3). Read inside this SAME db session so it closes with
+            # the rest (no second session opened).
+            #
+            # SECURITY (trust=user re-validation): this map was already re-validated
+            # trust="user" at LAUNCH (websocket.py:1544 via
+            # _revalidate_selections_trust_user) before it was persisted, and
+            # _apply_selections re-compiles via WorkflowCompiler().compile(
+            # trust="user") AGAIN at overlay time (engine.py:4549) — so the resume
+            # overlay can only ever carry user-allowed levers (resume applies LESS
+            # privilege, never more). No extra WS-layer pre-check is needed here:
+            # the engine-side trust=user re-compile IS the authoritative
+            # re-validation on this path (the WS pre-check exists only because the
+            # launch path accepts a client-supplied map, whereas resume reads the
+            # already-persisted, already-launch-validated map).
+            selections = wr.selections_json
         finally:
             db.close()
 
@@ -5112,17 +5131,16 @@ class ExecutionEngine:
                 )
                 live_queue = None
 
-        # ── WR-02 (KNOWN LIMITATION — tracked in phase deferred-items.md) ────────────
-        # ``resume_run`` reconstructs the run identity from the ``workflow_runs`` row
-        # (type / input / user / session / parent) but does NOT re-thread the launch-time
-        # ``selections`` overlay: those user-composed levers (selected validators / gates
-        # / per-step model / retry) are not persisted on the run row, so a backend-restart-
-        # resumed run re-drives the BARE file-compiled plan. This is a faithfulness gap,
-        # NOT a security issue — a resumed run can only ever apply LESS privilege than the
-        # engineer authored (the overlay only ever ADDS user-allowed levers). Fixing it
-        # requires persisting ``selections`` on the run (additive nullable column / run
-        # JSON) and re-threading them through resume_run → _execute_impl → _apply_selections;
-        # deferred out of this fix pass (no new migration here — per the review scope).
+        # ── WR-02 (RESOLVED — quick-260615-dzk) ──────────────────────────────────────
+        # ``resume_run`` now reads the launch-time ``selections`` overlay persisted on
+        # the ``workflow_runs`` row (``selections_json``, migration 0023) and re-threads
+        # it through ``_execute_impl`` → ``_apply_selections`` (trust="user" re-compile)
+        # below — so a backend-restart-resumed run re-applies the SAME user-composed
+        # levers (selected validators / gates / per-step model / retry) it ran pre-crash.
+        # None/empty selections (every legacy/non-composed run) take the ``has_selections``
+        # None branch in ``_apply_selections`` → the plan is unchanged → byte/event-
+        # identical resume (INV-3). The overlay is privilege-bounded by construction (the
+        # trust="user" re-compile rejects any over-privileged lever).
         #
         # ── Re-drive through the SAME seq/event sink as a fresh run (so resumed events
         # persist + replay via the after_seq branch). _execute_impl rebuilds the
@@ -5138,6 +5156,11 @@ class ExecutionEngine:
                 user_id=user_id,
                 session_id=session_id,
                 parent_run_id=parent_run_id,
+                # WR-02: re-thread the persisted launch selections through the
+                # SHARED _apply_selections overlay seam (engine.py:1140) — no fork,
+                # the launch path uses the exact same kwarg (INV-12). None/empty →
+                # _apply_selections returns the plan unchanged → INV-3 parity.
+                selections=selections,
                 _sink=sink,
                 _resume_from=offset,
                 _is_resume=True,
