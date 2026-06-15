@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   X, Plus, ArrowRight, Lock, GripVertical, Info,
   Clock, Zap, BookMarked, CheckCircle2, ChevronRight, ChevronDown,
-  Puzzle, Webhook, Search, Check, Boxes, AlertCircle, Settings2,
+  Puzzle, Webhook, Search, Check, Sliders, AlertCircle, Settings2,
 } from "lucide-react";
 import { AgentLibrary } from "./AgentLibrary";
 import { AgentModelPicker } from "./AgentModelPicker";
@@ -860,7 +860,7 @@ export function CapabilityPaletteSection({
   return (
     <div className="flex flex-col">
       <div className="flex items-center gap-1.5 mb-2">
-        <Boxes className="h-3.5 w-3.5 text-[#1B2A4A]" />
+        <Sliders className="h-3.5 w-3.5 text-[#1B2A4A]" />
         <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">
           Capabilities
         </p>
@@ -914,13 +914,19 @@ export function CapabilityPaletteSection({
       {!loading && !error && capabilities.length > 0 && (
         <div className="space-y-3 max-h-[200px] overflow-y-auto pr-1">
           {groups.map((group) => (
-            <div key={group.kind} role="group" aria-label={group.kind}>
+            <div key={group.kind} role="group" aria-label={titleCaseKind(group.kind)}>
               <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-1">
                 {titleCaseKind(group.kind)}
               </p>
               <div className="space-y-1.5">
                 {group.rows.map((cap) => {
                   const rowKey = `${cap.kind}:${cap.name}`;
+                  // Locks are binary `user_allowed` (engineer-only). Minor #6's
+                  // "Upgrade to use" tier-locked copy variant (UI-SPEC copywriting
+                  // contract) is deliberately NOT implemented: there is no
+                  // tier-gated capability yet — every lock is engineer-only. This
+                  // is the forward hook to wire that variant when a tier-gated
+                  // capability first appears (branch here on a future tier field).
                   const locked = !cap.user_allowed;
                   const hasSchema =
                     cap.config_schema &&
@@ -931,6 +937,16 @@ export function CapabilityPaletteSection({
                       key={rowKey}
                       data-cap-row
                       aria-disabled={locked ? "true" : undefined}
+                      // A11y (Top Fix #2): the lock reason must reach keyboard/SR
+                      // users on this non-focusable div. Additive — only locked
+                      // rows get an aria-label; non-locked rows stay labelled by
+                      // their visible name. The visible pill + title tooltip are
+                      // preserved alongside.
+                      aria-label={
+                        locked
+                          ? `${cap.name} — Engineer-only, not available to compose`
+                          : undefined
+                      }
                       title={
                         locked
                           ? "This capability requires elevated trust and isn't available to compose. Contact your workspace admin."
@@ -989,14 +1005,46 @@ export function CapabilityPaletteSection({
                       )}
                       {hasSchema && isOpen && (
                         <div className="mt-1 rounded-md bg-white border border-gray-100 px-2 py-1 space-y-0.5">
-                          {Object.keys(cap.config_schema).map((field) => (
-                            <p
-                              key={field}
-                              className="text-[10px] text-gray-500 font-mono"
-                            >
-                              {field}
-                            </p>
-                          ))}
+                          {Object.entries(cap.config_schema).map(
+                            ([field, desc]) => {
+                              // `desc` is typed `unknown` (config_schema is
+                              // Record<string, unknown>) — narrow defensively;
+                              // never assume keys (Minor #5). JSON-Schema-lite
+                              // per-field descriptor: { type?: string;
+                              // required?: boolean }.
+                              const isObj =
+                                typeof desc === "object" && desc !== null;
+                              const fieldType =
+                                isObj && "type" in desc &&
+                                typeof (desc as { type?: unknown }).type ===
+                                  "string"
+                                  ? (desc as { type: string }).type
+                                  : undefined;
+                              const isRequired =
+                                isObj &&
+                                "required" in desc &&
+                                (desc as { required?: unknown }).required ===
+                                  true;
+                              return (
+                                <p
+                                  key={field}
+                                  className="text-[10px] text-gray-500 font-mono"
+                                >
+                                  {field}
+                                  {/* Required marker — gray scale only, never
+                                      navy/red (preserve locked-row neutrality). */}
+                                  {isRequired && (
+                                    <span className="text-gray-400">*</span>
+                                  )}
+                                  {fieldType && (
+                                    <span className="ml-1 text-[9px] text-gray-400">
+                                      {fieldType}
+                                    </span>
+                                  )}
+                                </p>
+                              );
+                            },
+                          )}
                         </div>
                       )}
                     </div>
@@ -1185,7 +1233,7 @@ export function AdvancedExpander({
   }
 
   return (
-    <div className="flex flex-col space-y-1.5 max-h-[240px] overflow-y-auto pr-1">
+    <div className="flex flex-col space-y-1.5 max-h-[200px] overflow-y-auto pr-1">
       {agents.map((agent) => {
         const isOpen = expanded.has(agent.id);
         const region = `advanced-${agent.id}`;

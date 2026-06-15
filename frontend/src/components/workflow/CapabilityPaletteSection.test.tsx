@@ -84,13 +84,15 @@ describe("CapabilityPaletteSection — SURF-01/03 + EMP-02 render contract", () 
   it("groups rows by kind with a title-cased header per kind (no hardcoded kind list)", async () => {
     render(<CapabilityPaletteSection />);
 
-    // One group per distinct kind, header title-cased from the payload `kind`.
+    // One group per distinct kind; the group's aria-label is title-cased from
+    // the payload `kind` (Minor #7 — the SR label matches the visible header,
+    // not the raw snake_case kind).
     await waitFor(() => {
-      expect(screen.getByRole("group", { name: "validator" })).toBeInTheDocument();
+      expect(screen.getByRole("group", { name: "Validators" })).toBeInTheDocument();
     });
-    expect(screen.getByRole("group", { name: "gate" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Gates" })).toBeInTheDocument();
     expect(
-      screen.getByRole("group", { name: "context_provider" }),
+      screen.getByRole("group", { name: "Context providers" }),
     ).toBeInTheDocument();
 
     // The header title-cases the kind (e.g. "Context providers" from
@@ -127,6 +129,36 @@ describe("CapabilityPaletteSection — SURF-01/03 + EMP-02 render contract", () 
     expect(lockedRow).toHaveAttribute("aria-disabled", "true");
     // Engineer-only microcopy per the UI-SPEC copywriting contract.
     expect(screen.getByText("Engineer-only")).toBeInTheDocument();
+    // A11y (Top Fix #2): the lock reason reaches keyboard/SR users via an
+    // additive aria-label on the non-focusable row (additive to the visible
+    // pill + the title tooltip, both still present).
+    expect(lockedRow).toHaveAttribute(
+      "aria-label",
+      "security — Engineer-only, not available to compose",
+    );
+  });
+
+  it("leaves non-locked rows without an aria-label (labelled by their visible name)", async () => {
+    render(<CapabilityPaletteSection />);
+    const unlockedRow = await waitFor(() => {
+      const row = screen.getByText("code_test").closest("[data-cap-row]");
+      expect(row).not.toBeNull();
+      return row as HTMLElement;
+    });
+    expect(unlockedRow).not.toHaveAttribute("aria-label");
+  });
+
+  it("renders each config-schema field with its type (Minor #5)", async () => {
+    const { getByRole } = render(<CapabilityPaletteSection />);
+    // Open the config-schema affordance for the schema'd cap (code_test, whose
+    // config_schema is { command: { type: "string" } }).
+    const toggle = await waitFor(() =>
+      getByRole("button", { name: "Configuration for code_test" }),
+    );
+    toggle.click();
+    // The field name AND its narrowed type render.
+    await waitFor(() => expect(screen.getByText("command")).toBeInTheDocument());
+    expect(screen.getByText("string")).toBeInTheDocument();
   });
 
   it("shows the loading copy while fetching", async () => {
