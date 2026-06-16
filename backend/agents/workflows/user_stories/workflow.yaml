@@ -10,6 +10,7 @@ version: 1
 # only, never read by the compiler/kernel (INV-3 parity preserved).
 user_launchable: true
 display_name: "User Stories"
+description: "Epics, user stories, and Gherkin acceptance criteria — ready for Jira."
 planner: run
 clarify:
   mode: auto

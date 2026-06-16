@@ -11,6 +11,7 @@ version: 1
 # only, never read by the compiler/kernel (INV-3 parity preserved).
 user_launchable: true
 display_name: "Presentation Deck"
+description: "Executive-grade deck with charts, data, and a clear narrative."
 launch_surface: "wizard"
 planner: run
 clarify:

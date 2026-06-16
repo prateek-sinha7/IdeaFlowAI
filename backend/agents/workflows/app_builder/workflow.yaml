@@ -11,6 +11,7 @@ version: 1
 # display_name (UXFIX-01/22-07): authored friendly catalog label — presentation only.
 user_launchable: true
 display_name: "Full App Builder"
+description: "Full-stack code, tests, and infrastructure from a single requirement."
 planner: run
 clarify:
   mode: auto
