@@ -350,6 +350,32 @@ _REVISION_REQUEST_MARKER = _re.compile(
     _re.DOTALL,
 )
 
+# Extracts the "Title: ..." line from a chain context block when the content
+# is ONLY a context block (no user-authored prefix). Used as a fallback title
+# for wizard-based chained runs where finalBrief == contextBlock exclusively.
+# The context block format (runs.py:503-508) always places "Title: {value}"
+# on its second line: "=== CONTEXT FROM PREVIOUS PIPELINE (...) ===\nTitle: ...".
+_CHAIN_CONTEXT_TITLE = _re.compile(
+    r"===\s*CONTEXT FROM PREVIOUS PIPELINE[^=]*===\s*\nTitle:\s*(.+)",
+)
+
+
+def _extract_title_from_context(content: str) -> str:
+    """Extract the Title: line from a chain context block.
+
+    Used as a fallback when _strip_pipeline_context returns "" (i.e. the
+    content is ONLY a context block with no user-authored prefix, as happens
+    for wizard-based chained runs where prototype/ppt/templates/page.tsx sets
+    finalBrief = contextBlock). Returns the extracted title (max 80 chars),
+    or "" when the pattern is absent.
+    """
+    if not content:
+        return ""
+    m = _CHAIN_CONTEXT_TITLE.search(content)
+    if not m:
+        return ""
+    return m.group(1).strip()[:80]
+
 
 def _strip_pipeline_context(content: str) -> str:
     """Return the user-authored prefix of a workflow input.
@@ -408,6 +434,30 @@ async def _generate_workflow_title(
     # to reflect what the user typed at the prompt.
     clean_content = _strip_pipeline_context(content)
     if not clean_content:
+        # Content is ONLY a context block (wizard-based chained run). Extract
+        # the Title: line from the context block as the title directly — no LLM
+        # call needed; the title is already embedded in the chain context.
+        context_title = _extract_title_from_context(content)
+        if not context_title:
+            return
+        db = _get_db()
+        try:
+            wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+            if wr is None:
+                return
+            wr.title = context_title[:60].strip()
+            db.commit()
+        finally:
+            db.close()
+        try:
+            await websocket.send_json({
+                "type": "workflow_title_update",
+                "chunk": None,
+                "section": None,
+                "data": {"workflow_id": workflow_run_id, "title": context_title[:60].strip()},
+            })
+        except Exception:
+            pass
         return
     try:
         from langchain_core.messages import HumanMessage, SystemMessage
@@ -1589,7 +1639,7 @@ async def _handle_workflow_execution(
             # and set it as the PK so artifact writes resolve against this row.
             id=pipeline_run_id,
             user_id=user.id,
-            title=(_strip_pipeline_context(content) or content or "Untitled")[:60].strip(),
+            title=(_strip_pipeline_context(content) or _extract_title_from_context(content) or content or "Untitled")[:60].strip(),
             type=pipeline_type,
             status="running",
             input=content or f"Run {pipeline_type} pipeline",
