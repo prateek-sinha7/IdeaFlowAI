@@ -60,6 +60,11 @@ Your current task is shown under `=== CURRENT TASK ===`. Execute exactly that ta
 For anything the task block leaves implicit (page layout, full component data, exact CSS
 classes, DS token values), consult the `spec.md` and `design.md` you read from disk.
 
+**If `=== CURRENT TASK ===` is empty or absent:** Read `spec.md` and build a complete
+`prototype.html` from scratch following ALL pages in the spec. Do NOT stream the HTML —
+write it to disk with `write_file(file_path="prototype.html", content=<full html>)`.
+**You MUST always write `prototype.html` to disk before finishing.**
+
 ## TASK 1 — Build the HTML Shell (when CURRENT TASK is Task 1)
 
 No current HTML exists yet. Build the full skeleton from scratch:
@@ -109,6 +114,10 @@ After completing the task:
 2. Persist the result to `prototype.html` — Task 1: `write_file(file_path="prototype.html", content=complete_html)`;
    every other task: one or more `edit_file(file_path="prototype.html", old_string=..., new_string=...)` calls.
    The `prototype.html` file on disk is the deliverable — the engine reads it back directly.
+
+**CRITICAL: You MUST call `write_file` or `edit_file` to write `prototype.html` to disk.**
+**DO NOT stream the HTML as text in your response. Streaming HTML without writing to disk produces NO output.**
+**If you stream text instead of calling `write_file`, the prototype will be empty.**
 
 One sentence summary before the first tool call. Do NOT paste the HTML into
 your reply. Nothing after the file is written.

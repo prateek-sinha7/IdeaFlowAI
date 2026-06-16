@@ -20,7 +20,10 @@ from __future__ import annotations
 import logging
 import os
 import re
-import resource
+try:
+    import resource  # Unix-only (Linux/macOS); not available on Windows
+except ImportError:
+    resource = None  # type: ignore[assignment]  # exec_command resource limits disabled on Windows
 import signal
 import subprocess
 import time
@@ -368,6 +371,8 @@ class LocalWorkspace:
         mem_bytes = self.policy.mem_mb * 1024 * 1024
 
         def _limits() -> None:
+            if resource is None:
+                return  # Windows — resource limits not available; exec is disabled anyway
             resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu))
             # RLIMIT_AS is hard-enforced on linux, best-effort on darwin (Pitfall 4).
             try:

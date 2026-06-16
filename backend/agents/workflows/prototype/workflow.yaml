@@ -21,7 +21,12 @@ display_name: "Interactive Prototype"
 launch_surface: "wizard"
 planner: run
 clarify:
-  mode: auto
+  # FIX-010: od_prototype goes through the wizard (user already provided brief +
+  # template + design system). Clarification is redundant and destructive —
+  # the clarify engine runs 3 rounds (38s) with no answers → proceeds with just
+  # the brief → spec writer has insufficient context → asks clarifying questions.
+  # Use mode: skip so the spec writer gets the brief directly without wasting time.
+  mode: skip
   defaults: [target_audience, scope, priority, style]
 deliverable:
   strategy: single_file
