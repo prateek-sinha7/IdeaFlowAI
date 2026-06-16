@@ -72,6 +72,10 @@ export default function PPTTemplatesPage() {
       if (d.brief) setBrief(d.brief);
       if (d.customDsBody) setCustomDsBody(d.customDsBody);
       if (d.customTemplateBody) setCustomTemplateBody(d.customTemplateBody);
+      // FIX-005: always clear the draft after reading — it is only needed for the
+      // single wizard→dashboard redirect. Leaving it in sessionStorage causes every
+      // subsequent fresh wizard open to pre-fill the previous run's brief/template/DS.
+      sessionStorage.removeItem(STORAGE_KEY);
     } catch { /* ignore */ }
   }, [authChecked]);
 

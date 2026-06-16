@@ -775,6 +775,7 @@ export default function DashboardPage() {
 
     pendingOdProtoRef.current = null;
     sessionStorage.removeItem("od_prototype.pending");
+    sessionStorage.removeItem("prototype.draft");    // FIX-005: clear stale draft so next fresh wizard open starts empty
 
     setUserStoryContent("");
     setPptContent("");
@@ -839,6 +840,7 @@ export default function DashboardPage() {
     // Consume — clear both ref and sessionStorage key
     pendingOdPptRef.current = null;
     sessionStorage.removeItem("od_ppt.pending");
+    sessionStorage.removeItem("ppt.draft");          // FIX-005: clear stale draft so next fresh wizard open starts empty
 
     setUserStoryContent("");
     setPptContent("");
