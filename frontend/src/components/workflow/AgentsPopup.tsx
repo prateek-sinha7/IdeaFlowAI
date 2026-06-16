@@ -1554,8 +1554,15 @@ export function AgentsPopup({
                   </button>
                 </div>
 
-                {/* Flow grid */}
-                <div className="mx-6 mb-4 rounded-xl overflow-y-auto flex-1" style={{
+                {/* Single scrollable body — flow grid + model picker + advanced + capabilities.
+                    All four sections share one overflow-y-auto flex-1 region so they are
+                    always reachable regardless of screen height (KAN-68 fix). */}
+                <div className="flex-1 overflow-y-auto min-h-0">
+
+                {/* Flow grid — capped to a responsive max-height so it never eats the
+                    full available space and squeezes out the sections below. */}
+                <div className="mx-6 mb-4 rounded-xl overflow-y-auto flex-shrink-0" style={{
+                  maxHeight: "min(45vh, 240px)",
                   background: "#f7f6f3",
                   backgroundImage: "radial-gradient(#d4d0ca 1px, transparent 1px)",
                   backgroundSize: "20px 20px",
@@ -1669,7 +1676,7 @@ export function AgentsPopup({
                     /api/capabilities model catalog (user_allowed only). A
                     selection threads up via onModelOverridesChange →
                     IdeaInputPage extraParams → run_pipeline model_overrides. */}
-                <div className="mx-6 mb-4 px-1 flex-shrink-0">
+                <div className="mx-6 mb-4 px-1">
                   <AgentModelPicker
                     agents={agents.map((a) => ({ id: a.id, name: a.name }))}
                     onChange={onModelOverridesChange}
@@ -1683,7 +1690,7 @@ export function AgentsPopup({
                     selections map threads up via onSelectionsChange →
                     IdeaInputPage save payload → 22-04 manifest_json. A validator
                     selection auto-attaches the validation gate inline. */}
-                <div className="mx-6 mb-4 px-1 flex-shrink-0">
+                <div className="mx-6 mb-4 px-1">
                   <div className="flex items-center gap-1.5 mb-2">
                     <Settings2 className="h-3.5 w-3.5 text-[#1B2A4A]" />
                     <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">
@@ -1702,10 +1709,13 @@ export function AgentsPopup({
                     /api/capabilities registry, grouped by kind, with locked rows
                     for user_allowed=false caps. Embedded here (NOT a standalone
                     CapabilityPalette.tsx — Pitfall 1). */}
-                <div className="mx-6 mb-4 px-1 flex-shrink-0">
+                <div className="mx-6 mb-4 px-1">
                   <CapabilityPaletteSection
                     declaredCapabilities={declaredCapabilities}
                   />
+                </div>
+
+                {/* End of shared scroll container (KAN-68 fix) */}
                 </div>
               </>
             ) : (
