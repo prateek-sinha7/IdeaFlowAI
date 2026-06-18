@@ -381,7 +381,16 @@ def allowed_custom_agent_ids(pipeline_type: str) -> set[str]:
         return set(PIPELINE_AGENTS.get(pipeline_type, []))
 
     if pipeline_type == "custom":
-        return set(PIPELINE_AGENTS.get("custom", []))
+        # The custom pipeline allows agents from the custom utility pool AND
+        # from any base pipeline — this enables the "compose a custom workflow"
+        # UI to include prototype, user_stories, ppt, app_builder agents.
+        # We union ALL non-revision, non-internal pipeline agent lists.
+        all_agents: set[str] = set(PIPELINE_AGENTS.get("custom", []))
+        for pt, agent_list in PIPELINE_AGENTS.items():
+            if pt.endswith("_revision") or pt in _INTERNAL_PIPELINES or pt == "custom":
+                continue
+            all_agents.update(agent_list)
+        return all_agents
 
     # Base pipelines (own agents ∪ custom pool). Derived: a present,
     # non-revision, non-custom, NON-EMPTY pipeline. The non-empty guard keeps

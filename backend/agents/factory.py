@@ -432,25 +432,31 @@ def _compose_injection(spec, ctx: AgentContext, injects: list[str]) -> str:
     od = ctx.od_context or {}
     sections: list[str] = []
 
-    # Validate template availability up front
-    if "template" in injects and not od.get("template_body"):
+    # Validate template availability up front — but only hard-fail for od_*
+    # pipelines that are specifically supposed to inject a template. For custom
+    # workflows that happen to include template-declaring agents (e.g. prototype
+    # agents), silently skip the template block rather than aborting the run.
+    has_template = bool(od.get("template_body"))
+    if "template" in injects and not has_template:
+        # If od_context is completely absent, this is a custom run — just skip
+        # all injection (there's nothing to inject).
+        if not od:
+            return ""
+        # od_context is present but template_body is missing — this is a real
+        # configuration error for an od_* pipeline (template was expected).
         raise TemplateMissingError(
             f"Agent '{spec.id}' declares injects=['template', ...] but no template "
             f"body was loaded (od_context missing 'template_body'). Cannot compose "
             f"system prompt — halting before execution."
         )
 
-    # 0. CRITICAL OUTPUT RULES — always present when any injection is declared
-    sections.append(
-        "═══════════════════════════════════════════════════════════\n"
-        "CRITICAL OUTPUT RULES — READ BEFORE ANYTHING ELSE\n"
-        "═══════════════════════════════════════════════════════════\n\n"
-        "1. OUTPUT FORMAT: Emit ONE complete HTML file inside <artifact>...</artifact> tags.\n"
-        "2. NAVIGATION: Every page must have a routed section; populate the routes map.\n"
-        "3. CONTENT QUALITY: No placeholder text. Domain-specific, plausible content only.\n"
-        "4. DESIGN TOKENS: Use ONLY :root CSS variables from the ACTIVE DESIGN SYSTEM.\n"
-        "5. SELF-CHECK: Verify every interactive element is wired before emitting.\n"
-    )
+    # 0. CRITICAL OUTPUT RULES — deliberately removed (FIX-017 / 2026-06-17).
+    # This block was prototype-specific: rule 2 ("routed sections") and rule 5
+    # ("every interactive element") describe a single-page app navigation pattern
+    # that CONTRADICTS the PPT composer's deck output contract (slides use
+    # <section class="slide">, not data-page routing). All injects-declaring agents
+    # carry their own complete output contracts in their AGENT.md bodies — the
+    # injection block only needs to provide OD content (DS, craft, SKILL.md).
 
     # 1. DESIGN.md — for od_ppt this is conditional on is_design_system_required
     if "design_system" in injects and od.get("ds_body"):

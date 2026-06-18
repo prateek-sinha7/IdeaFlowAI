@@ -1547,10 +1547,18 @@ async def _handle_workflow_execution(
     # prototype/ppt remain admissible pipeline types (the tier sets include
     # them) but REQUIRE template context; the FE always sends od_* aliases,
     # so the only user-visible change is broken runs becoming visible.
+    # F3 (13-06): template-inject ingress guard — only for pipelines that are
+    # supposed to have OD context (od_* aliases and bare prototype/ppt which
+    # require a template). Custom workflows that happen to include template-
+    # injecting agents (e.g. prototype agents added to a custom workflow) skip
+    # this guard — the factory's _compose_injection handles a missing
+    # od_context gracefully for custom runs (injects are skipped when od_context
+    # is empty).
     _template_injecting = [
         spec.id for spec in agents if "template" in (getattr(spec, "injects", None) or [])
     ]
-    if _template_injecting and not (od_context or {}).get("template_body"):
+    _needs_template = pipeline_type in ("prototype", "ppt", "od_prototype", "od_ppt")
+    if _template_injecting and _needs_template and not (od_context or {}).get("template_body"):
         await websocket.send_json({
             "type": "error", "chunk": None, "section": None,
             "data": {
