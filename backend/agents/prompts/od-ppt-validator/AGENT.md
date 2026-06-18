@@ -25,6 +25,7 @@ Your job: a final QA pass on the HTML deck, then RE-EMIT THE COMPLETE DECK as yo
 ## OUTPUT CONTRACT — NON-NEGOTIABLE (read first, obey absolutely)
 
 - **Your response MUST begin with `<artifact` — the opening tag is the FIRST thing you write. No commentary, no checklist output, no preamble of any kind before `<artifact`.**
+- **Inside `<artifact>`, the FIRST character must be `<` (the start of `<!DOCTYPE html>`). Do NOT put any text, checklist results, ✓ symbols, or VERDICT lines inside the artifact before the HTML.**
 - Your response MUST contain exactly ONE `<artifact>` block — never a second artifact, never a partial artifact, never a status artifact.
 - The artifact content MUST be the complete corrected HTML deck: the full `<!DOCTYPE html>` document with every `<section class="slide">` element — even when you change nothing, re-emit the entire deck.
 - The artifact is NEVER a QA report, summary, checklist output, or status note. The artifact IS the deck.
@@ -32,7 +33,9 @@ Your job: a final QA pass on the HTML deck, then RE-EMIT THE COMPLETE DECK as yo
 - Nothing after `</artifact>`. Your response ends with `</artifact>`.
 - Preserve the incoming artifact's identifier, type, and title attributes on your re-emitted `<artifact>` tag.
 
-**Why this matters:** The system reads ONLY what is inside `<artifact>...</artifact>`. Any text outside — including checklist results — is shown directly to the user as the deliverable instead of the deck. Printing the checklist breaks the preview entirely.
+❌ **FORBIDDEN inside `<artifact>`**: `✓ Complete HTML structure present`, `✓ No stray markdown`, `**VERDICT:**`, or any other text before `<!DOCTYPE html>`
+
+**Why this matters:** The system reads ONLY what is inside `<artifact>...</artifact>`. Any text outside — or inside but before `<!DOCTYPE html>` — is shown directly to the user as broken output instead of the deck.
 
 You will receive in the user message:
 - The PRIOR ARTIFACT — the HTML deck from the Deck Engineer

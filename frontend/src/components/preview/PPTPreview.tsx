@@ -141,12 +141,13 @@ export function PPTPreview({ content, isStreaming, pptxCode, onRevise, pipelineT
     const artifactMatch = htmlContent.match(/<artifact[^>]*>\s*([\s\S]*?)\s*<\/artifact>/i);
     if (artifactMatch) {
       htmlContent = artifactMatch[1].trim();
-    } else {
-      // Find HTML start anywhere in the string
-      const htmlStart = htmlContent.search(/<!DOCTYPE\s+html|<html[\s>]/i);
-      if (htmlStart > 0) {
-        htmlContent = htmlContent.slice(htmlStart);
-      }
+    }
+    // Always strip any text before the HTML doctype — the validator sometimes
+    // emits a checklist preamble (✓ lines, VERDICT text) before <!DOCTYPE html>
+    // even when it's inside the artifact tags. Slice to the actual HTML start.
+    const htmlStart = htmlContent.search(/<!DOCTYPE\s+html|<html[\s>]/i);
+    if (htmlStart > 0) {
+      htmlContent = htmlContent.slice(htmlStart);
     }
   }
 
@@ -155,16 +156,8 @@ export function PPTPreview({ content, isStreaming, pptxCode, onRevise, pipelineT
   htmlContent = htmlContent.replace(/<button[^>]*onclick="generatePresentation\(\)"[^>]*>[^<]*<\/button>/gi, "");
   htmlContent = htmlContent.replace(/<button[^>]*>[^<]*(?:download|export)\s*pptx[^<]*<\/button>/gi, "");
 
-  // Inject CSS to fix iframe internal height when revision bar is present
-  if (onRevise) {
-    // Override the internal html/body height to use 100% of iframe container, not 100vh
-    const heightFix = `<style>html,body{height:100%!important;overflow:hidden!important}</style>`;
-    if (htmlContent.includes('</head>')) {
-      htmlContent = htmlContent.replace('</head>', `${heightFix}</head>`);
-    } else {
-      htmlContent = heightFix + htmlContent;
-    }
-  }
+  // od_ppt decks are scaled from outside the iframe using ResizeObserver +
+  // CSS transform (see the iframe container below). No in-body injection needed.
 
   const isHtml = /<!DOCTYPE\s+html|<html[\s>]/i.test(htmlContent);
 
@@ -189,14 +182,50 @@ export function PPTPreview({ content, isStreaming, pptxCode, onRevise, pipelineT
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      {/* ── Iframe — full height, buttons are in PreviewPanel tab bar ── */}
-      <div className="flex-1 min-h-0 overflow-hidden">
+      {/* ── Iframe — scaled to fit the container at 16:9 design size ── */}
+      {/* The deck's HTML uses 100vw/100vh at 1280×720. We give the iframe its
+          full design resolution (1280×720) and use CSS transform to scale it
+          down to fill the available container — this way vw/vh inside the
+          iframe resolve correctly and the whole slide is visible. */}
+      <div className="flex-1 min-h-0 overflow-hidden relative" ref={(el) => {
+        if (!el || !isOdPpt) return;
+        const resize = () => {
+          const iframe = el.querySelector('iframe') as HTMLIFrameElement | null;
+          if (!iframe) return;
+          const cw = el.clientWidth;
+          const ch = el.clientHeight;
+          const scaleW = cw / 1280;
+          const scaleH = ch / 720;
+          const scale = Math.min(scaleW, scaleH);
+          // Position iframe at top-left, scale from top-left, then center the result
+          iframe.style.width = '1280px';
+          iframe.style.height = '720px';
+          iframe.style.transform = `scale(${scale})`;
+          iframe.style.transformOrigin = '0 0';
+          iframe.style.position = 'absolute';
+          // Center horizontally
+          const scaledW = 1280 * scale;
+          const scaledH = 720 * scale;
+          iframe.style.left = Math.max(0, (cw - scaledW) / 2) + 'px';
+          iframe.style.top = Math.max(0, (ch - scaledH) / 2) + 'px';
+        };
+        const ro = new ResizeObserver(resize);
+        ro.observe(el);
+        resize();
+      }}>
         <iframe
           key={iframeKey}
           srcDoc={htmlContent}
-          className="w-full h-full border-0"
           title="Slide Deck Preview"
           sandbox={isOdPpt ? "allow-scripts allow-same-origin" : "allow-scripts"}
+          style={isOdPpt ? {
+            width: '1280px',
+            height: '720px',
+            border: 'none',
+            display: 'block',
+            position: 'absolute',
+          } : undefined}
+          className={isOdPpt ? undefined : "w-full h-full border-0"}
         />
       </div>
 

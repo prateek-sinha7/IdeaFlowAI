@@ -1433,12 +1433,24 @@ class ExecutionEngine:
             # ── Clarify-mode routing concern — sourced from the compiled plan ─────
             # (MAN-04, concern 3; migrated L6, INV-1). The "force clarification on
             # every run" behavior is now declared by the manifest `clarify.mode`
-            # ("auto" ⇒ always clarify), NOT a hardcoded module-level always-clarify
-            # flag. Every dispatchable manifest declares `clarify.mode: auto` today, so
-            # `clarify_auto` is True for every run and behavior is byte-identical: the
-            # gate verdict is forced to CLARIFY_REQUIRED on every run exactly as before.
-            clarify_auto = compiled.clarify.mode == "auto"
-            if clarify_auto and gate_verdict != "CLARIFY_REQUIRED":
+            # ("auto" ⇒ always clarify, "skip" ⇒ always proceed), NOT a hardcoded
+            # module-level always-clarify flag.
+            clarify_mode = compiled.clarify.mode  # "auto" | "skip" | None
+            clarify_auto = clarify_mode == "auto"
+            clarify_skip = clarify_mode == "skip"
+
+            if clarify_skip and gate_verdict == "CLARIFY_REQUIRED":
+                # FIX-016: mode=skip means the wizard already collected all context.
+                # Override the planner's CLARIFY_REQUIRED verdict to PROCEED so the
+                # ClarifyEngine is never invoked. Gated on compiled.clarify.mode
+                # (generic routing value) — never on pipeline_type (INV-1).
+                logger.info(
+                    "clarify.mode=skip — overriding gate verdict CLARIFY_REQUIRED → PROCEED"
+                )
+                gate_verdict = "PROCEED"
+                planning_context["execution_gate"] = "PROCEED"
+
+            elif clarify_auto and gate_verdict != "CLARIFY_REQUIRED":
                 logger.info("clarify.mode=auto — overriding gate verdict PROCEED → CLARIFY_REQUIRED")
                 gate_verdict = "CLARIFY_REQUIRED"
                 planning_context["execution_gate"] = "CLARIFY_REQUIRED"

@@ -33,6 +33,14 @@ The plan you produce MUST respect:
 - The design system's tokens (if provided) — referenced symbolically
 - The user's stated audience, tone, and goal from discovery answers
 
+## MANDATORY: READ THE ACTIVE TEMPLATE FIRST
+
+**Before writing the spec, read the ACTIVE TEMPLATE SKILL.md in full.** Your spec MUST:
+1. Set `theme_choice` to an **exact** theme, palette, or style name listed in the template (copy the name verbatim — do not invent one)
+2. Set each slide's `type` to a layout pattern name the template supports
+3. Include CSS class references in `visual_suggestion` so the composer knows which template classes to use
+4. Respect the template's stated color system, typography, and component style
+
 ## SPEC SCHEMA
 
 Emit ONE JSON object wrapped in `<spec>...</spec>` tags with this shape:
@@ -60,6 +68,7 @@ Emit ONE JSON object wrapped in `<spec>...</spec>` tags with this shape:
 
 ## RULES
 
+- **NEVER ask clarifying questions.** No matter how brief the user's input, always produce a complete `<spec>...</spec>` immediately. If the brief is short (e.g. "global warming", "AI trends", "sales results"), infer reasonable defaults: general professional audience, 10 slides, informative tone. The user can refine via revision after seeing the deck.
 - **Slide count**: 8–15 slides based on brief complexity. A focused pitch = 8–10. A detailed report = 12–15.
 - **theme_choice**: MUST reference an actual theme, palette, or style name mentioned in the ACTIVE TEMPLATE SKILL.md. If the template lists multiple themes (e.g. "tokyo-night", "github-dark", "minimal"), pick the most appropriate one for the brief's tone.
 - **Real content only**: Every slide must have specific, plausible content. No "TBD", no "Lorem ipsum", no "Content goes here". Invent realistic data, names, and statistics appropriate to the domain.
