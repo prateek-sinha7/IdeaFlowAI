@@ -13,6 +13,7 @@ import {
   ChevronDown,
   BarChart2,
   CreditCard,
+  Workflow,
 } from "lucide-react";
 import { NotificationPanel } from "@/components/ui/NotificationPanel";
 import type { PipelineNotification } from "@/hooks/useNotifications";
@@ -21,8 +22,8 @@ import type { Tier } from "@/lib/entitlements";
 import { TIER_LABELS } from "@/lib/entitlements";
 
 interface AppHeaderProps {
-  currentPage: "home" | "library" | "workflow" | "execution" | "history" | "analytics" | "catalog";
-  onNavigate: (page: "home" | "library" | "history" | "settings" | "analytics" | "catalog") => void;
+  currentPage: "home" | "library" | "workflow" | "execution" | "history" | "analytics" | "catalog" | "saved-workflows";
+  onNavigate: (page: "home" | "library" | "history" | "settings" | "analytics" | "catalog" | "saved-workflows") => void;
   onLogout: () => void;
   userEmail?: string;
   userTier?: Tier;
@@ -215,6 +216,13 @@ export function AppHeader({
                   >
                     <History className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
                     Workflow History
+                  </button>
+                  <button
+                    onClick={() => { setProfileOpen(false); onNavigate("saved-workflows"); }}
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2 text-[12px] text-gray-700 hover:bg-gray-50 transition-colors text-left"
+                  >
+                    <Workflow className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                    Saved Workflows
                   </button>
                 </div>
 

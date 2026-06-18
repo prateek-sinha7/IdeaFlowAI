@@ -20,15 +20,15 @@
  *
  * The raw API `name` is NEVER rendered (UI-SPEC §4) — only the friendly label
  * `display_name ?? getWorkflowLabel(id)` (WORKFLOW_LABELS, useNotifications).
+ *
+ * NOTE: "Your Workflows" (saved/custom workflows) was moved to SavedWorkflowsPage,
+ * accessible from the profile dropdown in AppHeader.
  */
 
 import { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion } from "motion/react";
 import { useRouter } from "next/navigation";
-import {
-  ArrowRight, Lock, AlertCircle, Plus, MoreHorizontal,
-  Pencil, Copy, Trash2,
-} from "lucide-react";
+import { ArrowRight, Lock, AlertCircle, Plus } from "lucide-react";
 import type { WorkflowType } from "@/types/index";
 import type { Tier } from "@/lib/entitlements";
 import { canRunPipeline, TIER_LABELS, getUpgradeTier } from "@/lib/entitlements";
@@ -36,44 +36,27 @@ import { CHAIN_OPTIONS } from "@/lib/workflowChaining";
 import { getWorkflowLabel } from "@/hooks/useNotifications";
 import {
   getWorkflowDefinitions,
-  getUserWorkflows,
-  createUserWorkflow,
-  renameUserWorkflow,
-  deleteUserWorkflow,
   getToken,
   type WorkflowSummary,
   type UserWorkflowSummary,
 } from "@/lib/api";
-import { NameWorkflowModal } from "./NameWorkflowModal";
 
 interface WorkflowCatalogProps {
   onSelectFeature: (type: WorkflowType) => void;
-  // NEW (Phase 21) — launch a SAVED workflow (carries the composer triple),
-  // which `onSelectFeature` (a bare WorkflowType) cannot express. Optional here
-  // so the existing DashboardLayout caller keeps compiling; the load-bearing
-  // wiring (handleLaunchSaved → IdeaInputPage preload) lands in 21-03.
+  // Optional — kept for API compatibility; launch wiring lives in
+  // SavedWorkflowsPage (profile dropdown) now.
   onLaunchSaved?: (saved: UserWorkflowSummary) => void;
   userTier?: Tier;
 }
 
 export function WorkflowCatalog({
   onSelectFeature,
-  onLaunchSaved,
   userTier = "basic",
 }: WorkflowCatalogProps) {
   const router = useRouter();
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Phase 21 — the SECOND list: the caller's saved workflows. No
-  // `user_launchable` filter (every owned `source="user"` row always shows).
-  const [userWorkflows, setUserWorkflows] = useState<UserWorkflowSummary[]>([]);
-  const [savedError, setSavedError] = useState<string | null>(null);
-  // Per-row kebab state — analog WorkflowHistory.tsx:127-128.
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  const [renameRow, setRenameRow] = useState<UserWorkflowSummary | null>(null);
 
   // Fetch shell ⟵ AgentModelPicker.tsx:48-74 (cancelled guard, getToken
   // fallback, loading/error/finally). `.filter(w => w.user_launchable)` is
@@ -104,86 +87,6 @@ export function WorkflowCatalog({
       cancelled = true;
     };
   }, []);
-
-  // Phase 21 — second fetch (copy of the mount effect above), swapping
-  // `getWorkflowDefinitions` for `getUserWorkflows` and dropping the
-  // `user_launchable` filter (user rows are always shown). A failed saved-list
-  // fetch is non-fatal: the built-in catalog still renders (SC-001 no regression).
-  useEffect(() => {
-    let cancelled = false;
-    const jwt = getToken();
-    if (!jwt) return;
-    getUserWorkflows(jwt)
-      .then((rows) => {
-        if (cancelled) return;
-        setUserWorkflows(rows);
-        setSavedError(null);
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setSavedError(e?.message ?? "Failed to load saved workflows.");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // ── Saved-row kebab actions (CRUD-OWNER-SCOPED) ──────────────────────────
-  // Rename → NameWorkflowModal prefilled → renameUserWorkflow → optimistic
-  // label update.
-  const handleRenameSave = async (name: string, description: string) => {
-    if (!renameRow) return;
-    const id = renameRow.id;
-    setRenameRow(null);
-    const jwt = getToken();
-    if (!jwt) return;
-    try {
-      const updated = await renameUserWorkflow(jwt, id, { name, description });
-      setUserWorkflows((prev) => prev.map((w) => (w.id === id ? updated : w)));
-    } catch (e) {
-      setSavedError((e as Error)?.message ?? "Rename failed.");
-    }
-  };
-
-  // Duplicate → createUserWorkflow with the copied composer payload + a "(copy)"
-  // name → prepend to the list.
-  const handleDuplicate = async (row: UserWorkflowSummary) => {
-    setOpenMenuId(null);
-    const jwt = getToken();
-    if (!jwt) return;
-    try {
-      const created = await createUserWorkflow(jwt, {
-        name: `${row.name} (copy)`,
-        description: row.description ?? undefined,
-        base_pipeline_type: row.base_pipeline_type,
-        agent_ids: row.agent_ids,
-        model_overrides: row.model_overrides ?? undefined,
-      });
-      setUserWorkflows((prev) => [created, ...prev]);
-    } catch (e) {
-      setSavedError((e as Error)?.message ?? "Duplicate failed.");
-    }
-  };
-
-  // Delete → DeleteModal confirm → deleteUserWorkflow → remove the row ONLY
-  // after the server delete RESOLVES (WR-04). Removing unconditionally after the
-  // try/catch meant a failed delete (network/404) set savedError AND still made
-  // the row vanish — only to reappear on the next mount (it was never deleted),
-  // masking the failure. This matches the Rename/Duplicate handlers, which only
-  // mutate state inside the success path.
-  const handleDeleteConfirm = async () => {
-    const id = deleteConfirmId;
-    if (!id) return;
-    setDeleteConfirmId(null);
-    const jwt = getToken();
-    if (!jwt) return;
-    try {
-      await deleteUserWorkflow(jwt, id);
-      setUserWorkflows((prev) => prev.filter((w) => w.id !== id));
-    } catch (e) {
-      setSavedError((e as Error)?.message ?? "Delete failed.");
-    }
-  };
 
   // Launch fork ⟵ CreationHub.tsx:27-38, but wizard routing is read from
   // CHAIN_OPTIONS (workflowChaining) instead of the two hardcoded router.push
@@ -320,162 +223,7 @@ export function WorkflowCatalog({
           </div>
         )}
 
-        {/* ── "Your workflows" — the SECOND list (saved rows). Row markup is a
-            copy of the built-in list above; `label = row.name` (user rows render
-            their OWN name — the never-raw-API-name rule is MANIFEST-only). Each
-            row launches via onLaunchSaved(row); the right slot is the per-row
-            kebab (Rename/Duplicate/Delete) instead of the ArrowRight. Built-in
-            rows stay read-only — only these source="user" rows get the kebab. ── */}
-        {userWorkflows.length > 0 && (
-          <section className="w-full mt-12">
-            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-[0.18em] mb-3">
-              Your workflows
-            </p>
-            {savedError && (
-              <div className="flex items-center gap-1.5 text-[11px] text-red-600 bg-red-50 rounded-lg px-2.5 py-1.5 mb-2">
-                <AlertCircle className="h-3 w-3 flex-shrink-0" />
-                {savedError}
-              </div>
-            )}
-            <div className="w-full divide-y divide-gray-200/70">
-              {userWorkflows.map((row, idx) => (
-                <motion.div
-                  key={row.id}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3, delay: 0.05 + idx * 0.05 }}
-                  className="group flex items-center justify-between gap-4 py-5 rounded-lg px-3 -mx-3 hover:bg-white/60 transition-colors"
-                >
-                  <button
-                    onClick={() => onLaunchSaved?.(row)}
-                    className="flex-1 min-w-0 text-left cursor-pointer"
-                  >
-                    <h2 className="text-[15px] font-semibold italic leading-snug text-gray-900 group-hover:text-[#1B2A4A] transition-colors truncate">
-                      {row.name}
-                    </h2>
-                    {row.description && (
-                      <p className="text-[12px] italic leading-snug text-gray-500 truncate">
-                        {row.description}
-                      </p>
-                    )}
-                  </button>
-                  {/* Per-row kebab ⟵ WorkflowHistory.tsx:872-899 (Rename/Duplicate/Delete). */}
-                  <div className="relative flex-shrink-0">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpenMenuId(openMenuId === row.id ? null : row.id);
-                      }}
-                      className="flex items-center justify-center h-7 w-7 rounded-lg text-gray-300 hover:text-gray-600 hover:bg-gray-100 transition-colors opacity-0 group-hover:opacity-100"
-                    >
-                      <MoreHorizontal className="h-4 w-4" />
-                    </button>
-                    <AnimatePresence>
-                      {openMenuId === row.id && (
-                        <motion.div
-                          initial={{ opacity: 0, scale: 0.95, y: -4 }}
-                          animate={{ opacity: 1, scale: 1, y: 0 }}
-                          exit={{ opacity: 0, scale: 0.95, y: -4 }}
-                          transition={{ duration: 0.1 }}
-                          className="absolute right-0 top-8 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[120px]"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <button
-                            onClick={() => { setOpenMenuId(null); setRenameRow(row); }}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-gray-700 hover:bg-gray-50 transition-colors"
-                          >
-                            <Pencil className="h-3.5 w-3.5" /> Rename
-                          </button>
-                          <button
-                            onClick={() => handleDuplicate(row)}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-gray-700 hover:bg-gray-50 transition-colors"
-                          >
-                            <Copy className="h-3.5 w-3.5" /> Duplicate
-                          </button>
-                          <button
-                            onClick={() => { setOpenMenuId(null); setDeleteConfirmId(row.id); }}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-red-600 hover:bg-red-50 transition-colors"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" /> Delete
-                          </button>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </section>
-        )}
-
       </div>
-
-      {/* Rename modal — reuses NameWorkflowModal (Save + Rename share it). */}
-      <AnimatePresence>
-        {renameRow && (
-          <NameWorkflowModal
-            title="Rename workflow"
-            initialName={renameRow.name}
-            initialDescription={renameRow.description ?? ""}
-            onSave={handleRenameSave}
-            onCancel={() => setRenameRow(null)}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* Delete confirm — DeleteModal shell (analog WorkflowHistory.tsx:923-969). */}
-      <AnimatePresence>
-        {deleteConfirmId && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[80] flex items-center justify-center bg-black/20 backdrop-blur-sm"
-            onClick={() => setDeleteConfirmId(null)}
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.96, y: 8 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 8 }}
-              transition={{ duration: 0.15 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-2xl border border-gray-200 shadow-2xl p-6 max-w-[340px] w-full mx-4"
-            >
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
-                  <Trash2 className="h-5 w-5 text-gray-600" />
-                </div>
-                <div>
-                  <h3 className="text-[13px] font-semibold text-gray-900">Delete workflow</h3>
-                  <p className="text-[11px] text-gray-400">This cannot be undone</p>
-                </div>
-              </div>
-              <p className="text-[12px] text-gray-500 leading-relaxed mb-5">
-                The saved workflow will be permanently removed from your list.
-              </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setDeleteConfirmId(null)}
-                  className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-[12px] font-medium text-gray-600 hover:bg-gray-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleDeleteConfirm}
-                  className="flex-1 rounded-xl bg-gray-900 px-4 py-2.5 text-[12px] font-medium text-white hover:bg-gray-800 transition-colors"
-                >
-                  Delete
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Close kebab on outside click — analog WorkflowHistory.tsx:916-918. */}
-      {openMenuId && (
-        <div className="fixed inset-0 z-10" onClick={() => setOpenMenuId(null)} />
-      )}
     </div>
   );
 }

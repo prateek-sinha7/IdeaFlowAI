@@ -5,10 +5,9 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   X, Plus, ArrowRight, Lock, GripVertical, Info,
   Clock, Zap, BookMarked, CheckCircle2, ChevronRight, ChevronDown,
-  Puzzle, Webhook, Search, Check, Sliders, AlertCircle, Settings2,
+  Puzzle, Webhook, Search, Check, Sliders, AlertCircle, Settings2, Cpu,
 } from "lucide-react";
 import { AgentLibrary } from "./AgentLibrary";
-import { AgentModelPicker } from "./AgentModelPicker";
 // NOTE: the API fetcher `getCapabilities` is aliased to `fetchCapabilities` to
 // avoid the NAME COLLISION with the local `getCapabilities(agent)` helper below
 // (the local one derives display strings from an agent description; the import
@@ -1424,6 +1423,15 @@ export function AgentsPopup({
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [capAgent, setCapAgent] = useState<{ agent: AgentDef; index: number } | null>(null);
   const [activeTab, setActiveTab] = useState<"agents" | "skills-hooks">("agents");
+  // Per-agent inline expand state for the in-card config panel
+  const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set());
+  const toggleAgentExpand = useCallback((agentId: string) => {
+    setExpandedAgents(prev => {
+      const next = new Set(prev);
+      if (next.has(agentId)) next.delete(agentId); else next.add(agentId);
+      return next;
+    });
+  }, []);
 
   const handleRemove = useCallback((agentId: string) => {
     if (getRole(agentId, pipelineType) !== "optional") return;
@@ -1531,7 +1539,7 @@ export function AgentsPopup({
                   }`}
                 >
                   <Puzzle className="h-3.5 w-3.5" />
-                  Skills & Hooks
+                  Workflow
                   {totalAttached > 0 && (
                     <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-gray-900 text-white ml-0.5">{totalAttached}</span>
                   )}
@@ -1659,6 +1667,15 @@ export function AgentsPopup({
                                 </div>
                                 <p className="text-[11px] font-semibold text-gray-900 leading-snug mb-0.5 line-clamp-2">{agent.name}</p>
                                 <p className="text-[8px] font-semibold text-gray-400 uppercase tracking-wider">{pipelineLabel}</p>
+                                {/* Inline expand button for per-agent config */}
+                                <button
+                                  onClick={e => { e.stopPropagation(); toggleAgentExpand(agent.id); }}
+                                  className="mt-1.5 flex items-center gap-1 text-[8px] font-semibold text-gray-400 hover:text-[#1B2A4A] transition-colors"
+                                >
+                                  {expandedAgents.has(agent.id)
+                                    ? <><ChevronDown className="h-2.5 w-2.5" />Hide config</>
+                                    : <><Settings2 className="h-2.5 w-2.5" />Configure</>}
+                                </button>
                               </motion.div>
                               {isLastInRow && !isLastCell && (
                                 <div className="w-4 flex-shrink-0 ml-1 border-t-2 border-dashed border-gray-300" />
@@ -1676,50 +1693,40 @@ export function AgentsPopup({
                     /api/capabilities model catalog (user_allowed only). A
                     selection threads up via onModelOverridesChange →
                     IdeaInputPage extraParams → run_pipeline model_overrides. */}
-                <div className="mx-6 mb-4 px-1">
-                  <AgentModelPicker
-                    agents={agents.map((a) => ({ id: a.id, name: a.name }))}
-                    onChange={onModelOverridesChange}
-                    initialOverrides={initialModelOverrides}
-                  />
-                </div>
-
-                {/* EMP-01/04 (D-05/D-06/D-07): the per-agent Advanced expander —
-                    Validator → Gate → Model → Retry levers sourced from the live
-                    palette (user_allowed caps + the model catalog). The compact
-                    selections map threads up via onSelectionsChange →
-                    IdeaInputPage save payload → 22-04 manifest_json. A validator
-                    selection auto-attaches the validation gate inline. */}
-                <div className="mx-6 mb-4 px-1">
-                  <div className="flex items-center gap-1.5 mb-2">
-                    <Settings2 className="h-3.5 w-3.5 text-[#1B2A4A]" />
-                    <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">
-                      Advanced
-                    </p>
+                {/* Per-agent config panel — shown below grid when any agent's Configure button is clicked */}
+                {expandedAgents.size > 0 && (
+                  <div className="mx-6 mb-4 rounded-xl border border-gray-200 bg-white overflow-hidden">
+                    <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
+                      <Settings2 className="h-3.5 w-3.5 text-[#1B2A4A]" />
+                      <p className="text-[11px] font-semibold text-gray-700">Per-agent configuration</p>
+                      <p className="text-[10px] text-gray-400 ml-1">Model · Validator · Gate · Retry</p>
+                    </div>
+                    <div className="p-4">
+                      <AdvancedExpander
+                        agents={agents
+                          .filter(a => expandedAgents.has(a.id))
+                          .map(a => ({ id: a.id, name: a.name }))}
+                        onSelectionsChange={onSelectionsChange}
+                        initialSelections={initialSelections}
+                      />
+                    </div>
                   </div>
-                  <AdvancedExpander
-                    agents={agents.map((a) => ({ id: a.id, name: a.name }))}
-                    onSelectionsChange={onSelectionsChange}
-                    initialSelections={initialSelections}
-                  />
-                </div>
-
-                {/* SURF-01/03 + EMP-02 (D-01/D-02/D-04): the embedded capability
-                    palette — every registered capability kind from the live
-                    /api/capabilities registry, grouped by kind, with locked rows
-                    for user_allowed=false caps. Embedded here (NOT a standalone
-                    CapabilityPalette.tsx — Pitfall 1). */}
-                <div className="mx-6 mb-4 px-1">
-                  <CapabilityPaletteSection
-                    declaredCapabilities={declaredCapabilities}
-                  />
-                </div>
+                )}
 
                 {/* End of shared scroll container (KAN-68 fix) */}
                 </div>
               </>
             ) : (
-              <SkillsHooksTab pipelineType={pipelineType} />
+              /* Workflow tab: Skills, Hooks, and Capabilities */
+              <div className="flex-1 overflow-y-auto min-h-0">
+                <SkillsHooksTab pipelineType={pipelineType} />
+                {/* Capabilities palette at the bottom of the Workflow tab */}
+                <div className="mx-5 mb-5 px-1">
+                  <CapabilityPaletteSection
+                    declaredCapabilities={declaredCapabilities}
+                  />
+                </div>
+              </div>
             )}
 
             {/* Footer */}

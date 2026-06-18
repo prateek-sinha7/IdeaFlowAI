@@ -11,6 +11,7 @@ import { LibraryPage } from "@/components/library/LibraryPage";
 import { WorkflowHistory } from "@/components/history/WorkflowHistory";
 import { AccountSettings } from "@/components/settings/AccountSettings";
 import { AnalyticsPage } from "@/components/analytics/AnalyticsPage";
+import { SavedWorkflowsPage } from "@/components/savedworkflows/SavedWorkflowsPage";
 import { IdeaInputPage } from "@/components/workflow/IdeaInputPage";
 import { AgentProgressPanel } from "@/components/workflow/AgentProgressPanel";
 import { WaveTreePanel } from "@/components/workflow/WaveTreePanel";
@@ -114,7 +115,7 @@ export interface DashboardLayoutProps {
   waves?: WaveGroup[];
 }
 
-type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution" | "catalog";
+type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution" | "catalog" | "saved-workflows";
 
 // ─── Planning overlay — shown while the planner analyzes the brief ─────────────
 const PLANNING_STEPS = [
@@ -993,7 +994,7 @@ export function DashboardLayout({
   }, [activePipelineRunId, onSubmitQuestionnaire, pendingPipelineRun, onStartPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
 
   // Header navigation — free navigation even while pipeline runs
-  const handleNavigate = useCallback((page: "home" | "library" | "history" | "settings" | "analytics" | "catalog") => {
+  const handleNavigate = useCallback((page: "home" | "library" | "history" | "settings" | "analytics" | "catalog" | "saved-workflows") => {
     setMainView(page as MainView);
   }, []);
 
@@ -1011,6 +1012,7 @@ export function DashboardLayout({
     mainView === "catalog" ? "catalog" :
     mainView === "history" ? "history" :
     mainView === "settings" ? "history" :
+    mainView === "saved-workflows" ? "saved-workflows" :
     mainView === "input" ? "workflow" :
     mainView === "execution" ? "execution" : "home";
 
@@ -1182,6 +1184,20 @@ export function DashboardLayout({
               className="h-full"
             >
               <AnalyticsPage onBack={handleGoHome} />
+            </motion.div>
+          )}
+
+          {/* SAVED WORKFLOWS — user's saved custom workflows */}
+          {mainView === "saved-workflows" && (
+            <motion.div
+              key="saved-workflows"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="h-full"
+            >
+              <SavedWorkflowsPage onLaunchSaved={handleLaunchSaved} />
             </motion.div>
           )}
 
