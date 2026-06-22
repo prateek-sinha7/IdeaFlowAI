@@ -375,8 +375,30 @@ def _compose_system_prompt(spec, ctx: AgentContext, *, no_tools: bool = False) -
     if constitution:
         blocks["constitution"] = constitution
 
-    # 5. Prompt body (always present)
-    blocks["prompt_body"] = spec.prompt_body
+    # 5. Prompt body — use the user's saved override if present, else the
+    # canonical AGENT.md body (KAN-76). The import is lazy to keep factory.py
+    # import-light; the override module is app-layer (allowed here — factory is
+    # the composition root). Falls back to spec.prompt_body when user_id is
+    # absent (e.g. tests, anonymous runs) so all 5 characterization goldens
+    # remain byte-identical (INV-3).
+    prompt_body = spec.prompt_body
+    user_id = getattr(ctx, "user_id", None)
+    if user_id:
+        try:
+            from app.agents.prompt_overrides import read_user_prompt_override
+            override = read_user_prompt_override(spec.id, user_id=user_id)
+            if override:
+                logger.debug(
+                    "_compose_system_prompt: applying user prompt override for agent=%s user=%s",
+                    spec.id, user_id,
+                )
+                prompt_body = override
+        except Exception as exc:  # noqa: BLE001 — never let an override lookup crash a run
+            logger.warning(
+                "_compose_system_prompt: prompt override lookup failed for agent=%s: %s — using base prompt",
+                spec.id, exc,
+            )
+    blocks["prompt_body"] = prompt_body
 
     discover()  # ensure the prompt policy is bound (idempotent)
     policy = CapabilityRegistry().resolve("prompt", "default")
