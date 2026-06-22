@@ -471,6 +471,9 @@ export function AgentCapabilitiesModal({
 
         {/* Scrollable body */}
         <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
+          {/* ── System Prompt (KAN-76) — shown first for easy discovery ── */}
+          <AgentPromptSection agent={agent} />
+
           {/* Capabilities */}
           <div>
             <div className="flex items-center gap-2 mb-2.5">
@@ -668,9 +671,6 @@ export function AgentCapabilitiesModal({
               )}
             </div>
           )}
-
-          {/* ── System Prompt (KAN-76) ─────────────────────────────────── */}
-          <AgentPromptSection agent={agent} />
 
         </div>
       </motion.div>
