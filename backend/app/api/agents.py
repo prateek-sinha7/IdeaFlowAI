@@ -25,6 +25,13 @@ from app.agents.skills import (
     read_user_skill,
     save_custom_skill,
 )
+from app.agents.prompt_overrides import (
+    MAX_PROMPT_OVERRIDE_BYTES,
+    read_user_prompt_override,
+    save_user_prompt_override,
+    delete_user_prompt_override,
+    has_user_prompt_override,
+)
 from app.core.dependencies import get_current_user
 from app.models.user import User
 
@@ -50,6 +57,9 @@ class AgentResponse(BaseModel):
     # per-agent review-gate toggle (Phase 6b) can pre-check the default-gated
     # agents. ``None`` means the agent is not gated by default.
     gate: str | None = None
+    # Full AGENT.md prompt body (the markdown text after the YAML frontmatter).
+    # Surfaced so the Library + workflow info views can display it (KAN-76).
+    prompt_body: str = ""
 
 
 class PipelineResponse(BaseModel):
@@ -73,6 +83,17 @@ class SkillRequest(BaseModel):
 class SkillResponse(BaseModel):
     agent_id: str
     content: str
+
+
+class PromptOverrideRequest(BaseModel):
+    content: str = Field(..., max_length=MAX_PROMPT_OVERRIDE_BYTES)
+
+
+class AgentPromptResponse(BaseModel):
+    agent_id: str
+    prompt_body: str          # base AGENT.md prompt
+    override: str | None      # per-user override (None if not set)
+    has_override: bool        # whether the user has saved an override
 
 
 # --- Helpers ---
@@ -105,6 +126,7 @@ def get_pipeline(
             estimated_duration=a.estimated_duration,
             has_skill=_agent_has_resolvable_skill(a.id, current_user.id),
             gate=a.gate,
+            prompt_body=a.prompt_body,
         )
         for a in agents
     ]
@@ -138,6 +160,7 @@ def get_agent_library(
                 "estimated_duration": a.estimated_duration,
                 "has_skill": _agent_has_resolvable_skill(a.id, current_user.id),
                 "gate": a.gate,
+                "prompt_body": a.prompt_body,
             }
             for a in all_agents
         ],
@@ -245,4 +268,81 @@ def remove_skill(
     DELETE without checking first.
     """
     deleted = delete_custom_skill(agent_id, user_id=current_user.id)
+    return {"status": "deleted" if deleted else "not_found", "agent_id": agent_id}
+
+
+# ── Prompt override endpoints (KAN-76) ──────────────────────────────────────
+
+
+@router.get("/{agent_id}/prompt", response_model=AgentPromptResponse)
+def get_agent_prompt(
+    agent_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Return an agent's base AGENT.md prompt body plus the caller's override.
+
+    - ``prompt_body``: the read-only base prompt from AGENT.md (always present)
+    - ``override``: the user's saved override text, or ``None`` if not set
+    - ``has_override``: convenience boolean for the frontend toggle
+    """
+    spec = get_agent_by_id(agent_id)
+    if spec is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Agent not found: {agent_id}",
+        )
+    override = read_user_prompt_override(agent_id, user_id=current_user.id)
+    return AgentPromptResponse(
+        agent_id=agent_id,
+        prompt_body=spec.prompt_body,
+        override=override,
+        has_override=override is not None,
+    )
+
+
+@router.put("/{agent_id}/prompt")
+def save_agent_prompt_override(
+    agent_id: str,
+    request: PromptOverrideRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Save (create or replace) the caller's per-user prompt override.
+
+    The override is stored at ``backend/skills/users/{user_id}/{agent_id}/PROMPT_OVERRIDE.md``
+    and is injected at runtime ahead of the base AGENT.md prompt body when the
+    user runs a pipeline. The canonical AGENT.md is never mutated.
+
+    Returns HTTP 413 when the content exceeds ``MAX_PROMPT_OVERRIDE_BYTES``.
+    """
+    if get_agent_by_id(agent_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown agent_id: {agent_id}",
+        )
+
+    content_bytes = request.content.encode("utf-8")
+    if len(content_bytes) > MAX_PROMPT_OVERRIDE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Prompt override exceeds maximum size of {MAX_PROMPT_OVERRIDE_BYTES} bytes",
+        )
+
+    path = save_user_prompt_override(agent_id, request.content, user_id=current_user.id)
+    logger.info(
+        "Prompt override saved: user=%s agent=%s bytes=%d",
+        current_user.id, agent_id, len(content_bytes),
+    )
+    return {"status": "saved", "agent_id": agent_id, "path": path}
+
+
+@router.delete("/{agent_id}/prompt")
+def remove_agent_prompt_override(
+    agent_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Delete the caller's per-user prompt override, reverting to the base AGENT.md.
+
+    Idempotent — returns ``{status: "not_found"}`` with HTTP 200 when no override exists.
+    """
+    deleted = delete_user_prompt_override(agent_id, user_id=current_user.id)
     return {"status": "deleted" if deleted else "not_found", "agent_id": agent_id}

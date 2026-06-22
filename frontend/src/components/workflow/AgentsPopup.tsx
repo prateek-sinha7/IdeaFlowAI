@@ -6,6 +6,7 @@ import {
   X, Plus, ArrowRight, Lock, GripVertical, Info,
   Clock, Zap, BookMarked, CheckCircle2, ChevronRight, ChevronDown,
   Puzzle, Webhook, Search, Check, Sliders, AlertCircle, Settings2, Cpu,
+  FileText, Edit3, RotateCcw,
 } from "lucide-react";
 import { AgentLibrary } from "./AgentLibrary";
 // NOTE: the API fetcher `getCapabilities` is aliased to `fetchCapabilities` to
@@ -15,8 +16,12 @@ import { AgentLibrary } from "./AgentLibrary";
 import {
   getCapabilities as fetchCapabilities,
   getToken,
+  getAgentPrompt,
+  saveAgentPromptOverride,
+  deleteAgentPromptOverride,
   type CapabilityEntry,
   type CapabilityModelEntry,
+  type AgentPromptData,
 } from "@/lib/api";
 import type { AgentDef, WorkflowType, AttachedSkill, AttachedHook } from "@/types/index";
 import { SKILLS, SKILL_CATEGORIES, type SkillDef } from "@/data/skills";
@@ -175,6 +180,197 @@ function getCapabilities(agent: AgentDef): string[] {
   const parts = desc.split(/,\s*(?:and\s+)?|;\s*/).filter(p => p.trim().length > 10);
   if (parts.length >= 2) return parts.map(p => p.trim()).slice(0, 5);
   return [desc];
+}
+
+
+// ─── AgentPromptSection (KAN-76) ─────────────────────────────────────────────
+// Collapsible section shown inside AgentCapabilitiesModal.
+// Displays the base AGENT.md prompt body; allows viewing and optionally editing
+// a per-user prompt override (stored server-side; AGENT.md is never mutated).
+
+function AgentPromptSection({ agent }: { agent: AgentDef }) {
+  const [open, setOpen] = useState(false);
+  const [promptData, setPromptData] = useState<AgentPromptData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [draftContent, setDraftContent] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Fetch prompt data on first open
+  useEffect(() => {
+    if (!open || promptData !== null) return;
+    const token = getToken();
+    if (!token) return;
+    setLoading(true);
+    setError(null);
+    getAgentPrompt(token, agent.id)
+      .then(d => { setPromptData(d); })
+      .catch(e => setError(e?.message ?? "Failed to load prompt."))
+      .finally(() => setLoading(false));
+  }, [open, agent.id, promptData]);
+
+  const handleEditStart = () => {
+    if (!promptData) return;
+    setDraftContent(promptData.override ?? promptData.prompt_body);
+    setEditMode(true);
+    setSaveError(null);
+  };
+
+  const handleSave = async () => {
+    if (!promptData) return;
+    const token = getToken();
+    if (!token) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await saveAgentPromptOverride(token, agent.id, draftContent);
+      setPromptData({ ...promptData, override: draftContent, has_override: true });
+      setEditMode(false);
+    } catch (e) {
+      setSaveError((e as Error)?.message ?? "Failed to save.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRevert = async () => {
+    if (!promptData) return;
+    const token = getToken();
+    if (!token) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await deleteAgentPromptOverride(token, agent.id);
+      setPromptData({ ...promptData, override: null, has_override: false });
+      setEditMode(false);
+    } catch (e) {
+      setSaveError((e as Error)?.message ?? "Failed to revert.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const displayContent = editMode
+    ? draftContent
+    : (promptData?.override ?? promptData?.prompt_body ?? "");
+
+  return (
+    <div className="rounded-xl border border-gray-200 overflow-hidden">
+      {/* Collapsible header */}
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+      >
+        <div className="flex items-center gap-2.5">
+          <FileText className="h-4 w-4 text-gray-400 flex-shrink-0" />
+          <div>
+            <p className="text-[11px] font-semibold text-gray-700">System Prompt</p>
+            <p className="text-[10px] text-gray-400">
+              {promptData?.has_override ? "Custom override active" : "Base AGENT.md prompt"}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {promptData?.has_override && (
+            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-[#E8EDF5] text-[#1B2A4A]">overridden</span>
+          )}
+          <ChevronDown className={`h-3.5 w-3.5 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
+        </div>
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="overflow-hidden border-t border-gray-200"
+          >
+            <div className="bg-white">
+              {loading && (
+                <p className="text-[11px] text-gray-400 px-4 py-3">Loading prompt…</p>
+              )}
+              {error && (
+                <p className="text-[11px] text-red-500 px-4 py-3">{error}</p>
+              )}
+              {!loading && !error && promptData && (
+                <>
+                  {/* Source badge */}
+                  <div className="flex items-center justify-between px-4 pt-3 pb-2 gap-2">
+                    <span className={`text-[9px] font-semibold px-2 py-0.5 rounded-full border ${
+                      promptData.has_override
+                        ? "bg-[#E8EDF5] text-[#1B2A4A] border-[#c8d4e8]"
+                        : "bg-gray-100 text-gray-500 border-gray-200"
+                    }`}>
+                      {promptData.has_override ? "Your override" : "Default AGENT.md"}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {promptData.has_override && !editMode && (
+                        <button
+                          onClick={handleRevert}
+                          disabled={saving}
+                          className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-red-600 transition-colors disabled:opacity-40"
+                        >
+                          <RotateCcw className="h-3 w-3" /> Revert to default
+                        </button>
+                      )}
+                      {!editMode && (
+                        <button
+                          onClick={handleEditStart}
+                          className="flex items-center gap-1 text-[10px] font-semibold text-gray-500 hover:text-gray-900 transition-colors px-2 py-0.5 rounded-md hover:bg-gray-100"
+                        >
+                          <Edit3 className="h-3 w-3" /> Edit
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Prompt content */}
+                  {editMode ? (
+                    <div className="px-4 pb-3 space-y-2">
+                      <textarea
+                        value={draftContent}
+                        onChange={e => setDraftContent(e.target.value)}
+                        rows={12}
+                        className="w-full px-3 py-2 text-[11px] font-mono bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400 resize-none leading-relaxed transition-colors"
+                        placeholder="Enter custom prompt instructions…"
+                      />
+                      <p className="text-[9px] text-gray-400">{draftContent.length} chars · max 32,768</p>
+                      {saveError && (
+                        <p className="text-[11px] text-red-500">{saveError}</p>
+                      )}
+                      <div className="flex items-center gap-2 justify-end">
+                        <button
+                          onClick={() => { setEditMode(false); setSaveError(null); }}
+                          className="px-3 py-1.5 rounded-lg text-[11px] font-medium text-gray-500 hover:bg-gray-100 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={handleSave}
+                          disabled={saving || !draftContent.trim()}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-900 text-white text-[11px] font-semibold hover:bg-gray-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          {saving ? "Saving…" : <><Check className="h-3 w-3" /> Save override</>}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <pre className="px-4 pb-4 text-[10.5px] text-gray-600 leading-relaxed whitespace-pre-wrap font-mono overflow-x-auto max-h-64 overflow-y-auto">
+                      {displayContent || <span className="text-gray-400 italic">No prompt body found.</span>}
+                    </pre>
+                  )}
+                </>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
 }
 
 
@@ -472,6 +668,10 @@ export function AgentCapabilitiesModal({
               )}
             </div>
           )}
+
+          {/* ── System Prompt (KAN-76) ─────────────────────────────────── */}
+          <AgentPromptSection agent={agent} />
+
         </div>
       </motion.div>
     </motion.div>

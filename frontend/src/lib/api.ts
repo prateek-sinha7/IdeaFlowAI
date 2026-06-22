@@ -748,3 +748,63 @@ export async function deleteUserWorkflow(
     throw new ApiError(response.status, body.detail ?? body);
   }
 }
+
+// ── Agent prompt endpoints (KAN-76) ──────────────────────────────────────────
+
+export interface AgentPromptData {
+  agent_id: string;
+  /** The canonical AGENT.md prompt body (read-only base). */
+  prompt_body: string;
+  /** Per-user override saved via PUT /api/agents/{id}/prompt, or null if not set. */
+  override: string | null;
+  has_override: boolean;
+}
+
+/**
+ * Fetch an agent's base prompt body + the caller's saved override.
+ * Used by the Library and workflow info panel to display the system prompt (KAN-76).
+ */
+export async function getAgentPrompt(
+  token: string,
+  agentId: string,
+): Promise<AgentPromptData> {
+  return request<AgentPromptData>(`/api/agents/${encodeURIComponent(agentId)}/prompt`, {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+}
+
+/**
+ * Save (create or replace) a per-user prompt override for an agent.
+ * Passing an empty string removes the override (use deleteAgentPromptOverride for explicit deletion).
+ */
+export async function saveAgentPromptOverride(
+  token: string,
+  agentId: string,
+  content: string,
+): Promise<{ status: string; agent_id: string }> {
+  return request<{ status: string; agent_id: string }>(
+    `/api/agents/${encodeURIComponent(agentId)}/prompt`,
+    {
+      method: "PUT",
+      headers: { ...authHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    },
+  );
+}
+
+/**
+ * Delete the caller's prompt override for an agent, reverting to the base AGENT.md.
+ */
+export async function deleteAgentPromptOverride(
+  token: string,
+  agentId: string,
+): Promise<{ status: string; agent_id: string }> {
+  return request<{ status: string; agent_id: string }>(
+    `/api/agents/${encodeURIComponent(agentId)}/prompt`,
+    {
+      method: "DELETE",
+      headers: authHeaders(token),
+    },
+  );
+}

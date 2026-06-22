@@ -394,6 +394,11 @@ export interface AgentDef {
    *  (default-gated, pre-checked in the Review-gates toggle), a "Validation_Gate",
    *  or null/absent (no static gate). Sourced from the real backend registry. */
   gate?: string | null;
+  /** Full AGENT.md prompt body (markdown text after the YAML frontmatter).
+   *  Populated when the agent is fetched from the /api/agents/library or
+   *  /api/agents/pipelines/{type} endpoint (KAN-76). May be absent on
+   *  static AgentLibraryData entries that have not been refreshed from the API. */
+  prompt_body?: string;
 }
 
 export interface PipelineConfig {
