@@ -7,8 +7,8 @@ version: 1
 # Catalog (Plan 20-01): declared launchability — inert metadata.
 # display_name (UXFIX-01/22-07): authored friendly catalog label — presentation only.
 user_launchable: true
-display_name: "MuleSoft to Spring Boot"
-description: "Modernise a MuleSoft estate to Spring Boot microservices on AWS."
+display_name: "Platform workflows"
+description: "Modernise a legacy estate — Mulesoft to AWS or .NET to Azure."
 planner: run
 clarify:
   mode: auto

@@ -10,7 +10,7 @@ version: 1
 # display_name (UXFIX-01/22-07): authored friendly catalog label — presentation
 # only, never read by the compiler/kernel (INV-3 parity preserved).
 user_launchable: true
-display_name: "Presentation Deck"
+display_name: "Pitch an idea"
 description: "Executive-grade deck with charts, data, and a clear narrative."
 launch_surface: "wizard"
 planner: run

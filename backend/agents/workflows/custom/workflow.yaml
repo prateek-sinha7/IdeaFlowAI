@@ -6,6 +6,7 @@ id: custom
 version: 1
 # Catalog (Plan 20-01): declared launchability — inert metadata.
 user_launchable: true
+display_name: "Compose a custom workflow"
 description: "Assemble specialist agents for tasks outside the standard pipelines."
 planner: run
 clarify:

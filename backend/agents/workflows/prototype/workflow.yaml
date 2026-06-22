@@ -15,7 +15,7 @@ version: 1
 # Catalog (Plan 20-01): declared launchability + wizard launch surface — inert
 # metadata read by GET /api/workflows, never by the compiler/kernel (INV-3 parity).
 user_launchable: true
-display_name: "Interactive Prototype"
+display_name: "Build an interactive prototype"
 description: "Navigable, high-fidelity HTML prototype from a brief or story set."
 launch_surface: "wizard"
 planner: run

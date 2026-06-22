@@ -417,6 +417,9 @@ def resolve_alias(pipeline_type: str) -> str:
     return _CAPABILITY_REGISTRY.resolve_alias(pipeline_type)
 
 
+import functools as _functools
+
+@_functools.lru_cache(maxsize=None)
 def compile_for_run(pipeline_type: str) -> CompiledWorkflow:
     """Load + compile the CompiledWorkflow the engine routes a run from (MAN-04).
 

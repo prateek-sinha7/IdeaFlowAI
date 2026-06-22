@@ -10,7 +10,7 @@ version: 1
 # GET /api/workflows, never by the compiler/kernel (INV-3 parity).
 # display_name (UXFIX-01/22-07): authored friendly catalog label — presentation only.
 user_launchable: true
-display_name: "Full App Builder"
+display_name: "Build an end-to-end application"
 description: "Full-stack code, tests, and infrastructure from a single requirement."
 planner: run
 clarify:

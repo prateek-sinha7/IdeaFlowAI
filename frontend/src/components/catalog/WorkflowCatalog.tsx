@@ -112,7 +112,7 @@ export function WorkflowCatalog({
   return (
     <div
       className="flex h-full flex-col overflow-y-auto"
-      style={{ background: "#f5f5f0" }}
+      style={{ background: "#f5f5f0", scrollbarGutter: "stable" }}
     >
       <div className="flex-1 flex flex-col items-center px-6 py-12 max-w-2xl mx-auto w-full">
 
@@ -146,11 +146,6 @@ export function WorkflowCatalog({
             <Plus className="h-3.5 w-3.5" /> Create workflow
           </button>
         </motion.div>
-
-        {/* Loading/error/empty triad ⟵ AgentModelPicker.tsx:99-114 */}
-        {loading && (
-          <p className="text-[11px] text-gray-400 py-2">Loading workflows…</p>
-        )}
 
         {error && (
           <div className="flex items-center gap-1.5 text-[11px] text-red-600 bg-red-50 rounded-lg px-2.5 py-1.5">

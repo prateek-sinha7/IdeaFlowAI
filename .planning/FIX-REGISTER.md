@@ -568,6 +568,7 @@ Model receives conflicting HTML output contracts → tiny confused response
 | FIX-001 | 2026-06-22 | Show and edit agent prompts from Library and workflow info views | `prompt_body` not in AgentResponse or AgentDef; no prompt endpoints; AgentCapabilitiesModal had no prompt section | `backend/app/api/agents.py`, `backend/app/agents/prompt_overrides.py` (new), `frontend/src/types/index.ts`, `frontend/src/lib/api.ts`, `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 8 (caps hardened / agent API) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-002 | 2026-06-22 | Add Catalogue tab to main nav for saved workflow navigation | Catalogue / SavedWorkflowsPage was fully implemented but only reachable via profile dropdown; no main nav tab existed | `frontend/src/components/layout/AppHeader.tsx` | Phase 21 (Saved Workflows) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-003 | 2026-06-22 | Extend user_stories clarification to capture full intent for short prompts | defaults only 4 generic items; missing personas, user journeys, business rules, compliance from clarify questions; SmartPlanner DOMAIN_KB too shallow for KAN-74 coverage | `backend/agents/workflows/user_stories/workflow.yaml`, `backend/agents/planner/smart_planner.py`, `backend/agents/execution_engine/clarify_engine.py`, `backend/agents/prompts/deep-planner/AGENT.md` | Phase 4 (clarify.defaults manifest) / Phase 8 (ClarifyEngine) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-004 | 2026-06-22 | Replace loading text with skeleton rows on home page WorkflowCatalog | Tiny "Loading workflows…" text shown while API fetches made home page look broken/blank; no skeleton showed page structure | `frontend/src/components/catalog/WorkflowCatalog.tsx` | Phase 20 (Workflow Catalog) | INV-1/3/12/SC-001 ✅ | Done |
 
 ---
 
@@ -715,3 +716,38 @@ The `ClarifyEngine` caps at 5 questions per round × 3 rounds = up to 15 questio
 - The 5-per-round cap means 8 defaults split cleanly across 2 rounds (5+3). If the brief already covers some dimensions, the SmartPlanner removes them from missing_information before seeding, so fewer questions are asked for richer briefs.
 - The same extension should be applied to `app_builder` and `prototype` workflows in a follow-up if KAN-74 testing reveals those pipelines also produce insufficient clarification. The pattern is identical: extend `clarify.defaults` + `DOMAIN_KB.common_missing` + add QUESTION_LIBRARY entries.
 - keyword matching in `_generate_questions` uses substring matching: "compliance_security" matches "security" in QUESTION_LIBRARY — confirmed correct.
+
+### FIX-004 — Home Page Skeleton Loading State
+
+**Date:** 2026-06-22
+**Triggered by:** `/velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-78`
+
+#### Root Cause
+`WorkflowCatalog` starts with `loading=true` and fetches from `GET /api/workflows` on every mount. During the 1-3s fetch window the page showed a tiny `"Loading workflows…"` text (11px gray) in the workflow list area. The heading and Create button were already visible, but the workflow list slot appeared empty/broken — creating the impression that the page was stuck or regressed. The Jira's "heading text changed" refers to users seeing this loading message as the dominant text replacing the workflow list, not an actual heading regression.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 20 — Workflow Catalog (data-driven WorkflowCatalog, 20-02)
+- **Relevant register section:** `_register-parts/20-workflow-catalog-data-driven-browse-and-launch-gallery-reali.md`
+- **Deleted code verified (not resurrected):** no deleted code involved
+- **Locked decisions respected:** SC-001 data-driven pattern preserved; no hardcoded workflow list; fetch logic unchanged
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/catalog/WorkflowCatalog.tsx` | Replaced `<p>Loading workflows…</p>` with a 5-row animated skeleton that matches the real workflow row layout (title bar + subtitle bar + icon slot, staggered pulse animation) | Shows page structure immediately; users see the expected layout shape instead of blank/broken state; skeleton disappears and is replaced by real rows as soon as data loads |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected
+- **INV-3** (golden parity): not affected — no backend or deliverable changes
+- **INV-12** (no duplication): not applicable
+- **SC-001** (zero engine edits): not affected — frontend loading UX only
+
+#### Verification
+- TypeScript: 0 diagnostics on `WorkflowCatalog.tsx`
+- Skeleton rows use same `divide-y`, `py-5`, `px-3 -mx-3` classes as real rows — layout is consistent
+- 5 skeleton rows match the expected 5-6 real workflow rows
+- Staggered `animationDelay` provides a natural cascading shimmer
+
+#### Notes
+- The actual h1 heading "What would you like to build today?" is correct and unchanged since 20-02; no heading regression exists.
+- A follow-up improvement would be to cache the workflow definitions in sessionStorage so repeat home page visits show immediately — but that is a separate enhancement, not required for KAN-78.

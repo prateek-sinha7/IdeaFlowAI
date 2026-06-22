@@ -9,7 +9,7 @@ version: 1
 # display_name (UXFIX-01/22-07): authored friendly catalog label — presentation
 # only, never read by the compiler/kernel (INV-3 parity preserved).
 user_launchable: true
-display_name: "User Stories"
+display_name: "Generate product requirements"
 description: "Epics, user stories, and Gherkin acceptance criteria — ready for Jira."
 planner: run
 clarify:
