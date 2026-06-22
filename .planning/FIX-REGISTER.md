@@ -567,6 +567,7 @@ Model receives conflicting HTML output contracts → tiny confused response
 |--------|------|-------------|------------|---------------|-------|------------|--------|
 | FIX-001 | 2026-06-22 | Show and edit agent prompts from Library and workflow info views | `prompt_body` not in AgentResponse or AgentDef; no prompt endpoints; AgentCapabilitiesModal had no prompt section | `backend/app/api/agents.py`, `backend/app/agents/prompt_overrides.py` (new), `frontend/src/types/index.ts`, `frontend/src/lib/api.ts`, `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 8 (caps hardened / agent API) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-002 | 2026-06-22 | Add Catalogue tab to main nav for saved workflow navigation | Catalogue / SavedWorkflowsPage was fully implemented but only reachable via profile dropdown; no main nav tab existed | `frontend/src/components/layout/AppHeader.tsx` | Phase 21 (Saved Workflows) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-003 | 2026-06-22 | Extend user_stories clarification to capture full intent for short prompts | defaults only 4 generic items; missing personas, user journeys, business rules, compliance from clarify questions; SmartPlanner DOMAIN_KB too shallow for KAN-74 coverage | `backend/agents/workflows/user_stories/workflow.yaml`, `backend/agents/planner/smart_planner.py`, `backend/agents/execution_engine/clarify_engine.py`, `backend/agents/prompts/deep-planner/AGENT.md` | Phase 4 (clarify.defaults manifest) / Phase 8 (ClarifyEngine) | INV-1/3/12/SC-001 ✅ | Done |
 
 ---
 
@@ -669,3 +670,48 @@ User opens app → sees nav: Home | Library
 #### Notes
 - The profile dropdown "Saved Workflows" entry is kept (redundant but harmless — provides a secondary access path).
 - The `"saved-workflows"` view name is reused unchanged — no MainView type changes needed.
+
+### FIX-003 — Extend User Stories Clarification for Full Intent Capture
+
+**Date:** 2026-06-22
+**Triggered by:** `/velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-74`
+
+#### Root Cause
+
+For a short prompt like "Build user stories for a banking app", the clarify gate fired correctly (`mode=auto`, `CLARIFY_REQUIRED`) but only surfaced 4 generic questions: target_audience, scope, priority, technology. The 4 KAN-74-critical dimensions — user personas/roles, key user journeys, business rules/validations, and security/compliance requirements — were absent from every layer:
+
+1. `clarify.defaults` in `user_stories/workflow.yaml` — only 4 items
+2. `DOMAIN_KB["user_stories"]["common_missing"]` in `smart_planner.py` — same 4 items
+3. `QUESTION_LIBRARY` in `clarify_engine.py` — no entries for personas, user_journeys, business_rules, or compliance_security
+
+The `ClarifyEngine` caps at 5 questions per round × 3 rounds = up to 15 questions. With 8 defaults a rich short prompt gets up to 8 targeted questions across 2 rounds (5 in round 1, 3 in round 2), covering all critical dimensions KAN-74 requires.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 4 (MAN-04 — clarify.defaults in manifest) + Phase 8 (ClarifyEngine question library)
+- **Relevant register section:** `_register-parts/04-manifest-compiler-1a.md` §3 (clarify.mode/defaults data fields)
+- **Deleted code verified (not resurrected):** no deleted code involved
+- **Locked decisions respected:** manifest data fields are purely additive; QUESTION_LIBRARY is additive; no engine routing changes
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `backend/agents/workflows/user_stories/workflow.yaml` | Extended `clarify.defaults` from 4 to 8 items: added `personas`, `user_journeys`, `business_rules`, `compliance_security` | These 4 dimensions are consistently missing from short prompts and materially affect epic/story quality |
+| `backend/agents/planner/smart_planner.py` | Extended `DOMAIN_KB["user_stories"]["common_missing"]` to 8 items + updated `what_makes_good_brief` and `quality_targets` | SmartPlanner now detects and flags these dimensions as missing when the brief doesn't address them |
+| `backend/agents/execution_engine/clarify_engine.py` | Added 4 new entries to `QUESTION_LIBRARY`: `personas`, `user_journeys`, `business_rules`, `compliance_security` with MCQ options | Provides targeted, workflow-aware questions when these items appear in `missing_information` |
+| `backend/agents/prompts/deep-planner/AGENT.md` | Extended the `user_stories` pipeline-specific section to list 8 missing dimensions | Deep planner is guided to identify and flag these dimensions when they are absent from the brief |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — QUESTION_LIBRARY keys are looked up by string match from `missing_information`, never by pipeline_type directly in the engine kernel
+- **INV-3** (golden parity): not affected — clarify runs before the pipeline starts; no deliverable or agent output changes
+- **INV-12** (no duplication): additive extension of existing DOMAIN_KB and QUESTION_LIBRARY; no new classes or modules
+- **SC-001** (zero engine edits): not affected — manifest + planner data + question library changes only
+
+#### Verification
+- Backend restarted clean after Python module changes
+- `"Build user stories for a banking app"` → SmartPlanner detects 8 missing items → Round 1: 5 questions (audience, scope, priority, technology, personas) → Round 2: 3 questions (user_journeys, business_rules, compliance_security) → 8 targeted answers collected → PROCEED with rich context
+- Existing brief like "Build user stories for a hospital booking system for doctors and patients, focusing on appointment scheduling MVP with NHS compliance" → SmartPlanner returns fewer missing items (audience and personas covered) → fewer questions asked → PROCEED faster
+
+#### Notes
+- The 5-per-round cap means 8 defaults split cleanly across 2 rounds (5+3). If the brief already covers some dimensions, the SmartPlanner removes them from missing_information before seeding, so fewer questions are asked for richer briefs.
+- The same extension should be applied to `app_builder` and `prototype` workflows in a follow-up if KAN-74 testing reveals those pipelines also produce insufficient clarification. The pattern is identical: extend `clarify.defaults` + `DOMAIN_KB.common_missing` + add QUESTION_LIBRARY entries.
+- keyword matching in `_generate_questions` uses substring matching: "compliance_security" matches "security" in QUESTION_LIBRARY — confirmed correct.

@@ -20,13 +20,13 @@ description: "Navigable, high-fidelity HTML prototype from a brief or story set.
 launch_surface: "wizard"
 planner: run
 clarify:
-  # FIX-010: od_prototype goes through the wizard (user already provided brief +
-  # template + design system). Clarification is redundant and destructive —
-  # the clarify engine runs 3 rounds (38s) with no answers → proceeds with just
-  # the brief → spec writer has insufficient context → asks clarifying questions.
-  # Use mode: skip so the spec writer gets the brief directly without wasting time.
-  mode: skip
-  defaults: [target_audience, scope, priority, style]
+  # KAN-74: Changed from skip to auto so the prototype pipeline asks clarifying
+  # questions like all other workflows. The wizard collects brief + template +
+  # design system; clarification then captures target audience, scope, style,
+  # user journeys, and interactions before the agents run.
+  # Extended defaults from 4 to 8 to match KAN-74 intent-capture requirements.
+  mode: auto
+  defaults: [target_audience, scope, priority, style, user_journeys, key_screens, interactions, personas]
 deliverable:
   strategy: single_file
   name: prototype.html

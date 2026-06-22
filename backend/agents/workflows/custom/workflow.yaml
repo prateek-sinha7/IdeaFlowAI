@@ -10,7 +10,9 @@ description: "Assemble specialist agents for tasks outside the standard pipeline
 planner: run
 clarify:
   mode: auto
-  defaults: [target_audience, key_objectives, scope, priority]
+  # KAN-74: extended from 4 to 8 defaults. Adds: output_format, constraints,
+  # domain, assumptions — needed for custom workflows with diverse deliverables.
+  defaults: [target_audience, key_objectives, scope, priority, output_format, constraints, domain, assumptions]
 deliverable:
   strategy: streamed_text
   name: output.md

@@ -15,7 +15,9 @@ description: "Full-stack code, tests, and infrastructure from a single requireme
 planner: run
 clarify:
   mode: auto
-  defaults: [technology, scope, target_audience, security]
+  # KAN-74: extended from 4 to 8 defaults. Adds: user_journeys, data_model,
+  # integrations, performance — critical for full-stack app generation quality.
+  defaults: [technology, scope, target_audience, security, user_journeys, data_model, integrations, performance]
 deliverable:
   strategy: serialized_sandbox
   name: app

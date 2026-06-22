@@ -16,7 +16,9 @@ launch_surface: "wizard"
 planner: run
 clarify:
   mode: auto
-  defaults: [target_audience, tone_and_style, key_objectives, slide_count]
+  # KAN-74: extended from 4 to 8 defaults to capture full intent for short prompts.
+  # Covers: presentation structure, content depth, data availability, visual style.
+  defaults: [target_audience, tone_and_style, key_objectives, slide_count, content_depth, data_availability, visual_style, key_sections]
 deliverable:
   strategy: ppt
   name: presentation.pptx

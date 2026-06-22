@@ -14,7 +14,14 @@ description: "Epics, user stories, and Gherkin acceptance criteria — ready for
 planner: run
 clarify:
   mode: auto
-  defaults: [target_audience, scope, priority, technology]
+  # KAN-74: extended from 4 to 8 defaults to capture full user intent for
+  # short/vague prompts. The 4 original items covered basic context; the 4
+  # new items cover the user-story-specific dimensions (personas/roles,
+  # user journeys, business rules, compliance/integrations) that are
+  # consistently missing from short prompts and materially affect epic/story
+  # quality. ClarifyEngine caps at 5 per round — with 8 defaults a 2-round
+  # clarify handles all 8 when missing, or fewer when the brief is richer.
+  defaults: [target_audience, scope, priority, technology, personas, user_journeys, business_rules, compliance_security]
 deliverable:
   strategy: streamed_text
   name: user_stories.md

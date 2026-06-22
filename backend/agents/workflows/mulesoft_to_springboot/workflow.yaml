@@ -12,7 +12,10 @@ description: "Modernise a MuleSoft estate to Spring Boot microservices on AWS."
 planner: run
 clarify:
   mode: auto
-  defaults: [scope, technology, timeline, priority]
+  # KAN-74: extended from 4 to 8 defaults. Adds: integration_patterns,
+  # target_infrastructure, data_migration, compliance_security — all critical
+  # for a safe, complete MuleSoft → Spring Boot migration.
+  defaults: [scope, technology, timeline, priority, integration_patterns, target_infrastructure, data_migration, compliance_security]
 deliverable:
   strategy: serialized_sandbox
   name: springboot-app

@@ -40,8 +40,8 @@ logger = logging.getLogger("agents.planner.smart_planner")
 DOMAIN_KB: dict[str, dict[str, Any]] = {
     "od_ppt": {
         "description": "OpenDesign presentation pipeline — generates a complete HTML slide deck",
-        "what_makes_good_brief": "A specific topic, target audience, and purpose/objective",
-        "common_missing": ["target_audience", "tone_and_style", "key_objectives", "slide_count"],
+        "what_makes_good_brief": "A specific topic, target audience, purpose/objective, and content depth",
+        "common_missing": ["target_audience", "tone_and_style", "key_objectives", "slide_count", "content_depth", "data_availability", "visual_style", "key_sections"],
         "topic_indicators": ["comparison", "analysis", "overview", "strategy", "results", "report", "pitch", "proposal"],
         "quality_targets": ["Clear narrative arc", "Consistent visual style", "Data-backed claims", "Actionable takeaways"],
         "typical_personas": ["Executive", "Business stakeholder", "Technical team", "Sales team"],
@@ -49,8 +49,8 @@ DOMAIN_KB: dict[str, dict[str, Any]] = {
     },
     "ppt": {
         "description": "Presentation pipeline — generates slide content",
-        "what_makes_good_brief": "A specific topic, target audience, and purpose/objective",
-        "common_missing": ["target_audience", "tone_and_style", "key_objectives", "slide_count"],
+        "what_makes_good_brief": "A specific topic, target audience, purpose/objective, and content depth",
+        "common_missing": ["target_audience", "tone_and_style", "key_objectives", "slide_count", "content_depth", "data_availability", "visual_style", "key_sections"],
         "topic_indicators": ["comparison", "analysis", "overview", "strategy", "results", "report", "pitch"],
         "quality_targets": ["Clear narrative arc", "Consistent visual style", "Data-backed claims"],
         "typical_personas": ["Executive", "Business stakeholder", "Technical team"],
@@ -58,10 +58,10 @@ DOMAIN_KB: dict[str, dict[str, Any]] = {
     },
     "user_stories": {
         "description": "User stories pipeline — generates product backlog with epics, stories, acceptance criteria",
-        "what_makes_good_brief": "A specific product/feature name, target users, and core functionality",
-        "common_missing": ["target_audience", "scope", "priority", "technology"],
+        "what_makes_good_brief": "A specific product/feature name, target users, core functionality, business goals, and user journeys",
+        "common_missing": ["target_audience", "scope", "priority", "technology", "personas", "user_journeys", "business_rules", "compliance_security"],
         "topic_indicators": ["app", "platform", "system", "portal", "dashboard", "service", "tool", "feature", "module"],
-        "quality_targets": ["Complete acceptance criteria", "Testable stories", "Prioritized backlog", "Clear personas"],
+        "quality_targets": ["Complete acceptance criteria", "Testable stories", "Prioritized backlog", "Clear personas", "Covered business rules", "NFRs captured"],
         "typical_personas": ["End user", "Admin", "Developer", "Business owner"],
         "nfrs": ["Accessibility", "Performance", "Security", "Scalability"],
         "scope_hints": {
@@ -72,8 +72,8 @@ DOMAIN_KB: dict[str, dict[str, Any]] = {
     },
     "od_prototype": {
         "description": "OpenDesign prototype pipeline — generates interactive HTML prototype",
-        "what_makes_good_brief": "A specific product type, target users, and key screens/flows",
-        "common_missing": ["target_audience", "scope", "priority", "style"],
+        "what_makes_good_brief": "A specific product type, target users, key screens/flows, and interaction patterns",
+        "common_missing": ["target_audience", "scope", "priority", "style", "user_journeys", "key_screens", "interactions", "personas"],
         "topic_indicators": ["app", "dashboard", "portal", "website", "interface", "screen", "flow", "checkout", "onboarding"],
         "quality_targets": ["Realistic interactions", "Consistent design system", "Complete user flows", "Responsive layout"],
         "typical_personas": ["End user", "Admin", "Mobile user", "Desktop user"],
@@ -81,8 +81,8 @@ DOMAIN_KB: dict[str, dict[str, Any]] = {
     },
     "prototype": {
         "description": "Prototype pipeline — generates interactive HTML prototype",
-        "what_makes_good_brief": "A specific product type, target users, and key screens/flows",
-        "common_missing": ["target_audience", "scope", "priority", "style"],
+        "what_makes_good_brief": "A specific product type, target users, key screens/flows, and interaction patterns",
+        "common_missing": ["target_audience", "scope", "priority", "style", "user_journeys", "key_screens", "interactions", "personas"],
         "topic_indicators": ["app", "dashboard", "portal", "website", "interface", "screen", "flow"],
         "quality_targets": ["Realistic interactions", "Consistent design system", "Complete user flows"],
         "typical_personas": ["End user", "Admin", "Mobile user"],
@@ -90,8 +90,8 @@ DOMAIN_KB: dict[str, dict[str, Any]] = {
     },
     "app_builder": {
         "description": "Full-stack application builder — generates complete application architecture, code, and infrastructure",
-        "what_makes_good_brief": "A specific application type, tech stack preferences, and core features",
-        "common_missing": ["technology", "scope", "target_audience", "security"],
+        "what_makes_good_brief": "A specific application type, tech stack, core features, user journeys, and data model",
+        "common_missing": ["technology", "scope", "target_audience", "security", "user_journeys", "data_model", "integrations", "performance"],
         "topic_indicators": ["app", "platform", "system", "service", "api", "backend", "frontend", "saas", "tool"],
         "quality_targets": ["Production-ready code", "Security best practices", "Test coverage", "CI/CD pipeline", "Documentation"],
         "typical_personas": ["Developer", "DevOps engineer", "Product manager", "End user"],
@@ -105,8 +105,8 @@ DOMAIN_KB: dict[str, dict[str, Any]] = {
     },
     "mulesoft_to_springboot": {
         "description": "Mulesoft → Spring Boot migration pipeline",
-        "what_makes_good_brief": "The Mulesoft application name, integration patterns, and target AWS infrastructure",
-        "common_missing": ["scope", "technology", "timeline", "priority"],
+        "what_makes_good_brief": "The Mulesoft application name, integration patterns, target AWS infrastructure, and compliance requirements",
+        "common_missing": ["scope", "technology", "timeline", "priority", "integration_patterns", "target_infrastructure", "data_migration", "compliance_security"],
         "topic_indicators": ["mulesoft", "integration", "api", "flow", "connector", "dataweave", "migration"],
         "quality_targets": ["Zero data loss", "API parity", "Performance equivalence", "Test coverage"],
         "typical_personas": ["Integration architect", "Backend developer", "DevOps engineer"],
@@ -114,8 +114,8 @@ DOMAIN_KB: dict[str, dict[str, Any]] = {
     },
     "dotnet_to_azure": {
         "description": ".NET → Azure migration pipeline",
-        "what_makes_good_brief": "The .NET application name, current architecture, and Azure target services",
-        "common_missing": ["scope", "technology", "timeline", "priority"],
+        "what_makes_good_brief": "The .NET application name, current architecture, Azure target services, and compliance requirements",
+        "common_missing": ["scope", "technology", "timeline", "priority", "azure_services", "data_migration", "integration_patterns", "compliance_security"],
         "topic_indicators": [".net", "dotnet", "c#", "azure", "migration", "modernization", "cloud"],
         "quality_targets": ["Cloud-native architecture", "Cost optimization", "Security hardening", "Performance improvement"],
         "typical_personas": ["Cloud architect", ".NET developer", "DevOps engineer"],
@@ -123,8 +123,8 @@ DOMAIN_KB: dict[str, dict[str, Any]] = {
     },
     "custom": {
         "description": "Custom AI workflow pipeline",
-        "what_makes_good_brief": "A specific task, deliverable type, and target audience",
-        "common_missing": ["target_audience", "key_objectives", "scope", "priority"],
+        "what_makes_good_brief": "A specific task, deliverable type, target audience, and output format requirements",
+        "common_missing": ["target_audience", "key_objectives", "scope", "priority", "output_format", "constraints", "domain", "assumptions"],
         "topic_indicators": [],
         "quality_targets": ["Clear deliverable", "Actionable output", "Accurate information"],
         "typical_personas": ["Business user", "Technical user", "Decision maker"],
@@ -159,7 +159,7 @@ class SmartPlanner:
         self._llm = self._build_llm()
 
     def _build_llm(self):
-        """Build the LLM client — Anthropic direct or Bedrock."""
+        """Build the LLM client — Anthropic direct, Bedrock bearer-token, or Bedrock IAM."""
         from app.core.config import settings
         if settings.ANTHROPIC_API_KEY:
             from langchain_anthropic import ChatAnthropic
@@ -170,17 +170,29 @@ class SmartPlanner:
                 max_tokens=2048,
                 temperature=0,
             )
-        else:
-            from langchain_aws import ChatBedrockConverse
-            from app.core.config import settings as s
-            model = self.model_id or s.BEDROCK_INFERENCE_PROFILE_ID or s.BEDROCK_MODEL_ID
-            from botocore.config import Config
+
+        from langchain_aws import ChatBedrockConverse
+        from botocore.config import Config
+        from app.core.config import settings as s
+        model = self.model_id or s.BEDROCK_INFERENCE_PROFILE_ID or s.BEDROCK_MODEL_ID
+        botocore_cfg = Config(read_timeout=600, connect_timeout=30, retries={"max_attempts": 5, "mode": "adaptive"})
+
+        if s.AWS_BEARER_TOKEN_BEDROCK:
+            from app.agents.model_factory import _build_bedrock_bearer_session
+            boto_session = _build_bedrock_bearer_session()
             return ChatBedrockConverse(
                 model=model,
                 region_name=s.AWS_REGION,
                 max_tokens=2048,
-                config=Config(read_timeout=600, connect_timeout=30, retries={"max_attempts": 5, "mode": "adaptive"}),
+                client=boto_session.client("bedrock-runtime", region_name=s.AWS_REGION, config=botocore_cfg),
             )
+
+        return ChatBedrockConverse(
+            model=model,
+            region_name=s.AWS_REGION,
+            max_tokens=2048,
+            config=botocore_cfg,
+        )
 
     def _build_prompt(self, brief: str, pipeline_type: str) -> str:
         """Build the rich planning prompt with domain knowledge."""
@@ -301,7 +313,7 @@ Return ONLY valid JSON, no other text:
             "topic": None,
             "explicit_constraints": [],
             "implicit_constraints": [],
-            "missing_information": kb["common_missing"][:3],
+            "missing_information": kb["common_missing"],  # use full list, not [:3]
             "execution_strategy": "sequential",
             "execution_gate": "CLARIFY_REQUIRED",
             "inferred_personas": kb["typical_personas"][:2],

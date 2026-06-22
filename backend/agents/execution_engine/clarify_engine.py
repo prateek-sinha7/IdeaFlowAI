@@ -356,6 +356,92 @@ class ClarifyEngine:
                 "What are the performance requirements?",
                 ["Low traffic (< 1k users)", "Medium traffic (1k–100k users)", "High traffic (100k+ users)", "Real-time / sub-second response", "No specific requirements"],
             ),
+            # ── Prototype-specific questions (KAN-74) ─────────────────────────
+            "key_screens": (
+                "What are the key screens or pages the prototype must include?",
+                ["Home / landing page", "Dashboard / main workspace", "Onboarding / sign-up flow", "Detail / item view", "Settings / profile page"],
+            ),
+            "interactions": (
+                "What types of interactions should the prototype demonstrate?",
+                ["Click-through navigation only", "Form inputs and validation", "Data tables with filtering/sorting", "Modals, drawers, and overlays", "Full interactive flows with state changes"],
+            ),
+            # ── User-stories-specific questions (KAN-74) ──────────────────────
+            "personas": (
+                "What user roles or personas will use this product?",
+                ["Registered end users", "Admins / back-office staff", "Guest / anonymous users", "API consumers / developers", "Multiple roles with different permissions"],
+            ),
+            "user_journeys": (
+                "What are the main user journeys or workflows to cover?",
+                ["Onboarding / sign-up flow", "Core transactional flow (e.g. purchase, booking, submit)", "Account management / settings", "Search, browse, and filter", "Reporting / analytics / export"],
+            ),
+            "business_rules": (
+                "Are there important business rules, validations, or constraints?",
+                ["Approval workflows or authorisation checks", "Data validation rules (formats, limits, uniqueness)", "Pricing / discount / calculation logic", "Status / state-machine transitions", "No specific business rules — standard CRUD"],
+            ),
+            "compliance_security": (
+                "What security or compliance requirements apply?",
+                ["Standard authentication (email/password)", "SSO / OAuth / enterprise identity", "GDPR / data-privacy compliance", "Industry regulation (HIPAA, PCI-DSS, ISO 27001)", "No specific requirements"],
+            ),
+            # ── PPT-specific questions (KAN-74) ───────────────────────────────
+            "content_depth": (
+                "How detailed should the content be?",
+                ["High-level summary only", "Moderate detail with supporting points", "Deep-dive with data and evidence", "Executive brief (one key message per slide)", "No preference"],
+            ),
+            "data_availability": (
+                "Do you have data, charts, or statistics to include?",
+                ["Yes — I have specific data/numbers to include", "Use realistic representative data", "Qualitative insights only (no hard numbers)", "Both qualitative and quantitative", "No preference"],
+            ),
+            "visual_style": (
+                "What visual style should the presentation follow?",
+                ["Clean and minimal (lots of white space)", "Data-rich (charts, tables, graphs)", "Story-driven (narrative with visuals)", "Brand-aligned (company colours and fonts)", "No preference"],
+            ),
+            "key_sections": (
+                "What sections or chapters should the deck include?",
+                ["Executive summary + key findings", "Problem / opportunity + solution", "Data analysis + recommendations", "Roadmap or timeline", "Standard structure — I'll leave it to the AI"],
+            ),
+            # ── App-builder-specific questions (KAN-74) ───────────────────────
+            "data_model": (
+                "What key data entities or models does the application need?",
+                ["Users / accounts and profiles", "Products / items / catalogue", "Orders / transactions / payments", "Content / documents / media", "Custom domain-specific entities"],
+            ),
+            "integrations": (
+                "What external integrations or third-party services are needed?",
+                ["None / standalone application", "Payment gateway (Stripe, PayPal)", "Authentication provider (Auth0, Okta, Google)", "Email / SMS / notification service", "Multiple — I'll describe in notes"],
+            ),
+            # ── Migration-specific questions (KAN-74) ─────────────────────────
+            "integration_patterns": (
+                "What integration patterns does the current application use?",
+                ["REST APIs (synchronous HTTP calls)", "Message queues / event-driven (Kafka, SQS)", "SOAP / XML web services", "Database-level integration (shared DB)", "Multiple patterns — I'll describe in notes"],
+            ),
+            "target_infrastructure": (
+                "What is the target infrastructure / cloud environment?",
+                ["AWS (EKS / ECS / Lambda)", "Azure (AKS / App Service / Functions)", "GCP (GKE / Cloud Run)", "On-premises / private cloud", "Not decided yet"],
+            ),
+            "azure_services": (
+                "Which Azure services should the migrated application use?",
+                ["Azure App Service / AKS (containers)", "Azure Functions (serverless)", "Azure SQL / Cosmos DB (data)", "Azure Service Bus (messaging)", "Not decided — recommend best fit"],
+            ),
+            "data_migration": (
+                "How should existing data be handled during migration?",
+                ["Full data migration (all historical data)", "Cutover only (no historical data migration)", "Parallel run (both systems live temporarily)", "Gradual migration with feature flags", "Not applicable / greenfield"],
+            ),
+            # ── Custom workflow questions (KAN-74) ────────────────────────────
+            "output_format": (
+                "What format should the output be in?",
+                ["Structured document (headings, sections)", "Bullet-point list / checklist", "Table or comparison matrix", "Code or technical specification", "Free-form prose / narrative"],
+            ),
+            "constraints": (
+                "Are there any constraints or limitations to be aware of?",
+                ["Time / deadline constraints", "Budget or resource limits", "Technology or platform constraints", "Regulatory or compliance constraints", "No specific constraints"],
+            ),
+            "domain": (
+                "What industry or domain does this task relate to?",
+                ["Technology / Software", "Finance / Banking / Insurance", "Healthcare / Life Sciences", "Retail / E-commerce", "Other — I'll specify in notes"],
+            ),
+            "assumptions": (
+                "What assumptions should be used if information is missing?",
+                ["Use industry best-practice defaults", "Favour simplicity and speed", "Favour completeness and thoroughness", "Ask me before making assumptions", "No preference"],
+            ),
         }
 
         # 11-category ambiguity taxonomy (FR-009)

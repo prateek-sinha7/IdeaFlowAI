@@ -12,7 +12,10 @@ description: "Modernise a .NET estate to Azure with AI-augmented migration."
 planner: run
 clarify:
   mode: auto
-  defaults: [scope, technology, timeline, priority]
+  # KAN-74: extended from 4 to 8 defaults. Adds: azure_services,
+  # data_migration, integration_patterns, compliance_security — all critical
+  # for a complete and safe .NET → Azure modernization.
+  defaults: [scope, technology, timeline, priority, azure_services, data_migration, integration_patterns, compliance_security]
 deliverable:
   strategy: serialized_sandbox
   name: azure-app

@@ -68,24 +68,70 @@ For `od_ppt` / `ppt` pipelines:
 - `tone_and_style` — formal, casual, data-driven?
 - `key_objectives` — inform, persuade, report?
 - `slide_count` — how many slides?
+- `content_depth` — high-level summary or deep-dive?
+- `data_availability` — specific data to include, or representative?
+- `visual_style` — minimal, data-rich, story-driven?
+- `key_sections` — what chapters/sections should the deck have?
 
 For `user_stories` pipelines:
 - `target_audience` — who are the end users?
 - `scope` — MVP or full product?
 - `priority` — what matters most?
 - `technology` — any tech constraints?
+- `personas` — what user roles and personas are involved?
+- `user_journeys` — what are the key user workflows and flows?
+- `business_rules` — any business logic, validations, or state transitions?
+- `compliance_security` — any security, compliance, or privacy requirements?
 
 For `od_prototype` / `prototype` pipelines:
 - `target_audience` — who uses this?
 - `scope` — MVP or full product?
 - `priority` — speed, quality, UX?
 - `style` — visual style preferences?
+- `user_journeys` — what key flows must be navigable?
+- `key_screens` — which screens/pages are required?
+- `interactions` — click-through only, or full form/state interactions?
+- `personas` — who are the end users and their roles?
 
 For `app_builder` pipelines:
 - `technology` — tech stack?
 - `scope` — MVP or production?
 - `target_audience` — who uses this?
 - `security` — compliance requirements?
+- `user_journeys` — key user workflows to support?
+- `data_model` — key data entities?
+- `integrations` — external services needed?
+- `performance` — traffic / scale targets?
+
+For `mulesoft_to_springboot` pipelines:
+- `scope` — which flows/APIs are in scope?
+- `technology` — target Spring Boot version / AWS services?
+- `timeline` — migration deadline?
+- `priority` — what to migrate first?
+- `integration_patterns` — REST, queues, SOAP, shared DB?
+- `target_infrastructure` — AWS target (EKS, Lambda, etc.)?
+- `data_migration` — full, cutover, or gradual?
+- `compliance_security` — regulatory / security requirements?
+
+For `dotnet_to_azure` pipelines:
+- `scope` — which services are in scope?
+- `technology` — current .NET version / target Azure services?
+- `timeline` — migration deadline?
+- `priority` — what to modernise first?
+- `azure_services` — App Service, AKS, Functions, SQL?
+- `data_migration` — full, cutover, or gradual?
+- `integration_patterns` — REST, Service Bus, legacy DB?
+- `compliance_security` — regulatory / security requirements?
+
+For `custom` pipelines:
+- `target_audience` — who is this for?
+- `key_objectives` — what should this achieve?
+- `scope` — what is in and out of scope?
+- `priority` — what matters most?
+- `output_format` — document, list, table, code?
+- `constraints` — time, budget, tech, or compliance limits?
+- `domain` — what industry or domain?
+- `assumptions` — defaults to use when information is missing?
 
 Only add items to `missing_information` that are genuinely unclear AND would materially change the output. Do NOT add items that are already answered in the brief.
 
