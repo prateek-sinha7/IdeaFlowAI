@@ -308,8 +308,10 @@ export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
                       )}
                     </div>
                   </div>
-                  {/* Actions — visible on hover */}
-                  <div className="flex items-center gap-1.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                  {/* Actions — visible on hover or when menu is open */}
+                  <div className={`flex items-center gap-1.5 flex-shrink-0 transition-opacity ${
+                    openMenuId === row.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                  }`}
                     onClick={(e) => e.stopPropagation()}>
                     <button onClick={(e) => { e.stopPropagation(); onLaunchSaved?.(row); }}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1B2A4A] text-white text-[11px] font-semibold hover:bg-[#243761] transition-colors">
