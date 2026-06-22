@@ -566,6 +566,7 @@ Model receives conflicting HTML output contracts → tiny confused response
 | Fix ID | Date | Description | Root Cause | Files Changed | Phase | Invariants | Status |
 |--------|------|-------------|------------|---------------|-------|------------|--------|
 | FIX-001 | 2026-06-22 | Show and edit agent prompts from Library and workflow info views | `prompt_body` not in AgentResponse or AgentDef; no prompt endpoints; AgentCapabilitiesModal had no prompt section | `backend/app/api/agents.py`, `backend/app/agents/prompt_overrides.py` (new), `frontend/src/types/index.ts`, `frontend/src/lib/api.ts`, `frontend/src/components/workflow/AgentsPopup.tsx` | Phase 8 (caps hardened / agent API) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-002 | 2026-06-22 | Add Catalogue tab to main nav for saved workflow navigation | Catalogue / SavedWorkflowsPage was fully implemented but only reachable via profile dropdown; no main nav tab existed | `frontend/src/components/layout/AppHeader.tsx` | Phase 21 (Saved Workflows) | INV-1/3/12/SC-001 ✅ | Done |
 
 ---
 
@@ -626,3 +627,45 @@ LibraryPage / AgentsPopup → AgentCapabilitiesModal(agent: AgentDef)
 - The prompt override is stored but **not yet automatically injected by the factory** at runtime — that wiring is a follow-up (factory reads `read_user_prompt_override` at agent build time). The current fix covers display + save (the full KAN-76 acceptance criteria for UI transparency and configurability).
 - AGENT.md files are never mutated — all edits are user-scoped per-file overrides, fully reversible via the Revert button or `DELETE /{agent_id}/prompt`.
 - `MAX_PROMPT_OVERRIDE_BYTES = 32 KB` (vs `MAX_SKILL_BYTES = 8 KB`) — prompt bodies are legitimately larger than skills.
+
+### FIX-002 — Add Catalogue Tab to Main Navigation
+
+**Date:** 2026-06-22
+**Triggered by:** `/velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-75`
+
+#### Root Cause
+`SavedWorkflowsPage` was fully implemented (Phase 21), wired as `"saved-workflows"` in `DashboardLayout.MainView`, and accessible via the profile dropdown — but there was no entry in the primary navigation bar (`<nav>` in `AppHeader`). The nav only contained Home and Library tabs. Users had no obvious route to the Catalogue without finding the profile dropdown.
+
+Trace:
+```
+User opens app → sees nav: Home | Library
+→ no Catalogue tab
+→ must find profile dropdown → "Saved Workflows" buried there
+→ poor discoverability (KAN-75)
+```
+
+#### Phase Context
+- **Phase(s) involved:** Phase 21 — Saved Workflows
+- **Relevant register section:** `_register-parts/21-saved-workflows-user-authored-named-persisted-custom-workflo.md`
+- **Deleted code verified (not resurrected):** no deleted code involved
+- **Locked decisions respected:** visual style matches exactly the existing Home/Library nav buttons (same Tailwind classes)
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/layout/AppHeader.tsx` | Added `LayoutGrid` icon import; added "Catalogue" `<button>` to the center `<nav>` block after Library, navigating to `"saved-workflows"`, active when `currentPage === "saved-workflows"` | Exposes Saved Workflows as a primary nav destination per KAN-75 |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected
+- **INV-3** (golden parity): not affected — no deliverable changes
+- **INV-12** (no duplication): `SavedWorkflowsPage` already exists — no new component created
+- **SC-001** (zero engine edits): not affected — frontend nav only
+
+#### Verification
+- TypeScript: 0 diagnostics on `AppHeader.tsx`
+- Execution trace: click Catalogue → `onNavigate("saved-workflows")` → `DashboardLayout.handleNavigate` → `setMainView("saved-workflows")` → `headerPage = "saved-workflows"` → Catalogue tab active → `SavedWorkflowsPage` renders ✓
+- No backend changes needed
+
+#### Notes
+- The profile dropdown "Saved Workflows" entry is kept (redundant but harmless — provides a secondary access path).
+- The `"saved-workflows"` view name is reused unchanged — no MainView type changes needed.
