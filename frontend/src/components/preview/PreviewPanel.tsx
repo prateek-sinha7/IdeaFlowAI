@@ -2,13 +2,14 @@
 
 import { useEffect, useState, useMemo, useCallback, type ReactNode } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Eye, FolderDown, Brain, PanelRightClose, Copy, Check, Download, ExternalLink, Loader2, AlertTriangle } from "lucide-react";
+import { Eye, FolderDown, Brain, Shield, PanelRightClose, Copy, Check, Download, ExternalLink, Loader2, AlertTriangle } from "lucide-react";
 import { UserStoryPreview } from "./UserStoryPreview";
 import { PPTPreview } from "./PPTPreview";
 import { PrototypePreview } from "./PrototypePreview";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { FilesTab } from "@/components/results/FilesTab";
 import { AgentThinkingTab } from "@/components/results/AgentThinkingTab";
+import { AuditTab } from "@/components/results/AuditTab";
 import { AppBuilderPreview, type ParsedFile } from "./AppBuilderPreview";
 import type { WorkflowType, GenericDeliverable } from "@/types/index";
 import { getToken } from "@/lib/api";
@@ -230,7 +231,7 @@ function GenericDeliverablePreview({
   );
 }
 
-type PanelTab = "preview" | "files" | "thinking";
+type PanelTab = "preview" | "files" | "thinking" | "audit";
 
 interface PreviewPanelProps {
   userStoryContent?: string;
@@ -285,6 +286,7 @@ const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
   { id: "preview", label: "Preview", icon: Eye },
   { id: "files", label: "Files", icon: FolderDown },
   { id: "thinking", label: "Thinking", icon: Brain },
+  { id: "audit", label: "Audit", icon: Shield },
 ];
 
 // ─── ISS-017 (16-04) — terminal-empty degraded/failed affordance ──────────────
@@ -640,6 +642,21 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               className="absolute inset-0"
             >
               <AgentThinkingTab agents={agents || []} pipelineState={pipelineState} />
+            </motion.div>
+          )}
+          {activeTab === "audit" && (
+            <motion.div
+              key="audit"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="absolute inset-0"
+            >
+              <AuditTab
+                hookRuns={pipelineState?.hookRuns}
+                workflowRunId={pipelineState?.pipelineRunId}
+              />
             </motion.div>
           )}
         </AnimatePresence>

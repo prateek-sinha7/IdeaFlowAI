@@ -75,6 +75,7 @@ logger = logging.getLogger(__name__)
 # skill:           ui, disk, template, repo  (08-05 / F3 / SKILL-01 — versioned skill providers)
 # hook:            behavioral  (08-05 / F3 — non-executable hook sub-type)
 #                  secret_scan, otel_tracing  (08-07 / HOOK-01..04 / OBS-02 — executable hooks)
+#                  audit_logger  (KAN-73 — default lifecycle audit hook, user_allowed=True)
 # ---------------------------------------------------------------------------
 _KNOWN: set[tuple[str, str]] = {
     ("strategy", "single_shot"),
@@ -125,6 +126,7 @@ _KNOWN: set[tuple[str, str]] = {
     ("hook", "behavioral"),                # 08-05 / F3 (non-executable sub-type)
     ("hook", "secret_scan"),               # 08-07 / HOOK-01..04 (executable, blocking)
     ("hook", "otel_tracing"),              # 08-07 / OBS-02 (executable, non-blocking)
+    ("hook", "audit_logger"),              # KAN-73 (executable, non-blocking, default lifecycle audit)
     ("runtime_env", "local"),              # 09-01 / RUNTIME-01 — LocalSandboxRuntime (ECS-swap seam)
     ("repo_index", "tree_sitter"),         # 09-03 / REPO-02 — app-side symbol index (tree-sitter isolated)
     ("repo_inventory", "default"),         # 09-03 / REPO-01 — kernel-side stdlib inventory

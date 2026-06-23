@@ -742,6 +742,7 @@ class ExecutionEngine:
         parent_run_id: str | None = None,
         model_overrides: dict[str, str] | None = None,
         selections: dict | None = None,
+        event_queue: "asyncio.Queue | None" = None,
     ) -> AsyncGenerator[dict, None]:
         """Public entry — the SINGLE outward emit boundary (PERSIST-03 / D-11).
 
@@ -783,6 +784,7 @@ class ExecutionEngine:
             model_overrides=model_overrides,
             selections=selections,
             _sink=sink,
+            event_queue=event_queue,
         ):
             # Stamp exactly once, at the boundary, so seq is contiguous across the
             # nondeterministically-interleaved build loop. Events always carry a
@@ -820,6 +822,7 @@ class ExecutionEngine:
         _sink: "_RunEventSink | None" = None,
         _resume_from: int = 0,
         _is_resume: bool = False,
+        event_queue: "asyncio.Queue | None" = None,
     ) -> AsyncGenerator[dict, None]:
         """Execute a workflow end-to-end, yielding WebSocket events.
 
@@ -942,6 +945,15 @@ class ExecutionEngine:
             parent_run_id=parent_run_id,
             cancel_event=cancel_event,
         )
+        # KAN-73: wire the live WS queue onto ectx so KernelServices.emit_hook_event
+        # can push hook_run events into the real-time stream. The queue is the same
+        # asyncio.Queue the WS drainer reads from (created in _get_or_create_queue
+        # before engine.execute() is called). Setting it here (before KernelServices
+        # is constructed and before any hook fires) is the single wiring point —
+        # no new engine param, no import of app.api from the kernel. Best-effort:
+        # a None queue (offline/test harness) leaves emit_hook_event a no-op.
+        if event_queue is not None:
+            ectx.event_queue = event_queue  # type: ignore[attr-defined]
         # RESUME-04: mark the context as a durable in-process resume when re-entered at
         # an offset. The wave_scheduler strategy reads ``is_resuming`` to enable its
         # mid-wave worker filter (a completed wave/worker is not re-invoked). False for
@@ -1623,6 +1635,42 @@ class ExecutionEngine:
             allowed_workers=list(getattr(compiled, "allowed_workers", None) or []),
         )
 
+        # ── KAN-73: persist attached behavioral hooks as audit records ───────────
+        # Each hook from the UI (Quality Gate, Config Protection, etc.) is a
+        # behavioral prompt instruction injected into agent system prompts. We write
+        # ONE hook_runs row per attached hook at run entry so they appear in the
+        # Audit tab as "Active Behavioral Guidelines" — giving the user traceability
+        # of which hooks were active for this run. Best-effort: a write failure
+        # must never abort the run.
+        for _ah in (attached_hooks or []):
+            _ah_name = _ah.get("name") or _ah.get("id") or "Unknown Hook"
+            _ah_event = _ah.get("event") or _ah.get("trigger") or "run_start"
+            _ah_desc = _ah.get("description") or f"{_ah_name}: {_ah_event}"
+            _ah_detail = {
+                "hook_name": _ah_name,
+                "event_type": _ah_event,
+                "description": _ah_desc,
+                "source": _ah.get("source") or "workflow_config",
+                "timestamp": _now(),
+                "outcome": "continue",
+                "summary": f"Behavioral guideline active: {_ah_name}",
+                "severity": "info",
+                "hook_type": "behavioral",
+            }
+            try:
+                await ectx.runner.record_hook_run(
+                    "behavioral", "run_start", "continue", _ah_detail
+                )
+            except Exception:  # noqa: BLE001 — audit must never abort the run
+                pass
+            # Also emit live WS event so the Audit tab shows immediately
+            try:
+                _emit_fn = getattr(ectx.runner, "emit_hook_event", None)
+                if callable(_emit_fn):
+                    _emit_fn(_ah_detail)
+            except Exception:  # noqa: BLE001
+                pass
+
         # ── §15 host seam: bind the exec-enabled runtime workspace (10-03 / EXEC-01) ──
         # The runtime_env capability (09-01) is REGISTERED but, until here, never
         # BOUND onto the live run path — ``KernelServices.workspace`` defaulted to
@@ -1858,7 +1906,8 @@ class ExecutionEngine:
                 # hook (otel_tracing) records a span/hook_runs row + emits NO WS event;
                 # a declared blocking hook would halt the step additively.
                 _hook_outcome = await self._fire_hooks(
-                    "before_step", step, ectx, _registry
+                    "before_step", step, ectx, _registry,
+                    extra={"agent_name": spec.name, "step_index": i},
                 )
                 if _hook_outcome == "block":
                     # Additive halt — no new WS event, the step simply does not run.
@@ -1887,6 +1936,18 @@ class ExecutionEngine:
                 # emitted here — characterization parity holds).
                 if results:
                     ectx.last_streamed = results[-1].get("output", "") or ""
+
+                # ── [KAN-73] after_step hook firing ───────────────────────────────
+                # Fires AFTER the strategy loop and after ectx.last_streamed is
+                # refreshed, so hooks see the completed step's output. Non-blocking
+                # by design (no ``continue`` on block — after_step is audit-only
+                # in all current hook implementations; a blocking after_step would
+                # need a separate mechanism). INV-3 parity: a legacy step with no
+                # declared hooks → nothing fires here (same as before_step).
+                await self._fire_hooks(
+                    "after_step", step, ectx, _registry,
+                    extra={"agent_name": spec.name, "step_index": i},
+                )
 
                 # ── [D-03] Post-step gates (validation) ──────────────────────────
                 # Post-step gates (validation) evaluate AFTER the strategy completes:
@@ -2735,8 +2796,67 @@ class ExecutionEngine:
                                     })
                                     _attempt_task_count += 1
                                 yield {"type": "tool_call", "data": {"agent_id": spec.id, "tool": event["tool"], "args": event.get("args", {})}}
+                                # ── Audit: log tool call to hook_runs + live WS (KAN-73) ──
+                                # Best-effort — must never abort the run or the stream.
+                                _tc_tool = event.get("tool", "unknown")
+                                _tc_args = event.get("args", {}) or {}
+                                _tc_detail = {
+                                    "agent_id": spec.id,
+                                    "agent_name": spec.name,
+                                    "event": "tool_call",
+                                    "tool": _tc_tool,
+                                    "args_summary": ", ".join(
+                                        f"{k}={str(v)[:40]}" for k, v in list(_tc_args.items())[:3]
+                                    ) if _tc_args else "",
+                                    "timestamp": _now(),
+                                    "outcome": "continue",
+                                    "summary": f"{spec.name} used tool: {_tc_tool}",
+                                    "severity": "info",
+                                    "hook_type": "tool_call",
+                                }
+                                _runner = getattr(ectx, "runner", None)
+                                if _runner is not None:
+                                    try:
+                                        await _runner.record_hook_run(
+                                            "audit_logger", "tool_call", "continue", _tc_detail
+                                        )
+                                    except Exception:
+                                        pass
+                                    try:
+                                        _emit_fn = getattr(_runner, "emit_hook_event", None)
+                                        if callable(_emit_fn):
+                                            _emit_fn(_tc_detail)
+                                    except Exception:
+                                        pass
                             elif etype == "tool_result":
                                 yield {"type": "tool_result", "data": {"agent_id": spec.id, "tool": event["tool"], "result": str(event.get("result", ""))[:500]}}
+                                # ── Audit: log tool result to hook_runs + live WS (KAN-73) ──
+                                _tr_tool = event.get("tool", "unknown")
+                                _tr_result = str(event.get("result", ""))
+                                _tr_detail = {
+                                    "agent_id": spec.id,
+                                    "agent_name": spec.name,
+                                    "event": "tool_result",
+                                    "tool": _tr_tool,
+                                    "result_preview": _tr_result[:120] + ("…" if len(_tr_result) > 120 else ""),
+                                    "timestamp": _now(),
+                                    "outcome": "continue",
+                                    "summary": f"{spec.name} tool result: {_tr_tool}",
+                                    "severity": "info",
+                                    "hook_type": "tool_call",
+                                }
+                                if _runner is not None:
+                                    try:
+                                        await _runner.record_hook_run(
+                                            "audit_logger", "tool_result", "continue", _tr_detail
+                                        )
+                                    except Exception:
+                                        pass
+                                    try:
+                                        if callable(_emit_fn):
+                                            _emit_fn(_tr_detail)
+                                    except Exception:
+                                        pass
                                 # When report_task_complete() returns, emit a task_progress
                                 # event so the frontend can update the task checklist in
                                 # real-time — same payload shape as before, now sourced from
@@ -3464,6 +3584,7 @@ class ExecutionEngine:
         registry,
         *,
         payload: str = "",
+        extra: dict | None = None,
     ) -> str:
         """Fire the step's DECLARED executable hooks bound for ``event_name`` (HOOK-01..04 / D-09).
 
@@ -3507,6 +3628,11 @@ class ExecutionEngine:
             "step": getattr(step, "agent_id", None),
             "payload": payload,
         }
+        # KAN-73: merge caller-supplied extra fields (agent_name, step_index, etc.)
+        # so the audit_logger hook can populate human-readable summaries without
+        # the hook needing to look up AgentSpec from ctx.
+        if extra:
+            event.update(extra)
 
         aggregate = HOOK_CONTINUE
         for hook in hooks:

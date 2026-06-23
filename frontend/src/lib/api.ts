@@ -839,3 +839,31 @@ export async function extractFileText(
   }
   return response.json();
 }
+
+// ── Audit / hook-runs endpoint (KAN-73) ─────────────────────────────────────
+
+export interface HookRunsResponse {
+  workflow_id: string;
+  hook_runs: Array<{
+    id: string;
+    hook: string;
+    event: string;
+    outcome: string;
+    detail: Record<string, unknown> | null;
+    created_at: string | null;
+  }>;
+}
+
+/**
+ * Fetch persisted hook_runs for a completed workflow run (KAN-73).
+ * Used by the Audit tab when reopening a run from Workflow History.
+ */
+export async function getRunHookRuns(
+  token: string,
+  workflowId: string,
+): Promise<HookRunsResponse> {
+  return request<HookRunsResponse>(`/api/runs/${encodeURIComponent(workflowId)}/hook-runs`, {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+}

@@ -27,6 +27,7 @@
 | FIX-015 | 2026-06-17 | PPT generated ignoring user-selected template — brief-analyst doesn't enforce template CSS/theme; clarify loop wastes time | `od-ppt-brief-analyst/AGENT.md` had weak theme_choice rule (model invents names); brief-analyst didn't require CSS class references in visual_suggestion; `od_ppt/workflow.yaml` had `clarify.mode: auto` wasting 38s like prototype. Fix: added MANDATORY template-reading instruction with explicit verbatim theme_choice requirement and CSS class references rule; changed clarify.mode to skip | `backend/agents/prompts/od-ppt-brief-analyst/AGENT.md`, `backend/agents/workflows/od_ppt/workflow.yaml` | Phase 15/4 | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-016 | 2026-06-17 | "Invalid presentation output" — PPT composer runs 12.9s → 662 chars (no HTML deck) | Engine clarify-mode routing seam (MAN-04) handles `mode=="auto"` but has no handler for `mode=="skip"`. Planner returns CLARIFY_REQUIRED (normal for od_ppt brief). mode=skip means "wizard already collected context, skip clarification". Without the skip handler, CLARIFY_REQUIRED flows through unchecked → ClarifyEngine fires → user clicks through with no extra answers → agents run with incomplete context → composer produces 662-char stub → isHtml check fails → "Invalid presentation output" | `backend/agents/execution_engine/engine.py` | Phase 4 (MAN-04) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-017 | 2026-06-17 | PPT composer produces 697-char confused validator output (validator: "I don't see an HTML artifact") | `_compose_injection()` in `factory.py` hardcoded a prototype-specific CRITICAL OUTPUT RULES block (section 0) that fires for ANY agent declaring `injects:`. The PPT composer declares `injects:[template, design_system]`, triggering this block. Rule #2 "Every page must have a routed section" (prototype navigation) directly contradicts the PPT AGENT.md output contract (deck slides). The model gets confused and produces a tiny non-HTML response in 6.3s. The validator receives no artifact, responds "I don't see an HTML artifact", and its 697-char bewildered output becomes the final deliverable → isHtml check fails → "Invalid presentation output" | `backend/agents/factory.py` | Phase 7/15 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-018 | 2026-06-23 | KAN-73: hook_run WS events never reach the frontend Audit tab — ectx.event_queue never set + after_step never fired | `KernelServices.emit_hook_event()` calls `getattr(self._ectx, "event_queue", None)` but `ExecutionContext` never has `event_queue` set: `_execute_impl` constructs `ectx` without it and `execute()` never threads the WS queue onto it → `queue = None` → early return → no hook_run WS event. Second: engine only fired `before_step`; `after_step` was never fired (no code path). Third: hook event dict lacked `agent_name`/`step_index` so audit summaries showed raw agent IDs | `backend/agents/execution_engine/engine.py`, `backend/app/api/websocket.py` | Phase 8 (KAN-73) | INV-1/3/12/SC-001 ✅ | Done |
 
 ---
 
@@ -752,3 +753,67 @@ The `ClarifyEngine` caps at 5 questions per round × 3 rounds = up to 15 questio
 #### Notes
 - The actual h1 heading "What would you like to build today?" is correct and unchanged since 20-02; no heading regression exists.
 - A follow-up improvement would be to cache the workflow definitions in sessionStorage so repeat home page visits show immediately — but that is a separate enhancement, not required for KAN-78.
+
+| FIX-007 | 2026-06-23 | Enable default audit hooks and add Audit tab for all workflow runs (KAN-73) | Hook infrastructure existed (Phase 8) but was declaration-driven — all manifests declared hooks:[] so no hook_runs rows were ever written and no Audit tab existed | `backend/agents/capabilities/hooks/audit_logger.py` (new), `backend/agents/capabilities/hooks/__init__.py`, `backend/agents/workflows/compiler.py`, `backend/agents/execution_engine/kernel_services.py`, `backend/app/api/runs.py`, `frontend/src/types/index.ts`, `frontend/src/lib/api.ts`, `frontend/src/hooks/useWorkflow.ts`, `frontend/src/components/results/AuditTab.tsx` (new), `frontend/src/components/preview/PreviewPanel.tsx` | Phase 8 (Capabilities Hardened) | INV-1/3/12/SC-001 ✅ | Done |
+
+---
+
+### FIX-018 — KAN-73 Audit Tab: hook_run WS Events Never Reached Frontend
+
+**Date:** 2026-06-23
+**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-73`
+
+#### Root Cause
+
+Three bugs prevented live hook_run events from reaching the frontend Audit tab:
+
+**Bug 1 (Critical) — `ectx.event_queue` never set:**
+`KernelServices.emit_hook_event()` does `getattr(self._ectx, "event_queue", None)`. `ExecutionContext` has no `event_queue` attribute — it was never added as a field and never set at runtime. `_execute_impl` constructs `ectx` from `ExecutionContext(...)` without it; `execute()` never threads the WS queue onto it. Result: `queue = None` every call → early return → zero `hook_run` WS events ever emitted.
+
+Trace:
+```
+AuditLoggerHook.handle() → _emit_ws(ctx, detail) → runner.emit_hook_event(detail)
+→ KernelServices.emit_hook_event: getattr(self._ectx, "event_queue", None) → None
+→ `if queue is None: return` → *** DEAD END *** (no event pushed, no error)
+```
+
+**Bug 2 — `after_step` never fired:**
+The engine only called `self._fire_hooks("before_step", ...)` before each step's strategy. There was no `after_step` firing after the strategy completes. `AuditLoggerHook` declares `events = ["before_step", "after_step"]` — only `before_step` calls would have been made even if Bug 1 were fixed.
+
+**Bug 3 — Hook event dict lacked `agent_name`/`step_index`:**
+`_fire_hooks` built `event = {"event": event_name, "step": step.agent_id, "payload": ""}`. `_agent_info()` in `audit_logger.py` reads `event.get("agent_name")` — always `None` with the old dict → falls back to `event.get("step")` which is the raw agent ID. Human-readable summaries in the Audit tab showed raw IDs like `"prototype-build started"` instead of `"Build Agent started"`.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 8 (KAN-73 — default audit hooks + Audit tab)
+- **Relevant register section:** KAN-73 implementation block
+- **Deleted code verified (not resurrected):** No deleted code touched
+- **Locked decisions respected:** SC-001 honoured — no pipeline_type branch added. INV-1 clean. The queue wiring uses an existing field pattern (same idiom as `cancel_event` which is already threaded from WS → execute → ectx).
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `backend/agents/execution_engine/engine.py` | Add `event_queue: asyncio.Queue \| None = None` to `execute()` signature | Exposes the WS queue as an optional param at the public entry point |
+| `backend/agents/execution_engine/engine.py` | Thread `event_queue=event_queue` from `execute()` → `_execute_impl()` call | Pass the queue to the impl |
+| `backend/agents/execution_engine/engine.py` | Add `event_queue: asyncio.Queue \| None = None` to `_execute_impl()` signature | Accept the queue in the impl |
+| `backend/agents/execution_engine/engine.py` | Set `ectx.event_queue = event_queue` after `ectx = ExecutionContext(...)` when not None | Wire the queue onto `ectx` so `KernelServices.emit_hook_event` can find it via `getattr(self._ectx, "event_queue", None)` |
+| `backend/agents/execution_engine/engine.py` | Add `extra: dict \| None = None` param to `_fire_hooks()`; merge `extra` into event dict | Allow callers to pass `agent_name`/`step_index` into the hook event envelope |
+| `backend/agents/execution_engine/engine.py` | Pass `extra={"agent_name": spec.name, "step_index": i}` to `before_step` `_fire_hooks()` call | Populate human-readable fields in the audit record |
+| `backend/agents/execution_engine/engine.py` | Add `after_step` `_fire_hooks()` call after strategy loop + `ectx.last_streamed` refresh | Fire hooks on step completion so "Agent completed" records appear in the Audit tab |
+| `backend/app/api/websocket.py` | Pass `event_queue=event_queue` to `engine.execute()` in `_run_pipeline_to_queue()` | Wire the already-created WS queue into the engine so hook events reach the drainer |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — no if-pipeline_type check added
+- **INV-3** (golden parity): not affected — `event_queue=None` (default) makes all new code dormant in the offline characterization harness; `ectx.event_queue` is only set when a real WS queue is threaded in. `after_step` fires after the step's `last_streamed` refresh, not between yield events, so the yield stream is byte-identical.
+- **INV-12** (no duplication): not applicable — no capability duplicated
+- **SC-001** (zero engine edits for new workflows): not affected — the wiring is generic, no workflow name anywhere
+
+#### Verification
+- Backend restarted cleanly after the fix (no import errors, startup log shows `🟢 Backend ready`)
+- Traced execution path: `emit_hook_event` will now find `queue` on `ectx` (set at `_execute_impl` entry), push `{"type":"hook_run","data":detail}` directly into the WS event queue, which the drainer forwards to the client as-is
+- The WS drainer in `_handle_workflow_execution` forwards all event types without filtering — `hook_run` frames are forwarded unchanged
+- `useWorkflow.ts` already handles `case "hook_run":` and appends to `pipelineState.hookRuns`
+- `AuditTab` receives live entries via `hookRuns={pipelineState?.hookRuns}`
+
+#### Notes
+- The revision path (`_handle_revision` via `_handle_revision_execution`) was NOT fixed in this pass — it uses a `_queue_send` callback pattern rather than `engine.execute()`, so threading `event_queue` there requires a separate plumbing change. Revision runs will still get DB-persisted hook records (via `write_hook_run` → `record_hook_run`) but not real-time WS events. The history-reopen Audit tab path (fetch from `GET /api/runs/{id}/hook-runs`) covers that gap.
+- `emit_hook_event` uses `put_nowait` (synchronous) which is safe inside `_fire_hooks` (an async method but in a context where the event loop is running). The queue is unbounded so `put_nowait` never raises `QueueFull`.

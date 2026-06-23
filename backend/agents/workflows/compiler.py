@@ -376,7 +376,25 @@ class WorkflowCompiler:
         # every registered executable hook. A legacy step (prototype/od_/ppt/code-gen)
         # declares no hooks → fires NOTHING (parity). Name-resolved + trust-checked
         # like every other capability reference (INV-4 / CAP-03).
-        hooks = list(raw.get("hooks", []) or [])
+        # KAN-73: inject the default audit_logger hook for every step that does NOT
+        # explicitly declare hooks:. This enables default audit trails without
+        # requiring every manifest to be edited. Steps that declare hooks: [] or
+        # hooks: [something] are untouched — explicit declaration always wins.
+        _raw_hooks = raw.get("hooks")
+        if _raw_hooks is None:
+            # No hooks key declared → inject the default audit hook so every
+            # agent execution produces an audit record by default (KAN-73).
+            # Also inject secret_scan so every agent write is security-scanned
+            # by default (KAN-73 "security hooks enabled by default").
+            # Only inject when the hook is actually registered (graceful degradation
+            # if the capability package is not yet loaded).
+            _DEFAULT_AUDIT_HOOKS = ["audit_logger", "secret_scan"]
+            hooks = [
+                h for h in _DEFAULT_AUDIT_HOOKS
+                if registry.is_registered("hook", h)
+            ]
+        else:
+            hooks = list(_raw_hooks or [])
         for hook in hooks:
             if not registry.is_registered("hook", hook):
                 raise CompilerError(f"unknown hook '{hook}' in {where}")

@@ -25,6 +25,7 @@ from agents.capabilities.hooks import behavioral  # noqa: F401 — import side e
 # can never de-register the secret scanner.
 from agents.capabilities.hooks import secret_scan  # noqa: F401 — import side effect: @register (08-07)
 from agents.capabilities.hooks import otel_tracing  # noqa: F401 — import side effect: @register (08-07 / OBS-02)
+from agents.capabilities.hooks import audit_logger  # noqa: F401 — import side effect: @register (KAN-73 default audit)
 from agents.capabilities.hooks.base import (  # noqa: F401 — re-export the executable-hook contract
     HOOK_BLOCK,
     HOOK_CONTINUE,

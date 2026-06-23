@@ -753,3 +753,49 @@ async def get_run_events(
             for r in rows
         ],
     }
+
+@router.get("/{workflow_id}/hook-runs")
+async def get_hook_runs(
+    workflow_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return all ``hook_runs`` rows for a completed or active workflow run (KAN-73).
+
+    Used by the frontend Audit tab to populate the audit trail on history-reopen.
+    Owner-scoped (returns 404 on a cross-owner or missing run). Rows are ordered
+    by ``created_at`` ascending so the Audit tab shows events in execution order.
+    """
+    workflow_run = (
+        db.query(WorkflowRun)
+        .filter(WorkflowRun.id == workflow_id, WorkflowRun.user_id == current_user.id)
+        .first()
+    )
+    if not workflow_run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow run not found",
+        )
+
+    from app.models.hook_runs import HookRun
+
+    rows = (
+        db.query(HookRun)
+        .filter(HookRun.run_id == workflow_id, HookRun.owner_id == current_user.id)
+        .order_by(HookRun.created_at.asc())
+        .all()
+    )
+    return {
+        "workflow_id": workflow_id,
+        "hook_runs": [
+            {
+                "id": r.id,
+                "hook": r.hook,
+                "event": r.event,
+                "outcome": r.outcome,
+                "detail": r.detail,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
+    }

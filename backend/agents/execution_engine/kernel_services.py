@@ -362,6 +362,26 @@ class KernelServices:
             )
             return None
 
+    # ── Hook real-time WS event emit (KAN-73) ───────────────────────────────────
+    def emit_hook_event(self, detail: Any) -> None:
+        """Enqueue a ``hook_run`` WS event for the running agent (KAN-73).
+
+        Called synchronously by executable hooks so the live Audit tab updates in
+        real-time as each agent executes. The event is pushed into the execution
+        context's event queue (if present) for the websocket stream. Best-effort —
+        a missing queue or enqueue failure never aborts a hook or the run.
+        """
+        queue = getattr(self._ectx, "event_queue", None)
+        if queue is None:
+            return
+        try:
+            queue.put_nowait({
+                "type": "hook_run",
+                "data": dict(detail) if detail else {},
+            })
+        except Exception:  # noqa: BLE001 — emit must never abort a hook
+            pass
+
     # ── Exec-invocation audit write (10 / EXEC-01 / T-10-01-07) ────────────────
     async def record_exec_run(
         self,

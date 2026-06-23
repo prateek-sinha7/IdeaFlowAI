@@ -423,6 +423,7 @@ export interface AttachedHook {
   sourceLabel: string;
   event: string;
   trigger: string;
+  description?: string;
 }
 
 export type AgentStatusType = "idle" | "thinking" | "running" | "done" | "error";
@@ -484,30 +485,44 @@ export interface PipelineRunState {
   estimatedCostUsd?: number;
   modelId?: string;
   // Phase 2 (Universal Engine) — planner + gate state
-  pipelineRunId?: string;            // UUID from planner_start, used for submit_questionnaire
+  pipelineRunId?: string;
   plannerStatus?: "idle" | "running" | "complete" | "timeout" | "error";
-  plannerSummary?: string;           // inferred_intent shown while planning
+  plannerSummary?: string;
   executionGate?: "PROCEED" | "CLARIFY_REQUIRED";
   clarificationLimitReached?: boolean;
-  // Phase 3 (T063) — DAG edges from workflow_validated event
+  // Phase 3 (T063)
   dagEdges?: Array<{ from: string; to: string; artifact_type: string }>;
   unresolvedEdges?: Array<{ consuming_agent_id: string; artifact_type: string }>;
-  // Prototype build progress — per-task completion from report_task_complete tool
   protoCompletedTasks?: Array<{ number: number; title: string; summary: string }>;
   protoCompletedTaskCount?: number;
-  // Phase 13 (IN-03) — pipeline_complete arrived with status:"degraded":
-  // the run produced a deliverable but the agents in degradedFailedAgents
-  // errored and never completed (WR-05 semantics). Not a full success.
+  // Phase 13
   degraded?: boolean;
   degradedFailedAgents?: string[];
-  // Phase 16 (ISS-017) — pipeline_failed arrived: a terminal failure where
-  // the run did not complete successfully (no deliverable). Set by the
-  // useWorkflow pipeline_failed handler. Additive, mirrors degraded/* above.
-  // Keyed on the SERVER signal (the pipeline_failed event ISS-016 produces),
-  // NOT a client-side empty==failed guess. Consumed by PreviewPanel to render
-  // a degraded/failed affordance instead of the neutral empty-state.
+  // Phase 16
   failed?: boolean;
   failedAgents?: string[];
+  // KAN-73 — live audit trail from hook_run WS events
+  hookRuns?: HookRunEntry[];
+}
+
+/** One audit entry from a hook_run WS event or persisted hook_runs DB row (KAN-73). */
+export interface HookRunEntry {
+  id?: string;
+  hook: string;
+  event: string;
+  outcome: string;
+  detail?: {
+    agent_id?: string;
+    agent_name?: string;
+    event?: string;
+    step_index?: number;
+    timestamp?: string;
+    summary?: string;
+    severity?: string;
+    hook_type?: string;
+    [key: string]: unknown;
+  } | null;
+  created_at?: string | null;
 }
 
 export type PipelineMessageType =

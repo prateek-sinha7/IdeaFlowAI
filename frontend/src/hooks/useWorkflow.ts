@@ -75,8 +75,9 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
           name: h.name,
           event: h.event,
           trigger: h.trigger,
-          // Build a rich description the backend can inject as a guideline
-          description: `${h.name}: ${h.trigger}`,
+          // Send the full description from the hook library if available,
+          // so the Audit tab can display it in plain English (KAN-73)
+          description: h.description || `${h.name}: ${h.trigger}`,
         }));
       }
 
@@ -574,6 +575,23 @@ export function handlePipelineMessage(
         updated[agentIdx] = { ...updated[agentIdx], toolCalls };
         return { ...prev, agents: updated };
       });
+      return true;
+    }
+
+    // KAN-73 — real-time audit entry from the audit_logger hook
+    case "hook_run": {
+      const hookData = (msg.data as Record<string, unknown>) || {};
+      const entry: import("@/types/index").HookRunEntry = {
+        hook: (hookData.hook as string) || "audit_logger",
+        event: (hookData.event as string) || "",
+        outcome: (hookData.outcome as string) || "continue",
+        detail: (hookData as import("@/types/index").HookRunEntry["detail"]) ?? null,
+        created_at: (hookData.timestamp as string) || new Date().toISOString(),
+      };
+      setPipelineState((prev) => ({
+        ...prev,
+        hookRuns: [...(prev.hookRuns || []), entry],
+      }));
       return true;
     }
 

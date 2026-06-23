@@ -424,6 +424,7 @@ export function AgentCapabilitiesModal({
     onAttachHook?.({
       id: hook.id, name: hook.name, source: hook.source,
       sourceLabel: hook.sourceLabel, event: hook.event, trigger: hook.trigger,
+      description: hook.description,
     });
   };
 
@@ -919,7 +920,7 @@ function SkillsHooksTab({ pipelineType }: { pipelineType: WorkflowType }) {
                     <button
                       onClick={() => {
                         if (!attached) {
-                          attachHook({ id: hook.id, name: hook.name, source: hook.source, sourceLabel: hook.sourceLabel, event: hook.event, trigger: hook.trigger });
+                          attachHook({ id: hook.id, name: hook.name, source: hook.source, sourceLabel: hook.sourceLabel, event: hook.event, trigger: hook.trigger, description: hook.description });
                         }
                       }}
                       disabled={attached}

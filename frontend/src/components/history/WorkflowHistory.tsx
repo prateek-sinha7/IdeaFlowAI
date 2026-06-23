@@ -21,6 +21,7 @@ import { AppBuilderPreview, type ParsedFile } from "@/components/preview/AppBuil
 import { DegradedRunAffordance } from "@/components/preview/PreviewPanel";
 import { FilesTab } from "@/components/results/FilesTab";
 import { AgentThinkingTab } from "@/components/results/AgentThinkingTab";
+import { AuditTab } from "@/components/results/AuditTab";
 import type { WorkflowRun, WorkflowType, AgentRunState } from "@/types/index";
 import { resolveReopenMimetype } from "@/types/index";
 import { availableChainTargets } from "@/lib/workflowChaining";
@@ -123,7 +124,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [filterType, setFilterType] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [detailTab, setDetailTab] = useState<"preview" | "files" | "thinking">("preview");
+  const [detailTab, setDetailTab] = useState<"preview" | "files" | "thinking" | "audit">("preview");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -537,7 +538,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
           {/* Tabs + PPT action buttons */}
           <div className="flex items-center justify-between gap-2 px-5 py-3 border-b border-gray-100 bg-white flex-shrink-0">
             <div className="flex items-center gap-1">
-              {(["preview", "files", "thinking"] as const).map((tab) => (
+              {(["preview", "files", "thinking", "audit"] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setDetailTab(tab)}
@@ -547,7 +548,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                       : "text-gray-400 hover:text-gray-700"
                   }`}
                 >
-                  {tab === "files" ? "Files" : tab === "thinking" ? "Thinking" : "Preview"}
+                  {tab === "files" ? "Files" : tab === "thinking" ? "Thinking" : tab === "audit" ? "Audit" : "Preview"}
                 </button>
               ))}
             </div>
@@ -674,6 +675,9 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
             ) : detailTab === "thinking" ? (
               /* Thinking tab — populated from persisted agent_outputs (Phase 3) */
               <AgentThinkingTab agents={thinkingAgents} />
+            ) : detailTab === "audit" ? (
+              /* Audit tab — persisted hook_runs fetched from GET /api/runs/{id}/hook-runs */
+              <AuditTab workflowRunId={selectedRun.id} />
             ) : (
               /* Files tab */
               <FilesTab

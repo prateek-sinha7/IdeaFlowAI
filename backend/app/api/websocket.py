@@ -1757,6 +1757,11 @@ async def _handle_workflow_execution(
                 parent_run_id=parent_run_id,
                 model_overrides=model_overrides,
                 selections=selections,
+                # KAN-73: wire the live WS queue into the engine so hook events
+                # emitted via KernelServices.emit_hook_event reach the frontend
+                # Audit tab in real-time. The queue is already created above via
+                # _get_or_create_queue — passing it here wires it onto ectx.
+                event_queue=event_queue,
             ):
                 await event_queue.put({"type": update["type"], "data": update.get("data", {})})
                 # Track state for DB persistence
