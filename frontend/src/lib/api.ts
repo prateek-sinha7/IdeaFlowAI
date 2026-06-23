@@ -808,3 +808,34 @@ export async function deleteAgentPromptOverride(
     },
   );
 }
+
+// ── File text extraction (binary formats: PDF, DOCX, PPTX) ──────────────────
+
+export interface ExtractTextResponse {
+  filename: string;
+  text: string;
+  truncated: boolean;
+}
+
+/**
+ * Upload a binary file (PDF, DOCX, PPTX) to the backend for text extraction.
+ * Returns the extracted plain text (capped at 16,000 chars server-side).
+ */
+export async function extractFileText(
+  token: string,
+  file: File,
+): Promise<ExtractTextResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  const url = `${BASE_URL}/api/files/extract-text`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new ApiError(response.status, body.detail ?? body);
+  }
+  return response.json();
+}

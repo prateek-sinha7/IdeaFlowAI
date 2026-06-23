@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Sparkles, ChevronDown, ChevronRight, Layers, Eye } from "lucide-react";
-import { getToken } from "@/lib/api";
+import { ArrowLeft, ArrowRight, Sparkles, ChevronDown, ChevronRight, Layers, Eye, Paperclip, Mic, MicOff, X, File } from "lucide-react";
+import { getToken, extractFileText } from "@/lib/api";
 import {
   listDesignSystems,
   listPrototypeTemplates,
@@ -14,6 +14,7 @@ import { TemplateGallery } from "@/components/workflow/prototype/TemplateGallery
 import { DesignSystemPicker } from "@/components/workflow/prototype/DesignSystemPicker";
 import { ReviewGatesSection } from "@/components/workflow/ReviewGatesSection";
 import { LIBRARY_AGENTS } from "@/components/workflow/AgentLibraryData";
+import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import type { CustomDesignSystem } from "@/components/workflow/prototype/CustomDesignSystemModal";
 import type { CustomTemplate } from "@/components/workflow/prototype/CustomTemplateModal";
 import type { AgentDef } from "@/types/index";
@@ -35,6 +36,10 @@ export default function PrototypeTemplatesPage() {
   // Holds the body of a custom template when one is selected; null for built-in templates
   const [customTemplateBody, setCustomTemplateBody] = useState<string | null>(null);
   const [brief, setBrief] = useState("");
+  const [attachedFiles, setAttachedFiles] = useState<{ name: string; size: string }[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const preSpeechTextRef = useRef("");
+  const { isListening, transcript, startListening, stopListening, isSupported: speechSupported } = useSpeechRecognition();
   const [chainFrom, setChainFrom] = useState<string | null>(null);
   const [chainContextBlock, setChainContextBlock] = useState<string | null>(null);
   const [contextExpanded, setContextExpanded] = useState(false);
@@ -165,6 +170,14 @@ export default function PrototypeTemplatesPage() {
   }, []);
 
   const isChaining = Boolean(chainFrom);
+
+  // Mirror transcript into the brief textarea (same pattern as IdeaInputPage)
+  useEffect(() => {
+    if (transcript) {
+      setBrief(preSpeechTextRef.current + (preSpeechTextRef.current ? " " : "") + transcript);
+    }
+  }, [transcript]);
+
   const canContinue = Boolean(
     selectedTemplateId && selectedDsId &&
     (isChaining || brief.trim())  // brief not required when chaining
@@ -318,10 +331,95 @@ export default function PrototypeTemplatesPage() {
               <textarea
                 value={brief}
                 onChange={(e) => setBrief(e.target.value)}
-                placeholder="e.g. A kanban board for a 5-person growth squad — backlog, doing, review, done. Show real ticket titles and assignee avatars."
+                placeholder={isListening ? "Listening... speak your idea" : "e.g. A kanban board for a 5-person growth squad — backlog, doing, review, done. Show real ticket titles and assignee avatars."}
                 rows={5}
                 className="w-full resize-none rounded-2xl bg-transparent px-5 py-4 text-[14px] leading-relaxed text-gray-900 placeholder:text-gray-400 focus:outline-none"
               />
+              {attachedFiles.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 px-5 pb-2">
+                  {attachedFiles.map((file, idx) => (
+                    <span key={`${file.name}-${idx}`} className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1 text-[10px] text-gray-600">
+                      <File className="h-2.5 w-2.5" /> {file.name}
+                      <button onClick={() => setAttachedFiles((p) => p.filter((_, i) => i !== idx))} className="ml-1 text-gray-400 hover:text-red-500">
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="flex items-center gap-1 px-4 py-2.5 border-t border-gray-100">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept=".pdf,.doc,.docx,.pptx,.txt,.md,.json,.csv"
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = e.target.files;
+                    if (files) {
+                      Array.from(files).forEach((f) => {
+                        const meta = {
+                          name: f.name,
+                          size: f.size < 1024 ? `${f.size}B` : f.size < 1048576 ? `${(f.size / 1024).toFixed(1)}KB` : `${(f.size / 1048576).toFixed(1)}MB`,
+                        };
+                        setAttachedFiles((p) => [...p, meta]);
+                        const isTextFile = /\.(txt|md|json|csv)$/i.test(f.name);
+                        const isBinaryFile = /\.(pdf|docx|pptx)$/i.test(f.name);
+                        if (isTextFile) {
+                          const reader = new FileReader();
+                          reader.onload = (ev) => {
+                            const content = (ev.target?.result as string) ?? "";
+                            setBrief((p) => {
+                              const block = `\n\n=== Attached: ${f.name} ===\n${content.slice(0, 64000)}\n=== End: ${f.name} ===`;
+                              return p ? `${p}${block}` : block.trimStart();
+                            });
+                          };
+                          reader.readAsText(f);
+                        } else if (isBinaryFile) {
+                          const jwt = getToken();
+                          if (jwt) {
+                            extractFileText(jwt, f)
+                              .then((res) => {
+                                setBrief((p) => {
+                                  const truncNote = res.truncated ? "\n[Content truncated to 64,000 chars]" : "";
+                                  const block = `\n\n=== Attached: ${res.filename} ===\n${res.text}${truncNote}\n=== End: ${res.filename} ===`;
+                                  return p ? `${p}${block}` : block.trimStart();
+                                });
+                              })
+                              .catch(() => {
+                                setBrief((p) => p ? `${p}\n\n[Attached: ${f.name} — could not extract text]` : `[Attached: ${f.name} — could not extract text]`);
+                              });
+                          } else {
+                            setBrief((p) => p ? `${p}\n\n[Attached: ${f.name}]` : `[Attached: ${f.name}]`);
+                          }
+                        } else {
+                          setBrief((p) => p ? `${p}\n\n[Attached: ${f.name}]` : `[Attached: ${f.name}]`);
+                        }
+                      });
+                    }
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-all border border-transparent hover:border-gray-200"
+                >
+                  <Paperclip className="h-3.5 w-3.5" /> + Attach file
+                </button>
+                {speechSupported && (
+                  <button
+                    onClick={() => { if (isListening) stopListening(); else { preSpeechTextRef.current = brief; startListening(); } }}
+                    className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] transition-all border border-transparent ${
+                      isListening
+                        ? "text-red-500 bg-red-50 border-red-100 animate-pulse"
+                        : "text-gray-400 hover:text-gray-700 hover:bg-gray-100 hover:border-gray-200"
+                    }`}
+                  >
+                    {isListening ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+                    {isListening ? "Stop" : "Voice"}
+                  </button>
+                )}
+              </div>
               {selectedTemplate?.example_prompt && (
                 <div className="border-t border-gray-100 px-5 py-2.5">
                   <button

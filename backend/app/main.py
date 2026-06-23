@@ -25,6 +25,7 @@ from app.api.websocket_handoff import router as websocket_handoff_router
 from app.api.prototype_templates import router as prototype_templates_router
 from app.api.ppt_templates import router as ppt_templates_router
 from app.api.admin import router as admin_router
+from app.api.file_extract import router as file_extract_router
 from app.core.config import settings
 from app.models.database import engine
 
@@ -77,11 +78,20 @@ async def lifespan(app: FastAPI):
     """Application lifespan: create database tables on startup."""
     logger.info("🚀 Starting VelocityAI Backend...")
     logger.info("   Database: %s", settings.DATABASE_URL)
-    logger.info(
-        "   LLM provider: bedrock (model=%s region=%s)",
-        settings.BEDROCK_MODEL_ID or "NOT SET",
-        settings.AWS_REGION or "NOT SET",
-    )
+    if settings.ANTHROPIC_API_KEY:
+        logger.info("   LLM provider: anthropic-direct (model=%s)", settings.ANTHROPIC_MODEL_ID or "claude-haiku-4-5")
+    elif settings.AWS_BEARER_TOKEN_BEDROCK:
+        logger.info(
+            "   LLM provider: bedrock-bearer-token (model=%s region=%s)",
+            settings.BEDROCK_INFERENCE_PROFILE_ID or settings.BEDROCK_MODEL_ID or "NOT SET",
+            settings.AWS_REGION or "NOT SET",
+        )
+    else:
+        logger.info(
+            "   LLM provider: bedrock-iam (model=%s region=%s)",
+            settings.BEDROCK_MODEL_ID or "NOT SET",
+            settings.AWS_REGION or "NOT SET",
+        )
     logger.info("   LangSmith: %s", "enabled ✓" if langsmith_enabled else "disabled")
 
     # Schema is now driven by alembic, not Base.metadata.create_all. We do a
@@ -169,6 +179,7 @@ app.include_router(websocket_handoff_router)
 app.include_router(prototype_templates_router)
 app.include_router(ppt_templates_router)
 app.include_router(admin_router)
+app.include_router(file_extract_router)
 
 
 @app.get("/health")

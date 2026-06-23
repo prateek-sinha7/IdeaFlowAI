@@ -13,7 +13,7 @@ import { LIBRARY_AGENTS, ALL_LIBRARY_AGENTS } from "./AgentLibraryData";
 import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
-import { createUserWorkflow, getToken, getWorkflowDetail } from "@/lib/api";
+import { createUserWorkflow, getToken, getWorkflowDetail, extractFileText } from "@/lib/api";
 import { AnimatePresence } from "motion/react";
 import type { WorkflowType, AgentDef, AttachedSkill, AttachedHook } from "@/types/index";
 
@@ -503,12 +503,45 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                   onChange={(e) => {
                     const files = e.target.files;
                     if (files) {
-                      const nf = Array.from(files).map((f) => ({
-                        name: f.name,
-                        size: f.size < 1024 ? `${f.size}B` : f.size < 1048576 ? `${(f.size / 1024).toFixed(1)}KB` : `${(f.size / 1048576).toFixed(1)}MB`,
-                      }));
-                      setAttachedFiles((p) => [...p, ...nf]);
-                      setIdeaInput((p) => p ? `${p}\n\n[Attached: ${nf.map((f) => f.name).join(", ")}]` : `[Attached: ${nf.map((f) => f.name).join(", ")}]`);
+                      Array.from(files).forEach((f) => {
+                        const meta = {
+                          name: f.name,
+                          size: f.size < 1024 ? `${f.size}B` : f.size < 1048576 ? `${(f.size / 1024).toFixed(1)}KB` : `${(f.size / 1048576).toFixed(1)}MB`,
+                        };
+                        setAttachedFiles((p) => [...p, meta]);
+                        const isTextFile = /\.(txt|md|json|csv)$/i.test(f.name);
+                        const isBinaryFile = /\.(pdf|docx|pptx)$/i.test(f.name);
+                        if (isTextFile) {
+                          const reader = new FileReader();
+                          reader.onload = (ev) => {
+                            const content = (ev.target?.result as string) ?? "";
+                            setIdeaInput((p) => {
+                              const block = `\n\n=== Attached: ${f.name} ===\n${content.slice(0, 64000)}\n=== End: ${f.name} ===`;
+                              return p ? `${p}${block}` : block.trimStart();
+                            });
+                          };
+                          reader.readAsText(f);
+                        } else if (isBinaryFile) {
+                          const jwt = getToken();
+                          if (jwt) {
+                            extractFileText(jwt, f)
+                              .then((res) => {
+                                setIdeaInput((p) => {
+                                  const truncNote = res.truncated ? "\n[Content truncated to 64,000 chars]" : "";
+                                  const block = `\n\n=== Attached: ${res.filename} ===\n${res.text}${truncNote}\n=== End: ${res.filename} ===`;
+                                  return p ? `${p}${block}` : block.trimStart();
+                                });
+                              })
+                              .catch(() => {
+                                setIdeaInput((p) => p ? `${p}\n\n[Attached: ${f.name} — could not extract text]` : `[Attached: ${f.name} — could not extract text]`);
+                              });
+                          } else {
+                            setIdeaInput((p) => p ? `${p}\n\n[Attached: ${f.name}]` : `[Attached: ${f.name}]`);
+                          }
+                        } else {
+                          setIdeaInput((p) => p ? `${p}\n\n[Attached: ${f.name}]` : `[Attached: ${f.name}]`);
+                        }
+                      });
                     }
                     e.target.value = "";
                   }}

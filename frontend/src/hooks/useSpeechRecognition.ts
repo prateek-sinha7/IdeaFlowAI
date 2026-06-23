@@ -119,6 +119,8 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
         recognitionRef.current.start();
         setIsListening(true);
       } catch (err) {
+        // Ignore InvalidStateError — recognition already started (double-click race)
+        if (err instanceof DOMException && err.name === "InvalidStateError") return;
         console.error("Failed to start speech recognition:", err);
       }
     }
