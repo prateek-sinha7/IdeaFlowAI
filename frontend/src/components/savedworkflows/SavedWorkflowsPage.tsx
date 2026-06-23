@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   AlertCircle, MoreHorizontal, Pencil, Copy, Trash2,
-  Play, Workflow, Clock, Cpu, LayoutGrid, List,
-  Search, Calendar, ArrowRight,
+  Play, Workflow, Clock, Cpu,
+  Search, Calendar,
 } from "lucide-react";
 import {
   getUserWorkflows, createUserWorkflow, renameUserWorkflow,
@@ -60,7 +60,6 @@ function formatFullDate(iso?: string | null): string {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-type ViewMode = "list" | "grid";
 
 interface SavedWorkflowsPageProps {
   onLaunchSaved?: (saved: UserWorkflowSummary) => void;
@@ -70,7 +69,6 @@ export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
   const [userWorkflows, setUserWorkflows] = useState<UserWorkflowSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [savedError, setSavedError] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [search, setSearch] = useState("");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -207,7 +205,7 @@ export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
         {/* ── Toolbar ─────────────────────────────────────────────────────── */}
         {!loading && userWorkflows.length > 0 && (
           <div className="flex items-center gap-3 mb-6">
-            <div className="relative flex-1 max-w-xs">
+            <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
               <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search workflows…"
@@ -216,16 +214,6 @@ export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
             {search && filtered.length < userWorkflows.length && (
               <p className="text-[11px] text-gray-400">{filtered.length} of {userWorkflows.length}</p>
             )}
-            <div className="ml-auto flex items-center gap-1 bg-white border border-gray-200 rounded-lg p-0.5">
-              <button onClick={() => setViewMode("list")}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-all ${viewMode === "list" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:text-gray-700"}`}>
-                <List className="h-3.5 w-3.5" /><span className="hidden sm:inline">List</span>
-              </button>
-              <button onClick={() => setViewMode("grid")}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-all ${viewMode === "grid" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:text-gray-700"}`}>
-                <LayoutGrid className="h-3.5 w-3.5" /><span className="hidden sm:inline">Grid</span>
-              </button>
-            </div>
           </div>
         )}
 
@@ -263,71 +251,8 @@ export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
           </motion.div>
         )}
 
-        {/* ── LIST VIEW ─────────────────────────────────────────────────── */}
-        {!loading && filtered.length > 0 && viewMode === "list" && (
-          <div className="divide-y divide-gray-200/70">
-            {filtered.map((row, idx) => {
-              const iconStyle = ICON_STYLES[idx % ICON_STYLES.length];
-              const pipelineLabel = PIPELINE_LABEL[row.base_pipeline_type] ?? row.base_pipeline_type;
-              const agentCount = row.agent_ids?.length ?? 0;
-              return (
-                <motion.div key={row.id}
-                  initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.2, delay: Math.min(idx * 0.04, 0.25) }}
-                  className="group flex items-center gap-4 py-5 px-3 -mx-3 rounded-lg hover:bg-white/70 transition-colors cursor-pointer"
-                  onClick={() => onLaunchSaved?.(row)}>
-                  {/* Avatar */}
-                  <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 text-[12px] font-bold group-hover:scale-105 transition-transform"
-                    style={{ background: iconStyle.bg, color: iconStyle.text }}>
-                    {getInitials(row.name)}
-                  </div>
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <p className="text-[14px] font-semibold italic text-gray-900 truncate group-hover:text-[#1B2A4A] transition-colors">
-                        {row.name}
-                      </p>
-                      <span className="flex-shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200">
-                        {pipelineLabel}
-                      </span>
-                    </div>
-                    {row.description && (
-                      <p className="text-[12px] text-gray-500 truncate">{row.description}</p>
-                    )}
-                    <div className="flex items-center gap-4 mt-1.5 flex-wrap">
-                      <span className="flex items-center gap-1 text-[10px] text-gray-400">
-                        <Cpu className="h-3 w-3" />{agentCount} agent{agentCount !== 1 ? "s" : ""}
-                      </span>
-                      <span className="flex items-center gap-1 text-[10px] text-gray-400">
-                        <Clock className="h-3 w-3" />Updated {formatRelativeDate(row.updated_at)}
-                      </span>
-                      {row.created_at && (
-                        <span className="flex items-center gap-1 text-[10px] text-gray-400">
-                          <Calendar className="h-3 w-3" />Created {formatFullDate(row.created_at)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {/* Actions — visible on hover or when menu is open */}
-                  <div className={`flex items-center gap-1.5 flex-shrink-0 transition-opacity ${
-                    openMenuId === row.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-                  }`}
-                    onClick={(e) => e.stopPropagation()}>
-                    <button onClick={(e) => { e.stopPropagation(); onLaunchSaved?.(row); }}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1B2A4A] text-white text-[11px] font-semibold hover:bg-[#243761] transition-colors">
-                      <Play className="h-3 w-3" />Run
-                    </button>
-                    <KebabMenu row={row} />
-                  </div>
-                  <ArrowRight className="h-4 w-4 text-gray-300 group-hover:text-[#1B2A4A] group-hover:translate-x-0.5 flex-shrink-0 transition-all" />
-                </motion.div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* ── GRID VIEW ─────────────────────────────────────────────────── */}
-        {!loading && filtered.length > 0 && viewMode === "grid" && (
+        {/* ── CARD VIEW ─────────────────────────────────────────────────── */}
+        {!loading && filtered.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {filtered.map((row, idx) => {
               const iconStyle = ICON_STYLES[idx % ICON_STYLES.length];
