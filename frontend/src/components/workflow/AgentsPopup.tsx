@@ -386,6 +386,7 @@ export function AgentCapabilitiesModal({
   agent, agentIndex, onClose,
   attachedSkills: propSkills, attachedHooks: propHooks,
   onAttachSkill: propAttachSkill, onAttachHook: propAttachHook,
+  onSelectionsChange, initialSelections, token,
 }: {
   agent: AgentDef;
   agentIndex: number;
@@ -394,6 +395,10 @@ export function AgentCapabilitiesModal({
   attachedHooks?: AttachedHook[];
   onAttachSkill?: (skill: AttachedSkill) => void;
   onAttachHook?: (hook: AttachedHook) => void;
+  /** Pass-through to AdvancedExpander for per-agent config levers */
+  onSelectionsChange?: (selections: SelectionsMap) => void;
+  initialSelections?: SelectionsMap;
+  token?: string | null;
 }) {
   // Always use context — works from Library page, Add agent modal, and AgentsPopup
   const ctx = useSkillsHooks();
@@ -478,10 +483,8 @@ export function AgentCapabilitiesModal({
 
         {/* Scrollable body */}
         <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
-          {/* ── System Prompt (KAN-76) — shown first for easy discovery ── */}
-          <AgentPromptSection agent={agent} />
 
-          {/* Capabilities */}
+          {/* 1. What this agent does */}
           <div>
             <div className="flex items-center gap-2 mb-2.5">
               <Zap className="h-3.5 w-3.5 text-gray-400" />
@@ -507,7 +510,27 @@ export function AgentCapabilitiesModal({
             </div>
           </div>
 
-          {/* Suggested Skills */}
+          {/* 2. System Prompt (KAN-76) */}
+          <AgentPromptSection agent={agent} />
+
+          {/* 3. Advanced Configuration levers (Model · Validator · Gate · Retry) */}
+          {onSelectionsChange && (
+            <div>
+              <div className="flex items-center gap-2 mb-2.5">
+                <Settings2 className="h-3.5 w-3.5 text-gray-400" />
+                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Configuration</p>
+                <span className="text-[9px] text-gray-400">Model · Validator · Gate · Retry</span>
+              </div>
+              <AdvancedExpander
+                agents={[{ id: agent.id, name: agent.name }]}
+                onSelectionsChange={onSelectionsChange}
+                initialSelections={initialSelections}
+                token={token}
+              />
+            </div>
+          )}
+
+          {/* 4. Skills — Suggested Skills */}
           {suggestedSkills.length > 0 && (
             <div>
               <div className="flex items-center gap-2 mb-2.5">
@@ -580,6 +603,7 @@ export function AgentCapabilitiesModal({
             </div>
           )}
 
+          {/* Custom skill */}
           {agent.has_skill && (
             <div className="rounded-xl border border-gray-200 bg-gray-50 overflow-hidden">
               {/* Header — always visible, clickable to expand */}
@@ -1537,29 +1561,57 @@ export function AdvancedExpander({
                 </div>
 
                 {/* Model lever (EMP-01 / DECIDE-02) */}
-                <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-1.5">
-                  <label
-                    htmlFor={`${region}-model`}
-                    className="text-[11px] font-semibold text-gray-700 flex-1 min-w-0"
-                  >
-                    Model
-                  </label>
-                  <select
-                    id={`${region}-model`}
-                    aria-label={`Model for ${agent.name}`}
-                    value={sel.model ?? ""}
-                    onChange={(e) =>
-                      updateLever(agent.id, { model: e.target.value })
-                    }
-                    className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-[#1B2A4A] max-w-[140px]"
-                  >
-                    <option value="">Default</option>
-                    {modelOptions.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
+                <div className="flex flex-col gap-1.5 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-1.5">
+                  <div className="flex items-center gap-2">
+                    <label
+                      htmlFor={`${region}-model`}
+                      className="text-[11px] font-semibold text-gray-700 flex-1 min-w-0"
+                    >
+                      Model
+                    </label>
+                    <select
+                      id={`${region}-model`}
+                      aria-label={`Model for ${agent.name}`}
+                      value={sel.model ?? ""}
+                      onChange={(e) =>
+                        updateLever(agent.id, { model: e.target.value })
+                      }
+                      className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-[#1B2A4A] min-w-[160px] max-w-[200px]"
+                    >
+                      <option value="">Default</option>
+                      {modelOptions.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label} ({m.tier})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {/* Rich model info — shown for the selected model */}
+                  {(() => {
+                    const picked = sel.model ? modelOptions.find(m => m.id === sel.model) : null;
+                    if (!picked) return null;
+                    const ctxK = picked.context_window >= 1_000_000
+                      ? `${(picked.context_window / 1_000_000).toFixed(0)}M`
+                      : `${Math.round(picked.context_window / 1000)}K`;
+                    const tierColor: Record<string, string> = {
+                      fast: "bg-green-50 text-green-700 border-green-200",
+                      balanced: "bg-blue-50 text-blue-700 border-blue-200",
+                      powerful: "bg-purple-50 text-purple-700 border-purple-200",
+                    };
+                    return (
+                      <div className="flex items-start gap-1.5 pt-0.5">
+                        <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border flex-shrink-0 uppercase tracking-wide ${tierColor[picked.tier] ?? "bg-gray-50 text-gray-600 border-gray-200"}`}>
+                          {picked.tier}
+                        </span>
+                        <span className="text-[9px] text-gray-400 flex-shrink-0">
+                          {ctxK} ctx
+                        </span>
+                        <span className="text-[9px] text-gray-500 leading-tight line-clamp-2 min-w-0">
+                          {picked.description}
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Retry lever (EMP-01) */}
@@ -1630,15 +1682,6 @@ export function AgentsPopup({
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [capAgent, setCapAgent] = useState<{ agent: AgentDef; index: number } | null>(null);
   const [activeTab, setActiveTab] = useState<"agents" | "skills-hooks">("agents");
-  // Per-agent inline expand state for the in-card config panel
-  const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set());
-  const toggleAgentExpand = useCallback((agentId: string) => {
-    setExpandedAgents(prev => {
-      const next = new Set(prev);
-      if (next.has(agentId)) next.delete(agentId); else next.add(agentId);
-      return next;
-    });
-  }, []);
 
   const handleRemove = useCallback((agentId: string) => {
     if (getRole(agentId, pipelineType) !== "optional") return;
@@ -1849,10 +1892,10 @@ export function AgentsPopup({
                                   <div className="flex items-center gap-1">
                                     {locked && <span className="text-[7px] font-semibold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded uppercase tracking-wide">Core</span>}
                                     {role === "required" && <span className="text-[7px] font-semibold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded uppercase tracking-wide">Required</span>}
-                                    <button
+                                <button
                                       onClick={e => { e.stopPropagation(); setCapAgent({ agent, index: globalIdx }); }}
                                       className="flex items-center justify-center w-5 h-5 rounded bg-gray-50 border border-gray-200 hover:bg-gray-100 transition-colors"
-                                      title="View capabilities"
+                                      title="View capabilities & configure"
                                     >
                                       <Info className="h-3 w-3 text-gray-400" />
                                     </button>
@@ -1874,15 +1917,6 @@ export function AgentsPopup({
                                 </div>
                                 <p className="text-[11px] font-semibold text-gray-900 leading-snug mb-0.5 line-clamp-2">{agent.name}</p>
                                 <p className="text-[8px] font-semibold text-gray-400 uppercase tracking-wider">{pipelineLabel}</p>
-                                {/* Inline expand button for per-agent config */}
-                                <button
-                                  onClick={e => { e.stopPropagation(); toggleAgentExpand(agent.id); }}
-                                  className="mt-1.5 flex items-center gap-1 text-[8px] font-semibold text-gray-400 hover:text-[#1B2A4A] transition-colors"
-                                >
-                                  {expandedAgents.has(agent.id)
-                                    ? <><ChevronDown className="h-2.5 w-2.5" />Hide config</>
-                                    : <><Settings2 className="h-2.5 w-2.5" />Configure</>}
-                                </button>
                               </motion.div>
                               {isLastInRow && !isLastCell && (
                                 <div className="w-4 flex-shrink-0 ml-1 border-t-2 border-dashed border-gray-300" />
@@ -1900,25 +1934,6 @@ export function AgentsPopup({
                     /api/capabilities model catalog (user_allowed only). A
                     selection threads up via onModelOverridesChange →
                     IdeaInputPage extraParams → run_pipeline model_overrides. */}
-                {/* Per-agent config panel — shown below grid when any agent's Configure button is clicked */}
-                {expandedAgents.size > 0 && (
-                  <div className="mx-6 mb-4 rounded-xl border border-gray-200 bg-white overflow-hidden">
-                    <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
-                      <Settings2 className="h-3.5 w-3.5 text-[#1B2A4A]" />
-                      <p className="text-[11px] font-semibold text-gray-700">Per-agent configuration</p>
-                      <p className="text-[10px] text-gray-400 ml-1">Model · Validator · Gate · Retry</p>
-                    </div>
-                    <div className="p-4">
-                      <AdvancedExpander
-                        agents={agents
-                          .filter(a => expandedAgents.has(a.id))
-                          .map(a => ({ id: a.id, name: a.name }))}
-                        onSelectionsChange={onSelectionsChange}
-                        initialSelections={initialSelections}
-                      />
-                    </div>
-                  </div>
-                )}
 
                 {/* End of shared scroll container (KAN-68 fix) */}
                 </div>
@@ -1962,6 +1977,8 @@ export function AgentsPopup({
                 agent={capAgent.agent}
                 agentIndex={capAgent.index}
                 onClose={() => setCapAgent(null)}
+                onSelectionsChange={onSelectionsChange}
+                initialSelections={initialSelections}
               />
             )}
           </AnimatePresence>

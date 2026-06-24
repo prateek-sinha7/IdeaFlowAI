@@ -6,8 +6,8 @@ import {
   ArrowLeft, Mail, Lock, Eye, EyeOff, CheckCircle2, AlertCircle,
   User, Zap, Check, Shield, Cpu, FileText, Save, Trash2,
 } from "lucide-react";
-import { getToken, getMe, changePassword, getPreferences, updatePreferences } from "@/lib/api";
-import type { ModelOption } from "@/lib/api";
+import { getToken, getMe, changePassword, getPreferences, updatePreferences, getCapabilities } from "@/lib/api";
+import type { ModelOption, CapabilityModelEntry } from "@/lib/api";
 import { TIER_PIPELINES, TIER_LABELS } from "@/lib/entitlements";
 import type { Tier } from "@/lib/entitlements";
 
@@ -88,6 +88,7 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
 
   // AI Model preference
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
+  const [richModels, setRichModels] = useState<CapabilityModelEntry[]>([]);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [pendingModel, setPendingModel] = useState<string | null>(null); // dropdown value before save
   const [savingModel, setSavingModel] = useState(false);
@@ -101,8 +102,9 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
     Promise.all([
       getMe(token),
       getPreferences(token),
+      getCapabilities(token).catch(() => null),
     ])
-      .then(([user, prefs]) => {
+      .then(([user, prefs, palette]) => {
         setEmail(user.email);
         const t = (user.tier as Tier) || "basic";
         setUserTier(t);
@@ -110,6 +112,7 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
         setAvailableModels(prefs.available_models);
         setSelectedModel(prefs.preferred_model);
         setPendingModel(prefs.preferred_model);
+        if (palette) setRichModels(palette.model_catalog);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -331,15 +334,35 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
                         >
                           <option value="">System Default (Claude Haiku 4.5)</option>
                           {availableModels.map(m => (
-                            <option key={m.id} value={m.id}>{m.name}</option>
+                            <option key={m.id} value={m.id}>{m.name} · {m.tier}</option>
                           ))}
                         </select>
-                        {/* Description of selected model */}
+                        {/* Description + tier badge of selected model */}
                         {pendingModel && (() => {
                           const m = availableModels.find(x => x.id === pendingModel);
-                          return m ? (
-                            <p className="mt-1.5 text-[11px] text-gray-400">{m.description}</p>
-                          ) : null;
+                          if (!m) return null;
+                          const rich = richModels.find(r => r.id === pendingModel);
+                          const tierColor: Record<string, string> = {
+                            fast: "bg-green-50 text-green-700 border-green-200",
+                            balanced: "bg-blue-50 text-blue-700 border-blue-200",
+                            powerful: "bg-purple-50 text-purple-700 border-purple-200",
+                          };
+                          const ctxK = rich
+                            ? rich.context_window >= 1_000_000
+                              ? `${(rich.context_window / 1_000_000).toFixed(0)}M ctx`
+                              : `${Math.round(rich.context_window / 1000)}K ctx`
+                            : null;
+                          return (
+                            <div className="mt-2 flex items-start gap-2">
+                              <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border flex-shrink-0 uppercase tracking-wide mt-0.5 ${tierColor[m.tier] ?? "bg-gray-50 text-gray-600 border-gray-200"}`}>
+                                {m.tier}
+                              </span>
+                              {ctxK && (
+                                <span className="text-[9px] text-gray-400 flex-shrink-0 mt-0.5">{ctxK}</span>
+                              )}
+                              <p className="text-[11px] text-gray-400 leading-relaxed">{m.description}</p>
+                            </div>
+                          );
                         })()}
                         {!pendingModel && (
                           <p className="mt-1.5 text-[11px] text-gray-400">Fastest and most cost-efficient. Great for high-volume tasks.</p>
