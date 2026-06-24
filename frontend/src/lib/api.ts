@@ -661,13 +661,15 @@ export interface UserWorkflowSummary {
   // (the `manifest_json` shape the backend `_project` round-trips). Carried so a
   // launched saved workflow can re-load AND re-send its composed levers. NULL/absent
   // ⇒ no selections (parity with a Phase-21 save that declared none).
+  // For PPT/Prototype saved workflows a special `_wizard` key is embedded inside
+  // selections carrying { templateId, designSystemId, brief, gateAgentIds, ... }.
   selections?: Record<string, Record<string, unknown>> | null;
   created_at?: string;
   updated_at?: string;
 }
 
 /**
- * List the caller's saved workflows (owner-scoped server-side). GET analog of
+ * Fetch the caller's saved workflows (owner-scoped server-side). GET analog of
  * `getWorkflowDefinitions` — there is NO `user_launchable` filter here: every
  * `source="user"` row the user owns is always shown in the "Your workflows"
  * catalog section.

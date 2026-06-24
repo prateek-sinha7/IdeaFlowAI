@@ -150,26 +150,22 @@ def _validate_model_overrides(
 def _compile_selections_trust_user(
     base_pipeline_type: str,
     agent_ids: list[str],
-    selections: dict | None,
+    selections: dict[str, dict] | None,
 ) -> None:
     """The CAP-03 server backstop — re-validate user-authored selections.
 
-    Synthesizes a ``WorkflowManifest`` from ``{base_pipeline_type, agent_ids,
-    selections}`` (the SINGLE synth seam, shared with the launch handler) and
-    compiles it with ``trust="user"``. The dormant ``_check_trust`` path
-    (compiler.py) rejects any reference that is registered but NOT ``user_allowed``
-    (a smuggled ``gate: security`` / exec / spawn / filesystem-MCP), and
-    ``_compile_limits`` rejects a ceiling-raising Limits cap — each as a
-    ``CompilerError`` NAMING the offending ``(kind, name)``. The FE lock is NOT a
-    security control; THIS is.
-
-    Raises:
-        HTTPException(422): when the selections reference a non-user-allowed
-            capability (or otherwise fail the trust=user compile) — the detail
-            carries the compiler's ``(kind, name)`` message.
+    Wizard-specific config stored under the ``_wizard`` key is stripped before
+    compilation — it is pure FE metadata (templateId, designSystemId, brief,
+    gateAgentIds) and is not a capability-selector, so the compiler must never
+    see it.  The stripped map is compiled with ``trust="user"`` as normal.
     """
     if not selections:
         return  # no selections → nothing to re-validate (parity)
+
+    # Strip the _wizard metadata key before capability-selector compilation.
+    # This key is written by the PPT/Prototype wizard "Save workflow" button
+    # and must round-trip untouched — it is NOT a capability reference.
+    compile_selections = {k: v for k, v in selections.items() if k != "_wizard"}
 
     from agents.capabilities.registry import CapabilityRegistry
     from agents.workflows.compiler import CompilerError, WorkflowCompiler
@@ -179,20 +175,20 @@ def _compile_selections_trust_user(
         validate_selection_model_ids,
     )
 
-    if not has_selections(selections):
+    if not has_selections(compile_selections):
         return
 
     # CR-01 / WR-04: a per-step ``model`` selection bypasses the ``model_overrides``
     # chokepoint, so catalog-validate it here too (save == launch invariant). Reject
     # a disallowed / unknown model id at SAVE so it never persists as orphan config.
-    _model_error = validate_selection_model_ids(selections)
+    _model_error = validate_selection_model_ids(compile_selections)
     if _model_error is not None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Rejected selection: {_model_error}",
         )
 
-    manifest = synthesize_manifest(base_pipeline_type, agent_ids, selections)
+    manifest = synthesize_manifest(base_pipeline_type, agent_ids, compile_selections)
     try:
         WorkflowCompiler().compile(
             manifest, CapabilityRegistry(), trust="user"
@@ -270,7 +266,12 @@ def create_user_workflow(
         )
 
     # Entitlement gate (custom needs enterprise) — fail-fast before insert.
-    allowed, reason = can_run_pipeline(current_user.tier, body.base_pipeline_type)
+    # Normalise od_* aliases to their base type (mirrors websocket.py behaviour).
+    _tier_check_type = {
+        "od_ppt": "od_ppt",
+        "od_prototype": "od_prototype",
+    }.get(body.base_pipeline_type, body.base_pipeline_type)
+    allowed, reason = can_run_pipeline(current_user.tier, _tier_check_type)
     if not allowed:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
 

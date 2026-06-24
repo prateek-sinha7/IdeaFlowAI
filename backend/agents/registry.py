@@ -392,13 +392,19 @@ def allowed_custom_agent_ids(pipeline_type: str) -> set[str]:
             all_agents.update(agent_list)
         return all_agents
 
-    # Base pipelines (own agents ∪ custom pool). Derived: a present,
-    # non-revision, non-custom, NON-EMPTY pipeline. The non-empty guard keeps
-    # the agentless reverse_engineer pipeline out (→ falls through to ∅,
-    # matching the legacy security fallback). od_ppt naturally lands here.
+    # Base pipelines (own agents ∪ custom pool ∪ all other base pipeline agents).
+    # The AgentLibrary UI allows adding any agent from any pipeline into any
+    # base pipeline run, so we must accept cross-pipeline agent ids here.
+    # This mirrors the "custom" branch behaviour for base pipelines.
     base_agents = PIPELINE_AGENTS.get(pipeline_type)
     if base_agents:  # present and non-empty
-        return set(base_agents) | set(PIPELINE_AGENTS.get("custom", []))
+        all_allowed: set[str] = set(base_agents) | set(PIPELINE_AGENTS.get("custom", []))
+        # Add agents from all other base (non-revision, non-internal, non-custom) pipelines
+        for pt, agent_list in PIPELINE_AGENTS.items():
+            if pt.endswith("_revision") or pt in _INTERNAL_PIPELINES or pt == "custom":
+                continue
+            all_allowed.update(agent_list)
+        return all_allowed
 
     # Unknown / unsupported / empty → security fallback.
     return set()

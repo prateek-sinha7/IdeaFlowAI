@@ -94,16 +94,19 @@ export interface DashboardLayoutProps {
   pendingOdProtoParams?: {
     brief: string; templateId: string; designSystemId: string; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string;
-    // Phase 6 — per-run Human-review gate selection. Present only when the user
-    // explicitly chose gates (touched); absent ⇒ omitted ⇒ backend static default.
     gateAgentIds?: string[];
+    modelOverrides?: Record<string, string>;
+    selections?: Record<string, Record<string, unknown>>;
+    agentIds?: string[];
   } | null;
   onClearPendingOdProto?: () => void;
   pendingOdPptParams?: {
     brief: string; templateId: string; designSystemId: string | null; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string;
-    // Phase 6 — see pendingOdProtoParams.gateAgentIds.
     gateAgentIds?: string[];
+    modelOverrides?: Record<string, string>;
+    selections?: Record<string, Record<string, unknown>>;
+    agentIds?: string[];
   } | null;
   onClearPendingOdPpt?: () => void;
   userTier?: "basic" | "pro" | "enterprise";
@@ -598,18 +601,22 @@ export function DashboardLayout({
       // an empty array is a valid "no gates" choice, so guard on presence (!== undefined),
       // NOT truthiness. Absent ⇒ omitted ⇒ backend static default (byte-identical).
       ...(pendingOdProtoParams.gateAgentIds !== undefined ? { gate_agent_ids: pendingOdProtoParams.gateAgentIds } : {}),
+      // Advanced agent config from wizard AgentsPopup
+      ...(pendingOdProtoParams.modelOverrides && Object.keys(pendingOdProtoParams.modelOverrides).length > 0 ? { model_overrides: pendingOdProtoParams.modelOverrides } : {}),
+      ...(pendingOdProtoParams.selections && Object.keys(pendingOdProtoParams.selections).length > 0 ? { selections: pendingOdProtoParams.selections } : {}),
     };
 
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
       addRunningNotification(notifId, "prototype", pendingOdProtoParams.brief.slice(0, 60), 0);
+      const agentIds = pendingOdProtoParams.agentIds ?? [];
       if (connectionStatus === "connected") {
-        onStartPipeline("od_prototype" as WorkflowType, pendingOdProtoParams.brief, [], attachedSkills, attachedHooks, extraParams);
+        onStartPipeline("od_prototype" as WorkflowType, pendingOdProtoParams.brief, agentIds, attachedSkills, attachedHooks, extraParams);
       } else {
         pendingStartOnConnectRef.current = {
           type: "od_prototype" as WorkflowType,
           message: pendingOdProtoParams.brief,
-          agentIds: [],
+          agentIds,
           extraParams,
         };
       }
@@ -640,18 +647,22 @@ export function DashboardLayout({
       // Phase 6: per-run gate selection. Only when explicitly provided (touched);
       // empty array = valid "no gates" → guard on presence, not truthiness.
       ...(pendingOdPptParams.gateAgentIds !== undefined ? { gate_agent_ids: pendingOdPptParams.gateAgentIds } : {}),
+      // Advanced agent config from wizard AgentsPopup
+      ...(pendingOdPptParams.modelOverrides && Object.keys(pendingOdPptParams.modelOverrides).length > 0 ? { model_overrides: pendingOdPptParams.modelOverrides } : {}),
+      ...(pendingOdPptParams.selections && Object.keys(pendingOdPptParams.selections).length > 0 ? { selections: pendingOdPptParams.selections } : {}),
     };
 
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
       addRunningNotification(notifId, "ppt", pendingOdPptParams.brief.slice(0, 60), 0);
+      const agentIds = pendingOdPptParams.agentIds ?? [];
       if (connectionStatus === "connected") {
-        onStartPipeline("od_ppt" as WorkflowType, pendingOdPptParams.brief, [], attachedSkills, attachedHooks, extraParams);
+        onStartPipeline("od_ppt" as WorkflowType, pendingOdPptParams.brief, agentIds, attachedSkills, attachedHooks, extraParams);
       } else {
         pendingStartOnConnectRef.current = {
           type: "od_ppt" as WorkflowType,
           message: pendingOdPptParams.brief,
-          agentIds: [],
+          agentIds,
           extraParams,
         };
       }
@@ -664,7 +675,13 @@ export function DashboardLayout({
   // WorkflowType) cannot express. We stash it here and thread it into IdeaInputPage
   // as the launch-preload seeds. Cleared on a normal select so a non-saved launch
   // starts from the empty filter (no stale seed bleed — T-21-12).
-  const [savedComposition, setSavedComposition] = useState<{ agentIds: string[]; modelOverrides: Record<string, string>; selections: Record<string, Record<string, unknown>> } | null>(null);
+  const [savedComposition, setSavedComposition] = useState<{
+    agentIds: string[];
+    modelOverrides: Record<string, string>;
+    selections: Record<string, Record<string, unknown>>;
+    brief?: string;
+    gateAgentIds?: string[];
+  } | null>(null);
 
   // Navigate from Home to Input page
   const handleSelectFeature = useCallback((type: WorkflowType) => {
@@ -681,14 +698,65 @@ export function DashboardLayout({
   const handleLaunchSaved = useCallback((saved: UserWorkflowSummary) => {
     // WR-01: carry the persisted Advanced-lever selections so the launched saved
     // workflow re-loads AND re-sends them (previously selections never reached launch).
+
+    // For PPT and Prototype saved workflows, extract _wizard config and route
+    // directly to the wizard page (restoring templateId, designSystemId, brief, etc.)
+    if (saved.base_pipeline_type === "od_ppt" || saved.base_pipeline_type === "ppt") {
+      const wizard = (saved.selections?._wizard ?? {}) as Record<string, unknown>;
+      const draft: Record<string, unknown> = {
+        templateId: wizard.templateId ?? null,
+        designSystemId: wizard.designSystemId ?? null,
+        brief: wizard.brief ?? "",
+        ...(wizard.customDsBody ? { customDsBody: wizard.customDsBody } : {}),
+        ...(wizard.customTemplateBody ? { customTemplateBody: wizard.customTemplateBody } : {}),
+        ...(wizard.gateAgentIds !== undefined ? { gateAgentIds: wizard.gateAgentIds } : {}),
+        ...(saved.model_overrides && Object.keys(saved.model_overrides).length > 0 ? { modelOverrides: saved.model_overrides } : {}),
+        // Pass selections (without _wizard key) so AgentsPopup can restore them
+        ...(saved.selections && Object.keys(saved.selections).filter(k => k !== "_wizard").length > 0
+          ? { selections: Object.fromEntries(Object.entries(saved.selections).filter(([k]) => k !== "_wizard")) }
+          : {}),
+        agentIds: saved.agent_ids,
+      };
+      sessionStorage.setItem("ppt.draft", JSON.stringify(draft));
+      router.push("/workflow/ppt/templates");
+      return;
+    }
+
+    if (saved.base_pipeline_type === "od_prototype" || saved.base_pipeline_type === "prototype") {
+      const wizard = (saved.selections?._wizard ?? {}) as Record<string, unknown>;
+      const draft: Record<string, unknown> = {
+        templateId: wizard.templateId ?? null,
+        designSystemId: wizard.designSystemId ?? null,
+        brief: wizard.brief ?? "",
+        ...(wizard.customDsBody ? { customDsBody: wizard.customDsBody } : {}),
+        ...(wizard.customTemplateBody ? { customTemplateBody: wizard.customTemplateBody } : {}),
+        ...(wizard.gateAgentIds !== undefined ? { gateAgentIds: wizard.gateAgentIds } : {}),
+        ...(saved.model_overrides && Object.keys(saved.model_overrides).length > 0 ? { modelOverrides: saved.model_overrides } : {}),
+        // Pass selections (without _wizard key) so AgentsPopup can restore them
+        ...(saved.selections && Object.keys(saved.selections).filter(k => k !== "_wizard").length > 0
+          ? { selections: Object.fromEntries(Object.entries(saved.selections).filter(([k]) => k !== "_wizard")) }
+          : {}),
+        agentIds: saved.agent_ids,
+      };
+      sessionStorage.setItem("prototype.draft", JSON.stringify(draft));
+      router.push("/workflow/prototype/templates");
+      return;
+    }
+
     setSavedComposition({
       agentIds: saved.agent_ids,
       modelOverrides: saved.model_overrides ?? {},
       selections: saved.selections ?? {},
+      brief: typeof saved.selections?._wizard?.brief === "string"
+        ? (saved.selections._wizard.brief as string)
+        : undefined,
+      gateAgentIds: Array.isArray(saved.selections?._wizard?.gateAgentIds)
+        ? (saved.selections!._wizard!.gateAgentIds as string[])
+        : undefined,
     });
     setWorkflowType(saved.base_pipeline_type as WorkflowType);
     setMainView("input");
-  }, []);
+  }, [router]);
 
   // Run the pipeline from Input page — triggers questionnaire first
   // `resolvedType` is the concrete pipeline the backend will dispatch. For
@@ -1218,6 +1286,8 @@ export function DashboardLayout({
                 initialAgentIds={savedComposition?.agentIds}
                 initialModelOverrides={savedComposition?.modelOverrides}
                 initialSelections={savedComposition?.selections}
+                initialInput={savedComposition?.brief}
+                initialGateIds={savedComposition?.gateAgentIds}
                 // SURF-03 — the backend workflow id whose compiled per-step
                 // capabilities the composer surfaces. For a built-in launchable
                 // workflow opened from the catalog, `workflowType` IS the workflow id

@@ -88,12 +88,16 @@ export default function DashboardPage() {
   const pendingOdProtoRef = useRef<{
     templateId: string; designSystemId: string; brief: string; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
+    modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+    agentIds?: string[];
   } | null>(null);
 
   // Staged od_ppt run — written when authenticated, consumed when connected.
   const pendingOdPptRef = useRef<{
     templateId: string; designSystemId: string | null; brief: string; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
+    modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+    agentIds?: string[];
   } | null>(null);
 
   // Phase 12 (§22 / RESUME-03) — wave/subagent tree state assembled from the
@@ -128,11 +132,15 @@ export default function DashboardPage() {
   const [pendingOdProtoParams, setPendingOdProtoParams] = useState<{
     brief: string; templateId: string; designSystemId: string; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
+    modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+    agentIds?: string[];
   } | null>(null);
   // Pending od_ppt params
   const [pendingOdPptParams, setPendingOdPptParams] = useState<{
     brief: string; templateId: string; designSystemId: string | null; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
+    modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+    agentIds?: string[];
   } | null>(null);
 
   // Auth check on mount — redirect if no token, otherwise fetch user profile.
@@ -162,6 +170,8 @@ export default function DashboardPage() {
     try {
       const draft = JSON.parse(sessionStorage.getItem("prototype.draft") ?? "{}") as {
         templateId?: string; designSystemId?: string; brief?: string; customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
+        modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+        agentIds?: string[];
       };
       const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
       if (!draft.templateId || !draft.designSystemId || !draft.brief) return;
@@ -175,6 +185,9 @@ export default function DashboardPage() {
         sourceRunId: draft.sourceRunId,
         // Present only when the wizard's Review-gates section was touched.
         gateAgentIds: draft.gateAgentIds,
+        modelOverrides: draft.modelOverrides,
+        selections: draft.selections,
+        agentIds: draft.agentIds,
       };
     } catch { /* ignore malformed session data */ }
   }, [isAuthenticated]);
@@ -191,6 +204,8 @@ export default function DashboardPage() {
       const draft = JSON.parse(sessionStorage.getItem("ppt.draft") ?? "{}") as {
         templateId?: string; designSystemId?: string | null; brief?: string;
         customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
+        modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+        agentIds?: string[];
       };
       if (!draft.templateId || !draft.brief) return;
       pendingOdPptRef.current = {
@@ -203,6 +218,9 @@ export default function DashboardPage() {
         sourceRunId: draft.sourceRunId,
         // Present only when the wizard's Review-gates section was touched.
         gateAgentIds: draft.gateAgentIds,
+        modelOverrides: draft.modelOverrides,
+        selections: draft.selections,
+        agentIds: draft.agentIds,
       };
     } catch { /* ignore malformed session data */ }
   }, [isAuthenticated]);
@@ -757,6 +775,8 @@ export default function DashboardPage() {
         const draft = JSON.parse(sessionStorage.getItem("prototype.draft") ?? "{}") as {
           templateId?: string; designSystemId?: string; brief?: string;
           customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
+          modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+          agentIds?: string[];
         };
         const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
         if (!draft.templateId || !draft.designSystemId || !draft.brief) return;
@@ -769,6 +789,9 @@ export default function DashboardPage() {
           customTemplateBody: draft.customTemplateBody,
           sourceRunId: draft.sourceRunId,
           gateAgentIds: draft.gateAgentIds,
+          modelOverrides: draft.modelOverrides,
+          selections: draft.selections,
+          agentIds: draft.agentIds,
         };
       } catch { return; }
     }
@@ -796,12 +819,12 @@ export default function DashboardPage() {
       customTemplateBody: pending.customTemplateBody,
       // Phase 3 (T056): pass source_workflow_run_id for revision chaining
       ...(pending.sourceRunId ? { sourceRunId: pending.sourceRunId } : {}),
-      // Phase 6 (T5b): per-run gate selection. Present ONLY when the wizard's
-      // Review-gates section was touched (the draft carried gateAgentIds). Guard on
-      // presence (!== undefined), NOT truthiness — an empty array is a valid
-      // "no gates" choice. Absent ⇒ left undefined ⇒ DashboardLayout omits
-      // gate_agent_ids ⇒ backend static default (byte-identical to today).
+      // Phase 6 (T5b): per-run gate selection.
       ...(pending.gateAgentIds !== undefined ? { gateAgentIds: pending.gateAgentIds } : {}),
+      // Advanced agent config from wizard AgentsPopup
+      ...(pending.modelOverrides && Object.keys(pending.modelOverrides).length > 0 ? { modelOverrides: pending.modelOverrides } : {}),
+      ...(pending.selections && Object.keys(pending.selections).length > 0 ? { selections: pending.selections } : {}),
+      ...(pending.agentIds && pending.agentIds.length > 0 ? { agentIds: pending.agentIds } : {}),
     });
   // send and connectionStatus drive the re-run.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -822,6 +845,8 @@ export default function DashboardPage() {
         const draft = JSON.parse(sessionStorage.getItem("ppt.draft") ?? "{}") as {
           templateId?: string; designSystemId?: string | null; brief?: string;
           customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
+          modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+          agentIds?: string[];
         };
         if (!draft.templateId || !draft.brief) return;
         pending = {
@@ -833,6 +858,9 @@ export default function DashboardPage() {
           customTemplateBody: draft.customTemplateBody,
           sourceRunId: draft.sourceRunId,
           gateAgentIds: draft.gateAgentIds,
+          modelOverrides: draft.modelOverrides,
+          selections: draft.selections,
+          agentIds: draft.agentIds,
         };
       } catch { return; }
     }
@@ -861,11 +889,12 @@ export default function DashboardPage() {
       customTemplateBody: pending.customTemplateBody,
       // Phase 3 (T056): pass source_workflow_run_id for revision chaining
       ...(pending.sourceRunId ? { sourceRunId: pending.sourceRunId } : {}),
-      // Phase 6 (T5b): per-run gate selection. Present ONLY when the wizard's
-      // Review-gates section was touched. Guard on presence (!== undefined), NOT
-      // truthiness — [] is a valid "no gates" choice. Absent ⇒ undefined ⇒
-      // DashboardLayout omits gate_agent_ids ⇒ backend static default.
+      // Phase 6 (T5b): per-run gate selection.
       ...(pending.gateAgentIds !== undefined ? { gateAgentIds: pending.gateAgentIds } : {}),
+      // Advanced agent config from wizard AgentsPopup
+      ...(pending.modelOverrides && Object.keys(pending.modelOverrides).length > 0 ? { modelOverrides: pending.modelOverrides } : {}),
+      ...(pending.selections && Object.keys(pending.selections).length > 0 ? { selections: pending.selections } : {}),
+      ...(pending.agentIds && pending.agentIds.length > 0 ? { agentIds: pending.agentIds } : {}),
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionStatus]);

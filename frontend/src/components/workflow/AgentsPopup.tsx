@@ -93,6 +93,10 @@ const LOCKED_AGENT_IDS = new Set([
   "repo-scanner", "documentation-generator",
   "mulesoft-inventory", "mulesoft-sdlc-governance",
   "dotnet-inventory", "dotnet-sdlc-governance",
+  // od_ppt pipeline agents — all core, none removable
+  "od-ppt-brief-analyst", "od-ppt-composer", "od-ppt-validator",
+  // od_prototype pipeline agents — all core, none removable
+  "prototype-specify", "prototype-plan", "prototype-build", "prototype-validate",
 ]);
 
 const REQUIRED_AGENT_IDS = new Set([
@@ -125,8 +129,10 @@ function getRole(agentId: string, pipelineType: WorkflowType): AgentRole {
   if (!isNativeLocked && !isNativeRequired) return "optional";
   const pipelinePrefixes: Record<string, string[]> = {
     user_stories: ["domain-analyst", "epic-architect", "story-estimator", "nfr-specialist", "backlog-reviewer", "backlog-compiler"],
-    ppt: ["ppt-content-strategist", "ppt-slide-architect", "ppt-code-generator", "ppt-assembler"],
-    prototype: ["requirements-analyst", "html-prototype-builder", "prototype-polisher", "prototype-finalizer"],
+    ppt: ["ppt-content-strategist", "ppt-slide-architect", "ppt-code-generator", "ppt-assembler",
+          "od-ppt-brief-analyst", "od-ppt-composer", "od-ppt-validator"],
+    prototype: ["requirements-analyst", "html-prototype-builder", "prototype-polisher", "prototype-finalizer",
+                "prototype-specify", "prototype-plan", "prototype-build", "prototype-validate"],
     app_builder: [
       "material-analyzer", "app-user-stories", "app-system-design",
       "app-security-architecture", "app-ux-design", "app-api-design",

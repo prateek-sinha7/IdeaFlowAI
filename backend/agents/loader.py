@@ -36,6 +36,8 @@ SUPPORTED_PIPELINE_TYPES: frozenset[str] = frozenset(
         "od_ppt_revision",
         "prototype",
         "prototype_revision",
+        "od_prototype",
+        "od_prototype_revision",
         "app_builder",
         "app_builder_revision",
         "mulesoft_to_springboot",

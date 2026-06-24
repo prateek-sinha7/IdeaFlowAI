@@ -24,7 +24,7 @@
  * Graceful: renders nothing when the agent list is empty.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, ShieldCheck, Check } from "lucide-react";
 import type { AgentDef } from "@/types/index";
 
@@ -33,11 +33,13 @@ interface ReviewGatesSectionProps {
   agents: AgentDef[];
   /** Reports the checked agent ids + whether the user has touched the control. */
   onChange: (gateAgentIds: string[], touched: boolean) => void;
+  /** Seed the initial checked ids from a saved workflow (overrides static defaults). */
+  initialGateIds?: string[];
 }
 
 const isDefaultGated = (a: AgentDef): boolean => a.gate === "Human_Gate";
 
-export function ReviewGatesSection({ agents, onChange }: ReviewGatesSectionProps) {
+export function ReviewGatesSection({ agents, onChange, initialGateIds }: ReviewGatesSectionProps) {
   const [expanded, setExpanded] = useState(false);
   const [touched, setTouched] = useState(false);
 
@@ -45,18 +47,29 @@ export function ReviewGatesSection({ agents, onChange }: ReviewGatesSectionProps
   // default selection when the pipeline (and thus its agents) changes.
   const agentsKey = useMemo(() => agents.map((a) => a.id).join("|"), [agents]);
 
-  // Selected (checked) agent ids. Seeded from the static defaults; re-seeds and
-  // clears `touched` whenever the underlying agent set changes (pipeline switch).
+  // Selected (checked) agent ids. Seeded from saved initialGateIds when provided,
+  // otherwise from static defaults. Re-seeds and clears `touched` on pipeline switch.
   const [checkedIds, setCheckedIds] = useState<Set<string>>(
-    () => new Set(agents.filter(isDefaultGated).map((a) => a.id)),
+    () => initialGateIds
+      ? new Set(initialGateIds)
+      : new Set(agents.filter(isDefaultGated).map((a) => a.id)),
   );
 
   // Re-seed the selection to the new defaults (and clear `touched`) whenever the
   // underlying agent set changes — e.g. the user switches pipeline or customizes
   // the lineup. Keyed on the agent-id list so it fires only on real changes.
+  // When initialGateIds is provided, seed from that on first run (agentsKey change).
+  const initialGateIdsRef = useRef(initialGateIds);
   useEffect(() => {
-    setCheckedIds(new Set(agents.filter(isDefaultGated).map((a) => a.id)));
-    setTouched(false);
+    if (initialGateIdsRef.current) {
+      // First change after mount with saved gates — apply them then clear the seed
+      setCheckedIds(new Set(initialGateIdsRef.current));
+      setTouched(true); // mark touched so the saved selection is sent on run
+      initialGateIdsRef.current = undefined;
+    } else {
+      setCheckedIds(new Set(agents.filter(isDefaultGated).map((a) => a.id)));
+      setTouched(false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentsKey]);
 

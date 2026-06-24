@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Sparkles, ChevronDown, ChevronRight, Layers, Eye, Paperclip, Mic, MicOff, X, File } from "lucide-react";
-import { getToken, extractFileText } from "@/lib/api";
+import { ArrowLeft, ArrowRight, Sparkles, ChevronDown, ChevronRight, Layers, Eye, Paperclip, Mic, MicOff, X, File, Settings2, Save } from "lucide-react";
+import { getToken, extractFileText, createUserWorkflow } from "@/lib/api";
 import {
   listDesignSystems,
   listPrototypeTemplates,
@@ -13,8 +13,10 @@ import {
 import { TemplateGallery } from "@/components/workflow/prototype/TemplateGallery";
 import { DesignSystemPicker } from "@/components/workflow/prototype/DesignSystemPicker";
 import { ReviewGatesSection } from "@/components/workflow/ReviewGatesSection";
+import { AgentsPopup } from "@/components/workflow/AgentsPopup";
 import { LIBRARY_AGENTS } from "@/components/workflow/AgentLibraryData";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
+import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
 import type { CustomDesignSystem } from "@/components/workflow/prototype/CustomDesignSystemModal";
 import type { CustomTemplate } from "@/components/workflow/prototype/CustomTemplateModal";
 import type { AgentDef } from "@/types/index";
@@ -43,6 +45,20 @@ export default function PrototypeTemplatesPage() {
   const [chainFrom, setChainFrom] = useState<string | null>(null);
   const [chainContextBlock, setChainContextBlock] = useState<string | null>(null);
   const [contextExpanded, setContextExpanded] = useState(false);
+  const [showAgents, setShowAgents] = useState(false);
+  const modelOverridesRef = useRef<Record<string, string>>({});
+  const handleModelOverridesChange = useCallback((overrides: Record<string, string>) => {
+    modelOverridesRef.current = overrides;
+  }, []);
+  const selectionsRef = useRef<Record<string, Record<string, unknown>>>({});
+  const handleSelectionsChange = useCallback((s: Record<string, Record<string, unknown>>) => {
+    selectionsRef.current = s;
+  }, []);
+
+  // Save workflow state
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [savedConfirm, setSavedConfirm] = useState(false);
 
   useEffect(() => {
     const token = getToken();
@@ -77,12 +93,36 @@ export default function PrototypeTemplatesPage() {
       if (!raw) return;
       const d = JSON.parse(raw) as {
         templateId?: string; designSystemId?: string; brief?: string; customDsBody?: string; customTemplateBody?: string;
+        agentIds?: string[];
+        gateAgentIds?: string[];
+        modelOverrides?: Record<string, string>;
+        selections?: Record<string, Record<string, unknown>>;
       };
       if (d.templateId) setSelectedTemplateId(d.templateId);
       if (d.designSystemId) setSelectedDsId(d.designSystemId);
       if (d.brief) setBrief(d.brief);
       if (d.customDsBody) setCustomDsBody(d.customDsBody);
       if (d.customTemplateBody) setCustomTemplateBody(d.customTemplateBody);
+      // Restore agent composition from saved workflow
+      if (d.agentIds && d.agentIds.length > 0) {
+        const allAgents = LIBRARY_AGENTS;
+        const restored = d.agentIds
+          .map((id) => allAgents.find((a) => a.id === id))
+          .filter(Boolean) as AgentDef[];
+        if (restored.length > 0) setPipelineAgents(restored);
+      }
+      // Restore model overrides
+      if (d.modelOverrides) {
+        modelOverridesRef.current = d.modelOverrides;
+      }
+      // Restore selections
+      if (d.selections) {
+        selectionsRef.current = d.selections;
+      }
+      // Restore gate selection
+      if (d.gateAgentIds !== undefined) {
+        gateSelectionRef.current = { ids: d.gateAgentIds, touched: true };
+      }
       // FIX-005: always clear the draft after reading — it is only needed for the
       // single wizard→dashboard redirect. Leaving it in sessionStorage causes every
       // subsequent fresh wizard open to pre-fill the previous run's brief/template/DS.
@@ -127,13 +167,37 @@ export default function PrototypeTemplatesPage() {
     [templates, selectedTemplateId],
   );
 
-  // Prototype pipeline agents, in run order — drives the Review-gates section.
-  // Sourced from the static LIBRARY_AGENTS (real spec-kit agents post-T4);
-  // pre-checks = those with gate === "Human_Gate" (prototype-specify/plan).
-  const pipelineAgents = useMemo<AgentDef[]>(
-    () => LIBRARY_AGENTS.filter((a) => a.pipeline_type === "prototype").sort((a, b) => a.order - b.order),
+  // Prototype pipeline agents — starts from static defaults, can be augmented via AgentsPopup.
+  const [pipelineAgents, setPipelineAgents] = useState<AgentDef[]>(
+    () => LIBRARY_AGENTS.filter((a) => a.pipeline_type === "prototype").sort((a, b) => a.order - b.order)
+  );
+
+  const defaultAgentIds = useMemo(
+    () => new Set(LIBRARY_AGENTS.filter((a) => a.pipeline_type === "prototype").map((a) => a.id)),
     [],
   );
+  const optionalAgentCount = pipelineAgents.filter((a) => !defaultAgentIds.has(a.id)).length;
+  const canAddMore = optionalAgentCount < 5;
+
+  const handleAddAgent = useCallback((agent: AgentDef) => {
+    setPipelineAgents((prev) => {
+      if (prev.find((a) => a.id === agent.id)) return prev;
+      const currentOptional = prev.filter((a) => !defaultAgentIds.has(a.id)).length;
+      if (currentOptional >= 5) return prev;
+      const insertIdx = prev.length > 0 ? prev.length - 1 : 0;
+      const updated = [...prev];
+      updated.splice(insertIdx, 0, { ...agent, order: insertIdx + 1 });
+      return updated;
+    });
+  }, [defaultAgentIds]);
+
+  const handleRemoveAgent = useCallback((agentId: string) => {
+    setPipelineAgents((prev) => prev.filter((a) => a.id !== agentId));
+  }, []);
+
+  const handleReorderAgents = useCallback((reordered: AgentDef[]) => {
+    setPipelineAgents(reordered);
+  }, []);
 
   // Per-run Human-review gate selection, surfaced by <ReviewGatesSection>.
   // Held in a ref so the section reporting its state doesn't re-render this page
@@ -183,6 +247,41 @@ export default function PrototypeTemplatesPage() {
     (isChaining || brief.trim())  // brief not required when chaining
   );
 
+  const handleSaveWorkflow = useCallback(async (name: string, description: string) => {
+    setShowSaveModal(false);
+    setSaveError(null);
+    const jwt = getToken();
+    if (!jwt) { setSaveError("Not authenticated."); return; }
+    const overrides = modelOverridesRef.current;
+    const sel = selectionsRef.current;
+    const { ids: gateAgentIds, touched: gatesTouched } = gateSelectionRef.current;
+    const wizardConfig: Record<string, unknown> = {
+      templateId: selectedTemplateId,
+      designSystemId: selectedDsId,
+      brief,
+      ...(gatesTouched ? { gateAgentIds } : {}),
+      ...(customDsBody ? { customDsBody } : {}),
+      ...(customTemplateBody ? { customTemplateBody } : {}),
+    };
+    try {
+      await createUserWorkflow(jwt, {
+        name,
+        description: description || undefined,
+        base_pipeline_type: "od_prototype",
+        agent_ids: pipelineAgents.map((a) => a.id),
+        model_overrides: Object.keys(overrides).length > 0 ? overrides : undefined,
+        selections: {
+          ...sel,
+          _wizard: wizardConfig,
+        },
+      });
+      setSavedConfirm(true);
+      setTimeout(() => setSavedConfirm(false), 2500);
+    } catch (e) {
+      setSaveError((e as Error)?.message ?? "Failed to save workflow.");
+    }
+  }, [selectedTemplateId, selectedDsId, brief, customDsBody, customTemplateBody, pipelineAgents]);
+
   const handleContinue = useCallback(() => {
     if (!canContinue) return;
     const sourceRunId = sessionStorage.getItem("chain.source_run_id") ?? undefined;
@@ -215,6 +314,9 @@ export default function PrototypeTemplatesPage() {
       ...(customTemplateBody ? { customTemplateBody } : {}),
       ...(sourceRunId ? { sourceRunId } : {}),
       ...(gatesTouched ? { gateAgentIds } : {}),
+      ...(Object.keys(modelOverridesRef.current).length > 0 ? { modelOverrides: modelOverridesRef.current } : {}),
+      ...(Object.keys(selectionsRef.current).length > 0 ? { selections: selectionsRef.current } : {}),
+      agentIds: pipelineAgents.map((a) => a.id),
     }));
     sessionStorage.setItem("od_prototype.pending", "true");
     router.push("/dashboard");
@@ -437,6 +539,21 @@ export default function PrototypeTemplatesPage() {
           </section>
         )}
 
+        {/* Advanced / agents config — below the brief, always visible */}
+        {!isChaining && (
+          <button
+            type="button"
+            onClick={() => setShowAgents(true)}
+            className="flex items-center gap-2 text-[12px] text-gray-400 hover:text-gray-700 transition-colors"
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+            <span className="font-medium text-gray-600">Advanced</span>
+            <span className="text-gray-400">
+              {pipelineAgents.length} agent{pipelineAgents.length !== 1 ? "s" : ""}
+            </span>
+          </button>
+        )}
+
         {/* ── Section 2 (or 1 when chaining): Template ──────────────────── */}
         <section>
           <SectionLabel number={isChaining ? 1 : 2} title="Choose a template" subtitle="Sets the visual DNA — chrome, layout patterns, component style." />
@@ -498,15 +615,42 @@ export default function PrototypeTemplatesPage() {
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={handleContinue}
-            disabled={!canContinue}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#1B2A4A] px-6 py-4 text-[14px] font-semibold text-white shadow-sm transition-all hover:bg-[#0F1B33] disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none"
-          >
-            Continue
-            <ArrowRight className="h-4 w-4" />
-          </button>
+          {/* Save workflow error */}
+          {saveError && (
+            <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-600">
+              {saveError}
+            </div>
+          )}
+
+          {/* Save confirmation */}
+          {savedConfirm && (
+            <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-700 font-medium">
+              ✓ Workflow saved to your catalogue
+            </div>
+          )}
+
+          <div className="flex gap-3">
+            {/* Save workflow button */}
+            <button
+              type="button"
+              onClick={() => { setSaveError(null); setShowSaveModal(true); }}
+              className="flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-5 py-4 text-[14px] font-semibold text-gray-700 shadow-sm transition-all hover:bg-gray-50 hover:border-gray-300 flex-shrink-0"
+              title="Save this workflow configuration to reuse later"
+            >
+              <Save className="h-4 w-4" />
+              Save workflow
+            </button>
+
+            <button
+              type="button"
+              onClick={handleContinue}
+              disabled={!canContinue}
+              className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-[#1B2A4A] px-6 py-4 text-[14px] font-semibold text-white shadow-sm transition-all hover:bg-[#0F1B33] disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none"
+            >
+              Continue
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          </div>
 
           {canContinue && (
             <p className="mt-2 text-center text-[11px] text-gray-500">
@@ -516,6 +660,28 @@ export default function PrototypeTemplatesPage() {
         </div>
 
       </main>
+
+      <AgentsPopup
+        isOpen={showAgents}
+        onClose={() => setShowAgents(false)}
+        agents={pipelineAgents}
+        pipelineType="prototype"
+        onAddAgent={handleAddAgent}
+        onRemoveAgent={handleRemoveAgent}
+        onReorder={handleReorderAgents}
+        canAddMore={canAddMore}
+        onModelOverridesChange={handleModelOverridesChange}
+        onSelectionsChange={handleSelectionsChange}
+      />
+
+      {/* Save workflow modal */}
+      {showSaveModal && (
+        <NameWorkflowModal
+          title="Save prototype workflow"
+          onSave={handleSaveWorkflow}
+          onCancel={() => setShowSaveModal(false)}
+        />
+      )}
     </div>
   );
 }

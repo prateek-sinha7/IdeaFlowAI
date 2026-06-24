@@ -17,6 +17,7 @@ import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
 
 const PIPELINE_LABEL: Record<string, string> = {
   user_stories: "User Stories", ppt: "Presentation", prototype: "Prototype",
+  od_ppt: "Presentation", od_prototype: "Prototype",
   app_builder: "App Builder", custom: "Custom",
   mulesoft_to_springboot: "Mulesoft → Spring Boot", dotnet_to_azure: ".NET → Azure",
 };
@@ -39,7 +40,9 @@ function getInitials(name: string): string {
 
 function formatRelativeDate(iso?: string | null): string {
   if (!iso) return "—";
-  const date = new Date(iso);
+  // Ensure UTC — backend timestamps have no timezone suffix
+  const normalized = /Z$|[+-]\d{2}:\d{2}$/.test(iso) ? iso : iso + "Z";
+  const date = new Date(normalized);
   if (isNaN(date.getTime())) return "—";
   const diff = Date.now() - date.getTime();
   const mins = Math.floor(diff / 60_000);
@@ -60,6 +63,24 @@ function formatFullDate(iso?: string | null): string {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
+/** Strip === Attached: filename === ... === End: filename === blocks, then trim.
+ *  Returns the user's own text, or if ALL content was attachments,
+ *  returns a summary of the attached filenames instead. */
+function cleanBrief(raw: string): string {
+  // Collect filenames before stripping
+  const fileMatches = [...raw.matchAll(/===\s*Attached:\s*([^=\n]+?)\s*===/g)];
+  const stripped = raw
+    .replace(/===\s*Attached:[^=]+===[\s\S]*?===\s*End:[^=]+===/g, "")
+    .replace(/\[Attached:[^\]]*\]/g, "")
+    .trim();
+  if (stripped) return stripped;
+  // All content was file attachments — show filenames as a fallback
+  if (fileMatches.length > 0) {
+    const names = fileMatches.map(m => m[1].trim());
+    return `📎 ${names.join(", ")}`;
+  }
+  return "";
+}
 
 interface SavedWorkflowsPageProps {
   onLaunchSaved?: (saved: UserWorkflowSummary) => void;
@@ -282,7 +303,21 @@ export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
                   {/* Description */}
                   {row.description
                     ? <p className="text-[11px] text-gray-500 mt-1 leading-relaxed line-clamp-2 flex-1">{row.description}</p>
-                    : <div className="flex-1" />}
+                    : null}
+                  {/* Brief preview — from _wizard for all workflow types.
+                      Strips === Attached: === file blocks so only the user's own
+                      words appear. Falls back to spacer when nothing to show. */}
+                  {(() => {
+                    const wizard = (row.selections?._wizard ?? null) as Record<string, unknown> | null;
+                    const rawBrief = typeof wizard?.brief === "string" ? wizard.brief : null;
+                    const brief = rawBrief ? cleanBrief(rawBrief) : null;
+                    if (!brief) return row.description ? null : <div className="flex-1" />;
+                    return (
+                      <p className="text-[11px] text-gray-400 mt-1 leading-relaxed line-clamp-2 flex-1 italic">
+                        {brief}
+                      </p>
+                    );
+                  })()}
                   {/* Metadata */}
                   <div className="flex items-center gap-3 mt-3 pt-3 border-t border-gray-100">
                     <span className="flex items-center gap-1 text-[10px] text-gray-400">

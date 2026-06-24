@@ -56,6 +56,10 @@ interface IdeaInputPageProps {
   // composer re-load AND re-send the user-composed levers. Absent ⇒ no selections
   // (byte-identical to the existing custom/idea flow — additive only).
   initialSelections?: Record<string, Record<string, unknown>>;
+  // SAVE-BRIEF — pre-fill the brief textarea when reopening a saved workflow
+  initialInput?: string;
+  // SAVE-GATES — pre-fill the review gate selection when reopening a saved workflow
+  initialGateIds?: string[];
   // SURF-03 — the known backend workflow id of the launchable/saved workflow being
   // opened in the composer (built-in: the workflow id == the resolved pipeline type;
   // saved: its `base_pipeline_type`). When present, the composer fetches the compiled
@@ -179,14 +183,19 @@ const TYPE_CONFIG: Record<WorkflowType, {
   },
 };
 
-export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, initialModelOverrides, initialSelections, workflowId }: IdeaInputPageProps) {
-  const [ideaInput, setIdeaInput] = useState("");
+export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, initialModelOverrides, initialSelections, initialInput, initialGateIds, workflowId }: IdeaInputPageProps) {
+  const [ideaInput, setIdeaInput] = useState(initialInput ?? "");
   const [showAgents, setShowAgents] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; size: string }[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const preSpeechTextRef = useRef("");
   const { isListening, transcript, startListening, stopListening, isSupported: speechSupported } = useSpeechRecognition();
+
+  // Strip _wizard key from selections — it's FE-only metadata, not a capability selector
+  const cleanSelections = initialSelections
+    ? Object.fromEntries(Object.entries(initialSelections).filter(([k]) => k !== "_wizard"))
+    : undefined;
 
   // For the "migration" meta-pipeline, the user must pick a concrete sub-pipeline
   // (Mulesoft→Spring Boot or .NET→Azure) before Run is allowed. Once picked, the
@@ -241,7 +250,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   // byte-identical — INV-3). Threads into the createUserWorkflow payload as the
   // EXACT compact shape 22-04 persists in manifest_json; `onRun`/launch stay
   // pure data (SC-001).
-  const selectionsRef = useRef<Record<string, Record<string, unknown>>>(initialSelections ?? {});
+  const selectionsRef = useRef<Record<string, Record<string, unknown>>>(cleanSelections ?? {});
   const handleSelectionsChange = useCallback(
     (selections: Record<string, Record<string, unknown>>) => {
       selectionsRef.current = selections;
@@ -305,6 +314,9 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     // Phase 21 (gotcha #1) — GUARD: when launching a saved workflow the seed lives
     // in `pipelineAgents` already; the empty-for-custom re-derive would clobber it
     // on the first effect run, so bail out and keep the seed.
+    // However, when initialAgentIds is cleared (savedComposition set to null after
+    // navigating to a different workflow type), we MUST reset to the correct defaults
+    // for the new type — otherwise stale agents from a previous saved workflow bleed in.
     if (initialAgentIds?.length) return;
     setPipelineAgents(LIBRARY_AGENTS.filter((a) => a.pipeline_type === effectiveType).sort((a, b) => a.order - b.order));
   }, [effectiveType, initialAgentIds]);
@@ -371,6 +383,13 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     }
     const overrides = modelOverridesRef.current;
     const selections = selectionsRef.current;
+    const { ids: gateAgentIds, touched: gatesTouched } = gateSelectionRef.current;
+    // Store the brief and gate selection in _wizard so the catalogue card
+    // can show a clean summary without relying on the user-typed description.
+    const wizardConfig: Record<string, unknown> = {
+      brief: ideaInput.trim(),
+      ...(gatesTouched ? { gateAgentIds } : {}),
+    };
     try {
       await createUserWorkflow(jwt, {
         name,
@@ -380,7 +399,10 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
         model_overrides: Object.keys(overrides).length > 0 ? overrides : undefined,
         // EMP-01/03: the Advanced-expander selections (omitted when empty so the
         // payload stays byte-identical). Server re-compiles trust="user" (22-04).
-        selections: Object.keys(selections).length > 0 ? selections : undefined,
+        selections: {
+          ...selections,
+          _wizard: wizardConfig,
+        },
       });
       setSavedConfirm(true);
       setTimeout(() => setSavedConfirm(false), 2500);
@@ -693,7 +715,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
             transition={{ delay: 0.24 }}
             className="w-full mt-3"
           >
-            <ReviewGatesSection agents={pipelineAgents} onChange={handleGatesChange} />
+            <ReviewGatesSection agents={pipelineAgents} onChange={handleGatesChange} initialGateIds={initialGateIds} />
           </motion.div>
         )}
 
@@ -711,6 +733,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
         onModelOverridesChange={handleModelOverridesChange}
         onSelectionsChange={handleSelectionsChange}
         initialModelOverrides={initialModelOverrides}
+        initialSelections={cleanSelections}
         initialSelections={initialSelections}
         declaredCapabilities={declaredCapabilities}
       />
