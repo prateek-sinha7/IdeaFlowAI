@@ -216,6 +216,8 @@ export function UserStoryPreview({ content, onRevise }: UserStoryPreviewProps) {
                                   <span
                                     dangerouslySetInnerHTML={{
                                       __html: criterion
+                                        // Strip any HTML tags from model output before our safe replacements
+                                        .replace(/<[^>]*>/g, '')
                                         .replace(/\*\*Given\*\*/g, '<span class="font-semibold text-[#1B2A4A]">Given</span>')
                                         .replace(/\*\*When\*\*/g, '<span class="font-semibold text-gray-700">When</span>')
                                         .replace(/\*\*Then\*\*/g, '<span class="font-semibold text-gray-900">Then</span>')

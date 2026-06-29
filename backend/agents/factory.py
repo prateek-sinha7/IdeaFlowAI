@@ -369,6 +369,15 @@ def _compose_system_prompt(spec, ctx: AgentContext, *, no_tools: bool = False) -
     hook_block = render_behavioral_block(ctx.attached_hooks)
     if hook_block:
         blocks["hooks"] = hook_block
+        hook_names = [h.get("name", h.get("id", "?")) for h in ctx.attached_hooks]
+        logger.debug(
+            "_compose_system_prompt: %d hook(s) injected into agent=%s — %s",
+            len(ctx.attached_hooks), spec.id, ", ".join(hook_names),
+        )
+    else:
+        logger.debug(
+            "_compose_system_prompt: no hooks attached for agent=%s", spec.id
+        )
 
     # 4. Constitution guardrail (F4 untouched — 08-06 owns its deletion).
     constitution = _inject_constitution(ctx)

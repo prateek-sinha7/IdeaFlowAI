@@ -299,6 +299,23 @@ class DeepAgentRunner:
             interrupt_on=interrupt_on,
         )
 
+        # Confirm hooks/override actually reached the model prompt
+        has_hooks = "## Active Behavioral Hooks" in system_prompt
+        has_override = "PROMPT_OVERRIDE" not in system_prompt  # override replaces body; base has no marker
+        prompt_chars = len(system_prompt)
+        hook_section_start = system_prompt.find("## Active Behavioral Hooks")
+        hook_preview = (
+            system_prompt[hook_section_start:hook_section_start + 120].replace("\n", " ")
+            if hook_section_start != -1 else ""
+        )
+        logger.debug(
+            "DeepAgentRunner system_prompt: agent=%s chars=%d has_hooks=%s hook_preview='%s'",
+            (thread_id or "").split(":")[-1],
+            prompt_chars,
+            has_hooks,
+            hook_preview,
+        )
+
         # ── HITL armed? Only then is a post-loop ``gate`` possible (task #27). ──
         # ``HumanInTheLoopMiddleware`` is wired by ``create_deep_agent`` only when
         # ``interrupt_on`` is non-empty, and it requires a checkpointer to persist

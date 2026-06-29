@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Loader2, RotateCcw, ArrowRight, Square, Sparkles, ChevronDown } from "lucide-react";
 import type { AgentRunState, PipelineRunState, WorkflowType } from "@/types/index";
@@ -49,27 +49,11 @@ function AgentCard({ agent, index }: { agent: AgentRunState; index: number }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
-      animate={
-        isActive
-          ? {
-              opacity: 1,
-              y: 0,
-              boxShadow: [
-                "0 0 0 0 rgba(27, 42, 74, 0.18), 0 1px 3px rgba(15, 23, 42, 0.04)",
-                "0 0 0 6px rgba(27, 42, 74, 0.00), 0 6px 18px -8px rgba(27, 42, 74, 0.35)",
-                "0 0 0 0 rgba(27, 42, 74, 0.18), 0 1px 3px rgba(15, 23, 42, 0.04)",
-              ],
-            }
-          : { opacity: 1, y: 0 }
-      }
-      transition={
-        isActive
-          ? { boxShadow: { duration: 1.6, repeat: Infinity, ease: "easeInOut" }, default: { delay: index * 0.04 } }
-          : { delay: index * 0.04 }
-      }
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.04 }}
       className={`rounded-xl border transition-colors ${
         isActive
-          ? "border-[#1B2A4A] bg-white"
+          ? "border-[#1B2A4A] bg-white ring-1 ring-[#1B2A4A]/20"
           : isDone
           ? "border-gray-100 bg-white"
           : isError
@@ -194,6 +178,28 @@ export function AgentProgressPanel({
   const [isCancelled, setIsCancelled] = useState(false);
   const { agents, isRunning, completedCount, totalDuration } = pipelineState;
 
+  // Preserve scroll position during live pipeline updates.
+  // Without this, every state update (new agent token, status change) causes
+  // React to re-render the list and the browser resets scrollTop to 0.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollTopRef = useRef(0);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => { scrollTopRef.current = el.scrollTop; };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    // After every re-render during a live run, restore the user's scroll position.
+    // Only do this while running — after completion the user can scroll freely.
+    if (isRunning && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollTopRef.current;
+    }
+  });
+
   const handleCancel = () => { setIsCancelled(true); onCancelPipeline?.(); };
   const isComplete = !isRunning && agents.length > 0 && completedCount === agents.length;
   const hasErrors = agents.some((a) => a.status === "error");
@@ -239,7 +245,7 @@ export function AgentProgressPanel({
       </div>
 
       {/* Agent cards — scrollable */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
         {agents.map((agent, idx) => (
           <AgentCard key={agent.id} agent={agent} index={idx} />
         ))}

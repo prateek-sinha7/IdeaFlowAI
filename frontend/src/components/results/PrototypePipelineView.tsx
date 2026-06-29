@@ -383,7 +383,7 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
               agents.some(a => a.status === "done") ? "bg-[#1B2A4A]" : "bg-gray-300"
             }`} />
             <span className="text-[11px] font-semibold text-gray-700 uppercase tracking-wider">
-              Spec Kit Pipeline
+              Prototype Pipeline
             </span>
           </div>
           <div className="flex items-center gap-3 text-[10px] text-gray-400">

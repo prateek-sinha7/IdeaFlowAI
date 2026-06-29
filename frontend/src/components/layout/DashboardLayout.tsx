@@ -362,7 +362,7 @@ export function DashboardLayout({
     }
   }, [pipelineState?.completedCount, pipelineState?.isRunning]);
 
-  // Detect when od_prototype starts (fired from dashboard/page.tsx directly,
+  // Detect when od_prototype/od_ppt starts (fired from dashboard/page.tsx directly,
   // not through handleQuestionnaireSubmit) and create a notification for it.
   const odProtoNotifCreated = useRef(false);
   useEffect(() => {
@@ -376,7 +376,10 @@ export function DashboardLayout({
       odProtoNotifCreated.current = true;
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
-      addRunningNotification(notifId, "prototype", "Prototype", 0);
+      // Use correct workflowType for od_ppt vs prototype
+      const wfType: WorkflowType = (pipelineState.pipeline_type === "od_ppt") ? "ppt" : "prototype";
+      const label = (pipelineState.pipeline_type === "od_ppt") ? "Presentation" : "Prototype";
+      addRunningNotification(notifId, wfType, label, 0);
     }
     if (!pipelineState?.isRunning) {
       odProtoNotifCreated.current = false;
@@ -608,6 +611,7 @@ export function DashboardLayout({
 
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
+      currentPipelineNotifId.current = notifId;
       addRunningNotification(notifId, "prototype", pendingOdProtoParams.brief.slice(0, 60), 0);
       const agentIds = pendingOdProtoParams.agentIds ?? [];
       if (connectionStatus === "connected") {
@@ -654,6 +658,7 @@ export function DashboardLayout({
 
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
+      currentPipelineNotifId.current = notifId;
       addRunningNotification(notifId, "ppt", pendingOdPptParams.brief.slice(0, 60), 0);
       const agentIds = pendingOdPptParams.agentIds ?? [];
       if (connectionStatus === "connected") {

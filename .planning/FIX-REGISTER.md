@@ -860,3 +860,50 @@ The UI gap was in presentation only:
 - The backend `model_catalog.py` already has all 5 models — no backend change needed
 - The `/api/settings` `AVAILABLE_MODELS` projection intentionally drops `context_window`/`provider` (D-04) — that endpoint is NOT used in AgentsPopup, so no change needed there
 - If new models are added to `model_catalog.py` in future, they automatically appear in both pickers with full metadata
+| FIX-021 | 2026-06-25 | Notification panel shows "0" text and wrong progress for running pipelines | React renders the number `0` as visible text "0" when `n.agentsTotal && ...` short-circuits to `0` (falsy number) in JSX. Also: pendingOdProto/PptParams blocks never set `currentPipelineNotifId.current` so progress updates never reached those notifications; od_prototype used hardcoded workflowType="prototype" even for od_ppt runs | `frontend/src/components/ui/NotificationPanel.tsx`, `frontend/src/components/layout/DashboardLayout.tsx` | Phase 22 | INV-1/3/12/SC-001 ✅ | Done |
+
+### FIX-021 — Notification Panel: "0" text + missing progress for prototype/PPT
+
+**Date:** 2026-06-25
+**Triggered by:** `#velocity-ai-fix fix this notification panel status and progress`
+
+#### Root Cause
+Three separate bugs combined to cause the panel to show "0" and wrong/missing progress:
+
+1. **React `&&` falsy number render** (`NotificationPanel.tsx`): The JSX expression
+   `{n.status === "running" && n.agentsTotal && n.agentsTotal > 0 && (...)}` evaluates to
+   `"running" && 0` = `0` (the number) when `agentsTotal === 0`. React renders the number `0`
+   as the text "0" directly in the DOM — the classic `&&` short-circuit with falsy numbers bug.
+
+2. **Missing `currentPipelineNotifId.current` assignment** (`DashboardLayout.tsx`): The
+   `pendingOdProtoParams` and `pendingOdPptParams` effects called `addRunningNotification`
+   but never stored the notifId in `currentPipelineNotifId.current`. This meant all subsequent
+   `updateProgress` and `updateAgentsTotal` calls (which check `currentPipelineNotifId.current`)
+   never reached those notifications — progress stayed at 0.
+
+3. **Wrong workflowType for od_ppt** (`DashboardLayout.tsx`): The `odProtoNotifCreated` fallback
+   effect hardcoded `workflowType="prototype"` even when `pipelineState.pipeline_type === "od_ppt"`,
+   causing PPT runs to show as "Prototype" in the notification.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 22 — Capability Surfacing & User Empowerment (notification system)
+- **Deleted code verified (not resurrected):** No deleted code involved
+- **Locked decisions respected:** No architectural constraints violated; frontend-only fix
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/ui/NotificationPanel.tsx` | Replaced `n.agentsTotal && n.agentsTotal > 0` with `(n.agentsTotal ?? 0) > 0` in both progress bar conditionals | Prevents React rendering the number `0` as visible text |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Added `currentPipelineNotifId.current = notifId` to both `pendingOdProtoParams` and `pendingOdPptParams` notification creation blocks | Progress updates now reach those notifications |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Fixed `odProtoNotifCreated` effect to use correct `workflowType` (`"ppt"` for od_ppt, `"prototype"` otherwise) | od_ppt runs now show correct "Presentation" label |
+
+#### Invariants Verified
+- **INV-1**: not affected — frontend-only
+- **INV-3**: not affected — no output change
+- **INV-12**: not applicable
+- **SC-001**: not affected — no engine edit
+
+#### Verification
+- No TypeScript diagnostics after fix
+- `(n.agentsTotal ?? 0) > 0` always returns boolean, never renders as text
+- `currentPipelineNotifId.current` set before `addRunningNotification` so all update callbacks work
