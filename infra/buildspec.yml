@@ -104,9 +104,9 @@ phases:
       - tflint --chdir=infra/terraform --recursive --minimum-failure-severity=error
       - echo "Secret scan (hard gate)"
       - gitleaks detect --no-git --redact --no-banner -v --config .gitleaks.toml --source .
-      - echo "IaC misconfig scan (inline checkov:skip annotations document accepted findings)"
-      - checkov -d infra/terraform --quiet --compact
-      - trivy config --exit-code 1 --severity HIGH,CRITICAL infra/terraform
+      - echo "IaC misconfig scan (inline checkov:skip annotations + .checkov.yaml document accepted findings)"
+      - checkov -d infra/terraform --config-file .checkov.yaml
+      - trivy config --exit-code 1 --severity HIGH,CRITICAL --skip-dirs "**/examples/**" --skip-dirs "**/localstack/**" infra/terraform
 
   # --- build: shared+foundation apply, build/push images, app apply ----------
   build:

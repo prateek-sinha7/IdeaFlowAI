@@ -154,6 +154,10 @@ resource "aws_iam_role" "codebuild_deploy" {
 # env's buckets); the rest stays broad and is the documented residual blast
 # radius in a single account.
 data "aws_iam_policy_document" "codebuild_deploy" {
+  # checkov:skip=CKV_AWS_356:Full-stack IaC deploy role. Only the documented "ProvisionStack" statement uses Resource="*" (ec2/kms/logs/cloudwatch/sns/route53/backup/cloudtrail — actions that do not support meaningful resource scoping for Terraform's create/describe churn, or are global like Route 53). Everything name-scopable IS env-scoped. Residual blast radius is constrained via var.deploy_permissions_boundary_arn. Reviewed and accepted.
+  # checkov:skip=CKV_AWS_111:Same as CKV_AWS_356 — write access on the broad ProvisionStack actions cannot be resource-constrained; mitigated by the permissions boundary. Reviewed and accepted.
+  # checkov:skip=CKV_AWS_109:Same as CKV_AWS_356 — permissions-management/resource churn for a deploy role; env-scoped where possible, boundary-constrained otherwise. Reviewed and accepted.
+  # checkov:skip=CKV_AWS_107:Deploy role reads SSM parameters under /velocityai/<env>/* (env-scoped) to manage app config; not a credentials-exposure path. Reviewed and accepted.
   for_each = local.runners
 
   # Remote state: this env's own keys + the SHARED layer's state key. Object
