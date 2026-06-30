@@ -176,7 +176,7 @@ function PlannerCard({ pipelineState }: { pipelineState: PipelineRunState }) {
 }
 
 // ─── Context sources row ──────────────────────────────────────────────────────
-function ContextSourcesRow({ sources }: { sources: ContextSource[] }) {
+export function ContextSourcesRow({ sources }: { sources: ContextSource[] }) {
   return (
     <div className="mb-3">
       <div className="flex items-center gap-1.5 mb-2">
@@ -213,7 +213,7 @@ function ContextSourcesRow({ sources }: { sources: ContextSource[] }) {
 }
 
 // ─── Tool calls section ───────────────────────────────────────────────────────
-function ToolCallsSection({ toolCalls }: { toolCalls: ToolCallEntry[] }) {
+export function ToolCallsSection({ toolCalls }: { toolCalls: ToolCallEntry[] }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   return (
     <div className="mb-3">
@@ -242,15 +242,15 @@ function ToolCallsSection({ toolCalls }: { toolCalls: ToolCallEntry[] }) {
                   <div className="px-3 py-2 border-b border-gray-100">
                     <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Arguments</p>
                     <pre className="text-[9px] text-gray-600 font-mono whitespace-pre-wrap leading-relaxed">
-                      {JSON.stringify(tc.args, null, 2).slice(0, 400)}
+                      {JSON.stringify(tc.args, null, 2)}
                     </pre>
                   </div>
                 )}
                 {tc.result != null && (
                   <div className="px-3 py-2">
                     <p className="text-[9px] font-semibold text-[#1B2A4A] uppercase tracking-wider mb-1">Result</p>
-                    <pre className="text-[9px] text-gray-600 font-mono whitespace-pre-wrap leading-relaxed max-h-[80px] overflow-y-auto">
-                      {tc.result.slice(0, 500)}{tc.result.length > 500 ? "\n…" : ""}
+                    <pre className="text-[9px] text-gray-600 font-mono whitespace-pre-wrap leading-relaxed max-h-[200px] overflow-y-auto">
+                      {tc.result}
                     </pre>
                   </div>
                 )}
@@ -264,7 +264,7 @@ function ToolCallsSection({ toolCalls }: { toolCalls: ToolCallEntry[] }) {
 }
 
 // ─── Input prompt section ─────────────────────────────────────────────────────
-function InputPromptSection({ prompt }: { prompt: string }) {
+export function InputPromptSection({ prompt }: { prompt: string }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {
@@ -291,8 +291,8 @@ function InputPromptSection({ prompt }: { prompt: string }) {
               {copied ? "Copied" : "Copy"}
             </button>
           </div>
-          <pre className="text-[9px] text-gray-600 whitespace-pre-wrap leading-relaxed p-3 max-h-[160px] overflow-y-auto font-mono bg-white">
-            {prompt.slice(0, 3000)}{prompt.length > 3000 ? "\n…[truncated]" : ""}
+          <pre className="text-[9px] text-gray-600 whitespace-pre-wrap leading-relaxed p-3 max-h-[500px] overflow-y-auto font-mono bg-white">
+            {prompt}
           </pre>
         </div>
       )}
@@ -301,7 +301,7 @@ function InputPromptSection({ prompt }: { prompt: string }) {
 }
 
 // ─── Output preview section ───────────────────────────────────────────────────
-function OutputPreviewSection({ output, agentId }: { output: string; agentId: string }) {
+export function OutputPreviewSection({ output, agentId }: { output: string; agentId: string }) {
   const [open, setOpen] = useState(false);
   const isHtml = /<!DOCTYPE|<html/i.test(output) || output.includes("<artifact>");
   const preview = isHtml ? "[HTML artifact — click to expand]" : output.slice(0, 120) + (output.length > 120 ? "…" : "");
@@ -323,8 +323,8 @@ function OutputPreviewSection({ output, agentId }: { output: string; agentId: st
       )}
       {open && (
         <div className="mt-2 rounded-lg border border-gray-100 overflow-hidden">
-          <pre className="text-[9px] text-gray-600 whitespace-pre-wrap leading-relaxed p-3 max-h-[200px] overflow-y-auto font-mono bg-gray-50">
-            {output.slice(0, 4000)}{output.length > 4000 ? "\n…[truncated]" : ""}
+          <pre className="text-[9px] text-gray-600 whitespace-pre-wrap leading-relaxed p-3 max-h-[500px] overflow-y-auto font-mono bg-gray-50">
+            {output}
           </pre>
         </div>
       )}
@@ -428,8 +428,8 @@ function AgentTimelineCard({ agent, isLast, isRunning, refCallback }: AgentCardP
             <Brain className={`h-3 w-3 ${color.text}`} />
             <span className={`text-[9px] font-bold uppercase tracking-widest ${color.text}`}>Reasoning (live)</span>
           </div>
-          <p className="text-[10px] text-gray-700 leading-relaxed font-mono">
-            {agent.thinkingText.slice(-300)}
+          <p className="text-[10px] text-gray-700 leading-relaxed font-mono max-h-[200px] overflow-y-auto">
+            {agent.thinkingText}
             <span className="animate-pulse">▌</span>
           </p>
         </div>
