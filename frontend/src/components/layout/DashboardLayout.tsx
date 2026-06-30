@@ -872,9 +872,22 @@ export function DashboardLayout({
     }
 
     const cleanBrief = workflowInput.split("\n\n===")[0].trim();
+    // If cleanBrief itself starts with === (e.g. a revision message like
+    // "=== EXISTING PROTOTYPE HTML ===\n{HTML}\n=== END ==="), the full
+    // HTML/content blob would become the enrichedInput — producing a bad title
+    // and oversized brief. Extract the === REVISION REQUEST === instruction
+    // instead, or fall back to empty so the pipeline starts with just the
+    // contextBlock (or the LLM generates a title from the contextBlock alone).
+    const safeCleanBrief = (() => {
+      if (!cleanBrief.startsWith("===")) return cleanBrief;
+      // Try to extract the revision instruction
+      const revMatch = workflowInput.match(/===\s*REVISION REQUEST\s*===\s*\n([\s\S]*?)\n===\s*END REQUEST\s*===/i);
+      if (revMatch) return revMatch[1].trim();
+      return "";
+    })();
     const enrichedInput = contextBlock
-      ? `${cleanBrief}\n\n${contextBlock}`
-      : cleanBrief;
+      ? `${safeCleanBrief}\n\n${contextBlock}`.trim()
+      : safeCleanBrief;
 
     if (onResetPipeline) onResetPipeline();
     setWorkflowInput(enrichedInput);
@@ -943,7 +956,15 @@ export function DashboardLayout({
     }
 
     const cleanBrief = (run.input || "").split("\n\n===")[0].trim();
-    const enrichedInput = contextBlock ? `${cleanBrief}\n\n${contextBlock}` : cleanBrief;
+    // Same fix as handleChainPipeline: if cleanBrief starts with === it means
+    // run.input is a revision message. Extract the revision instruction instead.
+    const safeCleanBrief = (() => {
+      if (!cleanBrief.startsWith("===")) return cleanBrief;
+      const revMatch = (run.input || "").match(/===\s*REVISION REQUEST\s*===\s*\n([\s\S]*?)\n===\s*END REQUEST\s*===/i);
+      if (revMatch) return revMatch[1].trim();
+      return "";
+    })();
+    const enrichedInput = contextBlock ? `${safeCleanBrief}\n\n${contextBlock}`.trim() : safeCleanBrief;
 
     setWorkflowType(nextType);
     setWorkflowInput(enrichedInput);
