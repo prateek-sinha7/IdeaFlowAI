@@ -3873,6 +3873,7 @@ class ExecutionEngine:
         agent_id: str,
         agent_name: str,
         output: str,
+        redoable: bool = False,
     ) -> AsyncGenerator[dict, None]:
         """Pause the pipeline for human review of an agent's output.
 
@@ -3881,6 +3882,15 @@ class ExecutionEngine:
         On approve: yields `review_gate_approved` and continues.
         On reject: yields `_gate_rejected` (internal signal to cancel).
         On edit+approve: yields `_gate_edited` with the new content.
+        On redo: yields `_gate_redo` (internal signal to re-run the gated agent).
+
+        ``redoable`` (REDO-GATE F1b) is a GENERIC discriminator stamped on
+        ``review_gate_ready.data`` — True ONLY from the inline call site (a
+        structural path, NOT a workflow/agent-id literal — SC-001). The FE renders
+        the Redo button IFF ``redoable``; a declared/user-composed ``gate:human``
+        step (which calls this primitive via ``run_human_gate`` with the default
+        ``redoable=False``) therefore shows NO Redo button. It is added to
+        ``_VOLATILE_STRIP_KEYS`` so the goldens stay byte-identical (INV-3).
         """
         gate_key = f"{pipeline_run_id}:{agent_id}"
 
@@ -3910,6 +3920,9 @@ class ExecutionEngine:
                 "agent_name": agent_name,
                 "gate_key": gate_key,
                 "output": output,
+                # REDO-GATE F1b: generic FE fence — True only from the inline call
+                # site (stripped by _VOLATILE_STRIP_KEYS so the goldens stay byte-id).
+                "redoable": redoable,
                 "timestamp": _now(),
             },
         }
@@ -3920,6 +3933,24 @@ class ExecutionEngine:
         response = await self._store.get_review_response(gate_key)
         approved = response.get("approved", True) if response else True
         edited_content = response.get("edited_content") if response else None
+        action = response.get("action", "approve") if response else "approve"
+        instructions = response.get("instructions") if response else None
+
+        # REDO-GATE: a "redo" action re-runs the gated agent in place (a fresh model
+        # call), then re-pauses at the SAME gate. Keyed on the GENERIC ``action``
+        # discriminator (no workflow/agent literal — SC-001). Emit the internal
+        # ``_gate_redo`` signal (mirroring ``_gate_rejected``: consumed by the
+        # inline consumer, never forwarded to the wire) and return; the consumer's
+        # while-loop re-runs the agent. The declared-path consumers (human/approval
+        # gate) CONSUME this signal safely (T-human) — never PASS, never leak.
+        if action == "redo":
+            self._state_machine.transition(pipeline_run_id, "generating")
+            logger.info(
+                "Review gate redo: pipeline=%s agent=%s has_instructions=%s",
+                pipeline_run_id, agent_id, bool(instructions),
+            )
+            yield {"type": "_gate_redo", "instructions": instructions or ""}
+            return
 
         # Only transition back to generating if we're still in waiting_for_user.
         # If the user rejected (approved=False), we'll transition to cancelled below.
