@@ -121,7 +121,37 @@ async def test_set_review_response_sets_event_and_round_trips(
 
     assert event.is_set()
     response = await store.get_review_response(gate_key)
-    assert response == {"approved": True, "edited_content": "edited"}
+    # REDO-GATE: the additive action/instructions keys default to the prior
+    # approve behavior (action="approve", instructions=None) for every existing caller.
+    assert response == {
+        "approved": True,
+        "edited_content": "edited",
+        "action": "approve",
+        "instructions": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_set_review_response_round_trips_redo_action(
+    store: ArtifactStore,
+) -> None:
+    """REDO-GATE test #1 — a redo action + instructions round-trip through the store."""
+    gate_key = "run-redo:prototype-specify"
+    event = await store.get_review_event(gate_key)
+    assert not event.is_set()
+
+    await store.set_review_response(
+        gate_key, approved=False, action="redo", instructions="add dark mode"
+    )
+
+    assert event.is_set()
+    response = await store.get_review_response(gate_key)
+    assert response == {
+        "approved": False,
+        "edited_content": None,
+        "action": "redo",
+        "instructions": "add dark mode",
+    }
 
 
 @pytest.mark.asyncio
