@@ -92,8 +92,8 @@ export class MockApi {
     };
     this.runs = opts.runs ?? [];
     this.capabilities = opts.capabilities ?? {
-      capabilities: CAPABILITIES as unknown[],
-      model_catalog: MODEL_CATALOG as unknown[],
+      capabilities: CAPABILITIES as unknown as unknown[],
+      model_catalog: MODEL_CATALOG as unknown as unknown[],
     };
     this.runDetail = opts.runDetail;
   }
