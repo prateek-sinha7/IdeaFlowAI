@@ -908,3 +908,48 @@ Three separate bugs combined to cause the panel to show "0" and wrong/missing pr
 - No TypeScript diagnostics after fix
 - `(n.agentsTotal ?? 0) > 0` always returns boolean, never renders as text
 - `currentPipelineNotifId.current` set before `addRunningNotification` so all update callbacks work
+
+
+---
+
+### FIX-022 — KAN-84: Revision input moved to left-panel expandable textarea
+
+**Date:** 2026-06-30
+**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-84`
+
+#### Root Cause
+
+The revision input was a thin `<input type="text">` bar (single-line, ~py-2 height) pinned at the bottom of the preview components on the RIGHT side of the screen (PPTPreview, PrototypePreview, UserStoryPreview, MarkdownPreview). Users couldn't type properly because the input was too thin and located far from the left-panel where they complete workflows.
+
+KAN-84 requires revision to live in the left-panel "Suggested next steps" section as a proper expandable chat-style textarea with close/send controls.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 22 — Capability Surfacing & User Empowerment (left panel UX)
+- **Relevant register section:** `_register-parts/22-capability-surfacing-and-user-empowerment-universal-runtime-.md`
+- **Deleted code verified (not resurrected):** No phase-deleted code involved
+- **Locked decisions respected:** The existing `handleRevise*` callbacks in DashboardLayout are reused unchanged — only the entry point moves
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/workflow/AgentProgressPanel.tsx` | Added `onRevise?` + `reviseLabel?` props; added `reviseOpen` state + `revisionText` state + `revisionRef`; added revision button in next-steps card that opens an expandable textarea with close (X) + send buttons; auto-focuses textarea on open; ⌘↵ keyboard shortcut | Provides the left-panel expandable textarea per KAN-84 spec |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Passed `onRevise` + `reviseLabel` to AgentProgressPanel (wired to existing `handleRevise*` functions); set `onRevise*` on PreviewPanel to `undefined` (removes thin right-panel bars) | Moves revision entry point to left panel; reuses all existing revision logic |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — frontend-only change
+- **INV-3** (golden parity): not affected — no engine, deliverable, or backend change
+- **INV-12** (no duplication): existing `handleRevisePpt` / `handleRevisePrototype` / `handleReviseUserStory` / `handleReviseAppBuilder` in DashboardLayout reused as-is
+- **SC-001** (zero engine edits): not affected — zero backend edit
+
+#### Verification
+- TypeScript diagnostics: No diagnostics found on both changed files
+- Revision callbacks unchanged: the existing `handleRevise*` functions in DashboardLayout fire exactly as before — only the UI entry point changes
+- PreviewPanel revision bars removed: `onRevise*` props set to `undefined` → no thin bars on right side
+- Left panel: "Revise Presentation" / "Revise Prototype" / "Revise User Stories" / "Revise App Blueprint" button appears in next-steps card when pipeline completes; click → expandable textarea; close X → collapses; Send (or ⌘↵) → calls existing revision function
+
+#### Notes
+- The revision button appears INSIDE the "Suggested next steps" card (same card as chaining options), guarded by `onRevise && `. If `onRevise` is undefined (migration, custom, or incomplete states), no revision button shows.
+- The textarea has `rows={3}` and is not `resize-none` — users can drag it larger if needed (satisfies "can expand the chat box").
+- The close button satisfies "can close the chat box".
+- After Send, the existing revision pipeline flow runs identically — run_revision WS dispatch, workflowType set to *_revision, etc.

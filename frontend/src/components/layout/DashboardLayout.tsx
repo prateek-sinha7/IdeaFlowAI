@@ -1346,6 +1346,22 @@ export function DashboardLayout({
                       // immediately clears agents[] before the event arrives,
                       // so the graceful agent state transition (running→idle) is skipped.
                     }}
+                    // KAN-84: revision moved from thin right-panel input to left-panel
+                    // next-steps section. Wired to the existing handleRevise* callbacks.
+                    onRevise={
+                      (workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt") ? handleRevisePpt :
+                      (workflowType === "user_stories" || workflowType === "user_stories_revision") ? handleReviseUserStory :
+                      (workflowType === "prototype" || workflowType === "prototype_revision" || !!prototypeContent) ? handleRevisePrototype :
+                      (workflowType === "app_builder" || workflowType === "app_builder_revision") ? handleReviseAppBuilder :
+                      undefined
+                    }
+                    reviseLabel={
+                      (workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt") ? "Revise Presentation" :
+                      (workflowType === "user_stories" || workflowType === "user_stories_revision") ? "Revise User Stories" :
+                      (workflowType === "prototype" || workflowType === "prototype_revision" || !!prototypeContent) ? "Revise Prototype" :
+                      (workflowType === "app_builder" || workflowType === "app_builder_revision") ? "Revise App Blueprint" :
+                      "Revise"
+                    }
                   />
                   </div>
                 </ErrorBoundary>
@@ -1400,10 +1416,10 @@ export function DashboardLayout({
                       workflowType={workflowType}
                       rawPipelineType={pipelineState?.pipeline_type || workflowType}
                       pptxCode={pptxCode}
-                      onRevisePpt={(workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt") ? handleRevisePpt : undefined}
-                      onReviseUserStory={(workflowType === "user_stories" || workflowType === "user_stories_revision") ? handleReviseUserStory : undefined}
-                      onRevisePrototype={(workflowType === "prototype" || workflowType === "prototype_revision" || !!prototypeContent) ? handleRevisePrototype : undefined}
-                      onReviseAppBuilder={(workflowType === "app_builder" || workflowType === "app_builder_revision") ? handleReviseAppBuilder : undefined}
+                      onRevisePpt={undefined}
+                      onReviseUserStory={undefined}
+                      onRevisePrototype={undefined}
+                      onReviseAppBuilder={undefined}
                       agentOutputs={
                         pipelineState && pipelineState.agents.length > 0
                           ? pipelineState.agents

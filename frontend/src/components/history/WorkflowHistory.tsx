@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState, useMemo } from "react";
+import { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   FileText, Presentation, Layout,
   Loader2, ArrowLeft, Trash2, ChevronRight,
   Search, MoreHorizontal, Sparkles, ArrowRight,
-  Download, ExternalLink,
+  Download, ExternalLink, RefreshCw, X, Send,
 } from "lucide-react";
 import { getToken, getWorkflows, getWorkflow, deleteWorkflow } from "@/lib/api";
 import { PPTPreview } from "@/components/preview/PPTPreview";
@@ -128,6 +128,15 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  // KAN-84: revision moved from thin right-panel bar to left-panel next-steps
+  const [reviseOpen, setReviseOpen] = useState(false);
+  const [revisionText, setRevisionText] = useState("");
+  const revisionRef = useRef<HTMLTextAreaElement>(null);
+
+  // Focus revision textarea when opened
+  useEffect(() => {
+    if (reviseOpen && revisionRef.current) revisionRef.current.focus();
+  }, [reviseOpen]);
 
   useEffect(() => {
     const token = getToken();
@@ -457,11 +466,20 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
               without having to re-run from the home page. Excludes the
               already-completed pipeline (incl. its `_revision` form) via
               the shared availableChainTargets() rule. */}
-          {onChainPipeline &&
-           selectedRun.status === "completed" &&
+          {selectedRun.status === "completed" &&
            (() => {
-             const options = availableChainTargets(selectedRun.type as WorkflowType);
-             if (options.length === 0) return null;
+             // Determine which revise callback applies to this run type
+             const reviseCallback = (() => {
+               if (!selectedOutput) return undefined;
+               if (isPrototype && onRevisePrototype) return (instruction: string) => onRevisePrototype(instruction, selectedOutput);
+               if (isPpt && onRevisePpt) return (instruction: string) => onRevisePpt(instruction, selectedOutput);
+               if (isUserStory && onReviseUserStory) return (instruction: string) => onReviseUserStory(instruction, selectedOutput);
+               if (isAppBuilder && onReviseAppBuilder) return (instruction: string) => onReviseAppBuilder(instruction, selectedOutput || "");
+               return undefined;
+             })();
+             const reviseLabel = isPrototype ? "Revise Prototype" : isPpt ? "Revise Presentation" : isUserStory ? "Revise User Stories" : isAppBuilder ? "Revise App Blueprint" : "Revise";
+             const chainOptions = onChainPipeline ? availableChainTargets(selectedRun.type as WorkflowType) : [];
+             if (!reviseCallback && chainOptions.length === 0) return null;
              return (
                <div className="border-t border-gray-100 px-3 py-3 bg-gradient-to-br from-[#FAFBFF] to-[#F1F4FB] flex-shrink-0">
                  <div className="flex items-center gap-1.5 mb-2 px-1">
@@ -471,19 +489,72 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                    </p>
                  </div>
                  <div className="space-y-1.5">
-                   {options.map((opt) => (
+                   {/* KAN-84: Revision button in left sidebar */}
+                   {reviseCallback && (
+                     reviseOpen ? (
+                       <motion.div
+                         initial={{ opacity: 0, y: -4 }}
+                         animate={{ opacity: 1, y: 0 }}
+                         className="rounded-xl border border-[#1B2A4A]/20 bg-white overflow-hidden"
+                       >
+                         <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5">
+                           <div className="flex items-center gap-1.5">
+                             <RefreshCw className="h-3 w-3 text-[#1B2A4A]" />
+                             <p className="text-[11px] font-semibold text-[#1B2A4A]">{reviseLabel}</p>
+                           </div>
+                           <button onClick={() => { setReviseOpen(false); setRevisionText(""); }} className="p-0.5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
+                             <X className="h-3.5 w-3.5" />
+                           </button>
+                         </div>
+                         <div className="px-3 pb-3">
+                           <textarea
+                             ref={revisionRef}
+                             value={revisionText}
+                             onChange={(e) => setRevisionText(e.target.value)}
+                             onKeyDown={(e) => {
+                               if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && revisionText.trim()) {
+                                 reviseCallback(revisionText.trim());
+                                 setRevisionText(""); setReviseOpen(false);
+                               }
+                             }}
+                             placeholder="Describe what you'd like to change..."
+                             rows={3}
+                             className="w-full text-[11px] text-gray-700 placeholder-gray-400 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#1B2A4A]/40 transition-colors resize-none leading-relaxed"
+                           />
+                           <div className="flex items-center justify-between mt-2">
+                             <span className="text-[9px] text-gray-400">⌘↵ to send</span>
+                             <button
+                               onClick={() => { if (revisionText.trim()) { reviseCallback(revisionText.trim()); setRevisionText(""); setReviseOpen(false); } }}
+                               disabled={!revisionText.trim()}
+                               className="flex items-center gap-1.5 text-[11px] font-medium text-white bg-[#1B2A4A] hover:bg-[#2a3d5e] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors"
+                             >
+                               <Send className="h-3 w-3" /> Send
+                             </button>
+                           </div>
+                         </div>
+                       </motion.div>
+                     ) : (
+                       <button
+                         onClick={() => setReviseOpen(true)}
+                         className="group w-full flex items-center justify-between rounded-xl border border-[#1B2A4A]/20 bg-white hover:border-[#1B2A4A] hover:bg-[#1B2A4A] hover:shadow-md px-3 py-2 text-left transition-all"
+                       >
+                         <div className="min-w-0">
+                           <p className="text-[11px] font-semibold text-gray-900 group-hover:text-white transition-colors">{reviseLabel}</p>
+                           <p className="text-[9px] text-gray-500 group-hover:text-white/80 transition-colors leading-snug">Request changes to the output</p>
+                         </div>
+                         <RefreshCw className="h-3 w-3 text-[#1B2A4A] group-hover:text-white group-hover:rotate-180 transition-all flex-shrink-0 ml-2" />
+                       </button>
+                     )
+                   )}
+                   {onChainPipeline && chainOptions.map((opt) => (
                      <button
                        key={opt.type}
                        onClick={() => onChainPipeline(selectedRun, opt.type)}
                        className="group w-full flex items-center justify-between rounded-xl border border-[#1B2A4A]/20 bg-white hover:border-[#1B2A4A] hover:bg-[#1B2A4A] hover:shadow-md px-3 py-2 text-left transition-all"
                      >
                        <div className="min-w-0">
-                         <p className="text-[11px] font-semibold text-gray-900 group-hover:text-white transition-colors">
-                           {opt.label}
-                         </p>
-                         <p className="text-[9px] text-gray-500 group-hover:text-white/80 transition-colors leading-snug">
-                           {opt.description}
-                         </p>
+                         <p className="text-[11px] font-semibold text-gray-900 group-hover:text-white transition-colors">{opt.label}</p>
+                         <p className="text-[9px] text-gray-500 group-hover:text-white/80 transition-colors leading-snug">{opt.description}</p>
                        </div>
                        <ArrowRight className="h-3 w-3 text-[#1B2A4A] group-hover:text-white group-hover:translate-x-0.5 transition-all flex-shrink-0 ml-2" />
                      </button>
@@ -577,12 +648,12 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                   {isUserStory && selectedOutput && (
                     <UserStoryPreview
                       content={selectedOutput}
-                      onRevise={onReviseUserStory ? (instruction) => onReviseUserStory(instruction, selectedOutput) : undefined}
+                      onRevise={undefined}
                     />
                   )}
                   {isAppBuilder && (
                     ideFiles.length > 0
-                      ? <AppBuilderPreview files={ideFiles} projectName={ideProjectName} onRevise={onReviseAppBuilder ? (instruction) => onReviseAppBuilder(instruction, selectedOutput || "") : undefined} />
+                      ? <AppBuilderPreview files={ideFiles} projectName={ideProjectName} onRevise={undefined} />
                       : selectedOutput
                         ? <MarkdownPreview content={selectedOutput} />
                         // ISS-017 (gap-fix): a terminal-failed app_builder reopen
@@ -622,13 +693,13 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                     <PPTPreview
                       content={selectedOutput}
                       pipelineType={workflowType}
-                      onRevise={onRevisePpt ? (instruction) => onRevisePpt(instruction, selectedOutput) : undefined}
+                      onRevise={undefined}
                     />
                   )}
                   {isPrototype && selectedOutput && (
                     <PrototypePreview
                       content={selectedOutput}
-                      onRevise={onRevisePrototype ? (instruction) => onRevisePrototype(instruction, selectedOutput) : undefined}
+                      onRevise={undefined}
                     />
                   )}
                 </div>
