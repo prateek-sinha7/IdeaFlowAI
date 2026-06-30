@@ -392,6 +392,12 @@ export default function DashboardPage() {
           setWaveGroups,
         });
         if (topEventId) seenEventIdsRef.current.add(topEventId);
+        // KAN-89: clear any stale reviewGateData from a previous run so the
+        // ReviewGatePanel never blocks the new pipeline's preview area.
+        // reviewGateData lives separately from pipelineState and is not cleared
+        // by onResetPipeline() — this is the canonical place to clear it since
+        // pipeline_start is the definitive "new run has begun" signal.
+        setReviewGateData(null);
       }
 
       handlePipelineMsgRef.current?.({
