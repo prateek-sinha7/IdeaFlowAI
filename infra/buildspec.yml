@@ -44,7 +44,11 @@ env:
     DOCKER_BUILDKIT: "1"
     CHECKOV_VERSION: "3"
     GITLEAKS_VERSION: "8.18.4"
-    TRIVY_VERSION: "0.55.2"
+    # NOTE: Aqua prunes OLD trivy release assets from GitHub, so an aged pin
+    # eventually 404s (v0.55.2 did exactly this). Keep this reasonably current
+    # and rely on the resilient install below, which falls back to the latest
+    # tag if the pinned asset has been pruned.
+    TRIVY_VERSION: "0.72.0"
     TFLINT_VERSION: "0.63.1"
 
 phases:
@@ -60,8 +64,21 @@ phases:
       - pip install --quiet "checkov>=${CHECKOV_VERSION},<4"
       - curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gl.tar.gz
       - tar -xzf /tmp/gl.tar.gz -C /usr/local/bin gitleaks
-      - curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" -o /tmp/trivy.tar.gz
+      # Trivy: try the pinned version, then fall back to the current latest tag
+      # if Aqua has pruned that asset (otherwise a routine upstream cleanup
+      # silently breaks the whole pipeline at install, as v0.55.2 did).
+      - |
+        set -euo pipefail
+        trivy_dl() { curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/v$1/trivy_$1_Linux-64bit.tar.gz" -o /tmp/trivy.tar.gz; }
+        if ! trivy_dl "${TRIVY_VERSION}"; then
+          echo "WARNING: trivy v${TRIVY_VERSION} asset is gone (pruned upstream); resolving latest release." >&2
+          LATEST="$(curl -fsSL https://api.github.com/repos/aquasecurity/trivy/releases/latest | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name": *"v?([^"]+)".*/\1/')"
+          : "${LATEST:?could not resolve latest trivy version}"
+          echo "Falling back to trivy v${LATEST}." >&2
+          trivy_dl "${LATEST}"
+        fi
       - tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy
+      - trivy --version
       - curl -fsSL "https://github.com/terraform-linters/tflint/releases/download/v${TFLINT_VERSION}/tflint_linux_amd64.zip" -o /tmp/tflint.zip
       - unzip -oq /tmp/tflint.zip -d /usr/local/bin
       - tflint --version
