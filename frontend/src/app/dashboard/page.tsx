@@ -8,7 +8,7 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 import { useWorkflow } from "@/hooks/useWorkflow";
 import { shouldApplyEvent, resetReplayState } from "@/lib/wsReplayState";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, WorkflowStatus, User, WaveGroup, GenericDeliverable } from "@/types/index";
+import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, WorkflowStatus, User, WaveGroup, GenericDeliverable, ReviewGateReadyData } from "@/types/index";
 import { deriveDeliverableMimetype, resolveReopenMimetype } from "@/types/index";
 import type { ChatMode } from "@/components/chat/ChatInput";
 // IN-01 (16 review): SHARED failed-agent-id parser (single source of truth, no
@@ -125,6 +125,8 @@ export default function DashboardPage() {
     agentName: string;
     output: string;
     pipelineRunId: string;
+    // REDO-GATE (F-fe3): generic server-set flag — the panel shows Redo iff true.
+    redoable?: boolean;
   } | null>(null);
   // Pending od_prototype params — set when questionnaire is triggered, consumed by DashboardLayout.
   // `gateAgentIds` (Phase 6, T5b) flows into DashboardLayout's `gate_agent_ids`
@@ -713,19 +715,15 @@ export default function DashboardPage() {
       case "review_gate_ready": {
         // Agent completed and declared Human_Gate — pause for user review.
         if (msg.data) {
-          const data = msg.data as {
-            gate_key: string;
-            agent_id: string;
-            agent_name: string;
-            output: string;
-            pipeline_run_id: string;
-          };
+          const data = msg.data as unknown as ReviewGateReadyData;
           setReviewGateData({
             gateKey: data.gate_key,
             agentId: data.agent_id,
             agentName: data.agent_name,
             output: data.output,
             pipelineRunId: data.pipeline_run_id,
+            // REDO-GATE (F-fe3): capture the generic server flag (default false).
+            redoable: data.redoable ?? false,
           });
         }
         break;
@@ -1293,6 +1291,15 @@ export default function DashboardPage() {
       }}
       onRejectReview={(gateKey) => {
         send(JSON.stringify({ type: "approve_review", gate_key: gateKey, approved: false }));
+        setReviewGateData(null);
+      }}
+      onRedoReview={(gateKey, instructions) => {
+        // REDO-GATE (F-fe3): re-run the gated agent in place. Rides the SAME
+        // approve_review owner-gated handler/resume channel as approve/reject —
+        // matches the Wave-1 wire contract (websocket.py: action="redo").
+        send(JSON.stringify({ type: "approve_review", gate_key: gateKey, action: "redo", instructions }));
+        // Clear the panel; the re-run re-emits a fresh review_gate_ready (same
+        // gate_key, redoable=true) that re-opens it with the new output.
         setReviewGateData(null);
       }}
       pendingOdProtoParams={pendingOdProtoParams}
