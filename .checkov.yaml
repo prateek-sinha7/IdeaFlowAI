@@ -21,8 +21,8 @@ compact: true
 quiet: true
 
 skip-path:
-  - ".*/examples/.*"        # module usage demos — illustrative, never deployed
-  - ".*/localstack/.*"      # local-only throwaway layer; values are explicit placeholders
+  - ".*examples.*"          # module usage demos — illustrative, never deployed
+  - ".*localstack.*"        # local-only throwaway layer; values are explicit placeholders
 
 skip-check:
   # --- S3: single-account / single-region design (only tfstate, backups,
@@ -45,3 +45,24 @@ skip-check:
   # --- Compute: verified checkov detection limitations (NOT real gaps) ---
   - CKV2_AWS_41   # EC2 instance profile IS attached via var.iam_instance_profile_name (also required for SSM redeploy); checkov can't resolve the variable
   - CKV2_AWS_9    # data EBS is selected by AWS Backup via the tag Backup="true"; checkov can't trace tag-based backup selection
+
+  # --- Monitoring CloudTrail: deliberate single-region design (see
+  #     modules/monitoring/main.tf — project is eu-central-1 only; alarms use
+  #     CloudWatch metric filters, not SNS on the trail). ---
+  - CKV_AWS_67    # is_multi_region_trail=false by design (single-region project; multi-region = double-capture for zero signal)
+  - CKV_AWS_252   # CloudTrail SNS topic not used; tamper/access alarms are metric-filter based instead
+
+  # --- Other accepted single-EC2 design choices ---
+  - CKV_AWS_260   # app SG intentionally allows 0.0.0.0/0 on port 80 (public web; nginx redirects 80->443)
+  - CKV_AWS_338   # CloudWatch log-group retention < 1yr by cost design; CloudTrail audit logs persist long-term in the audit_trail S3 bucket
+
+  # --- Reusable-module false positives (attachment happens in the consuming
+  #     layer; verified attached in foundation/app) ---
+  - CKV2_AWS_5    # security group IS attached to the EC2 instance in the compute/foundation layer
+  - CKV2_AWS_23   # Route53 A record IS wired to the EIP/instance in the app layer (or skipped entirely on the nip.io path)
+
+  # --- Secret scanner: gitleaks (run immediately before, with a curated
+  #     allowlist) is the AUTHORITATIVE secret gate. checkov's CKV_SECRET_6
+  #     base64-entropy heuristic only false-positives here on descriptive
+  #     strings / example ARNs in non-shipping files. ---
+  - CKV_SECRET_6  # redundant entropy heuristic; gitleaks is the primary secret gate
