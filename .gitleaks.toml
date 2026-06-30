@@ -41,10 +41,12 @@ paths = [
   '''infra/terraform/localstack/.*''',
 ]
 
-# Belt-and-suspenders: the canonical AWS *documentation* example credentials
-# are universally published as fakes. Recognize them as examples wherever they
-# appear so a copy into a sample never trips the gate.
+# Belt-and-suspenders: well-known *example* credentials that are published as
+# fakes (AWS docs keys; Stripe-style sample keys used in API tutorials embedded
+# in frontend/src/data/skills.ts). Recognize them as examples wherever they
+# appear so a sample never trips the gate. Keep these SPECIFIC, never broad.
 regexes = [
   '''AKIAIOSFODNN7EXAMPLE''',
   '''wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY''',
+  '''sk_live_abc123''',
 ]
