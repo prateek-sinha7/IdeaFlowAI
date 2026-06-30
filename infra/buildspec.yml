@@ -58,28 +58,29 @@ phases:
       - set -euo pipefail
       - ': "${ENVIRONMENT:?set ENVIRONMENT to dev, stage or prod}"'
       - 'case "${ENVIRONMENT}" in dev|stage|prod) : ;; *) echo "ENVIRONMENT must be dev|stage|prod"; exit 1 ;; esac'
-      - curl -fsSL "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip" -o /tmp/tf.zip
+      - curl -fsSL --retry 5 --retry-delay 3 "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip" -o /tmp/tf.zip
       - unzip -oq /tmp/tf.zip -d /usr/local/bin
       - terraform version
       - pip install --quiet --no-warn-conflicts "checkov>=${CHECKOV_VERSION},<4"
-      - curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gl.tar.gz
+      - curl -fsSL --retry 5 --retry-delay 3 "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gl.tar.gz
       - tar -xzf /tmp/gl.tar.gz -C /usr/local/bin gitleaks
       # Trivy: try the pinned version, then fall back to the current latest tag
-      # if Aqua has pruned that asset (otherwise a routine upstream cleanup
-      # silently breaks the whole pipeline at install, as v0.55.2 did).
+      # if Aqua has pruned that asset. --retry rides out transient GitHub 5xx/
+      # rate-limit blips (a 500 on the binary or a 403 on the API was observed),
+      # so a momentary upstream hiccup no longer breaks the whole pipeline.
       - |
         set -euo pipefail
-        trivy_dl() { curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/v$1/trivy_$1_Linux-64bit.tar.gz" -o /tmp/trivy.tar.gz; }
+        trivy_dl() { curl -fsSL --retry 5 --retry-delay 3 "https://github.com/aquasecurity/trivy/releases/download/v$1/trivy_$1_Linux-64bit.tar.gz" -o /tmp/trivy.tar.gz; }
         if ! trivy_dl "${TRIVY_VERSION}"; then
-          echo "WARNING: trivy v${TRIVY_VERSION} asset is gone (pruned upstream); resolving latest release." >&2
-          LATEST="$(curl -fsSL https://api.github.com/repos/aquasecurity/trivy/releases/latest | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name": *"v?([^"]+)".*/\1/')"
+          echo "WARNING: trivy v${TRIVY_VERSION} download failed; resolving latest release tag." >&2
+          LATEST="$(curl -fsSL --retry 5 --retry-delay 3 https://api.github.com/repos/aquasecurity/trivy/releases/latest | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name": *"v?([^"]+)".*/\1/')"
           : "${LATEST:?could not resolve latest trivy version}"
           echo "Falling back to trivy v${LATEST}." >&2
           trivy_dl "${LATEST}"
         fi
       - tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy
       - trivy --version
-      - curl -fsSL "https://github.com/terraform-linters/tflint/releases/download/v${TFLINT_VERSION}/tflint_linux_amd64.zip" -o /tmp/tflint.zip
+      - curl -fsSL --retry 5 --retry-delay 3 "https://github.com/terraform-linters/tflint/releases/download/v${TFLINT_VERSION}/tflint_linux_amd64.zip" -o /tmp/tflint.zip
       - unzip -oq /tmp/tflint.zip -d /usr/local/bin
       - tflint --version
 
