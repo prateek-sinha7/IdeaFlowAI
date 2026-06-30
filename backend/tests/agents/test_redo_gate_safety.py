@@ -143,6 +143,7 @@ class _EngineHarness:
         # model_for: callable(agent_id, call_index) -> ScriptedFakeChatModel
         self._model_for = model_for
         self._call_index: dict[str, int] = {}
+        self.thread_ids: list[str] = []  # thread_id per create_runner call (redo regression)
 
     def __enter__(self):
         import agents.factory as factory_mod
@@ -159,6 +160,7 @@ class _EngineHarness:
         def _patched(agent_id, ctx, **kw):
             idx = self._call_index.get(agent_id, 0)
             self._call_index[agent_id] = idx + 1
+            self.thread_ids.append(kw.get("thread_id"))
             ctx.model = self._model_for(agent_id, idx)
             return self._orig_cr(agent_id, ctx, **kw)
 
@@ -419,3 +421,54 @@ async def test_f5_latest_typed_content_is_max_version_after_rehydrate() -> None:
     assert latest == "APPROVED v2", (
         "latest selection served the REJECTED prior version after rehydrate (F5)"
     )
+
+
+# ===========================================================================
+# F-thread — each redo uses a FRESH checkpoint thread (live-bug regression)
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_redo_uses_fresh_checkpoint_thread_per_attempt() -> None:
+    """Each redo re-run MUST use a DISTINCT checkpoint thread_id (``:redo{n}``).
+
+    Regression for the live bug: the redo loop rebuilt the SAME ``{run}:{agent}``
+    thread, so the checkpointer replayed the prior turn and the (real) model
+    "remembered" its rejected output → it replied "it's already complete" in ~3s
+    instead of regenerating. A scripted model has no conversational memory, so the
+    F2 test could not catch it; asserting a FRESH thread per attempt is what gives
+    the real model a clean conversation. (Same class as 06-05 CR-02's ``:retry{n}``.)
+    """
+    from agents.loader import load_agent_spec
+
+    REDOS = 2
+    gate_calls = {"n": 0}
+
+    async def _fake_gate(pipeline_run_id, agent_id, agent_name, output, redoable=False):
+        gate_calls["n"] += 1
+        yield {
+            "type": "review_gate_ready",
+            "data": {"gate_key": f"{pipeline_run_id}:{agent_id}", "redoable": redoable},
+        }
+        if gate_calls["n"] <= REDOS:
+            yield {"type": "_gate_redo", "instructions": ""}
+        else:
+            yield {"type": "review_gate_approved", "data": {}}
+
+    spec = load_agent_spec("domain-analyst")  # text-only, single_shot (task_num None)
+
+    with _EngineHarness(lambda aid, idx: ScriptedFakeChatModel(_text_turn("spec output. "))) as h:
+        h.engine._run_review_gate = _fake_gate  # type: ignore[assignment]
+        ectx = _make_ectx("redo-thread-run", gate_agent_ids=[spec.id])
+        results: list[dict] = []
+        await _drive_agent(h.engine, spec, ectx, results, [spec])
+
+    tids = [t for t in h.thread_ids if t]
+    base = f"{ectx.run_id}:{spec.id}"
+    assert len(tids) == REDOS + 1, (
+        f"expected {REDOS + 1} runs (initial + {REDOS} redos), got {tids}"
+    )
+    # Distinct threads — the bug reused one (all == base → the model 'remembers').
+    assert len(set(tids)) == len(tids), f"a redo REUSED a checkpoint thread (the live bug): {tids}"
+    # First run keeps the exact base id (INV-3 dormant); redos carry :redo{n}.
+    assert tids == [base, f"{base}:redo1", f"{base}:redo2"], f"unexpected thread ids: {tids}"

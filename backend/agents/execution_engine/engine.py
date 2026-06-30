@@ -2542,6 +2542,7 @@ class ExecutionEngine:
         # non-redo exit can never leak lineage or a REVISE block onto the next agent.
         redo_directive = ""          # extra instructions for the NEXT re-run
         redo_derived_from = None     # rejected ref id the re-run supersedes
+        redo_attempt = 0             # 0 = first run; N>0 = Nth redo → fresh checkpoint thread
         while True:
             agent_start = time.time()
 
@@ -2663,6 +2664,15 @@ class ExecutionEngine:
                     if task_num
                     else f"{pipeline_run_id}:{spec.id}"
                 )
+                # REDO-GATE: every redo re-run MUST use a FRESH checkpoint thread, else
+                # the checkpointer replays the prior turn and the model "remembers" its
+                # rejected output → it acknowledges completion ("it's already done")
+                # instead of regenerating (same class as the 06-05 CR-02 throttle-fallback
+                # `:retry{n}` fix). The suffix is added ONLY for redo_attempt > 0, so the
+                # first (non-redo) run — and every characterization golden — keeps its
+                # exact thread_id (INV-3 dormant).
+                if redo_attempt:
+                    thread_id = f"{thread_id}:redo{redo_attempt}"
                 agent = create_runner(
                     spec.id,
                     ctx,
@@ -3340,6 +3350,7 @@ class ExecutionEngine:
                                         "redo audit row failed for agent %s (ignored)",
                                         spec.id, exc_info=True,
                                     )
+                            redo_attempt += 1  # next re-run gets a FRESH checkpoint thread (:redo{N})
                             break  # leave the gate consumer; the while-loop re-runs
                         else:
                             yield gate_event
