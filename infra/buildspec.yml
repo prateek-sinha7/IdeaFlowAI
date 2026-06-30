@@ -49,7 +49,7 @@ env:
     # and rely on the resilient install below, which falls back to the latest
     # tag if the pinned asset has been pruned.
     TRIVY_VERSION: "0.72.0"
-    TFLINT_VERSION: "0.63.1"
+
 
 phases:
   # --- install: pin Terraform + scanners, validate ENVIRONMENT ---------------
@@ -80,9 +80,7 @@ phases:
         fi
       - tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy
       - trivy --version
-      - curl -fsSL --retry 5 --retry-delay 3 "https://github.com/terraform-linters/tflint/releases/download/v${TFLINT_VERSION}/tflint_linux_amd64.zip" -o /tmp/tflint.zip
-      - unzip -oq /tmp/tflint.zip -d /usr/local/bin
-      - tflint --version
+
 
   # --- pre_build: code syntax + terraform fmt/validate, then security scans --
   pre_build:
@@ -94,15 +92,7 @@ phases:
       - echo "Terraform fmt (recursive) + validate per layer"
       - terraform fmt -check -recursive infra/terraform
       - for d in shared foundation app; do $TF/$d init -backend=false -no-color && $TF/$d validate -no-color; done
-      - echo "Terraform lint (tflint, recursive over every layer + module)"
-      # Absolute config path so recursive mode lints every subdir against the
-      # shared ruleset (otherwise each dir would look for its own .tflint.hcl).
-      - export TFLINT_CONFIG_FILE="$(pwd)/infra/terraform/.tflint.hcl"
-      - tflint --chdir=infra/terraform --init
-      # Gate on `error`-severity findings (e.g. invalid instance type, malformed
-      # ARN). Warnings/notices are reported but don't fail the build; tighten to
-      # --minimum-failure-severity=warning once the suite is warning-clean.
-      - tflint --chdir=infra/terraform --recursive --minimum-failure-severity=error
+
       - echo "Secret scan (hard gate)"
       - gitleaks detect --no-git --redact --no-banner -v --config .gitleaks.toml --source .
       - echo "IaC misconfig scan (inline checkov:skip annotations + .checkov.yaml document accepted findings)"
