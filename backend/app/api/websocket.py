@@ -1182,6 +1182,13 @@ async def websocket_chat(websocket: WebSocket):
                 gate_key = message_data.get("gate_key")
                 approved = message_data.get("approved", True)
                 edited_content = message_data.get("edited_content")  # None = no edits
+                # REDO-GATE: optional, backward-compatible "redo with additional
+                # instructions" action on the SAME owner-gated handler. A "redo"
+                # carries approved=False on the wire but is distinguished by ``action``
+                # so _run_review_gate re-runs the gated agent in place instead of
+                # cancelling. Defaults preserve the prior approve/reject behavior.
+                action = message_data.get("action", "approve")
+                instructions = message_data.get("instructions")
                 if not gate_key:
                     await websocket.send_json({
                         "type": "error", "chunk": None, "section": None,
@@ -1201,7 +1208,16 @@ async def websocket_chat(websocket: WebSocket):
                     })
                     continue
                 store = get_artifact_store()
-                await store.set_review_response(gate_key, approved=approved, edited_content=edited_content)
+                # The owner check (above) has already run BEFORE this write — the
+                # redo action rides the SAME IDOR-mitigated boundary + resume channel.
+                if action == "redo":
+                    await store.set_review_response(
+                        gate_key, approved=False, action="redo", instructions=instructions
+                    )
+                else:
+                    await store.set_review_response(
+                        gate_key, approved=approved, edited_content=edited_content
+                    )
                 continue
 
             if msg_type == "ping":
