@@ -88,9 +88,14 @@ export interface DashboardLayoutProps {
     agentName: string;
     output: string;
     pipelineRunId: string;
+    // REDO-GATE (F-fe2): generic server-set flag threaded into the panel so the
+    // Redo control renders only on redoable (inline) gates.
+    redoable?: boolean;
   } | null;
   onApproveReview?: (gateKey: string, editedContent?: string) => void;
   onRejectReview?: (gateKey: string) => void;
+  // REDO-GATE (F-fe2): pass-through redo callback to the ReviewGatePanel.
+  onRedoReview?: (gateKey: string, instructions: string) => void;
   pendingOdProtoParams?: {
     brief: string; templateId: string; designSystemId: string; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string;
@@ -237,6 +242,7 @@ export function DashboardLayout({
   reviewGateData,
   onApproveReview,
   onRejectReview,
+  onRedoReview,
   pendingOdProtoParams,
   onClearPendingOdProto,
   pendingOdPptParams,
@@ -1437,6 +1443,8 @@ export function DashboardLayout({
                       gateKey={reviewGateData.gateKey}
                       onApprove={onApproveReview || (() => {})}
                       onReject={onRejectReview || (() => {})}
+                      onRedo={onRedoReview}
+                      redoable={reviewGateData.redoable}
                     />
                   ) : (questionnaireLoading || questionnaireQuestions.length > 0) && (pendingPipelineRun || activePipelineRunId) ? (
                     <QuestionnairePanel
