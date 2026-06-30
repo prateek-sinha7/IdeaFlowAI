@@ -103,7 +103,7 @@ phases:
       # --minimum-failure-severity=warning once the suite is warning-clean.
       - tflint --chdir=infra/terraform --recursive --minimum-failure-severity=error
       - echo "Secret scan (hard gate)"
-      - gitleaks detect --no-git --redact --no-banner --source .
+      - gitleaks detect --no-git --redact --no-banner -v --config .gitleaks.toml --source .
       - echo "IaC misconfig scan (inline checkov:skip annotations document accepted findings)"
       - checkov -d infra/terraform --quiet --compact
       - trivy config --exit-code 1 --severity HIGH,CRITICAL infra/terraform
