@@ -88,8 +88,19 @@ def _register_resume_task(pipeline_run_id: str, task: asyncio.Task) -> None:
     A reconnect_pipeline checks ``task.done()`` — a live resume driver makes
     _has_live_task true; a finished one naturally falls back to the durable
     replay + status branch.
+
+    KAN-88: also register a cancel_event so cancel_pipeline can cooperatively
+    stop a resumed run via the cooperative path instead of falling through to
+    the destructive task.cancel() fallback (which leaves the run in a bad state).
     """
     _PIPELINE_TASKS[pipeline_run_id] = task
+    # Register a cooperative cancel event for the resumed task so the Stop
+    # button works correctly. The engine's resume_run checks this event in
+    # its per-chunk / pre-agent cancel checks (the same mechanism as a
+    # normally-started pipeline run). Only register if no event already exists
+    # (idempotent — a double-register must not reset a set() event).
+    if pipeline_run_id not in _CANCEL_EVENTS:
+        _CANCEL_EVENTS[pipeline_run_id] = asyncio.Event()
 
 
 def _validate_model_overrides(
@@ -1379,16 +1390,37 @@ async def websocket_chat(websocket: WebSocket):
 
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected: user={user.id}")
-        # Stop burning Bedrock tokens for a connection that's already gone.
-        # Without this, the pipeline task keeps streaming into a dead WS.
-        if current_pipeline_task is not None and not current_pipeline_task.done():
+        # KAN-88 (suspend behaviour): on WebSocketDisconnect, detach the
+        # WebSocket from the pipeline instead of cancelling it. The pipeline
+        # task keeps running headlessly — events are still written to the
+        # per-run queue and persisted to run_events. When the client
+        # reconnects it sends ``reconnect_pipeline`` with ``after_seq`` and
+        # re-attaches to the live queue (or replays the durable tail if the
+        # pipeline has already finished). This is the correct "suspend and
+        # resume from another place" behaviour.
+        #
+        # We do NOT cancel the task here. The only reason to cancel on
+        # disconnect was to avoid "burning Bedrock tokens for a dead WS" —
+        # but the pipeline's events go to the per-run QUEUE, not directly to
+        # the WS socket, so the queue simply accumulates events until a new
+        # drainer attaches. The run_events durable sink (PERSIST-03) also
+        # runs independently of the WS connection.
+        #
+        # Exception: if no durable substrate exists (the run has no
+        # pipeline_run_id, e.g. a legacy chat-only stream) we still cancel
+        # to avoid orphaned tasks.
+        _run_id_on_disconnect = _run_id_sink[0] if _run_id_sink else None
+        _task_is_pipeline = _run_id_on_disconnect is not None
+        if (
+            current_pipeline_task is not None
+            and not current_pipeline_task.done()
+            and not _task_is_pipeline
+        ):
+            # Legacy / no-run-id task — cancel as before.
             current_pipeline_task.cancel()
             try:
                 await current_pipeline_task
             except (asyncio.CancelledError, Exception):
-                # The task's CancelledError handler will have marked the
-                # WorkflowRun "cancelled" already; any send_json there will
-                # have failed silently because the WS is closed. That's fine.
                 pass
     except Exception as e:
         logger.error(f"WebSocket error: {e}")

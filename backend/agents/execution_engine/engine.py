@@ -4005,15 +4005,24 @@ class ExecutionEngine:
                     #     stateless legacy run with no durable step state has nothing to
                     #     resume FROM; re-arming it would leave it stuck with no driver).
                     if wr.status == "waiting_for_user":
-                        # ── branch (a): UNCHANGED ────────────────────────────────
-                        await self._store.get_resume_event(pipeline_run_id)
-                        try:
-                            self._state_machine.transition(
-                                pipeline_run_id, wr.status
-                            )
-                        except Exception:
-                            pass
-                        restored += 1
+                        # ── branch (a): waiting_for_user ────────────────────────────
+                        # KAN-88: after a backend restart the ClarifyEngine coroutine
+                        # that was ``await event.wait()`` is gone — re-arming the
+                        # asyncio.Event does not help because no coroutine will ever
+                        # await it to resume the pipeline. The correct behaviour is to
+                        # mark these runs as failed (the run cannot continue without
+                        # the ClarifyEngine driver) so the user can start a fresh run.
+                        # This avoids a permanently-stuck "waiting_for_user" row that
+                        # shows as running but can never proceed.
+                        prior_status = wr.status
+                        wr.status = "failed"
+                        wr.error = (
+                            "Run abandoned: backend restarted while waiting for "
+                            "user clarification (WR-05-clarify). The clarify gate "
+                            "cannot be resumed after a backend restart — please "
+                            "start a new run."
+                        )
+                        abandoned += 1
                     elif await self._is_resumable_in_flight(wr):
                         # ── branch (b): resumable in-flight → auto-resume in-process ─
                         # Stamp the additive ``run_resuming`` marker FIRST (the

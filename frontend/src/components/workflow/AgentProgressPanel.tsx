@@ -214,7 +214,13 @@ export function AgentProgressPanel({
   const isComplete = !isRunning && agents.length > 0 && completedCount === agents.length;
   const hasErrors = agents.some((a) => a.status === "error");
   const availablePipelines = availableChainTargets(workflowType, completedPipelineTypes);
-  const pipelineLabel = PIPELINE_LABELS[workflowType] || workflowType;
+  // Use pipelineState.pipeline_type as the authoritative label source — it comes
+  // directly from the backend pipeline_start event and is never stale. The
+  // workflowType prop can lag by one render cycle (it's updated by a useEffect
+  // after pipelineState.pipeline_type arrives), causing the header and
+  // notification to show the previous run's type during the new run.
+  const effectivePipelineType = pipelineState.pipeline_type || workflowType;
+  const pipelineLabel = PIPELINE_LABELS[effectivePipelineType] || PIPELINE_LABELS[workflowType] || workflowType;
   const progress = agents.length > 0 ? (completedCount / agents.length) * 100 : 0;
 
   // Focus revision textarea when it opens

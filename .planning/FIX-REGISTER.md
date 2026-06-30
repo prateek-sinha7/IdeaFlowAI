@@ -1092,3 +1092,54 @@ Note: this also happens when the user clicks "User Stories" after a plain protot
 - **INV-1**: not affected — frontend label only
 - **INV-3**: not affected — no backend change
 - **SC-001**: not affected — frontend only
+
+---
+
+### FIX-025 — KAN-88: Verify and Fix Pipeline Pause, Suspension, and Resume
+
+**Date:** 2026-06-30
+**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-88`
+
+#### Root Cause
+
+Three bugs found through deep end-to-end investigation:
+
+**Bug 1 — WebSocketDisconnect kills the pipeline (suspend broken):**
+`websocket.py` `except WebSocketDisconnect` immediately called `current_pipeline_task.cancel()`. This meant closing the browser tab or a network drop killed the pipeline permanently. The sessionStorage `active_pipeline_run_id` was set (correct), so reconnect sent `reconnect_pipeline` — but there was no live task to attach to. Only the durable replay of already-emitted events was available; the pipeline itself was dead.
+
+**Bug 2 — Auto-resumed runs have no cancel_event (Stop button broken after restart):**
+`_register_resume_task()` registered the resumed task in `_PIPELINE_TASKS` but never created a `_CANCEL_EVENTS` entry. The `cancel_pipeline` handler checked `_CANCEL_EVENTS.get(_cancel_run_id)` → `None` → fell through to the destructive `current_pipeline_task.cancel()` fallback. The cooperative Stop path was silently bypassed for all auto-resumed runs.
+
+**Bug 3 — `waiting_for_user` + backend restart = permanent hang:**
+`restore_non_terminal_runs` branch (a) re-armed the asyncio.Event for `waiting_for_user` runs but the `ClarifyEngine.run()` coroutine that was `await event.wait()` was gone after restart. No coroutine would ever drive the run forward. The run appeared live to the user but could never proceed or be stopped cleanly.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 12 (Wave Scheduler + Durable Resume / RESUME-04), Phase 16 (Terminal-State Integrity / ISS-007)
+- **Relevant register section:** `_register-parts/12-wave-scheduler-durable-resume-6.md` §3/§5; `_register-parts/16-terminal-state-integrity-and-reconnect-frame-contract.md` §3
+- **Deleted code verified (not resurrected):** No deleted code involved
+- **Locked decisions respected:** ISS-007 (16-02) cooperative cancel via cancel_event preserved; SC-001 no pipeline_type branches; INV-1 clean
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `backend/app/api/websocket.py` | `except WebSocketDisconnect`: detach instead of cancel. Only legacy/no-run-id tasks are still cancelled; pipeline tasks are left running headlessly. | Tab close / network drop no longer kills the pipeline. On reconnect, `reconnect_pipeline` attaches to the live task (or replays durable tail if already done). |
+| `backend/app/api/websocket.py` | `_register_resume_task()`: also creates `_CANCEL_EVENTS[pipeline_run_id] = asyncio.Event()` if not already present. | Stop button now works cooperatively for auto-resumed runs instead of destructively cancelling the task. |
+| `backend/agents/execution_engine/engine.py` | `restore_non_terminal_runs` branch (a) `waiting_for_user`: mark as `failed` (WR-05-clarify) instead of re-arming the asyncio.Event. | Prevents permanently-stuck runs after restart. ClarifyEngine cannot be resumed post-restart; failing loudly is the correct behaviour. |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — all changes are generic (keyed on run_id, not pipeline type)
+- **INV-3** (golden parity): not affected — no deliverable or event stream change
+- **INV-12** (no duplication): not applicable
+- **SC-001** (zero engine edits for new workflows): engine edit is in startup restore scan, not in the kernel execution path — no new workflow branches added
+
+#### Verification
+- `python -c "from app.api.websocket import _register_resume_task, _CANCEL_EVENTS; ..."` → OK
+- Backend restarts cleanly
+- Trace Bug 1: Tab close → WebSocketDisconnect → pipeline task left running → reconnect sends reconnect_pipeline → live queue drainer attaches → stream continues ✅
+- Trace Bug 2: Backend restart → resume_run → _register_resume_task → cancel_event created → Stop button → cancel_event.set() → cooperative cancel ✅
+- Trace Bug 3: Backend restart with waiting_for_user run → marked failed immediately → no phantom-live row ✅
+
+#### Notes
+- The "detach on disconnect" approach means pipeline tasks run headlessly when no client is connected. Events accumulate in the per-run queue (bounded by the asyncio.Queue default). For very long-running pipelines (2-6 hours) the queue could grow large; the durable `run_events` replay path is the safety net here.
+- The `waiting_for_user` fix is a breaking change for users who had a clarify gate open when the backend restarted — their run is now failed rather than resumed. This is the correct behaviour since the alternative (stuck forever) is worse. A proper fix would require serialising and replaying the ClarifyEngine state, which is a Phase 17+ enhancement.
+- Resume from another place (closing browser on machine A, opening on machine B): works correctly if the pipeline is still running (live attach) or has already completed (durable replay). The sessionStorage `active_pipeline_run_id` mechanism only helps if the SAME browser/tab re-opens. Cross-device resume is achieved entirely through `reconnect_pipeline` + `after_seq` from any new connection that knows the `pipeline_run_id`.
