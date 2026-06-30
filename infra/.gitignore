@@ -1,33 +1,70 @@
-# Terraform state — never commit. The remote backend lives in S3.
+# =============================================================================
+# Terraform — never commit state, plans, caches, or secret-bearing var files.
+# Layout: infra/terraform/{bootstrap,shared,foundation,app,modules,policies}.
+# =============================================================================
+
+# Terraform state — the remote backend lives in S3. Local state (bootstrap
+# only) and any stray state files must never be committed.
 *.tfstate
 *.tfstate.*
 *.tfstate.backup
 
-# Plan files
+# Plan files (may embed secret values from the diff)
 *.tfplan
 *.tfplan.*
 plan.out
+tfplan
 
-# Provider/cache directory
-.terraform/
+# Provider/cache directory + lock-info
+**/.terraform/
 .terraform.tfstate.lock.info
 
 # Module-level lock files are transient (created when an operator runs
-# `terraform init` inside a module dir for validate/plan-isolation). The
-# canonical lock files live in envs/* and ARE committed.
-modules/*/.terraform.lock.hcl
+# `terraform init` inside a module dir for validate-isolation). The canonical,
+# committed lock files live in the layer roots (bootstrap/shared/foundation/app)
+# for reproducible provider versions.
+terraform/modules/*/.terraform.lock.hcl
 
-# Variable files (.tfvars). Real values are operator-supplied and may
-# contain secrets. Only the .example template is committed.
+# -----------------------------------------------------------------------------
+# Variable files (.tfvars)
+# -----------------------------------------------------------------------------
+# Default: ignore ALL tfvars. Operator-supplied files (terraform.tfvars,
+# bootstrap.tfvars, *.auto.tfvars) may carry secrets and must never be
+# committed. Secrets are injected via TF_VAR_* / SSM, never via committed files.
 *.tfvars
+*.tfvars.json
 *.auto.tfvars
 *.auto.tfvars.json
+
+# Exception 1: example templates (placeholders only).
 !*.tfvars.example
 
-# Exception: the LocalStack environment is a hermetic test fixture — its
-# values are canonical (account 000000000000, stub AMI, dummy creds) and
-# carry no secrets, so they ship with the repo.
-!envs/localstack/terraform.tfvars
+# Exception 2: the committed, NON-SECRET per-environment config the CI/CD
+# pipeline consumes via `-var-file=<env>.tfvars` (infra/buildspec.yml). These
+# hold only env shape (CIDRs, sizes, retention, DNS strategy) — zero secrets.
+# Secrets for these environments come from TF_VAR_* (CI) and SSM at runtime.
+# gitleaks + checkov scan them on every PR (see buildspec pre_build).
+!terraform/foundation/dev.tfvars
+!terraform/foundation/stage.tfvars
+!terraform/foundation/prod.tfvars
+!terraform/app/dev.tfvars
+!terraform/app/stage.tfvars
+!terraform/app/prod.tfvars
+
+# Exception 3: the LocalStack fixture is hermetic — its values are canonical
+# (account 000000000000, stub AMI, dummy creds) and carry no secrets.
+!terraform/**/localstack.tfvars
+
+# -----------------------------------------------------------------------------
+# Key material / secrets — never commit.
+# -----------------------------------------------------------------------------
+*.pem
+*.key
+*.pfx
+*.p12
+.env
+.env.*
+!.env.example
 
 # Crash logs
 crash.log

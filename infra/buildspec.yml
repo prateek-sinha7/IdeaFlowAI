@@ -1,0 +1,251 @@
+# =============================================================================
+# VelocityAI CI/CD — CodeBuild buildspec (PUSH/TAG/RELEASE-triggered).
+# =============================================================================
+# One CodeBuild project per environment (bootstrap/cicd.tf), each with a fixed
+# ENVIRONMENT, runs this single buildspec top to bottom. The webhook filter
+# decides what triggers each project:
+#
+#   dev   branch push -> velocityai-gitlab-runner-<dev-branch>   (ENVIRONMENT=dev)
+#   stage branch push -> velocityai-gitlab-runner-<stage-branch> (ENVIRONMENT=stage)
+#   git TAG / Release  -> velocityai-gitlab-runner-<prod-branch>  (ENVIRONMENT=prod)
+#
+# Flow: validate -> security scan -> shared+foundation apply -> build/push the
+# backend + frontend images -> app apply (deploys image_tag) -> SSM RunCommand
+# redeploy on the EC2 host (docker compose pull && up -d). DB migrations run
+# IN-CONTAINER (Alembic on backend start) — there is no separate migration task.
+#
+# Image tags:
+#   branch build -> <env>-<short-sha>  (expired by count per env in ECR)
+#   tag/release  -> the sanitized git tag (retained indefinitely in ECR)
+# The frontend image is built ENV-AGNOSTIC (empty NEXT_PUBLIC_*, relative URLs
+# terminated by nginx) so a single image promotes dev -> stage -> prod by tag.
+#
+# Injected per-project by Terraform (bootstrap/cicd.tf), never hardcoded here:
+#   ENVIRONMENT, TF_STATE_BUCKET, TF_STATE_LOCK_TABLE, TF_VAR_cors_origins,
+#   TF_VAR_bedrock_model_id, TF_VAR_bedrock_inference_profile_id,
+#   TF_VAR_alert_email. Terraform auto-consumes every TF_VAR_* from the env.
+#
+# No AWS keys: the build runs as the per-env CodeBuild service role
+# (velocityai-codebuild-deploy-<env>). SECRET_KEY / DB password are NOT here —
+# the foundation secrets module auto-generates them into SSM SecureStrings.
+#
+# NOTE: each phase is a fresh shell (env does not persist), so per-build context
+# (ACCOUNT_ID / REGISTRY / IMAGE_TAG) is re-derived where needed.
+# =============================================================================
+
+version: 0.2
+
+env:
+  variables:
+    AWS_REGION: "eu-central-1"
+    TF_VERSION: "1.9.8"
+    TF_IN_AUTOMATION: "true"
+    TF_INPUT: "false"
+    DOCKER_BUILDKIT: "1"
+    CHECKOV_VERSION: "3"
+    GITLEAKS_VERSION: "8.18.4"
+    TRIVY_VERSION: "0.55.2"
+    TFLINT_VERSION: "0.63.1"
+
+phases:
+  # --- install: pin Terraform + scanners, validate ENVIRONMENT ---------------
+  install:
+    commands:
+      - set -euo pipefail
+      - ': "${ENVIRONMENT:?set ENVIRONMENT to dev, stage or prod}"'
+      - 'case "${ENVIRONMENT}" in dev|stage|prod) : ;; *) echo "ENVIRONMENT must be dev|stage|prod"; exit 1 ;; esac'
+      - curl -fsSL "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip" -o /tmp/tf.zip
+      - unzip -oq /tmp/tf.zip -d /usr/local/bin
+      - terraform version
+      - pip install --quiet "checkov>=${CHECKOV_VERSION},<4"
+      - curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gl.tar.gz
+      - tar -xzf /tmp/gl.tar.gz -C /usr/local/bin gitleaks
+      - curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" -o /tmp/trivy.tar.gz
+      - tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy
+      - curl -fsSL "https://github.com/terraform-linters/tflint/releases/download/v${TFLINT_VERSION}/tflint_linux_amd64.zip" -o /tmp/tflint.zip
+      - unzip -oq /tmp/tflint.zip -d /usr/local/bin
+      - tflint --version
+
+  # --- pre_build: code syntax + terraform fmt/validate, then security scans --
+  pre_build:
+    commands:
+      - set -euo pipefail
+      - TF="terraform -chdir=infra/terraform"
+      - echo "Python syntax gate"
+      - python3 -m compileall -q backend
+      - echo "Terraform fmt (recursive) + validate per layer"
+      - terraform fmt -check -recursive infra/terraform
+      - for d in shared foundation app; do $TF/$d init -backend=false -no-color && $TF/$d validate -no-color; done
+      - echo "Terraform lint (tflint, recursive over every layer + module)"
+      # Absolute config path so recursive mode lints every subdir against the
+      # shared ruleset (otherwise each dir would look for its own .tflint.hcl).
+      - export TFLINT_CONFIG_FILE="$(pwd)/infra/terraform/.tflint.hcl"
+      - tflint --chdir=infra/terraform --init
+      # Gate on `error`-severity findings (e.g. invalid instance type, malformed
+      # ARN). Warnings/notices are reported but don't fail the build; tighten to
+      # --minimum-failure-severity=warning once the suite is warning-clean.
+      - tflint --chdir=infra/terraform --recursive --minimum-failure-severity=error
+      - echo "Secret scan (hard gate)"
+      - gitleaks detect --no-git --redact --no-banner --source .
+      - echo "IaC misconfig scan (inline checkov:skip annotations document accepted findings)"
+      - checkov -d infra/terraform --quiet --compact
+      - trivy config --exit-code 1 --severity HIGH,CRITICAL infra/terraform
+
+  # --- build: shared+foundation apply, build/push images, app apply ----------
+  build:
+    commands:
+      - set -euo pipefail
+      - export ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+      - export REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+      # Derive IMAGE_TAG from the trigger: release/tag -> sanitized git tag
+      # (no env prefix, retained indefinitely by ECR lifecycle); branch push ->
+      # <env>-<short-sha> (expired by count per env). A RELEASED build that
+      # resolves no tag FAILS rather than shipping an <env>-<sha> image.
+      - |
+        set -euo pipefail
+        EVENT="${CODEBUILD_WEBHOOK_EVENT:-}"
+        TRIGGER="${CODEBUILD_WEBHOOK_TRIGGER:-}"
+        HEAD_REF="${CODEBUILD_WEBHOOK_HEAD_REF:-}"
+        SRC_VER="${CODEBUILD_SOURCE_VERSION:-}"
+        RELEASE_TAG=""
+        case "${HEAD_REF}" in refs/tags/*) RELEASE_TAG="${HEAD_REF#refs/tags/}" ;; esac
+        if [ -z "${RELEASE_TAG}" ]; then case "${TRIGGER}" in tag/*) RELEASE_TAG="${TRIGGER#tag/}" ;; esac; fi
+        if [ -z "${RELEASE_TAG}" ]; then case "${SRC_VER}" in refs/tags/*) RELEASE_TAG="${SRC_VER#refs/tags/}" ;; esac; fi
+        if [ -z "${RELEASE_TAG}" ] && [ "${EVENT}" = "RELEASED" ]; then
+          echo "ERROR: RELEASED build but no tag resolved (HEAD_REF='${HEAD_REF}' TRIGGER='${TRIGGER}' SRC='${SRC_VER}')" >&2
+          exit 1
+        fi
+        if [ -n "${RELEASE_TAG}" ]; then
+          IMAGE_TAG="$(printf '%s' "${RELEASE_TAG}" | sed -e 's#[^A-Za-z0-9._-]#-#g' -e 's#^[.-]\{1,\}##')"
+          : "${IMAGE_TAG:?could not derive a valid image tag from release tag '${RELEASE_TAG}'}"
+          echo "Release build: tag '${RELEASE_TAG}' -> image tag '${IMAGE_TAG}'"
+        else
+          IMAGE_TAG="${ENVIRONMENT}-$(printf '%s' "${CODEBUILD_RESOLVED_SOURCE_VERSION}" | cut -c1-12)"
+          echo "Branch build (${ENVIRONMENT}): image tag '${IMAGE_TAG}'"
+        fi
+        echo "${IMAGE_TAG}" > /tmp/image_tag
+      - export IMAGE_TAG="$(cat /tmp/image_tag)"
+      - TF="terraform -chdir=infra/terraform"
+      - aws ecr get-login-password --region "${AWS_REGION}" | docker login --username AWS --password-stdin "${REGISTRY}"
+      # shared (ECR) — owned once across envs
+      - >-
+        $TF/shared init -reconfigure -no-color
+        -backend-config="bucket=${TF_STATE_BUCKET}"
+        -backend-config="key=velocityai/shared.tfstate"
+        -backend-config="region=${AWS_REGION}"
+        -backend-config="dynamodb_table=${TF_STATE_LOCK_TABLE}"
+        -backend-config="encrypt=true"
+      - $TF/shared apply -auto-approve -no-color -var="aws_region=${AWS_REGION}" -var="expected_account_id=${ACCOUNT_ID}"
+      # foundation (idempotent per env)
+      - >-
+        $TF/foundation init -reconfigure -no-color
+        -backend-config="bucket=${TF_STATE_BUCKET}"
+        -backend-config="key=velocityai/${ENVIRONMENT}/foundation.tfstate"
+        -backend-config="region=${AWS_REGION}"
+        -backend-config="dynamodb_table=${TF_STATE_LOCK_TABLE}"
+        -backend-config="encrypt=true"
+      - $TF/foundation apply -auto-approve -no-color -var-file="${ENVIRONMENT}.tfvars" -var="expected_account_id=${ACCOUNT_ID}" -var="aws_region=${AWS_REGION}"
+      # build + push backend + frontend, tagged IMAGE_TAG. Frontend is built
+      # ENV-AGNOSTIC (no NEXT_PUBLIC_* -> relative URLs nginx terminates) so the
+      # same image promotes across environments. No shared :latest.
+      - docker buildx create --use --name velocityai-builder >/dev/null 2>&1 || docker buildx use velocityai-builder
+      - |
+        set -euo pipefail
+        IMAGE_TAG="$(cat /tmp/image_tag)"
+        for entry in \
+          "velocityai/backend:backend:backend/Dockerfile" \
+          "velocityai/frontend:frontend:frontend/Dockerfile"; do
+            repo="${entry%%:*}"; rest="${entry#*:}"; ctx="${rest%%:*}"; dockerfile="${rest#*:}"
+            echo "==> ${repo} (context=${ctx}, dockerfile=${dockerfile})"
+            docker buildx build --platform linux/amd64 --provenance=false --sbom=false \
+              -f "${dockerfile}" --build-arg GIT_SHA="${CODEBUILD_RESOLVED_SOURCE_VERSION}" \
+              -t "${REGISTRY}/${repo}:${IMAGE_TAG}" --push "${ctx}"
+        done
+      # app layer: deploys the image_tag (writes config/docker-compose.yml +
+      # config/deploy.env to the backup bucket).
+      - >-
+        $TF/app init -reconfigure -no-color
+        -backend-config="bucket=${TF_STATE_BUCKET}"
+        -backend-config="key=velocityai/${ENVIRONMENT}/app.tfstate"
+        -backend-config="region=${AWS_REGION}"
+        -backend-config="dynamodb_table=${TF_STATE_LOCK_TABLE}"
+        -backend-config="encrypt=true"
+      - >-
+        $TF/app plan -out=tfplan -no-color
+        -var-file="${ENVIRONMENT}.tfvars"
+        -var="expected_account_id=${ACCOUNT_ID}"
+        -var="aws_region=${AWS_REGION}"
+        -var="state_bucket=${TF_STATE_BUCKET}"
+        -var="image_tag=${IMAGE_TAG}"
+      - $TF/app apply -auto-approve -no-color tfplan
+
+  # --- post_build: redeploy on the EC2 host via SSM RunCommand ---------------
+  # Pulls config/docker-compose.yml + config/deploy.env from the backup bucket,
+  # logs into ECR, `docker compose pull && up -d`. Alembic migrations run in the
+  # backend container on start. Health is checked on the box (localhost) so the
+  # gate does not depend on external DNS/TLS being live yet.
+  post_build:
+    commands:
+      - |
+        set -euo pipefail
+        if [ "${CODEBUILD_BUILD_SUCCEEDING}" != "1" ]; then
+          echo "Build phase failed — skipping redeploy."
+          exit 1
+        fi
+        IMAGE_TAG="$(cat /tmp/image_tag)"
+        ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+        REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+        APP="terraform -chdir=infra/terraform/app"
+        INSTANCE_ID="$($APP output -raw instance_id)"
+        CONFIG_BUCKET="$($APP output -raw config_bucket)"
+        echo "=== Redeploy ${IMAGE_TAG} on ${INSTANCE_ID} (via SSM) ==="
+        # Build the on-host redeploy script: the first three lines are
+        # interpolated by this (CodeBuild) shell; the quoted heredoc body is
+        # preserved verbatim and resolves $BUCKET/$REGISTRY/$REGION on the host.
+        {
+          echo "BUCKET=${CONFIG_BUCKET}"
+          echo "REGISTRY=${REGISTRY}"
+          echo "REGION=${AWS_REGION}"
+          cat <<'SCRIPT'
+        set -euo pipefail
+        install -d -m 0750 /opt/velocityai /etc/velocityai
+        aws s3 cp "s3://${BUCKET}/config/docker-compose.yml" /opt/velocityai/docker-compose.yml
+        aws s3 cp "s3://${BUCKET}/config/deploy.env" /etc/velocityai/deploy.env
+        cd /opt/velocityai
+        set -a
+        . /etc/velocityai/deploy.env
+        if [ -f /etc/velocityai/app.env ]; then . /etc/velocityai/app.env; fi
+        set +a
+        aws ecr get-login-password --region "${REGION}" | docker login --username AWS --password-stdin "${REGISTRY}"
+        docker compose pull
+        docker compose up -d
+        docker compose ps
+        for i in $(seq 1 30); do
+          if curl -fsS http://localhost:8000/health >/dev/null 2>&1; then echo "backend healthy"; exit 0; fi
+          if [ "$i" = "30" ]; then echo "backend health timeout"; docker compose logs --tail=80 backend || true; exit 1; fi
+          sleep 10
+        done
+        SCRIPT
+        } > /tmp/redeploy.sh
+        jq -Rs '{commands: [.]}' /tmp/redeploy.sh > /tmp/ssm-params.json
+        CMD_ID="$(aws ssm send-command \
+          --instance-ids "${INSTANCE_ID}" \
+          --document-name AWS-RunShellScript \
+          --comment "velocityai deploy ${IMAGE_TAG}" \
+          --timeout-seconds 1800 \
+          --parameters file:///tmp/ssm-params.json \
+          --region "${AWS_REGION}" \
+          --query Command.CommandId --output text)"
+        echo "SSM command: ${CMD_ID}"
+        # Poll until the on-host script finishes.
+        while true; do
+          STATUS="$(aws ssm get-command-invocation --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" --region "${AWS_REGION}" --query Status --output text 2>/dev/null || echo Pending)"
+          case "${STATUS}" in
+            Success) echo "Redeploy succeeded."; break ;;
+            Failed|Cancelled|TimedOut)
+              echo "Redeploy ${STATUS}:";
+              aws ssm get-command-invocation --command-id "${CMD_ID}" --instance-id "${INSTANCE_ID}" --region "${AWS_REGION}" --query StandardErrorContent --output text || true;
+              exit 1 ;;
+            *) sleep 10 ;;
+          esac
+        done
