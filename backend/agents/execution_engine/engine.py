@@ -4749,17 +4749,27 @@ class ExecutionEngine:
         """Return the LATEST content produced by ``producer_agent`` — TYPED-ONLY.
 
         Typed read (ART-03): the typed graph (``ectx.artifacts``) is the SOLE
-        source — the latest ref by insertion order (the build loop writes a new
+        source — the latest ref by ``max(version)`` (the build loop writes a new
         prototype-build ref version per task; the next task's prompt needs the most
         recent). The prior-agent output mirror that used to be the fallback was
         DELETED in 05-07 (INV-3/INV-12, L15 ☑) once parity proved the typed reads
         return the same content. Returns None if the graph has no such content.
+
+        REDO-GATE B10 (F5): the winner is the MAX-``version`` matching ref (tie-broken
+        by later insertion via ``>=``), NOT raw ``tree()`` insertion order — so a
+        REJECTED prior version can never win after persist + rehydrate (where
+        ``store.tree()`` re-adopts refs in an arbitrary order). Byte-identical on the
+        goldens: within one process write order == version order, and no golden
+        producer emits a higher-version kind before a lower-version different kind, so
+        "max version, later-insertion tie-break" == "last inserted" (parity-guarded).
         """
-        latest: str | None = None
+        best = None
         for ref in ectx.artifacts.tree(ectx.run_id):
-            if ref.producer_agent == producer_agent:
-                latest = ref.content
-        return latest
+            if ref.producer_agent == producer_agent and (
+                best is None or ref.version >= best.version
+            ):
+                best = ref
+        return best.content if best is not None else None
 
     # ──────────────────────────────────────────────────────────────────────
     # RESUME-02 (12-02): the SINGLE per-step retry/reuse wrapper (D-10).
@@ -5704,6 +5714,20 @@ class ExecutionEngine:
             prev = next((s for s in ordered_agents if s.id == aid), None)
             label = f"{prev.name} ({prev.role})" if prev else aid
             parts.append(f"\n--- Output from {label} ---\n{output}")
+
+        # ── REDO-GATE B6: the optional "redo with additional instructions" block ──
+        # Appended IFF ectx.redo_directive is set for THIS re-run (set adjacently in
+        # _run_agent's redo loop, cleared unconditionally right after — consume-once,
+        # F3). Generic (keyed on the scratch field, no workflow/agent literal —
+        # SC-001). Dormant on every non-redo run (redo_directive == "" → no block) ⇒
+        # byte-identical (INV-3). Signature UNCHANGED (rides the additive ectx field).
+        redo_note = getattr(ectx, "redo_directive", "") or ""
+        if redo_note:
+            parts.append(
+                "\n=== ADDITIONAL INSTRUCTIONS (REVISE) ===\n"
+                f"{redo_note}\n"
+                "=== END ADDITIONAL INSTRUCTIONS ==="
+            )
 
         # ── Build agent: the CURRENT TASK block + current HTML (agnostic scratch) ─
         if ectx.build_task_number:
