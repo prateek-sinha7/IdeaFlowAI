@@ -51,6 +51,25 @@ export interface StreamMessage {
   data?: FinalOutput | ErrorDetail | ProcessStep | Record<string, unknown>;
 }
 
+/**
+ * Inbound `review_gate_ready` event data shape (REDO-GATE F-fe5).
+ *
+ * `redoable` is a GENERIC, server-set discriminator (additive): the engine stamps
+ * it `true` ONLY from the inline human-gate call site (a structural path — no
+ * workflow/agent literal, SC-001). The FE renders the Redo control IFF `redoable`
+ * is true, so a declared/user-composed `gate:human` step (which carries
+ * `redoable=false`) shows NO Redo button. Optional + backward-compatible: an event
+ * without the field is treated as not-redoable.
+ */
+export interface ReviewGateReadyData {
+  gate_key: string;
+  agent_id: string;
+  agent_name: string;
+  output: string;
+  pipeline_run_id: string;
+  redoable?: boolean;
+}
+
 /** One worker leaf under a wave group — an agent + its lifecycle status. */
 export interface WaveWorker {
   agent: string;
