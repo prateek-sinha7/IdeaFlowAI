@@ -540,14 +540,8 @@ export function AgentThinkingTab({ agents, pipelineState }: AgentThinkingTabProp
       </div>
 
       {pipelineState && (
-        <div className="flex-shrink-0 border-t border-gray-100 px-4 py-2.5 bg-gray-50/50">
-          <div className="flex items-center justify-between text-[10px] text-gray-500">
-            <div className="flex items-center gap-1.5">
-              <Cpu className="h-3 w-3 text-gray-400" />
-              <span>Total tokens</span>
-            </div>
-            <TokenUsageSummary pipelineState={pipelineState} modelId={pipelineState.modelId} />
-          </div>
+        <div className="flex-shrink-0 border-t border-gray-100 px-4 py-2 bg-gray-50/50">
+          <TokenUsageSummary pipelineState={pipelineState} modelId={pipelineState.modelId} />
         </div>
       )}
     </div>

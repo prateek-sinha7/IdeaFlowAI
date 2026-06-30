@@ -368,65 +368,26 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
             </div>
           </div>
 
-          {/* Token usage summary — shown when data is available */}
+          {/* Token usage — single compact line */}
           {selectedRun.tokenUsage && selectedRun.tokenUsage.total_tokens > 0 && (
-            <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
-              <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-widest mb-2">Token Usage</p>
-              <div className="space-y-1.5">
-                {/* Model name */}
-                {(selectedRun.tokenUsage.model_id || selectedRun.modelId) && (() => {
-                  const MODEL_NAMES: Record<string, string> = {
-                    "eu.anthropic.claude-haiku-4-5-20251001-v1:0":  "Claude Haiku 4.5",
-                    "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": "Claude Sonnet 4.5",
-                    "eu.anthropic.claude-sonnet-4-6":               "Claude Sonnet 4.6",
-                    "eu.anthropic.claude-opus-4-5-20251101-v1:0":   "Claude Opus 4.5",
-                    "eu.anthropic.claude-opus-4-6-v1":              "Claude Opus 4.6",
-                  };
-                  const mid = selectedRun.tokenUsage?.model_id || selectedRun.modelId || "";
-                  const modelName = MODEL_NAMES[mid] ?? mid.split(".").pop() ?? mid;
-                  return (
-                    <div className="flex items-center justify-between pb-1.5 border-b border-gray-200">
-                      <span className="text-[10px] text-gray-500">Model</span>
-                      <span className="text-[10px] font-semibold text-[#1B2A4A]">{modelName}</span>
-                    </div>
-                  );
-                })()}
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-gray-500">Input tokens</span>
-                  <span className="text-[10px] font-semibold text-gray-800">
-                    {selectedRun.tokenUsage.total_input_tokens.toLocaleString()}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-gray-500">Output tokens</span>
-                  <span className="text-[10px] font-semibold text-gray-800">
-                    {selectedRun.tokenUsage.total_output_tokens.toLocaleString()}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between border-t border-gray-200 pt-1.5">
-                  <span className="text-[10px] font-semibold text-gray-600">Total</span>
-                  <span className="text-[10px] font-bold text-gray-900">
-                    {selectedRun.tokenUsage.total_tokens.toLocaleString()}
-                  </span>
-                </div>
-                {/* Input/output ratio bar */}
-                <div className="h-1 bg-gray-200 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-[#1B2A4A] rounded-full"
-                    style={{
-                      width: `${Math.round((selectedRun.tokenUsage.total_input_tokens / selectedRun.tokenUsage.total_tokens) * 100)}%`
-                    }}
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[9px] text-gray-400">Est. cost</span>
-                  <span className="text-[10px] font-semibold text-gray-700">
-                    {selectedRun.tokenUsage.estimated_cost_usd < 0.001
-                      ? "<$0.001"
-                      : `~$${selectedRun.tokenUsage.estimated_cost_usd.toFixed(3)}`}
-                  </span>
-                </div>
-              </div>
+            <div className="px-5 py-2 border-b border-gray-100 flex items-center gap-1.5 flex-wrap">
+              {(() => {
+                const t = selectedRun.tokenUsage!;
+                const input = t.total_input_tokens;
+                const output = t.total_output_tokens;
+                const total = t.total_tokens;
+                const fmt = (n: number) => n >= 1_000_000 ? `${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `${(n/1_000).toFixed(1)}K` : String(n);
+                return (
+                  <>
+                    <span className="text-[9px]">⚡</span>
+                    <span className="text-[10px] font-bold text-gray-900">{fmt(total)} total</span>
+                    <span className="text-[10px] text-gray-400">·</span>
+                    <span className="text-[10px] text-gray-500">{fmt(input)} input</span>
+                    <span className="text-[10px] text-gray-400">·</span>
+                    <span className="text-[10px] text-gray-500">{fmt(output)} output</span>
+                  </>
+                );
+              })()}
             </div>
           )}
 
