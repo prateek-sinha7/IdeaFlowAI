@@ -17,10 +17,16 @@ import { useState } from "react";
 import {
   FileText, ListChecks, Hammer, CheckCircle2, XCircle,
   ChevronDown, ChevronRight, Zap, Clock, Cpu,
-  Map, Layout, MousePointer, Database, ArrowRight,
-  Loader2, Circle,
+  Map, Layout, ArrowRight,
+  Loader2, Circle, Brain,
 } from "lucide-react";
 import type { AgentRunState } from "@/types/index";
+import {
+  ContextSourcesRow,
+  ToolCallsSection,
+  InputPromptSection,
+  OutputPreviewSection,
+} from "./AgentThinkingTab";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -197,7 +203,53 @@ function PhaseCard({
   );
 }
 
-// ─── Spec visualization ───────────────────────────────────────────────────────
+// ─── Agent detail section — FR-015 data (prompt, context, tools, output) ─────
+// Renders the full thinking-tab detail for one prototype phase agent, using the
+// same shared sub-components as AgentThinkingTab's generic view (INV-12).
+function AgentDetailSection({ agent }: { agent: AgentRunState }) {
+  const hasDetail =
+    (agent.contextSources && agent.contextSources.length > 0) ||
+    (agent.toolCalls && agent.toolCalls.length > 0) ||
+    agent.inputPrompt ||
+    (agent.status === "done" && agent.output && agent.output.trim().length > 0) ||
+    (agent.status === "thinking" && agent.thinkingText);
+
+  if (!hasDetail) return null;
+
+  return (
+    <div className="border-t border-gray-100 px-4 py-3 bg-white space-y-0">
+      {/* Live thinking stream */}
+      {(agent.status === "running" || agent.status === "thinking") && agent.thinkingText && (
+        <div className="mb-3 rounded-lg bg-[#E8EDF5]/50 px-3 py-2">
+          <div className="flex items-center gap-1.5 mb-1">
+            <Brain className="h-3 w-3 text-[#1B2A4A]" />
+            <span className="text-[9px] font-bold uppercase tracking-widest text-[#1B2A4A]">Reasoning (live)</span>
+          </div>
+          <p className="text-[10px] text-gray-700 leading-relaxed font-mono max-h-[200px] overflow-y-auto">
+            {agent.thinkingText}
+            <span className="animate-pulse">▌</span>
+          </p>
+        </div>
+      )}
+      {agent.contextSources && agent.contextSources.length > 0 && (
+        <ContextSourcesRow sources={agent.contextSources} />
+      )}
+      {agent.toolCalls && agent.toolCalls.length > 0 && (
+        <ToolCallsSection toolCalls={agent.toolCalls} />
+      )}
+      {agent.inputPrompt && (
+        <InputPromptSection prompt={agent.inputPrompt} />
+      )}
+      {agent.status === "done" && agent.output && agent.output.trim().length > 0 && (
+        <div className="mt-3 pt-3 border-t border-gray-100">
+          <OutputPreviewSection output={agent.output} agentId={agent.id} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 
 function SpecVisualization({ spec }: { spec: ParsedSpec }) {
   const [showRaw, setShowRaw] = useState(false);
@@ -256,8 +308,8 @@ function SpecVisualization({ spec }: { spec: ParsedSpec }) {
         Full Spec Document
       </button>
       {showRaw && (
-        <pre className="text-[9px] text-gray-600 whitespace-pre-wrap leading-relaxed bg-gray-50 rounded-lg p-3 max-h-[200px] overflow-y-auto font-mono border border-gray-100">
-          {spec.raw.slice(0, 3000)}{spec.raw.length > 3000 ? "\n…[truncated]" : ""}
+        <pre className="text-[9px] text-gray-600 whitespace-pre-wrap leading-relaxed bg-gray-50 rounded-lg p-3 max-h-[500px] overflow-y-auto font-mono border border-gray-100">
+          {spec.raw}
         </pre>
       )}
     </div>
@@ -308,7 +360,7 @@ function TaskListVisualization({ tasks, currentTaskIndex, allDone }: {
               {task.goal && (
                 <p className={`text-[10px] mt-0.5 leading-snug ${
                   isDone ? "text-[#1B2A4A]" : isActive ? "text-[#1B2A4A]" : "text-gray-400"
-                }`}>{task.goal.slice(0, 100)}</p>
+                }`}>{task.goal}</p>
               )}
             </div>
           </div>
@@ -435,6 +487,7 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
           {specStatus === "done" && !spec && (
             <div className="px-4 py-3 text-[11px] text-gray-500">Spec generated — no structured pages found.</div>
           )}
+          {specAgent && <AgentDetailSection agent={specAgent} />}
         </PhaseCard>
 
         {/* Connector */}
@@ -470,11 +523,12 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
           {planStatus === "done" && !tasksData && planAgent?.output && (
             <div className="px-4 py-3 bg-white">
               <p className="text-[10px] text-gray-500 mb-2">Task list generated (raw format):</p>
-              <pre className="text-[9px] text-gray-600 whitespace-pre-wrap leading-relaxed bg-gray-50 rounded-lg p-3 max-h-[200px] overflow-y-auto font-mono border border-gray-100">
-                {planAgent.output.slice(0, 2000)}{planAgent.output.length > 2000 ? "\n…[truncated]" : ""}
+              <pre className="text-[9px] text-gray-600 whitespace-pre-wrap leading-relaxed bg-gray-50 rounded-lg p-3 max-h-[500px] overflow-y-auto font-mono border border-gray-100">
+                {planAgent.output}
               </pre>
             </div>
           )}
+          {planAgent && <AgentDetailSection agent={planAgent} />}
         </PhaseCard>
 
         {/* Connector */}
@@ -513,7 +567,7 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
                     Task {tasksData.tasks[realtimeCompletedCount].number}: {tasksData.tasks[realtimeCompletedCount].title}
                   </p>
                   <p className="text-[10px] text-[#1B2A4A] mt-0.5">
-                    {tasksData.tasks[realtimeCompletedCount].goal.slice(0, 100)}
+                    {tasksData.tasks[realtimeCompletedCount].goal}
                   </p>
                 </div>
               )}
@@ -552,6 +606,7 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
               <p className="text-[11px] text-[#1B2A4A]">Building prototype…</p>
             </div>
           )}
+          {buildAgent && <AgentDetailSection agent={buildAgent} />}
         </PhaseCard>
 
         {/* Connector */}
@@ -578,11 +633,12 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
           )}
           {validateStatus === "done" && validateAgent?.output && (
             <div className="px-4 py-3 bg-white">
-              <p className="text-[11px] text-[#1B2A4A] leading-relaxed">
-                {validateAgent.output.split("\n")[0]?.slice(0, 150) || "Validation complete."}
+              <p className="text-[11px] text-[#1B2A4A] leading-relaxed whitespace-pre-wrap">
+                {validateAgent.output}
               </p>
             </div>
           )}
+          {validateAgent && <AgentDetailSection agent={validateAgent} />}
         </PhaseCard>
 
         {/* Complete */}

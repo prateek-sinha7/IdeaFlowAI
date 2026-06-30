@@ -392,6 +392,18 @@ export default function DashboardPage() {
           setWaveGroups,
         });
         if (topEventId) seenEventIdsRef.current.add(topEventId);
+        // KAN-89: clear any stale reviewGateData from a previous run so the
+        // ReviewGatePanel never blocks the new pipeline's preview area.
+        // reviewGateData lives separately from pipelineState and is not cleared
+        // by onResetPipeline() — this is the canonical place to clear it since
+        // pipeline_start is the definitive "new run has begun" signal.
+        setReviewGateData(null);
+        // Clear stale questionnaire state from a previous run that may have
+        // been cancelled/failed while the clarify gate was open (questionnaire_complete
+        // never fired). Without this, the old questionnaire panel can flash or
+        // persist into the next run's preview area.
+        setQuestionnaireData(null);
+        setActivePipelineRunId(null);
       }
 
       handlePipelineMsgRef.current?.({

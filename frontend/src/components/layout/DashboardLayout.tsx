@@ -323,6 +323,25 @@ export function DashboardLayout({
       if (normalised && normalised !== workflowType) {
         setWorkflowType(normalised);
       }
+      // KAN-88 stale label fix: if currentPipelineNotifId still holds an old
+      // run's id when a new pipeline starts (the previous completion effect may
+      // not have run yet), clear it so the od_prototype notification guard
+      // (!currentPipelineNotifId.current) fires correctly and creates a fresh
+      // notification with the right type. Without this, a prototype run started
+      // after a user_stories run keeps showing "User Stories" in the header.
+      // We compare against the pipelineRunId so we only reset when a genuinely
+      // NEW run starts, not on every isRunning re-render.
+      const incomingRunId = pipelineState.pipelineRunId;
+      if (incomingRunId && currentPipelineNotifId.current) {
+        // If the current notif was created for a different run, reset it.
+        // We detect this by checking if the notification was created for the
+        // pipeline that just started (odProtoNotifCreated resets on !isRunning).
+        // A simple guard: if isRunning just became true AND odProtoNotifCreated
+        // is false (reset after last run), we're in a new run context.
+        if (!odProtoNotifCreated.current) {
+          currentPipelineNotifId.current = null;
+        }
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pipelineState?.isRunning, pipelineState?.pipeline_type]);
@@ -872,9 +891,22 @@ export function DashboardLayout({
     }
 
     const cleanBrief = workflowInput.split("\n\n===")[0].trim();
+    // If cleanBrief itself starts with === (e.g. a revision message like
+    // "=== EXISTING PROTOTYPE HTML ===\n{HTML}\n=== END ==="), the full
+    // HTML/content blob would become the enrichedInput — producing a bad title
+    // and oversized brief. Extract the === REVISION REQUEST === instruction
+    // instead, or fall back to empty so the pipeline starts with just the
+    // contextBlock (or the LLM generates a title from the contextBlock alone).
+    const safeCleanBrief = (() => {
+      if (!cleanBrief.startsWith("===")) return cleanBrief;
+      // Try to extract the revision instruction
+      const revMatch = workflowInput.match(/===\s*REVISION REQUEST\s*===\s*\n([\s\S]*?)\n===\s*END REQUEST\s*===/i);
+      if (revMatch) return revMatch[1].trim();
+      return "";
+    })();
     const enrichedInput = contextBlock
-      ? `${cleanBrief}\n\n${contextBlock}`
-      : cleanBrief;
+      ? `${safeCleanBrief}\n\n${contextBlock}`.trim()
+      : safeCleanBrief;
 
     if (onResetPipeline) onResetPipeline();
     setWorkflowInput(enrichedInput);
@@ -943,7 +975,15 @@ export function DashboardLayout({
     }
 
     const cleanBrief = (run.input || "").split("\n\n===")[0].trim();
-    const enrichedInput = contextBlock ? `${cleanBrief}\n\n${contextBlock}` : cleanBrief;
+    // Same fix as handleChainPipeline: if cleanBrief starts with === it means
+    // run.input is a revision message. Extract the revision instruction instead.
+    const safeCleanBrief = (() => {
+      if (!cleanBrief.startsWith("===")) return cleanBrief;
+      const revMatch = (run.input || "").match(/===\s*REVISION REQUEST\s*===\s*\n([\s\S]*?)\n===\s*END REQUEST\s*===/i);
+      if (revMatch) return revMatch[1].trim();
+      return "";
+    })();
+    const enrichedInput = contextBlock ? `${safeCleanBrief}\n\n${contextBlock}`.trim() : safeCleanBrief;
 
     setWorkflowType(nextType);
     setWorkflowInput(enrichedInput);
@@ -1346,6 +1386,22 @@ export function DashboardLayout({
                       // immediately clears agents[] before the event arrives,
                       // so the graceful agent state transition (running→idle) is skipped.
                     }}
+                    // KAN-84: revision moved from thin right-panel input to left-panel
+                    // next-steps section. Wired to the existing handleRevise* callbacks.
+                    onRevise={
+                      (workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt") ? handleRevisePpt :
+                      (workflowType === "user_stories" || workflowType === "user_stories_revision") ? handleReviseUserStory :
+                      (workflowType === "prototype" || workflowType === "prototype_revision" || !!prototypeContent) ? handleRevisePrototype :
+                      (workflowType === "app_builder" || workflowType === "app_builder_revision") ? handleReviseAppBuilder :
+                      undefined
+                    }
+                    reviseLabel={
+                      (workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt") ? "Revise Presentation" :
+                      (workflowType === "user_stories" || workflowType === "user_stories_revision") ? "Revise User Stories" :
+                      (workflowType === "prototype" || workflowType === "prototype_revision" || !!prototypeContent) ? "Revise Prototype" :
+                      (workflowType === "app_builder" || workflowType === "app_builder_revision") ? "Revise App Blueprint" :
+                      "Revise"
+                    }
                   />
                   </div>
                 </ErrorBoundary>
@@ -1400,10 +1456,10 @@ export function DashboardLayout({
                       workflowType={workflowType}
                       rawPipelineType={pipelineState?.pipeline_type || workflowType}
                       pptxCode={pptxCode}
-                      onRevisePpt={(workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt") ? handleRevisePpt : undefined}
-                      onReviseUserStory={(workflowType === "user_stories" || workflowType === "user_stories_revision") ? handleReviseUserStory : undefined}
-                      onRevisePrototype={(workflowType === "prototype" || workflowType === "prototype_revision" || !!prototypeContent) ? handleRevisePrototype : undefined}
-                      onReviseAppBuilder={(workflowType === "app_builder" || workflowType === "app_builder_revision") ? handleReviseAppBuilder : undefined}
+                      onRevisePpt={undefined}
+                      onReviseUserStory={undefined}
+                      onRevisePrototype={undefined}
+                      onReviseAppBuilder={undefined}
                       agentOutputs={
                         pipelineState && pipelineState.agents.length > 0
                           ? pipelineState.agents

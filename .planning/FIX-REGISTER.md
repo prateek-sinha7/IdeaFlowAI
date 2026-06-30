@@ -28,6 +28,9 @@
 | FIX-016 | 2026-06-17 | "Invalid presentation output" — PPT composer runs 12.9s → 662 chars (no HTML deck) | Engine clarify-mode routing seam (MAN-04) handles `mode=="auto"` but has no handler for `mode=="skip"`. Planner returns CLARIFY_REQUIRED (normal for od_ppt brief). mode=skip means "wizard already collected context, skip clarification". Without the skip handler, CLARIFY_REQUIRED flows through unchecked → ClarifyEngine fires → user clicks through with no extra answers → agents run with incomplete context → composer produces 662-char stub → isHtml check fails → "Invalid presentation output" | `backend/agents/execution_engine/engine.py` | Phase 4 (MAN-04) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-017 | 2026-06-17 | PPT composer produces 697-char confused validator output (validator: "I don't see an HTML artifact") | `_compose_injection()` in `factory.py` hardcoded a prototype-specific CRITICAL OUTPUT RULES block (section 0) that fires for ANY agent declaring `injects:`. The PPT composer declares `injects:[template, design_system]`, triggering this block. Rule #2 "Every page must have a routed section" (prototype navigation) directly contradicts the PPT AGENT.md output contract (deck slides). The model gets confused and produces a tiny non-HTML response in 6.3s. The validator receives no artifact, responds "I don't see an HTML artifact", and its 697-char bewildered output becomes the final deliverable → isHtml check fails → "Invalid presentation output" | `backend/agents/factory.py` | Phase 7/15 | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-018 | 2026-06-23 | KAN-73: hook_run WS events never reach the frontend Audit tab — ectx.event_queue never set + after_step never fired | `KernelServices.emit_hook_event()` calls `getattr(self._ectx, "event_queue", None)` but `ExecutionContext` never has `event_queue` set: `_execute_impl` constructs `ectx` without it and `execute()` never threads the WS queue onto it → `queue = None` → early return → no hook_run WS event. Second: engine only fired `before_step`; `after_step` was never fired (no code path). Third: hook event dict lacked `agent_name`/`step_index` so audit summaries showed raw agent IDs | `backend/agents/execution_engine/engine.py`, `backend/app/api/websocket.py` | Phase 8 (KAN-73) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-021 | 2026-06-30 | KAN-83: Token count dialog in left panel too large — reduce to single compact line | `TokenUsageSummary` rendered a multi-section bordered card (header + input/output breakdown + ratio bar + cost row = ~80px). KAN-83 requires a single line showing only the token count. Replaced the 4-row `rounded-xl border bg-gray-50 px-4 py-3` card layout with a single `flex items-center gap-1.5 flex-wrap` line: ⚡ TOKEN USAGE · 128.7K total · 128.6K input · 11.8K output · ~$0.041 | `frontend/src/components/workflow/TokenUsageSummary.tsx` | Phase 22 (UI) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-022 | 2026-06-30 | KAN-80: Prototype Thinking tab hides full prompts, context sources, and agent-handoff artifacts | `AgentThinkingTab` routes prototype runs to `PrototypePipelineView` (Phase-card layout) which never renders `InputPromptSection`, `ContextSourcesRow`, `ToolCallsSection`, or `OutputPreviewSection`. The data IS captured in agent state via `agent_input` events but PrototypePipelineView silently discards it. User stories pipeline hits the generic `AgentTimelineCard` path which shows everything. Fix: export the 4 sub-components from `AgentThinkingTab`, add `AgentDetailSection` wrapper to `PrototypePipelineView`, wire into all 4 PhaseCards. | `frontend/src/components/results/AgentThinkingTab.tsx`, `frontend/src/components/results/PrototypePipelineView.tsx` | Phase 3 (FR-015 / T043) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-023 | 2026-06-30 | KAN-89: After prototype revision, chaining to user stories shows stale Specification Review gate | `reviewGateData` in `dashboard/page.tsx` is set on `review_gate_ready` and cleared on `review_gate_approved`/reject, but never cleared when a new pipeline starts. `onResetPipeline()` only resets `pipelineState` (useWorkflow hook). After prototype_revision completes with a Human Gate approval, `reviewGateData` stays set. When user chains to user_stories, the new pipeline fires but `DashboardLayout` renders `<ReviewGatePanel>` because `reviewGateData !== null`, blocking the user_stories preview. Fix: clear `reviewGateData(null)` on `pipeline_start` in `handleWebSocketMessage`. | `frontend/src/app/dashboard/page.tsx` | Phase 8 (GATE-01/02) | INV-1/3/12/SC-001 ✅ | Done |
 
 ---
 
@@ -907,3 +910,236 @@ Three separate bugs combined to cause the panel to show "0" and wrong/missing pr
 - No TypeScript diagnostics after fix
 - `(n.agentsTotal ?? 0) > 0` always returns boolean, never renders as text
 - `currentPipelineNotifId.current` set before `addRunningNotification` so all update callbacks work
+
+
+---
+
+### FIX-022 — KAN-84: Revision input moved to left-panel expandable textarea
+
+**Date:** 2026-06-30
+**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-84`
+
+#### Root Cause
+
+The revision input was a thin `<input type="text">` bar (single-line, ~py-2 height) pinned at the bottom of the preview components on the RIGHT side of the screen (PPTPreview, PrototypePreview, UserStoryPreview, MarkdownPreview). Users couldn't type properly because the input was too thin and located far from the left-panel where they complete workflows.
+
+KAN-84 requires revision to live in the left-panel "Suggested next steps" section as a proper expandable chat-style textarea with close/send controls.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 22 — Capability Surfacing & User Empowerment (left panel UX)
+- **Relevant register section:** `_register-parts/22-capability-surfacing-and-user-empowerment-universal-runtime-.md`
+- **Deleted code verified (not resurrected):** No phase-deleted code involved
+- **Locked decisions respected:** The existing `handleRevise*` callbacks in DashboardLayout are reused unchanged — only the entry point moves
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/workflow/AgentProgressPanel.tsx` | Added `onRevise?` + `reviseLabel?` props; added `reviseOpen` state + `revisionText` state + `revisionRef`; added revision button in next-steps card that opens an expandable textarea with close (X) + send buttons; auto-focuses textarea on open; ⌘↵ keyboard shortcut | Provides the left-panel expandable textarea per KAN-84 spec |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Passed `onRevise` + `reviseLabel` to AgentProgressPanel (wired to existing `handleRevise*` functions); set `onRevise*` on PreviewPanel to `undefined` (removes thin right-panel bars) | Moves revision entry point to left panel; reuses all existing revision logic |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — frontend-only change
+- **INV-3** (golden parity): not affected — no engine, deliverable, or backend change
+- **INV-12** (no duplication): existing `handleRevisePpt` / `handleRevisePrototype` / `handleReviseUserStory` / `handleReviseAppBuilder` in DashboardLayout reused as-is
+- **SC-001** (zero engine edits): not affected — zero backend edit
+
+#### Verification
+- TypeScript diagnostics: No diagnostics found on both changed files
+- Revision callbacks unchanged: the existing `handleRevise*` functions in DashboardLayout fire exactly as before — only the UI entry point changes
+- PreviewPanel revision bars removed: `onRevise*` props set to `undefined` → no thin bars on right side
+- Left panel: "Revise Presentation" / "Revise Prototype" / "Revise User Stories" / "Revise App Blueprint" button appears in next-steps card when pipeline completes; click → expandable textarea; close X → collapses; Send (or ⌘↵) → calls existing revision function
+
+#### Notes
+- The revision button appears INSIDE the "Suggested next steps" card (same card as chaining options), guarded by `onRevise && `. If `onRevise` is undefined (migration, custom, or incomplete states), no revision button shows.
+- The textarea has `rows={3}` and is not `resize-none` — users can drag it larger if needed (satisfies "can expand the chat box").
+- The close button satisfies "can close the chat box".
+- After Send, the existing revision pipeline flow runs identically — run_revision WS dispatch, workflowType set to *_revision, etc.
+
+---
+
+### FIX-022 — KAN-80: Prototype Thinking Tab Hides Full Prompts, Context Sources, and Agent-Handoff Artifacts
+
+**Date:** 2026-06-30
+**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-80`
+
+#### Root Cause
+`AgentThinkingTab.tsx` (line 483–488) has an `isPrototypePipeline` gate: when any agent in the pipeline has an id in `["prototype-specify", "prototype-plan", "prototype-build", "prototype-validate"]`, it early-returns `<PrototypePipelineView />` instead of rendering the generic `AgentTimelineCard` list.
+
+`PrototypePipelineView` is a specialized Phase-1–4 card layout that renders `SpecVisualization`, `TaskListVisualization`, and a build progress bar. It deliberately does NOT render:
+- `InputPromptSection` — the full expandable input prompt (agent_input `context_message`)
+- `ContextSourcesRow` — which upstream artifacts were read (agent handoff visibility)
+- `ToolCallsSection` — tool calls and their results
+- `OutputPreviewSection` — agent output preview
+
+All four of these data fields ARE captured correctly in `pipelineState.agents[]` by `useWorkflow.ts` (the `agent_input` handler at line ~400 sets `agent.inputPrompt` and `agent.contextSources`; `agent_chunk` accumulates `agent.output`; `tool_call`/`tool_result` maintain `agent.toolCalls`). `PrototypePipelineView` reads only `agent.output` for spec/task parsing and `agent.status` for phase status — the rest is silently dropped.
+
+The user stories pipeline never matches `isPrototypePipeline` so it falls through to the generic `AgentTimelineCard` path which renders all four sections correctly. This is exactly the asymmetry the bug report describes.
+
+Trace:
+```
+prototype run → agent_input WS event
+→ useWorkflow handlePipelineMessage "agent_input"
+→ agent.inputPrompt = context_message ✓, agent.contextSources = [...] ✓
+→ AgentThinkingTab renders
+→ isPrototypePipeline = true (agent id "prototype-specify" matched)
+→ EARLY RETURN <PrototypePipelineView agents={agents} />
+→ PrototypePipelineView reads agent.output (spec/task parse) + agent.status only
+→ agent.inputPrompt, agent.contextSources, agent.toolCalls → never rendered
+→ user sees Phase cards with no prompt / no context / no tools / no output detail
+```
+
+#### Phase Context
+- **Phase(s) involved:** Phase 3 (FR-015 / T043/T044) — agent_input event + Thinking tab FR-015 data
+- **Relevant register section:** `_register-parts/03-token-trim-measured-change-0c.md` §3; Phase 3 T043/T044 entries
+- **Deleted code verified (not resurrected):** None — no deleted code involved
+- **Locked decisions respected:** INV-12 (no duplication) — the 4 sub-components are exported from their existing location and imported, not copied
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/results/AgentThinkingTab.tsx` | Changed `function ContextSourcesRow`, `function ToolCallsSection`, `function InputPromptSection`, `function OutputPreviewSection` to `export function ...` | Makes the 4 sub-components importable by PrototypePipelineView (INV-12 — reuse, no duplication) |
+| `frontend/src/components/results/PrototypePipelineView.tsx` | Added `Brain` to lucide imports; added import of `{ContextSourcesRow, ToolCallsSection, InputPromptSection, OutputPreviewSection}` from `./AgentThinkingTab`; added `AgentDetailSection` helper component that renders live thinking + context sources + tool calls + input prompt + output for a given agent; wired `{specAgent && <AgentDetailSection agent={specAgent} />}` into all 4 PhaseCards | Exposes the FR-015 data within each phase card, below the existing visual (spec/task/progress) content — prototype Thinking tab now matches the standard already visible in user stories |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — frontend-only change; no engine or backend change
+- **INV-3** (golden parity): not affected — backend event stream unchanged; no deliverable or context change
+- **INV-12** (no duplication): verified — sub-components are exported from their canonical location and imported; zero code copied
+- **SC-001** (zero engine edits for new workflows): not affected — frontend display change only
+
+#### Verification
+- TypeScript diagnostics: `No diagnostics found` on both changed files
+- `AgentDetailSection` wired into all 4 PhaseCards confirmed via grep (`specAgent`, `planAgent`, `buildAgent`, `validateAgent` all present)
+- All 4 sub-component exports confirmed in AgentThinkingTab.tsx
+- No imports broken — `ContextSourcesRow` etc. still compile cleanly in AgentThinkingTab itself (now exported, not private)
+- No backend restart needed (frontend-only)
+
+#### Notes
+- `AgentDetailSection` renders inside the PhaseCard's existing `<div>` body (it renders its own `border-t` separator). The `hasDetail` guard ensures nothing is rendered when the agent has no data yet (e.g. Phase 4 Validation before the run completes).
+- The InputPromptSection retains its existing `max-h-[160px]` scroll cap and 3000-char display limit — these are UX defaults from the generic view, not an issue. The user can copy the full prompt via the Copy button.
+- OutputPreviewSection shows the raw agent output (spec doc, task list, HTML, validation result) — same 4000-char display cap as the generic view. For the build agent this is the full HTML deliverable (large) which is correctly scroll-capped.
+- The PrototypePipelineView Phase cards remain — the visual spec/task/progress display is kept; AgentDetailSection adds detail *below* it. This is additive, not a replacement.
+
+---
+
+### FIX-023 — KAN-89: Stale ReviewGatePanel Blocks User Stories After Prototype Revision Chain
+
+**Date:** 2026-06-30
+**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-89`
+
+#### Root Cause
+`reviewGateData` in `dashboard/page.tsx` is set when a `review_gate_ready` WS event fires (prototype-specify's Human Gate) and cleared when `review_gate_approved` fires or the user rejects. However it is **never cleared when a new pipeline starts**.
+
+After a prototype or prototype_revision run completes (which went through the Human Gate), `reviewGateData` holds the last gate's state. When the user clicks "User Stories" in "Suggested next steps", `handleChainPipeline` calls `onResetPipeline()` (which only resets `pipelineState` in the useWorkflow hook) then `onStartPipeline("user_stories", ...)`. The user_stories pipeline starts on the backend and `pipeline_start` fires — but `reviewGateData` is still non-null in React state.
+
+`DashboardLayout.tsx` line 1392 renders `reviewGateData ? <ReviewGatePanel>` with higher priority than all other preview views. The ReviewGatePanel for `prototype-specify` ("Specification Review — Spec Writer Agent · Review before continuing") is shown over the user_stories pipeline, blocking the user from proceeding.
+
+Trace:
+```
+prototype_revision run → review_gate_ready → setReviewGateData({...})
+→ user approves → review_gate_approved → setReviewGateData(null) ✓
+→ revision continues, completes
+→ user clicks "User Stories"
+→ handleChainPipeline("user_stories") → onResetPipeline() [pipelineState reset]
+   → reviewGateData NOT cleared
+→ onStartPipeline("user_stories", enrichedInput)
+→ backend: user_stories pipeline_start fires
+→ DashboardLayout: reviewGateData still set → <ReviewGatePanel> rendered
+→ user sees "Specification Review" gate for a pipeline that already completed
+```
+
+Note: this also happens when the user clicks "User Stories" after a plain prototype run (without revision) if the prototype had a Human Gate approval — same stale state.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 8 — Capabilities Hardened (Human_Gate / GATE-01/02/03)
+- **Relevant register section:** `_register-parts/08-capabilities-hardened-registry-gates-tool-perms-runtime-3.md` §3
+- **Deleted code verified (not resurrected):** No deleted code involved
+- **Locked decisions respected:** GATE-01/02/03 — Human Gate pause/resume flow unchanged; only the stale-clear on new run start is added
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/app/dashboard/page.tsx` | Added `setReviewGateData(null)` inside the `if (msg.type === "pipeline_start")` block in `handleWebSocketMessage` | `pipeline_start` is the canonical "new run has begun" signal — clearing the gate here ensures any stale `reviewGateData` from a previous run is removed before the new pipeline's preview area renders |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — `setReviewGateData(null)` fires on all `pipeline_start` events regardless of pipeline type
+- **INV-3** (golden parity): not affected — frontend-only state change; no backend or deliverable change
+- **INV-12** (no duplication): not applicable
+- **SC-001** (zero engine edits): not affected — frontend-only fix
+
+#### Verification
+- TypeScript diagnostics: No diagnostics found on `dashboard/page.tsx`
+- Trace with fix: prototype_revision completes → reviewGateData set → user approves → reviewGateData(null) → user clicks "User Stories" → pipeline fires → `pipeline_start` arrives → `setReviewGateData(null)` called → DashboardLayout: `reviewGateData === null` → ReviewGatePanel NOT rendered → user_stories preview shown correctly
+- Regression check: for a fresh run that fires a Human Gate mid-pipeline, `pipeline_start` fires BEFORE `review_gate_ready` — so clearing on `pipeline_start` doesn't affect the live gate flow (gate fires later after the agent runs)
+
+#### Notes
+- The fix covers both the "fresh live run" path (AgentProgressPanel chain button) and the "history reopen" path (WorkflowHistory chain button via `handleChainFromHistory`) — both result in a `pipeline_start` WS event.
+- A secondary defensive measure would be to also call `setReviewGateData(null)` inside `handleChainPipeline` and `handleChainFromHistory` before calling `onStartPipeline`, but the `pipeline_start` approach is cleaner and more robust (it handles all start paths including od_prototype and future pipelines).
+
+---
+
+### FIX-024b — KAN-81 Supplement: Add "Prototype Revision Pipeline" label to Thinking tab
+
+**Date:** 2026-06-30
+**Triggered by:** KAN-81 fresh analysis — pipeline label falls through to generic "Pipeline" for prototype-revision-agent
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/results/AgentThinkingTab.tsx` | Added `if (ids.some(id => id === "prototype-revision-agent")) return "Prototype Revision Pipeline";` to `pipelineLabel` derivation | Without this, the Thinking tab header shows "Pipeline" for revision runs. Exact ID match avoids incorrectly labelling other revision agent types (user-story-revision-agent, ppt-revision-agent, etc.). |
+
+#### Invariants Verified
+- **INV-1**: not affected — frontend label only
+- **INV-3**: not affected — no backend change
+- **SC-001**: not affected — frontend only
+
+---
+
+### FIX-025 — KAN-88: Verify and Fix Pipeline Pause, Suspension, and Resume
+
+**Date:** 2026-06-30
+**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-88`
+
+#### Root Cause
+
+Three bugs found through deep end-to-end investigation:
+
+**Bug 1 — WebSocketDisconnect kills the pipeline (suspend broken):**
+`websocket.py` `except WebSocketDisconnect` immediately called `current_pipeline_task.cancel()`. This meant closing the browser tab or a network drop killed the pipeline permanently. The sessionStorage `active_pipeline_run_id` was set (correct), so reconnect sent `reconnect_pipeline` — but there was no live task to attach to. Only the durable replay of already-emitted events was available; the pipeline itself was dead.
+
+**Bug 2 — Auto-resumed runs have no cancel_event (Stop button broken after restart):**
+`_register_resume_task()` registered the resumed task in `_PIPELINE_TASKS` but never created a `_CANCEL_EVENTS` entry. The `cancel_pipeline` handler checked `_CANCEL_EVENTS.get(_cancel_run_id)` → `None` → fell through to the destructive `current_pipeline_task.cancel()` fallback. The cooperative Stop path was silently bypassed for all auto-resumed runs.
+
+**Bug 3 — `waiting_for_user` + backend restart = permanent hang:**
+`restore_non_terminal_runs` branch (a) re-armed the asyncio.Event for `waiting_for_user` runs but the `ClarifyEngine.run()` coroutine that was `await event.wait()` was gone after restart. No coroutine would ever drive the run forward. The run appeared live to the user but could never proceed or be stopped cleanly.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 12 (Wave Scheduler + Durable Resume / RESUME-04), Phase 16 (Terminal-State Integrity / ISS-007)
+- **Relevant register section:** `_register-parts/12-wave-scheduler-durable-resume-6.md` §3/§5; `_register-parts/16-terminal-state-integrity-and-reconnect-frame-contract.md` §3
+- **Deleted code verified (not resurrected):** No deleted code involved
+- **Locked decisions respected:** ISS-007 (16-02) cooperative cancel via cancel_event preserved; SC-001 no pipeline_type branches; INV-1 clean
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `backend/app/api/websocket.py` | `except WebSocketDisconnect`: detach instead of cancel. Only legacy/no-run-id tasks are still cancelled; pipeline tasks are left running headlessly. | Tab close / network drop no longer kills the pipeline. On reconnect, `reconnect_pipeline` attaches to the live task (or replays durable tail if already done). |
+| `backend/app/api/websocket.py` | `_register_resume_task()`: also creates `_CANCEL_EVENTS[pipeline_run_id] = asyncio.Event()` if not already present. | Stop button now works cooperatively for auto-resumed runs instead of destructively cancelling the task. |
+| `backend/agents/execution_engine/engine.py` | `restore_non_terminal_runs` branch (a) `waiting_for_user`: mark as `failed` (WR-05-clarify) instead of re-arming the asyncio.Event. | Prevents permanently-stuck runs after restart. ClarifyEngine cannot be resumed post-restart; failing loudly is the correct behaviour. |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — all changes are generic (keyed on run_id, not pipeline type)
+- **INV-3** (golden parity): not affected — no deliverable or event stream change
+- **INV-12** (no duplication): not applicable
+- **SC-001** (zero engine edits for new workflows): engine edit is in startup restore scan, not in the kernel execution path — no new workflow branches added
+
+#### Verification
+- `python -c "from app.api.websocket import _register_resume_task, _CANCEL_EVENTS; ..."` → OK
+- Backend restarts cleanly
+- Trace Bug 1: Tab close → WebSocketDisconnect → pipeline task left running → reconnect sends reconnect_pipeline → live queue drainer attaches → stream continues ✅
+- Trace Bug 2: Backend restart → resume_run → _register_resume_task → cancel_event created → Stop button → cancel_event.set() → cooperative cancel ✅
+- Trace Bug 3: Backend restart with waiting_for_user run → marked failed immediately → no phantom-live row ✅
+
+#### Notes
+- The "detach on disconnect" approach means pipeline tasks run headlessly when no client is connected. Events accumulate in the per-run queue (bounded by the asyncio.Queue default). For very long-running pipelines (2-6 hours) the queue could grow large; the durable `run_events` replay path is the safety net here.
+- The `waiting_for_user` fix is a breaking change for users who had a clarify gate open when the backend restarted — their run is now failed rather than resumed. This is the correct behaviour since the alternative (stuck forever) is worse. A proper fix would require serialising and replaying the ClarifyEngine state, which is a Phase 17+ enhancement.
+- Resume from another place (closing browser on machine A, opening on machine B): works correctly if the pipeline is still running (live attach) or has already completed (durable replay). The sessionStorage `active_pipeline_run_id` mechanism only helps if the SAME browser/tab re-opens. Cross-device resume is achieved entirely through `reconnect_pipeline` + `after_seq` from any new connection that knows the `pipeline_run_id`.

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Loader2, RotateCcw, ArrowRight, Square, Sparkles, ChevronDown } from "lucide-react";
+import { Loader2, RotateCcw, ArrowRight, Square, Sparkles, ChevronDown, RefreshCw, X, Send } from "lucide-react";
 import type { AgentRunState, PipelineRunState, WorkflowType } from "@/types/index";
 import { availableChainTargets } from "@/lib/workflowChaining";
 import { TokenUsageSummary, AgentTokenPill } from "./TokenUsageSummary";
@@ -16,6 +16,11 @@ interface AgentProgressPanelProps {
   onChainPipeline?: (type: WorkflowType) => void;
   completedPipelineTypes?: WorkflowType[];
   onCancelPipeline?: () => void;
+  /** KAN-84: revision callback — when provided a "Revise" button appears in the
+   *  left-panel next-steps section opening an expandable chat-style textarea. */
+  onRevise?: (instruction: string) => void;
+  /** Label for the revision button, e.g. "Revise Presentation" */
+  reviseLabel?: string;
 }
 const PIPELINE_LABELS: Record<string, string> = {
   user_stories: "User Stories",
@@ -174,8 +179,13 @@ export function AgentProgressPanel({
   onChainPipeline,
   completedPipelineTypes = [],
   onCancelPipeline,
+  onRevise,
+  reviseLabel,
 }: AgentProgressPanelProps) {
   const [isCancelled, setIsCancelled] = useState(false);
+  const [reviseOpen, setReviseOpen] = useState(false);
+  const [revisionText, setRevisionText] = useState("");
+  const revisionRef = useRef<HTMLTextAreaElement>(null);
   const { agents, isRunning, completedCount, totalDuration } = pipelineState;
 
   // Preserve scroll position during live pipeline updates.
@@ -204,8 +214,21 @@ export function AgentProgressPanel({
   const isComplete = !isRunning && agents.length > 0 && completedCount === agents.length;
   const hasErrors = agents.some((a) => a.status === "error");
   const availablePipelines = availableChainTargets(workflowType, completedPipelineTypes);
-  const pipelineLabel = PIPELINE_LABELS[workflowType] || workflowType;
+  // Use pipelineState.pipeline_type as the authoritative label source — it comes
+  // directly from the backend pipeline_start event and is never stale. The
+  // workflowType prop can lag by one render cycle (it's updated by a useEffect
+  // after pipelineState.pipeline_type arrives), causing the header and
+  // notification to show the previous run's type during the new run.
+  const effectivePipelineType = pipelineState.pipeline_type || workflowType;
+  const pipelineLabel = PIPELINE_LABELS[effectivePipelineType] || PIPELINE_LABELS[workflowType] || workflowType;
   const progress = agents.length > 0 ? (completedCount / agents.length) * 100 : 0;
+
+  // Focus revision textarea when it opens
+  useEffect(() => {
+    if (reviseOpen && revisionRef.current) {
+      revisionRef.current.focus();
+    }
+  }, [reviseOpen]);
 
   return (
     <div className="flex h-full flex-col bg-white">
@@ -272,6 +295,85 @@ export function AgentProgressPanel({
                 </p>
               </div>
               <div className="space-y-1.5">
+                {/* KAN-84: Revision option in left-panel next steps */}
+                {onRevise && (
+                  <div className="space-y-1.5">
+                    {!reviseOpen ? (
+                      <motion.button
+                        initial={{ opacity: 0, x: -4 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        onClick={() => setReviseOpen(true)}
+                        className="group w-full flex items-center justify-between rounded-xl border border-[#1B2A4A]/20 bg-white hover:border-[#1B2A4A] hover:bg-[#1B2A4A] hover:shadow-md px-3.5 py-2.5 text-left transition-all"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-[12px] font-semibold text-gray-900 group-hover:text-white transition-colors">
+                            {reviseLabel || "Revise"}
+                          </p>
+                          <p className="text-[10px] text-gray-500 group-hover:text-white/80 transition-colors leading-snug">
+                            Request changes to the output
+                          </p>
+                        </div>
+                        <RefreshCw className="h-3.5 w-3.5 text-[#1B2A4A] group-hover:text-white group-hover:rotate-180 transition-all flex-shrink-0 ml-2" />
+                      </motion.button>
+                    ) : (
+                      <motion.div
+                        initial={{ opacity: 0, y: -4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="rounded-xl border border-[#1B2A4A]/20 bg-white overflow-hidden"
+                      >
+                        {/* Header */}
+                        <div className="flex items-center justify-between px-3.5 pt-3 pb-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <RefreshCw className="h-3.5 w-3.5 text-[#1B2A4A]" />
+                            <p className="text-[11px] font-semibold text-[#1B2A4A]">
+                              {reviseLabel || "Revise"}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => { setReviseOpen(false); setRevisionText(""); }}
+                            className="p-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                        {/* Textarea */}
+                        <div className="px-3.5 pb-3">
+                          <textarea
+                            ref={revisionRef}
+                            value={revisionText}
+                            onChange={(e) => setRevisionText(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && revisionText.trim()) {
+                                onRevise(revisionText.trim());
+                                setRevisionText("");
+                                setReviseOpen(false);
+                              }
+                            }}
+                            placeholder="Describe what you'd like to change..."
+                            rows={3}
+                            className="w-full text-[12px] text-gray-700 placeholder-gray-400 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#1B2A4A]/40 transition-colors resize-y leading-relaxed min-h-[72px]"
+                          />
+                          <div className="flex items-center justify-between mt-2">
+                            <span className="text-[9px] text-gray-400">⌘↵ to send</span>
+                            <button
+                              onClick={() => {
+                                if (revisionText.trim()) {
+                                  onRevise(revisionText.trim());
+                                  setRevisionText("");
+                                  setReviseOpen(false);
+                                }
+                              }}
+                              disabled={!revisionText.trim()}
+                              className="flex items-center gap-1.5 text-[11px] font-medium text-white bg-[#1B2A4A] hover:bg-[#2a3d5e] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors"
+                            >
+                              <Send className="h-3 w-3" /> Send
+                            </button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </div>
+                )}
                 {availablePipelines.map((pipeline, idx) => (
                   <motion.button
                     key={pipeline.type}

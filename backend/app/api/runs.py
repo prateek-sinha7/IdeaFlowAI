@@ -445,12 +445,27 @@ def _extract_chain_context(workflow_run: WorkflowRun) -> ChainContextResponse:
         # retired "requirements-analyst" agent which isn't in this pipeline
         # (the old lookup always returned "" → empty chain context). od_prototype
         # resolves to the same prototype agents, so the IDs match for both.
+        # For prototype_revision, the revision agent doesn't have a spec writer —
+        # use the revision instruction extracted from the run's input instead.
         spec_output = get_agent_output("prototype-specify") or get_agent_output("prototype-plan")
         if spec_output:
             m = re.search(r"<spec>([\s\S]*?)</spec>", spec_output)
             spec_text = (m.group(1).strip() if m else spec_output)
             structured_summary = f"Prototype Specification:\n{spec_text[:3500]}"
             agent_summaries.append({"agent": "Spec Writer", "summary": spec_text[:500]})
+        elif pipeline_type == "prototype_revision":
+            # Extract the revision instruction from the run's input field
+            # (format: "=== EXISTING PROTOTYPE HTML ===\n...\n=== REVISION REQUEST ===\n{instruction}\n=== END REQUEST ===")
+            import re as _re_local
+            rev_match = _re_local.search(
+                r"===\s*REVISION REQUEST\s*===\s*\n(.*?)\n===\s*END REQUEST\s*===",
+                workflow_run.input or "",
+                _re_local.DOTALL,
+            )
+            if rev_match:
+                instruction = rev_match.group(1).strip()
+                structured_summary = f"Prototype Revision: {instruction}"
+                agent_summaries.append({"agent": "Revision Specialist", "summary": instruction[:500]})
 
     elif pipeline_type in ("app_builder", "app_builder_revision"):
         # Extract from system design agent
