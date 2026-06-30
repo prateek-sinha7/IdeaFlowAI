@@ -2533,795 +2533,872 @@ class ExecutionEngine:
             )
             return
 
-        agent_start = time.time()
+        # ── REDO-GATE redo loop (F2): unbounded human-paced redos are a FLAT
+        # while-loop, NOT recursion — N redos = N iterations, O(1) stack, O(1) per
+        # event. The loop body is the EXISTING single run + inline gate; only the
+        # loop framing + the _gate_redo branch are new. The redo directive +
+        # derived_from lineage are LOOP LOCALS (consume-once, F3): captured per
+        # iteration and reset BEFORE the model call, so an empty-output / errored /
+        # non-redo exit can never leak lineage or a REVISE block onto the next agent.
+        redo_directive = ""          # extra instructions for the NEXT re-run
+        redo_derived_from = None     # rejected ref id the re-run supersedes
+        while True:
+            agent_start = time.time()
 
-        yield {
-            "type": "agent_start",
-            "data": {"agent_id": spec.id, "name": spec.name, "role": spec.role,
-                     "icon": spec.icon, "index": index, "total": len(ordered_agents)},
-        }
-        _log_event("agent_start", pipeline_run_id, agent_id=spec.id)
+            yield {
+                "type": "agent_start",
+                "data": {"agent_id": spec.id, "name": spec.name, "role": spec.role,
+                         "icon": spec.icon, "index": index, "total": len(ordered_agents)},
+            }
+            _log_event("agent_start", pipeline_run_id, agent_id=spec.id)
 
-        # Build context message via the GENERIC injector (INV-1) — OD/template blocks
-        # come from the declared context_provider capabilities, the agnostic parts
-        # (brief + planning + consumed outputs + CURRENT TASK) are composed inline.
-        # The former L12 per-pipeline injection branches were deleted from the kernel
-        # in 07-05; the generic injector is the sole context-composition path.
-        context_message = await self._compose_context_message(
-            spec, index, ordered_agents, user_message,
-            planning_context, ectx,
-        )
-
-        # Emit agent_input event (Phase 3 / T040) — shows full input prompt
-        # and context sources in the Thinking tab (FR-015).
-        context_sources = self._build_context_sources(spec, ordered_agents, ectx)
-        yield {
-            "type": "agent_input",
-            "data": {
-                "agent_id": spec.id,
-                "pipeline_run_id": pipeline_run_id,
-                "timestamp": _now(),
-                "context_message": context_message,
-                "context_sources": context_sources,
-                "tool_calls": [],
-            },
-        }
-
-        try:
-            # Merge disk-based skills into attached_skills for this agent.
-            # UI-attached skills take priority; disk skill is appended after.
-            merged_skills: list[dict] = list(attached_skills or [])
-            disk_skills = ectx.disk_skills
-            if spec.id in disk_skills:
-                merged_skills.append({"content": disk_skills[spec.id]})
-
-            ctx = AgentContext(
-                user_request=user_message,
-                agent_outputs=self._filter_consumed_outputs(spec, ordered_agents, ectx),
-                attached_skills=merged_skills,
-                attached_hooks=list(attached_hooks or []),
-                # MODEL-01/02/05: the effective model id by the D-02 precedence. With no
-                # overrides + no manifest model (today) this returns ``model_id or Haiku`` =
-                # the prior value — INV-3 parity. step=None this plan (06-04 wires the
-                # compiled Step lookup); resolve() applies tiers 1/3/4/5 unchanged.
-                model=self._resolve_model(ectx, spec, model_id),
-                od_context=ectx.od_context,
-                planning_context=planning_context,
-                # Byte-identity guard (D-09): pass disk_principal (== user_id or "anon"),
-                # NOT owner_id (the DB principal, which may be anon:<session_id>), so the
-                # sub-agent's RunSandbox disk path stays byte-identical to pre-05-04.
-                user_id=ectx.disk_principal,
-                # run_id roots create_runner's RunSandbox at RunSandbox(user_id,
-                # pipeline_run_id) — the SAME per-run disk dir the engine reads
-                # deliverables back from (prototype.html / code-gen files).
-                run_id=pipeline_run_id,
-                # prewarmed_constitution (AGENTRT-06 / F4 / R12): the owner's Constitution,
-                # awaited ONCE at run entry, so the SYNC factory injects a DB-stored
-                # Constitution under this running event loop WITHOUT awaiting (the R12
-                # no-op fix). None when none is set → graceful no-op (parity).
-                prewarmed_constitution=ectx.prewarmed_constitution,
-                # prewarmed_mcp_tools (09-05 / MCP-01): the MCP/integration tools bound
-                # ONCE at run entry (above) so the SYNC factory unions them into the runner
-                # tool set under this running loop WITHOUT awaiting. Empty when no MCP
-                # scope is active → graceful no-op (parity; snapshots byte-identical).
-                prewarmed_mcp_tools=list(getattr(ectx, "prewarmed_mcp_tools", None) or []),
-                # step_injects (WIRE-03 / D-16): the compiled Step.injects for THIS step,
-                # read GENERICALLY off ectx.current_step (the compiled Step bound by the
-                # strategy handle before this call — the SAME seam current_step.hooks uses,
-                # NOT a spec.id/pipeline_type branch, SC-001). The factory merges it with
-                # spec.injects (AGENT.md). [] for every step declaring no per-step injects:
-                # (all 5 goldens) → the merge is a no-op → byte-identical (INV-3).
-                step_injects=list(
-                    getattr(getattr(ectx, "current_step", None), "injects", None) or []
-                ),
+            # Build context message via the GENERIC injector (INV-1) — OD/template blocks
+            # come from the declared context_provider capabilities, the agnostic parts
+            # (brief + planning + consumed outputs + CURRENT TASK) are composed inline.
+            # The former L12 per-pipeline injection branches were deleted from the kernel
+            # in 07-05; the generic injector is the sole context-composition path.
+            # ── REDO-GATE consume-once (F3) ──────────────────────────────────────────
+            # Publish the redo directive to ectx ONLY around this compose call, then
+            # clear it UNCONDITIONALLY right after — so an empty-output / errored /
+            # non-redo path can never carry a REVISE block onto the next agent. The
+            # derived_from lineage never touches ectx (it stays a loop local), and both
+            # locals are reset to empty here so a NON-redo exit cannot leak either.
+            ectx.redo_directive = redo_directive
+            context_message = await self._compose_context_message(
+                spec, index, ordered_agents, user_message,
+                planning_context, ectx,
             )
+            ectx.redo_directive = ""
+            _iter_derived = redo_derived_from   # lineage for THIS iteration's write
+            redo_directive = ""
+            redo_derived_from = None
 
-            # Capture the resolved primary model ID *now*, before create_runner — it is
-            # the string id the MODEL-02 fallback chain is armed on (set_chain below).
-            # Captured here (not off ctx.model after the build) because the fallback
-            # retry reassigns ctx.model to the next chain id on a throttle.
-            _resolved_model_id = ctx.model
+            # Emit agent_input event (Phase 3 / T040) — shows full input prompt
+            # and context sources in the Thinking tab (FR-015).
+            context_sources = self._build_context_sources(spec, ordered_agents, ectx)
+            yield {
+                "type": "agent_input",
+                "data": {
+                    "agent_id": spec.id,
+                    "pipeline_run_id": pipeline_run_id,
+                    "timestamp": _now(),
+                    "context_message": context_message,
+                    "context_sources": context_sources,
+                    "tool_calls": [],
+                },
+            }
 
-            # ── Unique per-agent-invocation checkpoint thread_id ──────────────
-            # The LangGraph checkpoint thread_id isolates each agent's graph state
-            # and MUST be unique per agent-invocation, or sequential agents in the
-            # same run would collide on one checkpoint thread. (The disk sandbox is
-            # SEPARATE — it stays per-run/shared, keyed on pipeline_run_id, so files
-            # like prototype.html persist across the run's agents; see ctx.run_id
-            # above.) Base id = "<pipeline_run_id>:<spec.id>". The build loop runs
-            # the SAME spec.id ("prototype-build") once per task, so when a task
-            # number is present we append it ("<run>:<agent>:<task>") to keep each
-            # task on its own thread — the task_loop strategy sets ectx.build_task_number
-            # before each call (and it is "" for every other agent, which then uses the
-            # plain two-part id). interrupt_on is intentionally NOT passed (kept None) —
-            # gate-selection is Task #44 and the runner stays in non-gate mode so event
-            # shapes are unchanged.
-            task_num = ectx.build_task_number or None
-            thread_id = (
-                f"{pipeline_run_id}:{spec.id}:{task_num}"
-                if task_num
-                else f"{pipeline_run_id}:{spec.id}"
-            )
-            agent = create_runner(
-                spec.id,
-                ctx,
-                thread_id=thread_id,
-                checkpointer=ectx.checkpointer,
-                # Phase 11 / FANOUT-05 (CR-02): a fan-out worker invocation carries
-                # an engine-allocated ISOLATED workspace on its step view — its
-                # sandbox overrides the shared per-run dir so worker writes land
-                # isolated. None for every non-worker invocation (parity).
-                run_sandbox=self._isolated_run_sandbox(ectx),
-            )
+            try:
+                # Merge disk-based skills into attached_skills for this agent.
+                # UI-attached skills take priority; disk skill is appended after.
+                merged_skills: list[dict] = list(attached_skills or [])
+                disk_skills = ectx.disk_skills
+                if spec.id in disk_skills:
+                    merged_skills.append({"content": disk_skills[spec.id]})
 
-            output_chunks: list[str] = []
+                ctx = AgentContext(
+                    user_request=user_message,
+                    agent_outputs=self._filter_consumed_outputs(spec, ordered_agents, ectx),
+                    attached_skills=merged_skills,
+                    attached_hooks=list(attached_hooks or []),
+                    # MODEL-01/02/05: the effective model id by the D-02 precedence. With no
+                    # overrides + no manifest model (today) this returns ``model_id or Haiku`` =
+                    # the prior value — INV-3 parity. step=None this plan (06-04 wires the
+                    # compiled Step lookup); resolve() applies tiers 1/3/4/5 unchanged.
+                    model=self._resolve_model(ectx, spec, model_id),
+                    od_context=ectx.od_context,
+                    planning_context=planning_context,
+                    # Byte-identity guard (D-09): pass disk_principal (== user_id or "anon"),
+                    # NOT owner_id (the DB principal, which may be anon:<session_id>), so the
+                    # sub-agent's RunSandbox disk path stays byte-identical to pre-05-04.
+                    user_id=ectx.disk_principal,
+                    # run_id roots create_runner's RunSandbox at RunSandbox(user_id,
+                    # pipeline_run_id) — the SAME per-run disk dir the engine reads
+                    # deliverables back from (prototype.html / code-gen files).
+                    run_id=pipeline_run_id,
+                    # prewarmed_constitution (AGENTRT-06 / F4 / R12): the owner's Constitution,
+                    # awaited ONCE at run entry, so the SYNC factory injects a DB-stored
+                    # Constitution under this running event loop WITHOUT awaiting (the R12
+                    # no-op fix). None when none is set → graceful no-op (parity).
+                    prewarmed_constitution=ectx.prewarmed_constitution,
+                    # prewarmed_mcp_tools (09-05 / MCP-01): the MCP/integration tools bound
+                    # ONCE at run entry (above) so the SYNC factory unions them into the runner
+                    # tool set under this running loop WITHOUT awaiting. Empty when no MCP
+                    # scope is active → graceful no-op (parity; snapshots byte-identical).
+                    prewarmed_mcp_tools=list(getattr(ectx, "prewarmed_mcp_tools", None) or []),
+                    # step_injects (WIRE-03 / D-16): the compiled Step.injects for THIS step,
+                    # read GENERICALLY off ectx.current_step (the compiled Step bound by the
+                    # strategy handle before this call — the SAME seam current_step.hooks uses,
+                    # NOT a spec.id/pipeline_type branch, SC-001). The factory merges it with
+                    # spec.injects (AGENT.md). [] for every step declaring no per-step injects:
+                    # (all 5 goldens) → the merge is a no-op → byte-identical (INV-3).
+                    step_injects=list(
+                        getattr(getattr(ectx, "current_step", None), "injects", None) or []
+                    ),
+                )
 
-            # ── ISS-004 (19-03): streamed agent_chunk sanitizer (chunk-straddle) ──
-            # The buffer is (re)constructed per retry-attempt below (so a fallback
-            # re-stream gets a fresh one), keyed on the runner's duck-typed
-            # `sanitize_output` — the SAME transform the post-loop authoritative block
-            # (~:2645) uses. It is an identity no-op for tool-using agents (and for
-            # clean text), so the buffer is inert there and only strips fabricated
-            # tool-XML from the YIELDED chunks of a tool-less agent. SC-001: keyed on
-            # the generic runner capability, NOT a workflow/agent-name literal. The
-            # authoritative `output_chunks` path is unchanged (it still accumulates the
-            # RAW chunk) so the post-loop sanitize_output keeps the goldens byte-identical.
+                # Capture the resolved primary model ID *now*, before create_runner — it is
+                # the string id the MODEL-02 fallback chain is armed on (set_chain below).
+                # Captured here (not off ctx.model after the build) because the fallback
+                # retry reassigns ctx.model to the next chain id on a throttle.
+                _resolved_model_id = ctx.model
 
-            # Per-agent timeouts are DISABLED for every pipeline — agents run to
-            # completion instead of being cut off mid-generation. Cutting an agent
-            # off silently fell back to the PREVIOUS agent's output, which corrupted
-            # results (e.g. a stalled backlog-compiler emitting the reviewer's
-            # critique as if it were the final backlog). asyncio.timeout(None) is a
-            # no-op deadline. The remaining guards are intentional: the Bedrock
-            # client's generous botocore read_timeout (set where the client is built)
-            # and the cooperative cancel_event (the Stop button), checked per chunk.
-            agent_timeout = None
+                # ── Unique per-agent-invocation checkpoint thread_id ──────────────
+                # The LangGraph checkpoint thread_id isolates each agent's graph state
+                # and MUST be unique per agent-invocation, or sequential agents in the
+                # same run would collide on one checkpoint thread. (The disk sandbox is
+                # SEPARATE — it stays per-run/shared, keyed on pipeline_run_id, so files
+                # like prototype.html persist across the run's agents; see ctx.run_id
+                # above.) Base id = "<pipeline_run_id>:<spec.id>". The build loop runs
+                # the SAME spec.id ("prototype-build") once per task, so when a task
+                # number is present we append it ("<run>:<agent>:<task>") to keep each
+                # task on its own thread — the task_loop strategy sets ectx.build_task_number
+                # before each call (and it is "" for every other agent, which then uses the
+                # plain two-part id). interrupt_on is intentionally NOT passed (kept None) —
+                # gate-selection is Task #44 and the runner stays in non-gate mode so event
+                # shapes are unchanged.
+                task_num = ectx.build_task_number or None
+                thread_id = (
+                    f"{pipeline_run_id}:{spec.id}:{task_num}"
+                    if task_num
+                    else f"{pipeline_run_id}:{spec.id}"
+                )
+                agent = create_runner(
+                    spec.id,
+                    ctx,
+                    thread_id=thread_id,
+                    checkpointer=ectx.checkpointer,
+                    # Phase 11 / FANOUT-05 (CR-02): a fan-out worker invocation carries
+                    # an engine-allocated ISOLATED workspace on its step view — its
+                    # sandbox overrides the shared per-run dir so worker writes land
+                    # isolated. None for every non-worker invocation (parity).
+                    run_sandbox=self._isolated_run_sandbox(ectx),
+                )
 
-            # Stream with live chunk events AND timeout guard. The runner unifies
-            # ALL agents through astream_events: text-only agents stream pure
-            # chunk+usage+done; tool agents additionally emit tool_call/tool_result.
-            # We map each event to the SAME yielded WS event the legacy use_deep
-            # branch produced (chunk→agent_chunk, usage→token accumulation,
-            # tool_call→tool_call, tool_result→tool_result).
-            timed_out = False
-            # ── ISS-016 (A1): runner ``error``-event capture ────────────────────
-            # The runner (deep_agent_runner.py:507-527) swallows every non-throttle
-            # exception into ``yield {"type":"error","error":str(exc)}`` and returns.
-            # The consume loop below now branches on that event (the ``error`` arm),
-            # recording the failure here. The scripted model never raises, so this
-            # flag stays False on the characterization goldens (INV-3 dormant arm).
-            agent_errored = False
-            agent_error_message = ""
-            # WR-02 (16 review): the raw runner ``str(exc)`` is kept server-side
-            # only (log) — never placed on the client-facing event. See the
-            # ``error`` arm + the agent_errored post-loop block below.
-            agent_error_raw = ""
-            agent_input_tokens = 0
-            agent_output_tokens = 0
+                output_chunks: list[str] = []
 
-            # ── MODEL-02 fallback chain (APPROACH B — engine-level rebuild-and-retry) ──
-            # Above the botocore retries (model_factory.py): on a SUSTAINED transient
-            # throttle the runner RE-RAISES the classified exception (B1,
-            # deep_agent_runner.py), and the engine advances ctx.model_resolver to the
-            # next fallback chain id, REBUILDS the runner via create_runner (the
-            # sanctioned langchain_deepagents adapter — NO new deepagents-graph
-            # construction, INV-13), and re-invokes — BOUNDED by chain length. The
-            # rebuild goes through build_model only. Chain exhaustion re-raises the
-            # last error (no silent blank, T-06-10). Non-transient errors are NOT
-            # re-raised by the runner (they still yield {"type":"error"}); they never
-            # enter this loop and propagate exactly as today (parity, T-06-11).
-            #
-            # ★ INV-3 PARITY: with NO throttle (the normal path) the very first attempt
-            # consumes to completion and the loop exits after one pass — byte/semantically
-            # identical to the single-model path. The retry only engages on a re-raised
-            # throttle, so characterization snapshots are unchanged.
-            #
-            # ★ Pitfall 4 (mid-stream restart): a throttle BEFORE the first token (the
-            # common Bedrock case — throttles are pre-call) restarts cleanly. A throttle
-            # AFTER tokens already streamed cannot un-emit them; the retried attempt
-            # RE-STREAMS from scratch (we reset output_chunks + token accumulators below),
-            # so the final deliverable reflects the successful attempt — the only
-            # observable artifact downstream consumes.
-            from agents.model_policy import _is_transient_throttle
+                # ── ISS-004 (19-03): streamed agent_chunk sanitizer (chunk-straddle) ──
+                # The buffer is (re)constructed per retry-attempt below (so a fallback
+                # re-stream gets a fresh one), keyed on the runner's duck-typed
+                # `sanitize_output` — the SAME transform the post-loop authoritative block
+                # (~:2645) uses. It is an identity no-op for tool-using agents (and for
+                # clean text), so the buffer is inert there and only strips fabricated
+                # tool-XML from the YIELDED chunks of a tool-less agent. SC-001: keyed on
+                # the generic runner capability, NOT a workflow/agent-name literal. The
+                # authoritative `output_chunks` path is unchanged (it still accumulates the
+                # RAW chunk) so the post-loop sanitize_output keeps the goldens byte-identical.
 
-            _resolver = ectx.model_resolver
-            # Arm the active chain for the resolved primary id (06-03 set_chain): the
-            # cursor starts at the primary. When the resolver is absent (direct
-            # unit-style _run_agent invocations) the loop runs exactly one attempt with
-            # the already-built ``agent`` — today's behavior, parity-safe.
-            if _resolver is not None and hasattr(_resolver, "set_chain"):
-                _resolver.set_chain(_resolved_model_id)
-            # Bound: chain length when armed, else a single attempt.
-            _max_attempts = len(getattr(_resolver, "_chain", []) or [None]) if _resolver else 1
+                # Per-agent timeouts are DISABLED for every pipeline — agents run to
+                # completion instead of being cut off mid-generation. Cutting an agent
+                # off silently fell back to the PREVIOUS agent's output, which corrupted
+                # results (e.g. a stalled backlog-compiler emitting the reviewer's
+                # critique as if it were the final backlog). asyncio.timeout(None) is a
+                # no-op deadline. The remaining guards are intentional: the Bedrock
+                # client's generous botocore read_timeout (set where the client is built)
+                # and the cooperative cancel_event (the Stop button), checked per chunk.
+                agent_timeout = None
 
-            # Prototype task progress is derived from the report_task_complete
-            # tool events (the store-free runner_tools.report_task_complete no
-            # longer populates a PrototypeArtifactStore). We capture each call's
-            # args from the tool_call event and emit the SAME task_progress
-            # payload shape the engine emitted from proto_store.completed_tasks.
-            # The list is RUN-LEVEL (ectx.completed_tasks, created once per run
-            # in execute()), NOT a local — because the build loop calls _run_agent
-            # fresh once per task, so a local would reset every task and stick
-            # completed_count at 1 (the #46 regression). Accumulating on ectx mirrors
-            # the old run-shared PrototypeArtifactStore so completed_count grows
-            # cumulatively (1,2,3,…) across the build loop's per-task invocations.
-            _attempt = 0
-            while True:
-                _attempt += 1
-                # Reset per-attempt accumulators so a retried attempt re-streams from
-                # scratch (Pitfall 4) — the deliverable reflects the successful attempt.
-                output_chunks = []
-                # ISS-004: a fresh chunk-straddle buffer per attempt so a re-stream
-                # never inherits a held tail from the throttled prior attempt (the FE
-                # discards prior agent_chunk events on agent_model_fallback/reset_output).
-                _chunk_sanitizer = _ChunkStreamSanitizer(getattr(agent, "sanitize_output", None))
+                # Stream with live chunk events AND timeout guard. The runner unifies
+                # ALL agents through astream_events: text-only agents stream pure
+                # chunk+usage+done; tool agents additionally emit tool_call/tool_result.
+                # We map each event to the SAME yielded WS event the legacy use_deep
+                # branch produced (chunk→agent_chunk, usage→token accumulation,
+                # tool_call→tool_call, tool_result→tool_result).
+                timed_out = False
+                # ── ISS-016 (A1): runner ``error``-event capture ────────────────────
+                # The runner (deep_agent_runner.py:507-527) swallows every non-throttle
+                # exception into ``yield {"type":"error","error":str(exc)}`` and returns.
+                # The consume loop below now branches on that event (the ``error`` arm),
+                # recording the failure here. The scripted model never raises, so this
+                # flag stays False on the characterization goldens (INV-3 dormant arm).
+                agent_errored = False
+                agent_error_message = ""
+                # WR-02 (16 review): the raw runner ``str(exc)`` is kept server-side
+                # only (log) — never placed on the client-facing event. See the
+                # ``error`` arm + the agent_errored post-loop block below.
+                agent_error_raw = ""
                 agent_input_tokens = 0
                 agent_output_tokens = 0
-                # task_progress records appended this attempt (so a retry does not double
-                # count the prototype build checklist on re-stream).
-                _attempt_task_count = 0
-                try:
-                    async with asyncio.timeout(agent_timeout):
-                        async for event in agent.astream_events(context_message):
-                            if cancel_event and cancel_event.is_set():
-                                raise asyncio.CancelledError()
-                            etype = event["type"]
-                            if etype == "chunk":
-                                # Authoritative path UNCHANGED: accumulate the RAW chunk
-                                # so the post-loop sanitize_output (~:2645) still produces
-                                # the byte-identical golden final_output (INV-3).
-                                output_chunks.append(event["chunk"])
-                                # ISS-004: the YIELDED chunk is routed through the
-                                # chunk-straddle sanitizer (no-op identity for tool-using
-                                # agents / clean text). `feed` returns the safe-to-yield
-                                # prefix, holding an unterminated tool-XML opener until its
-                                # close arrives. Suppress empty deltas (nothing to stream).
-                                _safe_chunk = _chunk_sanitizer.feed(event["chunk"])
-                                if _safe_chunk:
-                                    yield {"type": "agent_chunk", "data": {"agent_id": spec.id, "chunk": _safe_chunk}}
-                            elif etype == "usage":
-                                agent_input_tokens += event.get("input_tokens", 0)
-                                agent_output_tokens += event.get("output_tokens", 0)
-                            elif etype == "tool_call":
-                                # ── Prototype task progress ──────────────────────────────
-                                # report_task_complete carries the task in its args; record
-                                # it (number/title/summary) so the task_progress event below
-                                # (fired on the matching tool_result) reflects every task.
-                                if event.get("tool") == "report_task_complete":
-                                    args = event.get("args", {}) or {}
-                                    ectx.completed_tasks.append({
-                                        "number": args.get("task_number"),
-                                        "title": args.get("task_title"),
-                                        "summary": args.get("summary", ""),
-                                    })
-                                    _attempt_task_count += 1
-                                yield {"type": "tool_call", "data": {"agent_id": spec.id, "tool": event["tool"], "args": event.get("args", {})}}
-                                # ── Audit: log tool call to hook_runs + live WS (KAN-73) ──
-                                # Best-effort — must never abort the run or the stream.
-                                _tc_tool = event.get("tool", "unknown")
-                                _tc_args = event.get("args", {}) or {}
-                                _tc_detail = {
-                                    "agent_id": spec.id,
-                                    "agent_name": spec.name,
-                                    "event": "tool_call",
-                                    "tool": _tc_tool,
-                                    "args_summary": ", ".join(
-                                        f"{k}={str(v)[:40]}" for k, v in list(_tc_args.items())[:3]
-                                    ) if _tc_args else "",
-                                    "timestamp": _now(),
-                                    "outcome": "continue",
-                                    "summary": f"{spec.name} used tool: {_tc_tool}",
-                                    "severity": "info",
-                                    "hook_type": "tool_call",
-                                }
-                                _runner = getattr(ectx, "runner", None)
-                                if _runner is not None:
-                                    try:
-                                        await _runner.record_hook_run(
-                                            "audit_logger", "tool_call", "continue", _tc_detail
-                                        )
-                                    except Exception:
-                                        pass
-                                    try:
-                                        _emit_fn = getattr(_runner, "emit_hook_event", None)
-                                        if callable(_emit_fn):
-                                            _emit_fn(_tc_detail)
-                                    except Exception:
-                                        pass
-                            elif etype == "tool_result":
-                                yield {"type": "tool_result", "data": {"agent_id": spec.id, "tool": event["tool"], "result": str(event.get("result", ""))[:500]}}
-                                # ── Audit: log tool result to hook_runs + live WS (KAN-73) ──
-                                _tr_tool = event.get("tool", "unknown")
-                                _tr_result = str(event.get("result", ""))
-                                _tr_detail = {
-                                    "agent_id": spec.id,
-                                    "agent_name": spec.name,
-                                    "event": "tool_result",
-                                    "tool": _tr_tool,
-                                    "result_preview": _tr_result[:120] + ("…" if len(_tr_result) > 120 else ""),
-                                    "timestamp": _now(),
-                                    "outcome": "continue",
-                                    "summary": f"{spec.name} tool result: {_tr_tool}",
-                                    "severity": "info",
-                                    "hook_type": "tool_call",
-                                }
-                                if _runner is not None:
-                                    try:
-                                        await _runner.record_hook_run(
-                                            "audit_logger", "tool_result", "continue", _tr_detail
-                                        )
-                                    except Exception:
-                                        pass
-                                    try:
-                                        if callable(_emit_fn):
-                                            _emit_fn(_tr_detail)
-                                    except Exception:
-                                        pass
-                                # When report_task_complete() returns, emit a task_progress
-                                # event so the frontend can update the task checklist in
-                                # real-time — same payload shape as before, now sourced from
-                                # the tool events instead of the (removed) PrototypeArtifactStore.
-                                if event.get("tool") == "report_task_complete":
-                                    yield {
-                                        "type": "task_progress",
-                                        "data": {
-                                            "agent_id": spec.id,
-                                            "pipeline_run_id": pipeline_run_id,
-                                            "completed_tasks": list(ectx.completed_tasks),
-                                            "completed_count": len(ectx.completed_tasks),
-                                            "timestamp": _now(),
-                                        },
+
+                # ── MODEL-02 fallback chain (APPROACH B — engine-level rebuild-and-retry) ──
+                # Above the botocore retries (model_factory.py): on a SUSTAINED transient
+                # throttle the runner RE-RAISES the classified exception (B1,
+                # deep_agent_runner.py), and the engine advances ctx.model_resolver to the
+                # next fallback chain id, REBUILDS the runner via create_runner (the
+                # sanctioned langchain_deepagents adapter — NO new deepagents-graph
+                # construction, INV-13), and re-invokes — BOUNDED by chain length. The
+                # rebuild goes through build_model only. Chain exhaustion re-raises the
+                # last error (no silent blank, T-06-10). Non-transient errors are NOT
+                # re-raised by the runner (they still yield {"type":"error"}); they never
+                # enter this loop and propagate exactly as today (parity, T-06-11).
+                #
+                # ★ INV-3 PARITY: with NO throttle (the normal path) the very first attempt
+                # consumes to completion and the loop exits after one pass — byte/semantically
+                # identical to the single-model path. The retry only engages on a re-raised
+                # throttle, so characterization snapshots are unchanged.
+                #
+                # ★ Pitfall 4 (mid-stream restart): a throttle BEFORE the first token (the
+                # common Bedrock case — throttles are pre-call) restarts cleanly. A throttle
+                # AFTER tokens already streamed cannot un-emit them; the retried attempt
+                # RE-STREAMS from scratch (we reset output_chunks + token accumulators below),
+                # so the final deliverable reflects the successful attempt — the only
+                # observable artifact downstream consumes.
+                from agents.model_policy import _is_transient_throttle
+
+                _resolver = ectx.model_resolver
+                # Arm the active chain for the resolved primary id (06-03 set_chain): the
+                # cursor starts at the primary. When the resolver is absent (direct
+                # unit-style _run_agent invocations) the loop runs exactly one attempt with
+                # the already-built ``agent`` — today's behavior, parity-safe.
+                if _resolver is not None and hasattr(_resolver, "set_chain"):
+                    _resolver.set_chain(_resolved_model_id)
+                # Bound: chain length when armed, else a single attempt.
+                _max_attempts = len(getattr(_resolver, "_chain", []) or [None]) if _resolver else 1
+
+                # Prototype task progress is derived from the report_task_complete
+                # tool events (the store-free runner_tools.report_task_complete no
+                # longer populates a PrototypeArtifactStore). We capture each call's
+                # args from the tool_call event and emit the SAME task_progress
+                # payload shape the engine emitted from proto_store.completed_tasks.
+                # The list is RUN-LEVEL (ectx.completed_tasks, created once per run
+                # in execute()), NOT a local — because the build loop calls _run_agent
+                # fresh once per task, so a local would reset every task and stick
+                # completed_count at 1 (the #46 regression). Accumulating on ectx mirrors
+                # the old run-shared PrototypeArtifactStore so completed_count grows
+                # cumulatively (1,2,3,…) across the build loop's per-task invocations.
+                _attempt = 0
+                while True:
+                    _attempt += 1
+                    # Reset per-attempt accumulators so a retried attempt re-streams from
+                    # scratch (Pitfall 4) — the deliverable reflects the successful attempt.
+                    output_chunks = []
+                    # ISS-004: a fresh chunk-straddle buffer per attempt so a re-stream
+                    # never inherits a held tail from the throttled prior attempt (the FE
+                    # discards prior agent_chunk events on agent_model_fallback/reset_output).
+                    _chunk_sanitizer = _ChunkStreamSanitizer(getattr(agent, "sanitize_output", None))
+                    agent_input_tokens = 0
+                    agent_output_tokens = 0
+                    # task_progress records appended this attempt (so a retry does not double
+                    # count the prototype build checklist on re-stream).
+                    _attempt_task_count = 0
+                    try:
+                        async with asyncio.timeout(agent_timeout):
+                            async for event in agent.astream_events(context_message):
+                                if cancel_event and cancel_event.is_set():
+                                    raise asyncio.CancelledError()
+                                etype = event["type"]
+                                if etype == "chunk":
+                                    # Authoritative path UNCHANGED: accumulate the RAW chunk
+                                    # so the post-loop sanitize_output (~:2645) still produces
+                                    # the byte-identical golden final_output (INV-3).
+                                    output_chunks.append(event["chunk"])
+                                    # ISS-004: the YIELDED chunk is routed through the
+                                    # chunk-straddle sanitizer (no-op identity for tool-using
+                                    # agents / clean text). `feed` returns the safe-to-yield
+                                    # prefix, holding an unterminated tool-XML opener until its
+                                    # close arrives. Suppress empty deltas (nothing to stream).
+                                    _safe_chunk = _chunk_sanitizer.feed(event["chunk"])
+                                    if _safe_chunk:
+                                        yield {"type": "agent_chunk", "data": {"agent_id": spec.id, "chunk": _safe_chunk}}
+                                elif etype == "usage":
+                                    agent_input_tokens += event.get("input_tokens", 0)
+                                    agent_output_tokens += event.get("output_tokens", 0)
+                                elif etype == "tool_call":
+                                    # ── Prototype task progress ──────────────────────────────
+                                    # report_task_complete carries the task in its args; record
+                                    # it (number/title/summary) so the task_progress event below
+                                    # (fired on the matching tool_result) reflects every task.
+                                    if event.get("tool") == "report_task_complete":
+                                        args = event.get("args", {}) or {}
+                                        ectx.completed_tasks.append({
+                                            "number": args.get("task_number"),
+                                            "title": args.get("task_title"),
+                                            "summary": args.get("summary", ""),
+                                        })
+                                        _attempt_task_count += 1
+                                    yield {"type": "tool_call", "data": {"agent_id": spec.id, "tool": event["tool"], "args": event.get("args", {})}}
+                                    # ── Audit: log tool call to hook_runs + live WS (KAN-73) ──
+                                    # Best-effort — must never abort the run or the stream.
+                                    _tc_tool = event.get("tool", "unknown")
+                                    _tc_args = event.get("args", {}) or {}
+                                    _tc_detail = {
+                                        "agent_id": spec.id,
+                                        "agent_name": spec.name,
+                                        "event": "tool_call",
+                                        "tool": _tc_tool,
+                                        "args_summary": ", ".join(
+                                            f"{k}={str(v)[:40]}" for k, v in list(_tc_args.items())[:3]
+                                        ) if _tc_args else "",
+                                        "timestamp": _now(),
+                                        "outcome": "continue",
+                                        "summary": f"{spec.name} used tool: {_tc_tool}",
+                                        "severity": "info",
+                                        "hook_type": "tool_call",
                                     }
-                                # ── Runtime fan-out derivation (Phase 11 / FANOUT-02) ──────
-                                # When the spawn_subagents request emitter returns, derive the
-                                # structured request from its result + fulfil it via the SINGLE
-                                # kernel run_fanout spawn path (the runtime entry point B; the
-                                # declarative entry point A flows through the fanout_batch
-                                # strategy). STRICTLY conditional on the tool name so every
-                                # non-fanout run takes the IDENTICAL path as today (zero new
-                                # events, zero reordering — fanout stays DORMANT, Pitfall 3).
-                                elif event.get("tool") == "spawn_subagents":
-                                    async for _fo_ev in self._derive_fanout(event, ectx):
-                                        yield _fo_ev
-                            elif etype == "error":
-                                # ── ISS-016 (A1): consume the runner's swallowed-error event ──
-                                # The runner (deep_agent_runner.py:507-527) yields
-                                # ``{"type":"error","error":str(exc)}`` for every non-throttle
-                                # fault (e.g. a model-side validation reject) and returns.
-                                # WITHOUT this arm the event was dropped, the stream "ended
-                                # clean" with output="", and an empty agent_complete fired → a
-                                # hard-failed run terminated as a clean pipeline_complete.
-                                # Branch keys on the GENERIC event type only — no provider /
-                                # model / workflow text match (SC-001).
-                                # Record the fault and break out of the stream so the post-loop
-                                # ``agent_errored`` branch emits a recoverable agent_error and
-                                # SKIPS the result-append + agent_complete for this agent.
-                                # WR-02 (16 review): the runner forwards the raw ``str(exc)`` which,
-                                # for a non-throttle Bedrock fault, can carry ARNs / region /
-                                # model-id / internal config. The chat path routes provider errors
-                                # through ``app.agents.llm_errors.map_exception`` to a stable,
-                                # secret-free user message; mirror that here. The engine only holds
-                                # the stringified message (the runner stays as-is, A1), so we keep
-                                # the raw text SERVER-SIDE (the warning log below) and place only a
-                                # bounded, generic, leak-free message on the client-facing event
-                                # (T-16-01-ID: bounded, no stack frames, no secrets). Keyed on the
-                                # generic event type only — no provider/model/workflow match (SC-001).
-                                agent_errored = True
-                                agent_error_raw = str(event.get("error", "") or "")[:500]
-                                agent_error_message = _sanitize_agent_error(agent_error_raw)
-                                break
-                    # ISS-004 (19-03): flush any residual held tail through the
-                    # chunk-straddle sanitizer at stream end. An unterminated tool-XML
-                    # opener still held at EOF is stripped (mirrors the runner's WR-01
-                    # _UNTERMINATED_TOOL_XML_RE); a clean held tail flushes verbatim so
-                    # legitimate trailing content is never silently swallowed.
-                    _flushed_chunk = _chunk_sanitizer.flush()
-                    if _flushed_chunk:
-                        yield {"type": "agent_chunk", "data": {"agent_id": spec.id, "chunk": _flushed_chunk}}
-                    # Stream consumed cleanly (no throttle) — done, exit the retry loop.
-                    break
-                except asyncio.TimeoutError:
-                    timed_out = True
-                    break
-                except asyncio.CancelledError:
-                    raise
-                except Exception as _exc:
-                    # Only a classified TRANSIENT THROTTLE (re-raised by the runner, B1)
-                    # triggers a model switch. Anything else propagates immediately
-                    # (the runner already swallows non-throttle errors into an ``error``
-                    # event, so reaching here for a non-throttle means a genuine fault —
-                    # do NOT mask it behind a fallback).
-                    if not _is_transient_throttle(_exc):
+                                    _runner = getattr(ectx, "runner", None)
+                                    if _runner is not None:
+                                        try:
+                                            await _runner.record_hook_run(
+                                                "audit_logger", "tool_call", "continue", _tc_detail
+                                            )
+                                        except Exception:
+                                            pass
+                                        try:
+                                            _emit_fn = getattr(_runner, "emit_hook_event", None)
+                                            if callable(_emit_fn):
+                                                _emit_fn(_tc_detail)
+                                        except Exception:
+                                            pass
+                                elif etype == "tool_result":
+                                    yield {"type": "tool_result", "data": {"agent_id": spec.id, "tool": event["tool"], "result": str(event.get("result", ""))[:500]}}
+                                    # ── Audit: log tool result to hook_runs + live WS (KAN-73) ──
+                                    _tr_tool = event.get("tool", "unknown")
+                                    _tr_result = str(event.get("result", ""))
+                                    _tr_detail = {
+                                        "agent_id": spec.id,
+                                        "agent_name": spec.name,
+                                        "event": "tool_result",
+                                        "tool": _tr_tool,
+                                        "result_preview": _tr_result[:120] + ("…" if len(_tr_result) > 120 else ""),
+                                        "timestamp": _now(),
+                                        "outcome": "continue",
+                                        "summary": f"{spec.name} tool result: {_tr_tool}",
+                                        "severity": "info",
+                                        "hook_type": "tool_call",
+                                    }
+                                    if _runner is not None:
+                                        try:
+                                            await _runner.record_hook_run(
+                                                "audit_logger", "tool_result", "continue", _tr_detail
+                                            )
+                                        except Exception:
+                                            pass
+                                        try:
+                                            if callable(_emit_fn):
+                                                _emit_fn(_tr_detail)
+                                        except Exception:
+                                            pass
+                                    # When report_task_complete() returns, emit a task_progress
+                                    # event so the frontend can update the task checklist in
+                                    # real-time — same payload shape as before, now sourced from
+                                    # the tool events instead of the (removed) PrototypeArtifactStore.
+                                    if event.get("tool") == "report_task_complete":
+                                        yield {
+                                            "type": "task_progress",
+                                            "data": {
+                                                "agent_id": spec.id,
+                                                "pipeline_run_id": pipeline_run_id,
+                                                "completed_tasks": list(ectx.completed_tasks),
+                                                "completed_count": len(ectx.completed_tasks),
+                                                "timestamp": _now(),
+                                            },
+                                        }
+                                    # ── Runtime fan-out derivation (Phase 11 / FANOUT-02) ──────
+                                    # When the spawn_subagents request emitter returns, derive the
+                                    # structured request from its result + fulfil it via the SINGLE
+                                    # kernel run_fanout spawn path (the runtime entry point B; the
+                                    # declarative entry point A flows through the fanout_batch
+                                    # strategy). STRICTLY conditional on the tool name so every
+                                    # non-fanout run takes the IDENTICAL path as today (zero new
+                                    # events, zero reordering — fanout stays DORMANT, Pitfall 3).
+                                    elif event.get("tool") == "spawn_subagents":
+                                        async for _fo_ev in self._derive_fanout(event, ectx):
+                                            yield _fo_ev
+                                elif etype == "error":
+                                    # ── ISS-016 (A1): consume the runner's swallowed-error event ──
+                                    # The runner (deep_agent_runner.py:507-527) yields
+                                    # ``{"type":"error","error":str(exc)}`` for every non-throttle
+                                    # fault (e.g. a model-side validation reject) and returns.
+                                    # WITHOUT this arm the event was dropped, the stream "ended
+                                    # clean" with output="", and an empty agent_complete fired → a
+                                    # hard-failed run terminated as a clean pipeline_complete.
+                                    # Branch keys on the GENERIC event type only — no provider /
+                                    # model / workflow text match (SC-001).
+                                    # Record the fault and break out of the stream so the post-loop
+                                    # ``agent_errored`` branch emits a recoverable agent_error and
+                                    # SKIPS the result-append + agent_complete for this agent.
+                                    # WR-02 (16 review): the runner forwards the raw ``str(exc)`` which,
+                                    # for a non-throttle Bedrock fault, can carry ARNs / region /
+                                    # model-id / internal config. The chat path routes provider errors
+                                    # through ``app.agents.llm_errors.map_exception`` to a stable,
+                                    # secret-free user message; mirror that here. The engine only holds
+                                    # the stringified message (the runner stays as-is, A1), so we keep
+                                    # the raw text SERVER-SIDE (the warning log below) and place only a
+                                    # bounded, generic, leak-free message on the client-facing event
+                                    # (T-16-01-ID: bounded, no stack frames, no secrets). Keyed on the
+                                    # generic event type only — no provider/model/workflow match (SC-001).
+                                    agent_errored = True
+                                    agent_error_raw = str(event.get("error", "") or "")[:500]
+                                    agent_error_message = _sanitize_agent_error(agent_error_raw)
+                                    break
+                        # ISS-004 (19-03): flush any residual held tail through the
+                        # chunk-straddle sanitizer at stream end. An unterminated tool-XML
+                        # opener still held at EOF is stripped (mirrors the runner's WR-01
+                        # _UNTERMINATED_TOOL_XML_RE); a clean held tail flushes verbatim so
+                        # legitimate trailing content is never silently swallowed.
+                        _flushed_chunk = _chunk_sanitizer.flush()
+                        if _flushed_chunk:
+                            yield {"type": "agent_chunk", "data": {"agent_id": spec.id, "chunk": _flushed_chunk}}
+                        # Stream consumed cleanly (no throttle) — done, exit the retry loop.
+                        break
+                    except asyncio.TimeoutError:
+                        timed_out = True
+                        break
+                    except asyncio.CancelledError:
                         raise
-                    # Roll back any task_progress records appended this (failed) attempt so
-                    # a retry's re-stream does not double-count the prototype checklist.
-                    if _attempt_task_count:
-                        del ectx.completed_tasks[-_attempt_task_count:]
-                    # Advance to the next fallback chain id, if any.
-                    _next_id = _resolver.advance() if _resolver is not None and hasattr(_resolver, "advance") else None
-                    if _next_id is None or _attempt >= _max_attempts:
-                        # Chain exhausted — re-raise the last throttle (no silent blank).
+                    except Exception as _exc:
+                        # Only a classified TRANSIENT THROTTLE (re-raised by the runner, B1)
+                        # triggers a model switch. Anything else propagates immediately
+                        # (the runner already swallows non-throttle errors into an ``error``
+                        # event, so reaching here for a non-throttle means a genuine fault —
+                        # do NOT mask it behind a fallback).
+                        if not _is_transient_throttle(_exc):
+                            raise
+                        # Roll back any task_progress records appended this (failed) attempt so
+                        # a retry's re-stream does not double-count the prototype checklist.
+                        if _attempt_task_count:
+                            del ectx.completed_tasks[-_attempt_task_count:]
+                        # Advance to the next fallback chain id, if any.
+                        _next_id = _resolver.advance() if _resolver is not None and hasattr(_resolver, "advance") else None
+                        if _next_id is None or _attempt >= _max_attempts:
+                            # Chain exhausted — re-raise the last throttle (no silent blank).
+                            logger.warning(
+                                "Agent %s: fallback chain exhausted after %d attempt(s); "
+                                "re-raising last throttle (%s)",
+                                spec.id, _attempt, _exc,
+                            )
+                            raise
+                        # Rebuild the runner on the next chain id via create_runner (the
+                        # sanctioned langchain_deepagents adapter — no new deepagents-graph
+                        # construction, INV-13). ctx.model now carries the next id →
+                        # DeepAgentRunner → build_model rebuilds on it. Sandbox unchanged.
                         logger.warning(
-                            "Agent %s: fallback chain exhausted after %d attempt(s); "
-                            "re-raising last throttle (%s)",
-                            spec.id, _attempt, _exc,
+                            "Agent %s: transient throttle on model — advancing to fallback "
+                            "model %s (attempt %d/%d)",
+                            spec.id, _next_id, _attempt + 1, _max_attempts,
                         )
-                        raise
-                    # Rebuild the runner on the next chain id via create_runner (the
-                    # sanctioned langchain_deepagents adapter — no new deepagents-graph
-                    # construction, INV-13). ctx.model now carries the next id →
-                    # DeepAgentRunner → build_model rebuilds on it. Sandbox unchanged.
+                        ctx.model = _next_id
+                        # ── CR-02: fresh checkpoint thread_id per retry attempt ──────
+                        # The rebuilt runner MUST restart cleanly from context_message,
+                        # not RESUME the throttled attempt's partial graph state. With
+                        # the live checkpointer a mid-stream throttle leaves partial
+                        # state (messages, tool calls, graph nodes) under the base
+                        # thread_id; reusing it would make LangGraph resume on the new
+                        # model (mixed-model execution) instead of re-streaming from
+                        # scratch (the Pitfall-4 intent). Derive a per-attempt id so each
+                        # retry gets a clean checkpoint thread. The PRIMARY attempt keeps
+                        # the base thread_id (INV-3 parity: a no-throttle run is
+                        # byte-identical). The disk sandbox is UNCHANGED — it stays
+                        # per-run/shared, keyed on run_id, so files persist across retries.
+                        retry_thread_id = f"{thread_id}:retry{_attempt}"
+                        agent = create_runner(
+                            spec.id,
+                            ctx,
+                            thread_id=retry_thread_id,
+                            checkpointer=ectx.checkpointer,
+                        )
+                        yield {
+                            "type": "agent_model_fallback",
+                            "data": {
+                                "agent_id": spec.id,
+                                "pipeline_run_id": pipeline_run_id,
+                                "fallback_model": _next_id,
+                                "attempt": _attempt + 1,
+                                # WR-03: the retry RE-STREAMS from scratch on the new
+                                # model, so attempt-N chunks already sent to the client
+                                # are stale. This signals the frontend (Phase 8) to
+                                # discard prior agent_chunk events for this agent.
+                                # Additive — existing consumers ignore the new field.
+                                "reset_output": True,
+                                "timestamp": _now(),
+                            },
+                        }
+                        # loop continues → re-invoke on the rebuilt runner
+
+                if timed_out:
                     logger.warning(
-                        "Agent %s: transient throttle on model — advancing to fallback "
-                        "model %s (attempt %d/%d)",
-                        spec.id, _next_id, _attempt + 1, _max_attempts,
+                        "Agent %s timed out after %.0fs — using best available output",
+                        spec.id, agent_timeout,
                     )
-                    ctx.model = _next_id
-                    # ── CR-02: fresh checkpoint thread_id per retry attempt ──────
-                    # The rebuilt runner MUST restart cleanly from context_message,
-                    # not RESUME the throttled attempt's partial graph state. With
-                    # the live checkpointer a mid-stream throttle leaves partial
-                    # state (messages, tool calls, graph nodes) under the base
-                    # thread_id; reusing it would make LangGraph resume on the new
-                    # model (mixed-model execution) instead of re-streaming from
-                    # scratch (the Pitfall-4 intent). Derive a per-attempt id so each
-                    # retry gets a clean checkpoint thread. The PRIMARY attempt keeps
-                    # the base thread_id (INV-3 parity: a no-throttle run is
-                    # byte-identical). The disk sandbox is UNCHANGED — it stays
-                    # per-run/shared, keyed on run_id, so files persist across retries.
-                    retry_thread_id = f"{thread_id}:retry{_attempt}"
-                    agent = create_runner(
-                        spec.id,
-                        ctx,
-                        thread_id=retry_thread_id,
-                        checkpointer=ectx.checkpointer,
-                    )
+                    # For tool-based agents: prefer whatever partial output was streamed
+                    # (may be partial HTML) over the previous agent's output (which may
+                    # be a spec/plan, not HTML). For text agents: fall back to previous.
+                    partial = "".join(output_chunks).strip()
+                    if partial and len(partial) > 500:
+                        # Partial output is substantial — use it
+                        output_chunks = [partial]
+                        logger.info("Agent %s: using partial output (%d chars)", spec.id, len(partial))
+                    elif results:
+                        fallback = results[-1].get("output", "")
+                        output_chunks = [fallback] if fallback else output_chunks
+                        logger.info("Agent %s: using previous agent output as fallback (%d chars)", spec.id, len(fallback))
+                    # ISS-028: record the (agent_id, task_number) failure pair. The
+                    # timeout path RECOVERS — it falls through to results.append below
+                    # under the SAME task_number, so this pair is subtracted out by the
+                    # terminal degraded decision (WR-05 timeout-recovery preserved). The
+                    # pair-keying only changes behavior when a DIFFERENT task of the same
+                    # agent_id failed (the ISS-028 task_loop edge).
+                    self._record_failed_invocation(ectx, spec.id)
                     yield {
-                        "type": "agent_model_fallback",
+                        "type": "agent_error",
                         "data": {
                             "agent_id": spec.id,
-                            "pipeline_run_id": pipeline_run_id,
-                            "fallback_model": _next_id,
-                            "attempt": _attempt + 1,
-                            # WR-03: the retry RE-STREAMS from scratch on the new
-                            # model, so attempt-N chunks already sent to the client
-                            # are stale. This signals the frontend (Phase 8) to
-                            # discard prior agent_chunk events for this agent.
-                            # Additive — existing consumers ignore the new field.
-                            "reset_output": True,
-                            "timestamp": _now(),
+                            "error": f"Agent timed out after {agent_timeout:.0f}s — using best available output",
+                            "recoverable": True,
                         },
                     }
-                    # loop continues → re-invoke on the rebuilt runner
 
-            if timed_out:
-                logger.warning(
-                    "Agent %s timed out after %.0fs — using best available output",
-                    spec.id, agent_timeout,
-                )
-                # For tool-based agents: prefer whatever partial output was streamed
-                # (may be partial HTML) over the previous agent's output (which may
-                # be a spec/plan, not HTML). For text agents: fall back to previous.
-                partial = "".join(output_chunks).strip()
-                if partial and len(partial) > 500:
-                    # Partial output is substantial — use it
-                    output_chunks = [partial]
-                    logger.info("Agent %s: using partial output (%d chars)", spec.id, len(partial))
-                elif results:
-                    fallback = results[-1].get("output", "")
-                    output_chunks = [fallback] if fallback else output_chunks
-                    logger.info("Agent %s: using previous agent output as fallback (%d chars)", spec.id, len(fallback))
-                # ISS-028: record the (agent_id, task_number) failure pair. The
-                # timeout path RECOVERS — it falls through to results.append below
-                # under the SAME task_number, so this pair is subtracted out by the
-                # terminal degraded decision (WR-05 timeout-recovery preserved). The
-                # pair-keying only changes behavior when a DIFFERENT task of the same
-                # agent_id failed (the ISS-028 task_loop edge).
-                self._record_failed_invocation(ectx, spec.id)
-                yield {
-                    "type": "agent_error",
-                    "data": {
-                        "agent_id": spec.id,
-                        "error": f"Agent timed out after {agent_timeout:.0f}s — using best available output",
-                        "recoverable": True,
-                    },
-                }
-
-            # ── ISS-016 (A1): runner ``error``-event → recoverable agent_error ──────
-            # A runner-surfaced fault marks the agent failed. Emit the SAME recoverable
-            # agent_error shape the timeout path uses above (so the dispatch loop's
-            # _failed_agent_ids collector at :1620-1627 records spec.id), then RETURN —
-            # explicitly SKIPPING the ``output = "".join(output_chunks)`` build below,
-            # the result-append, and the agent_complete yield. This is the deliberate
-            # divergence from the timeout path (which keeps the completion): per CONTEXT
-            # A1 the error path must NOT append a completed result, so this agent stays
-            # in _failed_agent_ids and is NOT in results → the engine terminal machinery
-            # maps it to pipeline_failed (all-fail) / status:degraded (partial). The
-            # client-facing message is the SANITIZED, bounded text (no traceback /
-            # provider ARN / region / model-id — WR-02, T-16-01-ID); the raw str(exc)
-            # is logged server-side only. No F3 re-key, no runner edit, no text match
-            # (SC-001).
-            if agent_errored:
-                # WR-02 (16 review): log the RAW provider message server-side for
-                # operator triage (the warning log is not client-visible), but emit
-                # only the sanitized, leak-free message on the agent_error event.
-                logger.warning(
-                    "Agent %s: runner surfaced an error event — marking failed (no "
-                    "completion). raw=%s | client=%s",
-                    spec.id, agent_error_raw, agent_error_message,
-                )
-                _log_event("agent_error", pipeline_run_id, agent_id=spec.id,
-                           error=agent_error_message)
-                # ISS-028: record the (agent_id, task_number) failure pair. This arm
-                # RETURNS without a results.append, so the pair stays UNRECOVERED — a
-                # task_loop where an earlier task of this same agent_id completed no
-                # longer masks this hard failure (the agent_id-only subtraction at the
-                # terminal zeroed it → a half-built deliverable lied as clean
-                # pipeline_complete). All-fail still maps to pipeline_failed via the
-                # untouched _failed_agent_ids branch.
-                self._record_failed_invocation(ectx, spec.id)
-                yield {
-                    "type": "agent_error",
-                    "data": {
-                        "agent_id": spec.id,
-                        "error": agent_error_message or "Agent run failed",
-                        "recoverable": True,
-                    },
-                }
-                return
-
-            output = "".join(output_chunks)
-
-            # ── WR-01 (13 review fix): sanitize fabricated tool-call XML HERE ────────
-            # The runner's done-event sanitizer (F4 / 13-02) is inert on this path —
-            # the engine assembles the authoritative output from ``chunk`` events and
-            # never consumes ``done``. Apply the SAME transform to the chunk-joined
-            # output, duck-typed on the runner's capability surface (no app-module
-            # import, no workflow/agent-name branch — SC-001). The runner method is a
-            # no-op for tool-using agents and a same-object identity for clean text,
-            # so the characterization snapshots stay byte-identical.
-            _sanitize_fn = getattr(agent, "sanitize_output", None)
-            if callable(_sanitize_fn):
-                output = _sanitize_fn(output)
-
-            # ── Single-file deliverable: read the named file from the run sandbox ─────
-            # (INV-1, migrated L10) An agent whose run produces a single on-disk file
-            # (deliverable.strategy == "single_file", e.g. the prototype build loop)
-            # writes its HTML to that file via the native deepagents write_file/edit_file
-            # tools — the text stream only carries the tool confirmation, not the HTML.
-            # Read the named file back and prefer it over the streamed text so downstream
-            # agents (and the agent_complete.output_length snapshot key — PARITY-09) see
-            # the full deliverable. Keyed off the DECLARED deliverable spec on ctx, NOT a
-            # workflow-name branch (the former prototype-name readback gate, deleted in
-            # 07-05). The fall-through resolution is owned by the single_file deliverable
-            # resolver; this is the mid-stream "prefer the deliverable over the
-            # confirmation" readback that the per-agent output (and output_length) needs.
-            _deliv = getattr(ectx, "deliverable", None)
-            _deliv_strategy = getattr(_deliv, "strategy", None)
-            if _deliv_strategy == "single_file" and not getattr(ectx, "is_revision_workflow", False):
-                _deliv_name = getattr(_deliv, "name", None) or "prototype.html"
-                file_from_disk = sandbox.read(_deliv_name)
-                if file_from_disk and len(file_from_disk) > len(output):
-                    logger.info(
-                        "Agent %s: using sandbox %s (%d chars) instead of text output (%d chars)",
-                        spec.id, _deliv_name, len(file_from_disk), len(output),
-                    )
-                    output = file_from_disk
-
-            # ── PPT carousel deck: strip slide-hiding CSS the composer may hallucinate ──
-            # (INV-1, migrated L3) Sanitize here (before storage/context) so the stored
-            # artifact, the downstream QA validator, the agent_complete.output_length
-            # snapshot key (PARITY-07/09), and the final output all see a deck whose
-            # carousel renders all slides. Keyed off the DECLARED deliverable strategy
-            # (== "ppt"), NOT a workflow-name branch (the former ppt-name-set sanitize
-            # gate, deleted in 07-05). The transform is import-pure and a no-op on
-            # non-carousel / non-HTML input; its definition lives in the ppt deliverable
-            # resolver's shared _artifact module (move-don't-copy, INV-12).
-            if _deliv_strategy == "ppt" and output:
-                from agents.capabilities.deliverables._artifact import (
-                    sanitize_carousel_deck_html as _sanitize_deck,
-                )
-
-                output = _sanitize_deck(output)
-
-            # ── [08-08 / CR-01] before_write hook firing (additive, declaration-driven) ──
-            # The DELIVERABLE-WRITE seam: the agent's produced deliverable content
-            # (``output``, read back off the sandbox above for single_file) is about to
-            # be persisted (the typed dual-write below + the downstream readback). Fire
-            # the step's DECLARED ``before_write`` hooks over it FIRST (secret_scan
-            # scans this payload; a manifest declaring ``hooks: [secret_scan]`` blocks a
-            # secret-bearing write). Declaration-driven (only DECLARED hooks fire) so a
-            # legacy step (declares no hooks) fires NOTHING here — no hook_runs row, the
-            # write proceeds byte-identically (the characterization snapshots stay green:
-            # they declare no hooks AND carry no secret). A ``block`` HALTS the persist
-            # ADDITIVELY (the artifact is not written; no new WS event type) — the
-            # fine-grained complement to the coarse pre-step ``security`` gate.
-            _cur_step = getattr(ectx, "current_step", None)
-            if output and _cur_step is not None and getattr(_cur_step, "hooks", None):
-                _bw_outcome = await self._fire_hooks(
-                    "before_write", _cur_step, ectx, _CAPABILITY_REGISTRY, payload=output
-                )
-                if _bw_outcome == "block":
+                # ── ISS-016 (A1): runner ``error``-event → recoverable agent_error ──────
+                # A runner-surfaced fault marks the agent failed. Emit the SAME recoverable
+                # agent_error shape the timeout path uses above (so the dispatch loop's
+                # _failed_agent_ids collector at :1620-1627 records spec.id), then RETURN —
+                # explicitly SKIPPING the ``output = "".join(output_chunks)`` build below,
+                # the result-append, and the agent_complete yield. This is the deliberate
+                # divergence from the timeout path (which keeps the completion): per CONTEXT
+                # A1 the error path must NOT append a completed result, so this agent stays
+                # in _failed_agent_ids and is NOT in results → the engine terminal machinery
+                # maps it to pipeline_failed (all-fail) / status:degraded (partial). The
+                # client-facing message is the SANITIZED, bounded text (no traceback /
+                # provider ARN / region / model-id — WR-02, T-16-01-ID); the raw str(exc)
+                # is logged server-side only. No F3 re-key, no runner edit, no text match
+                # (SC-001).
+                if agent_errored:
+                    # WR-02 (16 review): log the RAW provider message server-side for
+                    # operator triage (the warning log is not client-visible), but emit
+                    # only the sanitized, leak-free message on the agent_error event.
                     logger.warning(
-                        "before_write hook blocked the deliverable write for agent %s "
-                        "(declared hooks=%s) — skipping persist (additive halt)",
-                        spec.id, list(getattr(_cur_step, "hooks", []) or []),
+                        "Agent %s: runner surfaced an error event — marking failed (no "
+                        "completion). raw=%s | client=%s",
+                        spec.id, agent_error_raw, agent_error_message,
                     )
-                    output = ""
+                    _log_event("agent_error", pipeline_run_id, agent_id=spec.id,
+                               error=agent_error_message)
+                    # ISS-028: record the (agent_id, task_number) failure pair. This arm
+                    # RETURNS without a results.append, so the pair stays UNRECOVERED — a
+                    # task_loop where an earlier task of this same agent_id completed no
+                    # longer masks this hard failure (the agent_id-only subtraction at the
+                    # terminal zeroed it → a half-built deliverable lied as clean
+                    # pipeline_complete). All-fail still maps to pipeline_failed via the
+                    # untouched _failed_agent_ids branch.
+                    self._record_failed_invocation(ectx, spec.id)
+                    yield {
+                        "type": "agent_error",
+                        "data": {
+                            "agent_id": spec.id,
+                            "error": agent_error_message or "Agent run failed",
+                            "recoverable": True,
+                        },
+                    }
+                    return
 
-            # Typed write (PERSIST-02 step 2): the typed graph + DB — the SOLE artifact
-            # path since the prior-agent output mirror was deleted in 05-07 (INV-3).
-            # Skip empty output (an agent that produced nothing has no artifact). The
-            # location is the sandbox-relative file for file-backed prototype HTML, else
-            # a logical artifact_refs path for string artifacts (D-01).
-            if output:
-                _kind = self._artifact_kind_for(spec)
-                # CR-05 / 07-11 de-hardcode (WR-01): source the html_file location from
-                # the DECLARED deliverable name (the same accessor threaded through the
-                # strategy + persist path, mirroring single_file.py / engine.py:1629),
-                # NOT the literal "prototype.html". Parity-safe: for prototype/od_prototype
-                # the declared name IS "prototype.html", so the persisted location stays
-                # byte-identical; a future non-prototype html_file workflow now persists
-                # under its own declared name instead of a wrong prototype location.
-                _html_loc = getattr(getattr(ectx, "deliverable", None), "name", None) or "prototype.html"
-                _location = (
-                    _html_loc
-                    if _kind == "html_file"
-                    else f"artifact_refs/{spec.id}"
-                )
-                await self._dual_write_artifact(
-                    ectx,
-                    producer_agent=spec.id,
-                    producer_step=spec.id,
-                    content=output,
-                    kind=_kind,
-                    location=_location,
-                )
+                output = "".join(output_chunks)
 
-            # Persist each declared `produces` kind as a typed ArtifactRef in
-            # artifact_refs (PERSIST-02 — migrated off the thin store in 05-06). The
-            # per-run handoff for spec.id is already dual-written above; this folds each
-            # declared `produces` artifact_type into the typed path keyed by that kind.
-            # visibility="workspace" so a later same-owner revision (_handle_revision
-            # cross-run read) resolves it through the owner+visibility scope filter.
-            # Best-effort degrade (matches _dual_write_artifact): the offline
-            # characterization harness has no workflow_runs FK row, so a hard-fail here
-            # would break 0A parity (INV-3).
-            if output:
-                for artifact_type in getattr(spec, "produces", []):
+                # ── WR-01 (13 review fix): sanitize fabricated tool-call XML HERE ────────
+                # The runner's done-event sanitizer (F4 / 13-02) is inert on this path —
+                # the engine assembles the authoritative output from ``chunk`` events and
+                # never consumes ``done``. Apply the SAME transform to the chunk-joined
+                # output, duck-typed on the runner's capability surface (no app-module
+                # import, no workflow/agent-name branch — SC-001). The runner method is a
+                # no-op for tool-using agents and a same-object identity for clean text,
+                # so the characterization snapshots stay byte-identical.
+                _sanitize_fn = getattr(agent, "sanitize_output", None)
+                if callable(_sanitize_fn):
+                    output = _sanitize_fn(output)
+
+                # ── Single-file deliverable: read the named file from the run sandbox ─────
+                # (INV-1, migrated L10) An agent whose run produces a single on-disk file
+                # (deliverable.strategy == "single_file", e.g. the prototype build loop)
+                # writes its HTML to that file via the native deepagents write_file/edit_file
+                # tools — the text stream only carries the tool confirmation, not the HTML.
+                # Read the named file back and prefer it over the streamed text so downstream
+                # agents (and the agent_complete.output_length snapshot key — PARITY-09) see
+                # the full deliverable. Keyed off the DECLARED deliverable spec on ctx, NOT a
+                # workflow-name branch (the former prototype-name readback gate, deleted in
+                # 07-05). The fall-through resolution is owned by the single_file deliverable
+                # resolver; this is the mid-stream "prefer the deliverable over the
+                # confirmation" readback that the per-agent output (and output_length) needs.
+                _deliv = getattr(ectx, "deliverable", None)
+                _deliv_strategy = getattr(_deliv, "strategy", None)
+                if _deliv_strategy == "single_file" and not getattr(ectx, "is_revision_workflow", False):
+                    _deliv_name = getattr(_deliv, "name", None) or "prototype.html"
+                    file_from_disk = sandbox.read(_deliv_name)
+                    if file_from_disk and len(file_from_disk) > len(output):
+                        logger.info(
+                            "Agent %s: using sandbox %s (%d chars) instead of text output (%d chars)",
+                            spec.id, _deliv_name, len(file_from_disk), len(output),
+                        )
+                        output = file_from_disk
+
+                # ── PPT carousel deck: strip slide-hiding CSS the composer may hallucinate ──
+                # (INV-1, migrated L3) Sanitize here (before storage/context) so the stored
+                # artifact, the downstream QA validator, the agent_complete.output_length
+                # snapshot key (PARITY-07/09), and the final output all see a deck whose
+                # carousel renders all slides. Keyed off the DECLARED deliverable strategy
+                # (== "ppt"), NOT a workflow-name branch (the former ppt-name-set sanitize
+                # gate, deleted in 07-05). The transform is import-pure and a no-op on
+                # non-carousel / non-HTML input; its definition lives in the ppt deliverable
+                # resolver's shared _artifact module (move-don't-copy, INV-12).
+                if _deliv_strategy == "ppt" and output:
+                    from agents.capabilities.deliverables._artifact import (
+                        sanitize_carousel_deck_html as _sanitize_deck,
+                    )
+
+                    output = _sanitize_deck(output)
+
+                # ── [08-08 / CR-01] before_write hook firing (additive, declaration-driven) ──
+                # The DELIVERABLE-WRITE seam: the agent's produced deliverable content
+                # (``output``, read back off the sandbox above for single_file) is about to
+                # be persisted (the typed dual-write below + the downstream readback). Fire
+                # the step's DECLARED ``before_write`` hooks over it FIRST (secret_scan
+                # scans this payload; a manifest declaring ``hooks: [secret_scan]`` blocks a
+                # secret-bearing write). Declaration-driven (only DECLARED hooks fire) so a
+                # legacy step (declares no hooks) fires NOTHING here — no hook_runs row, the
+                # write proceeds byte-identically (the characterization snapshots stay green:
+                # they declare no hooks AND carry no secret). A ``block`` HALTS the persist
+                # ADDITIVELY (the artifact is not written; no new WS event type) — the
+                # fine-grained complement to the coarse pre-step ``security`` gate.
+                _cur_step = getattr(ectx, "current_step", None)
+                if output and _cur_step is not None and getattr(_cur_step, "hooks", None):
+                    _bw_outcome = await self._fire_hooks(
+                        "before_write", _cur_step, ectx, _CAPABILITY_REGISTRY, payload=output
+                    )
+                    if _bw_outcome == "block":
+                        logger.warning(
+                            "before_write hook blocked the deliverable write for agent %s "
+                            "(declared hooks=%s) — skipping persist (additive halt)",
+                            spec.id, list(getattr(_cur_step, "hooks", []) or []),
+                        )
+                        output = ""
+
+                # Typed write (PERSIST-02 step 2): the typed graph + DB — the SOLE artifact
+                # path since the prior-agent output mirror was deleted in 05-07 (INV-3).
+                # Skip empty output (an agent that produced nothing has no artifact). The
+                # location is the sandbox-relative file for file-backed prototype HTML, else
+                # a logical artifact_refs path for string artifacts (D-01).
+                if output:
+                    _kind = self._artifact_kind_for(spec)
+                    # CR-05 / 07-11 de-hardcode (WR-01): source the html_file location from
+                    # the DECLARED deliverable name (the same accessor threaded through the
+                    # strategy + persist path, mirroring single_file.py / engine.py:1629),
+                    # NOT the literal "prototype.html". Parity-safe: for prototype/od_prototype
+                    # the declared name IS "prototype.html", so the persisted location stays
+                    # byte-identical; a future non-prototype html_file workflow now persists
+                    # under its own declared name instead of a wrong prototype location.
+                    _html_loc = getattr(getattr(ectx, "deliverable", None), "name", None) or "prototype.html"
+                    _location = (
+                        _html_loc
+                        if _kind == "html_file"
+                        else f"artifact_refs/{spec.id}"
+                    )
                     await self._dual_write_artifact(
                         ectx,
                         producer_agent=spec.id,
                         producer_step=spec.id,
                         content=output,
-                        kind=artifact_type,
-                        location=f"artifact_refs/{artifact_type}",
-                        visibility="workspace",
+                        kind=_kind,
+                        location=_location,
+                        # REDO-GATE B5: on a re-run this records lineage to the rejected
+                        # ref (the new version N+1 supersedes it, decision #4). None on
+                        # every normal run ⇒ byte-identical (INV-3). Loop local (F3).
+                        derived_from=_iter_derived,
                     )
 
-            duration = time.time() - agent_start
-            agent_total_tokens = agent_input_tokens + agent_output_tokens
-            results.append({
-                "agent_id": spec.id, "name": spec.name, "role": spec.role,
-                "icon": spec.icon, "output": output, "duration": duration,
-                "input_tokens": agent_input_tokens, "output_tokens": agent_output_tokens,
-                "total_tokens": agent_total_tokens,
-                # ISS-028: the task identity of THIS completed invocation ("" for a
-                # single_shot agent) so the terminal degraded decision can subtract
-                # COMPLETED (agent_id, task_number) pairs from ectx.failed_invocations.
-                # An internal-only field — results never reaches the wire / a snapshot
-                # (the WS layer builds its agent_outputs from EVENTS, and every reader
-                # of ``results`` uses .get()/["output"]/["agent_id"]/len), so INV-3
-                # byte-parity is unaffected.
-                "task_number": getattr(ectx, "build_task_number", "") or "",
-            })
-            _log_event("agent_complete", pipeline_run_id, agent_id=spec.id,
-                       duration_ms=duration * 1000)
-            yield {
-                "type": "agent_complete",
-                "data": {"agent_id": spec.id, "name": spec.name, "duration": round(duration, 2),
-                         "output_length": len(output), "index": index, "total": len(ordered_agents),
-                         "input_tokens": agent_input_tokens, "output_tokens": agent_output_tokens,
-                         "total_tokens": agent_total_tokens},
-            }
+                # Persist each declared `produces` kind as a typed ArtifactRef in
+                # artifact_refs (PERSIST-02 — migrated off the thin store in 05-06). The
+                # per-run handoff for spec.id is already dual-written above; this folds each
+                # declared `produces` artifact_type into the typed path keyed by that kind.
+                # visibility="workspace" so a later same-owner revision (_handle_revision
+                # cross-run read) resolves it through the owner+visibility scope filter.
+                # Best-effort degrade (matches _dual_write_artifact): the offline
+                # characterization harness has no workflow_runs FK row, so a hard-fail here
+                # would break 0A parity (INV-3).
+                if output:
+                    for artifact_type in getattr(spec, "produces", []):
+                        await self._dual_write_artifact(
+                            ectx,
+                            producer_agent=spec.id,
+                            producer_step=spec.id,
+                            content=output,
+                            kind=artifact_type,
+                            location=f"artifact_refs/{artifact_type}",
+                            visibility="workspace",
+                        )
 
-            # ── Human_Gate: pause for user review if agent declares gate ──
-            # The agent's AGENT.md frontmatter declares `gate: Human_Gate`.
-            # We pause here, emit review_gate_ready with the agent's output,
-            # and wait for the user to approve (possibly with edits).
-            # On approve: continue with (possibly edited) output.
-            # On reject: cancel the pipeline.
-            # Whether THIS agent gates is the effective per-run decision (default
-            # = today's static `gate: Human_Gate` set; see _should_gate / the
-            # `gate_agent_ids` param on execute()). The gate body below — the
-            # _run_review_gate call and its events — is unchanged.
-            if self._should_gate(spec, ectx):
-                async for gate_event in self._run_review_gate(
-                    pipeline_run_id=pipeline_run_id,
-                    agent_id=spec.id,
-                    agent_name=spec.name,
-                    output=output,
-                ):
-                    if gate_event.get("type") == "_gate_rejected":
-                        # User rejected — cancel the pipeline
-                        # Guard: only transition if not already in a terminal state
-                        current = self._state_machine.get_state(pipeline_run_id)
-                        if current not in ("cancelled", "failed"):
-                            self._state_machine.transition(pipeline_run_id, "cancelled")
-                        yield {"type": "pipeline_cancelled", "data": {
-                            "pipeline_run_id": pipeline_run_id,
-                            "reason": f"User rejected output from {spec.name}",
-                        }}
-                        return
-                    elif gate_event.get("type") == "_gate_edited":
-                        # User edited the output.
-                        edited = gate_event.get("edited_content", output)
-                        # Typed-write the edited content as a NEW ref version so
-                        # _latest_typed_content returns the edit downstream (ART-03).
-                        if edited:
-                            _ek = self._artifact_kind_for(spec)
-                            # WR-01 de-hardcode: declared deliverable name for html_file.
-                            _ek_html_loc = getattr(getattr(ectx, "deliverable", None), "name", None) or "prototype.html"
-                            await self._dual_write_artifact(
-                                ectx,
-                                producer_agent=spec.id,
-                                producer_step=spec.id,
-                                content=edited,
-                                kind=_ek,
-                                location=(
-                                    _ek_html_loc
-                                    if _ek == "html_file"
-                                    else f"artifact_refs/{spec.id}"
-                                ),
+                duration = time.time() - agent_start
+                agent_total_tokens = agent_input_tokens + agent_output_tokens
+                results.append({
+                    "agent_id": spec.id, "name": spec.name, "role": spec.role,
+                    "icon": spec.icon, "output": output, "duration": duration,
+                    "input_tokens": agent_input_tokens, "output_tokens": agent_output_tokens,
+                    "total_tokens": agent_total_tokens,
+                    # ISS-028: the task identity of THIS completed invocation ("" for a
+                    # single_shot agent) so the terminal degraded decision can subtract
+                    # COMPLETED (agent_id, task_number) pairs from ectx.failed_invocations.
+                    # An internal-only field — results never reaches the wire / a snapshot
+                    # (the WS layer builds its agent_outputs from EVENTS, and every reader
+                    # of ``results`` uses .get()/["output"]/["agent_id"]/len), so INV-3
+                    # byte-parity is unaffected.
+                    "task_number": getattr(ectx, "build_task_number", "") or "",
+                })
+                _log_event("agent_complete", pipeline_run_id, agent_id=spec.id,
+                           duration_ms=duration * 1000)
+                yield {
+                    "type": "agent_complete",
+                    "data": {"agent_id": spec.id, "name": spec.name, "duration": round(duration, 2),
+                             "output_length": len(output), "index": index, "total": len(ordered_agents),
+                             "input_tokens": agent_input_tokens, "output_tokens": agent_output_tokens,
+                             "total_tokens": agent_total_tokens},
+                }
+
+                # ── Human_Gate: pause for user review if agent declares gate ──
+                # The agent's AGENT.md frontmatter declares `gate: Human_Gate`.
+                # We pause here, emit review_gate_ready with the agent's output,
+                # and wait for the user to approve (possibly with edits).
+                # On approve: continue with (possibly edited) output.
+                # On reject: cancel the pipeline.
+                # Whether THIS agent gates is the effective per-run decision (default
+                # = today's static `gate: Human_Gate` set; see _should_gate / the
+                # `gate_agent_ids` param on execute()). REDO-GATE: the inline call site
+                # passes redoable=True (a structural path, name-free — SC-001) so the
+                # FE offers Redo on every LIVE human gate; the _gate_redo branch below
+                # re-runs THIS agent via the enclosing while-loop (flat stack, F2).
+                if self._should_gate(spec, ectx):
+                    async for gate_event in self._run_review_gate(
+                        pipeline_run_id=pipeline_run_id,
+                        agent_id=spec.id,
+                        agent_name=spec.name,
+                        output=output,
+                        redoable=True,
+                    ):
+                        if gate_event.get("type") == "_gate_rejected":
+                            # User rejected — cancel the pipeline
+                            # Guard: only transition if not already in a terminal state
+                            current = self._state_machine.get_state(pipeline_run_id)
+                            if current not in ("cancelled", "failed"):
+                                self._state_machine.transition(pipeline_run_id, "cancelled")
+                            yield {"type": "pipeline_cancelled", "data": {
+                                "pipeline_run_id": pipeline_run_id,
+                                "reason": f"User rejected output from {spec.name}",
+                            }}
+                            return
+                        elif gate_event.get("type") == "_gate_edited":
+                            # User edited the output.
+                            edited = gate_event.get("edited_content", output)
+                            # Typed-write the edited content as a NEW ref version so
+                            # _latest_typed_content returns the edit downstream (ART-03).
+                            if edited:
+                                _ek = self._artifact_kind_for(spec)
+                                # WR-01 de-hardcode: declared deliverable name for html_file.
+                                _ek_html_loc = getattr(getattr(ectx, "deliverable", None), "name", None) or "prototype.html"
+                                await self._dual_write_artifact(
+                                    ectx,
+                                    producer_agent=spec.id,
+                                    producer_step=spec.id,
+                                    content=edited,
+                                    kind=_ek,
+                                    location=(
+                                        _ek_html_loc
+                                        if _ek == "html_file"
+                                        else f"artifact_refs/{spec.id}"
+                                    ),
+                                )
+                            # Also update the last result
+                            if results:
+                                results[-1] = {**results[-1], "output": edited}
+                        elif gate_event.get("type") == "_gate_redo":
+                            # REDO-GATE: re-run THIS agent in place (decision #1/2).
+                            # Set the LOOP LOCALS the next iteration consumes (F3) —
+                            # the rejected output stays as a prior ArtifactRef version
+                            # (decision #4); the re-run's write records derived_from
+                            # lineage to it. Keyed on the GENERIC event type (SC-001).
+                            redo_directive = gate_event.get("instructions") or ""
+                            _kind = self._artifact_kind_for(spec)
+                            _cands = [
+                                r for r in ectx.artifacts.list_by_kind(_kind)
+                                if r.producer_agent == spec.id
+                            ]
+                            redo_derived_from = (
+                                max(_cands, key=lambda r: r.version).id
+                                if _cands else None
                             )
-                        # Also update the last result
-                        if results:
-                            results[-1] = {**results[-1], "output": edited}
+                            # Drop the rejected output's results entry (matching
+                            # agent_id) so the re-run appends a fresh one.
+                            if results and results[-1].get("agent_id") == spec.id:
+                                results.pop()
+                            # T7 (B8): best-effort, content-free redo audit row in the
+                            # INLINE consumer (NOT _run_review_gate, which has no ectx).
+                            # Dormant on goldens (they never redo). Never breaks the run.
+                            _runner = getattr(ectx, "runner", None)
+                            if _runner is not None and hasattr(_runner, "record_gate_event"):
+                                try:
+                                    await _runner.record_gate_event(
+                                        spec.id, "human", "redo",
+                                        {"has_instructions": bool(redo_directive)},
+                                    )
+                                except Exception:  # noqa: BLE001 — audit never aborts a run
+                                    logger.debug(
+                                        "redo audit row failed for agent %s (ignored)",
+                                        spec.id, exc_info=True,
+                                    )
+                            break  # leave the gate consumer; the while-loop re-runs
+                        else:
+                            yield gate_event
                     else:
-                        yield gate_event
+                        # The gate generator exhausted WITHOUT a redo break →
+                        # approve / edit / (reject already returned) → this agent is
+                        # done; leave _run_agent.
+                        return
+                    # Only reached via the _gate_redo `break` above → re-run the SAME
+                    # agent in the enclosing while-loop (FLAT STACK — no recursion, F2).
+                    continue
 
-        except asyncio.CancelledError:
-            raise
-        except (FileNotFoundError, PermissionError) as exc:
-            # Missing AGENT.md or template — fatal
-            _log_event("agent_error", pipeline_run_id, agent_id=spec.id, error=str(exc))
-            # ISS-028: unrecovered (agent_id, task_number) failure — no results.append.
-            self._record_failed_invocation(ectx, spec.id)
-            yield {"type": "agent_error", "data": {"agent_id": spec.id, "error": str(exc), "recoverable": False}}
-        except Exception as exc:
-            # If the run is already in a terminal state (cancelled/failed), don't
-            # treat this as a recoverable error — re-raise so the pipeline stops.
-            from agents.execution_engine.state_machine import StateMachineError
-            if isinstance(exc, StateMachineError):
-                current = self._state_machine.get_state(pipeline_run_id)
-                if current in ("cancelled", "failed"):
-                    logger.info(
-                        "Agent %s: pipeline already in terminal state=%s — stopping",
-                        spec.id, current,
-                    )
-                    return  # Stop the agent loop cleanly
-            logger.exception("Agent %s failed", spec.id)
-            _log_event("agent_error", pipeline_run_id, agent_id=spec.id, error=str(exc))
-            # ISS-028: unrecovered (agent_id, task_number) failure — this handler
-            # writes an [Error:…] placeholder but never appends to results.
-            self._record_failed_invocation(ectx, spec.id)
-            yield {"type": "agent_error", "data": {"agent_id": spec.id, "error": str(exc), "recoverable": True}}
-            # Typed-write the error placeholder so a downstream consumer reading from
-            # the typed graph sees it (the SOLE artifact path since 05-07; parity).
-            _err_output = f"[Error: {exc}]"
-            _erk = self._artifact_kind_for(spec)
-            # WR-01 de-hardcode: declared deliverable name for html_file.
-            _erk_html_loc = getattr(getattr(ectx, "deliverable", None), "name", None) or "prototype.html"
-            await self._dual_write_artifact(
-                ectx,
-                producer_agent=spec.id,
-                producer_step=spec.id,
-                content=_err_output,
-                kind=_erk,
-                location=(
-                    _erk_html_loc if _erk == "html_file" else f"artifact_refs/{spec.id}"
-                ),
-            )
+                # Not gated → a single run; done after one loop iteration.
+                return
+
+            except asyncio.CancelledError:
+                raise
+            except (FileNotFoundError, PermissionError) as exc:
+                # Missing AGENT.md or template — fatal
+                _log_event("agent_error", pipeline_run_id, agent_id=spec.id, error=str(exc))
+                # ISS-028: unrecovered (agent_id, task_number) failure — no results.append.
+                self._record_failed_invocation(ectx, spec.id)
+                yield {"type": "agent_error", "data": {"agent_id": spec.id, "error": str(exc), "recoverable": False}}
+                return  # REDO-GATE: terminate the redo while-loop (no re-run on a fatal error)
+            except Exception as exc:
+                # If the run is already in a terminal state (cancelled/failed), don't
+                # treat this as a recoverable error — re-raise so the pipeline stops.
+                from agents.execution_engine.state_machine import StateMachineError
+                if isinstance(exc, StateMachineError):
+                    current = self._state_machine.get_state(pipeline_run_id)
+                    if current in ("cancelled", "failed"):
+                        logger.info(
+                            "Agent %s: pipeline already in terminal state=%s — stopping",
+                            spec.id, current,
+                        )
+                        return  # Stop the agent loop cleanly
+                logger.exception("Agent %s failed", spec.id)
+                _log_event("agent_error", pipeline_run_id, agent_id=spec.id, error=str(exc))
+                # ISS-028: unrecovered (agent_id, task_number) failure — this handler
+                # writes an [Error:…] placeholder but never appends to results.
+                self._record_failed_invocation(ectx, spec.id)
+                yield {"type": "agent_error", "data": {"agent_id": spec.id, "error": str(exc), "recoverable": True}}
+                # Typed-write the error placeholder so a downstream consumer reading from
+                # the typed graph sees it (the SOLE artifact path since 05-07; parity).
+                _err_output = f"[Error: {exc}]"
+                _erk = self._artifact_kind_for(spec)
+                # WR-01 de-hardcode: declared deliverable name for html_file.
+                _erk_html_loc = getattr(getattr(ectx, "deliverable", None), "name", None) or "prototype.html"
+                await self._dual_write_artifact(
+                    ectx,
+                    producer_agent=spec.id,
+                    producer_step=spec.id,
+                    content=_err_output,
+                    kind=_erk,
+                    location=(
+                        _erk_html_loc if _erk == "html_file" else f"artifact_refs/{spec.id}"
+                    ),
+                )
+                return  # REDO-GATE: terminate the redo while-loop after an errored run
 
     # ------------------------------------------------------------------
     # DELETED (07-05, L11): the legacy per-task build-loop driver, its reference-file
