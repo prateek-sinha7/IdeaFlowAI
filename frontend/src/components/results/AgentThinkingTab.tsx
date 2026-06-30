@@ -5,8 +5,9 @@ import {
   Brain, Wrench, ChevronDown, ChevronRight, Zap, CheckCircle2,
   XCircle, Clock, Cpu, FileText, Database,
   Layers, Activity, Eye, EyeOff, Copy, Check,
+  AlertTriangle, Pencil,
 } from "lucide-react";
-import type { AgentRunState, ContextSource, ToolCallEntry, PipelineRunState } from "@/types/index";
+import type { AgentRunState, ContextSource, ToolCallEntry, PipelineRunState, ValidationIssue } from "@/types/index";
 import { PrototypePipelineView } from "./PrototypePipelineView";
 import { TokenUsageSummary } from "@/components/workflow/TokenUsageSummary";
 
@@ -175,13 +176,108 @@ function PlannerCard({ pipelineState }: { pipelineState: PipelineRunState }) {
   );
 }
 
+// ─── Revision instruction card ────────────────────────────────────────────────
+// Extracts and highlights the actual revision request from the full input prompt
+// (which can be 60-100k chars of HTML). Makes it immediately visible at the top.
+function RevisionInstructionCard({ prompt }: { prompt: string }) {
+  const match = prompt.match(/===\s*REVISION REQUEST\s*===\s*\n([\s\S]*?)\n===\s*END REQUEST\s*===/i);
+  if (!match) return null;
+  const instruction = match[1].trim();
+  return (
+    <div className="mb-3 rounded-xl border-2 border-[#1B2A4A]/30 bg-[#1B2A4A]/5 px-3 py-2.5">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <Pencil className="h-3 w-3 text-[#1B2A4A]" />
+        <span className="text-[9px] font-bold text-[#1B2A4A] uppercase tracking-widest">Revision Request</span>
+      </div>
+      <p className="text-[11px] text-[#1B2A4A] font-medium leading-relaxed">{instruction}</p>
+    </div>
+  );
+}
+
+// ─── Edit summary card ─────────────────────────────────────────────────────────
+// Derives a concise summary of what was changed from the tool calls list.
+function EditSummaryCard({ toolCalls }: { toolCalls: ToolCallEntry[] }) {
+  const edits = toolCalls.filter(tc => tc.tool === "edit_file");
+  const writes = toolCalls.filter(tc => tc.tool === "write_file");
+  const reads = toolCalls.filter(tc => tc.tool === "read_file" || tc.tool === "grep");
+  if (edits.length === 0 && writes.length === 0) return null;
+  return (
+    <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+        <span className="text-[9px] font-bold text-emerald-700 uppercase tracking-widest">Changes Applied</span>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {edits.length > 0 && (
+          <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+            {edits.length} surgical edit{edits.length !== 1 ? "s" : ""}
+          </span>
+        )}
+        {writes.length > 0 && (
+          <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+            {writes.length} full rewrite{writes.length !== 1 ? "s" : ""}
+          </span>
+        )}
+        {reads.length > 0 && (
+          <span className="text-[10px] text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+            {reads.length} read/scan{reads.length !== 1 ? "s" : ""}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Validation result card ────────────────────────────────────────────────────
+// Shows the post-revision validation outcome (html_static + html_render).
+function ValidationResultCard({ passed, issues }: { passed?: boolean; issues?: ValidationIssue[] }) {
+  const [open, setOpen] = useState(false);
+  if (passed === undefined && (!issues || issues.length === 0)) return null;
+  const hasIssues = issues && issues.length > 0;
+  const isPassed = passed === true && !hasIssues;
+  return (
+    <div className={`mb-3 rounded-xl border px-3 py-2.5 ${isPassed ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+      <button onClick={() => hasIssues && setOpen(v => !v)} className="w-full flex items-center gap-1.5 text-left">
+        {isPassed
+          ? <CheckCircle2 className="h-3 w-3 text-emerald-600 flex-shrink-0" />
+          : <AlertTriangle className="h-3 w-3 text-amber-600 flex-shrink-0" />}
+        <span className={`text-[9px] font-bold uppercase tracking-widest ${isPassed ? "text-emerald-700" : "text-amber-700"}`}>
+          Validation {isPassed ? "Passed" : passed === false ? "Blocked" : "Issues Found"}
+        </span>
+        {hasIssues && (
+          <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ml-1 ${isPassed ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+            {issues!.length} issue{issues!.length !== 1 ? "s" : ""}
+          </span>
+        )}
+        {hasIssues && <ChevronDown className={`h-3 w-3 text-gray-400 ml-auto transition-transform ${open ? "rotate-180" : ""}`} />}
+      </button>
+      {open && hasIssues && (
+        <div className="mt-2 space-y-1">
+          {issues!.map((issue, i) => (
+            <div key={i} className="flex items-start gap-1.5 rounded-lg bg-white border border-amber-100 px-2.5 py-1.5">
+              <span className={`text-[8px] font-bold uppercase px-1 py-0.5 rounded flex-shrink-0 mt-0.5 ${
+                issue.severity === "CRITICAL" ? "bg-red-100 text-red-700" :
+                issue.severity === "HIGH" ? "bg-orange-100 text-orange-700" :
+                issue.severity === "MEDIUM" ? "bg-amber-100 text-amber-700" :
+                "bg-gray-100 text-gray-600"
+              }`}>{issue.severity}</span>
+              <p className="text-[10px] text-gray-700 leading-snug">{issue.message}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Context sources row ──────────────────────────────────────────────────────
 export function ContextSourcesRow({ sources }: { sources: ContextSource[] }) {
   return (
-    <div className="mb-3">
+    <div className="mb-3 rounded-xl border border-[#1B2A4A]/20 bg-[#E8EDF5]/60 px-3 py-2.5">
       <div className="flex items-center gap-1.5 mb-2">
-        <Database className="h-3 w-3 text-gray-400" />
-        <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Context Received</span>
+        <Database className="h-3 w-3 text-[#1B2A4A]" />
+        <span className="text-[9px] font-bold text-[#1B2A4A] uppercase tracking-widest">Context Received</span>
+        <span className="text-[9px] bg-[#1B2A4A]/10 text-[#1B2A4A] px-1.5 py-0.5 rounded-full font-medium ml-auto">{sources.length} source{sources.length !== 1 ? "s" : ""}</span>
       </div>
       <div className="flex flex-wrap gap-1.5">
         {sources.map((src, i) => {
@@ -197,12 +293,12 @@ export function ContextSourcesRow({ sources }: { sources: ContextSource[] }) {
             ? Math.round((1 - src.summary_length / src.full_output_length) * 100)
             : null;
           return (
-            <div key={i} className="flex items-center gap-1.5 bg-blue-50 border border-blue-100 rounded-lg px-2.5 py-1.5">
-              <Layers className="h-2.5 w-2.5 text-blue-500 flex-shrink-0" />
-              <span className="text-[10px] font-medium text-blue-700 truncate max-w-[100px]">{label}</span>
-              {size && <span className="text-[9px] text-blue-400">{size}</span>}
+            <div key={i} className="flex items-center gap-1.5 bg-white border border-[#1B2A4A]/20 shadow-sm rounded-lg px-2.5 py-1.5">
+              <Layers className="h-2.5 w-2.5 text-[#1B2A4A] flex-shrink-0" />
+              <span className="text-[10px] font-semibold text-[#1B2A4A] truncate max-w-[140px]">{label}</span>
+              {size && <span className="text-[9px] text-[#1B2A4A]/60 font-mono">{size}</span>}
               {compression != null && compression > 0 && (
-                <span className="text-[9px] bg-blue-100 text-blue-600 px-1 rounded font-medium">-{compression}%</span>
+                <span className="text-[9px] bg-[#1B2A4A]/10 text-[#1B2A4A] px-1 rounded font-medium">-{compression}%</span>
               )}
             </div>
           );
@@ -215,50 +311,58 @@ export function ContextSourcesRow({ sources }: { sources: ContextSource[] }) {
 // ─── Tool calls section ───────────────────────────────────────────────────────
 export function ToolCallsSection({ toolCalls }: { toolCalls: ToolCallEntry[] }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  // Collapse the whole section by default when there are many tool calls
+  const [sectionOpen, setSectionOpen] = useState(toolCalls.length <= 5);
   return (
     <div className="mb-3">
-      <div className="flex items-center gap-1.5 mb-2">
-        <Wrench className="h-3 w-3 text-gray-400" />
+      <button
+        onClick={() => setSectionOpen(v => !v)}
+        className="flex items-center gap-1.5 mb-2 w-full text-left hover:text-gray-600 transition-colors"
+      >
+        <Wrench className="h-3 w-3 text-gray-400 flex-shrink-0" />
         <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Tool Calls</span>
         <span className="text-[9px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-medium">{toolCalls.length}</span>
-      </div>
-      <div className="space-y-1.5">
-        {toolCalls.map((tc, i) => (
-          <div key={i} className="rounded-lg border border-gray-100 overflow-hidden bg-white">
-            <button
-              onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
-              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 transition-colors text-left"
-            >
-              <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${tc.result != null ? "bg-[#1B2A4A]" : "bg-amber-400 animate-pulse"}`} />
-              <span className="text-[10px] font-mono font-semibold text-[#1B2A4A] flex-1 truncate">{tc.tool}</span>
-              <span className="text-[9px] text-gray-400 truncate max-w-[120px]">
-                {Object.entries(tc.args || {}).map(([k, v]) => `${k}: ${String(v).slice(0, 20)}`).join(", ") || "no args"}
-              </span>
-              <ChevronDown className={`h-3 w-3 text-gray-300 flex-shrink-0 transition-transform ${expandedIdx === i ? "rotate-180" : ""}`} />
-            </button>
-            {expandedIdx === i && (
-              <div className="border-t border-gray-100 bg-gray-50/50">
-                {Object.keys(tc.args || {}).length > 0 && (
-                  <div className="px-3 py-2 border-b border-gray-100">
-                    <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Arguments</p>
-                    <pre className="text-[9px] text-gray-600 font-mono whitespace-pre-wrap leading-relaxed">
-                      {JSON.stringify(tc.args, null, 2)}
-                    </pre>
-                  </div>
-                )}
-                {tc.result != null && (
-                  <div className="px-3 py-2">
-                    <p className="text-[9px] font-semibold text-[#1B2A4A] uppercase tracking-wider mb-1">Result</p>
-                    <pre className="text-[9px] text-gray-600 font-mono whitespace-pre-wrap leading-relaxed max-h-[200px] overflow-y-auto">
-                      {tc.result}
-                    </pre>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+        <ChevronDown className={`h-3 w-3 text-gray-300 ml-auto flex-shrink-0 transition-transform ${sectionOpen ? "rotate-180" : ""}`} />
+      </button>
+      {sectionOpen && (
+        <div className="space-y-1.5">
+          {toolCalls.map((tc, i) => (
+            <div key={i} className="rounded-lg border border-gray-100 overflow-hidden bg-white">
+              <button
+                onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
+                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 transition-colors text-left"
+              >
+                <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${tc.result != null ? "bg-[#1B2A4A]" : "bg-amber-400 animate-pulse"}`} />
+                <span className="text-[10px] font-mono font-semibold text-[#1B2A4A] flex-1 truncate">{tc.tool}</span>
+                <span className="text-[9px] text-gray-400 truncate max-w-[120px]">
+                  {Object.entries(tc.args || {}).map(([k, v]) => `${k}: ${String(v).slice(0, 20)}`).join(", ") || "no args"}
+                </span>
+                <ChevronDown className={`h-3 w-3 text-gray-300 flex-shrink-0 transition-transform ${expandedIdx === i ? "rotate-180" : ""}`} />
+              </button>
+              {expandedIdx === i && (
+                <div className="border-t border-gray-100 bg-gray-50/50">
+                  {Object.keys(tc.args || {}).length > 0 && (
+                    <div className="px-3 py-2 border-b border-gray-100">
+                      <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Arguments</p>
+                      <pre className="text-[9px] text-gray-600 font-mono whitespace-pre-wrap leading-relaxed">
+                        {JSON.stringify(tc.args, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                  {tc.result != null && (
+                    <div className="px-3 py-2">
+                      <p className="text-[9px] font-semibold text-[#1B2A4A] uppercase tracking-wider mb-1">Result</p>
+                      <pre className="text-[9px] text-gray-600 font-mono whitespace-pre-wrap leading-relaxed max-h-[200px] overflow-y-auto">
+                        {tc.result}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -438,6 +542,12 @@ function AgentTimelineCard({ agent, isLast, isRunning, refCallback }: AgentCardP
       {/* Expanded body */}
       {expanded && hasContent && (
         <div className="border-t border-gray-100 px-4 py-3 bg-white space-y-0">
+          {/* KAN-81: revision-specific diagnostics shown first */}
+          {agent.inputPrompt && <RevisionInstructionCard prompt={agent.inputPrompt} />}
+          {agent.toolCalls && agent.toolCalls.length > 0 && (
+            <EditSummaryCard toolCalls={agent.toolCalls} />
+          )}
+          <ValidationResultCard passed={agent.validationPassed} issues={agent.validationIssues} />
           {agent.contextSources && agent.contextSources.length > 0 && (
             <ContextSourcesRow sources={agent.contextSources} />
           )}
@@ -497,6 +607,7 @@ export function AgentThinkingTab({ agents, pipelineState }: AgentThinkingTabProp
     if (ids.some(id => id.includes("app-builder") || id.includes("sdlc"))) return "App Builder Pipeline";
     if (ids.some(id => id.includes("mulesoft"))) return "Mulesoft Migration Pipeline";
     if (ids.some(id => id.includes("dotnet"))) return ".NET Migration Pipeline";
+    if (ids.some(id => id === "prototype-revision-agent")) return "Prototype Revision Pipeline";
     return "Pipeline";
   })();
 

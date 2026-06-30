@@ -1075,3 +1075,20 @@ Note: this also happens when the user clicks "User Stories" after a plain protot
 #### Notes
 - The fix covers both the "fresh live run" path (AgentProgressPanel chain button) and the "history reopen" path (WorkflowHistory chain button via `handleChainFromHistory`) — both result in a `pipeline_start` WS event.
 - A secondary defensive measure would be to also call `setReviewGateData(null)` inside `handleChainPipeline` and `handleChainFromHistory` before calling `onStartPipeline`, but the `pipeline_start` approach is cleaner and more robust (it handles all start paths including od_prototype and future pipelines).
+
+---
+
+### FIX-024b — KAN-81 Supplement: Add "Prototype Revision Pipeline" label to Thinking tab
+
+**Date:** 2026-06-30
+**Triggered by:** KAN-81 fresh analysis — pipeline label falls through to generic "Pipeline" for prototype-revision-agent
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/results/AgentThinkingTab.tsx` | Added `if (ids.some(id => id === "prototype-revision-agent")) return "Prototype Revision Pipeline";` to `pipelineLabel` derivation | Without this, the Thinking tab header shows "Pipeline" for revision runs. Exact ID match avoids incorrectly labelling other revision agent types (user-story-revision-agent, ppt-revision-agent, etc.). |
+
+#### Invariants Verified
+- **INV-1**: not affected — frontend label only
+- **INV-3**: not affected — no backend change
+- **SC-001**: not affected — frontend only

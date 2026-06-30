@@ -448,6 +448,9 @@ export interface AgentRunState {
   contextSources?: ContextSource[];
   toolCalls?: ToolCallEntry[];
   thinkingText?: string;
+  // KAN-81 — validation result from post_step: revision_validation
+  validationIssues?: ValidationIssue[];
+  validationPassed?: boolean;
 }
 
 /** A source of context for an agent — either a summarized prior-agent output

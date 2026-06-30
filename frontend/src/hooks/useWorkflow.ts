@@ -689,6 +689,58 @@ export function handlePipelineMessage(
       return true;
     }
 
+    case "validator_result": {
+      // Phase 8 (API-03) — capture validation issues for display in Thinking tab.
+      // These fire after a post_step: revision_validation (prototype revision)
+      // or any other validator gate. Store them on the agent whose step triggered.
+      const data = (msg.data as Record<string, unknown>) || msg;
+      const agentId = (data.agent_id as string) || "";
+      const issues = (data.issues as import("@/types/index").ValidationIssue[]) || [];
+      if (agentId && issues.length > 0) {
+        setPipelineState((prev) => {
+          const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+          if (agentIdx === -1) return prev;
+          const updated = [...prev.agents];
+          updated[agentIdx] = {
+            ...updated[agentIdx],
+            validationIssues: [...(updated[agentIdx].validationIssues || []), ...issues],
+          };
+          return { ...prev, agents: updated };
+        });
+      }
+      return true;
+    }
+
+    case "gate_passed": {
+      const data = (msg.data as Record<string, unknown>) || msg;
+      const agentId = (data.agent_id as string) || "";
+      if (agentId) {
+        setPipelineState((prev) => {
+          const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+          if (agentIdx === -1) return prev;
+          const updated = [...prev.agents];
+          updated[agentIdx] = { ...updated[agentIdx], validationPassed: true };
+          return { ...prev, agents: updated };
+        });
+      }
+      return true;
+    }
+
+    case "gate_blocked": {
+      const data = (msg.data as Record<string, unknown>) || msg;
+      const agentId = (data.agent_id as string) || "";
+      if (agentId) {
+        setPipelineState((prev) => {
+          const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+          if (agentIdx === -1) return prev;
+          const updated = [...prev.agents];
+          updated[agentIdx] = { ...updated[agentIdx], validationPassed: false };
+          return { ...prev, agents: updated };
+        });
+      }
+      return true;
+    }
+
     default:
       return false;
   }
