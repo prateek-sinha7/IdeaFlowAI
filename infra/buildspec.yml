@@ -106,7 +106,7 @@ phases:
       - gitleaks detect --no-git --redact --no-banner -v --config .gitleaks.toml --source .
       - echo "IaC misconfig scan (inline checkov:skip annotations + .checkov.yaml document accepted findings)"
       - checkov -d infra/terraform --config-file .checkov.yaml
-      - trivy config --exit-code 1 --severity HIGH,CRITICAL --skip-dirs "**/examples/**" --skip-dirs "**/localstack/**" infra/terraform
+      - trivy config --exit-code 1 --severity HIGH,CRITICAL --ignorefile .trivyignore --skip-dirs "**/examples/**" --skip-dirs "**/localstack/**" infra/terraform
 
   # --- build: shared+foundation apply, build/push images, app apply ----------
   build:
