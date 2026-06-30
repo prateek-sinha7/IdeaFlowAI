@@ -345,7 +345,7 @@ export function AgentProgressPanel({
                             }}
                             placeholder="Describe what you'd like to change..."
                             rows={3}
-                            className="w-full text-[12px] text-gray-700 placeholder-gray-400 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#1B2A4A]/40 transition-colors resize-none leading-relaxed"
+                            className="w-full text-[12px] text-gray-700 placeholder-gray-400 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#1B2A4A]/40 transition-colors resize-y leading-relaxed min-h-[72px]"
                           />
                           <div className="flex items-center justify-between mt-2">
                             <span className="text-[9px] text-gray-400">⌘↵ to send</span>
