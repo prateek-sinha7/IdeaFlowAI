@@ -80,6 +80,10 @@ class Settings(BaseSettings):
     #   eu.anthropic.claude-sonnet-4-5-20250929-v1:0
     BEDROCK_CODING_MODEL_ID: str = ""
     AWS_REGION: str = "eu-central-1"
+    # Optional Bedrock API bearer token (env: AWS_BEARER_TOKEN_BEDROCK). When
+    # set, selects the bedrock-bearer-token auth path; leave empty to use the
+    # default IAM (instance-role) credential chain — the production default.
+    AWS_BEARER_TOKEN_BEDROCK: str = ""
 
     # ---- Output token ceiling (single source of truth) ----
     # The Anthropic/Bedrock APIs REQUIRE a finite max_tokens on every call — it
