@@ -414,6 +414,42 @@ def _scripts_for(agent_id: str) -> list[_ScriptedTurn]:
             _ScriptedTurn(texts=["Done."], usage=(10, 5)),
         ]
 
+    # ── prototype-analyze (tools=[], text-only): the Spec Kit Analyzer runs at
+    # order 3 (specify → plan → ANALYZE → build → validate). It is READ-ONLY and
+    # TERMINAL — nothing consumes prototype-analyze and the prototype deliverable
+    # is read from the on-disk prototype.html, so this turn's text never touches
+    # the built artifact. Mirror the prototype-plan special-case (a faithful
+    # <analysis> report rather than the generic "output line one" stub) so the
+    # golden captures a realistic analyze stream. The text obeys the AGENT.md
+    # ABSOLUTE OUTPUT CONTRACT: first chars are <analysis>, ends with </analysis>,
+    # includes the report heading + a couple of finding lines + a
+    # "### Readiness verdict\nREADY TO BUILD" line. Fixed usage keeps token
+    # normalization deterministic; the exact bytes become the pinned output_length.
+    if agent_id == "prototype-analyze":
+        return [
+            _ScriptedTurn(
+                texts=[
+                    "<analysis>\n"
+                    "## Spec Kit Analysis Report\n\n"
+                    "### Summary\n"
+                    "The spec and task list are consistent and buildable; "
+                    "coverage is complete with no blocking gaps.\n\n"
+                    "### Findings\n"
+                    "| # | Category | Status | Detail |\n"
+                    "|---|----------|--------|--------|\n"
+                    "| 1 | Consistency | ✅ Clear | Tasks implement every spec page. |\n"
+                    "| 2 | Coverage gaps | ✅ Clear | All requirements mapped to a task. |\n\n"
+                    "### Issues requiring attention\n"
+                    "No blocking issues found.\n\n"
+                    "### Readiness verdict\n"
+                    "READY TO BUILD\n"
+                    "The artifacts are aligned; proceed to implementation.\n"
+                    "</analysis>"
+                ],
+                usage=(28, 16),
+            )
+        ]
+
     # ── prototype-validate (tools=prototype_emit_only): text-only run is fine —
     # it may call no tools (validation pass). Keep it pure text so the prototype
     # pipeline terminates deterministically.
