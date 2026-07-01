@@ -271,6 +271,39 @@ def _iter_route_hrefs(hrefs: list[str]) -> list[str]:
     return [h for h in hrefs if _is_route_href(h)]
 
 
+# Dynamic-nav discovery: a click handler / script that drives the hash router by
+# assigning ``location.hash = '#/…'`` OR calling ``navigateTo('#/…')``. These are
+# the nav sources the SPA prototype family actually uses (``onclick`` KPI cards,
+# table rows, buttons) — NOT just ``<a href>``; a target with no matching section
+# is a DEAD LINK exactly like a dead ``<a href>``.
+_HASH_ASSIGN_RE = re.compile(r"location\.hash\s*=\s*['\"]([^'\"]+)['\"]")
+_NAVIGATE_TO_RE = re.compile(r"navigateTo\(\s*['\"]([^'\"]+)['\"]")
+
+
+def _extract_dynamic_nav_routes(
+    inline_handlers: list[tuple[str, str]], script_text: str
+) -> list[str]:
+    """Return every fragment route a dynamic-nav source navigates to (deduped, ordered).
+
+    Scans BOTH the inline event-handler bodies (``onclick="window.location.hash =
+    '#/…'"``) AND the accumulated ``<script>`` text (``navigateTo('#/…')`` /
+    programmatic ``location.hash`` assignments). Only fragment routes (``#/…``) are
+    returned — a non-hash target is not an SPA route we resolve against a section.
+    """
+    routes: list[str] = []
+    seen: set[str] = set()
+    sources = [body for _attr, body in inline_handlers]
+    sources.append(script_text or "")
+    for src in sources:
+        for rx in (_HASH_ASSIGN_RE, _NAVIGATE_TO_RE):
+            for m in rx.finditer(src or ""):
+                route = m.group(1).strip()
+                if route.startswith("#") and route not in seen:
+                    seen.add(route)
+                    routes.append(route)
+    return routes
+
+
 def _extract_routes_map(script_text: str) -> tuple[dict[str, str] | None, list[str]]:
     """Return ``(routes_map, key_order)`` from a ``const routes = { ... }`` object.
 
@@ -487,6 +520,24 @@ def static_check(html: str | Path) -> StaticCheckResult:
         if target not in section_ids:
             issues.append(
                 f"dead nav link: href '{href}' has no matching "
+                f'<section data-page="{target}">'
+            )
+
+    # --- dynamic-nav (onclick location.hash / navigateTo) targets ------------ #
+    # The SPA prototype family navigates via click handlers + parameterized detail
+    # routes, not just ``<a href>`` — so a dynamic-nav target with NO matching
+    # section is a DEAD LINK error (worded like the <a href> dead-link but naming the
+    # dynamic source). Every dynamic target is ALSO folded into ``linked_ids`` BEFORE
+    # the orphan pass so a section reachable ONLY via dynamic nav is not a false orphan.
+    dynamic_routes = _extract_dynamic_nav_routes(parser.inline_handlers, script_text)
+    for route in dynamic_routes:
+        target = _href_target_id(route)
+        if not target:
+            continue
+        linked_ids.add(target)
+        if target not in section_ids:
+            issues.append(
+                f"dead nav link: onclick/navigateTo route '{route}' has no matching "
                 f'<section data-page="{target}">'
             )
 
