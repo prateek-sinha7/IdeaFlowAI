@@ -48,6 +48,12 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      additional_contexts:
+        # OpenDesign reference tree lives at the repo root, OUTSIDE ./backend.
+        # Named context consumed by `COPY --from=opendesign` in backend/Dockerfile
+        # so local `docker compose build` bakes /app/opendesign exactly like the
+        # CI buildx build (--build-context opendesign=skills/opendesign) does.
+        opendesign: ./skills/opendesign
     restart: unless-stopped
     env_file:
       # Two paths, both required: false. Compose merges them in order, so

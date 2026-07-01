@@ -106,7 +106,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PATH="/opt/venv/bin:${PATH}"
+    PATH="/opt/venv/bin:${PATH}" \
+    OD_ROOT=/app/opendesign
 
 # Runtime-only OS deps:
 #   * libpq5     — psycopg2's shared lib at runtime (libpq-dev is build-only)
@@ -174,6 +175,16 @@ COPY --chown=flowin:flowin app/ ./app/
 COPY --chown=flowin:flowin agents/ ./agents/
 COPY --chown=flowin:flowin alembic/ ./alembic/
 COPY --chown=flowin:flowin alembic.ini ./alembic.ini
+
+# OpenDesign reference content (design-templates, design-systems, craft rules,
+# prompt-templates) that app/services/od_loader.py reads from disk. Supplied as
+# a NAMED build context (buildx: --build-context opendesign=skills/opendesign;
+# compose: build.additional_contexts) because the tree lives at the repo root,
+# OUTSIDE this image's ./backend build context. Baked to /app/opendesign — a
+# path the /app/skills EBS bind-mount can NOT shadow — and selected at runtime
+# via ENV OD_ROOT above. Without this the loader finds nothing in deployed
+# environments (the volume is empty) and every OpenDesign gallery is empty.
+COPY --chown=flowin:flowin --from=opendesign . ./opendesign/
 
 # Entrypoint: runs migrations, then exec's uvicorn. Mode 0755 so the non-root
 # user can execute it.
