@@ -215,6 +215,10 @@ phases:
           echo "REGISTRY=${REGISTRY}"
           echo "REGION=${AWS_REGION}"
           cat <<'SCRIPT'
+        # SSM AWS-RunShellScript executes this with /bin/sh (dash on Ubuntu),
+        # which lacks `set -o pipefail`. Re-exec under bash on the first line so
+        # pipefail and the rest of this script's bash semantics work.
+        if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
         set -euo pipefail
         # On a freshly-created instance the host provisioning (Docker, Postgres,
         # nginx, app start) runs asynchronously from user-data
