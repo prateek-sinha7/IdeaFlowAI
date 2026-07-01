@@ -212,19 +212,203 @@ class ClarifyEngine:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    async def _generate_questions_via_llm(
+        self,
+        planning_context: dict[str, Any],
+        round_num: int,
+        pipeline_type: str,
+        is_no_template: bool,
+    ) -> list[dict] | None:
+        """Use an LLM to generate content-aware clarification questions.
+
+        Reads the user brief from planning_context and asks the model to
+        generate specific, targeted questions based on what's genuinely
+        missing — not generic MCQ options. Returns None on failure so the
+        caller can fall back to the static library.
+        """
+        user_request = planning_context.get("user_request", "")
+        inferred_intent = planning_context.get("inferred_intent", "")
+        missing = planning_context.get("missing_information", [])
+        topic = planning_context.get("topic") or ""
+        domain_insights = planning_context.get("domain_insights") or []
+
+        if not user_request and not inferred_intent:
+            return None
+
+        # Build a concise brief description for the prompt
+        brief_sample = user_request[:2000] if user_request else inferred_intent[:500]
+
+        # Pipeline-specific question guidance
+        pipeline_guidance = {
+            "prototype": (
+                "Focus on UI/UX design questions: layout type (sidebar/topnav/cards), "
+                "visual style (minimal SaaS, consumer, data-heavy dashboard, dark admin), "
+                "key pages/screens needed, primary user interactions, colour palette preference, "
+                "navigation pattern, and target device (desktop/mobile/responsive)."
+            ),
+            "od_prototype": (
+                "Focus on UI/UX design questions: layout type (sidebar/topnav/cards), "
+                "visual style (minimal SaaS, consumer, data-heavy dashboard, dark admin), "
+                "key pages/screens needed, primary user interactions, colour palette preference, "
+                "navigation pattern, and target device (desktop/mobile/responsive)."
+            ),
+            "user_stories": (
+                "Focus on product scope, user roles/personas, key user journeys, "
+                "business rules, acceptance criteria style, and any compliance needs."
+            ),
+            "od_ppt": (
+                "Focus on presentation purpose, target audience, content depth, "
+                "number of slides, visual style preference, and key sections to cover."
+            ),
+            "ppt": (
+                "Focus on presentation purpose, target audience, content depth, "
+                "number of slides, visual style preference, and key sections to cover."
+            ),
+            "app_builder": (
+                "Focus on tech stack, core features, data model, integrations, "
+                "security requirements, and deployment target."
+            ),
+        }.get(pipeline_type, "Focus on scope, audience, objectives, and output format.")
+
+        no_template_extra = ""
+        if is_no_template:
+            no_template_extra = """
+IMPORTANT: The user chose NOT to use a pre-made visual template (blank canvas mode).
+You MUST ask several UI design questions to establish the visual direction:
+- What layout pattern? (sidebar navigation, top navigation bar, card-based, single-page)
+- What visual style? (clean minimal SaaS, consumer/marketing, data-heavy dashboard, dark admin panel)
+- What colour scheme? (light neutral, dark mode, brand colours, monochrome)
+- What navigation structure? (sidebar with sub-items, flat topnav, hamburger menu)
+- What primary interactions? (data tables, forms, charts, modals, wizard flows)
+Ask AT LEAST 4 UI design questions — these are the most critical for blank-canvas output.
+"""
+
+        prompt = f"""You are a product clarification expert. Analyze the user's brief and generate targeted clarification questions.
+
+## Pipeline Type
+{pipeline_type}
+
+## User Brief
+{brief_sample}
+
+## What the planner identified as missing or unclear
+{json.dumps(missing)}
+
+## Inferred intent
+{inferred_intent}
+
+{f"## Domain insights{chr(10)}" + chr(10).join(f"- {i}" for i in domain_insights) if domain_insights else ""}
+
+## Guidance for this pipeline type
+{pipeline_guidance}
+{no_template_extra}
+
+## Your task
+Generate {4 if is_no_template else 3}-{7 if is_no_template else 5} targeted clarification questions based on what is GENUINELY missing or ambiguous in the brief above.
+
+Rules:
+1. Questions must be SPECIFIC to the brief content — reference the actual topic/domain
+2. Do NOT ask about things already clearly stated in the brief
+3. Each question must have 4-6 MCQ options that are RELEVANT to the domain/brief
+4. Include a "No preference — let the AI decide" option where appropriate
+5. Questions should directly improve the output quality if answered
+6. For prototype pipelines, prioritize UI/layout/visual style questions
+
+Return ONLY a JSON array, no other text:
+[
+  {{
+    "question_text": "Specific question referencing the actual content?",
+    "answer_type": "single_choice",
+    "options": ["Option A", "Option B", "Option C", "Option D", "No preference"],
+    "ambiguity_category": "UX Flow",
+    "impact_level": "high"
+  }},
+  ...
+]
+
+Valid ambiguity_category values: Functional Scope, User Roles, Data Model, UX Flow, Performance, Security, Integration, Edge Cases, Terminology, Acceptance Criteria, Constraints
+Valid impact_level values: high, medium, low
+"""
+        try:
+            from app.agents.model_factory import build_model
+            from langchain_core.messages import HumanMessage
+
+            llm = build_model(max_tokens=1024)
+            response = await llm.ainvoke([HumanMessage(content=prompt)])
+            raw = response.content if hasattr(response, "content") else str(response)
+
+            # Extract JSON array
+            import re
+            json_match = re.search(r'\[[\s\S]*\]', raw)
+            if not json_match:
+                logger.warning("ClarifyEngine LLM: no JSON array found in response")
+                return None
+
+            items = json.loads(json_match.group())
+            if not isinstance(items, list) or not items:
+                return None
+
+            questions = []
+            for i, item in enumerate(items):
+                if not isinstance(item, dict) or not item.get("question_text"):
+                    continue
+                options = item.get("options") or ["No preference"]
+                questions.append({
+                    "question_id": f"r{round_num}_q{i + 1}",
+                    "question_text": item["question_text"],
+                    "impact_level": item.get("impact_level", "high" if i < 2 else "medium"),
+                    "answer_type": item.get("answer_type", "single_choice"),
+                    "options": options,
+                    "recommended_answer": options[-1],
+                    "ambiguity_category": item.get("ambiguity_category", "Functional Scope"),
+                })
+
+            logger.info(
+                "ClarifyEngine LLM: generated %d content-aware questions for pipeline=%s no_template=%s",
+                len(questions), pipeline_type, is_no_template,
+            )
+            return questions if questions else None
+
+        except Exception as exc:
+            logger.warning("ClarifyEngine LLM question generation failed: %s — falling back to static library", exc)
+            return None
+
     async def _generate_questions(
         self,
         planning_context: dict[str, Any],
         round_num: int,
         clarify_agent,
     ) -> list[dict]:
-        """Generate clarification questions with MCQ options, pipeline-aware."""
+        """Generate content-aware clarification questions.
+
+        Primary path: LLM call that reads the actual brief and generates
+        targeted questions specific to the content.
+        Fallback: static library lookup keyed on missing_information items.
+        """
         missing = planning_context.get("missing_information", [])
         if not missing:
             return []
 
         pipeline_type = planning_context.get("pipeline_type", "custom")
+        is_no_template = bool(planning_context.get("no_template_mode", False))
+
+        # ── Primary path: LLM-generated content-aware questions ───────────
+        llm_questions = await self._generate_questions_via_llm(
+            planning_context, round_num, pipeline_type, is_no_template
+        )
+        if llm_questions:
+            return llm_questions
+
+        # ── Fallback: static library (used when LLM call fails) ───────────
+        logger.info("ClarifyEngine: falling back to static question library for pipeline=%s", pipeline_type)
+
+        # Content-aware context for personalising static question text
         inferred_intent = planning_context.get("inferred_intent", "")
+        topic = planning_context.get("topic") or ""
+        user_request_summary = planning_context.get("user_request_summary", "")
+        content_hint = (user_request_summary or inferred_intent or "").strip()
+        if len(content_hint) > 120:
+            content_hint = content_hint[:117] + "..."
 
         # ── Pipeline-specific topic questions ─────────────────────────────
         TOPIC_BY_PIPELINE: dict[str, tuple[str, list[str]]] = {
@@ -254,9 +438,7 @@ class ClarifyEngine:
             ),
         }
 
-        # ── Pipeline-specific style/UI questions (KAN-87) ─────────────────
-        # For prototype pipelines, "style" should ask about the visual UI type
-        # (web app, mobile, dense dashboard, etc.) — not presentation tone.
+        # ── Pipeline-specific style/UI questions ──────────────────────────
         STYLE_BY_PIPELINE: dict[str, tuple[str, list[str]]] = {
             "od_prototype": (
                 "What visual style and UI type should the prototype follow?",
@@ -384,7 +566,7 @@ class ClarifyEngine:
                 "What are the performance requirements?",
                 ["Low traffic (< 1k users)", "Medium traffic (1k–100k users)", "High traffic (100k+ users)", "Real-time / sub-second response", "No specific requirements"],
             ),
-            # ── Prototype-specific questions (KAN-74) ─────────────────────────
+            # ── Prototype-specific questions ───────────────────────────────
             "key_screens": (
                 "What are the key screens or pages the prototype must include?",
                 ["Home / landing page", "Dashboard / main workspace", "Onboarding / sign-up flow", "Detail / item view", "Settings / profile page"],
@@ -393,7 +575,7 @@ class ClarifyEngine:
                 "What types of interactions should the prototype demonstrate?",
                 ["Click-through navigation only", "Form inputs and validation", "Data tables with filtering/sorting", "Modals, drawers, and overlays", "Full interactive flows with state changes"],
             ),
-            # ── User-stories-specific questions (KAN-74) ──────────────────────
+            # ── User-stories-specific questions ───────────────────────────
             "personas": (
                 "What user roles or personas will use this product?",
                 ["Registered end users", "Admins / back-office staff", "Guest / anonymous users", "API consumers / developers", "Multiple roles with different permissions"],
@@ -410,7 +592,7 @@ class ClarifyEngine:
                 "What security or compliance requirements apply?",
                 ["Standard authentication (email/password)", "SSO / OAuth / enterprise identity", "GDPR / data-privacy compliance", "Industry regulation (HIPAA, PCI-DSS, ISO 27001)", "No specific requirements"],
             ),
-            # ── PPT-specific questions (KAN-74) ───────────────────────────────
+            # ── PPT-specific questions ─────────────────────────────────────
             "content_depth": (
                 "How detailed should the content be?",
                 ["High-level summary only", "Moderate detail with supporting points", "Deep-dive with data and evidence", "Executive brief (one key message per slide)", "No preference"],
@@ -427,7 +609,7 @@ class ClarifyEngine:
                 "What sections or chapters should the deck include?",
                 ["Executive summary + key findings", "Problem / opportunity + solution", "Data analysis + recommendations", "Roadmap or timeline", "Standard structure — I'll leave it to the AI"],
             ),
-            # ── App-builder-specific questions (KAN-74) ───────────────────────
+            # ── App-builder-specific questions ────────────────────────────
             "data_model": (
                 "What key data entities or models does the application need?",
                 ["Users / accounts and profiles", "Products / items / catalogue", "Orders / transactions / payments", "Content / documents / media", "Custom domain-specific entities"],
@@ -436,7 +618,7 @@ class ClarifyEngine:
                 "What external integrations or third-party services are needed?",
                 ["None / standalone application", "Payment gateway (Stripe, PayPal)", "Authentication provider (Auth0, Okta, Google)", "Email / SMS / notification service", "Multiple — I'll describe in notes"],
             ),
-            # ── Migration-specific questions (KAN-74) ─────────────────────────
+            # ── Migration-specific questions ───────────────────────────────
             "integration_patterns": (
                 "What integration patterns does the current application use?",
                 ["REST APIs (synchronous HTTP calls)", "Message queues / event-driven (Kafka, SQS)", "SOAP / XML web services", "Database-level integration (shared DB)", "Multiple patterns — I'll describe in notes"],
@@ -453,7 +635,7 @@ class ClarifyEngine:
                 "How should existing data be handled during migration?",
                 ["Full data migration (all historical data)", "Cutover only (no historical data migration)", "Parallel run (both systems live temporarily)", "Gradual migration with feature flags", "Not applicable / greenfield"],
             ),
-            # ── Custom workflow questions (KAN-74) ────────────────────────────
+            # ── Custom workflow questions ──────────────────────────────────
             "output_format": (
                 "What format should the output be in?",
                 ["Structured document (headings, sections)", "Bullet-point list / checklist", "Table or comparison matrix", "Code or technical specification", "Free-form prose / narrative"],
@@ -503,11 +685,11 @@ class ClarifyEngine:
                         break
 
             if matched_key:
-                question_text, options = QUESTION_LIBRARY[matched_key]
+                base_question, options = QUESTION_LIBRARY[matched_key]
             else:
                 # Fallback: generate a generic question with generic options
                 readable = item.replace("_", " ").replace("-", " ").title()
-                question_text = f"How would you describe the {readable}?"
+                base_question = f"How would you describe the {readable}?"
                 options = [
                     f"Standard {readable}",
                     f"Minimal {readable}",
@@ -515,6 +697,19 @@ class ClarifyEngine:
                     "Custom / specific requirements",
                     "No preference",
                 ]
+
+            # ── Content-aware question personalisation ─────────────────────
+            # When the planning context carries a content hint (inferred_intent,
+            # topic, or user_request_summary), append it as context so the user
+            # understands *why* we're asking and that the question is specifically
+            # about their content — not a generic fixed question.
+            question_text = base_question
+            if content_hint and matched_key not in ("topic", "subject"):
+                # Append a brief "For your [topic/content]..." prefix to ground
+                # the question in the user's actual content.
+                subject_label = topic or content_hint
+                if subject_label and len(subject_label) < 80:
+                    question_text = f"{base_question} (for: {subject_label})"
 
             category = _classify_ambiguity(item, _TAXONOMY)
             # Topic questions are hybrid: MCQ suggestions + free-text input

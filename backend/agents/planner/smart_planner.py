@@ -198,6 +198,18 @@ class SmartPlanner:
         """Build the rich planning prompt with domain knowledge."""
         kb = _get_domain_knowledge(pipeline_type)
 
+        # For long briefs (e.g. pasted user-story documents), intelligently
+        # extract a representative sample so the LLM can scan what's covered.
+        # We take the first 1500 chars (intro/context) + last 500 chars (summary/
+        # conclusion) to give the model a sense of scope without truncating abruptly.
+        brief_for_prompt = brief
+        if len(brief) > 2500:
+            head = brief[:1500].rstrip()
+            tail = brief[-500:].lstrip()
+            brief_for_prompt = (
+                f"{head}\n\n[... document continues — {len(brief) - 2000} chars omitted ...]\n\n{tail}"
+            )
+
         return f"""You are an expert pipeline planner. Analyze the user's brief and produce a structured planning context.
 
 ## Pipeline Being Run
@@ -206,7 +218,7 @@ class SmartPlanner:
 **What makes a good brief**: {kb['what_makes_good_brief']}
 
 ## User Brief
-"{brief}"
+"{brief_for_prompt}"
 
 ## Your Analysis Tasks
 
@@ -225,34 +237,41 @@ A brief does NOT have a topic:
 - ❌ "create a prototype" → no topic
 - ❌ "generate user stories" → no topic
 
-### 2. Missing Information
-Based on the brief and pipeline type, identify what's genuinely missing.
+### 2. Missing Information — CRITICAL: only include items GENUINELY absent from the brief
+Based on the brief and pipeline type, identify what's genuinely MISSING or AMBIGUOUS.
 
-**Common missing items for {pipeline_type}**: {json.dumps(kb['common_missing'])}
+**Candidate missing items for {pipeline_type}**: {json.dumps(kb['common_missing'])}
 
-Only include items that are:
-- Genuinely unclear from the brief
-- Would materially change the output if answered differently
-- NOT already answered in the brief
+**STRICT RULE**: Only include an item in missing_information if:
+1. It is genuinely unclear or absent from the brief
+2. It would materially change the output if answered differently
+3. It is NOT already answered or clearly implied by the brief
+
+If the brief mentions nurses in a hospital booking system → "target_audience" is CLEAR, do NOT add it.
+If the brief is a 100-page user-story document → most standard items are likely already covered.
+If the brief specifies a web app → "technology" may already be implied.
+Read the brief carefully and SKIP any item that is already answered.
 
 If the brief has no topic → add "topic" as the FIRST item.
+If the brief is rich and covers most dimensions → missing_information may be short (1-2 items) or even empty.
 
 ### 3. Infer Context
 From the brief, infer:
 - Inferred intent (what the user actually wants to achieve)
-- Explicit constraints (things the user stated)
+- Explicit constraints (things explicitly stated in the brief)
 - Implicit constraints (things implied by the domain/context)
-- Relevant personas
-- NFRs (non-functional requirements)
+- Relevant personas (extracted FROM the brief when possible)
+- NFRs (non-functional requirements mentioned or implied)
 - Quality targets
+- Domain insights: 2-3 specific observations about THIS brief's content
 
-**Typical personas for {pipeline_type}**: {json.dumps(kb['typical_personas'])}
+**Typical personas for {pipeline_type}** (use only if not already specified in brief): {json.dumps(kb['typical_personas'])}
 **Typical NFRs**: {json.dumps(kb['nfrs'])}
 **Quality targets**: {json.dumps(kb['quality_targets'])}
 
 ### 4. Gate Decision
 - `CLARIFY_REQUIRED` if missing_information is non-empty
-- `PROCEED` if missing_information is empty (brief is complete)
+- `PROCEED` if missing_information is empty (brief is complete enough)
 
 ## Output Format
 Return ONLY valid JSON, no other text:
@@ -263,14 +282,15 @@ Return ONLY valid JSON, no other text:
   "topic": "the specific topic if found, or null",
   "explicit_constraints": ["list of things explicitly stated in the brief"],
   "implicit_constraints": ["list of things implied by the domain/context"],
-  "missing_information": ["topic", "target_audience", ...],
+  "missing_information": ["only items GENUINELY missing — may be empty for a rich brief"],
   "execution_strategy": "sequential",
   "execution_gate": "PROCEED" or "CLARIFY_REQUIRED",
-  "inferred_personas": ["list of relevant user personas"],
+  "inferred_personas": ["list of relevant user personas — extracted from brief where possible"],
   "inferred_nfrs": ["list of non-functional requirements"],
   "quality_targets": ["list of quality goals for this pipeline run"],
   "pipeline_type": "{pipeline_type}",
-  "domain_insights": ["2-3 key insights about this specific brief that agents should know"]
+  "domain_insights": ["2-3 specific insights about THIS brief that agents should know"],
+  "user_request_summary": "1-2 sentence summary of what the user provided (useful for downstream context)"
 }}"""
 
     async def plan(self, brief: str, pipeline_type: str) -> dict:
@@ -290,6 +310,9 @@ Return ONLY valid JSON, no other text:
 
             ctx = json.loads(json_match.group())
             ctx["pipeline_type"] = pipeline_type  # ensure it's set
+            # Store the original user request (truncated to 3000 chars for context
+            # window safety) so ClarifyEngine can generate content-aware questions.
+            ctx["user_request"] = brief[:3000] if len(brief) > 3000 else brief
 
             logger.info(
                 "SmartPlanner: pipeline=%s has_topic=%s gate=%s missing=%s",
@@ -321,5 +344,6 @@ Return ONLY valid JSON, no other text:
             "quality_targets": kb["quality_targets"][:2],
             "pipeline_type": pipeline_type,
             "domain_insights": [],
+            "user_request": brief[:3000] if len(brief) > 3000 else brief,
             "planner_fallback": True,
         }
