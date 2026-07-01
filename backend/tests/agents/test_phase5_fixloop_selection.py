@@ -17,8 +17,10 @@ The locked Phase-5 selection policy these tests pin:
   * Static REGRESSIONS — static issues NOT in ``baseline_static`` (empty/None
     baseline ⇒ ALL static issues, i.e. today's BUILD behavior = fix-all).
   * Hard render-breakage, ALWAYS included regardless of baseline — uncaught page
-    errors and dead nav links (a click activates no <section data-page> ⇒ blank
-    page / "won't display proper content").
+    errors and dead nav links. A dead nav is worded by its ACTUAL failure class
+    (round-4 null-honesty): ``activated is None`` ⇒ a BLANK page (activated NOTHING,
+    never coerced to a nav-link name); a real-but-wrong ``activated`` ⇒ a mis-routed
+    nav ("activated 'x' but expected 'y'").
   * Console errors NOT in ``baseline_console`` (empty/None ⇒ all, = today).
   * Render contributes ONLY when ``rres.available`` (a skipped render — Chromium
     absent — never adds issues).
@@ -78,6 +80,11 @@ def _live_nav(href: str, page: str) -> NavResult:
     return NavResult(href=href, activated=page, ok=True)
 
 
+def _wrong_nav(href: str, activated: str, expected: str) -> NavResult:
+    # A route that activated a real-but-WRONG section (mis-routed, not blank).
+    return NavResult(href=href, activated=activated, ok=False, expected=expected)
+
+
 # --------------------------------------------------------------------------- #
 # Signature helpers (the normalization T2 imports).
 # --------------------------------------------------------------------------- #
@@ -126,16 +133,18 @@ class TestBuildModeParity:
         assert "console error: console boom" in selected
         assert "uncaught exception: ReferenceError: foo" in selected
         assert (
-            "dead nav link: clicking '#/orders' activated no <section data-page>"
+            "dead nav link: '#/orders' activated NOTHING (no <section data-page> "
+            "became active — blank page)"
             in selected
         )
         # The live nav must NOT appear.
         assert all("#/home" not in line for line in selected)
 
-    def test_build_order_is_byte_identical_to_legacy_error_lines(self):
-        # Pin the EXACT ordering + wording the pre-T1 build assembled, so the
-        # build fix-message stays byte-identical: static issues, then console
-        # errors, then uncaught exceptions, then dead nav links.
+    def test_build_order_pins_canonical_honest_wording_and_order(self):
+        # Pin the EXACT ordering + the honest dead-nav wording (round-4): static
+        # issues, then console errors, then uncaught exceptions, then dead nav
+        # links. The dead-nav line names its ACTUAL failure class — a null
+        # ``activated`` is a BLANK page (activated NOTHING), never coerced to a name.
         sres = _static(["S1", "S2"])
         rres = _render(
             console_errors=["C1"],
@@ -148,8 +157,21 @@ class TestBuildModeParity:
             "S2",
             "console error: C1",
             "uncaught exception: P1",
-            "dead nav link: clicking '#/n1' activated no <section data-page>",
+            "dead nav link: '#/n1' activated NOTHING (no <section data-page> "
+            "became active — blank page)",
         ]
+
+    def test_dead_nav_wrong_section_names_actual_and_expected(self):
+        # Round-4 honesty: a dead nav that activated a REAL-but-WRONG section is
+        # worded as a mis-route (activated 'x' but expected 'y'), NOT a blank page.
+        sres = _static([])
+        rres = _render(nav=[_wrong_nav("#/x", activated="settings", expected="dashboard")])
+        selected = _select_issues_to_fix(sres, rres, None, None)
+        assert selected == [
+            "dead nav link: '#/x' activated 'settings' but expected 'dashboard'"
+        ]
+        # And it is NOT the blank-page wording.
+        assert all("activated NOTHING" not in line for line in selected)
 
     def test_empty_baseline_set_behaves_like_none(self):
         sres = _static(["S1"])
@@ -222,7 +244,8 @@ class TestRevisionModeSelection:
         assert preexisting_static not in selected
         # … but the RENDER-break dead-nav line is included regardless of baseline.
         assert (
-            "dead nav link: clicking '#/orders' activated no <section data-page>"
+            "dead nav link: '#/orders' activated NOTHING (no <section data-page> "
+            "became active — blank page)"
             in selected
         )
 
@@ -285,7 +308,8 @@ class TestRevisionModeSelection:
         assert f"console error: {console_pre}" not in selected
         assert "uncaught exception: TypeError: boom" in selected
         assert (
-            "dead nav link: clicking '#/broken' activated no <section data-page>"
+            "dead nav link: '#/broken' activated NOTHING (no <section data-page> "
+            "became active — blank page)"
             in selected
         )
         # Order: static regressions, then console, then page errors, then dead nav.
@@ -293,7 +317,8 @@ class TestRevisionModeSelection:
             sig_b,
             f"console error: {console_new}",
             "uncaught exception: TypeError: boom",
-            "dead nav link: clicking '#/broken' activated no <section data-page>",
+            "dead nav link: '#/broken' activated NOTHING (no <section data-page> "
+            "became active — blank page)",
         ]
 
     def test_revision_skipped_render_ignores_render_signals(self):

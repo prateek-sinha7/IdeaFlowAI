@@ -495,6 +495,32 @@ def _console_sigs(rres) -> set[str]:
     return set(getattr(rres, "console_errors", None) or [])
 
 
+def _dead_nav_line(nav) -> str:
+    """Honest one-line fix-message for a dead nav route, by its ACTUAL failure class.
+
+    A dead nav (``nav.ok is False``) has one of two distinct causes; the message must
+    name the real one so the fix-loop gets the right defect signal:
+
+      * ``nav.activated is None`` — the route activated NOTHING (no ``<section
+        data-page>`` became active → a blank page). This is the null-honesty case: the
+        render read found no real page section (never coerced to a nav-link name).
+      * otherwise — the route activated a real-but-WRONG section (``activated`` != the
+        ``expected`` resolved id): a mis-routed nav, not a blank page.
+
+    Pure + side-effect-free — shared by ``_select_issues_to_fix`` AND the build residual
+    assembly in ``_run_validation_fix_loop`` so the two can never diverge.
+    """
+    if getattr(nav, "activated", None) is None:
+        return (
+            f"dead nav link: '{nav.href}' activated NOTHING (no <section data-page> "
+            f"became active — blank page)"
+        )
+    return (
+        f"dead nav link: '{nav.href}' activated '{nav.activated}' but expected "
+        f"'{getattr(nav, 'expected', None)}'"
+    )
+
+
 def _select_issues_to_fix(
     sres,
     rres,
@@ -547,14 +573,11 @@ def _select_issues_to_fix(
         for err in getattr(rres, "page_errors", None) or []:
             selected.append(f"uncaught exception: {err}")
 
-        # … and dead nav links (click activates no <section data-page> ⇒ blank
-        #     page). Mirrors today's wording verbatim.
+        # … and dead nav links — worded by their ACTUAL failure class (blank vs
+        #     wrong-section) via the shared ``_dead_nav_line`` helper.
         for nav in getattr(rres, "nav_results", None) or []:
             if not getattr(nav, "ok", True):
-                selected.append(
-                    f"dead nav link: clicking '{nav.href}' activated no "
-                    f"<section data-page>"
-                )
+                selected.append(_dead_nav_line(nav))
 
         # (4) Nav-COVERAGE findings (a multi-section SPA that exercised 0 nav) —
         #     always-included hard breakage (RENDER-NAV-COV). Goldens have no
@@ -3560,7 +3583,7 @@ class ExecutionEngine:
                         residual.extend(rres.console_errors)
                         residual.extend(rres.page_errors)
                         residual.extend(
-                            f"dead nav link: {n.href} (no section activated)"
+                            _dead_nav_line(n)
                             for n in rres.nav_results if not n.ok
                         )
                         residual.extend(getattr(rres, "coverage_errors", None) or [])

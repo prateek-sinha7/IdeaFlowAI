@@ -201,8 +201,17 @@ async def render_check(
                 # template-literal route from browser exercise can never manufacture a
                 # false coverage-0 (a page whose only nav is ``#/x/${id}`` is covered).
                 try:
+                    # EXCLUDE nav/anchor controls from the coverage denominator so a
+                    # nav ``<a data-page>`` is never counted as a page SECTION (a broken
+                    # unscoped router can carry ``data-page`` on the nav anchors). Inert
+                    # in practice — coverage only fires when ``discovered == 0`` and any
+                    # nav-carrying-data-page page has ``discovered > 0`` — but keeps the
+                    # section count honest. (Measure-gated: reverts to broad ``[data-page]``
+                    # if any golden/fixture/pin drifts.)
                     section_count = await page.eval_on_selector_all(
-                        "[data-page]", "els => els.length"
+                        "[data-page]:not(a):not(.nav-link):not(.nav-item)"
+                        ":not(.nav-submenu-link)",
+                        "els => els.length",
                     )
                 except Exception:  # noqa: BLE001 — a query failure ⇒ no coverage finding
                     section_count = 0
@@ -375,8 +384,15 @@ async def _exercise_route(
             await page.evaluate("(h) => { window.location.hash = h; }", route)
         # Let the router's hashchange handler run before reading the active section.
         await page.wait_for_timeout(settle_ms)
+        # Read a REAL page SECTION only — EXCLUDE nav/anchor controls. A broken
+        # unscoped router can strip ``is-active`` off every ``<section>`` and pin it on
+        # a nav ``<a data-page>`` instead; the ``:not(...)`` set drops those coerced
+        # nav anchors so a blank page reads as null (no section active) rather than the
+        # anchor's data-page name. When nothing matches, ``eval_on_selector`` raises →
+        # the ``except`` below returns None (never coerce a blank page to a name).
         return await page.eval_on_selector(
-            "[data-page].is-active, .section.is-active",
+            "[data-page].is-active:not(a):not(.nav-link):not(.nav-item)"
+            ":not(.nav-submenu-link), .page-section.is-active, .section.is-active",
             "el => el.getAttribute('data-page')",
         )
     except Exception:  # noqa: BLE001 — nothing activated (dead route / no section)
