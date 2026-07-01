@@ -164,8 +164,19 @@ phases:
           "velocityai/backend:backend:backend/Dockerfile" \
           "velocityai/frontend:frontend:frontend/Dockerfile"; do
             repo="${entry%%:*}"; rest="${entry#*:}"; ctx="${rest%%:*}"; dockerfile="${rest#*:}"
+            # The OpenDesign reference tree (templates/design-systems/craft/
+            # prompt-templates) lives at the repo root — OUTSIDE the backend
+            # build context. Attach it as a NAMED build context so the backend
+            # Dockerfile can `COPY --from=opendesign` it into /app/opendesign
+            # (a path the /app/skills EBS bind-mount can't shadow). Frontend
+            # doesn't need it, so only wire it for the backend build.
+            EXTRA_CTX=""
+            if [ "${repo}" = "velocityai/backend" ]; then
+              EXTRA_CTX="--build-context opendesign=skills/opendesign"
+            fi
             echo "==> ${repo} (context=${ctx}, dockerfile=${dockerfile})"
             docker buildx build --platform linux/amd64 --provenance=false --sbom=false \
+              ${EXTRA_CTX} \
               -f "${dockerfile}" --build-arg GIT_SHA="${CODEBUILD_RESOLVED_SOURCE_VERSION}" \
               -t "${REGISTRY}/${repo}:${IMAGE_TAG}" --push "${ctx}"
         done
@@ -264,6 +275,16 @@ phases:
         chmod 0640 /etc/velocityai/app.env.new
         chown root:velocityai /etc/velocityai/app.env.new 2>/dev/null || true
         mv /etc/velocityai/app.env.new /etc/velocityai/app.env
+        # Bind-mounted data dirs MUST be owned by the container uid:gid (10001).
+        # Backend + frontend run as non-root 10001 (see backend/frontend
+        # Dockerfile); the backend creates <user>/<run> subdirs under /app/runs
+        # and writes /app/skills. bootstrap-ec2.sh sets this ownership on FIRST
+        # BOOT only — steady-state CI/CD deploys do NOT re-run bootstrap, so we
+        # re-assert it here on every deploy. Without it every pipeline run aborts
+        # with EACCES ([Errno 13] Permission denied: '/app/runs/<user>'). Keeps
+        # dev/stage/prod consistent regardless of when each host was provisioned.
+        mkdir -p /opt/velocityai/data/runs /opt/velocityai/data/skills
+        chown -R 10001:10001 /opt/velocityai/data/runs /opt/velocityai/data/skills
         aws ecr get-login-password --region "${REGION}" | docker login --username AWS --password-stdin "${REGISTRY}"
         docker compose pull
         docker compose up -d --remove-orphans
