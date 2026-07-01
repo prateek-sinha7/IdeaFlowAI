@@ -131,12 +131,12 @@ export interface DashboardLayoutProps {
 
 type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution" | "catalog" | "saved-workflows";
 
-// ─── Planning overlay — shown while the planner analyzes the brief ─────────────
+// ─── Prep overlay — shown while we set up your run (planner + clarify), any workflow ───
 const PLANNING_STEPS = [
   { icon: "🔍", label: "Reading your brief…" },
-  { icon: "🧠", label: "Analyzing intent & context…" },
-  { icon: "📋", label: "Identifying what's needed…" },
-  { icon: "⚡", label: "Preparing your pipeline…" },
+  { icon: "🧠", label: "Understanding intent & context…" },
+  { icon: "📋", label: "Mapping out what's needed…" },
+  { icon: "✨", label: "Preparing your workflow…" },
 ];
 
 function PlanningOverlay({ plannerSummary }: { plannerSummary?: string }) {
@@ -164,7 +164,7 @@ function PlanningOverlay({ plannerSummary }: { plannerSummary?: string }) {
 
       {/* Status */}
       <div className="text-center space-y-2">
-        <p className="text-[14px] font-bold text-gray-900">Planner is thinking…</p>
+        <p className="text-[14px] font-bold text-gray-900">Getting things ready…</p>
         <AnimatePresence mode="wait">
           <motion.div
             key={stepIdx}
@@ -183,13 +183,13 @@ function PlanningOverlay({ plannerSummary }: { plannerSummary?: string }) {
       {/* What the planner is doing */}
       <div className="w-full max-w-sm rounded-xl border border-gray-100 bg-gray-50 p-4 space-y-2.5">
         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-          <Sparkles className="h-3 w-3" /> What the planner does
+          <Sparkles className="h-3 w-3" /> Behind the scenes
         </p>
         {[
-          "Detects if your brief has a clear topic",
-          "Infers audience, tone & constraints",
-          "Identifies what questions to ask",
-          "Prepares context for all agents",
+          "Understanding your request",
+          "Inferring goals, tone & constraints",
+          "Spotting anything worth confirming",
+          "Setting up context for every step",
         ].map((item, i) => (
           <div key={i} className="flex items-center gap-2">
             <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${i <= stepIdx ? "bg-[#1B2A4A]" : "bg-gray-300"}`} />
