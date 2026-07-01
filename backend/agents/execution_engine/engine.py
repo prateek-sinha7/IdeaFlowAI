@@ -37,6 +37,7 @@ from agents.capabilities.context_providers.opendesign import (
     RAW_BLOCK_PREFIX as _RAW_BLOCK_PREFIX,
 )
 from agents.capabilities.registry import CapabilityRegistry
+from agents.capabilities.validators.severity import render_coverage_status
 from agents.execution_engine.budget import BudgetExceeded, BudgetManager, BudgetSnapshot
 from agents.execution_engine.context import ExecutionContext
 from agents.execution_engine.resolver import WorkflowResolver
@@ -499,6 +500,7 @@ def _select_issues_to_fix(
     rres,
     baseline_static: "set[str] | None" = None,
     baseline_console: "set[str] | None" = None,
+    require_render: bool = True,
 ) -> list[str]:
     """Ordered, de-duplicated fix-list for the internal validation fix-loop.
 
@@ -528,8 +530,12 @@ def _select_issues_to_fix(
         if issue not in base_static:
             selected.append(issue)
 
-    # Render contributes only when the headless render actually ran.
-    if getattr(rres, "available", False):
+    # Render contributes only when the headless render actually ran — routed through
+    # the SINGLE render-coverage policy helper (RENDER-SEAM). ``status == "ok"`` iff
+    # ``rres.available`` (the require_render value only distinguishes the skip flavors,
+    # which contribute no lines either way), so this is byte-identical to the prior
+    # ``if getattr(rres,'available',False)`` for an available render.
+    if render_coverage_status(rres, require_render) == "ok":
         # (2) New console errors — filtered by the console baseline (empty ⇒
         #     all, = today). Prefixed exactly as today's error_lines.
         for err in getattr(rres, "console_errors", None) or []:
@@ -549,6 +555,12 @@ def _select_issues_to_fix(
                     f"dead nav link: clicking '{nav.href}' activated no "
                     f"<section data-page>"
                 )
+
+        # (4) Nav-COVERAGE findings (a multi-section SPA that exercised 0 nav) —
+        #     always-included hard breakage (RENDER-NAV-COV). Goldens have no
+        #     coverage_errors so this is byte-identical for the existing manifests.
+        for msg in getattr(rres, "coverage_errors", None) or []:
+            selected.append(f"nav coverage: {msg}")
 
     # De-duplicate while preserving first-seen order.
     seen: set[str] = set()
@@ -3440,6 +3452,7 @@ class ExecutionEngine:
         user_instruction: str | None = None,
         label: str = "",
         checkpointer: object | None = None,
+        require_render: bool | None = None,
     ) -> None:
         """Both-validation + bounded INTERNAL fix-loop (Region C — build & revision).
 
@@ -3470,6 +3483,13 @@ class ExecutionEngine:
         from app.agents.render_check import render_check
         from app.agents.static_check import static_check
 
+        # Resolve the require_render knob (RENDER-SEAM / REQUIRE-RENDER-KNOB): None
+        # falls back to the Settings default (skip-is-a-pass — INV-3 parity).
+        if require_render is None:
+            from app.core.config import settings as _rr_settings
+
+            require_render = _rr_settings.PROTOTYPE_REQUIRE_RENDER
+
         # 07-11 / CR-05: the deliverable filename is threaded in from the strategy
         # (``ctx.deliverable.name``) — no hardcoded ``prototype.html``. The prototype
         # manifest declares ``prototype.html`` so the value passed through keeps
@@ -3496,13 +3516,28 @@ class ExecutionEngine:
                 from app.agents.render_check import RenderResult
                 rres = RenderResult(ok=True, available=False, note=f"render_check error: {exc}")
 
-            render_skipped = not rres.available
-            render_failed = rres.available and not rres.ok
+            # Route render availability through the SINGLE policy helper (RENDER-SEAM).
+            # ``status == "ok"`` iff the render ran; a skip (blocked/allowed) never
+            # opens a :fix thread here — the GATE is the authoritative fail-closed, and
+            # the validator_skipped audit row is owned by html_render, not re-written
+            # here (CORRECTION 3). ``render_skipped``/``render_failed`` keep the legacy
+            # logging + residual semantics.
+            _render_status = render_coverage_status(rres, bool(require_render))
+            render_skipped = _render_status != "ok"
+            render_failed = _render_status == "ok" and not rres.ok
+            if render_skipped:
+                logger.info(
+                    "Validation: task %d/%d render skipped (%s) — status=%s "
+                    "(require_render=%s); not opening a fix thread for it",
+                    task_num, total_tasks, rres.summary(), _render_status,
+                    bool(require_render),
+                )
             # The fix-list (pure selection). With empty baselines this is byte-
             # identical to today's build ``error_lines`` and ``bool(...)`` of it
             # equals today's ``(not sres.ok) or render_failed`` (see docstring).
             error_lines = _select_issues_to_fix(
-                sres, rres, baseline_static, baseline_console
+                sres, rres, baseline_static, baseline_console,
+                require_render=bool(require_render),
             )
             failing = bool(error_lines)
 
@@ -3528,6 +3563,7 @@ class ExecutionEngine:
                             f"dead nav link: {n.href} (no section activated)"
                             for n in rres.nav_results if not n.ok
                         )
+                        residual.extend(getattr(rres, "coverage_errors", None) or [])
                 else:
                     # REVISION residual — the selected (still-unfixed) issues.
                     residual = list(error_lines)

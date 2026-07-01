@@ -27,6 +27,11 @@ steps:
     strategy: single_shot
     gates: [validation]
     validators: [html_static, html_render]
+    # require_render (quick-260701-bob / REQUIRE-RENDER-KNOB): declared explicitly to
+    # demonstrate the manifest→compiler→Step→consumers threading. false == the
+    # Settings default (skip-is-a-pass) so behavior is unchanged and the INV-3
+    # goldens stay byte/event-identical.
+    require_render: false
     # post_step (07-10 / CR-06): after the revision agent edits prototype.html in
     # place, run the pre-edit baseline + post-edit Both-validation + bounded fix-
     # loop. Relocated out of the kernel's "DELIBERATE EXCEPTION" block.

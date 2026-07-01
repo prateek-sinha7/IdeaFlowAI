@@ -123,6 +123,14 @@ class Settings(BaseSettings):
     # Retention for a finished run's sandbox dir before the cleanup sweep removes it.
     RUN_DIR_TTL_HOURS: int = 48
 
+    # ── Render fail-closed default (quick-260701-bob / REQUIRE-RENDER-KNOB) ────
+    # The DEFAULT for the per-step ``require_render`` knob when a manifest step does
+    # not declare one. False (the default) preserves today's behavior — a render-
+    # unavailable html_render is a PASS (skip-is-a-pass, INV-3): the 5 characterization
+    # goldens stay byte/event-identical. Set True (globally, via env) OR per-step in a
+    # manifest to fail CLOSED (render-unavailable → P0 → ValidationGate → GATE_BLOCK).
+    PROTOTYPE_REQUIRE_RENDER: bool = False
+
     # ── Per-workspace fan-out budget ceilings (Phase 11 / OBS-01) ──────────────
     # The OPTIONAL per-workspace aggregate ceilings the run-entry BudgetManager checks
     # at reserve time against the workspace's already-spent fan-out budget (summed

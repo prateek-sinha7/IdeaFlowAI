@@ -356,6 +356,12 @@ class Step:
     hooks: list[str] = field(default_factory=list)           # §30 — executable-hook capability names (08-08 / CR-01/WR-03)
     task_source: TaskSource | None = None                    # Q10a/b
     post_step: str | None = None                             # post_step capability name (07-10 / CR-06)
+    # Per-step render-fail-closed knob (quick-260701-bob / REQUIRE-RENDER-KNOB): when
+    # True a render-unavailable html_render fails CLOSED (P0 → ValidationGate →
+    # GATE_BLOCK); when None (default) the consumers fall back to
+    # ``settings.PROTOTYPE_REQUIRE_RENDER`` (False → skip-is-a-pass, INV-3 parity).
+    # Pure data (INV-5) — the compiler only RECORDS it; the policy lives in the helper.
+    require_render: bool | None = None
 
     # ── Forward surface (declared, INERT in Phase 4) ──────────────────────
     tools: ToolPermissions = field(default_factory=ToolPermissions)  # INV-9 / §8

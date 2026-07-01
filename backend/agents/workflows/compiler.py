@@ -76,6 +76,7 @@ _ALLOWED_STEP_KEYS: frozenset[str] = frozenset(
         "compaction",
         "task_source",
         "post_step",  # declared post-step capability (07-10 / CR-06)
+        "require_render",  # per-step render fail-closed knob (quick-260701-bob)
         # forward surface (inert in Phase 4 — declared now, consumed Phase 6/7)
         "tools",
         "model",
@@ -546,6 +547,13 @@ class WorkflowCompiler:
         injects = list(raw.get("injects") or [])                          # WIRE-03
         fix = self._compile_fix_policy(raw.get("fix"), where)
         depends_on = list(raw.get("depends_on") or [])
+        # Per-step render fail-closed knob (quick-260701-bob / REQUIRE-RENDER-KNOB).
+        # Pure pass-through: None (absent) preserves the Settings-default behavior
+        # (skip-is-a-pass — INV-3); a declared bool threads to the render consumers.
+        raw_require_render = raw.get("require_render")
+        require_render = (
+            None if raw_require_render is None else bool(raw_require_render)
+        )
 
         return Step(
             agent_id=agent_id,
@@ -556,6 +564,7 @@ class WorkflowCompiler:
             validators=validators,
             compaction=compaction,
             post_step=post_step,
+            require_render=require_render,
             tools=effective_tools,
             fanout=fanout,
             on_conflict=on_conflict,
