@@ -48,17 +48,28 @@ _FIXTURE = (
 _FULL_FIXTURE = (
     Path(__file__).parent / "fixtures" / "imc-inventory-certificate-management-full.html"
 ).resolve()
+# B — the FIXED-router regression fixture (quick-260701-go2 round 3): the same SPA with
+# an alias/parametric routes ARRAY + a scoped ``.page-section[data-page]`` navigateTo.
+# It MUST PASS both tiers (static ok=True 0 dead/0 router-dead; render ok=True 17/17).
+# Committed ALONGSIDE the trimmed + full fixtures (additive).
+_FIXED_FIXTURE = (
+    Path(__file__).parent / "fixtures" / "imc-inventory-certificate-management-fixed.html"
+).resolve()
 
-# ── FINAL measured counts on the full fixture (quick-260701-erg, MEASURED post-items
-# 3+4; pinned as EXACT integers — a drift here is a real behavioral regression). ──
-_FULL_STATIC_DEAD_LINKS = 11   # plain dead nav links (dynamic route → no section)
-_FULL_STATIC_ROUTER_DEAD = 0   # router-dead: every section IS a routes-map key here
+# ── FINAL measured counts on the full fixture (A). MEASURED under the round-3
+# route-table-aware validators (quick-260701-go2) — these SUPERSEDE the round-2 pins
+# (11/0/16/17/2): the object routes-table now RESOLVES A's routes, so the static dead
+# links dedupe per unreachable target (11 → 5); render is unchanged (A's runtime is
+# genuinely broken — navigateTo activates the sidebar <a>, not the <section>). Pinned as
+# EXACT integers — a drift here is a real behavioral regression. ──
+_FULL_STATIC_DEAD_LINKS = 5    # round-3: deduped unreachable targets — was 11 (round-2)
+_FULL_STATIC_ROUTER_DEAD = 0   # router-dead: A's routes resolve, none section-less-in-map
 _FULL_RENDER_SIDEBAR_DEAD = 16  # NavResults ok=False (router targets nav links, not
 #                                 sections → sections never activate — a real defect)
 _FULL_RENDER_NAV_TOTAL = 17     # total NavResults exercised (only dashboard is ok)
 # Overlap between the static dead/router-dead TARGETS and the render dead TARGETS
 # (first-path-segment). Measured value — asserted EXACTLY (not "disjoint").
-_FULL_STATIC_RENDER_OVERLAP = 2  # {'certificates', 'inventory'}
+_FULL_STATIC_RENDER_OVERLAP = 2  # {'certificates', 'inventory'} (round-3 measured)
 _GOLDEN_DIR = (Path(__file__).parent / "characterization" / "golden").resolve()
 
 # The pre-existing static_check issue the minimal golden stubs already emit BEFORE
@@ -665,3 +676,63 @@ async def test_scenario12_full_fixture_fail_closed_offline():
     assert "require_render" in issues[0].message
     # The skip was ALSO recorded as a distinct validator_skipped row (never swallowed).
     assert any(rec["severity"] == "SKIPPED" for rec in runner.records)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Scenario 13 — quick-260701-go2 (round 3): route-table-aware A=fail / B=pass
+# ════════════════════════════════════════════════════════════════════════════
+#
+# B (the FIXED fixture) has an alias/parametric routes ARRAY + a scoped navigateTo:
+# it MUST PASS both tiers. A (the full fixture) has an object routes table but a
+# genuinely broken runtime: static now RESOLVES its routes (dead links dedupe per
+# unreachable target), yet A MUST FAIL via render. This is the tier division: static
+# proves the table is structurally sound; render proves the runtime actually works.
+
+
+def test_scenario13_fixed_fixture_is_committed():
+    """The FIXED (B) regression fixture is committed alongside the trimmed + full ones."""
+    assert _FIXED_FIXTURE.is_file(), f"fixed fixture missing: {_FIXED_FIXTURE}"
+    assert _FIXED_FIXTURE.stat().st_size > 400_000, "fixed fixture should be the ~417KB file"
+
+
+def test_scenario13_B_passes_static():
+    """B passes tier 1 (static): ok=True, ZERO dead-link + ZERO router-dead (offline)."""
+    r = static_check(_FIXED_FIXTURE)
+    assert r.ok is True, r.issues
+    assert [i for i in r.issues if i.startswith("dead nav link")] == [], r.issues
+    assert [i for i in r.issues if i.startswith("router-dead")] == [], r.issues
+
+
+def test_scenario13_B_passes_render(tmp_path):
+    """B passes tier 2 (render): available=True, ok=True, every discovered route
+    activates its correct RESOLVED section (alias/:id included) — browser-gated."""
+    if not _render_available(tmp_path):
+        pytest.skip("Chromium/Playwright unavailable — browser-gated")
+    rr = asyncio.run(render_check(_FIXED_FIXTURE))
+    assert rr.available is True
+    assert rr.ok is True, (rr.nav_results, rr.coverage_errors, rr.console_errors, rr.page_errors)
+    assert [n for n in rr.nav_results if not n.ok] == [], rr.nav_results
+    assert not rr.coverage_errors, rr.coverage_errors
+    # Spot-check: at least one alias/:id route (an href with a '/') resolved to a
+    # hyphenated detail/list page id AND activated exactly that section.
+    resolved = [
+        n
+        for n in rr.nav_results
+        if "/" in n.href.lstrip("#/")
+        and n.ok
+        and n.expected
+        and "-" in n.expected
+        and n.activated == n.expected
+    ]
+    assert resolved, [(n.href, n.activated, n.expected) for n in rr.nav_results]
+
+
+def test_scenario13_A_fails_via_render(tmp_path):
+    """A fails via render (the tier-division point): the routes table resolves, but the
+    runtime activates the sidebar <a> not the <section> → ok=False — browser-gated."""
+    if not _render_available(tmp_path):
+        pytest.skip("Chromium/Playwright unavailable — browser-gated")
+    rr = asyncio.run(render_check(_FULL_FIXTURE))
+    assert rr.available is True
+    assert rr.ok is False
+    assert len([n for n in rr.nav_results if not n.ok]) >= 1, rr.nav_results
