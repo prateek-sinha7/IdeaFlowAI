@@ -230,6 +230,7 @@ class WorkflowCompiler:
         clarify = ClarifySpec(
             mode=clarify_raw.get("mode", "auto"),
             defaults=list(clarify_raw.get("defaults", []) or []),
+            rounds=int(clarify_raw.get("rounds", 1) or 1),
         )
 
         # ── WIRE-01: top-level model: → CompiledWorkflow.model (D-14) ─────────

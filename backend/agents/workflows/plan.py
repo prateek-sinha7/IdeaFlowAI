@@ -301,6 +301,10 @@ class ClarifySpec:
 
     mode: str = "auto"
     defaults: list[str] = field(default_factory=list)
+    # Max clarification rounds; default 1 (one-round-then-run). A workflow can
+    # opt into more via `clarify.rounds` in its manifest; the effective bound is
+    # clamped to the MAX_CLARIFICATION_ROUNDS safety ceiling by ClarifyEngine.
+    rounds: int = 1
 
 
 # ---------------------------------------------------------------------------

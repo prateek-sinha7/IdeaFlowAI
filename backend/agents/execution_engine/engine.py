@@ -1613,6 +1613,7 @@ class ExecutionEngine:
                     _ws_send,
                     owner_id=ectx.owner_id,
                     workspace_id=ectx.workspace_id,
+                    max_rounds=compiled.clarify.rounds,
                 )
             )
 

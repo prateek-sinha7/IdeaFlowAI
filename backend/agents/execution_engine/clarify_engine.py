@@ -2,7 +2,7 @@
 
 Runs the Clarify_Agent, emits `questionnaire_ready`, awaits the user's answers
 via an asyncio.Event from the ArtifactStore, merges answers into the
-planning_context, and supports up to 3 clarification rounds.
+planning_context, and runs one clarification round by default (one-round-then-run).
 
 Phase 2: full pause/resume implementation.
 
@@ -11,14 +11,18 @@ Mode:
                       where no Specify_Agent has produced a `spec` artifact
   - spec-grounded   : Spec_Kit_Agent workflows where a `spec` artifact exists
 
-Max 3 rounds — after the third round, emit `clarification_limit_reached` and
-proceed with best available context.
+Rounds: the questionnaire is asked at most `max_rounds` times (default 1, threaded
+from `clarify.rounds` in the manifest). After a subset answer or skip the run
+PROCEEDs with no re-ask; on the terminal round with unresolved items,
+`clarification_limit_reached` is emitted and the run proceeds with best available
+context. `MAX_CLARIFICATION_ROUNDS` (=3) is the hard safety ceiling on `max_rounds`.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
@@ -82,6 +86,7 @@ class ClarifyEngine:
         clarify_agent=None,
         owner_id: str | None = None,
         workspace_id: str | None = None,
+        max_rounds: int = 1,
     ) -> dict[str, Any]:
         """Run the clarification gate. Returns the (possibly updated) planning_context.
 
@@ -100,6 +105,9 @@ class ClarifyEngine:
                       returns nothing for a non-owner (T-5-IDOR).
             workspace_id: The run's workspace id (paired with owner_id for the
                           artifact_refs row).
+            max_rounds: Max clarification rounds (default 1 = one-round-then-run),
+                        threaded from `compiled.clarify.rounds`. Clamped to at least
+                        1 and at most MAX_CLARIFICATION_ROUNDS (the safety ceiling).
 
         Returns:
             The planning_context with merged clarification answers and an
@@ -119,7 +127,11 @@ class ClarifyEngine:
         round_num = 0
         merged_context = dict(planning_context)
 
-        while round_num < MAX_CLARIFICATION_ROUNDS:
+        # One-round-then-run by default; a workflow can opt into more rounds via
+        # clarify.rounds, but never past the MAX_CLARIFICATION_ROUNDS safety ceiling.
+        effective_rounds = max(1, min(max_rounds, MAX_CLARIFICATION_ROUNDS))
+
+        while round_num < effective_rounds:
             round_num += 1
 
             questions = await self._generate_questions(
