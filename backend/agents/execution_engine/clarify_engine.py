@@ -65,6 +65,111 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _parse_llm_json_array(raw: str) -> list | None:
+    """Tolerantly extract + repair a JSON array from LLM output (KAN-82 / FIX-024).
+
+    Haiku 4.5 frequently returns slightly-malformed JSON (markdown fences, trailing
+    commas, missing commas between objects, smart quotes, truncation). This helper
+    strips fences, extracts the outermost array, then progressively repairs and
+    re-parses. It uses ``json.loads`` ONLY — never ``eval``/``exec``/``literal_eval``
+    on model text (T-v1f-01). On unrecoverable input it returns ``None`` so the
+    caller falls back to the static question library (the gate never crashes, INV-3).
+
+    Returns a non-empty list on success, else ``None``.
+    """
+    if not raw or not isinstance(raw, str):
+        return None
+
+    text = raw.strip()
+
+    # (a) Strip markdown code fences (```json ... ``` or ``` ... ```).
+    if text.startswith("```"):
+        # drop the opening fence line
+        text = re.sub(r'^```[a-zA-Z0-9]*\s*\n?', '', text)
+        # drop a trailing fence
+        text = re.sub(r'\n?```\s*$', '', text).strip()
+
+    # (b) Locate the array opener; if none, give up. A closing ']' may be
+    #     missing (truncation) — the balanced-scan in (e) handles that case.
+    lb = text.find('[')
+    if lb == -1:
+        return None
+    match = re.search(r'\[[\s\S]*\]', text)
+    span = match.group() if match else text[lb:]
+
+    # (c) First attempt: parse the extracted span verbatim.
+    if match:
+        try:
+            parsed = json.loads(span)
+            if isinstance(parsed, list) and parsed:
+                return parsed
+        except Exception:
+            pass
+
+    # (d) Repair pass: normalize smart quotes, strip trailing commas, insert
+    #     missing commas between adjacent objects, then re-parse.
+    repaired = span
+    for bad, good in (
+        ("“", '"'), ("”", '"'),   # curly double quotes
+        ("‘", "'"), ("’", "'"),   # curly single quotes
+    ):
+        repaired = repaired.replace(bad, good)
+    repaired = re.sub(r',(\s*[}\]])', r'\1', repaired)   # trailing commas
+    repaired = re.sub(r'}\s*{', '},{', repaired)          # missing comma between objects
+    if match:
+        try:
+            parsed = json.loads(repaired)
+            if isinstance(parsed, list) and parsed:
+                return parsed
+        except Exception:
+            pass
+
+    # (e) Truncation recovery: collect the complete top-level {...} objects by
+    #     scanning brace depth over the array body, then rebuild a closed array.
+    body = repaired
+    # strip the leading '[' so we scan the object list
+    obr = body.find('[')
+    if obr != -1:
+        body = body[obr + 1:]
+    objects: list[str] = []
+    depth = 0
+    start = None
+    in_string = False
+    escape = False
+    for idx, ch in enumerate(body):
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == '\\':
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+            continue
+        if ch == '{':
+            if depth == 0:
+                start = idx
+            depth += 1
+        elif ch == '}':
+            if depth > 0:
+                depth -= 1
+                if depth == 0 and start is not None:
+                    objects.append(body[start:idx + 1])
+                    start = None
+    if objects:
+        try:
+            parsed = json.loads('[' + ','.join(objects) + ']')
+            if isinstance(parsed, list) and parsed:
+                return parsed
+        except Exception:
+            pass
+
+    # (f) Everything failed.
+    return None
+
+
 class ClarifyEngine:
     """Manages the Clarify_Agent Human_Gate: pause, present questions, resume."""
 
@@ -374,7 +479,10 @@ For short_text questions, options can be [] (empty — user types freely).
 For hybrid questions, include 3-5 MCQ suggestions plus the free-text field will be shown automatically.
 
 Valid ambiguity_category values: Functional Scope, User Roles, Data Model, UX Flow, Performance, Security, Integration, Edge Cases, Terminology, Acceptance Criteria, Constraints
-Valid impact_level: high, medium"""
+Valid impact_level: high, medium
+
+OUTPUT FORMAT (strict): return ONLY the raw JSON array. No markdown code fences, no
+prose before or after. Your response MUST start with `[` and end with `]`."""
 
         try:
             from app.agents.model_factory import build_model
@@ -384,14 +492,11 @@ Valid impact_level: high, medium"""
             response = await llm.ainvoke([HumanMessage(content=prompt)])
             raw = response.content if hasattr(response, "content") else str(response)
 
-            import re
-            json_match = re.search(r'\[[\s\S]*\]', raw)
-            if not json_match:
-                logger.warning("ClarifyEngine LLM: no JSON array in response")
-                return None
-
-            items = json.loads(json_match.group())
-            if not isinstance(items, list) or not items:
+            # Tolerant extract + repair (fences / trailing+missing commas / smart
+            # quotes / truncation), json.loads-only. None -> static fallback (INV-3).
+            items = _parse_llm_json_array(raw)
+            if not items:
+                logger.warning("ClarifyEngine LLM: no parseable JSON array in response")
                 return None
 
             questions = []
