@@ -542,3 +542,22 @@ def test_scenario10_only_template_route_no_false_coverage_zero(tmp_path):
     # The only nav is a template literal → not exercised, but discovered → NO coverage-0.
     assert not rr.coverage_errors, rr.coverage_errors
     assert rr.nav_results == [], rr.nav_results
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Scenario 11 — ITEM 2: require_render:true threads through the compiler (manifest)
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def test_scenario11_require_render_true_compiles_on_build_and_revision():
+    """The manifest flip threads through the REAL compiler → Step.require_render is True
+    on the prototype-build step AND the prototype-revision-agent step."""
+    from agents.execution_engine.engine import compile_for_run
+
+    built = compile_for_run("prototype")
+    build_step = next(s for s in built.steps if s.agent_id == "prototype-build")
+    assert build_step.require_render is True, "prototype-build must require_render=True"
+
+    rev = compile_for_run("prototype_revision")
+    rev_step = next(s for s in rev.steps if s.agent_id == "prototype-revision-agent")
+    assert rev_step.require_render is True, "revision step must require_render=True"
