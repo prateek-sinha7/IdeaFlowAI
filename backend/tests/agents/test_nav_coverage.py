@@ -64,6 +64,17 @@ _FIXED_FIXTURE = (
 _BLANK_FIXTURE = (
     Path(__file__).parent / "fixtures" / "blank-nav.html"
 ).resolve()
+# MIS-ROUTE — fixture C, the round-5 wrong-section regression fixture
+# (quick-260701-kml). Construction (a): a hand-authored SPA with NO parseable routes
+# table (its map is named ``swap``, not ``routes``) so ``expected`` = first-path-segment;
+# its scoped hashchange router activates a real-but-WRONG section (``#/page-a`` ->
+# activates ``page-b``, ``#/page-b`` -> ``page-a``, ``#/dashboard`` -> ``dashboard``).
+# render_check must fire the wrong-section branch (``activated is not None AND activated
+# != expected``) end-to-end for the first time — distinct from the round-4 blank/null
+# path and from a blanket-fail (dashboard is correct). Committed additively.
+_MIS_ROUTE_FIXTURE = (
+    Path(__file__).parent / "fixtures" / "mis-route.html"
+).resolve()
 
 # ── FINAL measured counts on the full fixture (A). MEASURED under the round-3
 # route-table-aware validators (quick-260701-go2) — these SUPERSEDE the round-2 pins
@@ -784,3 +795,74 @@ def test_scenario14_blank_nav_every_route_activates_nothing(tmp_path):
     dash = [n for n in rr.nav_results if n.href == "#/dashboard"]
     assert dash, [n.href for n in rr.nav_results]
     assert dash[0].activated is None and dash[0].ok is False, dash
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Scenario 15 — quick-260701-kml (round 5): wrong-section end-to-end
+# ════════════════════════════════════════════════════════════════════════════
+#
+# The last hole in the three-way render classification. Fixture A is all-blank
+# (wrong-section=0), fixture B all-correct (wrong-section=0), blank-nav is null-honesty
+# (activated=None). None has ever driven a real SPA through the full render_check
+# pipeline (Chromium included) to a genuine wrong-section verdict — the branch
+# ``activated is not None AND activated != expected`` was only UNIT-tested via
+# ``_nav_ok`` (scenario 2). Fixture C (mis-route) closes it: a scoped router that lands
+# on a real-but-WRONG section, with NO routes table (so expected=first-segment).
+
+
+def test_scenario15_mis_route_fixture_is_committed():
+    """The mis-route (round-5) wrong-section fixture is committed alongside the others."""
+    assert _MIS_ROUTE_FIXTURE.is_file(), f"mis-route fixture missing: {_MIS_ROUTE_FIXTURE}"
+
+
+def test_scenario15_wrong_section_fires_end_to_end(tmp_path):
+    """mis-route: available=True, ok=False, and the WRONG-SECTION branch fires end-to-end
+    through the real render pipeline — ``#/page-a`` activates the real ``page-b`` section
+    (!= expected ``page-a``). Distinguished from the round-4 blank path (null count == 0)
+    and from a blanket-fail (dashboard is correct). Browser-gated (runs LIVE)."""
+    if not _render_available(tmp_path):
+        pytest.skip("Chromium/Playwright unavailable — browser-gated")
+    rr = asyncio.run(render_check(_MIS_ROUTE_FIXTURE))
+    assert rr.available is True
+    assert rr.ok is False, (rr.nav_results, rr.coverage_errors, rr.console_errors, rr.page_errors)
+    assert rr.nav_results, "expected the mis-route routes to be discovered/exercised"
+    # The wrong-section branch fires end-to-end: >=1 NavResult with a real-but-wrong
+    # activation (activated is not None AND activated != expected). This is the FIRST
+    # time this render path is exercised against Chromium (was _nav_ok unit-only).
+    wrong = [
+        n for n in rr.nav_results
+        if n.activated is not None and n.activated != n.expected
+    ]
+    assert wrong, [(n.href, n.activated, n.expected) for n in rr.nav_results]
+    # Spot-check the specific mis-route: #/page-a activated the REAL page-b section
+    # while expected was page-a (first-path-segment — no routes table blesses it).
+    page_a = [n for n in rr.nav_results if n.href == "#/page-a"]
+    assert page_a, [n.href for n in rr.nav_results]
+    assert page_a[0].activated == "page-b", page_a
+    assert page_a[0].expected == "page-a", page_a
+    assert page_a[0].ok is False, page_a
+    # Distinguished from the round-4 blank/null path: NO NavResult activated nothing.
+    assert [n for n in rr.nav_results if n.activated is None] == [], [
+        (n.href, n.activated) for n in rr.nav_results
+    ]
+    # NOT a blanket-fail: at least one CORRECT route — the #/dashboard route resolves
+    # to its own section (swap[dashboard] == dashboard).
+    assert any(
+        n.ok and n.activated == n.expected for n in rr.nav_results
+    ), [(n.href, n.activated, n.expected, n.ok) for n in rr.nav_results]
+    dash = [n for n in rr.nav_results if n.href == "#/dashboard"]
+    assert dash and dash[0].activated == "dashboard" and dash[0].ok is True, dash
+    # No false coverage-0 (3 real <section data-page> discovered/exercised).
+    assert not rr.coverage_errors, rr.coverage_errors
+
+
+def test_scenario15_wrong_section_dead_nav_wording():
+    """OFFLINE / pure: the honest wrong-section ``_dead_nav_line`` wording (engine.py
+    else-branch). Round-4 only covered the blank branch; this exercises the mis-route
+    branch: ``activated '<Y>' but expected '<X>'``."""
+    from agents.execution_engine.engine import _dead_nav_line
+
+    nav = NavResult(href="#/page-a", activated="page-b", ok=False, expected="page-a")
+    assert _dead_nav_line(nav) == (
+        "dead nav link: '#/page-a' activated 'page-b' but expected 'page-a'"
+    )
