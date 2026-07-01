@@ -734,7 +734,6 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
         onSelectionsChange={handleSelectionsChange}
         initialModelOverrides={initialModelOverrides}
         initialSelections={cleanSelections}
-        initialSelections={initialSelections}
         declaredCapabilities={declaredCapabilities}
       />
     </div>
