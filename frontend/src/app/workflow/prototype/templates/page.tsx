@@ -243,7 +243,10 @@ export default function PrototypeTemplatesPage() {
   }, [transcript]);
 
   const canContinue = Boolean(
-    selectedTemplateId && selectedDsId &&
+    // KAN-87: template selection is now optional — user may proceed without a template.
+    // A design system is still required (it provides the color tokens the agents use).
+    // When no template is selected, selectedTemplateId stays null — that is valid.
+    selectedDsId &&
     (isChaining || brief.trim())  // brief not required when chaining
   );
 
@@ -610,7 +613,6 @@ export default function PrototypeTemplatesPage() {
           {!canContinue && (
             <div className="mb-4 flex flex-wrap gap-2">
               {!isChaining && !brief.trim() && <Pill label="Add a brief" />}
-              {!selectedTemplateId && <Pill label="Pick a template" />}
               {!selectedDsId && <Pill label="Pick a design system" />}
             </div>
           )}

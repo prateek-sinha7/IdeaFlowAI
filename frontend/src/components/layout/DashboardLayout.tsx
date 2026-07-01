@@ -73,7 +73,13 @@ export interface DashboardLayoutProps {
   // failed agents (the live pipelineState can't name them). Threaded straight to
   // PreviewPanel's DegradedRunAffordance; unknown ids fall back to the raw id.
   reopenedAgentNameById?: Record<string, string>;
-  questionnaireData?: { questions: { id: string; question: string; options: string[] }[] } | null;
+  questionnaireData?: {
+    questions: {
+      id: string; question: string; options: string[]; answerType?: string;
+      recommendedAnswer?: string; recommendedReasoning?: string;
+      recommendedDisplay?: string; ambiguityCategory?: string; impactLevel?: string;
+    }[]
+  } | null;
   // Phase 2 (Universal Engine) — clarify gate resume wiring.
   activePipelineRunId?: string | null;
   // Phase 12 (RESUME-03) — reads the last-received seq for the active run so the
@@ -274,7 +280,11 @@ export function DashboardLayout({
   const [workflowInput, setWorkflowInput] = useState("");
   const [completedPipelineTypes, setCompletedPipelineTypes] = useState<WorkflowType[]>([]);
   const [lastPipelineOutput, setLastPipelineOutput] = useState<string>("");
-  const [questionnaireQuestions, setQuestionnaireQuestions] = useState<{ id: string; question: string; options: string[] }[]>([]);
+  const [questionnaireQuestions, setQuestionnaireQuestions] = useState<{
+    id: string; question: string; options: string[]; answerType?: string;
+    recommendedAnswer?: string; recommendedReasoning?: string;
+    recommendedDisplay?: string; ambiguityCategory?: string; impactLevel?: string;
+  }[]>([]);
   const [questionnaireLoading, setQuestionnaireLoading] = useState(false);
   const [pendingPipelineRun, setPendingPipelineRun] = useState<{
     type: WorkflowType;

@@ -50,6 +50,13 @@ Before writing the spec, read the ACTIVE TEMPLATE and ACTIVE DESIGN SYSTEM injec
 2. **Design system identity** — note the DS name and its visual character (e.g. "GitHub DS: dense, functional, blue-on-white"). The build agent will apply these tokens.
 3. **Template CSS classes** — reference the template's class system (e.g. `.card`, `.grid-3`, `.btn-primary`, `.section`, `.container`).
 
+**If NO ACTIVE TEMPLATE is present in your context (no-template mode):** The user chose to build from scratch. You have **full creative freedom** — design the best possible prototype for the brief. In this case:
+1. **Invent a complete CSS class system** tailored to the app type (e.g. for a SaaS dashboard: `.topbar`, `.sidebar`, `.main-with-sidebar`, `.card`, `.grid-3`, `.grid-4`, `.table`, `.table-wrap`, `.badge`, `.btn`, `.btn-primary`, `.form-input`, `.form-group`, `.page-header`, `.page-title`). Be explicit — list every class the build agent needs.
+2. **Choose a layout architecture** appropriate for the product: sidebar navigation for dashboards/tools, topbar navigation for marketing/content sites, mixed for complex apps.
+3. **Define the `:root` CSS variables** from the design system tokens (or invent your own if no DS is specified). Include `--bg`, `--fg`, `--accent`, `--surface`, `--border`, `--muted`, `--font-display`, `--font-body`.
+4. **The build agent has a blank canvas** — it will implement exactly the CSS classes you define. Be generous: define layout grids, card styles, table styles, form styles, badge/status variants, button variants. The richer your class system spec, the better the output.
+5. The build agent uses a standard blank-canvas scaffold — your spec's "Template & Design System" section tells it exactly which classes to build on top of it.
+
 ## MANDATORY: MULTI-PAGE REQUIREMENT
 
 **Every prototype MUST have at least 4 fully specified pages.** This is non-negotiable.
@@ -142,6 +149,7 @@ Emit ONE structured spec document wrapped in `<spec>...</spec>` tags.
 2. **Reference CSS classes** — list the template CSS classes each page will use (e.g. `.section .container .grid-3 .card-flat .feature .btn-primary`).
 3. **Map DS tokens** — explicitly map the design system's colors to the template's `:root` variables (--bg, --fg, --accent, --surface, --border, --muted).
 4. **Respect DS density** — if the DS is dense (GitHub, Linear), use compact spacing. If spacious (Apple, Stripe), use generous whitespace.
+5. **No template mode** — if no ACTIVE TEMPLATE is present, you have full creative freedom. Design a complete CSS class system and layout architecture in the spec. Define `.topbar`/`.sidebar` chrome, layout grids (`.grid-2`, `.grid-3`, `.grid-4`), card/table/form/badge/button classes with their exact CSS properties described in prose. The build agent implements exactly what you specify — be explicit and thorough. Do NOT ask for a template. Proceed immediately with the richest possible design.
 
 ## ANTI-PATTERNS (FORBIDDEN):
 

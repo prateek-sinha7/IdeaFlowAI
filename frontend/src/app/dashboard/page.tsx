@@ -114,7 +114,13 @@ export default function DashboardPage() {
 
   // Workflow runs state (primary)
   const [recentRuns, setRecentRuns] = useState<WorkflowRun[]>([]);
-  const [questionnaireData, setQuestionnaireData] = useState<{ questions: { id: string; question: string; options: string[]; answerType?: string }[] } | null>(null);
+  const [questionnaireData, setQuestionnaireData] = useState<{
+    questions: {
+      id: string; question: string; options: string[]; answerType?: string;
+      recommendedAnswer?: string; recommendedReasoning?: string;
+      recommendedDisplay?: string; ambiguityCategory?: string; impactLevel?: string;
+    }[]
+  } | null>(null);
   // Phase 2 — pipeline_run_id of the run currently paused at the clarify gate,
   // used to address submit_questionnaire back to the correct paused run.
   const [activePipelineRunId, setActivePipelineRunId] = useState<string | null>(null);
@@ -176,9 +182,10 @@ export default function DashboardPage() {
         agentIds?: string[];
       };
       const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
-      if (!draft.templateId || !draft.designSystemId || !draft.brief) return;
+      // KAN-87: templateId is now optional (no-template mode). Only require designSystemId + brief.
+      if (!draft.designSystemId || !draft.brief) return;
       pendingOdProtoRef.current = {
-        templateId: draft.templateId,
+        templateId: draft.templateId ?? "",  // empty string = no template
         designSystemId: draft.designSystemId,
         brief: draft.brief,
         discovery,
@@ -690,13 +697,28 @@ export default function DashboardPage() {
         if (msg.data && "questions" in msg.data) {
           const data = msg.data as {
             pipeline_run_id?: string;
-            questions: Array<{ question_id: string; question_text: string; options?: string[] | null; answer_type?: string }>;
+            questions: Array<{
+              question_id: string;
+              question_text: string;
+              options?: string[] | null;
+              answer_type?: string;
+              recommended_answer?: string;
+              recommended_reasoning?: string;
+              recommended_display?: string;
+              ambiguity_category?: string;
+              impact_level?: string;
+            }>;
           };
           const mapped = (data.questions || []).map((q) => ({
             id: q.question_id,
             question: q.question_text,
             options: q.options || [],
             answerType: q.answer_type || "single_choice",
+            recommendedAnswer: q.recommended_answer || "",
+            recommendedReasoning: q.recommended_reasoning || "",
+            recommendedDisplay: q.recommended_display || q.recommended_answer || "",
+            ambiguityCategory: q.ambiguity_category || "",
+            impactLevel: q.impact_level || "medium",
           }));
           setQuestionnaireData({ questions: mapped });
           if (data.pipeline_run_id) {
@@ -789,9 +811,10 @@ export default function DashboardPage() {
           agentIds?: string[];
         };
         const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
-        if (!draft.templateId || !draft.designSystemId || !draft.brief) return;
+        // KAN-87: templateId is now optional (no-template mode). Only require designSystemId + brief.
+        if (!draft.designSystemId || !draft.brief) return;
         pending = {
-          templateId: draft.templateId,
+          templateId: draft.templateId ?? "",  // empty string = no template
           designSystemId: draft.designSystemId,
           brief: draft.brief,
           discovery,

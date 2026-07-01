@@ -443,6 +443,216 @@ def _inject_constitution(ctx: AgentContext) -> str:
     )
 
 
+def _compose_injection_no_template(spec, od: dict, injects: list[str], sections: list) -> str:
+    """KAN-87: compose injection block when no template was selected.
+
+    Injects the design system tokens + a concrete "blank canvas" scaffold that
+    gives agents the same structural foundation as a TEMPLATE SEED — without
+    forcing any visual style. Agents have full creative latitude to build any
+    layout they choose, but the scaffold ensures:
+      - A working CSS class system (they can extend or replace it)
+      - The correct router pattern
+      - A clear statement that template constraints don't apply
+
+    This is intentionally generous — agents should produce rich, creative,
+    fully-interactive prototypes, not minimal skeletons.
+    """
+    ds_body = od.get("ds_body")
+    ds_id = od.get("ds_id", "custom") or "custom"
+
+    # 1. Design system tokens
+    if "design_system" in injects and ds_body:
+        sections.append(
+            f"═══════════════════════════════════════════════════════════\n"
+            f"ACTIVE DESIGN SYSTEM: {ds_id}\n"
+            f"Map ALL color, font, and spacing values from these tokens.\n"
+            f"Map to :root variables: --bg, --fg, --accent, --surface, --border, --muted.\n"
+            f"═══════════════════════════════════════════════════════════\n\n"
+            f"{ds_body}"
+        )
+
+    # 2. Blank canvas scaffold — gives agents a full starting point
+    sections.append(
+        """═══════════════════════════════════════════════════════════
+BLANK CANVAS MODE — Full Creative Freedom
+═══════════════════════════════════════════════════════════
+
+The user chose NOT to use a pre-made template. You have FULL CREATIVE FREEDOM
+to design the visual layout, CSS class system, and HTML structure from scratch.
+
+There are NO template constraints. Design the best possible prototype for the
+user's brief — rich, interactive, fully populated with real data.
+
+## Starter CSS Scaffold (use, extend, or replace freely)
+
+The following is a STARTING POINT only — a minimal working class system.
+You are free to add any classes, layouts, or visual elements you need.
+The spec writer will define the actual class system in spec.md — read that
+first and implement whatever class system the spec defines.
+
+```css
+/* ── Blank Canvas Starter — extend freely ── */
+:root {
+  /* Map from ACTIVE DESIGN SYSTEM above */
+  --bg: #f8f9fa;
+  --fg: #111827;
+  --accent: #2563eb;
+  --surface: #ffffff;
+  --border: #e5e7eb;
+  --muted: #6b7280;
+  --font-display: system-ui, sans-serif;
+  --font-body: system-ui, sans-serif;
+  --font-mono: 'Courier New', monospace;
+  --radius: 8px;
+  --shadow: 0 1px 3px rgba(0,0,0,.1);
+  --sidebar-w: 240px;
+}
+
+/* Page sections — shown/hidden by JS router */
+.page { display: none; width: 100%; min-height: 100vh; }
+.page.is-active { display: block; }
+
+/* Layout primitives */
+.container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+
+/* Cards */
+.card { background: var(--surface); border: 1px solid var(--border);
+        border-radius: var(--radius); padding: 24px; box-shadow: var(--shadow); }
+.card-header { font-size: 13px; font-weight: 600; color: var(--muted);
+               text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
+.card-value { font-size: 28px; font-weight: 700; color: var(--fg); }
+
+/* Navigation chrome */
+.topbar { position: sticky; top: 0; background: var(--surface);
+          border-bottom: 1px solid var(--border); z-index: 100;
+          display: flex; align-items: center; padding: 0 24px; height: 60px; gap: 32px; }
+.topbar .logo { font-weight: 700; font-size: 18px; color: var(--fg); text-decoration: none; }
+.nav-link { color: var(--muted); text-decoration: none; font-size: 14px;
+            padding: 6px 10px; border-radius: 6px; transition: all .15s; }
+.nav-link:hover, .nav-link.active { color: var(--fg); background: rgba(0,0,0,.05); }
+
+/* Sidebar (optional — use if the layout calls for it) */
+.sidebar { position: fixed; left: 0; top: 60px; width: var(--sidebar-w);
+           height: calc(100vh - 60px); background: var(--surface);
+           border-right: 1px solid var(--border); overflow-y: auto; padding: 16px 0; }
+.sidebar .nav-link { display: block; padding: 10px 20px; border-radius: 0; width: 100%; }
+.sidebar .nav-link.active { background: rgba(37,99,235,.08); color: var(--accent);
+                             border-left: 3px solid var(--accent); }
+.main-with-sidebar { margin-left: var(--sidebar-w); padding: 32px 40px; }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px;
+       border-radius: var(--radius); border: none; cursor: pointer; font-size: 14px;
+       font-weight: 500; transition: all .15s; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { opacity: .9; }
+.btn-secondary { background: var(--surface); color: var(--fg);
+                 border: 1px solid var(--border); }
+.btn-secondary:hover { background: var(--bg); }
+.btn-sm { padding: 5px 10px; font-size: 13px; }
+.btn-danger { background: #dc2626; color: #fff; }
+
+/* Tables */
+.table { width: 100%; border-collapse: collapse; }
+.table th { text-align: left; padding: 10px 16px; font-size: 12px; font-weight: 600;
+            color: var(--muted); text-transform: uppercase; letter-spacing: .04em;
+            border-bottom: 2px solid var(--border); }
+.table td { padding: 12px 16px; border-bottom: 1px solid var(--border);
+            font-size: 14px; color: var(--fg); }
+.table tr:hover td { background: rgba(0,0,0,.02); }
+.table-wrap { background: var(--surface); border: 1px solid var(--border);
+              border-radius: var(--radius); overflow: hidden; }
+
+/* Badges / status pills */
+.badge { display: inline-flex; align-items: center; padding: 3px 10px;
+         border-radius: 100px; font-size: 12px; font-weight: 500; }
+.badge-green  { background: #dcfce7; color: #15803d; }
+.badge-red    { background: #fee2e2; color: #b91c1c; }
+.badge-yellow { background: #fef9c3; color: #854d0e; }
+.badge-blue   { background: #dbeafe; color: #1d4ed8; }
+.badge-gray   { background: #f3f4f6; color: #374151; }
+
+/* Forms */
+.form-group { margin-bottom: 20px; }
+.form-label { display: block; font-size: 13px; font-weight: 500;
+              color: var(--fg); margin-bottom: 6px; }
+.form-input { width: 100%; padding: 9px 12px; border: 1px solid var(--border);
+              border-radius: var(--radius); font-size: 14px; color: var(--fg);
+              background: var(--surface); outline: none;
+              transition: border-color .15s; box-sizing: border-box; }
+.form-input:focus { border-color: var(--accent); }
+.form-select { appearance: none; background-image:
+  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center; }
+
+/* Charts (pure CSS / SVG) */
+.chart-wrap { background: var(--surface); border: 1px solid var(--border);
+              border-radius: var(--radius); padding: 24px; }
+.chart-title { font-size: 14px; font-weight: 600; color: var(--fg); margin-bottom: 16px; }
+.bar-chart { display: flex; align-items: flex-end; gap: 8px; height: 160px; }
+.bar { flex: 1; background: var(--accent); border-radius: 4px 4px 0 0;
+       opacity: .85; transition: opacity .15s; cursor: pointer; position: relative; }
+.bar:hover { opacity: 1; }
+.bar-label { position: absolute; bottom: -22px; left: 50%; transform: translateX(-50%);
+             font-size: 11px; color: var(--muted); white-space: nowrap; }
+
+/* Page header */
+.page-header { padding: 32px 0 24px; border-bottom: 1px solid var(--border);
+               margin-bottom: 32px; }
+.page-title { font-size: 24px; font-weight: 700; color: var(--fg); }
+.page-subtitle { font-size: 14px; color: var(--muted); margin-top: 4px; }
+
+/* Utilities */
+.flex { display: flex; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.gap-8 { gap: 8px; }
+.gap-16 { gap: 16px; }
+.mt-24 { margin-top: 24px; }
+.mb-24 { margin-bottom: 24px; }
+.text-sm { font-size: 13px; }
+.text-muted { color: var(--muted); }
+.font-bold { font-weight: 700; }
+```
+
+## Router Pattern (MANDATORY — copy verbatim)
+
+```javascript
+function navigateTo(pageId) {
+  window.location.hash = '#/' + pageId;
+}
+
+function handleRouteChange() {
+  const hash = window.location.hash.replace(/^#\\/?/, '') || 'FIRST_PAGE_ID';
+  // ALWAYS use section[data-page] — never [data-page] alone
+  document.querySelectorAll('section[data-page]').forEach(s => s.classList.remove('is-active'));
+  const page = document.querySelector('section[data-page="' + hash + '"]');
+  if (page) page.classList.add('is-active');
+  document.querySelectorAll('a.nav-link').forEach(a => a.classList.remove('active'));
+  document.querySelectorAll('a.nav-link[href="#/' + hash + '"]').forEach(a => a.classList.add('active'));
+}
+window.addEventListener('hashchange', handleRouteChange);
+window.addEventListener('load', handleRouteChange);
+```
+
+Replace `FIRST_PAGE_ID` with the actual first page ID.
+`data-page` goes ONLY on `<section>` elements — NEVER on `<a>` tags.
+
+## Creative guidelines
+
+- **Full creative freedom**: design the visual layout that best fits the brief
+- **Rich content**: every page must have real data, tables with 5+ rows, charts, forms
+- **Beautiful UI**: use the design system colours, clean typography, consistent spacing
+- **Interactive**: every button/link wired, modals, state changes all work
+- **Read spec.md first** — the spec writer has defined the exact class system to implement
+═══════════════════════════════════════════════════════════"""
+    )
+    return "\n\n".join(s for s in sections if s)
+
+
 def _compose_injection(spec, ctx: AgentContext, injects: list[str]) -> str:
     """Compose the injection block for an agent declaring `injects`.
 
@@ -473,6 +683,11 @@ def _compose_injection(spec, ctx: AgentContext, injects: list[str]) -> str:
         # all injection (there's nothing to inject).
         if not od:
             return ""
+        # KAN-87: no-template mode — the user explicitly chose not to select a
+        # template. od_context has no_template=True. Skip template injection
+        # silently; the agent's AGENT.md has instructions for this case.
+        if od.get("no_template"):
+            return _compose_injection_no_template(spec, od, injects, sections)
         # od_context is present but template_body is missing — this is a real
         # configuration error for an od_* pipeline (template was expected).
         raise TemplateMissingError(

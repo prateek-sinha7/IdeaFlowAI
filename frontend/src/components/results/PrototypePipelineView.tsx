@@ -381,6 +381,7 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
   // Find each phase agent
   const specAgent = agents.find(a => a.id === "prototype-specify");
   const planAgent = agents.find(a => a.id === "prototype-plan");
+  const analyzeAgent = agents.find(a => a.id === "prototype-analyze");
   const buildAgent = agents.find(a => a.id === "prototype-build");
   const validateAgent = agents.find(a => a.id === "prototype-validate");
 
@@ -416,6 +417,7 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
 
   const specStatus = getStatus(specAgent);
   const planStatus = getStatus(planAgent);
+  const analyzeStatus = getStatus(analyzeAgent);
   const buildStatus = getStatus(buildAgent);
   const validateStatus = getStatus(validateAgent);
 
@@ -454,7 +456,7 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
 
         {/* Phase progress bar */}
         <div className="flex items-center gap-1">
-          {[specStatus, planStatus, buildStatus, validateStatus].map((s, i) => (
+          {[specStatus, planStatus, analyzeStatus, buildStatus, validateStatus].map((s, i) => (
             <div key={i} className={`h-1.5 flex-1 rounded-full transition-all ${
               s === "done" ? "bg-[#1B2A4A]" :
               s === "running" ? "bg-[#1B2A4A] animate-pulse" :
@@ -532,7 +534,41 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
         </PhaseCard>
 
         {/* Connector */}
-        {(buildStatus !== "idle" || planStatus === "done") && (
+        {(analyzeStatus !== "idle" || planStatus === "done") && (
+          <div className="flex items-center gap-2 pl-4">
+            <ArrowRight className="h-3.5 w-3.5 text-gray-300" />
+            <span className="text-[9px] text-gray-400">Spec & tasks passed to Analyzer</span>
+          </div>
+        )}
+
+        {/* Phase 3: Spec Kit Analyzer */}
+        <PhaseCard
+          number={3}
+          icon={CheckCircle2}
+          label="Spec Kit Analyzer — Quality Analysis"
+          color={{ bg: "bg-[#E8EDF5]", text: "text-[#1B2A4A]", border: "border-[#1B2A4A]/20" }}
+          status={analyzeStatus}
+          defaultOpen={analyzeStatus === "done" && !!analyzeAgent?.output}
+        >
+          {analyzeStatus === "running" && (
+            <div className="px-4 py-3 bg-[#E8EDF5]/50 flex items-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 text-[#1B2A4A] animate-spin" />
+              <p className="text-[11px] text-[#1B2A4A]">Analyzing spec and task list for consistency and gaps…</p>
+            </div>
+          )}
+          {analyzeStatus === "done" && analyzeAgent?.output && (
+            <div className="px-4 py-3 bg-white">
+              <p className="text-[10px] text-gray-500 mb-1">Analysis complete — awaiting or approved.</p>
+              <pre className="text-[9px] text-gray-600 whitespace-pre-wrap leading-relaxed bg-gray-50 rounded-lg p-3 max-h-[200px] overflow-y-auto font-mono border border-gray-100">
+                {analyzeAgent.output.replace(/<\/?analysis>/gi, "").trim().slice(0, 1500)}
+              </pre>
+            </div>
+          )}
+          {analyzeAgent && <AgentDetailSection agent={analyzeAgent} />}
+        </PhaseCard>
+
+        {/* Connector */}
+        {(buildStatus !== "idle" || analyzeStatus === "done") && (
           <div className="flex items-center gap-2 pl-4">
             <ArrowRight className="h-3.5 w-3.5 text-gray-300" />
             <span className="text-[9px] text-gray-400">
@@ -541,9 +577,9 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
           </div>
         )}
 
-        {/* Phase 3: Build Agent */}
+        {/* Phase 4: Build Agent */}
         <PhaseCard
-          number={3}
+          number={4}
           icon={Hammer}
           label="Build Agent — Incremental Construction"
           color={{ bg: "bg-[#E8EDF5]", text: "text-[#1B2A4A]", border: "border-[#1B2A4A]/20" }}
@@ -617,9 +653,9 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
           </div>
         )}
 
-        {/* Phase 4: Validation */}
+        {/* Phase 5: Validation */}
         <PhaseCard
-          number={4}
+          number={5}
           icon={CheckCircle2}
           label="Validation Agent — P0/P1 Checks"
           color={{ bg: "bg-[#E8EDF5]", text: "text-[#1B2A4A]", border: "border-[#1B2A4A]/20" }}

@@ -31,6 +31,7 @@
 | FIX-021 | 2026-06-30 | KAN-83: Token count dialog in left panel too large — reduce to single compact line | `TokenUsageSummary` rendered a multi-section bordered card (header + input/output breakdown + ratio bar + cost row = ~80px). KAN-83 requires a single line showing only the token count. Replaced the 4-row `rounded-xl border bg-gray-50 px-4 py-3` card layout with a single `flex items-center gap-1.5 flex-wrap` line: ⚡ TOKEN USAGE · 128.7K total · 128.6K input · 11.8K output · ~$0.041 | `frontend/src/components/workflow/TokenUsageSummary.tsx` | Phase 22 (UI) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-022 | 2026-06-30 | KAN-80: Prototype Thinking tab hides full prompts, context sources, and agent-handoff artifacts | `AgentThinkingTab` routes prototype runs to `PrototypePipelineView` (Phase-card layout) which never renders `InputPromptSection`, `ContextSourcesRow`, `ToolCallsSection`, or `OutputPreviewSection`. The data IS captured in agent state via `agent_input` events but PrototypePipelineView silently discards it. User stories pipeline hits the generic `AgentTimelineCard` path which shows everything. Fix: export the 4 sub-components from `AgentThinkingTab`, add `AgentDetailSection` wrapper to `PrototypePipelineView`, wire into all 4 PhaseCards. | `frontend/src/components/results/AgentThinkingTab.tsx`, `frontend/src/components/results/PrototypePipelineView.tsx` | Phase 3 (FR-015 / T043) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-023 | 2026-06-30 | KAN-89: After prototype revision, chaining to user stories shows stale Specification Review gate | `reviewGateData` in `dashboard/page.tsx` is set on `review_gate_ready` and cleared on `review_gate_approved`/reject, but never cleared when a new pipeline starts. `onResetPipeline()` only resets `pipelineState` (useWorkflow hook). After prototype_revision completes with a Human Gate approval, `reviewGateData` stays set. When user chains to user_stories, the new pipeline fires but `DashboardLayout` renders `<ReviewGatePanel>` because `reviewGateData !== null`, blocking the user_stories preview. Fix: clear `reviewGateData(null)` on `pipeline_start` in `handleWebSocketMessage`. | `frontend/src/app/dashboard/page.tsx` | Phase 8 (GATE-01/02) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-024 | 2026-07-01 | KAN-82: Clarify asks fixed irrelevant questions instead of content-aware clarification — all pipelines | SmartPlanner stored `missing_information` as pipeline-generic keys (e.g. `target_audience`, `scope`) regardless of what the brief covered; for long/rich briefs it returned the full `common_missing` list. ClarifyEngine._generate_questions() mapped those keys to hardcoded static question text from QUESTION_LIBRARY with no reference to the actual brief content. Result: a 100-page user-story doc gets asked "Who is the primary audience?" as if no content was provided. | `backend/agents/planner/smart_planner.py`, `backend/agents/execution_engine/clarify_engine.py` | Phase 2/4 | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-028 | 2026-07-01 | Prototype nav-validation hardening (render_check + static_check), 5 rounds — dynamic-nav/coverage/wrong-section detection; shared route-table resolver (fixes alias/parametric false-positives); blank→null render honesty; require_render load-bearing; A/B/blank/mis-route regression fixtures | Validators mis-judged nav 3 ways: fail-open (`.nav-item`-only + `<a href>`-only → broken hash/onclick/`:id` SPA passed green), false-positive (no route-table resolution → correct alias/`:id` routers failed on `expected==first-segment`), dishonest (blank page coerced to a nav-link name). See IMPL Phase 24 + quick 260701-bob/erg/go2/hqa/kml. | `backend/app/agents/{render_check,static_check,route_table(new),validators/html_render}.py`, `agents/execution_engine/{engine,kernel_services}.py`, `capabilities/{validators/severity,gates/validation,strategies/task_loop}.py`, `workflows/{compiler,plan,prototype/workflow.yaml,prototype_revision/workflow.yaml}`, `app/core/config.py`, `tests/agents/{test_nav_coverage,test_route_table,_scripted_model,test_phase5_fixloop_selection}.py + fixtures/{imc-…-full,imc-…-fixed,blank-nav,mis-route}.html` | Phase 07/08 (VALID) · IMPL Phase 24 (post-ms) | INV-1/3/12/13 ✅ | Done |
 
 ---
@@ -1147,6 +1148,164 @@ Three bugs found through deep end-to-end investigation:
 
 ---
 
+### FIX-026 — KAN-86: Add Spec Kit Analyze Step to Prototype Workflow
+
+**Date:** 2026-07-01
+**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-86`
+
+#### Root Cause
+KAN-86 requires a new Spec Kit-style analyze step inserted between `prototype-plan` and `prototype-build`. This step was missing entirely — no AGENT.md, no workflow step, no frontend rendering.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 4 (manifests/SC-001), Phase 8 (capabilities/AGENT.md), Phase 16 (ReviewGatePanel)
+- **Relevant register section:** SC-001 — new workflow step = manifest + AGENT.md only, zero engine edits
+- **Deleted code verified (not resurrected):** No deleted code involved
+- **Locked decisions respected:** SC-001 — ONLY manifest + AGENT.md changed. Human Gate (WR-02 dedupe, REDO-GATE) unchanged.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `backend/agents/prompts/prototype-analyze/AGENT.md` | NEW — Spec Kit Analyzer agent with `gate: Human_Gate`, reads spec+plan output, produces structured 11-category analysis report with findings table, risk register, suggested next actions, and readiness verdict | KAN-86 requires the analyze step to run after plan/tasks are created |
+| `backend/agents/workflows/prototype/workflow.yaml` | Added `prototype-analyze` step between `prototype-plan` and `prototype-build`, `strategy: single_shot`, `gates: [human]` | Inserts the analyze gate at the right position in the pipeline |
+| `frontend/src/components/preview/ReviewGatePanel.tsx` | Added `AnalysisPreview` component that parses `<analysis>` XML and renders structured sections with a verdict banner (READY/CAUTION/REVISION); wired `isAnalysis = agentId === "prototype-analyze"` | Shows the analysis report in a scannable structured format; correct panel label and description for the analyze step |
+| `frontend/src/components/results/PrototypePipelineView.tsx` | Added `analyzeAgent` find, `analyzeStatus`, included in progress bar (5 phases), added Phase 3 card for "Spec Kit Analyzer", bumped Validation to Phase 5 | Thinking tab shows the analyze phase correctly in the pipeline visual |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — manifest-driven, zero engine edits
+- **INV-3** (golden parity): not affected — new agent, doesn't change existing test runs
+- **INV-12** (no duplication): reuses existing HumanGate capability entirely
+- **SC-001** (zero engine edits for new workflows): verified — ONLY manifest + AGENT.md + frontend display changes
+
+#### Verification
+- `load_agent_spec('agents/prompts/prototype-analyze')` → `id: prototype-analyze gate: Human_Gate` ✅
+- Frontend diagnostics: no errors on ReviewGatePanel.tsx or PrototypePipelineView.tsx ✅
+- Backend restarts cleanly
+
+#### Notes
+- The inline Human Gate fires post-agent (with real output) because `gate: Human_Gate` in AGENT.md → `_should_gate()` returns True → WR-02 dedupe skips the declared `gates:[human]` pre-step gate → inline gate wins with real analysis report content.
+- The REDO-GATE `redoable=True` is set automatically by the inline call site — users can redo the analysis step with additional instructions for free.
+- The `consumes: [prototype-specify, prototype-plan]` in the AGENT.md means the analyze agent gets both the spec output AND the task list in its context, enabling true cross-artifact analysis.
+- On reject at the analyze step → `_gate_rejected` → engine transitions to `cancelled` → `pipeline_cancelled` emitted → build never runs. Exactly as KAN-86 specifies.
+
+---
+
+### FIX-027 — KAN-87: Allow No-Template Selection in Prototype Wizard with UI-Focused Clarification
+
+**Date:** 2026-07-01
+**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-87`
+
+#### Root Cause
+
+Two gaps prevented users from running a prototype without selecting a template:
+
+**Gap 1 — Wizard hard-requires template selection:**
+`frontend/.../templates/page.tsx`: `canContinue` required `selectedTemplateId` to be truthy. No "no template" option existed. The validation pill always showed "Pick a template" as a blocker.
+
+**Gap 2 — "style" clarifier question is wrong for prototype:**
+`clarify_engine.py` `QUESTION_LIBRARY["style"]` asked "What tone and style should be used?" with presentation-oriented options (Professional & formal, Casual & conversational, etc.). For a prototype without a template, users need to be asked about the UI type (web app, mobile, dashboard, etc.) — not tone. This was the same `style` key that the SmartPlanner injects when no-template makes UI clarification important.
+
+**Gap 3 — Backend crashes when template_id is None:**
+`od_context.py` `load_prototype_context` raised `LookupError` when `template_id` was `None`/`"none"` with no custom body — no graceful no-template path existed.
+
+**Gap 4 — Spec writer doesn't know what to do without a template:**
+`prototype-specify/AGENT.md` had mandatory "READ THE TEMPLATE FIRST" rules with no conditional for the no-template case. The agent would fail compliance checks if no template was injected.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/app/workflow/prototype/templates/page.tsx` | Removed `selectedTemplateId` from `canContinue` guard; removed "Pick a template" validation pill | Template is now optional — user can proceed with only a design system and brief |
+| `backend/agents/execution_engine/od_context.py` | Added `elif template_id in (None, "", "none")` branch — returns minimal context with `template_body: None, no_template: True` instead of raising LookupError | Backend no longer crashes when no template is selected |
+| `backend/agents/execution_engine/clarify_engine.py` | Added `STYLE_BY_PIPELINE` dict with prototype-specific style question ("What visual style and UI type should the prototype follow?" with web/mobile/dashboard options); made `QUESTION_LIBRARY["style"]` use `STYLE_BY_PIPELINE.get(pipeline_type, default)` | Prototype users now see a UI-type question instead of a presentation-tone question |
+| `backend/agents/prompts/prototype-specify/AGENT.md` | Added "If NO ACTIVE TEMPLATE is present" conditional section in both MANDATORY READ section and TEMPLATE COMPLIANCE RULES | Spec writer now invents its own CSS class system when no template is provided |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): clarify_engine change uses a local `STYLE_BY_PIPELINE` dict (same pattern as existing `TOPIC_BY_PIPELINE`) — not a kernel branch
+- **INV-3** (golden parity): not affected — changes are in wizard, clarifier, and AGENT.md only
+- **INV-12** (no duplication): not applicable
+- **SC-001** (zero engine edits): not affected — AGENT.md + clarify_engine (not kernel) changes only
+
+#### Notes
+- `canContinue` still requires a design system — the color tokens are always needed even without a template.
+- The `no_template: True` flag in od_context is available for the opendesign provider to use if it needs to skip template injection in agent prompts.
+- The STYLE_BY_PIPELINE question fires when `"style"` is in `missing_information` — which the SmartPlanner/clarify engine produces for the `od_prototype`/`prototype` pipeline when the brief doesn't mention visual style. This naturally fires more often when no template pre-selects the style.
+
+### FIX-024 — KAN-82: Content-Unaware Clarification Questions (All Pipelines)
+
+**Date:** 2026-07-01
+**Triggered by:** `#velocity-ai-fix KAN-82 — clarify asks fixed irrelevant questions instead of content-aware clarification`
+
+#### Root Cause
+
+Three compounding problems:
+
+**Problem 1 — SmartPlanner returns pipeline-generic missing_information for rich briefs.**
+`SmartPlanner._build_prompt()` passed the full brief to the LLM but the prompt's
+`common_missing` hint (e.g. `["target_audience", "scope", "style", ...]`) nudged the
+model to output the full list regardless of what the brief covered. For long documents
+(100+ pages), the brief was not truncated at all — the LLM received the entire document
+which often overwhelmed it, causing it to fall back to `common_missing` wholesale.
+The prompt also did not strongly enforce "skip if already answered".
+
+**Problem 2 — SmartPlanner did not store the user_request in planning_context.**
+The planning_context never contained the original brief, so ClarifyEngine had no way
+to read what the user provided when generating questions. There was no `user_request`
+key in the returned dict.
+
+**Problem 3 — ClarifyEngine._generate_questions() produced static, content-blind questions.**
+For each item in `missing_information`, it looked up `QUESTION_LIBRARY[matched_key]`
+and returned the hardcoded question text verbatim — e.g. "Who is the primary audience
+for this?" — with zero reference to the user's content, topic, or domain. Whether the
+user wrote "build a prototype" or pasted a 100-page hospital-booking user-story
+document, the question was identical.
+
+Trace:
+```
+user submits 100-page doc → SmartPlanner.plan(brief, "user_stories")
+→ LLM overwhelmed / nudged by common_missing → returns missing_information=
+  ["target_audience","scope","personas","user_journeys","business_rules",
+   "compliance_security","priority","technology"]
+→ ClarifyEngine._generate_questions(planning_context)
+→ "target_audience" → QUESTION_LIBRARY["target_audience"] →
+  "Who is the primary audience for this?" (ignores the 100 pages)
+→ "scope" → "What is the scope of this project?" (already answered in doc)
+→ user sees generic questions unrelated to their content
+```
+
+#### Phase Context
+- **Phase(s) involved:** Phase 2 (ClarifyEngine) + Phase 4 (SmartPlanner / compiled workflow)
+- **Relevant register section:** `specs/001-ai-workflow-os/tasks.md` T017 (ClarifyEngine), T026/T027 (SmartPlanner)
+- **Deleted code verified (not resurrected):** The old ReAct tool-loop planner was replaced by SmartPlanner — the fix is within the new system only.
+- **Locked decisions respected:** INV-1 (no pipeline_type branches in kernel) — the content-hint personalisation is purely string formatting, no branching. SC-001 — zero engine edits.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `backend/agents/planner/smart_planner.py` | `_build_prompt()`: intelligently truncates long briefs (head 1500 + tail 500 chars with ellipsis notice); strengthened the "only include items GENUINELY absent" rule with concrete examples including "If the brief is a 100-page document, most items may already be covered"; added `user_request_summary` to the JSON output schema | Prevents LLM from being overwhelmed by long content; makes missing_information genuinely content-aware |
+| `backend/agents/planner/smart_planner.py` | `plan()`: stores `user_request` (brief, truncated to 3000 chars) in the returned planning_context dict | Gives ClarifyEngine access to the actual brief for personalising questions |
+| `backend/agents/planner/smart_planner.py` | `_default_context()`: adds `user_request` key to fallback context | Consistency — fallback path also carries the brief |
+| `backend/agents/execution_engine/clarify_engine.py` | `_generate_questions()`: extracts `topic`, `user_request_summary`, `inferred_intent` from planning_context; builds a `content_hint` descriptor; appends `(for: {subject_label})` to non-topic questions when a meaningful content hint is available | Questions now reference the user's actual content rather than being fully generic |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — the content-hint personalisation is pipeline-agnostic string formatting, no branching on pipeline_type name
+- **INV-3** (golden parity): not affected — ClarifyEngine and SmartPlanner are not on the golden deliverable path (the 5 characterization goldens use `clarify.mode: skip`)
+- **INV-12** (no duplication): reused existing SmartPlanner LLM call; no new agent or module introduced
+- **SC-001** (zero engine edits): not affected — all changes are in `smart_planner.py` and `clarify_engine.py` only
+
+#### Verification
+Backend restarted cleanly on terminal 53. Changes are in the planner + clarify engine layers,
+which are read from disk at runtime. The key behavioral changes are:
+1. Long briefs are now intelligently sampled (not fully passed to LLM)
+2. SmartPlanner explicitly instructs the LLM to skip items already in the brief
+3. Questions include the content topic/intent as context suffix
+
+#### Notes
+- The content-aware personalisation is lightweight — it appends `(for: {topic})` to the
+  question text rather than generating fully custom question text. A deeper improvement
+  would use another LLM call to generate bespoke questions per item, but that would add
+  latency and cost. The current approach is a good balance.
+- The `user_request_summary` key is new in the planning_context. Downstream agents (spec
+  writer etc.) could use it in future for additional context — it is not used yet.
+- For very short briefs (< 2500 chars), behaviour is unchanged — the full brief is passed.
 ### FIX-028 — Prototype Nav-Validation Hardening (render_check + static_check), 5 rounds
 
 **Date:** 2026-07-01

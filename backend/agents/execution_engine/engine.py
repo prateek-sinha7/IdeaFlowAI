@@ -1522,6 +1522,26 @@ class ExecutionEngine:
                         has_topic, pipeline_type, defaults
                     )
 
+            # KAN-87: no-template prototype — ensure UI style question is asked.
+            # When the user chose blank-canvas (no_template=True in od_context),
+            # inject "ui_style" as the FIRST missing item so ClarifyEngine always
+            # asks what kind of visual UI they want before the spec writer runs.
+            # Also set no_template_mode flag on planning_context so ClarifyEngine
+            # knows to generate extra UI-focused questions via the LLM path.
+            # Keyed on od_context.no_template (generic data flag, NOT pipeline_type
+            # name — INV-1 compliant). Only fires when clarification will run.
+            _is_no_template = bool((ectx.od_context or {}).get("no_template"))
+            if _is_no_template and gate_verdict == "CLARIFY_REQUIRED":
+                _missing = planning_context.get("missing_information") or []
+                if "ui_style" not in _missing:
+                    planning_context["missing_information"] = ["ui_style"] + [
+                        m for m in _missing if m != "ui_style"
+                    ]
+                # Signal ClarifyEngine to ask extra UI design questions
+                planning_context["no_template_mode"] = True
+                logger.info(
+                    "no-template prototype: prepended 'ui_style', set no_template_mode=True"
+                )
             _log_event(
                 "planner_complete", pipeline_run_id,
                 duration_ms=(time.time() * 1000 - planner_start_ms),

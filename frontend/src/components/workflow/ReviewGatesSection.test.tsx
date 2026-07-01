@@ -44,6 +44,7 @@ import type { AgentDef } from "@/types/index";
 const REAL_PROTOTYPE_IDS = [
   "prototype-specify",
   "prototype-plan",
+  "prototype-analyze",
   "prototype-build",
   "prototype-validate",
 ];
@@ -97,11 +98,11 @@ describe("LIBRARY_AGENTS data integrity (reconciliation)", () => {
     }
   });
 
-  it("the ONLY Human_Gate agents are prototype-specify + prototype-plan", () => {
+  it("the ONLY Human_Gate agents are prototype-specify + prototype-plan + prototype-analyze", () => {
     const humanGateIds = ALL_LIBRARY_AGENTS.filter(isHumanGate)
       .map((a) => a.id)
       .sort();
-    expect(humanGateIds).toEqual(["prototype-plan", "prototype-specify"]);
+    expect(humanGateIds).toEqual(["prototype-analyze", "prototype-plan", "prototype-specify"]);
   });
 
   it("prototype build/validate are ungated (gate === null)", () => {
@@ -110,6 +111,7 @@ describe("LIBRARY_AGENTS data integrity (reconciliation)", () => {
     );
     expect(gateById["prototype-specify"]).toBe("Human_Gate");
     expect(gateById["prototype-plan"]).toBe("Human_Gate");
+    expect(gateById["prototype-analyze"]).toBe("Human_Gate");
     expect(gateById["prototype-build"]).toBeNull();
     expect(gateById["prototype-validate"]).toBeNull();
   });
@@ -142,7 +144,7 @@ describe("pre-check predicate (gate === Human_Gate)", () => {
   it("selects exactly the default-gated agents for the prototype pipeline", () => {
     const prototypeAgents = byPipeline("prototype");
     const preChecked = prototypeAgents.filter(isHumanGate).map((a) => a.id);
-    expect(preChecked).toEqual(["prototype-specify", "prototype-plan"]);
+    expect(preChecked).toEqual(["prototype-specify", "prototype-plan", "prototype-analyze"]);
   });
 
   it("selects nothing for the ppt pipeline (no default gates)", () => {
@@ -171,7 +173,7 @@ describe("ReviewGatesSection — prototype pipeline", () => {
     expect(screen.getAllByRole("checkbox")).toHaveLength(prototypeAgents.length);
   });
 
-  it("pre-checks ONLY prototype-specify + prototype-plan", async () => {
+  it("pre-checks ONLY prototype-specify + prototype-plan + prototype-analyze", async () => {
     await renderExpanded();
     // Checkboxes render in pipeline order; map them back to ids.
     const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
@@ -182,6 +184,7 @@ describe("ReviewGatesSection — prototype pipeline", () => {
     expect(checkedById).toEqual({
       "prototype-specify": true,
       "prototype-plan": true,
+      "prototype-analyze": true,
       "prototype-build": false,
       "prototype-validate": false,
     });
@@ -203,7 +206,7 @@ describe("ReviewGatesSection — prototype pipeline", () => {
     // The initial report fires on mount (no expand needed).
     expect(onChange).toHaveBeenCalled();
     const [ids, touched] = onChange.mock.calls[onChange.mock.calls.length - 1];
-    expect(ids).toEqual(["prototype-specify", "prototype-plan"]);
+    expect(ids).toEqual(["prototype-specify", "prototype-plan", "prototype-analyze"]);
     expect(touched).toBe(false);
   });
 
@@ -211,14 +214,14 @@ describe("ReviewGatesSection — prototype pipeline", () => {
     const { user, onChange } = await renderExpanded();
     onChange.mockClear();
 
-    // Check prototype-build (index 2) → it joins the gated set.
+    // Check prototype-build (index 3) → it joins the gated set.
     const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
-    await user.click(checkboxes[2]);
+    await user.click(checkboxes[3]);
 
     const [ids, touched] = onChange.mock.calls[onChange.mock.calls.length - 1];
     expect(touched).toBe(true);
-    // Reported in pipeline order: specify, plan, build.
-    expect(ids).toEqual(["prototype-specify", "prototype-plan", "prototype-build"]);
+    // Reported in pipeline order: specify, plan, analyze, build.
+    expect(ids).toEqual(["prototype-specify", "prototype-plan", "prototype-analyze", "prototype-build"]);
   });
 
   it("unchecking a default gate fires onChange(touched=true) without it", async () => {
@@ -231,7 +234,7 @@ describe("ReviewGatesSection — prototype pipeline", () => {
 
     const [ids, touched] = onChange.mock.calls[onChange.mock.calls.length - 1];
     expect(touched).toBe(true);
-    expect(ids).toEqual(["prototype-plan"]);
+    expect(ids).toEqual(["prototype-plan", "prototype-analyze"]);
   });
 
   it("unchecking ALL gates yields onChange([], true) — the no-gates payload", async () => {
