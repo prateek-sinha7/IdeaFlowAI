@@ -175,6 +175,15 @@ id -u "$APP_USER" >/dev/null 2>&1 \
     || useradd -r -m -d /opt/velocityai -s /usr/sbin/nologin "$APP_USER"
 mkdir -p /opt/velocityai /opt/velocityai/data/skills /opt/velocityai/data/runs /var/log/velocityai /etc/velocityai
 chown -R "$APP_USER:$APP_USER" /opt/velocityai /var/log/velocityai
+# The backend + frontend containers run as uid:gid 10001:10001 (see
+# backend/Dockerfile / frontend/Dockerfile). data/skills + data/runs are
+# bind-mounted INTO the backend container (docker-compose.yml: data/runs ->
+# /app/runs, data/skills -> /app/skills) and written by that non-root user, so
+# they MUST be owned by 10001 — NOT $APP_USER (a system uid, e.g. 999) — or the
+# container's per-run `mkdir /app/runs/<user>/<run>` fails with EACCES and every
+# pipeline run aborts. This runs AFTER the recursive chown above so it wins, and
+# is recursive so a recovery-mode volume with pre-existing content is fixed too.
+chown -R 10001:10001 /opt/velocityai/data/skills /opt/velocityai/data/runs
 chown root:"$APP_USER" /etc/velocityai
 chmod 0750 /etc/velocityai
 
