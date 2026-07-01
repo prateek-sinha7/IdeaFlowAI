@@ -14,6 +14,7 @@ offline unconditionally. Offline — no live LLM / Bedrock.
 from __future__ import annotations
 
 import asyncio
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -35,11 +36,29 @@ from app.agents.render_check import (
     _nav_ok,
     render_check,
 )
-from app.agents.static_check import static_check
+from app.agents.static_check import _href_target_id, static_check
 
 _FIXTURE = (
     Path(__file__).parent / "fixtures" / "imc-inventory-certificate-management.html"
 ).resolve()
+# The FULL 414KB comprehensive regression fixture (ITEM 1 / FULL-FILE-REGRESSION).
+# Kept ALONGSIDE the trimmed fixture (additive) — the trimmed one backs the fast unit
+# tests; this one pins the FINAL measured counts after ITEM 3 (render un-dedup) +
+# ITEM 4 (static router-dead).
+_FULL_FIXTURE = (
+    Path(__file__).parent / "fixtures" / "imc-inventory-certificate-management-full.html"
+).resolve()
+
+# ── FINAL measured counts on the full fixture (quick-260701-erg, MEASURED post-items
+# 3+4; pinned as EXACT integers — a drift here is a real behavioral regression). ──
+_FULL_STATIC_DEAD_LINKS = 11   # plain dead nav links (dynamic route → no section)
+_FULL_STATIC_ROUTER_DEAD = 0   # router-dead: every section IS a routes-map key here
+_FULL_RENDER_SIDEBAR_DEAD = 16  # NavResults ok=False (router targets nav links, not
+#                                 sections → sections never activate — a real defect)
+_FULL_RENDER_NAV_TOTAL = 17     # total NavResults exercised (only dashboard is ok)
+# Overlap between the static dead/router-dead TARGETS and the render dead TARGETS
+# (first-path-segment). Measured value — asserted EXACTLY (not "disjoint").
+_FULL_STATIC_RENDER_OVERLAP = 2  # {'certificates', 'inventory'}
 _GOLDEN_DIR = (Path(__file__).parent / "characterization" / "golden").resolve()
 
 # The pre-existing static_check issue the minimal golden stubs already emit BEFORE
@@ -561,3 +580,88 @@ def test_scenario11_require_render_true_compiles_on_build_and_revision():
     rev = compile_for_run("prototype_revision")
     rev_step = next(s for s in rev.steps if s.agent_id == "prototype-revision-agent")
     assert rev_step.require_render is True, "revision step must require_render=True"
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Scenario 12 — ITEM 1: the full 414KB fixture — pinned FINAL counts + overlap
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def _static_dead_and_router_dead_targets(result) -> set[str]:
+    """The first-path-segment TARGETS of the static dead-link + router-dead issues."""
+    targets: set[str] = set()
+    for issue in result.issues:
+        if issue.startswith("dead nav link"):
+            m = re.search(r"route '([^']+)'", issue) or re.search(r"href '([^']+)'", issue)
+            if m:
+                targets.add(_href_target_id(m.group(1)))
+        elif issue.startswith("router-dead"):
+            m = re.search(r"target '([^']+)'", issue)
+            if m:
+                targets.add(m.group(1))
+    return targets
+
+
+def test_scenario12_full_fixture_is_committed():
+    """The full 414KB regression fixture is committed alongside the trimmed one."""
+    assert _FULL_FIXTURE.is_file(), f"full fixture missing: {_FULL_FIXTURE}"
+    assert _FIXTURE.is_file(), "the trimmed fixture must be KEPT (additive)"
+    assert _FULL_FIXTURE.stat().st_size > 400_000, "full fixture should be the ~414KB file"
+
+
+def test_scenario12_static_final_counts_pinned():
+    """static_check on the full fixture pins the FINAL dead-link + router-dead counts."""
+    r = static_check(_FULL_FIXTURE)
+    dead = [i for i in r.issues if i.startswith("dead nav link")]
+    router_dead = [i for i in r.issues if i.startswith("router-dead")]
+    assert len(dead) == _FULL_STATIC_DEAD_LINKS, dead
+    assert len(router_dead) == _FULL_STATIC_ROUTER_DEAD, router_dead
+
+
+def test_scenario12_render_final_counts_pinned(tmp_path):
+    """render_check on the full fixture pins the FINAL sidebar-dead count + total
+    (browser-gated). The router targets nav links (not sections), so sections never
+    activate — a real navigation defect the un-dedup surfaces route-by-route."""
+    if not _render_available(tmp_path):
+        pytest.skip("Chromium/Playwright unavailable — browser-gated")
+    rr = asyncio.run(render_check(_FULL_FIXTURE))
+    assert rr.available is True
+    dead = [n for n in rr.nav_results if not n.ok]
+    assert len(rr.nav_results) == _FULL_RENDER_NAV_TOTAL, rr.nav_results
+    assert len(dead) == _FULL_RENDER_SIDEBAR_DEAD, dead
+    # No false coverage-0 (nav WAS discovered/exercised).
+    assert not rr.coverage_errors, rr.coverage_errors
+
+
+def test_scenario12_static_render_overlap_pinned(tmp_path):
+    """The overlap between static dead/router-dead TARGETS and render dead TARGETS is
+    pinned to its MEASURED exact value (browser-gated) — NOT asserted 'disjoint'."""
+    if not _render_available(tmp_path):
+        pytest.skip("Chromium/Playwright unavailable — browser-gated")
+    r = static_check(_FULL_FIXTURE)
+    static_targets = _static_dead_and_router_dead_targets(r)
+    rr = asyncio.run(render_check(_FULL_FIXTURE))
+    render_targets = {n.expected for n in rr.nav_results if not n.ok}
+    overlap = static_targets & render_targets
+    assert len(overlap) == _FULL_STATIC_RENDER_OVERLAP, (
+        f"overlap drift: {sorted(overlap)} (static={sorted(static_targets)}, "
+        f"render={sorted(render_targets)})"
+    )
+
+
+@pytest.mark.asyncio
+async def test_scenario12_full_fixture_fail_closed_offline():
+    """Offline fail-closed: a FAKE render (available=False) + require_render=true →
+    html_render.validate returns EXACTLY one P0 (static can never silently substitute
+    for an absent browser). Reuses the _FakeRunner/_Target stand-ins."""
+    runner = _FakeRunner(
+        RenderResult(ok=True, available=False, note="Chromium unavailable")
+    )
+    target = _Target(runner, require_render=True)
+    hr = CapabilityRegistry().resolve("validator", "html_render")
+    issues = await hr.validate(target)
+    assert len(issues) == 1, issues
+    assert issues[0].severity == "P0"
+    assert "require_render" in issues[0].message
+    # The skip was ALSO recorded as a distinct validator_skipped row (never swallowed).
+    assert any(rec["severity"] == "SKIPPED" for rec in runner.records)
