@@ -219,129 +219,163 @@ class ClarifyEngine:
         pipeline_type: str,
         is_no_template: bool,
     ) -> list[dict] | None:
-        """Use an LLM to generate content-aware clarification questions.
+        """Generate Spec Kit-style content-aware clarification questions via LLM.
 
-        Reads the user brief from planning_context and asks the model to
-        generate specific, targeted questions based on what's genuinely
-        missing — not generic MCQ options. Returns None on failure so the
-        caller can fall back to the static library.
+        Follows the GitHub Spec Kit clarify.md approach:
+        - Reads the actual brief and coverage_map from planning_context
+        - Generates targeted questions only for genuinely unresolved areas
+        - Supports mixed answer types: single_choice, multi_select, short_text, hybrid
+        - Always provides a recommended answer with brief reasoning
+        - Deduplicates against already-answered topics
+        - Stops early if no critical gaps remain
         """
         user_request = planning_context.get("user_request", "")
         inferred_intent = planning_context.get("inferred_intent", "")
         missing = planning_context.get("missing_information", [])
         topic = planning_context.get("topic") or ""
         domain_insights = planning_context.get("domain_insights") or []
+        coverage_map = planning_context.get("coverage_map") or {}
+        user_request_summary = planning_context.get("user_request_summary", "")
+        # Already-answered topics (from previous rounds) — never re-ask these
+        clarified_topics = planning_context.get("clarified_topics") or []
 
         if not user_request and not inferred_intent:
             return None
 
-        # Build a concise brief description for the prompt
         brief_sample = user_request[:2000] if user_request else inferred_intent[:500]
+        topic_label = topic or (user_request_summary or inferred_intent or "")[:60]
 
-        # Pipeline-specific question guidance
-        pipeline_guidance = {
+        # Pipeline-specific question priorities
+        pipeline_guidance_map = {
             "prototype": (
-                "Focus on UI/UX design questions: layout type (sidebar/topnav/cards), "
-                "visual style (minimal SaaS, consumer, data-heavy dashboard, dark admin), "
-                "key pages/screens needed, primary user interactions, colour palette preference, "
-                "navigation pattern, and target device (desktop/mobile/responsive)."
+                "This is a prototype pipeline. Priority questions:\n"
+                "1. UI/Layout: sidebar navigation vs topbar vs cards vs single-page?\n"
+                "2. Visual style: minimal SaaS, consumer/marketing, data dashboard, dark admin?\n"
+                "3. Key pages/screens: which ones are essential for this product?\n"
+                "4. Primary interactions: read-only browsing, form inputs, data tables, modals?\n"
+                "5. Target device: desktop-first, mobile-first, responsive?\n"
+                "6. Colour/brand: light neutral, dark mode, brand colour, monochrome?"
             ),
             "od_prototype": (
-                "Focus on UI/UX design questions: layout type (sidebar/topnav/cards), "
-                "visual style (minimal SaaS, consumer, data-heavy dashboard, dark admin), "
-                "key pages/screens needed, primary user interactions, colour palette preference, "
-                "navigation pattern, and target device (desktop/mobile/responsive)."
+                "This is a prototype pipeline. Priority questions:\n"
+                "1. UI/Layout: sidebar navigation vs topbar vs cards vs single-page?\n"
+                "2. Visual style: minimal SaaS, consumer/marketing, data dashboard, dark admin?\n"
+                "3. Key pages/screens: which ones are essential for this product?\n"
+                "4. Primary interactions: read-only browsing, form inputs, data tables, modals?\n"
+                "5. Target device: desktop-first, mobile-first, responsive?\n"
+                "6. Colour/brand: light neutral, dark mode, brand colour, monochrome?"
             ),
             "user_stories": (
-                "Focus on product scope, user roles/personas, key user journeys, "
-                "business rules, acceptance criteria style, and any compliance needs."
+                "Priority: user roles/personas, key journeys, business rules, scope (MVP vs full), "
+                "acceptance criteria style, compliance requirements."
             ),
             "od_ppt": (
-                "Focus on presentation purpose, target audience, content depth, "
-                "number of slides, visual style preference, and key sections to cover."
+                "Priority: presentation purpose (inform/persuade/report), target audience, "
+                "content depth, number of slides, visual style, key sections/chapters."
             ),
             "ppt": (
-                "Focus on presentation purpose, target audience, content depth, "
-                "number of slides, visual style preference, and key sections to cover."
+                "Priority: presentation purpose, target audience, content depth, "
+                "slide count, visual style, key sections."
             ),
             "app_builder": (
-                "Focus on tech stack, core features, data model, integrations, "
-                "security requirements, and deployment target."
+                "Priority: tech stack, core features, data model, integrations needed, "
+                "security/auth requirements, deployment target, performance requirements."
             ),
-        }.get(pipeline_type, "Focus on scope, audience, objectives, and output format.")
+        }
+        pipeline_guidance = pipeline_guidance_map.get(
+            pipeline_type,
+            "Focus on scope, audience, objectives, key deliverables, and output format."
+        )
 
         no_template_extra = ""
         if is_no_template:
             no_template_extra = """
-IMPORTANT: The user chose NOT to use a pre-made visual template (blank canvas mode).
-You MUST ask several UI design questions to establish the visual direction:
-- What layout pattern? (sidebar navigation, top navigation bar, card-based, single-page)
-- What visual style? (clean minimal SaaS, consumer/marketing, data-heavy dashboard, dark admin panel)
-- What colour scheme? (light neutral, dark mode, brand colours, monochrome)
-- What navigation structure? (sidebar with sub-items, flat topnav, hamburger menu)
-- What primary interactions? (data tables, forms, charts, modals, wizard flows)
-Ask AT LEAST 4 UI design questions — these are the most critical for blank-canvas output.
-"""
+CRITICAL — BLANK CANVAS MODE:
+The user chose NOT to use a pre-made visual template. You MUST generate at least 4 UI design questions covering:
+1. Layout architecture (sidebar/topbar/cards/single-page/split-pane)
+2. Visual style personality (minimal SaaS, consumer/spacious, data-heavy, dark/admin)
+3. Navigation pattern (persistent sidebar, hamburger, tabs, breadcrumb)
+4. Colour mood (light neutral, dark mode, colourful brand, monochrome)
+These 4 questions are MANDATORY regardless of what else is in the brief."""
 
-        prompt = f"""You are a product clarification expert. Analyze the user's brief and generate targeted clarification questions.
+        # Build coverage context for the prompt
+        coverage_summary = ""
+        if coverage_map:
+            unclear = [k for k, v in coverage_map.items() if v in ("partial", "missing")]
+            clear = [k for k, v in coverage_map.items() if v == "clear"]
+            coverage_summary = f"\nCoverage scan: CLEAR={clear}, NEEDS_CLARIFICATION={unclear}"
 
-## Pipeline Type
-{pipeline_type}
+        already_answered = ""
+        if clarified_topics:
+            already_answered = f"\nALREADY ANSWERED in previous rounds — do NOT ask again: {clarified_topics}"
+
+        prompt = f"""You are a product clarification expert following the GitHub Spec Kit clarify.md approach.
+Analyze the user's brief and generate targeted, content-aware clarification questions.
+
+## Pipeline: {pipeline_type}
+## Topic: {topic_label}
 
 ## User Brief
 {brief_sample}
 
-## What the planner identified as missing or unclear
-{json.dumps(missing)}
+## Planner analysis
+- Intent: {inferred_intent}
+- Missing: {json.dumps(missing)}
+- Domain insights: {json.dumps(domain_insights)}
+{coverage_summary}
+{already_answered}
 
-## Inferred intent
-{inferred_intent}
-
-{f"## Domain insights{chr(10)}" + chr(10).join(f"- {i}" for i in domain_insights) if domain_insights else ""}
-
-## Guidance for this pipeline type
+## Question guidelines (Spec Kit style)
 {pipeline_guidance}
 {no_template_extra}
 
-## Your task
-Generate {4 if is_no_template else 3}-{7 if is_no_template else 5} targeted clarification questions based on what is GENUINELY missing or ambiguous in the brief above.
+## Rules
+1. Generate {4 if is_no_template else 2}-{7 if is_no_template else 5} questions ONLY for genuinely unclear/missing areas
+2. Each question must be SPECIFIC to this brief — reference the actual domain/topic
+3. Do NOT ask about things already stated in the brief
+4. Do NOT repeat questions from already-answered topics
+5. Choose the most appropriate answer type per question:
+   - "single_choice": exactly one option (layout type, visual style, audience)
+   - "multi_select": multiple may apply (features needed, interactions to demo, compliance areas)
+   - "short_text": free-form answer better than fixed options (specific tech name, team size, deadline)
+   - "hybrid": MCQ suggestions + free-text override (topic, domain, specific requirement)
+6. Always provide a "recommended_answer" — the best default based on context + brief practices
+7. Add "recommended_reasoning": 1-2 sentences WHY this is the best default
+8. Options should be specific and relevant — NOT generic "Option A / Option B"
+9. For single_choice/multi_select: 3-6 options max, all domain-relevant
+10. Stop early: if fewer than 2 genuine gaps exist, generate only those questions (don't pad)
 
-Rules:
-1. Questions must be SPECIFIC to the brief content — reference the actual topic/domain
-2. Do NOT ask about things already clearly stated in the brief
-3. Each question must have 4-6 MCQ options that are RELEVANT to the domain/brief
-4. Include a "No preference — let the AI decide" option where appropriate
-5. Questions should directly improve the output quality if answered
-6. For prototype pipelines, prioritize UI/layout/visual style questions
-
-Return ONLY a JSON array, no other text:
+Return ONLY a JSON array:
 [
   {{
-    "question_text": "Specific question referencing the actual content?",
-    "answer_type": "single_choice",
-    "options": ["Option A", "Option B", "Option C", "Option D", "No preference"],
+    "question_text": "Specific question referencing the actual content/domain?",
+    "answer_type": "single_choice|multi_select|short_text|hybrid",
+    "options": ["Specific Option A", "Specific Option B", "Specific Option C"],
+    "recommended_answer": "The specific option or text you recommend",
+    "recommended_reasoning": "Why this is the best default for this brief",
     "ambiguity_category": "UX Flow",
     "impact_level": "high"
-  }},
-  ...
+  }}
 ]
 
+For short_text questions, options can be [] (empty — user types freely).
+For hybrid questions, include 3-5 MCQ suggestions plus the free-text field will be shown automatically.
+
 Valid ambiguity_category values: Functional Scope, User Roles, Data Model, UX Flow, Performance, Security, Integration, Edge Cases, Terminology, Acceptance Criteria, Constraints
-Valid impact_level values: high, medium, low
-"""
+Valid impact_level: high, medium"""
+
         try:
             from app.agents.model_factory import build_model
             from langchain_core.messages import HumanMessage
 
-            llm = build_model(max_tokens=1024)
+            llm = build_model(max_tokens=1500)
             response = await llm.ainvoke([HumanMessage(content=prompt)])
             raw = response.content if hasattr(response, "content") else str(response)
 
-            # Extract JSON array
             import re
             json_match = re.search(r'\[[\s\S]*\]', raw)
             if not json_match:
-                logger.warning("ClarifyEngine LLM: no JSON array found in response")
+                logger.warning("ClarifyEngine LLM: no JSON array in response")
                 return None
 
             items = json.loads(json_match.group())
@@ -352,26 +386,36 @@ Valid impact_level values: high, medium, low
             for i, item in enumerate(items):
                 if not isinstance(item, dict) or not item.get("question_text"):
                     continue
-                options = item.get("options") or ["No preference"]
+                answer_type = item.get("answer_type", "single_choice")
+                options = item.get("options") or []
+                recommended = item.get("recommended_answer", options[-1] if options else "")
+                reasoning = item.get("recommended_reasoning", "")
+                # Embed reasoning into recommended_answer for display
+                recommended_display = f"{recommended} — {reasoning}" if reasoning else recommended
+
                 questions.append({
                     "question_id": f"r{round_num}_q{i + 1}",
                     "question_text": item["question_text"],
                     "impact_level": item.get("impact_level", "high" if i < 2 else "medium"),
-                    "answer_type": item.get("answer_type", "single_choice"),
+                    "answer_type": answer_type,
                     "options": options,
-                    "recommended_answer": options[-1],
+                    "recommended_answer": recommended,
+                    "recommended_reasoning": reasoning,
+                    "recommended_display": recommended_display,
                     "ambiguity_category": item.get("ambiguity_category", "Functional Scope"),
                 })
 
             logger.info(
-                "ClarifyEngine LLM: generated %d content-aware questions for pipeline=%s no_template=%s",
-                len(questions), pipeline_type, is_no_template,
+                "ClarifyEngine LLM: %d questions for pipeline=%s no_template=%s round=%d",
+                len(questions), pipeline_type, is_no_template, round_num,
             )
             return questions if questions else None
 
         except Exception as exc:
-            logger.warning("ClarifyEngine LLM question generation failed: %s — falling back to static library", exc)
+            logger.warning("ClarifyEngine LLM generation failed: %s — falling back to static library", exc)
             return None
+
+
 
     async def _generate_questions(
         self,
@@ -379,11 +423,13 @@ Valid impact_level values: high, medium, low
         round_num: int,
         clarify_agent,
     ) -> list[dict]:
-        """Generate content-aware clarification questions.
+        """Generate Spec Kit-style content-aware clarification questions.
 
-        Primary path: LLM call that reads the actual brief and generates
-        targeted questions specific to the content.
-        Fallback: static library lookup keyed on missing_information items.
+        Primary path: LLM call that reads the brief, coverage_map, and
+        domain insights to generate specific, targeted questions with mixed
+        answer types (single_choice, multi_select, short_text, hybrid) and
+        recommended answers with reasoning.
+        Fallback: static library when LLM call fails.
         """
         missing = planning_context.get("missing_information", [])
         if not missing:
@@ -392,17 +438,16 @@ Valid impact_level values: high, medium, low
         pipeline_type = planning_context.get("pipeline_type", "custom")
         is_no_template = bool(planning_context.get("no_template_mode", False))
 
-        # ── Primary path: LLM-generated content-aware questions ───────────
+        # ── Primary path: Spec Kit-style LLM question generation ──────────
         llm_questions = await self._generate_questions_via_llm(
             planning_context, round_num, pipeline_type, is_no_template
         )
         if llm_questions:
             return llm_questions
 
-        # ── Fallback: static library (used when LLM call fails) ───────────
-        logger.info("ClarifyEngine: falling back to static question library for pipeline=%s", pipeline_type)
+        # ── Fallback: static library (when LLM call fails) ─────────────────
+        logger.info("ClarifyEngine: falling back to static library for pipeline=%s", pipeline_type)
 
-        # Content-aware context for personalising static question text
         inferred_intent = planning_context.get("inferred_intent", "")
         topic = planning_context.get("topic") or ""
         user_request_summary = planning_context.get("user_request_summary", "")
@@ -410,7 +455,6 @@ Valid impact_level values: high, medium, low
         if len(content_hint) > 120:
             content_hint = content_hint[:117] + "..."
 
-        # ── Pipeline-specific topic questions ─────────────────────────────
         TOPIC_BY_PIPELINE: dict[str, tuple[str, list[str]]] = {
             "od_ppt": (
                 "What is the main topic or subject of this presentation?",
@@ -438,7 +482,6 @@ Valid impact_level values: high, medium, low
             ),
         }
 
-        # ── Pipeline-specific style/UI questions ──────────────────────────
         STYLE_BY_PIPELINE: dict[str, tuple[str, list[str]]] = {
             "od_prototype": (
                 "What visual style and UI type should the prototype follow?",
@@ -464,15 +507,14 @@ Valid impact_level values: high, medium, low
             ),
         }
 
-        # ── Full question library ──────────────────────────────────────────
         QUESTION_LIBRARY: dict[str, tuple[str, list[str]]] = {
             "topic": TOPIC_BY_PIPELINE.get(pipeline_type, (
                 "What is the main topic or subject of this?",
-                ["Product / service feature", "Business process / workflow", "Technical system / architecture", "Market / competitive analysis", "Internal tool / dashboard", "Customer-facing product", "Other — I'll describe in the notes below"],
+                ["Product / service feature", "Business process / workflow", "Technical system / architecture", "Market / competitive analysis", "Internal tool / dashboard", "Customer-facing product"],
             )),
             "subject": TOPIC_BY_PIPELINE.get(pipeline_type, (
                 "What is the main topic or subject of this?",
-                ["Product / service feature", "Business process / workflow", "Technical system / architecture", "Market / competitive analysis", "Internal tool / dashboard", "Customer-facing product", "Other — I'll describe in the notes below"],
+                ["Product / service feature", "Business process / workflow", "Technical system / architecture", "Market / competitive analysis", "Internal tool / dashboard", "Customer-facing product"],
             )),
             "target_audience": (
                 "Who is the primary audience for this?",
@@ -482,54 +524,14 @@ Valid impact_level values: high, medium, low
                 "Who is the primary audience for this?",
                 ["Executive / C-Suite", "Technical team / Engineers", "Business stakeholders / Managers", "General public / Consumers", "Sales & Marketing team"],
             ),
-            "tone_and_style": (
-                "What tone and style should be used?",
-                ["Professional & formal", "Casual & conversational", "Data-driven & analytical", "Creative & visual", "Concise & minimal"],
-            ),
-            "tone": (
-                "What tone and style should be used?",
-                ["Professional & formal", "Casual & conversational", "Data-driven & analytical", "Creative & visual", "Concise & minimal"],
-            ),
             "style": STYLE_BY_PIPELINE.get(pipeline_type, (
                 "What tone and style should be used?",
                 ["Professional & formal", "Casual & conversational", "Data-driven & analytical", "Creative & visual", "Concise & minimal"],
             )),
-            "key_objectives": (
-                "What is the primary goal or objective?",
-                ["Inform & educate", "Persuade & sell", "Report results & metrics", "Propose a solution", "Compare options & recommend"],
-            ),
-            "objective": (
-                "What is the primary goal or objective?",
-                ["Inform & educate", "Persuade & sell", "Report results & metrics", "Propose a solution", "Compare options & recommend"],
-            ),
-            "slide_count": (
-                "How many slides should the presentation have?",
-                ["5–8 slides (concise)", "10–12 slides (standard)", "15–20 slides (detailed)", "20+ slides (comprehensive)", "No preference"],
-            ),
-            "depth": (
-                "How deep should the content go?",
-                ["High-level overview only", "Moderate detail", "Deep technical detail", "Executive summary only", "No preference"],
-            ),
-            "length": (
-                "How long / detailed should the output be?",
-                ["Very concise (key points only)", "Standard length", "Detailed & comprehensive", "As long as needed", "No preference"],
-            ),
-            "format": (
-                "What output format do you prefer?",
-                ["Bullet points & lists", "Narrative paragraphs", "Tables & comparisons", "Charts & visuals", "Mixed format"],
-            ),
-            "technology": (
-                "What technology stack or platform should be used?",
-                ["React / Next.js (web)", "React Native / Flutter (mobile)", "Node.js / Python (backend)", "Cloud-native (AWS / Azure / GCP)", "No preference"],
-            ),
-            "tech_stack": (
-                "What technology stack or platform should be used?",
-                ["React / Next.js (web)", "React Native / Flutter (mobile)", "Node.js / Python (backend)", "Cloud-native (AWS / Azure / GCP)", "No preference"],
-            ),
-            "timeline": (
-                "What is the expected timeline or urgency?",
-                ["ASAP / urgent", "Within 1 week", "Within 1 month", "Long-term project", "No specific deadline"],
-            ),
+            "ui_style": STYLE_BY_PIPELINE.get(pipeline_type, (
+                "What visual style and UI type should this follow?",
+                ["Clean / minimal SaaS web app", "Consumer / marketing — spacious, visual", "Data-heavy dashboard — tables, charts", "Dark-mode admin panel", "No preference"],
+            )),
             "scope": (
                 "What is the scope of this project?",
                 ["MVP / proof of concept", "Full production feature", "Internal tool only", "Customer-facing product", "Research & exploration"],
@@ -538,35 +540,6 @@ Valid impact_level values: high, medium, low
                 "What should be prioritized in this output?",
                 ["Speed of delivery", "Quality & completeness", "Cost efficiency", "Scalability & future-proofing", "User experience"],
             ),
-            "industry": (
-                "What industry or domain is this for?",
-                ["Technology / SaaS", "Finance / Banking", "Healthcare / Life sciences", "Retail / E-commerce", "Other / General"],
-            ),
-            "persona": (
-                "Who are the end users of this product?",
-                ["Enterprise employees", "Small business owners", "Developers / Technical users", "Consumers / General public", "Specific niche audience"],
-            ),
-            "user": (
-                "Who are the end users of this product?",
-                ["Enterprise employees", "Small business owners", "Developers / Technical users", "Consumers / General public", "Specific niche audience"],
-            ),
-            "security": (
-                "What level of security and compliance is required?",
-                ["Standard (basic auth)", "Enterprise (SSO / RBAC)", "Regulated (HIPAA / SOC2 / GDPR)", "High security (E2E encryption)", "No specific requirements"],
-            ),
-            "integration": (
-                "What external integrations are needed?",
-                ["None / standalone", "REST APIs only", "Third-party SaaS (Salesforce, Slack, etc.)", "Legacy systems / databases", "Multiple integrations"],
-            ),
-            "data": (
-                "What kind of data will this system handle?",
-                ["User profiles & accounts", "Transactional / financial data", "Content & media", "Analytics & metrics", "Sensitive / regulated data"],
-            ),
-            "performance": (
-                "What are the performance requirements?",
-                ["Low traffic (< 1k users)", "Medium traffic (1k–100k users)", "High traffic (100k+ users)", "Real-time / sub-second response", "No specific requirements"],
-            ),
-            # ── Prototype-specific questions ───────────────────────────────
             "key_screens": (
                 "What are the key screens or pages the prototype must include?",
                 ["Home / landing page", "Dashboard / main workspace", "Onboarding / sign-up flow", "Detail / item view", "Settings / profile page"],
@@ -575,119 +548,96 @@ Valid impact_level values: high, medium, low
                 "What types of interactions should the prototype demonstrate?",
                 ["Click-through navigation only", "Form inputs and validation", "Data tables with filtering/sorting", "Modals, drawers, and overlays", "Full interactive flows with state changes"],
             ),
-            # ── User-stories-specific questions ───────────────────────────
             "personas": (
                 "What user roles or personas will use this product?",
                 ["Registered end users", "Admins / back-office staff", "Guest / anonymous users", "API consumers / developers", "Multiple roles with different permissions"],
             ),
             "user_journeys": (
                 "What are the main user journeys or workflows to cover?",
-                ["Onboarding / sign-up flow", "Core transactional flow (e.g. purchase, booking, submit)", "Account management / settings", "Search, browse, and filter", "Reporting / analytics / export"],
+                ["Onboarding / sign-up flow", "Core transactional flow", "Account management / settings", "Search, browse, and filter", "Reporting / analytics / export"],
             ),
             "business_rules": (
                 "Are there important business rules, validations, or constraints?",
-                ["Approval workflows or authorisation checks", "Data validation rules (formats, limits, uniqueness)", "Pricing / discount / calculation logic", "Status / state-machine transitions", "No specific business rules — standard CRUD"],
+                ["Approval workflows or authorisation checks", "Data validation rules", "Pricing / discount / calculation logic", "Status / state-machine transitions", "No specific business rules"],
             ),
-            "compliance_security": (
-                "What security or compliance requirements apply?",
-                ["Standard authentication (email/password)", "SSO / OAuth / enterprise identity", "GDPR / data-privacy compliance", "Industry regulation (HIPAA, PCI-DSS, ISO 27001)", "No specific requirements"],
+            "technology": (
+                "What technology stack should be used?",
+                ["React / Next.js (web)", "React Native / Flutter (mobile)", "Node.js / Python (backend)", "Cloud-native (AWS / Azure / GCP)", "No preference"],
             ),
-            # ── PPT-specific questions ─────────────────────────────────────
+            "target_audience": (
+                "Who is the primary audience for this?",
+                ["Executive / C-Suite", "Technical team / Engineers", "Business stakeholders / Managers", "General public / Consumers", "Sales & Marketing team"],
+            ),
+            "tone_and_style": (
+                "What tone and style should be used?",
+                ["Professional & formal", "Casual & conversational", "Data-driven & analytical", "Creative & visual", "Concise & minimal"],
+            ),
+            "key_objectives": (
+                "What is the primary goal or objective?",
+                ["Inform & educate", "Persuade & sell", "Report results & metrics", "Propose a solution", "Compare options & recommend"],
+            ),
+            "slide_count": (
+                "How many slides should the presentation have?",
+                ["5–8 slides (concise)", "10–12 slides (standard)", "15–20 slides (detailed)", "20+ slides (comprehensive)", "No preference"],
+            ),
             "content_depth": (
                 "How detailed should the content be?",
                 ["High-level summary only", "Moderate detail with supporting points", "Deep-dive with data and evidence", "Executive brief (one key message per slide)", "No preference"],
             ),
             "data_availability": (
                 "Do you have data, charts, or statistics to include?",
-                ["Yes — I have specific data/numbers to include", "Use realistic representative data", "Qualitative insights only (no hard numbers)", "Both qualitative and quantitative", "No preference"],
+                ["Yes — I have specific data/numbers to include", "Use realistic representative data", "Qualitative insights only", "Both qualitative and quantitative", "No preference"],
             ),
             "visual_style": (
-                "What visual style should the presentation follow?",
-                ["Clean and minimal (lots of white space)", "Data-rich (charts, tables, graphs)", "Story-driven (narrative with visuals)", "Brand-aligned (company colours and fonts)", "No preference"],
+                "What visual style should follow?",
+                ["Clean and minimal (lots of white space)", "Data-rich (charts, tables, graphs)", "Story-driven (narrative with visuals)", "Brand-aligned", "No preference"],
             ),
             "key_sections": (
-                "What sections or chapters should the deck include?",
-                ["Executive summary + key findings", "Problem / opportunity + solution", "Data analysis + recommendations", "Roadmap or timeline", "Standard structure — I'll leave it to the AI"],
+                "What sections should the output include?",
+                ["Executive summary + key findings", "Problem / opportunity + solution", "Data analysis + recommendations", "Roadmap or timeline", "Standard structure — leave it to the AI"],
             ),
-            # ── App-builder-specific questions ────────────────────────────
             "data_model": (
-                "What key data entities or models does the application need?",
+                "What key data entities does the application need?",
                 ["Users / accounts and profiles", "Products / items / catalogue", "Orders / transactions / payments", "Content / documents / media", "Custom domain-specific entities"],
             ),
             "integrations": (
-                "What external integrations or third-party services are needed?",
-                ["None / standalone application", "Payment gateway (Stripe, PayPal)", "Authentication provider (Auth0, Okta, Google)", "Email / SMS / notification service", "Multiple — I'll describe in notes"],
+                "What external integrations are needed?",
+                ["None / standalone application", "Payment gateway (Stripe, PayPal)", "Authentication provider (Auth0, Google)", "Email / SMS / notification service", "Multiple integrations"],
             ),
-            # ── Migration-specific questions ───────────────────────────────
-            "integration_patterns": (
-                "What integration patterns does the current application use?",
-                ["REST APIs (synchronous HTTP calls)", "Message queues / event-driven (Kafka, SQS)", "SOAP / XML web services", "Database-level integration (shared DB)", "Multiple patterns — I'll describe in notes"],
-            ),
-            "target_infrastructure": (
-                "What is the target infrastructure / cloud environment?",
-                ["AWS (EKS / ECS / Lambda)", "Azure (AKS / App Service / Functions)", "GCP (GKE / Cloud Run)", "On-premises / private cloud", "Not decided yet"],
-            ),
-            "azure_services": (
-                "Which Azure services should the migrated application use?",
-                ["Azure App Service / AKS (containers)", "Azure Functions (serverless)", "Azure SQL / Cosmos DB (data)", "Azure Service Bus (messaging)", "Not decided — recommend best fit"],
-            ),
-            "data_migration": (
-                "How should existing data be handled during migration?",
-                ["Full data migration (all historical data)", "Cutover only (no historical data migration)", "Parallel run (both systems live temporarily)", "Gradual migration with feature flags", "Not applicable / greenfield"],
-            ),
-            # ── Custom workflow questions ──────────────────────────────────
-            "output_format": (
-                "What format should the output be in?",
-                ["Structured document (headings, sections)", "Bullet-point list / checklist", "Table or comparison matrix", "Code or technical specification", "Free-form prose / narrative"],
-            ),
-            "constraints": (
-                "Are there any constraints or limitations to be aware of?",
-                ["Time / deadline constraints", "Budget or resource limits", "Technology or platform constraints", "Regulatory or compliance constraints", "No specific constraints"],
-            ),
-            "domain": (
-                "What industry or domain does this task relate to?",
-                ["Technology / Software", "Finance / Banking / Insurance", "Healthcare / Life Sciences", "Retail / E-commerce", "Other — I'll specify in notes"],
-            ),
-            "assumptions": (
-                "What assumptions should be used if information is missing?",
-                ["Use industry best-practice defaults", "Favour simplicity and speed", "Favour completeness and thoroughness", "Ask me before making assumptions", "No preference"],
+            "compliance_security": (
+                "What security or compliance requirements apply?",
+                ["Standard authentication (email/password)", "SSO / OAuth / enterprise identity", "GDPR / data-privacy compliance", "Industry regulation (HIPAA, PCI-DSS)", "No specific requirements"],
             ),
         }
 
-        # 11-category ambiguity taxonomy (FR-009)
         _TAXONOMY = [
             "Functional Scope", "User Roles", "Data Model", "UX Flow",
             "Performance", "Security", "Integration", "Edge Cases",
             "Terminology", "Acceptance Criteria", "Constraints",
         ]
 
-        # Cap at min(5, detected_ambiguity_count)
         capped = missing[:5]
         questions: list[dict] = []
 
         for i, item in enumerate(capped):
             item_lower = item.lower().replace(" ", "_").replace("-", "_")
 
-            # Find best matching question from library
             matched_key = None
-            # First try exact substring match
             for key in QUESTION_LIBRARY:
                 if key in item_lower or item_lower in key:
                     matched_key = key
                     break
-            # Then try word-level match (e.g. "presentation_topic" → "topic")
             if not matched_key:
                 item_words = set(item_lower.replace("_", " ").replace("-", " ").split())
                 for key in QUESTION_LIBRARY:
                     key_words = set(key.replace("_", " ").split())
-                    if item_words & key_words:  # any word overlap
+                    if item_words & key_words:
                         matched_key = key
                         break
 
             if matched_key:
                 base_question, options = QUESTION_LIBRARY[matched_key]
             else:
-                # Fallback: generate a generic question with generic options
                 readable = item.replace("_", " ").replace("-", " ").title()
                 base_question = f"How would you describe the {readable}?"
                 options = [
@@ -698,33 +648,25 @@ Valid impact_level values: high, medium, low
                     "No preference",
                 ]
 
-            # ── Content-aware question personalisation ─────────────────────
-            # When the planning context carries a content hint (inferred_intent,
-            # topic, or user_request_summary), append it as context so the user
-            # understands *why* we're asking and that the question is specifically
-            # about their content — not a generic fixed question.
             question_text = base_question
             if content_hint and matched_key not in ("topic", "subject"):
-                # Append a brief "For your [topic/content]..." prefix to ground
-                # the question in the user's actual content.
                 subject_label = topic or content_hint
                 if subject_label and len(subject_label) < 80:
                     question_text = f"{base_question} (for: {subject_label})"
 
             category = _classify_ambiguity(item, _TAXONOMY)
-            # Topic questions are hybrid: MCQ suggestions + free-text input
             is_topic = matched_key in ("topic", "subject") if matched_key else False
-            questions.append(
-                {
-                    "question_id": f"r{round_num}_q{i + 1}",
-                    "question_text": question_text,
-                    "impact_level": "high" if i < 2 else "medium",
-                    "answer_type": "hybrid" if is_topic else "single_choice",
-                    "options": options,
-                    "recommended_answer": options[-1],
-                    "ambiguity_category": category,
-                }
-            )
+            questions.append({
+                "question_id": f"r{round_num}_q{i + 1}",
+                "question_text": question_text,
+                "impact_level": "high" if i < 2 else "medium",
+                "answer_type": "hybrid" if is_topic else "single_choice",
+                "options": options,
+                "recommended_answer": options[-1],
+                "recommended_reasoning": "",
+                "recommended_display": options[-1],
+                "ambiguity_category": category,
+            })
         return questions
 
     async def _persist_qa(
@@ -734,35 +676,17 @@ Valid impact_level values: high, medium, low
         responses: list[dict],
         round_num: int,
     ) -> None:
-        """Persist each Q&A pair as a typed ``clarifications`` ArtifactRef.
-
-        Migrated off the thin store in 05-06: the clarifications PAYLOAD now lands
-        in ``artifact_refs`` (kind=clarifications) via the owner-scoped
-        ``ScopedStore``, so the websocket reconnect read is served entirely from the
-        typed layer. visibility="workspace" so the owner read resolves through the
-        owner+visibility scope filter. Best-effort: a persist failure logs and never
-        breaks the clarify flow (same shape as the prior thin-store write).
-        """
+        """Persist each Q&A pair as a typed ``clarifications`` ArtifactRef."""
         answer_map = {r.get("question_id"): r.get("answer") for r in responses}
         qa_pairs = []
         for q in questions:
-            qa_pairs.append(
-                {
-                    "question_id": q["question_id"],
-                    "question_text": q["question_text"],
-                    "impact_level": q.get("impact_level", "medium"),
-                    "answer": answer_map.get(q["question_id"]),
-                    "round": round_num,
-                }
-            )
-        # CR-01 / WR-01: a fresh throwaway ArtifactGraph is constructed per round,
-        # so its in-memory per-(run, kind) count is always 0 and ref.version is
-        # always 1. The DB — not this graph — is the cross-call versioning source
-        # of truth here, so we pass force_db_version=True to ScopedStore.write_ref
-        # so it stamps existing_count + 1. This keeps clarifications rows monotonic
-        # per round (round 1→v1, round 2→v2, …) and makes the websocket reconnect
-        # read (order_by version ASC, take [-1]) deterministically return the
-        # newest round.
+            qa_pairs.append({
+                "question_id": q["question_id"],
+                "question_text": q["question_text"],
+                "impact_level": q.get("impact_level", "medium"),
+                "answer": answer_map.get(q["question_id"]),
+                "round": round_num,
+            })
         graph = ArtifactGraph()
         ref = graph.write_ref(
             run_id=pipeline_run_id,
@@ -776,28 +700,13 @@ Valid impact_level values: high, medium, low
             location="artifact_refs/clarifications",
             visibility="workspace",
         )
-        store = ScopedStore(
-            owner_id=self._owner_id, workspace_id=self._workspace_id
-        )
-        # WR-02 / CR-02: do NOT swallow the persist on a bare Exception. The
-        # AUTHZ-03 guard in ScopedStore.write_ref raises ValueError on a falsy
-        # owner — a real bug that must propagate. Only the offline-characterization
-        # harness condition (no artifact_refs/workflow_runs schema → SQLAlchemy
-        # OperationalError / IntegrityError) is degraded to a warning so the live
-        # clarify flow is never broken; any non-DB exception propagates loudly.
+        store = ScopedStore(owner_id=self._owner_id, workspace_id=self._workspace_id)
         from sqlalchemy.exc import SQLAlchemyError
-
         try:
             await store.write_ref(ref, force_db_version=True)
         except SQLAlchemyError as exc:
-            # Missing-table (OperationalError) / missing-FK (IntegrityError) —
-            # the offline harness has no DB schema. Surfaced at warning with the
-            # run context so a genuine prod persistence failure is observable
-            # (not a silent debug no-op).
             logger.warning(
-                "clarifications persist failed for run %s round %d (%s) — "
-                "DB write degraded (offline harness / schema unavailable); "
-                "live clarify flow unaffected",
+                "clarifications persist failed for run %s round %d (%s) — degraded",
                 pipeline_run_id, round_num, exc,
             )
 
@@ -807,22 +716,31 @@ Valid impact_level values: high, medium, low
         questions: list[dict],
         responses: list[dict],
     ) -> dict[str, Any]:
-        """Merge answers into the planning_context, removing resolved missing items."""
+        """Merge answers into planning_context, track clarified topics for deduplication."""
         merged = dict(planning_context)
         answer_map = {r.get("question_id"): r.get("answer") for r in responses}
 
-        # Record answered clarifications as explicit constraints
         explicit = list(merged.get("explicit_constraints", []))
+        clarified_topics = list(merged.get("clarified_topics") or [])
+
         for q in questions:
             ans = answer_map.get(q["question_id"])
             if ans:
                 explicit.append(f"{q['question_text']} → {ans}")
-        merged["explicit_constraints"] = explicit
+                # Track the category/question as answered for deduplication
+                cat = q.get("ambiguity_category", "")
+                if cat and cat not in clarified_topics:
+                    clarified_topics.append(cat)
 
-        # Remove resolved items from missing_information (all questions answered
-        # in this round are considered resolved)
+        merged["explicit_constraints"] = explicit
+        merged["clarified_topics"] = clarified_topics
+
         answered_count = sum(1 for q in questions if answer_map.get(q["question_id"]))
-        remaining_missing = list(merged.get("missing_information", []))
-        merged["missing_information"] = remaining_missing[answered_count:]
+        remaining = list(merged.get("missing_information", []))
+        answered_to_remove = answered_count
+        while answered_to_remove > 0 and remaining:
+            remaining.pop(0)
+            answered_to_remove -= 1
+        merged["missing_information"] = remaining
 
         return merged

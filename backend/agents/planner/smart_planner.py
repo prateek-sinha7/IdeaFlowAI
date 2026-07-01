@@ -195,13 +195,10 @@ class SmartPlanner:
         )
 
     def _build_prompt(self, brief: str, pipeline_type: str) -> str:
-        """Build the rich planning prompt with domain knowledge."""
+        """Build the rich planning prompt with domain knowledge and coverage scan."""
         kb = _get_domain_knowledge(pipeline_type)
 
-        # For long briefs (e.g. pasted user-story documents), intelligently
-        # extract a representative sample so the LLM can scan what's covered.
-        # We take the first 1500 chars (intro/context) + last 500 chars (summary/
-        # conclusion) to give the model a sense of scope without truncating abruptly.
+        # For long briefs, intelligently sample so the LLM can scan what's covered.
         brief_for_prompt = brief
         if len(brief) > 2500:
             head = brief[:1500].rstrip()
@@ -209,6 +206,89 @@ class SmartPlanner:
             brief_for_prompt = (
                 f"{head}\n\n[... document continues — {len(brief) - 2000} chars omitted ...]\n\n{tail}"
             )
+
+        return f"""You are an expert pipeline planner. Analyze the user's brief and produce a structured planning context using a coverage scan approach.
+
+## Pipeline Being Run
+**Type**: {pipeline_type}
+**Description**: {kb['description']}
+**What makes a good brief**: {kb['what_makes_good_brief']}
+
+## User Brief
+"{brief_for_prompt}"
+
+## Step 1 — Coverage Scan
+For each taxonomy category below, mark status: "clear" (fully covered), "partial" (mentioned but vague), or "missing" (not addressed at all).
+
+Categories:
+1. Functional Scope — core user goals, success criteria, explicit out-of-scope
+2. User Roles — personas, actors, who uses this
+3. Domain & Data Model — entities, relationships, data volume, state transitions
+4. UX Flow & Interactions — user journeys, error/empty/loading states, navigation
+5. Non-Functional Quality — performance, scalability, reliability, observability, accessibility
+6. Security & Compliance — auth/authz, data protection, regulatory constraints
+7. Integration & Dependencies — external APIs, services, protocols
+8. Edge Cases & Failure Handling — negative scenarios, conflict resolution
+9. Constraints & Tradeoffs — technical constraints, rejected alternatives
+
+## Step 2 — Missing Information
+Based on the coverage scan, identify items that are GENUINELY MISSING or AMBIGUOUS in the brief.
+
+**STRICT RULE**: Only include an item if:
+1. Its category is "partial" or "missing" in the scan
+2. It would materially change the output if answered differently
+3. It is NOT already explicitly stated in the brief
+4. It is NOT something that can be reasonably inferred or defaulted
+
+**Common missing items for {pipeline_type}**: {json.dumps(kb['common_missing'])}
+
+If the brief has no topic → add "topic" as the FIRST item.
+If the brief is rich and covers most dimensions → missing_information may be 1-3 items or even empty.
+A 100-page document likely covers most dimensions — be very selective.
+
+## Step 3 — Infer Context
+From the brief:
+- Inferred intent (what the user wants to achieve)
+- Explicit constraints (stated in brief)
+- Implicit constraints (implied by domain)
+- Personas (extracted from brief if mentioned)
+- NFRs and quality targets
+- Domain insights: 2-3 specific observations about THIS brief
+
+## Step 4 — Gate Decision
+- `CLARIFY_REQUIRED` if missing_information is non-empty
+- `PROCEED` if brief is complete enough (missing_information empty)
+
+## Output Format
+Return ONLY valid JSON:
+
+{{
+  "inferred_intent": "concise description of what the user wants to achieve",
+  "has_topic": true/false,
+  "topic": "specific topic if found, or null",
+  "explicit_constraints": ["stated in brief"],
+  "implicit_constraints": ["implied by domain"],
+  "coverage_map": {{
+    "functional_scope": "clear|partial|missing",
+    "user_roles": "clear|partial|missing",
+    "domain_data_model": "clear|partial|missing",
+    "ux_flow": "clear|partial|missing",
+    "non_functional": "clear|partial|missing",
+    "security_compliance": "clear|partial|missing",
+    "integration": "clear|partial|missing",
+    "edge_cases": "clear|partial|missing",
+    "constraints": "clear|partial|missing"
+  }},
+  "missing_information": ["only items GENUINELY missing — may be 0-3 for a rich brief"],
+  "execution_strategy": "sequential",
+  "execution_gate": "PROCEED or CLARIFY_REQUIRED",
+  "inferred_personas": ["from brief where possible"],
+  "inferred_nfrs": ["non-functional requirements"],
+  "quality_targets": ["quality goals"],
+  "pipeline_type": "{pipeline_type}",
+  "domain_insights": ["2-3 specific insights about THIS brief"],
+  "user_request_summary": "1-2 sentence summary of what the user provided"
+}}"""
 
         return f"""You are an expert pipeline planner. Analyze the user's brief and produce a structured planning context.
 
