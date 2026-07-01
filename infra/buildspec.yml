@@ -1,13 +1,13 @@
 # =============================================================================
-# VelocityAI CI/CD — CodeBuild buildspec (PUSH/TAG/RELEASE-triggered).
+# VelocityAI CI/CD — CodeBuild buildspec (branch-push-triggered).
 # =============================================================================
 # One CodeBuild project per environment (bootstrap/cicd.tf), each with a fixed
 # ENVIRONMENT, runs this single buildspec top to bottom. The webhook filter
 # decides what triggers each project:
 #
-#   dev   branch push -> velocityai-gitlab-runner-<dev-branch>   (ENVIRONMENT=dev)
-#   stage branch push -> velocityai-gitlab-runner-<stage-branch> (ENVIRONMENT=stage)
-#   git TAG / Release  -> velocityai-gitlab-runner-<prod-branch>  (ENVIRONMENT=prod)
+#   dev   push to <dev-branch>   -> velocityai-gitlab-runner-<dev-branch>   (ENVIRONMENT=dev)
+#   stage push to <stage-branch> -> velocityai-gitlab-runner-<stage-branch> (ENVIRONMENT=stage)
+#   prod  push to main           -> velocityai-gitlab-runner-main           (ENVIRONMENT=prod)
 #
 # Flow: validate -> security scan -> shared+foundation apply -> build/push the
 # backend + frontend images -> app apply (deploys image_tag) -> SSM RunCommand
@@ -15,10 +15,14 @@
 # IN-CONTAINER (Alembic on backend start) — there is no separate migration task.
 #
 # Image tags:
-#   branch build -> <env>-<short-sha>  (expired by count per env in ECR)
-#   tag/release  -> the sanitized git tag (retained indefinitely in ECR)
+#   branch build -> <env>-<short-sha>  (dev-/stage-/prod-<sha>; expired by
+#                   count per env prefix in ECR — "keep last N" per prefix)
+# All three environments are branch builds now, so every image is <env>-<sha>
+# (prod included). The IMAGE_TAG logic below still supports a git-tag build as a
+# fallback, but GitLab tag/release events do not trigger CodeBuild (see the
+# bootstrap/cicd.tf history), so in practice every env uses a branch push.
 # The frontend image is built ENV-AGNOSTIC (empty NEXT_PUBLIC_*, relative URLs
-# terminated by nginx) so a single image promotes dev -> stage -> prod by tag.
+# terminated by nginx), so the same Dockerfile serves dev -> stage -> prod.
 #
 # Injected per-project by Terraform (bootstrap/cicd.tf), never hardcoded here:
 #   ENVIRONMENT, TF_STATE_BUCKET, TF_STATE_LOCK_TABLE, TF_VAR_cors_origins,
