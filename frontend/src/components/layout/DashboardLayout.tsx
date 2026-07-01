@@ -1437,9 +1437,9 @@ export function DashboardLayout({
               {/* Right Panel — Planning overlay, Questionnaire, or Preview */}
               <div className="flex-1 h-[55vh] md:h-full min-w-0 bg-white rounded-none md:rounded-l-none">
                 <ErrorBoundary fallbackLabel="Preview">
-                  {/* Show planning overlay while planner is running and no questionnaire yet */}
+                  {/* Show planning overlay while planner or clarify is working (no domain agents yet) and no questionnaire yet */}
                   {pipelineState?.isRunning &&
-                   pipelineState?.plannerStatus === "running" &&
+                   (pipelineState?.agents?.length ?? 0) === 0 &&
                    !questionnaireLoading &&
                    questionnaireQuestions.length === 0 &&
                    !activePipelineRunId &&
