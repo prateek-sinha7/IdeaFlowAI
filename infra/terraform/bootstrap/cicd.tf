@@ -72,6 +72,21 @@ locals {
   #   branch  -> EVENT=PUSH     AND HEAD_REF ^refs/heads/<branch>$
   #   tag     -> EVENT=PUSH     AND HEAD_REF ^refs/tags/<pattern>$
   #   release -> EVENT=RELEASED (a GitLab Release create/update; any release).
+  #
+  # WARNING (GitLab + CodeBuild): only "branch" actually fires. Both "tag" and
+  # "release" were verified NON-FUNCTIONAL against GitLab:
+  #   * release -> CodeBuild requires a sender/actor account ID on every webhook
+  #     delivery; GitLab's Release webhook payload has none, so CodeBuild rejects
+  #     it ("Missing sender account ID") and no build starts.
+  #   * tag -> GitLab sends tag pushes as a separate "Tag Push Hook" event, but
+  #     CodeBuild's GitLab integration only recognizes branch "Push Hook" (=>
+  #     PUSH), merge requests, releases, and job events — there is no tag-push
+  #     trigger — so nothing is delivered/matched (webhook lastTriggered stays
+  #     null; 0 builds). The "tag" arm below is kept for GitHub-style providers
+  #     but is a no-op on GitLab.
+  # Net for a GitLab-backed prod runner: use trigger_type = "branch" on `main`
+  # and protect `main` (MR + approval) to gate deploys. For strict tag-gating,
+  # drive `aws codebuild start-build` from a GitLab CI job on tag pipelines.
   runner_filters = {
     for env, cfg in local.runners : env => (
       cfg.trigger_type == "release" ? [

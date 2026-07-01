@@ -98,6 +98,13 @@ variable "runners" {
     #   "branch" (default) -> push to `branch`
     #   "tag"              -> a git tag push matching `tag_pattern`
     #   "release"          -> a GitLab Release create/update (any release)
+    #
+    # WARNING (GitLab): only "branch" actually fires. GitLab tag pushes arrive
+    # as a separate "Tag Push Hook" that CodeBuild's GitLab integration does not
+    # trigger on, and GitLab Release events are rejected by CodeBuild for
+    # lacking a sender account ID ("Missing sender account ID"). So on GitLab
+    # both "tag" and "release" are no-ops (the webhook never fires) — use
+    # "branch" and protect the branch (MR + approval) to gate deploys.
     trigger_type = optional(string, "branch")
     # Tag-name pattern for "tag" runners only (matched after refs/tags/; do NOT
     # add your own ^ or $). Empty = ANY tag.
