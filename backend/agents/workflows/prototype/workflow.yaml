@@ -1,8 +1,8 @@
 # prototype — the SC-001 parity manifest (Spec-Kit Approach 2+3).
-# 4 agents: specify -> plan -> build -> validate. The build step is the only one
+# 5 agents: specify -> plan -> analyze -> build -> validate. The build step is the only one
 # that uses strategy: task_loop (per-task sub-agent build loop) with a
 # heading_tasks task parser, html_static + html_render validators, and the
-# html_skeleton compaction. specify/plan declare gates: [human] (their AGENT.md
+# html_skeleton compaction. specify/plan/analyze declare gates: [human] (their AGENT.md
 # gate: Human_Gate). deliverable: single_file (prototype.html).
 # planner: run — SKIP_PLANNER_FOR_PROTOTYPE=False today (agents/prototype/
 # pipeline.py:63), so prototype runs the planner like every other pipeline (NOT
@@ -37,6 +37,9 @@ steps:
     strategy: single_shot
     gates: [human]
   - agent: prototype-plan
+    strategy: single_shot
+    gates: [human]
+  - agent: prototype-analyze
     strategy: single_shot
     gates: [human]
   - agent: prototype-build

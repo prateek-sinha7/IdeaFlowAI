@@ -591,7 +591,7 @@ export function AgentThinkingTab({ agents, pipelineState }: AgentThinkingTabProp
 
   // ── Spec Kit prototype pipeline: use rich visualization ──────────────────
   const isPrototypePipeline = agents.some(a =>
-    ["prototype-specify", "prototype-plan", "prototype-build", "prototype-validate"].includes(a.id)
+    ["prototype-specify", "prototype-plan", "prototype-analyze", "prototype-build", "prototype-validate"].includes(a.id)
   );
   if (isPrototypePipeline) {
     return <PrototypePipelineView agents={agents} pipelineState={pipelineState} />;

@@ -1143,3 +1143,44 @@ Three bugs found through deep end-to-end investigation:
 - The "detach on disconnect" approach means pipeline tasks run headlessly when no client is connected. Events accumulate in the per-run queue (bounded by the asyncio.Queue default). For very long-running pipelines (2-6 hours) the queue could grow large; the durable `run_events` replay path is the safety net here.
 - The `waiting_for_user` fix is a breaking change for users who had a clarify gate open when the backend restarted — their run is now failed rather than resumed. This is the correct behaviour since the alternative (stuck forever) is worse. A proper fix would require serialising and replaying the ClarifyEngine state, which is a Phase 17+ enhancement.
 - Resume from another place (closing browser on machine A, opening on machine B): works correctly if the pipeline is still running (live attach) or has already completed (durable replay). The sessionStorage `active_pipeline_run_id` mechanism only helps if the SAME browser/tab re-opens. Cross-device resume is achieved entirely through `reconnect_pipeline` + `after_seq` from any new connection that knows the `pipeline_run_id`.
+
+---
+
+### FIX-026 — KAN-86: Add Spec Kit Analyze Step to Prototype Workflow
+
+**Date:** 2026-07-01
+**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-86`
+
+#### Root Cause
+KAN-86 requires a new Spec Kit-style analyze step inserted between `prototype-plan` and `prototype-build`. This step was missing entirely — no AGENT.md, no workflow step, no frontend rendering.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 4 (manifests/SC-001), Phase 8 (capabilities/AGENT.md), Phase 16 (ReviewGatePanel)
+- **Relevant register section:** SC-001 — new workflow step = manifest + AGENT.md only, zero engine edits
+- **Deleted code verified (not resurrected):** No deleted code involved
+- **Locked decisions respected:** SC-001 — ONLY manifest + AGENT.md changed. Human Gate (WR-02 dedupe, REDO-GATE) unchanged.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `backend/agents/prompts/prototype-analyze/AGENT.md` | NEW — Spec Kit Analyzer agent with `gate: Human_Gate`, reads spec+plan output, produces structured 11-category analysis report with findings table, risk register, suggested next actions, and readiness verdict | KAN-86 requires the analyze step to run after plan/tasks are created |
+| `backend/agents/workflows/prototype/workflow.yaml` | Added `prototype-analyze` step between `prototype-plan` and `prototype-build`, `strategy: single_shot`, `gates: [human]` | Inserts the analyze gate at the right position in the pipeline |
+| `frontend/src/components/preview/ReviewGatePanel.tsx` | Added `AnalysisPreview` component that parses `<analysis>` XML and renders structured sections with a verdict banner (READY/CAUTION/REVISION); wired `isAnalysis = agentId === "prototype-analyze"` | Shows the analysis report in a scannable structured format; correct panel label and description for the analyze step |
+| `frontend/src/components/results/PrototypePipelineView.tsx` | Added `analyzeAgent` find, `analyzeStatus`, included in progress bar (5 phases), added Phase 3 card for "Spec Kit Analyzer", bumped Validation to Phase 5 | Thinking tab shows the analyze phase correctly in the pipeline visual |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — manifest-driven, zero engine edits
+- **INV-3** (golden parity): not affected — new agent, doesn't change existing test runs
+- **INV-12** (no duplication): reuses existing HumanGate capability entirely
+- **SC-001** (zero engine edits for new workflows): verified — ONLY manifest + AGENT.md + frontend display changes
+
+#### Verification
+- `load_agent_spec('agents/prompts/prototype-analyze')` → `id: prototype-analyze gate: Human_Gate` ✅
+- Frontend diagnostics: no errors on ReviewGatePanel.tsx or PrototypePipelineView.tsx ✅
+- Backend restarts cleanly
+
+#### Notes
+- The inline Human Gate fires post-agent (with real output) because `gate: Human_Gate` in AGENT.md → `_should_gate()` returns True → WR-02 dedupe skips the declared `gates:[human]` pre-step gate → inline gate wins with real analysis report content.
+- The REDO-GATE `redoable=True` is set automatically by the inline call site — users can redo the analysis step with additional instructions for free.
+- The `consumes: [prototype-specify, prototype-plan]` in the AGENT.md means the analyze agent gets both the spec output AND the task list in its context, enabling true cross-artifact analysis.
+- On reject at the analyze step → `_gate_rejected` → engine transitions to `cancelled` → `pipeline_cancelled` emitted → build never runs. Exactly as KAN-86 specifies.

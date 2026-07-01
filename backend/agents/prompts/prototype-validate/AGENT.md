@@ -13,7 +13,7 @@ injects:
 - design_system
 max_tokens: 32768
 name: Validation Agent
-order: 4
+order: 5
 pipeline_type: prototype
 produces:
 - prototype-validate

@@ -14,7 +14,7 @@ injects:
 - craft
 max_tokens: 32768
 name: Build Agent
-order: 3
+order: 4
 pipeline_type: prototype
 produces:
 - prototype-build
