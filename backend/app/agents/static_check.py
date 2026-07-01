@@ -51,6 +51,8 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 
+from app.agents.route_table import parse_routes_table, resolve_route
+
 logger = logging.getLogger("app.agents.static_check")
 
 # A name we'd accept as a JS identifier (handler / route id / function name).
@@ -510,88 +512,145 @@ def static_check(html: str | Path) -> StaticCheckResult:
     # filters to fragment routes only.
     candidate_hrefs = nav_hrefs if nav_hrefs else parser.all_anchor_hrefs
     route_hrefs = _iter_route_hrefs(candidate_hrefs)
-
-    linked_ids: set[str] = set()
-    for href in route_hrefs:
-        target = _href_target_id(href)
-        if not target:
-            continue
-        linked_ids.add(target)
-        if target not in section_ids:
-            issues.append(
-                f"dead nav link: href '{href}' has no matching "
-                f'<section data-page="{target}">'
-            )
-
-    # --- dynamic-nav (onclick location.hash / navigateTo) targets ------------ #
-    # The SPA prototype family navigates via click handlers + parameterized detail
-    # routes, not just ``<a href>`` — so a dynamic-nav target with NO matching
-    # section is a DEAD LINK error (worded like the <a href> dead-link but naming the
-    # dynamic source). Every dynamic target is ALSO folded into ``linked_ids`` BEFORE
-    # the orphan pass so a section reachable ONLY via dynamic nav is not a false orphan.
+    # Dynamic-nav (onclick location.hash / navigateTo) fragment routes.
     dynamic_routes = _extract_dynamic_nav_routes(parser.inline_handlers, script_text)
-    for route in dynamic_routes:
-        target = _href_target_id(route)
-        if not target:
-            continue
-        linked_ids.add(target)
-        if target not in section_ids:
-            issues.append(
-                f"dead nav link: onclick/navigateTo route '{route}' has no matching "
-                f'<section data-page="{target}">'
-            )
 
-    # orphan sections — defined but no nav entry (advisory warning, not a failure)
-    for sid in sorted(section_ids - linked_ids):
-        warnings.append(
-            f'orphan section: <section data-page="{sid}"> has no nav link (#/{sid})'
-        )
+    # quick-260701-go2 (round 3): if the app declares a RESOLVABLE route table
+    # (B's array or A's page-id object — NOT an href-valued template map), judge each
+    # nav route by the page it RESOLVES to through that table (exact/alias/:id). This
+    # supersedes both the legacy first-segment dead-link loop AND the
+    # ``_extract_routes_map`` completeness/router-dead block (INV-12 supersession, not a
+    # fork) — closing the alias/parametric false-positive. When no resolvable table is
+    # parsed (table-less prototypes, the trimmed fixture's inline router, href-valued
+    # object maps) the ENTIRE legacy path runs verbatim (INV-3 byte-identical).
+    table = parse_routes_table(script_text)
+    route_ids: list[str] = []
 
-    # --- routes map complete (if a routes object is present) ------------------ #
-    routes_map, route_key_order = _extract_routes_map(script_text)
-    route_ids = list(route_key_order)
-    if routes_map is not None:
-        route_keys = set(routes_map)
-        # every section id should be a key
-        for sid in sorted(section_ids - route_keys):
-            issues.append(
-                f"routes map missing page id '{sid}' "
-                f'(section <section data-page="{sid}"> has no routes entry)'
-            )
-        # every routes key should map to a real section
-        for key in sorted(route_keys - section_ids):
-            issues.append(
-                f"routes map has extra id '{key}' with no matching "
-                f'<section data-page="{key}">'
-            )
-
-        # --- routes-map RESOLUTION cross-check (router-dead nav links) --------- #
-        # A browserless catch (quick-260701-erg / STATIC-ROUTER-DEAD): a nav route
-        # whose target HAS a ``<section data-page="X">`` but whose X is NOT a routes-map
-        # key is a ROUTER-DEAD link — the section exists in the DOM, yet the hash router
-        # (which dispatches through the map) has no entry for it, so navigation never
-        # reaches it. CONSERVATIVE: only inside this ``routes_map is not None`` guard
-        # (map-less prototypes route differently — no false positives). A target with NO
-        # section stays the plain "dead nav link" above (never double-reported). Deduped
-        # per target so each router-dead target is reported once. This narrows render-
-        # reliance for static-only routes but does NOT retire render (map-VALUE→section
-        # mismatches + matchRoute-logic bugs still need the browser).
-        nav_route_targets: list[str] = []
-        for href in route_hrefs:
-            nav_route_targets.append(_href_target_id(href))
-        for route in dynamic_routes:
-            nav_route_targets.append(_href_target_id(route))
+    if table is not None:
+        route_ids = [pattern for pattern, _page in table]
+        all_routes = list(route_hrefs) + list(dynamic_routes)
+        reachable_pages: set[str] = set()
+        seen_dead_pages: set[str] = set()
         seen_router_dead: set[str] = set()
-        for target in nav_route_targets:
-            if not target or target in seen_router_dead:
+        seen_dead_targets: set[str] = set()
+        for r in all_routes:
+            page = resolve_route(table, r)
+            if page is not None and page in section_ids:
+                # Reachable via the table (incl. parametric/alias) — never an orphan.
+                reachable_pages.add(page)
+            elif page is not None:
+                # The table maps the route to a page with no matching section.
+                if page not in seen_dead_pages:
+                    seen_dead_pages.add(page)
+                    issues.append(
+                        f"dead nav link: route '{r}' resolves to page '{page}' "
+                        f'which has no matching <section data-page="{page}">'
+                    )
+            else:
+                # No table entry reaches the route (would hit the app fallback).
+                target = _href_target_id(r)
+                if not target:
+                    continue
+                if target in section_ids:
+                    if target not in seen_router_dead:
+                        seen_router_dead.add(target)
+                        issues.append(
+                            f"router-dead nav link: nav route target '{target}' has a "
+                            f'<section data-page="{target}"> but no routes-map entry — '
+                            f"the hash router will not reach it"
+                        )
+                elif target not in seen_dead_targets:
+                    seen_dead_targets.add(target)
+                    issues.append(
+                        f"dead nav link: route '{r}' has no matching "
+                        f'<section data-page="{target}">'
+                    )
+        # orphan sections — not reached by any resolved route (advisory warning).
+        for sid in sorted(section_ids - reachable_pages):
+            warnings.append(
+                f'orphan section: <section data-page="{sid}"> has no nav link (#/{sid})'
+            )
+    else:
+        linked_ids: set[str] = set()
+        for href in route_hrefs:
+            target = _href_target_id(href)
+            if not target:
                 continue
-            if target in section_ids and target not in route_keys:
-                seen_router_dead.add(target)
+            linked_ids.add(target)
+            if target not in section_ids:
                 issues.append(
-                    f"router-dead nav link: nav route target '{target}' has a "
-                    f'<section data-page="{target}"> but no routes-map entry — '
-                    f"the hash router will not reach it"
+                    f"dead nav link: href '{href}' has no matching "
+                    f'<section data-page="{target}">'
                 )
+
+        # --- dynamic-nav (onclick location.hash / navigateTo) targets -------- #
+        # The SPA prototype family navigates via click handlers + parameterized detail
+        # routes, not just ``<a href>`` — so a dynamic-nav target with NO matching
+        # section is a DEAD LINK error (worded like the <a href> dead-link but naming
+        # the dynamic source). Every dynamic target is ALSO folded into ``linked_ids``
+        # BEFORE the orphan pass so a section reachable ONLY via dynamic nav is not a
+        # false orphan.
+        for route in dynamic_routes:
+            target = _href_target_id(route)
+            if not target:
+                continue
+            linked_ids.add(target)
+            if target not in section_ids:
+                issues.append(
+                    f"dead nav link: onclick/navigateTo route '{route}' has no matching "
+                    f'<section data-page="{target}">'
+                )
+
+        # orphan sections — defined but no nav entry (advisory warning, not a failure)
+        for sid in sorted(section_ids - linked_ids):
+            warnings.append(
+                f'orphan section: <section data-page="{sid}"> has no nav link (#/{sid})'
+            )
+
+        # --- routes map complete (if a routes object is present) -------------- #
+        routes_map, route_key_order = _extract_routes_map(script_text)
+        route_ids = list(route_key_order)
+        if routes_map is not None:
+            route_keys = set(routes_map)
+            # every section id should be a key
+            for sid in sorted(section_ids - route_keys):
+                issues.append(
+                    f"routes map missing page id '{sid}' "
+                    f'(section <section data-page="{sid}"> has no routes entry)'
+                )
+            # every routes key should map to a real section
+            for key in sorted(route_keys - section_ids):
+                issues.append(
+                    f"routes map has extra id '{key}' with no matching "
+                    f'<section data-page="{key}">'
+                )
+
+            # --- routes-map RESOLUTION cross-check (router-dead nav links) ---- #
+            # A browserless catch (quick-260701-erg / STATIC-ROUTER-DEAD): a nav route
+            # whose target HAS a ``<section data-page="X">`` but whose X is NOT a
+            # routes-map key is a ROUTER-DEAD link — the section exists in the DOM, yet
+            # the hash router (which dispatches through the map) has no entry for it, so
+            # navigation never reaches it. CONSERVATIVE: only inside this
+            # ``routes_map is not None`` guard (map-less prototypes route differently —
+            # no false positives). A target with NO section stays the plain "dead nav
+            # link" above (never double-reported). Deduped per target so each
+            # router-dead target is reported once.
+            nav_route_targets: list[str] = []
+            for href in route_hrefs:
+                nav_route_targets.append(_href_target_id(href))
+            for route in dynamic_routes:
+                nav_route_targets.append(_href_target_id(route))
+            seen_router_dead_legacy: set[str] = set()
+            for target in nav_route_targets:
+                if not target or target in seen_router_dead_legacy:
+                    continue
+                if target in section_ids and target not in route_keys:
+                    seen_router_dead_legacy.add(target)
+                    issues.append(
+                        f"router-dead nav link: nav route target '{target}' has a "
+                        f'<section data-page="{target}"> but no routes-map entry — '
+                        f"the hash router will not reach it"
+                    )
 
     # --- handlers defined ---------------------------------------------------- #
     defined = _extract_defined_names(script_text)

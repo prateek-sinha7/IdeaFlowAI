@@ -24,6 +24,12 @@ from pathlib import Path
 # ONE definition (no second copy) so both validators agree on the target id.
 from app.agents.static_check import _href_target_id
 
+# quick-260701-go2 (round 3): the shared route resolver. When the prototype declares a
+# resolvable route table, each exercised route's EXPECTED section is the page it
+# RESOLVES to (exact/alias/:id) rather than its naive first-path-segment — closing the
+# alias/parametric false-positive. Falls back to _first_path_segment when None.
+from app.agents.route_table import parse_routes_table, resolve_route
+
 logger = logging.getLogger("app.agents.render_check")
 
 
@@ -177,8 +183,16 @@ async def render_check(
             page.on("pageerror", lambda e: page_errors.append(str(e)))
             await page.goto(path.as_uri(), wait_until="networkidle", timeout=timeout_ms)
             if check_nav:
+                # Parse the app's route table ONCE (from the file source) so each
+                # exercised route's expected section can be resolved through it. A
+                # table-less / href-valued-object prototype parses to None → the
+                # per-route expected falls back to _first_path_segment (INV-3).
+                try:
+                    table = parse_routes_table(path.read_text(encoding="utf-8"))
+                except OSError:
+                    table = None
                 nav_results, discovered = await _check_nav(
-                    page, nav_settle_ms=nav_settle_ms
+                    page, table=table, nav_settle_ms=nav_settle_ms
                 )
                 # Nav COVERAGE: a multi-section SPA that exercised ZERO nav targets
                 # is the fail-open blind spot (the old ``nav_results=0`` silent OK).
@@ -215,7 +229,12 @@ async def render_check(
     )
 
 
-async def _check_nav(page, *, nav_settle_ms: int = _NAV_SETTLE_MS) -> tuple[list[NavResult], int]:
+async def _check_nav(
+    page,
+    *,
+    table: list[tuple[str, str]] | None = None,
+    nav_settle_ms: int = _NAV_SETTLE_MS,
+) -> tuple[list[NavResult], int]:
     """Exercise discoverable nav targets and return ``(nav_results, discovered_count)``.
 
     Nav discovery is broadened beyond the old ``.nav-item[href]`` heuristic (which
@@ -315,7 +334,14 @@ async def _check_nav(page, *, nav_settle_ms: int = _NAV_SETTLE_MS) -> tuple[list
             discovered += 1
             exercise.append((route, from_anchor, target))
 
-    for route, from_anchor, expected in exercise:
+    for route, from_anchor, fallback_expected in exercise:
+        # Discovery/classification above stays first-path-segment (unchanged dedup +
+        # coverage denominator). ONLY the EXPECTED section changes: when a resolvable
+        # route table is present, expect the page the route RESOLVES to (exact/alias/
+        # :id); otherwise fall back to the first-path-segment (INV-3, round-2 behavior).
+        expected = resolve_route(table, route) if table is not None else None
+        if expected is None:
+            expected = fallback_expected
         activated = await _exercise_route(
             page, route, from_anchor, settle_ms=nav_settle_ms
         )
