@@ -239,13 +239,34 @@ phases:
         aws s3 cp "s3://${BUCKET}/config/docker-compose.yml" /opt/velocityai/docker-compose.yml
         aws s3 cp "s3://${BUCKET}/config/deploy.env" /etc/velocityai/deploy.env
         cd /opt/velocityai
+        # deploy.env (written by the app layer) is the AUTHORITATIVE source of the
+        # image tag for this deploy. Export its BACKEND_IMAGE/FRONTEND_IMAGE so
+        # docker compose interpolates the just-built tag for this `up -d`.
         set -a
         . /etc/velocityai/deploy.env
-        if [ -f /etc/velocityai/app.env ]; then . /etc/velocityai/app.env; fi
         set +a
+        : "${BACKEND_IMAGE:?deploy.env missing BACKEND_IMAGE}"
+        : "${FRONTEND_IMAGE:?deploy.env missing FRONTEND_IMAGE}"
+        # Reconcile the just-deployed image pins into /etc/velocityai/app.env so a
+        # LATER systemd restart also runs this tag: velocityai-app.service reads
+        # app.env (NOT deploy.env), and velocityai-load-secrets PRESERVES these
+        # pin lines across restarts. Previously app.env was sourced AFTER
+        # deploy.env here, so a stale BACKEND_IMAGE/FRONTEND_IMAGE pin in app.env
+        # shadowed the fresh tag and `docker compose up -d` never recreated to the
+        # new image. Rewrite only the two pin lines; every other (SSM-sourced)
+        # line is preserved verbatim.
+        touch /etc/velocityai/app.env
+        grep -vE '^(BACKEND_IMAGE|FRONTEND_IMAGE)=' /etc/velocityai/app.env > /etc/velocityai/app.env.new || true
+        {
+          echo "BACKEND_IMAGE=${BACKEND_IMAGE}"
+          echo "FRONTEND_IMAGE=${FRONTEND_IMAGE}"
+        } >> /etc/velocityai/app.env.new
+        chmod 0640 /etc/velocityai/app.env.new
+        chown root:velocityai /etc/velocityai/app.env.new 2>/dev/null || true
+        mv /etc/velocityai/app.env.new /etc/velocityai/app.env
         aws ecr get-login-password --region "${REGION}" | docker login --username AWS --password-stdin "${REGISTRY}"
         docker compose pull
-        docker compose up -d
+        docker compose up -d --remove-orphans
         docker compose ps
         for i in $(seq 1 30); do
           if curl -fsS http://localhost:8000/health >/dev/null 2>&1; then echo "backend healthy"; exit 0; fi

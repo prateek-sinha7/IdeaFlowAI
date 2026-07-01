@@ -150,11 +150,15 @@ services:
       # Same loopback-only rationale as backend above.
       - "127.0.0.1:3000:3000"
     healthcheck:
-      # The frontend Dockerfile uses busybox wget; we mirror that here.
-      # 127.0.0.1 (NOT localhost): busybox wget resolves localhost to ::1, but
-      # Next.js standalone binds 0.0.0.0 (IPv4 only), so a localhost spider
-      # silently times out and the healthcheck stays "starting" forever.
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/"]
+      # The runtime image is node:20-bookworm-slim, which ships NEITHER wget nor
+      # curl, so an earlier `wget --spider` probe always failed ("wget: not
+      # found") and pinned the container to `unhealthy`. Use Node's built-in http
+      # client instead (identical to the Dockerfile HEALTHCHECK). Next.js
+      # redirects `/` to a default route (307), which is a healthy signal, so any
+      # status < 400 counts as success. 127.0.0.1 (NOT localhost): the standalone
+      # server binds 0.0.0.0 (IPv4 only) and Debian resolves localhost to ::1
+      # first, so a v6 probe would time out and stay "starting" forever.
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/', r => process.exit(r.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 30s
       timeout: 5s
       start_period: 15s
