@@ -26,6 +26,17 @@ module "account_guard" {
 module "compute" {
   source = "../modules/compute"
 
+  # The instance self-provisions on first boot via velocityai-firstboot.service
+  # (see modules/compute/user_data.sh.tpl), which pulls these config objects
+  # from S3. They must therefore exist BEFORE the instance boots — otherwise a
+  # fresh instance races its own bootstrap against the upload. No cycle: these
+  # objects only reference foundation outputs + local files, never compute.
+  depends_on = [
+    aws_s3_object.compose_yaml,
+    aws_s3_object.deploy_env,
+    aws_s3_object.bootstrap_script,
+  ]
+
   name_prefix               = local.name_prefix
   environment               = var.environment
   region                    = module.account_guard.region
@@ -55,6 +66,30 @@ module "compute" {
     VELOCITYAI_ECR_REGISTRY  = local.registry
     VELOCITYAI_GIT_REF       = var.git_ref
     VELOCITYAI_ACME_EMAIL    = var.alert_email
+  }
+}
+
+# --- On-host bootstrap script hosted in S3 ---------------------------------
+# The first-boot systemd unit (velocityai-firstboot.service, written by the
+# compute module's user_data) downloads this and runs the full host install
+# (Postgres, nginx, Docker, certbot, systemd units, app start). Uploading it
+# here — instead of relying on an operator to run it via SSM — is what makes a
+# freshly-created instance self-provision. `source_hash` re-uploads whenever
+# the local script changes so hosts always fetch the current version.
+resource "aws_s3_object" "bootstrap_script" {
+  bucket = local.fnd.backup_bucket_name
+  key    = "config/bootstrap-ec2.sh"
+
+  source      = "${path.root}/../../scripts/bootstrap-ec2.sh"
+  source_hash = filemd5("${path.root}/../../scripts/bootstrap-ec2.sh")
+
+  content_type           = "text/x-shellscript"
+  server_side_encryption = "aws:kms"
+  kms_key_id             = local.fnd.kms_key_arn
+
+  tags = {
+    Name      = "${local.name_prefix}-bootstrap-script"
+    Component = "compute"
   }
 }
 

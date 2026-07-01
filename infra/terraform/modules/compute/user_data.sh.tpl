@@ -61,4 +61,61 @@ chmod 0644 /etc/velocityai/bootstrap.env
 echo "${k}=${v}" >> /etc/velocityai/bootstrap.env
 %{ endfor ~}
 
-echo "[user-data] minimal bootstrap complete; awaiting SSM RunCommand for full install"
+# --- First-boot full host bootstrap (async, self-provisioning) -------------
+# We do NOT run infra/scripts/bootstrap-ec2.sh inline here: that script waits
+# on `cloud-init status --wait`, and this user-data IS cloud-init's final
+# stage — calling it synchronously would deadlock (the wait can never finish
+# because it's waiting for the script that's calling it). Instead we install a
+# systemd oneshot unit and start it with `--no-block` so it runs INDEPENDENTLY
+# of cloud-init. Once user-data returns, cloud-init reports done and the
+# script's internal wait unblocks. The unit is guarded by a sentinel so it
+# runs exactly once per instance; bootstrap-ec2.sh writes that sentinel on
+# successful completion.
+install -d -m 0755 /opt/velocityai
+
+cat >/opt/velocityai/run-firstboot-bootstrap.sh <<'WRAP'
+#!/usr/bin/env bash
+set -euo pipefail
+exec > >(tee -a /var/log/velocityai-firstboot.log) 2>&1
+echo "[firstboot] $(date -u +%FT%TZ) fetching bootstrap-ec2.sh from S3"
+# shellcheck source=/dev/null
+. /etc/velocityai/bootstrap.env
+: "$${VELOCITYAI_BACKUP_BUCKET:?VELOCITYAI_BACKUP_BUCKET missing}"
+REGION="$${VELOCITYAI_REGION:-eu-central-1}"
+for i in $(seq 1 30); do
+  if aws s3 cp "s3://$${VELOCITYAI_BACKUP_BUCKET}/config/bootstrap-ec2.sh" \
+       /opt/velocityai/bootstrap-ec2.sh --region "$${REGION}"; then
+    break
+  fi
+  echo "[firstboot] bootstrap-ec2.sh not available yet (attempt $i) — retrying"
+  sleep 10
+done
+chmod 0755 /opt/velocityai/bootstrap-ec2.sh
+echo "[firstboot] running bootstrap-ec2.sh"
+bash /opt/velocityai/bootstrap-ec2.sh
+WRAP
+chmod 0755 /opt/velocityai/run-firstboot-bootstrap.sh
+
+cat >/etc/systemd/system/velocityai-firstboot.service <<'UNIT'
+[Unit]
+Description=VelocityAI first-boot full host bootstrap (Postgres, nginx, Docker, app)
+After=cloud-init.target network-online.target
+Wants=network-online.target
+ConditionPathExists=!/var/lib/velocityai/.bootstrap-done
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=1800
+ExecStart=/opt/velocityai/run-firstboot-bootstrap.sh
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable velocityai-firstboot.service
+# --no-block: start it now but do NOT wait (avoids the cloud-init deadlock).
+systemctl start --no-block velocityai-firstboot.service
+
+echo "[user-data] minimal bootstrap complete; velocityai-firstboot.service started (async full install)"

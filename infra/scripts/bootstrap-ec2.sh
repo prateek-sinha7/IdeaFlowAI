@@ -1261,4 +1261,15 @@ if ! curl -fsS http://127.0.0.1:8000/health; then
     echo "[bootstrap]       check: sudo systemctl status velocityai-app.service"
     echo "[bootstrap]       check: sudo docker compose -f /opt/velocityai/docker-compose.yml logs --tail=200"
 fi
+# ── 20. Completion sentinel ────────────────────────────────────────────
+# Signals that the full host bootstrap finished. Consumed by:
+#   - velocityai-firstboot.service (its ConditionPathExists guard, so the
+#     first-boot self-provision runs exactly once per instance);
+#   - the CI redeploy in infra/buildspec.yml, which — on a freshly-created
+#     instance that is still self-provisioning — waits for this file before
+#     attempting a container redeploy (avoids racing docker compose against
+#     an install that hasn't put Docker on the box yet).
+install -d -m 0755 /var/lib/velocityai
+date -u --iso-8601=seconds > /var/lib/velocityai/.bootstrap-done
+
 echo "[bootstrap] complete $(date -u --iso-8601=seconds)"

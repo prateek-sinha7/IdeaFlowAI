@@ -216,6 +216,21 @@ phases:
           echo "REGION=${AWS_REGION}"
           cat <<'SCRIPT'
         set -euo pipefail
+        # On a freshly-created instance the host provisioning (Docker, Postgres,
+        # nginx, app start) runs asynchronously from user-data
+        # (velocityai-firstboot.service). If Docker isn't on the box yet, wait
+        # for that first-boot bootstrap to finish (it writes the sentinel below)
+        # before attempting a container redeploy. On an already-provisioned host
+        # Docker is present, so this loop is skipped and steady-state deploys
+        # are unaffected.
+        if ! command -v docker >/dev/null 2>&1; then
+          echo "docker not present — waiting for velocityai-firstboot bootstrap to finish"
+          for i in $(seq 1 90); do
+            if [ -f /var/lib/velocityai/.bootstrap-done ]; then echo "first-boot bootstrap complete"; break; fi
+            if [ "$i" = "90" ]; then echo "timed out waiting for first-boot bootstrap"; exit 1; fi
+            sleep 10
+          done
+        fi
         install -d -m 0750 /opt/velocityai /etc/velocityai
         aws s3 cp "s3://${BUCKET}/config/docker-compose.yml" /opt/velocityai/docker-compose.yml
         aws s3 cp "s3://${BUCKET}/config/deploy.env" /etc/velocityai/deploy.env

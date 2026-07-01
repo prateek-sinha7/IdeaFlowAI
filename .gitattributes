@@ -1,0 +1,17 @@
+# Normalize line endings so files that execute on Linux hosts never carry
+# Windows CRLF, regardless of the OS a contributor checks out on.
+#
+# Why this matters here: infra/scripts/bootstrap-ec2.sh and the rendered
+# user-data template are shipped to (and executed on) Ubuntu EC2 hosts. A
+# CRLF checkout makes bash fail with `$'\r': command not found`. Forcing LF
+# on shell + shell-template files keeps the on-host execution correct even
+# when the repo is cloned on Windows.
+
+# Shell scripts and shell templates -> always LF
+*.sh      text eol=lf
+*.bash    text eol=lf
+*.sh.tpl  text eol=lf
+
+# Terraform sources -> LF (harmless, keeps diffs clean across OSes)
+*.tf      text eol=lf
+*.tfvars  text eol=lf
