@@ -55,6 +55,15 @@ _FULL_FIXTURE = (
 _FIXED_FIXTURE = (
     Path(__file__).parent / "fixtures" / "imc-inventory-certificate-management-fixed.html"
 ).resolve()
+# BLANK-NAV — the round-4 must-fail regression fixture (null-honesty guard). A small
+# multi-section hash-router SPA whose router pins ``is-active`` on the nav ``<a
+# data-page>`` and NEVER on a ``<section>`` — so after any route NO section is active.
+# render_check must report every route dead with ``activated is None`` (a blank page),
+# never coerced to the nav anchor's data-page name. This is the guard that would have
+# caught A's coercion bug today. Committed additively.
+_BLANK_FIXTURE = (
+    Path(__file__).parent / "fixtures" / "blank-nav.html"
+).resolve()
 
 # ── FINAL measured counts on the full fixture (A). MEASURED under the round-3
 # route-table-aware validators (quick-260701-go2) — these SUPERSEDE the round-2 pins
@@ -64,9 +73,11 @@ _FIXED_FIXTURE = (
 # EXACT integers — a drift here is a real behavioral regression. ──
 _FULL_STATIC_DEAD_LINKS = 5    # round-3: deduped unreachable targets — was 11 (round-2)
 _FULL_STATIC_ROUTER_DEAD = 0   # router-dead: A's routes resolve, none section-less-in-map
-_FULL_RENDER_SIDEBAR_DEAD = 16  # NavResults ok=False (router targets nav links, not
-#                                 sections → sections never activate — a real defect)
-_FULL_RENDER_NAV_TOTAL = 17     # total NavResults exercised (only dashboard is ok)
+_FULL_RENDER_SIDEBAR_DEAD = 17  # round-4: ALL 17 dead — #/dashboard no longer coerced to
+#                                 a nav-link name (the router pins is-active on the nav
+#                                 <a data-page>, not the <section>; null-honesty reads
+#                                 that blank page as None → dead, was 16 in round-3)
+_FULL_RENDER_NAV_TOTAL = 17     # total NavResults exercised (all 17 now dead)
 # Overlap between the static dead/router-dead TARGETS and the render dead TARGETS
 # (first-path-segment). Measured value — asserted EXACTLY (not "disjoint").
 _FULL_STATIC_RENDER_OVERLAP = 2  # {'certificates', 'inventory'} (round-3 measured)
@@ -736,3 +747,40 @@ def test_scenario13_A_fails_via_render(tmp_path):
     assert rr.available is True
     assert rr.ok is False
     assert len([n for n in rr.nav_results if not n.ok]) >= 1, rr.nav_results
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Scenario 14 — quick-260701-hqa (round 4): blank-page null-honesty regression
+# ════════════════════════════════════════════════════════════════════════════
+#
+# The must-fail guard: a SPA whose router pins ``is-active`` on the nav ``<a
+# data-page>`` and NEVER on a ``<section>``. An honest render read must return null
+# (no section active → blank page) for EVERY route — never coerce a blank page to
+# the nav anchor's data-page name. This is the guard that would have caught A's
+# coercion bug (where #/dashboard spuriously passed via a coerced 'dashboard').
+
+
+def test_scenario14_blank_nav_fixture_is_committed():
+    """The blank-nav (round-4) must-fail fixture is committed alongside the others."""
+    assert _BLANK_FIXTURE.is_file(), f"blank-nav fixture missing: {_BLANK_FIXTURE}"
+
+
+def test_scenario14_blank_nav_every_route_activates_nothing(tmp_path):
+    """blank-nav: available=True, ok=False, and EVERY NavResult.activated is None —
+    INCLUDING #/dashboard (proving no coercion to a nav-link name) — browser-gated."""
+    if not _render_available(tmp_path):
+        pytest.skip("Chromium/Playwright unavailable — browser-gated")
+    rr = asyncio.run(render_check(_BLANK_FIXTURE))
+    assert rr.available is True
+    assert rr.ok is False, (rr.nav_results, rr.coverage_errors)
+    assert rr.nav_results, "expected the blank-nav routes to be discovered/exercised"
+    # EVERY route activated NOTHING — a blank page, never coerced to a name.
+    assert all(n.activated is None for n in rr.nav_results), [
+        (n.href, n.activated) for n in rr.nav_results
+    ]
+    assert all(n.ok is False for n in rr.nav_results), rr.nav_results
+    # The dashboard route specifically must be dead with activated None (this is the
+    # exact route A coerced to 'dashboard' → a spurious pass; here it stays honest).
+    dash = [n for n in rr.nav_results if n.href == "#/dashboard"]
+    assert dash, [n.href for n in rr.nav_results]
+    assert dash[0].activated is None and dash[0].ok is False, dash
