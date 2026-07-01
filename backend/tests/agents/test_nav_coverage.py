@@ -403,3 +403,142 @@ def test_scenario8_render_zero_new_issues_on_goldens(name, tmp_path):
     assert rr.ok is True, (rr.nav_results, rr.coverage_errors, rr.console_errors, rr.page_errors)
     assert not rr.coverage_errors
     assert not [n for n in rr.nav_results if not n.ok]
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Scenario 9 — ITEM 4: static_check router-dead cross-check (offline, guarded)
+# ════════════════════════════════════════════════════════════════════════════
+
+# A minimal SPA that HAS a routes map (dashboard only) + a <section data-page="reports">
+# reachable by a nav route but with NO routes-map entry → a router-dead nav link.
+_ROUTER_DEAD_HTML = (
+    "<!doctype html><html><body>"
+    "<a class='nav-item' href='#/dashboard'>D</a>"
+    "<a class='nav-item' href='#/reports'>R</a>"
+    "<section data-page='dashboard' class='is-active'>D</section>"
+    "<section data-page='reports'>R</section>"
+    "<script>const routes = { dashboard: '#/dashboard' };"
+    "function go(){ location.hash = '#/dashboard'; }</script>"
+    "</body></html>"
+)
+
+# The SAME markup with NO ``const routes={}`` map — the guard must skip the whole
+# routes-map block, so NO router-dead (nor routes-map-missing) issue is emitted.
+_ROUTER_DEAD_HTML_NO_MAP = (
+    "<!doctype html><html><body>"
+    "<a class='nav-item' href='#/dashboard'>D</a>"
+    "<a class='nav-item' href='#/reports'>R</a>"
+    "<section data-page='dashboard' class='is-active'>D</section>"
+    "<section data-page='reports'>R</section>"
+    "<script>function go(){ location.hash = '#/dashboard'; }</script>"
+    "</body></html>"
+)
+
+
+def test_scenario9_router_dead_emitted_when_map_present():
+    """A nav route target with a section but NO routes-map entry → router-dead issue."""
+    r = static_check(_ROUTER_DEAD_HTML)
+    router_dead = [i for i in r.issues if "router-dead nav link" in i]
+    assert len(router_dead) == 1, r.issues
+    assert "reports" in router_dead[0]
+    # 'reports' HAS a section → it is NOT reported as a plain dead nav link.
+    assert not any("dead nav link" in i and "router-dead" not in i and "reports" in i
+                   for i in r.issues), r.issues
+
+
+def test_scenario9_router_dead_deduped_per_target():
+    """Multiple nav routes to the same map-less section → ONE router-dead issue."""
+    html = (
+        "<!doctype html><html><body>"
+        "<a class='nav-item' href='#/reports'>R</a>"
+        "<button onclick=\"location.hash='#/reports/2024'\">R2</button>"
+        "<section data-page='dashboard' class='is-active'>D</section>"
+        "<section data-page='reports'>R</section>"
+        "<script>const routes = { dashboard: '#/dashboard' };</script>"
+        "</body></html>"
+    )
+    r = static_check(html)
+    router_dead = [i for i in r.issues if "router-dead nav link" in i]
+    assert len(router_dead) == 1, r.issues
+    assert "reports" in router_dead[0]
+
+
+def test_scenario9_no_router_dead_without_map():
+    """No ``const routes={}`` map → the routes-map block (incl. router-dead) is skipped."""
+    r = static_check(_ROUTER_DEAD_HTML_NO_MAP)
+    assert not any("router-dead" in i for i in r.issues), r.issues
+    # and the map-completeness checks are ALSO skipped (guard proven).
+    assert not any("routes map" in i for i in r.issues), r.issues
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Scenario 10 — ITEM 3: render_check un-dedup + ${…} exclusion + settle knob
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def test_scenario10_render_check_exposes_settle_knob():
+    """render_check accepts nav_settle_ms (default 50 == the prior hardcoded wait)."""
+    import inspect
+
+    from app.agents.render_check import _NAV_SETTLE_MS
+
+    assert _NAV_SETTLE_MS == 50
+    sig = inspect.signature(render_check)
+    assert "nav_settle_ms" in sig.parameters
+    assert sig.parameters["nav_settle_ms"].default == _NAV_SETTLE_MS
+
+
+def test_scenario10_undedup_malformed_and_skip_template(tmp_path):
+    """Two malformed same-first-segment routes → TWO ok=False NavResults (un-dedup);
+    a ${id} route is NOT exercised but still counts as discovered (no false coverage-0)."""
+    if not _render_available(tmp_path):
+        pytest.skip("Chromium/Playwright unavailable — browser-gated")
+    html = (
+        "<!doctype html><html><body>"
+        "<section data-page='home' class='is-active'>H</section>"
+        "<section data-page='about'>A</section>"
+        "<button onclick=\"location.hash='#/x/1'\">x1</button>"
+        "<button onclick=\"location.hash='#/x/2'\">x2</button>"
+        "<button onclick=\"location.hash='#/y/${id}'\">y</button>"
+        "<script>"
+        "window.addEventListener('hashchange',()=>{"
+        "document.querySelectorAll('[data-page]').forEach(s=>s.classList.remove('is-active'));"
+        "const id=(location.hash.split('/')[1]||'');"
+        "const el=document.querySelector('[data-page=\\''+id+'\\']');"
+        "if(el)el.classList.add('is-active');});"
+        "</script>"
+        "</body></html>"
+    )
+    p = tmp_path / "undedup.html"
+    p.write_text(html, encoding="utf-8")
+    rr = asyncio.run(render_check(p.resolve()))
+    assert rr.available is True
+    # Both #/x/1 and #/x/2 are kept as their OWN dead NavResults (un-dedup).
+    x_dead = [n for n in rr.nav_results if n.expected == "x" and not n.ok]
+    assert len(x_dead) == 2, rr.nav_results
+    hrefs = {n.href for n in x_dead}
+    assert hrefs == {"#/x/1", "#/x/2"}, hrefs
+    # The ${id} template route is NEVER exercised (no NavResult for it).
+    assert not any("${" in n.href for n in rr.nav_results), rr.nav_results
+    # …but it was DISCOVERED → coverage is not falsely zero (nav was found).
+    assert not rr.coverage_errors, rr.coverage_errors
+
+
+def test_scenario10_only_template_route_no_false_coverage_zero(tmp_path):
+    """A multi-section SPA whose ONLY nav is a ${…} route → discovered>0, no coverage-0."""
+    if not _render_available(tmp_path):
+        pytest.skip("Chromium/Playwright unavailable — browser-gated")
+    html = (
+        "<!doctype html><html><body>"
+        "<section data-page='home' class='is-active'>H</section>"
+        "<section data-page='about'>A</section>"
+        "<button onclick=\"location.hash='#/detail/${id}'\">d</button>"
+        "</body></html>"
+    )
+    p = tmp_path / "only_template.html"
+    p.write_text(html, encoding="utf-8")
+    rr = asyncio.run(render_check(p.resolve()))
+    assert rr.available is True
+    # The only nav is a template literal → not exercised, but discovered → NO coverage-0.
+    assert not rr.coverage_errors, rr.coverage_errors
+    assert rr.nav_results == [], rr.nav_results

@@ -565,6 +565,34 @@ def static_check(html: str | Path) -> StaticCheckResult:
                 f'<section data-page="{key}">'
             )
 
+        # --- routes-map RESOLUTION cross-check (router-dead nav links) --------- #
+        # A browserless catch (quick-260701-erg / STATIC-ROUTER-DEAD): a nav route
+        # whose target HAS a ``<section data-page="X">`` but whose X is NOT a routes-map
+        # key is a ROUTER-DEAD link — the section exists in the DOM, yet the hash router
+        # (which dispatches through the map) has no entry for it, so navigation never
+        # reaches it. CONSERVATIVE: only inside this ``routes_map is not None`` guard
+        # (map-less prototypes route differently — no false positives). A target with NO
+        # section stays the plain "dead nav link" above (never double-reported). Deduped
+        # per target so each router-dead target is reported once. This narrows render-
+        # reliance for static-only routes but does NOT retire render (map-VALUE→section
+        # mismatches + matchRoute-logic bugs still need the browser).
+        nav_route_targets: list[str] = []
+        for href in route_hrefs:
+            nav_route_targets.append(_href_target_id(href))
+        for route in dynamic_routes:
+            nav_route_targets.append(_href_target_id(route))
+        seen_router_dead: set[str] = set()
+        for target in nav_route_targets:
+            if not target or target in seen_router_dead:
+                continue
+            if target in section_ids and target not in route_keys:
+                seen_router_dead.add(target)
+                issues.append(
+                    f"router-dead nav link: nav route target '{target}' has a "
+                    f'<section data-page="{target}"> but no routes-map entry — '
+                    f"the hash router will not reach it"
+                )
+
     # --- handlers defined ---------------------------------------------------- #
     defined = _extract_defined_names(script_text)
     seen_missing: set[str] = set()

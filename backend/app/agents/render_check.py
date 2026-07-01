@@ -37,6 +37,12 @@ logger = logging.getLogger("app.agents.render_check")
 _HASH_ASSIGN_RE = re.compile(r"location\.hash\s*=\s*['\"]([^'\"]+)['\"]")
 _NAVIGATE_TO_RE = re.compile(r"navigateTo\(\s*['\"]([^'\"]+)['\"]")
 
+# The default settle wait (ms) after driving a hash route, before reading the active
+# section — the async-router refinement knob (quick-260701-erg / RENDER-SETTLE-KNOB).
+# Overridable per-call via ``render_check(..., nav_settle_ms=…)``; the default keeps
+# every existing call byte-identical (the old hardcoded ``wait_for_timeout(50)``).
+_NAV_SETTLE_MS = 50
+
 
 def _first_path_segment(route: str) -> str:
     """First path segment of a route (the candidate page id) — shared with static_check.
@@ -132,8 +138,15 @@ async def render_check(
     *,
     check_nav: bool = True,
     timeout_ms: int = 15000,
+    nav_settle_ms: int = _NAV_SETTLE_MS,
 ) -> RenderResult:
-    """Render an HTML file headless and return a structured health report."""
+    """Render an HTML file headless and return a structured health report.
+
+    ``nav_settle_ms`` (default :data:`_NAV_SETTLE_MS` = 50) is the async-router
+    refinement knob: the wait after driving a hash route, before reading the active
+    section. The default is byte-identical to the prior hardcoded 50ms (INV-3); raise
+    it for slow/async routers that repaint after a microtask/animation frame.
+    """
     path = Path(html_path)
     try:
         from playwright.async_api import async_playwright
@@ -164,16 +177,22 @@ async def render_check(
             page.on("pageerror", lambda e: page_errors.append(str(e)))
             await page.goto(path.as_uri(), wait_until="networkidle", timeout=timeout_ms)
             if check_nav:
-                nav_results = await _check_nav(page)
+                nav_results, discovered = await _check_nav(
+                    page, nav_settle_ms=nav_settle_ms
+                )
                 # Nav COVERAGE: a multi-section SPA that exercised ZERO nav targets
                 # is the fail-open blind spot (the old ``nav_results=0`` silent OK).
+                # Base the "exercised" argument on the count of DISCOVERED candidates
+                # (real + concrete-malformed + skipped-``${…}``) so that skipping a
+                # template-literal route from browser exercise can never manufacture a
+                # false coverage-0 (a page whose only nav is ``#/x/${id}`` is covered).
                 try:
                     section_count = await page.eval_on_selector_all(
                         "[data-page]", "els => els.length"
                     )
                 except Exception:  # noqa: BLE001 — a query failure ⇒ no coverage finding
                     section_count = 0
-                finding = _coverage_finding(int(section_count or 0), len(nav_results))
+                finding = _coverage_finding(int(section_count or 0), discovered)
                 if finding:
                     coverage_errors.append(finding)
         except Exception as exc:  # noqa: BLE001
@@ -196,8 +215,8 @@ async def render_check(
     )
 
 
-async def _check_nav(page) -> list[NavResult]:
-    """Exercise each discoverable nav target and assert the EXPECTED page activates.
+async def _check_nav(page, *, nav_settle_ms: int = _NAV_SETTLE_MS) -> tuple[list[NavResult], int]:
+    """Exercise discoverable nav targets and return ``(nav_results, discovered_count)``.
 
     Nav discovery is broadened beyond the old ``.nav-item[href]`` heuristic (which
     silently found ZERO on a hash-router SPA that navigates via ``onclick`` handlers
@@ -207,13 +226,24 @@ async def _check_nav(page) -> list[NavResult]:
       * click-handler nav — any element whose ``onclick`` assigns ``location.hash``
         or calls ``navigateTo('#/…')`` (route extracted by regex from the handler).
 
-    Candidates are DEDUPED by their first-path-segment target (so ``#/certificate/1``
-    and ``#/certificate/2`` collapse to one representative ``certificate``), and one
-    representative of each target is exercised. The visible page is
-    ``[data-page].is-active`` / ``.section.is-active``. Each ``NavResult`` records the
-    EXPECTED first-path-segment id and ``ok = activated == expected`` — so a
-    wrong-section activation (and a dead/parameterized route with NO matching section)
-    is caught, not just a hard "nothing activated".
+    Selection (quick-260701-erg / RENDER-UNDEDUP) is classified against the DOM's
+    ``[data-page]`` id set (the section ids the router can actually reach):
+
+      * a candidate whose first-path-segment target IS a real section deduplicates to
+        ONE representative per target (a well-formed nav is proven once);
+      * a candidate whose target is NOT a real section is MALFORMED/dead — each
+        concrete such route is kept as its OWN ``NavResult`` (deduped only by the exact
+        route string) so ``#/certificate/901`` and ``#/certificate/create`` no longer
+        collapse behind one representative and hide sibling breakage;
+      * a ``${…}`` template-literal route is NOT exercised in the browser (the literal
+        placeholder is a guaranteed false "dead"); it is left to ``static_check`` but is
+        still COUNTED as discovered so the coverage rule can't false-fire.
+
+    The visible page is ``[data-page].is-active`` / ``.section.is-active``. Each
+    ``NavResult`` records the EXPECTED first-path-segment id and ``ok = activated ==
+    expected`` — so wrong-section activation (and a dead route with no matching section)
+    is caught. ``discovered_count`` = distinct real targets + distinct concrete-malformed
+    routes + distinct skipped ``${…}`` routes (the coverage denominator).
     """
     results: list[NavResult] = []
 
@@ -242,19 +272,53 @@ async def _check_nav(page) -> list[NavResult]:
         for route in _extract_handler_routes(body or ""):
             candidates.append((route, False))
 
-    # Dedupe by first-path-segment target (one representative per target).
-    seen_targets: set[str] = set()
-    reps: list[tuple[str, bool]] = []
+    # The DOM section-id set (the ``data-page`` VALUES) — used to classify a candidate
+    # target as real (resolves to a section) vs malformed (no such section).
+    try:
+        raw_ids = await page.eval_on_selector_all(
+            "[data-page]", "els => els.map(e => e.getAttribute('data-page'))"
+        )
+    except Exception:  # noqa: BLE001 — a query failure ⇒ empty section set (all malformed)
+        raw_ids = []
+    section_ids: set[str] = {s.strip() for s in (raw_ids or []) if s and s.strip()}
+
+    seen_real_targets: set[str] = set()
+    seen_malformed_routes: set[str] = set()
+    seen_template_routes: set[str] = set()
+    exercise: list[tuple[str, bool, str]] = []  # (route, from_anchor, expected)
+    discovered = 0
+
     for route, from_anchor in candidates:
         target = _first_path_segment(route)
-        if not target or target in seen_targets:
+        if not target:
             continue
-        seen_targets.add(target)
-        reps.append((route, from_anchor))
+        if "${" in route:
+            # Template-literal route — count as discovered, do NOT exercise (the
+            # literal placeholder is not a real id → guaranteed false "dead").
+            if route not in seen_template_routes:
+                seen_template_routes.add(route)
+                discovered += 1
+            continue
+        if target in section_ids:
+            # Well-formed nav — dedupe to ONE representative per real target.
+            if target in seen_real_targets:
+                continue
+            seen_real_targets.add(target)
+            discovered += 1
+            exercise.append((route, from_anchor, target))
+        else:
+            # Malformed/dead — keep EACH concrete route (un-dedup), deduping only by
+            # the exact route string so a repeated identical handler is not counted twice.
+            if route in seen_malformed_routes:
+                continue
+            seen_malformed_routes.add(route)
+            discovered += 1
+            exercise.append((route, from_anchor, target))
 
-    for route, from_anchor in reps:
-        expected = _first_path_segment(route)
-        activated = await _exercise_route(page, route, from_anchor)
+    for route, from_anchor, expected in exercise:
+        activated = await _exercise_route(
+            page, route, from_anchor, settle_ms=nav_settle_ms
+        )
         results.append(
             NavResult(
                 href=route,
@@ -263,15 +327,17 @@ async def _check_nav(page) -> list[NavResult]:
                 expected=expected,
             )
         )
-    return results
+    return results, discovered
 
 
-async def _exercise_route(page, route: str, from_anchor: bool) -> str | None:
+async def _exercise_route(
+    page, route: str, from_anchor: bool, *, settle_ms: int = _NAV_SETTLE_MS
+) -> str | None:
     """Exercise ONE nav route and return the activated ``data-page`` id (or None).
 
     Anchors are clicked (the legacy behavior); a handler route drives the hash router
     by assigning ``location.hash``. Either way the router's ``hashchange`` handler
-    runs, then the active section id is read back.
+    runs, then the active section id is read back after ``settle_ms`` ms.
     """
     try:
         if from_anchor:
@@ -282,7 +348,7 @@ async def _exercise_route(page, route: str, from_anchor: bool) -> str | None:
         else:
             await page.evaluate("(h) => { window.location.hash = h; }", route)
         # Let the router's hashchange handler run before reading the active section.
-        await page.wait_for_timeout(50)
+        await page.wait_for_timeout(settle_ms)
         return await page.eval_on_selector(
             "[data-page].is-active, .section.is-active",
             "el => el.getAttribute('data-page')",
