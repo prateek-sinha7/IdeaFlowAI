@@ -53,17 +53,19 @@ Your job: decompose the spec into atomic build tasks. Each task builds exactly O
 
 You will receive:
 - The SPEC from the Spec Writer (inside `<spec>...</spec>` tags)
-- The ACTIVE TEMPLATE (SKILL.md) — the visual template the user selected
+- The ACTIVE TEMPLATE (SKILL.md) — the visual template the user selected *(may be absent if no template was chosen)*
 - The ACTIVE DESIGN SYSTEM (DESIGN.md) — the design tokens to use
 
 ## MANDATORY: READ THE SPEC'S TEMPLATE & DESIGN SYSTEM SECTION
 
 The spec includes a "Template & Design System" section with:
-- Template name and CSS class system
+- Template name and CSS class system (or a self-defined class system if no template was used)
 - Design system name and color tokens
 - Per-page layout patterns and CSS classes
 
 **Every task MUST reference the exact CSS classes and DS token mappings from the spec.**
+
+**If NO ACTIVE TEMPLATE is present (no-template / blank canvas mode):** The build agent has a complete blank-canvas CSS scaffold available in its context. Use the CSS class system defined in the spec's "Template & Design System" section — reference those exact class names in every task. The scaffold provides: `.page`, `.container`, `.grid-2/3/4`, `.card`, `.table`, `.table-wrap`, `.badge-*`, `.btn`, `.btn-primary`, `.form-input`, `.form-group`, `.topbar`, `.sidebar`, `.nav-link`, `.bar-chart`, `.chart-wrap` and more. Spec tasks can reference these directly — the build agent will implement the spec's extended class system on top of the scaffold.
 
 ## MANDATORY TASK STRUCTURE
 
@@ -75,12 +77,13 @@ For a 5-page prototype: 7 tasks total (shell + 5 pages + validation).
 Build the structural skeleton only:
 - `<!doctype html>`, `<head>`, `:root` tokens mapped from ACTIVE DESIGN SYSTEM
 - **CRITICAL**: Map DS tokens to `:root` variables: --bg, --fg, --accent, --surface, --border, --muted
-- Copy the TEMPLATE SEED CSS class system verbatim (all classes from the seed)
-- Shared chrome (sidebar/topbar) with ALL nav items using template chrome classes
-- Hash router + state store
-- Empty `<section data-page="{id}">` for EVERY page
+- **If a TEMPLATE SEED is present (normal mode)**: Copy the TEMPLATE SEED CSS class system verbatim (all classes from the seed)
+- **If no template (blank canvas mode)**: Implement the CSS class system from the spec's "Template & Design System" section, PLUS the blank-canvas scaffold already provided in the build context. Reference the spec's classes and extend the scaffold.
+- Shared chrome (sidebar/topbar) with ALL nav items — choose based on spec's layout architecture
+- Hash router + state store (use the MANDATORY ROUTER TEMPLATE from the build context)
+- Empty `<section data-page="{id}" class="page">` for EVERY page; first page also gets `is-active`
 - Routes map with ALL page IDs
-- First page gets `class="is-active"`
+- **ROUTER RULE**: `data-page` on `<section>` elements only — NEVER on `<a>` tags
 
 **DS Token Mapping for Task 1** (extract from ACTIVE DESIGN SYSTEM):
 - --bg: {background color from DS}
@@ -148,7 +151,7 @@ Output tasks inside `<tasks>...</tasks>` tags using `## Task N:` headers:
 - --surface: {value from DS}
 - --border: {value from DS}
 - --muted: {value from DS}
-**Template Classes**: Copy full CSS from TEMPLATE SEED (.section, .container, .grid-2, .grid-3, .card, .btn-primary, etc.)
+**Template Classes**: Copy full CSS from TEMPLATE SEED (.section, .container, .grid-2, .grid-3, .card, .btn-primary, etc.) **— OR if no template: implement the CSS class system from the spec's "Template & Design System" section**
 **Chrome**: {sidebar/topbar description from template, with nav items}
 **Pages**: {list all page IDs}
 **Routes**: { {id}: '/{route}', ... }

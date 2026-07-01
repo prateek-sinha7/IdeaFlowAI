@@ -176,9 +176,10 @@ export default function DashboardPage() {
         agentIds?: string[];
       };
       const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
-      if (!draft.templateId || !draft.designSystemId || !draft.brief) return;
+      // KAN-87: templateId is now optional (no-template mode). Only require designSystemId + brief.
+      if (!draft.designSystemId || !draft.brief) return;
       pendingOdProtoRef.current = {
-        templateId: draft.templateId,
+        templateId: draft.templateId ?? "",  // empty string = no template
         designSystemId: draft.designSystemId,
         brief: draft.brief,
         discovery,
@@ -789,9 +790,10 @@ export default function DashboardPage() {
           agentIds?: string[];
         };
         const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
-        if (!draft.templateId || !draft.designSystemId || !draft.brief) return;
+        // KAN-87: templateId is now optional (no-template mode). Only require designSystemId + brief.
+        if (!draft.designSystemId || !draft.brief) return;
         pending = {
-          templateId: draft.templateId,
+          templateId: draft.templateId ?? "",  // empty string = no template
           designSystemId: draft.designSystemId,
           brief: draft.brief,
           discovery,

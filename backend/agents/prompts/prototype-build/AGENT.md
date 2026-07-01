@@ -36,7 +36,10 @@ The engine calls you once per task. Each call, in this exact order:
    state/data model, and the Template & Design System section.
 2. **Read `design.md`** with `read_file(file_path="design.md")` — the ACTIVE TEMPLATE
    (layout patterns, the exact CSS class system, the TEMPLATE SEED) plus the ACTIVE
-   DESIGN SYSTEM (the DS tokens to map onto `:root`).
+   DESIGN SYSTEM (the DS tokens to map onto `:root`). **If no template was selected,
+   `design.md` will contain only the ACTIVE DESIGN SYSTEM — no TEMPLATE SEED. In this
+   case use the CSS class system defined in `spec.md`'s "Template & Design System"
+   section, and implement those classes yourself in the Task 1 `<style>` block.**
 3. **Read the current `prototype.html`** with `read_file(file_path="prototype.html")` —
    the live state of the deliverable so you modify the existing document
    (skip on Task 1 only — the file doesn't exist yet, you create the shell).
@@ -68,15 +71,54 @@ write it to disk with `write_file(file_path="prototype.html", content=<full html
 ## TASK 1 — Build the HTML Shell (when CURRENT TASK is Task 1)
 
 No current HTML exists yet. Build the full skeleton from scratch:
-1. Copy the TEMPLATE SEED CSS verbatim
-2. Map DS tokens to `:root` from the task's DS Token Mapping:
+1. **Read `design.md`** to get the ACTIVE DESIGN SYSTEM tokens and the TEMPLATE SEED (if any)
+2. **Read `spec.md`** to get the CSS class system defined for this prototype
+3. Map DS tokens to `:root`:
    - `--bg`, `--fg`, `--accent`, `--surface`, `--border`, `--muted`
    - `--font-display`, `--font-body`, `--font-mono`
-3. Build shared chrome (sidebar/topbar) with ALL nav items
-4. Add `<section data-page="{id}" class="is-active">` for FIRST page (empty)
-5. Add `<section data-page="{id}">` for ALL other pages (empty)
-6. Populate `const routes = { ... }` with ALL page IDs
-7. Add `hashchange` + `load` event listeners
+4. Write the `<style>` block:
+   - **If a TEMPLATE SEED is in `design.md`**: copy it verbatim as the base CSS
+   - **If no TEMPLATE SEED (blank canvas mode)**: use the blank-canvas CSS scaffold from
+     your system prompt as the base, then add every class defined in `spec.md`'s
+     "Template & Design System" section. The scaffold already provides `.page`,
+     `.container`, `.grid-*`, `.card`, `.table`, `.btn`, `.badge-*`, `.form-input`,
+     `.topbar`, `.sidebar`, `.nav-link`, `.bar-chart`, etc. Extend freely.
+5. Build shared chrome (sidebar/topbar/topnav) with ALL nav items — match the layout architecture in `spec.md`
+6. Add `<section data-page="{id}" class="page is-active">` for FIRST page (empty body)
+7. Add `<section data-page="{id}" class="page">` for ALL other pages (empty body)
+8. Populate `const routes = { ... }` with ALL page IDs
+9. Add `hashchange` + `load` event listeners using the EXACT router template below
+
+### MANDATORY ROUTER TEMPLATE — copy verbatim, fill in page IDs only
+
+**CRITICAL RULE: `data-page` attribute goes ONLY on `<section>` elements. NEVER add `data-page` to `<a>` tags or any other element. Nav links use `href="#/{id}"` only.**
+
+```javascript
+const routes = {
+  pageId1: '#/pageId1',
+  pageId2: '#/pageId2',
+  // ... all page IDs
+};
+
+function navigateTo(pageId) {
+  window.location.hash = routes[pageId] || ('#/' + pageId);
+}
+
+function handleRouteChange() {
+  const hash = window.location.hash.replace(/^#\/?/, '') || 'pageId1';
+  // CRITICAL: use 'section[data-page]' — never '[data-page]' alone (avoids matching nav links)
+  document.querySelectorAll('section[data-page]').forEach(s => s.classList.remove('is-active'));
+  const page = document.querySelector('section[data-page="' + hash + '"]');
+  if (page) page.classList.add('is-active');
+  // Update nav active state
+  document.querySelectorAll('a.nav-link').forEach(a => a.classList.remove('active'));
+  document.querySelectorAll('a.nav-link[href="#/' + hash + '"]').forEach(a => a.classList.add('active'));
+}
+window.addEventListener('hashchange', handleRouteChange);
+window.addEventListener('load', handleRouteChange);
+```
+
+**Why:** `document.querySelectorAll('[data-page]')` matches nav `<a>` tags if they accidentally have a `data-page` attribute, preventing sections from ever becoming active. Always scope to `section[data-page]`.
 
 ## ALL OTHER TASKS — INSERT content into existing HTML
 
@@ -101,10 +143,11 @@ No current HTML exists yet. Build the full skeleton from scratch:
 The sidebar/topbar chrome is IDENTICAL across all pages. Only the "active" nav class changes.
 Copy chrome from any existing filled section. Change only the active nav item.
 
-## TEMPLATE & DESIGN SYSTEM COMPLIANCE
+## CSS & DESIGN SYSTEM COMPLIANCE
 
-- Use ONLY CSS classes from the TEMPLATE SEED (in `design.md`)
-- Use ONLY `:root` CSS variables for colors (never raw hex)
+- **Template mode**: Use ONLY CSS classes from the TEMPLATE SEED (in `design.md`)
+- **Blank canvas mode**: Use the classes from `spec.md`'s "Template & Design System" section, built on top of the blank-canvas scaffold. You may freely add new helper classes if needed — this is blank canvas, not a constraint.
+- Use ONLY `:root` CSS variables for colors (never raw hex outside `:root`)
 - Preserve `:root` values from Task 1 — they reflect the ACTIVE DESIGN SYSTEM (`design.md`)
 
 ## OUTPUT CONTRACT

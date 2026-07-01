@@ -1607,20 +1607,25 @@ async def _handle_workflow_execution(
     ]
     _needs_template = pipeline_type in ("prototype", "ppt", "od_prototype", "od_ppt")
     if _template_injecting and _needs_template and not (od_context or {}).get("template_body"):
-        await websocket.send_json({
-            "type": "error", "chunk": None, "section": None,
-            "data": {
-                "error": (
-                    f"Pipeline {pipeline_type!r} agents "
-                    f"{_template_injecting} declare template injection, so the "
-                    "run requires a template (template_id) or an od_* alias — "
-                    "no template body could be loaded."
-                ),
-                "code": "missing_template_context",
-                "recoverable": False,
-            },
-        })
-        return
+        # KAN-87: no-template mode — the user explicitly chose not to select a template.
+        # The od_context has no_template=True, so template injection is intentionally absent.
+        # Only block if this is NOT a deliberate no-template run.
+        _is_no_template_run = bool((od_context or {}).get("no_template"))
+        if not _is_no_template_run:
+            await websocket.send_json({
+                "type": "error", "chunk": None, "section": None,
+                "data": {
+                    "error": (
+                        f"Pipeline {pipeline_type!r} agents "
+                        f"{_template_injecting} declare template injection, so the "
+                        "run requires a template (template_id) or an od_* alias — "
+                        "no template body could be loaded."
+                    ),
+                    "code": "missing_template_context",
+                    "recoverable": False,
+                },
+            })
+            return
 
     # ── model_overrides ingress validation (Phase 6 D-07, MODEL-03) ───────
     # The security chokepoint: validate the untrusted per-agent override map

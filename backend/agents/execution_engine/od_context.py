@@ -66,6 +66,35 @@ def load_prototype_context(
             logger.warning(
                 "Template '%s' not found — using 'web-prototype' as fallback", template_id
             )
+        elif template_id in (None, "", "none"):
+            # KAN-87: no-template mode — user explicitly chose not to select a template.
+            # Return a minimal context with no template body so the spec writer
+            # invents its own layout from the UI clarification answers.
+            logger.info("No template selected — proceeding without template injection")
+            # Still load the design system (required for color tokens).
+            if custom_ds_body:
+                ds_id = design_system_id or "custom"
+                ds_body = (
+                    f"# Custom Design System: {ds_id}\n\n"
+                    f"This design system was provided directly by the user. "
+                    f"Follow its tokens exactly — do not invent or substitute values.\n\n"
+                    f"{custom_ds_body.strip()}"
+                )
+            else:
+                ds = od_loader.get_design_system(design_system_id)
+                if ds is None:
+                    raise LookupError(f"Design system '{design_system_id}' not found")
+                ds_id = design_system_id
+                ds_body = ds["body"]
+            return {
+                "template_id": None,
+                "template_body": None,
+                "ds_id": ds_id,
+                "ds_body": ds_body,
+                "craft_block": "",
+                "is_design_system_required": None,
+                "no_template": True,  # signal to the opendesign provider to skip template injection
+            }
         else:
             raise LookupError(f"Prototype template '{template_id}' not found")
 

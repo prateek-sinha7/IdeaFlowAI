@@ -14,7 +14,7 @@ import {
 interface TemplateGalleryProps {
   templates: PrototypeTemplate[];
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string | null) => void;
   onSelectCustomTemplate?: (ct: CustomTemplate | null) => void;
   selectedCustomTemplateId?: string | null;
 }
@@ -206,6 +206,17 @@ export function TemplateGallery({ templates, selectedId, onSelect, onSelectCusto
             className="grid gap-2.5"
             style={{ gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))" }}
           >
+            {/* KAN-87: No template / blank canvas card — shown first in All tab */}
+            {activeCategory === "All" && (
+              <NoTemplateCard
+                selected={selectedId === null && !selectedCustomTemplateId}
+                onSelect={() => {
+                  onSelect(null);
+                  if (onSelectCustomTemplate) onSelectCustomTemplate(null);
+                }}
+              />
+            )}
+
             {/* Saved custom templates — shown at top of All tab */}
             {activeCategory === "All" && savedCustomTemplates.map((ct) => (
               <CustomTemplateCard
@@ -305,6 +316,46 @@ function CustomTemplateCard({ ct, selected, onSelect, onDelete }: CustomCardProp
         </div>
       </button>
     </div>
+  );
+}
+
+// ── No template card (KAN-87) ────────────────────────────────────────────
+
+function NoTemplateCard({ selected, onSelect }: { selected: boolean; onSelect: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`flex flex-col overflow-hidden rounded-lg border bg-white text-left transition-all hover:shadow-sm focus:outline-none ${
+        selected
+          ? "border-[#1B2A4A] ring-2 ring-[#1B2A4A]/15 shadow-sm"
+          : "border-gray-200 hover:border-gray-300"
+      }`}
+    >
+      {/* Selected badge */}
+      {selected && (
+        <div className="absolute right-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-[#1B2A4A]">
+          <Check className="h-2.5 w-2.5 text-white" strokeWidth={3} />
+        </div>
+      )}
+      {/* Visual area */}
+      <div className="flex h-[80px] items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 relative">
+        <div className="flex flex-col items-center gap-1">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-white">
+            <FileText className="h-4 w-4 text-gray-400" />
+          </div>
+        </div>
+      </div>
+      {/* Label */}
+      <div className="px-2 py-1.5">
+        <span className="block truncate text-[11px] font-medium text-gray-800 leading-tight">
+          No template
+        </span>
+        <span className="text-[9px] uppercase tracking-wide text-gray-400">
+          Blank canvas
+        </span>
+      </div>
+    </button>
   );
 }
 

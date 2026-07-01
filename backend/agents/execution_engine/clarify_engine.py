@@ -254,6 +254,34 @@ class ClarifyEngine:
             ),
         }
 
+        # ── Pipeline-specific style/UI questions (KAN-87) ─────────────────
+        # For prototype pipelines, "style" should ask about the visual UI type
+        # (web app, mobile, dense dashboard, etc.) — not presentation tone.
+        STYLE_BY_PIPELINE: dict[str, tuple[str, list[str]]] = {
+            "od_prototype": (
+                "What visual style and UI type should the prototype follow?",
+                [
+                    "Clean / minimal SaaS web app (dense, functional, blue-on-white)",
+                    "Consumer / marketing — spacious, visual, hero sections",
+                    "Mobile-first — card-based, touch-friendly, compact",
+                    "Data-heavy dashboard — tables, charts, sidebar navigation",
+                    "Dark-mode admin panel — dark background, accent colours",
+                    "No preference — let the AI decide based on the brief",
+                ],
+            ),
+            "prototype": (
+                "What visual style and UI type should the prototype follow?",
+                [
+                    "Clean / minimal SaaS web app (dense, functional, blue-on-white)",
+                    "Consumer / marketing — spacious, visual, hero sections",
+                    "Mobile-first — card-based, touch-friendly, compact",
+                    "Data-heavy dashboard — tables, charts, sidebar navigation",
+                    "Dark-mode admin panel — dark background, accent colours",
+                    "No preference — let the AI decide based on the brief",
+                ],
+            ),
+        }
+
         # ── Full question library ──────────────────────────────────────────
         QUESTION_LIBRARY: dict[str, tuple[str, list[str]]] = {
             "topic": TOPIC_BY_PIPELINE.get(pipeline_type, (
@@ -280,10 +308,10 @@ class ClarifyEngine:
                 "What tone and style should be used?",
                 ["Professional & formal", "Casual & conversational", "Data-driven & analytical", "Creative & visual", "Concise & minimal"],
             ),
-            "style": (
+            "style": STYLE_BY_PIPELINE.get(pipeline_type, (
                 "What tone and style should be used?",
                 ["Professional & formal", "Casual & conversational", "Data-driven & analytical", "Creative & visual", "Concise & minimal"],
-            ),
+            )),
             "key_objectives": (
                 "What is the primary goal or objective?",
                 ["Inform & educate", "Persuade & sell", "Report results & metrics", "Propose a solution", "Compare options & recommend"],

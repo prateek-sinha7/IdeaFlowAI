@@ -68,11 +68,19 @@ Your job: ensure every page has full content, all navigation works, all interact
 - [ ] Every page has the shared chrome (sidebar/topbar) — identical across all pages
 - [ ] Every page has at least 3 meaningful components
 
-**Navigation:**
+**Navigation / Router — CRITICAL:**
 - [ ] `const routes = { ... }` has one entry per `<section data-page>`
 - [ ] All nav links use `href="#/path"` format (not `href="#path"`)
 - [ ] First `<section data-page>` has `class="is-active"`
 - [ ] `window.addEventListener('load', route)` present
+- [ ] **The router uses `section[data-page]` NOT `[data-page]`** — if the router calls
+  `querySelectorAll('[data-page]')` or `querySelector('[data-page="..."`)` without the `section`
+  prefix, nav `<a>` tags with `data-page` attributes will intercept the query and sections will
+  never become active. Fix: replace ALL occurrences of `querySelectorAll('[data-page]')` with
+  `querySelectorAll('section[data-page]')` and `querySelector('[data-page="${hash}"]')` with
+  `querySelector('section[data-page="' + hash + '"]')`.
+- [ ] Nav `<a>` tags must NOT have a `data-page` attribute — remove it from any `<a>` element.
+  Nav links should use `href="#/{id}"` only for routing; active state is updated by matching on `href`.
 
 **Structure:**
 - [ ] Starts with `<!doctype html>`
@@ -87,27 +95,27 @@ Your job: ensure every page has full content, all navigation works, all interact
 - [ ] Every button/link has a visible label
 - [ ] Every interactive element has a handler in `<script>`
 - [ ] Chrome (sidebar/topbar) is identical across all pages (only active nav class differs)
-- [ ] Template CSS classes used correctly (no invented global classes)
+- [ ] CSS classes are consistent — all pages use the same class system defined in the `<style>` block
 
 ## HOW TO FILL AN EMPTY PAGE
 
-When you find an empty `<section data-page="{id}">`, fill it using the template's layout patterns and CSS classes:
+When you find an empty `<section data-page="{id}">`, fill it using the CSS classes available in the prototype's `<style>` block. Read the existing styles first to know what classes are defined. Use consistent classes across all pages.
 
-**"settings" / "config"** → Settings form with sections (Profile, Notifications, Security, Integrations). Use `.section .container .grid-2 .card .field .input` classes. Each section has labeled fields with realistic values and a Save button.
+**"settings" / "config"** → Settings form with sections (Profile, Notifications, Security, Integrations). Labeled fields with realistic values and a Save button.
 
-**"issues" / "bugs" / "tickets"** → Issues table with columns (ID, Title, Status, Priority, Assignee, Created). Use `.section .container .ds-table .num-col` classes. 7+ rows with realistic issue titles and data. Filter bar at top.
+**"issues" / "bugs" / "tickets"** → Issues table: columns (ID, Title, Status, Priority, Assignee, Created). 7+ rows with realistic issue titles and statuses. Filter bar at top.
 
-**"traffic" / "analytics" / "metrics"** → Analytics dashboard with charts (page views, unique visitors over 30 days), top pages table, referrer breakdown. Use `.section .container .grid-2 .card .stat .stat-num` classes.
+**"traffic" / "analytics" / "metrics"** → Analytics dashboard: charts (page views, unique visitors over 30 days), top pages table, referrer breakdown with realistic numbers.
 
-**"contributors" / "team" / "members"** → Team table with columns (Avatar, Name, Role, Contributions, Last Active, Status). Use `.section .container .ds-table .grid-3 .card` classes. 6+ rows.
+**"contributors" / "team" / "members"** → Team table: columns (Avatar initial, Name, Role, Contributions, Last Active, Status). 6+ rows with real-looking names and roles.
 
-**"forks" / "repositories"** → Repository list with columns (Name, Stars, Forks, Language, Last Updated). Use `.section .container .ds-table .log-row` classes. 8+ rows.
+**"repositories" / "forks" / "projects"** → Repository/project list: columns (Name, Stars, Language, Last Updated, Status). 8+ rows with realistic names.
 
-**"profile" / "account"** → Profile form (name, email, bio, avatar upload), account settings (password change, 2FA), danger zone. Use `.section .container .grid-2-1 .card .field .input` classes.
+**"profile" / "account"** → Profile form (name, email, bio), account settings (password, notifications, 2FA), danger zone.
 
-**"dashboard" / "home"** → KPI cards (4-6 metrics), main chart, activity feed, quick actions. Use `.section .container .grid-4 .stat .card .ds-table` classes.
+**"dashboard" / "home" / "overview"** → KPI stat cards (4-6 metrics with real numbers), a chart, activity/log table, quick action buttons.
 
-**Any other page** → Infer from the domain and create appropriate content using the template's CSS classes.
+**Any other page** → Infer from the page ID and domain. Use the same CSS classes as other pages in the prototype. Every page needs at minimum: a page header, a data table (5+ rows), a chart or stat section, and at least one interactive element.
 
 ## RULES
 
