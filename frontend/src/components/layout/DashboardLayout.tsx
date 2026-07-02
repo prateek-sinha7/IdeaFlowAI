@@ -23,6 +23,7 @@ import type { ToastItem } from "@/components/ui/CompletionToast";
 import { useNotifications } from "@/hooks/useNotifications";
 import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WaveGroup, WorkflowRun, WorkflowType, GenericDeliverable, RunFamily } from "@/types/index";
 import { canChainFrom, CHAIN_OPTIONS, CHAIN_BRIEF_KEY, CHAIN_FROM_KEY, CHAIN_SOURCE_RUN_ID_KEY, baseWorkflowType } from "@/lib/workflowChaining";
+import { parseRunInput } from "@/lib/runInput";
 import { getToken, getChainContext, getRunFamily } from "@/lib/api";
 import type { UserWorkflowSummary } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useWebSocket";
@@ -92,6 +93,9 @@ export interface DashboardLayoutProps {
   // (12-03). Returns 0 on a fresh load (no recorded seq ⇒ full-tail replay).
   getLastSeq?: () => number;
   onSubmitQuestionnaire?: (pipelineRunId: string, responses: Array<{ question_id: string; answer: string }>, skipClarification?: boolean) => void;
+  // Workstream C1 (POR §6.5) — fold an answered clarify round into run-scoped
+  // state before the questionnaire panel clears (consumed by C2's ClarificationsCard).
+  onRetainClarifyRound?: (round: import("@/types/index").ClarifyRound) => void;
   // Review gate — shown when an agent with gate: Human_Gate completes
   reviewGateData?: {
     gateKey: string;
@@ -251,6 +255,7 @@ export function DashboardLayout({
   activePipelineRunId,
   getLastSeq,
   onSubmitQuestionnaire,
+  onRetainClarifyRound,
   reviewGateData,
   onApproveReview,
   onRejectReview,
@@ -928,23 +933,15 @@ export function DashboardLayout({
       }
     }
 
-    const cleanBrief = workflowInput.split("\n\n===")[0].trim();
-    // If cleanBrief itself starts with === (e.g. a revision message like
-    // "=== EXISTING PROTOTYPE HTML ===\n{HTML}\n=== END ==="), the full
-    // HTML/content blob would become the enrichedInput — producing a bad title
-    // and oversized brief. Extract the === REVISION REQUEST === instruction
-    // instead, or fall back to empty so the pipeline starts with just the
-    // contextBlock (or the LLM generates a title from the contextBlock alone).
-    const safeCleanBrief = (() => {
-      if (!cleanBrief.startsWith("===")) return cleanBrief;
-      // Try to extract the revision instruction
-      const revMatch = workflowInput.match(/===\s*REVISION REQUEST\s*===\s*\n([\s\S]*?)\n===\s*END REQUEST\s*===/i);
-      if (revMatch) return revMatch[1].trim();
-      return "";
-    })();
+    // Workstream C1 (INV-12): the single parser owns marker extraction. For a
+    // plain brief -> its clean brief; for a revision blob (starts with ===) ->
+    // the revision instruction (parseRunInput returns brief='' for a pure blob,
+    // so the empty-string fallback is subsumed).
+    const parsedChain = parseRunInput(workflowInput);
+    const chainBrief = parsedChain.revisionInstruction ?? parsedChain.brief;
     const enrichedInput = contextBlock
-      ? `${safeCleanBrief}\n\n${contextBlock}`.trim()
-      : safeCleanBrief;
+      ? `${chainBrief}\n\n${contextBlock}`.trim()
+      : chainBrief;
 
     if (onResetPipeline) onResetPipeline();
     setWorkflowInput(enrichedInput);
@@ -1012,16 +1009,10 @@ export function DashboardLayout({
       }
     }
 
-    const cleanBrief = (run.input || "").split("\n\n===")[0].trim();
-    // Same fix as handleChainPipeline: if cleanBrief starts with === it means
-    // run.input is a revision message. Extract the revision instruction instead.
-    const safeCleanBrief = (() => {
-      if (!cleanBrief.startsWith("===")) return cleanBrief;
-      const revMatch = (run.input || "").match(/===\s*REVISION REQUEST\s*===\s*\n([\s\S]*?)\n===\s*END REQUEST\s*===/i);
-      if (revMatch) return revMatch[1].trim();
-      return "";
-    })();
-    const enrichedInput = contextBlock ? `${safeCleanBrief}\n\n${contextBlock}`.trim() : safeCleanBrief;
+    // Workstream C1 (INV-12): same single-parser rewire as handleChainPipeline.
+    const parsedHistory = parseRunInput(run.input || "");
+    const historyBrief = parsedHistory.revisionInstruction ?? parsedHistory.brief;
+    const enrichedInput = contextBlock ? `${historyBrief}\n\n${contextBlock}`.trim() : historyBrief;
 
     setWorkflowType(nextType);
     setWorkflowInput(enrichedInput);
@@ -1065,6 +1056,23 @@ export function DashboardLayout({
       if (freeformInput) {
         responses.push({ question_id: "freeform", answer: freeformInput });
       }
+      // Workstream C1 (POR §6.5): fold the answered Q&A into run-scoped state
+      // BEFORE clearing the panel — order matters, else the round is lost.
+      if (onRetainClarifyRound) {
+        const round = {
+          round: (pipelineState?.clarifications?.length ?? 0) + 1,
+          qa: questionnaireQuestions.map((q) => {
+            const selected = answers[q.id];
+            return {
+              question_id: q.id,
+              question_text: q.question,
+              impact_level: q.impactLevel ?? "",
+              answer: selected && selected.length > 0 ? selected.join(", ") : null,
+            };
+          }),
+        };
+        onRetainClarifyRound(round);
+      }
       setQuestionnaireQuestions([]);
       setQuestionnaireLoading(false);
       onSubmitQuestionnaire(activePipelineRunId, responses);
@@ -1107,7 +1115,7 @@ export function DashboardLayout({
         };
       }
     }
-  }, [activePipelineRunId, onSubmitQuestionnaire, pendingPipelineRun, questionnaireQuestions, onStartPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
+  }, [activePipelineRunId, onSubmitQuestionnaire, onRetainClarifyRound, pipelineState, pendingPipelineRun, questionnaireQuestions, onStartPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
 
   // Skip questionnaire.
   // New flow (ISS-027): submit empty answers WITH skip_clarification=true so the

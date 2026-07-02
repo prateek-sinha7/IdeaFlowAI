@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { AgentRunState, PipelineRunState, AttachedSkill, AttachedHook } from "@/types/index";
+import type { AgentRunState, PipelineRunState, AttachedSkill, AttachedHook, ClarifyRound } from "@/types/index";
 
 export interface UseWorkflowReturn {
   pipelineState: PipelineRunState;
@@ -10,6 +10,9 @@ export interface UseWorkflowReturn {
   isRunning: boolean;
   handleMessage: (msg: { type: string; [key: string]: unknown }) => boolean;
   submitQuestionnaire: (pipelineRunId: string, responses: Array<{ question_id: string; answer: string }>, skipClarification?: boolean) => void;
+  // Workstream C1 (POR §6.5) — append an answered clarify round to the run-scoped
+  // state so the Q&A survives the questionnaire panel unmount. Reset per run.
+  retainClarifyRound: (round: ClarifyRound) => void;
 }
 
 const INITIAL_STATE: PipelineRunState = {
@@ -19,6 +22,7 @@ const INITIAL_STATE: PipelineRunState = {
   currentAgentIndex: -1,
   totalDuration: null,
   completedCount: 0,
+  clarifications: [],
 };
 
 /**
@@ -43,6 +47,10 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
         currentAgentIndex: -1,
         totalDuration: null,
         completedCount: 0,
+        // Workstream C1 — the single canonical per-run boundary: a fresh live
+        // run starts with no retained clarify rounds. The pipeline_start WS echo
+        // spreads prev (downstream of this) so this reset holds.
+        clarifications: [],
       });
 
       const payload: Record<string, unknown> = {
@@ -131,6 +139,15 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
     [websocketSend]
   );
 
+  // Workstream C1 (POR §6.5) — fold an answered clarify round into run-scoped
+  // state before the questionnaire panel clears, so the Q&A never vanishes.
+  const retainClarifyRound = useCallback((round: ClarifyRound) => {
+    setPipelineState((prev) => ({
+      ...prev,
+      clarifications: [...(prev.clarifications ?? []), round],
+    }));
+  }, []);
+
   const isRunning = pipelineState.isRunning;
 
   return {
@@ -140,6 +157,7 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
     isRunning,
     handleMessage,
     submitQuestionnaire,
+    retainClarifyRound,
   };
 }
 

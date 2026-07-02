@@ -796,7 +796,10 @@ export default function DashboardPage() {
   });
 
   // Workflow pipeline state
-  const { pipelineState, startPipeline, resetPipeline, isRunning: isPipelineRunning, handleMessage: handlePipelineMsg, submitQuestionnaire } = useWorkflow(send);
+  const { pipelineState, startPipeline, resetPipeline, isRunning: isPipelineRunning, handleMessage: handlePipelineMsg, submitQuestionnaire, retainClarifyRound } = useWorkflow(send);
+  // Workstream C1 (POR §1 gap-2): retain the launched brief on the LIVE path
+  // (previously dropped). Reopen/history use fullRun.input / selectedRun.input.
+  const [submittedBrief, setSubmittedBrief] = useState<string>("");
 
   // Keep pipeline handler ref in sync
   useEffect(() => {
@@ -1297,6 +1300,9 @@ export default function DashboardPage() {
       reopenedAgentNameById={reopenedAgentNameById}
       onStartPipeline={(type, message, agentIds, attachedSkills, attachedHooks, extraParams) => {
         const isRevision = type.endsWith("_revision");
+        // Workstream C1 (POR §1 gap-2): capture the run's input on every launch
+        // (revision or fresh — it is the run's input either way), reset per run.
+        setSubmittedBrief(message);
         // ISS-017 (16-04): any new run clears the history-reopen failure signal
         // so a prior failed reopen never bleeds the affordance into a live run.
         setReopenedRunStatus(undefined);
@@ -1326,6 +1332,7 @@ export default function DashboardPage() {
       activePipelineRunId={activePipelineRunId}
       getLastSeq={getLastSeq}
       onSubmitQuestionnaire={submitQuestionnaire}
+      onRetainClarifyRound={retainClarifyRound}
       reviewGateData={reviewGateData}
       onApproveReview={(gateKey, editedContent) => {
         send(JSON.stringify({ type: "approve_review", gate_key: gateKey, approved: true, edited_content: editedContent ?? null }));
