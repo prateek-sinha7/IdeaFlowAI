@@ -794,6 +794,7 @@ def _build_lineage_tree(refs: list, *, include_content: bool) -> list[dict]:
 async def get_run_artifacts(
     workflow_id: str,
     include: Optional[str] = None,
+    kind: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -805,6 +806,15 @@ async def get_run_artifacts(
     the roots. Inline ``content`` is excluded by default; pass
     ``?include=content`` to include it (same-owner only). A cross-owner or
     missing run returns 404 (IDOR → 404, never 403).
+
+    ``?kind=X`` (Workstream A, D-8) filters the refs to exact-kind matches BEFORE
+    the tree is assembled, enabling precise fetches like
+    ``?kind=clarifications&include=content`` instead of pulling the whole tree.
+    Filtering before tree-building means a filtered-out parent drops its edge, so
+    a surviving child surfaces as a root (the in-set parent restriction in
+    ``_build_lineage_tree`` already guarantees this). An unknown kind yields an
+    empty refs list → an empty tree (NOT a 422). With no ``kind`` param the code
+    path is byte-identical to the pre-Workstream-A behavior by construction.
     """
     # Resolve the run with the owner filter first (for authed users owner_id ==
     # user_id) to obtain its workspace_id, then construct the ScopedStore so the
@@ -836,6 +846,11 @@ async def get_run_artifacts(
         )
 
     refs = await store.lineage(workflow_id)
+    # D-8: exact-kind filter applied to the already owner+workspace-scoped refs
+    # BEFORE tree-building. Pure in-Python equality — the value never reaches a
+    # query (no LIKE, no SQL; ASVS V5 posture free). Unknown kind → empty list.
+    if kind is not None:
+        refs = [r for r in refs if r.kind == kind]
     tree = _build_lineage_tree(refs, include_content=(include == "content"))
     return {"workflow_id": workflow_id, "artifacts": tree}
 
