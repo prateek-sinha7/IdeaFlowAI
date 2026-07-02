@@ -353,6 +353,51 @@ export async function getRunFamily(
   });
 }
 
+/** A single artifact node from GET /api/runs/{id}/artifacts (mirrors the
+ *  backend node shape, runs.py:590-608). `content` is present ONLY when the
+ *  request was made with include=content. NOTE: nodes carry NO created_at. */
+export interface ArtifactNode {
+  id: string;
+  kind: string;
+  producer_step: string;
+  producer_agent: string;
+  task_id: string;
+  content_hash: string;
+  version: number;
+  visibility: string;
+  location: string;
+  parents: string[];
+  derived_from: string[];
+  children: string[];
+  content?: string;
+}
+
+export interface RunArtifactsResponse {
+  workflow_id: string;
+  artifacts: ArtifactNode[];
+}
+
+/** Fetch a run's artifact tree. Workstream C1 (POR §6.6) — the first FE
+ *  consumer of Workstream-A's `?kind=` filter. Returns the raw wire shape
+ *  verbatim (unnormalized) like getRunFamily/getChainContext. */
+export async function getRunArtifacts(
+  token: string,
+  runId: string,
+  opts?: { kind?: string; includeContent?: boolean }
+): Promise<RunArtifactsResponse> {
+  let path = `/api/runs/${runId}/artifacts`;
+  const params = new URLSearchParams();
+  if (opts?.kind) params.set("kind", opts.kind);
+  if (opts?.includeContent) params.set("include", "content");
+  const qs = params.toString();
+  if (qs) path += `?${qs}`;
+
+  return request<RunArtifactsResponse>(path, {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+}
+
 export interface ChainContext {
   workflow_id: string;
   pipeline_type: string;
