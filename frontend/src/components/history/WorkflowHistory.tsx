@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   FileText, Presentation, Layout,
   Loader2, ArrowLeft, Trash2, ChevronRight,
-  Search, MoreHorizontal, Sparkles, ArrowRight,
+  Search, Sparkles, ArrowRight,
   Download, ExternalLink, RefreshCw, X, Send,
 } from "lucide-react";
 import { getToken, getWorkflows, getWorkflow, deleteWorkflow } from "@/lib/api";
@@ -32,6 +32,9 @@ import { availableChainTargets } from "@/lib/workflowChaining";
 // SHARED with the live PreviewPanel path (no dual-impl). The history-reopen
 // source for names is the persisted run detail's agentOutputs ({agent_id,name}).
 import { parseFailedAgentIds, buildAgentNameById } from "@/lib/parseFailedAgents";
+// Revision Families (B2 / D3): client-side grouping by rootRunId + the family
+// root card (REUSE-FIRST — WORKSTREAM-B-UI-SPEC.md Surface 1).
+import { groupRunsByFamily, FamilyGroupCard, baseWorkflowType } from "./RevisionFamilyView";
 
 interface WorkflowHistoryProps {
   onBack: () => void;
@@ -131,6 +134,9 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  // Revision Families (B2 / D3): which family roots are expanded in the list,
+  // keyed by rootRunId (UI-SPEC Surface 1 — chevron toggles expansion).
+  const [expandedFamilies, setExpandedFamilies] = useState<Set<string>>(new Set());
   // KAN-84: revision moved from thin right-panel bar to left-panel next-steps
   const [reviseOpen, setReviseOpen] = useState(false);
   const [revisionText, setRevisionText] = useState("");
@@ -191,17 +197,25 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     }
   }, [deleteConfirmId, selectedRun]);
 
-  const filteredRuns = runs.filter((r) => {
-    // Normalize type for filtering: od_prototype→prototype, od_ppt→ppt, strip _revision suffix
-    const baseType = r.type === "od_prototype" ? "prototype"
-      : r.type === "od_ppt" ? "ppt"
-      : r.type === "od_ppt_revision" ? "ppt"
-      : r.type === "prototype_revision" ? "prototype"
-      : r.type.replace("_revision", "");
+  // Revision Families (B2): the per-run filter predicate, extracted so the
+  // grouped list can match a family if ANY member matches (UI-SPEC Surface 1).
+  // Same normalize-then-match logic as before (od_prototype→prototype, od_ppt→
+  // ppt, strip _revision; search on title) — via the SHARED baseWorkflowType.
+  const matchesFilter = useCallback((r: WorkflowRun) => {
+    const baseType = baseWorkflowType(r.type);
     const matchType = filterType === "all" || baseType === filterType || r.type === filterType;
     const matchSearch = !searchQuery || (r.title || "").toLowerCase().includes(searchQuery.toLowerCase());
     return matchType && matchSearch;
-  });
+  }, [filterType, searchQuery]);
+
+  const toggleFamily = useCallback((rootRunId: string) => {
+    setExpandedFamilies((prev) => {
+      const next = new Set(prev);
+      if (next.has(rootRunId)) next.delete(rootRunId);
+      else next.add(rootRunId);
+      return next;
+    });
+  }, []);
 
   // ─── Derived values for detail view — must be computed unconditionally ────
   // (Rules of Hooks: useMemo cannot be inside an if block)
@@ -746,14 +760,15 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   }
 
   // ─── LIST VIEW ─────────────────────────────────────────────────────────────
+  // Revision Families (B2 / D3): group the flat run list by rootRunId. One card
+  // per family root; the type-filter counts each family ONCE under its base type.
+  const families = groupRunsByFamily(runs);
+  const visibleFamilies = families.filter((g) => g.members.some(matchesFilter));
   const typeGroups = ["all", "user_stories", "ppt", "prototype", "app_builder", "custom"];
-  const typeCounts: Record<string, number> = { all: runs.length };
-  runs.forEach((r) => {
-    // Map od_prototype → prototype, od_ppt → ppt so they count under the right tabs
-    const base = r.type === "od_prototype" ? "prototype"
-      : r.type === "od_ppt" ? "ppt"
-      : r.type === "od_ppt_revision" ? "ppt"
-      : r.type.replace("_revision", "");
+  const typeCounts: Record<string, number> = { all: families.length };
+  families.forEach((g) => {
+    // Count the FAMILY once under its base type (normalized from the root).
+    const base = baseWorkflowType(g.root.type);
     typeCounts[base] = (typeCounts[base] || 0) + 1;
   });
 
@@ -857,100 +872,26 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
               </div>
             ))}
           </div>
-        ) : filteredRuns.length === 0 ? (
+        ) : visibleFamilies.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-40 gap-2">
             <FileText className="h-8 w-8 text-gray-200" />
             <p className="text-[12px] text-gray-400">No workflows found</p>
           </div>
         ) : (
           <div className="divide-y divide-gray-100">
-            {filteredRuns.map((run, idx) => {
-              const meta = TYPE_META[run.type] || TYPE_META.custom;
-              const Icon = meta.icon;
-              return (
-                <motion.div
-                  key={run.id}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: idx * 0.02 }}
-                  onClick={() => handleSelectRun(run)}
-                  className="flex items-center gap-4 px-6 py-4 cursor-pointer hover:bg-gray-50 transition-colors group"
-                >
-                  {/* Icon */}
-                  <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0 group-hover:bg-gray-200 transition-colors">
-                    <Icon className="h-4 w-4 text-gray-500" />
-                  </div>
-
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-semibold text-gray-900 leading-tight">{run.title}</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-[10px] text-gray-400">{meta.label}</span>
-                      <span className="text-gray-200">·</span>
-                      <span className="text-[10px] text-gray-400">{formatDate(run.createdAt)}</span>
-                      {run.duration && (
-                        <>
-                          <span className="text-gray-200">·</span>
-                          <span className="text-[10px] text-gray-400">{formatDuration(run.duration)}</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Status + actions */}
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {run.status === "completed" ? (
-                      <span className="text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full">
-                        Done
-                      </span>
-                    ) : run.status === "cancelled" ? (
-                      <span className="text-[9px] font-semibold text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full">
-                        Cancelled
-                      </span>
-                    ) : run.status === "failed" ? (
-                      <span className="text-[9px] font-semibold text-gray-500 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-full">
-                        Failed
-                      </span>
-                    ) : (
-                      <span className="text-[9px] font-semibold text-gray-500 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-full">
-                        Running
-                      </span>
-                    )}
-
-                    {/* Menu */}
-                    <div className="relative">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === run.id ? null : run.id); }}
-                        className="flex items-center justify-center h-7 w-7 rounded-lg text-gray-300 hover:text-gray-600 hover:bg-gray-100 transition-colors opacity-0 group-hover:opacity-100"
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
-                      </button>
-                      <AnimatePresence>
-                        {openMenuId === run.id && (
-                          <motion.div
-                            initial={{ opacity: 0, scale: 0.95, y: -4 }}
-                            animate={{ opacity: 1, scale: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.95, y: -4 }}
-                            transition={{ duration: 0.1 }}
-                            className="absolute right-0 top-8 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[120px]"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <button
-                              onClick={() => handleDeleteClick(run.id)}
-                              className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-red-600 hover:bg-red-50 transition-colors"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" /> Delete
-                            </button>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-
-                    <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-gray-500 transition-colors" />
-                  </div>
-                </motion.div>
-              );
-            })}
+            {visibleFamilies.map((group, idx) => (
+              <FamilyGroupCard
+                key={group.rootRunId}
+                group={group}
+                index={idx}
+                expanded={expandedFamilies.has(group.rootRunId)}
+                onToggle={() => toggleFamily(group.rootRunId)}
+                onSelectRun={handleSelectRun}
+                openMenuId={openMenuId}
+                onToggleMenu={(id, e) => { e?.stopPropagation(); setOpenMenuId(openMenuId === id ? null : id); }}
+                onDeleteClick={handleDeleteClick}
+              />
+            ))}
           </div>
         )}
       </div>
