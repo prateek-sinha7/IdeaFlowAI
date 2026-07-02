@@ -113,6 +113,34 @@ describe("Live version chip (B3 / D5) — PreviewPanel", () => {
     await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
   });
 
+  it("keyboard nav: opening focuses the listbox, ArrowUp moves focus, Enter loads a version, Escape closes + returns focus to the chip", async () => {
+    mockGetWorkflow.mockImplementation((_t, id) => Promise.resolve({ id, output: `<html>${id}</html>` } as WorkflowRun));
+
+    render(<PreviewPanel workflowType="prototype" prototypeContent="<html>latest</html>" runFamily={family3} liveRunId="r2" />);
+
+    // Open the dropdown → keyboard focus ENTERS the listbox (onto the active option).
+    fireEvent.click(screen.getByLabelText(/Current version v3/));
+    const listbox = screen.getByRole("listbox");
+    expect(listbox.contains(document.activeElement)).toBe(true);
+    const focusedOnOpen = document.activeElement;
+
+    // ArrowUp moves the highlight+focus to another option, still inside the listbox.
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
+    expect(screen.getByRole("listbox").contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(focusedOnOpen);
+
+    // Enter selects the highlighted (older) version → loaded read-only via getWorkflow.
+    fireEvent.keyDown(document.activeElement!, { key: "Enter" });
+    await waitFor(() => expect(mockGetWorkflow).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+
+    // Re-open, then Escape closes the dropdown AND returns focus to the chip button.
+    fireEvent.click(screen.getByLabelText(/Current version/));
+    fireEvent.keyDown(screen.getByRole("listbox"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+    expect(document.activeElement).toBe(screen.getByLabelText(/Current version/));
+  });
+
   it("chip tick: when the family grows the chip label increments v2 → v3", () => {
     const { rerender } = render(
       <PreviewPanel workflowType="prototype" prototypeContent="<html>v2</html>" runFamily={family2} liveRunId="r1" />,

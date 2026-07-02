@@ -150,6 +150,26 @@ describe("Revision Families (B2) — history grouping (D3)", () => {
     expect(screen.getByText("↳ revises v2")).toBeInTheDocument(); // rev2 revises rev1 = v2
   });
 
+  it("child version row is a native button (aria-label) that opens the version on activation (§8 keyboard)", async () => {
+    mockGetWorkflows.mockResolvedValue(familyRuns());
+    mockGetRunFamily.mockResolvedValue(familyPayload());
+    const byId: Record<string, WorkflowRun> = Object.fromEntries(familyRuns().map((r) => [r.id, r]));
+    mockGetWorkflow.mockImplementation((_t, id) => Promise.resolve(byId[id]));
+
+    render(<WorkflowHistory onBack={vi.fn()} />);
+
+    await screen.findByText("Root run");
+    // Expand the family.
+    fireEvent.click(screen.getByLabelText("Show versions"));
+
+    // The child version row is a native BUTTON carrying the a11y label (v2 = "Rev one").
+    const row = await screen.findByRole("button", { name: /Version 2, completed/ });
+    // Activating it opens that version (onSelectRun → detail view): the family
+    // fetches and the version timeline renders its radio chips.
+    fireEvent.click(row);
+    await waitFor(() => expect(screen.getAllByRole("radio")).toHaveLength(3));
+  });
+
   it("renders a single-member (standalone) family as a plain row — no pill, no expander (zero regression)", async () => {
     const solo = makeRun({ id: "solo", title: "Just me", type: "ppt", parentRunId: null, rootRunId: "solo", createdAt: t0, output: "<html>solo</html>" });
     mockGetWorkflows.mockResolvedValue([solo]);
@@ -186,6 +206,9 @@ describe("Revision Families (B2) — detail version timeline (D4)", () => {
     expect(chips[0].getAttribute("aria-checked")).toBe("false");
     // The context line shows the extracted revision instruction.
     expect(screen.getByText(/make the header blue/)).toBeInTheDocument();
+    // Unified lowercase microcopy: the timeline context line reads "↳ revises v{n}"
+    // (previously capitalized "Revises"), matching the list child-row form.
+    expect(screen.getByText(/↳ revises v/)).toBeInTheDocument();
   });
 
   it("clicking a sibling chip loads that version via getWorkflow and the active chip follows", async () => {

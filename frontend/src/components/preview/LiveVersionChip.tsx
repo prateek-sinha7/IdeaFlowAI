@@ -77,22 +77,28 @@ export function LiveVersionChip({
     : [];
   const activeIdx = members.findIndex((m) => m.id === activeRunId);
 
-  // Keep the keyboard-highlighted option in sync with the active version when the
-  // dropdown opens, and move keyboard focus INTO the listbox (onto the active
-  // option) so Arrow/Enter/Escape are reachable. Focus only fires on open — the
-  // active version only changes via select(), which closes the dropdown — so this
-  // never steals focus on unrelated re-renders (mirrors VersionTimeline's
-  // "focus only after a user action" intent, RevisionFamilyView.tsx:394-411).
+  // Move keyboard focus INTO the listbox declaratively: whenever the dropdown is
+  // open, focus the currently-highlighted option so Arrow/Enter/Escape are
+  // reachable. Keying the focus on highlightIdx (rather than focus-then-setState)
+  // mirrors VersionTimeline's focus-in-effect idiom (RevisionFamilyView.tsx:403-411)
+  // and is what makes it robust: the highlighted option is (re)focused AFTER each
+  // render settles, so a subsequent re-render cannot blur it. openDropdown() seeds
+  // the highlight to the active version, so focus lands on the active option on
+  // open. Gated on `open`, so this never steals focus on unrelated re-renders.
   useEffect(() => {
-    if (open) {
-      const idx = activeIdx >= 0 ? activeIdx : 0;
-      setHighlightIdx(idx);
-      optionRefs.current[idx]?.focus();
-    }
-  }, [open, activeIdx]);
+    if (open) optionRefs.current[highlightIdx]?.focus();
+  }, [open, highlightIdx]);
 
   // Hide the chip when this is not a family (single-member / absent).
   if (!family || family.members.length < 2) return null;
+
+  // Open the dropdown with the highlight seeded to the active version (batched
+  // with setOpen so the first render already has the correct roving tabIndex and
+  // the focus effect lands on the active option).
+  const openDropdown = () => {
+    setHighlightIdx(activeIdx >= 0 ? activeIdx : 0);
+    setOpen(true);
+  };
 
   const close = () => {
     setOpen(false);
@@ -111,16 +117,12 @@ export function LiveVersionChip({
       close();
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
-      // Compute the next index explicitly so roving tabIndex + focus + highlight
-      // stay in lockstep (the focused option is the one the next keydown lands on).
-      const next = Math.min(highlightIdx + 1, members.length - 1);
-      setHighlightIdx(next);
-      optionRefs.current[next]?.focus();
+      // Move the highlight; the focus effect (keyed on highlightIdx) follows it to
+      // the option, keeping roving tabIndex + focus + highlight in lockstep.
+      setHighlightIdx((i) => Math.min(i + 1, members.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      const next = Math.max(highlightIdx - 1, 0);
-      setHighlightIdx(next);
-      optionRefs.current[next]?.focus();
+      setHighlightIdx((i) => Math.max(i - 1, 0));
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       const member = members[highlightIdx];
@@ -135,7 +137,7 @@ export function LiveVersionChip({
       {/* Chip — cloned from the PrototypePreview toggle-pill (PrototypePreview.tsx:529-539). */}
       <button
         ref={chipRef}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => (open ? setOpen(false) : openDropdown())}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={`Current version ${activeLabel}, choose version`}
