@@ -8,7 +8,7 @@ import {
   Search, Sparkles, ArrowRight,
   Download, ExternalLink, RefreshCw, X, Send,
 } from "lucide-react";
-import { getToken, getWorkflows, getWorkflow, deleteWorkflow } from "@/lib/api";
+import { getToken, getWorkflows, getWorkflow, deleteWorkflow, getRunFamily } from "@/lib/api";
 import { PPTPreview } from "@/components/preview/PPTPreview";
 import { UserStoryPreview } from "@/components/preview/UserStoryPreview";
 import { PrototypePreview } from "@/components/preview/PrototypePreview";
@@ -22,7 +22,7 @@ import { DegradedRunAffordance } from "@/components/preview/PreviewPanel";
 import { FilesTab } from "@/components/results/FilesTab";
 import { AgentThinkingTab } from "@/components/results/AgentThinkingTab";
 import { AuditTab } from "@/components/results/AuditTab";
-import type { WorkflowRun, WorkflowType, AgentRunState } from "@/types/index";
+import type { WorkflowRun, WorkflowType, AgentRunState, RunFamily } from "@/types/index";
 import { resolveReopenMimetype } from "@/types/index";
 import { availableChainTargets } from "@/lib/workflowChaining";
 // ISS-017 (gap-fix) — SHARED failed-agent-id parser (no dual-impl). The IDENTICAL
@@ -34,7 +34,7 @@ import { availableChainTargets } from "@/lib/workflowChaining";
 import { parseFailedAgentIds, buildAgentNameById } from "@/lib/parseFailedAgents";
 // Revision Families (B2 / D3): client-side grouping by rootRunId + the family
 // root card (REUSE-FIRST — WORKSTREAM-B-UI-SPEC.md Surface 1).
-import { groupRunsByFamily, FamilyGroupCard, baseWorkflowType } from "./RevisionFamilyView";
+import { groupRunsByFamily, FamilyGroupCard, VersionTimeline, baseWorkflowType } from "./RevisionFamilyView";
 
 interface WorkflowHistoryProps {
   onBack: () => void;
@@ -128,6 +128,10 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
   const [selectedOutput, setSelectedOutput] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  // Revision Families (B2 / D4): the open run's family (root + ordered members),
+  // fetched on detail open and keyed on the STABLE rootRunId so switching
+  // versions does NOT refetch the family.
+  const [family, setFamily] = useState<RunFamily | null>(null);
   const [filterType, setFilterType] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [detailTab, setDetailTab] = useState<"preview" | "files" | "thinking" | "audit">("preview");
@@ -170,6 +174,36 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     setLoadingDetail(true);
     try {
       const full = await getWorkflow(token, run.id);
+      setSelectedRun(full);
+      setSelectedOutput(full.output || null);
+    } catch {}
+    finally { setLoadingDetail(false); }
+  }, []);
+
+  // Revision Families (B2 / D4): fetch the open run's family. Keyed on the STABLE
+  // rootRunId (same for every member) so switching versions does NOT refetch;
+  // cancellable so a fast back-and-forth cannot land a stale family.
+  useEffect(() => {
+    if (!selectedRun) { setFamily(null); return; }
+    const token = getToken();
+    if (!token) return;
+    let cancelled = false;
+    getRunFamily(token, selectedRun.rootRunId)
+      .then((f) => { if (!cancelled) setFamily(f); })
+      .catch(() => { if (!cancelled) setFamily(null); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRun?.rootRunId]);
+
+  // Revision Families (B2 / D4): load a chosen version into the SAME detail
+  // surface (mirrors the fetch half of handleSelectRun, but keyed by id and
+  // tab-preserving so a version switch feels like one workflow, not navigation).
+  const handleSelectVersion = useCallback(async (memberId: string) => {
+    const token = getToken();
+    if (!token) return;
+    setLoadingDetail(true);
+    try {
+      const full = await getWorkflow(token, memberId);
       setSelectedRun(full);
       setSelectedOutput(full.output || null);
     } catch {}
@@ -584,6 +618,14 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
 
         {/* Main content — white panel */}
         <div className="flex-1 min-w-0 h-full flex flex-col bg-white border-l border-gray-200">
+          {/* Revision Families (B2 / D4): version timeline — renders only when the
+              family has >=2 members. Clicking a chip loads that version here. */}
+          <VersionTimeline
+            family={family}
+            activeRunId={selectedRun.id}
+            activeInput={selectedRun.input}
+            onSelectVersion={handleSelectVersion}
+          />
           {/* Tabs + PPT action buttons */}
           <div className="flex items-center justify-between gap-2 px-5 py-3 border-b border-gray-100 bg-white flex-shrink-0">
             <div className="flex items-center gap-1">
@@ -643,7 +685,20 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
               <div className="flex items-center justify-center h-full">
                 <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
               </div>
-            ) : detailTab === "preview" ? (
+            ) : (
+              /* Version-switch cross-fade (PreviewPanel.tsx:586-594 idiom): all
+                 tabs re-render together keyed on selectedRun.id so a version
+                 switch feels like one workflow, not navigation. */
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={selectedRun.id}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.15 }}
+                  className="h-full"
+                >
+                  {detailTab === "preview" ? (
               !selectedOutput && !isAppBuilder ? (
                 // ISS-017 (gap-fix): a reopened terminal-FAILED/cancelled/degraded
                 // run with no content shows the SAME affordance the live path uses
@@ -747,6 +802,9 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                     : undefined
                 }
               />
+            )}
+                </motion.div>
+              </AnimatePresence>
             )}
           </div>
         </div>

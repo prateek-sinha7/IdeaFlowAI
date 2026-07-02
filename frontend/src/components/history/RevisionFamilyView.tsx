@@ -12,12 +12,13 @@
 // here; WorkflowHistory wires them into its list + detail views.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   FileText, Presentation, Layout,
   ChevronRight, MoreHorizontal, Trash2,
 } from "lucide-react";
-import type { WorkflowRun, WorkflowStatus } from "@/types/index";
+import type { WorkflowRun, WorkflowStatus, RunFamily } from "@/types/index";
 
 // ─── Display helpers (mirrors WorkflowHistory.tsx:87-120 — small presentational
 // utilities copied so the family card renders the SAME row shape without a
@@ -342,6 +343,135 @@ export function FamilyGroupCard({
             );
           })}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ─── extractRevisionInstructionPreview — a PREVIEW-ONLY inline shim.
+// B2 preview-only shim — Workstream C (§6.1) replaces this call site with
+// parseRunInput(input).revisionInstruction. Do NOT expand into a full
+// marker-family parser here (INV-12: one lib in C, not a second copy in B).
+export function extractRevisionInstructionPreview(input: string): string {
+  if (!input) return "";
+  const MARKER = "=== REVISION REQUEST ===";
+  let slice = input;
+  const markerIdx = input.indexOf(MARKER);
+  if (markerIdx >= 0) {
+    // Take the substring after the marker up to the next line beginning with "===".
+    const after = input.slice(markerIdx + MARKER.length);
+    const collected: string[] = [];
+    for (const line of after.split("\n")) {
+      if (line.trimStart().startsWith("===")) break;
+      collected.push(line);
+    }
+    slice = collected.join("\n");
+  }
+  const isMarkerLine = (s: string) => /^===.*===$/.test(s);
+  for (const rawLine of slice.split("\n")) {
+    const line = rawLine.trim();
+    if (!line || isMarkerLine(line)) continue;
+    return line.length > 60 ? line.slice(0, 60) + "…" : line;
+  }
+  return "";
+}
+
+// ─── VersionTimeline — the detail-view version chip row (UI-SPEC Surface 2).
+// A keyboard-navigable radiogroup of version chips above the tab bar; clicking a
+// chip loads that member into the same detail surface. Renders nothing for a
+// single-member (or absent) family — the same "hide when not a family" rule as
+// the list.
+export function VersionTimeline({
+  family, activeRunId, activeInput, onSelectVersion,
+}: {
+  family: RunFamily | null;
+  activeRunId: string;
+  activeInput: string;
+  onSelectVersion: (memberId: string) => void;
+}) {
+  const chipRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  // Managed focus: only steal focus after a USER-initiated switch, never on the
+  // initial mount (so opening a run does not yank focus to the chip row).
+  const userSwitched = useRef(false);
+
+  // Members ordered by revision_index ASC (v1..vN).
+  const members = family
+    ? [...family.members].sort((a, b) => a.revision_index - b.revision_index)
+    : [];
+  const currentIdx = members.findIndex((m) => m.id === activeRunId);
+
+  useEffect(() => {
+    if (userSwitched.current) {
+      const idx = members.findIndex((m) => m.id === activeRunId);
+      if (idx >= 0) chipRefs.current[idx]?.focus();
+      userSwitched.current = false;
+    }
+    // Only re-run when the active version changes (post-switch focus move).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRunId]);
+
+  // Hide the chip row when this is not a family (single-member / absent).
+  if (!family || family.members.length < 2) return null;
+
+  const select = (memberId: string) => {
+    userSwitched.current = true;
+    onSelectVersion(memberId);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (currentIdx < 0) return;
+    if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (currentIdx > 0) select(members[currentIdx - 1].id);
+    } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      e.preventDefault();
+      if (currentIdx < members.length - 1) select(members[currentIdx + 1].id);
+    } else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      select(members[currentIdx].id);
+    }
+  };
+
+  const activeMember = members.find((m) => m.id === activeRunId);
+  const instructionPreview = extractRevisionInstructionPreview(activeInput);
+
+  return (
+    <div className="border-b border-gray-100 bg-white flex-shrink-0">
+      {/* Chips row (mirrors the tab-bar container WorkflowHistory.tsx:574). */}
+      <div
+        role="radiogroup"
+        aria-label="Workflow versions"
+        onKeyDown={handleKeyDown}
+        className="flex items-center gap-1 px-5 py-2"
+      >
+        {members.map((member, i) => {
+          const isActive = member.id === activeRunId;
+          return (
+            <button
+              key={member.id}
+              ref={(el) => { chipRefs.current[i] = el; }}
+              role="radio"
+              aria-checked={isActive}
+              aria-label={`Version ${i + 1}${member.parent_run_id ? `, revises version ${i}` : ""}, ${member.status}`}
+              tabIndex={isActive ? 0 : -1}
+              onClick={() => select(member.id)}
+              className={`flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-md transition-colors ${
+                isActive
+                  ? "bg-[#1B2A4A] text-white"
+                  : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+              }`}
+            >
+              <span aria-hidden className={statusDotClass(member.status as WorkflowStatus)} />
+              v{i + 1}
+            </button>
+          );
+        })}
+      </div>
+      {/* Context line — only for a revision member (non-null parent). */}
+      {activeMember && activeMember.parent_run_id && (
+        <p className="px-5 pb-2 text-[10px] text-gray-400 truncate">
+          ↳ Revises v{currentIdx} — &lsquo;{instructionPreview}&rsquo;
+        </p>
       )}
     </div>
   );
