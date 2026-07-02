@@ -82,6 +82,8 @@ function makeRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
     completedAt: new Date("2026-05-12T10:05:00Z").toISOString(),
     duration: 300,
     agentCount: 4,
+    parentRunId: null,
+    rootRunId: "run-1",
     ...overrides,
   };
 }

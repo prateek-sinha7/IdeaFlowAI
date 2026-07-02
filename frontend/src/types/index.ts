@@ -297,11 +297,36 @@ export interface WorkflowRun {
   // NULL rows → the heuristic fallback applies (parity).
   deliverableMimetype?: string;
   deliverableFilename?: string;
+  // Revision Families (B1 / D1-D2-D7): the child-run family model unified at the
+  // read layer. parentRunId is the run this run revised (null for a standalone /
+  // root run); rootRunId is the family root, computed server-side (a standalone
+  // run is its own root).
+  parentRunId: string | null;
+  rootRunId: string;
   createdAt: string;
   completedAt?: string;
   duration?: number;
   agentCount: number;
   error?: string;
+}
+
+// Revision Families (B1): raw wire shape from GET /api/runs/{id}/family. Carries
+// the API's snake_case field names on purpose (like ChainContext) — this is the
+// unnormalized read model the family view consumes directly.
+export interface FamilyMember {
+  id: string;
+  type: string;
+  title: string;
+  status: string;
+  revision_index: number;
+  parent_run_id: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface RunFamily {
+  root_id: string;
+  members: FamilyMember[];
 }
 
 export interface AgentThinkingEntry {

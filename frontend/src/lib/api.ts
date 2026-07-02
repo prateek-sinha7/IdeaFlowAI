@@ -7,6 +7,7 @@ import type {
   AuthResponse,
   ChatMessage,
   ChatSession,
+  RunFamily,
   User,
   WorkflowRun,
   WorkflowType,
@@ -264,6 +265,9 @@ interface RawWorkflowRun {
   // UXFIX-02 (22-03 / D-19): persisted declared/resolved deliverable shape.
   deliverable_mimetype?: string | null;
   deliverable_filename?: string | null;
+  // Revision Families (B1 / D1-D2-D7): optional so legacy raw rows still parse.
+  parent_run_id?: string | null;
+  root_run_id?: string;
   created_at: string;
   completed_at: string | null;
 }
@@ -296,6 +300,10 @@ function normalizeWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
     modelId: raw.model_id ?? undefined,
     deliverableMimetype: raw.deliverable_mimetype ?? undefined,
     deliverableFilename: raw.deliverable_filename ?? undefined,
+    // Revision Families (B1): a standalone/legacy run with no root is its own
+    // root — matches the backend's "standalone run → own id" semantics.
+    parentRunId: raw.parent_run_id ?? null,
+    rootRunId: raw.root_run_id ?? raw.id,
     agentCount: raw.agent_count,
     duration: raw.duration ?? undefined,
     error: raw.error ?? undefined,
@@ -331,6 +339,18 @@ export async function getWorkflow(
     headers: authHeaders(token),
   });
   return normalizeWorkflowRun(raw);
+}
+
+/** Fetch the revision family (root + ordered members) for a run.
+ *  Returns the raw wire shape (unnormalized snake_case) like getChainContext. */
+export async function getRunFamily(
+  token: string,
+  runId: string
+): Promise<RunFamily> {
+  return request<RunFamily>(`/api/runs/${runId}/family`, {
+    method: "GET",
+    headers: authHeaders(token),
+  });
 }
 
 export interface ChainContext {
