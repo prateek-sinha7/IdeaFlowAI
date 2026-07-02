@@ -65,6 +65,11 @@ export function LiveVersionChip({
   const [open, setOpen] = useState(false);
   const [highlightIdx, setHighlightIdx] = useState(0);
   const chipRef = useRef<HTMLButtonElement | null>(null);
+  // Per-option refs so the keyboard path can roving-focus the highlighted option
+  // (mirrors VersionTimeline's chipRefs, RevisionFamilyView.tsx:392). Plain
+  // <button> refs attach reliably (incl. under the tests' motion mock); a ref on
+  // the motion.div listbox container would not.
+  const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   // Members ordered by revision_index ASC (v1..vN).
   const members = family
@@ -73,9 +78,17 @@ export function LiveVersionChip({
   const activeIdx = members.findIndex((m) => m.id === activeRunId);
 
   // Keep the keyboard-highlighted option in sync with the active version when the
-  // dropdown opens.
+  // dropdown opens, and move keyboard focus INTO the listbox (onto the active
+  // option) so Arrow/Enter/Escape are reachable. Focus only fires on open — the
+  // active version only changes via select(), which closes the dropdown — so this
+  // never steals focus on unrelated re-renders (mirrors VersionTimeline's
+  // "focus only after a user action" intent, RevisionFamilyView.tsx:394-411).
   useEffect(() => {
-    if (open) setHighlightIdx(activeIdx >= 0 ? activeIdx : 0);
+    if (open) {
+      const idx = activeIdx >= 0 ? activeIdx : 0;
+      setHighlightIdx(idx);
+      optionRefs.current[idx]?.focus();
+    }
   }, [open, activeIdx]);
 
   // Hide the chip when this is not a family (single-member / absent).
@@ -98,10 +111,16 @@ export function LiveVersionChip({
       close();
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
-      setHighlightIdx((i) => Math.min(i + 1, members.length - 1));
+      // Compute the next index explicitly so roving tabIndex + focus + highlight
+      // stay in lockstep (the focused option is the one the next keydown lands on).
+      const next = Math.min(highlightIdx + 1, members.length - 1);
+      setHighlightIdx(next);
+      optionRefs.current[next]?.focus();
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setHighlightIdx((i) => Math.max(i - 1, 0));
+      const next = Math.max(highlightIdx - 1, 0);
+      setHighlightIdx(next);
+      optionRefs.current[next]?.focus();
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       const member = members[highlightIdx];
@@ -154,8 +173,10 @@ export function LiveVersionChip({
                 return (
                   <button
                     key={member.id}
+                    ref={(el) => { optionRefs.current[i] = el; }}
                     role="option"
                     aria-selected={isActive}
+                    tabIndex={i === highlightIdx ? 0 : -1}
                     onMouseEnter={() => setHighlightIdx(i)}
                     onClick={() => select(member.id)}
                     className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] transition-colors ${

@@ -325,10 +325,17 @@ export function FamilyGroupCard({
             const parentIdx = group.members.findIndex((m) => m.id === member.parentRunId);
             const revisesN = (parentIdx >= 0 ? parentIdx : i - 1) + 1;
             return (
-              <div
+              // Native <button> so each child version row is keyboard-focusable +
+              // Enter/Space-activatable for free (FIX 2 / §8 a11y). Keeps the exact
+              // row className + appends `w-full text-left` to reproduce the
+              // full-width flex row — no visual change. The ROOT family-card rows
+              // stay <div onClick> (audit-scoped out).
+              <button
                 key={member.id}
+                type="button"
                 onClick={() => onSelectRun(member)}
-                className="flex items-center gap-3 pl-8 pr-6 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors"
+                aria-label={`Version ${i + 1}, ${member.status}`}
+                className="w-full text-left flex items-center gap-3 pl-8 pr-6 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors"
               >
                 <span className="text-[9px] font-semibold px-1 rounded bg-gray-200 text-gray-500">
                   v{i + 1}
@@ -339,7 +346,7 @@ export function FamilyGroupCard({
                 {member.parentRunId && (
                   <span className="text-[10px] text-gray-400">↳ revises v{revisesN}</span>
                 )}
-              </div>
+              </button>
             );
           })}
         </div>
