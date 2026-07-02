@@ -136,6 +136,11 @@ export interface DashboardLayoutProps {
   // so existing callers/tests that omit it are unaffected; a non-wave run
   // feeds an empty list and WaveTreePanel renders its own empty state.
   waves?: WaveGroup[];
+  // Workstream C2 (POR §5 D3 / §6.2) — the live run's captured input (submittedBrief
+  // in page.tsx, set in onStartPipeline). Threaded as PreviewPanel.runInput so the
+  // StartingPointCard + Files "Run input" section render on the LIVE mount. Optional
+  // and default-undefined → non-live callers/tests render unchanged.
+  submittedBrief?: string;
 }
 
 type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution" | "catalog" | "saved-workflows";
@@ -267,6 +272,7 @@ export function DashboardLayout({
   userTier = "basic",
   userEmail,
   waves = [],
+  submittedBrief,
 }: DashboardLayoutProps) {
   const router = useRouter();
   const [mainView, setMainView] = useState<MainView>(() => {
@@ -1524,6 +1530,7 @@ export function DashboardLayout({
                       reopenedAgentNameById={reopenedAgentNameById}
                       runFamily={runFamily}
                       liveRunId={contentSourceRunId ?? null}
+                      runInput={submittedBrief}
                     />
                   )}
                 </ErrorBoundary>

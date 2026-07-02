@@ -9,7 +9,9 @@ import {
 } from "lucide-react";
 import { exportUserStories } from "@/lib/exporters/storyExporter";
 import { ENV } from "@/lib/env";
-import type { WorkflowType, GenericDeliverable } from "@/types/index";
+import { parseRunInput } from "@/lib/runInput";
+import { renderClarificationsMarkdown } from "@/lib/clarifications";
+import type { WorkflowType, GenericDeliverable, ClarifyRound } from "@/types/index";
 
 interface FilesTabProps {
   workflowType: WorkflowType;
@@ -34,6 +36,49 @@ interface FilesTabProps {
   // regression for existing renders that pass neither).
   parentRunId?: string | null;
   parentVersionNumber?: number;
+  // Workstream C2 (POR §5 D7) — "Run input" section. The raw run input (parsed
+  // via C1 parseRunInput → prompt.md) and the answered clarify rounds (rendered
+  // via renderClarificationsMarkdown → clarifications.md). BOTH optional and
+  // default-undefined → a call site that threads neither shows NO "Run input"
+  // section (zero regression). Type-agnostic (SC-001 — no workflowType branch).
+  runInput?: string;
+  clarifications?: ClarifyRound[];
+}
+
+// ─── Workstream C2 (POR §5 D7) — "Run input" file rows (module-level pure) ─────
+// Derives prompt.md (parsed brief, present whenever non-empty) + clarifications.md
+// (rendered Q&A markdown, present ONLY when rounds exist). Both are plain
+// text/markdown FileItems that fall into the default downloadBlob branch — no new
+// download code, no special-cased id. Type-agnostic: no workflowType branch.
+function runInputFileRows(runInput?: string, clarifications?: ClarifyRound[]): FileItem[] {
+  const rows: FileItem[] = [];
+  const brief = parseRunInput(runInput ?? "").brief;
+  if (brief) {
+    rows.push({
+      id: "run-input-prompt",
+      name: "prompt.md",
+      type: "Run input",
+      icon: FileText,
+      format: "Markdown (.md)",
+      content: brief,
+      mimeType: "text/markdown",
+      size: formatSize(brief.length),
+    });
+  }
+  if (clarifications?.length) {
+    const md = renderClarificationsMarkdown(clarifications);
+    rows.push({
+      id: "run-input-clarifications",
+      name: "clarifications.md",
+      type: "Run input",
+      icon: FileText,
+      format: "Markdown (.md)",
+      content: md,
+      mimeType: "text/markdown",
+      size: formatSize(md.length),
+    });
+  }
+  return rows;
 }
 
 // ─── ISS-021 (18-03) — mimetype → file metadata for the generic deliverable row ──
@@ -227,7 +272,7 @@ function deriveDeliverableFiles(
   return files;
 }
 
-export function FilesTab({ workflowType, userStoryContent, pptContent, prototypeContent, agentOutputs, genericDeliverable, parentRunId, parentVersionNumber }: FilesTabProps) {
+export function FilesTab({ workflowType, userStoryContent, pptContent, prototypeContent, agentOutputs, genericDeliverable, parentRunId, parentVersionNumber, runInput, clarifications }: FilesTabProps) {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   // ─── B3 (POR §5 D6) — base-version "From v{n-1}" section state ────────────────
   // Collapsed by default; the parent run's files are fetched LAZILY on first
@@ -467,7 +512,10 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
   }, [userStoryContent, pptContent, appBuilderCodeFiles, appBuilderDocFiles]);
 
   const isAppBuilder = workflowType === "app_builder" || workflowType === "app_builder_revision";
-  const totalCount = files.length + appBuilderDocFiles.length + appBuilderCodeFiles.length + genericAgentFiles.length;
+  // Workstream C2 (POR §5 D7) — the "Run input" rows; counted in totalCount so the
+  // "{N} files available" header stays truthful, and included in "Download All".
+  const runInputRows = runInputFileRows(runInput, clarifications);
+  const totalCount = files.length + appBuilderDocFiles.length + appBuilderCodeFiles.length + genericAgentFiles.length + runInputRows.length;
 
   if (totalCount === 0) {
     return (
@@ -561,7 +609,7 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
         <span className="text-[11px] text-gray-500 font-medium">{totalCount} file{totalCount !== 1 ? "s" : ""} available</span>
         <button
           onClick={() => {
-            const all = [...files, ...(isAppBuilder ? appBuilderDocFiles : []), ...(isAppBuilder ? appBuilderCodeFiles : genericAgentFiles)];
+            const all = [...runInputRows, ...files, ...(isAppBuilder ? appBuilderDocFiles : []), ...(isAppBuilder ? appBuilderCodeFiles : genericAgentFiles)];
             all.forEach((file, i) => setTimeout(() => handleDownload(file), i * 150));
           }}
           className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[10px] font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 transition-all"
@@ -570,6 +618,17 @@ export function FilesTab({ workflowType, userStoryContent, pptContent, prototype
           Download All
         </button>
       </div>
+
+      {/* ── Workstream C2 (POR §5 D7) — "Run input" section ────────────────────
+          FIRST content section (the run's input precedes its outputs), same
+          plain uppercase label idiom as "Agent outputs" (:619,627). Rows go
+          through the SAME renderFileRow; type-agnostic (no workflowType branch). */}
+      {runInputRows.length > 0 && (
+        <div className="mb-5">
+          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium mb-2">Run input</p>
+          <div className="space-y-2">{runInputRows.map((f, i) => renderFileRow(f, i))}</div>
+        </div>
+      )}
 
       {/* ── App Builder layout ─────────────────────────────────────────────── */}
       {isAppBuilder ? (

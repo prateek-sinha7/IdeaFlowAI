@@ -8,7 +8,8 @@ import {
   Search, Sparkles, ArrowRight,
   Download, ExternalLink, RefreshCw, X, Send,
 } from "lucide-react";
-import { getToken, getWorkflows, getWorkflow, deleteWorkflow, getRunFamily } from "@/lib/api";
+import { getToken, getWorkflows, getWorkflow, deleteWorkflow, getRunFamily, getRunArtifacts } from "@/lib/api";
+import { parseClarificationArtifacts } from "@/lib/clarifications";
 import { PPTPreview } from "@/components/preview/PPTPreview";
 import { UserStoryPreview } from "@/components/preview/UserStoryPreview";
 import { PrototypePreview } from "@/components/preview/PrototypePreview";
@@ -22,7 +23,7 @@ import { DegradedRunAffordance } from "@/components/preview/PreviewPanel";
 import { FilesTab } from "@/components/results/FilesTab";
 import { AgentThinkingTab } from "@/components/results/AgentThinkingTab";
 import { AuditTab } from "@/components/results/AuditTab";
-import type { WorkflowRun, WorkflowType, AgentRunState, RunFamily } from "@/types/index";
+import type { WorkflowRun, WorkflowType, AgentRunState, RunFamily, ClarifyRound } from "@/types/index";
 import { resolveReopenMimetype } from "@/types/index";
 import { availableChainTargets } from "@/lib/workflowChaining";
 // ISS-017 (gap-fix) — SHARED failed-agent-id parser (no dual-impl). The IDENTICAL
@@ -132,6 +133,11 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   // fetched on detail open and keyed on the STABLE rootRunId so switching
   // versions does NOT refetch the family.
   const [family, setFamily] = useState<RunFamily | null>(null);
+  // Workstream C2 (POR §5 D4 / §6.6) — the open run's answered clarify rounds,
+  // fetched on reopen from getRunArtifacts(kind="clarifications") and parsed via
+  // parseClarificationArtifacts. Threaded to the Thinking + Files mounts.
+  const [clarifyRounds, setClarifyRounds] = useState<ClarifyRound[]>([]);
+  const [clarifyLoading, setClarifyLoading] = useState(false);
   const [filterType, setFilterType] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [detailTab, setDetailTab] = useState<"preview" | "files" | "thinking" | "audit">("preview");
@@ -201,6 +207,23 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRun?.rootRunId]);
+
+  // Workstream C2 (POR §5 D4 / §6.6): fetch the open run's clarify rounds on
+  // reopen. Keyed on selectedRun?.id (each version has its own clarify history);
+  // cancellable so a fast back-and-forth cannot land a stale result. A PROCEED
+  // run resolves to empty artifacts → [] → ClarificationsCard renders nothing.
+  useEffect(() => {
+    if (!selectedRun) { setClarifyRounds([]); return; }
+    const token = getToken();
+    if (!token) { setClarifyRounds([]); return; }
+    let cancelled = false;
+    setClarifyLoading(true);
+    getRunArtifacts(token, selectedRun.id, { kind: "clarifications", includeContent: true })
+      .then((resp) => { if (!cancelled) setClarifyRounds(parseClarificationArtifacts(resp.artifacts)); })
+      .catch(() => { if (!cancelled) setClarifyRounds([]); })
+      .finally(() => { if (!cancelled) setClarifyLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedRun?.id]);
 
   // Revision Families (B2 / D4): load a chosen version into the SAME detail
   // surface (mirrors the fetch half of handleSelectRun, but keyed by id and
@@ -788,7 +811,13 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
               )
             ) : detailTab === "thinking" ? (
               /* Thinking tab — populated from persisted agent_outputs (Phase 3) */
-              <AgentThinkingTab agents={thinkingAgents} />
+              <AgentThinkingTab
+                agents={thinkingAgents}
+                runInput={selectedRun.input}
+                clarifications={clarifyRounds}
+                clarificationsLoading={clarifyLoading}
+                originalBriefRootRunId={selectedRun.parentRunId ? selectedRun.rootRunId : undefined}
+              />
             ) : detailTab === "audit" ? (
               /* Audit tab — persisted hook_runs fetched from GET /api/runs/{id}/hook-runs */
               <AuditTab workflowRunId={selectedRun.id} />
@@ -811,6 +840,8 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                         .map((a) => ({ name: a.name, role: a.role, output: a.output, agentId: a.agent_id }))
                     : undefined
                 }
+                runInput={selectedRun.input}
+                clarifications={clarifyRounds}
               />
             )}
                 </motion.div>

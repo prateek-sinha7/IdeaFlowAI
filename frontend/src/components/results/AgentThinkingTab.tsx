@@ -7,13 +7,22 @@ import {
   Layers, Activity, Eye, EyeOff, Copy, Check,
   AlertTriangle, Pencil,
 } from "lucide-react";
-import type { AgentRunState, ContextSource, ToolCallEntry, PipelineRunState, ValidationIssue } from "@/types/index";
+import type { AgentRunState, ContextSource, ToolCallEntry, PipelineRunState, ValidationIssue, ClarifyRound } from "@/types/index";
 import { PrototypePipelineView } from "./PrototypePipelineView";
 import { TokenUsageSummary } from "@/components/workflow/TokenUsageSummary";
+import { StartingPointCard } from "./StartingPointCard";
+import { ClarificationsCard } from "./ClarificationsCard";
 
 interface AgentThinkingTabProps {
   agents: AgentRunState[];
   pipelineState?: PipelineRunState;
+  // Workstream C2 (POR §5 D3+D4) — timeline narrative surfaces. All optional and
+  // default-undefined so every existing call site renders byte-unchanged.
+  runInput?: string;               // raw run input for StartingPointCard (C1 parse)
+  originalBriefRootRunId?: string; // revision-only lineage → lazy Original-brief fetch
+  revisionParentVersion?: number;  // "revision of v{n-1}" chip
+  clarifications?: ClarifyRound[]; // reopen-fetched rounds; live falls back to pipelineState
+  clarificationsLoading?: boolean; // reopen fetch in flight → aria-busy
 }
 
 // ─── Agent accent — single on-brand color (design system navy #1B2A4A) ─────────
@@ -577,15 +586,20 @@ function AgentTimelineCard({ agent, isLast, isRunning, refCallback }: AgentCardP
 // replacing the former bespoke TokenSummary so all pipelines use one component.
 
 // ─── Main export ──────────────────────────────────────────────────────────────
-export function AgentThinkingTab({ agents, pipelineState }: AgentThinkingTabProps) {
+export function AgentThinkingTab({ agents, pipelineState, runInput, originalBriefRootRunId, revisionParentVersion, clarifications, clarificationsLoading }: AgentThinkingTabProps) {
   const runningRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     runningRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [agents]);
 
+  // Workstream C2 — the run input / clarify rounds are also first-class timeline
+  // data, so a run with only inputs (no agents yet) must NOT short-circuit to the
+  // EmptyState. Additive to the existing conditions (both props new/optional).
+  const resolvedClarifications = clarifications ?? pipelineState?.clarifications;
   const hasAnyData = pipelineState?.plannerStatus ||
-    agents.some(a => a.thinkingText || (a.toolCalls?.length ?? 0) > 0 || a.inputPrompt || a.status !== "idle");
+    agents.some(a => a.thinkingText || (a.toolCalls?.length ?? 0) > 0 || a.inputPrompt || a.status !== "idle") ||
+    !!runInput || (resolvedClarifications?.length ?? 0) > 0;
 
   if (!hasAnyData) return <EmptyState />;
 
@@ -616,10 +630,20 @@ export function AgentThinkingTab({ agents, pipelineState }: AgentThinkingTabProp
       <PipelineHeader pipelineState={pipelineState} workflowLabel={pipelineLabel} />
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+        {/* Workstream C2 (POR §5 D3) — the run's starting point, BEFORE the Planner */}
+        <StartingPointCard
+          input={runInput}
+          originalBriefRootRunId={originalBriefRootRunId}
+          revisionParentVersion={revisionParentVersion}
+        />
+
         {/* Planner step */}
         {pipelineState && (
           <PlannerCard pipelineState={pipelineState} />
         )}
+
+        {/* Workstream C2 (POR §5 D4) — the clarify exchange, AFTER the Planner */}
+        <ClarificationsCard clarifications={resolvedClarifications} loading={clarificationsLoading} />
 
         {/* Agent cards */}
         {visibleAgents.map((agent, idx) => {

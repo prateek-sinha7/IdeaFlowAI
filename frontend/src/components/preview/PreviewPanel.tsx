@@ -289,6 +289,12 @@ interface PreviewPanelProps {
   // history callers and existing test renders).
   runFamily?: RunFamily | null;
   liveRunId?: string | null;
+  // Workstream C2 (POR §5 D3+D4+D7) — pass-throughs for the "Run input" surfaces.
+  // The live path already carries clarify rounds via pipelineState.clarifications;
+  // the explicit `clarifications` prop is the reopen override (?? keeps both
+  // correct). BOTH optional/default-undefined → existing renders unchanged.
+  runInput?: string;
+  clarifications?: import("@/types/index").ClarifyRound[];
 }
 
 const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
@@ -383,7 +389,7 @@ export function DegradedRunAffordance({
   );
 }
 
-export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, runFamily, liveRunId }: PreviewPanelProps) {
+export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, runFamily, liveRunId, runInput, clarifications }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>("preview");
   const [copied, setCopied] = useState(false);
   // ─── B3 (POR §5 D5) — live version chip state ───────────────────────────────
@@ -731,7 +737,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               transition={{ duration: 0.15 }}
               className="absolute inset-0"
             >
-              <FilesTab workflowType={renderType} userStoryContent={userStoryContent} pptContent={pptContent} prototypeContent={prototypeContent} agentOutputs={agentOutputs} genericDeliverable={hasGenericDeliverable ? genericDeliverable : undefined} parentRunId={activeParentRunId} parentVersionNumber={activeIdx} />
+              <FilesTab workflowType={renderType} userStoryContent={userStoryContent} pptContent={pptContent} prototypeContent={prototypeContent} agentOutputs={agentOutputs} genericDeliverable={hasGenericDeliverable ? genericDeliverable : undefined} parentRunId={activeParentRunId} parentVersionNumber={activeIdx} runInput={runInput} clarifications={clarifications ?? pipelineState?.clarifications} />
             </motion.div>
           )}
           {activeTab === "thinking" && (
@@ -743,7 +749,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               transition={{ duration: 0.15 }}
               className="absolute inset-0"
             >
-              <AgentThinkingTab agents={agents || []} pipelineState={pipelineState} />
+              <AgentThinkingTab agents={agents || []} pipelineState={pipelineState} runInput={runInput} clarifications={clarifications ?? pipelineState?.clarifications} />
             </motion.div>
           )}
           {activeTab === "audit" && (

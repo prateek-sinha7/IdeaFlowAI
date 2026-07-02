@@ -23,6 +23,11 @@ vi.mock("@/lib/api", () => ({
   getWorkflow: (token: string, id: string) => mockGetWorkflow(token, id),
   deleteWorkflow: (token: string, id: string) => mockDeleteWorkflow(token, id),
   getRunFamily: (token: string, id: string) => mockGetRunFamily(token, id),
+  // C2: WorkflowHistory now statically imports+calls getRunArtifacts on reopen;
+  // return an empty artifact shape so ClarificationsCard renders null (no rounds)
+  // and StartingPointCard renders from selectedRun.input unchanged (avoids the
+  // B2 undefined-mock-export crash).
+  getRunArtifacts: () => Promise.resolve({ workflow_id: "x", artifacts: [] }),
 }));
 
 vi.mock("@/components/preview/PPTPreview", () => ({
