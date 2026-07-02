@@ -19,6 +19,7 @@ import {
   ChevronRight, MoreHorizontal, Trash2,
 } from "lucide-react";
 import type { WorkflowRun, WorkflowStatus, RunFamily } from "@/types/index";
+import { parseRunInput } from "@/lib/runInput";
 
 // ─── Display helpers (mirrors WorkflowHistory.tsx:87-120 — small presentational
 // utilities copied so the family card renders the SAME row shape without a
@@ -365,28 +366,16 @@ export function FamilyGroupCard({
 }
 
 // ─── extractRevisionInstructionPreview — a PREVIEW-ONLY inline shim.
-// B2 preview-only shim — Workstream C (§6.1) replaces this call site with
-// parseRunInput(input).revisionInstruction. Do NOT expand into a full
-// marker-family parser here (INV-12: one lib in C, not a second copy in B).
+// Workstream C1 (INV-12): the marker extraction now DELEGATES to the single
+// project-wide parser (lib/runInput). This shim keeps ONLY the preview
+// formatting (first meaningful line, clamped to 60 chars) — no second parser.
 export function extractRevisionInstructionPreview(input: string): string {
   if (!input) return "";
-  const MARKER = "=== REVISION REQUEST ===";
-  let slice = input;
-  const markerIdx = input.indexOf(MARKER);
-  if (markerIdx >= 0) {
-    // Take the substring after the marker up to the next line beginning with "===".
-    const after = input.slice(markerIdx + MARKER.length);
-    const collected: string[] = [];
-    for (const line of after.split("\n")) {
-      if (line.trimStart().startsWith("===")) break;
-      collected.push(line);
-    }
-    slice = collected.join("\n");
-  }
-  const isMarkerLine = (s: string) => /^===.*===$/.test(s);
-  for (const rawLine of slice.split("\n")) {
+  const parsed = parseRunInput(input);
+  const source = parsed.revisionInstruction ?? parsed.brief;
+  for (const rawLine of source.split("\n")) {
     const line = rawLine.trim();
-    if (!line || isMarkerLine(line)) continue;
+    if (!line) continue;
     return line.length > 60 ? line.slice(0, 60) + "…" : line;
   }
   return "";
