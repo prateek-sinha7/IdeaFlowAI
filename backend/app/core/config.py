@@ -101,6 +101,17 @@ class Settings(BaseSettings):
     # the active model accepts it, or Bedrock returns a ValidationException.
     MAX_OUTPUT_TOKENS: int = 32768
 
+    # ---- Input-brief character cap (single source of truth) ----
+    # The maximum number of characters of the user brief that reaches the
+    # SmartPlanner analyze prompt + its stored planning_context.user_request AND
+    # the ClarifyEngine brief_sample. Aligned with file_extract._MAX_TEXT_CHARS
+    # (the 64k upload cap) so a full uploaded document reaches the planner/clarify
+    # LLM in full instead of being whittled to a head+tail sample. A 64k brief is
+    # ~16k input tokens for a SINGLE planner/clarify call — trivial within Haiku's
+    # 200k context; no token-loop concern. Briefs beyond this ceiling are still
+    # head+tail sampled (planner) / head-capped (clarify + storage) to bound input.
+    BRIEF_MAX_CHARS: int = 64_000
+
     # ---- Per-LLM-call total timeout (seconds) ----
     # Wraps one streaming LLM call inside DeepAgent. With MAX_OUTPUT_TOKENS lifted
     # to the model ceiling a single full-length generation can run several minutes,

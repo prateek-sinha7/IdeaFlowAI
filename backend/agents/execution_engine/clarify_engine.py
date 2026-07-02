@@ -29,6 +29,7 @@ from typing import Any, Awaitable, Callable
 from agents.artifact_store.store import get_artifact_store
 from agents.artifacts.graph import ArtifactGraph
 from agents.authz import ScopedStore
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -359,7 +360,7 @@ class ClarifyEngine:
         if not user_request and not inferred_intent:
             return None
 
-        brief_sample = user_request[:2000] if user_request else inferred_intent[:500]
+        brief_sample = user_request[:settings.BRIEF_MAX_CHARS] if user_request else inferred_intent[:2000]
         topic_label = topic or (user_request_summary or inferred_intent or "")[:60]
 
         # Pipeline-specific question priorities

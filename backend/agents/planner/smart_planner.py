@@ -29,6 +29,8 @@ import logging
 import re
 from typing import Any
 
+from app.core.config import settings
+
 logger = logging.getLogger("agents.planner.smart_planner")
 
 # ---------------------------------------------------------------------------
@@ -199,12 +201,16 @@ class SmartPlanner:
         kb = _get_domain_knowledge(pipeline_type)
 
         # For long briefs, intelligently sample so the LLM can scan what's covered.
+        # Realistic briefs (including a full uploaded doc, <= settings.BRIEF_MAX_CHARS)
+        # pass IN FULL; only pathological briefs beyond the ceiling are head+tail sampled.
         brief_for_prompt = brief
-        if len(brief) > 2500:
-            head = brief[:1500].rstrip()
-            tail = brief[-500:].lstrip()
+        if len(brief) > settings.BRIEF_MAX_CHARS:
+            head_budget = settings.BRIEF_MAX_CHARS * 3 // 4
+            tail_budget = settings.BRIEF_MAX_CHARS - head_budget
+            head = brief[:head_budget].rstrip()
+            tail = brief[-tail_budget:].lstrip()
             brief_for_prompt = (
-                f"{head}\n\n[... document continues — {len(brief) - 2000} chars omitted ...]\n\n{tail}"
+                f"{head}\n\n[... document continues — {len(brief) - settings.BRIEF_MAX_CHARS} chars omitted ...]\n\n{tail}"
             )
 
         return f"""You are an expert pipeline planner. Analyze the user's brief and produce a structured planning context using a coverage scan approach.
@@ -390,9 +396,9 @@ Return ONLY valid JSON, no other text:
 
             ctx = json.loads(json_match.group())
             ctx["pipeline_type"] = pipeline_type  # ensure it's set
-            # Store the original user request (truncated to 3000 chars for context
-            # window safety) so ClarifyEngine can generate content-aware questions.
-            ctx["user_request"] = brief[:3000] if len(brief) > 3000 else brief
+            # Store the original user request (capped at settings.BRIEF_MAX_CHARS for
+            # context-window safety) so ClarifyEngine can generate content-aware questions.
+            ctx["user_request"] = brief[:settings.BRIEF_MAX_CHARS] if len(brief) > settings.BRIEF_MAX_CHARS else brief
 
             logger.info(
                 "SmartPlanner: pipeline=%s has_topic=%s gate=%s missing=%s",
@@ -424,6 +430,6 @@ Return ONLY valid JSON, no other text:
             "quality_targets": kb["quality_targets"][:2],
             "pipeline_type": pipeline_type,
             "domain_insights": [],
-            "user_request": brief[:3000] if len(brief) > 3000 else brief,
+            "user_request": brief[:settings.BRIEF_MAX_CHARS] if len(brief) > settings.BRIEF_MAX_CHARS else brief,
             "planner_fallback": True,
         }
