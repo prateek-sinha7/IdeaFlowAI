@@ -450,10 +450,10 @@ export function DashboardLayout({
   const pptxCode = pipelineState?.agents.find(a => a.id === "ppt-code-generator" && a.status === "done")?.output || undefined;
 
   // Revision Families (B1 / D1-D7): the fragile currentWorkflowRunId heuristic is
-  // GONE — it guessed the parent by matching recentRuns on workflowType (with a
-  // never-match `workflowType + "_revision"` branch for double-revision types)
-  // and orphaned every history-launched revision. Parent linkage now comes from
-  // the contentSourceRunId prop (page.tsx tracks the actual on-screen run).
+  // GONE — it guessed the parent by matching recentRuns on the current workflow
+  // type (with a double-revision-suffix branch that could never match) and
+  // orphaned every history-launched revision. Parent linkage now comes from the
+  // contentSourceRunId prop (page.tsx tracks the actual on-screen run).
 
   // Handle PPT revision — Phase 3: send run_revision WS message when a
   // completed run exists; fall back to the legacy text-injection pattern
