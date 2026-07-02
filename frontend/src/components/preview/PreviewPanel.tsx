@@ -408,6 +408,11 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   const activeRunId = viewingVersion?.id ?? liveRunId ?? latestId;
   const activeIdx = sortedMembers.findIndex((m) => m.id === activeRunId);
   const isViewingOlder = viewingVersion != null && viewingVersion.id !== latestId;
+  // The active member's parent (the immediately-prior version) — threaded to
+  // FilesTab for the base-version "From v{n-1}" section (B3 / POR §5 D6). The
+  // parent is v{activeIdx} (0-based index of the active member == the parent's
+  // 1-based version number).
+  const activeParentRunId = sortedMembers.find((m) => m.id === activeRunId)?.parent_run_id ?? null;
 
   const handleSelectVersion = useCallback(async (memberId: string) => {
     if (memberId === latestId) {
@@ -724,7 +729,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               transition={{ duration: 0.15 }}
               className="absolute inset-0"
             >
-              <FilesTab workflowType={renderType} userStoryContent={userStoryContent} pptContent={pptContent} prototypeContent={prototypeContent} agentOutputs={agentOutputs} genericDeliverable={hasGenericDeliverable ? genericDeliverable : undefined} />
+              <FilesTab workflowType={renderType} userStoryContent={userStoryContent} pptContent={pptContent} prototypeContent={prototypeContent} agentOutputs={agentOutputs} genericDeliverable={hasGenericDeliverable ? genericDeliverable : undefined} parentRunId={activeParentRunId} parentVersionNumber={activeIdx} />
             </motion.div>
           )}
           {activeTab === "thinking" && (
