@@ -15,6 +15,11 @@ vi.mock("@/lib/api", () => ({
   getWorkflows: (token: string, opts?: { limit?: number }) => mockGetWorkflows(token, opts),
   getWorkflow: (token: string, id: string) => mockGetWorkflow(token, id),
   deleteWorkflow: (token: string, id: string) => mockDeleteWorkflow(token, id),
+  // B2: WorkflowHistory now fetches the revision family on detail-open. This
+  // suite doesn't assert the version timeline, so return an empty family
+  // (VersionTimeline renders null for <2 members) — this only prevents the
+  // undefined-mock-export throw that would otherwise crash render.
+  getRunFamily: () => Promise.resolve({ root_id: "", members: [] }),
 }));
 
 // Bespoke previews stubbed so we assert WorkflowHistory's OWN dispatch. The
