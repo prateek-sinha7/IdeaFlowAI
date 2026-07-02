@@ -139,3 +139,50 @@ describe("WorkflowHistory reopen — clarify fetch + Starting point (C2)", () =>
     expect(screen.queryByText("Clarifications")).toBeNull();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────
+// C-FLAG-1 + C-FLAG-2 (260703-174) — the REOPEN mount now threads
+// revisionParentVersion (computed from the fetched family + selectedRun.parentRunId)
+// AND originalBriefRootRunId, so on a revision reopen the StartingPointCard renders
+// the "revision of v{n}" chip + the "Original brief (v1)" expander. This asserts at
+// the MOUNT level (StartingPointCard's own chip rendering is unit-tested elsewhere).
+// ─────────────────────────────────────────────────────────────────
+describe("WorkflowHistory reopen — revision chip + Original-brief expander (C-FLAG-1/2)", () => {
+  it("a revision reopen renders the 'revision of v1' chip + the Original-brief expander", async () => {
+    const t0 = new Date("2026-05-12T10:00:00Z").toISOString();
+    const t1 = new Date("2026-05-12T11:00:00Z").toISOString();
+    const revisionRun = makeRun({
+      id: "r1",
+      title: "Revised run",
+      type: "prototype_revision",
+      input: "=== REVISION REQUEST ===\nmake the header blue\n=== END REQUEST ===",
+      parentRunId: "root",
+      rootRunId: "root",
+    });
+    mockGetWorkflows.mockResolvedValue([revisionRun]);
+    mockGetWorkflow.mockResolvedValue(revisionRun);
+    mockGetRunFamily.mockResolvedValue({
+      root_id: "root",
+      members: [
+        { id: "root", type: "prototype", title: "v1", status: "completed", revision_index: 0, parent_run_id: null, created_at: t0, completed_at: t0 },
+        { id: "r1", type: "prototype_revision", title: "v2", status: "completed", revision_index: 1, parent_run_id: "root", created_at: t1, completed_at: t1 },
+      ],
+    } as unknown as RunFamily);
+    // Empty clarify artifacts — isolates the chip/expander under test.
+    mockGetRunArtifacts.mockResolvedValue({ workflow_id: "r1", artifacts: [] });
+
+    render(<WorkflowHistory onBack={vi.fn()} />);
+    fireEvent.click(await screen.findByText("Revised run"));
+
+    // The reopen family fetch (keyed on the STABLE rootRunId) resolves →
+    // revisionParentVersion becomes computable.
+    await waitFor(() => expect(mockGetRunFamily).toHaveBeenCalledWith("test-token", "root"));
+
+    fireEvent.click(screen.getByText("Thinking"));
+
+    // Parent "root" is family index 0 → 1-based v1 → "revision of v1" chip.
+    await waitFor(() => expect(screen.getByText(/revision of v1/i)).toBeInTheDocument());
+    // Live/reopen symmetry — the Original-brief (v1) expander is present.
+    expect(screen.getByRole("button", { name: /original brief version 1/i })).toBeInTheDocument();
+  });
+});
