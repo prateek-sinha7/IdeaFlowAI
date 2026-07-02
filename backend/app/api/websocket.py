@@ -414,6 +414,45 @@ def _strip_pipeline_context(content: str) -> str:
     return stripped
 
 
+def _resolve_owned_parent_run_id(
+    db: Session, candidate_id: Optional[str], user_id: str
+) -> Optional[str]:
+    """Return ``candidate_id`` iff it names a WorkflowRun OWNED by ``user_id``.
+
+    Both parent-link ingress sites — the ``run_pipeline``
+    ``source_workflow_run_id`` link (``_handle_workflow_execution`` :1688) and
+    the ``run_revision`` row-creation ``parent_run_id`` link
+    (``_handle_revision_execution`` :2247) — route their parent linkage through
+    this single ownership-checked resolver (POR §3).
+
+    Why ownership, not mere existence: ``parent_run_id`` is an enforced FK
+    (migration 0013), so a stale/foreign id would abort run creation — the old
+    exists-only check degraded that to an unlinked run. But a FOREIGN row
+    linkage is strictly worse than a missing one: the revision-family read walk
+    (``runs.py`` ``/family`` + server-computed ``root_run_id``) follows
+    ``parent_run_id`` edges, so a persisted foreign parent would leak another
+    owner's run metadata into the family response. Engine ``assert_owns``
+    (``engine.py:4455``) already gates content reads; this gates the persisted
+    ROW linkage so the two defenses compose.
+
+    Keyed on ``WorkflowRun.user_id`` — the Phase-13 CR-01 ownership precedent —
+    NEVER the nullable backfilled ``owner_id`` (D-06). A falsy candidate issues
+    NO query and returns ``None``; a missing row or a row owned by another user
+    also returns ``None``; otherwise ``candidate_id`` is returned unchanged.
+    """
+    if not candidate_id:
+        return None
+    row = (
+        db.query(WorkflowRun.id)
+        .filter(
+            WorkflowRun.id == candidate_id,
+            WorkflowRun.user_id == user_id,
+        )
+        .first()
+    )
+    return candidate_id if row else None
+
+
 async def _generate_workflow_title(
     workflow_run_id: str,
     content: str,
@@ -1682,17 +1721,14 @@ async def _handle_workflow_execution(
     monotonic_start = time.monotonic()
     db = _get_db()
     try:
-        # Only link parent_run_id if the source run actually exists. parent_run_id
-        # is an enforced FK (migration 0013), so a stale/foreign id would abort
-        # run creation — degrade gracefully to an unlinked run instead.
-        parent_run_id = None
-        if source_workflow_run_id:
-            _src = (
-                db.query(WorkflowRun.id)
-                .filter(WorkflowRun.id == source_workflow_run_id)
-                .first()
-            )
-            parent_run_id = source_workflow_run_id if _src else None
+        # Only link parent_run_id if the source run exists AND is OWNED by the
+        # caller (POR §3). parent_run_id is an enforced FK (migration 0013), so a
+        # stale/foreign id would abort run creation — degrade gracefully to an
+        # unlinked run instead. Ownership (not mere existence) is enforced here so
+        # a foreign source id can never be persisted as a family edge that the
+        # runs.py family walk would follow to leak foreign run metadata — the
+        # single ownership-checked resolver keys on user.id (D-06).
+        parent_run_id = _resolve_owned_parent_run_id(db, source_workflow_run_id, user.id)
 
         workflow_run = WorkflowRun(
             # WorkflowRun.id IS the run identifier used end-to-end (engine, state
@@ -2242,15 +2278,12 @@ async def _handle_revision_execution(
             # test_revision_run_events_persist_and_resolve_on_real_db.
             owner_id=user.id,
             # Link the revision run to its parent so lineage stays intact
-            # (parent_run_id is an enforced FK — only set when the parent
-            # row actually exists, else creation would abort).
-            parent_run_id=(
-                parent_run_id
-                if db.query(WorkflowRun.id)
-                .filter(WorkflowRun.id == parent_run_id)
-                .first()
-                else None
-            ),
+            # (parent_run_id is an enforced FK — only set when the parent row
+            # exists AND is OWNED by the caller, else creation would abort or a
+            # foreign edge would leak into the family walk; POR §3). The engine
+            # still receives the caller's `parent_run_id` argument verbatim — only
+            # the persisted ROW column is conditioned on ownership (D-06).
+            parent_run_id=_resolve_owned_parent_run_id(db, parent_run_id, user.id),
             title=f"Revision: {instruction[:50]}",
             type=revision_pipeline_type,
             status="revising",
