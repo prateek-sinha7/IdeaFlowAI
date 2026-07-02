@@ -14,6 +14,7 @@ import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
 import { createUserWorkflow, getToken, getWorkflowDetail, extractFileText } from "@/lib/api";
+import { ATTACH_MAX_CHARS } from "@/lib/constants";
 import { AnimatePresence } from "motion/react";
 import type { WorkflowType, AgentDef, AttachedSkill, AttachedHook } from "@/types/index";
 
@@ -538,7 +539,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                           reader.onload = (ev) => {
                             const content = (ev.target?.result as string) ?? "";
                             setIdeaInput((p) => {
-                              const block = `\n\n=== Attached: ${f.name} ===\n${content.slice(0, 64000)}\n=== End: ${f.name} ===`;
+                              const block = `\n\n=== Attached: ${f.name} ===\n${content.slice(0, ATTACH_MAX_CHARS)}\n=== End: ${f.name} ===`;
                               return p ? `${p}${block}` : block.trimStart();
                             });
                           };
@@ -549,7 +550,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                             extractFileText(jwt, f)
                               .then((res) => {
                                 setIdeaInput((p) => {
-                                  const truncNote = res.truncated ? "\n[Content truncated to 64,000 chars]" : "";
+                                  const truncNote = res.truncated ? `\n[Content truncated to ${ATTACH_MAX_CHARS.toLocaleString()} chars]` : "";
                                   const block = `\n\n=== Attached: ${res.filename} ===\n${res.text}${truncNote}\n=== End: ${res.filename} ===`;
                                   return p ? `${p}${block}` : block.trimStart();
                                 });

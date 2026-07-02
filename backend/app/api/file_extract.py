@@ -9,8 +9,9 @@ Supported formats:
   - Word (.docx) — via python-docx
   - PowerPoint (.pptx) — via python-pptx
 
-Max file size: 10 MB. Text is capped at 16,000 chars to stay within
-typical LLM context budgets.
+Max file size: 10 MB. Extracted text is capped at settings.BRIEF_MAX_CHARS
+characters (~450,000) — the single source of truth shared with the planner /
+clarify brief cap — to bound the input that reaches the LLM.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from pydantic import BaseModel
 
+from app.core.config import settings
 from app.core.dependencies import get_current_user
 from app.models.user import User
 
@@ -29,7 +31,8 @@ logger = logging.getLogger("app.api.file_extract")
 router = APIRouter(prefix="/api/files", tags=["files"])
 
 _MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB
-_MAX_TEXT_CHARS = 64_000             # cap injected into brief
+# Extracted-upload text cap tracks the brief cap (single source of truth).
+_MAX_TEXT_CHARS = settings.BRIEF_MAX_CHARS
 
 
 class ExtractResponse(BaseModel):
@@ -88,8 +91,8 @@ async def extract_text(
 ):
     """Extract plain text from a PDF, DOCX, or PPTX upload.
 
-    Returns up to 16,000 characters of extracted text. The `truncated` flag
-    indicates when the original text exceeded the cap.
+    Returns up to settings.BRIEF_MAX_CHARS characters (~450,000) of extracted
+    text. The `truncated` flag indicates when the original text exceeded the cap.
     """
     filename = file.filename or "unknown"
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""

@@ -18,35 +18,37 @@ from app.core.config import settings
 
 
 def test_full_brief_reaches_planner_uncut():
-    """A ~10,000-char brief passes to the analyze prompt IN FULL — no 'chars omitted'."""
-    brief = "The system shall support role-based access. " * 250  # ~11k chars, <= 64k
+    """A brief well under the cap passes to the analyze prompt IN FULL — no 'chars omitted'."""
+    phrase = "The system shall support role-based access. "
+    target = settings.BRIEF_MAX_CHARS // 2  # comfortably under the cap
+    brief = (phrase * ((target // len(phrase)) + 1))[:target]
     assert len(brief) <= settings.BRIEF_MAX_CHARS
 
     prompt = SmartPlanner()._build_prompt(brief, "prototype")
 
-    # The full brief text is present verbatim (old 2500 head+tail cap removed).
+    # The full brief text is present verbatim (old head+tail cap removed).
     assert brief in prompt
     assert "chars omitted" not in prompt
 
 
 def test_full_user_request_reaches_clarify_uncut():
-    """A ~10,000-char user_request yields a brief_sample slice >2000 chars (full text)."""
-    user_request = "As a user I want to filter reports by date. " * 230  # ~10k chars
+    """A user_request under the cap yields a brief_sample equal to the full text (no cut)."""
+    phrase = "As a user I want to filter reports by date. "
+    target = settings.BRIEF_MAX_CHARS // 2
+    user_request = (phrase * ((target // len(phrase)) + 1))[:target]
     assert len(user_request) <= settings.BRIEF_MAX_CHARS
 
-    # Mirror the ClarifyEngine brief_sample slice logic (clarify_engine.py:362).
-    brief_sample = (
-        user_request[: settings.BRIEF_MAX_CHARS] if user_request else ""[:2000]
-    )
+    # Mirror the ClarifyEngine brief_sample slice logic (clarify_engine.py:363).
+    brief_sample = user_request[: settings.BRIEF_MAX_CHARS]
 
-    # The old 2000-char cap is gone: the full user_request survives.
-    assert len(brief_sample) > 2000
+    # The whole user_request survives — the sample equals the full request.
     assert brief_sample == user_request
+    assert len(brief_sample) == len(user_request)
 
 
 def test_ceiling_still_enforced_above_cap():
     """A brief > settings.BRIEF_MAX_CHARS is still head+tail sampled ('chars omitted')."""
-    brief = "z" * (settings.BRIEF_MAX_CHARS + 6000)  # 70,000 chars, over the ceiling
+    brief = "z" * (settings.BRIEF_MAX_CHARS + 10_000)  # over the ceiling
 
     prompt = SmartPlanner()._build_prompt(brief, "prototype")
 
@@ -58,5 +60,5 @@ def test_ceiling_still_enforced_above_cap():
 
 
 def test_planner_and_clarify_share_single_source_of_truth():
-    """Both cap sites read the SAME settings.BRIEF_MAX_CHARS (64k)."""
-    assert settings.BRIEF_MAX_CHARS == 64_000
+    """Both cap sites read the SAME settings.BRIEF_MAX_CHARS (450k) — the value pin."""
+    assert settings.BRIEF_MAX_CHARS == 450_000

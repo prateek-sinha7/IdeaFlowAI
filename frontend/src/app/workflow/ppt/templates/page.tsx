@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Sparkles, ChevronDown, ChevronRight, Layers, Eye, Paperclip, Mic, MicOff, X, File, Settings2, Save } from "lucide-react";
 import { getToken, extractFileText, createUserWorkflow } from "@/lib/api";
+import { ATTACH_MAX_CHARS } from "@/lib/constants";
 import { listPPTTemplates, type PPTTemplate } from "@/lib/ppt-api";
 import { listDesignSystems, type DesignSystemListItem } from "@/lib/prototype-api";
 import { PPTTemplateGallery } from "@/components/workflow/ppt/PPTTemplateGallery";
@@ -440,7 +441,7 @@ export default function PPTTemplatesPage() {
                           reader.onload = (ev) => {
                             const content = (ev.target?.result as string) ?? "";
                             setBrief((p) => {
-                              const block = `\n\n=== Attached: ${f.name} ===\n${content.slice(0, 64000)}\n=== End: ${f.name} ===`;
+                              const block = `\n\n=== Attached: ${f.name} ===\n${content.slice(0, ATTACH_MAX_CHARS)}\n=== End: ${f.name} ===`;
                               return p ? `${p}${block}` : block.trimStart();
                             });
                           };
@@ -451,7 +452,7 @@ export default function PPTTemplatesPage() {
                             extractFileText(jwt, f)
                               .then((res) => {
                                 setBrief((p) => {
-                                  const truncNote = res.truncated ? "\n[Content truncated to 64,000 chars]" : "";
+                                  const truncNote = res.truncated ? `\n[Content truncated to ${ATTACH_MAX_CHARS.toLocaleString()} chars]` : "";
                                   const block = `\n\n=== Attached: ${res.filename} ===\n${res.text}${truncNote}\n=== End: ${res.filename} ===`;
                                   return p ? `${p}${block}` : block.trimStart();
                                 });

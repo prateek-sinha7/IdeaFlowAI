@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Sparkles, ChevronDown, ChevronRight, Layers, Eye, Paperclip, Mic, MicOff, X, File, Settings2, Save } from "lucide-react";
 import { getToken, extractFileText, createUserWorkflow } from "@/lib/api";
+import { ATTACH_MAX_CHARS } from "@/lib/constants";
 import {
   listDesignSystems,
   listPrototypeTemplates,
@@ -475,7 +476,7 @@ export default function PrototypeTemplatesPage() {
                           reader.onload = (ev) => {
                             const content = (ev.target?.result as string) ?? "";
                             setBrief((p) => {
-                              const block = `\n\n=== Attached: ${f.name} ===\n${content.slice(0, 64000)}\n=== End: ${f.name} ===`;
+                              const block = `\n\n=== Attached: ${f.name} ===\n${content.slice(0, ATTACH_MAX_CHARS)}\n=== End: ${f.name} ===`;
                               return p ? `${p}${block}` : block.trimStart();
                             });
                           };
@@ -486,7 +487,7 @@ export default function PrototypeTemplatesPage() {
                             extractFileText(jwt, f)
                               .then((res) => {
                                 setBrief((p) => {
-                                  const truncNote = res.truncated ? "\n[Content truncated to 64,000 chars]" : "";
+                                  const truncNote = res.truncated ? `\n[Content truncated to ${ATTACH_MAX_CHARS.toLocaleString()} chars]` : "";
                                   const block = `\n\n=== Attached: ${res.filename} ===\n${res.text}${truncNote}\n=== End: ${res.filename} ===`;
                                   return p ? `${p}${block}` : block.trimStart();
                                 });
