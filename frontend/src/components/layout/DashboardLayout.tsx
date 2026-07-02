@@ -58,6 +58,11 @@ export interface DashboardLayoutProps {
   onStartPipeline?: (type: string, message: string, agentIds?: string[], attachedSkills?: import("@/types/index").AttachedSkill[], attachedHooks?: import("@/types/index").AttachedHook[], extraParams?: Record<string, unknown>) => void;
   onResetPipeline?: () => void;
   recentRuns?: WorkflowRun[];
+  // Revision Families (B1 / D1-D7): the reliable "run id that produced the
+  // on-screen content", owned by page.tsx (pipeline_complete + reopen). Every
+  // revision launch path sources parent linkage from this — replaces the fragile
+  // currentWorkflowRunId heuristic (which mis-matched on double-revision types).
+  contentSourceRunId?: string | null;
   onSelectWorkflowRun?: (run: WorkflowRun) => void;
   // Phase 16 (ISS-017) — the persisted status of a history-reopened run. When a
   // failed/cancelled run is reopened it carries no content, so the run's
@@ -240,6 +245,7 @@ export function DashboardLayout({
   onStartPipeline,
   onResetPipeline,
   recentRuns,
+  contentSourceRunId,
   onSelectWorkflowRun,
   questionnaireData,
   activePipelineRunId,
@@ -443,10 +449,11 @@ export function DashboardLayout({
   // Extract Agent 3's (ppt-code-generator) output for early PPTX download
   const pptxCode = pipelineState?.agents.find(a => a.id === "ppt-code-generator" && a.status === "done")?.output || undefined;
 
-  // Track the current workflow run ID for revision updates
-  const currentWorkflowRunId = recentRuns?.find(
-    r => (r.type === workflowType || r.type === workflowType + "_revision") && r.status === "completed"
-  )?.id || "";
+  // Revision Families (B1 / D1-D7): the fragile currentWorkflowRunId heuristic is
+  // GONE — it guessed the parent by matching recentRuns on workflowType (with a
+  // never-match `workflowType + "_revision"` branch for double-revision types)
+  // and orphaned every history-launched revision. Parent linkage now comes from
+  // the contentSourceRunId prop (page.tsx tracks the actual on-screen run).
 
   // Handle PPT revision — Phase 3: send run_revision WS message when a
   // completed run exists; fall back to the legacy text-injection pattern
@@ -457,11 +464,11 @@ export function DashboardLayout({
     const isOdPpt = workflowType === "od_ppt" || workflowType === "od_ppt_revision";
 
     // Phase 3: use run_revision if we have a completed run ID
-    if (currentWorkflowRunId && websocketSend) {
+    if (contentSourceRunId && websocketSend) {
       const targetType = isOdPpt ? "od_ppt_output" : "ppt_output";
       websocketSend(JSON.stringify({
         type: "run_revision",
-        parent_run_id: currentWorkflowRunId,
+        parent_run_id: contentSourceRunId,
         target_artifact_type: targetType,
         instruction,
       }));
@@ -488,7 +495,7 @@ export function DashboardLayout({
         onStartPipeline("ppt_revision", revisionMessage, undefined, attachedSkills, attachedHooks);
       }
     }
-  }, [workflowType, pptxCode, pptContent, currentWorkflowRunId, websocketSend, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
+  }, [workflowType, pptxCode, pptContent, contentSourceRunId, websocketSend, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
 
   // Handle User Story revision — re-run pipeline with existing backlog + change instruction
   const handleReviseUserStory = useCallback((instruction: string) => {
@@ -497,9 +504,10 @@ export function DashboardLayout({
     setWorkflowType("user_stories_revision" as WorkflowType);
     if (onResetPipeline) onResetPipeline();
     if (onStartPipeline) {
-      onStartPipeline("user_stories_revision", revisionMessage, undefined, attachedSkills, attachedHooks);
+      // Revision Families (B1): link the parent so the backend assembles the family.
+      onStartPipeline("user_stories_revision", revisionMessage, undefined, attachedSkills, attachedHooks, contentSourceRunId ? { source_workflow_run_id: contentSourceRunId } : undefined);
     }
-  }, [userStoryContent, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
+  }, [userStoryContent, contentSourceRunId, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
 
   // Handle Prototype revision — surgical diff approach
   // Instead of asking the agent to reproduce the full HTML (which exceeds
@@ -515,11 +523,11 @@ export function DashboardLayout({
     if (onResetPipeline) onResetPipeline();
     if (onStartPipeline) {
       // Phase 5: send source_workflow_run_id so the backend can seed the
-      // original run's spec/design into the revision sandbox. Only sent when a
-      // completed parent run exists (currentWorkflowRunId falls back to "").
-      onStartPipeline("prototype_revision", revisionMessage, undefined, attachedSkills, attachedHooks, currentWorkflowRunId ? { source_workflow_run_id: currentWorkflowRunId } : undefined);
+      // original run's spec/design into the revision sandbox. B1: sourced from the
+      // contentSourceRunId prop (the actual on-screen run) — undefined when none.
+      onStartPipeline("prototype_revision", revisionMessage, undefined, attachedSkills, attachedHooks, contentSourceRunId ? { source_workflow_run_id: contentSourceRunId } : undefined);
     }
-  }, [prototypeContent, currentWorkflowRunId, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
+  }, [prototypeContent, contentSourceRunId, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
 
   // Handle App Builder revision — re-run pipeline with existing blueprint + change instruction
   const handleReviseAppBuilder = useCallback((instruction: string) => {
@@ -528,9 +536,10 @@ export function DashboardLayout({
     setWorkflowType("app_builder_revision" as WorkflowType);
     if (onResetPipeline) onResetPipeline();
     if (onStartPipeline) {
-      onStartPipeline("app_builder_revision", revisionMessage, undefined, attachedSkills, attachedHooks);
+      // Revision Families (B1): link the parent so the backend assembles the family.
+      onStartPipeline("app_builder_revision", revisionMessage, undefined, attachedSkills, attachedHooks, contentSourceRunId ? { source_workflow_run_id: contentSourceRunId } : undefined);
     }
-  }, [userStoryContent, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
+  }, [userStoryContent, contentSourceRunId, onStartPipeline, onResetPipeline, attachedSkills, attachedHooks]);
 
   // Handle incoming questionnaire data from WebSocket
   useEffect(() => {
@@ -1248,40 +1257,42 @@ export function DashboardLayout({
               className="h-full"
             >
               <WorkflowHistory onBack={handleGoHome} onChainPipeline={handleChainFromHistory}
-            onReviseUserStory={(instruction, content) => {
+            onReviseUserStory={(instruction, content, sourceRunId) => {
               setMainView("execution");
               setWorkflowType("user_stories_revision");
               if (onResetPipeline) onResetPipeline();
               if (onStartPipeline) {
                 const msg = `=== EXISTING PRODUCT BACKLOG ===\n${content}\n=== END EXISTING BACKLOG ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
-                onStartPipeline("user_stories_revision", msg, undefined, attachedSkills, attachedHooks);
+                // Revision Families (B1): history revisions previously sent NO
+                // parent → orphan runs. Thread selectedRun.id so the backend links it.
+                onStartPipeline("user_stories_revision", msg, undefined, attachedSkills, attachedHooks, sourceRunId ? { source_workflow_run_id: sourceRunId } : undefined);
               }
             }}
-            onRevisePpt={(instruction, content) => {
+            onRevisePpt={(instruction, content, sourceRunId) => {
               setMainView("execution");
               setWorkflowType("ppt_revision");
               if (onResetPipeline) onResetPipeline();
               if (onStartPipeline) {
                 const msg = `=== EXISTING PRESENTATION CODE ===\n${content}\n=== END EXISTING CODE ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
-                onStartPipeline("ppt_revision", msg, undefined, attachedSkills, attachedHooks);
+                onStartPipeline("ppt_revision", msg, undefined, attachedSkills, attachedHooks, sourceRunId ? { source_workflow_run_id: sourceRunId } : undefined);
               }
             }}
-            onRevisePrototype={(instruction, content) => {
+            onRevisePrototype={(instruction, content, sourceRunId) => {
               setMainView("execution");
               setWorkflowType("prototype_revision");
               if (onResetPipeline) onResetPipeline();
               if (onStartPipeline) {
                 const msg = `=== EXISTING PROTOTYPE HTML ===\n${content}\n=== END EXISTING HTML ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
-                onStartPipeline("prototype_revision", msg, undefined, attachedSkills, attachedHooks);
+                onStartPipeline("prototype_revision", msg, undefined, attachedSkills, attachedHooks, sourceRunId ? { source_workflow_run_id: sourceRunId } : undefined);
               }
             }}
-            onReviseAppBuilder={(instruction, content) => {
+            onReviseAppBuilder={(instruction, content, sourceRunId) => {
               setMainView("execution");
               setWorkflowType("app_builder_revision");
               if (onResetPipeline) onResetPipeline();
               if (onStartPipeline) {
                 const msg = `=== EXISTING APP BLUEPRINT ===\n${content.slice(0, 40000)}\n=== END EXISTING BLUEPRINT ===\n\n=== REVISION REQUEST ===\n${instruction}\n=== END REQUEST ===`;
-                onStartPipeline("app_builder_revision", msg, undefined, attachedSkills, attachedHooks);
+                onStartPipeline("app_builder_revision", msg, undefined, attachedSkills, attachedHooks, sourceRunId ? { source_workflow_run_id: sourceRunId } : undefined);
               }
             }}
           />

@@ -114,6 +114,12 @@ export default function DashboardPage() {
 
   // Workflow runs state (primary)
   const [recentRuns, setRecentRuns] = useState<WorkflowRun[]>([]);
+  // Revision Families (B1 / D1-D7): the reliable "run id that produced the
+  // on-screen content". Set on pipeline_complete (live) + reopen; cleared on a
+  // fresh (non-revision) run. Threaded to DashboardLayout so every revision
+  // launch path sources parent linkage from it (replaces the old fragile
+  // currentWorkflowRunId heuristic).
+  const [contentSourceRunId, setContentSourceRunId] = useState<string | null>(null);
   const [questionnaireData, setQuestionnaireData] = useState<{
     questions: {
       id: string; question: string; options: string[]; answerType?: string;
@@ -423,6 +429,10 @@ export default function DashboardPage() {
       // When pipeline completes, route final output to preview panel
       if (msg.type === "pipeline_complete" && msg.data) {
         const data = msg.data as Record<string, unknown>;
+        // Revision Families (B1): the live completion source — the engine emits
+        // pipeline_run_id in the pipeline_complete data (engine.py:2267). This is
+        // the run a subsequent inline revise must link as its parent.
+        if (data.pipeline_run_id) setContentSourceRunId(data.pipeline_run_id as string);
         const finalOutput = data.final_output as string;
         const pipelineType = data.pipeline_type as string;
 
@@ -1126,6 +1136,10 @@ export default function DashboardPage() {
 
       try {
         const fullRun = await getWorkflow(currentToken, run.id);
+        // Revision Families (B1): the history-reopen source — the reopened run is
+        // now the on-screen content, so an inline revise from here links it as
+        // parent.
+        setContentSourceRunId(fullRun.id);
 
         // WR-01 (16 review): "degraded" is a terminal status ISS-016 now persists
         // for partially-failed runs — it carries a real (partial) deliverable. Treat
@@ -1297,12 +1311,16 @@ export default function DashboardPage() {
           pptContentRef.current = "";
           prototypeContentRef.current = "";
           userStoryContentRef.current = "";
+          // Revision Families (B1): a fresh run has no source until it completes —
+          // clear so a stale source can't be sent as a revise parent.
+          setContentSourceRunId(null);
         }
         // For revisions, keep existing content visible until new output arrives
         startPipeline(type, message, agentIds, attachedSkills, attachedHooks, extraParams);
       }}
       onResetPipeline={resetPipeline}
       recentRuns={recentRuns}
+      contentSourceRunId={contentSourceRunId}
       onSelectWorkflowRun={handleSelectWorkflowRun}
       questionnaireData={questionnaireData}
       activePipelineRunId={activePipelineRunId}

@@ -36,10 +36,13 @@ import { parseFailedAgentIds, buildAgentNameById } from "@/lib/parseFailedAgents
 interface WorkflowHistoryProps {
   onBack: () => void;
   onChainPipeline?: (run: WorkflowRun, nextType: WorkflowType) => void;
-  onReviseUserStory?: (instruction: string, content: string) => void;
-  onRevisePpt?: (instruction: string, content: string) => void;
-  onRevisePrototype?: (instruction: string, content: string) => void;
-  onReviseAppBuilder?: (instruction: string, content: string) => void;
+  // Revision Families (B1): each revise callback gains a required sourceRunId
+  // (selectedRun.id) so the launched revision links its parent run — history
+  // revisions previously sent no parent and produced orphan runs.
+  onReviseUserStory?: (instruction: string, content: string, sourceRunId: string) => void;
+  onRevisePpt?: (instruction: string, content: string, sourceRunId: string) => void;
+  onRevisePrototype?: (instruction: string, content: string, sourceRunId: string) => void;
+  onReviseAppBuilder?: (instruction: string, content: string, sourceRunId: string) => void;
 }
 
 // ─── Parse all filename: blocks from agent outputs for the IDE preview ────────
@@ -471,10 +474,10 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
              // Determine which revise callback applies to this run type
              const reviseCallback = (() => {
                if (!selectedOutput) return undefined;
-               if (isPrototype && onRevisePrototype) return (instruction: string) => onRevisePrototype(instruction, selectedOutput);
-               if (isPpt && onRevisePpt) return (instruction: string) => onRevisePpt(instruction, selectedOutput);
-               if (isUserStory && onReviseUserStory) return (instruction: string) => onReviseUserStory(instruction, selectedOutput);
-               if (isAppBuilder && onReviseAppBuilder) return (instruction: string) => onReviseAppBuilder(instruction, selectedOutput || "");
+               if (isPrototype && onRevisePrototype) return (instruction: string) => onRevisePrototype(instruction, selectedOutput, selectedRun.id);
+               if (isPpt && onRevisePpt) return (instruction: string) => onRevisePpt(instruction, selectedOutput, selectedRun.id);
+               if (isUserStory && onReviseUserStory) return (instruction: string) => onReviseUserStory(instruction, selectedOutput, selectedRun.id);
+               if (isAppBuilder && onReviseAppBuilder) return (instruction: string) => onReviseAppBuilder(instruction, selectedOutput || "", selectedRun.id);
                return undefined;
              })();
              const reviseLabel = isPrototype ? "Revise Prototype" : isPpt ? "Revise Presentation" : isUserStory ? "Revise User Stories" : isAppBuilder ? "Revise App Blueprint" : "Revise";
