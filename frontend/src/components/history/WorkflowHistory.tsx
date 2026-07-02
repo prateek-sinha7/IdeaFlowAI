@@ -190,7 +190,14 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     let cancelled = false;
     getRunFamily(token, selectedRun.rootRunId)
       .then((f) => { if (!cancelled) setFamily(f); })
-      .catch(() => { if (!cancelled) setFamily(null); });
+      .catch((err) => {
+        if (!cancelled) {
+          // Dev-observability only: log the swallowed failure, then keep the
+          // graceful degrade (the version affordance simply hides). No UI added.
+          console.warn("[revision-family] family fetch failed", err);
+          setFamily(null);
+        }
+      });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRun?.rootRunId]);
@@ -206,7 +213,10 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
       const full = await getWorkflow(token, memberId);
       setSelectedRun(full);
       setSelectedOutput(full.output || null);
-    } catch {}
+    } catch (err) {
+      // Dev-observability only: log the swallowed failure; behavior unchanged.
+      console.warn("[revision-family] version fetch failed", err);
+    }
     finally { setLoadingDetail(false); }
   }, []);
 

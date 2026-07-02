@@ -423,8 +423,10 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
     try {
       const run = await getWorkflow(token || "", memberId);
       setViewingVersion({ id: memberId, content: run.output });
-    } catch {
+    } catch (err) {
       // Read-only view is best-effort — never throw into the preview surface.
+      // Dev-observability only: log the swallowed failure; fallback unchanged.
+      console.warn("[revision-family] read-only version fetch failed", err);
       setViewingVersion(null);
     }
   }, [latestId]);

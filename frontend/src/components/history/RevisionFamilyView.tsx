@@ -111,10 +111,19 @@ export function groupRunsByFamily(runs: WorkflowRun[]): FamilyGroup[] {
   }
   const groups: FamilyGroup[] = [];
   for (const [rootRunId, bucket] of buckets) {
-    // v1..vN chronological by created_at ASC (POR §2 D2).
-    const members = [...bucket].sort(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-    );
+    // v1..vN chronological by (created_at ASC, id ASC) — the SAME deterministic
+    // tie-break the Workstream-A /family endpoint uses. Backend contract:
+    // revision_index == created_at-ASC rank, tie-broken by id (the /family query
+    // orders by created_at ASC, id ASC) → this list and the detail timeline / live
+    // chip derive IDENTICAL member orderings (identical v-numbers) for all present
+    // members. Windowed-count caveat: a family with members OUTSIDE the <=100-run
+    // getWorkflows list window shows fewer versions in this list card than the
+    // authoritative detail timeline (POR §11 / B2 W3), by design.
+    const members = [...bucket].sort((a, b) => {
+      const dt = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      if (dt !== 0) return dt;
+      return a.id.localeCompare(b.id);
+    });
     // root = the member whose id IS the rootRunId; else the earliest present
     // (legacy NULL-parent / a family whose root fell outside the fetch window).
     const root = members.find((m) => m.id === rootRunId) ?? members[0];
@@ -477,7 +486,7 @@ export function VersionTimeline({
       {/* Context line — only for a revision member (non-null parent). */}
       {activeMember && activeMember.parent_run_id && (
         <p className="px-5 pb-2 text-[10px] text-gray-400 truncate">
-          ↳ Revises v{currentIdx} — &lsquo;{instructionPreview}&rsquo;
+          ↳ revises v{currentIdx} — &lsquo;{instructionPreview}&rsquo;
         </p>
       )}
     </div>
