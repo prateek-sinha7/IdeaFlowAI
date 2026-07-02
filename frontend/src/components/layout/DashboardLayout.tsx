@@ -21,9 +21,9 @@ import { ReviewGatePanel } from "@/components/preview/ReviewGatePanel";
 import { CompletionToast } from "@/components/ui/CompletionToast";
 import type { ToastItem } from "@/components/ui/CompletionToast";
 import { useNotifications } from "@/hooks/useNotifications";
-import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WaveGroup, WorkflowRun, WorkflowType, GenericDeliverable } from "@/types/index";
+import type { ChatMessage, ChatSession, ProcessStep, PipelineRunState, WaveGroup, WorkflowRun, WorkflowType, GenericDeliverable, RunFamily } from "@/types/index";
 import { canChainFrom, CHAIN_OPTIONS, CHAIN_BRIEF_KEY, CHAIN_FROM_KEY, CHAIN_SOURCE_RUN_ID_KEY, baseWorkflowType } from "@/lib/workflowChaining";
-import { getToken, getChainContext } from "@/lib/api";
+import { getToken, getChainContext, getRunFamily } from "@/lib/api";
 import type { UserWorkflowSummary } from "@/lib/api";
 import type { ConnectionStatus } from "@/hooks/useWebSocket";
 import type { ChatMode } from "@/components/chat/ChatInput";
@@ -323,6 +323,19 @@ export function DashboardLayout({
   } = useNotifications();
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const currentPipelineNotifId = useRef<string | null>(null);
+
+  // ─── B3 (POR §5 D5) — revision family for the on-screen content ──────────────
+  // Fetched here (the minimal seam — DashboardLayout already receives
+  // contentSourceRunId AND mounts PreviewPanel) keyed on contentSourceRunId, and
+  // threaded into PreviewPanel as an optional prop. The .catch guarantees it
+  // never throws even if the endpoint is unavailable.
+  const [runFamily, setRunFamily] = useState<RunFamily | null>(null);
+  useEffect(() => {
+    if (!contentSourceRunId) { setRunFamily(null); return; }
+    getRunFamily(getToken() || "", contentSourceRunId)
+      .then(setRunFamily)
+      .catch(() => setRunFamily(null));
+  }, [contentSourceRunId]);
 
   const dismissToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
@@ -1501,6 +1514,8 @@ export function DashboardLayout({
                       reopenedRunStatus={reopenedRunStatus}
                       reopenedFailedAgents={reopenedFailedAgents}
                       reopenedAgentNameById={reopenedAgentNameById}
+                      runFamily={runFamily}
+                      liveRunId={contentSourceRunId ?? null}
                     />
                   )}
                 </ErrorBoundary>
