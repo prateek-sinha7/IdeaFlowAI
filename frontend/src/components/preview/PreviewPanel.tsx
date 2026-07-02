@@ -419,6 +419,16 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // parent is v{activeIdx} (0-based index of the active member == the parent's
   // 1-based version number).
   const activeParentRunId = sortedMembers.find((m) => m.id === activeRunId)?.parent_run_id ?? null;
+  // ─── C-FLAG-1 + C-FLAG-2 (260703-174) — live StartingPointCard revision wiring ─
+  // revisionParentVersion = the 1-based family index of the active run's PARENT
+  // (the "revision of v{n}" chip). For a linear chain this coincides with the
+  // existing activeIdx note above; the parent_run_id lookup is robust for branched
+  // families. originalBriefRootRunId is threaded ONLY when the active member IS a
+  // revision (non-null parent) — matching the reopen mount's guard — so the live
+  // "Original brief (v1)" expander appears (live/reopen symmetry).
+  const activeParentIdx = activeParentRunId ? sortedMembers.findIndex((m) => m.id === activeParentRunId) : -1;
+  const revisionParentVersion = activeParentIdx >= 0 ? activeParentIdx + 1 : undefined;
+  const originalBriefRootRunId = activeParentRunId ? runFamily?.root_id : undefined;
 
   const handleSelectVersion = useCallback(async (memberId: string) => {
     if (memberId === latestId) {
@@ -749,7 +759,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               transition={{ duration: 0.15 }}
               className="absolute inset-0"
             >
-              <AgentThinkingTab agents={agents || []} pipelineState={pipelineState} runInput={runInput} clarifications={clarifications ?? pipelineState?.clarifications} />
+              <AgentThinkingTab agents={agents || []} pipelineState={pipelineState} runInput={runInput} clarifications={clarifications ?? pipelineState?.clarifications} revisionParentVersion={revisionParentVersion} originalBriefRootRunId={originalBriefRootRunId} />
             </motion.div>
           )}
           {activeTab === "audit" && (

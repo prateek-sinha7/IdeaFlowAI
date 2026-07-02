@@ -60,8 +60,8 @@ export function ClarificationsCard({ clarifications, loading }: ClarificationsCa
     <div className="relative pl-8">
       {/* Timeline dot — sits on the rail between Planner and Agents */}
       <div className="absolute left-0 top-3 flex flex-col items-center">
-        <div className="w-6 h-6 rounded-full flex items-center justify-center border-2 z-10 border-[#1B2A4A] bg-[#E8EDF5]">
-          <MessageCircleQuestion aria-hidden className="h-3 w-3 text-[#1B2A4A]" />
+        <div className="w-6 h-6 rounded-full flex items-center justify-center border-2 z-10 border-[#1B2A4A] bg-[#1B2A4A]">
+          <MessageCircleQuestion aria-hidden className="h-3 w-3 text-white" />
         </div>
         <div className="w-px flex-1 bg-gray-200 mt-1" style={{ minHeight: 20 }} />
       </div>

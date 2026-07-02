@@ -372,6 +372,15 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     const meta = TYPE_META[selectedRun.type] || TYPE_META.custom;
     const Icon = meta.icon;
     const workflowType = selectedRun.type as WorkflowType;
+    // ─── C-FLAG-1 (260703-174) — reopen StartingPointCard revision chip wiring ──
+    // revisionParentVersion = 1-based family index of selectedRun's PARENT, derived
+    // from the fetched `family` state (getRunFamily). family.members uses the same
+    // revision_index-ASC ordering the VersionTimeline derives from
+    // (RevisionFamilyView.tsx), so the chip's v-number matches the version timeline.
+    // originalBriefRootRunId is already threaded on the mount below.
+    const reopenSortedMembers = family ? [...family.members].sort((a, b) => a.revision_index - b.revision_index) : [];
+    const reopenParentIdx = selectedRun.parentRunId ? reopenSortedMembers.findIndex((m) => m.id === selectedRun.parentRunId) : -1;
+    const revisionParentVersion = reopenParentIdx >= 0 ? reopenParentIdx + 1 : undefined;
     const isUserStory = workflowType === "user_stories" || workflowType === "user_stories_revision";
     const isAppBuilder = detailIsAppBuilder;
     const isPpt = workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt" || workflowType === "od_ppt_revision";
@@ -817,6 +826,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                 clarifications={clarifyRounds}
                 clarificationsLoading={clarifyLoading}
                 originalBriefRootRunId={selectedRun.parentRunId ? selectedRun.rootRunId : undefined}
+                revisionParentVersion={revisionParentVersion}
               />
             ) : detailTab === "audit" ? (
               /* Audit tab — persisted hook_runs fetched from GET /api/runs/{id}/hook-runs */
