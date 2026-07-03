@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>22-Phase History — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="phases">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">22-Phase History</b></div>
+      <div class="spacer"></div>
+      <span class="tag">v1.0 &middot; verifying</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Platform &middot; reference</div>
+        <h1>The 22-Phase Refactor</h1>
+        <p>Flowin's current shape is the result of a brownfield "strangler" refactor (spec <code>003-workflow-engine-decoupling</code>) that turned a prototype-/PPT-coupled engine into the workflow-agnostic kernel described across this atlas. This is the <b>secondary</b> reference — the codebase is the source of truth.</p>
+      </div>
+
+      <h3>The strangler method (how each phase was safe)</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <div class="callout"><div class="t">&#127919; What was dissolved</div><p>16 verified couplings (<b>L1&ndash;L16</b>) in <code>engine.py</code> plus 5 factory leaks (<b>F1&ndash;F5</b>) &mdash; all resolved/deleted or kept as documented "live survivors", tracked in a migration ledger with commit SHAs. Milestone v1.0 is complete on plans (22/22 phases, 113/113 plans); state = <em>verifying</em>.</p></div>
+
+      <h3>The 22 phases</h3>
+      <div id="phaseTimeline"></div>
+
+      <h3>Alembic migration chain (additive only)</h3>
+      <pre><code>0014 artifacts / workspaces / run_events / run_capabilities
+0015 drop legacy WorkflowArtifact
+0016 validation_results / gate_events / hook_runs
+0017 repositories
+0018 exec_runs
+0019 subagent_runs
+0020 wave_runs
+0021 user-authored saved workflows (+3 cols on the reused `workflows` table)
+0022 deliverable_mimetype / deliverable_filename on WorkflowRun</code></pre>
+
+      <div class="callout warn"><div class="t">&#129513; v2 &mdash; intentionally deferred</div><p>ECS-01/02 (remote/container runtime behind the unchanged <code>RuntimeEnvironment</code> port), SCHED-01 (CP-SAT wave scheduling), MERGE-01 (single-file fragment merge), GIT-01 (PR/commit push). The runtime port seam is already in place so ECS lands as a backend swap, not an engine rewrite.</p></div>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; 22-Phase History</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"Safety net first", b:"Phase 1", d:"Characterization \"golden\" snapshot tests capture exact current behavior; import-linter + banned-pattern CI gates lock the boundaries."},
+  {t:"Lift state off the singleton", b:"Phase 2", d:"Per-run state moves to ExecutionContext (INV-2) so nothing new can clobber concurrent runs."},
+  {t:"Extract behind an abstraction", b:"Phases 4-8", bc:"b-violet", d:"Manifests + compiler + capability registry are introduced; each hardcoded behavior becomes a named, registered capability."},
+  {t:"Rewire the call sites", bc:"b-cyan", d:"The engine is repointed to resolve capabilities by name from the compiled plan &mdash; goldens must stay byte-identical (INV-3)."},
+  {t:"Delete the old code", b:"exit gate", bc:"b-red", d:"Move-don't-copy (INV-12): the superseded code is deleted and the deletion is ratcheted in the migration ledger. A phase isn't done until the old path is gone."},
+  {t:"Prove SC-001", b:"Phase 7+", bc:"b-green", d:"A brand-new non-prototype workflow reproduces prototype behavior from manifest + AGENT.md alone &mdash; zero engine edits."}
+];
+window.PHASES = [
+  [1,"Safety Net + Deletion Guard","0A","Characterization goldens + ledger/import-linter/banned-pattern CI gates; no behavior change."],
+  [2,"ExecutionContext + Ownership","0B","All self._* run state to a per-run ExecutionContext; explicit parent-run ownership check."],
+  [3,"Token-Trim (measured change)","0C","Wire the dead HTML-skeleton extractor as build compaction (the one sanctioned INV-3 exception)."],
+  [4,"Manifest + Compiler","1A","File-backed manifests to a thin compiler to a typed CompiledWorkflow; pipelines run from compiled plans."],
+  [5,"Typed Artifacts + Persistence + Ownership","1B","ArtifactGraph/ArtifactRef + schema; delete the legacy accumulated-outputs mirror; authz denial tests."],
+  [6,"Model Policy","1C","ModelResolver (precedence + fallback + cost_class) + ModelCatalog + per-agent overrides."],
+  [7,"Prototype as Manifest - Parity Proof","2","Strategies/resolvers/providers/parsers/compaction; delete L1-L13; SC-001 PROVEN."],
+  [8,"Capabilities Hardened","3","CapabilityRegistry + trust; gate registry; least-privilege tool perms; AgentRuntimeAdapter; delete F1-F5."],
+  [9,"Local Workspace Runtime + Repo Workflows","4A","RuntimeEnvironment + LocalSandboxRuntime; repo inventory/index/context-pack + repo_diff; MCP + integrations."],
+  [10,"Safe Local Exec (gated on N3)","4B","Constrained exec behind the security gate + ExecutionPolicy; compile/test/lint validators."],
+  [11,"Engine-Owned Fan-Out + Merge","5","spawn_subagents + kernel run_fanout; isolation + merge-conflict flow; BudgetManager; subagent persistence."],
+  [12,"Wave Scheduler + Durable Resume","6","Topo wave scheduler; wave_runs; resume mid-wave; prototype stays sequential."],
+  [13,"Live Verification Gap Closure","-","Closed live-Bedrock findings F1-F8 (declared-gate streaming, run_revision contract, pipeline_failed, tool-XML hygiene)."],
+  [14,"run_revision Real Revision Loop","-","Real revision dispatch through execute() + derived_from lineage; deletes the Phase-3 echo stub."],
+  [15,"Live-Pass Prompt Contract Closure","-","Output contracts on 5 AGENT.md bodies + tests; ZERO engine edits (SC-001)."],
+  [16,"Terminal-State Integrity & Reconnect","-","pipeline_failed/degraded terminals, cooperative cancel delivers pipeline_cancelled, degraded Preview, replay contract."],
+  [17,"Test-Infra & Verification-Gap Closure","-","Harness fixes only (clarify-off, OTLP in-memory span test, HITL skip-on-cred-expiry); zero production code."],
+  [18,"Custom-Workflow UX Completeness","-","Generic mimetype-dispatched deliverable renderer; deleted orphaned composer; model-picker relocated."],
+  [19,"Prompt & Deliverable Adherence","-","Durable structural fixes: shared getDatabase literal, event-free api_prefix post_step, streamed-chunk sanitizer."],
+  [20,"Workflow Catalog - Data-Driven","-","Data-driven catalog off GET /api/workflows + additive user_launchable/display flags; realizes WF-DB-01."],
+  [21,"Saved Workflows - User-Authored","-","DB-backed saved workflows (source=user) via migration 0021 + /api/user-workflows CRUD."],
+  [22,"Capability Surfacing & User Empowerment","-","Live /api/capabilities palette (all caps, trust-gated) + user compose/launch; wires model/retry/injects keys; migration 0022."]
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

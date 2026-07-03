@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fan-out &amp; Waves — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="feature-fanout-waves">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Fan-out &amp; Waves</b></div>
+      <div class="spacer"></div>
+      <span class="tag">Phases 11-12</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Cross-cutting</div>
+        <h1>Fan-out &amp; Waves</h1>
+        <p>Parallelism, owned by the kernel — never by the model. A step can fan out into N isolated workers that run in parallel and then merge, and a wave scheduler can topo-schedule tasks into parallel "waves" with durable mid-wave resume.</p>
+      </div>
+
+      <h3>A fan-out step, end to end</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <div class="grid g2">
+        <div class="card"><h4>fanout_batch strategy</h4><p class="lead">Declared via a step's <code>fanout:</code> block (<code>mode</code>, <code>max_parallel</code>, <code>agent</code>/<code>count</code> for self&times;N, or <code>workers</code> for a heterogeneous set). The kernel's <code>run_fanout</code> owns the spawn control flow; each worker gets an isolated child sandbox so two workers writing the same path can't cross-contaminate before the merge.</p></div>
+        <div class="card"><h4>wave_scheduler strategy</h4><p class="lead">Parses a structured task list (<code>json_tasks</code>), topo-schedules tasks into waves by dependencies, runs each wave's tasks in parallel, and persists <code>wave_runs</code>. Prototype stays sequential; waves are opt-in per manifest.</p></div>
+      </div>
+
+      <h3>Isolation, merge &amp; budget</h3>
+      <table>
+        <thead><tr><th>Concern</th><th>Mechanism</th></tr></thead>
+        <tbody>
+          <tr><td>Spawn</td><td>The <code>spawn_subagents</code> tool is engineer-only (<code>user_allowed=false</code>); the kernel emits the spawn, the model never does. The library <code>task</code> tool is always excluded.</td></tr>
+          <tr><td>Isolation</td><td>Each worker runs in a <code>_ChildSandbox</code> rooted at its own dir (passed as <code>run_sandbox</code> to <code>create_runner</code>).</td></tr>
+          <tr><td>Merge</td><td>A <code>merge</code> capability combines worker outputs: <code>copy_disjoint</code>, <code>git_3way</code>, <code>json</code>, or <code>html_fragment</code>. On conflict, the step's <code>on_conflict</code> policy applies (<code>human_gate</code> / <code>merge_agent</code> / <code>partial</code> / <code>abort</code>).</td></tr>
+          <tr><td>Budget</td><td>The per-run <code>BudgetManager</code> caps max subagents / depth / wall-clock / tokens; a per-workspace aggregate ceiling guards against a multi-run fork-bomb. <code>reserve()</code> runs before any spawn.</td></tr>
+          <tr><td>Persistence</td><td><code>subagent_runs</code> + <code>wave_runs</code> tables make fragments durable pre-merge, so a mid-wave resume re-fans-out only the incomplete workers.</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout"><div class="t">&#128202; Watching it live</div><p>The UI's <code>WaveTreePanel</code> renders the wave/worker tree from the additive <code>wave_started/completed/failed</code> + <code>subagent_spawned/result</code> events (statuses only — no live token stream per worker). N parallel workers of the same agent render as N distinct leaves keyed by worker index.</p></div>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; Fan-out &amp; Waves</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"Step declares fanout", b:"manifest", d:"A step's <code>fanout:</code> block names the worker (self&times;N or a named worker set) and mode."},
+  {t:"Budget reserve", b:"BudgetManager", bc:"b-amber", d:"Before any spawn, the kernel reserves against per-run + per-workspace caps; over-budget aborts pre-spawn."},
+  {t:"Spawn isolated workers", b:"run_fanout", bc:"b-cyan", d:"The kernel spawns N workers, each in its own child sandbox; the model never spawns anything itself."},
+  {t:"Run in parallel", d:"Workers run concurrently (clamped to a safe max); each writes into its isolated sandbox. subagent_runs rows make fragments durable."},
+  {t:"Merge", b:"merge capability", bc:"b-violet", d:"copy_disjoint / git_3way / json / html_fragment combines the outputs; on conflict the on_conflict policy fires."},
+  {t:"Continue / resume", bc:"b-green", d:"The merged result feeds the next step. A backend restart mid-wave resumes only the incomplete workers."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

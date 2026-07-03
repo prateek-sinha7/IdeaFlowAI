@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Architecture — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="architecture">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Architecture</b></div>
+      <div class="spacer"></div>
+      <span class="tag">Ports &amp; Adapters</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">System design</div>
+        <h1>Architecture</h1>
+        <p>Flowin is a <b>Ports &amp; Adapters (hexagonal)</b> system. A small workflow-agnostic <b>kernel</b> depends only on capability <em>ports</em>; concrete implementations self-register and are resolved by name. The web layer calls into the kernel; the kernel never reaches back up. The boundaries are enforced mechanically by <code>import-linter</code> in CI.</p>
+      </div>
+
+      <h3>The 7 layers (click a layer to open its page)</h3>
+      <div class="legend">
+        <span><i class="dot" style="background:var(--accent)"></i> Web / IO</span>
+        <span><i class="dot" style="background:var(--cyan)"></i> Kernel</span>
+        <span><i class="dot" style="background:var(--accent2)"></i> Declaration &amp; ports (inner)</span>
+        <span><i class="dot" style="background:var(--green)"></i> Adapters / runtime</span>
+      </div>
+      <div class="diagram">
+        <div class="layer click" onclick="location.href='frontend.html'"><div class="ltitle"><span class="dot" style="background:var(--accent)"></span> 1 &middot; Frontend — Next.js SPA</div><div class="ldesc">Sends <code>run_pipeline</code> over WebSocket, renders streamed output + deliverables.</div><div class="chips"><span class="chip">useWorkflow</span><span class="chip">useWebSocket</span><span class="chip">PreviewPanel</span></div></div>
+        <div class="arrow-down">&#9660; &nbsp;REST + WebSocket <code>/ws/chat</code></div>
+        <div class="layer click" onclick="location.href='api-data-model.html'"><div class="ltitle"><span class="dot" style="background:var(--accent)"></span> 2 &middot; Web layer — FastAPI (<code>app/</code>)</div><div class="ldesc">18 REST routers + the WebSocket. Auth, ownership, run lifecycle, model-override validation.</div><div class="chips"><span class="chip">api/websocket.py</span><span class="chip">core/config.py</span><span class="chip">models/</span></div></div>
+        <div class="arrow-down">&#9660; &nbsp;<code>ExecutionEngine.execute()</code></div>
+        <div class="layer click" onclick="location.href='execution-kernel.html'"><div class="ltitle"><span class="dot" style="background:var(--cyan)"></span> 3 &middot; Execution Kernel — <code>agents/execution_engine/</code></div><div class="ldesc">The deterministic sequencer. Compiles, threads context, topo-loops steps, emits events. <b>No workflow names</b> (INV-1).</div><div class="chips"><span class="chip">engine.py</span><span class="chip">context.py</span><span class="chip">resolver.py</span></div></div>
+        <div class="arrow-down">&#9660; &nbsp;resolves by name against</div>
+        <div class="layer click" onclick="location.href='manifests-compiler.html'"><div class="ltitle"><span class="dot" style="background:var(--accent2)"></span> 4 &middot; Declaration — <code>agents/workflows/</code></div><div class="ldesc">YAML manifests &#8594; thin compiler &#8594; typed <code>CompiledWorkflow</code>. Pure data, no DSL (INV-5).</div><div class="chips"><span class="chip">manifest.py</span><span class="chip">compiler.py</span><span class="chip">plan.py</span></div></div>
+        <div class="arrow-down">&#9660; &nbsp;capabilities satisfy ports in</div>
+        <div class="layer click" onclick="location.href='capabilities.html'"><div class="ltitle"><span class="dot" style="background:var(--accent2)"></span> 5 &middot; Capability ports + registry — <code>agents/capabilities/</code></div><div class="ldesc"><code>base.py</code> ports + self-registering <code>@register(kind,name)</code>. 64 plug-ins.</div><div class="chips"><span class="chip">base.py</span><span class="chip">registry.py</span><span class="chip">strategies/ validators/ &hellip;</span></div></div>
+        <div class="arrow-down">&#9660; &nbsp;runs each agent via</div>
+        <div class="layer click" onclick="location.href='agents-runtime.html'"><div class="ltitle"><span class="dot" style="background:var(--green)"></span> 6 &middot; Agent runtime — <code>factory.py</code> + <code>app/agents/</code></div><div class="ldesc"><code>create_runner()</code> &#8594; <code>DeepAgentRunner</code> over a <code>deepagents</code> graph; <code>build_model()</code> picks the LLM.</div><div class="chips"><span class="chip">factory.py</span><span class="chip">deep_agent_runner.py</span><span class="chip">sandbox.py</span></div></div>
+        <div class="arrow-down">&#9660;</div>
+        <div class="layer"><div class="ltitle"><span class="dot" style="background:var(--green)"></span> 7 &middot; External — Bedrock / Anthropic &middot; PostgreSQL &middot; disk</div><div class="ldesc">Claude (Haiku 4.5 default), Postgres checkpointer + tables, on-disk sandbox, optional MCP.</div></div>
+        <div class="hexnote">Layers 4 &amp; 5 are the <b>inner hexagon</b>: they import only stdlib + each other. Layer 6 is the composition root permitted to import <code>app.*</code>.</div>
+      </div>
+
+      <h3>A request crossing the layers</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>The invariants</h3>
+      <div class="grid g2">
+        <div class="card"><span class="badge b-cyan">INV-1</span><h4 style="margin-top:8px">Kernel is name-free</h4><p class="lead">Zero <code>if pipeline_type == &hellip;</code> branches. Routing is by capability name only. Guarded by a banned-pattern CI grep.</p></div>
+        <div class="card"><span class="badge b-cyan">INV-2</span><h4 style="margin-top:8px">No per-run state on the singleton</h4><p class="lead">All run state lives on a fresh <code>ExecutionContext</code>, threaded explicitly. The engine is stateless after init.</p></div>
+        <div class="card"><span class="badge b-green">INV-3</span><h4 style="margin-top:8px">Behavioral parity</h4><p class="lead">Existing pipelines stay byte-identical where deterministic — locked by 5 characterization golden tests.</p></div>
+        <div class="card"><span class="badge b-violet">INV-5</span><h4 style="margin-top:8px">Compiler is thin, no DSL</h4><p class="lead">Manifests are pure data. Control-flow keys are rejected. Control flow lives in strategy capabilities.</p></div>
+        <div class="card"><span class="badge b-amber">INV-12</span><h4 style="margin-top:8px">Move, don't copy</h4><p class="lead">Adding an abstraction without deleting what it supersedes is "not done". Deletion is a ratcheted exit gate.</p></div>
+        <div class="card"><span class="badge b-red">INV-13</span><h4 style="margin-top:8px">deepagents only</h4><p class="lead">Every agent runs on <code>deepagents==0.6.7</code>; <code>create_deep_agent</code> is called only in <code>deep_agent_runner.py</code>.</p></div>
+      </div>
+
+      <h3>Enforced import boundaries (<code>import-linter</code>, steady state 4/0)</h3>
+      <pre><code>agents.execution_engine.engine   &#8629;  app.api                          # kernel &#8629; web layer
+agents.workflows                 &#8629;  agents.execution_engine, app     # declaration is inner
+agents.capabilities              &#8629;  agents.execution_engine, app     # capability ports are inner
+agents.runtime                   &#8629;  agents.execution_engine, app     # runtime port is inner (ECS-swap seam)</code></pre>
+      <div class="callout"><div class="t">&#129517; Why hexagonal here?</div><p>The product's thesis is "add a workflow without touching the engine". Ports &amp; Adapters is the structural guarantee: the kernel depends on abstractions; new behavior arrives as adapters that plug into the registry. The <code>agents.runtime</code> contract even reserves the seam for a future ECS/remote runtime as a backend swap, not an engine rewrite.</p></div>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; Architecture</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"React click", b:"Layer 1", d:"The dashboard sends a <code>run_pipeline</code> message on the WebSocket."},
+  {t:"FastAPI handler", b:"Layer 2", d:"The web layer authenticates, validates, and calls <code>ExecutionEngine.execute()</code> — the single downward call."},
+  {t:"Kernel sequences", b:"Layer 3", bc:"b-cyan", d:"The kernel reads the compiled plan and loops the steps. It knows nothing about which workflow this is."},
+  {t:"Resolve by name", b:"Layers 4-5", bc:"b-violet", d:"The compiled plan names capabilities; the registry resolves each to a concrete adapter. Inner layers never import outward."},
+  {t:"Runner executes", b:"Layer 6", bc:"b-green", d:"The composition root builds a deepagents runner and calls the model (Layer 7)."},
+  {t:"Events bubble up", b:"Layer 3 &#8594; 1", d:"The kernel emits generic events that the web layer forwards and the UI renders. The dependency arrows all point inward; only data flows back out."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

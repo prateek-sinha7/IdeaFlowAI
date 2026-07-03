@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Policy — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="feature-model-policy">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Model Policy</b></div>
+      <div class="spacer"></div>
+      <span class="tag">Phase 6</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Cross-cutting</div>
+        <h1>Model Policy</h1>
+        <p>Which LLM runs each agent is a resolved decision, not a hardcoded constant. A <code>ModelResolver</code> applies a strict precedence over an allow-listed <code>ModelCatalog</code>, with fallbacks and cost classes. <code>build_model()</code> then constructs the right client.</p>
+        <div class="kv"><span><b>Default:</b> Claude Haiku 4.5</span><span><b>Providers:</b> Bedrock / Anthropic</span><span><b>Cap:</b> MAX_OUTPUT_TOKENS = 32768</span></div>
+      </div>
+
+      <h3>How a model is chosen for an agent</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>Precedence (highest wins)</h3>
+      <table>
+        <thead><tr><th>Tier</th><th>Source</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>Per-run user override (<code>model_overrides[agent_id]</code>) — allow-list-validated against the ModelCatalog.</td></tr>
+          <tr><td>2</td><td>Per-step <code>model:</code> (from the compiled Step).</td></tr>
+          <tr><td>3</td><td>Per-agent <code>AGENT.md</code> model.</td></tr>
+          <tr><td>4</td><td>Workflow-default <code>model:</code> (CompiledWorkflow).</td></tr>
+          <tr><td>5</td><td>Session model / the Haiku default.</td></tr>
+        </tbody>
+      </table>
+
+      <div class="grid g2">
+        <div class="card"><h4>build_model()</h4><p class="lead"><code>app/agents/model_factory.py</code>. Selects <code>ChatAnthropic</code> when <code>ANTHROPIC_API_KEY</code> is set (local dev), else <code>ChatBedrockConverse</code> (prod — IAM instance role or a bearer token). Botocore read-timeout + adaptive retries live here in one place. Per-call total timeout is <code>LLM_CALL_TIMEOUT_SECONDS = 900</code>.</p></div>
+        <div class="card"><h4>Token ceiling</h4><p class="lead">The API requires a finite <code>max_tokens</code>, so "no capping" means "run at the model max" — <code>MAX_OUTPUT_TOKENS = 32768</code> is applied uniformly by the factory, overriding the documented per-agent <code>max_tokens</code> in AGENT.md.</p></div>
+      </div>
+
+      <div class="callout warn"><div class="t">&#128274; The security chokepoint</div><p><code>model_overrides</code> is untrusted run-payload input. <code>_validate_model_overrides()</code> checks each entry against two allow-lists — <code>model_id &isin; ModelCatalog.ids()</code> and <code>agent_id &isin;</code> this run's agents — and rejects the run with <code>code: "invalid_model_override"</code> before <code>execute()</code>. This blocks unknown-provider / cost-abuse / invalid-model-crash vectors.</p></div>
+
+      <p class="muted">Bedrock production default: model <code>claude-haiku-4-5</code>, cross-region inference profile <code>eu.anthropic.claude-haiku-4-5-20251001-v1:0</code>, region <code>eu-central-1</code>. The handoff coding agent can override to Sonnet via <code>BEDROCK_CODING_MODEL_ID</code>.</p>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; Model Policy</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"Validate overrides", b:"chokepoint", bc:"b-amber", d:"At WS ingress, per-run model_overrides are allow-list-checked against the ModelCatalog + this run's agents. Bad = run rejected."},
+  {t:"Resolve per agent", b:"ModelResolver", bc:"b-cyan", d:"For each agent, apply the 5-tier precedence: user override > step model > AGENT.md > workflow default > session/Haiku."},
+  {t:"Pick provider", b:"build_model", bc:"b-green", d:"ANTHROPIC_API_KEY present &#8594; ChatAnthropic (local); else ChatBedrockConverse (prod)."},
+  {t:"Apply caps + retries", d:"max_tokens = 32768; botocore read-timeout + adaptive retries; 900s per-call total timeout."},
+  {t:"Fallback chain", d:"On a transient throttle, the resolver's declared fallback models are tried in order (the MODEL-02 chain)."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

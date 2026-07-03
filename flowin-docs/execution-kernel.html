@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Execution Kernel — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="execution-kernel">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Execution Kernel</b></div>
+      <div class="spacer"></div>
+      <span class="tag">agents/execution_engine/</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Backend internals</div>
+        <h1>Execution Kernel</h1>
+        <p>The deterministic sequencer that replaced the legacy <code>WorkflowOrchestrator.execute()</code>, <code>run_od_prototype_pipeline</code>, and <code>run_od_ppt_pipeline</code>. It decides which agent runs next by reading the compiled plan — the LLM never decides sequencing. It is workflow-agnostic by construction (INV-1).</p>
+      </div>
+
+      <h3>Inside <code>ExecutionEngine.execute()</code></h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>Files in the package</h3>
+      <table>
+        <thead><tr><th>File</th><th>Responsibility</th></tr></thead>
+        <tbody>
+          <tr><td><code>engine.py</code></td><td>The <code>ExecutionEngine</code> singleton. <code>execute()</code> drives the topo-loop, per-step retry wrapper, HITL gates, event emission.</td></tr>
+          <tr><td><code>context.py</code></td><td>The per-run <code>ExecutionContext</code> value object (INV-2), threaded explicitly through the call tree.</td></tr>
+          <tr><td><code>resolver.py</code></td><td><code>WorkflowResolver</code> — validates the typed produces/consumes DAG; halts on an unsatisfiable graph.</td></tr>
+          <tr><td><code>state_machine.py</code></td><td>Run state transitions: running &#8594; waiting_for_user &#8594; completed / failed / cancelled / degraded.</td></tr>
+          <tr><td><code>budget.py</code></td><td><code>BudgetManager</code> / <code>BudgetSnapshot</code> — fan-out caps (max subagents / depth / wall-clock / tokens), per-run + per-workspace.</td></tr>
+          <tr><td><code>kernel_services.py</code></td><td><code>KernelServices</code> — the handle capabilities reach kernel + <code>app.*</code> primitives through (run-one-agent, sandbox r/w, static/render checks) without importing them.</td></tr>
+          <tr><td><code>clarify_engine.py</code></td><td>The HITL clarify questionnaire engine (emit &#8594; pause &#8594; resume on <code>submit_questionnaire</code>).</td></tr>
+          <tr><td><code>fanout.py</code></td><td>Kernel-owned <code>run_fanout</code> — parallel/sequential subagent spawning with isolation + merge.</td></tr>
+          <tr><td><code>od_context.py</code></td><td>OpenDesign context loading (template / design-system / craft) for od_ppt / od_prototype injects.</td></tr>
+          <tr><td><code>ndjson_adapter.py</code></td><td>NDJSON event adapter.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>The compile-for-run seam</h3>
+      <p class="muted">The single point where a run label becomes an executable plan. There is no legacy <code>pipeline_type</code> dispatch fallback (INV-12).</p>
+      <pre><code>@functools.lru_cache(maxsize=None)
+def compile_for_run(pipeline_type: str) -> CompiledWorkflow:
+    manifest_id = resolve_alias(pipeline_type)        # od_prototype -> prototype; else itself
+    manifest    = load_manifest(manifest_id, _WORKFLOWS_DIR)
+    return _WORKFLOW_COMPILER.compile(manifest, _CAPABILITY_REGISTRY)</code></pre>
+
+      <h3>The per-run <code>ExecutionContext</code></h3>
+      <p class="muted">A plain mutable dataclass — one per <code>execute()</code> call. It is why concurrent and fan-out runs never clobber each other.</p>
+      <div class="grid g2">
+        <div class="card"><h4>Identity &amp; ownership</h4><p class="lead"><code>run_id</code>, <code>owner_id</code> (<code>anon:&lt;session&gt;</code> if unauthenticated), <code>disk_principal</code> (decoupled sandbox key), <code>workspace_id</code>, <code>depth</code>.</p></div>
+        <div class="card"><h4>Typed substrate</h4><p class="lead"><code>artifacts: ArtifactGraph</code> (the sole inter-agent handoff), <code>scoped_store</code>, <code>model_resolver</code>, <code>model_overrides</code>, <code>budget</code>.</p></div>
+        <div class="card"><h4>Run wiring</h4><p class="lead"><code>checkpointer</code>, <code>deliverable</code>, <code>current_step</code>, <code>seed_files</code>, <code>cancel_event</code>, <code>prewarmed_constitution</code>, <code>prewarmed_mcp_tools</code>.</p></div>
+        <div class="card"><h4>Loop scratch</h4><p class="lead"><code>completed_tasks</code>, <code>current_task_block</code>, <code>build_task_number/total</code>, <code>failed_invocations</code>, revision baselines, <code>is_revision_workflow</code>, <code>is_resuming</code>.</p></div>
+      </div>
+
+      <h3>Notable machinery</h3>
+      <details><summary>_ChunkStreamSanitizer &mdash; strips fabricated tool XML from the live stream</summary><div class="details-body"><p>Live Haiku sometimes fabricates Claude-internal tool syntax (<code>&lt;function_calls&gt;</code>/<code>&lt;invoke&gt;</code>) as plain text. This per-stream buffer routes each chunk through the runner's <code>sanitize_output</code> and holds an unterminated opener across chunk boundaries so a span split across two deltas is still stripped. Identity no-op for tool-using agents (gated on the runner capability, never a workflow name).</p></div></details>
+      <details><summary>_RunEventSink &mdash; durable event persistence</summary><div class="details-body"><p>Every stamped event (with <code>seq</code> + <code>event_id</code>) is appended to <code>run_events</code> so a reconnecting client can replay the tail. Best-effort for the DB case only (a <code>SQLAlchemyError</code> degrades to a warning so the live stream is never perturbed); any other exception propagates.</p></div></details>
+      <details><summary>_select_issues_to_fix &mdash; pure validation fix-loop selection</summary><div class="details-body"><p>A pure function over a <code>StaticCheckResult</code> + <code>RenderResult</code> producing the ordered, de-duplicated fix list. On a build (empty baseline) it selects all issues; on a revision (populated baseline) only new static issues + new console errors, while hard render-breakage (uncaught page errors, dead nav links) is always included.</p></div></details>
+      <details><summary>Client-facing error sanitization</summary><div class="details-body"><p><code>_sanitize_agent_error()</code> returns a fixed generic message on the client-facing <code>agent_error</code> event, keeping raw provider text (ARNs, region, model-id) server-side only &mdash; a leak is structurally impossible on the wire.</p></div></details>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; Execution Kernel</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"Validate the DAG", b:"WorkflowResolver", bc:"b-cyan", d:"The typed produces/consumes graph is validated up front; an unsatisfiable graph halts the run before any agent executes."},
+  {t:"Run the Deep-Planner", b:"120s timeout", bc:"b-cyan", d:"A planner agent infers intent and emits an execution gate verdict; on timeout it defaults to PROCEED so it never discards work."},
+  {t:"Evaluate the gate", b:"clarify?", bc:"b-amber", d:"If the verdict is CLARIFY_REQUIRED (or the manifest declares clarify.mode: auto), the ClarifyEngine asks questions and the run pauses."},
+  {t:"Loop the Step DAG", b:"topological", bc:"b-cyan", d:"For each Step in order, resolve its strategy capability and hand off. Review gates can pause between steps; a per-step retry wrapper handles transient errors."},
+  {t:"Run one agent", b:"KernelServices", bc:"b-green", d:"The strategy calls the run-one-agent primitive: create_runner + astream + the model fallback chain, with a per-task or per-agent checkpoint thread id."},
+  {t:"Persist + emit", b:"run_events", d:"Every event is stamped and best-effort persisted; artifacts + validation results + hook runs are written through the ScopedStore."},
+  {t:"Resolve the deliverable", b:"DeliverableResolver", bc:"b-violet", d:"After the last step, the declared resolver reads the sandbox and produces the final artifact + mimetype, persisted with lineage."},
+  {t:"Terminal state", b:"state_machine", d:"The run resolves to completed / degraded / failed / cancelled, and the terminal event (with totals) is sent + persisted."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API &amp; Data Model — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="api-data-model">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">API &amp; Data Model</b></div>
+      <div class="spacer"></div>
+      <span class="tag">app/</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Backend internals</div>
+        <h1>API &amp; Data Model</h1>
+        <p>The FastAPI app (<code>app/main.py</code>, title "AI SaaS Platform", v0.1.0) registers 18 routers plus the WebSocket. On startup it verifies the Alembic schema (refuses to boot in non-dev if unmigrated), restores non-terminal runs, and wires the engine&#8594;WS resume bridge.</p>
+      </div>
+
+      <h3>What happens at boot</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>REST routers (<code>app/api/</code>)</h3>
+      <table>
+        <thead><tr><th>Router</th><th>Endpoints</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>auth.py</code></td><td>/api/auth/register&middot;login&middot;me&middot;logout&middot;change-password</td><td>JWT auth; logout revokes the token; password change blanket-revokes.</td></tr>
+          <tr><td><code>websocket.py</code></td><td>/ws/chat</td><td>The real-time streaming endpoint.</td></tr>
+          <tr><td><code>runs.py</code></td><td>/api/runs, /{id}/chain-context, /{id}/hook-runs</td><td>Run history, chaining context, audit trail.</td></tr>
+          <tr><td><code>workflows.py</code></td><td>/api/workflows, /{id}</td><td>Manifest-derived catalog + full compiled definition.</td></tr>
+          <tr><td><code>capabilities.py</code></td><td>/api/capabilities</td><td>The live registry palette (capabilities[] + model_catalog[]).</td></tr>
+          <tr><td><code>user_workflows.py</code></td><td>/api/user-workflows (CRUD)</td><td>DB-backed saved, user-authored workflows.</td></tr>
+          <tr><td><code>agents.py</code></td><td>/api/agents&hellip;, /{id}/prompt</td><td>Agent library + per-user prompt overrides.</td></tr>
+          <tr><td><code>chats.py</code></td><td>/api/chats&hellip;</td><td>Free-chat sessions + messages.</td></tr>
+          <tr><td><code>settings.py</code></td><td>/api/settings/preferences</td><td>Preferred model + available models.</td></tr>
+          <tr><td><code>admin.py</code></td><td>/api/admin/users&hellip;</td><td>User/tier admin (basic/pro/enterprise).</td></tr>
+          <tr><td><code>handoff.py</code> / <code>websocket_handoff.py</code></td><td>/api/handoff&hellip;</td><td>The Claude-Code bridge.</td></tr>
+          <tr><td><code>mcp.py</code> / <code>install.py</code></td><td>/api/mcp&hellip;, /api/install&hellip;</td><td>MCP credentials + client CLI installer.</td></tr>
+          <tr><td><code>prototype_templates.py</code> / <code>ppt_templates.py</code></td><td>/api/&hellip;-templates</td><td>OpenDesign galleries.</td></tr>
+          <tr><td><code>file_extract.py</code></td><td>/api/files/extract-text</td><td>Text extraction from PDF/DOCX/PPTX.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Core (<code>app/core/</code>)</h3>
+      <div class="grid g2">
+        <div class="card"><h4>config.py</h4><p class="lead">Pydantic <code>Settings</code>. Boot-guards a weak <code>SECRET_KEY</code> (raises <code>SecretKeyMisconfigured</code> outside dev). Holds Bedrock/Anthropic config, <code>MAX_OUTPUT_TOKENS=32768</code>, <code>AGENT_RECURSION_LIMIT=400</code>, <code>RUNS_ROOT=/app/runs</code>, <code>RUN_DIR_TTL_HOURS=48</code>.</p></div>
+        <div class="card"><h4>security &middot; crypto &middot; dependencies &middot; entitlements</h4><p class="lead">JWT encode/decode + revocation checks, field encryption, FastAPI DI (<code>get_current_user</code>), per-tier entitlement limits.</p></div>
+      </div>
+
+      <h3>Data model (<code>app/models/</code> — SQLAlchemy)</h3>
+      <p class="muted">Additive migrations only (Alembic 0014&#8594;0022); every new table carries <code>owner_id</code> + <code>workspace_id</code> for the scope filter.</p>
+      <div class="grid g4">
+        <div class="cap"><div class="cn">user</div><div class="cd">Accounts, tiers, password rotation.</div></div>
+        <div class="cap"><div class="cn">workflow / workflow_run</div><div class="cd">Run rows + saved definitions.</div></div>
+        <div class="cap"><div class="cn">artifact_ref</div><div class="cd">Typed artifacts + lineage.</div></div>
+        <div class="cap"><div class="cn">run_event</div><div class="cd">Durable event log (replay).</div></div>
+        <div class="cap"><div class="cn">run_capabilities</div><div class="cd">Per-run resolved capabilities.</div></div>
+        <div class="cap"><div class="cn">workspace</div><div class="cd">Per-run workspace scope.</div></div>
+        <div class="cap"><div class="cn">gate_events</div><div class="cd">HITL gate outcomes.</div></div>
+        <div class="cap"><div class="cn">validation_results</div><div class="cd">Validator issues.</div></div>
+        <div class="cap"><div class="cn">hook_runs</div><div class="cd">Audit hook trail.</div></div>
+        <div class="cap"><div class="cn">subagent_run / wave_run</div><div class="cd">Fan-out + wave persistence.</div></div>
+        <div class="cap"><div class="cn">exec_runs</div><div class="cd">Gated exec audit.</div></div>
+        <div class="cap"><div class="cn">repository</div><div class="cd">Brownfield repo bindings.</div></div>
+        <div class="cap"><div class="cn">mcp_credential</div><div class="cd">MCP secrets (encrypted).</div></div>
+        <div class="cap"><div class="cn">revoked_token</div><div class="cd">JWT logout revocation.</div></div>
+        <div class="cap"><div class="cn">workflow_memory</div><div class="cd">Per-user Constitution.</div></div>
+        <div class="cap"><div class="cn">handoff</div><div class="cd">Claude-Code handoff sessions.</div></div>
+      </div>
+
+      <h3>Services (<code>app/services/</code>)</h3>
+      <div class="grid g4">
+        <div class="cap"><div class="cn">pptx_export.py</div><div class="cd">Spawns node + pptxgenjs for .pptx.</div></div>
+        <div class="cap"><div class="cn">od_loader.py</div><div class="cd">Loads OpenDesign templates/systems.</div></div>
+        <div class="cap"><div class="cn">handoff_github.py</div><div class="cd">GitHub handoff bridge.</div></div>
+        <div class="cap"><div class="cn">handoff_pipeline.py</div><div class="cd">Handoff coding pipeline.</div></div>
+      </div>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; API &amp; Data Model</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"Configure logging + LangSmith", d:"Structured logging is set up; LangSmith tracing enables if env vars are present."},
+  {t:"Check the Alembic schema", b:"lifespan", bc:"b-amber", d:"If <code>alembic_version</code> is missing, boot is refused in non-dev (loud warning in dev). Prevents serving against an empty schema."},
+  {t:"Restore non-terminal runs", b:"resume", bc:"b-cyan", d:"<code>restore_non_terminal_runs()</code> re-registers runs left in waiting_for_user so they can resume within seconds of startup."},
+  {t:"Wire the engine&#8594;WS bridge", d:"Resume-queue/task/cleanup callbacks are injected onto the engine so an auto-resumed run live-attaches on reconnect (the engine never imports app.api)."},
+  {t:"Register 18 routers + WS", d:"Auth, chats, runs, workflows, capabilities, user-workflows, handoff, admin, &hellip; and <code>/ws/chat</code>."},
+  {t:"Accept connections", b:"ready", bc:"b-green", d:"CORS middleware is applied (localhost origins), <code>/health</code> is live, and the app serves traffic."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

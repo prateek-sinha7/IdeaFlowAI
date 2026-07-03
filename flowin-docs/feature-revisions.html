@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Revisions — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="feature-revisions">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Revisions</b></div>
+      <div class="spacer"></div>
+      <span class="tag">REVISION_BASE_MAP</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Product feature</div>
+        <h1>Revisions</h1>
+        <p>"Change this, keep the rest." Every major deliverable can be revised in place: the user's instruction plus the original artifact seed a short revision pipeline that edits the existing output rather than regenerating from scratch.</p>
+      </div>
+
+      <h3>How a revision runs</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>The revision pipelines</h3>
+      <table>
+        <thead><tr><th>Revision id</th><th>Base</th><th>Agents</th></tr></thead>
+        <tbody>
+          <tr><td><code>user_stories_revision</code></td><td>user_stories</td><td>1 (user-story-revision-agent)</td></tr>
+          <tr><td><code>ppt_revision</code></td><td>ppt</td><td>2 (ppt-revision-agent, ppt-revision-assembler)</td></tr>
+          <tr><td><code>od_ppt_revision</code></td><td>od_ppt</td><td>1 (od-ppt-revision-agent)</td></tr>
+          <tr><td><code>prototype_revision</code></td><td>prototype</td><td>1 (prototype-revision-agent)</td></tr>
+          <tr><td><code>app_builder_revision</code></td><td>app_builder</td><td>1 (app-builder-revision-agent)</td></tr>
+        </tbody>
+      </table>
+      <p class="muted"><code>REVISION_BASE_MAP</code> (in <code>agents/registry.py</code>) maps each revision id to its base pipeline.</p>
+
+      <div class="grid g2">
+        <div class="card"><h4>Seeded from the parent</h4><p class="lead">The original artifact is seeded into the run via the <code>previous_run</code> context provider. The manifest's <code>deliverable.revises_existing = true</code> flag (not a workflow-name check) gates the in-place edit + parent seed — so the four regenerating workflows that also read <code>previous_run</code> aren't misclassified.</p></div>
+        <div class="card"><h4>Smart-hybrid validation</h4><p class="lead">A prototype revision runs the same Both-validation as a build, but with baselines: only <b>new</b> static/console issues count as regressions, while hard render-breakage is always fixed. This is the <code>_select_issues_to_fix</code> baseline path.</p></div>
+      </div>
+
+      <div class="callout"><div class="t">&#8617;&#65039; Lineage</div><p>Phase 14 made <code>run_revision</code> a real revision loop dispatched through <code>execute()</code> (a model actually runs), persisting the revised artifact with <code>derived_from</code> lineage — replacing an earlier echo stub. The revised deliverable renders on the same mimetype-dispatched preview surface.</p></div>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; Revisions</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"User asks for a change", d:"From a completed run, the user submits a revision instruction (e.g. \"make the hero section dark, add a pricing page\")."},
+  {t:"Resolve the revision pipeline", b:"REVISION_BASE_MAP", d:"The run label (e.g. prototype_revision) resolves to its short revision agent set."},
+  {t:"Seed the original", b:"previous_run", bc:"b-violet", d:"The prior artifact is written into the sandbox; baselines (static/console signatures) are computed for a prototype."},
+  {t:"Edit in place", b:"revises_existing", bc:"b-cyan", d:"The revision agent edits the existing artifact per the instruction, rather than regenerating."},
+  {t:"Validate against baseline", d:"Only new issues count as regressions; hard render-breakage is always fixed (smart-hybrid fix-loop)."},
+  {t:"Persist with lineage", b:"derived_from", bc:"b-green", d:"The revised deliverable is persisted with lineage back to the parent run, and rendered on the preview."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WebSocket Events — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="websocket-events">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">WebSocket Events</b></div>
+      <div class="spacer"></div>
+      <span class="tag">/ws/chat</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Frontend</div>
+        <h1>WebSocket Event Vocabulary</h1>
+        <p>The contract between the engine and the browser is a stream of typed events over <code>/ws/chat</code>. The frontend's <code>handlePipelineMessage</code> reduces them into <code>PipelineRunState</code>. All events flow through one generic backend forward — new types are additive, and every branch keys on the generic <code>type</code> (never a workflow name).</p>
+      </div>
+
+      <h3>The event round-trip</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>Client &#8594; Server</h3>
+      <table>
+        <thead><tr><th>Message</th><th>Payload</th><th>Effect</th></tr></thead>
+        <tbody>
+          <tr><td><code>run_pipeline</code></td><td>pipeline_type, message, agent_ids?, attached_skills?, attached_hooks?, model_overrides?, gate_agent_ids?, template_id?</td><td>Starts a run.</td></tr>
+          <tr><td><code>submit_questionnaire</code></td><td>pipeline_run_id, responses[], skip_clarification?</td><td>Resumes a paused clarify gate.</td></tr>
+          <tr><td><code>review_gate</code></td><td>gate_key, approved, edited_content?</td><td>Resolves a HITL review gate (owner-checked).</td></tr>
+          <tr><td><code>cancel_pipeline</code></td><td>&mdash;</td><td>Sets the cooperative cancel event &#8594; <code>pipeline_cancelled</code>.</td></tr>
+          <tr><td><code>reconnect_pipeline</code></td><td>pipeline_run_id</td><td>Re-attaches; server replays the durable tail.</td></tr>
+          <tr><td><code>ping</code></td><td>&mdash;</td><td>20s keepalive (&#8594; <code>pong</code>).</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Server &#8594; Client — filter by group</h3>
+      <div class="pills" id="evPills"></div>
+      <table>
+        <thead><tr><th>Event</th><th>Group</th><th>Meaning</th></tr></thead>
+        <tbody id="evBody"></tbody>
+      </table>
+
+      <div class="callout"><div class="t">&#128252; Durable replay &amp; heartbeats</div><p>Events are stamped with <code>seq</code> + <code>event_id</code> and persisted to <code>run_events</code>. A reconnecting client replays the tail from its last seen sequence. <code>pipeline_heartbeat</code> and <code>pong</code> are filtered out client-side. The <code>pipeline_reconnected</code> ack carries <code>live: true|false</code> so the client knows whether to expect a live stream or a terminal status.</p></div>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; WebSocket Events</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"Client sends run_pipeline", b:"client&#8594;server", d:"<code>useWorkflow.startPipeline()</code> emits the run request on the authenticated socket."},
+  {t:"Server streams lifecycle", b:"server&#8594;client", d:"<code>pipeline_start</code> carries the agent list; <code>planner_*</code> and <code>gate_status</code> report planning."},
+  {t:"Per-agent stream", b:"agent_*", bc:"b-cyan", d:"<code>agent_start</code> / <code>agent_thinking</code> / <code>agent_chunk</code> / <code>tool_call</code> / <code>tool_result</code> / <code>agent_complete</code> flow continuously."},
+  {t:"Validation + waves", b:"validator/wave", bc:"b-violet", d:"<code>validator_result</code> / <code>validation_warning</code> and <code>wave_*</code> / <code>subagent_*</code> report checks and parallel work."},
+  {t:"Terminal", b:"pipeline_complete", bc:"b-green", d:"<code>pipeline_complete</code> (with totals + deliverable mimetype), or <code>pipeline_failed</code> / <code>pipeline_cancelled</code>."},
+  {t:"Persist for replay", b:"run_events", d:"Every stamped event is appended so a reconnect can replay from the last sequence."}
+];
+window.EV = [
+  {t:'pipeline_start',g:'lifecycle',d:'Run began; carries the ordered agent list + pipeline_run_id.'},
+  {t:'agent_start',g:'agent',d:'An agent started running.'},
+  {t:'agent_thinking',g:'agent',d:'Streamed reasoning (accumulated into the Thinking tab).'},
+  {t:'agent_chunk',g:'agent',d:'A streamed output token/chunk.'},
+  {t:'agent_complete',g:'agent',d:'Agent finished; carries per-agent token usage + cost.'},
+  {t:'agent_error',g:'agent',d:'Agent surfaced an error (sanitized, secret-free).'},
+  {t:'agent_input',g:'agent',d:'Full input prompt + context sources for the Thinking tab.'},
+  {t:'pipeline_complete',g:'terminal',d:'Run finished; totals + status (may be "degraded" with agents_failed).'},
+  {t:'pipeline_failed',g:'terminal',d:'Terminal failure — every agent hard-failed (no deliverable).'},
+  {t:'pipeline_cancelled',g:'terminal',d:'Cooperative Stop delivered; in-flight agents reset.'},
+  {t:'pipeline_reconnected',g:'reconnect',d:'Re-attach ack; carries live:true|false + replayed_through_seq.'},
+  {t:'pipeline_heartbeat',g:'keepalive',d:'Keepalive (filtered client-side).'},
+  {t:'pong',g:'keepalive',d:'Reply to client ping (filtered).'},
+  {t:'planner_start',g:'planner',d:'Deep-Planner began; captures pipeline_run_id.'},
+  {t:'planner_complete',g:'planner',d:'Planner done; inferred intent + execution gate verdict.'},
+  {t:'planner_timeout',g:'planner',d:'Planner hit its 120s budget (defaults to PROCEED).'},
+  {t:'planner_error',g:'planner',d:'Planner errored (non-fatal; proceeds).'},
+  {t:'gate_status',g:'planner',d:'Execution gate verdict (PROCEED / CLARIFY_REQUIRED).'},
+  {t:'questionnaire_ready',g:'clarify',d:'Clarify questions ready; run pauses.'},
+  {t:'questionnaire_complete',g:'clarify',d:'Clarify answers accepted; run resumes.'},
+  {t:'clarification_limit_reached',g:'clarify',d:'Max clarify rounds reached.'},
+  {t:'review_gate_ready',g:'clarify',d:'HITL review gate awaiting approve/edit.'},
+  {t:'review_gate_approved',g:'clarify',d:'Review gate resolved; run resumes.'},
+  {t:'tool_call',g:'tools',d:'Agent invoked a tool (name + args).'},
+  {t:'tool_result',g:'tools',d:'Tool returned a result.'},
+  {t:'task_progress',g:'tools',d:'report_task_complete recorded a task (prototype build).'},
+  {t:'task_loop_progress',g:'tools',d:'Engine-level build-loop advanced to a new task.'},
+  {t:'workflow_validated',g:'validation',d:'DAG validated; carries dag_edges + unresolved_edges.'},
+  {t:'validator_result',g:'validation',d:'A validator produced issues (by severity).'},
+  {t:'validation_warning',g:'validation',d:'Warnings-first, non-blocking validator finding.'},
+  {t:'gate_started',g:'validation',d:'A declared gate began evaluating.'},
+  {t:'gate_passed',g:'validation',d:'A gate passed.'},
+  {t:'gate_blocked',g:'validation',d:'A gate blocked (soft block).'},
+  {t:'wave_started',g:'wave',d:'A scheduler wave began.'},
+  {t:'wave_completed',g:'wave',d:'A wave finished.'},
+  {t:'wave_failed',g:'wave',d:'A wave failed.'},
+  {t:'subagent_spawned',g:'wave',d:'A fan-out/wave worker was spawned.'},
+  {t:'subagent_result',g:'wave',d:'A worker returned its result.'},
+  {t:'hook_run',g:'audit',d:'Real-time audit entry from the audit_logger hook.'},
+  {t:'workflow_title_update',g:'meta',d:'LLM-generated run title (swapped into history in-place).'}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Capabilities — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="capabilities">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Capabilities</b></div>
+      <div class="spacer"></div>
+      <span class="tag"><span id="capCount">64</span> registered</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Backend internals</div>
+        <h1>Capabilities</h1>
+        <p>Every unit of workflow behavior is a <b>capability</b>: a small class that satisfies a <code>Protocol</code> port and self-registers via <code>@register(kind, name, user_allowed=&hellip;)</code>. The kernel resolves them by name; manifests reference them by name. Adding one is "add a module + register" — no kernel edit. Filter and search the live registry below.</p>
+      </div>
+
+      <h3>How a capability is resolved at runtime</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <div class="callout"><div class="t">&#129513; The registry contract</div><p><code>_KNOWN</code> is the compiler's membership set (validated at compile time with zero impls bound). <code>discover()</code> explicitly imports the impl modules (no auto-walk) so each <code>@register</code> fires. <code>resolve(kind,name)</code> is a static dict lookup — no dynamic name resolution, no <code>eval</code>. The <code>user_allowed</code> flag keeps <code>exec</code>/<code>secrets</code>/<code>spawn_subagents</code> off the user palette.</p></div>
+
+      <h3>Browse the catalog</h3>
+      <div class="pills" id="capPills"></div>
+      <div class="searchbox" style="padding:0;margin:10px 0 16px;max-width:340px">
+        <input id="capSearch" type="text" placeholder="Search capabilities by name&hellip;" autocomplete="off"
+          style="width:100%;background:#0b1330;border:1px solid var(--line2);border-radius:8px;color:var(--txt);padding:9px 12px;font-size:13px;outline:none">
+      </div>
+      <div class="grid g3" id="capGrid"></div>
+
+      <h3 style="margin-top:30px">The 14 ports (<code>base.py</code>)</h3>
+      <table>
+        <thead><tr><th>Port</th><th>Method</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>TaskParser</code></td><td><code>parse(text)</code></td><td>Raw planner text &#8594; canonical <code>Task</code> list.</td></tr>
+          <tr><td><code>ExecutionStrategy</code></td><td><code>run(step, ctx)</code></td><td>How a step runs (single_shot / task_loop / fanout / wave).</td></tr>
+          <tr><td><code>Validator</code></td><td><code>validate(target)</code></td><td>Produce <code>Issue</code> records for a deliverable.</td></tr>
+          <tr><td><code>DeliverableResolver</code></td><td><code>resolve(ctx)</code></td><td>Resolve the run's final deliverable.</td></tr>
+          <tr><td><code>ContextProvider</code></td><td><code>load(ctx)</code></td><td>Named context blocks injected into agents.</td></tr>
+          <tr><td><code>PostStep</code></td><td><code>run(step, ctx)</code></td><td>After-step behavior (side effects, no events).</td></tr>
+          <tr><td><code>GateHandler</code></td><td><code>evaluate(step, ctx)</code></td><td>A step gate (human / validation / approval / security).</td></tr>
+          <tr><td><code>PromptAssemblyPolicy</code></td><td><code>assemble(blocks, ctx)</code></td><td>Compose named blocks &#8594; the final system prompt.</td></tr>
+          <tr><td><code>AgentRuntimeAdapter</code></td><td><code>create(agent_id, ctx)</code></td><td>Select/wrap the per-agent runner (wraps DeepAgentRunner).</td></tr>
+          <tr><td><code>HookHandler</code></td><td><code>handle(event, ctx)</code></td><td>Executable lifecycle hook &#8594; continue/warn/block.</td></tr>
+          <tr><td><code>ToolProvider</code></td><td><code>provide(spec, ctx)</code></td><td>The (custom_tools, exclude_builtin) tuple for a tool set.</td></tr>
+          <tr><td><code>SkillProvider</code></td><td><code>provide(ctx)</code></td><td>Versioned skill blocks injected into a prompt.</td></tr>
+          <tr><td><code>HookProvider</code></td><td><code>provide(ctx)</code></td><td>Hook descriptors (incl. the behavioral sub-type).</td></tr>
+          <tr><td><code>IntegrationProvider</code></td><td><code>server_config(host)</code></td><td>Bridge a granted integration scope onto a catalog MCP server.</td></tr>
+        </tbody>
+      </table>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; Capabilities</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"Manifest names a capability", d:"e.g. a step declares <code>strategy: task_loop</code> and <code>validators: [html_static]</code> &mdash; strings, not code."},
+  {t:"Compiler validates membership", b:"is_registered", bc:"b-violet", d:"<code>WorkflowCompiler</code> checks each name against <code>_KNOWN</code>. An unknown name fails the compile, naming the bad reference."},
+  {t:"discover() binds impls", b:"@register", d:"On first use, <code>discover()</code> imports the impl subpackages; each class's <code>@register(kind,name)</code> instantiates it once into the registry."},
+  {t:"Kernel resolves by name", b:"resolve()", bc:"b-cyan", d:"At the step, the engine calls <code>registry.resolve(kind, name)</code> &mdash; a static dict lookup returning the bound instance."},
+  {t:"Adapter runs", bc:"b-green", d:"The capability's one port method executes (e.g. the strategy's <code>run(step, ctx)</code>). New behavior = new adapter, zero kernel edits."}
+];
+window.CAP = [
+  {k:'strategy',n:'single_shot',ua:0,d:'Run the agent once over the composed context.'},
+  {k:'strategy',n:'task_loop',ua:0,d:'One isolated sub-agent per parsed task (+ validators/fix-loop).'},
+  {k:'strategy',n:'fanout_batch',ua:1,d:'Spawn N isolated parallel workers, then merge.'},
+  {k:'strategy',n:'wave_scheduler',ua:1,d:'Topo-schedule tasks into parallel waves; durable resume.'},
+  {k:'merge',n:'copy_disjoint',ua:1,d:'Merge disjoint file sets from parallel workers.'},
+  {k:'merge',n:'git_3way',ua:1,d:'3-way git merge of worker outputs (via the runner handle).'},
+  {k:'merge',n:'json',ua:1,d:'Structured JSON merge.'},
+  {k:'merge',n:'html_fragment',ua:1,d:'HTML fragment merge.'},
+  {k:'validator',n:'html_static',ua:0,d:'Stdlib structural checks (routes,sections, handlers, is-active).'},
+  {k:'validator',n:'html_render',ua:0,d:'Headless Chromium render check (nav switches, no console errors).'},
+  {k:'validator',n:'spec_plan_coverage',ua:0,d:'Spec-to-plan coverage tier check.'},
+  {k:'validator',n:'api_prefix',ua:1,d:'Infra /api/v1 prefix backstop.'},
+  {k:'validator',n:'task_done_when',ua:0,d:'Task done-when criteria check.'},
+  {k:'validator',n:'design_quality',ua:0,d:'Design-quality warnings-first tier.'},
+  {k:'validator',n:'code_compile',ua:0,d:'py_compile via the gated exec handle.'},
+  {k:'validator',n:'code_test',ua:0,d:'pytest via the gated exec handle.'},
+  {k:'validator',n:'code_lint',ua:0,d:'ruff check via the gated exec handle.'},
+  {k:'deliverable',n:'single_file',ua:0,d:'One file read back from the sandbox (e.g. prototype.html).'},
+  {k:'deliverable',n:'serialized_sandbox',ua:0,d:'Whole sandbox to a filename-block bundle (app builds).'},
+  {k:'deliverable',n:'streamed_text',ua:0,d:'The final agent output text (user stories, plans).'},
+  {k:'deliverable',n:'ppt',ua:0,d:'Slide-deck deliverable (carousel-sanitized).'},
+  {k:'deliverable',n:'repo_diff',ua:0,d:'Brownfield diff-only resolver.'},
+  {k:'context_provider',n:'opendesign',ua:0,d:'Loads template / design-system / craft content.'},
+  {k:'context_provider',n:'previous_run',ua:0,d:'Seeds a prior run artifact (revision workflows).'},
+  {k:'context_provider',n:'repo',ua:0,d:'Surfaces a targeted repo ContextPack to agents.'},
+  {k:'task_parser',n:'heading_tasks',ua:0,d:'Parse ## heading task lists.'},
+  {k:'task_parser',n:'json_tasks',ua:0,d:'Parse a structured JSON task list (waves).'},
+  {k:'gate',n:'human',ua:0,d:'HITL review gate (pause/approve/edit).'},
+  {k:'gate',n:'validation',ua:0,d:'Validation gate (soft block on issues).'},
+  {k:'gate',n:'approval',ua:0,d:'Approval gate (required for exec).'},
+  {k:'gate',n:'security',ua:0,d:'Security gate (required for exec).'},
+  {k:'tool',n:'workspace',ua:0,d:'Native fs tools writing code-gen deliverables.'},
+  {k:'tool',n:'prototype',ua:0,d:'fs tools + report_task_complete (prototype build).'},
+  {k:'tool',n:'prototype_emit_only',ua:0,d:'Prototype emit-only tool set.'},
+  {k:'tool',n:'planning',ua:0,d:'Deep-planner stub tools (no disk).'},
+  {k:'tool',n:'spawn_subagents',ua:0,d:'Fan-out spawn emitter (engineer-only, user_allowed=false).'},
+  {k:'compaction',n:'html_skeleton',ua:0,d:'Compact HTML to a skeleton to save tokens.'},
+  {k:'post_step',n:'revision_validation',ua:0,d:'Post-step revision validation (event-free).'},
+  {k:'post_step',n:'api_prefix_audit',ua:0,d:'Event-free infra /api/v1 audit into validation_results.'},
+  {k:'model_catalog',n:'default',ua:0,d:'The authoritative model-id catalog.'},
+  {k:'runtime',n:'langchain_deepagents',ua:0,d:'AgentRuntimeAdapter wrapping DeepAgentRunner (INV-13).'},
+  {k:'prompt',n:'default',ua:0,d:'PromptAssemblyPolicy - fixed block order.'},
+  {k:'skill',n:'ui',ua:0,d:'UI-attached versioned skill blocks.'},
+  {k:'skill',n:'disk',ua:0,d:'Per-user disk SKILL.md overrides.'},
+  {k:'skill',n:'template',ua:0,d:'Template skill body (od workflows).'},
+  {k:'skill',n:'repo',ua:0,d:'Repo-derived skill blocks.'},
+  {k:'hook',n:'behavioral',ua:0,d:'Non-executable prompt-only behavioral hooks.'},
+  {k:'hook',n:'secret_scan',ua:0,d:'Executable, blocking secret scan on writes (default).'},
+  {k:'hook',n:'otel_tracing',ua:0,d:'Executable, non-blocking OTLP tracing.'},
+  {k:'hook',n:'audit_logger',ua:1,d:'Default lifecycle audit hook (KAN-73).'},
+  {k:'runtime_env',n:'local',ua:0,d:'LocalSandboxRuntime (the ECS-swap seam).'},
+  {k:'repo_index',n:'tree_sitter',ua:0,d:'Tree-sitter symbol index (heavy dep, isolated).'},
+  {k:'repo_inventory',n:'default',ua:0,d:'Kernel-side stdlib repo inventory.'},
+  {k:'context_pack',n:'default',ua:0,d:'Targeted repo context subset.'},
+  {k:'mcp_server',n:'github',ua:1,d:'Read-scoped GitHub MCP server.'},
+  {k:'mcp_server',n:'gitlab',ua:1,d:'Read-scoped GitLab MCP server.'},
+  {k:'mcp_server',n:'jira',ua:1,d:'Read-scoped Jira MCP server.'},
+  {k:'mcp_server',n:'slack',ua:1,d:'Post-scoped Slack MCP server.'},
+  {k:'mcp_server',n:'filesystem',ua:0,d:'Powerful filesystem MCP (user_allowed=false).'},
+  {k:'mcp_server',n:'postgres',ua:0,d:'Powerful Postgres MCP (user_allowed=false).'},
+  {k:'integration_provider',n:'github',ua:1,d:'GitHub integration bridge (MCP-backed).'},
+  {k:'integration_provider',n:'gitlab',ua:1,d:'GitLab integration bridge (MCP-backed).'},
+  {k:'integration_provider',n:'jira',ua:1,d:'Jira integration bridge (MCP-backed).'},
+  {k:'integration_provider',n:'slack',ua:1,d:'Slack integration bridge (MCP-backed).'}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

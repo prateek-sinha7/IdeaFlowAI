@@ -74,8 +74,11 @@ class RunSandbox:
         self.base = base
         self.root = (base / self.user_seg / self.run_seg).resolve()
         # Defence in depth: the resolved run dir must stay under RUNS_ROOT even if
-        # the sanitiser is ever weakened.
-        if self.root != base and not str(self.root).startswith(str(base) + "/"):
+        # the sanitiser is ever weakened. ``is_relative_to`` is separator-aware, so
+        # containment holds on both POSIX ("/") and Windows ("\\") — a plain
+        # ``startswith(base + "/")`` string check falsely rejects every path on
+        # Windows.
+        if not self.root.is_relative_to(base):
             raise ValueError(f"sandbox root escaped RUNS_ROOT: {self.root}")
         # The delegated has_git=False / exec=off Workspace facade (lazily built so
         # the disk root exists first and to avoid the local.py import cycle).
@@ -116,7 +119,8 @@ class RunSandbox:
     def path_for(self, relpath: str) -> Path:
         """Resolve ``relpath`` inside the sandbox, rejecting any escape."""
         candidate = (self.root / str(relpath).lstrip("/")).resolve()
-        if candidate != self.root and not str(candidate).startswith(str(self.root) + "/"):
+        # Separator-aware containment (see __init__): correct on Windows and POSIX.
+        if not candidate.is_relative_to(self.root):
             raise ValueError(f"path escapes run sandbox: {relpath!r}")
         return candidate
 

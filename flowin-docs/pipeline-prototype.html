@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prototypes — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="pipeline-prototype">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Prototypes</b></div>
+      <div class="spacer"></div>
+      <span class="tag">4 agents &middot; single_file</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Product feature &middot; pipeline</div>
+        <h1>Prototypes</h1>
+        <p>Builds a navigable, high-fidelity single-file HTML prototype from a brief. It's the flagship pipeline and the one SC-001 was proven against — every capability it uses (per-task build loop, Both-validation, fix-loop, compaction) is declared in its manifest, not hardcoded.</p>
+        <div class="kv"><span><b>Pipeline id:</b> prototype</span><span><b>Agents:</b> 4</span><span><b>Deliverable:</b> single_file (prototype.html)</span><span><b>Gates:</b> 2 human</span></div>
+      </div>
+
+      <h3>The pipeline, step by step</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>The build step is special: per-task sub-agents</h3>
+      <p class="muted">The <code>prototype-build</code> step uses <code>strategy: task_loop</code>. The engine writes <code>spec.md</code>/<code>design.md</code>/<code>tasks.md</code> into the sandbox, parses the task list with the <code>heading_tasks</code> parser, then launches <b>one isolated sub-agent per task</b>, each injected with a <code>=== CURRENT TASK ===</code> block. Task 1 uses <code>write_file</code>; every later task uses <code>edit_file</code> (the deepagents FilesystemBackend won't overwrite).</p>
+
+      <h3>Both-validation + bounded fix-loop</h3>
+      <div class="grid g2">
+        <div class="card"><h4>static_check</h4><p class="lead">Pure-stdlib structural checks: routes &harr; sections, the route map, handlers, is-active state, dead nav links.</p></div>
+        <div class="card"><h4>render_check</h4><p class="lead">Headless Chromium: clicks each nav link, verifies a <code>&lt;section data-page&gt;</code> activates, and asserts no console errors.</p></div>
+      </div>
+      <p class="muted">After each task, both run; a bounded internal fix-loop (N=2) feeds the selected issues back to the sub-agent. The fix-loop is a non-yielding coroutine, so it adds no extra UI events. Revision runs the same validation as a smart-hybrid policy seeded from the parent run.</p>
+
+      <div class="callout"><div class="t">&#128274; Two human gates</div><p><code>prototype-specify</code> and <code>prototype-plan</code> declare <code>gates: [human]</code> — the run pauses after each for the user to review/edit the spec and the plan before the (expensive) build begins. See <a href="feature-hitl-gates.html">HITL &amp; Clarify Gates</a>.</p></div>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; Prototypes</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"prototype-specify", b:"1 &middot; human gate", bc:"b-amber", d:"Writes <code>spec.md</code> from the brief + clarify answers. Then PAUSES for human review."},
+  {t:"prototype-plan", b:"2 &middot; human gate", bc:"b-amber", d:"Decomposes the spec into <code>design.md</code> + an atomic <code>tasks.md</code>. Then PAUSES for review."},
+  {t:"prototype-build", b:"3 &middot; task_loop", bc:"b-cyan", d:"One sub-agent per task edits <code>prototype.html</code>; after each task, static_check + render_check run with a bounded fix-loop."},
+  {t:"prototype-validate", b:"4", bc:"b-green", d:"Final P0/P1 validation pass over the assembled prototype."},
+  {t:"Resolve deliverable", b:"single_file", bc:"b-violet", d:"The <code>single_file</code> resolver reads <code>prototype.html</code> back from the sandbox as the deliverable (text/html &#8594; sandboxed iframe in the UI)."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

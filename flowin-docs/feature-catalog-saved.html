@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Catalog &amp; Saved Workflows — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="feature-catalog-saved">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Catalog &amp; Saved</b></div>
+      <div class="spacer"></div>
+      <span class="tag">Phases 20-22</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Product feature</div>
+        <h1>Workflow Catalog &amp; Saved Workflows</h1>
+        <p>The catalog is <b>data-driven</b>: it lists workflows straight from the manifests (never a hardcoded list), so a new manifest appears automatically. Users can also compose their own workflow from the capability palette and save it — persisted, owner-scoped, and re-validated at launch.</p>
+      </div>
+
+      <h3>From browse to launch to save</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <div class="grid g2">
+        <div class="card"><h4>Data-driven catalog (Phase 20)</h4><p class="lead"><code>GET /api/workflows</code> derives the catalog from every manifest's inert presentation fields (<code>user_launchable</code>, <code>display_name</code>, <code>description</code>, <code>icon</code>, <code>launch_surface</code>). <code>WorkflowCatalog.tsx</code> renders the rows. Adding a manifest with <code>user_launchable: true</code> makes it launchable — zero FE edits (SC-001 at the product layer).</p></div>
+        <div class="card"><h4>Saved workflows (Phase 21)</h4><p class="lead"><code>/api/user-workflows</code> CRUD persists a user-authored workflow as pure data: <code>{base_pipeline_type, agent_ids, model_overrides, selections}</code> + a name. Stored as <code>source="user"</code> rows via migration 0021 on the reused <code>workflows</code> table (not a new table).</p></div>
+      </div>
+
+      <h3>The composer &amp; capability palette (Phase 22)</h3>
+      <p class="muted"><code>GET /api/capabilities</code> exposes the full registry palette (all ~64 capabilities + the model catalog) with trust flags. The user composes a run in <code>IdeaInputPage</code> (agents, per-agent model overrides via <code>AgentModelPicker</code>, review gates, skills/hooks), and can persist it. The latent <code>model:</code>/<code>retry:</code>/<code>injects:</code> manifest keys were wired live in Phase 22.</p>
+
+      <div class="callout warn"><div class="t">&#128274; Save == launch (re-validation)</div><p>A saved row is re-compiled with <code>trust="user"</code> both at save time <b>and at launch time</b> — so a tampered <code>manifest_json</code> that references a non-user-allowed capability (or raises a budget ceiling) is rejected before <code>execute()</code>, not at run time. Per-step model selections are also allow-list-checked against the ModelCatalog.</p></div>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; Catalog &amp; Saved</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"Browse the catalog", b:"GET /api/workflows", d:"WorkflowCatalog renders launchable workflows straight from the manifests + a \"Your workflows\" section from saved rows."},
+  {t:"Compose (optional)", b:"IdeaInputPage", d:"Pick agents, per-agent models, review gates, skills/hooks from the live capability palette (GET /api/capabilities)."},
+  {t:"Save", b:"POST /api/user-workflows", bc:"b-violet", d:"The composer triple + name is persisted owner-scoped; the server re-compiles trust=user before storing."},
+  {t:"Launch", b:"run_pipeline", bc:"b-cyan", d:"On launch, persisted selections are re-validated (trust=user) + model ids allow-list-checked, then execute() runs."},
+  {t:"Run + render", bc:"b-green", d:"The run streams as usual; the deliverable renders by mimetype. Runs appear in Workflow History for reopen."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

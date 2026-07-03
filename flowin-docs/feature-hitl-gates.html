@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HITL &amp; Clarify Gates — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="feature-hitl-gates">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">HITL &amp; Clarify</b></div>
+      <div class="spacer"></div>
+      <span class="tag">durable pauses</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Cross-cutting</div>
+        <h1>Human-in-the-Loop &amp; Clarify Gates</h1>
+        <p>A run can pause and wait for a human — to answer clarifying questions before it starts, or to review/edit an intermediate artifact mid-pipeline. These pauses are <b>durable</b>: they survive a browser refresh or a backend restart because state lives in the LangGraph checkpointer.</p>
+      </div>
+
+      <h3>A clarify + review-gate run</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>Two kinds of gate</h3>
+      <div class="grid g2">
+        <div class="card"><h4>Clarify gate (pre-run)</h4><p class="lead">When the manifest declares <code>clarify.mode: auto</code>, the <code>ClarifyEngine</code> asks up to ~5 questions per round (from the manifest's <code>clarify.defaults</code> + planner-inferred gaps), emits <code>questionnaire_ready</code>, and pauses until <code>submit_questionnaire</code> arrives. "Skip all &amp; run directly" force-proceeds.</p></div>
+        <div class="card"><h4>Review gate (inter-step)</h4><p class="lead">A step with <code>gates: [human]</code> (its AGENT.md <code>gate: Human_Gate</code>) pauses <em>after</em> the step, emitting <code>review_gate_ready</code>. The user can approve or edit the artifact; the edited content is folded into the run. Prototype's specify + plan steps use this.</p></div>
+      </div>
+
+      <h3>Per-run gate selection</h3>
+      <p class="muted">The client can pass <code>gate_agent_ids</code> in the <code>run_pipeline</code> payload to choose exactly which agents pause for review (the UI's <code>ReviewGatesSection</code> toggles). When omitted, the default is the static set of agents whose AGENT.md declares <code>gate: Human_Gate</code>. This lives on <code>ExecutionContext.gate_agent_ids</code>.</p>
+
+      <div class="callout ok"><div class="t">&#128257; Durability &amp; ownership</div><p>Both gate types are durable via the Postgres checkpointer, so a paused run resumes on reconnect or after a backend restart. A review-gate response is a cross-run write, so it is owner-checked (the run named in the gate key must belong to the caller) — an unknown or unowned run is denied (no existence oracle).</p></div>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; HITL &amp; Clarify</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"Planner decides", b:"CLARIFY_REQUIRED", bc:"b-amber", d:"The deep-planner (or the manifest's clarify.mode: auto) determines the run needs clarification."},
+  {t:"Emit questionnaire", b:"questionnaire_ready", d:"The ClarifyEngine emits up to ~5 questions and the run pauses; state is checkpointed."},
+  {t:"User answers", b:"submit_questionnaire", d:"The client sends answers (or \"skip all\"); the ClarifyEngine resumes the run from the gate."},
+  {t:"Run to a review step", b:"gates: [human]", bc:"b-amber", d:"A step declaring a human gate finishes, then emits <code>review_gate_ready</code> and pauses again."},
+  {t:"Approve or edit", b:"review_gate", d:"The user approves or edits the artifact; edited content is folded into the run (owner-checked)."},
+  {t:"Resume", b:"review_gate_approved", bc:"b-green", d:"The engine continues from the checkpoint to the next step. A backend restart mid-pause resumes within seconds of startup."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

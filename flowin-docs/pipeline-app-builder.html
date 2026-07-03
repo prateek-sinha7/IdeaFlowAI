@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>App Builder — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="pipeline-app-builder">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">App Builder</b></div>
+      <div class="spacer"></div>
+      <span class="tag">15 agents &middot; serialized_sandbox</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Product feature &middot; pipeline</div>
+        <h1>App Builder</h1>
+        <p>A full software-development lifecycle in a single run: from raw materials to a complete, tested, deployable application. The 15 agents flow requirements &#8594; architecture &#8594; API/DB design &#8594; code &#8594; tests &#8594; infra &#8594; DevOps &#8594; governance, using typed produces/consumes contracts so downstream agents receive exactly the upstream artifacts they need.</p>
+        <div class="kv"><span><b>Pipeline id:</b> app_builder</span><span><b>Agents:</b> 15</span><span><b>Deliverable:</b> serialized_sandbox</span><span><b>Guardrails:</b> typescript, react, java-spring, &hellip;</span></div>
+      </div>
+
+      <h3>The 15 agents, in order</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>How the artifacts flow</h3>
+      <p class="muted">Inter-agent context is routed by each AGENT.md's typed <code>produces</code>/<code>consumes</code> contracts (validated by the <code>WorkflowResolver</code> as a DAG), not a hardcoded context map. An agent may consume from non-adjacent upstream agents (common here) — e.g. the code generator consumes the system design, API design, and database design.</p>
+
+      <div class="callout"><div class="t">&#128230; Deliverable: serialized_sandbox</div><p>The many files the agents write into the shared <code>RunSandbox</code> are serialized into a <code>filename:</code>-block bundle by <code>serialize_sandbox_deliverable()</code>. The frontend renders it as a file-bundle (<code>application/zip</code>) in <code>AppBuilderPreview</code> + the Files tab.</p></div>
+
+      <h3>Revision</h3>
+      <p class="muted"><code>app_builder_revision</code> (1 agent) revises an existing app build seeded from the parent run. See <a href="feature-revisions.html">Revisions</a>.</p>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; App Builder</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"material-analyzer", b:"1", d:"Ingests the brief + any attached materials into a working understanding."},
+  {t:"app-user-stories", b:"2", d:"Derives the requirements backlog."},
+  {t:"app-system-design", b:"3", d:"Overall system architecture."},
+  {t:"app-security-architecture", b:"4", d:"Threat model + security design."},
+  {t:"app-ux-design", b:"5", d:"UX flows + screens."},
+  {t:"app-api-design", b:"6", d:"API surface / OpenAPI."},
+  {t:"app-database-design", b:"7", d:"Data model + schema."},
+  {t:"app-code-generator", b:"8", bc:"b-cyan", d:"Generates the application code scaffold."},
+  {t:"app-feature-implementation", b:"9", bc:"b-cyan", d:"Implements the features."},
+  {t:"app-infra-generator", b:"10", d:"Infrastructure-as-code."},
+  {t:"app-code-compliance", b:"11", d:"Code compliance / standards pass."},
+  {t:"app-test-implementation", b:"12", d:"Writes the test suite."},
+  {t:"app-test-compliance", b:"13", d:"Test compliance / coverage pass."},
+  {t:"app-devops", b:"14", d:"CI/CD + DevOps wiring."},
+  {t:"app-sdlc-governance", b:"15", bc:"b-green", d:"Final SDLC governance + assembles the serialized_sandbox deliverable."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

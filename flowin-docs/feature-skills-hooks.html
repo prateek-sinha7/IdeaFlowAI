@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Skills, Hooks &amp; Guardrails — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="feature-skills-hooks">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Skills, Hooks &amp; Guardrails</b></div>
+      <div class="spacer"></div>
+      <span class="tag">prompt injection layers</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Cross-cutting</div>
+        <h1>Skills, Hooks &amp; Guardrails</h1>
+        <p>Three distinct mechanisms shape an agent's behavior by injecting content into its system prompt — plus a fourth, <b>executable</b> hook type that fires around lifecycle events. They come from different sources and inject in one fixed order.</p>
+      </div>
+
+      <h3>The fixed injection order</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>The three prompt layers</h3>
+      <table>
+        <thead><tr><th></th><th>Guardrails</th><th>Skills</th><th>Behavioral hooks</th></tr></thead>
+        <tbody>
+          <tr><td><b>Source</b></td><td>Filesystem (version-controlled)</td><td>Runtime (user-attached)</td><td>Runtime (user-attached)</td></tr>
+          <tr><td><b>Scope</b></td><td>Reusable across agents</td><td>Per-session</td><td>Per-session</td></tr>
+          <tr><td><b>Declared in</b></td><td>AGENT.md <code>guardrails</code></td><td><code>attached_skills</code></td><td><code>attached_hooks</code></td></tr>
+          <tr><td><b>Best for</b></td><td>Platform conventions</td><td>Project-specific context</td><td>Output-format rules</td></tr>
+        </tbody>
+      </table>
+
+      <h3>The 9 guardrail files (<code>agents/guardrails/</code>)</h3>
+      <div class="grid g3">
+        <div class="cap"><div class="cn">agile</div><div class="cd">Story format, AC, estimation.</div></div>
+        <div class="cap"><div class="cn">typescript</div><div class="cd">TS strict, type safety.</div></div>
+        <div class="cap"><div class="cn">react</div><div class="cd">Component patterns, hooks, a11y.</div></div>
+        <div class="cap"><div class="cn">accessibility</div><div class="cd">WCAG 2.1 AA, ARIA, keyboard nav.</div></div>
+        <div class="cap"><div class="cn">html-prototype</div><div class="cd">Single-file HTML constraints.</div></div>
+        <div class="cap"><div class="cn">openapi</div><div class="cd">OpenAPI 3.x conventions.</div></div>
+        <div class="cap"><div class="cn">java-spring</div><div class="cd">Spring Boot patterns, DI, REST.</div></div>
+        <div class="cap"><div class="cn">mulesoft</div><div class="cd">DataWeave, flow design.</div></div>
+        <div class="cap"><div class="cn">dotnet</div><div class="cd">.NET / C# + Azure SDK.</div></div>
+      </div>
+      <p class="muted">Structural constraints (enforced by tests): &lt;60 lines, plain markdown, no fenced code blocks, no frontmatter. A missing guardrail logs a warning and injects an empty block — the agent still runs.</p>
+
+      <h3>Executable lifecycle hooks (distinct from behavioral)</h3>
+      <div class="grid g3">
+        <div class="cap"><div class="cn">audit_logger</div><div class="cd">Default lifecycle audit &#8594; hook_runs (KAN-73).</div></div>
+        <div class="cap"><div class="cn">secret_scan</div><div class="cd">Blocking secret scan on writes (default).</div></div>
+        <div class="cap"><div class="cn">otel_tracing</div><div class="cd">Non-blocking OTLP tracing.</div></div>
+      </div>
+      <p class="muted">These are <code>HookHandler</code> capabilities returning continue/warn/block. A step that declares no <code>hooks:</code> auto-gets <code>audit_logger</code> + <code>secret_scan</code>. They surface in the UI's Audit tab via <code>hook_run</code> events. The per-user <b>Constitution</b> (from <code>workflow_memory</code>) is injected last, just before the prompt body.</p>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; Skills, Hooks &amp; Guardrails</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"tool_availability", d:"For a text-only agent, an anti-fabrication preamble is injected first (no tool syntax allowed)."},
+  {t:"injects", b:"od only", d:"template / design_system / craft blocks for od_ppt / od_prototype agents."},
+  {t:"guardrails", b:"filesystem", bc:"b-violet", d:"Each declared guardrail file is injected verbatim under <code>## Guardrail: {name}</code>."},
+  {t:"skills", b:"UI", d:"User-attached versioned skill blocks (project-specific context)."},
+  {t:"hooks", b:"UI", d:"The behavioral (prompt-only) hook block: <code>## Active Behavioral Hooks</code>."},
+  {t:"constitution", b:"per-user", bc:"b-amber", d:"The owner's governing principles from workflow_memory, injected last."},
+  {t:"prompt_body", b:"AGENT.md", bc:"b-green", d:"The agent's own system prompt (or the user's saved override)."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>
