@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   MessageCircleQuestion, CheckCircle2, ArrowRight, Sparkles, Loader2,
-  ChevronLeft, ChevronRight, PenLine, Lightbulb, SkipForward,
+  ChevronLeft, ChevronRight, PenLine, Lightbulb, SkipForward, AlertTriangle, X,
 } from "lucide-react";
 
 export interface ClarifyQuestion {
@@ -30,6 +30,12 @@ interface QuestionnairePanelProps {
   onSubmitAnswers: (answers: Record<string, string[]>, freeformInput: string) => void;
   onSkip: () => void;
   workflowType: string;
+  /** Cancel the active pipeline and navigate to dashboard (with confirmation dialog) */
+  onCancelWorkflow?: () => void;
+  /** @deprecated use onCancelWorkflow — kept for backward compat */
+  onCancel?: () => void;
+  /** @deprecated use onCancelWorkflow — kept for backward compat */
+  onStartNew?: () => void;
 }
 
 const PIPELINE_LABELS: Record<string, string> = {
@@ -40,7 +46,7 @@ const PIPELINE_LABELS: Record<string, string> = {
   custom: "Custom Workflow",
 };
 
-export function QuestionnairePanel({ questions, isLoading, onSubmitAnswers, onSkip, workflowType }: QuestionnairePanelProps) {
+export function QuestionnairePanel({ questions, isLoading, onSubmitAnswers, onSkip, workflowType, onCancelWorkflow, onCancel, onStartNew }: QuestionnairePanelProps) {
   const [currentIdx, setCurrentIdx] = useState(0);
   // answers keyed by question id: array of strings (single or multi)
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
@@ -52,6 +58,8 @@ export function QuestionnairePanel({ questions, isLoading, onSubmitAnswers, onSk
   const [freeformInput, setFreeformInput] = useState("");
   // whether user is on the final summary/submit slide
   const [showSummary, setShowSummary] = useState(false);
+  // confirmation dialog before cancelling
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   // Reset when questions change (new round)
   useEffect(() => {
@@ -61,6 +69,7 @@ export function QuestionnairePanel({ questions, isLoading, onSubmitAnswers, onSk
     setFreeformInput("");
     setUsedRecommendations(new Set());
     setShowSummary(false);
+    setShowCancelConfirm(false);
   }, [questions]);
 
   const pipelineLabel = PIPELINE_LABELS[workflowType] || workflowType;
@@ -183,7 +192,7 @@ export function QuestionnairePanel({ questions, isLoading, onSubmitAnswers, onSk
   // ── Summary / submit slide ─────────────────────────────────────────────────
   if (showSummary) {
     return (
-      <div className="flex flex-col h-full bg-white">
+      <div className="relative flex flex-col h-full bg-white">
         <div className="px-5 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#1B2A4A] to-blue-600 flex items-center justify-center flex-shrink-0">
@@ -257,6 +266,14 @@ export function QuestionnairePanel({ questions, isLoading, onSubmitAnswers, onSk
               <SkipForward className="h-3 w-3" /> Skip all &amp; run directly
             </button>
           </div>
+          {(onCancelWorkflow || onCancel || onStartNew) && (
+            <button
+              onClick={() => setShowCancelConfirm(true)}
+              className="w-full text-center text-[10px] text-red-400 hover:text-red-600 transition-colors py-0.5"
+            >
+              Cancel Workflow
+            </button>
+          )}
         </div>
       </div>
     );
@@ -274,7 +291,7 @@ export function QuestionnairePanel({ questions, isLoading, onSubmitAnswers, onSk
   const reasoning = String(current.recommendedReasoning ?? current.recommendedDisplay ?? "");
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="relative flex flex-col h-full bg-white">
       {/* Header */}
       <div className="px-5 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
         <div className="flex items-center gap-3 mb-3">
@@ -471,7 +488,65 @@ export function QuestionnairePanel({ questions, isLoading, onSubmitAnswers, onSk
         <button onClick={onSkip} className="w-full text-center text-[10px] text-gray-400 hover:text-gray-600 transition-colors py-1 flex items-center justify-center gap-1">
           <SkipForward className="h-3 w-3" /> Skip all &amp; run directly
         </button>
+        {(onCancelWorkflow || onCancel || onStartNew) && (
+          <button
+            onClick={() => setShowCancelConfirm(true)}
+            className="w-full text-center text-[10px] text-red-400 hover:text-red-600 transition-colors py-0.5"
+          >
+            Cancel Workflow
+          </button>
+        )}
       </div>
-    </div>
+
+      {/* Confirmation dialog overlay — sits inside the relative root div */}
+      <AnimatePresence>
+      {showCancelConfirm && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="absolute inset-0 z-10 flex items-center justify-center bg-black/30 rounded-xl"
+        >
+          <motion.div
+            initial={{ scale: 0.93, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.93, opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="mx-4 w-full max-w-sm rounded-2xl bg-white shadow-xl border border-gray-200 p-5"
+          >
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-9 h-9 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center flex-shrink-0">
+                <AlertTriangle className="h-4 w-4 text-red-500" />
+              </div>
+              <div>
+                <h3 className="text-[13px] font-bold text-gray-900">Cancel this workflow?</h3>
+                <p className="text-[11px] text-gray-500 mt-1 leading-snug">
+                  This will cancel the current pipeline run and take you back to the dashboard. The run will be saved as cancelled in your history.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowCancelConfirm(false)}
+                className="flex-1 rounded-xl border border-gray-200 px-4 py-2 text-[12px] font-medium text-gray-700 hover:bg-gray-50 transition-all"
+              >
+                Keep going
+              </button>
+              <button
+                onClick={() => {
+                  setShowCancelConfirm(false);
+                  const handler = onCancelWorkflow || onCancel || onStartNew;
+                  if (handler) handler();
+                }}
+                className="flex-1 rounded-xl bg-red-500 px-4 py-2 text-[12px] font-semibold text-white hover:bg-red-600 transition-all"
+              >
+                Cancel workflow
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  </div>
   );
 }
