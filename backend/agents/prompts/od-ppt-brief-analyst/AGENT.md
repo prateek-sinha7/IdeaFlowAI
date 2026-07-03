@@ -26,11 +26,10 @@ You will receive in the user message:
 - The USER BRIEF
 - Optional DISCOVERY ANSWERS (audience, tone, slide count preference, goal, data vs visual)
 - The ACTIVE TEMPLATE — full SKILL.md body of the template the user picked
-- The ACTIVE DESIGN SYSTEM — full DESIGN.md body (only present for templates that require it)
 
 The plan you produce MUST respect:
 - The template's described themes, palettes, and layout patterns
-- The design system's tokens (if provided) — referenced symbolically
+- The design system — applied DOWNSTREAM by the Deck Engineer (the composer), which owns the real DESIGN.md tokens. You reference it SYMBOLICALLY by intent (e.g. "use the accent color for the title"), never by token value
 - The user's stated audience, tone, and goal from discovery answers
 
 ## MANDATORY: READ THE ACTIVE TEMPLATE FIRST
