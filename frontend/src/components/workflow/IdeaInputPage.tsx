@@ -188,6 +188,9 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
   const [ideaInput, setIdeaInput] = useState(initialInput ?? "");
   const [showAgents, setShowAgents] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; size: string }[]>([]);
+  // KAN-91: file content stored separately so textarea stays clean.
+  // Composed into the pipeline message at send time, not at attach time.
+  const [attachedFileContents, setAttachedFileContents] = useState<{ name: string; content: string }[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const preSpeechTextRef = useRef("");
@@ -339,6 +342,12 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
     if (!ideaInput.trim() || pipelineAgents.length === 0) return;
     // For the migration meta-type, Run is gated on a sub-pipeline being chosen.
     if (isMigrationMeta && !migrationChoice) return;
+    // KAN-91: compose file content blocks into the message at send time,
+    // keeping the textarea clean. ATTACH_MAX_CHARS already applied at attach time.
+    const fileBlocks = attachedFileContents
+      .map((f) => `\n\n=== Attached: ${f.name} ===\n${f.content}\n=== End: ${f.name} ===`)
+      .join("");
+    const finalMessage = fileBlocks ? `${ideaInput.trim()}${fileBlocks}` : ideaInput.trim();
     // Only attach gate_agent_ids when the user actually touched the Review-gates
     // section; otherwise omit it entirely so the backend keeps its static default
     // (the run_pipeline payload is byte-identical to before this feature).
@@ -363,7 +372,7 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
             ...(hasSelections ? { selections } : {}),
           }
         : undefined;
-    onRun(ideaInput.trim(), pipelineAgents.map((a) => a.id), effectiveType, extraParams);
+    onRun(finalMessage, pipelineAgents.map((a) => a.id), effectiveType, extraParams);
   };
 
   // Phase 21 (SAVE-FROM-BOTH composer entry) — "Save workflow" persists the
@@ -505,7 +514,14 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                 {attachedFiles.map((file, idx) => (
                   <span key={`${file.name}-${idx}`} className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1 text-[10px] text-gray-600">
                     <File className="h-2.5 w-2.5" /> {file.name}
-                    <button onClick={() => setAttachedFiles((p) => p.filter((_, i) => i !== idx))} className="ml-1 text-gray-400 hover:text-red-500">
+                    <button onClick={() => {
+                      setAttachedFiles((p) => p.filter((_, i) => i !== idx));
+                      // KAN-91: also remove stored content so it's not sent
+                      const removedName = attachedFiles[idx]?.name;
+                      if (removedName) {
+                        setAttachedFileContents((p) => p.filter((c) => c.name !== removedName));
+                      }
+                    }} className="ml-1 text-gray-400 hover:text-red-500">
                       <X className="h-2.5 w-2.5" />
                     </button>
                   </span>
@@ -538,10 +554,11 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                           const reader = new FileReader();
                           reader.onload = (ev) => {
                             const content = (ev.target?.result as string) ?? "";
-                            setIdeaInput((p) => {
-                              const block = `\n\n=== Attached: ${f.name} ===\n${content.slice(0, ATTACH_MAX_CHARS)}\n=== End: ${f.name} ===`;
-                              return p ? `${p}${block}` : block.trimStart();
-                            });
+                            // KAN-91: store content separately, not in textarea
+                            setAttachedFileContents((p) => [
+                              ...p,
+                              { name: f.name, content: content.slice(0, ATTACH_MAX_CHARS) },
+                            ]);
                           };
                           reader.readAsText(f);
                         } else if (isBinaryFile) {
@@ -549,21 +566,25 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                           if (jwt) {
                             extractFileText(jwt, f)
                               .then((res) => {
-                                setIdeaInput((p) => {
-                                  const truncNote = res.truncated ? `\n[Content truncated to ${ATTACH_MAX_CHARS.toLocaleString()} chars]` : "";
-                                  const block = `\n\n=== Attached: ${res.filename} ===\n${res.text}${truncNote}\n=== End: ${res.filename} ===`;
-                                  return p ? `${p}${block}` : block.trimStart();
-                                });
+                                // KAN-91: store extracted content separately
+                                const truncNote = res.truncated ? `\n[Content truncated to ${ATTACH_MAX_CHARS.toLocaleString()} chars]` : "";
+                                setAttachedFileContents((p) => [
+                                  ...p,
+                                  { name: res.filename, content: `${res.text}${truncNote}` },
+                                ]);
                               })
                               .catch(() => {
-                                setIdeaInput((p) => p ? `${p}\n\n[Attached: ${f.name} — could not extract text]` : `[Attached: ${f.name} — could not extract text]`);
+                                // Extraction failed — store a placeholder so the agent knows the file was attached
+                                setAttachedFileContents((p) => [
+                                  ...p,
+                                  { name: f.name, content: "[could not extract text]" },
+                                ]);
                               });
                           } else {
-                            setIdeaInput((p) => p ? `${p}\n\n[Attached: ${f.name}]` : `[Attached: ${f.name}]`);
+                            setAttachedFileContents((p) => [...p, { name: f.name, content: "" }]);
                           }
-                        } else {
-                          setIdeaInput((p) => p ? `${p}\n\n[Attached: ${f.name}]` : `[Attached: ${f.name}]`);
                         }
+                        // For other file types: chip shows but no content is sent (no text to extract)
                       });
                     }
                     e.target.value = "";
@@ -735,7 +756,6 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
         onSelectionsChange={handleSelectionsChange}
         initialModelOverrides={initialModelOverrides}
         initialSelections={cleanSelections}
-        initialSelections={initialSelections}
         declaredCapabilities={declaredCapabilities}
       />
     </div>

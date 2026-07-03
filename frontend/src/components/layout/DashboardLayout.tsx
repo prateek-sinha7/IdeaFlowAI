@@ -334,6 +334,10 @@ export function DashboardLayout({
   } = useNotifications();
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const currentPipelineNotifId = useRef<string | null>(null);
+  // KAN-90: when user explicitly cancels from the clarification step, block
+  // the auto-redirect-to-execution effect for one render cycle so the home
+  // navigation isn't immediately overridden by pipelineState.isRunning=true.
+  const cancelNavigatingHomeRef = useRef(false);
 
   // ─── B3 (POR §5 D5) — revision family for the on-screen content ──────────────
   // Fetched here (the minimal seam — DashboardLayout already receives
@@ -360,6 +364,12 @@ export function DashboardLayout({
   // UserStoryPreview instead of PrototypePreview.
   useEffect(() => {
     if (pipelineState?.isRunning) {
+      // KAN-90: if user just cancelled from the clarification step, don't
+      // force the execution view — they want to stay on home/dashboard.
+      if (cancelNavigatingHomeRef.current) {
+        cancelNavigatingHomeRef.current = false; // consume the flag
+        return;
+      }
       if (mainView !== "execution") {
         setMainView("execution");
       }
@@ -1158,6 +1168,32 @@ export function DashboardLayout({
     }
   }, [activePipelineRunId, onSubmitQuestionnaire, pendingPipelineRun, onStartPipeline, connectionStatus, attachedSkills, attachedHooks, addRunningNotification]);
 
+  // Cancel the active pipeline from the clarification step and navigate to dashboard.
+  // Two-step sequence: submit_questionnaire(skip=true) unblocks the gate, then
+  // cancel_pipeline terminates the now-running pipeline. All state resets to initial.
+  // KAN-90: "Cancel Workflow" button in QuestionnairePanel confirmation dialog.
+  const handleCancelWorkflow = useCallback(() => {
+    // Set the flag BEFORE navigating so the isRunning effect doesn't fight us
+    cancelNavigatingHomeRef.current = true;
+    // Navigate home and reset state IMMEDIATELY — before any async work
+    setMainView("home");
+    setQuestionnaireQuestions([]);
+    setQuestionnaireLoading(false);
+    setPendingPipelineRun(null);
+    if (onResetPipeline) onResetPipeline();
+
+    if (activePipelineRunId && onSubmitQuestionnaire) {
+      // Step 1: unblock the clarify gate (fire and forget)
+      onSubmitQuestionnaire(activePipelineRunId, [], true);
+      // Step 2: cancel the now-unblocked pipeline after a short delay
+      setTimeout(() => {
+        if (websocketSend) {
+          websocketSend(JSON.stringify({ type: "cancel_pipeline" }));
+        }
+      }, 200);
+    }
+  }, [activePipelineRunId, onSubmitQuestionnaire, websocketSend, onResetPipeline]);
+
   // Header navigation — free navigation even while pipeline runs
   const handleNavigate = useCallback((page: "home" | "library" | "history" | "settings" | "analytics" | "catalog" | "saved-workflows") => {
     setMainView(page as MainView);
@@ -1501,6 +1537,7 @@ export function DashboardLayout({
                       onSubmitAnswers={handleQuestionnaireSubmit}
                       onSkip={handleQuestionnaireSkip}
                       workflowType={workflowType}
+                      onCancelWorkflow={activePipelineRunId ? handleCancelWorkflow : undefined}
                     />
                   ) : (
                     <PreviewPanel
