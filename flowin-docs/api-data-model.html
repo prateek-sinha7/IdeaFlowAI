@@ -24,6 +24,15 @@
         <p>The FastAPI app (<code>app/main.py</code>, title "AI SaaS Platform", v0.1.0) registers 18 routers plus the WebSocket. On startup it verifies the Alembic schema (refuses to boot in non-dev if unmigrated), restores non-terminal runs, and wires the engine&#8594;WS resume bridge.</p>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> This layer is the building's front door and its filing cabinet. The front door (REST + WebSocket) checks who you are and takes your requests; the filing cabinet (PostgreSQL) durably records every run, artifact, and event so history, audit, and resume all work. It is also the only layer allowed to talk to both the browser and the engine.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>The FastAPI web layer (18 routers + a WebSocket) and its SQLAlchemy data model.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To authenticate users, own the run lifecycle, enforce ownership, and persist everything the product needs to remember.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>Routers call into the kernel; additive, owner-scoped tables (every row carries <code>owner_id</code> + <code>workspace_id</code>) record runs, artifacts, events, and audit.</p></div>
+        </div>
+      </div>
+
       <h3>What happens at boot</h3>
       <div class="flowwrap" id="flow-root"></div>
 

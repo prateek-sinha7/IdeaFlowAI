@@ -25,6 +25,15 @@
         <div class="kv"><span><b>Default:</b> Claude Haiku 4.5</span><span><b>Providers:</b> Bedrock / Anthropic</span><span><b>Cap:</b> MAX_OUTPUT_TOKENS = 32768</span></div>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> Not every agent needs the biggest, most expensive model. Flowin picks the model for each agent using a clear order of precedence — a per-run user choice wins over a per-step setting, which wins over the agent's own default, and so on. And because letting users pass arbitrary model names is risky, those choices are checked against an allow-list before anything runs.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>A model-selection policy (<code>ModelResolver</code>) over an allow-listed catalog, plus the <code>build_model()</code> client factory.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To balance cost and quality per agent and to block abuse via unknown/arbitrary model ids.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>A 5-tier precedence resolves the id; the factory builds ChatAnthropic or ChatBedrockConverse with token caps, timeouts, and a fallback chain.</p></div>
+        </div>
+      </div>
+
       <h3>How a model is chosen for an agent</h3>
       <div class="flowwrap" id="flow-root"></div>
 

@@ -24,6 +24,15 @@
         <p>Every unit of workflow behavior is a <b>capability</b>: a small class that satisfies a <code>Protocol</code> port and self-registers via <code>@register(kind, name, user_allowed=&hellip;)</code>. The kernel resolves them by name; manifests reference them by name. Adding one is "add a module + register" — no kernel edit. Filter and search the live registry below.</p>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> Capabilities are the Lego bricks of behavior. Each brick does exactly one small job — "run a step this way", "validate the HTML", "produce the final file", "pause for a human" — and snaps into the engine by name. To teach Flowin something new, you add a brick and register it; you never re-carve the baseplate (the engine).</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>Small, self-registering plug-in classes, each implementing one <code>Protocol</code> port (strategy, validator, deliverable, gate, hook, tool, provider&hellip;).</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>So new behavior is "add a module + register it", never an engine edit — the mechanical basis of SC-001.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>A class decorated with <code>@register(kind,name)</code> is discovered at startup; the compiler validates the name; the kernel resolves it by a static dict lookup.</p></div>
+        </div>
+      </div>
+
       <h3>How a capability is resolved at runtime</h3>
       <div class="flowwrap" id="flow-root"></div>
 
@@ -31,9 +40,8 @@
 
       <h3>Browse the catalog</h3>
       <div class="pills" id="capPills"></div>
-      <div class="searchbox" style="padding:0;margin:10px 0 16px;max-width:340px">
-        <input id="capSearch" type="text" placeholder="Search capabilities by name&hellip;" autocomplete="off"
-          style="width:100%;background:#0b1330;border:1px solid var(--line2);border-radius:8px;color:var(--txt);padding:9px 12px;font-size:13px;outline:none">
+      <div style="margin:10px 0 16px;max-width:340px">
+        <input id="capSearch" class="txtin" type="text" placeholder="Search capabilities by name&hellip;" autocomplete="off">
       </div>
       <div class="grid g3" id="capGrid"></div>
 

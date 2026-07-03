@@ -51,8 +51,19 @@ def build_model(model: str | None = None, *, max_tokens: int | None = None) -> "
             max_tokens=max_tokens,
         )
 
+    import os
+
     from botocore.config import Config
     from langchain_aws import ChatBedrockConverse
+
+    # botocore only uses the Bedrock bearer token when AWS_BEARER_TOKEN_BEDROCK is
+    # present in the PROCESS ENVIRONMENT (see botocore.handlers._should_prefer_bearer_auth
+    # -> get_token_from_environment). pydantic reads .env into ``settings`` but does
+    # NOT export to os.environ, so a native run with the token only in .env would
+    # fall back to SigV4 ambient credentials (~/.aws/credentials / SSO). Bridge the
+    # token into the env here so the API key is actually used for auth.
+    if settings.AWS_BEARER_TOKEN_BEDROCK and not os.environ.get("AWS_BEARER_TOKEN_BEDROCK"):
+        os.environ["AWS_BEARER_TOKEN_BEDROCK"] = settings.AWS_BEARER_TOKEN_BEDROCK
 
     model_id = model or settings.BEDROCK_INFERENCE_PROFILE_ID or settings.BEDROCK_MODEL_ID
     region = settings.AWS_REGION
@@ -78,6 +89,28 @@ def build_model(model: str | None = None, *, max_tokens: int | None = None) -> "
             retries={"max_attempts": 5, "mode": "adaptive"},
         ),
     )
+
+
+def _build_bedrock_bearer_session():
+    """Return a boto3 Session for Bedrock bearer-token auth.
+
+    botocore (>= 1.39) selects token-based auth for ``bedrock-runtime`` clients
+    when the ``AWS_BEARER_TOKEN_BEDROCK`` environment variable is present, so a
+    plain session is sufficient — callers build the client (with their own
+    botocore ``Config``) off this session.
+
+    Defensive env bridge: pydantic reads ``.env`` into ``settings`` but does NOT
+    export to ``os.environ``, which is where botocore looks. If the token is only
+    in ``settings`` (e.g. a native run that didn't export it to the shell), mirror
+    it into the process env here so the bearer auth path works consistently.
+    """
+    import os
+
+    import boto3
+
+    if settings.AWS_BEARER_TOKEN_BEDROCK and not os.environ.get("AWS_BEARER_TOKEN_BEDROCK"):
+        os.environ["AWS_BEARER_TOKEN_BEDROCK"] = settings.AWS_BEARER_TOKEN_BEDROCK
+    return boto3.Session()
 
 
 def model_identifier(llm) -> str:

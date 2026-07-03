@@ -24,6 +24,15 @@
         <p>Parallelism, owned by the kernel — never by the model. A step can fan out into N isolated workers that run in parallel and then merge, and a wave scheduler can topo-schedule tasks into parallel "waves" with durable mid-wave resume.</p>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> When a step has lots of independent work, Flowin can split it across several workers running at once and then stitch the results back together. The important safety detail: the <em>engine</em> decides to parallelize, never the model — with strict budgets and isolated scratch spaces so workers can't step on each other.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>Kernel-owned fan-out (parallel workers + merge) and a wave scheduler (dependency-ordered parallel batches).</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To speed up independent work safely, with budget caps and durable, resumable progress.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p><code>run_fanout</code> reserves budget, spawns isolated workers, then a <code>merge</code> capability combines outputs; waves persist to the DB for mid-wave resume.</p></div>
+        </div>
+      </div>
+
       <h3>A fan-out step, end to end</h3>
       <div class="flowwrap" id="flow-root"></div>
 

@@ -24,6 +24,15 @@
         <p>The platform has strong security defaults in several places and a couple of items worth flagging. This reflects what is verifiable in the current code — it is a set of observations from reading the source, not a full audit.</p>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> Flowin gets a lot of the security basics right by default — tokens are kept out of URLs and can be revoked, every run is scoped to its owner, capabilities are locked down unless explicitly granted, and manifests are parsed safely. There are also a couple of things worth tightening. This page separates the two honestly; it's an informed read of the code, not a formal audit.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>An overview of the platform's security posture as verifiable in the current source.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To make trust boundaries explicit and to flag the gaps clearly rather than glossing over them.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>JWT off the URL + revocation, owner-scoping everywhere, least-privilege capabilities, safe YAML parsing, and sanitized error output.</p></div>
+        </div>
+      </div>
+
       <h3>The auth request path</h3>
       <div class="flowwrap" id="flow-root"></div>
 

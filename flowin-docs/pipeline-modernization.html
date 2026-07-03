@@ -25,6 +25,15 @@
         <div class="kv"><span><b>mulesoft_to_springboot</b> &middot; 13</span><span><b>dotnet_to_azure</b> &middot; 13</span><span><b>Guardrails:</b> mulesoft/java-spring &middot; dotnet</span></div>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> Point these pipelines at an old codebase and they do the tedious, risky migration work: read and catalog the legacy system, map it onto a modern target, reimplement the features, and add tests and infrastructure. Two variants share the same shape — one for MuleSoft to Spring Boot, one for .NET to Azure.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>Two 13-agent brownfield migration pipelines: <code>mulesoft_to_springboot</code> and <code>dotnet_to_azure</code>.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To accelerate error-prone legacy migrations with a repeatable, validated, agent-driven process.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>Inventory the repo &#8594; map to the target &#8594; reimplement &#8594; add infra + tests &#8594; validate &#8594; govern, using the repo capabilities (index, context-pack, gated code checks).</p></div>
+        </div>
+      </div>
+
       <h3>MuleSoft &#8594; Spring Boot — the 13 agents</h3>
       <div class="flowwrap" id="flow-root"></div>
 

@@ -24,6 +24,15 @@
         <p>Flowin deploys as a <b>single-EC2</b> stack on AWS (branded <code>velocityai</code> in infra): the backend + frontend run as Docker Compose containers pulled from ECR, while Postgres and nginx run <b>natively on the host</b>. Everything is Terraform-managed in a layered reference format, applied by per-environment CodeBuild runners.</p>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> Flowin runs on a single AWS server. The app itself (backend + frontend) runs in Docker containers, while the database and the web server stay installed directly on the box — Postgres so backups stay simple, nginx so it can manage TLS certificates on its own schedule. Everything is described in Terraform, so the whole environment can be rebuilt from code.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>A single-EC2 AWS deployment (containers for the app; native Postgres + nginx) provisioned by layered Terraform.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>A simple, backup-friendly, reproducible footprint that lives safely inside a shared AWS account.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>Terraform layers (bootstrap &#8594; shared &#8594; foundation &#8594; app) + a CodeBuild pipeline that scans, builds images, and redeploys the host via SSM.</p></div>
+        </div>
+      </div>
+
       <h3>Runtime topology (one EC2 instance)</h3>
       <div class="diagram">
         <div class="layer"><div class="ltitle">&#127760; Internet &#8594; nginx (host, native)</div><div class="ldesc">TLS terminator. Certs at <code>/etc/letsencrypt/live/&lt;fqdn&gt;</code>, renewed by certbot outside the app rebuild cycle. Proxies to the two loopback-bound containers.</div></div>

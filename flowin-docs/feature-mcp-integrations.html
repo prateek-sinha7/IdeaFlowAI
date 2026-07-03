@@ -24,6 +24,15 @@
         <p>Agents can reach external systems through the Model Context Protocol. An allow-listed catalog of MCP servers plus thin integration-provider bridges surface tools (GitHub / GitLab / Jira / Slack) into an agent's runner via the same prewarm seam — one mechanism, no parallel SDK path.</p>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> Sometimes an agent needs to reach outside — read a GitHub repo, post to Slack, file a Jira ticket. Flowin does that through the Model Context Protocol (MCP): a vetted, trust-gated set of external tools. The powerful ones stay off the user palette; the safe ones can be granted and are handed to the agent as ordinary tools.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>An allow-listed catalog of MCP servers plus thin integration-provider bridges (GitHub / GitLab / Jira / Slack).</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To let agents interact with external systems without a bespoke SDK path per service — one mechanism, trust-gated.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>A granted scope composes an MCP config; tools are prewarmed once at run entry and unioned into the agent's tool set (they augment, never replace, the runtime).</p></div>
+        </div>
+      </div>
+
       <h3>How MCP tools reach an agent</h3>
       <div class="flowwrap" id="flow-root"></div>
 

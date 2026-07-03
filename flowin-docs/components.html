@@ -24,6 +24,15 @@
         <p>Components are grouped by feature area. <code>DashboardLayout</code> is the orchestrator; <code>IdeaInputPage</code> is the compose-and-launch surface; <code>PreviewPanel</code> + the <code>results/</code> tabs render the live run and its deliverable. Expand a group to see its members.</p>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> The React components are organized by the job they do in a run's life: <em>compose</em> it, <em>watch</em> it happen, <em>inspect</em> the details, and <em>view</em> the finished result. Keeping those concerns in separate folders means one part can change without disturbing the others.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>The component tree grouped by feature area (layout, workflow, preview, results, chat, catalog, handoff&hellip;).</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>Separation of compose / monitor / preview concerns keeps the UI maintainable and testable.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p><code>DashboardLayout</code> orchestrates; <code>IdeaInputPage</code> composes; progress + <code>results/</code> tabs monitor; <code>PreviewPanel</code> renders by mimetype.</p></div>
+        </div>
+      </div>
+
       <h3>How components connect to the run</h3>
       <div class="flowwrap" id="flow-root"></div>
 

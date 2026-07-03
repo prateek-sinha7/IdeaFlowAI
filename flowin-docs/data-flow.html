@@ -24,6 +24,15 @@
         <p>The life of a single run, from a user clicking "Generate" to a deliverable streaming back. Use the controls to step through — each step highlights and scrolls into view. The path is identical for every pipeline; the differences all live in the compiled plan.</p>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> Every run — whether it ends in a slide deck, a prototype, or an app — travels the exact same road from your click to the finished result. The only thing that changes between workflows is the compiled plan the engine reads. So if you understand this one journey, you understand how almost everything in Flowin behaves.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>The end-to-end lifecycle of a single run, from the browser request to the streamed-back deliverable.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>A single, uniform path makes the system predictable, testable, and resumable — and keeps the UI decoupled from workflow details.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>WebSocket in &#8594; compile the manifest &#8594; build a per-run context &#8594; plan the steps &#8594; stream each agent &#8594; validate &#8594; resolve the deliverable &#8594; stream out.</p></div>
+        </div>
+      </div>
+
       <h3>End-to-end, step by step</h3>
       <div class="flowwrap" id="flow-root"></div>
 

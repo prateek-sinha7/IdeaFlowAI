@@ -24,6 +24,15 @@
         <p>Flowin's current shape is the result of a brownfield "strangler" refactor (spec <code>003-workflow-engine-decoupling</code>) that turned a prototype-/PPT-coupled engine into the workflow-agnostic kernel described across this atlas. This is the <b>secondary</b> reference — the codebase is the source of truth.</p>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> Today's clean architecture wasn't built in one go — it was carved out of a tangled engine in 22 careful, incremental phases. The team used the "strangler" method: wrap the old code in tests, grow the new structure alongside it, switch over, then delete the old path. Never a risky big-bang rewrite. This page is a history for context; the code is the real source of truth.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>The 22-phase refactor history (spec <code>003-workflow-engine-decoupling</code>) that produced the current architecture.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To decouple a prototype-/PPT-coupled engine into a workflow-agnostic kernel without ever breaking existing behavior.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>Each phase: add a safety net &#8594; extract behind an abstraction &#8594; rewire call sites &#8594; delete the old code (an exit gate) &#8594; prove SC-001.</p></div>
+        </div>
+      </div>
+
       <h3>The strangler method (how each phase was safe)</h3>
       <div class="flowwrap" id="flow-root"></div>
 

@@ -51,6 +51,38 @@ async def get_checkpointer():
         _checkpointer = InMemorySaver()
         return _checkpointer
 
+    # Windows local-dev guard: psycopg's async driver cannot run on the
+    # ProactorEventLoop, which is the loop uvicorn forces on Windows (for
+    # subprocess support). Attempting AsyncPostgresSaver there raises
+    # "Psycopg cannot use the 'ProactorEventLoop'" on every run. Rather than
+    # break local dev, fall back to InMemorySaver when we detect that loop.
+    # Production runs on Linux (epoll-based SelectorEventLoop), so this branch
+    # never triggers there and durable Postgres checkpointing is preserved.
+    import asyncio
+    import sys
+
+    if sys.platform == "win32":
+        try:
+            _running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            _running_loop = None
+        if _running_loop is not None and not isinstance(
+            _running_loop, asyncio.SelectorEventLoop
+        ):
+            from langgraph.checkpoint.memory import InMemorySaver
+
+            logger.warning(
+                "Checkpointer: Postgres is configured but the running event loop "
+                "is %s. psycopg's async driver requires a SelectorEventLoop, which "
+                "uvicorn does not use on Windows — falling back to InMemorySaver. "
+                "HITL pauses work within the process but do NOT survive a restart. "
+                "This affects Windows local dev only; Linux/production keeps the "
+                "durable Postgres checkpointer.",
+                type(_running_loop).__name__,
+            )
+            _checkpointer = InMemorySaver()
+            return _checkpointer
+
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
     from psycopg_pool import AsyncConnectionPool
 

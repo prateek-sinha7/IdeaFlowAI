@@ -24,6 +24,15 @@
         <p>An <b>agent</b> is a folder with an <code>AGENT.md</code> file: YAML frontmatter (identity + metadata) plus a Markdown system-prompt body. There are ~80 in <code>agents/prompts/</code>. The <b>runtime</b> is how an agent becomes a running LangChain <code>deepagents</code> graph.</p>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> An "agent" is really just a Markdown file — a job description with a bit of metadata at the top. The runtime is the machinery that reads that file and turns it into a live, tool-using model with its own scratch space on disk. Keeping the agent as plain text means anyone can read or tweak what an agent does without touching Python.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>The <code>AGENT.md</code> format (frontmatter + prompt) plus the machinery that builds a running LangChain <code>deepagents</code> graph from it.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To keep an agent's identity editable as text while the runtime uniformly handles models, tools, sandboxes, and streaming.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>Load the spec &#8594; compose the prompt in a fixed order &#8594; resolve tools &#8594; build a <code>DeepAgentRunner</code> &#8594; map its LangGraph events onto the UI's event vocabulary.</p></div>
+        </div>
+      </div>
+
       <h3>From AGENT.md to a streamed agent</h3>
       <div class="flowwrap" id="flow-root"></div>
 

@@ -24,6 +24,15 @@
         <p>The deterministic sequencer that replaced the legacy <code>WorkflowOrchestrator.execute()</code>, <code>run_od_prototype_pipeline</code>, and <code>run_od_ppt_pipeline</code>. It decides which agent runs next by reading the compiled plan — the LLM never decides sequencing. It is workflow-agnostic by construction (INV-1).</p>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> The kernel is the conductor of the orchestra, not a musician. It decides which agent plays next and when, but it never plays a note itself — the LLM does the actual work. Crucially, the conductor doesn't know it's conducting "the prototype symphony" or "the PPT symphony"; it just reads the sheet music (the compiled plan) in front of it.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>The workflow-agnostic sequencer that executes a compiled plan, step by step.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>Centralizing orchestration deterministically means the model never controls sequencing, so runs are repeatable and testable.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p><code>execute()</code> validates the DAG, runs the planner, threads a per-run context, loops the steps via their strategies, and emits events.</p></div>
+        </div>
+      </div>
+
       <h3>Inside <code>ExecutionEngine.execute()</code></h3>
       <div class="flowwrap" id="flow-root"></div>
 

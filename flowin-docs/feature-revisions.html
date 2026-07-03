@@ -24,6 +24,15 @@
         <p>"Change this, keep the rest." Every major deliverable can be revised in place: the user's instruction plus the original artifact seed a short revision pipeline that edits the existing output rather than regenerating from scratch.</p>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> "Change this, keep the rest." Instead of regenerating a deliverable from scratch when you want a tweak, a short revision pipeline loads the original and edits it in place, guided by your instruction. That keeps the good parts and makes iterating cheap.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>In-place revision of any major deliverable (stories, deck, prototype, app build).</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>Iterating should be fast and shouldn't throw away work you were happy with.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>Seed the original via the <code>previous_run</code> provider &#8594; edit per the instruction &#8594; validate against a baseline (only new issues count) &#8594; persist with <code>derived_from</code> lineage.</p></div>
+        </div>
+      </div>
+
       <h3>How a revision runs</h3>
       <div class="flowwrap" id="flow-root"></div>
 

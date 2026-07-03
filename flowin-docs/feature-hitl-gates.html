@@ -24,6 +24,15 @@
         <p>A run can pause and wait for a human — to answer clarifying questions before it starts, or to review/edit an intermediate artifact mid-pipeline. These pauses are <b>durable</b>: they survive a browser refresh or a backend restart because state lives in the LangGraph checkpointer.</p>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> A good assistant knows when to stop and ask. Flowin does two kinds of asking: <em>clarify</em> questions before a run starts (when your brief is thin), and <em>review</em> gates part-way through (so you can approve or edit an important artifact before it drives expensive downstream work). These pauses are durable — refresh the tab or restart the server and the run is still waiting for you.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>Human-in-the-loop pauses: a pre-run clarify questionnaire and inter-step review gates.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To keep a human in control of ambiguous or high-stakes steps without supervising the whole run.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>The engine checkpoints state, emits a prompt event, and waits; your answer resumes the run — surviving reconnects and backend restarts.</p></div>
+        </div>
+      </div>
+
       <h3>A clarify + review-gate run</h3>
       <div class="flowwrap" id="flow-root"></div>
 

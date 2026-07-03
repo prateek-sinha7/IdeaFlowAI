@@ -25,6 +25,15 @@
         <div class="kv"><span><b>Feature name:</b> /flowin-handoff</span><span><b>Auth:</b> API key (flowin_ prefix, X-Flowin-API-Key)</span></div>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> You're coding with Claude in your IDE and want Flowin to take it further. The handoff feature lets you pass your session over: Flowin runs a coding pipeline on it and can push the results straight to GitHub/GitLab and file Jira issues — bridging local AI-assisted coding into Flowin's orchestrated, integrated flow.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>The <code>/flowin-handoff</code> bridge from a local Claude Code session into a Flowin coding pipeline.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To continue IDE-side AI work inside Flowin's orchestrated pipeline with team integrations (GitHub/GitLab/Jira/Slack).</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>A CLI (API-key auth) posts the transcript &#8594; a coding pipeline runs &#8594; the diff is reviewed &#8594; integrations push commits/PRs and file issues.</p></div>
+        </div>
+      </div>
+
       <h3>The handoff flow</h3>
       <div class="flowwrap" id="flow-root"></div>
 

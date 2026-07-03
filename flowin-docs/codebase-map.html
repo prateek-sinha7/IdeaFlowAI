@@ -24,6 +24,15 @@
         <p>The repository splits into <code>backend/</code> (Python), <code>frontend/</code> (Next.js), <code>infra/</code> (Terraform), <code>skills/</code> + <code>specs/</code> + <code>docs/</code> (content &amp; specs), and <code>.planning/</code> (the 22-phase history). Annotated below.</p>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> A quick tour of where things live so you know which door to open. The backend is two Python packages — <code>app</code> (the web/IO layer) and <code>agents</code> (the runtime + config). The frontend is a Next.js app, and <code>infra</code> is the Terraform. The single most important rule is that <code>agents</code>' inner layers are forbidden from importing <code>app</code> — that one-way arrow is the whole architecture in one line.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>An annotated map of the repository's folders and their responsibilities.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To orient you before diving into a file, and to make the layer boundaries visible.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p><code>backend/</code> = <code>app</code> + <code>agents</code>; <code>frontend/</code> = Next.js; <code>infra/</code> = Terraform; import-linter enforces the inner-layer boundaries.</p></div>
+        </div>
+      </div>
+
       <h3>Repository root</h3>
       <pre class="tree"><span class="d">flowin/</span>
 &#9500;&#9472; <span class="d">backend/</span>              <span class="c"># FastAPI + the agent runtime (Python 3.12+)</span>

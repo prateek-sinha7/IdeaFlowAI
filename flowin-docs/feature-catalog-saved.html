@@ -24,6 +24,15 @@
         <p>The catalog is <b>data-driven</b>: it lists workflows straight from the manifests (never a hardcoded list), so a new manifest appears automatically. Users can also compose their own workflow from the capability palette and save it — persisted, owner-scoped, and re-validated at launch.</p>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> The catalog is a storefront of ready-made workflows — and it builds itself from the manifests, so a new workflow appears automatically. Beyond that, you can assemble your own workflow from the capability palette and save it for reuse. Both the storefront and your saved workflows come from data, never a hardcoded list.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>A data-driven workflow catalog plus DB-backed, user-authored saved workflows.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To let users discover and reuse workflows (including their own compositions) without any engineering.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>The catalog reads manifest metadata via <code>/api/workflows</code>; saved workflows persist a composer triple, re-validated with <code>trust=user</code> at both save and launch.</p></div>
+        </div>
+      </div>
+
       <h3>From browse to launch to save</h3>
       <div class="flowwrap" id="flow-root"></div>
 

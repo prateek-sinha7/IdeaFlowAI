@@ -24,6 +24,15 @@
         <p>The contract between the engine and the browser is a stream of typed events over <code>/ws/chat</code>. The frontend's <code>handlePipelineMessage</code> reduces them into <code>PipelineRunState</code>. All events flow through one generic backend forward — new types are additive, and every branch keys on the generic <code>type</code> (never a workflow name).</p>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> The backend and the browser talk over a single always-open line, using a small, fixed vocabulary of typed messages — this page is the dictionary. The client sends a handful of commands; the server streams back around forty kinds of event describing everything happening in the run. Because the vocabulary is generic, the UI never needs to know which workflow it's watching.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>The message contract over the <code>/ws/chat</code> WebSocket — the commands in and the events out.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>A stable, additive vocabulary decouples the UI from workflow specifics and enables durable replay after a disconnect.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>Every event is stamped with a sequence number and persisted; the UI reduces events into state; a reconnect replays the tail from the last seen sequence.</p></div>
+        </div>
+      </div>
+
       <h3>The event round-trip</h3>
       <div class="flowwrap" id="flow-root"></div>
 

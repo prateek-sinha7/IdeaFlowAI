@@ -28,6 +28,15 @@
         </div>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> The frontend is a thin live window, not a brain. It sends one request to start a run, then simply renders whatever events stream back — agents thinking, tools firing, tasks completing — and finally shows the deliverable. Because runs can last hours, the window is built to survive dropped connections and pick up exactly where it left off.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>A Next.js 16 / React 19 dashboard driven entirely by a WebSocket event stream.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>Runs are long and streaming, so the UI must show live progress and reconnect gracefully rather than block on a request.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>Two hooks — a socket (<code>useWebSocket</code>) and a state machine (<code>useWorkflow</code>) — reduce events into render state; deliverables render by MIME type.</p></div>
+        </div>
+      </div>
+
       <h3>How the UI reacts to a run</h3>
       <div class="flowwrap" id="flow-root"></div>
 

@@ -25,6 +25,15 @@
         <div class="kv"><span><b>Pipeline id:</b> prototype</span><span><b>Agents:</b> 4</span><span><b>Deliverable:</b> single_file (prototype.html)</span><span><b>Gates:</b> 2 human</span></div>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> This turns a brief into a clickable HTML prototype — but not in one giant generation. It writes a spec, plans atomic tasks, then builds the prototype one task at a time, opening a real headless browser after each task to make sure nothing broke. It's the flagship pipeline and the one used to prove that a workflow needs no engine code.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>A 4-agent pipeline producing a navigable, single-file HTML prototype.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>High-fidelity prototypes need iterative build-and-check, not one big generation; and it's the SC-001 parity proof.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>specify &#8594; plan (both human-gated) &#8594; task-loop build with static + headless-render checks and a bounded fix-loop &#8594; final validate.</p></div>
+        </div>
+      </div>
+
       <h3>The pipeline, step by step</h3>
       <div class="flowwrap" id="flow-root"></div>
 

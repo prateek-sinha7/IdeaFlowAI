@@ -24,6 +24,15 @@
         <p>Three distinct mechanisms shape an agent's behavior by injecting content into its system prompt — plus a fourth, <b>executable</b> hook type that fires around lifecycle events. They come from different sources and inject in one fixed order.</p>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> An agent's behavior is shaped by several layers stacked into its prompt in a fixed order: reusable <em>guardrails</em> (engineer-authored conventions), per-session <em>skills</em> and <em>hooks</em> (things you attach for one run), and the per-user <em>Constitution</em>. Separately, <em>executable</em> hooks fire around lifecycle events to enforce things like auditing and secret-scanning automatically.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>The prompt-injection layers (guardrails, skills, behavioral hooks, constitution) plus executable lifecycle hooks.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To compose behavior from version-controlled conventions plus per-run user context, and to enforce safety by default.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>A fixed order builds the prompt; executable hooks (<code>audit_logger</code>, <code>secret_scan</code>) run around writes and can warn or block.</p></div>
+        </div>
+      </div>
+
       <h3>The fixed injection order</h3>
       <div class="flowwrap" id="flow-root"></div>
 

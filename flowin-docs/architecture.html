@@ -24,6 +24,15 @@
         <p>Flowin is a <b>Ports &amp; Adapters (hexagonal)</b> system. A small workflow-agnostic <b>kernel</b> depends only on capability <em>ports</em>; concrete implementations self-register and are resolved by name. The web layer calls into the kernel; the kernel never reaches back up. The boundaries are enforced mechanically by <code>import-linter</code> in CI.</p>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> The codebase is split into rings, like an onion. A small, stable core in the middle does the orchestrating; everything workflow-specific lives in outer rings that plug into the core. The rule that makes it all work: outer rings may depend on the core, but the core may never depend on them. That one-way rule is what lets someone add a brand-new workflow without ever touching the engine.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>A hexagonal (Ports &amp; Adapters) layering: a generic kernel surrounded by pluggable, self-registering adapters.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>The whole product promise — "add a workflow without editing the engine" (SC-001) — is only true if the dependency arrows point one way.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>The kernel depends only on abstract ports; adapters register by name and are resolved at runtime; <code>import-linter</code> fails CI if the direction is ever violated.</p></div>
+        </div>
+      </div>
+
       <h3>The 7 layers (click a layer to open its page)</h3>
       <div class="legend">
         <span><i class="dot" style="background:var(--accent)"></i> Web / IO</span>

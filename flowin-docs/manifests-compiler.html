@@ -24,6 +24,15 @@
         <p>The declaration layer: how a workflow is <em>described</em> (a YAML manifest) becomes how it is <em>executed</em> (a typed, validated plan). It imports only stdlib + itself + the capability registry — never the kernel or the web layer.</p>
       </div>
 
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> A workflow is a recipe written in YAML — a list of steps and the ingredients (capabilities) each step uses. The compiler is the sous-chef that reads the recipe, checks every ingredient actually exists, makes sure the steps can be done in a valid order, and hands the kernel a clean, ready-to-cook plan. If the recipe calls for something that doesn't exist, the compiler refuses — before any cooking starts.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>The layer that reads a <code>workflow.yaml</code> and produces a typed, validated <code>CompiledWorkflow</code>.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>So workflows can be pure data — editable and safe, with no executable code — yet still fully validated before they run.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>Load &#8594; strict-key validate &#8594; name-resolve every capability against the registry &#8594; topo-check the step DAG &#8594; emit the plan. No DSL, no <code>eval</code>.</p></div>
+        </div>
+      </div>
+
       <h3>How a manifest becomes a plan</h3>
       <div class="flowwrap" id="flow-root"></div>
 
