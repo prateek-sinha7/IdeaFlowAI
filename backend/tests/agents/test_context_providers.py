@@ -565,3 +565,40 @@ async def test_previous_run_unexpected_store_error_fails_closed():
     assert out == {}
     assert store.assert_called is True   # the ownership check WAS attempted
     assert sandbox.written == {}         # but FAILED CLOSED — nothing seeded
+
+
+# ===========================================================================
+# KAN-63 regression — B-explicit example.html gate (template_example inject)
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_opendesign_example_gate_is_builder_or_template_example_inject():
+    """KAN-63 regression pin (B-explicit gate): example.html injects IFF the agent is a
+    builder (prototype_emit_only/prototype) OR explicitly declares the ``template_example``
+    inject — NEVER merely because it holds the ``workspace`` tool set. A revert to the
+    ``"workspace" in spec_tools`` gate re-leaks example.html into the planner-shaped
+    od-ppt-brief-analyst and FAILS case (3)."""
+    runner = _FakeRunner(od_context=_OD,
+        injection_parts=["=== TEMPLATE SEED ===\nseed"], example="<html>example</html>")
+    EX_KEY = "TEMPLATE EXAMPLE (example.html): web-prototype"
+    builder = await OpenDesignProvider().load(_Ctx(runner, od_context=_OD,
+        current_spec_tools={"prototype_emit_only"}, current_spec_injects={"template", "design_system"}))
+    assert EX_KEY in builder
+    composer = await OpenDesignProvider().load(_Ctx(runner, od_context=_OD,
+        current_spec_tools={"workspace"}, current_spec_injects={"template", "design_system", "template_example"}))
+    assert EX_KEY in composer
+    analyst = await OpenDesignProvider().load(_Ctx(runner, od_context=_OD,
+        current_spec_tools={"workspace"}, current_spec_injects={"template"}))
+    assert EX_KEY not in analyst
+    assert not any(k.startswith("TEMPLATE EXAMPLE") for k in analyst)
+    assert "ACTIVE TEMPLATE (SKILL.md): web-prototype" in analyst
+
+
+def test_od_ppt_agents_template_example_inject_wiring():
+    """Frontmatter half of the fix: od-ppt-composer declares ``template_example``; brief-analyst does not."""
+    from agents.loader import load_agent_spec
+    composer = load_agent_spec("od-ppt-composer")
+    analyst = load_agent_spec("od-ppt-brief-analyst")
+    assert "template_example" in composer.injects and "template" in composer.injects
+    assert "template_example" not in analyst.injects and "template" in analyst.injects
