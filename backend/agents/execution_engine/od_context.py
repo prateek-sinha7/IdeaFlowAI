@@ -31,6 +31,12 @@ logger = logging.getLogger(__name__)
 # which resolves the dir across local-repo vs container layouts.
 _TEMPLATES_DIR = od_loader._TEMPLATES_DIR
 
+# Single authoritative cap for the injected example.html (INV-12 single-truncation).
+# Covers the current catalog max (~93,663 chars) with headroom, bounded well under
+# Haiku's 200k window (the composer is single-shot). The opendesign provider consumes
+# the string this cap produces DIRECTLY — it must NOT re-truncate.
+EXAMPLE_MAX_CHARS = 120_000
+
 
 def load_prototype_context(
     template_id: str,
@@ -167,7 +173,7 @@ def get_template_injection_parts(template_id: str) -> list[str]:
     return parts
 
 
-def get_example_html(template_id: str, max_chars: int = 8000) -> str | None:
+def get_example_html(template_id: str, max_chars: int = EXAMPLE_MAX_CHARS) -> str | None:
     """Return the template's example.html content, truncated to max_chars.
 
     The example HTML gives agents a concrete visual reference for the

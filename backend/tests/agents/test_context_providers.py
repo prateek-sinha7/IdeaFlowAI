@@ -595,6 +595,38 @@ async def test_opendesign_example_gate_is_builder_or_template_example_inject():
     assert "ACTIVE TEMPLATE (SKILL.md): web-prototype" in analyst
 
 
+@pytest.mark.asyncio
+async def test_opendesign_composer_example_not_truncated():
+    """v7a regression pin: the composer (od-ppt-composer) receives the FULL example.html.
+
+    A real deck template's example.html is 25k-94k chars; the SKILL.md orders the composer
+    to "clone example.html / copy the nav script verbatim." A single-point cap now lives in
+    od_context.get_example_html (EXAMPLE_MAX_CHARS = 120_000); the provider must inject the
+    runner-capped string DIRECTLY — no redundant second [:8000] clip. This pins that a
+    >8000-char example is injected whole (no ``...[truncated]``).
+    """
+    # A padded HTML doc well over the old 8000 clip (~12000 chars) but under the 120k cap.
+    example = "<html><body>" + ("<section>x</section>" * 600) + "</body></html>"
+    assert len(example) > 8000
+    runner = _FakeRunner(
+        od_context=_OD,
+        injection_parts=["=== TEMPLATE SEED ===\nseed"],
+        example=example,
+    )
+    # Composer-shaped ctx: workspace tool + the DECLARED template_example inject (single-shot
+    # composer → build_task_number defaults to "" so no task-2+ suppression).
+    ctx = _Ctx(
+        runner, od_context=_OD,
+        current_spec_tools={"workspace"},
+        current_spec_injects={"template", "design_system", "template_example"},
+    )
+    blocks = await OpenDesignProvider().load(ctx)
+    block = blocks["TEMPLATE EXAMPLE (example.html): web-prototype"]
+    assert "...[truncated]" not in block
+    assert block == example
+    assert len(block) > 8000
+
+
 def test_od_ppt_agents_template_example_inject_wiring():
     """Frontmatter half of the fix: od-ppt-composer declares ``template_example``; brief-analyst does not."""
     from agents.loader import load_agent_spec

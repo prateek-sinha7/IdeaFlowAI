@@ -8,7 +8,7 @@ message:
 
   1. ``ACTIVE DESIGN SYSTEM: <ds_id>``        -> ds_body
   2. ``ACTIVE TEMPLATE (SKILL.md): <id>``      -> template_body
-  3. ``TEMPLATE EXAMPLE (example.html): <id>`` -> example[:8000]
+  3. ``TEMPLATE EXAMPLE (example.html): <id>`` -> example.html (capped in od_context.get_example_html)
   4. ``get_template_injection_parts`` blocks   -> seed + reference files
 
 Heavy-dep boundary (Assumption A6 / import-linter): the ``od_loader`` disk reads
@@ -133,10 +133,11 @@ class OpenDesignProvider:
                 ):
                     example_html = runner.template_example(template_id)
                 if example_html:
-                    truncated = example_html[:8000]
-                    if len(example_html) > 8000:
-                        truncated = truncated + "...[truncated]"
-                    blocks[f"TEMPLATE EXAMPLE (example.html): {template_id}"] = truncated
+                    # INV-12 single-truncation: the example.html is already capped at the
+                    # ONE authoritative point (od_context.get_example_html, EXAMPLE_MAX_CHARS
+                    # = 120_000). Inject the runner-capped string DIRECTLY — no redundant
+                    # second clip (which had silently re-truncated real deck templates to 8000).
+                    blocks[f"TEMPLATE EXAMPLE (example.html): {template_id}"] = example_html
 
             # (4) Pre-injected template reference files (seed + layouts + checklist) —
             # the L12 tool-gated injection-parts branch:
