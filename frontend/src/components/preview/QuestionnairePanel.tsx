@@ -46,6 +46,8 @@ export function QuestionnairePanel({ questions, isLoading, onSubmitAnswers, onSk
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   // free-text for short_text and hybrid custom answers
   const [textAnswers, setTextAnswers] = useState<Record<string, string>>({});
+  // Track which question IDs had their recommendation used (for banner confirmation state)
+  const [usedRecommendations, setUsedRecommendations] = useState<Set<string>>(new Set());
   // global freeform "anything else" box shown on the summary slide
   const [freeformInput, setFreeformInput] = useState("");
   // whether user is on the final summary/submit slide
@@ -57,6 +59,7 @@ export function QuestionnairePanel({ questions, isLoading, onSubmitAnswers, onSk
     setAnswers({});
     setTextAnswers({});
     setFreeformInput("");
+    setUsedRecommendations(new Set());
     setShowSummary(false);
   }, [questions]);
 
@@ -96,8 +99,40 @@ export function QuestionnairePanel({ questions, isLoading, onSubmitAnswers, onSk
   }
 
   function handleUseRecommended(qid: string, recommended: string) {
-    setAnswers(prev => ({ ...prev, [qid]: [recommended] }));
-    setTextAnswers(prev => ({ ...prev, [qid]: "" }));
+    const recStr = String(recommended ?? "").trim();
+    const q = questions.find(q => q.id === qid);
+    const answerType = q?.answerType || "single_choice";
+    const isMultiQ = answerType === "multi_select";
+    const isShortTextQ = answerType === "short_text";
+
+    if (isShortTextQ) {
+      // For short_text, pre-fill the textarea so the user can see and edit it
+      setTextAnswers(prev => ({ ...prev, [qid]: recStr }));
+      setAnswers(prev => ({ ...prev, [qid]: [] }));
+    } else if (isMultiQ) {
+      // Recommended may be a comma-separated list of multiple options.
+      const recParts = recStr.split(",").map(p => p.trim()).filter(Boolean);
+      const matchedOptions = recParts.map(part => {
+        const partLower = part.toLowerCase();
+        return q?.options.find(o => String(o ?? "").trim().toLowerCase() === partLower) ?? part;
+      });
+      setAnswers(prev => ({ ...prev, [qid]: matchedOptions }));
+      setTextAnswers(prev => ({ ...prev, [qid]: "" }));
+    } else {
+      const recLower = recStr.toLowerCase();
+      const matchedOption = q?.options.find(
+        o => String(o ?? "").trim().toLowerCase() === recLower
+      ) ?? recStr;
+      setAnswers(prev => ({ ...prev, [qid]: [matchedOption] }));
+      setTextAnswers(prev => ({ ...prev, [qid]: "" }));
+    }
+    // Mark this question as having used the recommendation (for banner confirmation)
+    setUsedRecommendations(prev => new Set([...prev, qid]));
+    const idx = questions.findIndex(q => q.id === qid);
+    if (idx >= 0 && idx < questions.length - 1 && !isShortTextQ) {
+      // Auto-advance for MCQ types; for short_text let user review/edit first
+      setTimeout(() => setCurrentIdx(idx + 1), 400);
+    }
   }
 
   function handleNext() {
@@ -235,8 +270,8 @@ export function QuestionnairePanel({ questions, isLoading, onSubmitAnswers, onSk
   const selected = answers[current.id] || [];
   const textVal = textAnswers[current.id] || "";
   const effective = getEffectiveAnswer(current.id);
-  const recommended = current.recommendedAnswer || (current.options?.length ? current.options[current.options.length - 1] : "");
-  const reasoning = current.recommendedReasoning || current.recommendedDisplay || "";
+  const recommended = String(current.recommendedAnswer ?? (current.options?.length ? current.options[current.options.length - 1] : "") ?? "");
+  const reasoning = String(current.recommendedReasoning ?? current.recommendedDisplay ?? "");
 
   return (
     <div className="flex flex-col h-full bg-white">
@@ -296,23 +331,29 @@ export function QuestionnairePanel({ questions, isLoading, onSubmitAnswers, onSk
               {current.question}
             </h3>
 
-            {/* Recommended answer banner */}
-            {recommended && !effective && (
-              <div className="flex items-start gap-2.5 rounded-xl bg-blue-50 border border-blue-200 px-3.5 py-2.5 mb-4">
-                <Lightbulb className="h-3.5 w-3.5 text-blue-600 flex-shrink-0 mt-0.5" />
+            {/* Recommended answer banner — show when unanswered OR when user clicked "Use" */}
+            {recommended && (!effective || usedRecommendations.has(current.id)) && (
+              <div className={`flex items-start gap-2.5 rounded-xl px-3.5 py-2.5 mb-4 border transition-all ${
+                effective ? "bg-emerald-50 border-emerald-200" : "bg-blue-50 border-blue-200"
+              }`}>
+                <Lightbulb className={`h-3.5 w-3.5 flex-shrink-0 mt-0.5 ${effective ? "text-emerald-600" : "text-blue-600"}`} />
                 <div className="flex-1 min-w-0">
-                  <p className="text-[10px] font-semibold text-blue-700">Recommended</p>
-                  <p className="text-[11px] text-blue-900 font-medium">{recommended}</p>
-                  {reasoning && reasoning !== recommended && (
+                  <p className={`text-[10px] font-semibold ${effective ? "text-emerald-700" : "text-blue-700"}`}>
+                    {effective ? "✓ Recommended selected" : "Recommended"}
+                  </p>
+                  <p className={`text-[11px] font-medium ${effective ? "text-emerald-900" : "text-blue-900"}`}>{recommended}</p>
+                  {!effective && reasoning && reasoning !== recommended && (
                     <p className="text-[10px] text-blue-600 mt-0.5 leading-snug">{reasoning.replace(`${recommended} — `, "")}</p>
                   )}
                 </div>
-                <button
-                  onClick={() => handleUseRecommended(current.id, recommended)}
-                  className="text-[10px] font-semibold text-blue-700 bg-blue-100 hover:bg-blue-200 rounded-lg px-2.5 py-1.5 transition-colors flex-shrink-0 self-center"
-                >
-                  Use
-                </button>
+                {!effective && (
+                  <button
+                    onClick={() => handleUseRecommended(current.id, recommended)}
+                    className="text-[10px] font-semibold text-blue-700 bg-blue-100 hover:bg-blue-200 rounded-lg px-2.5 py-1.5 transition-colors flex-shrink-0 self-center"
+                  >
+                    Use
+                  </button>
+                )}
               </div>
             )}
 
