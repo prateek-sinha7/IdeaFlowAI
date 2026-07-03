@@ -608,7 +608,25 @@ export function AgentThinkingTab({ agents, pipelineState, runInput, originalBrie
     ["prototype-specify", "prototype-plan", "prototype-analyze", "prototype-build", "prototype-validate"].includes(a.id)
   );
   if (isPrototypePipeline) {
-    return <PrototypePipelineView agents={agents} pipelineState={pipelineState} />;
+    // Workstream C2 (byv FIX-1): the prototype pipeline must ALSO show the run's
+    // Starting point → Clarifications preamble ABOVE the phase view (both live-
+    // after-build-starts AND every reopen). Reuse the SAME already-authored cards
+    // and prop expressions as the main render below — no re-authoring, no new props.
+    return (
+      <div className="flex flex-col h-full overflow-hidden">
+        <div className="flex-shrink-0 px-4 py-4 space-y-3">
+          <StartingPointCard
+            input={runInput}
+            originalBriefRootRunId={originalBriefRootRunId}
+            revisionParentVersion={revisionParentVersion}
+          />
+          <ClarificationsCard clarifications={resolvedClarifications} loading={clarificationsLoading} />
+        </div>
+        <div className="flex-1 min-h-0">
+          <PrototypePipelineView agents={agents} pipelineState={pipelineState} />
+        </div>
+      </div>
+    );
   }
 
   const visibleAgents = agents.filter(a => a.status !== "idle" || (a.inputPrompt || (a.toolCalls?.length ?? 0) > 0));
