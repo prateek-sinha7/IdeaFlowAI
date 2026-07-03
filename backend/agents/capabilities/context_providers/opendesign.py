@@ -114,14 +114,20 @@ class OpenDesignProvider:
                 # prototype-plan, tools=[]) must NOT see a full working HTML doc — it
                 # nudges them to copy/continue it instead of writing the spec /
                 # decomposing into tasks.
-                # EXTENDED: "workspace" tool set is also a builder (od-ppt-composer).
-                # The vellum SKILL.md workflow says "Clone example.html" — the composer
-                # must receive example.html in its context to follow that instruction.
-                # Without this, the composer has no visual reference and invents a deck
-                # from scratch instead of following the template's identity.
+                # EXTENDED (B-explicit): the composer (od-ppt-composer) opts into
+                # example.html via the DECLARED ``template_example`` inject — NOT the
+                # broad ``"workspace" in spec_tools`` proxy KAN-63 (b5f5885e) used. That
+                # proxy also swept in the planner-shaped od-ppt-brief-analyst (it declares
+                # tools=[workspace] but is an order-1 planning/strategy agent), re-leaking
+                # example.html to a planner and violating the Phase-7 "planners must not
+                # see a full working HTML doc" rule above. Keying on the explicit inject
+                # lets the composer receive its "Clone example.html" visual reference while
+                # the brief-analyst stays example-free. NOTE: ``template_example`` is
+                # consumed ONLY by this gate — factory._compose_injection silently ignores
+                # unknown inject values, so declaring it injects nothing on its own.
                 example_html = None
                 if (
-                    (is_builder or "workspace" in spec_tools)
+                    (is_builder or "template_example" in injects)
                     and runner is not None
                     and hasattr(runner, "template_example")
                 ):
