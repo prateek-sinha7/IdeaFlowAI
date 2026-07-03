@@ -20,6 +20,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from agents.execution_engine.ndjson_adapter import run_od_prototype_pipeline
+from app.core.config import settings
 from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.services import od_loader
@@ -214,7 +215,7 @@ def get_design_system_preview(ds_id: str) -> FileResponse:
 class RunRequest(BaseModel):
     template_id: str = Field(..., min_length=1)
     design_system_id: str = Field(..., min_length=1)
-    brief: str = Field(..., min_length=1, max_length=8000)
+    brief: str = Field(..., min_length=1, max_length=settings.BRIEF_MAX_CHARS)
     # The DiscoveryAnswers shape from the frontend is open-ended (`template`
     # plus a handful of optional fields); accept it as a free dict and let
     # the prompt composer decide what to inject.
