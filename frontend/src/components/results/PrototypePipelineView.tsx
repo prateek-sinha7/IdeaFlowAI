@@ -394,17 +394,8 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
   // Determine current build task from real-time task_progress events
   // pipelineState.protoCompletedTaskCount is updated by report_task_complete tool calls
   const realtimeCompletedCount = pipelineState?.protoCompletedTaskCount ?? 0;
-  const buildIsDone = buildAgent?.status === "done";
   const buildIsRunning = buildAgent?.status === "running" || buildAgent?.status === "thinking";
   const totalTasks = tasksData?.tasks.length ?? 0;
-
-  // Real-time: use actual completed count from tool calls
-  // Done: all tasks complete. Running: show actual progress. Idle: -1
-  const currentTaskIndex = buildIsDone
-    ? totalTasks
-    : buildIsRunning
-    ? realtimeCompletedCount  // actual completed count, next task is active
-    : -1;
 
   // Phase statuses
   const getStatus = (agent?: AgentRunState): "idle" | "running" | "done" | "error" => {
@@ -420,6 +411,27 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
   const analyzeStatus = getStatus(analyzeAgent);
   const buildStatus = getStatus(buildAgent);
   const validateStatus = getStatus(validateAgent);
+
+  // FIX-2 (byv): the backend emits agent_complete{prototype-build} at the END of
+  // EACH build task (INV-3 parity-locked), so buildStatus flips to "done"
+  // TRANSIENTLY between tasks while the run is still going. Derive a TRUE terminal
+  // signal: build is done AND either a later phase started (validateStatus left
+  // "idle") OR the whole run has ended (pipelineState.isRunning === false). Build
+  // may be the LAST agent (no validate phase), so isRunning === false is the
+  // load-bearing clause. A transient between-task "done" MUST NOT mark all complete.
+  const buildTrulyDone =
+    buildStatus === "done" &&
+    (validateStatus !== "idle" || pipelineState?.isRunning === false);
+
+  // Real-time: use the actual completed count from tool calls.
+  // Truly done → all tasks complete. Running OR the transient between-task "done"
+  // window → show the real completed count (NEVER -1, so already-done tasks stay
+  // checked). Idle → -1.
+  const currentTaskIndex = buildTrulyDone
+    ? totalTasks
+    : buildIsRunning || (buildStatus === "done" && !buildTrulyDone)
+    ? realtimeCompletedCount
+    : -1;
 
   // Token totals
   const totalTokens = agents.reduce((s, a) => s + (a.totalTokens ?? 0), 0);
@@ -519,7 +531,7 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
             <TaskListVisualization
               tasks={tasksData.tasks}
               currentTaskIndex={buildStatus === "idle" ? -1 : currentTaskIndex}
-              allDone={buildStatus === "done"}
+              allDone={buildTrulyDone}
             />
           )}
           {planStatus === "done" && !tasksData && planAgent?.output && (
@@ -586,7 +598,7 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
           status={buildStatus}
           defaultOpen={buildStatus === "running" || buildStatus === "done"}
         >
-          {buildStatus === "running" && tasksData && (
+          {(buildIsRunning || (buildStatus === "done" && !buildTrulyDone)) && tasksData && (
             <div className="px-4 py-3 bg-[#E8EDF5]/50 space-y-2">
               <div className="flex items-center gap-2">
                 <Loader2 className="h-3.5 w-3.5 text-[#1B2A4A] animate-spin" />
@@ -619,7 +631,7 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
               </div>
             </div>
           )}
-          {buildStatus === "done" && (
+          {buildTrulyDone && (
             <div className="px-4 py-3 bg-white">
               <div className="flex items-center gap-2 mb-2">
                 <CheckCircle2 className="h-3.5 w-3.5 text-[#1B2A4A]" />
