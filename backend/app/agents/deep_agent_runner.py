@@ -23,7 +23,7 @@ Engine contract this class reproduces (verified against
 1088–1098``). The engine consumes an agent object via:
   - ``agent.astream_events(msg)`` → async-yields dicts with a ``type`` key:
     ``{"type":"chunk","chunk":str}``,
-    ``{"type":"usage","input_tokens":int,"output_tokens":int}``,
+    ``{"type":"usage","input_tokens":int,"output_tokens":int,"cache_read_tokens":int,"cache_write_tokens":int}``,
     ``{"type":"tool_call","tool":str,"args":dict}``,
     ``{"type":"tool_result","tool":str,"result":str}``,
     ``{"type":"done","output":str}``, ``{"type":"error","error":str}``.
@@ -502,10 +502,16 @@ class DeepAgentRunner:
                     msg = event["data"]["output"]
                     meta = getattr(msg, "usage_metadata", None)
                     if meta:
+                        # ISS-032: input_tokens stays the TOTAL (incl. cache); the
+                        # cache split rides alongside so the cost sites can price the
+                        # UNCACHED portion. Absent input_token_details → (0, 0).
+                        _cr, _cw = _cache_token_counts(meta)
                         yield {
                             "type": "usage",
                             "input_tokens": meta.get("input_tokens", 0),
                             "output_tokens": meta.get("output_tokens", 0),
+                            "cache_read_tokens": _cr,
+                            "cache_write_tokens": _cw,
                         }
                     # No-delta fallback: if this turn surfaced NO
                     # ``on_chat_model_stream`` text (a documented Bedrock case),
@@ -740,14 +746,14 @@ class DeepAgentRunner:
         ``error`` already ``return`` inside ``astream_events`` so the loop simply
         ends.
 
-        ``TokenUsage`` always carries ``total_tokens = input + output`` and leaves
-        ``cache_read_tokens`` / ``cache_write_tokens`` at 0: our ``usage`` events
-        (sourced from ``on_chat_model_end``'s ``usage_metadata`` in
-        :meth:`astream_events`) do not surface cache counts, and the engine's
-        text-only consumer reads only ``input_tokens`` / ``output_tokens``, so the
-        zero cache fields are immaterial to it. (The legacy path could populate
-        cache fields off the last chunk; dropping them here is a deliberate,
-        engine-irrelevant simplification noted for #29.)
+        ``TokenUsage`` always carries ``total_tokens = input + output``. Since
+        ISS-032 the ``cache_read_tokens`` / ``cache_write_tokens`` fields are SUMMED
+        from the ``usage`` events' cache split (which :meth:`astream_events` now
+        surfaces from ``usage_metadata["input_token_details"]`` — the Bedrock
+        cache_read/cache_creation counts, 0 on ChatAnthropic/scripted/no-cache
+        turns). ``total_tokens`` stays ``input + output`` (the input count remains
+        the TOTAL incl. cache); the cache fields are additive telemetry the cost
+        sites use to price the uncached split.
 
         Error path: if the stream ends via an ``error`` event we still yield the
         final ``TokenUsage`` with whatever was accumulated — matching the legacy
@@ -759,6 +765,8 @@ class DeepAgentRunner:
 
         sum_in = 0
         sum_out = 0
+        sum_cache_read = 0
+        sum_cache_write = 0
         async for event in self.astream_events(user_message):
             etype = event["type"]
             if etype == "chunk":
@@ -766,6 +774,10 @@ class DeepAgentRunner:
             elif etype == "usage":
                 sum_in += event.get("input_tokens", 0) or 0
                 sum_out += event.get("output_tokens", 0) or 0
+                # ISS-032: sum the per-turn cache split so the text-only path's
+                # TokenUsage carries the same cache telemetry as the event path.
+                sum_cache_read += event.get("cache_read_tokens", 0) or 0
+                sum_cache_write += event.get("cache_write_tokens", 0) or 0
             elif etype in ("done", "gate", "error"):
                 # Terminal — no further chunks/usage follow. (``gate``/``error``
                 # already returned upstream; ``done`` is the last yield.)
@@ -775,6 +787,8 @@ class DeepAgentRunner:
             input_tokens=sum_in,
             output_tokens=sum_out,
             total_tokens=sum_in + sum_out,
+            cache_read_tokens=sum_cache_read,
+            cache_write_tokens=sum_cache_write,
         )
 
     async def astream(self, user_message: str) -> AsyncGenerator[str, None]:
@@ -823,3 +837,23 @@ def _extract_text(content: Any) -> str:
             if isinstance(block, dict) and block.get("type") == "text"
         )
     return ""
+
+
+def _cache_token_counts(meta: Any) -> tuple[int, int]:
+    """Extract the prompt-cache split (cache_read, cache_write) from usage_metadata.
+
+    ISS-032: ``langchain_aws`` (Bedrock ``ChatBedrockConverse``) reports
+    ``usage_metadata["input_tokens"]`` as the TOTAL input (cached + uncached) and
+    puts the split in ``input_token_details = {"cache_read": N, "cache_creation": M}``
+    (see ``langchain_aws/chat_models/bedrock_converse.py``). ChatAnthropic (local),
+    scripted characterization models, and any no-cache turn OMIT the
+    ``input_token_details`` block entirely (or set it to ``None``), so this returns
+    ``(0, 0)`` for them.
+
+    Degrade-not-crash: a ``None``/absent ``meta``, a ``None`` ``input_token_details``,
+    or a missing/``None`` sub-key all yield ``0`` via ``int(... or 0)`` — never raises.
+    """
+    details = (meta or {}).get("input_token_details") or {}
+    cache_read = int(details.get("cache_read", 0) or 0)
+    cache_write = int(details.get("cache_creation", 0) or 0)
+    return cache_read, cache_write

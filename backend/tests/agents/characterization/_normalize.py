@@ -146,6 +146,20 @@ _VOLATILE_STRIP_KEYS = frozenset(
         # deliverable_mimetype/deliverable_filename precedent — keeping the 5
         # characterization event goldens byte-identical (INV-3).
         "redoable",
+        # ── Additive-but-parity-neutral prompt-cache keys (ISS-032 / FIX-036) ────
+        # The runner now surfaces the Bedrock prompt-cache split
+        # (input_token_details.cache_read/cache_creation) → the engine threads it
+        # onto agent_complete (``cache_read_tokens``/``cache_write_tokens``) and the
+        # run totals onto pipeline_complete (``total_cache_read_tokens``/
+        # ``total_cache_write_tokens``). Under the SCRIPTED characterization model
+        # there is no input_token_details, so every key is 0 — but they are
+        # additive metadata NOT in _REQUIRED_DATA_KEYS, so they are STRIPPED here
+        # (mirroring the deliverable_mimetype/redoable precedent) to keep the 5
+        # characterization event goldens byte-identical (INV-3).
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "total_cache_read_tokens",
+        "total_cache_write_tokens",
     }
 )
 

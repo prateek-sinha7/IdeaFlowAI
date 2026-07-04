@@ -2244,6 +2244,10 @@ class ExecutionEngine:
         from app.core.config import settings as _settings
         _tok_in = sum(r.get("input_tokens", 0) or 0 for r in results)
         _tok_out = sum(r.get("output_tokens", 0) or 0 for r in results)
+        # ISS-032: run-total prompt-cache split (0 under the scripted model → the
+        # cost math is unchanged and the goldens stay byte/event-identical).
+        _cache_read = sum(r.get("cache_read_tokens", 0) or 0 for r in results)
+        _cache_write = sum(r.get("cache_write_tokens", 0) or 0 for r in results)
         # ── ISS-021 (18-01): the DECLARED deliverable shape hint ────────────────
         # Surface a type-driven deliverable contract on EVERY pipeline_complete so
         # the FE renderer (18-03) dispatches on a mimetype, never a workflow name
@@ -2275,6 +2279,10 @@ class ExecutionEngine:
             "total_input_tokens": _tok_in,
             "total_output_tokens": _tok_out,
             "total_tokens": _tok_in + _tok_out,
+            # ISS-032: run-total cache split — additive telemetry, stripped by
+            # _VOLATILE_STRIP_KEYS so the goldens stay byte/event-identical.
+            "total_cache_read_tokens": _cache_read,
+            "total_cache_write_tokens": _cache_write,
             "estimated_cost_usd": estimate_cost_usd(
                 model_id or _settings.BEDROCK_INFERENCE_PROFILE_ID, _tok_in, _tok_out
             ),
@@ -2788,6 +2796,9 @@ class ExecutionEngine:
                 agent_error_raw = ""
                 agent_input_tokens = 0
                 agent_output_tokens = 0
+                # ISS-032: per-agent prompt-cache split (0 under the scripted model).
+                agent_cache_read_tokens = 0
+                agent_cache_write_tokens = 0
 
                 # ── MODEL-02 fallback chain (APPROACH B — engine-level rebuild-and-retry) ──
                 # Above the botocore retries (model_factory.py): on a SUSTAINED transient
@@ -2847,6 +2858,10 @@ class ExecutionEngine:
                     _chunk_sanitizer = _ChunkStreamSanitizer(getattr(agent, "sanitize_output", None))
                     agent_input_tokens = 0
                     agent_output_tokens = 0
+                    # ISS-032: reset the cache split too so a re-streamed attempt
+                    # does not inherit the throttled prior attempt's counts.
+                    agent_cache_read_tokens = 0
+                    agent_cache_write_tokens = 0
                     # task_progress records appended this attempt (so a retry does not double
                     # count the prototype build checklist on re-stream).
                     _attempt_task_count = 0
@@ -2872,6 +2887,9 @@ class ExecutionEngine:
                                 elif etype == "usage":
                                     agent_input_tokens += event.get("input_tokens", 0)
                                     agent_output_tokens += event.get("output_tokens", 0)
+                                    # ISS-032: accumulate the per-turn cache split.
+                                    agent_cache_read_tokens += event.get("cache_read_tokens", 0) or 0
+                                    agent_cache_write_tokens += event.get("cache_write_tokens", 0) or 0
                                 elif etype == "tool_call":
                                     # ── Prototype task progress ──────────────────────────────
                                     # report_task_complete carries the task in its args; record
@@ -3300,6 +3318,10 @@ class ExecutionEngine:
                     "icon": spec.icon, "output": output, "duration": duration,
                     "input_tokens": agent_input_tokens, "output_tokens": agent_output_tokens,
                     "total_tokens": agent_total_tokens,
+                    # ISS-032: per-agent prompt-cache split (summed into the run totals
+                    # below; 0 under the scripted characterization model).
+                    "cache_read_tokens": agent_cache_read_tokens,
+                    "cache_write_tokens": agent_cache_write_tokens,
                     # ISS-028: the task identity of THIS completed invocation ("" for a
                     # single_shot agent) so the terminal degraded decision can subtract
                     # COMPLETED (agent_id, task_number) pairs from ectx.failed_invocations.
@@ -3316,7 +3338,11 @@ class ExecutionEngine:
                     "data": {"agent_id": spec.id, "name": spec.name, "duration": round(duration, 2),
                              "output_length": len(output), "index": index, "total": len(ordered_agents),
                              "input_tokens": agent_input_tokens, "output_tokens": agent_output_tokens,
-                             "total_tokens": agent_total_tokens},
+                             "total_tokens": agent_total_tokens,
+                             # ISS-032: per-agent cache split (stripped by _VOLATILE_STRIP_KEYS,
+                             # golden-neutral; the WS collector sums these into the run totals).
+                             "cache_read_tokens": agent_cache_read_tokens,
+                             "cache_write_tokens": agent_cache_write_tokens},
                 }
 
                 # ── Human_Gate: pause for user review if agent declares gate ──
