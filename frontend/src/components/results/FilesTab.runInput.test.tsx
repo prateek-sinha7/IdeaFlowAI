@@ -80,4 +80,31 @@ describe("FilesTab — Run input section", () => {
     expect(screen.queryByText("Run input")).toBeNull();
     expect(screen.queryByText("prompt.md")).toBeNull();
   });
+
+  // FIX-033 — a REVISION run (input parses to revisionInstruction, empty brief)
+  // must render prompt.md whose content is the instruction; the filename stays
+  // prompt.md (never revision-request.md) for every run.
+  const REVISION_INPUT =
+    "=== EXISTING PROTOTYPE HTML ===\n<html></html>\n=== END EXISTING HTML ===\n\n=== REVISION REQUEST ===\nadd another page tab called comparison\n=== END REQUEST ===";
+
+  it("renders prompt.md (never revision-request.md) for a revision run whose brief is empty", () => {
+    render(<FilesTab workflowType={"prototype"} runInput={REVISION_INPUT} />);
+    expect(screen.getByText("prompt.md")).toBeInTheDocument();
+    expect(screen.queryByText("revision-request.md")).toBeNull();
+    // Clicking download runs the downloadBlob path — proving the emitted content
+    // (the revision instruction) is a real, downloadable row.
+    fireEvent.click(screen.getByRole("button", { name: /download prompt\.md/i }));
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+  });
+
+  it("still renders prompt.md for a plain-brief original run (zero regression)", () => {
+    render(<FilesTab workflowType={"prototype"} runInput={"Build a landing page."} />);
+    expect(screen.getByText("prompt.md")).toBeInTheDocument();
+  });
+
+  it("renders prompt.md but NOT clarifications.md for a revision run with no clarifications", () => {
+    render(<FilesTab workflowType={"prototype"} runInput={REVISION_INPUT} />);
+    expect(screen.getByText("prompt.md")).toBeInTheDocument();
+    expect(screen.queryByText("clarifications.md")).toBeNull();
+  });
 });
