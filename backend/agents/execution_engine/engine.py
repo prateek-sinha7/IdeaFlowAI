@@ -43,6 +43,7 @@ from agents.execution_engine.context import ExecutionContext
 from agents.execution_engine.resolver import WorkflowResolver
 from agents.execution_engine.state_machine import get_state_machine
 from agents.capabilities.model_catalog import ModelCatalog
+from agents.capabilities.model_pricing import estimate_cost_usd
 from agents.factory import AgentContext, create_runner
 from agents.model_policy import ModelResolver
 from agents.workflows.compiler import WorkflowCompiler
@@ -2274,7 +2275,9 @@ class ExecutionEngine:
             "total_input_tokens": _tok_in,
             "total_output_tokens": _tok_out,
             "total_tokens": _tok_in + _tok_out,
-            "estimated_cost_usd": round((_tok_in * 0.00000025) + (_tok_out * 0.00000125), 6),
+            "estimated_cost_usd": estimate_cost_usd(
+                model_id or _settings.BEDROCK_INFERENCE_PROFILE_ID, _tok_in, _tok_out
+            ),
             "model_id": model_id or _settings.BEDROCK_INFERENCE_PROFILE_ID,
         }
         # ── F3 (13-06): degraded completion — STRICTLY CONDITIONAL fields ───────

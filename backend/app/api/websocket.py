@@ -15,6 +15,7 @@ from app.agents.chat_runner import ChatRunner
 from app.agents.llm_errors import map_exception as _map_llm_exception
 from app.agents.model_factory import ModelConfigurationError
 from app.agents.modes import get_mode_prompt
+from agents.capabilities.model_pricing import estimate_cost_usd
 from app.core.config import settings
 from app.core.security import decode_access_token, is_token_revoked
 from app.models.chat import ChatSession, Message
@@ -1990,9 +1991,11 @@ async def _handle_workflow_execution(
                                 "total_input_tokens": total_input,
                                 "total_output_tokens": total_output,
                                 "total_tokens": total_input + total_output,
-                                "estimated_cost_usd": round(
-                                    (total_input * 0.00000025) + (total_output * 0.00000125), 6
-                                ),  # Haiku pricing: $0.25/M input, $1.25/M output
+                                "estimated_cost_usd": estimate_cost_usd(
+                                    wr.model_id or settings.BEDROCK_INFERENCE_PROFILE_ID,
+                                    total_input,
+                                    total_output,
+                                ),
                             })
                         if not wr.completed_at:
                             wr.completed_at = datetime.now(timezone.utc)
