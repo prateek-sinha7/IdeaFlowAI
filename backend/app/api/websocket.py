@@ -1890,6 +1890,10 @@ async def _handle_workflow_execution(
                     current_agent["input_tokens"] = update["data"].get("input_tokens", 0)
                     current_agent["output_tokens"] = update["data"].get("output_tokens", 0)
                     current_agent["total_tokens"] = update["data"].get("total_tokens", 0)
+                    # ISS-032: carry the per-agent prompt-cache split so the run-total
+                    # sum below prices the uncached input portion (no double-count).
+                    current_agent["cache_read_tokens"] = update["data"].get("cache_read_tokens", 0)
+                    current_agent["cache_write_tokens"] = update["data"].get("cache_write_tokens", 0)
                     # Only persist when this corresponds to a real agent_start.
                     # A trailing agent_complete (e.g. validator-timeout path) can
                     # fire after current_agent was already appended + reset to {},
@@ -1986,15 +1990,26 @@ async def _handle_workflow_execution(
                         # Aggregate token usage across all agents
                         total_input = sum(a.get("input_tokens", 0) or 0 for a in agent_outputs_collector)
                         total_output = sum(a.get("output_tokens", 0) or 0 for a in agent_outputs_collector)
+                        # ISS-032: run-total prompt-cache split from the per-agent counts.
+                        total_cache_read = sum(a.get("cache_read_tokens", 0) or 0 for a in agent_outputs_collector)
+                        total_cache_write = sum(a.get("cache_write_tokens", 0) or 0 for a in agent_outputs_collector)
                         if total_input + total_output > 0:
                             wr.token_usage = json.dumps({
                                 "total_input_tokens": total_input,
                                 "total_output_tokens": total_output,
                                 "total_tokens": total_input + total_output,
+                                "total_cache_read_tokens": total_cache_read,
+                                "total_cache_write_tokens": total_cache_write,
+                                # ISS-032: price the uncached split (input − cache) plus
+                                # the cache tiers via the ONE shared estimate_cost_usd —
+                                # no double-count. input telemetry above stays the TOTAL.
                                 "estimated_cost_usd": estimate_cost_usd(
                                     wr.model_id or settings.BEDROCK_INFERENCE_PROFILE_ID,
-                                    total_input,
-                                    total_output,
+                                    input_tokens=max(0, total_input - total_cache_read - total_cache_write),
+                                    output_tokens=total_output,
+                                    cache_read_tokens=total_cache_read,
+                                    cache_write_tokens=total_cache_write,
+                                    cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
                                 ),
                             })
                         if not wr.completed_at:

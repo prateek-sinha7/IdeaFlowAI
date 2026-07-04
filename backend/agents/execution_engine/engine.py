@@ -2283,8 +2283,18 @@ class ExecutionEngine:
             # _VOLATILE_STRIP_KEYS so the goldens stay byte/event-identical.
             "total_cache_read_tokens": _cache_read,
             "total_cache_write_tokens": _cache_write,
+            # ISS-032: price the UNCACHED input split (input − cache) plus the
+            # cache_read/cache_write tiers via the ONE shared estimate_cost_usd —
+            # no double-count (input_tokens is the TOTAL incl. cache; subtract once).
+            # Under the scripted model cache=0 → uncached=total and the cost is
+            # unchanged, so the goldens stay byte/event-identical.
             "estimated_cost_usd": estimate_cost_usd(
-                model_id or _settings.BEDROCK_INFERENCE_PROFILE_ID, _tok_in, _tok_out
+                model_id or _settings.BEDROCK_INFERENCE_PROFILE_ID,
+                input_tokens=max(0, _tok_in - _cache_read - _cache_write),
+                output_tokens=_tok_out,
+                cache_read_tokens=_cache_read,
+                cache_write_tokens=_cache_write,
+                cache_ttl=_settings.BEDROCK_PROMPT_CACHE_TTL,
             ),
             "model_id": model_id or _settings.BEDROCK_INFERENCE_PROFILE_ID,
         }
