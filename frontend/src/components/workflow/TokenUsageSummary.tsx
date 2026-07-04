@@ -31,7 +31,7 @@ const MODEL_SHORT_NAMES: Record<string, string> = {
 };
 
 export function TokenUsageSummary({ pipelineState, modelId }: TokenUsageSummaryProps) {
-  const { totalTokens, totalInputTokens, totalOutputTokens, estimatedCostUsd } = pipelineState;
+  const { totalTokens, totalInputTokens, totalOutputTokens, estimatedCostUsd, cacheReadTokens, cacheWriteTokens } = pipelineState;
 
   // Don't render if no token data yet
   if (!totalTokens && !totalInputTokens) return null;
@@ -40,6 +40,9 @@ export function TokenUsageSummary({ pipelineState, modelId }: TokenUsageSummaryP
   const output = totalOutputTokens ?? 0;
   const total = totalTokens ?? (input + output);
   const cost = estimatedCostUsd ?? 0;
+  const cacheRead = cacheReadTokens ?? 0;
+  const cacheWrite = cacheWriteTokens ?? 0;
+  const pct = Math.round(cacheRead / Math.max(1, input) * 100);
 
   // KAN-83: single compact line — token count + input/output + cost only
   return (
@@ -60,6 +63,15 @@ export function TokenUsageSummary({ pipelineState, modelId }: TokenUsageSummaryP
       <span className="text-[10px] text-gray-500 flex-shrink-0">
         {formatTokens(input)} input
       </span>
+      {cacheRead > 0 && (
+        <>
+          <span className="text-[10px] text-gray-400 flex-shrink-0">·</span>
+          <span className="text-[10px] text-amber-600 flex-shrink-0">
+            ⚡ {formatTokens(cacheRead)} cached ({pct}%)
+            {cacheWrite > 0 && ` · ${formatTokens(cacheWrite)} written`}
+          </span>
+        </>
+      )}
       <span className="text-[10px] text-gray-400 flex-shrink-0">·</span>
       <span className="text-[10px] text-gray-500 flex-shrink-0">
         {formatTokens(output)} output
