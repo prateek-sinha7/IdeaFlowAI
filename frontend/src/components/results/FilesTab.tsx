@@ -46,23 +46,28 @@ interface FilesTabProps {
 }
 
 // ─── Workstream C2 (POR §5 D7) — "Run input" file rows (module-level pure) ─────
-// Derives prompt.md (parsed brief, present whenever non-empty) + clarifications.md
-// (rendered Q&A markdown, present ONLY when rounds exist). Both are plain
+// Derives prompt.md (the parsed revision instruction OR the brief — whichever the
+// input parses to; present whenever non-empty) + clarifications.md (rendered Q&A
+// markdown, present ONLY when rounds exist). parseRunInput is called ONCE and the
+// primary row dispatches purely on parsed shape (revisionInstruction wins for
+// revision runs, brief for originals — mirrors StartingPointCard.isRevision), so
+// the filename stays prompt.md for BOTH original and revision runs. Both are plain
 // text/markdown FileItems that fall into the default downloadBlob branch — no new
 // download code, no special-cased id. Type-agnostic: no workflowType branch.
 function runInputFileRows(runInput?: string, clarifications?: ClarifyRound[]): FileItem[] {
   const rows: FileItem[] = [];
-  const brief = parseRunInput(runInput ?? "").brief;
-  if (brief) {
+  const parsed = parseRunInput(runInput ?? "");
+  const primary = parsed.revisionInstruction || parsed.brief;
+  if (primary) {
     rows.push({
       id: "run-input-prompt",
       name: "prompt.md",
       type: "Run input",
       icon: FileText,
       format: "Markdown (.md)",
-      content: brief,
+      content: primary,
       mimeType: "text/markdown",
-      size: formatSize(brief.length),
+      size: formatSize(primary.length),
     });
   }
   if (clarifications?.length) {
