@@ -283,6 +283,8 @@ export interface WorkflowRun {
     total_output_tokens: number;
     total_tokens: number;
     estimated_cost_usd: number;
+    total_cache_read_tokens?: number;
+    total_cache_write_tokens?: number;
     model_id?: string;
     per_agent?: Record<string, {
       input_tokens: number;
@@ -543,6 +545,8 @@ export interface PipelineRunState {
   totalOutputTokens?: number;
   totalTokens?: number;
   estimatedCostUsd?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
   modelId?: string;
   // Phase 2 (Universal Engine) — planner + gate state
   pipelineRunId?: string;

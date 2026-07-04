@@ -314,6 +314,8 @@ export function handlePipelineMessage(
           totalInputTokens: totalInput,
           totalOutputTokens: totalOutput,
           totalTokens: totalInput + totalOutput,
+          cacheReadTokens: (msg.total_cache_read_tokens as number) || prev.cacheReadTokens || 0,
+          cacheWriteTokens: (msg.total_cache_write_tokens as number) || prev.cacheWriteTokens || 0,
         };
       });
       return true;
@@ -386,6 +388,8 @@ export function handlePipelineMessage(
           totalOutputTokens: (msg.total_output_tokens as number) || prev.totalOutputTokens || 0,
           totalTokens: (msg.total_tokens as number) || prev.totalTokens || 0,
           estimatedCostUsd: (msg.estimated_cost_usd as number) || prev.estimatedCostUsd || 0,
+          cacheReadTokens: (msg.total_cache_read_tokens as number) || prev.cacheReadTokens || 0,
+          cacheWriteTokens: (msg.total_cache_write_tokens as number) || prev.cacheWriteTokens || 0,
           modelId: (msg.model_id as string) || prev.modelId || undefined,
         };
       });
