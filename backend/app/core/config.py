@@ -101,6 +101,21 @@ class Settings(BaseSettings):
     # the active model accepts it, or Bedrock returns a ValidationException.
     MAX_OUTPUT_TOKENS: int = 32768
 
+    # ---- Bedrock prompt caching (default ON) ----
+    # Provider-agnostic Bedrock prompt caching (default ON); langchain_aws
+    # _apply_cache_points reads only `ttl`, `type` is ignored (Converse always
+    # uses "default"). deepagents' built-in AnthropicPromptCachingMiddleware
+    # caches ONLY ChatAnthropic, so on Bedrock (prod) caching is silently OFF
+    # without this — _BedrockCachePointsMiddleware injects the cache_control dict.
+    BEDROCK_PROMPT_CACHE_ENABLED: bool = True
+    BEDROCK_PROMPT_CACHE_TTL: str = "5m"
+
+    # ---- Extended-thinking budget (enable-only, default OFF) ----
+    # extended-thinking budget, enable-only; 0 disables (never fires); clamped to
+    # [1024, MAX_OUTPUT_TOKENS-1] in build_model. Threads a thinking budget into
+    # both provider branches of build_model when > 0.
+    THINKING_BUDGET_TOKENS: int = 0
+
     # ---- Input-brief character cap (single source of truth) ----
     # The maximum number of characters of the user brief that reaches the
     # SmartPlanner analyze prompt + its stored planning_context.user_request,

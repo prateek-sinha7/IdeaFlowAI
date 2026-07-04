@@ -202,6 +202,62 @@ class _ToolFilterMiddleware(AgentMiddleware[Any, Any, Any]):
         return await handler(self._filter(request))
 
 
+class _BedrockCachePointsMiddleware(AgentMiddleware[Any, Any, Any]):
+    """Inject a per-call ``cache_control`` dict on ChatBedrockConverse requests.
+
+    Bedrock prompt caching (langchain_aws ``_apply_cache_points``) fires ONLY
+    when the per-call ``model_settings`` carry a NON-EMPTY ``cache_control``
+    dict — ``_apply_cache_points`` early-returns on a falsy value, and reads
+    only ``ttl`` off it (``type`` is ignored; Converse always uses "default").
+    deepagents' built-in ``AnthropicPromptCachingMiddleware`` caches ONLY
+    ``ChatAnthropic``, so in production (which runs ``ChatBedrockConverse``)
+    prompt caching is silently OFF and every build re-sends its large fixed
+    prefix uncached. This middleware is **Bedrock-only** and therefore
+    *complements* — never double-applies with — that built-in ChatAnthropic
+    path: on a ChatAnthropic (or scripted-fake) request it is a pass-through
+    no-op. Gated by ``settings.BEDROCK_PROMPT_CACHE_ENABLED`` (default ON).
+
+    Built on the stable, public LangChain middleware APIs (``AgentMiddleware``,
+    ``ModelRequest.override``), mirroring ``_ToolFilterMiddleware`` — a *forward*
+    implementation, not a legacy/back-compat shim.
+    """
+
+    def _maybe_apply(self, request: "ModelRequest") -> "ModelRequest":
+        # Read ``settings.`` at CALL time so tests can monkeypatch the flag.
+        if not settings.BEDROCK_PROMPT_CACHE_ENABLED:
+            return request
+        # langchain_aws is heavy — keep the import lazy (matches build_model's
+        # local-import style). Bedrock-only: no-op on any non-Bedrock model so
+        # ChatAnthropic keeps deepagents' built-in caching (no double-apply).
+        from langchain_aws import ChatBedrockConverse
+
+        if not isinstance(request.model, ChatBedrockConverse):
+            return request
+        return request.override(
+            model_settings={
+                **request.model_settings,
+                "cache_control": {
+                    "type": "ephemeral",
+                    "ttl": settings.BEDROCK_PROMPT_CACHE_TTL,
+                },
+            }
+        )
+
+    def wrap_model_call(
+        self,
+        request: "ModelRequest",
+        handler: Callable[["ModelRequest"], "ModelResponse"],
+    ) -> "ModelResponse":
+        return handler(self._maybe_apply(request))
+
+    async def awrap_model_call(
+        self,
+        request: "ModelRequest",
+        handler: Callable[["ModelRequest"], Awaitable["ModelResponse"]],
+    ) -> "ModelResponse":
+        return await handler(self._maybe_apply(request))
+
+
 class DeepAgentRunner:
     """Adapter exposing the engine's agent contract over a ``deepagents`` graph.
 
@@ -293,7 +349,7 @@ class DeepAgentRunner:
             tools=self.tools,
             system_prompt=system_prompt,
             subagents=None,
-            middleware=[_ToolFilterMiddleware(excluded=excluded)],
+            middleware=[_ToolFilterMiddleware(excluded=excluded), _BedrockCachePointsMiddleware()],
             backend=backend,
             checkpointer=checkpointer,
             interrupt_on=interrupt_on,
