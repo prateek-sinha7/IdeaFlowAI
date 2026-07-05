@@ -1,9 +1,14 @@
 """Offline unit + reconciliation + INV-12 both-sites coverage for model_pricing.
 
-Fully offline: no network, no DB, no Bedrock. Pins the per-family base rates, the
-regional premium, ``_canonical`` mapping (incl. unknown→fallback), the cache tiers,
-the reconciliation pin, and — by reading the two source files off disk — the INV-12
+Fully offline: no network, no DB, no Bedrock. Pins the catalog-derived per-model
+base rates, the regional premium, the three-tier ``_resolve_pricing`` behavior
+(exact / region-version-normalized / unknown→cheap fallback), the cache tiers, the
+reconciliation pin, and — by reading the two source files off disk — the INV-12
 contract that BOTH cost sites route through the shared ``estimate_cost_usd``.
+
+Model-id literals are permitted HERE (test files): ``test_single_source_grep`` scans
+only ``app/api`` + ``agents/capabilities``, NOT ``tests/``. The rates live in exactly
+one maintained list — ``model_catalog.py`` — which these tests assert against.
 """
 
 from __future__ import annotations
@@ -12,11 +17,10 @@ from pathlib import Path
 
 import pytest
 
+from agents.capabilities.model_catalog import ModelCatalog, Pricing
 from agents.capabilities.model_pricing import (
-    MODEL_PRICING,
-    Price,
-    _canonical,
     _regional_premium,
+    _resolve_pricing,
     estimate_cost_usd,
 )
 
@@ -26,35 +30,44 @@ _WEBSOCKET = _BACKEND / "app" / "api" / "websocket.py"
 
 
 # ---------------------------------------------------------------------------
-# Per-family base rates
+# Per-model base rates live in the catalog (the single source, INV-12)
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize(
-    "family,expected",
+    "model_id,expected",
     [
-        ("claude-haiku-4-5", Price(1e-6, 5e-6, 0.1e-6, 1.25e-6, 2e-6)),
-        ("claude-sonnet-4-5", Price(3e-6, 15e-6, 0.3e-6, 3.75e-6, 6e-6)),
-        ("claude-sonnet-4-6", Price(3e-6, 15e-6, 0.3e-6, 3.75e-6, 6e-6)),
-        ("claude-opus-4-5", Price(5e-6, 25e-6, 0.5e-6, 6.25e-6, 10e-6)),
-        ("claude-opus-4-6", Price(5e-6, 25e-6, 0.5e-6, 6.25e-6, 10e-6)),
+        (
+            "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+            Pricing(1e-6, 5e-6, 0.1e-6, 1.25e-6, 2e-6),
+        ),
+        (
+            "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            Pricing(3e-6, 15e-6, 0.3e-6, 3.75e-6, 6e-6),
+        ),
+        (
+            "eu.anthropic.claude-sonnet-4-6",
+            Pricing(3e-6, 15e-6, 0.3e-6, 3.75e-6, 6e-6),
+        ),
+        (
+            "eu.anthropic.claude-opus-4-5-20251101-v1:0",
+            Pricing(5e-6, 25e-6, 0.5e-6, 6.25e-6, 10e-6),
+        ),
+        (
+            "eu.anthropic.claude-opus-4-6-v1",
+            Pricing(5e-6, 25e-6, 0.5e-6, 6.25e-6, 10e-6),
+        ),
     ],
 )
-def test_per_family_base_rates(family: str, expected: Price) -> None:
-    p = MODEL_PRICING[family]
-    assert p.input == expected.input
-    assert p.output == expected.output
-    assert p.cache_read == expected.cache_read
-    assert p.cache_write_5m == expected.cache_write_5m
-    assert p.cache_write_1h == expected.cache_write_1h
+def test_catalog_carries_base_rates(model_id: str, expected: Pricing) -> None:
+    entry = ModelCatalog().get(model_id)
+    assert entry is not None
+    assert entry.pricing == expected
 
 
-def test_pricing_covers_exactly_five_families() -> None:
-    assert set(MODEL_PRICING) == {
-        "claude-haiku-4-5",
-        "claude-sonnet-4-5",
-        "claude-sonnet-4-6",
-        "claude-opus-4-5",
-        "claude-opus-4-6",
-    }
+def test_pricing_covers_exactly_five_models() -> None:
+    entries = ModelCatalog().list()
+    assert len(entries) == 5
+    for entry in entries:
+        assert isinstance(entry.pricing, Pricing)
 
 
 # ---------------------------------------------------------------------------
@@ -77,24 +90,35 @@ def test_regional_premium(model_id: str, expected: float) -> None:
 
 
 # ---------------------------------------------------------------------------
-# _canonical family mapping
+# _resolve_pricing three-tier behavior (exact / normalized / fallback)
 # ---------------------------------------------------------------------------
+def test_resolve_exact_catalog_id() -> None:
+    # (a) an exact catalog id returns that entry's pricing verbatim.
+    for entry in ModelCatalog().list():
+        assert _resolve_pricing(entry.id) == entry.pricing
+
+
 @pytest.mark.parametrize(
-    "model_id,family",
+    "variant_id,seed_id",
     [
-        ("eu.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
-        ("eu.anthropic.claude-sonnet-4-6", "claude-sonnet-4-6"),
-        ("eu.anthropic.claude-opus-4-6-v1", "claude-opus-4-6"),
-        ("eu.anthropic.claude-opus-4-5-20251101-v1:0", "claude-opus-4-5"),
-        ("global.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-sonnet-4-5"),
+        # (b) region/version-normalized variants resolve to the seed entry's pricing.
+        ("us.anthropic.claude-haiku-4-5-20251001-v1:0", "eu.anthropic.claude-haiku-4-5-20251001-v1:0"),
+        ("claude-opus-4-5", "eu.anthropic.claude-opus-4-5-20251101-v1:0"),
+        ("global.anthropic.claude-sonnet-4-5-20250929-v1:0", "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"),
+        ("apac.anthropic.claude-opus-4-6-v1", "eu.anthropic.claude-opus-4-6-v1"),
     ],
 )
-def test_canonical_known_families(model_id: str, family: str) -> None:
-    assert _canonical(model_id) == family
+def test_resolve_normalized_variant(variant_id: str, seed_id: str) -> None:
+    seed = ModelCatalog().get(seed_id)
+    assert seed is not None
+    assert _resolve_pricing(variant_id) == seed.pricing
 
 
-def test_canonical_unknown_falls_back_to_haiku() -> None:
-    assert _canonical("nonsense-model") == "claude-haiku-4-5"
+def test_resolve_unknown_falls_back_to_cheap() -> None:
+    # (c) an unknown id resolves to the catalog's cheap (Haiku) tier.
+    cheap = next(e for e in ModelCatalog().list() if e.cost_class == "cheap")
+    assert _resolve_pricing("nonsense-model") == cheap.pricing
+    assert _resolve_pricing("") == cheap.pricing
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +141,16 @@ def test_none_model_prices_as_haiku_1x() -> None:
 def test_cache_read_priced_at_tenth_of_input_on_haiku() -> None:
     # haiku base input=1e-6; cache_read=0.1e-6/tok → 1M cache-read tokens = 0.1 USD
     assert estimate_cost_usd(
+        "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+        0,
+        0,
+        cache_read_tokens=1_000_000,
+    ) == pytest.approx(0.11, abs=1e-9)  # 0.1 base × 1.10 eu premium
+
+
+def test_cache_read_tenth_of_input_no_premium() -> None:
+    # bare haiku family (no regional premium) → exactly 0.1 USD for 1M cache-reads.
+    assert estimate_cost_usd(
         "claude-haiku-4-5", 0, 0, cache_read_tokens=1_000_000
     ) == pytest.approx(0.1, abs=1e-9)
 
@@ -129,7 +163,7 @@ def test_cache_write_tier_delta_between_5m_and_1h() -> None:
     cost_1h = estimate_cost_usd(
         "claude-haiku-4-5", 0, 0, cache_write_tokens=tokens, cache_ttl="1h"
     )
-    # 5m tier = 1.25e-6/tok → 1.25 ; 1h tier = 2e-6/tok → 2.0
+    # 5m tier = 1.25e-6/tok → 1.25 ; 1h tier = 2e-6/tok → 2.0 (no regional premium)
     assert cost_5m == pytest.approx(1.25, abs=1e-9)
     assert cost_1h == pytest.approx(2.0, abs=1e-9)
     assert cost_1h > cost_5m
