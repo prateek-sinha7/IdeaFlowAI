@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>mis-route — wrong-section regression fixture (fixture C)</title>
+  <style>
+    .page-section { display: none; }
+    .page-section.is-active { display: block; }
+  </style>
+</head>
+<body>
+  <!-- Nav: PLAIN anchors — NO data-page attribute and NO nav-link/nav-item/
+       nav-submenu-link class. So they are excluded from the section-read and from
+       the coverage denominator (section_count counts real <section data-page> only,
+       = 3, no false coverage-0). -->
+  <nav>
+    <a href="#/dashboard">Dashboard</a>
+    <a href="#/page-a">Page A</a>
+    <a href="#/page-b">Page B</a>
+  </nav>
+
+  <!-- Three REAL page sections. dashboard starts active; the router below swaps. -->
+  <main>
+    <section data-page="dashboard" class="page-section is-active">Dashboard</section>
+    <section data-page="page-a" class="page-section">Page A</section>
+    <section data-page="page-b" class="page-section">Page B</section>
+  </main>
+
+  <script>
+    // The DEFECT: a scoped router that lands on a REAL but WRONG section.
+    //
+    // The swap map is intentionally named `swap` (NOT the reserved table name) so
+    // `parse_routes_table` (which anchors only on a declaration of a variable named
+    // r-o-u-t-e-s) returns None. With no parseable routes table, render_check's
+    // EXPECTED section falls back to the first-path-segment: `#/page-a` -> 'page-a'.
+    // The router then activates the SWAPPED section, so activated != expected and
+    // the mis-route is unambiguously wrong-section (a real non-null section id, not
+    // a blank/null read). Do NOT rename this to `routes` — that would let the table
+    // bless the swap and render would call it CORRECT.
+    var swap = { dashboard: 'dashboard', 'page-a': 'page-b', 'page-b': 'page-a' };
+
+    function route() {
+      var id = (location.hash || '#/dashboard').replace(/^#\//, '') || 'dashboard';
+      var target = swap[id] || id;
+      // Scope removal/add to real <section.page-section> ONLY (never nav anchors),
+      // so the active-section read returns a real section id (non-null).
+      document.querySelectorAll('section.page-section').forEach(function (el) {
+        el.classList.remove('is-active');
+      });
+      var section = document.querySelector(
+        'section.page-section[data-page="' + target + '"]'
+      );
+      if (section) section.classList.add('is-active');
+    }
+    window.addEventListener('hashchange', route);
+    route();
+  </script>
+</body>
+</html>

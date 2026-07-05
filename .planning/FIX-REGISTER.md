@@ -28,6 +28,24 @@
 | FIX-016 | 2026-06-17 | "Invalid presentation output" — PPT composer runs 12.9s → 662 chars (no HTML deck) | Engine clarify-mode routing seam (MAN-04) handles `mode=="auto"` but has no handler for `mode=="skip"`. Planner returns CLARIFY_REQUIRED (normal for od_ppt brief). mode=skip means "wizard already collected context, skip clarification". Without the skip handler, CLARIFY_REQUIRED flows through unchecked → ClarifyEngine fires → user clicks through with no extra answers → agents run with incomplete context → composer produces 662-char stub → isHtml check fails → "Invalid presentation output" | `backend/agents/execution_engine/engine.py` | Phase 4 (MAN-04) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-017 | 2026-06-17 | PPT composer produces 697-char confused validator output (validator: "I don't see an HTML artifact") | `_compose_injection()` in `factory.py` hardcoded a prototype-specific CRITICAL OUTPUT RULES block (section 0) that fires for ANY agent declaring `injects:`. The PPT composer declares `injects:[template, design_system]`, triggering this block. Rule #2 "Every page must have a routed section" (prototype navigation) directly contradicts the PPT AGENT.md output contract (deck slides). The model gets confused and produces a tiny non-HTML response in 6.3s. The validator receives no artifact, responds "I don't see an HTML artifact", and its 697-char bewildered output becomes the final deliverable → isHtml check fails → "Invalid presentation output" | `backend/agents/factory.py` | Phase 7/15 | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-018 | 2026-06-23 | KAN-73: hook_run WS events never reach the frontend Audit tab — ectx.event_queue never set + after_step never fired | `KernelServices.emit_hook_event()` calls `getattr(self._ectx, "event_queue", None)` but `ExecutionContext` never has `event_queue` set: `_execute_impl` constructs `ectx` without it and `execute()` never threads the WS queue onto it → `queue = None` → early return → no hook_run WS event. Second: engine only fired `before_step`; `after_step` was never fired (no code path). Third: hook event dict lacked `agent_name`/`step_index` so audit summaries showed raw agent IDs | `backend/agents/execution_engine/engine.py`, `backend/app/api/websocket.py` | Phase 8 (KAN-73) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-021 | 2026-06-30 | KAN-83: Token count dialog in left panel too large — reduce to single compact line | `TokenUsageSummary` rendered a multi-section bordered card (header + input/output breakdown + ratio bar + cost row = ~80px). KAN-83 requires a single line showing only the token count. Replaced the 4-row `rounded-xl border bg-gray-50 px-4 py-3` card layout with a single `flex items-center gap-1.5 flex-wrap` line: ⚡ TOKEN USAGE · 128.7K total · 128.6K input · 11.8K output · ~$0.041 | `frontend/src/components/workflow/TokenUsageSummary.tsx` | Phase 22 (UI) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-022 | 2026-06-30 | KAN-80: Prototype Thinking tab hides full prompts, context sources, and agent-handoff artifacts | `AgentThinkingTab` routes prototype runs to `PrototypePipelineView` (Phase-card layout) which never renders `InputPromptSection`, `ContextSourcesRow`, `ToolCallsSection`, or `OutputPreviewSection`. The data IS captured in agent state via `agent_input` events but PrototypePipelineView silently discards it. User stories pipeline hits the generic `AgentTimelineCard` path which shows everything. Fix: export the 4 sub-components from `AgentThinkingTab`, add `AgentDetailSection` wrapper to `PrototypePipelineView`, wire into all 4 PhaseCards. | `frontend/src/components/results/AgentThinkingTab.tsx`, `frontend/src/components/results/PrototypePipelineView.tsx` | Phase 3 (FR-015 / T043) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-023 | 2026-06-30 | KAN-89: After prototype revision, chaining to user stories shows stale Specification Review gate | `reviewGateData` in `dashboard/page.tsx` is set on `review_gate_ready` and cleared on `review_gate_approved`/reject, but never cleared when a new pipeline starts. `onResetPipeline()` only resets `pipelineState` (useWorkflow hook). After prototype_revision completes with a Human Gate approval, `reviewGateData` stays set. When user chains to user_stories, the new pipeline fires but `DashboardLayout` renders `<ReviewGatePanel>` because `reviewGateData !== null`, blocking the user_stories preview. Fix: clear `reviewGateData(null)` on `pipeline_start` in `handleWebSocketMessage`. | `frontend/src/app/dashboard/page.tsx` | Phase 8 (GATE-01/02) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-024 | 2026-07-01 | KAN-82: Clarify asks fixed irrelevant questions instead of content-aware clarification — all pipelines | SmartPlanner stored `missing_information` as pipeline-generic keys (e.g. `target_audience`, `scope`) regardless of what the brief covered; for long/rich briefs it returned the full `common_missing` list. ClarifyEngine._generate_questions() mapped those keys to hardcoded static question text from QUESTION_LIBRARY with no reference to the actual brief content. Result: a 100-page user-story doc gets asked "Who is the primary audience?" as if no content was provided. | `backend/agents/planner/smart_planner.py`, `backend/agents/execution_engine/clarify_engine.py` | Phase 2/4 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-025 | 2026-07-03 | KAN-82: Clicking "Use" recommendation in QuestionnairePanel doesn't visually select the option | `handleUseRecommended` stored `recommendedAnswer` string directly into `answers[]`, but option highlight checked `selected.includes(option)` — if `recommendedAnswer` text differed even slightly from the option text (case, whitespace), no option lit up. Banner also disappeared instantly since `effective` became truthy, giving no visual feedback. | `frontend/src/components/preview/QuestionnairePanel.tsx` | Phase 2 (UI) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-026 | 2026-07-03 | KAN-90: Clarification step missing Cancel Workflow and Start New Workflow options | QuestionnairePanel had only onSubmitAnswers and onSkip — no escape from the clarify gate. Sending cancel_pipeline alone is insufficient because the backend blocks at await event.wait() in ClarifyEngine; must first submit_questionnaire(skip=true) to unblock the gate, then cancel_pipeline. | `frontend/src/components/preview/QuestionnairePanel.tsx`, `frontend/src/components/layout/DashboardLayout.tsx` | Phase 2 (UI) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-027 | 2026-07-03 | KAN-91: File attachment content rendered in textarea — separate content from display | File attach onChange in IdeaInputPage.tsx called setIdeaInput() to inject content into the textarea, making it visible and editable. Chip X removal only removed the visual chip, not the injected text. Added attachedFileContents state; content now stored separately and composed into the pipeline message in handleRun at send time. Chip X also removes content. Pre-existing duplicate initialSelections prop fixed as collateral. | `frontend/src/components/workflow/IdeaInputPage.tsx` | Phase 21 (UI) | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-028 | 2026-07-01 | Prototype nav-validation hardening (render_check + static_check), 5 rounds — dynamic-nav/coverage/wrong-section detection; shared route-table resolver (fixes alias/parametric false-positives); blank→null render honesty; require_render load-bearing; A/B/blank/mis-route regression fixtures | Validators mis-judged nav 3 ways: fail-open (`.nav-item`-only + `<a href>`-only → broken hash/onclick/`:id` SPA passed green), false-positive (no route-table resolution → correct alias/`:id` routers failed on `expected==first-segment`), dishonest (blank page coerced to a nav-link name). See IMPL Phase 24 + quick 260701-bob/erg/go2/hqa/kml. | `backend/app/agents/{render_check,static_check,route_table(new),validators/html_render}.py`, `agents/execution_engine/{engine,kernel_services}.py`, `capabilities/{validators/severity,gates/validation,strategies/task_loop}.py`, `workflows/{compiler,plan,prototype/workflow.yaml,prototype_revision/workflow.yaml}`, `app/core/config.py`, `tests/agents/{test_nav_coverage,test_route_table,_scripted_model,test_phase5_fixloop_selection}.py + fixtures/{imc-…-full,imc-…-fixed,blank-nav,mis-route}.html` | Phase 07/08 (VALID) · IMPL Phase 24 (post-ms) | INV-1/3/12/13 ✅ | Done |
+| FIX-029 | 2026-07-03 | byv: Prototype "Thinking" tab missing the StartingPoint + Clarifications preamble, and the build checklist flashes "all complete" between tasks | `AgentThinkingTab`'s `isPrototypePipeline` early-return rendered `PrototypePipelineView` alone, skipping the StartingPointCard/ClarificationsCard shown on the main render path; separately `PrototypePipelineView` derived all-done from `buildStatus==="done"` alone, which is briefly true between tasks so the checklist flashed all-complete mid-loop. Fix: render the two existing cards as a preamble above the pipeline view; add a `buildTrulyDone` gate (true only once build is done AND validation has started or the run has stopped) at the terminal sites; `currentTaskIndex` falls back to `realtimeCompletedCount` during the transient-done window so completed tasks stay checked. Backend untouched (FE-only). | `frontend/src/components/results/AgentThinkingTab.tsx`, `frontend/src/components/results/PrototypePipelineView.tsx` | Phase 3 (Thinking-view) · quick-260703-byv | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-030 | 2026-07-03 | d4v: `POST /api/prototype/run` rejected any brief over 8000 chars (422) — blocked large briefs and attached-file content | `RunRequest.brief` was declared `max_length=8000`, a legacy straggler from the prototype era; the app-wide `BRIEF_MAX_CHARS` (450k, ~150k tokens) already governs the other ingest paths but this endpoint was never aligned, so long briefs 422'd before reaching the engine. Fix: source the field cap from `settings.BRIEF_MAX_CHARS` instead of the hardcoded 8000; added a unit test pinning the cap to the setting. | `backend/app/api/prototype_templates.py`, `backend/tests/unit/test_prototype_run_request.py` | Phase 4 · quick-260703-d4v | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-031 | 2026-07-03 | ISS-029 (KAN-63 regression): od_ppt example.html leaked into the deck PLANNER (od-ppt-brief-analyst), not just the builder — degraded planning and left the od_ppt characterization golden red for ~3 weeks | KAN-63 (b5f5885e, Jun 15) widened the opendesign example.html gate from `is_builder` to `(is_builder or "workspace" in spec_tools)`; the `"workspace"` proxy was too broad and swept in the planner-shaped od-ppt-brief-analyst (which declares `tools:[workspace]`), feeding a full worked HTML example to a planner (violates the Phase-7 "planners must not see example.html" rule), and the od_ppt event golden (which pins context_message) was never regenerated so INV-3 diverged. Fix (B-explicit): re-key the gate on a DECLARED inject — `(is_builder or "template_example" in injects)` — and add `template_example` to od-ppt-composer's `injects` so the composer opts in explicitly while the brief-analyst stays example-free; regenerated ONLY the od_ppt golden (composer gains the block, brief-analyst unchanged, other 4 goldens byte-identical). | `backend/agents/capabilities/context_providers/opendesign.py`, `backend/agents/prompts/od-ppt-composer/AGENT.md`, `backend/tests/agents/test_context_providers.py`, `backend/tests/agents/characterization/golden/od_ppt.events.json` | Phase 7 (example gate) · debug ISS-029 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-032 | 2026-07-03 | v7a: od_ppt deck builder received only the first 8000 chars of example.html — for real deck templates (25k–94k chars) that is partial CSS and ZERO `<section>` slides with no nav, despite the prompt ordering it to "clone example.html" (companion: trimmed od-ppt-brief-analyst's dead "full DESIGN.md body" claim) | example.html was truncated to 8000 at TWO redundant points (`od_context.get_example_html` default `max_chars=8000`, plus a second `[:8000]` in the opendesign provider); every deck template except `simple-deck` exceeds 8000 and the median deck lost ~85%. Separately the brief-analyst body claimed it receives "the ACTIVE DESIGN SYSTEM — full DESIGN.md body" but it declares `injects:[template]` so DESIGN.md is never delivered — a dead claim. Fix: introduce one module constant `EXAMPLE_MAX_CHARS = 120_000` as the `get_example_html` default and remove the redundant provider `[:8000]` (single cap source, INV-12); reword the brief-analyst body to reference the design system symbolically (real tokens applied downstream by the composer). INV-3-neutral: the characterization fixture example is 4217 chars so it is returned whole before and after — all 5 goldens byte-identical, no regen. | `backend/agents/execution_engine/od_context.py`, `backend/agents/capabilities/context_providers/opendesign.py`, `backend/tests/agents/test_context_providers.py`, `backend/agents/prompts/od-ppt-brief-analyst/AGENT.md` | Phase 7 (od_ppt context) · quick-260703-v7a | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-033 | 2026-07-04 | Files tab shows no run-input file for revision runs — prompt.md derived only from parsed.brief | `runInputFileRows` emitted prompt.md only from `parseRunInput(runInput).brief`; a revision parses to `revisionInstruction` with empty brief → no prompt.md (live or reopened). Fix: derive the primary row from `parsed.revisionInstruction` OR `parsed.brief` (parsed-shape dispatch, SC-001; reuses parseRunInput, INV-12); filename stays prompt.md for all runs. | `frontend/src/components/results/FilesTab.tsx`, `frontend/src/components/results/FilesTab.runInput.test.tsx` | Phase 25 (Run-inputs surfacing) · quick | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-035 | 2026-07-04 | Run cost under-reported ~4x (Haiku 4.5) to ~20x (Opus) — both engine.py:2277 + websocket.py:1993 hardcoded Claude-3-Haiku $0.25/$1.25/M for every model | Both cost sites (the engine `pipeline_complete` event + the persisted `workflow_runs.token_usage`) computed cost with an inline `(_tok_in * 0.00000025) + (_tok_out * 0.00000125)` — Claude-3-Haiku rates applied to EVERY model, so a Sonnet/Opus run under-reported 4x–20x. Fix: new kernel-pure `model_pricing.py` (per-family `MODEL_PRICING` + `_canonical` + `_regional_premium` +10% eu./us./apac + cache read/write-5m/write-1h tiers + shared `estimate_cost_usd`); BOTH sites route through it (INV-12; SC-001 no per-model branch); `model_id` → `BEDROCK_INFERENCE_PROFILE_ID` fallback; cache-token surfacing a flagged follow-up (ISS-032). INV-3 golden-neutral (cost + model_id are stripped keys — 5 goldens byte/event-identical, no regen). | `backend/agents/capabilities/model_pricing.py`, `backend/agents/execution_engine/engine.py`, `backend/app/api/websocket.py`, `backend/tests/agents/test_model_pricing.py` | quick-260704-t2x | INV-1/3/12/13 · SC-001 ✅ | Done |
+| FIX-036 | 2026-07-04 | ISS-032 — run cost not cache-discounted: the shared deep-agent runner dropped the `input_token_details` cache split so BOTH cost sites priced cache-reads at 1x (over-report once FIX-034 caching is ON in prod) | langchain_aws sets `usage_metadata.input_tokens` to the TOTAL (incl. cache) with the split in `input_token_details={cache_read, cache_creation}` (bedrock_converse.py), but the runner forwarded only input/output → `estimate_cost_usd` saw cache=0 → cached input billed 1x not 0.1x. Fix: the runner surfaces `input_token_details` (cache_read/cache_creation) into the usage event + text-only TokenUsage → the engine accumulates per-agent → `results` + `agent_complete` + run totals on `pipeline_complete` → BOTH cost sites price the UNCACHED split (`input_tokens=max(0, total − cache_read − cache_write)` + cache_read/write tiers + cache_ttl) via the ONE shared `estimate_cost_usd` (INV-12; SC-001, no workflow/agent branch); golden-neutral via additive `_VOLATILE_STRIP_KEYS` (4 new keys stripped, no regen). | `backend/app/agents/deep_agent_runner.py`, `backend/agents/execution_engine/engine.py`, `backend/app/api/websocket.py`, `backend/tests/agents/characterization/_normalize.py`, `backend/tests/agents/test_iss032_cache_tokens.py` | quick-260704-ttk | INV-1/3/12/13 · SC-001 ✅ | Done |
+| FIX-037 | 2026-07-04 | Cache-token breakdown not shown in UI — backend (ISS-032/FIX-036) emits per-run `total_cache_read_tokens`/`total_cache_write_tokens` + already-discounted `estimated_cost_usd`, but `TokenUsageSummary` showed only total/input/output/cost | FE never consumed the already-emitted cache fields (grep of `frontend/src` for cache tokens = nothing); no reopen path mapped them either. Fix (FE-only): thread the cache fields (types + `useWorkflow` `pipeline_complete`/`agent_complete` parse with `\|\| prev.* \|\| 0` + `api.ts` persisted keys made type-visible, no logic change) + render a `⚡ N cached (X%)` segment after the input figure when `cache_read > 0` (byte-identical render when 0/undefined; `pct = round(cacheRead / max(1, input) * 100)`; optional `· N written` when `cache_write > 0`); NO FE dollar/per-model math (INV-12) — cost already discounted by FIX-036; dollar-savings deferred (ISS-034). | `frontend/src/types/index.ts`, `frontend/src/hooks/useWorkflow.ts`, `frontend/src/components/workflow/TokenUsageSummary.tsx`, `frontend/src/components/workflow/TokenUsageSummary.cache.test.tsx` | quick-260704-uvs | INV-1/3/12 · SC-001 ✅ | Done |
+| FIX-038 | 2026-07-05 | t2x regression: model_pricing.py hardcoded model-family literals violated INV-12 single-model-id-source and broke test_model_catalog::test_single_source_grep (passed at baseline eb3ccced, failed after t2x). | Fix (proper, no test-loosen): co-located a frozen Pricing dataclass + pricing field on ModelEntry in model_catalog.py (the single source); model_pricing.py now derives each model's Pricing FROM the catalog (exact get + region/version-normalized fallback + cheap default) and keeps only _regional_premium + estimate_cost_usd — ZERO model-id literals. Reconciliation pin ($24.85) preserved; goldens byte-identical; lint 4/0. | `backend/agents/capabilities/model_catalog.py`, `backend/agents/capabilities/model_pricing.py`, `backend/tests/agents/test_model_pricing.py` | quick-260705-ed8 | INV-1/3/12/13 · SC-001 ✅ | Done |
+| FIX-034 | 2026-07-04 | Bedrock prompt caching silently OFF + enable-only extended-thinking knob | deepagents' built-in AnthropicPromptCachingMiddleware caches ONLY ChatAnthropic, but prod runs ChatBedrockConverse → every build re-sent a ~45-68k fixed prefix uncached across ~300 turns (5-21M input tok). Fix: a provider-agnostic `_BedrockCachePointsMiddleware` sets model_settings cache_control on ChatBedrockConverse requests (config-gated BEDROCK_PROMPT_CACHE_ENABLED default ON, BEDROCK_PROMPT_CACHE_TTL '5m') so langchain_aws._apply_cache_points appends cachePoints ≈ 55-80% cheaper billed input; plus a THINKING_BUDGET_TOKENS knob (enable-only, default 0) threading a clamped thinking budget into both provider branches of build_model. | `backend/app/core/config.py`, `backend/app/agents/model_factory.py`, `backend/app/agents/deep_agent_runner.py`, `backend/tests/agents/test_bedrock_cache_and_thinking.py` | quick-260704-p10 | INV-1/3/12/13 · SC-001 ✅ | Done |
 
 ---
 
@@ -860,3 +878,471 @@ The UI gap was in presentation only:
 - The backend `model_catalog.py` already has all 5 models — no backend change needed
 - The `/api/settings` `AVAILABLE_MODELS` projection intentionally drops `context_window`/`provider` (D-04) — that endpoint is NOT used in AgentsPopup, so no change needed there
 - If new models are added to `model_catalog.py` in future, they automatically appear in both pickers with full metadata
+| FIX-021 | 2026-06-25 | Notification panel shows "0" text and wrong progress for running pipelines | React renders the number `0` as visible text "0" when `n.agentsTotal && ...` short-circuits to `0` (falsy number) in JSX. Also: pendingOdProto/PptParams blocks never set `currentPipelineNotifId.current` so progress updates never reached those notifications; od_prototype used hardcoded workflowType="prototype" even for od_ppt runs | `frontend/src/components/ui/NotificationPanel.tsx`, `frontend/src/components/layout/DashboardLayout.tsx` | Phase 22 | INV-1/3/12/SC-001 ✅ | Done |
+
+### FIX-021 — Notification Panel: "0" text + missing progress for prototype/PPT
+
+**Date:** 2026-06-25
+**Triggered by:** `#velocity-ai-fix fix this notification panel status and progress`
+
+#### Root Cause
+Three separate bugs combined to cause the panel to show "0" and wrong/missing progress:
+
+1. **React `&&` falsy number render** (`NotificationPanel.tsx`): The JSX expression
+   `{n.status === "running" && n.agentsTotal && n.agentsTotal > 0 && (...)}` evaluates to
+   `"running" && 0` = `0` (the number) when `agentsTotal === 0`. React renders the number `0`
+   as the text "0" directly in the DOM — the classic `&&` short-circuit with falsy numbers bug.
+
+2. **Missing `currentPipelineNotifId.current` assignment** (`DashboardLayout.tsx`): The
+   `pendingOdProtoParams` and `pendingOdPptParams` effects called `addRunningNotification`
+   but never stored the notifId in `currentPipelineNotifId.current`. This meant all subsequent
+   `updateProgress` and `updateAgentsTotal` calls (which check `currentPipelineNotifId.current`)
+   never reached those notifications — progress stayed at 0.
+
+3. **Wrong workflowType for od_ppt** (`DashboardLayout.tsx`): The `odProtoNotifCreated` fallback
+   effect hardcoded `workflowType="prototype"` even when `pipelineState.pipeline_type === "od_ppt"`,
+   causing PPT runs to show as "Prototype" in the notification.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 22 — Capability Surfacing & User Empowerment (notification system)
+- **Deleted code verified (not resurrected):** No deleted code involved
+- **Locked decisions respected:** No architectural constraints violated; frontend-only fix
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/ui/NotificationPanel.tsx` | Replaced `n.agentsTotal && n.agentsTotal > 0` with `(n.agentsTotal ?? 0) > 0` in both progress bar conditionals | Prevents React rendering the number `0` as visible text |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Added `currentPipelineNotifId.current = notifId` to both `pendingOdProtoParams` and `pendingOdPptParams` notification creation blocks | Progress updates now reach those notifications |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Fixed `odProtoNotifCreated` effect to use correct `workflowType` (`"ppt"` for od_ppt, `"prototype"` otherwise) | od_ppt runs now show correct "Presentation" label |
+
+#### Invariants Verified
+- **INV-1**: not affected — frontend-only
+- **INV-3**: not affected — no output change
+- **INV-12**: not applicable
+- **SC-001**: not affected — no engine edit
+
+#### Verification
+- No TypeScript diagnostics after fix
+- `(n.agentsTotal ?? 0) > 0` always returns boolean, never renders as text
+- `currentPipelineNotifId.current` set before `addRunningNotification` so all update callbacks work
+
+
+---
+
+### FIX-022 — KAN-84: Revision input moved to left-panel expandable textarea
+
+**Date:** 2026-06-30
+**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-84`
+
+#### Root Cause
+
+The revision input was a thin `<input type="text">` bar (single-line, ~py-2 height) pinned at the bottom of the preview components on the RIGHT side of the screen (PPTPreview, PrototypePreview, UserStoryPreview, MarkdownPreview). Users couldn't type properly because the input was too thin and located far from the left-panel where they complete workflows.
+
+KAN-84 requires revision to live in the left-panel "Suggested next steps" section as a proper expandable chat-style textarea with close/send controls.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 22 — Capability Surfacing & User Empowerment (left panel UX)
+- **Relevant register section:** `_register-parts/22-capability-surfacing-and-user-empowerment-universal-runtime-.md`
+- **Deleted code verified (not resurrected):** No phase-deleted code involved
+- **Locked decisions respected:** The existing `handleRevise*` callbacks in DashboardLayout are reused unchanged — only the entry point moves
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/workflow/AgentProgressPanel.tsx` | Added `onRevise?` + `reviseLabel?` props; added `reviseOpen` state + `revisionText` state + `revisionRef`; added revision button in next-steps card that opens an expandable textarea with close (X) + send buttons; auto-focuses textarea on open; ⌘↵ keyboard shortcut | Provides the left-panel expandable textarea per KAN-84 spec |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Passed `onRevise` + `reviseLabel` to AgentProgressPanel (wired to existing `handleRevise*` functions); set `onRevise*` on PreviewPanel to `undefined` (removes thin right-panel bars) | Moves revision entry point to left panel; reuses all existing revision logic |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — frontend-only change
+- **INV-3** (golden parity): not affected — no engine, deliverable, or backend change
+- **INV-12** (no duplication): existing `handleRevisePpt` / `handleRevisePrototype` / `handleReviseUserStory` / `handleReviseAppBuilder` in DashboardLayout reused as-is
+- **SC-001** (zero engine edits): not affected — zero backend edit
+
+#### Verification
+- TypeScript diagnostics: No diagnostics found on both changed files
+- Revision callbacks unchanged: the existing `handleRevise*` functions in DashboardLayout fire exactly as before — only the UI entry point changes
+- PreviewPanel revision bars removed: `onRevise*` props set to `undefined` → no thin bars on right side
+- Left panel: "Revise Presentation" / "Revise Prototype" / "Revise User Stories" / "Revise App Blueprint" button appears in next-steps card when pipeline completes; click → expandable textarea; close X → collapses; Send (or ⌘↵) → calls existing revision function
+
+#### Notes
+- The revision button appears INSIDE the "Suggested next steps" card (same card as chaining options), guarded by `onRevise && `. If `onRevise` is undefined (migration, custom, or incomplete states), no revision button shows.
+- The textarea has `rows={3}` and is not `resize-none` — users can drag it larger if needed (satisfies "can expand the chat box").
+- The close button satisfies "can close the chat box".
+- After Send, the existing revision pipeline flow runs identically — run_revision WS dispatch, workflowType set to *_revision, etc.
+
+---
+
+### FIX-022 — KAN-80: Prototype Thinking Tab Hides Full Prompts, Context Sources, and Agent-Handoff Artifacts
+
+**Date:** 2026-06-30
+**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-80`
+
+#### Root Cause
+`AgentThinkingTab.tsx` (line 483–488) has an `isPrototypePipeline` gate: when any agent in the pipeline has an id in `["prototype-specify", "prototype-plan", "prototype-build", "prototype-validate"]`, it early-returns `<PrototypePipelineView />` instead of rendering the generic `AgentTimelineCard` list.
+
+`PrototypePipelineView` is a specialized Phase-1–4 card layout that renders `SpecVisualization`, `TaskListVisualization`, and a build progress bar. It deliberately does NOT render:
+- `InputPromptSection` — the full expandable input prompt (agent_input `context_message`)
+- `ContextSourcesRow` — which upstream artifacts were read (agent handoff visibility)
+- `ToolCallsSection` — tool calls and their results
+- `OutputPreviewSection` — agent output preview
+
+All four of these data fields ARE captured correctly in `pipelineState.agents[]` by `useWorkflow.ts` (the `agent_input` handler at line ~400 sets `agent.inputPrompt` and `agent.contextSources`; `agent_chunk` accumulates `agent.output`; `tool_call`/`tool_result` maintain `agent.toolCalls`). `PrototypePipelineView` reads only `agent.output` for spec/task parsing and `agent.status` for phase status — the rest is silently dropped.
+
+The user stories pipeline never matches `isPrototypePipeline` so it falls through to the generic `AgentTimelineCard` path which renders all four sections correctly. This is exactly the asymmetry the bug report describes.
+
+Trace:
+```
+prototype run → agent_input WS event
+→ useWorkflow handlePipelineMessage "agent_input"
+→ agent.inputPrompt = context_message ✓, agent.contextSources = [...] ✓
+→ AgentThinkingTab renders
+→ isPrototypePipeline = true (agent id "prototype-specify" matched)
+→ EARLY RETURN <PrototypePipelineView agents={agents} />
+→ PrototypePipelineView reads agent.output (spec/task parse) + agent.status only
+→ agent.inputPrompt, agent.contextSources, agent.toolCalls → never rendered
+→ user sees Phase cards with no prompt / no context / no tools / no output detail
+```
+
+#### Phase Context
+- **Phase(s) involved:** Phase 3 (FR-015 / T043/T044) — agent_input event + Thinking tab FR-015 data
+- **Relevant register section:** `_register-parts/03-token-trim-measured-change-0c.md` §3; Phase 3 T043/T044 entries
+- **Deleted code verified (not resurrected):** None — no deleted code involved
+- **Locked decisions respected:** INV-12 (no duplication) — the 4 sub-components are exported from their existing location and imported, not copied
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/results/AgentThinkingTab.tsx` | Changed `function ContextSourcesRow`, `function ToolCallsSection`, `function InputPromptSection`, `function OutputPreviewSection` to `export function ...` | Makes the 4 sub-components importable by PrototypePipelineView (INV-12 — reuse, no duplication) |
+| `frontend/src/components/results/PrototypePipelineView.tsx` | Added `Brain` to lucide imports; added import of `{ContextSourcesRow, ToolCallsSection, InputPromptSection, OutputPreviewSection}` from `./AgentThinkingTab`; added `AgentDetailSection` helper component that renders live thinking + context sources + tool calls + input prompt + output for a given agent; wired `{specAgent && <AgentDetailSection agent={specAgent} />}` into all 4 PhaseCards | Exposes the FR-015 data within each phase card, below the existing visual (spec/task/progress) content — prototype Thinking tab now matches the standard already visible in user stories |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — frontend-only change; no engine or backend change
+- **INV-3** (golden parity): not affected — backend event stream unchanged; no deliverable or context change
+- **INV-12** (no duplication): verified — sub-components are exported from their canonical location and imported; zero code copied
+- **SC-001** (zero engine edits for new workflows): not affected — frontend display change only
+
+#### Verification
+- TypeScript diagnostics: `No diagnostics found` on both changed files
+- `AgentDetailSection` wired into all 4 PhaseCards confirmed via grep (`specAgent`, `planAgent`, `buildAgent`, `validateAgent` all present)
+- All 4 sub-component exports confirmed in AgentThinkingTab.tsx
+- No imports broken — `ContextSourcesRow` etc. still compile cleanly in AgentThinkingTab itself (now exported, not private)
+- No backend restart needed (frontend-only)
+
+#### Notes
+- `AgentDetailSection` renders inside the PhaseCard's existing `<div>` body (it renders its own `border-t` separator). The `hasDetail` guard ensures nothing is rendered when the agent has no data yet (e.g. Phase 4 Validation before the run completes).
+- The InputPromptSection retains its existing `max-h-[160px]` scroll cap and 3000-char display limit — these are UX defaults from the generic view, not an issue. The user can copy the full prompt via the Copy button.
+- OutputPreviewSection shows the raw agent output (spec doc, task list, HTML, validation result) — same 4000-char display cap as the generic view. For the build agent this is the full HTML deliverable (large) which is correctly scroll-capped.
+- The PrototypePipelineView Phase cards remain — the visual spec/task/progress display is kept; AgentDetailSection adds detail *below* it. This is additive, not a replacement.
+
+---
+
+### FIX-023 — KAN-89: Stale ReviewGatePanel Blocks User Stories After Prototype Revision Chain
+
+**Date:** 2026-06-30
+**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-89`
+
+#### Root Cause
+`reviewGateData` in `dashboard/page.tsx` is set when a `review_gate_ready` WS event fires (prototype-specify's Human Gate) and cleared when `review_gate_approved` fires or the user rejects. However it is **never cleared when a new pipeline starts**.
+
+After a prototype or prototype_revision run completes (which went through the Human Gate), `reviewGateData` holds the last gate's state. When the user clicks "User Stories" in "Suggested next steps", `handleChainPipeline` calls `onResetPipeline()` (which only resets `pipelineState` in the useWorkflow hook) then `onStartPipeline("user_stories", ...)`. The user_stories pipeline starts on the backend and `pipeline_start` fires — but `reviewGateData` is still non-null in React state.
+
+`DashboardLayout.tsx` line 1392 renders `reviewGateData ? <ReviewGatePanel>` with higher priority than all other preview views. The ReviewGatePanel for `prototype-specify` ("Specification Review — Spec Writer Agent · Review before continuing") is shown over the user_stories pipeline, blocking the user from proceeding.
+
+Trace:
+```
+prototype_revision run → review_gate_ready → setReviewGateData({...})
+→ user approves → review_gate_approved → setReviewGateData(null) ✓
+→ revision continues, completes
+→ user clicks "User Stories"
+→ handleChainPipeline("user_stories") → onResetPipeline() [pipelineState reset]
+   → reviewGateData NOT cleared
+→ onStartPipeline("user_stories", enrichedInput)
+→ backend: user_stories pipeline_start fires
+→ DashboardLayout: reviewGateData still set → <ReviewGatePanel> rendered
+→ user sees "Specification Review" gate for a pipeline that already completed
+```
+
+Note: this also happens when the user clicks "User Stories" after a plain prototype run (without revision) if the prototype had a Human Gate approval — same stale state.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 8 — Capabilities Hardened (Human_Gate / GATE-01/02/03)
+- **Relevant register section:** `_register-parts/08-capabilities-hardened-registry-gates-tool-perms-runtime-3.md` §3
+- **Deleted code verified (not resurrected):** No deleted code involved
+- **Locked decisions respected:** GATE-01/02/03 — Human Gate pause/resume flow unchanged; only the stale-clear on new run start is added
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/app/dashboard/page.tsx` | Added `setReviewGateData(null)` inside the `if (msg.type === "pipeline_start")` block in `handleWebSocketMessage` | `pipeline_start` is the canonical "new run has begun" signal — clearing the gate here ensures any stale `reviewGateData` from a previous run is removed before the new pipeline's preview area renders |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — `setReviewGateData(null)` fires on all `pipeline_start` events regardless of pipeline type
+- **INV-3** (golden parity): not affected — frontend-only state change; no backend or deliverable change
+- **INV-12** (no duplication): not applicable
+- **SC-001** (zero engine edits): not affected — frontend-only fix
+
+#### Verification
+- TypeScript diagnostics: No diagnostics found on `dashboard/page.tsx`
+- Trace with fix: prototype_revision completes → reviewGateData set → user approves → reviewGateData(null) → user clicks "User Stories" → pipeline fires → `pipeline_start` arrives → `setReviewGateData(null)` called → DashboardLayout: `reviewGateData === null` → ReviewGatePanel NOT rendered → user_stories preview shown correctly
+- Regression check: for a fresh run that fires a Human Gate mid-pipeline, `pipeline_start` fires BEFORE `review_gate_ready` — so clearing on `pipeline_start` doesn't affect the live gate flow (gate fires later after the agent runs)
+
+#### Notes
+- The fix covers both the "fresh live run" path (AgentProgressPanel chain button) and the "history reopen" path (WorkflowHistory chain button via `handleChainFromHistory`) — both result in a `pipeline_start` WS event.
+- A secondary defensive measure would be to also call `setReviewGateData(null)` inside `handleChainPipeline` and `handleChainFromHistory` before calling `onStartPipeline`, but the `pipeline_start` approach is cleaner and more robust (it handles all start paths including od_prototype and future pipelines).
+
+---
+
+### FIX-024b — KAN-81 Supplement: Add "Prototype Revision Pipeline" label to Thinking tab
+
+**Date:** 2026-06-30
+**Triggered by:** KAN-81 fresh analysis — pipeline label falls through to generic "Pipeline" for prototype-revision-agent
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/results/AgentThinkingTab.tsx` | Added `if (ids.some(id => id === "prototype-revision-agent")) return "Prototype Revision Pipeline";` to `pipelineLabel` derivation | Without this, the Thinking tab header shows "Pipeline" for revision runs. Exact ID match avoids incorrectly labelling other revision agent types (user-story-revision-agent, ppt-revision-agent, etc.). |
+
+#### Invariants Verified
+- **INV-1**: not affected — frontend label only
+- **INV-3**: not affected — no backend change
+- **SC-001**: not affected — frontend only
+
+---
+
+### FIX-025 — KAN-88: Verify and Fix Pipeline Pause, Suspension, and Resume
+
+**Date:** 2026-06-30
+**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-88`
+
+#### Root Cause
+
+Three bugs found through deep end-to-end investigation:
+
+**Bug 1 — WebSocketDisconnect kills the pipeline (suspend broken):**
+`websocket.py` `except WebSocketDisconnect` immediately called `current_pipeline_task.cancel()`. This meant closing the browser tab or a network drop killed the pipeline permanently. The sessionStorage `active_pipeline_run_id` was set (correct), so reconnect sent `reconnect_pipeline` — but there was no live task to attach to. Only the durable replay of already-emitted events was available; the pipeline itself was dead.
+
+**Bug 2 — Auto-resumed runs have no cancel_event (Stop button broken after restart):**
+`_register_resume_task()` registered the resumed task in `_PIPELINE_TASKS` but never created a `_CANCEL_EVENTS` entry. The `cancel_pipeline` handler checked `_CANCEL_EVENTS.get(_cancel_run_id)` → `None` → fell through to the destructive `current_pipeline_task.cancel()` fallback. The cooperative Stop path was silently bypassed for all auto-resumed runs.
+
+**Bug 3 — `waiting_for_user` + backend restart = permanent hang:**
+`restore_non_terminal_runs` branch (a) re-armed the asyncio.Event for `waiting_for_user` runs but the `ClarifyEngine.run()` coroutine that was `await event.wait()` was gone after restart. No coroutine would ever drive the run forward. The run appeared live to the user but could never proceed or be stopped cleanly.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 12 (Wave Scheduler + Durable Resume / RESUME-04), Phase 16 (Terminal-State Integrity / ISS-007)
+- **Relevant register section:** `_register-parts/12-wave-scheduler-durable-resume-6.md` §3/§5; `_register-parts/16-terminal-state-integrity-and-reconnect-frame-contract.md` §3
+- **Deleted code verified (not resurrected):** No deleted code involved
+- **Locked decisions respected:** ISS-007 (16-02) cooperative cancel via cancel_event preserved; SC-001 no pipeline_type branches; INV-1 clean
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `backend/app/api/websocket.py` | `except WebSocketDisconnect`: detach instead of cancel. Only legacy/no-run-id tasks are still cancelled; pipeline tasks are left running headlessly. | Tab close / network drop no longer kills the pipeline. On reconnect, `reconnect_pipeline` attaches to the live task (or replays durable tail if already done). |
+| `backend/app/api/websocket.py` | `_register_resume_task()`: also creates `_CANCEL_EVENTS[pipeline_run_id] = asyncio.Event()` if not already present. | Stop button now works cooperatively for auto-resumed runs instead of destructively cancelling the task. |
+| `backend/agents/execution_engine/engine.py` | `restore_non_terminal_runs` branch (a) `waiting_for_user`: mark as `failed` (WR-05-clarify) instead of re-arming the asyncio.Event. | Prevents permanently-stuck runs after restart. ClarifyEngine cannot be resumed post-restart; failing loudly is the correct behaviour. |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — all changes are generic (keyed on run_id, not pipeline type)
+- **INV-3** (golden parity): not affected — no deliverable or event stream change
+- **INV-12** (no duplication): not applicable
+- **SC-001** (zero engine edits for new workflows): engine edit is in startup restore scan, not in the kernel execution path — no new workflow branches added
+
+#### Verification
+- `python -c "from app.api.websocket import _register_resume_task, _CANCEL_EVENTS; ..."` → OK
+- Backend restarts cleanly
+- Trace Bug 1: Tab close → WebSocketDisconnect → pipeline task left running → reconnect sends reconnect_pipeline → live queue drainer attaches → stream continues ✅
+- Trace Bug 2: Backend restart → resume_run → _register_resume_task → cancel_event created → Stop button → cancel_event.set() → cooperative cancel ✅
+- Trace Bug 3: Backend restart with waiting_for_user run → marked failed immediately → no phantom-live row ✅
+
+#### Notes
+- The "detach on disconnect" approach means pipeline tasks run headlessly when no client is connected. Events accumulate in the per-run queue (bounded by the asyncio.Queue default). For very long-running pipelines (2-6 hours) the queue could grow large; the durable `run_events` replay path is the safety net here.
+- The `waiting_for_user` fix is a breaking change for users who had a clarify gate open when the backend restarted — their run is now failed rather than resumed. This is the correct behaviour since the alternative (stuck forever) is worse. A proper fix would require serialising and replaying the ClarifyEngine state, which is a Phase 17+ enhancement.
+- Resume from another place (closing browser on machine A, opening on machine B): works correctly if the pipeline is still running (live attach) or has already completed (durable replay). The sessionStorage `active_pipeline_run_id` mechanism only helps if the SAME browser/tab re-opens. Cross-device resume is achieved entirely through `reconnect_pipeline` + `after_seq` from any new connection that knows the `pipeline_run_id`.
+
+---
+
+### FIX-026 — KAN-86: Add Spec Kit Analyze Step to Prototype Workflow
+
+**Date:** 2026-07-01
+**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-86`
+
+#### Root Cause
+KAN-86 requires a new Spec Kit-style analyze step inserted between `prototype-plan` and `prototype-build`. This step was missing entirely — no AGENT.md, no workflow step, no frontend rendering.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 4 (manifests/SC-001), Phase 8 (capabilities/AGENT.md), Phase 16 (ReviewGatePanel)
+- **Relevant register section:** SC-001 — new workflow step = manifest + AGENT.md only, zero engine edits
+- **Deleted code verified (not resurrected):** No deleted code involved
+- **Locked decisions respected:** SC-001 — ONLY manifest + AGENT.md changed. Human Gate (WR-02 dedupe, REDO-GATE) unchanged.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `backend/agents/prompts/prototype-analyze/AGENT.md` | NEW — Spec Kit Analyzer agent with `gate: Human_Gate`, reads spec+plan output, produces structured 11-category analysis report with findings table, risk register, suggested next actions, and readiness verdict | KAN-86 requires the analyze step to run after plan/tasks are created |
+| `backend/agents/workflows/prototype/workflow.yaml` | Added `prototype-analyze` step between `prototype-plan` and `prototype-build`, `strategy: single_shot`, `gates: [human]` | Inserts the analyze gate at the right position in the pipeline |
+| `frontend/src/components/preview/ReviewGatePanel.tsx` | Added `AnalysisPreview` component that parses `<analysis>` XML and renders structured sections with a verdict banner (READY/CAUTION/REVISION); wired `isAnalysis = agentId === "prototype-analyze"` | Shows the analysis report in a scannable structured format; correct panel label and description for the analyze step |
+| `frontend/src/components/results/PrototypePipelineView.tsx` | Added `analyzeAgent` find, `analyzeStatus`, included in progress bar (5 phases), added Phase 3 card for "Spec Kit Analyzer", bumped Validation to Phase 5 | Thinking tab shows the analyze phase correctly in the pipeline visual |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — manifest-driven, zero engine edits
+- **INV-3** (golden parity): not affected — new agent, doesn't change existing test runs
+- **INV-12** (no duplication): reuses existing HumanGate capability entirely
+- **SC-001** (zero engine edits for new workflows): verified — ONLY manifest + AGENT.md + frontend display changes
+
+#### Verification
+- `load_agent_spec('agents/prompts/prototype-analyze')` → `id: prototype-analyze gate: Human_Gate` ✅
+- Frontend diagnostics: no errors on ReviewGatePanel.tsx or PrototypePipelineView.tsx ✅
+- Backend restarts cleanly
+
+#### Notes
+- The inline Human Gate fires post-agent (with real output) because `gate: Human_Gate` in AGENT.md → `_should_gate()` returns True → WR-02 dedupe skips the declared `gates:[human]` pre-step gate → inline gate wins with real analysis report content.
+- The REDO-GATE `redoable=True` is set automatically by the inline call site — users can redo the analysis step with additional instructions for free.
+- The `consumes: [prototype-specify, prototype-plan]` in the AGENT.md means the analyze agent gets both the spec output AND the task list in its context, enabling true cross-artifact analysis.
+- On reject at the analyze step → `_gate_rejected` → engine transitions to `cancelled` → `pipeline_cancelled` emitted → build never runs. Exactly as KAN-86 specifies.
+
+---
+
+### FIX-027 — KAN-87: Allow No-Template Selection in Prototype Wizard with UI-Focused Clarification
+
+**Date:** 2026-07-01
+**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-87`
+
+#### Root Cause
+
+Two gaps prevented users from running a prototype without selecting a template:
+
+**Gap 1 — Wizard hard-requires template selection:**
+`frontend/.../templates/page.tsx`: `canContinue` required `selectedTemplateId` to be truthy. No "no template" option existed. The validation pill always showed "Pick a template" as a blocker.
+
+**Gap 2 — "style" clarifier question is wrong for prototype:**
+`clarify_engine.py` `QUESTION_LIBRARY["style"]` asked "What tone and style should be used?" with presentation-oriented options (Professional & formal, Casual & conversational, etc.). For a prototype without a template, users need to be asked about the UI type (web app, mobile, dashboard, etc.) — not tone. This was the same `style` key that the SmartPlanner injects when no-template makes UI clarification important.
+
+**Gap 3 — Backend crashes when template_id is None:**
+`od_context.py` `load_prototype_context` raised `LookupError` when `template_id` was `None`/`"none"` with no custom body — no graceful no-template path existed.
+
+**Gap 4 — Spec writer doesn't know what to do without a template:**
+`prototype-specify/AGENT.md` had mandatory "READ THE TEMPLATE FIRST" rules with no conditional for the no-template case. The agent would fail compliance checks if no template was injected.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/app/workflow/prototype/templates/page.tsx` | Removed `selectedTemplateId` from `canContinue` guard; removed "Pick a template" validation pill | Template is now optional — user can proceed with only a design system and brief |
+| `backend/agents/execution_engine/od_context.py` | Added `elif template_id in (None, "", "none")` branch — returns minimal context with `template_body: None, no_template: True` instead of raising LookupError | Backend no longer crashes when no template is selected |
+| `backend/agents/execution_engine/clarify_engine.py` | Added `STYLE_BY_PIPELINE` dict with prototype-specific style question ("What visual style and UI type should the prototype follow?" with web/mobile/dashboard options); made `QUESTION_LIBRARY["style"]` use `STYLE_BY_PIPELINE.get(pipeline_type, default)` | Prototype users now see a UI-type question instead of a presentation-tone question |
+| `backend/agents/prompts/prototype-specify/AGENT.md` | Added "If NO ACTIVE TEMPLATE is present" conditional section in both MANDATORY READ section and TEMPLATE COMPLIANCE RULES | Spec writer now invents its own CSS class system when no template is provided |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): clarify_engine change uses a local `STYLE_BY_PIPELINE` dict (same pattern as existing `TOPIC_BY_PIPELINE`) — not a kernel branch
+- **INV-3** (golden parity): not affected — changes are in wizard, clarifier, and AGENT.md only
+- **INV-12** (no duplication): not applicable
+- **SC-001** (zero engine edits): not affected — AGENT.md + clarify_engine (not kernel) changes only
+
+#### Notes
+- `canContinue` still requires a design system — the color tokens are always needed even without a template.
+- The `no_template: True` flag in od_context is available for the opendesign provider to use if it needs to skip template injection in agent prompts.
+- The STYLE_BY_PIPELINE question fires when `"style"` is in `missing_information` — which the SmartPlanner/clarify engine produces for the `od_prototype`/`prototype` pipeline when the brief doesn't mention visual style. This naturally fires more often when no template pre-selects the style.
+
+### FIX-024 — KAN-82: Content-Unaware Clarification Questions (All Pipelines)
+
+**Date:** 2026-07-01
+**Triggered by:** `#velocity-ai-fix KAN-82 — clarify asks fixed irrelevant questions instead of content-aware clarification`
+
+#### Root Cause
+
+Three compounding problems:
+
+**Problem 1 — SmartPlanner returns pipeline-generic missing_information for rich briefs.**
+`SmartPlanner._build_prompt()` passed the full brief to the LLM but the prompt's
+`common_missing` hint (e.g. `["target_audience", "scope", "style", ...]`) nudged the
+model to output the full list regardless of what the brief covered. For long documents
+(100+ pages), the brief was not truncated at all — the LLM received the entire document
+which often overwhelmed it, causing it to fall back to `common_missing` wholesale.
+The prompt also did not strongly enforce "skip if already answered".
+
+**Problem 2 — SmartPlanner did not store the user_request in planning_context.**
+The planning_context never contained the original brief, so ClarifyEngine had no way
+to read what the user provided when generating questions. There was no `user_request`
+key in the returned dict.
+
+**Problem 3 — ClarifyEngine._generate_questions() produced static, content-blind questions.**
+For each item in `missing_information`, it looked up `QUESTION_LIBRARY[matched_key]`
+and returned the hardcoded question text verbatim — e.g. "Who is the primary audience
+for this?" — with zero reference to the user's content, topic, or domain. Whether the
+user wrote "build a prototype" or pasted a 100-page hospital-booking user-story
+document, the question was identical.
+
+Trace:
+```
+user submits 100-page doc → SmartPlanner.plan(brief, "user_stories")
+→ LLM overwhelmed / nudged by common_missing → returns missing_information=
+  ["target_audience","scope","personas","user_journeys","business_rules",
+   "compliance_security","priority","technology"]
+→ ClarifyEngine._generate_questions(planning_context)
+→ "target_audience" → QUESTION_LIBRARY["target_audience"] →
+  "Who is the primary audience for this?" (ignores the 100 pages)
+→ "scope" → "What is the scope of this project?" (already answered in doc)
+→ user sees generic questions unrelated to their content
+```
+
+#### Phase Context
+- **Phase(s) involved:** Phase 2 (ClarifyEngine) + Phase 4 (SmartPlanner / compiled workflow)
+- **Relevant register section:** `specs/001-ai-workflow-os/tasks.md` T017 (ClarifyEngine), T026/T027 (SmartPlanner)
+- **Deleted code verified (not resurrected):** The old ReAct tool-loop planner was replaced by SmartPlanner — the fix is within the new system only.
+- **Locked decisions respected:** INV-1 (no pipeline_type branches in kernel) — the content-hint personalisation is purely string formatting, no branching. SC-001 — zero engine edits.
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `backend/agents/planner/smart_planner.py` | `_build_prompt()`: intelligently truncates long briefs (head 1500 + tail 500 chars with ellipsis notice); strengthened the "only include items GENUINELY absent" rule with concrete examples including "If the brief is a 100-page document, most items may already be covered"; added `user_request_summary` to the JSON output schema | Prevents LLM from being overwhelmed by long content; makes missing_information genuinely content-aware |
+| `backend/agents/planner/smart_planner.py` | `plan()`: stores `user_request` (brief, truncated to 3000 chars) in the returned planning_context dict | Gives ClarifyEngine access to the actual brief for personalising questions |
+| `backend/agents/planner/smart_planner.py` | `_default_context()`: adds `user_request` key to fallback context | Consistency — fallback path also carries the brief |
+| `backend/agents/execution_engine/clarify_engine.py` | `_generate_questions()`: extracts `topic`, `user_request_summary`, `inferred_intent` from planning_context; builds a `content_hint` descriptor; appends `(for: {subject_label})` to non-topic questions when a meaningful content hint is available | Questions now reference the user's actual content rather than being fully generic |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — the content-hint personalisation is pipeline-agnostic string formatting, no branching on pipeline_type name
+- **INV-3** (golden parity): not affected — ClarifyEngine and SmartPlanner are not on the golden deliverable path (the 5 characterization goldens use `clarify.mode: skip`)
+- **INV-12** (no duplication): reused existing SmartPlanner LLM call; no new agent or module introduced
+- **SC-001** (zero engine edits): not affected — all changes are in `smart_planner.py` and `clarify_engine.py` only
+
+#### Verification
+Backend restarted cleanly on terminal 53. Changes are in the planner + clarify engine layers,
+which are read from disk at runtime. The key behavioral changes are:
+1. Long briefs are now intelligently sampled (not fully passed to LLM)
+2. SmartPlanner explicitly instructs the LLM to skip items already in the brief
+3. Questions include the content topic/intent as context suffix
+
+#### Notes
+- The content-aware personalisation is lightweight — it appends `(for: {topic})` to the
+  question text rather than generating fully custom question text. A deeper improvement
+  would use another LLM call to generate bespoke questions per item, but that would add
+  latency and cost. The current approach is a good balance.
+- The `user_request_summary` key is new in the planning_context. Downstream agents (spec
+  writer etc.) could use it in future for additional context — it is not used yet.
+- For very short briefs (< 2500 chars), behaviour is unchanged — the full brief is passed.
+### FIX-028 — Prototype Nav-Validation Hardening (render_check + static_check), 5 rounds
+
+**Date:** 2026-07-01
+**Triggered by:** a real broken prototype (`imc-inventory-certificate-management.html`, "navigation didn't work properly") that BOTH validators passed green — plus expert review feedback across the arc. Delivered as 5 sequential GSD quick tasks: `260701-bob` → `260701-erg` → `260701-go2` → `260701-hqa` → `260701-kml`. Full per-round detail: those quick-task PLAN/SUMMARY/VERIFICATION files + IMPLEMENTATION-REGISTER **Phase 24**.
+
+#### Root Cause
+The two prototype HTML validators mis-judged navigation on three axes:
+1. **fail-open (coverage):** `render_check._check_nav` only clicked `.nav-item[href]` → a hash-router/`onclick`/parameterized SPA (zero `.nav-item`) was exercised for ZERO routes → `nav_results=[]` → passed a fully-broken prototype green. `static_check` only inspected `<a href>` + object routes-maps → dynamic (`onclick`/`navigateTo`) dead-links slipped through.
+2. **false-positive (no route resolution):** after adding a `expected == first-path-segment` check, correct **alias/parametric** routers were wrongly failed — `#/inventory/4521` legitimately resolves to `inventory-detail`, but first-segment `inventory` ≠ `inventory-detail`. Neither tier resolved a route THROUGH the app's route table. `static_check` also didn't parse array-form route tables (`[{pattern,page}]`), only object literals.
+3. **dishonest failure label:** on a blank page, `render_check`'s active-section read `[data-page].is-active` matched the sidebar `<a>` (which carries `data-page` + `is-active`) and returned a nav-link name (e.g. coerced `null`→`'dashboard'`) — misdirecting the fix-loop at a routing-fallback bug when the real defect was "no section activates" (an unscoped `querySelector`). It also spuriously passed the `#/dashboard` route on a blank page.
+
+#### Fix (per round)
+- **R1 `260701-bob`:** broadened nav discovery (`a[href^='#']` + `onclick` `location.hash`/`navigateTo`), correct-section assertion + coverage-0 finding; single `render_coverage_status` helper routing the 3 render-availability consumers; per-step `require_render` knob + distinct `validator_skipped` audit.
+- **R2 `260701-erg`:** per-route un-dedup, `${…}` exclusion, `nav_settle_ms`; static routes-map RESOLUTION cross-check (router-dead); `require_render: true` on build+revision (revision fails-closed via `gates:[validation]`); golden-harness `deepcopy` pin (also fixed a latent `@lru_cache` shared-mutation of `compile_for_run`).
+- **R3 `260701-go2`:** shared `app/agents/route_table.py` (`parse_routes_table` object+array; `resolve_route` exact/alias/`:id`; None for href-valued objects) — BOTH tiers resolve routes through the table (fixes the alias/parametric false-positives), graceful first-segment fallback keeps table-less prototypes + goldens unchanged.
+- **R4 `260701-hqa`:** render reads the active page SECTION excluding nav/anchors → `activated=None` on a blank page (no coercion); honest `_dead_nav_line` (blank vs wrong-section); `blank-nav.html` guard.
+- **R5 `260701-kml`:** `mis-route.html` fixture + scenario-15 firing the `wrong-section` (`activated != expected`, non-null) render branch end-to-end (TEST-ONLY).
+
+#### Files Changed
+`backend/app/agents/render_check.py`, `static_check.py`, `route_table.py` (NEW), `validators/html_render.py`; `backend/agents/execution_engine/engine.py`, `kernel_services.py`; `backend/agents/capabilities/validators/severity.py`, `capabilities/gates/validation.py`, `capabilities/strategies/task_loop.py`; `backend/agents/workflows/{compiler.py,plan.py,prototype/workflow.yaml,prototype_revision/workflow.yaml}`; `backend/app/core/config.py`; `backend/tests/agents/{test_nav_coverage.py,test_route_table.py,_scripted_model.py,test_phase5_fixloop_selection.py,fixtures/imc-…-full.html,fixtures/imc-…-fixed.html,fixtures/blank-nav.html,fixtures/mis-route.html}`.
+
+#### Outcome / Regression floor
+Four committed fixtures: **A `-full` must-FAIL** (5 genuine static dead + 17/17 render dead/`None`), **B `-fixed` must-PASS** (0 static, 17/17 render correct incl. aliases/`:id`), **blank-nav** (all `activated=None`), **mis-route** (wrong-section). Verified by direct reproduction + an independent Chromium probe that converged on both real files; targeted suite 191 passing, `lint-imports` 4/0, 4 stable goldens byte/event-identical (NO SNAPSHOT_UPDATE).
+
+**Phase(s) involved:** Phase 07/08 (prototype validators VALID-01/03/04) · IMPLEMENTATION-REGISTER **Phase 24** (post-milestone).
+**Invariants:** INV-1/3/12/13 ✅ (additive; no migration; kernel-pure/app→app imports; goldens byte/event-identical). **Status:** Done.
+**Known standing item:** `test_characterization_od_ppt` fails offline only (pre-existing skills-asset/event-golden drift, unrelated to the validators) → CI/clean-env re-confirm.

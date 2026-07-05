@@ -29,8 +29,16 @@
 ## Architecture Overview
 
 The backend runs every **pipeline** agent as a LangChain **`deepagents`** graph, sequenced
-deterministically by the **`ExecutionEngine`**. The engine decides *which* agent runs next
-(reading the pipeline registry); the LLM never does. Each agent is a `create_deep_agent`
+deterministically by the **`ExecutionEngine`**; the LLM never decides *which* agent runs next.
+At run entry the engine compiles a typed, validated **`CompiledWorkflow`** from a declarative
+manifest (`agents/workflows/<id>/workflow.yaml`) via `compile_for_run(pipeline_type)`, and
+sources the agent **sequence**, the **deliverable** spec, the **clarify** config, and the
+**planner** flag from that compiled plan. Per-step capabilities — strategy, gates, validators,
+compaction, task_source, deliverable — likewise come from the manifest's `steps`. The
+**registry** keeps its real, narrower role: `registry.PIPELINE_AGENTS` / `get_pipeline_agents()`
+provide agent **membership/order**. Crisply: the **registry says *which* agents belong to a
+pipeline** (membership/order); the **manifest (`workflow.yaml`) says *how* they run** (per-step
+capabilities + deliverable + clarify + planner). Each agent is a `create_deep_agent`
 graph wrapped by a thin `DeepAgentRunner` adapter that maps the LangGraph event stream onto
 the WebSocket event vocabulary the frontend already consumes — so the runtime was swapped
 under the hood with the UI unchanged.
@@ -82,7 +90,7 @@ backend/
 |--------|---------------|
 | `agents/loader.py` | Read `AGENT.md` files, parse YAML frontmatter, validate all fields, cache results in `_SPEC_CACHE`; expose `AgentSpec`, `load_agent_spec()`, `list_agent_ids()`, `SUPPORTED_PIPELINE_TYPES` |
 | `agents/registry.py` | Hold `PIPELINE_AGENTS` + `REVISION_BASE_MAP`; expose `get_pipeline_agents()`, `get_all_agents_flat()`, `get_agent_by_id()`, `allowed_custom_agent_ids()` — the single source of truth for agent membership/ordering |
-| `agents/factory.py` | `create_runner(agent_id, ctx)` — the **live** entry point; composes the system prompt (`_compose_system_prompt`), resolves tools (`_build_runner_tools`), builds the per-run `RunSandbox`, and constructs a `DeepAgentRunner`. Owns `AgentContext`. |
+| `agents/factory.py` | `create_runner(agent_id, ctx)` — the **live** entry point; composes the system prompt (`_compose_system_prompt`), resolves tools (`_resolve_runner_tools`), builds the per-run `RunSandbox`, and constructs a `DeepAgentRunner`. Owns `AgentContext`. |
 | `agents/execution_engine/engine.py` | `ExecutionEngine` — the deterministic sequencer. `execute()` drives the pipeline; `_run_agent` runs one agent via a single `astream_events` loop; per-agent HITL gates; prototype per-task sub-agent build loop + validation |
 | `app/agents/deep_agent_runner.py` | `DeepAgentRunner` — wraps a `deepagents.create_deep_agent` graph; `astream_events()` maps LangGraph events → engine events; disk filesystem backend; HITL `gate` detection |
 | `app/agents/model_factory.py` | `build_model()` — Bedrock/Anthropic provider select + botocore timeouts/retries (one place) |
@@ -99,11 +107,18 @@ WebSocket "run_pipeline" message  (app/api/websocket.py)
       ▼
 ExecutionEngine.execute(agents, user_message, pipeline_run_id, pipeline_type, …,
                         gate_agent_ids=…, parent_run_id=…)
-      │   agents = registry.get_pipeline_agents(pipeline_type)   ← ordered list[AgentSpec]
+      │   compiled = compile_for_run(pipeline_type)              ← typed CompiledWorkflow
+      │       └─► resolve_alias(pipeline_type)                   ← id-alias → manifest id
+      │       └─► load_manifest(agents/workflows/<id>/workflow.yaml)
+      │       └─► _WORKFLOW_COMPILER.compile(manifest, registry) ← validated plan
+      │       (raises FileNotFoundError if no manifest for the resolved id)
+      │   sequence / deliverable / clarify / planner  ← FROM compiled plan
+      │   registry.get_pipeline_agents(pipeline_type)            ← agent membership
+      │   ASSERT [s.agent_id for s in compiled.steps] == membership  → else RuntimeError
       │   await get_checkpointer()                               ← Postgres / InMemory
       │   RunSandbox(user_id, pipeline_run_id)                   ← per-run disk dir
       │
-      └─► for each AgentSpec (in registry order):
+      └─► for each AgentSpec (in the compiled sequence):
                │
                ├─► build AgentContext (skills/hooks/od_context/run_id=pipeline_run_id)
                ├─► _should_gate(spec)?  → _run_review_gate (HITL pause/resume between agents)
@@ -111,7 +126,7 @@ ExecutionEngine.execute(agents, user_message, pipeline_run_id, pipeline_type, �
                │         │
                │         ├─► load_agent_spec(agent_id)            ← cache hit
                │         ├─► _compose_system_prompt()             ← injects + guardrails + skills + hooks + constitution + body
-               │         ├─► _build_runner_tools()                ← (custom_tools, exclude_builtin)
+               │         ├─► _resolve_runner_tools()                ← (custom_tools, exclude_builtin)
                │         └─► DeepAgentRunner(... model=build_model(ctx.model), run_sandbox=…)
                │                   └─► create_deep_agent(graph): native fs tools + report_task_complete
                │
@@ -126,8 +141,11 @@ ExecutionEngine.execute(agents, user_message, pipeline_run_id, pipeline_type, �
                      - code-gen: serialize_sandbox_deliverable(root) → `filename:` blocks
 ```
 
-The engine is the **deterministic sequencer** — it reads `PIPELINE_AGENTS[pipeline_type]`
-(via `get_pipeline_agents`) for the ordered agent list and calls `create_runner()` for each.
+The engine is the **deterministic sequencer** — it compiles the run's `CompiledWorkflow` via
+`compile_for_run(pipeline_type)` and drives the **ordered sequence from the compiled plan**,
+calling `create_runner()` for each step. `registry.get_pipeline_agents` supplies the agent
+**membership**; the engine **asserts** the compiled step agent-ids equal that membership and
+raises `RuntimeError` on drift, so the manifest and registry can never silently diverge.
 Deliverables live on the **per-run disk sandbox** (shared across the run's agents, so files
 one agent writes persist for the next); the engine reads them back at the end of each agent.
 Token totals come from the runner's `usage` events; library auto-summarization replaces the
@@ -243,15 +261,19 @@ will catch any missing or invalid fields.
 | `max_tokens` | integer | *(required)* | Documented per-agent output ceiling (1–32768). Retained for the UI/spec; the runtime caps every agent at `settings.MAX_OUTPUT_TOKENS`, not this value |
 | `tools` | list[str] | `[]` | Tool sets to bind: `"workspace"`, `"prototype"`, `"prototype_emit_only"`, `"planning"` (see [Tool Sets](#tool-sets)) |
 | `guardrails` | list[str] | `[]` | Guardrail file names (without `.md`) injected before the prompt body |
-| `context_from` | list[str] | `[]` | Prior-agent output routing (see [context_from examples](#context_from-examples)) |
+| `context_from` | list[str] | `[]` | **Legacy/vestigial.** Still parsed and stored by the loader (`AgentSpec.context_from`) for backward-compat, but **no longer drives** the engine's context injection — live inter-agent routing is by `produces`/`consumes` (see [context_from examples](#context_from-examples)) |
 | `icon` | string | `"🤖"` | Emoji icon displayed in the UI pipeline progress panel |
 | `estimated_duration` | float | `3.0` | Estimated run time (seconds) used for UI progress animation |
 | `description` | string | *(falls back to `role`)* | Longer UI/API blurb; absence never errors (loader falls back to `role`) |
 | `gate` | string\|null | `null` | `Human_Gate` puts the agent in the default review-gate set; `Validation_Gate`; or absent |
 | `injects` | list[str] | `[]` | For od_prototype/od_ppt agents: any of `[template, design_system, craft]` (composed into the prompt by `_compose_injection`) |
-| `produces` / `consumes` | list[str] | `[]` | Typed artifact contracts read by `WorkflowResolver` for DAG validation |
+| `produces` / `consumes` | list[str] | `[]` | **The live inter-agent routing mechanism.** An upstream agent's typed output reaches this agent IFF `set(upstream.produces) & set(this.consumes)` is non-empty; the content is read from the typed artifact graph (`ectx.artifacts`) via `_filter_consumed_outputs` / `_latest_typed_content` in `engine.py`. Also read by `WorkflowResolver` for DAG validation |
 
 ### `context_from` Examples
+
+> **Note:** `context_from` is **legacy**. It is still parsed and stored, but the engine no
+> longer routes context from it — `produces`/`consumes` (via `_filter_consumed_outputs`) is what
+> actually routes inter-agent context at runtime. The examples below are retained for reference.
 
 **Example 1 — only the user brief (no prior output)**
 
@@ -316,7 +338,21 @@ PIPELINE_AGENTS: dict[str, list[str]] = {
 }
 ```
 
-### Step 4 — (Optional) Add a REVISION_BASE_MAP entry
+### Step 4 — (Required) Create the workflow manifest
+
+Create `agents/workflows/<your_new_pipeline>/workflow.yaml`. This manifest is **not optional**:
+at run entry `compile_for_run(pipeline_type)` resolves the id and calls
+`load_manifest(agents/workflows/<id>/workflow.yaml)` — **without this file it raises
+`FileNotFoundError`** and the run never starts. The manifest declares the per-step `steps`
+(each step's `agent_id` + its capabilities), the `deliverable`, the `clarify` config, and the
+`planner` flag.
+
+The manifest's step `agent_id`s must **match the `PIPELINE_AGENTS` membership and order** for
+this pipeline, or the engine aborts at run entry with `RuntimeError` (the membership assertion
+in `engine.py`). Copy an existing `agents/workflows/<id>/workflow.yaml` (e.g.
+`agents/workflows/prototype/workflow.yaml`) as the template rather than hand-writing the keys.
+
+### Step 5 — (Optional) Add a REVISION_BASE_MAP entry
 
 If this pipeline has a corresponding revision pipeline:
 
@@ -327,9 +363,10 @@ REVISION_BASE_MAP: dict[str, str] = {
 }
 ```
 
-> Inter-agent context routing is driven by each agent's `context_from` (and the typed
-> `produces`/`consumes` contracts via `WorkflowResolver`) — there is no separate context-map
-> table to maintain.
+> Inter-agent context routing is driven by the typed `produces`/`consumes` contracts (the live
+> mechanism, via `_filter_consumed_outputs`; also validated as a DAG by `WorkflowResolver`).
+> `context_from` is **legacy/vestigial** — still parsed, but not used by the engine. There is no
+> separate context-map table to maintain.
 
 ---
 
@@ -401,7 +438,7 @@ guardrails: [agile, typescript]
 Agents request tools via the `tools` field in `AGENT.md`. Under the `deepagents` runtime, the
 heavy lifting is done by the library's **native filesystem tools** (`write_file`, `read_file`,
 `edit_file`, `ls`, `glob`, `grep`) plus `write_todos` — these write to the per-run `RunSandbox`
-disk. `agents/factory.py::_build_runner_tools(spec, ctx)` maps each declared tool-set name onto
+disk. `agents/factory.py::_resolve_runner_tools(spec, ctx)` maps each declared tool-set name onto
 `(custom_tools, exclude_builtin_tools)`:
 
 | `tools` value | What the agent gets | Notes |
@@ -423,7 +460,7 @@ confirmation string. The engine derives `task_progress` from the tool's call/res
 ### Adding a custom runner tool
 
 1. Implement a LangChain `@tool` (e.g. in `app/agents/tools/`) returning a string result.
-2. Add a branch to `_build_runner_tools(spec, ctx)` in `agents/factory.py` that appends your
+2. Add a branch to `_resolve_runner_tools(spec, ctx)` in `agents/factory.py` that appends your
    tool for the new tool-set name (and sets `exclude_builtin` appropriately — `False` if the
    agent also needs the native fs tools, `True` for a no-disk tool-only agent). An unrecognized
    tool-set name raises `ValueError` naming the tool and the agent ID.

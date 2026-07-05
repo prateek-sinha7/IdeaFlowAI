@@ -27,6 +27,15 @@ steps:
     strategy: single_shot
     gates: [validation]
     validators: [html_static, html_render]
+    # require_render (quick-260701-erg / REQUIRE-RENDER-LOADBEARING): now TRUE and
+    # load-bearing. This step has gates:[validation], so a browserless render fails
+    # CLOSED — html_render emits one P0 (render unavailable), which the EXISTING
+    # ValidationGate block-critical policy turns into GATE_BLOCK. Static can never be
+    # silently sufficient alone when the browser is absent. The INV-3 goldens stay
+    # byte/event-identical because the offline golden harness pins every compiled
+    # step's require_render=False (the semantics the goldens were recorded at); the
+    # require_render=true production behavior is covered by test_nav_coverage 4a/4b.
+    require_render: true
     # post_step (07-10 / CR-06): after the revision agent edits prototype.html in
     # place, run the pre-edit baseline + post-edit Both-validation + bounded fix-
     # loop. Relocated out of the kernel's "DELIBERATE EXCEPTION" block.

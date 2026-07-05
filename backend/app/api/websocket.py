@@ -15,6 +15,7 @@ from app.agents.chat_runner import ChatRunner
 from app.agents.llm_errors import map_exception as _map_llm_exception
 from app.agents.model_factory import ModelConfigurationError
 from app.agents.modes import get_mode_prompt
+from agents.capabilities.model_pricing import estimate_cost_usd
 from app.core.config import settings
 from app.core.security import decode_access_token, is_token_revoked
 from app.models.chat import ChatSession, Message
@@ -88,8 +89,19 @@ def _register_resume_task(pipeline_run_id: str, task: asyncio.Task) -> None:
     A reconnect_pipeline checks ``task.done()`` — a live resume driver makes
     _has_live_task true; a finished one naturally falls back to the durable
     replay + status branch.
+
+    KAN-88: also register a cancel_event so cancel_pipeline can cooperatively
+    stop a resumed run via the cooperative path instead of falling through to
+    the destructive task.cancel() fallback (which leaves the run in a bad state).
     """
     _PIPELINE_TASKS[pipeline_run_id] = task
+    # Register a cooperative cancel event for the resumed task so the Stop
+    # button works correctly. The engine's resume_run checks this event in
+    # its per-chunk / pre-agent cancel checks (the same mechanism as a
+    # normally-started pipeline run). Only register if no event already exists
+    # (idempotent — a double-register must not reset a set() event).
+    if pipeline_run_id not in _CANCEL_EVENTS:
+        _CANCEL_EVENTS[pipeline_run_id] = asyncio.Event()
 
 
 def _validate_model_overrides(
@@ -401,6 +413,45 @@ def _strip_pipeline_context(content: str) -> str:
             return match.group(1).strip()
         return ""
     return stripped
+
+
+def _resolve_owned_parent_run_id(
+    db: Session, candidate_id: Optional[str], user_id: str
+) -> Optional[str]:
+    """Return ``candidate_id`` iff it names a WorkflowRun OWNED by ``user_id``.
+
+    Both parent-link ingress sites — the ``run_pipeline``
+    ``source_workflow_run_id`` link (``_handle_workflow_execution`` :1688) and
+    the ``run_revision`` row-creation ``parent_run_id`` link
+    (``_handle_revision_execution`` :2247) — route their parent linkage through
+    this single ownership-checked resolver (POR §3).
+
+    Why ownership, not mere existence: ``parent_run_id`` is an enforced FK
+    (migration 0013), so a stale/foreign id would abort run creation — the old
+    exists-only check degraded that to an unlinked run. But a FOREIGN row
+    linkage is strictly worse than a missing one: the revision-family read walk
+    (``runs.py`` ``/family`` + server-computed ``root_run_id``) follows
+    ``parent_run_id`` edges, so a persisted foreign parent would leak another
+    owner's run metadata into the family response. Engine ``assert_owns``
+    (``engine.py:4455``) already gates content reads; this gates the persisted
+    ROW linkage so the two defenses compose.
+
+    Keyed on ``WorkflowRun.user_id`` — the Phase-13 CR-01 ownership precedent —
+    NEVER the nullable backfilled ``owner_id`` (D-06). A falsy candidate issues
+    NO query and returns ``None``; a missing row or a row owned by another user
+    also returns ``None``; otherwise ``candidate_id`` is returned unchanged.
+    """
+    if not candidate_id:
+        return None
+    row = (
+        db.query(WorkflowRun.id)
+        .filter(
+            WorkflowRun.id == candidate_id,
+            WorkflowRun.user_id == user_id,
+        )
+        .first()
+    )
+    return candidate_id if row else None
 
 
 async def _generate_workflow_title(
@@ -1171,6 +1222,13 @@ async def websocket_chat(websocket: WebSocket):
                 gate_key = message_data.get("gate_key")
                 approved = message_data.get("approved", True)
                 edited_content = message_data.get("edited_content")  # None = no edits
+                # REDO-GATE: optional, backward-compatible "redo with additional
+                # instructions" action on the SAME owner-gated handler. A "redo"
+                # carries approved=False on the wire but is distinguished by ``action``
+                # so _run_review_gate re-runs the gated agent in place instead of
+                # cancelling. Defaults preserve the prior approve/reject behavior.
+                action = message_data.get("action", "approve")
+                instructions = message_data.get("instructions")
                 if not gate_key:
                     await websocket.send_json({
                         "type": "error", "chunk": None, "section": None,
@@ -1190,7 +1248,16 @@ async def websocket_chat(websocket: WebSocket):
                     })
                     continue
                 store = get_artifact_store()
-                await store.set_review_response(gate_key, approved=approved, edited_content=edited_content)
+                # The owner check (above) has already run BEFORE this write — the
+                # redo action rides the SAME IDOR-mitigated boundary + resume channel.
+                if action == "redo":
+                    await store.set_review_response(
+                        gate_key, approved=False, action="redo", instructions=instructions
+                    )
+                else:
+                    await store.set_review_response(
+                        gate_key, approved=approved, edited_content=edited_content
+                    )
                 continue
 
             if msg_type == "ping":
@@ -1379,16 +1446,37 @@ async def websocket_chat(websocket: WebSocket):
 
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected: user={user.id}")
-        # Stop burning Bedrock tokens for a connection that's already gone.
-        # Without this, the pipeline task keeps streaming into a dead WS.
-        if current_pipeline_task is not None and not current_pipeline_task.done():
+        # KAN-88 (suspend behaviour): on WebSocketDisconnect, detach the
+        # WebSocket from the pipeline instead of cancelling it. The pipeline
+        # task keeps running headlessly — events are still written to the
+        # per-run queue and persisted to run_events. When the client
+        # reconnects it sends ``reconnect_pipeline`` with ``after_seq`` and
+        # re-attaches to the live queue (or replays the durable tail if the
+        # pipeline has already finished). This is the correct "suspend and
+        # resume from another place" behaviour.
+        #
+        # We do NOT cancel the task here. The only reason to cancel on
+        # disconnect was to avoid "burning Bedrock tokens for a dead WS" —
+        # but the pipeline's events go to the per-run QUEUE, not directly to
+        # the WS socket, so the queue simply accumulates events until a new
+        # drainer attaches. The run_events durable sink (PERSIST-03) also
+        # runs independently of the WS connection.
+        #
+        # Exception: if no durable substrate exists (the run has no
+        # pipeline_run_id, e.g. a legacy chat-only stream) we still cancel
+        # to avoid orphaned tasks.
+        _run_id_on_disconnect = _run_id_sink[0] if _run_id_sink else None
+        _task_is_pipeline = _run_id_on_disconnect is not None
+        if (
+            current_pipeline_task is not None
+            and not current_pipeline_task.done()
+            and not _task_is_pipeline
+        ):
+            # Legacy / no-run-id task — cancel as before.
             current_pipeline_task.cancel()
             try:
                 await current_pipeline_task
             except (asyncio.CancelledError, Exception):
-                # The task's CancelledError handler will have marked the
-                # WorkflowRun "cancelled" already; any send_json there will
-                # have failed silently because the WS is closed. That's fine.
                 pass
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
@@ -1559,20 +1647,25 @@ async def _handle_workflow_execution(
     ]
     _needs_template = pipeline_type in ("prototype", "ppt", "od_prototype", "od_ppt")
     if _template_injecting and _needs_template and not (od_context or {}).get("template_body"):
-        await websocket.send_json({
-            "type": "error", "chunk": None, "section": None,
-            "data": {
-                "error": (
-                    f"Pipeline {pipeline_type!r} agents "
-                    f"{_template_injecting} declare template injection, so the "
-                    "run requires a template (template_id) or an od_* alias — "
-                    "no template body could be loaded."
-                ),
-                "code": "missing_template_context",
-                "recoverable": False,
-            },
-        })
-        return
+        # KAN-87: no-template mode — the user explicitly chose not to select a template.
+        # The od_context has no_template=True, so template injection is intentionally absent.
+        # Only block if this is NOT a deliberate no-template run.
+        _is_no_template_run = bool((od_context or {}).get("no_template"))
+        if not _is_no_template_run:
+            await websocket.send_json({
+                "type": "error", "chunk": None, "section": None,
+                "data": {
+                    "error": (
+                        f"Pipeline {pipeline_type!r} agents "
+                        f"{_template_injecting} declare template injection, so the "
+                        "run requires a template (template_id) or an od_* alias — "
+                        "no template body could be loaded."
+                    ),
+                    "code": "missing_template_context",
+                    "recoverable": False,
+                },
+            })
+            return
 
     # ── model_overrides ingress validation (Phase 6 D-07, MODEL-03) ───────
     # The security chokepoint: validate the untrusted per-agent override map
@@ -1629,17 +1722,14 @@ async def _handle_workflow_execution(
     monotonic_start = time.monotonic()
     db = _get_db()
     try:
-        # Only link parent_run_id if the source run actually exists. parent_run_id
-        # is an enforced FK (migration 0013), so a stale/foreign id would abort
-        # run creation — degrade gracefully to an unlinked run instead.
-        parent_run_id = None
-        if source_workflow_run_id:
-            _src = (
-                db.query(WorkflowRun.id)
-                .filter(WorkflowRun.id == source_workflow_run_id)
-                .first()
-            )
-            parent_run_id = source_workflow_run_id if _src else None
+        # Only link parent_run_id if the source run exists AND is OWNED by the
+        # caller (POR §3). parent_run_id is an enforced FK (migration 0013), so a
+        # stale/foreign id would abort run creation — degrade gracefully to an
+        # unlinked run instead. Ownership (not mere existence) is enforced here so
+        # a foreign source id can never be persisted as a family edge that the
+        # runs.py family walk would follow to leak foreign run metadata — the
+        # single ownership-checked resolver keys on user.id (D-06).
+        parent_run_id = _resolve_owned_parent_run_id(db, source_workflow_run_id, user.id)
 
         workflow_run = WorkflowRun(
             # WorkflowRun.id IS the run identifier used end-to-end (engine, state
@@ -1800,6 +1890,10 @@ async def _handle_workflow_execution(
                     current_agent["input_tokens"] = update["data"].get("input_tokens", 0)
                     current_agent["output_tokens"] = update["data"].get("output_tokens", 0)
                     current_agent["total_tokens"] = update["data"].get("total_tokens", 0)
+                    # ISS-032: carry the per-agent prompt-cache split so the run-total
+                    # sum below prices the uncached input portion (no double-count).
+                    current_agent["cache_read_tokens"] = update["data"].get("cache_read_tokens", 0)
+                    current_agent["cache_write_tokens"] = update["data"].get("cache_write_tokens", 0)
                     # Only persist when this corresponds to a real agent_start.
                     # A trailing agent_complete (e.g. validator-timeout path) can
                     # fire after current_agent was already appended + reset to {},
@@ -1896,14 +1990,27 @@ async def _handle_workflow_execution(
                         # Aggregate token usage across all agents
                         total_input = sum(a.get("input_tokens", 0) or 0 for a in agent_outputs_collector)
                         total_output = sum(a.get("output_tokens", 0) or 0 for a in agent_outputs_collector)
+                        # ISS-032: run-total prompt-cache split from the per-agent counts.
+                        total_cache_read = sum(a.get("cache_read_tokens", 0) or 0 for a in agent_outputs_collector)
+                        total_cache_write = sum(a.get("cache_write_tokens", 0) or 0 for a in agent_outputs_collector)
                         if total_input + total_output > 0:
                             wr.token_usage = json.dumps({
                                 "total_input_tokens": total_input,
                                 "total_output_tokens": total_output,
                                 "total_tokens": total_input + total_output,
-                                "estimated_cost_usd": round(
-                                    (total_input * 0.00000025) + (total_output * 0.00000125), 6
-                                ),  # Haiku pricing: $0.25/M input, $1.25/M output
+                                "total_cache_read_tokens": total_cache_read,
+                                "total_cache_write_tokens": total_cache_write,
+                                # ISS-032: price the uncached split (input − cache) plus
+                                # the cache tiers via the ONE shared estimate_cost_usd —
+                                # no double-count. input telemetry above stays the TOTAL.
+                                "estimated_cost_usd": estimate_cost_usd(
+                                    wr.model_id or settings.BEDROCK_INFERENCE_PROFILE_ID,
+                                    input_tokens=max(0, total_input - total_cache_read - total_cache_write),
+                                    output_tokens=total_output,
+                                    cache_read_tokens=total_cache_read,
+                                    cache_write_tokens=total_cache_write,
+                                    cache_ttl=settings.BEDROCK_PROMPT_CACHE_TTL,
+                                ),
                             })
                         if not wr.completed_at:
                             wr.completed_at = datetime.now(timezone.utc)
@@ -2189,15 +2296,12 @@ async def _handle_revision_execution(
             # test_revision_run_events_persist_and_resolve_on_real_db.
             owner_id=user.id,
             # Link the revision run to its parent so lineage stays intact
-            # (parent_run_id is an enforced FK — only set when the parent
-            # row actually exists, else creation would abort).
-            parent_run_id=(
-                parent_run_id
-                if db.query(WorkflowRun.id)
-                .filter(WorkflowRun.id == parent_run_id)
-                .first()
-                else None
-            ),
+            # (parent_run_id is an enforced FK — only set when the parent row
+            # exists AND is OWNED by the caller, else creation would abort or a
+            # foreign edge would leak into the family walk; POR §3). The engine
+            # still receives the caller's `parent_run_id` argument verbatim — only
+            # the persisted ROW column is conditioned on ownership (D-06).
+            parent_run_id=_resolve_owned_parent_run_id(db, parent_run_id, user.id),
             title=f"Revision: {instruction[:50]}",
             type=revision_pipeline_type,
             status="revising",

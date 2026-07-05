@@ -1,8 +1,8 @@
 # prototype — the SC-001 parity manifest (Spec-Kit Approach 2+3).
-# 4 agents: specify -> plan -> build -> validate. The build step is the only one
+# 5 agents: specify -> plan -> analyze -> build -> validate. The build step is the only one
 # that uses strategy: task_loop (per-task sub-agent build loop) with a
 # heading_tasks task parser, html_static + html_render validators, and the
-# html_skeleton compaction. specify/plan declare gates: [human] (their AGENT.md
+# html_skeleton compaction. specify/plan/analyze declare gates: [human] (their AGENT.md
 # gate: Human_Gate). deliverable: single_file (prototype.html).
 # planner: run — SKIP_PLANNER_FOR_PROTOTYPE=False today (agents/prototype/
 # pipeline.py:63), so prototype runs the planner like every other pipeline (NOT
@@ -39,6 +39,9 @@ steps:
   - agent: prototype-plan
     strategy: single_shot
     gates: [human]
+  - agent: prototype-analyze
+    strategy: single_shot
+    gates: [human]
   - agent: prototype-build
     strategy: task_loop
     gates: []
@@ -49,6 +52,15 @@ steps:
       source_step: prototype-plan
       spec_step: prototype-specify
     validators: [html_static, html_render]
+    # require_render (quick-260701-erg / REQUIRE-RENDER-LOADBEARING): the build step
+    # has gates:[], and its internal _run_validation_fix_loop never hard-blocks on a
+    # render skip (no :fix thread, no raise) while TaskLoopStrategy discards html_render's
+    # returned Issues — so require_render:true here is behavior-neutral (byte/event-
+    # identical with Chromium present AND browserless): it RECORDS a distinct
+    # validator_skipped audit row + declares render-required intent. The GENUINE fail-
+    # closed is the prototype_revision gate. (Adding a validation gate to this build step
+    # would emit a gate event → break the event golden → deliberately out of scope.)
+    require_render: true
     compaction: html_skeleton
   - agent: prototype-validate
     strategy: single_shot

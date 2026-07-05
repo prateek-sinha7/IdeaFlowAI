@@ -17,10 +17,16 @@ import { useState } from "react";
 import {
   FileText, ListChecks, Hammer, CheckCircle2, XCircle,
   ChevronDown, ChevronRight, Zap, Clock, Cpu,
-  Map, Layout, MousePointer, Database, ArrowRight,
-  Loader2, Circle,
+  Map, Layout, ArrowRight,
+  Loader2, Circle, Brain,
 } from "lucide-react";
 import type { AgentRunState } from "@/types/index";
+import {
+  ContextSourcesRow,
+  ToolCallsSection,
+  InputPromptSection,
+  OutputPreviewSection,
+} from "./AgentThinkingTab";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -197,7 +203,53 @@ function PhaseCard({
   );
 }
 
-// ─── Spec visualization ───────────────────────────────────────────────────────
+// ─── Agent detail section — FR-015 data (prompt, context, tools, output) ─────
+// Renders the full thinking-tab detail for one prototype phase agent, using the
+// same shared sub-components as AgentThinkingTab's generic view (INV-12).
+function AgentDetailSection({ agent }: { agent: AgentRunState }) {
+  const hasDetail =
+    (agent.contextSources && agent.contextSources.length > 0) ||
+    (agent.toolCalls && agent.toolCalls.length > 0) ||
+    agent.inputPrompt ||
+    (agent.status === "done" && agent.output && agent.output.trim().length > 0) ||
+    (agent.status === "thinking" && agent.thinkingText);
+
+  if (!hasDetail) return null;
+
+  return (
+    <div className="border-t border-gray-100 px-4 py-3 bg-white space-y-0">
+      {/* Live thinking stream */}
+      {(agent.status === "running" || agent.status === "thinking") && agent.thinkingText && (
+        <div className="mb-3 rounded-lg bg-[#E8EDF5]/50 px-3 py-2">
+          <div className="flex items-center gap-1.5 mb-1">
+            <Brain className="h-3 w-3 text-[#1B2A4A]" />
+            <span className="text-[9px] font-bold uppercase tracking-widest text-[#1B2A4A]">Reasoning (live)</span>
+          </div>
+          <p className="text-[10px] text-gray-700 leading-relaxed font-mono max-h-[200px] overflow-y-auto">
+            {agent.thinkingText}
+            <span className="animate-pulse">▌</span>
+          </p>
+        </div>
+      )}
+      {agent.contextSources && agent.contextSources.length > 0 && (
+        <ContextSourcesRow sources={agent.contextSources} />
+      )}
+      {agent.toolCalls && agent.toolCalls.length > 0 && (
+        <ToolCallsSection toolCalls={agent.toolCalls} />
+      )}
+      {agent.inputPrompt && (
+        <InputPromptSection prompt={agent.inputPrompt} />
+      )}
+      {agent.status === "done" && agent.output && agent.output.trim().length > 0 && (
+        <div className="mt-3 pt-3 border-t border-gray-100">
+          <OutputPreviewSection output={agent.output} agentId={agent.id} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 
 function SpecVisualization({ spec }: { spec: ParsedSpec }) {
   const [showRaw, setShowRaw] = useState(false);
@@ -256,8 +308,8 @@ function SpecVisualization({ spec }: { spec: ParsedSpec }) {
         Full Spec Document
       </button>
       {showRaw && (
-        <pre className="text-[9px] text-gray-600 whitespace-pre-wrap leading-relaxed bg-gray-50 rounded-lg p-3 max-h-[200px] overflow-y-auto font-mono border border-gray-100">
-          {spec.raw.slice(0, 3000)}{spec.raw.length > 3000 ? "\n…[truncated]" : ""}
+        <pre className="text-[9px] text-gray-600 whitespace-pre-wrap leading-relaxed bg-gray-50 rounded-lg p-3 max-h-[500px] overflow-y-auto font-mono border border-gray-100">
+          {spec.raw}
         </pre>
       )}
     </div>
@@ -308,7 +360,7 @@ function TaskListVisualization({ tasks, currentTaskIndex, allDone }: {
               {task.goal && (
                 <p className={`text-[10px] mt-0.5 leading-snug ${
                   isDone ? "text-[#1B2A4A]" : isActive ? "text-[#1B2A4A]" : "text-gray-400"
-                }`}>{task.goal.slice(0, 100)}</p>
+                }`}>{task.goal}</p>
               )}
             </div>
           </div>
@@ -329,6 +381,7 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
   // Find each phase agent
   const specAgent = agents.find(a => a.id === "prototype-specify");
   const planAgent = agents.find(a => a.id === "prototype-plan");
+  const analyzeAgent = agents.find(a => a.id === "prototype-analyze");
   const buildAgent = agents.find(a => a.id === "prototype-build");
   const validateAgent = agents.find(a => a.id === "prototype-validate");
 
@@ -341,17 +394,8 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
   // Determine current build task from real-time task_progress events
   // pipelineState.protoCompletedTaskCount is updated by report_task_complete tool calls
   const realtimeCompletedCount = pipelineState?.protoCompletedTaskCount ?? 0;
-  const buildIsDone = buildAgent?.status === "done";
   const buildIsRunning = buildAgent?.status === "running" || buildAgent?.status === "thinking";
   const totalTasks = tasksData?.tasks.length ?? 0;
-
-  // Real-time: use actual completed count from tool calls
-  // Done: all tasks complete. Running: show actual progress. Idle: -1
-  const currentTaskIndex = buildIsDone
-    ? totalTasks
-    : buildIsRunning
-    ? realtimeCompletedCount  // actual completed count, next task is active
-    : -1;
 
   // Phase statuses
   const getStatus = (agent?: AgentRunState): "idle" | "running" | "done" | "error" => {
@@ -364,8 +408,30 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
 
   const specStatus = getStatus(specAgent);
   const planStatus = getStatus(planAgent);
+  const analyzeStatus = getStatus(analyzeAgent);
   const buildStatus = getStatus(buildAgent);
   const validateStatus = getStatus(validateAgent);
+
+  // FIX-2 (byv): the backend emits agent_complete{prototype-build} at the END of
+  // EACH build task (INV-3 parity-locked), so buildStatus flips to "done"
+  // TRANSIENTLY between tasks while the run is still going. Derive a TRUE terminal
+  // signal: build is done AND either a later phase started (validateStatus left
+  // "idle") OR the whole run has ended (pipelineState.isRunning === false). Build
+  // may be the LAST agent (no validate phase), so isRunning === false is the
+  // load-bearing clause. A transient between-task "done" MUST NOT mark all complete.
+  const buildTrulyDone =
+    buildStatus === "done" &&
+    (validateStatus !== "idle" || pipelineState?.isRunning === false);
+
+  // Real-time: use the actual completed count from tool calls.
+  // Truly done → all tasks complete. Running OR the transient between-task "done"
+  // window → show the real completed count (NEVER -1, so already-done tasks stay
+  // checked). Idle → -1.
+  const currentTaskIndex = buildTrulyDone
+    ? totalTasks
+    : buildIsRunning || (buildStatus === "done" && !buildTrulyDone)
+    ? realtimeCompletedCount
+    : -1;
 
   // Token totals
   const totalTokens = agents.reduce((s, a) => s + (a.totalTokens ?? 0), 0);
@@ -383,7 +449,7 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
               agents.some(a => a.status === "done") ? "bg-[#1B2A4A]" : "bg-gray-300"
             }`} />
             <span className="text-[11px] font-semibold text-gray-700 uppercase tracking-wider">
-              Spec Kit Pipeline
+              Prototype Pipeline
             </span>
           </div>
           <div className="flex items-center gap-3 text-[10px] text-gray-400">
@@ -402,7 +468,7 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
 
         {/* Phase progress bar */}
         <div className="flex items-center gap-1">
-          {[specStatus, planStatus, buildStatus, validateStatus].map((s, i) => (
+          {[specStatus, planStatus, analyzeStatus, buildStatus, validateStatus].map((s, i) => (
             <div key={i} className={`h-1.5 flex-1 rounded-full transition-all ${
               s === "done" ? "bg-[#1B2A4A]" :
               s === "running" ? "bg-[#1B2A4A] animate-pulse" :
@@ -435,6 +501,7 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
           {specStatus === "done" && !spec && (
             <div className="px-4 py-3 text-[11px] text-gray-500">Spec generated — no structured pages found.</div>
           )}
+          {specAgent && <AgentDetailSection agent={specAgent} />}
         </PhaseCard>
 
         {/* Connector */}
@@ -464,21 +531,56 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
             <TaskListVisualization
               tasks={tasksData.tasks}
               currentTaskIndex={buildStatus === "idle" ? -1 : currentTaskIndex}
-              allDone={buildStatus === "done"}
+              allDone={buildTrulyDone}
             />
           )}
           {planStatus === "done" && !tasksData && planAgent?.output && (
             <div className="px-4 py-3 bg-white">
               <p className="text-[10px] text-gray-500 mb-2">Task list generated (raw format):</p>
-              <pre className="text-[9px] text-gray-600 whitespace-pre-wrap leading-relaxed bg-gray-50 rounded-lg p-3 max-h-[200px] overflow-y-auto font-mono border border-gray-100">
-                {planAgent.output.slice(0, 2000)}{planAgent.output.length > 2000 ? "\n…[truncated]" : ""}
+              <pre className="text-[9px] text-gray-600 whitespace-pre-wrap leading-relaxed bg-gray-50 rounded-lg p-3 max-h-[500px] overflow-y-auto font-mono border border-gray-100">
+                {planAgent.output}
               </pre>
             </div>
           )}
+          {planAgent && <AgentDetailSection agent={planAgent} />}
         </PhaseCard>
 
         {/* Connector */}
-        {(buildStatus !== "idle" || planStatus === "done") && (
+        {(analyzeStatus !== "idle" || planStatus === "done") && (
+          <div className="flex items-center gap-2 pl-4">
+            <ArrowRight className="h-3.5 w-3.5 text-gray-300" />
+            <span className="text-[9px] text-gray-400">Spec & tasks passed to Analyzer</span>
+          </div>
+        )}
+
+        {/* Phase 3: Spec Kit Analyzer */}
+        <PhaseCard
+          number={3}
+          icon={CheckCircle2}
+          label="Spec Kit Analyzer — Quality Analysis"
+          color={{ bg: "bg-[#E8EDF5]", text: "text-[#1B2A4A]", border: "border-[#1B2A4A]/20" }}
+          status={analyzeStatus}
+          defaultOpen={analyzeStatus === "done" && !!analyzeAgent?.output}
+        >
+          {analyzeStatus === "running" && (
+            <div className="px-4 py-3 bg-[#E8EDF5]/50 flex items-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 text-[#1B2A4A] animate-spin" />
+              <p className="text-[11px] text-[#1B2A4A]">Analyzing spec and task list for consistency and gaps…</p>
+            </div>
+          )}
+          {analyzeStatus === "done" && analyzeAgent?.output && (
+            <div className="px-4 py-3 bg-white">
+              <p className="text-[10px] text-gray-500 mb-1">Analysis complete — awaiting or approved.</p>
+              <pre className="text-[9px] text-gray-600 whitespace-pre-wrap leading-relaxed bg-gray-50 rounded-lg p-3 max-h-[200px] overflow-y-auto font-mono border border-gray-100">
+                {analyzeAgent.output.replace(/<\/?analysis>/gi, "").trim().slice(0, 1500)}
+              </pre>
+            </div>
+          )}
+          {analyzeAgent && <AgentDetailSection agent={analyzeAgent} />}
+        </PhaseCard>
+
+        {/* Connector */}
+        {(buildStatus !== "idle" || analyzeStatus === "done") && (
           <div className="flex items-center gap-2 pl-4">
             <ArrowRight className="h-3.5 w-3.5 text-gray-300" />
             <span className="text-[9px] text-gray-400">
@@ -487,16 +589,16 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
           </div>
         )}
 
-        {/* Phase 3: Build Agent */}
+        {/* Phase 4: Build Agent */}
         <PhaseCard
-          number={3}
+          number={4}
           icon={Hammer}
           label="Build Agent — Incremental Construction"
           color={{ bg: "bg-[#E8EDF5]", text: "text-[#1B2A4A]", border: "border-[#1B2A4A]/20" }}
           status={buildStatus}
           defaultOpen={buildStatus === "running" || buildStatus === "done"}
         >
-          {buildStatus === "running" && tasksData && (
+          {(buildIsRunning || (buildStatus === "done" && !buildTrulyDone)) && tasksData && (
             <div className="px-4 py-3 bg-[#E8EDF5]/50 space-y-2">
               <div className="flex items-center gap-2">
                 <Loader2 className="h-3.5 w-3.5 text-[#1B2A4A] animate-spin" />
@@ -513,7 +615,7 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
                     Task {tasksData.tasks[realtimeCompletedCount].number}: {tasksData.tasks[realtimeCompletedCount].title}
                   </p>
                   <p className="text-[10px] text-[#1B2A4A] mt-0.5">
-                    {tasksData.tasks[realtimeCompletedCount].goal.slice(0, 100)}
+                    {tasksData.tasks[realtimeCompletedCount].goal}
                   </p>
                 </div>
               )}
@@ -529,7 +631,7 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
               </div>
             </div>
           )}
-          {buildStatus === "done" && (
+          {buildTrulyDone && (
             <div className="px-4 py-3 bg-white">
               <div className="flex items-center gap-2 mb-2">
                 <CheckCircle2 className="h-3.5 w-3.5 text-[#1B2A4A]" />
@@ -552,6 +654,7 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
               <p className="text-[11px] text-[#1B2A4A]">Building prototype…</p>
             </div>
           )}
+          {buildAgent && <AgentDetailSection agent={buildAgent} />}
         </PhaseCard>
 
         {/* Connector */}
@@ -562,9 +665,9 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
           </div>
         )}
 
-        {/* Phase 4: Validation */}
+        {/* Phase 5: Validation */}
         <PhaseCard
-          number={4}
+          number={5}
           icon={CheckCircle2}
           label="Validation Agent — P0/P1 Checks"
           color={{ bg: "bg-[#E8EDF5]", text: "text-[#1B2A4A]", border: "border-[#1B2A4A]/20" }}
@@ -578,11 +681,12 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
           )}
           {validateStatus === "done" && validateAgent?.output && (
             <div className="px-4 py-3 bg-white">
-              <p className="text-[11px] text-[#1B2A4A] leading-relaxed">
-                {validateAgent.output.split("\n")[0]?.slice(0, 150) || "Validation complete."}
+              <p className="text-[11px] text-[#1B2A4A] leading-relaxed whitespace-pre-wrap">
+                {validateAgent.output}
               </p>
             </div>
           )}
+          {validateAgent && <AgentDetailSection agent={validateAgent} />}
         </PhaseCard>
 
         {/* Complete */}

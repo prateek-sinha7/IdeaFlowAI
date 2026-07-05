@@ -104,10 +104,130 @@ class WorkflowRunResponse(BaseModel):
     # (legacy rows NULL → FE deriveDeliverableMimetype heuristic fallback, parity).
     deliverable_mimetype: Optional[str] = None
     deliverable_filename: Optional[str] = None
+    # Workstream A (POR §4.2 / D-06,D-07): revision-family read surface.
+    #   * parent_run_id — the verbatim self-FK column (resolved by from_attributes);
+    #     None for a standalone run, else the id of the run this one revises.
+    #   * root_run_id — server-computed (NOT an ORM column): the last OWNED
+    #     ancestor reached by walking parent_run_id up the chain. A standalone run
+    #     roots to its own id; a foreign/missing parent terminates the walk so no
+    #     foreign run is ever named. Required (contract-strong) — injected by
+    #     _run_response since from_attributes cannot supply a computed field.
+    parent_run_id: Optional[str] = None
+    root_run_id: str
     created_at: datetime
     completed_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+# ---------------------------------------------------------------------------
+# Workstream A — revision-family read helpers (POR §4.2 + §4.3, app-layer only).
+# ---------------------------------------------------------------------------
+
+# Sentinel for an ancestor id that is missing OR owned by another user — the
+# owned walk terminates here (root = the last OWNED ancestor, POR §3.2). Kept
+# distinct from None (which means "no parent") so the family walk never leaks a
+# foreign run into a root/family response (threat T-A-03).
+_FOREIGN_ANCESTOR = object()
+
+
+def _compute_root_ids(db: Session, user_id: str, runs: list) -> dict[str, str]:
+    """Return ``{run_id: root_run_id}`` for every run in ``runs`` via a memoized
+    in-Python owned-ancestor walk with batched parent fetches.
+
+    Chosen over a recursive CTE for SQLite (tests) + Postgres (prod) portability
+    — the POR grants implementation freedom here. ``root_run_id`` is the last
+    OWNED ancestor reachable by following ``parent_run_id`` up the chain: a NULL
+    parent, a missing parent, or a parent owned by another user all terminate
+    the walk (POR §3.2), so a foreign link never leaks foreign run metadata.
+
+    Latency invariant: a page whose rows ALL have NULL parent_run_id issues ZERO
+    additional queries (the frontier is empty on the first pass); otherwise one
+    extra batched query per chain-depth level. Cycle guard: each per-run walk
+    carries a visited set so a corrupt cyclic chain terminates at the revisited
+    node instead of looping forever (threat T-A-04).
+    """
+    # parent_of[id] -> parent id (str), None (no parent), or _FOREIGN_ANCESTOR
+    # (missing / not owned → walk terminator). Seed from the page rows.
+    parent_of: dict[str, object] = {r.id: r.parent_run_id for r in runs}
+
+    # Iteratively resolve unknown ancestors, OWNED-only, one depth-level per pass.
+    while True:
+        frontier = {
+            pid
+            for pid in parent_of.values()
+            if isinstance(pid, str) and pid not in parent_of
+        }
+        if not frontier:
+            break
+        rows = (
+            db.query(WorkflowRun.id, WorkflowRun.parent_run_id)
+            .filter(
+                WorkflowRun.id.in_(frontier),
+                WorkflowRun.user_id == user_id,
+            )
+            .all()
+        )
+        fetched = {rid: ppid for rid, ppid in rows}
+        for pid in frontier:
+            # A frontier id the OWNED fetch did not return is missing or owned by
+            # another user → mark as the walk terminator (never re-queried).
+            parent_of[pid] = fetched.get(pid, _FOREIGN_ANCESTOR)
+
+    # Resolve each run's root by walking parent_of, memoizing across the page.
+    root_cache: dict[str, str] = {}
+
+    def _root_of(start: str) -> str:
+        chain: list[str] = []
+        cur = start
+        visited: set[str] = set()
+        while True:
+            if cur in root_cache:
+                resolved = root_cache[cur]
+                break
+            if cur in visited:
+                # Cycle — terminate at the current node (its own root).
+                resolved = cur
+                break
+            visited.add(cur)
+            parent = parent_of.get(cur, _FOREIGN_ANCESTOR)
+            # Step ONLY into an OWNED parent. A None parent (no parent), the
+            # foreign sentinel, or a parent id that itself resolves to a
+            # foreign/missing node all terminate the walk — cur is the last owned
+            # ancestor, i.e. the root. (parent_of[x] is a real str/None iff x is
+            # owned; it is the sentinel iff x is foreign/missing.)
+            if (
+                not isinstance(parent, str)
+                or parent_of.get(parent, _FOREIGN_ANCESTOR) is _FOREIGN_ANCESTOR
+            ):
+                resolved = cur
+                break
+            chain.append(cur)
+            cur = parent
+        root_cache[cur] = resolved
+        for node in chain:
+            root_cache[node] = resolved
+        return resolved
+
+    return {r.id: _root_of(r.id) for r in runs}
+
+
+def _run_response(run, root_id: str) -> WorkflowRunResponse:
+    """Build a ``WorkflowRunResponse`` injecting the server-computed root_run_id.
+
+    ``from_attributes`` cannot supply ``root_run_id`` (it is not an ORM column),
+    so every OTHER field is materialized from the row by iterating
+    ``model_fields`` — which auto-tracks future field additions with no
+    hand-maintained list — and ``root_run_id`` is injected explicitly, keeping it
+    a required ``str`` (contract-strong).
+    """
+    kwargs = {
+        name: getattr(run, name)
+        for name in WorkflowRunResponse.model_fields
+        if name != "root_run_id"
+    }
+    kwargs["root_run_id"] = root_id
+    return WorkflowRunResponse(**kwargs)
 
 
 # --- Endpoints ---
@@ -141,7 +261,10 @@ def list_runs(
         .limit(limit)
         .all()
     )
-    return runs
+    # Compute the owned root for the whole page once (batched ancestor walk); a
+    # NULL-parent page issues zero extra queries (POR §4.2 latency invariant).
+    roots = _compute_root_ids(db, current_user.id, runs)
+    return [_run_response(r, roots[r.id]) for r in runs]
 
 
 @router.post("/export-pptx")
@@ -281,7 +404,8 @@ def get_run(
             detail="Workflow run not found",
         )
 
-    return workflow_run
+    roots = _compute_root_ids(db, current_user.id, [workflow_run])
+    return _run_response(workflow_run, roots[workflow_run.id])
 
 
 @router.delete("/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
@@ -445,12 +569,27 @@ def _extract_chain_context(workflow_run: WorkflowRun) -> ChainContextResponse:
         # retired "requirements-analyst" agent which isn't in this pipeline
         # (the old lookup always returned "" → empty chain context). od_prototype
         # resolves to the same prototype agents, so the IDs match for both.
+        # For prototype_revision, the revision agent doesn't have a spec writer —
+        # use the revision instruction extracted from the run's input instead.
         spec_output = get_agent_output("prototype-specify") or get_agent_output("prototype-plan")
         if spec_output:
             m = re.search(r"<spec>([\s\S]*?)</spec>", spec_output)
             spec_text = (m.group(1).strip() if m else spec_output)
             structured_summary = f"Prototype Specification:\n{spec_text[:3500]}"
             agent_summaries.append({"agent": "Spec Writer", "summary": spec_text[:500]})
+        elif pipeline_type == "prototype_revision":
+            # Extract the revision instruction from the run's input field
+            # (format: "=== EXISTING PROTOTYPE HTML ===\n...\n=== REVISION REQUEST ===\n{instruction}\n=== END REQUEST ===")
+            import re as _re_local
+            rev_match = _re_local.search(
+                r"===\s*REVISION REQUEST\s*===\s*\n(.*?)\n===\s*END REQUEST\s*===",
+                workflow_run.input or "",
+                _re_local.DOTALL,
+            )
+            if rev_match:
+                instruction = rev_match.group(1).strip()
+                structured_summary = f"Prototype Revision: {instruction}"
+                agent_summaries.append({"agent": "Revision Specialist", "summary": instruction[:500]})
 
     elif pipeline_type in ("app_builder", "app_builder_revision"):
         # Extract from system design agent
@@ -655,6 +794,7 @@ def _build_lineage_tree(refs: list, *, include_content: bool) -> list[dict]:
 async def get_run_artifacts(
     workflow_id: str,
     include: Optional[str] = None,
+    kind: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -666,6 +806,15 @@ async def get_run_artifacts(
     the roots. Inline ``content`` is excluded by default; pass
     ``?include=content`` to include it (same-owner only). A cross-owner or
     missing run returns 404 (IDOR → 404, never 403).
+
+    ``?kind=X`` (Workstream A, D-8) filters the refs to exact-kind matches BEFORE
+    the tree is assembled, enabling precise fetches like
+    ``?kind=clarifications&include=content`` instead of pulling the whole tree.
+    Filtering before tree-building means a filtered-out parent drops its edge, so
+    a surviving child surfaces as a root (the in-set parent restriction in
+    ``_build_lineage_tree`` already guarantees this). An unknown kind yields an
+    empty refs list → an empty tree (NOT a 422). With no ``kind`` param the code
+    path is byte-identical to the pre-Workstream-A behavior by construction.
     """
     # Resolve the run with the owner filter first (for authed users owner_id ==
     # user_id) to obtain its workspace_id, then construct the ScopedStore so the
@@ -697,6 +846,11 @@ async def get_run_artifacts(
         )
 
     refs = await store.lineage(workflow_id)
+    # D-8: exact-kind filter applied to the already owner+workspace-scoped refs
+    # BEFORE tree-building. Pure in-Python equality — the value never reaches a
+    # query (no LIKE, no SQL; ASVS V5 posture free). Unknown kind → empty list.
+    if kind is not None:
+        refs = [r for r in refs if r.kind == kind]
     tree = _build_lineage_tree(refs, include_content=(include == "content"))
     return {"workflow_id": workflow_id, "artifacts": tree}
 
@@ -753,6 +907,116 @@ async def get_run_events(
             for r in rows
         ],
     }
+
+class FamilyMemberResponse(BaseModel):
+    """One run in a revision family (POR §4.3). Carries only the lightweight
+    listing fields — NOT the heavy input/output/agent_outputs bodies — since the
+    timeline UI renders chips, and a full member fetch goes through get_run."""
+
+    id: str
+    type: str
+    title: str
+    status: str
+    revision_index: int          # 1-based chronological position within the family
+    parent_run_id: Optional[str] = None
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+
+
+class RunFamilyResponse(BaseModel):
+    """The owned revision family of a run: its root + all owned descendants."""
+
+    root_id: str
+    members: list[FamilyMemberResponse]
+
+
+@router.get("/{workflow_id}/family", response_model=RunFamilyResponse)
+def get_run_family(
+    workflow_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the owned revision family (root + all owned descendants) of a run.
+
+    POR §4.3 / D-2 / D-6. Every step is owner-scoped (``user_id ==
+    current_user.id``): the entry resolve, the root walk, AND every BFS step, so
+    a cross-owner or missing run resolves to 404 (never 403 — the runs.py:14-17
+    IDOR posture) and a foreign parent in the chain terminates the walk with NO
+    foreign run metadata entering the response (threats T-A-02/03).
+
+    Members are ordered ``(created_at ASC, id ASC)`` — the id tiebreak makes
+    same-timestamp ordering deterministic on SQLite — and each carries a 1-based
+    ``revision_index`` (chronological v-number, D-2) plus its ``parent_run_id``,
+    which is nulled for the root (whose parent is out-of-family) so no dangling
+    foreign pointer leaks.
+    """
+    # (a) Owner-scoped entry resolve — missing / cross-owner → 404.
+    workflow_run = (
+        db.query(WorkflowRun)
+        .filter(WorkflowRun.id == workflow_id, WorkflowRun.user_id == current_user.id)
+        .first()
+    )
+    if not workflow_run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow run not found",
+        )
+
+    # (b) Resolve the family root via the owned ancestor walk (terminates at any
+    # foreign/missing link, so root is always an OWNED run id).
+    root_id = _compute_root_ids(db, current_user.id, [workflow_run])[workflow_run.id]
+
+    # (c) Collect members by BFS DOWN from the root over OWNED children only.
+    # BFS-over-owned-children is exactly "all owned runs whose chain-root ==
+    # root" because the owned walk terminates at any foreign link. A visited-id
+    # set guards against a cyclic parent chain (threat T-A-04).
+    members: dict[str, WorkflowRun] = {}
+    root_row = (
+        db.query(WorkflowRun)
+        .filter(WorkflowRun.id == root_id, WorkflowRun.user_id == current_user.id)
+        .first()
+    )
+    if root_row is not None:
+        members[root_row.id] = root_row
+    frontier = {root_id}
+    visited = {root_id}
+    while frontier:
+        children = (
+            db.query(WorkflowRun)
+            .filter(
+                WorkflowRun.parent_run_id.in_(frontier),
+                WorkflowRun.user_id == current_user.id,
+            )
+            .all()
+        )
+        frontier = set()
+        for child in children:
+            if child.id in visited:
+                continue  # cycle guard — never re-enqueue an already-seen run
+            visited.add(child.id)
+            members[child.id] = child
+            frontier.add(child.id)
+
+    # (d) Deterministic chronological order; (e) 1-based revision_index. The
+    # root's parent is out-of-family (foreign/missing/null) so it is nulled here
+    # — every non-root member's parent is in-family by BFS construction, so no
+    # foreign id ever leaks into the response.
+    ordered = sorted(members.values(), key=lambda r: (r.created_at, r.id))
+    member_responses = [
+        FamilyMemberResponse(
+            id=r.id,
+            type=r.type,
+            title=r.title,
+            status=r.status,
+            revision_index=idx,
+            parent_run_id=(r.parent_run_id if r.parent_run_id in members else None),
+            created_at=r.created_at,
+            completed_at=r.completed_at,
+        )
+        for idx, r in enumerate(ordered, start=1)
+    ]
+    return RunFamilyResponse(root_id=root_id, members=member_responses)
+
 
 @router.get("/{workflow_id}/hook-runs")
 async def get_hook_runs(

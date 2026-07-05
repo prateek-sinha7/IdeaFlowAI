@@ -115,13 +115,37 @@ class ArtifactStore:
             self._resume_events[key] = asyncio.Event()
         return self._resume_events[key]
 
-    async def set_review_response(self, gate_key: str, approved: bool, edited_content: str | None = None) -> None:
-        """Store review gate response (approved + optional edited content) and unblock the gate."""
+    async def set_review_response(
+        self,
+        gate_key: str,
+        approved: bool,
+        edited_content: str | None = None,
+        action: str = "approve",
+        instructions: str | None = None,
+    ) -> None:
+        """Store review gate response and unblock the gate.
+
+        ``action`` / ``instructions`` are ADDITIVE (REDO-GATE): a ``"redo"`` action
+        carries optional free-text ``instructions`` for an in-place re-run of the
+        gated agent (decision keyed on the generic ``action`` discriminator, read by
+        ``_run_review_gate`` via ``.get(...)``). Both default to the prior
+        approve/reject behavior, so every existing caller (WS approve/reject, the
+        characterization live_harness, the declared-gate tests) is byte-identical —
+        the extra keys are inert for any reader that does not look for them.
+        """
         key = f"review:{gate_key}"
-        self._questionnaire_responses[key] = [{"approved": approved, "edited_content": edited_content}]
+        self._questionnaire_responses[key] = [{
+            "approved": approved,
+            "edited_content": edited_content,
+            "action": action,
+            "instructions": instructions,
+        }]
         event = await self.get_review_event(gate_key)
         event.set()
-        logger.debug("ArtifactStore: review gate response set for key=%s approved=%s", gate_key, approved)
+        logger.debug(
+            "ArtifactStore: review gate response set for key=%s approved=%s action=%s",
+            gate_key, approved, action,
+        )
 
     async def get_review_response(self, gate_key: str) -> dict | None:
         """Retrieve review gate response. None if not yet submitted."""

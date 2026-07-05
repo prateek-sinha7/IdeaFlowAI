@@ -31,7 +31,7 @@ const MODEL_SHORT_NAMES: Record<string, string> = {
 };
 
 export function TokenUsageSummary({ pipelineState, modelId }: TokenUsageSummaryProps) {
-  const { totalTokens, totalInputTokens, totalOutputTokens, estimatedCostUsd } = pipelineState;
+  const { totalTokens, totalInputTokens, totalOutputTokens, estimatedCostUsd, cacheReadTokens, cacheWriteTokens } = pipelineState;
 
   // Don't render if no token data yet
   if (!totalTokens && !totalInputTokens) return null;
@@ -40,51 +40,42 @@ export function TokenUsageSummary({ pipelineState, modelId }: TokenUsageSummaryP
   const output = totalOutputTokens ?? 0;
   const total = totalTokens ?? (input + output);
   const cost = estimatedCostUsd ?? 0;
+  const cacheRead = cacheReadTokens ?? 0;
+  const cacheWrite = cacheWriteTokens ?? 0;
+  const pct = Math.round(cacheRead / Math.max(1, input) * 100);
 
-  // Input/output ratio bar
-  const inputPct = total > 0 ? Math.round((input / total) * 100) : 0;
-
+  // KAN-83: single compact line — token count + input/output + cost only
   return (
     <motion.div
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }}
-      className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3"
+      className="flex items-center gap-1.5 flex-wrap px-1 py-0.5"
     >
-      {/* Header */}
-      <div className="flex items-center justify-between mb-2.5">
-        <div className="flex items-center gap-1.5">
-          <Zap className="h-3 w-3 text-gray-400" />
-          <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
-            Token Usage
+      <Zap className="h-3 w-3 text-gray-400 flex-shrink-0" />
+      <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider flex-shrink-0">
+        Token Usage
+      </span>
+      <span className="text-[10px] font-bold text-gray-900 flex-shrink-0">
+        {formatTokens(total)} total
+      </span>
+      <span className="text-[10px] text-gray-400 flex-shrink-0">·</span>
+      <span className="text-[10px] text-gray-500 flex-shrink-0">
+        {formatTokens(input)} input
+      </span>
+      {cacheRead > 0 && (
+        <>
+          <span className="text-[10px] text-gray-400 flex-shrink-0">·</span>
+          <span className="text-[10px] text-amber-600 flex-shrink-0">
+            ⚡ {formatTokens(cacheRead)} cached ({pct}%)
+            {cacheWrite > 0 && ` · ${formatTokens(cacheWrite)} written`}
           </span>
-        </div>
-        <span className="text-[11px] font-bold text-gray-900">
-          {formatTokens(total)} total
-        </span>
-      </div>
-
-      {/* Input / Output breakdown */}
-      <div className="flex items-center justify-between text-[10px] text-gray-500 mb-1.5">
-        <span>{formatTokens(input)} input</span>
-        <span>{formatTokens(output)} output</span>
-      </div>
-
-      {/* Ratio bar */}
-      <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden mb-2.5">
-        <div
-          className="h-full bg-[#1B2A4A] rounded-full transition-all duration-500"
-          style={{ width: `${inputPct}%` }}
-        />
-      </div>
-
-      {/* Cost estimate */}
-      <div className="flex items-center justify-between">
-        <span className="text-[10px] text-gray-400">
-          Est. cost ({modelId ? (MODEL_SHORT_NAMES[modelId] ?? "AI") : "AI"})
-        </span>
-        <span className="text-[11px] font-semibold text-gray-700">{formatCost(cost)}</span>
-      </div>
+        </>
+      )}
+      <span className="text-[10px] text-gray-400 flex-shrink-0">·</span>
+      <span className="text-[10px] text-gray-500 flex-shrink-0">
+        {formatTokens(output)} output
+      </span>
     </motion.div>
   );
 }

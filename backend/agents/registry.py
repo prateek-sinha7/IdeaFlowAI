@@ -75,6 +75,7 @@ PIPELINE_AGENTS: dict[str, list[str]] = {
     "prototype": [
         "prototype-specify",
         "prototype-plan",
+        "prototype-analyze",
         "prototype-build",
         "prototype-validate",
     ],

@@ -47,6 +47,7 @@ logging.basicConfig(
 logging.getLogger("app").setLevel(logging.DEBUG)
 logging.getLogger("app.agents").setLevel(logging.DEBUG)
 logging.getLogger("app.api").setLevel(logging.DEBUG)
+logging.getLogger("agents.factory").setLevel(logging.DEBUG)  # KAN-71: show prompt override usage
 logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)

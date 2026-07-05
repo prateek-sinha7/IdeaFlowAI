@@ -8,7 +8,7 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 import { useWorkflow } from "@/hooks/useWorkflow";
 import { shouldApplyEvent, resetReplayState } from "@/lib/wsReplayState";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, WorkflowStatus, User, WaveGroup, GenericDeliverable } from "@/types/index";
+import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, WorkflowStatus, User, WaveGroup, GenericDeliverable, ReviewGateReadyData } from "@/types/index";
 import { deriveDeliverableMimetype, resolveReopenMimetype } from "@/types/index";
 import type { ChatMode } from "@/components/chat/ChatInput";
 // IN-01 (16 review): SHARED failed-agent-id parser (single source of truth, no
@@ -114,7 +114,19 @@ export default function DashboardPage() {
 
   // Workflow runs state (primary)
   const [recentRuns, setRecentRuns] = useState<WorkflowRun[]>([]);
-  const [questionnaireData, setQuestionnaireData] = useState<{ questions: { id: string; question: string; options: string[]; answerType?: string }[] } | null>(null);
+  // Revision Families (B1 / D1-D7): the reliable "run id that produced the
+  // on-screen content". Set on pipeline_complete (live) + reopen; cleared on a
+  // fresh (non-revision) run. Threaded to DashboardLayout so every revision
+  // launch path sources parent linkage from it (replaces the old fragile
+  // currentWorkflowRunId heuristic).
+  const [contentSourceRunId, setContentSourceRunId] = useState<string | null>(null);
+  const [questionnaireData, setQuestionnaireData] = useState<{
+    questions: {
+      id: string; question: string; options: string[]; answerType?: string;
+      recommendedAnswer?: string; recommendedReasoning?: string;
+      recommendedDisplay?: string; ambiguityCategory?: string; impactLevel?: string;
+    }[]
+  } | null>(null);
   // Phase 2 — pipeline_run_id of the run currently paused at the clarify gate,
   // used to address submit_questionnaire back to the correct paused run.
   const [activePipelineRunId, setActivePipelineRunId] = useState<string | null>(null);
@@ -125,6 +137,8 @@ export default function DashboardPage() {
     agentName: string;
     output: string;
     pipelineRunId: string;
+    // REDO-GATE (F-fe3): generic server-set flag — the panel shows Redo iff true.
+    redoable?: boolean;
   } | null>(null);
   // Pending od_prototype params — set when questionnaire is triggered, consumed by DashboardLayout.
   // `gateAgentIds` (Phase 6, T5b) flows into DashboardLayout's `gate_agent_ids`
@@ -174,9 +188,10 @@ export default function DashboardPage() {
         agentIds?: string[];
       };
       const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
-      if (!draft.templateId || !draft.designSystemId || !draft.brief) return;
+      // KAN-87: templateId is now optional (no-template mode). Only require designSystemId + brief.
+      if (!draft.designSystemId || !draft.brief) return;
       pendingOdProtoRef.current = {
-        templateId: draft.templateId,
+        templateId: draft.templateId ?? "",  // empty string = no template
         designSystemId: draft.designSystemId,
         brief: draft.brief,
         discovery,
@@ -392,6 +407,18 @@ export default function DashboardPage() {
           setWaveGroups,
         });
         if (topEventId) seenEventIdsRef.current.add(topEventId);
+        // KAN-89: clear any stale reviewGateData from a previous run so the
+        // ReviewGatePanel never blocks the new pipeline's preview area.
+        // reviewGateData lives separately from pipelineState and is not cleared
+        // by onResetPipeline() — this is the canonical place to clear it since
+        // pipeline_start is the definitive "new run has begun" signal.
+        setReviewGateData(null);
+        // Clear stale questionnaire state from a previous run that may have
+        // been cancelled/failed while the clarify gate was open (questionnaire_complete
+        // never fired). Without this, the old questionnaire panel can flash or
+        // persist into the next run's preview area.
+        setQuestionnaireData(null);
+        setActivePipelineRunId(null);
       }
 
       handlePipelineMsgRef.current?.({
@@ -402,6 +429,10 @@ export default function DashboardPage() {
       // When pipeline completes, route final output to preview panel
       if (msg.type === "pipeline_complete" && msg.data) {
         const data = msg.data as Record<string, unknown>;
+        // Revision Families (B1): the live completion source — the engine emits
+        // pipeline_run_id in the pipeline_complete data (engine.py:2267). This is
+        // the run a subsequent inline revise must link as its parent.
+        if (data.pipeline_run_id) setContentSourceRunId(data.pipeline_run_id as string);
         const finalOutput = data.final_output as string;
         const pipelineType = data.pipeline_type as string;
 
@@ -676,13 +707,28 @@ export default function DashboardPage() {
         if (msg.data && "questions" in msg.data) {
           const data = msg.data as {
             pipeline_run_id?: string;
-            questions: Array<{ question_id: string; question_text: string; options?: string[] | null; answer_type?: string }>;
+            questions: Array<{
+              question_id: string;
+              question_text: string;
+              options?: string[] | null;
+              answer_type?: string;
+              recommended_answer?: string;
+              recommended_reasoning?: string;
+              recommended_display?: string;
+              ambiguity_category?: string;
+              impact_level?: string;
+            }>;
           };
           const mapped = (data.questions || []).map((q) => ({
             id: q.question_id,
             question: q.question_text,
             options: q.options || [],
             answerType: q.answer_type || "single_choice",
+            recommendedAnswer: q.recommended_answer || "",
+            recommendedReasoning: q.recommended_reasoning || "",
+            recommendedDisplay: q.recommended_display || q.recommended_answer || "",
+            ambiguityCategory: q.ambiguity_category || "",
+            impactLevel: q.impact_level || "medium",
           }));
           setQuestionnaireData({ questions: mapped });
           if (data.pipeline_run_id) {
@@ -701,19 +747,15 @@ export default function DashboardPage() {
       case "review_gate_ready": {
         // Agent completed and declared Human_Gate — pause for user review.
         if (msg.data) {
-          const data = msg.data as {
-            gate_key: string;
-            agent_id: string;
-            agent_name: string;
-            output: string;
-            pipeline_run_id: string;
-          };
+          const data = msg.data as unknown as ReviewGateReadyData;
           setReviewGateData({
             gateKey: data.gate_key,
             agentId: data.agent_id,
             agentName: data.agent_name,
             output: data.output,
             pipelineRunId: data.pipeline_run_id,
+            // REDO-GATE (F-fe3): capture the generic server flag (default false).
+            redoable: data.redoable ?? false,
           });
         }
         break;
@@ -754,7 +796,10 @@ export default function DashboardPage() {
   });
 
   // Workflow pipeline state
-  const { pipelineState, startPipeline, resetPipeline, isRunning: isPipelineRunning, handleMessage: handlePipelineMsg, submitQuestionnaire } = useWorkflow(send);
+  const { pipelineState, startPipeline, resetPipeline, isRunning: isPipelineRunning, handleMessage: handlePipelineMsg, submitQuestionnaire, retainClarifyRound } = useWorkflow(send);
+  // Workstream C1 (POR §1 gap-2): retain the launched brief on the LIVE path
+  // (previously dropped). Reopen/history use fullRun.input / selectedRun.input.
+  const [submittedBrief, setSubmittedBrief] = useState<string>("");
 
   // Keep pipeline handler ref in sync
   useEffect(() => {
@@ -779,9 +824,10 @@ export default function DashboardPage() {
           agentIds?: string[];
         };
         const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
-        if (!draft.templateId || !draft.designSystemId || !draft.brief) return;
+        // KAN-87: templateId is now optional (no-template mode). Only require designSystemId + brief.
+        if (!draft.designSystemId || !draft.brief) return;
         pending = {
-          templateId: draft.templateId,
+          templateId: draft.templateId ?? "",  // empty string = no template
           designSystemId: draft.designSystemId,
           brief: draft.brief,
           discovery,
@@ -1093,6 +1139,10 @@ export default function DashboardPage() {
 
       try {
         const fullRun = await getWorkflow(currentToken, run.id);
+        // Revision Families (B1): the history-reopen source — the reopened run is
+        // now the on-screen content, so an inline revise from here links it as
+        // parent.
+        setContentSourceRunId(fullRun.id);
 
         // WR-01 (16 review): "degraded" is a terminal status ISS-016 now persists
         // for partially-failed runs — it carries a real (partial) deliverable. Treat
@@ -1248,8 +1298,12 @@ export default function DashboardPage() {
       reopenedRunStatus={reopenedRunStatus}
       reopenedFailedAgents={reopenedFailedAgents}
       reopenedAgentNameById={reopenedAgentNameById}
+      submittedBrief={submittedBrief}
       onStartPipeline={(type, message, agentIds, attachedSkills, attachedHooks, extraParams) => {
         const isRevision = type.endsWith("_revision");
+        // Workstream C1 (POR §1 gap-2): capture the run's input on every launch
+        // (revision or fresh — it is the run's input either way), reset per run.
+        setSubmittedBrief(message);
         // ISS-017 (16-04): any new run clears the history-reopen failure signal
         // so a prior failed reopen never bleeds the affordance into a live run.
         setReopenedRunStatus(undefined);
@@ -1264,23 +1318,37 @@ export default function DashboardPage() {
           pptContentRef.current = "";
           prototypeContentRef.current = "";
           userStoryContentRef.current = "";
+          // Revision Families (B1): a fresh run has no source until it completes —
+          // clear so a stale source can't be sent as a revise parent.
+          setContentSourceRunId(null);
         }
         // For revisions, keep existing content visible until new output arrives
         startPipeline(type, message, agentIds, attachedSkills, attachedHooks, extraParams);
       }}
       onResetPipeline={resetPipeline}
       recentRuns={recentRuns}
+      contentSourceRunId={contentSourceRunId}
       onSelectWorkflowRun={handleSelectWorkflowRun}
       questionnaireData={questionnaireData}
       activePipelineRunId={activePipelineRunId}
       getLastSeq={getLastSeq}
       onSubmitQuestionnaire={submitQuestionnaire}
+      onRetainClarifyRound={retainClarifyRound}
       reviewGateData={reviewGateData}
       onApproveReview={(gateKey, editedContent) => {
         send(JSON.stringify({ type: "approve_review", gate_key: gateKey, approved: true, edited_content: editedContent ?? null }));
       }}
       onRejectReview={(gateKey) => {
         send(JSON.stringify({ type: "approve_review", gate_key: gateKey, approved: false }));
+        setReviewGateData(null);
+      }}
+      onRedoReview={(gateKey, instructions) => {
+        // REDO-GATE (F-fe3): re-run the gated agent in place. Rides the SAME
+        // approve_review owner-gated handler/resume channel as approve/reject —
+        // matches the Wave-1 wire contract (websocket.py: action="redo").
+        send(JSON.stringify({ type: "approve_review", gate_key: gateKey, action: "redo", instructions }));
+        // Clear the panel; the re-run re-emits a fresh review_gate_ready (same
+        // gate_key, redoable=true) that re-opens it with the new output.
         setReviewGateData(null);
       }}
       pendingOdProtoParams={pendingOdProtoParams}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback, type ReactNode } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef, type ReactNode } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Eye, FolderDown, Brain, Shield, PanelRightClose, Copy, Check, Download, ExternalLink, Loader2, AlertTriangle } from "lucide-react";
 import { UserStoryPreview } from "./UserStoryPreview";
@@ -11,8 +11,9 @@ import { FilesTab } from "@/components/results/FilesTab";
 import { AgentThinkingTab } from "@/components/results/AgentThinkingTab";
 import { AuditTab } from "@/components/results/AuditTab";
 import { AppBuilderPreview, type ParsedFile } from "./AppBuilderPreview";
-import type { WorkflowType, GenericDeliverable } from "@/types/index";
-import { getToken } from "@/lib/api";
+import { LiveVersionChip, ReadOnlyVersionBanner } from "./LiveVersionChip";
+import type { WorkflowType, GenericDeliverable, RunFamily } from "@/types/index";
+import { getToken, getWorkflow } from "@/lib/api";
 import { ENV } from "@/lib/env";
 // ISS-024 — shared id→name resolution for the failed-agents list (no dual-impl).
 import { buildAgentNameById, resolveAgentNames } from "@/lib/parseFailedAgents";
@@ -280,6 +281,20 @@ interface PreviewPanelProps {
   // detail's persisted agentOutputs and threads it here. Unknown ids still fall
   // back to the raw id inside DegradedRunAffordance.
   reopenedAgentNameById?: Record<string, string>;
+  // Revision Families (B3 / POR §5 D5) — the on-screen content's revision family
+  // (root + ordered members) fetched by DashboardLayout keyed on
+  // contentSourceRunId, and the id of the currently-live run. BOTH optional and
+  // default undefined → the live version chip + read-only override are absent
+  // unless explicitly wired by the live dashboard mount (zero regression for
+  // history callers and existing test renders).
+  runFamily?: RunFamily | null;
+  liveRunId?: string | null;
+  // Workstream C2 (POR §5 D3+D4+D7) — pass-throughs for the "Run input" surfaces.
+  // The live path already carries clarify rounds via pipelineState.clarifications;
+  // the explicit `clarifications` prop is the reopen override (?? keeps both
+  // correct). BOTH optional/default-undefined → existing renders unchanged.
+  runInput?: string;
+  clarifications?: import("@/types/index").ClarifyRound[];
 }
 
 const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
@@ -374,11 +389,81 @@ export function DegradedRunAffordance({
   );
 }
 
-export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById }: PreviewPanelProps) {
+export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, runFamily, liveRunId, runInput, clarifications }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>("preview");
   const [copied, setCopied] = useState(false);
+  // ─── B3 (POR §5 D5) — live version chip state ───────────────────────────────
+  // viewingVersion is the read-only older-version override ({ id, content }) or
+  // null (live latest on screen); pulse is the one-shot tick shown when the
+  // family grows on a revision-complete.
+  const [viewingVersion, setViewingVersion] = useState<{ id: string; content?: string } | null>(null);
+  const [pulse, setPulse] = useState(false);
+  const prevMemberCount = useRef<number | null>(null);
 
   useEffect(() => { if (initialTab === "preview" || initialTab === "files") setActiveTab(initialTab); }, [initialTab]);
+
+  // ─── B3 — family/version derivation (UI-SPEC Surface 3) ──────────────────────
+  // sortedMembers v1..vN by revision_index; latestId = last member (fallback
+  // liveRunId); activeRunId = the read-only override id, else the live run, else
+  // the latest member; activeIdx = its 0-based index; isViewingOlder = an
+  // override is active AND it is not the latest.
+  const sortedMembers = runFamily
+    ? [...runFamily.members].sort((a, b) => a.revision_index - b.revision_index)
+    : [];
+  const latestId = sortedMembers.length > 0 ? sortedMembers[sortedMembers.length - 1].id : (liveRunId ?? null);
+  const activeRunId = viewingVersion?.id ?? liveRunId ?? latestId;
+  const activeIdx = sortedMembers.findIndex((m) => m.id === activeRunId);
+  const isViewingOlder = viewingVersion != null && viewingVersion.id !== latestId;
+  // The active member's parent (the immediately-prior version) — threaded to
+  // FilesTab for the base-version "From v{n-1}" section (B3 / POR §5 D6). The
+  // parent is v{activeIdx} (0-based index of the active member == the parent's
+  // 1-based version number).
+  const activeParentRunId = sortedMembers.find((m) => m.id === activeRunId)?.parent_run_id ?? null;
+  // ─── C-FLAG-1 + C-FLAG-2 (260703-174) — live StartingPointCard revision wiring ─
+  // revisionParentVersion = the 1-based family index of the active run's PARENT
+  // (the "revision of v{n}" chip). For a linear chain this coincides with the
+  // existing activeIdx note above; the parent_run_id lookup is robust for branched
+  // families. originalBriefRootRunId is threaded ONLY when the active member IS a
+  // revision (non-null parent) — matching the reopen mount's guard — so the live
+  // "Original brief (v1)" expander appears (live/reopen symmetry).
+  const activeParentIdx = activeParentRunId ? sortedMembers.findIndex((m) => m.id === activeParentRunId) : -1;
+  const revisionParentVersion = activeParentIdx >= 0 ? activeParentIdx + 1 : undefined;
+  const originalBriefRootRunId = activeParentRunId ? runFamily?.root_id : undefined;
+
+  const handleSelectVersion = useCallback(async (memberId: string) => {
+    if (memberId === latestId) {
+      setViewingVersion(null); // back to live
+      return;
+    }
+    const token = getToken();
+    try {
+      const run = await getWorkflow(token || "", memberId);
+      setViewingVersion({ id: memberId, content: run.output });
+    } catch (err) {
+      // Read-only view is best-effort — never throw into the preview surface.
+      // Dev-observability only: log the swallowed failure; fallback unchanged.
+      console.warn("[revision-family] read-only version fetch failed", err);
+      setViewingVersion(null);
+    }
+  }, [latestId]);
+
+  const handleBackToLatest = useCallback(() => setViewingVersion(null), []);
+
+  // A revision completed → the threaded family grew: tick the chip label with a
+  // one-shot animate-pulse (~1200ms), then clear.
+  useEffect(() => {
+    const count = runFamily?.members.length ?? 0;
+    if (prevMemberCount.current != null && count > prevMemberCount.current) {
+      setPulse(true);
+      const t = setTimeout(() => setPulse(false), 1200);
+      prevMemberCount.current = count;
+      return () => clearTimeout(t);
+    }
+    prevMemberCount.current = count;
+  }, [runFamily?.members.length]);
+
+  // A new live run supersedes any active read-only view.
+  useEffect(() => { setViewingVersion(null); }, [liveRunId]);
 
   const detectedType: WorkflowType = workflowType || (userStoryContent ? "user_stories" : pptContent ? "ppt" : prototypeContent ? "prototype" : "user_stories");
   // Normalize revision types to their base type for rendering
@@ -390,12 +475,24 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
     : detectedType === "od_prototype" ? "prototype"
     : detectedType === "app_builder_revision" ? "app_builder"
     : detectedType;
+
+  // ─── B3 (POR §5 D5) — read-only older-version override ───────────────────────
+  // When an older version is being viewed read-only, route its fetched .output
+  // into the slot matching renderType (user_stories/app_builder → userStory,
+  // ppt → ppt, prototype → prototype); otherwise the live content flows through
+  // unchanged. onRevise* are suppressed while viewing older (read-only).
+  const overrideActive = viewingVersion != null;
+  const overrideContent = viewingVersion?.content;
+  const effUserStoryContent = overrideActive && (renderType === "user_stories" || renderType === "app_builder") ? overrideContent : userStoryContent;
+  const effPptContent = overrideActive && renderType === "ppt" ? overrideContent : pptContent;
+  const effPrototypeContent = overrideActive && renderType === "prototype" ? overrideContent : prototypeContent;
+
   const activeContent =
     renderType === "user_stories" || renderType === "app_builder"
-      ? userStoryContent
+      ? effUserStoryContent
       : renderType === "ppt"
-      ? pptContent
-      : prototypeContent;
+      ? effPptContent
+      : effPrototypeContent;
 
   // ─── ISS-021 (18-03) — generic deliverable fallback ─────────────────────────
   // The generic mimetype-dispatched renderer is taken ONLY when `renderType`
@@ -411,7 +508,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   const isKnownRenderType = (KNOWN_RENDER_TYPES as readonly string[]).includes(renderType);
   const hasGenericDeliverable = !isKnownRenderType && !!genericDeliverable?.content;
 
-  const hasContent = !!(userStoryContent || pptContent || prototypeContent || pptxCode || hasGenericDeliverable);
+  const hasContent = !!(effUserStoryContent || effPptContent || effPrototypeContent || pptxCode || hasGenericDeliverable);
 
   // ─── ISS-017 (16-04) — terminal-empty degraded/failed affordance ────────────
   // A TERMINAL run (not streaming) with no content must show a failure
@@ -472,22 +569,24 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   // generic path as the primary route. CR-01 stays intact (`custom` is NOT a
   // first-party entry → it routes generic), as does the P18 sandbox contract
   // (owned by GenericDeliverablePreview).
+  // While viewing an older version read-only, suppress the revise affordances
+  // (UI-SPEC Surface 3: "revise actions suppressed" for the read-only view).
   const FIRST_PARTY_RENDERERS: Record<string, () => ReactNode | null> = {
     user_stories: () =>
-      userStoryContent
-        ? <UserStoryPreview content={userStoryContent} onRevise={onReviseUserStory} />
+      effUserStoryContent
+        ? <UserStoryPreview content={effUserStoryContent} onRevise={overrideActive ? undefined : onReviseUserStory} />
         : null,
     app_builder: () =>
-      userStoryContent
-        ? <AppBuilderIDEPreview content={userStoryContent} agentOutputs={agentOutputs} onRevise={onReviseAppBuilder} />
+      effUserStoryContent
+        ? <AppBuilderIDEPreview content={effUserStoryContent} agentOutputs={agentOutputs} onRevise={overrideActive ? undefined : onReviseAppBuilder} />
         : null,
     ppt: () =>
-      (pptContent || pptxCode)
-        ? <PPTPreview content={pptContent} isStreaming={isStreaming} pptxCode={pptxCode} onRevise={onRevisePpt} pipelineType={rawPipelineType || workflowType} />
+      (effPptContent || pptxCode)
+        ? <PPTPreview content={effPptContent} isStreaming={isStreaming} pptxCode={pptxCode} onRevise={overrideActive ? undefined : onRevisePpt} pipelineType={rawPipelineType || workflowType} />
         : null,
     prototype: () =>
-      prototypeContent
-        ? <PrototypePreview content={prototypeContent} isStreaming={isStreaming} onRevise={onRevisePrototype} />
+      effPrototypeContent
+        ? <PrototypePreview content={effPrototypeContent} isStreaming={isStreaming} onRevise={overrideActive ? undefined : onRevisePrototype} />
         : null,
   };
 
@@ -526,6 +625,17 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
           {isStreaming ? "Generating..." : hasContent ? "Results" : "Preview"}
         </h2>
         <div className="flex items-center gap-1">
+          {/* B3 (POR §5 D5) — live version chip: first control in the cluster,
+              before Copy (UI-SPEC Surface 3 "Where"). Renders nothing unless the
+              on-screen content belongs to a ≥2-member revision family. */}
+          <LiveVersionChip
+            family={runFamily ?? null}
+            activeRunId={activeRunId}
+            isViewingOlder={isViewingOlder}
+            pulse={pulse}
+            onSelectVersion={handleSelectVersion}
+            onBackToLatest={handleBackToLatest}
+          />
           {hasContent && (
             <button
               onClick={handleCopy}
@@ -546,6 +656,14 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
           )}
         </div>
       </div>
+
+      {/* B3 (POR §5 D5) — read-only amber banner: shown as a slim strip directly
+          under the header while an older version is on screen. */}
+      {isViewingOlder && (
+        <div className="px-4 py-2 border-b border-gray-200">
+          <ReadOnlyVersionBanner versionNumber={activeIdx + 1} onBackToLatest={handleBackToLatest} />
+        </div>
+      )}
 
       {/* Tab Bar — tabs on left, PPT action buttons on right when PPT is active */}
       <div className="px-4 py-2 border-b border-gray-200 flex items-center justify-between gap-2">
@@ -629,7 +747,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               transition={{ duration: 0.15 }}
               className="absolute inset-0"
             >
-              <FilesTab workflowType={renderType} userStoryContent={userStoryContent} pptContent={pptContent} prototypeContent={prototypeContent} agentOutputs={agentOutputs} genericDeliverable={hasGenericDeliverable ? genericDeliverable : undefined} />
+              <FilesTab workflowType={renderType} userStoryContent={userStoryContent} pptContent={pptContent} prototypeContent={prototypeContent} agentOutputs={agentOutputs} genericDeliverable={hasGenericDeliverable ? genericDeliverable : undefined} parentRunId={activeParentRunId} parentVersionNumber={activeIdx} runInput={runInput} clarifications={clarifications ?? pipelineState?.clarifications} />
             </motion.div>
           )}
           {activeTab === "thinking" && (
@@ -641,7 +759,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               transition={{ duration: 0.15 }}
               className="absolute inset-0"
             >
-              <AgentThinkingTab agents={agents || []} pipelineState={pipelineState} />
+              <AgentThinkingTab agents={agents || []} pipelineState={pipelineState} runInput={runInput} clarifications={clarifications ?? pipelineState?.clarifications} revisionParentVersion={revisionParentVersion} originalBriefRootRunId={originalBriefRootRunId} />
             </motion.div>
           )}
           {activeTab === "audit" && (

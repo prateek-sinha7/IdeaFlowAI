@@ -50,6 +50,11 @@ from agents.capabilities.registry import register
 # gate event — it drives the outcome only). Kept in sync with engine._run_review_gate.
 _REJECTED = "_gate_rejected"
 _EDITED = "_gate_edited"
+# REDO-GATE F1a: the shared _run_review_gate may now emit _gate_redo. An approval
+# gate reviews an exec POLICY snapshot — redo is meaningless here and is NOT wired.
+# A stray _gate_redo MUST be CONSUMED (never yielded, never mapped to GATE_PASS) so
+# the exec step cannot silently advance on a redo signal.
+_REDO = "_gate_redo"
 
 
 def _exec_policy_snapshot(step: Any, ctx: Any) -> dict:
@@ -159,11 +164,16 @@ class ApprovalGate:
         # ── D-02/D-04: delegate to the ONE HITL mechanism with the policy snapshot ──
         payload = _exec_policy_snapshot(step, ctx)
         rejected = False
+        redo_seen = False
         async for event in delegate(step, payload=payload):
             etype = event.get("type")
             if etype == _REJECTED:
                 rejected = True
                 continue  # internal signal — not re-surfaced as a gate event
+            if etype == _REDO:
+                # REDO-GATE F1a: consume — never yield (no wire leak), never PASS.
+                redo_seen = True
+                continue
             if etype == _EDITED:
                 # WR-04 (13 review fix): an approval gate reviews the D-04 exec
                 # POLICY SNAPSHOT — there is no upstream artifact an edit could
@@ -180,7 +190,13 @@ class ApprovalGate:
             # — yielded IMMEDIATELY so ready reaches the consumer pre-await (F1).
             yield event
 
-        outcome = GATE_BLOCK if rejected else GATE_PASS
+        # REDO-GATE F1a: a stray redo maps to a NON-PASS outcome (GATE_WAIT_HUMAN) so
+        # the exec step does NOT silently sign off; reject still wins (GATE_BLOCK).
+        # The audit row records the honest non-PASS outcome (F9).
+        outcome = (
+            GATE_BLOCK if rejected
+            else (GATE_WAIT_HUMAN if redo_seen else GATE_PASS)
+        )
         await write_gate_event(ctx, step_id, "approval", outcome, None)
         yield GateOutcome(outcome=outcome, events=[])
 

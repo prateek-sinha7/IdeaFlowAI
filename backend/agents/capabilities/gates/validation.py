@@ -89,7 +89,9 @@ class ValidationGate:
         # at run entry); a missing factory/name degrades to passing ``ctx`` through
         # (offline unit ctx with a fake runner that has no factory) so existing fakes
         # still drive the gate.
-        target = _build_validation_target(ctx, step_id)
+        target = _build_validation_target(
+            ctx, step_id, getattr(step, "require_render", None)
+        )
 
         # Collect every issue, mapped to its UI label via the SHARED map_severity.
         labelled: list[dict] = []
@@ -153,8 +155,14 @@ class ValidationGate:
         return GateOutcome(outcome=GATE_PASS, events=events, detail=detail)
 
 
-def _build_validation_target(ctx: Any, step_id: str) -> Any:
+def _build_validation_target(
+    ctx: Any, step_id: str, require_render: bool | None = None
+) -> Any:
     """Build the ``DeliverableContext`` target for the declared validators (WR-01).
+
+    ``require_render`` (quick-260701-bob / REQUIRE-RENDER-KNOB) is threaded from the
+    step onto the built ``DeliverableContext`` so html_render sees the per-step render
+    fail-closed policy at the post-step validation gate; None keeps the Settings default.
 
     Resolves the run's declared deliverable name off ``ctx.deliverable.name`` (the
     compiled ``DeliverableSpec`` bound at run entry) and builds the target via the
@@ -178,6 +186,16 @@ def _build_validation_target(ctx: Any, step_id: str) -> Any:
     if not name:
         return ctx
     try:
-        return factory(name=name, step=step_id, task_meta={"attempt": 0})
+        return factory(
+            name=name, step=step_id, task_meta={"attempt": 0},
+            require_render=require_render,
+        )
+    except TypeError:
+        # An older factory without the require_render kwarg (offline fake) — retry
+        # without it so existing gate fakes still drive the gate (parity).
+        try:
+            return factory(name=name, step=step_id, task_meta={"attempt": 0})
+        except Exception:  # noqa: BLE001 — a factory failure degrades to the raw ctx
+            return ctx
     except Exception:  # noqa: BLE001 — a factory failure degrades to the raw ctx
         return ctx

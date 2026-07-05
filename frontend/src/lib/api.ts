@@ -7,6 +7,7 @@ import type {
   AuthResponse,
   ChatMessage,
   ChatSession,
+  RunFamily,
   User,
   WorkflowRun,
   WorkflowType,
@@ -264,6 +265,9 @@ interface RawWorkflowRun {
   // UXFIX-02 (22-03 / D-19): persisted declared/resolved deliverable shape.
   deliverable_mimetype?: string | null;
   deliverable_filename?: string | null;
+  // Revision Families (B1 / D1-D2-D7): optional so legacy raw rows still parse.
+  parent_run_id?: string | null;
+  root_run_id?: string;
   created_at: string;
   completed_at: string | null;
 }
@@ -296,6 +300,10 @@ function normalizeWorkflowRun(raw: RawWorkflowRun): WorkflowRun {
     modelId: raw.model_id ?? undefined,
     deliverableMimetype: raw.deliverable_mimetype ?? undefined,
     deliverableFilename: raw.deliverable_filename ?? undefined,
+    // Revision Families (B1): a standalone/legacy run with no root is its own
+    // root — matches the backend's "standalone run → own id" semantics.
+    parentRunId: raw.parent_run_id ?? null,
+    rootRunId: raw.root_run_id ?? raw.id,
     agentCount: raw.agent_count,
     duration: raw.duration ?? undefined,
     error: raw.error ?? undefined,
@@ -331,6 +339,63 @@ export async function getWorkflow(
     headers: authHeaders(token),
   });
   return normalizeWorkflowRun(raw);
+}
+
+/** Fetch the revision family (root + ordered members) for a run.
+ *  Returns the raw wire shape (unnormalized snake_case) like getChainContext. */
+export async function getRunFamily(
+  token: string,
+  runId: string
+): Promise<RunFamily> {
+  return request<RunFamily>(`/api/runs/${runId}/family`, {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+}
+
+/** A single artifact node from GET /api/runs/{id}/artifacts (mirrors the
+ *  backend node shape, runs.py:590-608). `content` is present ONLY when the
+ *  request was made with include=content. NOTE: nodes carry NO created_at. */
+export interface ArtifactNode {
+  id: string;
+  kind: string;
+  producer_step: string;
+  producer_agent: string;
+  task_id: string;
+  content_hash: string;
+  version: number;
+  visibility: string;
+  location: string;
+  parents: string[];
+  derived_from: string[];
+  children: string[];
+  content?: string;
+}
+
+export interface RunArtifactsResponse {
+  workflow_id: string;
+  artifacts: ArtifactNode[];
+}
+
+/** Fetch a run's artifact tree. Workstream C1 (POR §6.6) — the first FE
+ *  consumer of Workstream-A's `?kind=` filter. Returns the raw wire shape
+ *  verbatim (unnormalized) like getRunFamily/getChainContext. */
+export async function getRunArtifacts(
+  token: string,
+  runId: string,
+  opts?: { kind?: string; includeContent?: boolean }
+): Promise<RunArtifactsResponse> {
+  let path = `/api/runs/${runId}/artifacts`;
+  const params = new URLSearchParams();
+  if (opts?.kind) params.set("kind", opts.kind);
+  if (opts?.includeContent) params.set("include", "content");
+  const qs = params.toString();
+  if (qs) path += `?${qs}`;
+
+  return request<RunArtifactsResponse>(path, {
+    method: "GET",
+    headers: authHeaders(token),
+  });
 }
 
 export interface ChainContext {

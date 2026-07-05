@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Sparkles, ChevronDown, ChevronRight, Layers, Eye, Paperclip, Mic, MicOff, X, File, Settings2, Save } from "lucide-react";
 import { getToken, extractFileText, createUserWorkflow } from "@/lib/api";
+import { ATTACH_MAX_CHARS } from "@/lib/constants";
 import {
   listDesignSystems,
   listPrototypeTemplates,
@@ -39,6 +40,8 @@ export default function PrototypeTemplatesPage() {
   const [customTemplateBody, setCustomTemplateBody] = useState<string | null>(null);
   const [brief, setBrief] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; size: string }[]>([]);
+  // KAN-91: file content stored separately so textarea stays clean.
+  const [attachedFileContents, setAttachedFileContents] = useState<{ name: string; content: string }[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const preSpeechTextRef = useRef("");
   const { isListening, transcript, startListening, stopListening, isSupported: speechSupported } = useSpeechRecognition();
@@ -243,7 +246,10 @@ export default function PrototypeTemplatesPage() {
   }, [transcript]);
 
   const canContinue = Boolean(
-    selectedTemplateId && selectedDsId &&
+    // KAN-87: template selection is now optional — user may proceed without a template.
+    // A design system is still required (it provides the color tokens the agents use).
+    // When no template is selected, selectedTemplateId stays null — that is valid.
+    selectedDsId &&
     (isChaining || brief.trim())  // brief not required when chaining
   );
 
@@ -298,6 +304,12 @@ export default function PrototypeTemplatesPage() {
     } else {
       finalBrief = brief.trim();
     }
+
+    // KAN-91: compose attached file content blocks into the brief at send time
+    const fileBlocks = attachedFileContents
+      .map((f) => `\n\n=== Attached: ${f.name} ===\n${f.content}\n=== End: ${f.name} ===`)
+      .join("");
+    if (fileBlocks) finalBrief = `${finalBrief}${fileBlocks}`;
 
     // Per-run gate selection: persist `gateAgentIds` into the draft ONLY when the
     // user touched the Review-gates section. Untouched ⇒ the field is omitted, the
@@ -442,7 +454,11 @@ export default function PrototypeTemplatesPage() {
                   {attachedFiles.map((file, idx) => (
                     <span key={`${file.name}-${idx}`} className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1 text-[10px] text-gray-600">
                       <File className="h-2.5 w-2.5" /> {file.name}
-                      <button onClick={() => setAttachedFiles((p) => p.filter((_, i) => i !== idx))} className="ml-1 text-gray-400 hover:text-red-500">
+                      <button onClick={() => {
+                        setAttachedFiles((p) => p.filter((_, i) => i !== idx));
+                        const removedName = attachedFiles[idx]?.name;
+                        if (removedName) setAttachedFileContents((p) => p.filter((c) => c.name !== removedName));
+                      }} className="ml-1 text-gray-400 hover:text-red-500">
                         <X className="h-2.5 w-2.5" />
                       </button>
                     </span>
@@ -471,10 +487,8 @@ export default function PrototypeTemplatesPage() {
                           const reader = new FileReader();
                           reader.onload = (ev) => {
                             const content = (ev.target?.result as string) ?? "";
-                            setBrief((p) => {
-                              const block = `\n\n=== Attached: ${f.name} ===\n${content.slice(0, 64000)}\n=== End: ${f.name} ===`;
-                              return p ? `${p}${block}` : block.trimStart();
-                            });
+                            // KAN-91: store content separately, not in textarea
+                            setAttachedFileContents((p) => [...p, { name: f.name, content: content.slice(0, ATTACH_MAX_CHARS) }]);
                           };
                           reader.readAsText(f);
                         } else if (isBinaryFile) {
@@ -482,21 +496,18 @@ export default function PrototypeTemplatesPage() {
                           if (jwt) {
                             extractFileText(jwt, f)
                               .then((res) => {
-                                setBrief((p) => {
-                                  const truncNote = res.truncated ? "\n[Content truncated to 64,000 chars]" : "";
-                                  const block = `\n\n=== Attached: ${res.filename} ===\n${res.text}${truncNote}\n=== End: ${res.filename} ===`;
-                                  return p ? `${p}${block}` : block.trimStart();
-                                });
+                                // KAN-91: store extracted content separately
+                                const truncNote = res.truncated ? `\n[Content truncated to ${ATTACH_MAX_CHARS.toLocaleString()} chars]` : "";
+                                setAttachedFileContents((p) => [...p, { name: res.filename, content: `${res.text}${truncNote}` }]);
                               })
                               .catch(() => {
-                                setBrief((p) => p ? `${p}\n\n[Attached: ${f.name} — could not extract text]` : `[Attached: ${f.name} — could not extract text]`);
+                                setAttachedFileContents((p) => [...p, { name: f.name, content: "[could not extract text]" }]);
                               });
                           } else {
-                            setBrief((p) => p ? `${p}\n\n[Attached: ${f.name}]` : `[Attached: ${f.name}]`);
+                            setAttachedFileContents((p) => [...p, { name: f.name, content: "" }]);
                           }
-                        } else {
-                          setBrief((p) => p ? `${p}\n\n[Attached: ${f.name}]` : `[Attached: ${f.name}]`);
                         }
+                        // For other file types: chip shows but no content is sent
                       });
                     }
                     e.target.value = "";
@@ -610,7 +621,6 @@ export default function PrototypeTemplatesPage() {
           {!canContinue && (
             <div className="mb-4 flex flex-wrap gap-2">
               {!isChaining && !brief.trim() && <Pill label="Add a brief" />}
-              {!selectedTemplateId && <Pill label="Pick a template" />}
               {!selectedDsId && <Pill label="Pick a design system" />}
             </div>
           )}
