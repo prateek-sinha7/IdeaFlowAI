@@ -1,0 +1,52 @@
+# =============================================================================
+# VelocityAI gitleaks configuration (consumed by infra/buildspec.yml).
+# =============================================================================
+# Extends gitleaks' built-in rule set (so all default detectors stay active on
+# real, shipping code) and adds a PATH allowlist for directories that
+# legitimately contain EXAMPLE / TEST / PLACEHOLDER secret-shaped strings.
+#
+# Rationale: the CI gate runs `gitleaks detect --no-git --source .` over the
+# entire working tree. Without this allowlist it flags fixtures and docs that
+# are intentionally fake (e.g. the AWS documentation example keys, RSA test
+# blocks, `ghp_0123...` fixtures, `CHANGE_ME` env placeholders). Those are not
+# real credentials, so they are scoped out by path here.
+#
+# IMPORTANT: only NON-SHIPPING paths are allowlisted. Application source
+# (backend/app, backend/agents non-test, frontend/src), and real infrastructure
+# (infra/terraform except the localstack throwaway layer, infra/scripts) are
+# still scanned with the full default rule set. Do NOT add shipping paths here.
+# If a genuine secret needs scoping, prefer a narrow regex/stopword over a path.
+
+title = "VelocityAI gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Non-shipping paths containing example/test/placeholder secrets."
+paths = [
+  # Test fixtures (deliberately fake secrets used to exercise detection logic).
+  '''backend/tests/.*''',
+  '''frontend/e2e/.*''',
+  # Documentation and planning artifacts (illustrative examples only).
+  '''docs/.*''',
+  '''\.planning/.*''',
+  # Committed local AI-tooling skills — example tokens in their docs.
+  '''skills/.*''',
+  # Env templates: placeholders only (CHANGE_ME / GENERATE-... / dev-secret-...).
+  '''env-templates/.*''',
+  # Any committed *.example template (e.g. app.env.example, *.tfvars.example).
+  '''.*\.example$''',
+  # LocalStack throwaway layer — values are explicit placeholders, never real.
+  '''infra/terraform/localstack/.*''',
+]
+
+# Belt-and-suspenders: well-known *example* credentials that are published as
+# fakes (AWS docs keys; Stripe-style sample keys used in API tutorials embedded
+# in frontend/src/data/skills.ts). Recognize them as examples wherever they
+# appear so a sample never trips the gate. Keep these SPECIFIC, never broad.
+regexes = [
+  '''AKIAIOSFODNN7EXAMPLE''',
+  '''wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY''',
+  '''sk_live_abc123''',
+]

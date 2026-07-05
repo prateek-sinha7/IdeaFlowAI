@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Glossary — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="glossary">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Glossary</b></div>
+      <div class="spacer"></div>
+      <span class="tag">reference</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Platform &middot; reference</div>
+        <h1>Glossary</h1>
+        <p>The vocabulary that recurs across this atlas, in one place.</p>
+      </div>
+
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> This atlas leans on a small, recurring vocabulary — manifest, capability, kernel, gate, sandbox, and so on. Rather than re-explain those words on every page, they're all defined once here. Skim the cards, then the one-line invariants below.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>A reference list of the core terms and the six invariants that recur throughout the docs.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>A shared vocabulary keeps the other pages concise; this is the single place those words are defined.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>Definitions are grouped as cards; the invariants (INV-1, 2, 3, 5, 12, 13) are summarized in one line each at the bottom.</p></div>
+        </div>
+      </div>
+
+      <div class="grid g2">
+        <div class="card"><h4>SC-001</h4><p class="lead">The core success criterion: a new workflow can replicate <code>prototype</code> by manifest + AGENT.md only, zero engine edits. The kernel knows no workflow by name.</p></div>
+        <div class="card"><h4>Manifest</h4><p class="lead">A <code>workflow.yaml</code> describing a pipeline: steps, per-step strategy/gates/validators, deliverable, clarify config. Pure data, no control flow.</p></div>
+        <div class="card"><h4>CompiledWorkflow</h4><p class="lead">The typed, validated plan the kernel executes — output of the <code>WorkflowCompiler</code>. A topo-validated <code>Step</code> DAG plus workflow-level config.</p></div>
+        <div class="card"><h4>Capability</h4><p class="lead">A self-registering plug-in (<code>@register(kind,name)</code>) satisfying a <code>Protocol</code> port. Strategies, validators, deliverables, gates, hooks, tools, providers.</p></div>
+        <div class="card"><h4>ExecutionContext</h4><p class="lead">The per-run value object holding all run state (INV-2). One instance per <code>execute()</code>, threaded through the call tree; the engine singleton stays stateless.</p></div>
+        <div class="card"><h4>AgentSpec / AGENT.md</h4><p class="lead">An agent's identity + system prompt. YAML frontmatter (id, pipeline_type, order, tools, guardrails, gate) plus a Markdown prompt body.</p></div>
+        <div class="card"><h4>DeepAgentRunner</h4><p class="lead">The adapter that wraps a LangChain <code>deepagents</code> graph and maps its LangGraph event stream onto Flowin's WS event vocabulary (INV-13).</p></div>
+        <div class="card"><h4>RunSandbox</h4><p class="lead">A per-run, traversal-proof on-disk directory shared across a run's agents so files persist agent-to-agent.</p></div>
+        <div class="card"><h4>HITL gate</h4><p class="lead">Human-in-the-loop pause. A <code>gate: human</code> step (or clarify questionnaire) suspends the run, durable via the checkpointer, resumed by a client message.</p></div>
+        <div class="card"><h4>Ports &amp; Adapters</h4><p class="lead">The hexagonal architecture: the kernel depends on abstract ports; concrete adapters plug in via the registry. Enforced by import-linter.</p></div>
+        <div class="card"><h4>Fan-out / Wave</h4><p class="lead">Parallel execution. <code>fanout_batch</code> spawns N isolated workers then merges; <code>wave_scheduler</code> topo-schedules tasks into parallel waves with durable resume.</p></div>
+        <div class="card"><h4>Deliverable resolver</h4><p class="lead">The capability that produces a run's final artifact from the sandbox: <code>single_file</code>, <code>serialized_sandbox</code>, <code>streamed_text</code>, <code>ppt</code>, <code>repo_diff</code>.</p></div>
+        <div class="card"><h4>Checkpointer</h4><p class="lead">The LangGraph state store (Postgres in prod, in-memory in dev) that makes HITL pauses and mid-run resume durable.</p></div>
+        <div class="card"><h4>ScopedStore</h4><p class="lead">The owner + workspace-scoped DB helper through which all per-run persistence flows, enforcing ownership on every row.</p></div>
+        <div class="card"><h4>Constitution</h4><p class="lead">A per-user set of governing principles (from <code>workflow_memory</code>) injected last into every agent prompt, just before the body.</p></div>
+        <div class="card"><h4>deepagents</h4><p class="lead">The LangChain library (pinned <code>0.6.7</code>) every agent runs on. <code>create_deep_agent</code> is called only inside <code>deep_agent_runner.py</code> (INV-13).</p></div>
+      </div>
+
+      <h3>The invariants, in one line each</h3>
+      <table>
+        <tbody>
+          <tr><td><span class="badge b-cyan">INV-1</span></td><td>Kernel knows no workflow by name (zero <code>if pipeline_type ==</code> branches).</td></tr>
+          <tr><td><span class="badge b-cyan">INV-2</span></td><td>No per-run state on the engine singleton; it lives on <code>ExecutionContext</code>.</td></tr>
+          <tr><td><span class="badge b-green">INV-3</span></td><td>Behavioral parity — deterministic deliverables stay byte-identical (5 golden tests).</td></tr>
+          <tr><td><span class="badge b-violet">INV-5</span></td><td>Compiler is thin — manifests are pure data, no DSL.</td></tr>
+          <tr><td><span class="badge b-amber">INV-12</span></td><td>Move, don't copy — deletion of superseded code is an exit gate.</td></tr>
+          <tr><td><span class="badge b-red">INV-13</span></td><td>LangChain deepagents only.</td></tr>
+        </tbody>
+      </table>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin / VelocityAI Feature Atlas &middot; sourced from a deep scan of the repository (primary) + <code>.planning/IMPLEMENTATION-REGISTER.md</code> (secondary). Self-contained &middot; shared assets under <code>assets/</code>.</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script src="assets/app.js"></script>
+</body>
+</html>

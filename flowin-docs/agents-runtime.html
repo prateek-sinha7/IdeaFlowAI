@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agents &amp; Runtime — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="agents-runtime">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Agents &amp; Runtime</b></div>
+      <div class="spacer"></div>
+      <span class="tag">deepagents</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Backend internals</div>
+        <h1>Agents &amp; Runtime</h1>
+        <p>An <b>agent</b> is a folder with an <code>AGENT.md</code> file: YAML frontmatter (identity + metadata) plus a Markdown system-prompt body. There are ~80 in <code>agents/prompts/</code>. The <b>runtime</b> is how an agent becomes a running LangChain <code>deepagents</code> graph.</p>
+      </div>
+
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> An "agent" is really just a Markdown file — a job description with a bit of metadata at the top. The runtime is the machinery that reads that file and turns it into a live, tool-using model with its own scratch space on disk. Keeping the agent as plain text means anyone can read or tweak what an agent does without touching Python.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>The <code>AGENT.md</code> format (frontmatter + prompt) plus the machinery that builds a running LangChain <code>deepagents</code> graph from it.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To keep an agent's identity editable as text while the runtime uniformly handles models, tools, sandboxes, and streaming.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>Load the spec &#8594; compose the prompt in a fixed order &#8594; resolve tools &#8594; build a <code>DeepAgentRunner</code> &#8594; map its LangGraph events onto the UI's event vocabulary.</p></div>
+        </div>
+      </div>
+
+      <h3>From AGENT.md to a streamed agent</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>The AGENT.md schema</h3>
+      <table>
+        <thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>id</code> / <code>name</code> / <code>role</code></td><td>Kebab-case id (must match folder), display name, short role for the UI.</td></tr>
+          <tr><td><code>pipeline_type</code> / <code>order</code></td><td>Which pipeline the agent belongs to and its position (ascending, unique).</td></tr>
+          <tr><td><code>tools</code></td><td>Tool sets: <code>workspace</code>, <code>prototype</code>, <code>prototype_emit_only</code>, <code>planning</code>, or <code>[]</code> (text-only).</td></tr>
+          <tr><td><code>guardrails</code></td><td>Guardrail files injected before the prompt body (e.g. <code>[agile, typescript]</code>).</td></tr>
+          <tr><td><code>context_from</code></td><td>Prior-agent output routing: <code>[]</code>, <code>["$previous"]</code>, or explicit ids.</td></tr>
+          <tr><td><code>gate</code></td><td><code>Human_Gate</code> (default review-gate set), <code>Validation_Gate</code>, or absent.</td></tr>
+          <tr><td><code>injects</code></td><td>For od_ppt/od_prototype: any of <code>[template, design_system, craft]</code>.</td></tr>
+          <tr><td><code>produces</code> / <code>consumes</code></td><td>Typed artifact contracts read by the <code>WorkflowResolver</code> for DAG validation.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Prompt composition (fixed order)</h3>
+      <pre><code>tool_availability  &#8594;  injects  &#8594;  guardrails  &#8594;  skills  &#8594;  hooks  &#8594;  constitution  &#8594;  prompt_body
+   (anti-fab)         (od only)   (files)       (UI)     (UI)     (per-user)     (AGENT.md)</code></pre>
+      <p class="muted">Assembled by the registered <code>PromptAssemblyPolicy</code> ("default"). See <a href="feature-skills-hooks.html">Skills, Hooks &amp; Guardrails</a> for the injection layers.</p>
+
+      <h3>The runner</h3>
+      <div class="grid g2">
+        <div class="card"><h4>Sandbox vs. checkpoint thread</h4><p class="lead">The on-disk <code>RunSandbox</code> is keyed on <code>run_id</code> only and shared across a run's agents, so a file one writes persists for the next. The LangGraph checkpoint <code>thread_id</code> is per agent-invocation (<code>f"{run_id}:{agent_id}"</code>, plus <code>:task</code> in the build loop).</p></div>
+        <div class="card"><h4>Model selection</h4><p class="lead"><code>build_model()</code> picks <code>ChatAnthropic</code> (local) or <code>ChatBedrockConverse</code> (prod). User-selectable per agent (Haiku 4.5 default). Timeouts + adaptive retries live in one place. See <a href="feature-model-policy.html">Model Policy</a>.</p></div>
+        <div class="card"><h4>Tool filtering</h4><p class="lead">The library sub-agent dispatch tool (<code>task</code>) is always excluded so the model can't spawn its own sub-agents — the engine orchestrates fan-out. Enforced by a per-graph <code>_ToolFilterMiddleware</code>.</p></div>
+        <div class="card"><h4>Recursion backstop</h4><p class="lead">No per-agent iteration cap; <code>AGENT_RECURSION_LIMIT = 400</code> is the only runaway guard. Library auto-summarization replaced the old cross-agent summarizer.</p></div>
+      </div>
+
+      <h3>Prototype build: per-task sub-agents + Both-validation</h3>
+      <p class="muted">The <code>prototype-build</code> step doesn't run once. The engine writes <code>spec.md</code>/<code>design.md</code>/<code>tasks.md</code> into the sandbox, then launches <b>one isolated sub-agent per task</b>. After each task it runs <b>Both-validation</b> — <code>static_check</code> (stdlib) + <code>render_check</code> (headless Chromium) — with a bounded fix-loop (N=2).</p>
+
+      <h3><code>app/agents/</code> — the runtime adapters</h3>
+      <table>
+        <thead><tr><th>Module</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr><td><code>deep_agent_runner.py</code></td><td><code>DeepAgentRunner</code> — the adapter over a deepagents graph; the only place <code>create_deep_agent</code> is called (INV-13).</td></tr>
+          <tr><td><code>model_factory.py</code></td><td><code>build_model()</code> — provider select + timeouts/retries.</td></tr>
+          <tr><td><code>sandbox.py</code></td><td><code>RunSandbox</code> — traversal-proof per-run disk dir + TTL sweep; <code>serialize_sandbox_deliverable()</code>.</td></tr>
+          <tr><td><code>checkpointer.py</code></td><td><code>get_checkpointer()</code> — Postgres (prod) / InMemory (dev) for HITL + resume.</td></tr>
+          <tr><td><code>chat_runner.py</code></td><td><code>ChatRunner</code> — the free-chat subsystem sequencer (separate from the kernel).</td></tr>
+          <tr><td><code>render_check.py</code> / <code>static_check.py</code></td><td>Per-task prototype validation.</td></tr>
+        </tbody>
+      </table>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; Agents &amp; Runtime</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"Load the spec", b:"loader.py", d:"<code>load_agent_spec(agent_id)</code> parses the AGENT.md frontmatter + body into a validated, cached <code>AgentSpec</code>."},
+  {t:"Resolve tools", b:"tool_provider", bc:"b-violet", d:"<code>_resolve_runner_tools()</code> maps the spec's <code>tools</code> set to (custom_tools, exclude_builtin) via the registry."},
+  {t:"Compose the prompt", b:"PromptAssemblyPolicy", d:"injects &#8594; guardrails &#8594; skills &#8594; hooks &#8594; constitution &#8594; body, in one fixed order. Text-only agents get an anti-fabrication preamble."},
+  {t:"Build the sandbox", b:"RunSandbox", d:"The shared per-run disk dir is ensured; the runner roots its filesystem backend there."},
+  {t:"Construct the runner", b:"DeepAgentRunner", bc:"b-green", d:"<code>create_runner()</code> builds a <code>deepagents</code> graph via the AgentRuntimeAdapter; native fs tools + report_task_complete are bound."},
+  {t:"Pick the model", b:"build_model", bc:"b-green", d:"ChatAnthropic or ChatBedrockConverse, per the ModelResolver precedence."},
+  {t:"Stream events", b:"astream_events", d:"LangGraph events map onto the WS vocabulary: chunk &#8594; agent_chunk, tool_call/result, gate &#8594; HITL interrupt."},
+  {t:"Read the deliverable", d:"Files the agent wrote persist in the sandbox for the next agent; the deliverable resolver reads them at run end."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

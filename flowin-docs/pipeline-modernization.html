@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Modernization — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="pipeline-modernization">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Modernization</b></div>
+      <div class="spacer"></div>
+      <span class="tag">2 &times; 13 agents</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Product feature &middot; pipelines</div>
+        <h1>Code Modernization</h1>
+        <p>Two 13-agent brownfield migration pipelines that inventory a legacy codebase and produce a modernized target with tests, infra, and governance. Same shape, different source/target and guardrails.</p>
+        <div class="kv"><span><b>mulesoft_to_springboot</b> &middot; 13</span><span><b>dotnet_to_azure</b> &middot; 13</span><span><b>Guardrails:</b> mulesoft/java-spring &middot; dotnet</span></div>
+      </div>
+
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> Point these pipelines at an old codebase and they do the tedious, risky migration work: read and catalog the legacy system, map it onto a modern target, reimplement the features, and add tests and infrastructure. Two variants share the same shape — one for MuleSoft to Spring Boot, one for .NET to Azure.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>Two 13-agent brownfield migration pipelines: <code>mulesoft_to_springboot</code> and <code>dotnet_to_azure</code>.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To accelerate error-prone legacy migrations with a repeatable, validated, agent-driven process.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>Inventory the repo &#8594; map to the target &#8594; reimplement &#8594; add infra + tests &#8594; validate &#8594; govern, using the repo capabilities (index, context-pack, gated code checks).</p></div>
+        </div>
+      </div>
+
+      <h3>MuleSoft &#8594; Spring Boot — the 13 agents</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>.NET &#8594; Azure — the 13 agents</h3>
+      <div class="grid g3">
+        <div class="cap"><div class="cn">1 &middot; dotnet-inventory</div><div class="cd">Catalogs the .NET codebase.</div></div>
+        <div class="cap"><div class="cn">2 &middot; dotnet-user-stories</div><div class="cd">Requirements from the legacy behavior.</div></div>
+        <div class="cap"><div class="cn">3 &middot; dotnet-azure-target-mapping</div><div class="cd">Maps components to Azure services.</div></div>
+        <div class="cap"><div class="cn">4 &middot; dotnet-security-architecture</div><div class="cd">Security design for the target.</div></div>
+        <div class="cap"><div class="cn">5 &middot; dotnet-modernization</div><div class="cd">Core code modernization.</div></div>
+        <div class="cap"><div class="cn">6 &middot; dotnet-feature-coding</div><div class="cd">Feature reimplementation.</div></div>
+        <div class="cap"><div class="cn">7 &middot; dotnet-azure-bicep</div><div class="cd">Azure infra as Bicep.</div></div>
+        <div class="cap"><div class="cn">8 &middot; dotnet-azure-ai</div><div class="cd">Azure AI service wiring.</div></div>
+        <div class="cap"><div class="cn">9 &middot; dotnet-code-compliance</div><div class="cd">Standards pass.</div></div>
+        <div class="cap"><div class="cn">10 &middot; dotnet-test-implementation</div><div class="cd">Test suite.</div></div>
+        <div class="cap"><div class="cn">11 &middot; dotnet-test-compliance</div><div class="cd">Coverage pass.</div></div>
+        <div class="cap"><div class="cn">12 &middot; dotnet-validation</div><div class="cd">End-to-end validation.</div></div>
+        <div class="cap"><div class="cn">13 &middot; dotnet-sdlc-governance</div><div class="cd">Governance + deliverable.</div></div>
+      </div>
+
+      <div class="callout"><div class="t">&#9851;&#65039; Brownfield capabilities</div><p>These pipelines lean on the repo capabilities added in Phase 9: <code>repo_inventory</code> + the tree-sitter <code>repo_index</code> build a symbol index, <code>context_pack</code> surfaces a targeted subset to agents, and the <code>repo_diff</code> deliverable resolver can emit a diff-only view. Code validators (<code>code_compile</code>/<code>code_test</code>/<code>code_lint</code>) run through the gated exec handle.</p></div>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; Modernization</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"mulesoft-inventory", b:"1", d:"Catalogs the MuleSoft flows, connectors, and DataWeave."},
+  {t:"mulesoft-user-stories", b:"2", d:"Requirements derived from the legacy behavior."},
+  {t:"mulesoft-decomposition", b:"3", d:"Decomposes flows into target services."},
+  {t:"mulesoft-security-architecture", b:"4", d:"Security design for the Spring Boot target."},
+  {t:"mulesoft-springboot-scaffold", b:"5", bc:"b-cyan", d:"Scaffolds the Spring Boot project."},
+  {t:"mulesoft-feature-coding", b:"6", bc:"b-cyan", d:"Reimplements features in Spring Boot."},
+  {t:"mulesoft-dataweave-translator", b:"7", d:"Translates DataWeave transforms."},
+  {t:"mulesoft-aws-infra", b:"8", d:"AWS infrastructure for the target."},
+  {t:"mulesoft-code-compliance", b:"9", d:"Standards pass."},
+  {t:"mulesoft-test-implementation", b:"10", d:"Test suite."},
+  {t:"mulesoft-test-compliance", b:"11", d:"Coverage pass."},
+  {t:"mulesoft-validation", b:"12", d:"End-to-end validation."},
+  {t:"mulesoft-sdlc-governance", b:"13", bc:"b-green", d:"Governance + assembles the deliverable."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

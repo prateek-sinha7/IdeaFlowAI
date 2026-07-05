@@ -1,0 +1,28 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadVelocityAIConfigObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": [
+        "${bucket_arn}/config/*"
+      ]
+    },
+    {
+      "Sid": "ListVelocityAIConfigPrefix",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket"
+      ],
+      "Resource": "${bucket_arn}",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "config/*"
+        }
+      }
+    }
+  ]
+}

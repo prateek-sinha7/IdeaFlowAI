@@ -97,3 +97,31 @@ repos:
         # is fast enough (sub-second on a warm cache) and avoids a
         # whole class of "I changed a file but the hook didn't fire on
         # the right paths" bugs.
+
+  # ---------------------------------------------------------------------
+  # Infra: tflint (Terraform lint — mirrors the CI scan in
+  # infra/buildspec.yml's pre_build phase).
+  #
+  # Uses the locally-installed tflint binary (language: system), the same
+  # pattern as pyright/eslint above. One-time setup per clone:
+  #     # install tflint (see https://github.com/terraform-linters/tflint):
+  #     brew install tflint        # or the install script / your package mgr
+  #     # fetch the pinned plugins declared in infra/terraform/.tflint.hcl:
+  #     tflint --chdir=infra/terraform --init
+  #
+  # The hook does NOT run `--init` itself (that hits the network on every
+  # commit). If plugins are missing, tflint fails with a clear "run --init"
+  # message — same "install once" contract as the other system hooks.
+  # ---------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: tflint
+        name: tflint (infra)
+        # Absolute TFLINT_CONFIG_FILE so recursive mode lints every layer +
+        # module against the shared ruleset, identical to the CI invocation.
+        # pass_filenames=false: tflint discovers .tf files via the recursive
+        # walk, so it lints the whole suite on any infra/terraform change.
+        entry: bash -c 'export TFLINT_CONFIG_FILE="$(pwd)/infra/terraform/.tflint.hcl"; exec tflint --chdir=infra/terraform --recursive --minimum-failure-severity=error'
+        language: system
+        files: ^infra/terraform/.*\.tf$
+        pass_filenames: false

@@ -1,0 +1,117 @@
+# =============================================================================
+# VelocityAI Foundation Layer (per environment)
+# =============================================================================
+# Long-lived, slow-changing base for one environment: the account/region guard,
+# the project KMS CMK, the VPC + endpoints, the S3 backup bucket + AWS Backup
+# vault, the EC2 instance role, and the SSM Parameter Store secrets.
+#
+# The app layer (compute, DNS, monitoring, compose object) reads this layer's
+# outputs via terraform_remote_state and never re-declares these inputs.
+#
+# State key: velocityai/<env>/foundation.tfstate
+# Apply order: bootstrap -> shared -> foundation(<env>) -> app(<env>)
+# =============================================================================
+
+# --- Account / region guard -------------------------------------------------
+# Runs first; refuses plan/apply against the wrong account or region.
+module "account_guard" {
+  source = "../modules/account_guard"
+
+  expected_account_id = var.expected_account_id
+  expected_region     = var.aws_region
+}
+
+# --- KMS --------------------------------------------------------------------
+module "kms" {
+  source = "../modules/kms"
+
+  name_prefix = local.name_prefix
+  account_id  = module.account_guard.account_id
+  region      = module.account_guard.region
+}
+
+# --- Backups (storage bucket + Backup vault) -------------------------------
+# Before network because the network module scopes the S3 gateway VPC endpoint
+# to this bucket's ARN.
+module "backups" {
+  source = "../modules/backups"
+
+  name_prefix = local.name_prefix
+  environment = var.environment
+  kms_key_arn = module.kms.key_arn
+  # Derived deterministically (no committed name / account ID): the live
+  # account ID from the guard makes it globally unique per account+env.
+  bucket_name                 = "${local.name_prefix}-pg-dumps-${module.account_guard.account_id}"
+  daily_backup_retention_days = var.daily_backup_retention_days
+  cold_storage_after_days     = var.cold_storage_after_days
+  pg_dump_expiry_days         = var.pg_dump_expiry_days
+
+  # Vault Lock — opt-in, ONE-WAY. Default false. Enable only after retention
+  # drills (see modules/backups/variables.tf for the full irreversibility note).
+  enable_vault_lock             = var.enable_vault_lock
+  vault_lock_min_retention_days = var.vault_lock_min_retention_days
+  vault_lock_max_retention_days = var.vault_lock_max_retention_days
+
+  # S3 Object Lock — opt-in, CREATION-TIME-ONLY. Default false.
+  enable_object_lock         = var.enable_object_lock
+  object_lock_retention_days = var.object_lock_retention_days
+}
+
+# --- Network ----------------------------------------------------------------
+module "network" {
+  source = "../modules/network"
+
+  name_prefix        = local.name_prefix
+  vpc_cidr           = var.vpc_cidr
+  public_subnet_cidr = var.public_subnet_cidr
+  availability_zone  = var.availability_zone
+  ssh_allowed_cidrs  = var.ssh_allowed_cidrs
+  region             = module.account_guard.region
+
+  # VPC flow logs (project-owned, KMS-encrypted CW log group) + endpoint
+  # policies (aws:PrincipalAccount pin; S3 gateway scoped to the backup bucket).
+  environment        = var.environment
+  account_id         = module.account_guard.account_id
+  kms_key_arn        = module.kms.key_arn
+  log_retention_days = var.log_retention_days
+  backup_bucket_arn  = module.backups.backup_bucket_arn
+}
+
+# --- IAM (instance role + policies) ----------------------------------------
+# The instance role's ecr-pull policy is scoped to the SHARED ECR repos
+# (velocityai/backend, velocityai/frontend) — reconstructed from ARNs inside
+# the module to stay free of a cross-layer dependency on the shared layer.
+module "iam" {
+  source = "../modules/iam"
+
+  name_prefix                  = local.name_prefix
+  environment                  = var.environment
+  account_id                   = module.account_guard.account_id
+  region                       = module.account_guard.region
+  kms_key_arn                  = module.kms.key_arn
+  backup_bucket_arn            = module.backups.backup_bucket_arn
+  bedrock_model_id             = var.bedrock_model_id
+  bedrock_inference_profile_id = var.bedrock_inference_profile_id
+  attach_ssm_managed_policy    = true
+}
+
+# --- Secrets (SSM Parameter Store) -----------------------------------------
+module "secrets" {
+  source = "../modules/secrets"
+
+  name_prefix                  = local.name_prefix
+  environment                  = var.environment
+  region                       = module.account_guard.region
+  kms_key_id                   = module.kms.key_id
+  bedrock_model_id             = local.effective_model_id
+  bedrock_inference_profile_id = var.bedrock_inference_profile_id
+  app_secret_key               = var.app_secret_key
+  db_password                  = var.db_password
+  cors_origins                 = var.cors_origins
+  access_token_expire_hours    = var.access_token_expire_hours
+
+  # LangSmith — empty defaults; opt-in via tfvars / TF_VAR_*.
+  langsmith_tracing = var.langsmith_tracing
+  langsmith_api_key = var.langsmith_api_key
+  langsmith_project = var.langsmith_project
+}

@@ -8,7 +8,7 @@
 #
 # Why this exists separately from CI:
 #   - The bootstrap script (infra/scripts/bootstrap-ec2.sh) runs
-#     `docker compose pull` as part of flowin-app.service ExecStartPre.
+#     `docker compose pull` as part of velocityai-app.service ExecStartPre.
 #     Until at least one tag exists in each ECR repo, that pull fails and
 #     the systemd unit goes into restart-loop.
 #   - The CI pipeline is `when: manual` on main — fine for steady-state
@@ -18,7 +18,7 @@
 # Prerequisites:
 #   - SSO / credentials active (`aws sts get-caller-identity` succeeds).
 #   - Docker daemon running locally.
-#   - `terraform apply` has run against $FLOWIN_TF_ENV_DIR (default:
+#   - `terraform apply` has run against $VELOCITYAI_TF_ENV_DIR (default:
 #     infra/envs/prod) so `terraform output` resolves the ECR + FQDN values.
 #
 # Usage:
@@ -26,12 +26,12 @@
 #   scripts/first-deploy.sh v20260511-init     # tags with the given string
 #
 # Override the env directory (e.g. staging):
-#   FLOWIN_TF_ENV_DIR=infra/envs/staging scripts/first-deploy.sh
+#   VELOCITYAI_TF_ENV_DIR=infra/envs/staging scripts/first-deploy.sh
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TF_ENV_DIR="${FLOWIN_TF_ENV_DIR:-$REPO_ROOT/infra/envs/prod}"
+TF_ENV_DIR="${VELOCITYAI_TF_ENV_DIR:-$REPO_ROOT/infra/envs/prod}"
 TAG="${1:-latest}"
 
 if [[ ! -d "$TF_ENV_DIR" ]]; then

@@ -1,0 +1,23 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "WriteVelocityAILogGroups",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogStreams"
+      ],
+      "Resource": "arn:${partition}:logs:${region}:${account_id}:log-group:/velocityai/${environment}/*"
+    },
+    {
+      "Sid": "DescribeLogGroups",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups"
+      ],
+      "Resource": "arn:${partition}:logs:${region}:${account_id}:log-group:/velocityai/${environment}/*"
+    }
+  ]
+}

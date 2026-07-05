@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Frontend App — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="frontend">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Frontend App</b></div>
+      <div class="spacer"></div>
+      <span class="tag">Next.js 16 &middot; React 19</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Frontend</div>
+        <h1>Frontend App</h1>
+        <p>A Next.js 16 (App Router) single-page dashboard on React 19 + TypeScript 5 + Tailwind 4. It is a thin, event-driven view over the backend: it opens a WebSocket, sends <code>run_pipeline</code>, and reduces a stream of events into render state. Deliverables are dispatched by MIME type.</p>
+        <div class="kv">
+          <span><b>Next</b> 16.2.4</span><span><b>React</b> 19.2.4</span><span><b>Tailwind</b> 4</span>
+          <span>motion &middot; lucide-react &middot; pptxgenjs</span><span>Vitest + Playwright</span>
+        </div>
+      </div>
+
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> The frontend is a thin live window, not a brain. It sends one request to start a run, then simply renders whatever events stream back — agents thinking, tools firing, tasks completing — and finally shows the deliverable. Because runs can last hours, the window is built to survive dropped connections and pick up exactly where it left off.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>A Next.js 16 / React 19 dashboard driven entirely by a WebSocket event stream.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>Runs are long and streaming, so the UI must show live progress and reconnect gracefully rather than block on a request.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>Two hooks — a socket (<code>useWebSocket</code>) and a state machine (<code>useWorkflow</code>) — reduce events into render state; deliverables render by MIME type.</p></div>
+        </div>
+      </div>
+
+      <h3>How the UI reacts to a run</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>Pages (<code>src/app/</code>)</h3>
+      <table>
+        <thead><tr><th>Route</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>/</code></td><td>Landing page.</td></tr>
+          <tr><td><code>/login</code>, <code>/register</code></td><td>JWT auth screens.</td></tr>
+          <tr><td><code>/dashboard</code></td><td>The main SPA shell — the whole workflow experience (input, progress, preview, history).</td></tr>
+          <tr><td><code>/workflow</code></td><td>Workflow-focused view.</td></tr>
+          <tr><td><code>/handoff</code></td><td>The Claude-Code bridge UI.</td></tr>
+          <tr><td><code>/admin</code></td><td>User/tier admin.</td></tr>
+          <tr><td><code>/preview-fullscreen</code>, <code>/test-preview</code></td><td>Deliverable preview surfaces.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>The two hooks that run everything</h3>
+      <div class="grid g2">
+        <div class="card"><h4>useWebSocket.ts</h4><p class="lead">Owns the socket lifecycle. Connects with subprotocols <code>[bearer.&lt;jwt&gt;, flowin.v1]</code> (JWT off the URL); server echoes <code>flowin.v1</code>. Exponential-backoff reconnect capped at 30s with <b>no retry limit</b>; 20s client ping; a <code>4001</code> close clears the token &amp; redirects to login; filters heartbeats/pongs.</p></div>
+        <div class="card"><h4>useWorkflow.ts</h4><p class="lead">The <b>central pipeline state machine</b>. <code>startPipeline()</code> builds the <code>run_pipeline</code> payload (merging <code>model_overrides</code>, <code>gate_agent_ids</code>, <code>template_id</code>). <code>handlePipelineMessage()</code> is a big switch reducing every WS event into <code>PipelineRunState</code>. <code>submitQuestionnaire()</code> resumes a paused run.</p></div>
+      </div>
+      <p class="muted">Other hooks: <code>useNotifications</code>, <code>useSpeechRecognition</code>, <code>useTextToSpeech</code>. Context: <code>SkillsHooksContext</code>.</p>
+
+      <h3>The <code>lib/</code> layer</h3>
+      <table>
+        <thead><tr><th>Module</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr><td><code>api.ts</code></td><td>REST client (JWT in <code>localStorage['auth_token']</code>); typed wrappers for every endpoint; snake&#8594;camel normalizers.</td></tr>
+          <tr><td><code>env.ts</code></td><td><code>API_URL</code> / <code>WS_URL</code> (baked at build via <code>NEXT_PUBLIC_*</code>).</td></tr>
+          <tr><td><code>wsReplayState.ts</code></td><td>Reconnect/replay bookkeeping (sequence tracking).</td></tr>
+          <tr><td><code>workflowChaining.ts</code></td><td>Chain one pipeline's output into the next (context blocks).</td></tr>
+          <tr><td><code>ppt-api.ts</code> / <code>prototype-api.ts</code></td><td>Template/design-system fetchers.</td></tr>
+          <tr><td><code>exporters/</code>, <code>parsers/</code></td><td>Client-side <code>.pptx</code> export (pptxgenjs) + deliverable parsers.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Deliverable rendering — dispatch on MIME type</h3>
+      <p class="muted">Because a custom workflow can emit anything, <code>PreviewPanel</code> renders by the declared <code>deliverable_mimetype</code>, not by workflow name (SC-001 at the UI layer). On reopen it falls back to <code>resolveReopenMimetype()</code> heuristics.</p>
+      <table>
+        <thead><tr><th>MIME type</th><th>Renderer</th></tr></thead>
+        <tbody>
+          <tr><td><code>text/html</code></td><td>Sandboxed <code>&lt;iframe&gt;</code> (prototypes, od_ppt decks).</td></tr>
+          <tr><td><code>text/markdown</code></td><td><code>MarkdownPreview</code> (user stories, plans).</td></tr>
+          <tr><td><code>application/zip</code></td><td>File-bundle view (app builds, serialized sandbox).</td></tr>
+        </tbody>
+      </table>
+      <p class="muted">See the <a href="components.html">Component Tree</a> and the <a href="websocket-events.html">WebSocket Events</a> reference for details.</p>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; Frontend App</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"Open the socket", b:"useWebSocket", d:"On mount with a token, connects to <code>/ws/chat</code> offering <code>[bearer.&lt;jwt&gt;, flowin.v1]</code>; starts a 20s ping."},
+  {t:"Compose &amp; send the run", b:"useWorkflow", d:"<code>startPipeline()</code> serializes the brief + options and sends <code>run_pipeline</code>; state flips to isRunning."},
+  {t:"Receive events", b:"onMessage", d:"Each frame is parsed; heartbeats/pongs are filtered; the rest is routed to <code>handlePipelineMessage</code>."},
+  {t:"Reduce into state", b:"PipelineRunState", bc:"b-cyan", d:"A switch updates per-agent status, streamed output, planner state, token totals, tasks, DAG edges, hook runs, degraded/failed flags."},
+  {t:"Render progress", b:"AgentProgressPanel", d:"Agents animate through idle&#8594;thinking&#8594;running&#8594;done/error; the Thinking/Audit/Files tabs fill live."},
+  {t:"Handle gates", b:"HITL", bc:"b-amber", d:"On a questionnaire/review-gate event, a panel prompts the user; the answer is sent back to resume the run."},
+  {t:"Render the deliverable", b:"PreviewPanel", bc:"b-violet", d:"On <code>pipeline_complete</code>, dispatch on the declared mimetype: HTML&#8594;iframe, md&#8594;markdown, zip&#8594;bundle."},
+  {t:"Survive drops", b:"reconnect", d:"If the socket drops, backoff-reconnect and re-send <code>reconnect_pipeline</code>; the server replays the durable tail."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flowin Docs — Feature Atlas</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="index">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Home</b></div>
+      <div class="spacer"></div>
+      <span class="tag">Milestone v1.0 &middot; verifying</span>
+      <span class="tag">SC-001 &#10003;</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Feature Atlas</div>
+        <h1>Flowin / VelocityAI</h1>
+        <p>A full-stack, multi-agent AI platform that turns a plain-language brief into real deliverables — backlogs, decks, prototypes, whole apps, migration plans — driven by declarative workflow manifests, not hardcoded pipelines. This site has a dedicated, interactive page for every feature. Each page shows its own data flow.</p>
+        <div class="kv">
+          <span><b>Backend:</b> FastAPI &middot; Python</span>
+          <span><b>Frontend:</b> Next.js 16 &middot; React 19</span>
+          <span><b>LLM:</b> Bedrock / Anthropic (Claude)</span>
+          <span><b>Runtime:</b> LangChain deepagents</span>
+        </div>
+      </div>
+
+      <div class="grid g4" style="margin-bottom:8px">
+        <div class="stat"><div class="n">14+</div><div class="l">Workflow pipelines</div></div>
+        <div class="stat"><div class="n">~80</div><div class="l">Declarative agents</div></div>
+        <div class="stat"><div class="n">64</div><div class="l">Registered capabilities</div></div>
+        <div class="stat"><div class="n">22</div><div class="l">Refactor phases</div></div>
+      </div>
+
+      <div class="callout ok"><div class="t">&#10003; The one idea: SC-001</div><p>A brand-new workflow can replicate the entire <code>prototype</code> pipeline using a manifest + AGENT.md files only, with <b>zero engine edits</b>. The kernel knows no workflow by name — all behavior lives in data + registered capabilities. Every page here reflects that principle.</p></div>
+
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> Flowin is a "workflow factory" for knowledge work. You describe an outcome in plain language, and a coordinated team of AI agents produces the real artifact for you — a backlog, a slide deck, a clickable prototype, or a whole codebase. The clever part is that the engine running those agents is completely generic: what makes each workflow different lives in editable data, not in code.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>A full-stack, multi-agent AI platform that turns a brief into finished, downloadable deliverables.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To automate the slow first-draft work of product managers, designers, and engineers — repeatably and with a human in the loop.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>Declarative YAML manifests sequence LLM agents; a workflow-agnostic engine runs them and streams progress + the result to your browser.</p></div>
+        </div>
+      </div>
+
+      <h3>How this run works — the flow every page builds on</h3>
+      <p class="muted">Step through the universal request lifecycle. Individual feature pages zoom into their slice of it.</p>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>Explore by area</h3>
+      <div class="grid g3">
+        <a class="card link" href="architecture.html"><h4>&#127963;&#65039; Architecture</h4><p class="lead">The hexagonal, ports-and-adapters design and the 6 invariants.</p></a>
+        <a class="card link" href="data-flow.html"><h4>&#128256; Data Flow</h4><p class="lead">The full end-to-end run, step by step and interactive.</p></a>
+        <a class="card link" href="execution-kernel.html"><h4>&#9881;&#65039; Execution Kernel</h4><p class="lead">The workflow-agnostic sequencer that runs everything.</p></a>
+        <a class="card link" href="manifests-compiler.html"><h4>&#128220; Manifests &amp; Compiler</h4><p class="lead">How a YAML workflow becomes a typed executable plan.</p></a>
+        <a class="card link" href="capabilities.html"><h4>&#129513; Capabilities</h4><p class="lead">The 64 self-registering plug-ins, filterable by kind.</p></a>
+        <a class="card link" href="agents-runtime.html"><h4>&#129302; Agents &amp; Runtime</h4><p class="lead">AGENT.md, prompt composition, and the deepagents runner.</p></a>
+      </div>
+
+      <h3 style="margin-top:26px">Product features</h3>
+      <div class="grid g4">
+        <a class="card link" href="pipeline-user-stories.html"><h4>&#128221; User Stories</h4><p class="lead">6-agent backlog pipeline.</p></a>
+        <a class="card link" href="pipeline-ppt.html"><h4>&#128202; Presentations</h4><p class="lead">Design-system decks &#8594; .pptx.</p></a>
+        <a class="card link" href="pipeline-prototype.html"><h4>&#127912; Prototypes</h4><p class="lead">Task-by-task validated HTML.</p></a>
+        <a class="card link" href="pipeline-app-builder.html"><h4>&#128640; App Builder</h4><p class="lead">15-agent full SDLC.</p></a>
+        <a class="card link" href="pipeline-modernization.html"><h4>&#9851;&#65039; Modernization</h4><p class="lead">MuleSoft &#8594; Spring, .NET &#8594; Azure.</p></a>
+        <a class="card link" href="feature-revisions.html"><h4>&#8617;&#65039; Revisions</h4><p class="lead">Edit an existing deliverable.</p></a>
+        <a class="card link" href="feature-handoff.html"><h4>&#129309; Handoff</h4><p class="lead">Bridge a Claude Code session.</p></a>
+        <a class="card link" href="feature-catalog-saved.html"><h4>&#128451;&#65039; Catalog &amp; Saved</h4><p class="lead">Browse &amp; save workflows.</p></a>
+      </div>
+
+      <h3 style="margin-top:26px">Cross-cutting &amp; platform</h3>
+      <div class="grid g4">
+        <a class="card link" href="feature-hitl-gates.html"><h4>&#128678; HITL &amp; Clarify</h4><p class="lead">Human-in-the-loop pauses.</p></a>
+        <a class="card link" href="feature-fanout-waves.html"><h4>&#127754; Fan-out &amp; Waves</h4><p class="lead">Parallel execution.</p></a>
+        <a class="card link" href="feature-model-policy.html"><h4>&#129504; Model Policy</h4><p class="lead">Model selection &amp; fallback.</p></a>
+        <a class="card link" href="feature-mcp-integrations.html"><h4>&#128279; MCP &amp; Integrations</h4><p class="lead">GitHub/GitLab/Jira/Slack.</p></a>
+        <a class="card link" href="feature-skills-hooks.html"><h4>&#128736;&#65039; Skills &amp; Hooks</h4><p class="lead">Prompt injection layers.</p></a>
+        <a class="card link" href="infrastructure.html"><h4>&#9729;&#65039; Infrastructure</h4><p class="lead">AWS single-EC2 + Terraform.</p></a>
+        <a class="card link" href="codebase-map.html"><h4>&#128451;&#65039; Codebase Map</h4><p class="lead">Annotated directory tree.</p></a>
+        <a class="card link" href="phases.html"><h4>&#128200; 22-Phase History</h4><p class="lead">How it got here.</p></a>
+      </div>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin / VelocityAI Feature Atlas &middot; sourced from a deep scan of the repository (primary) and <code>.planning/IMPLEMENTATION-REGISTER.md</code> (secondary). Self-contained &middot; shared assets under <code>assets/</code>.</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"Browser sends <code>run_pipeline</code>", b:"WebSocket", d:"<code>useWorkflow.startPipeline()</code> serializes the pipeline type, brief, and options and sends them over the authenticated socket."},
+  {t:"FastAPI authenticates &amp; validates", b:"app/api/websocket.py", d:"Re-validates the JWT, allow-list-checks model overrides, creates the run row, starts a background task with an event queue."},
+  {t:"Engine compiles the workflow", b:"compile_for_run()", bc:"b-cyan", d:"Manifest &#8594; <code>WorkflowCompiler</code> &#8594; typed <code>CompiledWorkflow</code> (a validated Step DAG). Cached."},
+  {t:"Per-run ExecutionContext", b:"context.py", bc:"b-cyan", d:"One fresh context holds all run state; the engine singleton stays stateless."},
+  {t:"Planner + optional clarify gate", b:"HITL", bc:"b-amber", d:"The deep-planner infers intent; if clarify is on, the run pauses for a questionnaire."},
+  {t:"Topo-loop over Steps", b:"strategy", bc:"b-cyan", d:"Each step runs its declared strategy (single_shot / task_loop / fanout / wave)."},
+  {t:"Agent runner streams", b:"deepagents", bc:"b-green", d:"<code>create_runner()</code> builds a DeepAgentRunner; LangGraph events map to WS events; files land in the sandbox."},
+  {t:"Validate &amp; resolve deliverable", b:"validators", bc:"b-violet", d:"Declared validators + fix-loop run; the deliverable resolver produces the final artifact + mimetype."},
+  {t:"Events + deliverable stream back", b:"WS &#8594; React", d:"The UI reduces events into render state and dispatches the deliverable by MIME type. Events persist for replay."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude-Code Handoff — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="feature-handoff">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">Handoff</b></div>
+      <div class="spacer"></div>
+      <span class="tag">/flowin-handoff</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Product feature</div>
+        <h1>Claude-Code Handoff</h1>
+        <p>Bridges a local Claude Code (IDE) session into Flowin. A developer hands off their session transcript; Flowin runs a coding pipeline over it and can push results to GitHub/GitLab and file Jira issues via integrations.</p>
+        <div class="kv"><span><b>Feature name:</b> /flowin-handoff</span><span><b>Auth:</b> API key (flowin_ prefix, X-Flowin-API-Key)</span></div>
+      </div>
+
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> You're coding with Claude in your IDE and want Flowin to take it further. The handoff feature lets you pass your session over: Flowin runs a coding pipeline on it and can push the results straight to GitHub/GitLab and file Jira issues — bridging local AI-assisted coding into Flowin's orchestrated, integrated flow.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>The <code>/flowin-handoff</code> bridge from a local Claude Code session into a Flowin coding pipeline.</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To continue IDE-side AI work inside Flowin's orchestrated pipeline with team integrations (GitHub/GitLab/Jira/Slack).</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>A CLI (API-key auth) posts the transcript &#8594; a coding pipeline runs &#8594; the diff is reviewed &#8594; integrations push commits/PRs and file issues.</p></div>
+        </div>
+      </div>
+
+      <h3>The handoff flow</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>The pieces</h3>
+      <table>
+        <thead><tr><th>Piece</th><th>Where</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr><td>Receive endpoint</td><td><code>app/api/handoff.py</code></td><td>Accepts the transcript (bounded to <code>HANDOFF_MAX_TRANSCRIPT_BYTES</code> = 1 MiB — a DoS guard), returns a handoff URL.</td></tr>
+          <tr><td>WS handoff</td><td><code>app/api/websocket_handoff.py</code></td><td>Streams the handoff coding run to the UI.</td></tr>
+          <tr><td>Pipeline</td><td><code>app/services/handoff_pipeline.py</code></td><td>The coding pipeline (can use a Sonnet override via <code>BEDROCK_CODING_MODEL_ID</code>).</td></tr>
+          <tr><td>Git bridge</td><td><code>app/services/handoff_github.py</code></td><td>Pushes commits / opens PRs.</td></tr>
+          <tr><td>API-key auth</td><td><code>app/api/api_key_auth.py</code></td><td>Authenticates the CLI (<code>flowin_</code> key prefix, <code>X-Flowin-API-Key</code> header).</td></tr>
+          <tr><td>UI</td><td><code>components/handoff/</code></td><td>HandoffWorkflow, DiffView, ReportViews, IntegrationsCard, HandoffPreviewPanel.</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout"><div class="t">&#128273; Client installer</div><p><code>app/api/install.py</code> serves a client CLI installer; the generated client uses <code>FLOWIN_API_URL</code> / <code>FLOWIN_API_KEY</code> env vars. This is one of the product surfaces that still carries the <code>flowin</code> brand (the infra was rebranded to <code>velocityai</code>; see the note on <a href="index.html">Home</a>).</p></div>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; Handoff</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"Developer runs the CLI", b:"Claude Code", d:"In their IDE session, the developer triggers the handoff; the CLI authenticates with a <code>flowin_</code> API key."},
+  {t:"POST the transcript", b:"/api/handoff/receive", d:"The session transcript is sent (bounded to 1 MiB) and a handoff URL is returned to open in the browser."},
+  {t:"Open the handoff UI", b:"/handoff", d:"HandoffWorkflow shows the session, agents, and integration options (GitHub/GitLab/Jira/Slack)."},
+  {t:"Run the coding pipeline", b:"handoff_pipeline", bc:"b-cyan", d:"A coding pipeline runs over the transcript (optionally on a stronger coding model), streaming via the handoff WebSocket."},
+  {t:"Review the diff", b:"DiffView", bc:"b-violet", d:"The proposed changes render as a diff + report; the user reviews."},
+  {t:"Push / file issues", b:"integrations", bc:"b-green", d:"On approval, the git bridge pushes commits / opens a PR and files Jira issues via the granted integrations."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>

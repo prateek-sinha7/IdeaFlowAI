@@ -1,6 +1,6 @@
 # docker-compose.yml
 #
-# Flowin app stack — backend (FastAPI/uvicorn) + frontend (Next.js standalone).
+# VelocityAI app stack — backend (FastAPI/uvicorn) + frontend (Next.js standalone).
 #
 # Postgres and nginx run NATIVELY on the host — they are deliberately NOT in
 # this compose file. The reasoning is in docs/SIMPLE_AWS_DEPLOYMENT.md, but
@@ -27,42 +27,48 @@
 #   Local dev:  `docker compose build && docker compose up -d`
 #               (uses local sources via the `build:` context for each service)
 #   Production: `docker compose pull && docker compose up -d`
-#               (pulls pre-built images from ECR; tags from /etc/flowin/app.env)
+#               (pulls pre-built images from ECR; tags from /etc/velocityai/app.env)
 #
 # In production the operator sets BACKEND_IMAGE and FRONTEND_IMAGE in
-# /etc/flowin/app.env to fully qualified ECR URIs with a specific tag, e.g.
-#   BACKEND_IMAGE=<ACCOUNT>.dkr.ecr.eu-central-1.amazonaws.com/flowin-prod-backend:v20260510-abc1234
-#   FRONTEND_IMAGE=<ACCOUNT>.dkr.ecr.eu-central-1.amazonaws.com/flowin-prod-frontend:v20260510-abc1234
-# The `${BACKEND_IMAGE:-flowin-backend:local}` interpolation below means an
+# /etc/velocityai/app.env to fully qualified ECR URIs with a specific tag, e.g.
+#   BACKEND_IMAGE=<ACCOUNT>.dkr.ecr.eu-central-1.amazonaws.com/velocityai-prod-backend:v20260510-abc1234
+#   FRONTEND_IMAGE=<ACCOUNT>.dkr.ecr.eu-central-1.amazonaws.com/velocityai-prod-frontend:v20260510-abc1234
+# The `${BACKEND_IMAGE:-velocityai-backend:local}` interpolation below means an
 # unset variable falls back to the local-build tag, so the same compose file
 # works for both contexts without a `--profile` switch.
 
-name: flowin
+name: velocityai
 
 services:
   backend:
     # Image URI is interpolated from the env. Fallback is the local-build tag
     # the `build:` block below produces; that is what makes `docker compose
     # build && docker compose up` work straight from a developer checkout.
-    image: ${BACKEND_IMAGE:-flowin-backend:local}
+    image: ${BACKEND_IMAGE:-velocityai-backend:local}
     build:
       context: ./backend
       dockerfile: Dockerfile
+      additional_contexts:
+        # OpenDesign reference tree lives at the repo root, OUTSIDE ./backend.
+        # Named context consumed by `COPY --from=opendesign` in backend/Dockerfile
+        # so local `docker compose build` bakes /app/opendesign exactly like the
+        # CI buildx build (--build-context opendesign=skills/opendesign) does.
+        opendesign: ./skills/opendesign
     restart: unless-stopped
     env_file:
       # Two paths, both required: false. Compose merges them in order, so
-      # ./app.env overrides /etc/flowin/app.env when both exist — that is the
+      # ./app.env overrides /etc/velocityai/app.env when both exist — that is the
       # local-dev pattern: drop an `app.env` next to the compose file and
       # `docker compose up` picks it up without needing root or sudo.
       #
-      # Production:  /etc/flowin/app.env exists (written on every start by
-      #              /usr/local/bin/flowin-load-secrets, root:flowin 0640),
+      # Production:  /etc/velocityai/app.env exists (written on every start by
+      #              /usr/local/bin/velocityai-load-secrets, root:velocityai 0640),
       #              ./app.env does not — bootstrap deliberately doesn't put
-      #              one in /opt/flowin to avoid an accidental override.
-      # Local dev:   /etc/flowin/app.env doesn't exist on the laptop, devs
+      #              one in /opt/velocityai to avoid an accidental override.
+      # Local dev:   /etc/velocityai/app.env doesn't exist on the laptop, devs
       #              create ./app.env with their dev settings (or copy from
       #              app.env.example — see the example file at the repo root).
-      - path: /etc/flowin/app.env
+      - path: /etc/velocityai/app.env
         required: false
       - path: ./app.env
         required: false
@@ -72,7 +78,7 @@ services:
       # bound to the host's loopback. Postgres is on the host at
       # 127.0.0.1:5432; from inside this container the same Postgres is
       # reachable as host.docker.internal:5432. The DATABASE_URL composed by
-      # /usr/local/bin/flowin-load-secrets uses `host.docker.internal` for
+      # /usr/local/bin/velocityai-load-secrets uses `host.docker.internal` for
       # exactly this reason. Do NOT use `network_mode: host` instead — that
       # disables the network namespace and undoes most of the container
       # isolation we get for free.
@@ -90,12 +96,12 @@ services:
       # instance replacement. Mounted RW because the backend writes new
       # agents/skills at runtime (see backend Dockerfile note: /app/skills
       # exists in the image as an empty mount target).
-      - /opt/flowin/data/skills:/app/skills
+      - /opt/velocityai/data/skills:/app/skills
       # Per-user / per-run agent sandboxes (deepagents disk filesystem). Same EBS
       # data volume so a paused run's files survive instance replacement and
       # checkpoint-resume can read them back. RW; the backend creates
       # <user>/<run>/ subdirs at runtime under RUNS_ROOT=/app/runs.
-      - /opt/flowin/data/runs:/app/runs
+      - /opt/velocityai/data/runs:/app/runs
     healthcheck:
       # /health is implemented in app/main.py; the backend Dockerfile already
       # has a HEALTHCHECK directive but compose's healthcheck overrides it
@@ -132,7 +138,7 @@ services:
     stop_grace_period: 30s
 
   frontend:
-    image: ${FRONTEND_IMAGE:-flowin-frontend:local}
+    image: ${FRONTEND_IMAGE:-velocityai-frontend:local}
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -150,18 +156,22 @@ services:
       # Same loopback-only rationale as backend above.
       - "127.0.0.1:3000:3000"
     healthcheck:
-      # The frontend Dockerfile uses busybox wget; we mirror that here.
-      # 127.0.0.1 (NOT localhost): busybox wget resolves localhost to ::1, but
-      # Next.js standalone binds 0.0.0.0 (IPv4 only), so a localhost spider
-      # silently times out and the healthcheck stays "starting" forever.
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/"]
+      # The runtime image is node:20-bookworm-slim, which ships NEITHER wget nor
+      # curl, so an earlier `wget --spider` probe always failed ("wget: not
+      # found") and pinned the container to `unhealthy`. Use Node's built-in http
+      # client instead (identical to the Dockerfile HEALTHCHECK). Next.js
+      # redirects `/` to a default route (307), which is a healthy signal, so any
+      # status < 400 counts as success. 127.0.0.1 (NOT localhost): the standalone
+      # server binds 0.0.0.0 (IPv4 only) and Debian resolves localhost to ::1
+      # first, so a v6 probe would time out and stay "starting" forever.
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/', r => process.exit(r.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 30s
       timeout: 5s
       start_period: 15s
       retries: 3
     deploy:
       # Next.js standalone is small; 1G hard cap, 256M reservation matches
-      # the previous flowin-frontend.service `MemoryMax=2G` minus headroom
+      # the previous velocityai-frontend.service `MemoryMax=2G` minus headroom
       # we no longer need (no native systemd cache layer here).
       resources:
         limits:

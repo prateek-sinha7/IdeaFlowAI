@@ -1,0 +1,27 @@
+# =============================================================================
+# Trivy misconfiguration ignores (consumed by infra/buildspec.yml:
+#   trivy config ... --ignorefile .trivyignore infra/terraform).
+# =============================================================================
+# Each ID below is an ACCEPTED finding for this single-account / single-EC2 /
+# single-region architecture. Each maps ONLY to the resources noted, so a
+# global ignore loses no real coverage today. These mirror the accepts already
+# documented in .checkov.yaml and the inline checkov:skip annotations.
+
+# AVD-AWS-0104 — Security group rule allows unrestricted egress to 0.0.0.0/0.
+# The single EC2 host needs outbound internet on 443/80/53 to reach AWS APIs
+# (Bedrock, ECR, SSM), OS/package updates, ACME/Let's Encrypt, and DNS. This is
+# the documented residual in docs/_audit/tf_security.md (L-9). Tighter control
+# would require AWS Network Firewall + domain allow-listing (out of scope for a
+# single-EC2 design). Only the app SG egress rules match.
+AVD-AWS-0104
+
+# AVD-AWS-0031 — ECR repository tags are mutable. The CI model re-pushes the
+# same <env>-<sha> / release tag on a build retry, and the lifecycle policy
+# always keeps a prior release to roll back to. Same accept as CKV_AWS_51
+# (inline checkov:skip in modules/ecr/main.tf). Only the velocityai/* repos match.
+AVD-AWS-0031
+
+# AVD-AWS-0136 — SNS topic not encrypted with a customer-managed KMS key. The
+# alerts topic carries non-sensitive CloudWatch alarm notifications and uses
+# the default AWS-managed SNS encryption. Only the monitoring alerts topic matches.
+AVD-AWS-0136

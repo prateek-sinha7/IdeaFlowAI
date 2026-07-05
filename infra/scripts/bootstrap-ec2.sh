@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Flowin production EC2 bootstrap.
+# VelocityAI production EC2 bootstrap.
 #
 # Materialized form of docs/SIMPLE_AWS_DEPLOYMENT.md Appendix D — runnable,
 # idempotent, ~6 minutes wall-clock on a clean box.
@@ -7,13 +7,13 @@
 # Detects two modes at run:
 #   - Fresh provision (data volume blank): formats + initdb, generates DB
 #     password into SSM, installs all packages, fetches docker-compose.yml,
-#     authenticates to ECR, brings up flowin-app.service.
+#     authenticates to ECR, brings up velocityai-app.service.
 #   - Recovery from snapshot (data volume already has xfs + a Postgres
 #     data dir): skips initdb, reuses existing DB password from SSM,
 #     same Docker / ECR / image-pull path.
 #
 # Invocation: this is normally run from the EC2's first-boot phase via SSM
-# RunCommand AFTER cloud-init has placed /etc/flowin/bootstrap.env on disk
+# RunCommand AFTER cloud-init has placed /etc/velocityai/bootstrap.env on disk
 # (Terraform's module.compute writes that file from user_data.sh.tpl).
 # To run manually after a Terraform apply:
 #   aws ssm send-command \
@@ -25,7 +25,7 @@
 # Or copy the file to the box and run `sudo bash bootstrap-ec2.sh`.
 
 set -euo pipefail
-exec > >(tee -a /var/log/flowin-bootstrap.log) 2>&1
+exec > >(tee -a /var/log/velocityai-bootstrap.log) 2>&1
 echo "[bootstrap] start $(date -u --iso-8601=seconds)"
 
 if [[ "$EUID" -ne 0 ]]; then
@@ -34,7 +34,7 @@ if [[ "$EUID" -ne 0 ]]; then
 fi
 
 # ── 0. Wait for cloud-init to finish ───────────────────────────────────
-# Must come BEFORE sourcing /etc/flowin/bootstrap.env: that file is written
+# Must come BEFORE sourcing /etc/velocityai/bootstrap.env: that file is written
 # by user_data which runs as cloud-init's final stage. `aws ec2 wait
 # instance-status-ok` (used by the calling deploy.sh) only confirms system
 # reachability; on a fast SSM dispatch the box can report status-ok before
@@ -45,46 +45,46 @@ while ! cloud-init status --wait > /dev/null 2>&1; do sleep 2; done
 
 # ── 1. Source operator-controlled values written by user_data ──────────
 #
-# /etc/flowin/bootstrap.env is created by Terraform's compute module user_data
+# /etc/velocityai/bootstrap.env is created by Terraform's compute module user_data
 # (see infra/modules/compute/user_data.sh.tpl). It carries:
-#   FLOWIN_REGION         — AWS region (e.g. eu-central-1)
-#   FLOWIN_PARAM_PREFIX   — SSM Parameter Store prefix, e.g. /flowin/prod
-#   FLOWIN_ENVIRONMENT    — short env tag (prod / staging / …)
-#   FLOWIN_FQDN           — public hostname (nip.io or Route 53)
-#   FLOWIN_KMS_KEY_ID     — project CMK ARN/alias for backup encryption
-#   FLOWIN_BACKUP_BUCKET  — S3 bucket for pg_dump + skills tarballs
-#   FLOWIN_ECR_REGISTRY   — <ACCOUNT>.dkr.ecr.<region>.amazonaws.com
-#   FLOWIN_ACME_EMAIL     — email for Let's Encrypt registration
+#   VELOCITYAI_REGION         — AWS region (e.g. eu-central-1)
+#   VELOCITYAI_PARAM_PREFIX   — SSM Parameter Store prefix, e.g. /velocityai/prod
+#   VELOCITYAI_ENVIRONMENT    — short env tag (prod / staging / …)
+#   VELOCITYAI_FQDN           — public hostname (nip.io or Route 53)
+#   VELOCITYAI_KMS_KEY_ID     — project CMK ARN/alias for backup encryption
+#   VELOCITYAI_BACKUP_BUCKET  — S3 bucket for pg_dump + skills tarballs
+#   VELOCITYAI_ECR_REGISTRY   — <ACCOUNT>.dkr.ecr.<region>.amazonaws.com
+#   VELOCITYAI_ACME_EMAIL     — email for Let's Encrypt registration
 #
-# Also expects FLOWIN_IMAGE_TAG from the calling environment (deploy.sh
+# Also expects VELOCITYAI_IMAGE_TAG from the calling environment (deploy.sh
 # `aws ssm send-command` injects this via `export` prepended to the script
 # body). Defaults to "latest" for legacy compatibility, but deploy.sh
 # always sets a git-sha tag so re-runs don't collide with ECR IMMUTABLE.
 #
-# docker-compose.yml is downloaded from s3://$FLOWIN_BACKUP_BUCKET/config/
+# docker-compose.yml is downloaded from s3://$VELOCITYAI_BACKUP_BUCKET/config/
 # (uploaded by Terraform's aws_s3_object.compose_yaml in envs/prod/main.tf).
 # The EC2 needs no git auth.
-if [[ ! -f /etc/flowin/bootstrap.env ]]; then
-    echo "[bootstrap] ERROR: /etc/flowin/bootstrap.env missing — terraform apply hasn't completed?" >&2
+if [[ ! -f /etc/velocityai/bootstrap.env ]]; then
+    echo "[bootstrap] ERROR: /etc/velocityai/bootstrap.env missing — terraform apply hasn't completed?" >&2
     exit 1
 fi
 # shellcheck source=/dev/null
-. /etc/flowin/bootstrap.env
+. /etc/velocityai/bootstrap.env
 
-IMAGE_TAG="${FLOWIN_IMAGE_TAG:-latest}"
+IMAGE_TAG="${VELOCITYAI_IMAGE_TAG:-latest}"
 
-REGION="${FLOWIN_REGION:-eu-central-1}"
-DOMAIN="${FLOWIN_FQDN:?FLOWIN_FQDN missing in /etc/flowin/bootstrap.env}"
-PARAM_PREFIX="${FLOWIN_PARAM_PREFIX:-/flowin/prod}"
-ENVIRONMENT="${FLOWIN_ENVIRONMENT:-prod}"
+REGION="${VELOCITYAI_REGION:-eu-central-1}"
+DOMAIN="${VELOCITYAI_FQDN:?VELOCITYAI_FQDN missing in /etc/velocityai/bootstrap.env}"
+PARAM_PREFIX="${VELOCITYAI_PARAM_PREFIX:-/velocityai/prod}"
+ENVIRONMENT="${VELOCITYAI_ENVIRONMENT:-prod}"
 # Capitalize first letter for CloudWatch namespace ("prod" -> "Prod"). Matches
-# the monitoring module's `cw_metric_namespace = "Flowin/${title(env)}"`.
+# the monitoring module's `cw_metric_namespace = "VelocityAI/${title(env)}"`.
 ENV_TITLE="${ENVIRONMENT^}"
-ACME_EMAIL="${FLOWIN_ACME_EMAIL:-security@example.com}"
-BACKUP_BUCKET="${FLOWIN_BACKUP_BUCKET:?FLOWIN_BACKUP_BUCKET missing in /etc/flowin/bootstrap.env}"
+ACME_EMAIL="${VELOCITYAI_ACME_EMAIL:-security@example.com}"
+BACKUP_BUCKET="${VELOCITYAI_BACKUP_BUCKET:?VELOCITYAI_BACKUP_BUCKET missing in /etc/velocityai/bootstrap.env}"
 DATA_DEV=/dev/nvme1n1
 DATA_MOUNT=/var/lib/postgresql
-APP_USER=flowin
+APP_USER=velocityai
 
 # ── 2. Patch & baseline tools ──────────────────────────────────────────
 export DEBIAN_FRONTEND=noninteractive
@@ -139,7 +139,7 @@ ufw allow 443/tcp
 ufw allow from 172.16.0.0/12 to any port 5432 proto tcp comment "Postgres from docker bridges"
 ufw --force enable
 
-cat >/etc/ssh/sshd_config.d/10-flowin.conf <<'EOF'
+cat >/etc/ssh/sshd_config.d/10-velocityai.conf <<'EOF'
 PermitRootLogin no
 PasswordAuthentication no
 PubkeyAuthentication yes
@@ -160,7 +160,7 @@ EOF
 # command for "apply the new sshd_config, regardless of current state".
 systemctl reload-or-restart ssh
 
-cat >/etc/apt/apt.conf.d/52flowin <<'EOF'
+cat >/etc/apt/apt.conf.d/52velocityai <<'EOF'
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
 Unattended-Upgrade::Automatic-Reboot "true";
@@ -172,11 +172,20 @@ timedatectl set-timezone UTC
 
 # ── 4. Application user + directories ──────────────────────────────────
 id -u "$APP_USER" >/dev/null 2>&1 \
-    || useradd -r -m -d /opt/flowin -s /usr/sbin/nologin "$APP_USER"
-mkdir -p /opt/flowin /opt/flowin/data/skills /opt/flowin/data/runs /var/log/flowin /etc/flowin
-chown -R "$APP_USER:$APP_USER" /opt/flowin /var/log/flowin
-chown root:"$APP_USER" /etc/flowin
-chmod 0750 /etc/flowin
+    || useradd -r -m -d /opt/velocityai -s /usr/sbin/nologin "$APP_USER"
+mkdir -p /opt/velocityai /opt/velocityai/data/skills /opt/velocityai/data/runs /var/log/velocityai /etc/velocityai
+chown -R "$APP_USER:$APP_USER" /opt/velocityai /var/log/velocityai
+# The backend + frontend containers run as uid:gid 10001:10001 (see
+# backend/Dockerfile / frontend/Dockerfile). data/skills + data/runs are
+# bind-mounted INTO the backend container (docker-compose.yml: data/runs ->
+# /app/runs, data/skills -> /app/skills) and written by that non-root user, so
+# they MUST be owned by 10001 — NOT $APP_USER (a system uid, e.g. 999) — or the
+# container's per-run `mkdir /app/runs/<user>/<run>` fails with EACCES and every
+# pipeline run aborts. This runs AFTER the recursive chown above so it wins, and
+# is recursive so a recovery-mode volume with pre-existing content is fixed too.
+chown -R 10001:10001 /opt/velocityai/data/skills /opt/velocityai/data/runs
+chown root:"$APP_USER" /etc/velocityai
+chmod 0750 /etc/velocityai
 
 # ── 5. Data volume — fresh vs recovery ─────────────────────────────────
 systemctl stop postgresql || true
@@ -188,7 +197,7 @@ if blkid "$DATA_DEV" >/dev/null 2>&1; then
     echo "[bootstrap] data device has filesystem signature — skipping mkfs"
 else
     echo "[bootstrap] data device blank — formatting xfs"
-    mkfs.xfs -L flowin-data "$DATA_DEV"
+    mkfs.xfs -L vai-data "$DATA_DEV"
 fi
 
 mkdir -p "$DATA_MOUNT"
@@ -216,7 +225,7 @@ fi
 # ── 6. Postgres init / configure ───────────────────────────────────────
 # DATABASE_PASSWORD is provisioned by Terraform's random_password in
 # infra/modules/secrets/main.tf — script just reads it. (The composite
-# DATABASE_URL is composed at app-start by /usr/local/bin/flowin-load-secrets
+# DATABASE_URL is composed at app-start by /usr/local/bin/velocityai-load-secrets
 # from this same password; we don't store DATABASE_URL in SSM separately.)
 PG_DATA="$DATA_MOUNT/16/main"
 if [[ $RECOVERY -eq 0 ]]; then
@@ -226,10 +235,10 @@ if [[ $RECOVERY -eq 0 ]]; then
     #     argument" and the bootstrap died here.
     #   - Match the Debian/Ubuntu pg_createcluster default: peer for the
     #     local Unix socket (so `sudo -u postgres psql` works without
-    #     password), scram-sha-256 for TCP (the flowin app container
+    #     password), scram-sha-256 for TCP (the velocityai app container
     #     connects over TCP with a real password from SSM).
     #   - No --pwfile / --pwprompt: the postgres SUPERUSER role gets no
-    #     password set at initdb time. The flowin role created in the next
+    #     password set at initdb time. The velocityai role created in the next
     #     block is the one with a real scram-sha-256 hash, and that's the
     #     only role the app ever uses over TCP.
     sudo -u postgres /usr/lib/postgresql/16/bin/initdb -D "$PG_DATA" \
@@ -293,11 +302,11 @@ if [[ $RECOVERY -eq 0 ]]; then
         --name "$PARAM_PREFIX/DATABASE_PASSWORD" \
         --with-decryption --query 'Parameter.Value' --output text)
     sudo -u postgres psql -v ON_ERROR_STOP=1 <<SQL
-CREATE USER flowin WITH ENCRYPTED PASSWORD '$DB_PW';
-CREATE DATABASE flowin OWNER flowin;
-\c flowin
+CREATE USER velocityai WITH ENCRYPTED PASSWORD '$DB_PW';
+CREATE DATABASE velocityai OWNER velocityai;
+\c velocityai
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
-GRANT ALL ON SCHEMA public TO flowin;
+GRANT ALL ON SCHEMA public TO velocityai;
 SQL
 fi
 
@@ -311,7 +320,7 @@ if ! swapon --show | grep -q swapfile; then
         || echo '/swapfile none swap sw 0 0' >> /etc/fstab
 fi
 sysctl -w vm.swappiness=10
-echo 'vm.swappiness = 10' > /etc/sysctl.d/99-flowin.conf
+echo 'vm.swappiness = 10' > /etc/sysctl.d/99-velocityai.conf
 
 # ── 8. Docker engine + Compose plugin (Docker's official APT repo) ─────
 echo "[bootstrap] installing Docker engine + Compose plugin"
@@ -339,7 +348,7 @@ systemctl enable --now docker
 # (notably /etc/hosts, which docker generates per container and bind-mounts
 # in) got mode 0640 — readable only by root and the cwagent named entry.
 # Containers running as a non-root user (our Dockerfile sets uid 10001
-# `flowin`) then can't read /etc/hosts and DNS lookups for entries we
+# `velocityai`) then can't read /etc/hosts and DNS lookups for entries we
 # added via `extra_hosts: host.docker.internal:host-gateway` fail with
 # "Temporary failure in name resolution". Forcing `o::r` here restores the
 # normal world-readable /etc/hosts so app containers can use the host.
@@ -370,7 +379,7 @@ echo "[bootstrap] Docker installed: $(docker --version), $(docker compose versio
 #     | xargs -I{} curl -H "X-aws-ec2-metadata-token: {}" \
 #     http://169.254.169.254/latest/meta-data/iam/security-credentials/<role>
 # …and exfiltrate STS credentials valid for ~6h. Those credentials carry
-# Bedrock invoke, SSM Get* on /flowin/${ENV}/*, KMS Decrypt against the
+# Bedrock invoke, SSM Get* on /velocityai/${ENV}/*, KMS Decrypt against the
 # project CMK, and S3 PutObject on the backup bucket.
 #
 # ── Why we can NOT cleanly block this in bootstrap-ec2.sh today ────────
@@ -430,7 +439,7 @@ echo "[bootstrap] Docker installed: $(docker --version), $(docker compose versio
 #       SG INTENDS to allow because the legitimate workload needs them.)
 #   (e) detection — Phase C C2-1 (this branch, modules/monitoring) adds a
 #       CloudTrail trail + metric filter + CloudWatch alarm on any
-#       SSM Get* on /flowin/${ENV}/* or KMS Decrypt from a principal
+#       SSM Get* on /velocityai/${ENV}/* or KMS Decrypt from a principal
 #       OTHER than the instance role. An LLM-RCE-exfil attempt would
 #       trigger the UnexpectedSecretRead / UnexpectedKmsDecrypt alarm
 #       within 5 minutes — the "find out" surface for the surface (d)
@@ -484,7 +493,7 @@ if curl -sf --max-time 2 http://169.254.169.254/latest/meta-data/ \
     # Don't `exit 1` — bootstrap completing is more valuable than failing
     # here, and the CloudTrail UnexpectedKmsDecrypt alarm (C2-1) is the
     # safety net for any actual exfil. The log line is the operator
-    # signal; cwagent ships it to /flowin/${env}/system.
+    # signal; cwagent ships it to /velocityai/${env}/system.
 else
     echo "[bootstrap] OK: IMDSv1 (no token) returns 401 — IMDSv2 token-required is enforced (C2-2 baseline)"
 fi
@@ -498,16 +507,16 @@ fi
 echo "[bootstrap] IMDS hop_limit is set in TF: infra/modules/compute/main.tf::metadata_options.http_put_response_hop_limit (currently 2 — Docker bridge requires >= 2)"
 
 # ── 9. ECR login + refresh timer ───────────────────────────────────────
-ECR_REGISTRY="${FLOWIN_ECR_REGISTRY:-}"
+ECR_REGISTRY="${VELOCITYAI_ECR_REGISTRY:-}"
 if [[ -z "$ECR_REGISTRY" ]]; then
-    echo "[bootstrap] ERROR: FLOWIN_ECR_REGISTRY not set" >&2
+    echo "[bootstrap] ERROR: VELOCITYAI_ECR_REGISTRY not set" >&2
     exit 1
 fi
 
 aws ecr get-login-password --region "$REGION" \
     | docker login --username AWS --password-stdin "$ECR_REGISTRY"
 
-cat > /etc/systemd/system/flowin-ecr-login.service <<'UNIT'
+cat > /etc/systemd/system/velocityai-ecr-login.service <<'UNIT'
 [Unit]
 Description=Refresh Docker login to ECR
 After=network-online.target
@@ -515,11 +524,11 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-EnvironmentFile=/etc/flowin/bootstrap.env
-ExecStart=/bin/bash -c '/usr/local/bin/aws ecr get-login-password --region $FLOWIN_REGION | /usr/bin/docker login --username AWS --password-stdin $FLOWIN_ECR_REGISTRY'
+EnvironmentFile=/etc/velocityai/bootstrap.env
+ExecStart=/bin/bash -c '/usr/local/bin/aws ecr get-login-password --region $VELOCITYAI_REGION | /usr/bin/docker login --username AWS --password-stdin $VELOCITYAI_ECR_REGISTRY'
 UNIT
 
-cat > /etc/systemd/system/flowin-ecr-login.timer <<'TIMER'
+cat > /etc/systemd/system/velocityai-ecr-login.timer <<'TIMER'
 [Unit]
 Description=Refresh Docker login to ECR every 6 hours
 
@@ -533,7 +542,7 @@ WantedBy=timers.target
 TIMER
 
 systemctl daemon-reload
-systemctl enable --now flowin-ecr-login.timer
+systemctl enable --now velocityai-ecr-login.timer
 
 # ── 10. docker-compose.yml from S3 ─────────────────────────────────────
 # Terraform's envs/prod aws_s3_object.compose_yaml uploads the canonical
@@ -541,61 +550,76 @@ systemctl enable --now flowin-ecr-login.timer
 # every apply. The instance role's s3-config-read policy grants GetObject
 # on that exact prefix. Re-running this script picks up the latest file.
 aws s3 cp "s3://${BACKUP_BUCKET}/config/docker-compose.yml" \
-    /opt/flowin/docker-compose.yml --region "$REGION"
-chown "$APP_USER:$APP_USER" /opt/flowin/docker-compose.yml
-chmod 0644 /opt/flowin/docker-compose.yml
+    /opt/velocityai/docker-compose.yml --region "$REGION"
+chown "$APP_USER:$APP_USER" /opt/velocityai/docker-compose.yml
+chmod 0644 /opt/velocityai/docker-compose.yml
 
-# ── 11. /etc/flowin/app.env image-tag pin ──────────────────────────────
+# deploy.env (aws_s3_object.deploy_env, app layer) carries the resolved image
+# URIs for the deployed tag against the SHARED repos (velocityai/backend +
+# velocityai/frontend — built once, promoted by tag). It is authoritative; the
+# CI redeploy and this bootstrap both read it. Fall back to constructing the
+# refs from VELOCITYAI_IMAGE_TAG on a very first boot before the first apply.
+DEPLOY_BACKEND_IMAGE=""
+DEPLOY_FRONTEND_IMAGE=""
+if aws s3 cp "s3://${BACKUP_BUCKET}/config/deploy.env" /tmp/deploy.env --region "$REGION" 2>/dev/null; then
+    DEPLOY_BACKEND_IMAGE="$(grep -E '^BACKEND_IMAGE=' /tmp/deploy.env | cut -d= -f2-)"
+    DEPLOY_FRONTEND_IMAGE="$(grep -E '^FRONTEND_IMAGE=' /tmp/deploy.env | cut -d= -f2-)"
+    rm -f /tmp/deploy.env
+fi
+BACKEND_IMAGE_REF="${DEPLOY_BACKEND_IMAGE:-${ECR_REGISTRY}/velocityai/backend:${IMAGE_TAG}}"
+FRONTEND_IMAGE_REF="${DEPLOY_FRONTEND_IMAGE:-${ECR_REGISTRY}/velocityai/frontend:${IMAGE_TAG}}"
+
+# ── 11. /etc/velocityai/app.env image-tag pin ──────────────────────────────
 # ECR repos are IMMUTABLE — deploy.sh pushes :<git-sha> (never :latest).
 # On every bootstrap run we overwrite the BACKEND_IMAGE / FRONTEND_IMAGE
-# pin lines so a redeploy points at the just-pushed tag; flowin-load-secrets
-# preserves these pin lines on subsequent flowin-app.service starts (it
+# pin lines so a redeploy points at the just-pushed tag; velocityai-load-secrets
+# preserves these pin lines on subsequent velocityai-app.service starts (it
 # only reloads SSM-sourced secrets, not the image pins).
-mkdir -p /etc/flowin
-if [[ -f /etc/flowin/app.env ]]; then
+mkdir -p /etc/velocityai
+if [[ -f /etc/velocityai/app.env ]]; then
     # Strip the three managed lines; keep everything else operators added.
-    grep -vE '^(ENV|BACKEND_IMAGE|FRONTEND_IMAGE)=' /etc/flowin/app.env \
-        > /etc/flowin/app.env.new || true
+    grep -vE '^(ENV|BACKEND_IMAGE|FRONTEND_IMAGE)=' /etc/velocityai/app.env \
+        > /etc/velocityai/app.env.new || true
 else
     # Fresh box: seed with the header comment so future operators know
     # where these values come from.
-    cat > /etc/flowin/app.env.new <<EOF
-# Populated by /usr/local/bin/flowin-load-secrets on every flowin-app start.
+    cat > /etc/velocityai/app.env.new <<EOF
+# Populated by /usr/local/bin/velocityai-load-secrets on every velocityai-app start.
 # The loader preserves BACKEND_IMAGE / FRONTEND_IMAGE / ENV lines below;
 # everything else is overwritten from SSM ${PARAM_PREFIX}/*.
 
 EOF
 fi
-cat >> /etc/flowin/app.env.new <<EOF
+cat >> /etc/velocityai/app.env.new <<EOF
 ENV=production
-BACKEND_IMAGE=${ECR_REGISTRY}/flowin-${ENVIRONMENT}-backend:${IMAGE_TAG}
-FRONTEND_IMAGE=${ECR_REGISTRY}/flowin-${ENVIRONMENT}-frontend:${IMAGE_TAG}
+BACKEND_IMAGE=${BACKEND_IMAGE_REF}
+FRONTEND_IMAGE=${FRONTEND_IMAGE_REF}
 EOF
-mv /etc/flowin/app.env.new /etc/flowin/app.env
-chown root:"$APP_USER" /etc/flowin/app.env
-chmod 0640 /etc/flowin/app.env
+mv /etc/velocityai/app.env.new /etc/velocityai/app.env
+chown root:"$APP_USER" /etc/velocityai/app.env
+chmod 0640 /etc/velocityai/app.env
 
-# ── 12. /usr/local/bin/flowin-load-secrets ─────────────────────────────
+# ── 12. /usr/local/bin/velocityai-load-secrets ─────────────────────────────
 # Quoted heredoc — no shell expansion at install time. The generated script
-# sources /etc/flowin/bootstrap.env at run time, so REGION/PREFIX/FQDN come
+# sources /etc/velocityai/bootstrap.env at run time, so REGION/PREFIX/FQDN come
 # from whatever Terraform last wrote, not from this bootstrap's invocation.
-cat > /usr/local/bin/flowin-load-secrets <<'EOF'
+cat > /usr/local/bin/velocityai-load-secrets <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
 # Read REGION / PREFIX / FQDN from the same bootstrap.env Terraform writes
 # via user_data. Lets `terraform apply` change any of these without a
-# re-bootstrap — next flowin-app.service restart picks them up.
+# re-bootstrap — next velocityai-app.service restart picks them up.
 # shellcheck source=/dev/null
-. /etc/flowin/bootstrap.env
+. /etc/velocityai/bootstrap.env
 
-OUT=/etc/flowin/app.env
-TMP=$(mktemp /etc/flowin/app.env.XXXXXX)
-chmod 0640 "$TMP"; chown root:flowin "$TMP"
+OUT=/etc/velocityai/app.env
+TMP=$(mktemp /etc/velocityai/app.env.XXXXXX)
+chmod 0640 "$TMP"; chown root:velocityai "$TMP"
 
-REGION="${FLOWIN_REGION:-eu-central-1}"
-PREFIX="${FLOWIN_PARAM_PREFIX:-/flowin/prod}"
-DOMAIN="${FLOWIN_FQDN:-}"
+REGION="${VELOCITYAI_REGION:-eu-central-1}"
+PREFIX="${VELOCITYAI_PARAM_PREFIX:-/velocityai/prod}"
+DOMAIN="${VELOCITYAI_FQDN:-}"
 
 # Preserve CI-managed image-tag pins + the operator-defined ENV.
 if [[ -f "$OUT" ]]; then
@@ -631,10 +655,10 @@ while IFS=$'\t' read -r name value; do
             ;;
         PUBLIC_BASE_URL)
             # Same FQDN-fallback shape as CORS_ORIGINS. Set this parameter only
-            # when the public URL diverges from https://${FLOWIN_FQDN} (custom
-            # apex domain, CDN in front, etc.). The /flowin-handoff installer
+            # when the public URL diverges from https://${VELOCITYAI_FQDN} (custom
+            # apex domain, CDN in front, etc.). The /velocityai-handoff installer
             # endpoint reads PUBLIC_BASE_URL to format the curl|bash one-liner
-            # baked into ~/.claude/commands/flowin-handoff.md.
+            # baked into ~/.claude/commands/velocityai-handoff.md.
             if [[ -n "$value" ]]; then
                 emit PUBLIC_BASE_URL "$value"
                 PUBLIC_BASE_URL_SET=1
@@ -643,13 +667,13 @@ while IFS=$'\t' read -r name value; do
         SECRET_KEY|ACCESS_TOKEN_EXPIRE_HOURS|LANGSMITH_TRACING|LANGSMITH_API_KEY|LANGSMITH_PROJECT|HANDOFF_MAX_TRANSCRIPT_BYTES)
             emit "$rel" "$value" ;;
         DATABASE_PASSWORD)
-            emit DATABASE_URL "postgresql://flowin:${value}@host.docker.internal:5432/flowin" ;;
+            emit DATABASE_URL "postgresql://velocityai:${value}@host.docker.internal:5432/velocityai" ;;
         llm/region)               emit AWS_REGION                  "$value" ;;
         llm/model_id)             emit BEDROCK_MODEL_ID            "$value" ;;
         llm/inference_profile_id) emit BEDROCK_INFERENCE_PROFILE_ID "$value" ;;
         llm/coding_model_id)      emit BEDROCK_CODING_MODEL_ID     "$value" ;;
         *)
-            echo "[flowin-load-secrets] WARN: ignoring unknown parameter ${name}" >&2 ;;
+            echo "[velocityai-load-secrets] WARN: ignoring unknown parameter ${name}" >&2 ;;
     esac
 done < <(aws ssm get-parameters-by-path \
             --path "$PREFIX" --recursive --with-decryption \
@@ -659,7 +683,7 @@ done < <(aws ssm get-parameters-by-path \
 # Fallback: if SSM didn't supply a non-empty CORS_ORIGINS, default to a
 # single-origin list containing the FQDN we're serving from. Matches the
 # common case (single domain) and lets the operator opt-out by setting
-# /flowin/$env/CORS_ORIGINS to a non-empty JSON list.
+# /velocityai/$env/CORS_ORIGINS to a non-empty JSON list.
 if [[ "$CORS_SET" -eq 0 && -n "$DOMAIN" ]]; then
     emit CORS_ORIGINS "[\"https://${DOMAIN}\"]"
 fi
@@ -672,26 +696,26 @@ if [[ "$PUBLIC_BASE_URL_SET" -eq 0 && -n "$DOMAIN" ]]; then
 fi
 
 mv "$TMP" "$OUT"
-chmod 0640 "$OUT"; chown root:flowin "$OUT"
+chmod 0640 "$OUT"; chown root:velocityai "$OUT"
 EOF
-chmod +x /usr/local/bin/flowin-load-secrets
+chmod +x /usr/local/bin/velocityai-load-secrets
 
 # ── 13. nginx (Appendix A) ─────────────────────────────────────────────
 mkdir -p /var/www/letsencrypt /etc/nginx/snippets
 
-cat > /etc/nginx/conf.d/flowin-limits.conf <<'EOF'
-limit_req_zone $binary_remote_addr zone=flowin_login:10m rate=10r/m;
-limit_req_zone $binary_remote_addr zone=flowin_register:10m rate=5r/m;
-limit_req_zone $binary_remote_addr zone=flowin_change_pw:10m rate=10r/m;
-limit_req_zone $binary_remote_addr zone=flowin_api:10m rate=120r/m;
+cat > /etc/nginx/conf.d/velocityai-limits.conf <<'EOF'
+limit_req_zone $binary_remote_addr zone=velocityai_login:10m rate=10r/m;
+limit_req_zone $binary_remote_addr zone=velocityai_register:10m rate=5r/m;
+limit_req_zone $binary_remote_addr zone=velocityai_change_pw:10m rate=10r/m;
+limit_req_zone $binary_remote_addr zone=velocityai_api:10m rate=120r/m;
 
-log_format flowin '$remote_addr - $remote_user [$time_local] '
+log_format velocityai '$remote_addr - $remote_user [$time_local] '
                   '"$request_method $uri $server_protocol" '
                   '$status $body_bytes_sent "$http_referer" '
                   '"$http_user_agent" rt=$request_time';
 EOF
 
-cat > /etc/nginx/snippets/flowin-proxy-headers.conf <<'EOF'
+cat > /etc/nginx/snippets/velocityai-proxy-headers.conf <<'EOF'
 proxy_http_version 1.1;
 proxy_set_header   Host              $host;
 proxy_set_header   X-Real-IP         $remote_addr;
@@ -704,12 +728,12 @@ EOF
 # The full nginx site is written with $DOMAIN interpolated. Keeping the
 # heredoc unquoted because we WANT shell expansion of $DOMAIN; nginx vars
 # (like $host, $request_uri) are escaped with \ to survive bash.
-cat > /etc/nginx/sites-available/flowin <<EOF
-upstream flowin_backend {
+cat > /etc/nginx/sites-available/velocityai <<EOF
+upstream velocityai_backend {
     server 127.0.0.1:8000;
     keepalive 64;
 }
-upstream flowin_frontend {
+upstream velocityai_frontend {
     server 127.0.0.1:3000;
     keepalive 32;
 }
@@ -774,50 +798,50 @@ server {
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; connect-src 'self' https://${DOMAIN} wss://${DOMAIN}; frame-src 'self' blob:" always;
 
-    access_log /var/log/nginx/access.log flowin;
+    access_log /var/log/nginx/access.log velocityai;
     error_log  /var/log/nginx/error.log warn;
 
     location /api/auth/login {
-        limit_req zone=flowin_login burst=5 nodelay;
+        limit_req zone=velocityai_login burst=5 nodelay;
         limit_req_status 429;
-        proxy_pass         http://flowin_backend;
-        include            /etc/nginx/snippets/flowin-proxy-headers.conf;
+        proxy_pass         http://velocityai_backend;
+        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
     }
     location /api/auth/register {
-        limit_req zone=flowin_register burst=3 nodelay;
+        limit_req zone=velocityai_register burst=3 nodelay;
         limit_req_status 429;
-        proxy_pass         http://flowin_backend;
-        include            /etc/nginx/snippets/flowin-proxy-headers.conf;
+        proxy_pass         http://velocityai_backend;
+        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
     }
     location /api/auth/change-password {
-        limit_req zone=flowin_change_pw burst=5 nodelay;
+        limit_req zone=velocityai_change_pw burst=5 nodelay;
         limit_req_status 429;
-        proxy_pass         http://flowin_backend;
-        include            /etc/nginx/snippets/flowin-proxy-headers.conf;
+        proxy_pass         http://velocityai_backend;
+        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
     }
     location /api/ {
-        limit_req zone=flowin_api burst=20 nodelay;
+        limit_req zone=velocityai_api burst=20 nodelay;
         limit_req_status 429;
-        proxy_pass         http://flowin_backend;
-        include            /etc/nginx/snippets/flowin-proxy-headers.conf;
+        proxy_pass         http://velocityai_backend;
+        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
         proxy_buffering    off;
         proxy_request_buffering off;
         proxy_read_timeout 300s;
     }
     location = /health {
-        proxy_pass         http://flowin_backend;
-        include            /etc/nginx/snippets/flowin-proxy-headers.conf;
+        proxy_pass         http://velocityai_backend;
+        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
         access_log         off;
     }
     location = /openapi.json {
-        proxy_pass         http://flowin_backend;
-        include            /etc/nginx/snippets/flowin-proxy-headers.conf;
+        proxy_pass         http://velocityai_backend;
+        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
     }
     location = /docs  { return 404; }
     location = /redoc { return 404; }
 
     location /ws/chat {
-        proxy_pass              http://flowin_backend;
+        proxy_pass              http://velocityai_backend;
         proxy_http_version      1.1;
         proxy_set_header        Upgrade \$http_upgrade;
         proxy_set_header        Connection \$connection_upgrade;
@@ -831,12 +855,12 @@ server {
         proxy_request_buffering off;
     }
 
-    # /flowin-handoff live pipeline stream. Auth is JWT-subprotocol at the
+    # /velocityai-handoff live pipeline stream. Auth is JWT-subprotocol at the
     # backend (issuer-only); nginx is just the WebSocket terminator. Same
     # long read/send timeouts as /ws/chat because pipeline runs can take
     # minutes (clone -> classify -> code -> test -> compliance -> push -> PR).
     location /ws/handoff/ {
-        proxy_pass              http://flowin_backend;
+        proxy_pass              http://velocityai_backend;
         proxy_http_version      1.1;
         proxy_set_header        Upgrade \$http_upgrade;
         proxy_set_header        Connection \$connection_upgrade;
@@ -850,46 +874,46 @@ server {
         proxy_request_buffering off;
     }
 
-    # MCP remote tool endpoint for /flowin-handoff (JSON-RPC over HTTP).
+    # MCP remote tool endpoint for /velocityai-handoff (JSON-RPC over HTTP).
     # Bearer-token auth at the backend; same rate limit as /api/. Buffering
     # off so the tool's structuredContent response streams cleanly.
     location /mcp/ {
-        limit_req zone=flowin_api burst=20 nodelay;
+        limit_req zone=velocityai_api burst=20 nodelay;
         limit_req_status 429;
-        proxy_pass         http://flowin_backend;
-        include            /etc/nginx/snippets/flowin-proxy-headers.conf;
+        proxy_pass         http://velocityai_backend;
+        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
         proxy_buffering    off;
         proxy_request_buffering off;
         proxy_read_timeout 300s;
     }
 
-    # Public installer endpoint for /flowin-handoff:
-    #   curl -fsSL https://${DOMAIN}/install/flowin-handoff | bash
+    # Public installer endpoint for /velocityai-handoff:
+    #   curl -fsSL https://${DOMAIN}/install/velocityai-handoff | bash
     # No auth (the file bodies are generic). Same rate limit as /api/ so the
     # unauthenticated public surface can't be abused.
     location /install/ {
-        limit_req zone=flowin_api burst=20 nodelay;
+        limit_req zone=velocityai_api burst=20 nodelay;
         limit_req_status 429;
-        proxy_pass         http://flowin_backend;
-        include            /etc/nginx/snippets/flowin-proxy-headers.conf;
+        proxy_pass         http://velocityai_backend;
+        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
     }
 
     location / {
-        proxy_pass         http://flowin_frontend;
-        include            /etc/nginx/snippets/flowin-proxy-headers.conf;
+        proxy_pass         http://velocityai_frontend;
+        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
         proxy_buffering    on;
         proxy_read_timeout 60s;
     }
 
     location /_next/static/ {
-        proxy_pass         http://flowin_frontend;
-        include            /etc/nginx/snippets/flowin-proxy-headers.conf;
+        proxy_pass         http://velocityai_frontend;
+        include            /etc/nginx/snippets/velocityai-proxy-headers.conf;
         proxy_cache_valid  200 1y;
         add_header Cache-Control "public, max-age=31536000, immutable";
     }
 }
 EOF
-ln -sfn /etc/nginx/sites-available/flowin /etc/nginx/sites-enabled/flowin
+ln -sfn /etc/nginx/sites-available/velocityai /etc/nginx/sites-enabled/velocityai
 rm -f /etc/nginx/sites-enabled/default
 
 # Initial cert (HTTP-01 webroot) — only if no cert exists yet for this domain
@@ -902,12 +926,12 @@ server {
 }
 EOF2
     ln -sfn /etc/nginx/sites-available/bootstrap-http /etc/nginx/sites-enabled/bootstrap-http
-    rm -f /etc/nginx/sites-enabled/flowin
+    rm -f /etc/nginx/sites-enabled/velocityai
     systemctl reload nginx
     certbot certonly --webroot -w /var/www/letsencrypt \
         --non-interactive --agree-tos --email "$ACME_EMAIL" -d "$DOMAIN"
     rm /etc/nginx/sites-enabled/bootstrap-http
-    ln -sfn /etc/nginx/sites-available/flowin /etc/nginx/sites-enabled/flowin
+    ln -sfn /etc/nginx/sites-available/velocityai /etc/nginx/sites-enabled/velocityai
 fi
 
 nginx -t
@@ -943,7 +967,7 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<EOF
     "run_as_user": "cwagent"
   },
   "metrics": {
-    "namespace": "Flowin/${ENV_TITLE}",
+    "namespace": "VelocityAI/${ENV_TITLE}",
     "metrics_collected": {
       "cpu":    {"measurement": ["cpu_usage_idle","cpu_usage_iowait","cpu_usage_user","cpu_usage_system"], "totalcpu": true, "metrics_collection_interval": 60},
       "mem":    {"measurement": ["mem_used_percent","mem_available"], "metrics_collection_interval": 60},
@@ -961,14 +985,14 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<EOF
     "logs_collected": {
       "files": {
         "collect_list": [
-          {"file_path": "/var/log/nginx/access.log",                            "log_group_name": "/flowin/${ENVIRONMENT}/nginx-access", "log_stream_name": "{instance_id}",        "timezone": "UTC"},
-          {"file_path": "/var/log/nginx/error.log",                             "log_group_name": "/flowin/${ENVIRONMENT}/nginx-error",  "log_stream_name": "{instance_id}",        "timezone": "UTC"},
-          {"file_path": "/var/log/postgresql/postgresql-16-main.log",           "log_group_name": "/flowin/${ENVIRONMENT}/postgres",     "log_stream_name": "{instance_id}",        "timezone": "UTC"},
-          {"file_path": "/var/log/audit/audit.log",                             "log_group_name": "/flowin/${ENVIRONMENT}/system",       "log_stream_name": "{instance_id}",        "timezone": "UTC"},
-          {"file_path": "/var/log/auth.log",                                    "log_group_name": "/flowin/${ENVIRONMENT}/auth",         "log_stream_name": "{instance_id}",        "timezone": "UTC"},
-          {"file_path": "/var/log/unattended-upgrades/unattended-upgrades.log", "log_group_name": "/flowin/${ENVIRONMENT}/system",       "log_stream_name": "{instance_id}",        "timezone": "UTC"},
-          {"file_path": "/var/log/letsencrypt/letsencrypt.log",                 "log_group_name": "/flowin/${ENVIRONMENT}/letsencrypt",  "log_stream_name": "{instance_id}",        "timezone": "UTC"},
-          {"file_path": "/var/lib/docker/containers/*/*-json.log",              "log_group_name": "/flowin/${ENVIRONMENT}/app",          "log_stream_name": "{instance_id}/docker", "timezone": "UTC"}
+          {"file_path": "/var/log/nginx/access.log",                            "log_group_name": "/velocityai/${ENVIRONMENT}/nginx-access", "log_stream_name": "{instance_id}",        "timezone": "UTC"},
+          {"file_path": "/var/log/nginx/error.log",                             "log_group_name": "/velocityai/${ENVIRONMENT}/nginx-error",  "log_stream_name": "{instance_id}",        "timezone": "UTC"},
+          {"file_path": "/var/log/postgresql/postgresql-16-main.log",           "log_group_name": "/velocityai/${ENVIRONMENT}/postgres",     "log_stream_name": "{instance_id}",        "timezone": "UTC"},
+          {"file_path": "/var/log/audit/audit.log",                             "log_group_name": "/velocityai/${ENVIRONMENT}/system",       "log_stream_name": "{instance_id}",        "timezone": "UTC"},
+          {"file_path": "/var/log/auth.log",                                    "log_group_name": "/velocityai/${ENVIRONMENT}/auth",         "log_stream_name": "{instance_id}",        "timezone": "UTC"},
+          {"file_path": "/var/log/unattended-upgrades/unattended-upgrades.log", "log_group_name": "/velocityai/${ENVIRONMENT}/system",       "log_stream_name": "{instance_id}",        "timezone": "UTC"},
+          {"file_path": "/var/log/letsencrypt/letsencrypt.log",                 "log_group_name": "/velocityai/${ENVIRONMENT}/letsencrypt",  "log_stream_name": "{instance_id}",        "timezone": "UTC"},
+          {"file_path": "/var/lib/docker/containers/*/*-json.log",              "log_group_name": "/velocityai/${ENVIRONMENT}/app",          "log_stream_name": "{instance_id}/docker", "timezone": "UTC"}
         ]
       }
     }
@@ -982,18 +1006,18 @@ EOF
     -a fetch-config -m ec2 -s \
     -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
 
-# ── 15. flowin-deploy user + restricted sudoers + image-tag wrapper ────
-if ! id flowin-deploy >/dev/null 2>&1; then
-    useradd --system --create-home --shell /bin/bash flowin-deploy
-    install -d -o flowin-deploy -g flowin-deploy -m 0700 /home/flowin-deploy/.ssh
-    install -o flowin-deploy -g flowin-deploy -m 0600 /dev/null \
-        /home/flowin-deploy/.ssh/authorized_keys
+# ── 15. velocityai-deploy user + restricted sudoers + image-tag wrapper ────
+if ! id velocityai-deploy >/dev/null 2>&1; then
+    useradd --system --create-home --shell /bin/bash velocityai-deploy
+    install -d -o velocityai-deploy -g velocityai-deploy -m 0700 /home/velocityai-deploy/.ssh
+    install -o velocityai-deploy -g velocityai-deploy -m 0600 /dev/null \
+        /home/velocityai-deploy/.ssh/authorized_keys
 fi
 
-cat > /usr/local/bin/flowin-update-image-tag <<'WRAPPER'
+cat > /usr/local/bin/velocityai-update-image-tag <<'WRAPPER'
 #!/bin/bash
-# /usr/local/bin/flowin-update-image-tag — called by `sudo` from CI.
-# Usage: flowin-update-image-tag (backend|frontend) <image_uri>
+# /usr/local/bin/velocityai-update-image-tag — called by `sudo` from CI.
+# Usage: velocityai-update-image-tag (backend|frontend) <image_uri>
 set -euo pipefail
 if [ "$#" -ne 2 ]; then
     echo "ERROR: usage: $0 (backend|frontend) <image_uri>" >&2
@@ -1010,64 +1034,64 @@ if [ "${#image}" -gt 255 ] || ! [[ "$image" =~ ^[a-z0-9._/:-]+$ ]]; then
     exit 66
 fi
 upper="${component^^}"
-sed -i.bak "s|^${upper}_IMAGE=.*|${upper}_IMAGE=${image}|" /etc/flowin/app.env
-rm -f /etc/flowin/app.env.bak
+sed -i.bak "s|^${upper}_IMAGE=.*|${upper}_IMAGE=${image}|" /etc/velocityai/app.env
+rm -f /etc/velocityai/app.env.bak
 WRAPPER
-chmod 0755 /usr/local/bin/flowin-update-image-tag
-chown root:root /usr/local/bin/flowin-update-image-tag
+chmod 0755 /usr/local/bin/velocityai-update-image-tag
+chown root:root /usr/local/bin/velocityai-update-image-tag
 
 # Restricted sudoers via visudo -cf to refuse a malformed install.
 SUDOERS_TMP=$(mktemp)
 cat > "$SUDOERS_TMP" <<'SUDO'
-# /etc/sudoers.d/flowin-deploy — generated by Flowin bootstrap.
-flowin-deploy ALL=(root) NOPASSWD: /usr/local/bin/flowin-update-image-tag backend *
-flowin-deploy ALL=(root) NOPASSWD: /usr/local/bin/flowin-update-image-tag frontend *
-flowin-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart flowin-app.service
+# /etc/sudoers.d/velocityai-deploy — generated by VelocityAI bootstrap.
+velocityai-deploy ALL=(root) NOPASSWD: /usr/local/bin/velocityai-update-image-tag backend *
+velocityai-deploy ALL=(root) NOPASSWD: /usr/local/bin/velocityai-update-image-tag frontend *
+velocityai-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart velocityai-app.service
 SUDO
 chmod 0440 "$SUDOERS_TMP"
 if visudo -cf "$SUDOERS_TMP"; then
-    install -o root -g root -m 0440 "$SUDOERS_TMP" /etc/sudoers.d/flowin-deploy
+    install -o root -g root -m 0440 "$SUDOERS_TMP" /etc/sudoers.d/velocityai-deploy
 else
-    echo "[bootstrap] ERROR: flowin-deploy sudoers stanza failed visudo check" >&2
+    echo "[bootstrap] ERROR: velocityai-deploy sudoers stanza failed visudo check" >&2
     rm -f "$SUDOERS_TMP"
     exit 1
 fi
 rm -f "$SUDOERS_TMP"
 
 # ── 16. Backups: pg_dump + skills tarball + stuck-workflow probe ───────
-cat > /usr/local/bin/flowin-pg-dump <<'EOF'
+cat > /usr/local/bin/velocityai-pg-dump <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-: "${FLOWIN_BACKUP_BUCKET:?FLOWIN_BACKUP_BUCKET is required}"
-: "${FLOWIN_KMS_KEY_ID:?FLOWIN_KMS_KEY_ID is required}"
+: "${VELOCITYAI_BACKUP_BUCKET:?VELOCITYAI_BACKUP_BUCKET is required}"
+: "${VELOCITYAI_KMS_KEY_ID:?VELOCITYAI_KMS_KEY_ID is required}"
 TS=$(date -u +%Y%m%dT%H%M%SZ)
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-DUMP="$TMP/flowin-${TS}.sql.gz"
-pg_dump --format=plain --no-owner --no-acl flowin | gzip -9 > "$DUMP"
-aws s3 cp "$DUMP" "s3://${FLOWIN_BACKUP_BUCKET}/postgres/${TS}/flowin.sql.gz" \
-    --region "${FLOWIN_REGION:-eu-central-1}" \
+DUMP="$TMP/velocityai-${TS}.sql.gz"
+pg_dump --format=plain --no-owner --no-acl velocityai | gzip -9 > "$DUMP"
+aws s3 cp "$DUMP" "s3://${VELOCITYAI_BACKUP_BUCKET}/postgres/${TS}/velocityai.sql.gz" \
+    --region "${VELOCITYAI_REGION:-eu-central-1}" \
     --sse aws:kms \
-    --sse-kms-key-id "$FLOWIN_KMS_KEY_ID"
+    --sse-kms-key-id "$VELOCITYAI_KMS_KEY_ID"
 echo "pg_dump complete: $(stat -c%s "$DUMP") bytes uploaded to S3"
 EOF
-chmod 0755 /usr/local/bin/flowin-pg-dump
+chmod 0755 /usr/local/bin/velocityai-pg-dump
 
-cat > /usr/local/bin/flowin-skills-backup <<'EOF'
+cat > /usr/local/bin/velocityai-skills-backup <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-: "${FLOWIN_BACKUP_BUCKET:?FLOWIN_BACKUP_BUCKET is required}"
-: "${FLOWIN_KMS_KEY_ID:?FLOWIN_KMS_KEY_ID is required}"
+: "${VELOCITYAI_BACKUP_BUCKET:?VELOCITYAI_BACKUP_BUCKET is required}"
+: "${VELOCITYAI_KMS_KEY_ID:?VELOCITYAI_KMS_KEY_ID is required}"
 TS=$(date -u +%Y%m%d)
-tar -czf - -C /opt/flowin/data skills \
-    | aws s3 cp - "s3://${FLOWIN_BACKUP_BUCKET}/skills/${TS}.tar.gz" \
-        --region "${FLOWIN_REGION:-eu-central-1}" \
+tar -czf - -C /opt/velocityai/data skills \
+    | aws s3 cp - "s3://${VELOCITYAI_BACKUP_BUCKET}/skills/${TS}.tar.gz" \
+        --region "${VELOCITYAI_REGION:-eu-central-1}" \
         --sse aws:kms \
-        --sse-kms-key-id "$FLOWIN_KMS_KEY_ID"
+        --sse-kms-key-id "$VELOCITYAI_KMS_KEY_ID"
 EOF
-chmod 0755 /usr/local/bin/flowin-skills-backup
+chmod 0755 /usr/local/bin/velocityai-skills-backup
 
-cat > /usr/local/bin/flowin-stuck-workflows-check <<'EOF'
+cat > /usr/local/bin/velocityai-stuck-workflows-check <<'EOF'
 #!/usr/bin/env bash
 # Audit D P2-3 — push StuckRunningWorkflows custom metric.
 set -euo pipefail
@@ -1079,17 +1103,17 @@ COUNT=$(psql "$HOST_DB_URL" -tAc \
      WHERE status='running' AND created_at < NOW() - INTERVAL '60 minutes'")
 COUNT=${COUNT:-0}
 aws cloudwatch put-metric-data \
-    --namespace Flowin/Prod \
+    --namespace VelocityAI/Prod \
     --metric-name StuckRunningWorkflows \
     --value "$COUNT" \
     --region "$AWS_REGION"
 EOF
-chmod 0755 /usr/local/bin/flowin-stuck-workflows-check
+chmod 0755 /usr/local/bin/velocityai-stuck-workflows-check
 
 # ── 17. systemd units (Appendix B) ─────────────────────────────────────
-cat > /etc/systemd/system/flowin-app.service <<'EOF'
+cat > /etc/systemd/system/velocityai-app.service <<'EOF'
 [Unit]
-Description=Flowin app stack (backend + frontend) via Docker Compose
+Description=VelocityAI app stack (backend + frontend) via Docker Compose
 After=docker.service network-online.target postgresql.service
 Requires=docker.service
 Wants=network-online.target
@@ -1097,9 +1121,9 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=/opt/flowin
-EnvironmentFile=/etc/flowin/app.env
-ExecStartPre=/usr/local/bin/flowin-load-secrets
+WorkingDirectory=/opt/velocityai
+EnvironmentFile=/etc/velocityai/app.env
+ExecStartPre=/usr/local/bin/velocityai-load-secrets
 ExecStartPre=/usr/bin/docker compose pull
 ExecStart=/usr/bin/docker compose up -d --remove-orphans
 ExecStop=/usr/bin/docker compose down
@@ -1112,9 +1136,9 @@ RestartSec=30s
 WantedBy=multi-user.target
 EOF
 
-cat > /etc/systemd/system/flowin-pg-dump.service <<'EOF'
+cat > /etc/systemd/system/velocityai-pg-dump.service <<'EOF'
 [Unit]
-Description=Flowin Postgres logical dump to S3
+Description=VelocityAI Postgres logical dump to S3
 After=network-online.target postgresql.service
 Wants=network-online.target
 
@@ -1122,71 +1146,71 @@ Wants=network-online.target
 Type=oneshot
 User=postgres
 Group=postgres
-EnvironmentFile=/etc/flowin/bootstrap.env
-EnvironmentFile=/etc/flowin/app.env
-ExecStart=/usr/local/bin/flowin-pg-dump
+EnvironmentFile=/etc/velocityai/bootstrap.env
+EnvironmentFile=/etc/velocityai/app.env
+ExecStart=/usr/local/bin/velocityai-pg-dump
 TimeoutStartSec=600
 EOF
 
-cat > /etc/systemd/system/flowin-pg-dump.timer <<'EOF'
+cat > /etc/systemd/system/velocityai-pg-dump.timer <<'EOF'
 [Unit]
-Description=Hourly Flowin PG dump
+Description=Hourly VelocityAI PG dump
 
 [Timer]
 OnCalendar=hourly
 Persistent=true
 RandomizedDelaySec=120
-Unit=flowin-pg-dump.service
+Unit=velocityai-pg-dump.service
 
 [Install]
 WantedBy=timers.target
 EOF
 
-cat > /etc/systemd/system/flowin-skills-backup.service <<'EOF'
+cat > /etc/systemd/system/velocityai-skills-backup.service <<'EOF'
 [Unit]
-Description=Flowin skills backup to S3
+Description=VelocityAI skills backup to S3
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=flowin
-Group=flowin
-EnvironmentFile=/etc/flowin/bootstrap.env
-ExecStart=/usr/local/bin/flowin-skills-backup
+User=velocityai
+Group=velocityai
+EnvironmentFile=/etc/velocityai/bootstrap.env
+ExecStart=/usr/local/bin/velocityai-skills-backup
 EOF
 
-cat > /etc/systemd/system/flowin-skills-backup.timer <<'EOF'
+cat > /etc/systemd/system/velocityai-skills-backup.timer <<'EOF'
 [Unit]
-Description=Daily Flowin skills backup
+Description=Daily VelocityAI skills backup
 
 [Timer]
 OnCalendar=daily
 Persistent=true
 RandomizedDelaySec=600
-Unit=flowin-skills-backup.service
+Unit=velocityai-skills-backup.service
 
 [Install]
 WantedBy=timers.target
 EOF
 
-cat > /etc/systemd/system/flowin-stuck-workflows-check.service <<'EOF'
+cat > /etc/systemd/system/velocityai-stuck-workflows-check.service <<'EOF'
 [Unit]
-Description=Flowin stuck-running WorkflowRun probe
+Description=VelocityAI stuck-running WorkflowRun probe
 After=network-online.target postgresql.service
 Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=flowin
-Group=flowin
-EnvironmentFile=/etc/flowin/bootstrap.env
-EnvironmentFile=/etc/flowin/app.env
-ExecStart=/usr/local/bin/flowin-stuck-workflows-check
+User=velocityai
+Group=velocityai
+EnvironmentFile=/etc/velocityai/bootstrap.env
+EnvironmentFile=/etc/velocityai/app.env
+ExecStart=/usr/local/bin/velocityai-stuck-workflows-check
 TimeoutStartSec=60
 EOF
 
-cat > /etc/systemd/system/flowin-stuck-workflows-check.timer <<'EOF'
+cat > /etc/systemd/system/velocityai-stuck-workflows-check.timer <<'EOF'
 [Unit]
 Description=Run stuck-workflows probe every 15 minutes
 
@@ -1194,7 +1218,7 @@ Description=Run stuck-workflows probe every 15 minutes
 OnCalendar=*:0/15
 Persistent=true
 RandomizedDelaySec=60
-Unit=flowin-stuck-workflows-check.service
+Unit=velocityai-stuck-workflows-check.service
 
 [Install]
 WantedBy=timers.target
@@ -1202,20 +1226,20 @@ EOF
 
 systemctl daemon-reload
 systemctl enable --now \
-    flowin-pg-dump.timer \
-    flowin-skills-backup.timer \
-    flowin-stuck-workflows-check.timer
+    velocityai-pg-dump.timer \
+    velocityai-skills-backup.timer \
+    velocityai-stuck-workflows-check.timer
 
 # ── 18. App service — load secrets, start ──────────────────────────────
-/usr/local/bin/flowin-load-secrets
+/usr/local/bin/velocityai-load-secrets
 # Tear down any existing containers before (re-)starting the service. This
 # forces fresh containers on every bootstrap re-run, which is necessary so
 # that any change to host state that influences container provisioning
 # (default ACLs on /var/lib/docker/containers — see §8 above, image-tag
-# pins in /etc/flowin/app.env, etc.) takes effect even when neither the
+# pins in /etc/velocityai/app.env, etc.) takes effect even when neither the
 # image digest nor compose-detectable env has changed. Idempotent: on a
 # fresh box there are no containers to remove.
-( cd /opt/flowin && docker compose down --remove-orphans 2>/dev/null || true )
+( cd /opt/velocityai && docker compose down --remove-orphans 2>/dev/null || true )
 # `systemctl enable` registers the unit at boot — idempotent, safe to
 # rerun. `systemctl restart` then forces a fresh ExecStartPre+ExecStart
 # cycle.
@@ -1227,8 +1251,8 @@ systemctl enable --now \
 # `start` is a no-op. That made the first deploy succeed (unit not yet
 # enabled → enable+start) but every subsequent deploy silently skip the
 # `docker compose pull` + `docker compose up -d --remove-orphans` steps
-# in flowin-app.service, leaving the box running yesterday's containers
-# even though /etc/flowin/app.env now points at the new image tag.
+# in velocityai-app.service, leaving the box running yesterday's containers
+# even though /etc/velocityai/app.env now points at the new image tag.
 # `systemctl restart` correctly transitions oneshot
 # Active(exited) → deactivating (runs ExecStop, our `docker compose
 # down`) → inactive → activating (runs ExecStartPre+ExecStart) →
@@ -1236,14 +1260,25 @@ systemctl enable --now \
 # with ExecStop but kept as a belt-and-suspenders teardown for the
 # rare case where the unit file's ExecStop has been edited away from
 # what we expect.
-systemctl enable flowin-app.service
-systemctl restart flowin-app.service
+systemctl enable velocityai-app.service
+systemctl restart velocityai-app.service
 
 # ── 19. Smoke test ─────────────────────────────────────────────────────
 sleep 15
 if ! curl -fsS http://127.0.0.1:8000/health; then
-    echo "[bootstrap] WARN: /health probe failed — flowin-app.service may still be starting"
-    echo "[bootstrap]       check: sudo systemctl status flowin-app.service"
-    echo "[bootstrap]       check: sudo docker compose -f /opt/flowin/docker-compose.yml logs --tail=200"
+    echo "[bootstrap] WARN: /health probe failed — velocityai-app.service may still be starting"
+    echo "[bootstrap]       check: sudo systemctl status velocityai-app.service"
+    echo "[bootstrap]       check: sudo docker compose -f /opt/velocityai/docker-compose.yml logs --tail=200"
 fi
+# ── 20. Completion sentinel ────────────────────────────────────────────
+# Signals that the full host bootstrap finished. Consumed by:
+#   - velocityai-firstboot.service (its ConditionPathExists guard, so the
+#     first-boot self-provision runs exactly once per instance);
+#   - the CI redeploy in infra/buildspec.yml, which — on a freshly-created
+#     instance that is still self-provisioning — waits for this file before
+#     attempting a container redeploy (avoids racing docker compose against
+#     an install that hasn't put Docker on the box yet).
+install -d -m 0755 /var/lib/velocityai
+date -u --iso-8601=seconds > /var/lib/velocityai/.bootstrap-done
+
 echo "[bootstrap] complete $(date -u --iso-8601=seconds)"

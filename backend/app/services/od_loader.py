@@ -19,6 +19,7 @@ the underlying files.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -42,6 +43,16 @@ logger = logging.getLogger("app.services.od_loader")
 # empty template gallery (regression vs the prior image, which resolved to
 # /app/skills). Resolve against whichever layout actually has the directory.
 def _resolve_od_root() -> Path:
+    # 1. Explicit override. The container image bakes the OpenDesign reference
+    #    tree at /app/opendesign (see backend/Dockerfile) and sets
+    #    OD_ROOT=/app/opendesign. That path is deliberately OUTSIDE /app/skills,
+    #    which is a bind-mounted (initially empty) EBS volume for per-user skills
+    #    that would otherwise SHADOW any baked content there.
+    env_root = os.environ.get("OD_ROOT")
+    if env_root and Path(env_root).is_dir():
+        return Path(env_root)
+    # 2. Local checkout: skills/opendesign at the repo root (parents[3]) — or the
+    #    flattened /app layout (parents[2]) used by older images.
     here = Path(__file__).resolve()
     for _up in (3, 2):
         try:
@@ -50,7 +61,12 @@ def _resolve_od_root() -> Path:
             continue
         if cand.is_dir():
             return cand
-    return Path("/app/skills/opendesign")  # production bind-mount target
+    # 3. Baked container path (matches the Dockerfile COPY target) even if
+    #    OD_ROOT is unset, then the legacy bind-mount target as a last resort.
+    for fallback in (Path("/app/opendesign"), Path("/app/skills/opendesign")):
+        if fallback.is_dir():
+            return fallback
+    return Path("/app/skills/opendesign")  # legacy bind-mount target
 
 _OD_ROOT = _resolve_od_root()
 _TEMPLATES_DIR = _OD_ROOT / "design-templates"

@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>User Stories — Flowin Docs</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body data-page="pipeline-user-stories">
+<div class="app">
+  <div id="nav-root"></div>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" id="menuBtn">&#9776;</button>
+      <div class="crumbs">Flowin&nbsp;/&nbsp;<b id="crumb">User Stories</b></div>
+      <div class="spacer"></div>
+      <span class="tag">6 agents &middot; streamed_text</span>
+    </div>
+    <div class="wrap">
+
+      <div class="pagehead">
+        <div class="eyebrow">Product feature &middot; pipeline</div>
+        <h1>User Stories</h1>
+        <p>Turns a plain-language brief into a structured product backlog — epics, user stories in "As a / I want / So that" form, Gherkin acceptance criteria, non-functional requirements, and Fibonacci story-point estimates. Ready to paste into Jira.</p>
+        <div class="kv"><span><b>Pipeline id:</b> user_stories</span><span><b>Agents:</b> 6</span><span><b>Deliverable:</b> streamed_text (user_stories.md)</span><span><b>Guardrail:</b> agile</span></div>
+      </div>
+
+      <div class="explainer">
+        <div class="ex-lead"><b>In plain terms.</b> Hand this pipeline a rough idea and get back a Jira-ready backlog. Six specialist agents work in sequence — like passing a document down a table of experts — each adding their piece: the domain, the epics, the estimates, the non-functional requirements, a review, and a final clean compile.</div>
+        <div class="grid g3">
+          <div class="ex-card"><div class="ex-h">What it is</div><p>A 6-agent pipeline that turns a brief into a structured product backlog (epics, stories, Gherkin AC, NFRs, estimates).</p></div>
+          <div class="ex-card"><div class="ex-h">Why it exists</div><p>To convert vague product ideas into estimable, review-ready requirements without a human writing every story by hand.</p></div>
+          <div class="ex-card"><div class="ex-h">How it works</div><p>analyst &#8594; epics &#8594; estimates &#8594; NFRs &#8594; review &#8594; compile, all shaped by the <code>agile</code> guardrail; output is streamed markdown.</p></div>
+        </div>
+      </div>
+
+      <h3>The 6 agents, in order</h3>
+      <div class="flowwrap" id="flow-root"></div>
+
+      <h3>How it's wired</h3>
+      <div class="grid g2">
+        <div class="card"><h4>Manifest</h4><p class="lead"><code>agents/workflows/user_stories/workflow.yaml</code>: <code>planner: run</code>, <code>clarify.mode: auto</code> with 8 defaults (target_audience, scope, priority, technology, personas, user_journeys, business_rules, compliance_security), all steps <code>single_shot</code> with no gates, deliverable <code>streamed_text</code>.</p></div>
+        <div class="card"><h4>Guardrail: agile</h4><p class="lead">Injected into every agent: stories in As-a/I-want/So-that form, &ge;2 Given/When/Then criteria each, P0/P1/P2 priority, Fibonacci estimable, no implementation detail in AC.</p></div>
+      </div>
+
+      <h3>Revision</h3>
+      <p class="muted">The <code>user_stories_revision</code> pipeline (1 agent) re-runs over an existing backlog seeded via the <code>previous_run</code> provider. See <a href="feature-revisions.html">Revisions</a>.</p>
+
+      <div class="callout"><div class="t">&#128221; Deliverable</div><p>The final agent's streamed markdown <em>is</em> the deliverable (<code>streamed_text</code> resolver). The UI renders it via <code>MarkdownPreview</code>; it can be chained as context into a downstream pipeline (e.g. feed the backlog into a Prototype run).</p></div>
+
+      <div class="pager" id="pager-root"></div>
+      <div class="footer">Flowin Feature Atlas &middot; User Stories</div>
+    </div>
+  </div>
+</div>
+<button class="backtop" id="backtop">&#8593;</button>
+<script>
+window.FLOW = [
+  {t:"domain-analyst", b:"1", d:"Analyzes the brief + clarify answers into a domain model: actors, entities, and the problem space."},
+  {t:"epic-architect", b:"2", d:"Groups the domain into epics and drafts the user stories under each."},
+  {t:"story-estimator", b:"3", d:"Assigns Fibonacci story points and prioritizes P0/P1/P2."},
+  {t:"nfr-specialist", b:"4", d:"Adds non-functional requirements (performance, security, accessibility, compliance)."},
+  {t:"backlog-reviewer", b:"5", d:"Reviews the backlog for gaps, INVEST quality, and acceptance-criteria completeness."},
+  {t:"backlog-compiler", b:"6", bc:"b-green", d:"Compiles the final, formatted <code>user_stories.md</code> deliverable (the streamed_text output)."}
+];
+</script>
+<script src="assets/app.js"></script>
+</body>
+</html>
