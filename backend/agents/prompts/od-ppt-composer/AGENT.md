@@ -10,6 +10,7 @@ id: od-ppt-composer
 injects:
 - template
 - design_system
+- template_example
 max_tokens: 32768
 name: Deck Engineer Agent
 order: 2

@@ -37,14 +37,45 @@
 
 ## Colour Palette
 
-- Background: #F8F9FA (page), #FFFFFF (cards and sidebar).
-- Primary text: #111827. Secondary text: #6B7280.
-- Accent: a single navy or brand colour, used sparingly (at most 3 uses per viewport).
-- Border: #E5E7EB.
-- Monochrome palette only — no multicolour gradients or decorative colour fills.
+- **Always derive colours from the ACTIVE DESIGN SYSTEM** injected in the system prompt.
+  Map the DS tokens to `:root` variables (`--bg`, `--fg`, `--accent`, `--surface`, `--border`, `--muted`).
+  Do NOT use hardcoded hex values outside `:root`.
+- If no design system is present, fall back to: Background `#F8F9FA`, text `#111827`, accent navy `#1d4ed8`, surface `#FFFFFF`, border `#E5E7EB`, muted `#6B7280`.
+- No multicolour gradients or decorative colour fills — keep the palette clean and purposeful.
 
 ## Navigation and Layout
 
 - Sidebar: 220px wide, white background, right border.
 - Navigation must remain functional after any content change.
 - All pages in the SPA must share identical chrome (sidebar/topbar); only the active nav state differs.
+
+## Hash Router — CRITICAL RULES
+
+The `data-page` attribute is ONLY for `<section>` elements — NEVER add `data-page` to `<a>` or any
+other element. Nav links use `href="#/{page-id}"` ONLY.
+
+The router MUST use `section[data-page]` (not just `[data-page]`) to avoid matching nav links:
+
+```javascript
+function handleRouteChange() {
+  const hash = window.location.hash.replace(/^#\/?/, '') || 'home';
+  document.querySelectorAll('section[data-page]').forEach(s => s.classList.remove('is-active'));
+  const page = document.querySelector('section[data-page="' + hash + '"]');
+  if (page) page.classList.add('is-active');
+  // Update nav active state separately using href
+  document.querySelectorAll('[data-page-link]').forEach(a => a.classList.remove('active'));
+  document.querySelectorAll('[data-page-link="' + hash + '"]').forEach(a => a.classList.add('active'));
+}
+window.addEventListener('hashchange', handleRouteChange);
+window.addEventListener('load', handleRouteChange);
+```
+
+Nav link pattern — use `data-page-link` (NOT `data-page`) on anchor tags:
+```html
+<a href="#/dashboard" data-page-link="dashboard" class="nav-link">Dashboard</a>
+```
+
+Section pattern:
+```html
+<section data-page="dashboard" class="page">...</section>
+```

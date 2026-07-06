@@ -14,10 +14,95 @@ treats the check as *skipped* (available=False), never as a hard failure.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# The first-path-segment page-id extraction is the SINGLE shared helper with
+# static_check (a route's first segment is what the SPA router matches against a
+# ``data-page`` id — deeper segments are ``:params``). Importing it here keeps
+# ONE definition (no second copy) so both validators agree on the target id.
+from app.agents.static_check import _href_target_id
+
+# quick-260701-go2 (round 3): the shared route resolver. When the prototype declares a
+# resolvable route table, each exercised route's EXPECTED section is the page it
+# RESOLVES to (exact/alias/:id) rather than its naive first-path-segment — closing the
+# alias/parametric false-positive. Falls back to _first_path_segment when None.
+from app.agents.route_table import parse_routes_table, resolve_route
+
 logger = logging.getLogger("app.agents.render_check")
+
+
+# --------------------------------------------------------------------------- #
+# Pure, offline-testable nav/coverage helpers (no browser, no I/O).
+# --------------------------------------------------------------------------- #
+
+# Click-handler nav discovery: an ``onclick`` that drives the hash router by
+# assigning ``location.hash = '#/…'`` OR calling ``navigateTo('#/…')``. The route
+# string is captured so the check can exercise a representative of each target.
+_HASH_ASSIGN_RE = re.compile(r"location\.hash\s*=\s*['\"]([^'\"]+)['\"]")
+_NAVIGATE_TO_RE = re.compile(r"navigateTo\(\s*['\"]([^'\"]+)['\"]")
+
+# The default settle wait (ms) after driving a hash route, before reading the active
+# section — the async-router refinement knob (quick-260701-erg / RENDER-SETTLE-KNOB).
+# Overridable per-call via ``render_check(..., nav_settle_ms=…)``; the default keeps
+# every existing call byte-identical (the old hardcoded ``wait_for_timeout(50)``).
+_NAV_SETTLE_MS = 50
+
+
+def _first_path_segment(route: str) -> str:
+    """First path segment of a route (the candidate page id) — shared with static_check.
+
+    Normalizes a handler-extracted route (``#/inventory/4521`` -> ``inventory``,
+    ``inventory-list`` -> ``inventory-list``) then delegates to static_check's
+    ``_href_target_id`` so BOTH validators resolve the SAME target id.
+    """
+    r = (route or "").strip()
+    if not r:
+        return ""
+    if not r.startswith("#"):
+        r = "#" + r if r.startswith("/") else "#/" + r
+    return _href_target_id(r)
+
+
+def _extract_handler_routes(onclick_body: str) -> list[str]:
+    """Return the hash routes an ``onclick`` body navigates to (``location.hash`` / navigateTo).
+
+    Only fragment routes (``#/…``) are returned — a non-hash target is not a SPA
+    nav we can exercise. Pure regex over the handler string (offline-testable).
+    """
+    routes: list[str] = []
+    for rx in (_HASH_ASSIGN_RE, _NAVIGATE_TO_RE):
+        for m in rx.finditer(onclick_body or ""):
+            route = m.group(1).strip()
+            if route.startswith("#"):
+                routes.append(route)
+    return routes
+
+
+def _nav_ok(activated: str | None, expected: str | None) -> bool:
+    """A nav is OK iff the activated data-page equals the EXPECTED first-path-segment.
+
+    ``activated == expected`` (wrong-section activation → False; nothing activated →
+    False). Pure + offline-testable — the wrong-section-activation regression guard.
+    """
+    return activated is not None and activated == expected
+
+
+def _coverage_finding(section_count: int, exercised: int) -> str | None:
+    """P0 coverage message when a multi-section SPA exercised ZERO nav targets, else None.
+
+    A prototype with ``>= 2`` ``[data-page]`` sections but ``0`` discoverable/
+    exercised navigation is a fail-open blind spot (the old ``nav_results=0`` silent
+    OK). A single-section (or no-section) page never trips this. Pure + offline.
+    """
+    if section_count >= 2 and exercised == 0:
+        return (
+            f"no navigable elements exercised: {section_count} <section data-page> "
+            f"present but 0 navigation targets were discovered/exercised — the SPA's "
+            f"pages are unreachable (nav coverage = 0)"
+        )
+    return None
 
 
 @dataclass
@@ -25,6 +110,7 @@ class NavResult:
     href: str
     activated: str | None  # data-page id that became active, or None
     ok: bool
+    expected: str | None = None  # the first-path-segment page id we expected to activate
 
 
 @dataclass
@@ -34,6 +120,7 @@ class RenderResult:
     console_errors: list[str] = field(default_factory=list)
     page_errors: list[str] = field(default_factory=list)
     nav_results: list[NavResult] = field(default_factory=list)
+    coverage_errors: list[str] = field(default_factory=list)
     note: str = ""
 
     def summary(self) -> str:
@@ -47,6 +134,8 @@ class RenderResult:
         broken = [n for n in self.nav_results if not n.ok]
         if broken:
             bits.append(f"{len(broken)}/{len(self.nav_results)} nav link(s) dead")
+        if self.coverage_errors:
+            bits.append(f"{len(self.coverage_errors)} nav-coverage finding(s)")
         return "OK" if not bits else "; ".join(bits)
 
 
@@ -55,8 +144,15 @@ async def render_check(
     *,
     check_nav: bool = True,
     timeout_ms: int = 15000,
+    nav_settle_ms: int = _NAV_SETTLE_MS,
 ) -> RenderResult:
-    """Render an HTML file headless and return a structured health report."""
+    """Render an HTML file headless and return a structured health report.
+
+    ``nav_settle_ms`` (default :data:`_NAV_SETTLE_MS` = 50) is the async-router
+    refinement knob: the wait after driving a hash route, before reading the active
+    section. The default is byte-identical to the prior hardcoded 50ms (INV-3); raise
+    it for slow/async routers that repaint after a microtask/animation frame.
+    """
     path = Path(html_path)
     try:
         from playwright.async_api import async_playwright
@@ -70,6 +166,7 @@ async def render_check(
     console_errors: list[str] = []
     page_errors: list[str] = []
     nav_results: list[NavResult] = []
+    coverage_errors: list[str] = []
 
     async with async_playwright() as pw:
         try:
@@ -86,46 +183,217 @@ async def render_check(
             page.on("pageerror", lambda e: page_errors.append(str(e)))
             await page.goto(path.as_uri(), wait_until="networkidle", timeout=timeout_ms)
             if check_nav:
-                nav_results = await _check_nav(page)
+                # Parse the app's route table ONCE (from the file source) so each
+                # exercised route's expected section can be resolved through it. A
+                # table-less / href-valued-object prototype parses to None → the
+                # per-route expected falls back to _first_path_segment (INV-3).
+                try:
+                    table = parse_routes_table(path.read_text(encoding="utf-8"))
+                except OSError:
+                    table = None
+                nav_results, discovered = await _check_nav(
+                    page, table=table, nav_settle_ms=nav_settle_ms
+                )
+                # Nav COVERAGE: a multi-section SPA that exercised ZERO nav targets
+                # is the fail-open blind spot (the old ``nav_results=0`` silent OK).
+                # Base the "exercised" argument on the count of DISCOVERED candidates
+                # (real + concrete-malformed + skipped-``${…}``) so that skipping a
+                # template-literal route from browser exercise can never manufacture a
+                # false coverage-0 (a page whose only nav is ``#/x/${id}`` is covered).
+                try:
+                    # EXCLUDE nav/anchor controls from the coverage denominator so a
+                    # nav ``<a data-page>`` is never counted as a page SECTION (a broken
+                    # unscoped router can carry ``data-page`` on the nav anchors). Inert
+                    # in practice — coverage only fires when ``discovered == 0`` and any
+                    # nav-carrying-data-page page has ``discovered > 0`` — but keeps the
+                    # section count honest. (Measure-gated: reverts to broad ``[data-page]``
+                    # if any golden/fixture/pin drifts.)
+                    section_count = await page.eval_on_selector_all(
+                        "[data-page]:not(a):not(.nav-link):not(.nav-item)"
+                        ":not(.nav-submenu-link)",
+                        "els => els.length",
+                    )
+                except Exception:  # noqa: BLE001 — a query failure ⇒ no coverage finding
+                    section_count = 0
+                finding = _coverage_finding(int(section_count or 0), discovered)
+                if finding:
+                    coverage_errors.append(finding)
         except Exception as exc:  # noqa: BLE001
             page_errors.append(f"render harness error: {exc}")
         finally:
             await browser.close()
 
-    ok = not console_errors and not page_errors and all(n.ok for n in nav_results)
+    ok = (
+        not console_errors
+        and not page_errors
+        and all(n.ok for n in nav_results)
+        and not coverage_errors
+    )
     return RenderResult(
         ok=ok,
         console_errors=console_errors,
         page_errors=page_errors,
         nav_results=nav_results,
+        coverage_errors=coverage_errors,
     )
 
 
-async def _check_nav(page) -> list[NavResult]:
-    """Click each sidebar nav link and assert a page section becomes active.
+async def _check_nav(
+    page,
+    *,
+    table: list[tuple[str, str]] | None = None,
+    nav_settle_ms: int = _NAV_SETTLE_MS,
+) -> tuple[list[NavResult], int]:
+    """Exercise discoverable nav targets and return ``(nav_results, discovered_count)``.
 
-    Heuristic for the SPA template family: nav links are ``.nav-item[href^='#']``;
-    the visible page is ``[data-page].is-active`` / ``.section.is-active``. We record
-    which data-page id actually activated, so the validator can detect route↔section
-    mismatches (exactly the class of bug that motivated per-task validation).
+    Nav discovery is broadened beyond the old ``.nav-item[href]`` heuristic (which
+    silently found ZERO on a hash-router SPA that navigates via ``onclick`` handlers
+    and parameterized routes — the coverage blind spot this hardening closes):
+
+      * generic anchor routes ``a[href^='#']``;
+      * click-handler nav — any element whose ``onclick`` assigns ``location.hash``
+        or calls ``navigateTo('#/…')`` (route extracted by regex from the handler).
+
+    Selection (quick-260701-erg / RENDER-UNDEDUP) is classified against the DOM's
+    ``[data-page]`` id set (the section ids the router can actually reach):
+
+      * a candidate whose first-path-segment target IS a real section deduplicates to
+        ONE representative per target (a well-formed nav is proven once);
+      * a candidate whose target is NOT a real section is MALFORMED/dead — each
+        concrete such route is kept as its OWN ``NavResult`` (deduped only by the exact
+        route string) so ``#/certificate/901`` and ``#/certificate/create`` no longer
+        collapse behind one representative and hide sibling breakage;
+      * a ``${…}`` template-literal route is NOT exercised in the browser (the literal
+        placeholder is a guaranteed false "dead"); it is left to ``static_check`` but is
+        still COUNTED as discovered so the coverage rule can't false-fire.
+
+    The visible page is ``[data-page].is-active`` / ``.section.is-active``. Each
+    ``NavResult`` records the EXPECTED first-path-segment id and ``ok = activated ==
+    expected`` — so wrong-section activation (and a dead route with no matching section)
+    is caught. ``discovered_count`` = distinct real targets + distinct concrete-malformed
+    routes + distinct skipped ``${…}`` routes (the coverage denominator).
     """
     results: list[NavResult] = []
+
+    # (route, from_anchor) candidates.
+    candidates: list[tuple[str, bool]] = []
+
+    # (1) generic anchor routes.
     try:
         hrefs = await page.eval_on_selector_all(
-            ".nav-item[href]", "els => els.map(e => e.getAttribute('href'))"
+            "a[href^='#']", "els => els.map(e => e.getAttribute('href'))"
         )
-    except Exception:
-        return results
+    except Exception:  # noqa: BLE001 — a query failure just means no anchor nav
+        hrefs = []
     for href in hrefs or []:
-        if not href or not href.startswith("#"):
+        if href and href.startswith("#"):
+            candidates.append((href, True))
+
+    # (2) click-handler nav (onclick location.hash / navigateTo).
+    try:
+        onclicks = await page.eval_on_selector_all(
+            "[onclick]", "els => els.map(e => e.getAttribute('onclick'))"
+        )
+    except Exception:  # noqa: BLE001 — a query failure just means no handler nav
+        onclicks = []
+    for body in onclicks or []:
+        for route in _extract_handler_routes(body or ""):
+            candidates.append((route, False))
+
+    # The DOM section-id set (the ``data-page`` VALUES) — used to classify a candidate
+    # target as real (resolves to a section) vs malformed (no such section).
+    try:
+        raw_ids = await page.eval_on_selector_all(
+            "[data-page]", "els => els.map(e => e.getAttribute('data-page'))"
+        )
+    except Exception:  # noqa: BLE001 — a query failure ⇒ empty section set (all malformed)
+        raw_ids = []
+    section_ids: set[str] = {s.strip() for s in (raw_ids or []) if s and s.strip()}
+
+    seen_real_targets: set[str] = set()
+    seen_malformed_routes: set[str] = set()
+    seen_template_routes: set[str] = set()
+    exercise: list[tuple[str, bool, str]] = []  # (route, from_anchor, expected)
+    discovered = 0
+
+    for route, from_anchor in candidates:
+        target = _first_path_segment(route)
+        if not target:
             continue
-        try:
-            await page.click(f'.nav-item[href="{href}"]', timeout=2000)
-            activated = await page.eval_on_selector(
-                "[data-page].is-active, .section.is-active",
-                "el => el.getAttribute('data-page')",
+        if "${" in route:
+            # Template-literal route — count as discovered, do NOT exercise (the
+            # literal placeholder is not a real id → guaranteed false "dead").
+            if route not in seen_template_routes:
+                seen_template_routes.add(route)
+                discovered += 1
+            continue
+        if target in section_ids:
+            # Well-formed nav — dedupe to ONE representative per real target.
+            if target in seen_real_targets:
+                continue
+            seen_real_targets.add(target)
+            discovered += 1
+            exercise.append((route, from_anchor, target))
+        else:
+            # Malformed/dead — keep EACH concrete route (un-dedup), deduping only by
+            # the exact route string so a repeated identical handler is not counted twice.
+            if route in seen_malformed_routes:
+                continue
+            seen_malformed_routes.add(route)
+            discovered += 1
+            exercise.append((route, from_anchor, target))
+
+    for route, from_anchor, fallback_expected in exercise:
+        # Discovery/classification above stays first-path-segment (unchanged dedup +
+        # coverage denominator). ONLY the EXPECTED section changes: when a resolvable
+        # route table is present, expect the page the route RESOLVES to (exact/alias/
+        # :id); otherwise fall back to the first-path-segment (INV-3, round-2 behavior).
+        expected = resolve_route(table, route) if table is not None else None
+        if expected is None:
+            expected = fallback_expected
+        activated = await _exercise_route(
+            page, route, from_anchor, settle_ms=nav_settle_ms
+        )
+        results.append(
+            NavResult(
+                href=route,
+                activated=activated,
+                ok=_nav_ok(activated, expected),
+                expected=expected,
             )
-        except Exception:
-            activated = None
-        results.append(NavResult(href=href, activated=activated, ok=bool(activated)))
-    return results
+        )
+    return results, discovered
+
+
+async def _exercise_route(
+    page, route: str, from_anchor: bool, *, settle_ms: int = _NAV_SETTLE_MS
+) -> str | None:
+    """Exercise ONE nav route and return the activated ``data-page`` id (or None).
+
+    Anchors are clicked (the legacy behavior); a handler route drives the hash router
+    by assigning ``location.hash``. Either way the router's ``hashchange`` handler
+    runs, then the active section id is read back after ``settle_ms`` ms.
+    """
+    try:
+        if from_anchor:
+            try:
+                await page.click(f'a[href="{route}"]', timeout=2000)
+            except Exception:  # noqa: BLE001 — fall back to driving the hash directly
+                await page.evaluate("(h) => { window.location.hash = h; }", route)
+        else:
+            await page.evaluate("(h) => { window.location.hash = h; }", route)
+        # Let the router's hashchange handler run before reading the active section.
+        await page.wait_for_timeout(settle_ms)
+        # Read a REAL page SECTION only — EXCLUDE nav/anchor controls. A broken
+        # unscoped router can strip ``is-active`` off every ``<section>`` and pin it on
+        # a nav ``<a data-page>`` instead; the ``:not(...)`` set drops those coerced
+        # nav anchors so a blank page reads as null (no section active) rather than the
+        # anchor's data-page name. When nothing matches, ``eval_on_selector`` raises →
+        # the ``except`` below returns None (never coerce a blank page to a name).
+        return await page.eval_on_selector(
+            "[data-page].is-active:not(a):not(.nav-link):not(.nav-item)"
+            ":not(.nav-submenu-link), .page-section.is-active, .section.is-active",
+            "el => el.getAttribute('data-page')",
+        )
+    except Exception:  # noqa: BLE001 — nothing activated (dead route / no section)
+        return None

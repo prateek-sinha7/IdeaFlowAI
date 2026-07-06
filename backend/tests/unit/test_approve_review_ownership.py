@@ -169,3 +169,13 @@ def test_approve_review_branch_gates_set_review_response_on_ownership():
         "ownership must be verified BEFORE set_review_response "
         "(CR-01: cross-user gate approval)"
     )
+    # REDO-GATE test #4: the redo action rides the SAME owner-gated branch — both
+    # the redo write and the approve/reject write are AFTER the ownership predicate.
+    assert 'action == "redo"' in branch, (
+        "approve_review no longer handles the REDO-GATE action discriminator"
+    )
+    last_write_at = branch.rfind("set_review_response(")
+    assert guard_at < last_write_at, (
+        "the redo set_review_response must also be verified after ownership "
+        "(REDO-GATE: redo rides the same IDOR boundary)"
+    )

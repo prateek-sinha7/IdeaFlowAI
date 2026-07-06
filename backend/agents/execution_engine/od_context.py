@@ -31,6 +31,12 @@ logger = logging.getLogger(__name__)
 # which resolves the dir across local-repo vs container layouts.
 _TEMPLATES_DIR = od_loader._TEMPLATES_DIR
 
+# Single authoritative cap for the injected example.html (INV-12 single-truncation).
+# Covers the current catalog max (~93,663 chars) with headroom, bounded well under
+# Haiku's 200k window (the composer is single-shot). The opendesign provider consumes
+# the string this cap produces DIRECTLY — it must NOT re-truncate.
+EXAMPLE_MAX_CHARS = 120_000
+
 
 def load_prototype_context(
     template_id: str,
@@ -66,6 +72,35 @@ def load_prototype_context(
             logger.warning(
                 "Template '%s' not found — using 'web-prototype' as fallback", template_id
             )
+        elif template_id in (None, "", "none"):
+            # KAN-87: no-template mode — user explicitly chose not to select a template.
+            # Return a minimal context with no template body so the spec writer
+            # invents its own layout from the UI clarification answers.
+            logger.info("No template selected — proceeding without template injection")
+            # Still load the design system (required for color tokens).
+            if custom_ds_body:
+                ds_id = design_system_id or "custom"
+                ds_body = (
+                    f"# Custom Design System: {ds_id}\n\n"
+                    f"This design system was provided directly by the user. "
+                    f"Follow its tokens exactly — do not invent or substitute values.\n\n"
+                    f"{custom_ds_body.strip()}"
+                )
+            else:
+                ds = od_loader.get_design_system(design_system_id)
+                if ds is None:
+                    raise LookupError(f"Design system '{design_system_id}' not found")
+                ds_id = design_system_id
+                ds_body = ds["body"]
+            return {
+                "template_id": None,
+                "template_body": None,
+                "ds_id": ds_id,
+                "ds_body": ds_body,
+                "craft_block": "",
+                "is_design_system_required": None,
+                "no_template": True,  # signal to the opendesign provider to skip template injection
+            }
         else:
             raise LookupError(f"Prototype template '{template_id}' not found")
 
@@ -138,7 +173,7 @@ def get_template_injection_parts(template_id: str) -> list[str]:
     return parts
 
 
-def get_example_html(template_id: str, max_chars: int = 8000) -> str | None:
+def get_example_html(template_id: str, max_chars: int = EXAMPLE_MAX_CHARS) -> str | None:
     """Return the template's example.html content, truncated to max_chars.
 
     The example HTML gives agents a concrete visual reference for the

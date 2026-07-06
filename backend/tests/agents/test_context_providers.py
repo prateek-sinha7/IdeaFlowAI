@@ -565,3 +565,72 @@ async def test_previous_run_unexpected_store_error_fails_closed():
     assert out == {}
     assert store.assert_called is True   # the ownership check WAS attempted
     assert sandbox.written == {}         # but FAILED CLOSED — nothing seeded
+
+
+# ===========================================================================
+# KAN-63 regression — B-explicit example.html gate (template_example inject)
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_opendesign_example_gate_is_builder_or_template_example_inject():
+    """KAN-63 regression pin (B-explicit gate): example.html injects IFF the agent is a
+    builder (prototype_emit_only/prototype) OR explicitly declares the ``template_example``
+    inject — NEVER merely because it holds the ``workspace`` tool set. A revert to the
+    ``"workspace" in spec_tools`` gate re-leaks example.html into the planner-shaped
+    od-ppt-brief-analyst and FAILS case (3)."""
+    runner = _FakeRunner(od_context=_OD,
+        injection_parts=["=== TEMPLATE SEED ===\nseed"], example="<html>example</html>")
+    EX_KEY = "TEMPLATE EXAMPLE (example.html): web-prototype"
+    builder = await OpenDesignProvider().load(_Ctx(runner, od_context=_OD,
+        current_spec_tools={"prototype_emit_only"}, current_spec_injects={"template", "design_system"}))
+    assert EX_KEY in builder
+    composer = await OpenDesignProvider().load(_Ctx(runner, od_context=_OD,
+        current_spec_tools={"workspace"}, current_spec_injects={"template", "design_system", "template_example"}))
+    assert EX_KEY in composer
+    analyst = await OpenDesignProvider().load(_Ctx(runner, od_context=_OD,
+        current_spec_tools={"workspace"}, current_spec_injects={"template"}))
+    assert EX_KEY not in analyst
+    assert not any(k.startswith("TEMPLATE EXAMPLE") for k in analyst)
+    assert "ACTIVE TEMPLATE (SKILL.md): web-prototype" in analyst
+
+
+@pytest.mark.asyncio
+async def test_opendesign_composer_example_not_truncated():
+    """v7a regression pin: the composer (od-ppt-composer) receives the FULL example.html.
+
+    A real deck template's example.html is 25k-94k chars; the SKILL.md orders the composer
+    to "clone example.html / copy the nav script verbatim." A single-point cap now lives in
+    od_context.get_example_html (EXAMPLE_MAX_CHARS = 120_000); the provider must inject the
+    runner-capped string DIRECTLY — no redundant second [:8000] clip. This pins that a
+    >8000-char example is injected whole (no ``...[truncated]``).
+    """
+    # A padded HTML doc well over the old 8000 clip (~12000 chars) but under the 120k cap.
+    example = "<html><body>" + ("<section>x</section>" * 600) + "</body></html>"
+    assert len(example) > 8000
+    runner = _FakeRunner(
+        od_context=_OD,
+        injection_parts=["=== TEMPLATE SEED ===\nseed"],
+        example=example,
+    )
+    # Composer-shaped ctx: workspace tool + the DECLARED template_example inject (single-shot
+    # composer → build_task_number defaults to "" so no task-2+ suppression).
+    ctx = _Ctx(
+        runner, od_context=_OD,
+        current_spec_tools={"workspace"},
+        current_spec_injects={"template", "design_system", "template_example"},
+    )
+    blocks = await OpenDesignProvider().load(ctx)
+    block = blocks["TEMPLATE EXAMPLE (example.html): web-prototype"]
+    assert "...[truncated]" not in block
+    assert block == example
+    assert len(block) > 8000
+
+
+def test_od_ppt_agents_template_example_inject_wiring():
+    """Frontmatter half of the fix: od-ppt-composer declares ``template_example``; brief-analyst does not."""
+    from agents.loader import load_agent_spec
+    composer = load_agent_spec("od-ppt-composer")
+    analyst = load_agent_spec("od-ppt-brief-analyst")
+    assert "template_example" in composer.injects and "template" in composer.injects
+    assert "template_example" not in analyst.injects and "template" in analyst.injects

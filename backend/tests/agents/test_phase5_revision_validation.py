@@ -123,6 +123,20 @@ _PREEXISTING_NIT = (
     '(section <section data-page="settings"> has no routes entry)'
 )
 
+# quick-260701-erg / STATIC-ROUTER-DEAD: the ORIGINAL fixture navigates to
+# ``#/settings`` (a real <section data-page="settings">) but the routes map omits it,
+# so the new routes-map RESOLUTION cross-check flags it as ROUTER-DEAD — a SECOND
+# pre-existing nit on the same fixture. Like the routes-map-missing nit it predates the
+# revision edit, so it is baselined (excluded from the fix-loop) alongside it.
+_PREEXISTING_ROUTER_DEAD = (
+    "router-dead nav link: nav route target 'settings' has a "
+    '<section data-page="settings"> but no routes-map entry — '
+    "the hash router will not reach it"
+)
+
+# The full set of pre-existing (baselined) static nits on _ORIGINAL_HTML.
+_PREEXISTING_NITS = {_PREEXISTING_NIT, _PREEXISTING_ROUTER_DEAD}
+
 # The NEW static REGRESSION the revision introduces by adding a `ghost` key to the
 # routes map with no matching <section data-page="ghost"> (pure static; render
 # stays green). The EXACT issue string static_check reports for it.
@@ -549,14 +563,14 @@ class TestFixPolicyEndToEnd:
         # Sanity-pin the fixtures so a future edit can't silently break the policy:
         # the ORIGINAL has EXACTLY the pre-existing nit; the introduced-regression
         # HTML has the nit PLUS the regression.
-        orig_issues = static_check(_ORIGINAL_HTML).issues
-        assert orig_issues == [_PREEXISTING_NIT], (
-            f"fixture drift: ORIGINAL must carry exactly the pre-existing nit; got {orig_issues}"
+        orig_issues = set(static_check(_ORIGINAL_HTML).issues)
+        assert orig_issues == _PREEXISTING_NITS, (
+            f"fixture drift: ORIGINAL must carry exactly the pre-existing nits; got {orig_issues}"
         )
         revised_html = _ORIGINAL_HTML.replace(_ROUTES_ORIGINAL, _ROUTES_WITH_GHOST)
         revised_issues = set(static_check(revised_html).issues)
-        assert revised_issues == {_PREEXISTING_NIT, _REGRESSION_ISSUE}, (
-            f"fixture drift: revised HTML must carry nit + regression; got {revised_issues}"
+        assert revised_issues == _PREEXISTING_NITS | {_REGRESSION_ISSUE}, (
+            f"fixture drift: revised HTML must carry nits + regression; got {revised_issues}"
         )
 
         def turns_for(agent_id, thread_id, is_fix):
@@ -599,9 +613,12 @@ class TestFixPolicyEndToEnd:
         assert _REGRESSION_ISSUE in fix_message, (
             f"fix message must list the NEW regression; got:\n{fix_message}"
         )
-        # (b) It does NOT contain the pre-existing baselined nit (suppressed).
+        # (b) It does NOT contain the pre-existing baselined nits (suppressed).
         assert _PREEXISTING_NIT not in fix_message, (
             f"fix message must NOT list the pre-existing baselined nit; got:\n{fix_message}"
+        )
+        assert _PREEXISTING_ROUTER_DEAD not in fix_message, (
+            f"fix message must NOT list the pre-existing router-dead nit; got:\n{fix_message}"
         )
         # (c) It re-injects the user's revision instruction (stay focused).
         assert _USER_INSTRUCTION in fix_message, (
@@ -612,9 +629,9 @@ class TestFixPolicyEndToEnd:
         rev_sb = RunSandbox("anon", run_id)
         final_html = rev_sb.read("prototype.html") or ""
         assert _ROUTES_WITH_GHOST not in final_html, "the fix must have removed the ghost route"
-        # Only the pre-existing baselined nit remains (the fix left it alone).
-        assert static_check(final_html).issues == [_PREEXISTING_NIT], (
-            f"final HTML must carry ONLY the untouched pre-existing nit; "
+        # Only the pre-existing baselined nits remain (the fix left them alone).
+        assert set(static_check(final_html).issues) == _PREEXISTING_NITS, (
+            f"final HTML must carry ONLY the untouched pre-existing nits; "
             f"got {static_check(final_html).issues}"
         )
         # The engine's pipeline_complete.final_output IS that clean read-back.

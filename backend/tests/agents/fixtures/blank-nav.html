@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>blank-nav — must-fail regression fixture</title>
+  <style>
+    .page-section { display: none; }
+    .page-section.is-active { display: block; }
+  </style>
+</head>
+<body>
+  <!-- Nav: anchors carry data-page (like A's broken unscoped router). -->
+  <nav>
+    <a class="nav-link" href="#/dashboard" data-page="dashboard">Dashboard</a>
+    <a class="nav-link" href="#/reports" data-page="reports">Reports</a>
+  </nav>
+
+  <!-- Real page sections. One starts active; the broken router below strips it. -->
+  <main>
+    <section data-page="dashboard" class="page-section is-active">Dashboard</section>
+    <section data-page="reports" class="page-section">Reports</section>
+  </main>
+
+  <script>
+    // The DEFECT (mimics A): on every hashchange, remove is-active from ALL
+    // [data-page] (sections AND nav anchors) then add it back to the matching
+    // NAV ANCHOR only — never to the <section>. So after any route NO section is
+    // active but a nav <a data-page> is. An honest render read must return null
+    // (blank), never coerce to the nav anchor's data-page name.
+    function route() {
+      var id = (location.hash || '#/dashboard').replace(/^#\//, '') || 'dashboard';
+      document.querySelectorAll('[data-page]').forEach(function (el) {
+        el.classList.remove('is-active');
+      });
+      var link = document.querySelector('a.nav-link[data-page="' + id + '"]');
+      if (link) link.classList.add('is-active');
+    }
+    window.addEventListener('hashchange', route);
+    route();
+  </script>
+</body>
+</html>

@@ -86,6 +86,8 @@ def test_compiles_clean() -> None:
     assert compiled.id == "demo"
     assert compiled.planner == "run"
     assert compiled.clarify.defaults == ["target_audience", "scope"]
+    # clarify.rounds defaults to 1 (one-round-then-run) when no rounds key present.
+    assert compiled.clarify.rounds == 1
     assert compiled.deliverable.strategy == "single_file"
     assert compiled.deliverable.name == "out.html"
     assert compiled.context_providers == ["previous_run"]
@@ -104,6 +106,15 @@ def test_compiles_clean() -> None:
 def test_empty_plan() -> None:
     compiled = WorkflowCompiler().compile(_manifest(steps=[]), CapabilityRegistry())
     assert compiled.steps == []
+
+
+def test_clarify_rounds_round_trips() -> None:
+    """A manifest declaring clarify.rounds materializes onto compiled.clarify.rounds."""
+    manifest = _manifest(
+        clarify={"mode": "auto", "defaults": [], "rounds": 2}
+    )
+    compiled = WorkflowCompiler().compile(manifest, CapabilityRegistry())
+    assert compiled.clarify.rounds == 2
 
 
 # ---------------------------------------------------------------------------

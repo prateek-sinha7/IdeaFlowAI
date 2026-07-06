@@ -1,7 +1,7 @@
 [
   {
     "data": {
-      "agent_count": 4,
+      "agent_count": 5,
       "agents": [
         {
           "icon": "📋",
@@ -18,23 +18,70 @@
           "role": "Build Planning & Task Decomposition"
         },
         {
+          "icon": "🔍",
+          "id": "prototype-analyze",
+          "name": "Spec Kit Analyzer",
+          "order": 3,
+          "role": "Cross-Artifact Quality Analysis"
+        },
+        {
           "icon": "🏗️",
           "id": "prototype-build",
           "name": "Build Agent",
-          "order": 3,
+          "order": 4,
           "role": "Incremental HTML Construction"
         },
         {
           "icon": "✅",
           "id": "prototype-validate",
           "name": "Validation Agent",
-          "order": 4,
+          "order": 5,
           "role": "Structural Validation & Delivery"
         }
       ],
       "pipeline_type": "od_prototype"
     },
     "type": "pipeline_start"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-analyze",
+      "chunk": "<normalized>"
+    },
+    "type": "agent_chunk"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-analyze",
+      "context_message": "=== ORIGINAL USER REQUEST ===\nBuild me a thing for managing tasks.\n=== END REQUEST ===\n## Planning Context (Deep Planner Analysis)\n\n**Inferred Intent**: Build me a thing for managing tasks.\n\n## End Planning Context\n\n--- Output from Spec Writer Agent (Specification & Architecture) ---\nprototype-specify output line one. line two.\n\n--- Output from Task Planner Agent (Build Planning & Task Decomposition) ---\n## Task 1: Build the HTML shell\nCreate the document skeleton.\n\n## Task 2: Fill the dashboard page\nAdd the dashboard content.\n",
+      "tool_calls": []
+    },
+    "type": "agent_input"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-analyze",
+      "duration": "<normalized>",
+      "index": 2,
+      "input_tokens": "<normalized>",
+      "name": "Spec Kit Analyzer",
+      "output_length": 528,
+      "output_tokens": "<normalized>",
+      "total": 5,
+      "total_tokens": "<normalized>"
+    },
+    "type": "agent_complete"
+  },
+  {
+    "data": {
+      "agent_id": "prototype-analyze",
+      "icon": "🔍",
+      "index": 2,
+      "name": "Spec Kit Analyzer",
+      "role": "Cross-Artifact Quality Analysis",
+      "total": 5
+    },
+    "type": "agent_start"
   },
   {
     "data": {
@@ -163,12 +210,12 @@
     "data": {
       "agent_id": "prototype-build",
       "duration": "<normalized>",
-      "index": 2,
+      "index": 3,
       "input_tokens": "<normalized>",
       "name": "Build Agent",
       "output_length": 84,
       "output_tokens": "<normalized>",
-      "total": 4,
+      "total": 5,
       "total_tokens": "<normalized>"
     },
     "type": "agent_complete"
@@ -177,12 +224,12 @@
     "data": {
       "agent_id": "prototype-build",
       "duration": "<normalized>",
-      "index": 2,
+      "index": 3,
       "input_tokens": "<normalized>",
       "name": "Build Agent",
       "output_length": 84,
       "output_tokens": "<normalized>",
-      "total": 4,
+      "total": 5,
       "total_tokens": "<normalized>"
     },
     "type": "agent_complete"
@@ -191,10 +238,10 @@
     "data": {
       "agent_id": "prototype-build",
       "icon": "🏗️",
-      "index": 2,
+      "index": 3,
       "name": "Build Agent",
       "role": "Incremental HTML Construction",
-      "total": 4
+      "total": 5
     },
     "type": "agent_start"
   },
@@ -202,10 +249,10 @@
     "data": {
       "agent_id": "prototype-build",
       "icon": "🏗️",
-      "index": 2,
+      "index": 3,
       "name": "Build Agent",
       "role": "Incremental HTML Construction",
-      "total": 4
+      "total": 5
     },
     "type": "agent_start"
   },
@@ -281,7 +328,7 @@
       "name": "Task Planner Agent",
       "output_length": 125,
       "output_tokens": "<normalized>",
-      "total": 4,
+      "total": 5,
       "total_tokens": "<normalized>"
     },
     "type": "agent_complete"
@@ -293,7 +340,7 @@
       "index": 1,
       "name": "Task Planner Agent",
       "role": "Build Planning & Task Decomposition",
-      "total": 4
+      "total": 5
     },
     "type": "agent_start"
   },
@@ -328,7 +375,7 @@
       "name": "Spec Writer Agent",
       "output_length": 44,
       "output_tokens": "<normalized>",
-      "total": 4,
+      "total": 5,
       "total_tokens": "<normalized>"
     },
     "type": "agent_complete"
@@ -340,7 +387,7 @@
       "index": 0,
       "name": "Spec Writer Agent",
       "role": "Specification & Architecture",
-      "total": 4
+      "total": 5
     },
     "type": "agent_start"
   },
@@ -363,12 +410,12 @@
     "data": {
       "agent_id": "prototype-validate",
       "duration": "<normalized>",
-      "index": 3,
+      "index": 4,
       "input_tokens": "<normalized>",
       "name": "Validation Agent",
       "output_length": 84,
       "output_tokens": "<normalized>",
-      "total": 4,
+      "total": 5,
       "total_tokens": "<normalized>"
     },
     "type": "agent_complete"
@@ -377,17 +424,17 @@
     "data": {
       "agent_id": "prototype-validate",
       "icon": "✅",
-      "index": 3,
+      "index": 4,
       "name": "Validation Agent",
       "role": "Structural Validation & Delivery",
-      "total": 4
+      "total": 5
     },
     "type": "agent_start"
   },
   {
     "data": {
-      "agents_completed": 5,
-      "agents_total": 4,
+      "agents_completed": 6,
+      "agents_total": 5,
       "final_output": "<!doctype html><html><body><section data-page='dashboard'>hi</section></body></html>",
       "pipeline_type": "od_prototype",
       "total_input_tokens": "<normalized>",
@@ -403,6 +450,16 @@
           "artifact_type": "prototype-specify",
           "from": "prototype-specify",
           "to": "prototype-plan"
+        },
+        {
+          "artifact_type": "prototype-specify",
+          "from": "prototype-specify",
+          "to": "prototype-analyze"
+        },
+        {
+          "artifact_type": "prototype-plan",
+          "from": "prototype-plan",
+          "to": "prototype-analyze"
         },
         {
           "artifact_type": "prototype-plan",

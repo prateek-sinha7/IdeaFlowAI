@@ -415,11 +415,20 @@ class TaskLoopStrategy:
         if make_target is None:
             return
         agent_id = getattr(step, "agent_id", "") or ""
-        target = make_target(
-            name=filename,
-            step=agent_id,
-            task_meta={"attempt": task_num, "total_tasks": total_tasks},
-        )
+        # Thread the per-step render fail-closed knob (quick-260701-bob) onto the
+        # target so html_render sees the declared policy. A handle whose factory
+        # predates the kwarg (an old unit fake) is retried without it (parity).
+        target_kwargs = {
+            "name": filename,
+            "step": agent_id,
+            "task_meta": {"attempt": task_num, "total_tasks": total_tasks},
+            "require_render": getattr(step, "require_render", None),
+        }
+        try:
+            target = make_target(**target_kwargs)
+        except TypeError:
+            target_kwargs.pop("require_render", None)
+            target = make_target(**target_kwargs)
         for vname in validator_names:
             try:
                 validator = self._registry.resolve("validator", vname)

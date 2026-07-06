@@ -1,0 +1,76 @@
+<!doctype html>
+<!--
+  Nav-representative TRIMMED copy of imc-inventory-certificate-management.html.
+  Preserves the defect the full 414KB reference reproduces (parent-verified):
+    * a hash-router SPA (location.hash + matchRoute + hashchange);
+    * click-handler nav (onclick="window.location.hash='#/…'") — NO .nav-item;
+    * a PARAMETERIZED detail route (#/inventory/${id}) whose first path segment
+      ('inventory') has NO <section data-page="inventory"> → a genuine DEAD LINK
+      that render_check (nav_results=0 before) and static_check (orphan warning
+      only, before) both silently passed;
+    * a detail section (inventory-detail) reachable ONLY via dynamic nav — it must
+      NOT be a false orphan.
+  Committed so the escape hatch has a permanent regression fixture.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>IMC — Inventory &amp; Certificate Management</title>
+  <style>
+    .page-section { display: none; }
+    .page-section.is-active { display: block; }
+    .nav-link, .kpi-card { cursor: pointer; }
+  </style>
+</head>
+<body>
+  <!-- Sidebar nav: click-handler nav (NO .nav-item, NO <a href> nav) -->
+  <nav id="sidebar">
+    <div class="nav-link" onclick="window.location.hash = '#/dashboard'">Dashboard</div>
+    <div class="nav-link" onclick="window.location.hash = '#/inventory-list'">Inventory</div>
+  </nav>
+
+  <main>
+    <section class="page-section is-active" data-page="dashboard">
+      <h1>Dashboard</h1>
+      <div class="kpi-card" onclick="window.location.hash = '#/inventory-list'">All Items</div>
+      <!-- PARAMETERIZED detail route: first segment 'inventory' has no section → DEAD -->
+      <div class="kpi-card" onclick="window.location.hash = '#/inventory/4521'">Open item 4521</div>
+    </section>
+
+    <section class="page-section" data-page="inventory-list">
+      <h1>Inventory</h1>
+      <table>
+        <tbody>
+          <tr onclick="window.location.hash = '#/inventory/4521'">SKU-4521</tr>
+        </tbody>
+      </table>
+      <!-- dynamic-only route to a real detail section (must NOT be a false orphan) -->
+      <button onclick="window.location.hash = '#/inventory-detail'">View detail</button>
+    </section>
+
+    <!-- reachable ONLY via the dynamic '#/inventory-detail' button above -->
+    <section class="page-section" data-page="inventory-detail">
+      <h1>Item detail</h1>
+      <button onclick="window.location.hash = '#/inventory-list'">&larr; Back to List</button>
+    </section>
+  </main>
+
+  <script>
+    // Minimal hash router — the reference file's matchRoute/hashchange, trimmed.
+    const sections = document.querySelectorAll('[data-page]');
+    function matchRoute(hash) {
+      const frag = (hash || '').replace(/^#\/?/, '');
+      return frag.split(/[/?]/)[0];
+    }
+    function render() {
+      const page = matchRoute(window.location.hash) || 'dashboard';
+      sections.forEach(function (s) {
+        s.classList.toggle('is-active', s.getAttribute('data-page') === page);
+      });
+    }
+    window.addEventListener('hashchange', render);
+    window.addEventListener('DOMContentLoaded', render);
+    render();
+  </script>
+</body>
+</html>

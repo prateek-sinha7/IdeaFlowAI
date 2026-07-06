@@ -106,6 +106,10 @@ class DeliverableContext:
     _content: str | None = None
     step: str = ""
     task_meta: dict = field(default_factory=dict)
+    # Per-step render fail-closed knob (quick-260701-bob / REQUIRE-RENDER-KNOB):
+    # threaded from the compiled ``Step.require_render`` so html_render sees the
+    # per-step policy. None → the validator falls back to the Settings default.
+    require_render: bool | None = None
 
     @property
     def content(self) -> str:
@@ -1036,6 +1040,7 @@ class KernelServices:
         step: str = "",
         content: str | None = None,
         task_meta: dict | None = None,
+        require_render: bool | None = None,
     ) -> DeliverableContext:
         """Return a ``DeliverableContext`` target keyed on the sandbox deliverable.
 
@@ -1043,6 +1048,10 @@ class KernelServices:
         ``runner`` handle carried on the returned context; ``path`` resolves to the
         per-run sandbox path for ``name`` so ``runner.static_check(target.path)``
         validates the on-disk deliverable byte-identically to the legacy direct call.
+
+        ``require_render`` (quick-260701-bob / REQUIRE-RENDER-KNOB) is threaded from
+        the compiled ``Step.require_render`` so html_render sees the per-step render
+        fail-closed policy; None keeps the Settings-default (skip-is-a-pass) behavior.
         """
         try:
             path = self.sandbox.path_for(name)
@@ -1055,6 +1064,7 @@ class KernelServices:
             _content=content,
             step=step,
             task_meta=dict(task_meta or {}),
+            require_render=require_render,
         )
 
     # ── Human gate delegate (08-02 / GATE-03 parity; 10-03 approval payload) ────
@@ -1294,6 +1304,9 @@ class KernelServices:
             user_instruction=user_instruction,
             label=label,
             checkpointer=ectx.checkpointer,
+            # Per-step render fail-closed knob (quick-260701-bob / REQUIRE-RENDER-KNOB):
+            # None → the loop falls back to settings.PROTOTYPE_REQUIRE_RENDER (parity).
+            require_render=getattr(step, "require_render", None),
         )
 
     # ── Post-task typed dual-write (keeps _latest_typed_content current) ───────

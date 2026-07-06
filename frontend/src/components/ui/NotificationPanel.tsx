@@ -148,26 +148,26 @@ export function NotificationPanel({
                           <p className="text-[11px] text-gray-500 truncate mt-0.5">{n.title}</p>
 
                           {/* Progress bar for running */}
-                          {n.status === "running" && n.agentsTotal && n.agentsTotal > 0 && (
+                          {n.status === "running" && (n.agentsTotal ?? 0) > 0 && (
                             <div className="mt-2">
                               <div className="flex items-center justify-between mb-1">
                                 <span className="text-[10px] text-gray-400">
                                   {n.agentsCompleted ?? 0} of {n.agentsTotal} agents
                                 </span>
                                 <span className="text-[10px] text-[#1B2A4A] font-medium">
-                                  {Math.round(((n.agentsCompleted ?? 0) / n.agentsTotal) * 100)}%
+                                  {Math.round(((n.agentsCompleted ?? 0) / (n.agentsTotal ?? 1)) * 100)}%
                                 </span>
                               </div>
                               <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
                                 <div
                                   className="h-full bg-[#1B2A4A] rounded-full transition-all duration-500"
-                                  style={{ width: `${Math.round(((n.agentsCompleted ?? 0) / n.agentsTotal) * 100)}%` }}
+                                  style={{ width: `${Math.round(((n.agentsCompleted ?? 0) / (n.agentsTotal ?? 1)) * 100)}%` }}
                                 />
                               </div>
                             </div>
                           )}
-                          {/* Waiting for agent count */}
-                          {n.status === "running" && (!n.agentsTotal || n.agentsTotal === 0) && (
+                          {/* Waiting for agent count — indeterminate pulse */}
+                          {n.status === "running" && (n.agentsTotal ?? 0) === 0 && (
                             <div className="mt-2 h-1 bg-gray-100 rounded-full overflow-hidden">
                               <div className="h-full bg-[#1B2A4A]/30 rounded-full animate-pulse w-full" />
                             </div>

@@ -134,17 +134,17 @@ export function PPTPreview({ content, isStreaming, pptxCode, onRevise, pipelineT
     htmlContent = htmlContent.replace(/^```(?:html)?\s*\n?/, "").replace(/\n?```\s*$/, "");
   }
 
-  // For od_ppt: extract HTML from artifact tags or find the HTML start
-  // (LLM may output a preamble sentence before <!DOCTYPE html>)
-  if (isOdPpt) {
+  // For all ppt decks: extract HTML from artifact tags or find the HTML start.
+  // The validator LLM sometimes emits a checklist preamble (✓ lines, VERDICT text)
+  // before <!DOCTYPE html>, even inside the artifact tags. Always slice to the
+  // actual HTML start to strip any such preamble — this is safe for all ppt types.
+  {
     // Try artifact tags first
     const artifactMatch = htmlContent.match(/<artifact[^>]*>\s*([\s\S]*?)\s*<\/artifact>/i);
     if (artifactMatch) {
       htmlContent = artifactMatch[1].trim();
     }
-    // Always strip any text before the HTML doctype — the validator sometimes
-    // emits a checklist preamble (✓ lines, VERDICT text) before <!DOCTYPE html>
-    // even when it's inside the artifact tags. Slice to the actual HTML start.
+    // Always strip any text before the HTML doctype
     const htmlStart = htmlContent.search(/<!DOCTYPE\s+html|<html[\s>]/i);
     if (htmlStart > 0) {
       htmlContent = htmlContent.slice(htmlStart);

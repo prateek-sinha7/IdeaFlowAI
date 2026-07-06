@@ -3,7 +3,7 @@
 Tests:
   - StateMachine transitions and terminal-state guard
   - ClarifyEngine pause/resume cycle
-  - ClarifyEngine max 3 rounds + clarification_limit_reached
+  - ClarifyEngine one-round-then-run + rounds knob + clarification_limit_reached
   - All 14 pipeline definitions resolve to valid DAGs
   - Engine default planning context
 """
@@ -122,8 +122,9 @@ async def test_clarify_engine_pause_resume_cycle():
 
 
 @pytest.mark.asyncio
-async def test_clarify_engine_max_rounds():
-    """After MAX_CLARIFICATION_ROUNDS, emit clarification_limit_reached and proceed."""
+async def test_clarify_engine_asks_once_then_limit_reached():
+    """Default one-round-then-run: unresolved after the single round emits
+    clarification_limit_reached (the accepted terminal 'proceed') and PROCEEDs."""
     engine = ClarifyEngine()
     store = get_artifact_store()
     pipeline_run_id = "run-clarify-3"
@@ -139,7 +140,7 @@ async def test_clarify_engine_max_rounds():
                  for q in e["data"]["questions"]],
             )
 
-    # 5 missing items, all answered empty → never resolves → hits max rounds
+    # 5 missing items, all answered empty → never resolves → single round only
     ctx = {
         "execution_gate": "CLARIFY_REQUIRED",
         "missing_information": ["a", "b", "c", "d", "e"],
@@ -150,8 +151,41 @@ async def test_clarify_engine_max_rounds():
     types = [e["type"] for e in events]
     assert "clarification_limit_reached" in types
     assert result["execution_gate"] == "PROCEED"
-    # questionnaire_ready fired exactly MAX_CLARIFICATION_ROUNDS times
+    # questionnaire_ready fired exactly ONCE (one-round-then-run default)
+    assert types.count("questionnaire_ready") == 1
+
+
+@pytest.mark.asyncio
+async def test_clarify_engine_rounds_knob_allows_multi_round():
+    """max_rounds opts into multi-round; empty answers loop up to the ceiling."""
+    engine = ClarifyEngine()
+    store = get_artifact_store()
+    pipeline_run_id = "run-clarify-multi"
+    events = []
+
+    async def ws(e):
+        events.append(e)
+        if e["type"] == "questionnaire_ready":
+            await store.set_questionnaire_responses(
+                pipeline_run_id,
+                [{"question_id": q["question_id"], "answer": ""}
+                 for q in e["data"]["questions"]],
+            )
+
+    ctx = {
+        "execution_gate": "CLARIFY_REQUIRED",
+        "missing_information": ["a", "b", "c", "d", "e"],
+        "explicit_constraints": [],
+    }
+    result = await engine.run(
+        pipeline_run_id, ctx, ws, owner_id="user-test", max_rounds=3
+    )
+
+    types = [e["type"] for e in events]
+    # Loops up to the MAX_CLARIFICATION_ROUNDS ceiling when the knob opts in.
     assert types.count("questionnaire_ready") == MAX_CLARIFICATION_ROUNDS
+    assert "clarification_limit_reached" in types
+    assert result["execution_gate"] == "PROCEED"
 
 
 @pytest.mark.asyncio
@@ -196,10 +230,10 @@ async def test_clarify_engine_skip_clarification_force_proceeds_round_1():
 
 
 @pytest.mark.asyncio
-async def test_clarify_engine_empty_submit_without_flag_still_loops():
-    """ISS-027 regression guard: an empty submit WITHOUT the flag keeps the old
-    behavior (re-asks all MAX rounds), so the force-proceed short-circuit is gated
-    strictly on the explicit flag and nothing else changed for ordinary submits."""
+async def test_clarify_engine_empty_submit_proceeds_after_one_round():
+    """One-round-then-run: an empty submit (no force-proceed flag) no longer
+    re-asks — the questionnaire is asked exactly once, then the run PROCEEDs via
+    the terminal clarification_limit_reached (default max_rounds=1)."""
     engine = ClarifyEngine()
     store = get_artifact_store()
     pipeline_run_id = "run-clarify-noflag"
@@ -208,7 +242,7 @@ async def test_clarify_engine_empty_submit_without_flag_still_loops():
     async def ws(e):
         events.append(e)
         if e["type"] == "questionnaire_ready":
-            # Empty submit, default flag (False) — the pre-fix skip payload.
+            # Empty submit, default flag (False).
             await store.set_questionnaire_responses(pipeline_run_id, [])
 
     ctx = {
@@ -219,9 +253,45 @@ async def test_clarify_engine_empty_submit_without_flag_still_loops():
     result = await engine.run(pipeline_run_id, ctx, ws, owner_id="user-test")
 
     types = [e["type"] for e in events]
-    assert types.count("questionnaire_ready") == MAX_CLARIFICATION_ROUNDS
+    assert types.count("questionnaire_ready") == 1
     assert "clarification_limit_reached" in types
     assert result["execution_gate"] == "PROCEED"
+
+
+@pytest.mark.asyncio
+async def test_clarify_engine_asks_once_then_proceeds_on_subset():
+    """Answering a SUBSET (some missing_information remains) proceeds after one
+    round: one questionnaire_ready, questionnaire_complete present, PROCEED, and
+    the answered item merged into explicit_constraints."""
+    engine = ClarifyEngine()
+    store = get_artifact_store()
+    pipeline_run_id = "run-clarify-subset"
+    events = []
+
+    async def ws(e):
+        events.append(e)
+        if e["type"] == "questionnaire_ready":
+            questions = e["data"]["questions"]
+            # Answer only the FIRST question; leave the rest blank (a subset).
+            responses = [
+                {"question_id": q["question_id"],
+                 "answer": "subset-answer" if idx == 0 else ""}
+                for idx, q in enumerate(questions)
+            ]
+            await store.set_questionnaire_responses(pipeline_run_id, responses)
+
+    ctx = {
+        "execution_gate": "CLARIFY_REQUIRED",
+        "missing_information": ["a", "b", "c"],
+        "explicit_constraints": [],
+    }
+    result = await engine.run(pipeline_run_id, ctx, ws, owner_id="user-test")
+
+    types = [e["type"] for e in events]
+    assert types.count("questionnaire_ready") == 1
+    assert "questionnaire_complete" in types
+    assert result["execution_gate"] == "PROCEED"
+    assert any("subset-answer" in c for c in result["explicit_constraints"])
 
 
 @pytest.mark.asyncio

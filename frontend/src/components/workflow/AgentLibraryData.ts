@@ -18,11 +18,12 @@ export const LIBRARY_AGENTS: AgentDef[] = [
 
   // PROTOTYPE PIPELINE — real spec-kit agents. pipeline_type "prototype" is the
   // category key the agent-selector UI filters on; real ids/metadata/gate sourced
-  // from backend agents.registry["prototype"] (specify → plan → build → validate).
+  // from backend agents.registry["prototype"] (specify → plan → analyze → build → validate).
   { id: "prototype-specify", name: "Spec Writer Agent", role: "Specification & Architecture", description: "Analyses the brief and writes the specification — navigation graph, page structure, and design-system selection for the prototype.", pipeline_type: "prototype", order: 1, icon: "📋", estimated_duration: 25, has_skill: true, gate: "Human_Gate" },
   { id: "prototype-plan", name: "Task Planner Agent", role: "Build Planning & Task Decomposition", description: "Decomposes the spec into an ordered build plan — the full HTML shell first, then one page per task, then validation.", pipeline_type: "prototype", order: 2, icon: "🗂️", estimated_duration: 15, has_skill: true, gate: "Human_Gate" },
-  { id: "prototype-build", name: "Build Agent", role: "Incremental HTML Construction", description: "Builds the interactive prototype incrementally, one task at a time, wiring up every page, component, and interaction.", pipeline_type: "prototype", order: 3, icon: "🏗️", estimated_duration: 60, has_skill: true, gate: null },
-  { id: "prototype-validate", name: "Validation Agent", role: "Structural Validation & Delivery", description: "Validates the final prototype for structural integrity, navigation correctness, and delivery readiness.", pipeline_type: "prototype", order: 4, icon: "✅", estimated_duration: 60, has_skill: true, gate: null },
+  { id: "prototype-analyze", name: "Spec Kit Analyzer", role: "Cross-Artifact Quality Analysis", description: "Performs a read-only Spec Kit-style cross-artifact analysis of the spec and task list — checks consistency, coverage gaps, ambiguities, duplications, and unmapped tasks before implementation starts.", pipeline_type: "prototype", order: 3, icon: "🔍", estimated_duration: 20, has_skill: false, gate: "Human_Gate" },
+  { id: "prototype-build", name: "Build Agent", role: "Incremental HTML Construction", description: "Builds the interactive prototype incrementally, one task at a time, wiring up every page, component, and interaction.", pipeline_type: "prototype", order: 4, icon: "🏗️", estimated_duration: 60, has_skill: true, gate: null },
+  { id: "prototype-validate", name: "Validation Agent", role: "Structural Validation & Delivery", description: "Validates the final prototype for structural integrity, navigation correctness, and delivery readiness.", pipeline_type: "prototype", order: 5, icon: "✅", estimated_duration: 60, has_skill: true, gate: null },
 
   // APP BUILDER PIPELINE — 15-agent SDLC
   { id: "material-analyzer", name: "Architecture Agent", role: "Solution & System Design", description: "Analyzes your requirements and designs the complete application architecture.", pipeline_type: "app_builder", order: 1, icon: "📋", estimated_duration: 63, has_skill: false, gate: null },

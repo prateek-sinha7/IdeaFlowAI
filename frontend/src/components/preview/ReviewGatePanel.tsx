@@ -10,11 +10,11 @@
  * - Reject (cancel the pipeline)
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { motion } from "motion/react";
 import {
   CheckCircle2, XCircle, Edit3, Eye, FileText,
-  ListChecks, ChevronDown, ChevronRight, Sparkles, Trash2,
+  ListChecks, ChevronDown, ChevronRight, Sparkles, Trash2, RotateCcw,
 } from "lucide-react";
 
 interface ReviewGatePanelProps {
@@ -24,6 +24,15 @@ interface ReviewGatePanelProps {
   gateKey: string;
   onApprove: (gateKey: string, editedContent?: string) => void;
   onReject: (gateKey: string) => void;
+  /**
+   * REDO-GATE (F-fe1): re-run the gated agent in place with optional extra
+   * instructions. The Redo control renders IFF this handler is provided AND the
+   * server marked the gate `redoable` (the generic F1b fence — a declared/
+   * user-composed `gate:human` gets `redoable=false` and shows no Redo button).
+   */
+  onRedo?: (gateKey: string, instructions: string) => void;
+  /** Server-set generic discriminator (REDO-GATE F1b). Default false. */
+  redoable?: boolean;
 }
 
 // ─── Spec renderer — parses <spec>...</spec> into readable sections ───────────
@@ -146,16 +155,100 @@ function TasksPreview({ content, onTasksChange }: { content: string; onTasksChan
   );
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
+// ─── Analysis report renderer — parses <analysis>...</analysis> ──────────────
+function AnalysisPreview({ content }: { content: string }) {
+  const analysisMatch = content.match(/<analysis>([\s\S]*?)<\/analysis>/i);
+  const analysisContent = analysisMatch ? analysisMatch[1].trim() : content;
+
+  // Extract verdict for highlight
+  const verdictMatch = analysisContent.match(/###\s*Readiness verdict\s*\n([\s\S]*?)(?=\n###|$)/i);
+  const verdict = verdictMatch ? verdictMatch[1].trim().split("\n")[0].trim() : "";
+  const isReady = verdict.includes("READY TO BUILD");
+  const isCaution = verdict.includes("CAUTION");
+  const needsRevision = verdict.includes("NEEDS REVISION");
+
+  // Extract sections by ## heading
+  const lines = analysisContent.split("\n");
+  const sections: { heading: string; body: string }[] = [];
+  let current: { heading: string; lines: string[] } | null = null;
+  for (const line of lines) {
+    if (line.startsWith("### ")) {
+      if (current) sections.push({ heading: current.heading, body: current.lines.join("\n").trim() });
+      current = { heading: line.replace("### ", ""), lines: [] };
+    } else if (line.startsWith("## ") && sections.length === 0 && !current) {
+      // Skip top-level heading
+    } else if (current) {
+      current.lines.push(line);
+    }
+  }
+  if (current) sections.push({ heading: current.heading, body: current.lines.join("\n").trim() });
+
+  if (sections.length === 0) {
+    return (
+      <pre className="text-[11px] text-gray-700 whitespace-pre-wrap leading-relaxed font-mono">
+        {analysisContent}
+      </pre>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Verdict banner */}
+      {verdict && (
+        <div className={`rounded-xl px-4 py-3 border font-semibold text-[12px] flex items-center gap-2 ${
+          isReady ? "bg-emerald-50 border-emerald-200 text-emerald-800" :
+          isCaution ? "bg-amber-50 border-amber-200 text-amber-800" :
+          needsRevision ? "bg-red-50 border-red-200 text-red-800" :
+          "bg-gray-50 border-gray-200 text-gray-800"
+        }`}>
+          {isReady ? <CheckCircle2 className="h-4 w-4 flex-shrink-0" /> :
+           isCaution ? <Sparkles className="h-4 w-4 flex-shrink-0" /> :
+           <XCircle className="h-4 w-4 flex-shrink-0" />}
+          {verdict}
+        </div>
+      )}
+      {sections.map((s, i) => (
+        <div key={i} className="rounded-lg border border-gray-100 overflow-hidden">
+          <div className={`px-3 py-2 border-b border-gray-100 ${
+            s.heading.toLowerCase().includes("suggested") ? "bg-blue-50" :
+            s.heading.toLowerCase().includes("risk") ? "bg-amber-50" :
+            s.heading.toLowerCase().includes("issues") ? "bg-red-50" :
+            "bg-gray-50"
+          }`}>
+            <p className="text-[11px] font-bold text-gray-700">{s.heading}</p>
+          </div>
+          <div className="px-3 py-2.5">
+            <pre className="text-[11px] text-gray-700 whitespace-pre-wrap leading-relaxed font-mono">
+              {s.body}
+            </pre>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
 export function ReviewGatePanel({
-  agentId, agentName, output, gateKey, onApprove, onReject,
+  agentId, agentName, output, gateKey, onApprove, onReject, onRedo, redoable,
 }: ReviewGatePanelProps) {
   const [mode, setMode] = useState<"preview" | "edit">("preview");
   const [editedContent, setEditedContent] = useState(output);
   const [hasEdits, setHasEdits] = useState(false);
+  // REDO-GATE (F-fe1): free-text additional instructions for the re-run.
+  const [redoInstructions, setRedoInstructions] = useState("");
+  // REDO-GATE (F8 / T13): one-action latch — once any resolve action fires we
+  // disable the controls until the panel is re-opened by the next
+  // review_gate_ready (output changes ⇒ fresh re-run), preventing a double-send.
+  const [submitted, setSubmitted] = useState(false);
+
+  // The Redo control is shown ONLY when a handler is wired AND the server marked
+  // this gate redoable (the generic F1b fence — no workflow/agent literal here).
+  const canRedo = !!onRedo && !!redoable;
 
   const isSpec = agentId === "prototype-specify";
   const isTasks = agentId === "prototype-plan";
+  const isAnalysis = agentId === "prototype-analyze";
 
   const handleEdit = useCallback((value: string) => {
     setEditedContent(value);
@@ -168,20 +261,45 @@ export function ReviewGatePanel({
     setHasEdits(newContent !== output);
   }, [output]);
 
+  // REDO-GATE (T13 / F8): a fresh review_gate_ready re-opens the panel with new
+  // output — reset the one-action latch + the instructions box so the re-paused
+  // gate is interactive again. Keyed on `output` (the re-run's new content) and
+  // `gateKey` (a brand-new gate).
+  useEffect(() => {
+    setSubmitted(false);
+    setRedoInstructions("");
+  }, [output, gateKey]);
+
   const handleApprove = useCallback(() => {
+    if (submitted) return;
+    setSubmitted(true);
     onApprove(gateKey, hasEdits ? editedContent : undefined);
-  }, [gateKey, hasEdits, editedContent, onApprove]);
+  }, [submitted, gateKey, hasEdits, editedContent, onApprove]);
 
   const handleReject = useCallback(() => {
+    if (submitted) return;
+    setSubmitted(true);
     onReject(gateKey);
-  }, [gateKey, onReject]);
+  }, [submitted, gateKey, onReject]);
 
-  const icon = isSpec ? FileText : ListChecks;
+  // REDO-GATE (F-fe1 / T13): send the optional instructions and latch the panel
+  // closed against a double-send until the next review_gate_ready arrives.
+  const handleRedo = useCallback(() => {
+    if (submitted || !onRedo) return;
+    setSubmitted(true);
+    onRedo(gateKey, redoInstructions);
+  }, [submitted, onRedo, gateKey, redoInstructions]);
+
+  const icon = isSpec ? FileText : isTasks ? ListChecks : isAnalysis ? Sparkles : FileText;
   const Icon = icon;
-  const label = isSpec ? "Specification Review" : "Task Plan Review";
+  const label = isSpec ? "Specification Review" : isTasks ? "Task Plan Review" : isAnalysis ? "Spec Kit Analysis" : "Review";
   const description = isSpec
     ? "Review the generated specification. Edit if needed, then approve to proceed to task planning."
-    : "Review the build task list. Edit if needed, then approve to start building.";
+    : isTasks
+    ? "Review the build task list. Edit if needed, then approve to start building."
+    : isAnalysis
+    ? "Review the analysis report. The analyzer has checked the spec and task list for consistency, gaps, and risks. Approve to proceed to implementation, or reject to revise."
+    : "Review the agent output before continuing.";
 
   return (
     <div className="flex flex-col h-full bg-white">
@@ -233,7 +351,8 @@ export function ReviewGatePanel({
               <>
                 {isSpec && <SpecPreview content={hasEdits ? editedContent : output} />}
                 {isTasks && <TasksPreview content={hasEdits ? editedContent : output} onTasksChange={handleTasksChange} />}
-                {!isSpec && !isTasks && (
+                {isAnalysis && <AnalysisPreview content={hasEdits ? editedContent : output} />}
+                {!isSpec && !isTasks && !isAnalysis && (
                   <pre className="text-[11px] text-gray-700 whitespace-pre-wrap leading-relaxed font-mono">
                     {(hasEdits ? editedContent : output).slice(0, 4000)}
                   </pre>
@@ -261,7 +380,7 @@ export function ReviewGatePanel({
             className="h-full"
           >
             <p className="text-[10px] text-gray-400 mb-2">
-              Edit the {isSpec ? "specification" : "task list"} directly. Changes will be used by the next agent.
+              Edit the {isSpec ? "specification" : isTasks ? "task list" : isAnalysis ? "analysis report" : "content"} directly. Changes will be used by the next agent.
             </p>
             <textarea
               value={editedContent}
@@ -286,15 +405,45 @@ export function ReviewGatePanel({
 
         <button
           onClick={handleApprove}
-          className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#1B2A4A] text-white px-4 py-3 text-[12px] font-semibold hover:bg-[#2a3d5e] transition-all shadow-sm"
+          disabled={submitted}
+          className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#1B2A4A] text-white px-4 py-3 text-[12px] font-semibold hover:bg-[#2a3d5e] transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[#1B2A4A]"
         >
           <CheckCircle2 className="h-4 w-4" />
           {hasEdits ? "Approve with edits & continue" : "Approve & continue"}
         </button>
 
+        {/* REDO-GATE (F-fe1): re-run the gated agent with optional extra
+            instructions. Rendered IFF onRedo AND server-set redoable (F1b fence). */}
+        {canRedo && (
+          <div className="space-y-2 rounded-xl border border-violet-100 bg-violet-50/50 px-3 py-3">
+            <label className="block text-[10px] font-medium text-violet-700">
+              Redo with additional instructions{" "}
+              <span className="text-violet-400 font-normal">(optional — leave blank to just regenerate)</span>
+            </label>
+            <textarea
+              value={redoInstructions}
+              onChange={(e) => setRedoInstructions(e.target.value)}
+              disabled={submitted}
+              placeholder="e.g. add a dark-mode variant; tighten the spacing; focus on mobile"
+              className="w-full min-h-[60px] rounded-lg border border-violet-200 bg-white px-3 py-2 text-[11px] text-gray-900 leading-relaxed focus:outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-300 resize-none disabled:opacity-50 disabled:cursor-not-allowed"
+              spellCheck={false}
+              aria-label="Additional instructions for redo"
+            />
+            <button
+              onClick={handleRedo}
+              disabled={submitted}
+              className="w-full flex items-center justify-center gap-2 rounded-xl border border-violet-300 text-violet-700 px-4 py-2.5 text-[11px] font-semibold hover:bg-violet-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              Redo this step
+            </button>
+          </div>
+        )}
+
         <button
           onClick={handleReject}
-          className="w-full flex items-center justify-center gap-2 rounded-xl border border-red-200 text-red-600 px-4 py-2.5 text-[11px] font-medium hover:bg-red-50 transition-all"
+          disabled={submitted}
+          className="w-full flex items-center justify-center gap-2 rounded-xl border border-red-200 text-red-600 px-4 py-2.5 text-[11px] font-medium hover:bg-red-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
         >
           <XCircle className="h-3.5 w-3.5" />
           Reject & cancel pipeline
