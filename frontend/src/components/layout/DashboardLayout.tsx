@@ -1350,6 +1350,8 @@ export function DashboardLayout({
               className="h-full"
             >
               <WorkflowHistory onBack={handleGoHome} onChainPipeline={handleChainFromHistory}
+            activeRunId={pipelineState?.pipelineRunId ?? null}
+            onViewRunningPipeline={() => setMainView("execution")}
             onReviseUserStory={(instruction, content, sourceRunId) => {
               setMainView("execution");
               setWorkflowType("user_stories_revision");
