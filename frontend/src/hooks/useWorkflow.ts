@@ -231,7 +231,36 @@ export function handlePipelineMessage(
         if (agentIdx === -1) return prev;
 
         const updated = [...prev.agents];
-        updated[agentIdx] = { ...updated[agentIdx], status: "running" };
+        // FIX-039: on (re)start, reset THIS agent's run-scoped accumulators to
+        // their fresh-agent values BEFORE the next run's chunks accumulate.
+        // Without this, a regenerate (2nd agent_start) leaves the prior run's
+        // `output` in place and agent_chunk APPENDS onto it (:275), so
+        // PrototypePipelineView.parseTasks reads the stale first <tasks> block.
+        // Replayed agent_start events are deduped upstream by shouldApplyEvent
+        // (dashboard/page.tsx:276), so a live output is never wiped on reconnect.
+        // Identity fields (id/name/role/icon/index) are preserved via the spread.
+        updated[agentIdx] = {
+          ...updated[agentIdx],
+          status: "running",
+          // Accumulator fields rebuilt per run (agent_chunk/agent_thinking/
+          // tool_call/validator_result/agent_error/gate_*):
+          output: "",
+          thinking: "",
+          thinkingText: "",
+          toolCalls: [],
+          validationIssues: [],
+          error: null,
+          validationPassed: undefined,
+          // Overwrite-only fields — reset too so a re-run that errors before
+          // agent_complete/agent_input never shows the prior run's numbers:
+          duration: null,
+          inputTokens: undefined,
+          outputTokens: undefined,
+          totalTokens: undefined,
+          estimatedCostUsd: undefined,
+          inputPrompt: undefined,
+          contextSources: undefined,
+        };
 
         return { ...prev, agents: updated, currentAgentIndex: agentIdx };
       });
