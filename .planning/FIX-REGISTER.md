@@ -45,6 +45,7 @@
 | FIX-036 | 2026-07-04 | ISS-032 — run cost not cache-discounted: the shared deep-agent runner dropped the `input_token_details` cache split so BOTH cost sites priced cache-reads at 1x (over-report once FIX-034 caching is ON in prod) | langchain_aws sets `usage_metadata.input_tokens` to the TOTAL (incl. cache) with the split in `input_token_details={cache_read, cache_creation}` (bedrock_converse.py), but the runner forwarded only input/output → `estimate_cost_usd` saw cache=0 → cached input billed 1x not 0.1x. Fix: the runner surfaces `input_token_details` (cache_read/cache_creation) into the usage event + text-only TokenUsage → the engine accumulates per-agent → `results` + `agent_complete` + run totals on `pipeline_complete` → BOTH cost sites price the UNCACHED split (`input_tokens=max(0, total − cache_read − cache_write)` + cache_read/write tiers + cache_ttl) via the ONE shared `estimate_cost_usd` (INV-12; SC-001, no workflow/agent branch); golden-neutral via additive `_VOLATILE_STRIP_KEYS` (4 new keys stripped, no regen). | `backend/app/agents/deep_agent_runner.py`, `backend/agents/execution_engine/engine.py`, `backend/app/api/websocket.py`, `backend/tests/agents/characterization/_normalize.py`, `backend/tests/agents/test_iss032_cache_tokens.py` | quick-260704-ttk | INV-1/3/12/13 · SC-001 ✅ | Done |
 | FIX-037 | 2026-07-04 | Cache-token breakdown not shown in UI — backend (ISS-032/FIX-036) emits per-run `total_cache_read_tokens`/`total_cache_write_tokens` + already-discounted `estimated_cost_usd`, but `TokenUsageSummary` showed only total/input/output/cost | FE never consumed the already-emitted cache fields (grep of `frontend/src` for cache tokens = nothing); no reopen path mapped them either. Fix (FE-only): thread the cache fields (types + `useWorkflow` `pipeline_complete`/`agent_complete` parse with `\|\| prev.* \|\| 0` + `api.ts` persisted keys made type-visible, no logic change) + render a `⚡ N cached (X%)` segment after the input figure when `cache_read > 0` (byte-identical render when 0/undefined; `pct = round(cacheRead / max(1, input) * 100)`; optional `· N written` when `cache_write > 0`); NO FE dollar/per-model math (INV-12) — cost already discounted by FIX-036; dollar-savings deferred (ISS-034). | `frontend/src/types/index.ts`, `frontend/src/hooks/useWorkflow.ts`, `frontend/src/components/workflow/TokenUsageSummary.tsx`, `frontend/src/components/workflow/TokenUsageSummary.cache.test.tsx` | quick-260704-uvs | INV-1/3/12 · SC-001 ✅ | Done |
 | FIX-038 | 2026-07-05 | t2x regression: model_pricing.py hardcoded model-family literals violated INV-12 single-model-id-source and broke test_model_catalog::test_single_source_grep (passed at baseline eb3ccced, failed after t2x). | Fix (proper, no test-loosen): co-located a frozen Pricing dataclass + pricing field on ModelEntry in model_catalog.py (the single source); model_pricing.py now derives each model's Pricing FROM the catalog (exact get + region/version-normalized fallback + cheap default) and keeps only _regional_premium + estimate_cost_usd — ZERO model-id literals. Reconciliation pin ($24.85) preserved; goldens byte-identical; lint 4/0. | `backend/agents/capabilities/model_catalog.py`, `backend/agents/capabilities/model_pricing.py`, `backend/tests/agents/test_model_pricing.py` | quick-260705-ed8 | INV-1/3/12/13 · SC-001 ✅ | Done |
+| FIX-039 | 2026-07-06 | KAN-92: Workflow history incorrect titles — 3 root causes in websocket.py: wizard-chain reuses source title, run_revision never calls title gen, legacy revision placeholder shows raw HTML marker | (1) `_generate_workflow_title` wizard-chain path wrote source pipeline's Title verbatim with no pipeline_type suffix; (2) `_handle_revision_execution` set `title=f"Revision: {instruction[:50]}"` and never scheduled `_generate_workflow_title`; (3) `_handle_workflow_execution` WorkflowRun placeholder fell through to `or content` for revision messages starting with `=== EXISTING … ===`, showing raw HTML marker for 2-5s | `backend/app/api/websocket.py` | Phase 14/16/22 | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-034 | 2026-07-04 | Bedrock prompt caching silently OFF + enable-only extended-thinking knob | deepagents' built-in AnthropicPromptCachingMiddleware caches ONLY ChatAnthropic, but prod runs ChatBedrockConverse → every build re-sent a ~45-68k fixed prefix uncached across ~300 turns (5-21M input tok). Fix: a provider-agnostic `_BedrockCachePointsMiddleware` sets model_settings cache_control on ChatBedrockConverse requests (config-gated BEDROCK_PROMPT_CACHE_ENABLED default ON, BEDROCK_PROMPT_CACHE_TTL '5m') so langchain_aws._apply_cache_points appends cachePoints ≈ 55-80% cheaper billed input; plus a THINKING_BUDGET_TOKENS knob (enable-only, default 0) threading a clamped thinking budget into both provider branches of build_model. | `backend/app/core/config.py`, `backend/app/agents/model_factory.py`, `backend/app/agents/deep_agent_runner.py`, `backend/tests/agents/test_bedrock_cache_and_thinking.py` | quick-260704-p10 | INV-1/3/12/13 · SC-001 ✅ | Done |
 
 ---
@@ -1346,3 +1347,58 @@ Four committed fixtures: **A `-full` must-FAIL** (5 genuine static dead + 17/17 
 **Phase(s) involved:** Phase 07/08 (prototype validators VALID-01/03/04) · IMPLEMENTATION-REGISTER **Phase 24** (post-milestone).
 **Invariants:** INV-1/3/12/13 ✅ (additive; no migration; kernel-pure/app→app imports; goldens byte/event-identical). **Status:** Done.
 **Known standing item:** `test_characterization_od_ppt` fails offline only (pre-existing skills-asset/event-golden drift, unrelated to the validators) → CI/clean-env re-confirm.
+
+---
+
+### FIX-039 — KAN-92: Workflow History Incorrect Titles (3 Root Causes)
+
+**Date:** 2026-07-06
+**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-92`
+
+#### Root Cause
+
+Three independent title-generation failures all in `backend/app/api/websocket.py`:
+
+**Root Cause 1 — Wizard-chain title reuses source pipeline's title verbatim**
+`_generate_workflow_title()` wizard-chain shortcut path (fired when `clean_content=""`, i.e. the entire input is a `=== CONTEXT FROM PREVIOUS PIPELINE ===` block): it extracted the `Title:` line from the context block (e.g. "Fintech App User Stories") and wrote it directly as the new run's title regardless of `pipeline_type`. For a chained prototype run the title "Fintech App User Stories" was persisted and emitted — identical to the parent's title, making history entries indistinguishable.
+
+**Root Cause 2 — `run_revision` title stays as raw instruction truncation forever**
+`_handle_revision_execution` created the `WorkflowRun` row with `title=f"Revision: {instruction[:50]}"` (a placeholder). Unlike `_handle_workflow_execution` (which schedules `asyncio.create_task(_generate_workflow_title(...))` after `db.commit()`), the revision path had no equivalent — the `create_task` call was simply never added. The "Revision: Change the color scheme to da..." placeholder therefore persisted as the permanent run title.
+
+**Root Cause 3 — Legacy revision placeholder shows `=== EXISTING PROTOTYPE HTML ===`**
+`_handle_workflow_execution`'s WorkflowRun creation used:
+```
+title=(_strip_pipeline_context(content) or _extract_title_from_context(content) or content or "Untitled")[:60]
+```
+For revision messages whose content starts with `=== EXISTING PROTOTYPE HTML ===` (the frontend-injected block), both `_strip_pipeline_context` and `_extract_title_from_context` return `""` (neither the `_WORKFLOW_TITLE_CONTEXT_MARKER` nor `_CHAIN_CONTEXT_TITLE` patterns match this marker). The chain falls through to `or content`, inserting the raw string `"=== EXISTING PROTOTYPE HTM"` (truncated to 60 chars) as the initial placeholder that shows in the history panel for 2-5 seconds until the async LLM title fires. The `_REVISION_REQUEST_MARKER` regex — which correctly extracts the user's actual revision instruction from the `=== REVISION REQUEST ===` section — was already defined but never tried in this fallback chain.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 14 (run_revision real revision loop) · Phase 16 (WebSocket title gen pattern) · Phase 22 (WorkflowRun fields)
+- **Relevant register section:** `_register-parts/14-run-revision-real-revision-loop-f2-end-to-end.md`, Phase 16 §3
+- **Deleted code verified (not resurrected):** No deleted code involved. `_REVISION_REQUEST_MARKER` was already present and used in `_strip_pipeline_context`; we're adding a third call site only.
+- **Locked decisions respected:** Async title generation as best-effort background task is the established pattern per run_pipeline path — fix 2 replicates it exactly. No engine edits (SC-001).
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `backend/app/api/websocket.py` | In `_generate_workflow_title` wizard-chain path: instead of writing `context_title[:60]` verbatim, build `chained_title = f"{context_title} – {hint.title()}"[:80]` using `_WORKFLOW_TITLE_PIPELINE_HINTS[pipeline_type]`; fallback to `context_title[:60]` when hint is absent | Disambiguates chained run titles from their parent — "Fintech App User Stories – Interactive Html Prototype" vs "Fintech App User Stories" |
+| `backend/app/api/websocket.py` | In `_handle_revision_execution`, after `db.close()`: add `asyncio.create_task(_generate_workflow_title(workflow_run_id=workflow_run_id, content=instruction, pipeline_type=revision_pipeline_type, websocket=websocket))` | Revision runs get the same async LLM-generated title as pipeline runs; `instruction` is clean user text so `_strip_pipeline_context` passes it through unchanged |
+| `backend/app/api/websocket.py` | In `_handle_workflow_execution` WorkflowRun creation title expression: insert `(lambda m: m.group(1).strip() if m else None)(_REVISION_REQUEST_MARKER.search(content or ""))` between `_extract_title_from_context(content)` and `or content` | For revision messages starting with `=== EXISTING … ===`, extracts the user's actual instruction from `=== REVISION REQUEST ===` section as placeholder instead of the raw HTML marker prefix |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — `_WORKFLOW_TITLE_PIPELINE_HINTS.get()` is a dict lookup with a default, not an `if pipeline_type ==` branch in the engine kernel
+- **INV-3** (golden parity): not affected — title is a UI field on `WorkflowRun`, not present in characterization event snapshots; 5 goldens byte-identical
+- **INV-12** (no duplication): reuses existing `_generate_workflow_title`, `_REVISION_REQUEST_MARKER`, `_WORKFLOW_TITLE_PIPELINE_HINTS` — no new functions or duplicated logic
+- **SC-001** (zero engine edits): not affected — all 3 changes are in `websocket.py` app layer only
+
+#### Verification
+- Fix 1: `_generate_workflow_title` wizard-chain path reads `chained_title` from confirmed code review — suffix logic verified in context (lines 494–527)
+- Fix 2: `asyncio.create_task(_generate_workflow_title(...))` confirmed present at line 2330 after `db.close()`, before `_get_or_create_queue` — matches run_pipeline pattern exactly
+- Fix 3: Lambda expression for `_REVISION_REQUEST_MARKER` confirmed in WorkflowRun `title=` argument at line ~1752 — all 3 fallbacks (`_strip_pipeline_context`, `_extract_title_from_context`, `_REVISION_REQUEST_MARKER`) now tried before `or content`
+- Backend restarted successfully, `alembic=0023`, no import errors
+
+#### Notes
+- Fix 1 uses `.title()` on the hint string (e.g. `"interactive html prototype"` → `"Interactive Html Prototype"`) — may want to switch to title-case-only words in the hints dict if the capitalization looks off in production
+- Fix 2 means `run_revision` will briefly show "Revision: <50 chars>" and then update to the LLM title (~2-3s) — same UX as run_pipeline. The `workflow_title_update` WS event is handled by the frontend already
+- Fix 3 only improves the 2-5s placeholder window; the LLM title still fires and replaces it — the improvement is that the placeholder is now the readable instruction text rather than `=== EXISTING PROTOTYPE HTM`
