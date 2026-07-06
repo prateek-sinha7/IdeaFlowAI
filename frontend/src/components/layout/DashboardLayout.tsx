@@ -1548,7 +1548,6 @@ export function DashboardLayout({
                    (pipelineState?.agents?.length ?? 0) === 0 &&
                    !questionnaireLoading &&
                    questionnaireQuestions.length === 0 &&
-                   !activePipelineRunId &&
                    !reviewGateData ? (
                     <PlanningOverlay plannerSummary={pipelineState?.plannerSummary} />
                   ) : reviewGateData ? (
