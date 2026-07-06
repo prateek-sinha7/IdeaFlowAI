@@ -14,7 +14,7 @@ import { useState, useCallback, useEffect } from "react";
 import { motion } from "motion/react";
 import {
   CheckCircle2, XCircle, Edit3, Eye, FileText,
-  ListChecks, ChevronDown, ChevronRight, Sparkles, Trash2, RotateCcw,
+  ListChecks, ChevronDown, ChevronRight, Sparkles, Trash2, RotateCcw, AlertTriangle,
 } from "lucide-react";
 
 interface ReviewGatePanelProps {
@@ -242,6 +242,10 @@ export function ReviewGatePanel({
   // review_gate_ready (output changes ⇒ fresh re-run), preventing a double-send.
   const [submitted, setSubmitted] = useState(false);
 
+  // Confirmation dialog before rejecting — "Reject & cancel pipeline" is
+  // irreversible, so we guard it with an explicit confirm step.
+  const [showRejectConfirm, setShowRejectConfirm] = useState(false);
+
   // The Redo control is shown ONLY when a handler is wired AND the server marked
   // this gate redoable (the generic F1b fence — no workflow/agent literal here).
   const canRedo = !!onRedo && !!redoable;
@@ -268,6 +272,7 @@ export function ReviewGatePanel({
   useEffect(() => {
     setSubmitted(false);
     setRedoInstructions("");
+    setShowRejectConfirm(false);
   }, [output, gateKey]);
 
   const handleApprove = useCallback(() => {
@@ -441,13 +446,43 @@ export function ReviewGatePanel({
         )}
 
         <button
-          onClick={handleReject}
+          onClick={() => setShowRejectConfirm(true)}
           disabled={submitted}
           className="w-full flex items-center justify-center gap-2 rounded-xl border border-red-200 text-red-600 px-4 py-2.5 text-[11px] font-medium hover:bg-red-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
         >
           <XCircle className="h-3.5 w-3.5" />
           Reject & cancel pipeline
         </button>
+
+        {/* Confirmation dialog for reject — shown inline below the Reject button */}
+        {showRejectConfirm && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 space-y-3">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="h-4 w-4 text-red-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-[12px] font-semibold text-red-700">Cancel this pipeline?</p>
+                <p className="text-[11px] text-red-600 mt-0.5 leading-relaxed">
+                  This will stop execution and discard all progress. This action cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowRejectConfirm(false)}
+                className="flex-1 rounded-lg border border-gray-200 bg-white text-gray-600 px-3 py-2 text-[11px] font-medium hover:bg-gray-50 transition-all"
+              >
+                Keep reviewing
+              </button>
+              <button
+                onClick={handleReject}
+                disabled={submitted}
+                className="flex-1 rounded-lg bg-red-600 text-white px-3 py-2 text-[11px] font-semibold hover:bg-red-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Yes, cancel pipeline
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

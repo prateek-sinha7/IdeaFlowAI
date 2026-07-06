@@ -45,6 +45,7 @@
 | FIX-036 | 2026-07-04 | ISS-032 — run cost not cache-discounted: the shared deep-agent runner dropped the `input_token_details` cache split so BOTH cost sites priced cache-reads at 1x (over-report once FIX-034 caching is ON in prod) | langchain_aws sets `usage_metadata.input_tokens` to the TOTAL (incl. cache) with the split in `input_token_details={cache_read, cache_creation}` (bedrock_converse.py), but the runner forwarded only input/output → `estimate_cost_usd` saw cache=0 → cached input billed 1x not 0.1x. Fix: the runner surfaces `input_token_details` (cache_read/cache_creation) into the usage event + text-only TokenUsage → the engine accumulates per-agent → `results` + `agent_complete` + run totals on `pipeline_complete` → BOTH cost sites price the UNCACHED split (`input_tokens=max(0, total − cache_read − cache_write)` + cache_read/write tiers + cache_ttl) via the ONE shared `estimate_cost_usd` (INV-12; SC-001, no workflow/agent branch); golden-neutral via additive `_VOLATILE_STRIP_KEYS` (4 new keys stripped, no regen). | `backend/app/agents/deep_agent_runner.py`, `backend/agents/execution_engine/engine.py`, `backend/app/api/websocket.py`, `backend/tests/agents/characterization/_normalize.py`, `backend/tests/agents/test_iss032_cache_tokens.py` | quick-260704-ttk | INV-1/3/12/13 · SC-001 ✅ | Done |
 | FIX-037 | 2026-07-04 | Cache-token breakdown not shown in UI — backend (ISS-032/FIX-036) emits per-run `total_cache_read_tokens`/`total_cache_write_tokens` + already-discounted `estimated_cost_usd`, but `TokenUsageSummary` showed only total/input/output/cost | FE never consumed the already-emitted cache fields (grep of `frontend/src` for cache tokens = nothing); no reopen path mapped them either. Fix (FE-only): thread the cache fields (types + `useWorkflow` `pipeline_complete`/`agent_complete` parse with `\|\| prev.* \|\| 0` + `api.ts` persisted keys made type-visible, no logic change) + render a `⚡ N cached (X%)` segment after the input figure when `cache_read > 0` (byte-identical render when 0/undefined; `pct = round(cacheRead / max(1, input) * 100)`; optional `· N written` when `cache_write > 0`); NO FE dollar/per-model math (INV-12) — cost already discounted by FIX-036; dollar-savings deferred (ISS-034). | `frontend/src/types/index.ts`, `frontend/src/hooks/useWorkflow.ts`, `frontend/src/components/workflow/TokenUsageSummary.tsx`, `frontend/src/components/workflow/TokenUsageSummary.cache.test.tsx` | quick-260704-uvs | INV-1/3/12 · SC-001 ✅ | Done |
 | FIX-038 | 2026-07-05 | t2x regression: model_pricing.py hardcoded model-family literals violated INV-12 single-model-id-source and broke test_model_catalog::test_single_source_grep (passed at baseline eb3ccced, failed after t2x). | Fix (proper, no test-loosen): co-located a frozen Pricing dataclass + pricing field on ModelEntry in model_catalog.py (the single source); model_pricing.py now derives each model's Pricing FROM the catalog (exact get + region/version-normalized fallback + cheap default) and keeps only _regional_premium + estimate_cost_usd — ZERO model-id literals. Reconciliation pin ($24.85) preserved; goldens byte-identical; lint 4/0. | `backend/agents/capabilities/model_catalog.py`, `backend/agents/capabilities/model_pricing.py`, `backend/tests/agents/test_model_pricing.py` | quick-260705-ed8 | INV-1/3/12/13 · SC-001 ✅ | Done |
+| FIX-042 | 2026-07-06 | KAN-95: Reject & cancel pipeline leaves user stranded on execution view — onRejectReview had no navigation | `onRejectReview` in page.tsx only sent the WS message and cleared `reviewGateData`; no `setMainView("home")` or `onResetPipeline()` call. `cancelNavigatingHomeRef` was never set so `pipelineState.isRunning` effect would snap back to execution. Added `handleRejectReview` wrapper in DashboardLayout (mirrors `handleCancelWorkflow` pattern from KAN-90): sets `cancelNavigatingHomeRef`, calls `setMainView("home")`, calls `onResetPipeline()`, then delegates to `onRejectReview` for WS send + `reviewGateData` clear. | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 8/23 (GATE/REDO-GATE) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-041 | 2026-07-06 | KAN-94: Blank Specification Review panel fires before agents run when user deselects all gates + empty-state UX + ReviewGatesSection discoverability | Declared `gates:[human]` on prototype steps bypassed per-run gate_agent_ids deselection: `_should_gate` returned False → `inline_gated=False` → WR-02 dedupe not triggered → pre-step `human` gate fired with `last_streamed=""` → blank `review_gate_ready`. Fix: extend WR-02 skip to also cover when `ectx.gate_agent_ids is not None` and agent not in that list. Also improved empty-state UX (amber icon + Redo guidance + de-emphasized "Continue anyway") and ReviewGatesSection opens expanded when default gates are pre-checked. | `backend/agents/execution_engine/engine.py`, `frontend/src/components/preview/ReviewGatePanel.tsx`, `frontend/src/components/workflow/ReviewGatesSection.tsx` | Phase 8/23 (GATE/REDO-GATE) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-040 | 2026-07-06 | KAN-93: Notification Panel shows raw context block text for chained/revision runs — addRunningNotification called with raw enrichedInput before marker stripping | 5 addRunningNotification call sites in DashboardLayout.tsx passed `enrichedInput.slice(0,60)` or `message.slice(0,60)` without stripping injected `=== CONTEXT FROM PREVIOUS ===` / `=== EXISTING PROTOTYPE HTML ===` markers. Fix: use already-computed `chainBrief`/`historyBrief` (stripped) in chain handlers; apply `parseRunInput()` in handleRunPipeline, handleQuestionnaireSubmit, handleQuestionnaireSkip | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 22 (notifications) · Phase 25 (parseRunInput) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-039 | 2026-07-06 | KAN-92: Workflow history incorrect titles — 3 root causes in websocket.py: wizard-chain reuses source title, run_revision never calls title gen, legacy revision placeholder shows raw HTML marker | (1) `_generate_workflow_title` wizard-chain path wrote source pipeline's Title verbatim with no pipeline_type suffix; (2) `_handle_revision_execution` set `title=f"Revision: {instruction[:50]}"` and never scheduled `_generate_workflow_title`; (3) `_handle_workflow_execution` WorkflowRun placeholder fell through to `or content` for revision messages starting with `=== EXISTING … ===`, showing raw HTML marker for 2-5s | `backend/app/api/websocket.py` | Phase 14/16/22 | INV-1/3/12/SC-001 ✅ | Done |
@@ -1515,3 +1516,47 @@ Two distinct UX gaps:
 - The `canRedo` check reuses the existing REDO-GATE F1b fence exactly — no change to when Redo renders; only the empty-state messaging references it
 - If the user edits content in the textarea (hasEdits=true, editedContent non-empty), the approve button switches back to the primary style correctly because `!(hasEdits ? editedContent : output)?.trim()` = false
 - The AcceptanceCriteria item "ReviewGatesSection expanded by default" is now met; the "auto-approve if empty" option from the Jira was deliberately not chosen — the human reviewer should be aware the agent produced nothing and consciously choose to continue, hence the de-emphasized button approach
+
+---
+
+### FIX-042 — KAN-95: Reject & Cancel Pipeline Leaves User Stranded on Execution View
+
+**Date:** 2026-07-06
+**Triggered by:** `#velocity-ai-fix KAN-95`
+
+#### Root Cause
+
+`onRejectReview` in `frontend/src/app/dashboard/page.tsx` (lines 1341-1344) only sent the WS reject message and called `setReviewGateData(null)`. It did not:
+1. Set `cancelNavigatingHomeRef.current = true` — without this, `DashboardLayout.tsx:367`'s `pipelineState.isRunning` effect immediately overrides any `setMainView("home")` call, snapping the view back to `"execution"`.
+2. Call `setMainView("home")` — so the user stayed on the execution view.
+3. Call `onResetPipeline()` — so the agent list stayed in its cancelled/done state.
+
+The exact same pattern was already solved for KAN-90 (`handleCancelWorkflow` in `DashboardLayout.tsx`) — it sets `cancelNavigatingHomeRef.current = true` first, then navigates, then resets. That pattern just wasn't applied to the reject path.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 8 (GATE-01/02 — ReviewGatePanel), Phase 23 (REDO-GATE)
+- **Relevant register section:** `_register-parts/08-capabilities-hardened-registry-gates-tool-perms-runtime-3.md` §3
+- **Deleted code verified (not resurrected):** No deleted code involved
+- **Locked decisions respected:** `onRejectReview` prop contract unchanged — WS send still fires; only navigation layer added
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/layout/DashboardLayout.tsx` | Added `handleRejectReview` callback after `handleCancelWorkflow` — sets `cancelNavigatingHomeRef.current = true`, calls `setMainView("home")`, calls `onResetPipeline()`, then delegates to `onRejectReview(gateKey)` for the WS send + `reviewGateData` clear | Mirrors the KAN-90 `handleCancelWorkflow` pattern exactly; the `cancelNavigatingHomeRef` guard is load-bearing |
+| `frontend/src/components/layout/DashboardLayout.tsx` | Changed `onReject={onRejectReview \|\| (() => {})}` to `onReject={handleRejectReview}` in the ReviewGatePanel mount | Routes the reject through the new wrapper instead of the raw page.tsx callback |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — FE-only
+- **INV-3** (golden parity): not affected — no backend/golden snapshot changes
+- **INV-12** (no duplication): reuses existing `cancelNavigatingHomeRef`, `setMainView`, `onResetPipeline` — exact same pattern as `handleCancelWorkflow`
+- **SC-001** (zero engine edits): not affected — FE only
+
+#### Verification
+- TypeScript diagnostics: 0 errors after both edits
+- Trace: user clicks Reject → `handleRejectReview(gateKey)` fires → `cancelNavigatingHomeRef=true` → `setMainView("home")` → `onResetPipeline()` → `onRejectReview(gateKey)` → WS send → `setReviewGateData(null)` → `pipelineState.isRunning` effect fires but `cancelNavigatingHomeRef` is true → effect returns without overriding → user sees home view
+- No backend restart needed (FE-only change)
+
+#### Notes
+- `handleRejectReview` does NOT need to send `cancel_pipeline` separately — the `onRejectReview` prop already sends `approve_review{approved:false}` which triggers the backend pipeline cancellation via the review gate path (not the cancel_pipeline WS handler)
+- The `cancelNavigatingHomeRef` guard is consumed (reset to false) in the `pipelineState.isRunning` effect — so it only fires once per navigate-home action, which is the correct behavior

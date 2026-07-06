@@ -1208,6 +1208,22 @@ export function DashboardLayout({
     }
   }, [activePipelineRunId, onSubmitQuestionnaire, websocketSend, onResetPipeline]);
 
+  // Handle "Reject & cancel pipeline" from the ReviewGatePanel.
+  // KAN-95: the raw onRejectReview prop (from page.tsx) only sends the WS message
+  // and clears reviewGateData — it does not navigate. This wrapper sets
+  // cancelNavigatingHomeRef first (so the pipelineState.isRunning effect doesn't
+  // snap the view back to "execution"), resets pipeline state, and navigates home
+  // before delegating to the prop for the actual WS send.
+  const handleRejectReview = useCallback((gateKey: string) => {
+    // Set the guard BEFORE any state changes so the isRunning effect can't fight us
+    cancelNavigatingHomeRef.current = true;
+    // Navigate home and reset state immediately
+    setMainView("home");
+    if (onResetPipeline) onResetPipeline();
+    // Delegate to page.tsx for the WS send + reviewGateData clear
+    if (onRejectReview) onRejectReview(gateKey);
+  }, [onRejectReview, onResetPipeline]);
+
   // Header navigation — free navigation even while pipeline runs
   const handleNavigate = useCallback((page: "home" | "library" | "history" | "settings" | "analytics" | "catalog" | "saved-workflows") => {
     setMainView(page as MainView);
@@ -1540,7 +1556,7 @@ export function DashboardLayout({
                       output={reviewGateData.output}
                       gateKey={reviewGateData.gateKey}
                       onApprove={onApproveReview || (() => {})}
-                      onReject={onRejectReview || (() => {})}
+                      onReject={handleRejectReview}
                       onRedo={onRedoReview}
                       redoable={reviewGateData.redoable}
                     />
