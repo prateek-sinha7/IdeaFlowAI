@@ -45,6 +45,7 @@
 | FIX-036 | 2026-07-04 | ISS-032 — run cost not cache-discounted: the shared deep-agent runner dropped the `input_token_details` cache split so BOTH cost sites priced cache-reads at 1x (over-report once FIX-034 caching is ON in prod) | langchain_aws sets `usage_metadata.input_tokens` to the TOTAL (incl. cache) with the split in `input_token_details={cache_read, cache_creation}` (bedrock_converse.py), but the runner forwarded only input/output → `estimate_cost_usd` saw cache=0 → cached input billed 1x not 0.1x. Fix: the runner surfaces `input_token_details` (cache_read/cache_creation) into the usage event + text-only TokenUsage → the engine accumulates per-agent → `results` + `agent_complete` + run totals on `pipeline_complete` → BOTH cost sites price the UNCACHED split (`input_tokens=max(0, total − cache_read − cache_write)` + cache_read/write tiers + cache_ttl) via the ONE shared `estimate_cost_usd` (INV-12; SC-001, no workflow/agent branch); golden-neutral via additive `_VOLATILE_STRIP_KEYS` (4 new keys stripped, no regen). | `backend/app/agents/deep_agent_runner.py`, `backend/agents/execution_engine/engine.py`, `backend/app/api/websocket.py`, `backend/tests/agents/characterization/_normalize.py`, `backend/tests/agents/test_iss032_cache_tokens.py` | quick-260704-ttk | INV-1/3/12/13 · SC-001 ✅ | Done |
 | FIX-037 | 2026-07-04 | Cache-token breakdown not shown in UI — backend (ISS-032/FIX-036) emits per-run `total_cache_read_tokens`/`total_cache_write_tokens` + already-discounted `estimated_cost_usd`, but `TokenUsageSummary` showed only total/input/output/cost | FE never consumed the already-emitted cache fields (grep of `frontend/src` for cache tokens = nothing); no reopen path mapped them either. Fix (FE-only): thread the cache fields (types + `useWorkflow` `pipeline_complete`/`agent_complete` parse with `\|\| prev.* \|\| 0` + `api.ts` persisted keys made type-visible, no logic change) + render a `⚡ N cached (X%)` segment after the input figure when `cache_read > 0` (byte-identical render when 0/undefined; `pct = round(cacheRead / max(1, input) * 100)`; optional `· N written` when `cache_write > 0`); NO FE dollar/per-model math (INV-12) — cost already discounted by FIX-036; dollar-savings deferred (ISS-034). | `frontend/src/types/index.ts`, `frontend/src/hooks/useWorkflow.ts`, `frontend/src/components/workflow/TokenUsageSummary.tsx`, `frontend/src/components/workflow/TokenUsageSummary.cache.test.tsx` | quick-260704-uvs | INV-1/3/12 · SC-001 ✅ | Done |
 | FIX-038 | 2026-07-05 | t2x regression: model_pricing.py hardcoded model-family literals violated INV-12 single-model-id-source and broke test_model_catalog::test_single_source_grep (passed at baseline eb3ccced, failed after t2x). | Fix (proper, no test-loosen): co-located a frozen Pricing dataclass + pricing field on ModelEntry in model_catalog.py (the single source); model_pricing.py now derives each model's Pricing FROM the catalog (exact get + region/version-normalized fallback + cheap default) and keeps only _regional_premium + estimate_cost_usd — ZERO model-id literals. Reconciliation pin ($24.85) preserved; goldens byte-identical; lint 4/0. | `backend/agents/capabilities/model_catalog.py`, `backend/agents/capabilities/model_pricing.py`, `backend/tests/agents/test_model_pricing.py` | quick-260705-ed8 | INV-1/3/12/13 · SC-001 ✅ | Done |
+| FIX-040 | 2026-07-06 | KAN-93: Notification Panel shows raw context block text for chained/revision runs — addRunningNotification called with raw enrichedInput before marker stripping | 5 addRunningNotification call sites in DashboardLayout.tsx passed `enrichedInput.slice(0,60)` or `message.slice(0,60)` without stripping injected `=== CONTEXT FROM PREVIOUS ===` / `=== EXISTING PROTOTYPE HTML ===` markers. Fix: use already-computed `chainBrief`/`historyBrief` (stripped) in chain handlers; apply `parseRunInput()` in handleRunPipeline, handleQuestionnaireSubmit, handleQuestionnaireSkip | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 22 (notifications) · Phase 25 (parseRunInput) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-039 | 2026-07-06 | KAN-92: Workflow history incorrect titles — 3 root causes in websocket.py: wizard-chain reuses source title, run_revision never calls title gen, legacy revision placeholder shows raw HTML marker | (1) `_generate_workflow_title` wizard-chain path wrote source pipeline's Title verbatim with no pipeline_type suffix; (2) `_handle_revision_execution` set `title=f"Revision: {instruction[:50]}"` and never scheduled `_generate_workflow_title`; (3) `_handle_workflow_execution` WorkflowRun placeholder fell through to `or content` for revision messages starting with `=== EXISTING … ===`, showing raw HTML marker for 2-5s | `backend/app/api/websocket.py` | Phase 14/16/22 | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-034 | 2026-07-04 | Bedrock prompt caching silently OFF + enable-only extended-thinking knob | deepagents' built-in AnthropicPromptCachingMiddleware caches ONLY ChatAnthropic, but prod runs ChatBedrockConverse → every build re-sent a ~45-68k fixed prefix uncached across ~300 turns (5-21M input tok). Fix: a provider-agnostic `_BedrockCachePointsMiddleware` sets model_settings cache_control on ChatBedrockConverse requests (config-gated BEDROCK_PROMPT_CACHE_ENABLED default ON, BEDROCK_PROMPT_CACHE_TTL '5m') so langchain_aws._apply_cache_points appends cachePoints ≈ 55-80% cheaper billed input; plus a THINKING_BUDGET_TOKENS knob (enable-only, default 0) threading a clamped thinking budget into both provider branches of build_model. | `backend/app/core/config.py`, `backend/app/agents/model_factory.py`, `backend/app/agents/deep_agent_runner.py`, `backend/tests/agents/test_bedrock_cache_and_thinking.py` | quick-260704-p10 | INV-1/3/12/13 · SC-001 ✅ | Done |
 
@@ -1402,3 +1403,66 @@ For revision messages whose content starts with `=== EXISTING PROTOTYPE HTML ===
 - Fix 1 uses `.title()` on the hint string (e.g. `"interactive html prototype"` → `"Interactive Html Prototype"`) — may want to switch to title-case-only words in the hints dict if the capitalization looks off in production
 - Fix 2 means `run_revision` will briefly show "Revision: <50 chars>" and then update to the LLM title (~2-3s) — same UX as run_pipeline. The `workflow_title_update` WS event is handled by the frontend already
 - Fix 3 only improves the 2-5s placeholder window; the LLM title still fires and replaces it — the improvement is that the placeholder is now the readable instruction text rather than `=== EXISTING PROTOTYPE HTM`
+
+---
+
+### FIX-040 — KAN-93: Notification Panel shows raw context block text (chained/revision runs)
+
+**Date:** 2026-07-06
+**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-93`
+
+#### Root Cause
+
+Five `addRunningNotification` call sites in `DashboardLayout.tsx` passed the raw enriched input (or raw pipeline message) `.slice(0,60)` as the notification title without stripping injected marker blocks first.
+
+For chained pipeline runs, `enrichedInput` is composed as `${chainBrief}\n\n${contextBlock}`. When `chainBrief` is `""` (wizard-chain where the user typed nothing — the brief was already embedded in the context block), `enrichedInput` starts directly with `=== CONTEXT FROM PREVIOUS PIPELINE (prototype) ===\nTitle: ...`. Slicing to 60 chars gives the raw marker text as the notification title.
+
+For revision runs, `message` may start with `=== EXISTING PROTOTYPE HTML ===` (the frontend-injected existing-artifact block). The same slice-without-strip exposes raw HTML marker text.
+
+The `parseRunInput()` function (Workstream C1, Phase 25 / INV-12's canonical FE parser) was already imported in `DashboardLayout.tsx` and already used in `handleChainPipeline`/`handleChainFromHistory` to build `chainBrief`/`historyBrief` — but was not applied at the `addRunningNotification` call sites.
+
+Additionally, the existing `updateAgentsTotal(notifId, agentCount, latestRun.title)` effect at line ~474 already updates the notification title to the LLM-generated clean title when `workflow_title_update` arrives (~2-3s later), so the title self-corrects even without this fix — the fix improves the initial placeholder.
+
+**Broken call sites:**
+1. `handleRunPipeline` (~line 871): `message.slice(0,60)` — message may be a revision blob
+2. `handleChainPipeline` (~line 968): `enrichedInput.slice(0,60)` — enrichedInput starts with `===` for wizard-chains
+3. `handleChainFromHistory` (~line 1045): `enrichedInput.slice(0,60)` — same
+4. `handleQuestionnaireSubmit` (~line 1122): `pendingPipelineRun.message.slice(0,60)` — same as #1
+5. `handleQuestionnaireSkip` (~line 1157): `pendingPipelineRun.message.slice(0,60)` — same as #1
+
+**Safe call sites (untouched):**
+- `odProtoNotifCreated` effect (line ~457): uses hardcoded label `"Prototype"` / `"Presentation"` — correct
+- `pendingOdProtoParams` effect (line ~693): uses `pendingOdProtoParams.brief` — wizard-collected clean text
+- `pendingOdPptParams` effect (line ~740): uses `pendingOdPptParams.brief` — same
+
+#### Phase Context
+- **Phase(s) involved:** Phase 22 (notification system) · Phase 25 / Workstream C1 (parseRunInput, INV-12 canonical parser)
+- **Relevant register section:** `_register-parts/22-capability-surfacing-and-user-empowerment-universal-runtime-.md` §3
+- **Deleted code verified (not resurrected):** No deleted code. `parseRunInput` is the live Workstream C1 parser, already imported.
+- **Locked decisions respected:** INV-12 — using the existing `parseRunInput`, not duplicating any strip logic.
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/layout/DashboardLayout.tsx` | `handleRunPipeline`: replace `message.slice(0,60)` with `parseRunInput(message).revisionInstruction ?? parseRunInput(message).brief \|\| message).slice(0,60)` | Strips `=== EXISTING … ===` blocks from revision messages |
+| `frontend/src/components/layout/DashboardLayout.tsx` | `handleChainPipeline`: replace `enrichedInput.slice(0,60)` with `(chainBrief \|\| enrichedInput).slice(0,60)` | `chainBrief` is already the stripped user brief, computed above the call site |
+| `frontend/src/components/layout/DashboardLayout.tsx` | `handleChainFromHistory`: replace `enrichedInput.slice(0,60)` with `(historyBrief \|\| enrichedInput).slice(0,60)` | Same — `historyBrief` already stripped by `parseRunInput` above the call site |
+| `frontend/src/components/layout/DashboardLayout.tsx` | `handleQuestionnaireSubmit`: parse `pendingPipelineRun.message` with `parseRunInput`, use `revisionInstruction ?? brief` | Same strip needed — message is the same raw input from `handleRunPipeline` |
+| `frontend/src/components/layout/DashboardLayout.tsx` | `handleQuestionnaireSkip`: same as submit | Same |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — FE-only change
+- **INV-3** (golden parity): not affected — no backend/golden snapshot changes
+- **INV-12** (no duplication): reuses existing `parseRunInput` (already imported) — no new strip logic
+- **SC-001** (zero engine edits): not affected — FE only
+
+#### Verification
+- TypeScript diagnostics: 0 errors after all 5 edits
+- All `addRunningNotification` call sites confirmed — grep shows 5 fixed sites + 3 safe untouched sites
+- No backend restart needed (FE-only change, frontend dev server already running)
+- The `updateAgentsTotal` title-update effect at line ~474 still fires when `workflow_title_update` arrives, replacing the initial title with the LLM-generated clean title (~2-3s later) — belt-and-suspenders
+
+#### Notes
+- For wizard-chains where `chainBrief=""` (pure context block input), `chainBrief || enrichedInput` falls back to `enrichedInput` which still starts with `===`. This edge case is caught by the backend's `_generate_workflow_title` (FIX-039) which fires ~2s later and calls `updateAgentsTotal` with the clean LLM title. The notification placeholder in this scenario improves slightly but won't be fully clean until the LLM title arrives — acceptable because wizard-chains always have `pipeline_type` info (e.g. "Prototype") visible elsewhere in the notification card.
+- The `pendingOdProtoParams`/`pptParams` effects intentionally left untouched — `.brief` is the wizard-collected clean user text, not an enriched input.

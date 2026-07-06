@@ -868,7 +868,11 @@ export function DashboardLayout({
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
-      addRunningNotification(notifId, resolvedType, message.slice(0, 60), 0);
+      // Strip injected context/revision markers before using as notification title
+      // so the panel never shows raw "=== EXISTING PROTOTYPE HTML ===" text.
+      const parsedMsg = parseRunInput(message);
+      const notifTitle = (parsedMsg.revisionInstruction ?? parsedMsg.brief ?? message).slice(0, 60);
+      addRunningNotification(notifId, resolvedType, notifTitle, 0);
       if (connectionStatus === "connected") {
         onStartPipeline(resolvedType, message, agentIds, attachedSkills, attachedHooks, extraParams);
       } else {
@@ -965,7 +969,10 @@ export function DashboardLayout({
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
-      addRunningNotification(notifId, nextType, enrichedInput.slice(0, 60), 0);
+      // chainBrief is the stripped user brief (no markers); use it as the
+      // notification title so the panel never shows raw context block text.
+      const chainNotifTitle = (chainBrief || enrichedInput).slice(0, 60);
+      addRunningNotification(notifId, nextType, chainNotifTitle, 0);
       if (connectionStatus === "connected") {
         onStartPipeline(nextType, enrichedInput, [], attachedSkills, attachedHooks);
       } else {
@@ -1042,7 +1049,10 @@ export function DashboardLayout({
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
-      addRunningNotification(notifId, nextType, enrichedInput.slice(0, 60), 0);
+      // historyBrief is the stripped user brief (no markers); use it so the
+      // panel never shows raw context block text for history-chained runs.
+      const historyNotifTitle = (historyBrief || enrichedInput).slice(0, 60);
+      addRunningNotification(notifId, nextType, historyNotifTitle, 0);
       if (connectionStatus === "connected") {
         onStartPipeline(nextType, enrichedInput, [], attachedSkills, attachedHooks);
       } else {
@@ -1119,7 +1129,9 @@ export function DashboardLayout({
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
-      addRunningNotification(notifId, pendingPipelineRun.type, pendingPipelineRun.message.slice(0, 60), 0);
+      const parsedPending = parseRunInput(pendingPipelineRun.message);
+      const pendingNotifTitle = (parsedPending.revisionInstruction ?? parsedPending.brief ?? pendingPipelineRun.message).slice(0, 60);
+      addRunningNotification(notifId, pendingPipelineRun.type, pendingNotifTitle, 0);
       if (connectionStatus === "connected") {
         onStartPipeline(pendingPipelineRun.type, enrichedMessage, pendingPipelineRun.agentIds, attachedSkills, attachedHooks, pendingPipelineRun.extraParams);
       } else {
@@ -1154,7 +1166,9 @@ export function DashboardLayout({
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
-      addRunningNotification(notifId, pendingPipelineRun.type, pendingPipelineRun.message.slice(0, 60), 0);
+      const parsedSkip = parseRunInput(pendingPipelineRun.message);
+      const skipNotifTitle = (parsedSkip.revisionInstruction ?? parsedSkip.brief ?? pendingPipelineRun.message).slice(0, 60);
+      addRunningNotification(notifId, pendingPipelineRun.type, skipNotifTitle, 0);
       if (connectionStatus === "connected") {
         onStartPipeline(pendingPipelineRun.type, pendingPipelineRun.message, pendingPipelineRun.agentIds, attachedSkills, attachedHooks, pendingPipelineRun.extraParams);
       } else {
