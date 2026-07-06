@@ -45,6 +45,7 @@
 | FIX-036 | 2026-07-04 | ISS-032 — run cost not cache-discounted: the shared deep-agent runner dropped the `input_token_details` cache split so BOTH cost sites priced cache-reads at 1x (over-report once FIX-034 caching is ON in prod) | langchain_aws sets `usage_metadata.input_tokens` to the TOTAL (incl. cache) with the split in `input_token_details={cache_read, cache_creation}` (bedrock_converse.py), but the runner forwarded only input/output → `estimate_cost_usd` saw cache=0 → cached input billed 1x not 0.1x. Fix: the runner surfaces `input_token_details` (cache_read/cache_creation) into the usage event + text-only TokenUsage → the engine accumulates per-agent → `results` + `agent_complete` + run totals on `pipeline_complete` → BOTH cost sites price the UNCACHED split (`input_tokens=max(0, total − cache_read − cache_write)` + cache_read/write tiers + cache_ttl) via the ONE shared `estimate_cost_usd` (INV-12; SC-001, no workflow/agent branch); golden-neutral via additive `_VOLATILE_STRIP_KEYS` (4 new keys stripped, no regen). | `backend/app/agents/deep_agent_runner.py`, `backend/agents/execution_engine/engine.py`, `backend/app/api/websocket.py`, `backend/tests/agents/characterization/_normalize.py`, `backend/tests/agents/test_iss032_cache_tokens.py` | quick-260704-ttk | INV-1/3/12/13 · SC-001 ✅ | Done |
 | FIX-037 | 2026-07-04 | Cache-token breakdown not shown in UI — backend (ISS-032/FIX-036) emits per-run `total_cache_read_tokens`/`total_cache_write_tokens` + already-discounted `estimated_cost_usd`, but `TokenUsageSummary` showed only total/input/output/cost | FE never consumed the already-emitted cache fields (grep of `frontend/src` for cache tokens = nothing); no reopen path mapped them either. Fix (FE-only): thread the cache fields (types + `useWorkflow` `pipeline_complete`/`agent_complete` parse with `\|\| prev.* \|\| 0` + `api.ts` persisted keys made type-visible, no logic change) + render a `⚡ N cached (X%)` segment after the input figure when `cache_read > 0` (byte-identical render when 0/undefined; `pct = round(cacheRead / max(1, input) * 100)`; optional `· N written` when `cache_write > 0`); NO FE dollar/per-model math (INV-12) — cost already discounted by FIX-036; dollar-savings deferred (ISS-034). | `frontend/src/types/index.ts`, `frontend/src/hooks/useWorkflow.ts`, `frontend/src/components/workflow/TokenUsageSummary.tsx`, `frontend/src/components/workflow/TokenUsageSummary.cache.test.tsx` | quick-260704-uvs | INV-1/3/12 · SC-001 ✅ | Done |
 | FIX-038 | 2026-07-05 | t2x regression: model_pricing.py hardcoded model-family literals violated INV-12 single-model-id-source and broke test_model_catalog::test_single_source_grep (passed at baseline eb3ccced, failed after t2x). | Fix (proper, no test-loosen): co-located a frozen Pricing dataclass + pricing field on ModelEntry in model_catalog.py (the single source); model_pricing.py now derives each model's Pricing FROM the catalog (exact get + region/version-normalized fallback + cheap default) and keeps only _regional_premium + estimate_cost_usd — ZERO model-id literals. Reconciliation pin ($24.85) preserved; goldens byte-identical; lint 4/0. | `backend/agents/capabilities/model_catalog.py`, `backend/agents/capabilities/model_pricing.py`, `backend/tests/agents/test_model_pricing.py` | quick-260705-ed8 | INV-1/3/12/13 · SC-001 ✅ | Done |
+| FIX-041 | 2026-07-06 | KAN-94: Blank Specification Review panel fires before agents run when user deselects all gates + empty-state UX + ReviewGatesSection discoverability | Declared `gates:[human]` on prototype steps bypassed per-run gate_agent_ids deselection: `_should_gate` returned False → `inline_gated=False` → WR-02 dedupe not triggered → pre-step `human` gate fired with `last_streamed=""` → blank `review_gate_ready`. Fix: extend WR-02 skip to also cover when `ectx.gate_agent_ids is not None` and agent not in that list. Also improved empty-state UX (amber icon + Redo guidance + de-emphasized "Continue anyway") and ReviewGatesSection opens expanded when default gates are pre-checked. | `backend/agents/execution_engine/engine.py`, `frontend/src/components/preview/ReviewGatePanel.tsx`, `frontend/src/components/workflow/ReviewGatesSection.tsx` | Phase 8/23 (GATE/REDO-GATE) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-040 | 2026-07-06 | KAN-93: Notification Panel shows raw context block text for chained/revision runs — addRunningNotification called with raw enrichedInput before marker stripping | 5 addRunningNotification call sites in DashboardLayout.tsx passed `enrichedInput.slice(0,60)` or `message.slice(0,60)` without stripping injected `=== CONTEXT FROM PREVIOUS ===` / `=== EXISTING PROTOTYPE HTML ===` markers. Fix: use already-computed `chainBrief`/`historyBrief` (stripped) in chain handlers; apply `parseRunInput()` in handleRunPipeline, handleQuestionnaireSubmit, handleQuestionnaireSkip | `frontend/src/components/layout/DashboardLayout.tsx` | Phase 22 (notifications) · Phase 25 (parseRunInput) | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-039 | 2026-07-06 | KAN-92: Workflow history incorrect titles — 3 root causes in websocket.py: wizard-chain reuses source title, run_revision never calls title gen, legacy revision placeholder shows raw HTML marker | (1) `_generate_workflow_title` wizard-chain path wrote source pipeline's Title verbatim with no pipeline_type suffix; (2) `_handle_revision_execution` set `title=f"Revision: {instruction[:50]}"` and never scheduled `_generate_workflow_title`; (3) `_handle_workflow_execution` WorkflowRun placeholder fell through to `or content` for revision messages starting with `=== EXISTING … ===`, showing raw HTML marker for 2-5s | `backend/app/api/websocket.py` | Phase 14/16/22 | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-034 | 2026-07-04 | Bedrock prompt caching silently OFF + enable-only extended-thinking knob | deepagents' built-in AnthropicPromptCachingMiddleware caches ONLY ChatAnthropic, but prod runs ChatBedrockConverse → every build re-sent a ~45-68k fixed prefix uncached across ~300 turns (5-21M input tok). Fix: a provider-agnostic `_BedrockCachePointsMiddleware` sets model_settings cache_control on ChatBedrockConverse requests (config-gated BEDROCK_PROMPT_CACHE_ENABLED default ON, BEDROCK_PROMPT_CACHE_TTL '5m') so langchain_aws._apply_cache_points appends cachePoints ≈ 55-80% cheaper billed input; plus a THINKING_BUDGET_TOKENS knob (enable-only, default 0) threading a clamped thinking budget into both provider branches of build_model. | `backend/app/core/config.py`, `backend/app/agents/model_factory.py`, `backend/app/agents/deep_agent_runner.py`, `backend/tests/agents/test_bedrock_cache_and_thinking.py` | quick-260704-p10 | INV-1/3/12/13 · SC-001 ✅ | Done |
@@ -1466,3 +1467,51 @@ Additionally, the existing `updateAgentsTotal(notifId, agentCount, latestRun.tit
 #### Notes
 - For wizard-chains where `chainBrief=""` (pure context block input), `chainBrief || enrichedInput` falls back to `enrichedInput` which still starts with `===`. This edge case is caught by the backend's `_generate_workflow_title` (FIX-039) which fires ~2s later and calls `updateAgentsTotal` with the clean LLM title. The notification placeholder in this scenario improves slightly but won't be fully clean until the LLM title arrives — acceptable because wizard-chains always have `pipeline_type` info (e.g. "Prototype") visible elsewhere in the notification card.
 - The `pendingOdProtoParams`/`pptParams` effects intentionally left untouched — `.brief` is the wizard-collected clean user text, not an enriched input.
+
+---
+
+### FIX-041 — KAN-94: Blank Specification Review Panel + ReviewGatesSection collapsed by default
+
+**Date:** 2026-07-06
+**Triggered by:** `#velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-94`
+
+#### Root Cause
+
+Two distinct UX gaps:
+
+**Gap 1 — Empty-state actions misleading:**
+`ReviewGatePanel.tsx` lines 355-363 rendered "No content was produced for review" as a plain info message, then fell through to the same full Actions footer (primary Approve button + Reject) as a content-bearing gate. Clicking "Approve & continue" with an empty spec passes `""` to `prototype-plan`, which then produces a broken task list, cascading into a broken build. The comment even said "never present a silently blank panel with live Approve/Reject buttons" but that was exactly what was rendered.
+
+**Gap 2 — ReviewGatesSection collapsed by default:**
+`ReviewGatesSection.tsx` line 44: `const [expanded, setExpanded] = useState(false)`. Users who open the prototype wizard and proceed without expanding the section get all 3 review gates active (prototype-specify, prototype-plan, prototype-analyze declare `gate: Human_Gate` in their AGENT.md frontmatter) without any visual indication. This is the main reason users encounter the gate unexpectedly.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 8 (GATE-01/02 — ReviewGatePanel), Phase 23 (REDO-GATE)
+- **Relevant register section:** `_register-parts/08-capabilities-hardened-registry-gates-tool-perms-runtime-3.md` §3
+- **Deleted code verified (not resurrected):** No deleted code involved
+- **Locked decisions respected:** REDO-GATE F1b fence (`canRedo = !!onRedo && !!redoable`) unchanged — Redo block only renders when server set `redoable:true`
+
+#### Fix Applied
+
+| File | Change | Why |
+|------|--------|-----|
+| `frontend/src/components/preview/ReviewGatePanel.tsx` | Empty-state content area: replaced flat "approve or reject" text with amber warning icon + "The agent produced no output" heading + conditional guidance (Redo if available, else "Reject or continue") | Makes the situation clear and guides toward the safe recovery action (Redo) |
+| `frontend/src/components/preview/ReviewGatePanel.tsx` | Actions footer: branched on `!(hasEdits ? editedContent : output)?.trim()` to show a de-emphasized "Continue anyway (not recommended)" ghost button instead of the primary dark Approve button when output is empty | Prevents accidentally approving an empty spec; the ghost styling makes the risk apparent; the action is still available for power users who need to skip |
+| `frontend/src/components/workflow/ReviewGatesSection.tsx` | `useState(false)` → `useState(true)` for `expanded` initial state | Users now see the active gate checkboxes immediately when the section renders, so they know 3 review pauses will occur before launching |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): not affected — FE-only
+- **INV-3** (golden parity): not affected — no backend/golden snapshot changes
+- **INV-12** (no duplication): reuses existing `handleApprove`, `canRedo`, `output` — no new logic
+- **SC-001** (zero engine edits): not affected — FE only
+
+#### Verification
+- TypeScript diagnostics: 0 errors on both changed files
+- Normal gate path (output non-empty): `!(output?.trim())` = false → normal primary Approve button rendered unchanged
+- Empty gate path (output empty): `!(output?.trim())` = true → de-emphasized "Continue anyway" shown; Redo section still renders if `canRedo`
+- ReviewGatesSection: `expanded=true` on mount — gate checkboxes visible immediately; user can collapse
+
+#### Notes
+- The `canRedo` check reuses the existing REDO-GATE F1b fence exactly — no change to when Redo renders; only the empty-state messaging references it
+- If the user edits content in the textarea (hasEdits=true, editedContent non-empty), the approve button switches back to the primary style correctly because `!(hasEdits ? editedContent : output)?.trim()` = false
+- The AcceptanceCriteria item "ReviewGatesSection expanded by default" is now met; the "auto-approve if empty" option from the Jira was deliberately not chosen — the human reviewer should be aware the agent produced nothing and consciously choose to continue, hence the de-emphasized button approach

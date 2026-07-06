@@ -3931,11 +3931,28 @@ class ExecutionEngine:
             # real output). Skip it; the inline (output-bearing) gate is the
             # single review for this agent. Gate-CAPABILITY name, not a
             # workflow/agent name (SC-001) — same idiom as _POST_STEP_GATES.
-            if name == "human" and inline_gated and phase == "pre":
+            #
+            # Also skip when the per-run gate_agent_ids selection EXPLICITLY
+            # excludes this agent. gate_agent_ids=None means "use static AGENT.md
+            # defaults"; gate_agent_ids=[] means "no gates this run" (user
+            # unchecked all). Without this check the declared ``gates:[human]``
+            # manifests on prototype steps fire a pre-step blank review_gate_ready
+            # even when the user deselected all gates in the wizard, because
+            # _should_gate returns False → inline_gated=False → the dedupe only
+            # fires on the inline path, not on the user-deselect path.
+            if name == "human" and phase == "pre" and (
+                inline_gated
+                or (
+                    ectx.gate_agent_ids is not None
+                    and getattr(step, "agent_id", None) not in ectx.gate_agent_ids
+                )
+            ):
                 logger.info(
-                    "declared 'human' gate on step %s skipped — the inline "
-                    "review gate already covers this agent (WR-02 dedupe)",
+                    "declared 'human' gate on step %s skipped — %s",
                     getattr(step, "agent_id", "?"),
+                    "inline review gate already covers this agent (WR-02 dedupe)"
+                    if inline_gated
+                    else "agent not in per-run gate_agent_ids selection",
                 )
                 continue
             try:
