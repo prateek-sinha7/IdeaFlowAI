@@ -767,6 +767,10 @@ Plans:
 2. Artifact-block derivation contracts written for Steps L2 (pages/tasks/checks/construction ← their exact data sources) and every run-screen figure pinned to its producing field (incl. `context_sources` verification).
 3. The D-12 live-state contract table exists as UI-SPEC input; the mockWs chat driver contract exists.
 4. ND-1..ND-9 each have a recorded decision.
+**Plans:** 3 plans (wave 1, all parallel — no file overlap)
+- [ ] 28-01-PLAN.md — Golden-neutrality guards + characterization proof (chat event vocabulary + volatile keys; CHAT-06)
+- [ ] 28-02-PLAN.md — Steps-L2 artifact-derivation contract + figure-to-field pinning + D-12 live-state contract (UI-SPEC input)
+- [ ] 28-03-PLAN.md — mockWs e2e chat-driver contract + resolved-decisions record (LOCK-A..G, ND-1..ND-13)
 
 ### Phase 29: Transport Cutover + Chat Backbone [A1]
 **Goal:** The transport becomes SSE-down + REST-up in full (D-13, WS run-path deleted at exit), and a user message reaches a run over the new transport, persists durably, routes by run state, and shapes the next agent dispatch — with browser-native reconnect/reopen fidelity.
