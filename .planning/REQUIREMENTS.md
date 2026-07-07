@@ -210,7 +210,7 @@ Registered 2026-07-07 via `/gsd-import`. Plan of record: `.planning/CHAT-AND-UI-
 - [ ] **CHAT-03**: Steering seam — consume-once `ectx.steering_notes` rendered as a `=== USER GUIDANCE ===` block at the next agent dispatch (redo idiom); sticky (uploads) vs one-shot (directives) semantics
 - [ ] **CHAT-04**: Narrator `chat_reply` result cards for clarify/gate/pipeline/deliverable milestones, deep-linking into the run tabs
 - [ ] **CHAT-05**: Family-anchored transcript — turns persist on the active run; FE stitches across parent/child runs via `GET /api/runs/{id}/family`
-- [ ] **CHAT-06**: Golden neutrality — new event types in `_DOCUMENTED_EVENT_TYPES`, volatile keys in `_VOLATILE_STRIP_KEYS`, characterization proof that chat never fires on golden paths
+- [x] **CHAT-06**: Golden neutrality — new event types in `_DOCUMENTED_EVENT_TYPES`, volatile keys in `_VOLATILE_STRIP_KEYS`, characterization proof that chat never fires on golden paths
 
 ### Uploads & Multimodal (Phase 30)
 
@@ -449,7 +449,7 @@ Each v1 requirement maps to exactly one phase, **one row per requirement** (REQ-
 | CHAT-03 | Phase 29 [A1] | Pending |
 | CHAT-04 | Phase 29 [A1] | Pending |
 | CHAT-05 | Phase 29 [A1] | Pending |
-| CHAT-06 | Phase 28 [A0] | Pending |
+| CHAT-06 | Phase 28 [A0] | Complete |
 | CHAT-07 | Phase 29 [A1] | Pending |
 | UPLD-01 | Phase 30 [A2] | Pending |
 | UPLD-02 | Phase 30 [A2] | Pending |

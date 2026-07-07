@@ -760,22 +760,28 @@ Plans:
 ### v2.0 Phase Details
 
 ### Phase 28: Chat Contracts & Guards [A0]
+
 **Goal:** Every contract the later phases build against is pinned before code: event vocabulary + golden guards, Steps artifact-derivation rules, the live-state contract, the e2e chat driver, and the ND-1..ND-9 decision records.
 **Depends on:** — (first v2.0 phase; v1.0 close-out is the milestone entry gate)
 **Success Criteria:**
+
 1. `chat_message`/`chat_reply` registered in `_DOCUMENTED_EVENT_TYPES` + volatile keys in `_VOLATILE_STRIP_KEYS`, with a characterization proof that the 5 goldens stay byte-identical (chat events never fire on golden paths).
 2. Artifact-block derivation contracts written for Steps L2 (pages/tasks/checks/construction ← their exact data sources) and every run-screen figure pinned to its producing field (incl. `context_sources` verification).
 3. The D-12 live-state contract table exists as UI-SPEC input; the mockWs chat driver contract exists.
 4. ND-1..ND-9 each have a recorded decision.
-**Plans:** 3 plans (wave 1, all parallel — no file overlap)
-- [ ] 28-01-PLAN.md — Golden-neutrality guards + characterization proof (chat event vocabulary + volatile keys; CHAT-06)
+
+**Plans:** 1/3 plans executed
+
+- [x] 28-01-PLAN.md — Golden-neutrality guards + characterization proof (chat event vocabulary + volatile keys; CHAT-06)
 - [ ] 28-02-PLAN.md — Steps-L2 artifact-derivation contract + figure-to-field pinning + D-12 live-state contract (UI-SPEC input)
 - [ ] 28-03-PLAN.md — mockWs e2e chat-driver contract + resolved-decisions record (LOCK-A..G, ND-1..ND-13)
 
 ### Phase 29: Transport Cutover + Chat Backbone [A1]
+
 **Goal:** The transport becomes SSE-down + REST-up in full (D-13, WS run-path deleted at exit), and a user message reaches a run over the new transport, persists durably, routes by run state, and shapes the next agent dispatch — with browser-native reconnect/reopen fidelity.
 **Depends on:** Phase 28
 **Success Criteria:**
+
 1. Wire-parity characterization green (the SSE stream replays the recorded WS frame sequences identically for the 5 golden pipelines); all inbound-handler test suites ported 1:1 to the REST endpoints; SSE+REST built ADDITIVELY alongside `/ws/chat` behind a transport flag (LOCK-B — NO deletion this unattended run; the WS-delete + ratchets + ledger row are a deferred supervised follow-up). Wire-parity characterization still built + green (CHAT-07).
 2. `POST /api/runs/{id}/messages` (idempotent by client `message_id`) persists as `run_events` rows; a full conversation survives page reload → native `Last-Event-ID` auto-reconnect → reopen; a gate answered via REST while the stream is down resumes correctly on reattach.
 3. The mechanical router delivers turns per state: clarify answer, gate action (approve/reject/redo+instructions/**update_specs** — routes to the shipped KAN-101 loop; terminal-fenced per KAN-100; event-driven per KAN-94), steering note, revision.
@@ -784,77 +790,95 @@ Plans:
 6. INV-3 goldens byte-identical; lint-imports 4/0; kernel name-free (SC-001 grep 0).
 
 ### Phase 30: Uploads & Multimodal [A2]
+
 **Goal:** Images and files enter runs — as vision input, as workspace files agents read, and as sticky launch context.
 **Depends on:** Phase 29
 **Success Criteria:**
+
 1. `POST /api/runs/{id}/files` (owner-scoped, IDOR→404) stores bytes under the run's `RunSandbox`.
 2. *(Run-entry image path ALREADY LANDED 2026-07-07 — IMAGE-INPUT-PLAN waves `edw`/`frv`/`gvq`, offline shape test green.)* Remaining: **per-turn** images ride the Phase 29 `chat_message` path into the next dispatch's content blocks.
 3. Uploaded documents are agent-readable (`read_file`) AND their extracted text is sticky context present in every subsequent `agent_input`.
 4. Launch-time attachments (incl. images) ride `run_pipeline`.
 
 ### Phase 31: Chat Lane MVP [A3]
+
 **Goal:** The chat lane ships inside the current skin — streaming bubbles, result cards deep-linking into tabs, quick actions, attachments — before any reskin.
 **Depends on:** Phases 29–30
 **Success Criteria:**
+
 1. The revived kit renders the family-stitched transcript (D-02) with streaming markdown + `aria-live`.
 2. Result cards deep-link into the run tabs (nonce'd seam); gate/clarify quick-actions work in-lane and mirror Steps.
 3. Attachment UI: file picker + paste + drag-drop + image preview + client resize; token-usage widget shows P26 fields.
 4. Open-design borrow-list mechanisms 1–7 integrated with Apache-2.0 attribution/NOTICE.
 
 ### Phase 32: Run-Screen Redesign [A4]
+
 **Goal:** The run screen converges to the Hexaware Run design: chat lane left; Preview/Steps/Files/Audit right; Steps is a 3-level drill-down.
 **Depends on:** Phase 31
 **Success Criteria:**
+
 1. Token layer (black/beige/one-blue `#3C2CDA`, Manrope/Heebo) + primitives land first; run screens consume them (no new hardcoded palette).
 2. Steps renders the 3-level drill-down (overview spine → agent detail + Context-received rail → task detail, dual-source) from real events; gate/clarify render inline in Steps.
 3. Audit tab reads the 3 new endpoints (`gate_events`/`validation_results`/`exec_runs`) with counters/filters + CSV/JSON export; governance keeps the status palette; one-chroma elsewhere.
 4. Failed/degraded/cancelled states faithful (P16 affordances + chat card); e2e green with brittle color assertions fixed + `data-testid`s added.
 
 ### Phase 33: Concierge + Compaction [A5]
+
 **Goal:** Free-form conversation works on every run via ONE orchestrator capability, and long transcripts stay inside budget.
 **Depends on:** Phase 29 (Phase 32 not required)
 **Success Criteria:**
+
 1. `chat:concierge` (proposal-only tools, confirm chips, Haiku default, via `deep_agent_runner` — INV-13) answers run questions from real run data and its proposals execute only through existing channels.
 2. `compaction:chat_history` + `context_provider:conversation` bound the composed history (proof: long-transcript context stays under budget with recent turns verbatim).
 3. Post-run chat turns produce revision runs stitched into the family transcript.
 4. A brand-new custom workflow gets lane + router + Concierge with zero new code (SC-001 proof).
 
 ### Phase 34: Live Pass & Closure [A6]
+
 **Goal:** Everything proven live on Bedrock; registers updated; deferrals swept.
 **Depends on:** Phases 31, 33 (32 recommended)
 **Success Criteria:**
+
 1. Live multi-turn chat with images on a real run; steering mid-run observed in the next dispatch; Concierge Q&A live.
 2. `cache_read > 0` confirmed incl. multi-turn cache-point placement (P26 deferral closed or explicitly re-dispositioned; ISS-033 noted).
 3. Playwright live chat suite green; ISSUES/FIX registers + IMPLEMENTATION-REGISTER updated.
 
 ### Phase 35: Shell Chrome + Reskin Pages [B1]
+
 **Goal:** The app shell converges: dark top bar, nav pill (Home · Library · My Workflows), profile menu, notifications — plus all reskin-only pages.
 **Depends on:** Phase 32 (token layer)
 **Success Criteria:**
+
 1. Shell chrome matches the Workspace v2 idiom on tokens (no per-page palette forks); nav = Home · Library · My Workflows (D-11).
 2. Account Settings, Template/DS pickers, Review-gates popover, Library restyled with real controls where the mock had static text.
 
 ### Phase 36: Home + History + My Workflows [B2]
+
 **Goal:** The three restructured list surfaces + the new Run detail page.
 **Depends on:** Phase 35
 **Success Criteria:**
+
 1. Fused Home: prompt launcher + deliverable grid + recents (merges `input`/`home` views).
 2. History: Today/Earlier/Older grouping, token/duration sort, real delete, revision families intact.
 3. "My Workflows" rename + working kebab actions; `WorkflowCatalog`→`HomeLaunchGrid` rename (D-11) — "Catalogue" reserved for the future marketplace.
 4. Run detail/reopen page live off a run-summary endpoint aggregating existing data (agents, KPIs, failure banner, version timeline).
 
 ### Phase 37: Configure Unification [B3]
+
 **Goal:** One generic per-run setup surface for every deliverable type; the agent drawer and workflow dialog give capabilities a real home.
 **Depends on:** Phase 36; ND-1/ND-7/ND-8 decided
 **Success Criteria:**
+
 1. Configure screen: Describe + Templates + Design System + Review Gates + Workflow Settings for ANY deliverable type (declared run inputs, not prototype-only wizardry).
 2. Agent drawer (Overview/Skills/Hooks/Config) live against real data; Workflow dialog surfaces declared capabilities/context/compaction with `user_allowed` gating.
 3. Draft-run persistence per ND-1 disposition.
 
 ### Phase 38: Analytics, Estimates & Notifications [B4]
+
 **Goal:** The data-backed shell tail: real analytics, estimates, notifications.
 **Depends on:** Phase 35 (independent of 36/37)
 **Success Criteria:**
+
 1. Date-scoped analytics aggregations power the dashboard (filters actually recompute).
 2. Home deliverable cards show real time/agent estimates; notifications feed live (gate/running/done/failed).
 
@@ -862,7 +886,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 28. Chat Contracts & Guards [A0] | 0/? | Not started | — |
+| 28. Chat Contracts & Guards [A0] | 1/3 | In Progress|  |
 | 29. Chat Backbone [A1] | 0/? | Not started | — |
 | 30. Uploads & Multimodal [A2] | 0/? | Not started | — |
 | 31. Chat Lane MVP [A3] | 0/? | Not started | — |
