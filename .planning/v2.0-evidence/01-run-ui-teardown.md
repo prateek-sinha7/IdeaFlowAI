@@ -1,7 +1,7 @@
 # Run-Screen Mock Teardown (Hexaware Run / Run-Live / Run-Failed / Design System .dc.html)
 
 > **Evidence doc — Milestone v2.0** (see `README.md` in this directory and the POR `.planning/CHAT-AND-UI-CONVERGENCE-PLAN.md`).
-> Verbatim final report of a max-effort investigation agent, 2026-07-07. Feeds Phases 30-31 (chat lane + run redesign) and Phase 27 contracts.
+> Verbatim final report of a max-effort investigation agent, 2026-07-07. Feeds Phases 31-32 (chat lane + run redesign) and Phase 28 contracts.
 
 ---
 

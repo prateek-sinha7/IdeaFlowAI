@@ -1,7 +1,7 @@
 # Frontend Run-UI & Chat-Embed Investigation
 
 > **Evidence doc — Milestone v2.0** (see `README.md` in this directory and the POR `.planning/CHAT-AND-UI-CONVERGENCE-PLAN.md`).
-> Verbatim final report of a max-effort investigation agent, 2026-07-07. Feeds Phases 30-31 and 34-37. Includes the dead chat kit inventory, theming audit, e2e resilience map.
+> Verbatim final report of a max-effort investigation agent, 2026-07-07. Feeds Phases 31-32 and 35-38. Includes the dead chat kit inventory, theming audit, e2e resilience map.
 
 ---
 

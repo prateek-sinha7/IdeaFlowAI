@@ -1,7 +1,7 @@
 # nexu-io/open-design Chat-Panel Teardown & Borrow-List Verdict
 
 > **Evidence doc — Milestone v2.0** (see `README.md` in this directory and the POR `.planning/CHAT-AND-UI-CONVERGENCE-PLAN.md`).
-> Verbatim final report of a max-effort investigation agent, 2026-07-07. Feeds Phase 30 (borrow-list mechanisms, Apache-2.0 attribution required).
+> Verbatim final report of a max-effort investigation agent, 2026-07-07. Feeds Phase 31 (borrow-list mechanisms, Apache-2.0 attribution required).
 
 ---
 

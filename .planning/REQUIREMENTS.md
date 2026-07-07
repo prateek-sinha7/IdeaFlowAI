@@ -200,9 +200,9 @@
 
 ## Milestone v2.0 Requirements — Universal Run Chat & VelocityAI UI Convergence
 
-Registered 2026-07-07 via `/gsd-import`. Plan of record: `.planning/CHAT-AND-UI-CONVERGENCE-PLAN.md` (locked decisions D-01..D-12, open decision records ND-1..ND-9). Phases 27–37 (23–26 reserved for the post-milestone standalone efforts in IMPLEMENTATION-REGISTER). All requirements inherit the standing invariants: SC-001/INV-1 (no kernel workflow-name branches), INV-3 (5 goldens byte/event-identical), INV-5, INV-12, INV-13, Q3 (additive migrations; owner_id+workspace_id).
+Registered 2026-07-07 via `/gsd-import`. Plan of record: `.planning/CHAT-AND-UI-CONVERGENCE-PLAN.md` (locked decisions D-01..D-12, open decision records ND-1..ND-9). Phases 28–38 (23–27 reserved for the post-milestone standalone efforts in IMPLEMENTATION-REGISTER). All requirements inherit the standing invariants: SC-001/INV-1 (no kernel workflow-name branches), INV-3 (5 goldens byte/event-identical), INV-5, INV-12, INV-13, Q3 (additive migrations; owner_id+workspace_id).
 
-### Chat Channel (Phases 27–28)
+### Chat Channel (Phases 28–29)
 
 - [ ] **CHAT-01**: Inbound WS `chat_message` (idempotent by client `message_id`); turns persist as `run_events` rows (`chat_message`/`chat_reply`) through the single stamping boundary — replay, reopen, and owner-scoping inherited; zero new tables
 - [ ] **CHAT-02**: Mechanical intent router delivers turns by run state — clarify answer / gate action (approve·reject·redo+instructions) / steering note / revision — with zero model calls for routable turns
@@ -211,20 +211,20 @@ Registered 2026-07-07 via `/gsd-import`. Plan of record: `.planning/CHAT-AND-UI-
 - [ ] **CHAT-05**: Family-anchored transcript — turns persist on the active run; FE stitches across parent/child runs via `GET /api/runs/{id}/family`
 - [ ] **CHAT-06**: Golden neutrality — new event types in `_DOCUMENTED_EVENT_TYPES`, volatile keys in `_VOLATILE_STRIP_KEYS`, characterization proof that chat never fires on golden paths
 
-### Uploads & Multimodal (Phase 29)
+### Uploads & Multimodal (Phase 30)
 
 - [ ] **UPLD-01**: `POST /api/runs/{id}/files` (multipart, two-layer owner check → 404) persisting bytes under the run's `RunSandbox`
 - [ ] **UPLD-02**: `run_images` provider live end-to-end (WS ingress → engine → `HumanMessage` content blocks) incl. per-turn images
 - [ ] **UPLD-03**: Documents extract-to-sticky-context AND land in the sandbox for agent `read_file`; `context_provider:uploaded_files` registered; uploaded context present in every subsequent `agent_input`
 - [ ] **UPLD-04**: Launch-time attachments (incl. images, client-resized) ride `run_pipeline`
 
-### Chat Lane UI (Phase 30)
+### Chat Lane UI (Phase 31)
 
 - [ ] **CHATUI-01**: Revived in-repo chat kit renders the family transcript with streaming markdown, `aria-live`/`role="log"`, and the open-design borrow-list mechanisms (Apache-2.0 attribution)
 - [ ] **CHATUI-02**: Gate/clarify quick-actions available in-lane, mirroring Steps (single backend channel either way)
 - [ ] **CHATUI-03**: Attachment UI (picker/paste/drag-drop/preview/resize) + token-usage widget from P26 telemetry
 
-### Run-Screen Redesign (Phase 31)
+### Run-Screen Redesign (Phase 32)
 
 - [ ] **RUNUI-01**: Token layer (black/beige/one-blue `#3C2CDA`, Manrope/Heebo) + shared primitives; run screens consume tokens, no new hardcoded palette
 - [ ] **RUNUI-02**: Run screen = chat lane (left) + Preview/Steps/Files/Audit (right); typed-renderer switcher as manual override over existing dispatch
@@ -232,17 +232,17 @@ Registered 2026-07-07 via `/gsd-import`. Plan of record: `.planning/CHAT-AND-UI-
 - [ ] **RUNUI-04**: Audit tab reads new `gate_events`/`validation_results`/`exec_runs` endpoints; counters/filters/CSV-JSON export; status palette only for governance
 - [ ] **RUNUI-05**: E2E hardened — brittle color-class assertions fixed, `data-testid`s on chat surfaces, mockWs chat driver in use
 
-### Concierge & Compaction (Phase 32)
+### Concierge & Compaction (Phase 33)
 
 - [ ] **CONC-01**: `chat:concierge` registered capability — one implementation, per-run instances, read + proposal-only tools, confirm chips, execution only through existing channels (INV-13 via `deep_agent_runner`)
 - [ ] **CONC-02**: `compaction:chat_history` + `context_provider:conversation` bound composed history within budget (recent verbatim, older summarized)
 - [ ] **CONC-03**: Post-run chat turns produce revision runs stitched into the family transcript
 
-### Live Confirmation (Phase 33)
+### Live Confirmation (Phase 34)
 
 - [ ] **LIVE-02**: Live-Bedrock pass — multi-turn chat with images, mid-run steering observed in next dispatch, Concierge Q&A, `cache_read>0` with multi-turn cache-point placement (closes the P26 deferral), Playwright live suite
 
-### Shell Convergence (Phases 34–37)
+### Shell Convergence (Phases 35–38)
 
 - [ ] **SHELL-01**: Shell chrome (dark top bar, nav pill Home·Library·My Workflows, profile menu, notifications) + reskin-only pages (Settings, pickers, Library) on the token layer
 - [ ] **SHELL-02**: Fused Home (launcher+grid+recents); History grouping/sort/delete; **My Workflows** rename + kebab actions; `WorkflowCatalog`→`HomeLaunchGrid`; "Catalogue" reserved for future marketplace (D-11)
@@ -439,40 +439,40 @@ Each v1 requirement maps to exactly one phase, **one row per requirement** (REQ-
 
 **Per-phase counts:** P1=11 · P2=5 · P3=3 · P4=6 · P5=14 · P6=5 · P7=9 · P8=29 · P9=14 · P10=2 · P11=13 · P12=6 (= 117)
 
-### Milestone v2.0 Traceability (phases 27–37, registered 2026-07-07)
+### Milestone v2.0 Traceability (phases 28–38, registered 2026-07-07)
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CHAT-01 | Phase 28 [A1] | Pending |
-| CHAT-02 | Phase 28 [A1] | Pending |
-| CHAT-03 | Phase 28 [A1] | Pending |
-| CHAT-04 | Phase 28 [A1] | Pending |
-| CHAT-05 | Phase 28 [A1] | Pending |
-| CHAT-06 | Phase 27 [A0] | Pending |
-| UPLD-01 | Phase 29 [A2] | Pending |
-| UPLD-02 | Phase 29 [A2] | Pending |
-| UPLD-03 | Phase 29 [A2] | Pending |
-| UPLD-04 | Phase 29 [A2] | Pending |
-| CHATUI-01 | Phase 30 [A3] | Pending |
-| CHATUI-02 | Phase 30 [A3] | Pending |
-| CHATUI-03 | Phase 30 [A3] | Pending |
-| RUNUI-01 | Phase 31 [A4] | Pending |
-| RUNUI-02 | Phase 31 [A4] | Pending |
-| RUNUI-03 | Phase 31 [A4] | Pending |
-| RUNUI-04 | Phase 31 [A4] | Pending |
-| RUNUI-05 | Phase 31 [A4] | Pending |
-| CONC-01 | Phase 32 [A5] | Pending |
-| CONC-02 | Phase 32 [A5] | Pending |
-| CONC-03 | Phase 32 [A5] | Pending |
-| LIVE-02 | Phase 33 [A6] | Pending |
-| SHELL-01 | Phase 34 [B1] | Pending |
-| SHELL-02 | Phase 35 [B2] | Pending |
-| SHELL-03 | Phase 35 [B2] | Pending |
-| SHELL-04 | Phase 36 [B3] | Pending |
-| SHELL-05 | Phase 37 [B4] | Pending |
+| CHAT-01 | Phase 29 [A1] | Pending |
+| CHAT-02 | Phase 29 [A1] | Pending |
+| CHAT-03 | Phase 29 [A1] | Pending |
+| CHAT-04 | Phase 29 [A1] | Pending |
+| CHAT-05 | Phase 29 [A1] | Pending |
+| CHAT-06 | Phase 28 [A0] | Pending |
+| UPLD-01 | Phase 30 [A2] | Pending |
+| UPLD-02 | Phase 30 [A2] | Pending |
+| UPLD-03 | Phase 30 [A2] | Pending |
+| UPLD-04 | Phase 30 [A2] | Pending |
+| CHATUI-01 | Phase 31 [A3] | Pending |
+| CHATUI-02 | Phase 31 [A3] | Pending |
+| CHATUI-03 | Phase 31 [A3] | Pending |
+| RUNUI-01 | Phase 32 [A4] | Pending |
+| RUNUI-02 | Phase 32 [A4] | Pending |
+| RUNUI-03 | Phase 32 [A4] | Pending |
+| RUNUI-04 | Phase 32 [A4] | Pending |
+| RUNUI-05 | Phase 32 [A4] | Pending |
+| CONC-01 | Phase 33 [A5] | Pending |
+| CONC-02 | Phase 33 [A5] | Pending |
+| CONC-03 | Phase 33 [A5] | Pending |
+| LIVE-02 | Phase 34 [A6] | Pending |
+| SHELL-01 | Phase 35 [B1] | Pending |
+| SHELL-02 | Phase 36 [B2] | Pending |
+| SHELL-03 | Phase 36 [B2] | Pending |
+| SHELL-04 | Phase 37 [B3] | Pending |
+| SHELL-05 | Phase 38 [B4] | Pending |
 
-**v2.0 counts:** P27=1 · P28=5 · P29=4 · P30=3 · P31=5 · P32=3 · P33=1 · P34=1 · P35=2 · P36=1 · P37=1 (= 27)
+**v2.0 counts:** P27=1 · P28=5 · P29=4 · P30=3 · P31=5 · P32=3 · P33=1 · P34=1 · P35=2 · P36=1 · P37=1 (= 28)
 
 ---
 *Requirements defined: 2026-06-06*
-*Last updated: 2026-07-07 — Milestone v2.0 requirement families registered (CHAT/UPLD/CHATUI/RUNUI/CONC/LIVE-02/SHELL, 27 REQ-IDs → phases 27–37) via /gsd-import of `.planning/CHAT-AND-UI-CONVERGENCE-PLAN.md`. Prior: 2026-06-14 — Traceability table reconciled to one-row-per-REQ; 113 body REQ-IDs that were missing from the table (grouped-row drift) added; statuses refreshed to the verified-complete state (ISS-012).*
+*Last updated: 2026-07-07 — Milestone v2.0 requirement families registered (CHAT/UPLD/CHATUI/RUNUI/CONC/LIVE-02/SHELL, 27 REQ-IDs → phases 28–38) via /gsd-import of `.planning/CHAT-AND-UI-CONVERGENCE-PLAN.md`. Prior: 2026-06-14 — Traceability table reconciled to one-row-per-REQ; 113 body REQ-IDs that were missing from the table (grouped-row drift) added; statuses refreshed to the verified-complete state (ISS-012).*

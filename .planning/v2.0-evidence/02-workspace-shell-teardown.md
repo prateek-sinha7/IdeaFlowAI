@@ -1,7 +1,7 @@
 # Workspace Shell Teardown (Hexaware Workspace v2.dc.html + sibling pages)
 
 > **Evidence doc — Milestone v2.0** (see `README.md` in this directory and the POR `.planning/CHAT-AND-UI-CONVERGENCE-PLAN.md`).
-> Verbatim final report of a max-effort investigation agent, 2026-07-07. Feeds Phases 34-37 (shell convergence). Delta classes: RESKIN / RESTRUCTURE / NEW-BUILD / BACKEND-NEEDED.
+> Verbatim final report of a max-effort investigation agent, 2026-07-07. Feeds Phases 35-38 (shell convergence). Delta classes: RESKIN / RESTRUCTURE / NEW-BUILD / BACKEND-NEEDED.
 
 ---
 
