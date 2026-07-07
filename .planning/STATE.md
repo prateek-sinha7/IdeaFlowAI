@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: — Universal Run Chat & VelocityAI UI Convergence
 status: executing
-last_updated: "2026-07-07T22:08:17.149Z"
-last_activity: "2026-07-08 -- Completed 29-01-PLAN.md (CHAT-07 wire-parity harness: pure run_events->SSE projection _sse_projection.py + test_wire_parity.py binding gate [5 parity + 1 non-vacuity, 6 passed offline] + 5 *.wsframes.json goldens. LOCK-B honoured: additive test-only, no production/websocket touch; lint-imports 4/0; INV-3 5 characterization goldens byte/event-identical; CHAT-07 marked complete. Commits 8aadb3b0 [projection] + dd1c7078 [goldens] + 1ee4fc9e [gate])"
+last_updated: "2026-07-07T22:44:25.002Z"
+last_activity: "2026-07-08 -- Completed 29-06-PLAN.md (CHAT-07 mock-SSE transport driver + additive MockWs chat driver. New frontend/e2e/fixtures/mockSse.ts routes GET /api/runs/{id}/events/stream, serves id:{seq} text/event-stream frames, honours Last-Event-ID replay-from-cursor, supports drop()/reattach. MockWs gained the three POR D-01 chat helpers [chatMessage/chatReply/streamAttached] + waitForChatCommand, plus a shared SeqSource [nextSeq/currentSeq] + exported nextEventId() so SSE+WS frames ride ONE monotonic seq/event_id space [no second envelope/counter]. LOCK-B honoured: purely additive 3-file diff [mockSse.ts, mockWs.ts, ts-sse.spec.ts], useWebSocket.ts NOT touched, pipeline_reconnected kept beside stream_attached. tsc --noEmit clean; ts-sse.spec.ts 2/2 green offline. FULL mocked '123 green' bar DEFERRED [DEF-29-06-1]: pre-existing feat/ui-2 home redesign broke the text-locator CreationHub specs [~120 fail on home-render assertions with zero WS/SSE involvement], independent of this additive change [my diff touches zero frontend/src]. Commits 6c5de02a [chat helpers] + 0f0e3856 [mockSse] + 6898cb92 [ts-sse smoke])"
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 13
-  completed_plans: 4
-  percent: 31
+  completed_plans: 5
+  percent: 38
 ---
 
 # Project State
@@ -25,9 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 ## Current Position
 
 Phase: 29 (transport-cutover-chat-backbone-a1) — EXECUTING
-Plan: 2 of 10
-Status: Executing Phase 29 (29-01 complete)
-Last activity: 2026-07-08 -- Completed 29-01-PLAN.md (CHAT-07 wire-parity harness: pure run_events->SSE projection _sse_projection.py + test_wire_parity.py binding gate [5 parity + 1 non-vacuity, 6 passed offline] + 5 *.wsframes.json goldens. LOCK-B honoured: additive test-only, no production/websocket touch; lint-imports 4/0; INV-3 5 characterization goldens byte/event-identical; CHAT-07 marked complete. Commits 8aadb3b0 [projection] + dd1c7078 [goldens] + 1ee4fc9e [gate])
+Plan: 3 of 10
+Status: Executing Phase 29 (29-06 complete; 29-02..05 + 29-07..10 remain)
+Last activity: 2026-07-08 -- Completed 29-06-PLAN.md (CHAT-07 mock-SSE transport driver + additive MockWs chat driver. mockSse.ts routes GET /api/runs/{id}/events/stream [id:{seq} text/event-stream, Last-Event-ID replay-from-cursor, drop()/reattach]; MockWs gained chatMessage/chatReply/streamAttached + waitForChatCommand + a shared SeqSource [nextSeq/currentSeq] + exported nextEventId() → ONE monotonic seq/event_id space [no second envelope/counter]. LOCK-B: purely additive 3-file diff, useWebSocket.ts untouched, pipeline_reconnected kept beside stream_attached. tsc clean; ts-sse.spec.ts 2/2 green offline. FULL mocked '123 green' bar DEFERRED [DEF-29-06-1]: pre-existing feat/ui-2 home redesign broke the text-locator CreationHub specs [~120 fail on home-render assertions, zero WS/SSE involvement], independent of this additive change [zero frontend/src touched]; owner = feat/ui-2 spec-realignment task. Commits 6c5de02a + 0f0e3856 + 6898cb92)
+Prior activity: 2026-07-08 -- Completed 29-01-PLAN.md (CHAT-07 wire-parity harness: pure run_events->SSE projection _sse_projection.py + test_wire_parity.py binding gate [5 parity + 1 non-vacuity, 6 passed offline] + 5 *.wsframes.json goldens. LOCK-B honoured: additive test-only, no production/websocket touch; lint-imports 4/0; INV-3 5 characterization goldens byte/event-identical; CHAT-07 marked complete. Commits 8aadb3b0 [projection] + dd1c7078 [goldens] + 1ee4fc9e [gate])
 Prior activity: 2026-07-07 -- Phase 29 execution started
 Prior activity: 2026-07-07 - Post-merge verification pass (3 agents) after pulling origin KAN-92..101 + the same-day image-input waves: Phase 30 scope TRIMMED (image spine landed via IMAGE-INPUT-PLAN waves edw/frv/gvq — WS ingress+caps+vision guard, prototype opt-in, FE picker, 7 tests; remaining = files endpoint, uploaded_files provider, per-turn carrier, resize); D-04/D-05/D-12 gained the 4th gate action `update_specs` (KAN-101 spec-revision loop — route to it, don't rebuild); Phase 32 inline-gate must carry reject-confirm (KAN-95) + terminal fences/`pipeline_not_running` (KAN-100) + the retainAgentEdit no-echo rule (KAN-98) + generalize the FE `prototype-analyze`/`prototype-specify` literals (SC-001 leak); ND-10 (image persistence for replay) + ND-11 (unify the 3 consume-once injection seams; KAN-101 sub-pipeline base-thread replay risk) added; evidence docs 03/04/07 got dated CORRECTIONS addenda; REQUIREMENTS CHAT-02 updated + UPLD-02/UPLD-04 flipped to [~] partial. NOTE: the image-input cluster is NOT yet in IMPLEMENTATION-REGISTER — add its entry when Phase 30 opens.
 Prior activity: 2026-07-07 - Registered milestone v2.0 via /gsd-import: wrote `.planning/CHAT-AND-UI-CONVERGENCE-PLAN.md` (locked D-01..D-12 + open ND-1..ND-9), appended ROADMAP Milestone v2.0 section (phases 28–38 with goals/success criteria + progress table), added 27 REQ-IDs + traceability to REQUIREMENTS.md, updated PROJECT.md (Active block + Key Decisions rows + footer). Conflict report: 0 blockers / 2 warnings (approved) / 3 info. Evidence: six max-effort investigations + full register read (session 2026-07-07).
