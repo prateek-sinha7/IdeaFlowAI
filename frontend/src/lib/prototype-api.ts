@@ -21,6 +21,7 @@ export interface PrototypeTemplate {
   craft_required: string[];
   example_prompt: string | null;
   has_preview: boolean;
+  has_thumbnail: boolean;
 }
 
 export interface DesignSystemListItem {
@@ -74,6 +75,16 @@ export function getDesignSystem(
  */
 export function getTemplatePreviewUrl(id: string): string {
   return `${BASE_URL}/api/prototype/templates/${encodeURIComponent(id)}/preview`;
+}
+
+/**
+ * Public URL for the template's pre-rendered thumbnail image (a screenshot of
+ * example.html). Safe to drop directly into <img src> — unauthenticated and
+ * static. Only present when `has_thumbnail` is true; the gallery falls back to
+ * the sandboxed preview iframe otherwise.
+ */
+export function getTemplateThumbnailUrl(id: string): string {
+  return `${BASE_URL}/api/prototype/templates/${encodeURIComponent(id)}/thumbnail`;
 }
 
 /**

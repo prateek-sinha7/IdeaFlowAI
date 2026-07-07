@@ -47,9 +47,6 @@ out/
 .claude/
 CLAUDE.md
 
-# Kiro specs — local planning artifacts, not tracked in version control
-.kiro/
-
 # OS
 .DS_Store
 Thumbs.db
@@ -57,3 +54,8 @@ Thumbs.db
 # Generated ESLint output files
 frontend/eslint_code.txt
 frontend/eslint_out.txt
+
+# Generated OpenDesign gallery thumbnails — produced at build time
+# (backend/scripts/generate_template_thumbnails.py, run from the backend
+# Dockerfile), never committed. Missing thumbnails fall back to live iframes.
+skills/opendesign/design-templates/*/thumbnail.jpg

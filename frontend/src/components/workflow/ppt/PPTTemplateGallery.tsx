@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, Check, Upload, X, ExternalLink, Presentation } from "lucide-react";
-import { getPPTTemplatePreviewUrl, type PPTTemplate } from "@/lib/ppt-api";
+import { getPPTTemplatePreviewUrl, getPPTTemplateThumbnailUrl, type PPTTemplate } from "@/lib/ppt-api";
 import {
   CustomTemplateModal,
   loadCustomTemplates,
@@ -265,6 +265,7 @@ function CompactPPTCard({ template, selected, onOpenDetail }: {
   }, []);
 
   const previewUrl = template.has_preview ? getPPTTemplatePreviewUrl(template.id) : null;
+  const thumbnailUrl = template.has_thumbnail ? getPPTTemplateThumbnailUrl(template.id) : null;
 
   return (
     <button ref={cardRef} type="button" onClick={onOpenDetail}
@@ -280,11 +281,32 @@ function CompactPPTCard({ template, selected, onOpenDetail }: {
           We render the iframe at 800×450 (16:9) and scale it down to fit
           the 130px-wide card at ~80px height. */}
       <div className="relative overflow-hidden bg-gray-50" style={{ height: "80px" }}>
-        {previewUrl && shouldMount ? (
+        {thumbnailUrl ? (
+          // Pre-rendered screenshot — one cheap <img> load instead of a full
+          // iframe document render. Falls back to the (script-free) iframe below.
           <>
             {!previewLoaded && (
               <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />
             )}
+            {/* eslint-disable-next-line @next/next/no-img-element -- static same-origin thumbnail; next/image optimization + remotePatterns are unwanted overhead here */}
+            <img
+              src={thumbnailUrl}
+              alt={template.name}
+              loading="lazy"
+              onLoad={() => setPreviewLoaded(true)}
+              className="h-full w-full object-cover object-top"
+              style={{ opacity: previewLoaded ? 1 : 0, transition: "opacity 200ms ease-out" }}
+            />
+          </>
+        ) : previewUrl && shouldMount ? (
+          <>
+            {!previewLoaded && (
+              <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />
+            )}
+            {/* Fallback when no pre-rendered thumbnail exists yet: render the
+                template's example.html live (HTML + JS) in a sandboxed iframe,
+                scaled down. Heavier than the <img>, but only hit until the
+                build-time thumbnail is generated. */}
             <iframe
               src={previewUrl}
               title={template.name}
