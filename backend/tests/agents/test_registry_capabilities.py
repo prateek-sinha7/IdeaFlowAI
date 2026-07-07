@@ -59,6 +59,7 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("deliverable", "ppt"),
     ("context_provider", "opendesign"),
     ("context_provider", "previous_run"),
+    ("input_provider", "run_images"),      # 260707-edw — image-input Wave 1 (user_allowed=True)
     ("task_parser", "heading_tasks"),
     ("task_parser", "json_tasks"),         # 12-01 / WAVE-02 (structured task list)
     ("gate", "human"),
@@ -83,6 +84,7 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("hook", "behavioral"),                # 08-05 / F3
     ("hook", "secret_scan"),               # 08-07 / HOOK-01..04 (executable, blocking)
     ("hook", "otel_tracing"),              # 08-07 / OBS-02 (executable, non-blocking)
+    ("hook", "audit_logger"),              # KAN-73 (executable, non-blocking, default lifecycle audit)
     ("runtime_env", "local"),              # 09-01 / RUNTIME-01 — LocalSandboxRuntime (ECS-swap seam)
     ("repo_index", "tree_sitter"),         # 09-03 / REPO-02 — app-side symbol index (tree-sitter)
     ("repo_inventory", "default"),         # 09-03 / REPO-01 — kernel-side stdlib inventory
@@ -150,8 +152,12 @@ def test_registered_count_is_exactly_fifty() -> None:
     # plus the two 12-01 wave capabilities (strategy:wave_scheduler user_allowed=True
     # WAVE-01; task_parser:json_tasks WAVE-02) = 61, plus the two 19-02 capabilities
     # (validator:api_prefix user_allowed=True + post_step:api_prefix_audit, ISS-005 —
-    # the event-free infra /api/v1 backstop) = 63.
-    assert len(_KNOWN) == 63
+    # the event-free infra /api/v1 backstop) = 63, plus the pre-existing KAN-73
+    # hook:audit_logger (default lifecycle audit hook — present in _KNOWN since KAN-73
+    # but never reconciled into _EXPECTED_NAMES until now) = 64, plus the one 260707-edw
+    # input-image capability (input_provider:run_images, image-input Wave 1 — the DORMANT
+    # backend spine, user_allowed=True) = 65.
+    assert len(_KNOWN) == 65
     assert set(_KNOWN) == set(_EXPECTED_NAMES)
 
 

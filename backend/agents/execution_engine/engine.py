@@ -407,6 +407,27 @@ _CAPABILITY_REGISTRY = CapabilityRegistry()
 _WORKFLOW_COMPILER = WorkflowCompiler()
 
 
+def _normalize_run_images(images: "list | None") -> list[dict]:
+    """Canonicalize run-supplied images onto the transient carrier shape (image-input).
+
+    Maps each incoming image dict to ``{"mime_type": <str>, "data": <base64 str>}``
+    (Locked Decision #1 — base64 passed through verbatim, no decode). Reads
+    ``mime_type`` (accepting a ``mimeType`` alias defensively) and ``data``; DROPS any
+    entry missing either. Returns ``[]`` for ``None``/empty. Pure, dormant by default
+    (every existing caller passes nothing ⇒ ``[]``).
+    """
+    out: list[dict] = []
+    for img in images or []:
+        if not isinstance(img, dict):
+            continue
+        mime = img.get("mime_type") or img.get("mimeType")
+        data = img.get("data")
+        if not mime or not data:
+            continue
+        out.append({"mime_type": mime, "data": data})
+    return out
+
+
 def resolve_alias(pipeline_type: str) -> str:
     """Resolve the legacy run label to a manifest id (MAN-05).
 
@@ -774,6 +795,7 @@ class ExecutionEngine:
         attached_hooks: list[dict] | None = None,
         model_id: str | None = None,
         od_context: dict | None = None,
+        images: list | None = None,
         gate_agent_ids: list[str] | None = None,
         parent_run_id: str | None = None,
         model_overrides: dict[str, str] | None = None,
@@ -815,6 +837,7 @@ class ExecutionEngine:
             attached_hooks=attached_hooks,
             model_id=model_id,
             od_context=od_context,
+            images=images,
             gate_agent_ids=gate_agent_ids,
             parent_run_id=parent_run_id,
             model_overrides=model_overrides,
@@ -851,6 +874,7 @@ class ExecutionEngine:
         attached_hooks: list[dict] | None = None,
         model_id: str | None = None,
         od_context: dict | None = None,
+        images: list | None = None,
         gate_agent_ids: list[str] | None = None,
         parent_run_id: str | None = None,
         model_overrides: dict[str, str] | None = None,
@@ -977,6 +1001,7 @@ class ExecutionEngine:
             owner_id=owner_id,
             disk_principal=disk_principal,
             od_context=od_context,  # threaded into AgentContext per agent
+            run_images=_normalize_run_images(images),  # image-input Wave 1 carrier (dormant by default)
             gate_agent_ids=gate_agent_ids,
             parent_run_id=parent_run_id,
             cancel_event=cancel_event,

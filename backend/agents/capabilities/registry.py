@@ -64,6 +64,7 @@ logger = logging.getLogger(__name__)
 #                  api_prefix  (19-02 / ISS-005 — infra /api/v1 backstop, user_allowed=True)
 # deliverable:     single_file, serialized_sandbox, streamed_text, ppt
 # context_provider: opendesign, previous_run
+# input_provider:  run_images  (260707-edw — image-input Wave 1, user_allowed=True)
 # task_parser:     heading_tasks
 # gate:            human, validation, approval, security  (08-02)
 # tool:            workspace, prototype, prototype_emit_only, planning  (08-03 / F2)
@@ -102,6 +103,7 @@ _KNOWN: set[tuple[str, str]] = {
     ("deliverable", "repo_diff"),          # 09-04 / REPO-04 — brownfield diff-only resolver
     ("context_provider", "opendesign"),
     ("context_provider", "previous_run"),
+    ("input_provider", "run_images"),  # 260707-edw — image-input Wave 1 (user_allowed=True)
     ("task_parser", "heading_tasks"),
     ("task_parser", "json_tasks"),     # 12-01 / WAVE-02 (structured task list)
     ("gate", "human"),
@@ -267,6 +269,7 @@ def discover() -> None:
 
         "agents.capabilities.context_providers.opendesign",
         "agents.capabilities.context_providers.previous_run",
+        "agents.capabilities.input_providers.run_images",  # 260707-edw — image-input Wave 1
         "agents.capabilities.compaction.html_skeleton",
         "agents.capabilities.post_steps.revision_validation",
         "agents.capabilities.post_steps.api_prefix_audit",  # 19-02 / ISS-005 — event-free infra audit
