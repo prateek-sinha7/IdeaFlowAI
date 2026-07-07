@@ -831,6 +831,13 @@ async def websocket_chat(websocket: WebSocket):
                 # not only at save — Pitfall 3). Absent → None (every existing run is
                 # byte-identical — no overlay, no re-compile).
                 selections = message_data.get("selections") or None
+                # Image-input Wave 2: OUT-OF-BAND transient base64 image list riding
+                # the existing run_pipeline payload (D5 — no new WS event type). It
+                # NEVER enters the brief text / WorkflowRun.input (D3); it is
+                # cap-+vision-validated inside _handle_workflow_execution (once the
+                # effective model is known) and forwarded to engine.execute(images=).
+                # Absent → [] (a no-images run is byte-identical to today).
+                images = message_data.get("images") or []
 
                 # Tier gate — map od_* aliases to their base type for the check
                 from app.core.entitlements import can_run_pipeline
@@ -862,6 +869,7 @@ async def websocket_chat(websocket: WebSocket):
                         gate_agent_ids=gate_agent_ids,
                         model_overrides=model_overrides,
                         selections=selections,
+                        images=images,
                         template_id=message_data.get("template_id"),
                         design_system_id=message_data.get("design_system_id"),
                         discovery=message_data.get("discovery"),
@@ -1603,6 +1611,7 @@ async def _handle_workflow_execution(
     gate_agent_ids: list[str] | None = None,
     model_overrides: dict | None = None,
     selections: dict | None = None,
+    images: list | None = None,
     template_id: str | None = None,
     design_system_id: str | None = None,
     discovery: dict | None = None,
@@ -1803,6 +1812,40 @@ async def _handle_workflow_execution(
         })
         return
 
+    # ── image-input ingress gate (IMAGE-INPUT §3 Layer 1/5, Wave 2) ───────────
+    # Cap- + vision-validate the untrusted transient `images` list BEFORE any run
+    # starts, then forward it to engine.execute(images=) → ExecutionContext.
+    # run_images. The base64 NEVER enters `content` / WorkflowRun.input / title
+    # (D3) — it rides out-of-band. When the flag is OFF or no images are supplied,
+    # `validated_images` stays [] and the run is byte-identical to today (clean
+    # off-switch — images are ignored, not rejected). A cap/vision violation emits
+    # `code="invalid_image_input"` and returns (no WorkflowRun, no execute) —
+    # mirrors the model_overrides rejection above; never a silent drop.
+    images = images or []
+    validated_images: list = []
+    if settings.IMAGE_INPUT_ENABLED and images:
+        # Effective run-level model: the session model (or the configured default)
+        # UNION any per-agent override target. Every one must be a vision-capable
+        # catalog entry or the image set is rejected (closes the raw-config hatch).
+        base_model = (
+            getattr(user, "preferred_model", None)
+            or settings.BEDROCK_INFERENCE_PROFILE_ID
+        )
+        effective_model_ids = {base_model} | {
+            m for m in model_overrides.values() if isinstance(m, str)
+        }
+        _image_error = _validate_images(
+            images, effective_model_ids=effective_model_ids
+        )
+        if _image_error is not None:
+            await websocket.send_json({
+                "type": "error", "chunk": None, "section": None,
+                "data": {"error": _image_error,
+                         "code": "invalid_image_input", "recoverable": False},
+            })
+            return
+        validated_images = images
+
     # ── Create WorkflowRun record ─────────────────────────────────────────
     pipeline_run_id = str(_uuid.uuid4())
     # ISS-007 (16-02): register this run's COOPERATIVE cancel event and publish
@@ -1943,6 +1986,10 @@ async def _handle_workflow_execution(
                 attached_hooks=attached_hooks or [],
                 model_id=getattr(user, "preferred_model", None) or None,
                 od_context=od_context,
+                # Image-input Wave 2: the cap-+vision-validated transient image
+                # list → ExecutionContext.run_images (Wave-1 carrier). [] when the
+                # flag is off / no images supplied → byte-identical to today.
+                images=validated_images,
                 gate_agent_ids=gate_agent_ids,
                 parent_run_id=parent_run_id,
                 model_overrides=model_overrides,
