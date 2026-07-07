@@ -789,6 +789,20 @@ Plans:
 5. Narrator `chat_reply` cards emit for clarify/gate/pipeline/deliverable milestones.
 6. INV-3 goldens byte-identical; lint-imports 4/0; kernel name-free (SC-001 grep 0).
 
+**Plans:** 10 plans across 6 waves (planned 2026-07-07; ADDITIVE-ONLY per LOCK-B — WS deletion/ratchets/ledger row DEFERRED to a supervised follow-up)
+
+Plans:
+- [ ] 29-01-PLAN.md — Wire-parity characterization harness (binding gate: SSE projection ≡ recorded WS frames, 5 goldens) [wave 1]
+- [ ] 29-02-PLAN.md — Per-run SSE stream `GET /events/stream` + Last-Event-ID resume + stream_attached handshake + gate re-arm (D-14g/h) [wave 2]
+- [ ] 29-03-PLAN.md — REST commands: gate (4 actions + KAN-100 fence) / answers / cancel, suites ported 1:1 [wave 3]
+- [ ] 29-04-PLAN.md — REST commands: run launch (+ image caps) / revisions / user_message POST+stream shim [wave 4]
+- [ ] 29-05-PLAN.md — Attach/replay matrix (fresh·mid·live·terminal·cross-owner·restart·gate-answer-while-down = SC-2) [wave 5]
+- [ ] 29-06-PLAN.md — e2e mock-SSE driver + additive chat frames (123 mocked specs stay green) [wave 1]
+- [ ] 29-07-PLAN.md — FE transport adapter + app-level connection provider + server-derived reattach (D-14 a–f), flag-gated [wave 2]
+- [ ] 29-08-PLAN.md — Steering seam `ectx.steering_notes` + `=== USER GUIDANCE ===` + ND-11 decision record (first design task) [wave 1]
+- [ ] 29-09-PLAN.md — `POST /runs/{id}/messages` (idempotent) + mechanical intent router (CHAT-01/02/05) [wave 5]
+- [ ] 29-10-PLAN.md — Narrator `chat_reply` cards (clarify/gate/pipeline/deliverable/spec_revision + deep-link nonce) [wave 6]
+
 ### Phase 30: Uploads & Multimodal [A2]
 
 **Goal:** Images and files enter runs — as vision input, as workspace files agents read, and as sticky launch context.
