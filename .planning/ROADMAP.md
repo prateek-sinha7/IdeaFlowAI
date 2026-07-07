@@ -886,7 +886,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 28. Chat Contracts & Guards [A0] | 3/3 | Complete   | 2026-07-07 |
+| 28. Chat Contracts & Guards [A0] | 3/3 | Complete    | 2026-07-07 |
 | 29. Chat Backbone [A1] | 0/? | Not started | — |
 | 30. Uploads & Multimodal [A2] | 0/? | Not started | — |
 | 31. Chat Lane MVP [A3] | 0/? | Not started | — |
