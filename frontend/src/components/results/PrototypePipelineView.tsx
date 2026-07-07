@@ -425,12 +425,15 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
 
   // Real-time: use the actual completed count from tool calls.
   // Truly done → all tasks complete. Running OR the transient between-task "done"
-  // window → show the real completed count (NEVER -1, so already-done tasks stay
-  // checked). Idle → -1.
+  // window → show the real completed count, but CAPPED at totalTasks-1 so the
+  // last task stays in "active" (spinner) state until buildTrulyDone — otherwise
+  // the last task_progress event (fired BEFORE the build agent's fix-loop and
+  // agent_complete) would mark all tasks checked while the agent is still running
+  // (KAN-99). Idle → -1.
   const currentTaskIndex = buildTrulyDone
     ? totalTasks
     : buildIsRunning || (buildStatus === "done" && !buildTrulyDone)
-    ? realtimeCompletedCount
+    ? Math.min(realtimeCompletedCount, Math.max(0, totalTasks - 1))
     : -1;
 
   // Token totals
