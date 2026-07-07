@@ -49,7 +49,27 @@ export interface TokenStats {
 
 let GLOBAL_EVENT_ID = 0;
 
-export class MockWs {
+/**
+ * Shared monotonic event_id source (module-level GLOBAL_EVENT_ID). Exported so
+ * the additive SSE transport driver (mockSse.ts) rides the SAME event_id space
+ * as every MockWs frame — ONE monotonic sequence, no second envelope
+ * (MOCKWS-CHAT-DRIVER-CONTRACT §1/§5, LOCK-B). MockWs' private nextEventId()
+ * delegates here so behavior is byte-identical to before.
+ */
+export function nextEventId(): string {
+  GLOBAL_EVENT_ID += 1;
+  return `evt-${GLOBAL_EVENT_ID}`;
+}
+
+/** Minimal shared seq/event_id source — MockWs satisfies it (mockSse consumes it). */
+export interface SeqSource {
+  /** Advance + return the shared monotonic seq cursor. */
+  nextSeq(): number;
+  /** The current seq cursor without advancing (replay-through default). */
+  readonly currentSeq: number;
+}
+
+export class MockWs implements SeqSource {
   private current: WSRoute | null = null;
   private seq = 0;
   private runId = "run-e2e-1";
@@ -117,8 +137,23 @@ export class MockWs {
 
   // ── low-level emit (server → page) ──────────────────────────────────────────
   private nextEventId() {
-    GLOBAL_EVENT_ID += 1;
-    return `evt-${GLOBAL_EVENT_ID}`;
+    return nextEventId();
+  }
+
+  // ── shared seq source (SeqSource — consumed by mockSse) ─────────────────────
+  /** The current monotonic seq cursor (shared with mockSse — read only). */
+  get currentSeq(): number {
+    return this.seq;
+  }
+
+  /**
+   * Advance + return the shared seq counter. mockSse calls this so its SSE
+   * frames interleave with pipeline frames on ONE monotonic sequence — no
+   * second seq space (MOCKWS-CHAT-DRIVER-CONTRACT §1/§5, LOCK-B).
+   */
+  nextSeq(): number {
+    this.seq += 1;
+    return this.seq;
   }
 
   /** Emit a frame with payload nested under `data` (+ auto event_id/seq). */
@@ -245,6 +280,71 @@ export class MockWs {
   cancelled(opts: { duration?: number } = {}) { this.emit("pipeline_cancelled", { pipeline_run_id: this.runId, duration: opts.duration ?? 8.0 }); }
   reconnected(opts: { live: boolean; status?: string | null }) {
     this.emit("pipeline_reconnected", { pipeline_run_id: this.runId, live: opts.live, status: opts.status ?? null, replayed_through_seq: this.seq });
+  }
+
+  // ── chat driver (ADDITIVE — MOCKWS-CHAT-DRIVER-CONTRACT §2/§3, LOCK-B) ───────
+  // The three POR D-01 chat frames + the outbound-command assert. Each rides the
+  // SAME emit()/envelope, the ONE `seq` counter, and the ONE event_id space as
+  // every pipeline frame above — no second envelope, no second seq space. These
+  // are added ALONGSIDE `pipeline_reconnected`/`reconnected()`, which stay.
+  private chatReplyCount = 0;
+
+  /** `chat_message` — the server echo of a user turn (idempotency key = messageId). */
+  chatMessage(opts: { messageId: string; text: string; attachments?: unknown[] }) {
+    this.emit("chat_message", {
+      message_id: opts.messageId,
+      text: opts.text,
+      attachments: opts.attachments ?? [],
+      run_id: this.runId,
+      thread_id: this.runId,
+    });
+  }
+
+  /** `chat_reply` — a narrator result card (clarify | gate | pipeline | deliverable | spec_revision). */
+  chatReply(opts: {
+    cardKind: "clarify" | "gate" | "pipeline" | "deliverable" | "spec_revision";
+    text: string;
+    deepLink?: { target: string; nonce: string };
+    messageId?: string;
+  }) {
+    this.emit("chat_reply", {
+      message_id: opts.messageId ?? `reply-${(this.chatReplyCount += 1)}`,
+      card_kind: opts.cardKind,
+      text: opts.text,
+      deep_link: opts.deepLink,
+      run_id: this.runId,
+      thread_id: this.runId,
+    });
+  }
+
+  /**
+   * `stream_attached` — the new chat/stream reattach handshake (supersedes
+   * `pipeline_reconnected`, which STAYS beside it). `replayedThroughSeq` defaults
+   * to the current seq, mirroring `reconnected()`'s `replayed_through_seq = this.seq`.
+   */
+  streamAttached(opts: { live: boolean; replayedThroughSeq?: number }) {
+    this.emit("stream_attached", {
+      live: opts.live,
+      replayed_through_seq: opts.replayedThroughSeq ?? this.seq,
+      run_id: this.runId,
+      thread_id: this.runId,
+    });
+  }
+
+  /**
+   * Assert an outbound POST-shaped chat command was sent. Reuses the existing
+   * `waitForClientFrame` / `sent[]` / `waiters` machinery (Phase 29 REST-up is
+   * additive per LOCK-B — the mocked harness models the command as a frame the
+   * controller captures). Default predicate matches a chat-command-shaped frame.
+   */
+  waitForChatCommand(predicate?: (f: Record<string, unknown>) => boolean, timeoutMs = 10000) {
+    const match =
+      predicate ??
+      ((f: Record<string, unknown>) =>
+        f.type === "chat_command" ||
+        f.type === "send_chat_message" ||
+        typeof f.message_id === "string");
+    return this.waitForClientFrame(match, timeoutMs);
   }
 }
 
