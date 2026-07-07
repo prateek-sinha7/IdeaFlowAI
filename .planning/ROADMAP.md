@@ -752,9 +752,9 @@ Plans:
 - [ ] **Phase 32: Run-Screen Redesign [A4]** — token layer + primitives, chat-lane left, Preview/Steps/Files/Audit right, 3-level Steps drill-down, 3 Audit read endpoints, e2e hardening
 - [ ] **Phase 33: Concierge + Compaction [A5]** — `chat:concierge` capability + confirm chips, `compaction:chat_history` + `context_provider:conversation`, post-run iteration chat
 - [ ] **Phase 34: Live Pass & Closure [A6]** — live Bedrock chat/images/steering/concierge, multi-turn cache placement (P26 deferral folds in), Playwright live, register sweeps
-- [ ] **Phase 35: Shell Chrome + Reskin Pages [B1]** — dark top bar + nav pill (Home · Library · My Workflows), profile menu, notifications, Settings, pickers, Library restyle
+- [ ] **Phase 35: Shell Chrome + Reskin Pages [B1]** — dark top bar + nav pill (Home · Library · My Workflows), profile menu, notifications, Settings, pickers, Library restyle, **+ Login/Register + Admin reskin (ND-12)**; cites the canonical shared-surface spec (evidence 11 §B / D-15), not individual mocks
 - [ ] **Phase 36: Home + History + My Workflows [B2]** — fused Home, History grouping/sort + real delete, My Workflows rename + kebab actions, Run detail page + run-summary endpoint, `WorkflowCatalog`→`HomeLaunchGrid`
-- [ ] **Phase 37: Configure Unification [B3]** — generic per-run setup (templates/DS/gates/settings for every deliverable), Agent drawer, Workflow dialog, draft-run persistence (ND-1/ND-7/ND-8 gates)
+- [ ] **Phase 37: Configure Unification + Composer/Wizard [B3]** — generic per-run setup (templates/DS/gates/settings for EVERY deliverable — the D-15/C architectural change), **full composer + wizard rebuild (evidence 08: ~13 reskins of P22 code, reuse the live registry/AdvancedExpander/AgentModelPicker/user-workflows CRUD; NEW unified stepper)**, Agent drawer, Workflow dialog, draft-run persistence; deferred backend noted (visibility/sharing, pre-run cost/duration, discovery-pages) (ND-1/ND-7/ND-8/ND-12 gates)
 - [ ] **Phase 38: Analytics, Estimates & Notifications [B4]** — date-scoped aggregations, chart components, per-deliverable estimates, notifications feed
 
 ### v2.0 Phase Details
