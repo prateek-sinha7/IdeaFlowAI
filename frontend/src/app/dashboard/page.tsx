@@ -89,6 +89,7 @@ export default function DashboardPage() {
     templateId: string; designSystemId: string; brief: string; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
     modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+    images?: { name: string; mime_type: string; data: string }[];
     agentIds?: string[];
   } | null>(null);
 
@@ -97,6 +98,7 @@ export default function DashboardPage() {
     templateId: string; designSystemId: string | null; brief: string; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
     modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+    images?: { name: string; mime_type: string; data: string }[];
     agentIds?: string[];
   } | null>(null);
 
@@ -147,6 +149,7 @@ export default function DashboardPage() {
     brief: string; templateId: string; designSystemId: string; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
     modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+    images?: { name: string; mime_type: string; data: string }[];
     agentIds?: string[];
   } | null>(null);
   // Pending od_ppt params
@@ -154,6 +157,7 @@ export default function DashboardPage() {
     brief: string; templateId: string; designSystemId: string | null; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
     modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+    images?: { name: string; mime_type: string; data: string }[];
     agentIds?: string[];
   } | null>(null);
 
@@ -185,6 +189,7 @@ export default function DashboardPage() {
       const draft = JSON.parse(sessionStorage.getItem("prototype.draft") ?? "{}") as {
         templateId?: string; designSystemId?: string; brief?: string; customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
         modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+        images?: { name: string; mime_type: string; data: string }[];
         agentIds?: string[];
       };
       const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
@@ -202,6 +207,7 @@ export default function DashboardPage() {
         gateAgentIds: draft.gateAgentIds,
         modelOverrides: draft.modelOverrides,
         selections: draft.selections,
+        images: draft.images,
         agentIds: draft.agentIds,
       };
     } catch { /* ignore malformed session data */ }
@@ -220,6 +226,7 @@ export default function DashboardPage() {
         templateId?: string; designSystemId?: string | null; brief?: string;
         customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
         modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+        images?: { name: string; mime_type: string; data: string }[];
         agentIds?: string[];
       };
       if (!draft.templateId || !draft.brief) return;
@@ -235,6 +242,7 @@ export default function DashboardPage() {
         gateAgentIds: draft.gateAgentIds,
         modelOverrides: draft.modelOverrides,
         selections: draft.selections,
+        images: draft.images,
         agentIds: draft.agentIds,
       };
     } catch { /* ignore malformed session data */ }
@@ -821,6 +829,7 @@ export default function DashboardPage() {
           templateId?: string; designSystemId?: string; brief?: string;
           customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
           modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+          images?: { name: string; mime_type: string; data: string }[];
           agentIds?: string[];
         };
         const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
@@ -837,6 +846,7 @@ export default function DashboardPage() {
           gateAgentIds: draft.gateAgentIds,
           modelOverrides: draft.modelOverrides,
           selections: draft.selections,
+          images: draft.images,
           agentIds: draft.agentIds,
         };
       } catch { return; }
@@ -892,6 +902,7 @@ export default function DashboardPage() {
           templateId?: string; designSystemId?: string | null; brief?: string;
           customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
           modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+          images?: { name: string; mime_type: string; data: string }[];
           agentIds?: string[];
         };
         if (!draft.templateId || !draft.brief) return;
@@ -906,6 +917,7 @@ export default function DashboardPage() {
           gateAgentIds: draft.gateAgentIds,
           modelOverrides: draft.modelOverrides,
           selections: draft.selections,
+          images: draft.images,
           agentIds: draft.agentIds,
         };
       } catch { return; }

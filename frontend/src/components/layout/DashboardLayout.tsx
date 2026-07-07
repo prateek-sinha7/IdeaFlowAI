@@ -117,6 +117,7 @@ export interface DashboardLayoutProps {
     gateAgentIds?: string[];
     modelOverrides?: Record<string, string>;
     selections?: Record<string, Record<string, unknown>>;
+    images?: { name: string; mime_type: string; data: string }[];
     agentIds?: string[];
   } | null;
   onClearPendingOdProto?: () => void;
@@ -126,6 +127,7 @@ export interface DashboardLayoutProps {
     gateAgentIds?: string[];
     modelOverrides?: Record<string, string>;
     selections?: Record<string, Record<string, unknown>>;
+    images?: { name: string; mime_type: string; data: string }[];
     agentIds?: string[];
   } | null;
   onClearPendingOdPpt?: () => void;
@@ -685,6 +687,7 @@ export function DashboardLayout({
       // Advanced agent config from wizard AgentsPopup
       ...(pendingOdProtoParams.modelOverrides && Object.keys(pendingOdProtoParams.modelOverrides).length > 0 ? { model_overrides: pendingOdProtoParams.modelOverrides } : {}),
       ...(pendingOdProtoParams.selections && Object.keys(pendingOdProtoParams.selections).length > 0 ? { selections: pendingOdProtoParams.selections } : {}),
+      ...(pendingOdProtoParams.images && pendingOdProtoParams.images.length > 0 ? { images: pendingOdProtoParams.images } : {}),
     };
 
     if (onStartPipeline) {
@@ -732,6 +735,7 @@ export function DashboardLayout({
       // Advanced agent config from wizard AgentsPopup
       ...(pendingOdPptParams.modelOverrides && Object.keys(pendingOdPptParams.modelOverrides).length > 0 ? { model_overrides: pendingOdPptParams.modelOverrides } : {}),
       ...(pendingOdPptParams.selections && Object.keys(pendingOdPptParams.selections).length > 0 ? { selections: pendingOdPptParams.selections } : {}),
+      ...(pendingOdPptParams.images && pendingOdPptParams.images.length > 0 ? { images: pendingOdPptParams.images } : {}),
     };
 
     if (onStartPipeline) {

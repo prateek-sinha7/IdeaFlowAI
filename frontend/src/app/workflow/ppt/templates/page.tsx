@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Sparkles, ChevronDown, ChevronRight, Layers, Eye, Paperclip, Mic, MicOff, X, File, Settings2, Save } from "lucide-react";
+import { ArrowLeft, ArrowRight, Sparkles, ChevronDown, ChevronRight, Layers, Eye, Paperclip, Mic, MicOff, X, File, Settings2, Save, Image as ImageIcon } from "lucide-react";
 import { getToken, extractFileText, createUserWorkflow } from "@/lib/api";
 import { ATTACH_MAX_CHARS } from "@/lib/constants";
 import { listPPTTemplates, type PPTTemplate } from "@/lib/ppt-api";
@@ -36,6 +36,9 @@ export default function PPTTemplatesPage() {
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; size: string }[]>([]);
   // KAN-91: file content stored separately so textarea stays clean.
   const [attachedFileContents, setAttachedFileContents] = useState<{ name: string; content: string }[]>([]);
+  // Image-input Wave 2: images ride OUT-OF-BAND via the draft's `images` field
+  // (D3) — SEPARATE from attachedFileContents (which is inlined into the brief).
+  const [attachedImages, setAttachedImages] = useState<{ name: string; mime_type: string; data: string }[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const preSpeechTextRef = useRef("");
   const { isListening, transcript, startListening, stopListening, isSupported: speechSupported } = useSpeechRecognition();
@@ -301,6 +304,7 @@ export default function PPTTemplatesPage() {
       ...(gatesTouched ? { gateAgentIds } : {}),
       ...(Object.keys(modelOverridesRef.current).length > 0 ? { modelOverrides: modelOverridesRef.current } : {}),
       ...(Object.keys(selectionsRef.current).length > 0 ? { selections: selectionsRef.current } : {}),
+      ...(attachedImages.length > 0 ? { images: attachedImages } : {}),
       agentIds: pipelineAgents.map((a) => a.id),
     }));
     sessionStorage.setItem("od_ppt.pending", "true");
@@ -430,17 +434,46 @@ export default function PPTTemplatesPage() {
                   ))}
                 </div>
               )}
+              {attachedImages.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 px-5 pb-2">
+                  {attachedImages.map((img, idx) => (
+                    <span key={`${img.name}-${idx}`} className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1 text-[10px] text-gray-600">
+                      <ImageIcon className="h-2.5 w-2.5" /> {img.name}
+                      <button onClick={() => {
+                        setAttachedImages((p) => p.filter((_, i) => i !== idx));
+                      }} className="ml-1 text-gray-400 hover:text-red-500">
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="flex items-center gap-1 px-4 py-2.5 border-t border-gray-100">
                 <input
                   ref={fileInputRef}
                   type="file"
                   multiple
-                  accept=".pdf,.doc,.docx,.pptx,.txt,.md,.json,.csv"
+                  accept=".pdf,.doc,.docx,.pptx,.txt,.md,.json,.csv,image/png,image/jpeg,image/webp,image/gif"
                   className="hidden"
                   onChange={(e) => {
                     const files = e.target.files;
                     if (files) {
                       Array.from(files).forEach((f) => {
+                        // Image-input Wave 2: capture images into attachedImages
+                        // (out-of-band), NEVER attachedFileContents (D3).
+                        const isImageFile =
+                          ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(f.type) ||
+                          /\.(png|jpe?g|webp|gif)$/i.test(f.name);
+                        if (isImageFile) {
+                          const reader = new FileReader();
+                          reader.onload = (ev) => {
+                            const result = (ev.target?.result as string) ?? "";
+                            const rawBase64 = result.replace(/^data:[^;]+;base64,/, "");
+                            setAttachedImages((p) => [...p, { name: f.name, mime_type: f.type || "image/png", data: rawBase64 }]);
+                          };
+                          reader.readAsDataURL(f);
+                          return;
+                        }
                         const meta = {
                           name: f.name,
                           size: f.size < 1024 ? `${f.size}B` : f.size < 1048576 ? `${(f.size / 1024).toFixed(1)}KB` : `${(f.size / 1048576).toFixed(1)}MB`,
