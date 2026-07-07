@@ -269,10 +269,17 @@ export function ReviewGatePanel({
   // output — reset the one-action latch + the instructions box so the re-paused
   // gate is interactive again. Keyed on `output` (the re-run's new content) and
   // `gateKey` (a brand-new gate).
+  // KAN-98: also reset editedContent + hasEdits so a stale edit from a prior
+  // cycle is never sent as an "edit" on the fresh Redo output. Without this,
+  // editedContent retained the previous round's value and hasEdits evaluated
+  // true (old value !== new output), causing handleApprove to forward the stale
+  // edit instead of approving the clean new output.
   useEffect(() => {
     setSubmitted(false);
     setRedoInstructions("");
     setShowRejectConfirm(false);
+    setEditedContent(output);
+    setHasEdits(false);
   }, [output, gateKey]);
 
   const handleApprove = useCallback(() => {

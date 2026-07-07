@@ -763,6 +763,13 @@ export default function DashboardPage() {
 
       case "review_gate_approved": {
         // User approved — clear the review gate UI and continue.
+        // KAN-98: if the user approved with edits, apply the editedContent to the
+        // agent's output in pipelineState so the Thinking tab shows the edited version.
+        if (pendingGateEditRef.current) {
+          const { agentId, editedContent } = pendingGateEditRef.current;
+          pendingGateEditRef.current = null;
+          retainAgentEdit(agentId, editedContent);
+        }
         setReviewGateData(null);
         break;
       }
@@ -796,7 +803,10 @@ export default function DashboardPage() {
   });
 
   // Workflow pipeline state
-  const { pipelineState, startPipeline, resetPipeline, isRunning: isPipelineRunning, handleMessage: handlePipelineMsg, submitQuestionnaire, retainClarifyRound } = useWorkflow(send);
+  const { pipelineState, startPipeline, resetPipeline, isRunning: isPipelineRunning, handleMessage: handlePipelineMsg, submitQuestionnaire, retainClarifyRound, retainAgentEdit } = useWorkflow(send);
+  // KAN-98: store pending gate edits so review_gate_approved can apply them to
+  // the live agent state (planAgent.output etc.) for the Thinking tab display.
+  const pendingGateEditRef = useRef<{ agentId: string; editedContent: string } | null>(null);
   // Workstream C1 (POR §1 gap-2): retain the launched brief on the LIVE path
   // (previously dropped). Reopen/history use fullRun.input / selectedRun.input.
   const [submittedBrief, setSubmittedBrief] = useState<string>("");
@@ -1336,6 +1346,13 @@ export default function DashboardPage() {
       onRetainClarifyRound={retainClarifyRound}
       reviewGateData={reviewGateData}
       onApproveReview={(gateKey, editedContent) => {
+        // KAN-98: if the user approved with edits, stash the (agentId, editedContent)
+        // so review_gate_approved can update pipelineState.agents[agentId].output
+        // for the Thinking tab — the backend writes the edit to the artifact graph
+        // but never echoes it back, so the FE state stays stale without this.
+        if (editedContent && reviewGateData) {
+          pendingGateEditRef.current = { agentId: reviewGateData.agentId, editedContent };
+        }
         send(JSON.stringify({ type: "approve_review", gate_key: gateKey, approved: true, edited_content: editedContent ?? null }));
       }}
       onRejectReview={(gateKey) => {

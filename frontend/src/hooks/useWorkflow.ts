@@ -148,6 +148,21 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
     }));
   }, []);
 
+  // KAN-98: apply a human-edited agent output to the live agent state so the
+  // Thinking tab displays the edited content (e.g. the reduced task list) rather
+  // than the original pre-edit output from agent_complete. Called when
+  // review_gate_approved arrives with edited:true, using the editedContent that
+  // was sent in the approve_review WS message.
+  const retainAgentEdit = useCallback((agentId: string, editedContent: string) => {
+    setPipelineState((prev) => {
+      const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+      if (agentIdx === -1) return prev;
+      const updated = [...prev.agents];
+      updated[agentIdx] = { ...updated[agentIdx], output: editedContent };
+      return { ...prev, agents: updated };
+    });
+  }, []);
+
   const isRunning = pipelineState.isRunning;
 
   return {
@@ -158,6 +173,7 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
     handleMessage,
     submitQuestionnaire,
     retainClarifyRound,
+    retainAgentEdit,
   };
 }
 
