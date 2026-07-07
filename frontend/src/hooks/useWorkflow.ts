@@ -2,6 +2,13 @@
 
 import { useCallback, useRef, useState } from "react";
 import type { AgentRunState, PipelineRunState, AttachedSkill, AttachedHook, ClarifyRound } from "@/types/index";
+// Phase 29 (CHAT-07 / LOCK-B) flag-selected transport: when NEXT_PUBLIC_SSE_TRANSPORT
+// is ON, commands are sent up-channel over REST through the RunConnectionProvider
+// (the useRunStream SSE twin); when OFF, the existing useWebSocket `websocketSend`
+// path below is byte-for-byte unchanged. The shared handlePipelineMessage reducer
+// is transport-agnostic and untouched.
+import { ENV } from "@/lib/env";
+import { useRunConnection } from "@/providers/RunConnectionProvider";
 
 export interface UseWorkflowReturn {
   pipelineState: PipelineRunState;
@@ -37,6 +44,11 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
   const [pipelineState, setPipelineState] = useState<PipelineRunState>(INITIAL_STATE);
   const startTimeRef = useRef<number | null>(null);
   const agentStartTimesRef = useRef<Record<string, number>>({});
+
+  // Flag-selected transport (LOCK-B additive). `useRunConnection()` is inert
+  // (disabled) when the provider is not mounted or the flag is off — so the
+  // flag-OFF path never diverges from the legacy `websocketSend` behavior.
+  const runConnection = useRunConnection();
 
   const startPipeline = useCallback(
     (type: string, message: string, agentIds?: string[], attachedSkills?: AttachedSkill[], attachedHooks?: AttachedHook[], context?: Record<string, unknown>) => {
@@ -107,9 +119,16 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
         Object.assign(payload, context);
       }
 
-      websocketSend(JSON.stringify(payload));
+      // Flag-selected transport: SSE path sends the SAME `run_pipeline` payload
+      // up-channel over REST (POST /api/runs); the flag-OFF path is the existing
+      // websocketSend, unchanged. Same payload → same run, transport-agnostic.
+      if (ENV.SSE_TRANSPORT && runConnection.enabled) {
+        void runConnection.sendCommand(null, payload);
+      } else {
+        websocketSend(JSON.stringify(payload));
+      }
     },
-    [websocketSend]
+    [websocketSend, runConnection]
   );
 
   const resetPipeline = useCallback(() => {
@@ -132,14 +151,22 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
   // ClarifyEngine force-proceeds immediately instead of re-asking up to 3 rounds.
   const submitQuestionnaire = useCallback(
     (pipelineRunId: string, responses: Array<{ question_id: string; answer: string }>, skipClarification = false) => {
-      websocketSend(JSON.stringify({
+      const questionnairePayload = {
         type: "submit_questionnaire",
         pipeline_run_id: pipelineRunId,
         responses,
         skip_clarification: skipClarification,
-      }));
+      };
+      // Flag-selected transport: SSE path posts the answers to the run
+      // (POST /api/runs/{id}/messages); flag-OFF path is the existing
+      // websocketSend, unchanged.
+      if (ENV.SSE_TRANSPORT && runConnection.enabled) {
+        void runConnection.sendCommand(pipelineRunId, questionnairePayload);
+      } else {
+        websocketSend(JSON.stringify(questionnairePayload));
+      }
     },
-    [websocketSend]
+    [websocketSend, runConnection]
   );
 
   // Workstream C1 (POR §6.5) — fold an answered clarify round into run-scoped
