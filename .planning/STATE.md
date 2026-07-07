@@ -1,21 +1,16 @@
 ---
 gsd_state_version: 1.0
 milestone: v2.0
-milestone_name: universal-run-chat-ui-convergence
-status: planning
-last_updated: "2026-07-07T00:00:00.000Z"
-last_activity: 2026-07-07
+milestone_name: — Universal Run Chat & VelocityAI UI Convergence
+status: executing
+last_updated: "2026-07-07T21:07:27.440Z"
+last_activity: 2026-07-07 -- Phase 28 execution started
 progress:
   total_phases: 11
   completed_phases: 0
-  total_plans: 0
+  total_plans: 3
   completed_plans: 0
   percent: 0
-carry_over:
-  v1_0_status: verifying
-  v1_0_phases: 22/22
-  v1_0_plans: 113/113
-  v1_0_gate: consolidated live-Bedrock + Playwright pass, then /gsd-complete-milestone — precedes v2.0 EXECUTION
 ---
 
 # Project State
@@ -25,14 +20,14 @@ carry_over:
 See: .planning/PROJECT.md (updated 2026-06-11)
 
 **Core value:** A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001). Milestone v2.0 extends it: every workflow gets a chat lane + orchestrator with zero per-workflow code.
-**Current focus:** Milestone v2.0 — Universal Run Chat & VelocityAI UI Convergence (phases 28–38; POR `.planning/CHAT-AND-UI-CONVERGENCE-PLAN.md`)
+**Current focus:** Phase 28 — chat-contracts-guards-a0
 
 ## Current Position
 
-Phase: 28 — Chat Contracts & Guards [A0] (first v2.0 phase; not started)
-Plan: Not started
-Status: Milestone v2.0 registered (imported 2026-07-07 via /gsd-import — POR + ROADMAP phases 28–38 + REQUIREMENTS families CHAT/UPLD/CHATUI/RUNUI/CONC/LIVE-02/SHELL). ⚠ CARRY-OVER GATE: milestone v1.0 remains `verifying` (22/22 phases, 113/113 plans) — its consolidated live-Bedrock + Playwright close-out pass and /gsd-complete-milestone precede v2.0 EXECUTION; planning may proceed (user decision at import). Phase numbering note: 23–27 reserved for the post-milestone standalone efforts recorded in IMPLEMENTATION-REGISTER (Redo Gate · Nav-Validation · Revision Families · Cost/Caching · Spec Revision Loop).
-Last activity: 2026-07-07 (evening) - LOCKED the transport decision (user: "no legacy, one go"): D-13 full cutover /ws/chat → per-run SSE stream (`Last-Event-ID`=seq, `stream_attached` handshake) + REST commands (runs/messages/gate/answers/cancel/revisions), ONE phase with deletion-as-exit-gate (deploy-ordered: additive BE → FE flag switch → deletion commit removes WS run-handlers + flag; grep ratchets + ledger row); scope fences: websocket_handoff (D10 external IDE) + inbound MCP untouched, legacy user_message PORTED to POST+stream shim (ChatRunner golden intact, retirement stays ND-3); D-14 connection resilience locked (app-level FE connection provider, server-derived reattach, persisted cursor, state-machine pill, visibility/online reconnect, silent JWT refresh, gate re-arm on restart closing the P23/F4 hole, SSE infra checklist). Phase 29 retitled "Transport Cutover + Chat Backbone" (wave 1 cutover w/ wire-parity characterization golden = binding gate + ported handler suites + attach/replay matrix; wave 2 chat on new transport); D-01 rewritten (REST+SSE, no WS inbound built); CHAT-01 amended + NEW CHAT-07 (P29=6, 28 REQ-IDs); ROADMAP Phase-29 SCs updated. Also fixed: the earlier renumber missed `PNN=` count tokens (no word boundary) — v2.0 counts line corrected to P28..P38. N8 single-worker constraint explicitly unchanged by transport.
+Phase: 28 (chat-contracts-guards-a0) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 28
+Last activity: 2026-07-07 -- Phase 28 execution started
 Prior activity: 2026-07-07 - Post-merge verification pass (3 agents) after pulling origin KAN-92..101 + the same-day image-input waves: Phase 30 scope TRIMMED (image spine landed via IMAGE-INPUT-PLAN waves edw/frv/gvq — WS ingress+caps+vision guard, prototype opt-in, FE picker, 7 tests; remaining = files endpoint, uploaded_files provider, per-turn carrier, resize); D-04/D-05/D-12 gained the 4th gate action `update_specs` (KAN-101 spec-revision loop — route to it, don't rebuild); Phase 32 inline-gate must carry reject-confirm (KAN-95) + terminal fences/`pipeline_not_running` (KAN-100) + the retainAgentEdit no-echo rule (KAN-98) + generalize the FE `prototype-analyze`/`prototype-specify` literals (SC-001 leak); ND-10 (image persistence for replay) + ND-11 (unify the 3 consume-once injection seams; KAN-101 sub-pipeline base-thread replay risk) added; evidence docs 03/04/07 got dated CORRECTIONS addenda; REQUIREMENTS CHAT-02 updated + UPLD-02/UPLD-04 flipped to [~] partial. NOTE: the image-input cluster is NOT yet in IMPLEMENTATION-REGISTER — add its entry when Phase 30 opens.
 Prior activity: 2026-07-07 - Registered milestone v2.0 via /gsd-import: wrote `.planning/CHAT-AND-UI-CONVERGENCE-PLAN.md` (locked D-01..D-12 + open ND-1..ND-9), appended ROADMAP Milestone v2.0 section (phases 28–38 with goals/success criteria + progress table), added 27 REQ-IDs + traceability to REQUIREMENTS.md, updated PROJECT.md (Active block + Key Decisions rows + footer). Conflict report: 0 blockers / 2 warnings (approved) / 3 info. Evidence: six max-effort investigations + full register read (session 2026-07-07).
 Prior activity: 2026-07-04 - Completed quick task 260704-uvs: FIX-037 — surface the prompt-cache token breakdown in the workflow token-usage UI (FRONTEND-ONLY, consumes the already-emitted FIX-036 fields). Threaded `total_cache_read_tokens`/`total_cache_write_tokens` through the FE: optional keys on `WorkflowRun.tokenUsage` + `cacheReadTokens`/`cacheWriteTokens` on `PipelineRunState`; `useWorkflow` parses them in BOTH `pipeline_complete` (authoritative run totals) and `agent_complete` (preserves prev) with the `|| prev.* || 0` idiom; `api.ts` `JSON.parse(token_usage)` carries the keys verbatim (type-visible only, no logic change). `TokenUsageSummary` renders a `⚡ N cached (X%)` segment after the input figure ONLY when `cacheRead > 0` (`pct = round(cacheRead / max(1, input) * 100)`, optional `· N written` when `cacheWrite > 0`); byte-identical render when 0/undefined (Spec B zero-regression). NO FE dollar/per-model math (INV-12) — cost already discounted by FIX-036; dollar-savings deferred to ISS-034. Verified: vitest TokenUsageSummary + useWorkflow 12/12 green (incl. new TokenUsageSummary.cache.test.tsx 5 specs); tsc-identity only the 2 pre-existing e2e/fixtures/mockApi.ts errors, ZERO new. +FIX-037 + ISS-034 (optional cache $-saved follow-up) logged. 2 atomic code commits (4b22ab74/b845d0f9).
