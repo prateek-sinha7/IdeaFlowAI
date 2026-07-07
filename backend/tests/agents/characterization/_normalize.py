@@ -166,6 +166,21 @@ _VOLATILE_STRIP_KEYS = frozenset(
         # — this strip is belt-and-suspenders (metadata-only, NOT in _REQUIRED_DATA_KEYS)
         # so the 5 characterization event goldens stay byte-identical (INV-3).
         "image_count",
+        # ── Additive-but-parity-neutral chat-lane volatile subkeys (POR D-01, Phase 29+) ──
+        # The run-chat lane (chat_message/chat_reply/stream_attached) lands in
+        # Phase 29+ and carries two run-specific/client-generated subkeys:
+        #   * ``message_id``           — the FE-generated idempotency key on a
+        #     ``chat_message`` turn (client-random → never parity-stable).
+        #   * ``replayed_through_seq`` — the run-specific replay cursor on the
+        #     ``stream_attached`` SSE handshake (depends on how far the run got).
+        # No golden emits any chat event (the scripted harness has no chat lane),
+        # so this strip is belt-and-suspenders — mirroring the image_count
+        # precedent above: metadata-only, NOT in _REQUIRED_DATA_KEYS, so it keeps
+        # the 5 characterization event goldens byte-identical (INV-3). The
+        # ``stream_attached.live`` boolean is deterministic (not run-specific) and
+        # the ``chat_reply`` card discriminators are stable, so neither is stripped.
+        "message_id",
+        "replayed_through_seq",
     }
 )
 
