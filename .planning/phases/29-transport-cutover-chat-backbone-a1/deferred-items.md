@@ -40,3 +40,24 @@ the current plan's file allow-list. Do NOT fix these inside the discovering plan
 - **29-06 verification substituted (per OFFLINE VERIFICATION DISCIPLINE):**
   `npx tsc --noEmit` clean + targeted `ts-sse.spec.ts` green (2/2). Full-suite
   "123 green" bar DEFERRED to the `feat/ui-2` spec-realignment task.
+
+---
+
+## DEF-29-04-1 — Pre-existing `test_run_pipeline_validation.py` failures (NOT caused by 29-04)
+
+- **Discovered during:** 29-04 Task 1 (porting the run_pipeline ingress validation
+  to the REST launch endpoint).
+- **Symptom:** 12 of 50 cases in `tests/unit/test_run_pipeline_validation.py` fail
+  on `feat/ui-2` (the cross-*base*-pipeline rejection + defaults-plus-custom-pool
+  set-equality + `custom` utility-pool-only cases).
+- **Root cause (pre-existing):** the `custom` agent pool has widened so that
+  `allowed_custom_agent_ids("ppt"|"user_stories"|"prototype"|"app_builder")` now
+  admits base-pipeline agents from OTHER pipelines (e.g. `domain-analyst` is
+  admissible for `ppt`). Proven pre-existing by running the suite on `HEAD`
+  before any 29-04 edit (`12 failed, 38 passed`).
+- **Disposition:** OUT OF SCOPE for 29-04 (allow-list = `run_commands.py` + the
+  three REST test suites + the image re-point). The REST launch pin
+  (`test_rest_run_launch.py::test_unknown_agent_id_rejected`) uses a
+  genuinely-unknown agent id, which no widening can admit, so the security
+  property (no smuggling of an id in NO allow-list) is still pinned at the REST
+  boundary. Owner: the registry / custom-pool composition task on `feat/ui-2`.
