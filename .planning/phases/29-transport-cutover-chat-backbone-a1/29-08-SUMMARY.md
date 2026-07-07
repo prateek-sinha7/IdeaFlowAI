@@ -133,3 +133,7 @@ None - no external service configuration required.
 ---
 *Phase: 29-transport-cutover-chat-backbone-a1*
 *Completed: 2026-07-08*
+
+## Self-Check: PASSED
+- All 5 created/modified files present on disk.
+- All 4 commits present in git history (e6ffebad, 69c07de6, 8c2f83c3, 4ac9c8b6).
