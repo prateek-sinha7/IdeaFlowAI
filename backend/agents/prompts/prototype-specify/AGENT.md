@@ -9,6 +9,7 @@ id: prototype-specify
 injects:
 - template
 - design_system
+- images
 max_tokens: 32768
 name: Spec Writer Agent
 order: 1

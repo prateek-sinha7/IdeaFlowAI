@@ -31,6 +31,13 @@ deliverable:
   strategy: single_file
   name: prototype.html
 context_providers: [opendesign]
+# quick-260707-gvq (image-input Wave 3): opt the prototype workflow into the
+# registered run_images input_provider (Wave-1 backend spine). This is a DATA-ONLY
+# opt-in (SC-001) — the top-level key is already in manifest._ALLOWED_TOP_KEYS →
+# parses → compiles → CompiledWorkflow.input_providers → ectx.compiled_input_providers.
+# Dormant-when-empty: with no image on the run carrier run_images.load returns [] →
+# _compose_input_blocks returns [] → bare-str dispatch (goldens byte/event-identical).
+input_providers: [run_images]
 seed_files: {}
 steps:
   - agent: prototype-specify
