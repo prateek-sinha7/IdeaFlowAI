@@ -204,7 +204,8 @@ Registered 2026-07-07 via `/gsd-import`. Plan of record: `.planning/CHAT-AND-UI-
 
 ### Chat Channel (Phases 28–29)
 
-- [ ] **CHAT-01**: Inbound WS `chat_message` (idempotent by client `message_id`); turns persist as `run_events` rows (`chat_message`/`chat_reply`) through the single stamping boundary — replay, reopen, and owner-scoping inherited; zero new tables
+- [ ] **CHAT-01**: Chat turns enter via `POST /api/runs/{id}/messages` (idempotent by client `message_id`) and persist as `run_events` rows (`chat_message`/`chat_reply`) through the single stamping boundary — replay, reopen, and owner-scoping inherited; all server→client delivery rides the per-run SSE stream (D-01/D-13); zero new tables
+- [ ] **CHAT-07**: Transport cutover (D-13) — per-run SSE stream (`Last-Event-ID`=`seq`, `stream_attached` handshake) + REST command endpoints replace `/ws/chat` IN FULL within Phase 29: wire-parity characterization green (SSE ≡ recorded WS frame sequences for the 5 golden pipelines), every inbound-handler test suite ported 1:1 (IDOR/ownership, terminal fences, redo/update_specs, questionnaire, cancel, revision, image caps), `user_message` ported to a POST+stream shim, app-level FE connection provider + server-derived reattach + gate re-arm on restart (D-14), deploy-ordered rollout, then the WS run-handlers + transport flag DELETED with grep ratchets + a ledger row (INV-12); `websocket_handoff.py` + inbound MCP untouched
 - [ ] **CHAT-02**: Mechanical intent router delivers turns by run state — clarify answer / gate action (approve·reject·redo+instructions·**update_specs** — routing to the shipped KAN-101 spec-revision loop) / steering note / revision — with zero model calls for routable turns; gates treated as event-driven (KAN-94) and fenced on terminal runs (`pipeline_not_running`, KAN-100)
 - [ ] **CHAT-03**: Steering seam — consume-once `ectx.steering_notes` rendered as a `=== USER GUIDANCE ===` block at the next agent dispatch (redo idiom); sticky (uploads) vs one-shot (directives) semantics
 - [ ] **CHAT-04**: Narrator `chat_reply` result cards for clarify/gate/pipeline/deliverable milestones, deep-linking into the run tabs
@@ -449,6 +450,7 @@ Each v1 requirement maps to exactly one phase, **one row per requirement** (REQ-
 | CHAT-04 | Phase 29 [A1] | Pending |
 | CHAT-05 | Phase 29 [A1] | Pending |
 | CHAT-06 | Phase 28 [A0] | Pending |
+| CHAT-07 | Phase 29 [A1] | Pending |
 | UPLD-01 | Phase 30 [A2] | Pending |
 | UPLD-02 | Phase 30 [A2] | Pending |
 | UPLD-03 | Phase 30 [A2] | Pending |
@@ -471,7 +473,7 @@ Each v1 requirement maps to exactly one phase, **one row per requirement** (REQ-
 | SHELL-04 | Phase 37 [B3] | Pending |
 | SHELL-05 | Phase 38 [B4] | Pending |
 
-**v2.0 counts:** P27=1 · P28=5 · P29=4 · P30=3 · P31=5 · P32=3 · P33=1 · P34=1 · P35=2 · P36=1 · P37=1 (= 28)
+**v2.0 counts:** P28=1 · P29=6 · P30=4 · P31=3 · P32=5 · P33=3 · P34=1 · P35=1 · P36=2 · P37=1 · P38=1 (= 28)
 
 ---
 *Requirements defined: 2026-06-06*
