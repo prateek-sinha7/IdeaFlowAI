@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: — Universal Run Chat & VelocityAI UI Convergence
 status: executing
-last_updated: "2026-07-07T21:13:33.857Z"
+last_updated: "2026-07-07T21:20:34.789Z"
 last_activity: 2026-07-07 -- Phase 28 execution started
 progress:
   total_phases: 11
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 ## Current Position
 
 Phase: 28 (chat-contracts-guards-a0) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-07 -- Phase 28 execution started
 Prior activity: 2026-07-07 - Post-merge verification pass (3 agents) after pulling origin KAN-92..101 + the same-day image-input waves: Phase 30 scope TRIMMED (image spine landed via IMAGE-INPUT-PLAN waves edw/frv/gvq — WS ingress+caps+vision guard, prototype opt-in, FE picker, 7 tests; remaining = files endpoint, uploaded_files provider, per-turn carrier, resize); D-04/D-05/D-12 gained the 4th gate action `update_specs` (KAN-101 spec-revision loop — route to it, don't rebuild); Phase 32 inline-gate must carry reject-confirm (KAN-95) + terminal fences/`pipeline_not_running` (KAN-100) + the retainAgentEdit no-echo rule (KAN-98) + generalize the FE `prototype-analyze`/`prototype-specify` literals (SC-001 leak); ND-10 (image persistence for replay) + ND-11 (unify the 3 consume-once injection seams; KAN-101 sub-pipeline base-thread replay risk) added; evidence docs 03/04/07 got dated CORRECTIONS addenda; REQUIREMENTS CHAT-02 updated + UPLD-02/UPLD-04 flipped to [~] partial. NOTE: the image-input cluster is NOT yet in IMPLEMENTATION-REGISTER — add its entry when Phase 30 opens.
@@ -206,6 +206,7 @@ Progress: [░░░░░░░░░░] 0% (Milestone v2.0: 0/11 phases — p
 | Phase 22 P05 | 12min | 2 tasks | 2 files |
 | Phase 22 P06 | 14min | 2 tasks | 6 files |
 | Phase 28 P01 | 9min | 2 tasks | 3 files |
+| Phase 28-chat-contracts-guards-a0 P02 | 12min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -338,6 +339,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 22-08: ART-04 keep-by-default retention (DECIDE-01/D-22) + MODEL-05 premium-open-to-all-tiers/Haiku+fallback (DECIDE-02/D-23) recorded; REPO-02/REPO-04/FANOUT-05 confirm labels reconciled; WAVE-03 N8 untouched
 - [Phase ?]: 22-09 LIVE-01: 8 standing live-Bedrock deferrals recorded with offline evidence + DEFERRED-to-milestone-end-live-pass on default profile 473293451041 / claude-haiku-4-5; phase gates on offline evidence per D-24
 - [Phase ?]: Phase 28-01 (CHAT-06): chat_message/chat_reply/stream_attached registered in _DOCUMENTED_EVENT_TYPES + message_id/replayed_through_seq in _VOLATILE_STRIP_KEYS; golden-neutrality proof (test_chat_event_neutrality.py) proves chat events never fire on the 5 goldens — INV-3 held, no fixture regenerated, lint-imports 4/0.
+- [Phase 28-chat-contracts-guards-a0]: context_sources carries name (agent_name) + size (full_output_length) VERIFIED in code; cache/reduction % marked UNVERIFIED (separate P26 telemetry)
 
 ### Pending Todos
 
