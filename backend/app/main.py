@@ -15,6 +15,7 @@ from app.api.agents import router as agents_router
 from app.api.workflows import router as workflows_router
 from app.api.capabilities import router as capabilities_router
 from app.api.runs import router as runs_router
+from app.api.run_commands import router as run_commands_router
 from app.api.run_stream import router as run_stream_router
 from app.api.user_workflows import router as user_workflows_router
 from app.api.websocket import router as websocket_router
@@ -175,6 +176,10 @@ app.include_router(runs_router)
 # WebSocket transport (LOCK-B — websocket_router below is untouched). Shares the
 # /api/runs prefix with runs_router (FastAPI allows multiple routers per prefix).
 app.include_router(run_stream_router)
+# CHAT-07 / D-13: additive up-channel REST command endpoints (gate/answers/cancel)
+# for paused-run interactions, thin over the SAME store/cancel seams /ws/chat uses
+# (LOCK-B — websocket_router below is untouched). Shares the /api/runs prefix.
+app.include_router(run_commands_router)
 app.include_router(user_workflows_router)
 app.include_router(websocket_router)
 app.include_router(handoff_router)
