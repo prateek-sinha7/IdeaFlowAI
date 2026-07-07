@@ -247,3 +247,25 @@ class ExecutionContext:
     # ``derived_from`` lineage of a re-run is intentionally NOT an ectx field — it is
     # a _run_agent loop local so it cannot leak across agents (F3).
     redo_directive: str = ""
+    # steering_notes: the consume-once MID-RUN steering queue (D-06 / CHAT-03 /
+    # ND-11 — the THIRD member of the consume-once injection-seam family beside
+    # ``redo_directive`` and KAN-101's ``spec_revision_context``; COEXIST, not
+    # unify, per ND-11-SEAM-DECISION.md). A user message to a RUNNING run cannot
+    # be injected mid-generation (an agent invocation runs to completion — D-03),
+    # so the mechanical router (29-09) ENQUEUES it here and the generic
+    # ``_compose_context_message`` injector renders the pending notes as a single
+    # ``=== USER GUIDANCE ===`` block at the NEXT agent dispatch (the marker family
+    # the chat launch surface strips — POR §6), then CLEARS them (read+clear during
+    # composition — the consume-once key-link). Each entry is a
+    # ``{"text": str, "sticky": bool}`` dict: a ONE-SHOT directive (``sticky``
+    # False) is rendered once then dropped; STICKY (uploaded-context) notes
+    # (``sticky`` True) persist and re-render on every subsequent dispatch (D-06
+    # sticky-vs-one-shot). Additive per-run scratch (the same D-03 idiom as
+    # ``redo_directive``) so the injector appends the block WITHOUT a signature
+    # change. Transient (NOT a durable field): across ``resume_run`` it is
+    # re-derived from the persisted ``run_events`` chat turns (ND-9 / 29-02), so
+    # no new column/table is added here (LOCK-B). Steering keys on THIS generic
+    # queue only — no workflow/agent name branch (SC-001/INV-1). Default-empty ⇒
+    # DORMANT on every golden run (no block emitted, no mutation) ⇒ INV-3
+    # byte-parity holds.
+    steering_notes: list = field(default_factory=list)

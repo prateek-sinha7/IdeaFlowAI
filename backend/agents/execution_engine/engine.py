@@ -6259,6 +6259,40 @@ class ExecutionEngine:
                 "=== END SPEC KIT ANALYSIS REPORT ==="
             )
 
+        # ── D-06 / CHAT-03 / ND-11: the mid-run steering block (=== USER GUIDANCE ===) ─
+        # Generalized Redo (the THIRD consume-once seam beside redo_directive +
+        # KAN-101's spec_revision_context — COEXIST, per ND-11-SEAM-DECISION.md).
+        # Pending steering notes on ectx.steering_notes render here as a single
+        # === USER GUIDANCE === block at the NEXT agent dispatch (mid-generation
+        # injection is impossible — an agent invocation runs to completion; D-03),
+        # joining the injected-context marker family the chat launch surface strips
+        # (POR §6). READ+CLEAR is consume-once DURING composition (the key-link
+        # contract — the router enqueues externally/async to any single dispatch, so
+        # the clear lives here, not in the _run_agent caller like redo_directive):
+        # one-shot directives (sticky False) are dropped after this render; STICKY
+        # (uploaded-context) notes (sticky True) persist and re-render next dispatch
+        # (D-06). Keyed on the generic queue only — no workflow/agent literal
+        # (SC-001/INV-1). Dormant on every golden run (steering_notes empty → no
+        # block emitted AND no mutation) ⇒ INV-3 byte/event-parity holds.
+        steering_notes = getattr(ectx, "steering_notes", None) or []
+        if steering_notes:
+            guidance = "\n\n".join(
+                n["text"]
+                for n in steering_notes
+                if isinstance(n, dict) and n.get("text")
+            )
+            if guidance:
+                parts.append(
+                    "\n=== USER GUIDANCE ===\n"
+                    f"{guidance}\n"
+                    "=== END USER GUIDANCE ==="
+                )
+            # consume-once: drop the one-shot notes, KEEP the sticky ones so
+            # uploaded context persists across every subsequent dispatch (D-06).
+            ectx.steering_notes = [
+                n for n in steering_notes if isinstance(n, dict) and n.get("sticky")
+            ]
+
         # ── Build agent: the CURRENT TASK block + current HTML (agnostic scratch) ─
         if ectx.build_task_number:
             task_num_str = ectx.build_task_number
