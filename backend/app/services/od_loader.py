@@ -160,6 +160,7 @@ def _load_one_template(folder: Path) -> dict[str, Any] | None:
         "outputs": od.get("outputs") or {},
         "example_prompt": od.get("example_prompt") or fm.get("example_prompt"),
         "has_preview": (folder / "example.html").is_file(),
+        "has_thumbnail": (folder / "thumbnail.jpg").is_file(),
         "has_own_seed": (folder / "assets" / "template.html").is_file(),
         "body": body,
     }
@@ -284,6 +285,21 @@ def get_template_preview_path(template_id: str) -> Path | None:
     if t is None or not t.get("has_preview"):
         return None
     return _TEMPLATES_DIR / template_id / "example.html"
+
+
+def get_template_thumbnail_path(template_id: str) -> Path | None:
+    """Filesystem path to the template's pre-rendered ``thumbnail.jpg``, or
+    ``None`` if the template doesn't exist or hasn't been given one.
+
+    Thumbnails are generated offline (see
+    ``frontend/scripts/generate-template-thumbnails.mjs``) by screenshotting
+    ``example.html`` at 1280x720. Serving a static image in the gallery card
+    instead of a live ``<iframe>`` lets the grid paint N images rather than
+    render N full HTML documents — the dominant cost of the gallery."""
+    t = get_template(template_id)
+    if t is None or not t.get("has_thumbnail"):
+        return None
+    return _TEMPLATES_DIR / template_id / "thumbnail.jpg"
 
 
 def get_template_asset_path(template_id: str, asset_relpath: str) -> Path | None:

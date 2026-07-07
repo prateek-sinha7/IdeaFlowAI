@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Check } from "lucide-react";
-import { getTemplatePreviewUrl, type PrototypeTemplate } from "@/lib/prototype-api";
+import { getTemplatePreviewUrl, getTemplateThumbnailUrl, type PrototypeTemplate } from "@/lib/prototype-api";
 
 interface TemplateCardProps {
   template: PrototypeTemplate;
@@ -48,6 +48,7 @@ export function TemplateCard({ template, selected, onSelect, onOpenDetail }: Tem
   }, []);
 
   const previewUrl = template.has_preview ? getTemplatePreviewUrl(template.id) : null;
+  const thumbnailUrl = template.has_thumbnail ? getTemplateThumbnailUrl(template.id) : null;
 
   return (
     <button
@@ -76,11 +77,32 @@ export function TemplateCard({ template, selected, onSelect, onOpenDetail }: Tem
 
       {/* Preview surface */}
       <div className="relative h-44 overflow-hidden bg-gray-50">
-        {previewUrl && shouldMount ? (
+        {thumbnailUrl ? (
+          // Pre-rendered screenshot — one cheap <img> load instead of an iframe
+          // document render. Falls back to the (script-free) iframe below.
           <>
             {!previewLoaded && (
               <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />
             )}
+            {/* eslint-disable-next-line @next/next/no-img-element -- static same-origin thumbnail; next/image optimization + remotePatterns are unwanted overhead here */}
+            <img
+              src={thumbnailUrl}
+              alt={`${template.name} preview`}
+              loading="lazy"
+              onLoad={() => setPreviewLoaded(true)}
+              className="h-full w-full object-cover object-top"
+              style={{ opacity: previewLoaded ? 1 : 0, transition: "opacity 250ms ease-out" }}
+            />
+          </>
+        ) : previewUrl && shouldMount ? (
+          <>
+            {!previewLoaded && (
+              <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />
+            )}
+            {/* Fallback when no pre-rendered thumbnail exists yet: render the
+                template's example.html live (HTML + JS) in a sandboxed iframe,
+                scaled down. Heavier than the <img>, but only hit until the
+                build-time thumbnail is generated. */}
             <iframe
               src={previewUrl}
               title={`${template.name} preview`}

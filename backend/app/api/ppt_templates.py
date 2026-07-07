@@ -38,6 +38,7 @@ class PPTTemplateListItem(BaseModel):
     craft_required: list[str] = []
     example_prompt: str | None = None
     has_preview: bool = False
+    has_thumbnail: bool = False
     design_system: dict[str, Any] = {}
 
 
@@ -94,5 +95,27 @@ def get_ppt_template_preview(template_id: str) -> FileResponse:
     return FileResponse(
         path=path,
         media_type="text/html; charset=utf-8",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@router.get(
+    "/templates/{template_id}/thumbnail",
+    summary="Serve the PPT template's pre-rendered thumbnail image for the gallery card",
+    response_class=FileResponse,
+)
+def get_ppt_template_thumbnail(template_id: str) -> FileResponse:
+    """Return the pre-rendered ``thumbnail.jpg`` (a screenshot of example.html).
+    Unauthenticated + static, same rationale as ``/preview`` — embedded via
+    ``<img src>`` in the gallery. Only serves the template's own thumbnail file."""
+    path = od_loader.get_template_thumbnail_path(template_id)
+    if path is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Thumbnail not available for PPT template '{template_id}'",
+        )
+    return FileResponse(
+        path=path,
+        media_type="image/jpeg",
         headers={"Cache-Control": "public, max-age=3600"},
     )

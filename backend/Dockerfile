@@ -186,6 +186,18 @@ COPY --chown=flowin:flowin alembic.ini ./alembic.ini
 # environments (the volume is empty) and every OpenDesign gallery is empty.
 COPY --chown=flowin:flowin --from=opendesign . ./opendesign/
 
+# Pre-render OpenDesign gallery thumbnails at BUILD time. Headless Chromium was
+# installed above (for render_check) and the OpenDesign tree is now baked at
+# /app/opendesign, so we screenshot each template's example.html to a static
+# thumbnail.jpg. The catalog UI serves these as a plain <img>; any template
+# without one falls back to live iframe (HTML+JS) rendering in the browser — so
+# this step is best-effort (the script ALWAYS exits 0) and never blocks the
+# build. Runs as root here (before the USER switch) so Chromium gets
+# --no-sandbox and the output is re-chowned to the non-root runtime user.
+COPY --chown=flowin:flowin scripts/generate_template_thumbnails.py ./scripts/generate_template_thumbnails.py
+RUN python scripts/generate_template_thumbnails.py --dir /app/opendesign/design-templates \
+    && chown -R 10001:10001 /app/opendesign
+
 # Entrypoint: runs migrations, then exec's uvicorn. Mode 0755 so the non-root
 # user can execute it.
 COPY --chown=flowin:flowin --chmod=0755 docker-entrypoint.sh ./docker-entrypoint.sh

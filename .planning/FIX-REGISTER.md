@@ -46,6 +46,8 @@
 | FIX-037 | 2026-07-04 | Cache-token breakdown not shown in UI — backend (ISS-032/FIX-036) emits per-run `total_cache_read_tokens`/`total_cache_write_tokens` + already-discounted `estimated_cost_usd`, but `TokenUsageSummary` showed only total/input/output/cost | FE never consumed the already-emitted cache fields (grep of `frontend/src` for cache tokens = nothing); no reopen path mapped them either. Fix (FE-only): thread the cache fields (types + `useWorkflow` `pipeline_complete`/`agent_complete` parse with `\|\| prev.* \|\| 0` + `api.ts` persisted keys made type-visible, no logic change) + render a `⚡ N cached (X%)` segment after the input figure when `cache_read > 0` (byte-identical render when 0/undefined; `pct = round(cacheRead / max(1, input) * 100)`; optional `· N written` when `cache_write > 0`); NO FE dollar/per-model math (INV-12) — cost already discounted by FIX-036; dollar-savings deferred (ISS-034). | `frontend/src/types/index.ts`, `frontend/src/hooks/useWorkflow.ts`, `frontend/src/components/workflow/TokenUsageSummary.tsx`, `frontend/src/components/workflow/TokenUsageSummary.cache.test.tsx` | quick-260704-uvs | INV-1/3/12 · SC-001 ✅ | Done |
 | FIX-038 | 2026-07-05 | t2x regression: model_pricing.py hardcoded model-family literals violated INV-12 single-model-id-source and broke test_model_catalog::test_single_source_grep (passed at baseline eb3ccced, failed after t2x). | Fix (proper, no test-loosen): co-located a frozen Pricing dataclass + pricing field on ModelEntry in model_catalog.py (the single source); model_pricing.py now derives each model's Pricing FROM the catalog (exact get + region/version-normalized fallback + cheap default) and keeps only _regional_premium + estimate_cost_usd — ZERO model-id literals. Reconciliation pin ($24.85) preserved; goldens byte-identical; lint 4/0. | `backend/agents/capabilities/model_catalog.py`, `backend/agents/capabilities/model_pricing.py`, `backend/tests/agents/test_model_pricing.py` | quick-260705-ed8 | INV-1/3/12/13 · SC-001 ✅ | Done |
 | FIX-034 | 2026-07-04 | Bedrock prompt caching silently OFF + enable-only extended-thinking knob | deepagents' built-in AnthropicPromptCachingMiddleware caches ONLY ChatAnthropic, but prod runs ChatBedrockConverse → every build re-sent a ~45-68k fixed prefix uncached across ~300 turns (5-21M input tok). Fix: a provider-agnostic `_BedrockCachePointsMiddleware` sets model_settings cache_control on ChatBedrockConverse requests (config-gated BEDROCK_PROMPT_CACHE_ENABLED default ON, BEDROCK_PROMPT_CACHE_TTL '5m') so langchain_aws._apply_cache_points appends cachePoints ≈ 55-80% cheaper billed input; plus a THINKING_BUDGET_TOKENS knob (enable-only, default 0) threading a clamped thinking budget into both provider branches of build_model. | `backend/app/core/config.py`, `backend/app/agents/model_factory.py`, `backend/app/agents/deep_agent_runner.py`, `backend/tests/agents/test_bedrock_cache_and_thinking.py` | quick-260704-p10 | INV-1/3/12/13 · SC-001 ✅ | Done |
+| FIX-039 | 2026-07-07 | OD template + PPT gallery previews slow — cards render a static thumbnail `<img>`, falling back to live HTML+JS iframe rendering when absent | Each gallery card mounted a sandboxed `<iframe sandbox="allow-scripts">` that fully renders `example.html` at 1280x720 (parse+style+layout+paint+JS-exec+asset fetches) just for a ~130px thumbnail. Rendering N full HTML documents is the gallery's dominant cost. | `frontend/src/components/workflow/prototype/TemplateGallery.tsx`, `frontend/src/components/workflow/prototype/TemplateCard.tsx`, `frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx`, `frontend/src/lib/prototype-api.ts`, `frontend/src/lib/ppt-api.ts` | Phase 4 (OD catalog UI) | INV-3 golden-neutral (FE-only; catalog thumbnails, not the deliverable renderer) ✅ | Done |
+| FIX-040 | 2026-07-07 | OD gallery thumbnails generated at BUILD time (backend Docker image) + served via backend endpoint; missing ⇒ live iframe fallback | The `<img>` fast-path needs a pre-rendered screenshot. Generated at backend image build (Playwright/Chromium already installed for render_check; OpenDesign tree baked at /app/opendesign), NOT committed — so absent thumbnails degrade to the FIX-039 live iframe. | `backend/app/services/od_loader.py`, `backend/app/api/prototype_templates.py`, `backend/app/api/ppt_templates.py`, `backend/scripts/generate_template_thumbnails.py` (NEW), `backend/Dockerfile`, `.gitignore` | Phase 4 (OD catalog UI) | INV-3 golden-neutral; lint-imports 4/0; no committed binaries ✅ | Done |
 
 ---
 
@@ -1346,3 +1348,62 @@ Four committed fixtures: **A `-full` must-FAIL** (5 genuine static dead + 17/17 
 **Phase(s) involved:** Phase 07/08 (prototype validators VALID-01/03/04) · IMPLEMENTATION-REGISTER **Phase 24** (post-milestone).
 **Invariants:** INV-1/3/12/13 ✅ (additive; no migration; kernel-pure/app→app imports; goldens byte/event-identical). **Status:** Done.
 **Known standing item:** `test_characterization_od_ppt` fails offline only (pre-existing skills-asset/event-golden drift, unrelated to the validators) → CI/clean-env re-confirm.
+
+### FIX-039 — OD Gallery Previews: static thumbnail `<img>` with live HTML+JS iframe fallback
+
+**Date:** 2026-07-07
+**Triggered by:** user report — "why is it taking lots of time while rendering design template and design on web", plus the follow-up requirement: generate thumbnails at build time and, when a thumbnail is absent, render the iframe (HTML+JS) way.
+
+#### Root Cause
+The template gallery (`TemplateGallery.tsx` `CompactTemplateCard`, the larger `TemplateCard.tsx`) and the PPT gallery (`PPTTemplateGallery.tsx` `CompactPPTCard`) rendered each catalog card's preview as a **sandboxed `<iframe sandbox="allow-scripts">`** loading the template's real `example.html`, laid out at a full 1280x720 viewport and CSS-scaled to a ~130px thumbnail. The scale is cheap; the cost is that the browser **parses, styles, lays out, paints, and runs the JS of a complete standalone HTML document per card**, and each iframe re-fetches the preview's fonts/CSS/images. A gallery of N cards renders N full web pages just for thumbnails. (The design-system picker uses text chips, not iframes, so only its one-at-a-time detail modal is heavy.)
+
+#### Fix
+Each gallery card now renders a **static `<img loading="lazy" class="object-cover object-top">`** when a pre-rendered thumbnail exists (`has_thumbnail`), turning "render N HTML documents" into "load N cached images". When a thumbnail is absent, the card **falls back to the live `example.html` iframe with `sandbox="allow-scripts"`** (full HTML+JS rendering) — the original behavior — so nothing is lost before/without generation. The `<img>` carries an intentional `eslint-disable-next-line @next/next/no-img-element` (a tiny static same-origin thumbnail; `next/image` optimization + `remotePatterns` would be the very overhead we are removing). Detail modals keep `allow-scripts` for the interactive preview. (An interim iteration made the fallback iframe `sandbox=""` for a further speedup; reverted per the explicit "use iframe html+js" fallback requirement.)
+
+#### Files Changed
+`frontend/src/components/workflow/prototype/TemplateGallery.tsx`, `frontend/src/components/workflow/prototype/TemplateCard.tsx`, `frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx`, `frontend/src/lib/prototype-api.ts` (`has_thumbnail` + `getTemplateThumbnailUrl`), `frontend/src/lib/ppt-api.ts` (`has_thumbnail` + `getPPTTemplateThumbnailUrl`).
+
+#### Invariants Verified
+- **INV-3** (golden parity): not affected — FE-only; catalog thumbnails, not the deliverable renderer on the golden path.
+- **INV-1 / INV-12 / SC-001**: no engine/kernel edits, no pipeline_type branch, no duplication.
+
+#### Verification
+`npx tsc --noEmit` exit 0; `eslint` 0 errors (only pre-existing warnings — the img warning is intentionally suppressed); `npm run build` (Next 16) compiled + TypeScript + 15/15 static pages generated; `vitest --run src/components/workflow` = 5 pre-existing failures / 50 passed, identical with the change stashed (the failures — `ReviewGatesSection.test.tsx` et al. — are unrelated). Registers checked first via `Select-String` (grep_search unreliable here): the gallery-thumbnail area is untracked, and the locked T-18-05 sandbox decision governs the deliverable renderer, not these catalog thumbnails.
+
+#### Notes
+- Tradeoff: a JS-drawn template (canvas / client-rendered) shows a sparser thumbnail only if no screenshot was generated; the fallback iframe renders it fully, and the detail modal is always live.
+
+---
+
+### FIX-040 — OD Gallery Thumbnails Generated at BUILD Time (backend Docker + Playwright)
+
+**Date:** 2026-07-07
+**Triggered by:** same report; the follow-up requirement pinned generation to **build time** (not committed), with the live-iframe fallback (FIX-039).
+
+#### Root Cause
+The `<img>` fast-path (FIX-039) needs a pre-rendered screenshot to exist. Those screenshots must be produced somewhere; committing ~106 binaries is undesirable, and the frontend build context (`./frontend`) can neither see `skills/opendesign/` nor ship a browser.
+
+#### Fix
+Generate the thumbnails during the **backend image build** — the natural home: the backend runtime stage already runs `playwright install --with-deps chromium` (for `render_check.py`) and bakes the OpenDesign tree at `/app/opendesign`, and the backend already **serves** the thumbnails.
+- **Serving** (`od_loader.py`, `prototype_templates.py`, `ppt_templates.py`): `has_thumbnail` on each template dict + `get_template_thumbnail_path()`; `GET /api/{prototype,ppt}/templates/{id}/thumbnail` serves the JPEG (unauthenticated + `Cache-Control: public, max-age=3600`, same containment as `/preview`). `has_thumbnail` is read from disk at loader init, so a baked image reports `true` while a bare local checkout reports `false` → live-iframe fallback.
+- **Generator** (`backend/scripts/generate_template_thumbnails.py`, NEW): `playwright.sync_api` serves `design-templates/` via a `ThreadingTCPServer` and screenshots each `example.html` at 1280x720 → `thumbnail.jpg` (JPEG q80). Launches Chromium with `--no-sandbox --disable-dev-shm-usage` (runs as root in the build) with a system Chrome/Edge channel fallback; per-template fresh context, resumable (skips existing), and **always exits 0** so a flaky template can never fail the image build.
+- **Dockerfile** (`backend/Dockerfile`): after the OpenDesign COPY + Chromium install and before the USER switch, `COPY` the script and `RUN` it over `/app/opendesign/design-templates`, then `chown -R 10001:10001 /app/opendesign`.
+- **Not committed** (`.gitignore`): `skills/opendesign/design-templates/*/thumbnail.jpg` ignored; the earlier committed batch was removed. The redundant frontend Node generator (`generate-template-thumbnails.mjs`) + its `npm run thumbnails` script were deleted — the Python generator is the single source (build-time and local: `cd backend && python scripts/generate_template_thumbnails.py`).
+
+Design systems are out of scope — their picker is text chips, not an iframe grid.
+
+#### Files Changed
+`backend/app/services/od_loader.py`, `backend/app/api/prototype_templates.py`, `backend/app/api/ppt_templates.py`, `backend/scripts/generate_template_thumbnails.py` (NEW), `backend/Dockerfile`, `.gitignore`; removed `frontend/scripts/generate-template-thumbnails.mjs` + the `thumbnails` npm script.
+
+#### Invariants Verified
+- **INV-3**: additive loader field + build step; not on the deliverable/golden path.
+- **Ports & Adapters / lint-imports**: 4 kept / 0 broken (backend changes stay in `app.services`/`app.api`).
+- **Persistence**: no migrations; thumbnails are files co-located with the template, generated into the baked tree like `example.html`/`assets/`.
+- **INV-1 / INV-12 / SC-001**: no engine/kernel edits; single generator (no dual implementation); no committed binaries.
+
+#### Verification
+`python -m py_compile scripts/generate_template_thumbnails.py` exit 0; ran locally `--only audio-jingle` → produced the thumbnail with bundled Chromium and the loader flipped `has_thumbnail=true` with a resolving path (artifact then removed — thumbnails are build outputs). `pytest tests/unit/test_template_assets.py` 18 passed; `lint-imports` 4/0. Frontend build green (see FIX-039). A full backend `docker build` was NOT run here (base-image pulls / apt are network-restricted in this environment); the Dockerfile step is ordered after the existing Chromium install + OpenDesign COPY and is best-effort (always exits 0), so it cannot break the build.
+
+#### Notes
+- Build-time cost: ~106 headless screenshots add a few minutes to the backend image build; acceptable for a one-time, cache-friendly step (only re-runs when the layer is invalidated).
+- Absent thumbnails (e.g. local dev without running the generator) degrade gracefully to the FIX-039 live HTML+JS iframe.
