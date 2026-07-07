@@ -745,7 +745,7 @@ Plans:
 
 ### v2.0 Phases
 
-- [ ] **Phase 28: Chat Contracts & Guards [A0]** — event vocabulary + golden guards, artifact-block derivation contracts, live-state contract, mockWs chat driver, decision records ND-1..ND-9
+- [x] **Phase 28: Chat Contracts & Guards [A0]** — event vocabulary + golden guards, artifact-block derivation contracts, live-state contract, mockWs chat driver, decision records ND-1..ND-9 (completed 2026-07-07)
 - [ ] **Phase 29: Transport Cutover + Chat Backbone [A1]** — *(D-13 locked 2026-07-07)* wave 1: per-run SSE stream + REST commands built ADDITIVELY alongside `/ws/chat` (wire-parity golden, ported suites, D-14 resilience; WS-deletion DEFERRED to a supervised follow-up per LOCK-B); wave 2: `POST /api/runs/{id}/messages` chat backbone, mechanical intent router, steering seam, narrator cards
 - [ ] **Phase 30: Uploads & Multimodal [A2]** — *(trimmed 2026-07-07: image spine landed via IMAGE-INPUT-PLAN waves)* file/doc uploads (`POST /api/runs/{id}/files` → sandbox), `context_provider:uploaded_files`, per-turn image carrier, client resize, ND-10 disposition
 - [ ] **Phase 31: Chat Lane MVP [A3]** — revive in-repo kit, send/receive, result cards + deep-links, in-lane gate/clarify quick-actions, attachment UI, token widget
@@ -770,11 +770,11 @@ Plans:
 3. The D-12 live-state contract table exists as UI-SPEC input; the mockWs chat driver contract exists.
 4. ND-1..ND-9 each have a recorded decision.
 
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 - [x] 28-01-PLAN.md — Golden-neutrality guards + characterization proof (chat event vocabulary + volatile keys; CHAT-06)
 - [x] 28-02-PLAN.md — Steps-L2 artifact-derivation contract + figure-to-field pinning + D-12 live-state contract (UI-SPEC input)
-- [ ] 28-03-PLAN.md — mockWs e2e chat-driver contract + resolved-decisions record (LOCK-A..G, ND-1..ND-13)
+- [x] 28-03-PLAN.md — mockWs e2e chat-driver contract + resolved-decisions record (LOCK-A..G, ND-1..ND-13)
 
 ### Phase 29: Transport Cutover + Chat Backbone [A1]
 
@@ -886,7 +886,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 28. Chat Contracts & Guards [A0] | 2/3 | In Progress|  |
+| 28. Chat Contracts & Guards [A0] | 3/3 | Complete   | 2026-07-07 |
 | 29. Chat Backbone [A1] | 0/? | Not started | — |
 | 30. Uploads & Multimodal [A2] | 0/? | Not started | — |
 | 31. Chat Lane MVP [A3] | 0/? | Not started | — |
