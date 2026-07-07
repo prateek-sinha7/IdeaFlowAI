@@ -116,6 +116,24 @@ class Settings(BaseSettings):
     # both provider branches of build_model when > 0.
     THINKING_BUDGET_TOKENS: int = 0
 
+    # ---- SSE transport down-channel (CHAT-07 / D-13, default ON) ----
+    # Feature flag for the additive per-run SSE stream
+    # ``GET /api/runs/{id}/events/stream`` (``app/api/run_stream.py``). Built
+    # ALONGSIDE ``/ws/chat`` under LOCK-B — ``websocket.py`` is untouched; the SSE
+    # route reuses the SAME per-run live queue + durable ``run_events`` log. When
+    # False the route reports feature-absent (404) so a rollback is a clean flag
+    # flip with zero behavioral bleed onto the still-live WebSocket transport.
+    SSE_TRANSPORT_ENABLED: bool = True
+    # D-14h streaming-infra knobs. ``sse-starlette`` emits a comment-``ping`` at
+    # this cadence so an idle proxy never buffers/half-closes a long-lived stream;
+    # the idle-timeout floor MUST exceed the ping so the ingress keeps the socket
+    # open between events. The route also sets ``X-Accel-Buffering: no`` +
+    # ``Cache-Control: no-cache`` on the response and REQUIRES the ingress run with
+    # ``proxy_buffering off`` for ``text/event-stream`` (documented for ops — an
+    # SSE stream MUST NOT be gzip-buffered or the browser receives nothing live).
+    SSE_KEEPALIVE_PING_SECONDS: int = 15
+    SSE_STREAM_IDLE_TIMEOUT_SECONDS: int = 300
+
     # ---- Image-input ingress (default ON) ----
     # Feature flag for the image-input ingress (IMAGE-INPUT §3 Layer 1/5, Wave 2).
     # When True, a `run_pipeline` payload may carry a transient `images` list that
