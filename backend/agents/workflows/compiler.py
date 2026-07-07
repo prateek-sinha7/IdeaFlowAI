@@ -210,6 +210,13 @@ class WorkflowCompiler:
                 raise CompilerError(f"unknown context_provider '{cp}' in {where}")
             self._check_trust(registry, "context_provider", cp, trusted, where)
 
+        # image-input Wave 1: validate declared input_provider references (mirrors the
+        # context_provider loop exactly). Dormant — no manifest declares the key.
+        for ip in getattr(manifest, "input_providers", []) or []:
+            if not registry.is_registered("input_provider", ip):
+                raise CompilerError(f"unknown input_provider '{ip}' in {where}")
+            self._check_trust(registry, "input_provider", ip, trusted, where)
+
         deliverable = self._compile_deliverable(manifest, registry, trusted)
 
         # ── Trust-conditional Limits materialization (FANOUT-09 / OBS-01) ─────
@@ -248,6 +255,7 @@ class WorkflowCompiler:
             steps=steps,
             model=workflow_model,
             context_providers=list(manifest.context_providers),
+            input_providers=list(getattr(manifest, "input_providers", []) or []),
             seed_files=dict(manifest.seed_files),
             # Phase 11 / FANOUT-03: the workflow-level named-worker allow-list, pure data
             # (INV-5). run_fanout validates a named worker against this list + the agent

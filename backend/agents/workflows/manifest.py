@@ -59,6 +59,9 @@ class WorkflowManifest:
 
     # ── Optional with defaults ────────────────────────────────────────────
     context_providers: list = field(default_factory=list)
+    # input_providers: declared image/binary input_provider capability names
+    # (image-input Wave 1). Dormant — no manifest declares it this wave. Pure data.
+    input_providers: list = field(default_factory=list)
     seed_files: dict = field(default_factory=dict)
     # allowed_workers: the workflow-level named-worker allow-list (Phase 11 / FANOUT-03).
     # A heterogeneous fan-out step may only spawn a named worker listed here (validated
@@ -97,6 +100,7 @@ _ALLOWED_TOP_KEYS: frozenset[str] = frozenset(
         "planner",
         "clarify",
         "context_providers",
+        "input_providers",
         "seed_files",
         "allowed_workers",
         "deliverable",
@@ -197,6 +201,7 @@ def _build_manifest(data: object, path: Path) -> WorkflowManifest:
         )
 
     context_providers = _optional_list(data, "context_providers", file_str)
+    input_providers = _optional_list(data, "input_providers", file_str)
     seed_files = _optional_dict(data, "seed_files", file_str, default_factory=dict)
     allowed_workers = _optional_list(data, "allowed_workers", file_str)
     version = _optional_int(data, "version", file_str, default=1)
@@ -219,6 +224,7 @@ def _build_manifest(data: object, path: Path) -> WorkflowManifest:
         planner=planner,
         clarify=clarify,
         context_providers=context_providers,
+        input_providers=input_providers,
         seed_files=seed_files,
         allowed_workers=allowed_workers,
         version=version,
