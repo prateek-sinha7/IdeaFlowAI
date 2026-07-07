@@ -428,6 +428,20 @@ def _normalize_run_images(images: "list | None") -> list[dict]:
     return out
 
 
+def _dispatch_payload(context_message: str, input_blocks: list) -> "str | list":
+    """Wrap the text context message with any multimodal input blocks (image-input).
+
+    Split-transport (Locked Decision #3): returns the bare ``context_message`` str
+    when ``input_blocks`` is falsy (the dormant default — zero re-baseline, the
+    ``agent_input`` event + goldens stay byte-identical), else a content-list
+    ``[{"type":"text","text":context_message}, *input_blocks]`` handed to the model
+    dispatch. ``HumanMessage(content=...)`` accepts either shape natively.
+    """
+    if not input_blocks:
+        return context_message
+    return [{"type": "text", "text": context_message}, *input_blocks]
+
+
 def resolve_alias(pipeline_type: str) -> str:
     """Resolve the legacy run label to a manifest id (MAN-05).
 
@@ -1694,6 +1708,10 @@ class ExecutionEngine:
         # Carry the workflow's declared context-provider names on the context so the
         # generic injector composes the OD blocks from them in declared order (INV-1).
         ectx.compiled_context_providers = list(compiled.context_providers or [])
+        # image-input Wave 1: carry the workflow's declared input_provider capability
+        # names on the per-run context (same dynamic-attr thread) so the per-agent
+        # _compose_input_blocks resolves them in declared order. Dormant — [] this wave.
+        ectx.compiled_input_providers = list(compiled.input_providers or [])
 
         from agents.execution_engine.kernel_services import KernelServices
 
@@ -2676,19 +2694,33 @@ class ExecutionEngine:
             redo_directive = ""
             redo_derived_from = None
 
+            # image-input Wave 1: the per-agent LOCAL image content-blocks (NOT an ectx
+            # field — a shared field would leak the F1 blocks to a later non-opted agent).
+            # Locally gated on spec.injects ∪ step.injects inside _compose_input_blocks;
+            # [] for every agent this wave (no injects:[images] declared) ⇒ dormant.
+            input_blocks = await self._compose_input_blocks(spec, ectx)
+
             # Emit agent_input event (Phase 3 / T040) — shows full input prompt
             # and context sources in the Thinking tab (FR-015).
             context_sources = self._build_context_sources(spec, ordered_agents, ectx)
+            # context_message stays a TEXT str ALWAYS in the agent_input event (split-
+            # transport, Locked Decision #3): only the model dispatch wraps the blocks.
+            _agent_input_data = {
+                "agent_id": spec.id,
+                "pipeline_run_id": pipeline_run_id,
+                "timestamp": _now(),
+                "context_message": context_message,
+                "context_sources": context_sources,
+                "tool_calls": [],
+            }
+            # image_count: optional observability key, emitted ONLY when images ride this
+            # dispatch (>0). A text-only run emits NO image_count key ⇒ dormant goldens
+            # byte-identical. Stripped from the characterization multiset belt-and-suspenders.
+            if input_blocks:
+                _agent_input_data["image_count"] = len(input_blocks)
             yield {
                 "type": "agent_input",
-                "data": {
-                    "agent_id": spec.id,
-                    "pipeline_run_id": pipeline_run_id,
-                    "timestamp": _now(),
-                    "context_message": context_message,
-                    "context_sources": context_sources,
-                    "tool_calls": [],
-                },
+                "data": _agent_input_data,
             }
 
             try:
@@ -2902,7 +2934,12 @@ class ExecutionEngine:
                     _attempt_task_count = 0
                     try:
                         async with asyncio.timeout(agent_timeout):
-                            async for event in agent.astream_events(context_message):
+                            # image-input Wave 1: wrap the text with any per-agent image
+                            # blocks for the model dispatch ONLY (split-transport). Bare str
+                            # when input_blocks empty (dormant) ⇒ byte-identical. Re-sent on
+                            # each model-fallback retry inside this while-True (intended).
+                            _dispatch = _dispatch_payload(context_message, input_blocks)
+                            async for event in agent.astream_events(_dispatch):
                                 if cancel_event and cancel_event.is_set():
                                     raise asyncio.CancelledError()
                                 etype = event["type"]
@@ -5937,6 +5974,46 @@ class ExecutionEngine:
                 )
 
         return "\n".join(parts)
+
+    async def _compose_input_blocks(self, spec, ectx) -> list:
+        """Compose the per-agent multimodal input content-blocks (image-input Wave 1).
+
+        CORRECTNESS-CRITICAL — the gate is derived LOCALLY per-agent from
+        ``set(spec.injects) ∪ set(ectx.current_step.injects)`` (the SAME union the
+        AgentContext factory seam uses at the step_injects wiring). It NEVER reads
+        the stale ``ectx.current_spec_injects`` (set once in _compose_context_message
+        inside ``if injects:`` and never reset — reading it would leak ``{images}`` to
+        a later NON-opted agent that ran after an opted-in one, the F1 leak vector).
+
+        When ``"images"`` is not in the local gate, returns ``[]`` immediately. Otherwise
+        resolves each declared ``input_provider`` capability (off the per-run
+        ``ectx.compiled_input_providers`` thread) and extends a blocks list with each
+        provider's ``load(ectx)`` output. Mirrors the context_provider provider loop:
+        an unresolvable capability is skipped; a ``load`` failure logs-and-skips but a
+        ``PermissionError`` propagates. DORMANT by default — no manifest declares an
+        ``input_provider`` and no AGENT.md declares ``injects:[images]`` this wave, so
+        ``compiled_input_providers`` is ``[]`` and this returns ``[]`` (INV-3).
+        """
+        agent_injects = set(getattr(spec, "injects", []) or []) | set(
+            getattr(getattr(ectx, "current_step", None), "injects", None) or []
+        )
+        if "images" not in agent_injects:
+            return []
+        blocks: list = []
+        for name in list(getattr(ectx, "compiled_input_providers", []) or []):
+            try:
+                provider = _CAPABILITY_REGISTRY.resolve("input_provider", name)
+            except (KeyError, RuntimeError):
+                continue
+            try:
+                loaded = await provider.load(ectx)
+            except PermissionError:
+                raise
+            except Exception as exc:  # noqa: BLE001 — a provider read must not abort the agent
+                logger.warning("input provider %s.load failed (%s) — skipping", name, exc)
+                continue
+            blocks.extend(loaded or [])
+        return blocks
 
     # DELETED (07-05, L12): the legacy per-pipeline context-message builder with its
     # od/template/example injection branches. The routed path composes the per-agent
