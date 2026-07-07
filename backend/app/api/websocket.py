@@ -1306,6 +1306,17 @@ async def websocket_chat(websocket: WebSocket):
                     await store.set_review_response(
                         gate_key, approved=False, action="redo", instructions=instructions
                     )
+                elif action == "update_specs":
+                    # KAN-101: "Update the Specs" — trigger spec revision sub-pipeline.
+                    # The analysis report is passed as ``instructions`` so
+                    # _run_review_gate can thread it into the revision context.
+                    # Keyed on the GENERIC action discriminator (SC-001 / INV-1).
+                    analysis_report = message_data.get("analysis_report") or ""
+                    await store.set_review_response(
+                        gate_key, approved=False,
+                        action="update_specs",
+                        instructions=analysis_report,
+                    )
                 else:
                     await store.set_review_response(
                         gate_key, approved=approved, edited_content=edited_content

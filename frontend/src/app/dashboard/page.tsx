@@ -1378,6 +1378,22 @@ export default function DashboardPage() {
         // gate_key, redoable=true) that re-opens it with the new output.
         setReviewGateData(null);
       }}
+      onUpdateSpecsReview={(gateKey, analysisReport) => {
+        // KAN-101: trigger the spec revision sub-pipeline (specify → plan → analyze)
+        // with the analysis report as context. Rides the SAME approve_review
+        // owner-gated handler — action="update_specs", analysis_report carries
+        // the text. The panel stays open; the backend will re-emit review_gate_ready
+        // when the sub-pipeline completes and the analyze gate re-opens.
+        send(JSON.stringify({
+          type: "approve_review",
+          gate_key: gateKey,
+          action: "update_specs",
+          analysis_report: analysisReport,
+        }));
+        // Clear the panel immediately; it will re-open when the backend
+        // emits review_gate_ready with the new analysis output.
+        setReviewGateData(null);
+      }}
       pendingOdProtoParams={pendingOdProtoParams}
       onClearPendingOdProto={() => setPendingOdProtoParams(null)}
       pendingOdPptParams={pendingOdPptParams}

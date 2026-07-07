@@ -247,9 +247,32 @@ export function handlePipelineMessage(
         if (agentIdx === -1) return prev;
 
         const updated = [...prev.agents];
-        updated[agentIdx] = { ...updated[agentIdx], status: "running" };
+        // KAN-101: detect a spec revision re-run — prototype-specify fires
+        // agent_start a second time (already "done" from the first run).
+        // Increment specRevisionCount so PrototypePipelineView can show the
+        // revision cycle badge. Reset the agent state to "running" for live display.
+        const wasAlreadyDone = updated[agentIdx].status === "done";
+        const isSpecifyRerun = wasAlreadyDone && agentId === "prototype-specify";
+        updated[agentIdx] = {
+          ...updated[agentIdx],
+          status: "running",
+          // Reset output/thinking so the phase card shows the new run live
+          output: isSpecifyRerun ? "" : updated[agentIdx].output,
+          thinking: "",
+          thinkingText: isSpecifyRerun ? "" : updated[agentIdx].thinkingText,
+          inputPrompt: isSpecifyRerun ? undefined : updated[agentIdx].inputPrompt,
+          contextSources: isSpecifyRerun ? [] : updated[agentIdx].contextSources,
+        };
 
-        return { ...prev, agents: updated, currentAgentIndex: agentIdx };
+        return {
+          ...prev,
+          agents: updated,
+          currentAgentIndex: agentIdx,
+          // Bump the revision counter when specify re-starts
+          specRevisionCount: isSpecifyRerun
+            ? (prev.specRevisionCount ?? 0) + 1
+            : prev.specRevisionCount,
+        };
       });
       return true;
     }

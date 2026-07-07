@@ -111,6 +111,8 @@ export interface DashboardLayoutProps {
   onRejectReview?: (gateKey: string) => void;
   // REDO-GATE (F-fe2): pass-through redo callback to the ReviewGatePanel.
   onRedoReview?: (gateKey: string, instructions: string) => void;
+  // KAN-101: pass-through update-specs callback to the ReviewGatePanel.
+  onUpdateSpecsReview?: (gateKey: string, analysisReport: string) => void;
   pendingOdProtoParams?: {
     brief: string; templateId: string; designSystemId: string; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string;
@@ -265,6 +267,7 @@ export function DashboardLayout({
   onApproveReview,
   onRejectReview,
   onRedoReview,
+  onUpdateSpecsReview,
   pendingOdProtoParams,
   onClearPendingOdProto,
   pendingOdPptParams,
@@ -1560,6 +1563,7 @@ export function DashboardLayout({
                       onReject={handleRejectReview}
                       onRedo={onRedoReview}
                       redoable={reviewGateData.redoable}
+                      onUpdateSpecs={onUpdateSpecsReview}
                     />
                   ) : (questionnaireLoading || questionnaireQuestions.length > 0) && (pendingPipelineRun || activePipelineRunId) ? (
                     <QuestionnairePanel
