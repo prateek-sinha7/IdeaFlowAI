@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: — Universal Run Chat & VelocityAI UI Convergence
 status: executing
-last_updated: "2026-07-07T22:55:06.870Z"
+last_updated: "2026-07-07T23:08:21.539Z"
 last_activity: "2026-07-08 -- Completed 29-08-PLAN.md (CHAT-03 / D-06 / ND-11 steering seam. ND-11 RESOLVED IN WRITING FIRST [ND-11-SEAM-DECISION.md, committed BEFORE any engine edit]: COEXIST — steering_notes is a generic THIRD consume-once injection seam beside redo_directive [P23] + KAN-101 spec_revision_context; the two shipped seams stay byte-stable [INV-3/LOCK-B, no unify]. Steering thread-id policy: NO fork, inject into the NEXT dispatch on the agent's base thread [no rollback] — sidesteps both the Redo :redo{N} fork AND the KAN-101 BASE-thread unbounded-replay risk [the latter acknowledged + logged out-of-scope for 29-09/Phase-34]. ND-9 tie-in: steering-state across resume is server-derived from run_events [29-02] — NO new column/table [LOCK-B]. Impl: ectx.steering_notes [list of {text,sticky} consume-once queue] added to context.py mirroring redo_directive; _compose_context_message renders pending notes as ONE === USER GUIDANCE === block [joins the chat-launch strip marker family, POR §6] at the next dispatch then READ+CLEARs DURING composition [router enqueues async → clear lives in the injector, not the caller] — one-shot dropped, STICKY/uploaded persists across dispatches [D-06]. Generic/name-free [keyed on the ectx queue only, SC-001/INV-1]. test_steering_seam.py [5 offline fault-injection tests]: note lands in next dispatch + consumed once; sticky persists / one-shot doesn't; golden-neutral when empty. PROVEN OFFLINE: 5 characterization goldens + steering seam 15/15 [byte/event-identical, NO SNAPSHOT_UPDATE, no golden fixture edited — INV-3]; banned-patterns 11/11 [SC-001 clean]; lint-imports 4 kept/0 broken. LOCK-B CONFIRMED: git diff = exactly 4 allow-listed files [ND-11 doc + context.py + engine.py + test_steering_seam.py]; websocket.py / websocket_handoff.py / useWebSocket.ts NOT in diff; zero /ws/chat touch, zero ratchets, zero new DB tables. Commits e6ffebad [docs ND-11 FIRST] + 69c07de6 [feat carrier+composition] + 8c2f83c3 [test proof] + 4ac9c8b6 [docs summary])"
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 13
-  completed_plans: 6
+  completed_plans: 7
   percent: 9
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 ## Current Position
 
 Phase: 29 (transport-cutover-chat-backbone-a1) — EXECUTING
-Plan: 4 of 10
+Plan: 5 of 10
 Status: Ready to execute
 Last activity: 2026-07-08 -- Completed 29-08-PLAN.md (CHAT-03 / D-06 / ND-11 steering seam. ND-11 RESOLVED IN WRITING FIRST [ND-11-SEAM-DECISION.md, committed BEFORE any engine edit]: COEXIST — steering_notes is a generic THIRD consume-once injection seam beside redo_directive [P23] + KAN-101 spec_revision_context; the two shipped seams stay byte-stable [INV-3/LOCK-B, no unify]. Steering thread-id policy: NO fork, inject into the NEXT dispatch on the agent's base thread [no rollback] — sidesteps both the Redo :redo{N} fork AND the KAN-101 BASE-thread unbounded-replay risk [the latter acknowledged + logged out-of-scope for 29-09/Phase-34]. ND-9 tie-in: steering-state across resume is server-derived from run_events [29-02] — NO new column/table [LOCK-B]. Impl: ectx.steering_notes [list of {text,sticky} consume-once queue] added to context.py mirroring redo_directive; _compose_context_message renders pending notes as ONE === USER GUIDANCE === block [joins the chat-launch strip marker family, POR §6] at the next dispatch then READ+CLEARs DURING composition [router enqueues async → clear lives in the injector, not the caller] — one-shot dropped, STICKY/uploaded persists across dispatches [D-06]. Generic/name-free [keyed on the ectx queue only, SC-001/INV-1]. test_steering_seam.py [5 offline fault-injection tests]: note lands in next dispatch + consumed once; sticky persists / one-shot doesn't; golden-neutral when empty. PROVEN OFFLINE: 5 characterization goldens + steering seam 15/15 [byte/event-identical, NO SNAPSHOT_UPDATE, no golden fixture edited — INV-3]; banned-patterns 11/11 [SC-001 clean]; lint-imports 4 kept/0 broken. LOCK-B CONFIRMED: git diff = exactly 4 allow-listed files [ND-11 doc + context.py + engine.py + test_steering_seam.py]; websocket.py / websocket_handoff.py / useWebSocket.ts NOT in diff; zero /ws/chat touch, zero ratchets, zero new DB tables. Commits e6ffebad [docs ND-11 FIRST] + 69c07de6 [feat carrier+composition] + 8c2f83c3 [test proof] + 4ac9c8b6 [docs summary])
 Prior activity: 2026-07-08 -- Completed 29-06-PLAN.md (CHAT-07 mock-SSE transport driver + additive MockWs chat driver. mockSse.ts routes GET /api/runs/{id}/events/stream [id:{seq} text/event-stream, Last-Event-ID replay-from-cursor, drop()/reattach]; MockWs gained chatMessage/chatReply/streamAttached + waitForChatCommand + a shared SeqSource [nextSeq/currentSeq] + exported nextEventId() → ONE monotonic seq/event_id space [no second envelope/counter]. LOCK-B: purely additive 3-file diff, useWebSocket.ts untouched, pipeline_reconnected kept beside stream_attached. tsc clean; ts-sse.spec.ts 2/2 green offline. FULL mocked '123 green' bar DEFERRED [DEF-29-06-1]: pre-existing feat/ui-2 home redesign broke the text-locator CreationHub specs [~120 fail on home-render assertions, zero WS/SSE involvement], independent of this additive change [zero frontend/src touched]; owner = feat/ui-2 spec-realignment task. Commits 6c5de02a + 0f0e3856 + 6898cb92)
@@ -213,6 +213,7 @@ Progress: [░░░░░░░░░░] 0% (Milestone v2.0: 0/11 phases — p
 | Phase 28-chat-contracts-guards-a0 P02 | 12min | 2 tasks | 3 files |
 | Phase 28-chat-contracts-guards-a0 P03 | 9min | 2 tasks | 2 files |
 | Phase 29 P29-08 | ~14 min | 3 tasks | 4 files |
+| Phase 29 P02 | 4min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -347,6 +348,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 28-01 (CHAT-06): chat_message/chat_reply/stream_attached registered in _DOCUMENTED_EVENT_TYPES + message_id/replayed_through_seq in _VOLATILE_STRIP_KEYS; golden-neutrality proof (test_chat_event_neutrality.py) proves chat events never fire on the 5 goldens — INV-3 held, no fixture regenerated, lint-imports 4/0.
 - [Phase 28-chat-contracts-guards-a0]: context_sources carries name (agent_name) + size (full_output_length) VERIFIED in code; cache/reduction % marked UNVERIFIED (separate P26 telemetry)
 - [Phase 29]: ND-11 COEXIST: steering_notes is a generic third consume-once injection seam (=== USER GUIDANCE ===) beside redo_directive + KAN-101 spec_revision_context; shipped seams stay byte-stable; steering thread-id = no fork, next-dispatch on base thread
+- [Phase ?]: 29-02: per-run SSE down-channel GET /api/runs/{id}/events/stream shipped behind SSE_TRANSPORT_ENABLED alongside /ws/chat (LOCK-B); production re-implements the 29-01 SSE frame projection in-line (tests-free), parity proven via real assert_wire_parity
 
 ### Pending Todos
 
