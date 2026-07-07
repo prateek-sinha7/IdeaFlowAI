@@ -2663,8 +2663,71 @@ class ExecutionEngine:
         redo_directive = ""          # extra instructions for the NEXT re-run
         redo_derived_from = None     # rejected ref id the re-run supersedes
         redo_attempt = 0             # 0 = first run; N>0 = Nth redo → fresh checkpoint thread
+        spec_revision_attempt = 0   # KAN-101: 0 = first run; N>0 = Nth spec revision cycle
         while True:
             agent_start = time.time()
+
+            # KAN-101: if a spec revision sub-pipeline just completed, skip re-running
+            # THIS agent (the analyzer) and jump straight to re-opening the gate with
+            # the new analysis output from the sub-pipeline. The pending output is
+            # stored on ectx scratch (cleared here so it's consume-once). This avoids
+            # a full model re-run for the gate-owner agent when the real new output
+            # came from the sub-pipeline. Keyed on generic ectx field (SC-001/INV-1).
+            pending_revision_output = getattr(ectx, "spec_revision_pending_output", None)
+            if pending_revision_output is not None:
+                ectx.spec_revision_pending_output = None  # consume-once
+                # Update `output` with the sub-pipeline's new analysis text so the
+                # gate re-opens with the correct content. Also update results.
+                output = pending_revision_output  # noqa: F821 — set below on first run
+                if results and results[-1].get("agent_id") == spec.id:
+                    results[-1] = {**results[-1], "output": output}
+                # Re-open the gate directly — skip the model call entirely.
+                if self._should_gate(spec, ectx):
+                    async for gate_event in self._run_review_gate(
+                        pipeline_run_id=pipeline_run_id,
+                        agent_id=spec.id,
+                        agent_name=spec.name,
+                        output=output,
+                        redoable=True,
+                        cancel_event=cancel_event,
+                    ):
+                        if gate_event.get("type") == "_gate_rejected":
+                            current = self._state_machine.get_state(pipeline_run_id)
+                            if current not in ("cancelled", "failed"):
+                                self._state_machine.transition(pipeline_run_id, "cancelled")
+                            yield {"type": "pipeline_cancelled", "data": {
+                                "pipeline_run_id": pipeline_run_id,
+                                "reason": f"User rejected output from {spec.name}",
+                            }}
+                            return
+                        elif gate_event.get("type") == "_gate_edited":
+                            edited = gate_event.get("edited_content", output)
+                            if edited:
+                                _ek = self._artifact_kind_for(spec)
+                                await self._dual_write_artifact(
+                                    ectx,
+                                    producer_agent=spec.id,
+                                    producer_step=spec.id,
+                                    content=edited,
+                                    kind=_ek,
+                                    location=f"artifact_refs/{spec.id}",
+                                )
+                            if results and results[-1].get("agent_id") == spec.id:
+                                results[-1] = {**results[-1], "output": edited}
+                        elif gate_event.get("type") == "_gate_redo":
+                            redo_directive = gate_event.get("instructions") or ""
+                            redo_attempt += 1
+                            break
+                        elif gate_event.get("type") == "_gate_update_specs":
+                            ectx.spec_revision_pending_output = gate_event.get("analysis_report") or ""
+                            spec_revision_attempt += 1
+                            break
+                        else:
+                            yield gate_event
+                    else:
+                        return
+                    continue
+                return
 
             yield {
                 "type": "agent_start",
@@ -3436,6 +3499,7 @@ class ExecutionEngine:
                         agent_name=spec.name,
                         output=output,
                         redoable=True,
+                        cancel_event=cancel_event,
                     ):
                         if gate_event.get("type") == "_gate_rejected":
                             # User rejected — cancel the pipeline
@@ -3509,6 +3573,77 @@ class ExecutionEngine:
                                     )
                             redo_attempt += 1  # next re-run gets a FRESH checkpoint thread (:redo{N})
                             break  # leave the gate consumer; the while-loop re-runs
+                        elif gate_event.get("type") == "_gate_update_specs":
+                            # KAN-101: "Update the Specs" — run the spec revision
+                            # sub-pipeline (specify → plan → analyze) with the
+                            # analysis report as additional context, then re-open
+                            # this gate with the new analysis output. FLAT loop
+                            # (like _gate_redo) — no recursion (F2 precedent).
+                            # Keyed on GENERIC event type, no agent/workflow literal
+                            # (INV-1 / SC-001).
+                            analysis_report = gate_event.get("analysis_report") or ""
+                            spec_revision_attempt += 1
+                            logger.info(
+                                "Spec revision sub-pipeline: pipeline=%s attempt=%d",
+                                pipeline_run_id, spec_revision_attempt,
+                            )
+                            # Run specify → plan → analyze with the analysis report
+                            # injected as revision context, collecting the new
+                            # analyze output for the re-opened gate.
+                            new_analysis_output = ""
+                            async for sub_event in self._run_spec_revision_sub_pipeline(
+                                spec=spec,
+                                index=index,
+                                ordered_agents=ordered_agents,
+                                user_message=user_message,
+                                sandbox=sandbox,
+                                pipeline_run_id=pipeline_run_id,
+                                pipeline_type=pipeline_type,
+                                planning_context=planning_context,
+                                attached_skills=attached_skills,
+                                attached_hooks=attached_hooks,
+                                model_id=model_id,
+                                results=results,
+                                cancel_event=cancel_event,
+                                ectx=ectx,
+                                analysis_report=analysis_report,
+                                revision_index=spec_revision_attempt,
+                            ):
+                                if sub_event.get("type") == "_revision_analyze_output":
+                                    # Internal signal carrying the new analysis text
+                                    new_analysis_output = sub_event.get("output", "")
+                                elif sub_event.get("type") == "_gate_rejected":
+                                    # Stop button fired during the sub-pipeline
+                                    current = self._state_machine.get_state(pipeline_run_id)
+                                    if current not in ("cancelled", "failed"):
+                                        self._state_machine.transition(pipeline_run_id, "cancelled")
+                                    yield {"type": "pipeline_cancelled", "data": {
+                                        "pipeline_run_id": pipeline_run_id,
+                                        "reason": "Cancelled during spec revision sub-pipeline",
+                                    }}
+                                    return
+                                else:
+                                    yield sub_event
+                            # Re-open the analyze gate with the new output so the
+                            # user can Accept or request another revision cycle.
+                            # The while-loop top will never re-run THIS agent (analyze)
+                            # in the outer while True: — instead we immediately re-open
+                            # the gate right here by re-calling _run_review_gate and
+                            # looping the gate consumer inline. We achieve this by
+                            # updating `output` (which becomes the new gate content)
+                            # and doing `continue` to restart the gate-consumer for
+                            # the outer while True: — but that would re-run the agent.
+                            # Correct approach: yield the gate events directly here
+                            # by breaking out and letting the outer while True: loop
+                            # re-enter _run_review_gate via a `continue`. We set
+                            # a flag so the next iteration skips the model run and
+                            # goes straight to the gate with new_analysis_output.
+                            # Simplest correct implementation: store the new output on
+                            # ectx scratch and break — the while True: re-enters and
+                            # a sentinel on ectx tells the top of the loop to skip
+                            # the model call and jump straight to the gate.
+                            ectx.spec_revision_pending_output = new_analysis_output
+                            break  # leave gate consumer; while-loop re-enters
                         else:
                             yield gate_event
                     else:
@@ -3993,11 +4128,28 @@ class ExecutionEngine:
             # real output). Skip it; the inline (output-bearing) gate is the
             # single review for this agent. Gate-CAPABILITY name, not a
             # workflow/agent name (SC-001) — same idiom as _POST_STEP_GATES.
-            if name == "human" and inline_gated and phase == "pre":
+            #
+            # Also skip when the per-run gate_agent_ids selection EXPLICITLY
+            # excludes this agent. gate_agent_ids=None means "use static AGENT.md
+            # defaults"; gate_agent_ids=[] means "no gates this run" (user
+            # unchecked all). Without this check the declared ``gates:[human]``
+            # manifests on prototype steps fire a pre-step blank review_gate_ready
+            # even when the user deselected all gates in the wizard, because
+            # _should_gate returns False → inline_gated=False → the dedupe only
+            # fires on the inline path, not on the user-deselect path.
+            if name == "human" and phase == "pre" and (
+                inline_gated
+                or (
+                    ectx.gate_agent_ids is not None
+                    and getattr(step, "agent_id", None) not in ectx.gate_agent_ids
+                )
+            ):
                 logger.info(
-                    "declared 'human' gate on step %s skipped — the inline "
-                    "review gate already covers this agent (WR-02 dedupe)",
+                    "declared 'human' gate on step %s skipped — %s",
                     getattr(step, "agent_id", "?"),
+                    "inline review gate already covers this agent (WR-02 dedupe)"
+                    if inline_gated
+                    else "agent not in per-run gate_agent_ids selection",
                 )
                 continue
             try:
@@ -4136,6 +4288,133 @@ class ExecutionEngine:
         # (the WR-02 per-step refresh would otherwise lag one gate behind).
         ectx.last_streamed = edited
 
+    # ------------------------------------------------------------------
+    # KAN-101: Spec revision sub-pipeline helper
+    # ------------------------------------------------------------------
+
+    async def _run_spec_revision_sub_pipeline(
+        self,
+        spec,
+        index: int,
+        ordered_agents: list,
+        user_message: str,
+        sandbox,
+        pipeline_run_id: str,
+        pipeline_type: str,
+        planning_context: dict,
+        attached_skills,
+        attached_hooks,
+        model_id,
+        results: list[dict],
+        cancel_event,
+        ectx,
+        analysis_report: str,
+        revision_index: int,
+    ):
+        """Re-run the specify → plan → analyze agents with the analysis report
+        injected as revision context, yielding all their WS events upstream.
+
+        Yields a synthetic ``_revision_analyze_output`` event at the end carrying
+        the new analyzer output, followed by a normal return.
+
+        ``analysis_report`` is the text produced by the previous analyze run.
+        It is placed on ``ectx.spec_revision_context`` (a generic scratch field)
+        so ``_compose_context_message`` can inject it. Cleared on exit (consume-
+        once, matching the ``ecto.redo_directive`` pattern — F3 precedent).
+
+        The three agents to re-run are identified by looking BACKWARDS from the
+        current (analyzer) position in ``ordered_agents`` to find the three agents
+        immediately before it: prototype-specify → prototype-plan → this agent.
+        This is STRUCTURAL (position-based), not name-based (INV-1 / SC-001).
+        """
+        # Identify the three agents to re-run: the two agents before this one
+        # in ordered_agents (specify, plan) plus this agent (analyze).
+        # index is THIS agent's (analyze) position; specify=index-2, plan=index-1.
+        if index < 2:
+            # Defensive: fewer than 2 predecessors — skip the sub-pipeline and
+            # return no new output (the caller handles missing output gracefully).
+            logger.warning(
+                "Spec revision sub-pipeline: agent %s at index %d < 2 — cannot "
+                "find predecessor specify/plan agents; skipping sub-pipeline",
+                spec.id, index,
+            )
+            return
+
+        specify_spec = ordered_agents[index - 2]
+        plan_spec = ordered_agents[index - 1]
+        analyze_spec = spec
+
+        # Inject the analysis report as revision context onto ectx (consume-once).
+        ectx.spec_revision_context = analysis_report
+
+        new_analyze_output = ""
+
+        try:
+            for sub_spec, sub_index in (
+                (specify_spec, index - 2),
+                (plan_spec, index - 1),
+                (analyze_spec, index),
+            ):
+                # Abort if the run was cancelled by the user during the sub-pipeline.
+                if cancel_event and cancel_event.is_set():
+                    yield {"type": "_gate_rejected"}
+                    return
+                current_state = self._state_machine.get_state(pipeline_run_id)
+                if current_state in ("cancelled", "failed"):
+                    yield {"type": "_gate_rejected"}
+                    return
+
+                # Drop the previous result entry for this agent so the re-run appends
+                # a fresh one (same pattern as _gate_redo's results.pop()).
+                results[:] = [r for r in results if r.get("agent_id") != sub_spec.id]
+
+                # Re-run the agent — reuses the FULL _run_agent path (INV-12).
+                async for event in self._run_agent(
+                    spec=sub_spec,
+                    index=sub_index,
+                    ordered_agents=ordered_agents,
+                    user_message=user_message,
+                    sandbox=sandbox,
+                    pipeline_run_id=pipeline_run_id,
+                    pipeline_type=pipeline_type,
+                    planning_context=planning_context,
+                    attached_skills=attached_skills,
+                    attached_hooks=attached_hooks,
+                    model_id=model_id,
+                    results=results,
+                    cancel_event=cancel_event,
+                    ectx=ectx,
+                ):
+                    # Propagate all events except internal gate signals upstream.
+                    evt_type = event.get("type", "")
+                    if evt_type in ("_gate_rejected", "_gate_edited", "_gate_redo",
+                                    "_gate_update_specs", "_revision_analyze_output"):
+                        # If a nested gate signals rejection, propagate it and abort.
+                        if evt_type == "_gate_rejected":
+                            yield event
+                            return
+                        # Other internal signals (nested redo / update_specs) from
+                        # sub-pipeline agents are silently consumed — the review gate
+                        # on specify/plan is not expected during a revision cycle
+                        # (gate_agent_ids controls this at the run level).
+                    else:
+                        yield event
+
+                # Capture the new analyze output from results after the analyze run.
+                if sub_spec is analyze_spec:
+                    for r in reversed(results):
+                        if r.get("agent_id") == analyze_spec.id:
+                            new_analyze_output = r.get("output", "")
+                            break
+
+        finally:
+            # Always clear the revision context scratch field — consume-once (F3).
+            ectx.spec_revision_context = ""
+
+        # Emit internal signal carrying the new analysis text so the gate consumer
+        # can re-open the gate with the correct output.
+        yield {"type": "_revision_analyze_output", "output": new_analyze_output}
+
     async def _run_review_gate(
         self,
         pipeline_run_id: str,
@@ -4143,6 +4422,7 @@ class ExecutionEngine:
         agent_name: str,
         output: str,
         redoable: bool = False,
+        cancel_event: asyncio.Event | None = None,
     ) -> AsyncGenerator[dict, None]:
         """Pause the pipeline for human review of an agent's output.
 
@@ -4196,8 +4476,33 @@ class ExecutionEngine:
             },
         }
 
-        # Wait indefinitely for user response
-        await event.wait()
+        # Wait for user response, but stop immediately if the pipeline is
+        # cancelled (Stop button). KAN-100: without this check, cancel_event.set()
+        # is observed at the next pre-agent step (engine.py:1842) but the gate
+        # stays blocked here indefinitely, allowing a subsequent Redo to unblock
+        # the cancelled pipeline and resume agent execution.
+        if cancel_event is not None:
+            # Race: gate event set by approve_review vs cancel event set by Stop.
+            gate_task = asyncio.ensure_future(event.wait())
+            cancel_task = asyncio.ensure_future(cancel_event.wait())
+            done, pending = await asyncio.wait(
+                {gate_task, cancel_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for p in pending:
+                p.cancel()
+            if cancel_task in done and gate_task not in done:
+                # Cancel fired before the user responded — bail out.
+                logger.info(
+                    "Review gate cancelled: pipeline=%s agent=%s — cancel_event set",
+                    pipeline_run_id, agent_id,
+                )
+                yield {"type": "_gate_rejected"}
+                return
+        else:
+            # No cancel_event available — plain wait (safe for declared-gate path
+            # which does not receive cancel_event from the dispatch loop).
+            await event.wait()
 
         response = await self._store.get_review_response(gate_key)
         approved = response.get("approved", True) if response else True
@@ -4219,6 +4524,20 @@ class ExecutionEngine:
                 pipeline_run_id, agent_id, bool(instructions),
             )
             yield {"type": "_gate_redo", "instructions": instructions or ""}
+            return
+
+        # KAN-101: "update_specs" action — trigger spec revision sub-pipeline that
+        # re-runs the preceding specify + plan + analyze agents with the analysis
+        # report as additional context, then re-opens this same gate with the new
+        # analysis output. Keyed on the GENERIC action discriminator (SC-001 / INV-1).
+        if action == "update_specs":
+            self._state_machine.transition(pipeline_run_id, "generating")
+            analysis_report = instructions or ""
+            logger.info(
+                "Review gate update_specs: pipeline=%s agent=%s has_report=%s",
+                pipeline_run_id, agent_id, bool(analysis_report),
+            )
+            yield {"type": "_gate_update_specs", "analysis_report": analysis_report}
             return
 
         # Only transition back to generating if we're still in waiting_for_user.
@@ -5919,6 +6238,25 @@ class ExecutionEngine:
                 "\n=== ADDITIONAL INSTRUCTIONS (REVISE) ===\n"
                 f"{redo_note}\n"
                 "=== END ADDITIONAL INSTRUCTIONS ==="
+            )
+
+        # ── KAN-101: Spec revision context — injected during a revision sub-pipeline ──
+        # Appended IFF ectx.spec_revision_context is set (set by
+        # _run_spec_revision_sub_pipeline before calling _run_agent for the revision
+        # cycle, cleared unconditionally on exit — consume-once, F3 pattern).
+        # Generic (keyed on the scratch field, no workflow/agent literal — SC-001).
+        # Dormant on every normal run (spec_revision_context == "" → no block) ⇒
+        # byte-identical for the 5 characterization goldens (INV-3).
+        revision_context = getattr(ectx, "spec_revision_context", "") or ""
+        if revision_context:
+            parts.append(
+                "\n=== SPEC KIT ANALYSIS REPORT (REVISION CONTEXT) ===\n"
+                "You are running in REVISION MODE. The previous spec and task list "
+                "were analyzed and issues were identified. The analysis report is "
+                "provided below. Focus your output on fixing the identified issues "
+                "rather than regenerating from scratch. Preserve unchanged sections.\n\n"
+                f"{revision_context}\n"
+                "=== END SPEC KIT ANALYSIS REPORT ==="
             )
 
         # ── Build agent: the CURRENT TASK block + current HTML (agnostic scratch) ─

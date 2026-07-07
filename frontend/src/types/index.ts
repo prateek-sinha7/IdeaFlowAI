@@ -570,6 +570,11 @@ export interface PipelineRunState {
   // Workstream C1 (POR §6.2/§6.5) — answered clarify rounds retained per run so
   // they survive the questionnaire panel unmount (consumed by C2's ClarificationsCard).
   clarifications?: ClarifyRound[];
+  // KAN-101: tracks how many spec revision cycles have been triggered by
+  // "Update the Specs". 0 = first run (no revision), 1 = first revision, etc.
+  // Incremented in handlePipelineMessage when prototype-specify agent_start fires
+  // on an agent that was already done (sub-pipeline re-run).
+  specRevisionCount?: number;
 }
 
 /** One audit entry from a hook_run WS event or persisted hook_runs DB row (KAN-73). */

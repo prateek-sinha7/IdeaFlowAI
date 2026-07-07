@@ -14,7 +14,7 @@ import { useState, useCallback, useEffect } from "react";
 import { motion } from "motion/react";
 import {
   CheckCircle2, XCircle, Edit3, Eye, FileText,
-  ListChecks, ChevronDown, ChevronRight, Sparkles, Trash2, RotateCcw,
+  ListChecks, Sparkles, RotateCcw, AlertTriangle, RefreshCw,
 } from "lucide-react";
 
 interface ReviewGatePanelProps {
@@ -33,6 +33,11 @@ interface ReviewGatePanelProps {
   onRedo?: (gateKey: string, instructions: string) => void;
   /** Server-set generic discriminator (REDO-GATE F1b). Default false. */
   redoable?: boolean;
+  /**
+   * KAN-101: Trigger the spec revision sub-pipeline (specify → plan → analyze)
+   * with the current analysis report as context. Only rendered when isAnalysis.
+   */
+  onUpdateSpecs?: (gateKey: string, analysisReport: string) => void;
 }
 
 // ─── Spec renderer — parses <spec>...</spec> into readable sections ───────────
@@ -40,7 +45,6 @@ function SpecPreview({ content }: { content: string }) {
   const specMatch = content.match(/<spec>([\s\S]*?)<\/spec>/i);
   const specContent = specMatch ? specMatch[1].trim() : content;
 
-  // Extract sections
   const lines = specContent.split("\n");
   const sections: { heading: string; body: string[] }[] = [];
   let current: { heading: string; body: string[] } | null = null;
@@ -107,10 +111,8 @@ function TasksPreview({ content, onTasksChange }: { content: string; onTasksChan
   const handleDelete = (indexToDelete: number) => {
     if (!onTasksChange) return;
     const remaining = tasks.filter((_, i) => i !== indexToDelete);
-    // Renumber remaining tasks sequentially (1, 2, 3...)
     const renumbered = remaining.map((t, i) => {
       const newNum = i + 1;
-      // Replace the task number in the raw block
       return t.raw.replace(/##\s+Task\s+\d+/, `## Task ${newNum}`);
     });
     const newContent = renumbered.join("\n");
@@ -160,14 +162,12 @@ function AnalysisPreview({ content }: { content: string }) {
   const analysisMatch = content.match(/<analysis>([\s\S]*?)<\/analysis>/i);
   const analysisContent = analysisMatch ? analysisMatch[1].trim() : content;
 
-  // Extract verdict for highlight
   const verdictMatch = analysisContent.match(/###\s*Readiness verdict\s*\n([\s\S]*?)(?=\n###|$)/i);
   const verdict = verdictMatch ? verdictMatch[1].trim().split("\n")[0].trim() : "";
   const isReady = verdict.includes("READY TO BUILD");
   const isCaution = verdict.includes("CAUTION");
   const needsRevision = verdict.includes("NEEDS REVISION");
 
-  // Extract sections by ## heading
   const lines = analysisContent.split("\n");
   const sections: { heading: string; body: string }[] = [];
   let current: { heading: string; lines: string[] } | null = null;
@@ -193,7 +193,6 @@ function AnalysisPreview({ content }: { content: string }) {
 
   return (
     <div className="space-y-3">
-      {/* Verdict banner */}
       {verdict && (
         <div className={`rounded-xl px-4 py-3 border font-semibold text-[12px] flex items-center gap-2 ${
           isReady ? "bg-emerald-50 border-emerald-200 text-emerald-800" :
@@ -230,7 +229,7 @@ function AnalysisPreview({ content }: { content: string }) {
 
 
 export function ReviewGatePanel({
-  agentId, agentName, output, gateKey, onApprove, onReject, onRedo, redoable,
+  agentId, agentName, output, gateKey, onApprove, onReject, onRedo, redoable, onUpdateSpecs,
 }: ReviewGatePanelProps) {
   const [mode, setMode] = useState<"preview" | "edit">("preview");
   const [editedContent, setEditedContent] = useState(output);
@@ -241,6 +240,9 @@ export function ReviewGatePanel({
   // disable the controls until the panel is re-opened by the next
   // review_gate_ready (output changes ⇒ fresh re-run), preventing a double-send.
   const [submitted, setSubmitted] = useState(false);
+
+  // Confirmation dialog before rejecting.
+  const [showRejectConfirm, setShowRejectConfirm] = useState(false);
 
   // The Redo control is shown ONLY when a handler is wired AND the server marked
   // this gate redoable (the generic F1b fence — no workflow/agent literal here).
@@ -255,19 +257,19 @@ export function ReviewGatePanel({
     setHasEdits(value !== output);
   }, [output]);
 
-  // Called when user deletes a task from the task list preview — updates edited content
   const handleTasksChange = useCallback((newContent: string) => {
     setEditedContent(newContent);
     setHasEdits(newContent !== output);
   }, [output]);
 
-  // REDO-GATE (T13 / F8): a fresh review_gate_ready re-opens the panel with new
-  // output — reset the one-action latch + the instructions box so the re-paused
-  // gate is interactive again. Keyed on `output` (the re-run's new content) and
-  // `gateKey` (a brand-new gate).
+  // KAN-98: reset editedContent + hasEdits on fresh gate so stale edits are never
+  // forwarded. Also reset latch, redo instructions, and confirm state.
   useEffect(() => {
     setSubmitted(false);
     setRedoInstructions("");
+    setShowRejectConfirm(false);
+    setEditedContent(output);
+    setHasEdits(false);
   }, [output, gateKey]);
 
   const handleApprove = useCallback(() => {
@@ -282,13 +284,21 @@ export function ReviewGatePanel({
     onReject(gateKey);
   }, [submitted, gateKey, onReject]);
 
-  // REDO-GATE (F-fe1 / T13): send the optional instructions and latch the panel
-  // closed against a double-send until the next review_gate_ready arrives.
+  // REDO-GATE (F-fe1 / T13): send the optional instructions and latch the panel.
   const handleRedo = useCallback(() => {
     if (submitted || !onRedo) return;
     setSubmitted(true);
     onRedo(gateKey, redoInstructions);
   }, [submitted, onRedo, gateKey, redoInstructions]);
+
+  // KAN-101: trigger spec revision sub-pipeline with the current analysis output.
+  // Passes the raw `output` (not editedContent) as the analysis report so the
+  // backend gets the original analyzer verdict, not any edits made in the panel.
+  const handleUpdateSpecs = useCallback(() => {
+    if (submitted || !onUpdateSpecs) return;
+    setSubmitted(true);
+    onUpdateSpecs(gateKey, output);
+  }, [submitted, onUpdateSpecs, gateKey, output]);
 
   const icon = isSpec ? FileText : isTasks ? ListChecks : isAnalysis ? Sparkles : FileText;
   const Icon = icon;
@@ -298,7 +308,7 @@ export function ReviewGatePanel({
     : isTasks
     ? "Review the build task list. Edit if needed, then approve to start building."
     : isAnalysis
-    ? "Review the analysis report. The analyzer has checked the spec and task list for consistency, gaps, and risks. Approve to proceed to implementation, or reject to revise."
+    ? "Review the analysis report. Accept to proceed to build, or update the specs to trigger an AI-driven revision cycle."
     : "Review the agent output before continuing.";
 
   return (
@@ -359,10 +369,6 @@ export function ReviewGatePanel({
                 )}
               </>
             ) : (
-              /* Defensive empty-state: the agent produced no content to review.
-                 With the runner no-delta fallback this should not occur for a
-                 model that returned text, but never present a silently blank
-                 panel with live Approve/Reject buttons. */
               <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
                 <p className="text-[12px] font-medium text-gray-500">No content was produced for review.</p>
                 <p className="text-[11px] text-gray-400">
@@ -403,14 +409,32 @@ export function ReviewGatePanel({
           </div>
         )}
 
+        {/* Primary action — "Accept and Continue" for analysis; "Approve & continue" otherwise */}
         <button
           onClick={handleApprove}
           disabled={submitted}
           className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#1B2A4A] text-white px-4 py-3 text-[12px] font-semibold hover:bg-[#2a3d5e] transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[#1B2A4A]"
         >
           <CheckCircle2 className="h-4 w-4" />
-          {hasEdits ? "Approve with edits & continue" : "Approve & continue"}
+          {isAnalysis
+            ? (hasEdits ? "Accept with edits & continue to build" : "Accept & continue to build")
+            : (hasEdits ? "Approve with edits & continue" : "Approve & continue")}
         </button>
+
+        {/* KAN-101: "Update the Specs" — only shown on the analyze gate.
+            Triggers a spec revision sub-pipeline (specify → plan → analyze) with
+            the analysis report as context, re-opening this gate with the new output.
+            Keyed on the onUpdateSpecs prop being wired (generic fence, not agent id). */}
+        {isAnalysis && !!onUpdateSpecs && (
+          <button
+            onClick={handleUpdateSpecs}
+            disabled={submitted}
+            className="w-full flex items-center justify-center gap-2 rounded-xl border border-[#1B2A4A]/30 text-[#1B2A4A] px-4 py-2.5 text-[11px] font-semibold hover:bg-[#E8EDF5] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Update the Specs
+          </button>
+        )}
 
         {/* REDO-GATE (F-fe1): re-run the gated agent with optional extra
             instructions. Rendered IFF onRedo AND server-set redoable (F1b fence). */}
@@ -441,13 +465,43 @@ export function ReviewGatePanel({
         )}
 
         <button
-          onClick={handleReject}
+          onClick={() => setShowRejectConfirm(true)}
           disabled={submitted}
           className="w-full flex items-center justify-center gap-2 rounded-xl border border-red-200 text-red-600 px-4 py-2.5 text-[11px] font-medium hover:bg-red-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
         >
           <XCircle className="h-3.5 w-3.5" />
           Reject & cancel pipeline
         </button>
+
+        {/* Confirmation dialog for reject */}
+        {showRejectConfirm && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 space-y-3">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="h-4 w-4 text-red-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-[12px] font-semibold text-red-700">Cancel this pipeline?</p>
+                <p className="text-[11px] text-red-600 mt-0.5 leading-relaxed">
+                  This will stop execution and discard all progress. This action cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowRejectConfirm(false)}
+                className="flex-1 rounded-lg border border-gray-200 bg-white text-gray-600 px-3 py-2 text-[11px] font-medium hover:bg-gray-50 transition-all"
+              >
+                Keep reviewing
+              </button>
+              <button
+                onClick={handleReject}
+                disabled={submitted}
+                className="flex-1 rounded-lg bg-red-600 text-white px-3 py-2 text-[11px] font-semibold hover:bg-red-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Yes, cancel pipeline
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

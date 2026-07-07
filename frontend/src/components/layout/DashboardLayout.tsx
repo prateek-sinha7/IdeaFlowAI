@@ -111,6 +111,8 @@ export interface DashboardLayoutProps {
   onRejectReview?: (gateKey: string) => void;
   // REDO-GATE (F-fe2): pass-through redo callback to the ReviewGatePanel.
   onRedoReview?: (gateKey: string, instructions: string) => void;
+  // KAN-101: pass-through update-specs callback to the ReviewGatePanel.
+  onUpdateSpecsReview?: (gateKey: string, analysisReport: string) => void;
   pendingOdProtoParams?: {
     brief: string; templateId: string; designSystemId: string; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string;
@@ -267,6 +269,7 @@ export function DashboardLayout({
   onApproveReview,
   onRejectReview,
   onRedoReview,
+  onUpdateSpecsReview,
   pendingOdProtoParams,
   onClearPendingOdProto,
   pendingOdPptParams,
@@ -872,7 +875,11 @@ export function DashboardLayout({
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
-      addRunningNotification(notifId, resolvedType, message.slice(0, 60), 0);
+      // Strip injected context/revision markers before using as notification title
+      // so the panel never shows raw "=== EXISTING PROTOTYPE HTML ===" text.
+      const parsedMsg = parseRunInput(message);
+      const notifTitle = (parsedMsg.revisionInstruction ?? parsedMsg.brief ?? message).slice(0, 60);
+      addRunningNotification(notifId, resolvedType, notifTitle, 0);
       if (connectionStatus === "connected") {
         onStartPipeline(resolvedType, message, agentIds, attachedSkills, attachedHooks, extraParams);
       } else {
@@ -969,7 +976,10 @@ export function DashboardLayout({
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
-      addRunningNotification(notifId, nextType, enrichedInput.slice(0, 60), 0);
+      // chainBrief is the stripped user brief (no markers); use it as the
+      // notification title so the panel never shows raw context block text.
+      const chainNotifTitle = (chainBrief || enrichedInput).slice(0, 60);
+      addRunningNotification(notifId, nextType, chainNotifTitle, 0);
       if (connectionStatus === "connected") {
         onStartPipeline(nextType, enrichedInput, [], attachedSkills, attachedHooks);
       } else {
@@ -1046,7 +1056,10 @@ export function DashboardLayout({
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
-      addRunningNotification(notifId, nextType, enrichedInput.slice(0, 60), 0);
+      // historyBrief is the stripped user brief (no markers); use it so the
+      // panel never shows raw context block text for history-chained runs.
+      const historyNotifTitle = (historyBrief || enrichedInput).slice(0, 60);
+      addRunningNotification(notifId, nextType, historyNotifTitle, 0);
       if (connectionStatus === "connected") {
         onStartPipeline(nextType, enrichedInput, [], attachedSkills, attachedHooks);
       } else {
@@ -1123,7 +1136,9 @@ export function DashboardLayout({
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
-      addRunningNotification(notifId, pendingPipelineRun.type, pendingPipelineRun.message.slice(0, 60), 0);
+      const parsedPending = parseRunInput(pendingPipelineRun.message);
+      const pendingNotifTitle = (parsedPending.revisionInstruction ?? parsedPending.brief ?? pendingPipelineRun.message).slice(0, 60);
+      addRunningNotification(notifId, pendingPipelineRun.type, pendingNotifTitle, 0);
       if (connectionStatus === "connected") {
         onStartPipeline(pendingPipelineRun.type, enrichedMessage, pendingPipelineRun.agentIds, attachedSkills, attachedHooks, pendingPipelineRun.extraParams);
       } else {
@@ -1158,7 +1173,9 @@ export function DashboardLayout({
     if (onStartPipeline) {
       const notifId = `pipeline-${Date.now()}`;
       currentPipelineNotifId.current = notifId;
-      addRunningNotification(notifId, pendingPipelineRun.type, pendingPipelineRun.message.slice(0, 60), 0);
+      const parsedSkip = parseRunInput(pendingPipelineRun.message);
+      const skipNotifTitle = (parsedSkip.revisionInstruction ?? parsedSkip.brief ?? pendingPipelineRun.message).slice(0, 60);
+      addRunningNotification(notifId, pendingPipelineRun.type, skipNotifTitle, 0);
       if (connectionStatus === "connected") {
         onStartPipeline(pendingPipelineRun.type, pendingPipelineRun.message, pendingPipelineRun.agentIds, attachedSkills, attachedHooks, pendingPipelineRun.extraParams);
       } else {
@@ -1197,6 +1214,22 @@ export function DashboardLayout({
       }, 200);
     }
   }, [activePipelineRunId, onSubmitQuestionnaire, websocketSend, onResetPipeline]);
+
+  // Handle "Reject & cancel pipeline" from the ReviewGatePanel.
+  // KAN-95: the raw onRejectReview prop (from page.tsx) only sends the WS message
+  // and clears reviewGateData — it does not navigate. This wrapper sets
+  // cancelNavigatingHomeRef first (so the pipelineState.isRunning effect doesn't
+  // snap the view back to "execution"), resets pipeline state, and navigates home
+  // before delegating to the prop for the actual WS send.
+  const handleRejectReview = useCallback((gateKey: string) => {
+    // Set the guard BEFORE any state changes so the isRunning effect can't fight us
+    cancelNavigatingHomeRef.current = true;
+    // Navigate home and reset state immediately
+    setMainView("home");
+    if (onResetPipeline) onResetPipeline();
+    // Delegate to page.tsx for the WS send + reviewGateData clear
+    if (onRejectReview) onRejectReview(gateKey);
+  }, [onRejectReview, onResetPipeline]);
 
   // Header navigation — free navigation even while pipeline runs
   const handleNavigate = useCallback((page: "home" | "library" | "history" | "settings" | "analytics" | "catalog" | "saved-workflows") => {
@@ -1324,6 +1357,8 @@ export function DashboardLayout({
               className="h-full"
             >
               <WorkflowHistory onBack={handleGoHome} onChainPipeline={handleChainFromHistory}
+            activeRunId={pipelineState?.pipelineRunId ?? null}
+            onViewRunningPipeline={() => setMainView("execution")}
             onReviseUserStory={(instruction, content, sourceRunId) => {
               setMainView("execution");
               setWorkflowType("user_stories_revision");
@@ -1520,19 +1555,19 @@ export function DashboardLayout({
                    (pipelineState?.agents?.length ?? 0) === 0 &&
                    !questionnaireLoading &&
                    questionnaireQuestions.length === 0 &&
-                   !activePipelineRunId &&
                    !reviewGateData ? (
                     <PlanningOverlay plannerSummary={pipelineState?.plannerSummary} />
-                  ) : reviewGateData ? (
+                  ) : reviewGateData && isPipelineRunning ? (
                     <ReviewGatePanel
                       agentId={reviewGateData.agentId}
                       agentName={reviewGateData.agentName}
                       output={reviewGateData.output}
                       gateKey={reviewGateData.gateKey}
                       onApprove={onApproveReview || (() => {})}
-                      onReject={onRejectReview || (() => {})}
+                      onReject={handleRejectReview}
                       onRedo={onRedoReview}
                       redoable={reviewGateData.redoable}
+                      onUpdateSpecs={onUpdateSpecsReview}
                     />
                   ) : (questionnaireLoading || questionnaireQuestions.length > 0) && (pendingPipelineRun || activePipelineRunId) ? (
                     <QuestionnairePanel

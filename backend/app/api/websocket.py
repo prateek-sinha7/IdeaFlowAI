@@ -348,6 +348,33 @@ def _review_gate_owned_by(gate_key: str, user_id: str) -> bool:
     return row is not None
 
 
+def _review_gate_run_is_terminal(gate_key: str) -> bool:
+    """True iff the run named in ``gate_key`` is in a terminal state.
+
+    KAN-100: approve_review must be rejected for cancelled/failed runs so a
+    Redo (or Approve/Reject) on a stopped pipeline cannot unblock the gate
+    and resume agent execution. Keyed on the persisted WorkflowRun.status —
+    not the in-memory state machine — so it is accurate across WS reconnects.
+    Returns False (not terminal) when the row is absent or the status is not
+    a known terminal value, preserving the normal run path.
+    """
+    run_id = (gate_key or "").split(":", 1)[0]
+    if not run_id:
+        return False
+    db = _get_db()
+    try:
+        row = (
+            db.query(WorkflowRun.status)
+            .filter(WorkflowRun.id == run_id)
+            .first()
+        )
+    finally:
+        db.close()
+    if row is None:
+        return False
+    return row.status in ("cancelled", "failed", "degraded")
+
+
 def _extract_message_text(content: Any) -> str:
     """Pull plain text out of a chat-model response ``content`` payload.
 
@@ -591,12 +618,24 @@ async def _generate_workflow_title(
         context_title = _extract_title_from_context(content)
         if not context_title:
             return
+        # The context_title is the SOURCE pipeline's title (e.g. "Fintech App
+        # User Stories"). For a chained run the CURRENT pipeline_type differs
+        # (e.g. "prototype"), so we append a short suffix derived from the
+        # pipeline_type hint to distinguish the new run's title from its parent.
+        # E.g. "Fintech App User Stories" → "Fintech App User Stories – Interactive Prototype"
+        # Cap to 80 chars so the suffix never gets silently truncated to nothing.
+        hint = _WORKFLOW_TITLE_PIPELINE_HINTS.get(pipeline_type, "")
+        if hint:
+            # Capitalise the hint the same way a generated title would appear.
+            chained_title = f"{context_title} – {hint.title()}"[:80].strip()
+        else:
+            chained_title = context_title[:60].strip()
         db = _get_db()
         try:
             wr = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
             if wr is None:
                 return
-            wr.title = context_title[:60].strip()
+            wr.title = chained_title
             db.commit()
         finally:
             db.close()
@@ -605,7 +644,7 @@ async def _generate_workflow_title(
                 "type": "workflow_title_update",
                 "chunk": None,
                 "section": None,
-                "data": {"workflow_id": workflow_run_id, "title": context_title[:60].strip()},
+                "data": {"workflow_id": workflow_run_id, "title": chained_title},
             })
         except Exception:
             pass
@@ -1355,12 +1394,36 @@ async def websocket_chat(websocket: WebSocket):
                                  "code": "invalid_gate_key", "recoverable": True},
                     })
                     continue
+                # KAN-100: reject approve/reject/redo on a terminal (cancelled/
+                # failed) run so a Redo cannot resume a stopped pipeline.
+                # Keyed on the persisted DB status — not the in-memory state
+                # machine — so it is accurate after WS reconnects. The frontend
+                # should never reach this path (reviewGateData is cleared on
+                # pipeline_cancelled/pipeline_failed); this is the backend fence.
+                if _review_gate_run_is_terminal(gate_key):
+                    await websocket.send_json({
+                        "type": "error", "chunk": None, "section": None,
+                        "data": {"error": "Pipeline is no longer running",
+                                 "code": "pipeline_not_running", "recoverable": False},
+                    })
+                    continue
                 store = get_artifact_store()
                 # The owner check (above) has already run BEFORE this write — the
                 # redo action rides the SAME IDOR-mitigated boundary + resume channel.
                 if action == "redo":
                     await store.set_review_response(
                         gate_key, approved=False, action="redo", instructions=instructions
+                    )
+                elif action == "update_specs":
+                    # KAN-101: "Update the Specs" — trigger spec revision sub-pipeline.
+                    # The analysis report is passed as ``instructions`` so
+                    # _run_review_gate can thread it into the revision context.
+                    # Keyed on the GENERIC action discriminator (SC-001 / INV-1).
+                    analysis_report = message_data.get("analysis_report") or ""
+                    await store.set_review_response(
+                        gate_key, approved=False,
+                        action="update_specs",
+                        instructions=analysis_report,
                     )
                 else:
                     await store.set_review_response(
@@ -1880,7 +1943,7 @@ async def _handle_workflow_execution(
             # and set it as the PK so artifact writes resolve against this row.
             id=pipeline_run_id,
             user_id=user.id,
-            title=(_strip_pipeline_context(content) or _extract_title_from_context(content) or content or "Untitled")[:60].strip(),
+            title=(_strip_pipeline_context(content) or _extract_title_from_context(content) or (lambda m: m.group(1).strip() if m else None)(_REVISION_REQUEST_MARKER.search(content or "")) or content or "Untitled")[:60].strip(),
             type=pipeline_type,
             status="running",
             input=content or f"Run {pipeline_type} pipeline",
@@ -2461,6 +2524,19 @@ async def _handle_revision_execution(
         workflow_run_id = wr.id
     finally:
         db.close()
+
+    # Async title generation (best-effort, non-blocking) — mirrors the
+    # run_pipeline path (:1766). instruction is clean user text so
+    # _strip_pipeline_context returns it unchanged; the LLM generates a
+    # short descriptive title replacing the "Revision: …" placeholder.
+    asyncio.create_task(
+        _generate_workflow_title(
+            workflow_run_id=workflow_run_id,
+            content=instruction,
+            pipeline_type=revision_pipeline_type,
+            websocket=websocket,
+        )
+    )
 
     event_queue = _get_or_create_queue(pipeline_run_id)
 
