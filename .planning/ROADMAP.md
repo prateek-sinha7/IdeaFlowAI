@@ -747,7 +747,7 @@ Plans:
 
 - [ ] **Phase 28: Chat Contracts & Guards [A0]** — event vocabulary + golden guards, artifact-block derivation contracts, live-state contract, mockWs chat driver, decision records ND-1..ND-9
 - [ ] **Phase 29: Chat Backbone [A1]** — WS `chat_message` ingress, run_events persistence + replay/reopen, mechanical intent router, steering seam, narrator cards
-- [ ] **Phase 30: Uploads & Multimodal [A2]** — `POST /api/runs/{id}/files`, `run_images` wiring, doc extract+sandbox, `context_provider:uploaded_files`, launch attachments
+- [ ] **Phase 30: Uploads & Multimodal [A2]** — *(trimmed 2026-07-07: image spine landed via IMAGE-INPUT-PLAN waves)* file/doc uploads (`POST /api/runs/{id}/files` → sandbox), `context_provider:uploaded_files`, per-turn image carrier, client resize, ND-10 disposition
 - [ ] **Phase 31: Chat Lane MVP [A3]** — revive in-repo kit, send/receive, result cards + deep-links, in-lane gate/clarify quick-actions, attachment UI, token widget
 - [ ] **Phase 32: Run-Screen Redesign [A4]** — token layer + primitives, chat-lane left, Preview/Steps/Files/Audit right, 3-level Steps drill-down, 3 Audit read endpoints, e2e hardening
 - [ ] **Phase 33: Concierge + Compaction [A5]** — `chat:concierge` capability + confirm chips, `compaction:chat_history` + `context_provider:conversation`, post-run iteration chat
@@ -773,7 +773,7 @@ Plans:
 **Depends on:** Phase 28
 **Success Criteria:**
 1. WS `chat_message` (idempotent by client `message_id`) persists as `run_events` rows and replays on reconnect + reopen (full conversation survives disconnect → reconnect → reopen).
-2. The mechanical router delivers turns per state: clarify answer, gate action (approve/reject/redo+instructions), steering note, revision.
+2. The mechanical router delivers turns per state: clarify answer, gate action (approve/reject/redo+instructions/**update_specs** — routes to the shipped KAN-101 loop; terminal-fenced per KAN-100; event-driven per KAN-94), steering note, revision.
 3. A steering note lands in the next agent's composed context via `ectx.steering_notes` + `=== USER GUIDANCE ===` (offline fault-injection proof); consume-once semantics hold.
 4. Narrator `chat_reply` cards emit for clarify/gate/pipeline/deliverable milestones.
 5. INV-3 goldens byte-identical; lint-imports 4/0; kernel name-free (SC-001 grep 0).
@@ -783,7 +783,7 @@ Plans:
 **Depends on:** Phase 29
 **Success Criteria:**
 1. `POST /api/runs/{id}/files` (owner-scoped, IDOR→404) stores bytes under the run's `RunSandbox`.
-2. The dormant `run_images` provider is live end-to-end (WS ingress → `ectx.run_images` → `HumanMessage` content list, offline shape test) with per-turn image support.
+2. *(Run-entry image path ALREADY LANDED 2026-07-07 — IMAGE-INPUT-PLAN waves `edw`/`frv`/`gvq`, offline shape test green.)* Remaining: **per-turn** images ride the Phase 29 `chat_message` path into the next dispatch's content blocks.
 3. Uploaded documents are agent-readable (`read_file`) AND their extracted text is sticky context present in every subsequent `agent_input`.
 4. Launch-time attachments (incl. images) ride `run_pipeline`.
 

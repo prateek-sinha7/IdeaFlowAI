@@ -205,7 +205,7 @@ Registered 2026-07-07 via `/gsd-import`. Plan of record: `.planning/CHAT-AND-UI-
 ### Chat Channel (Phases 28–29)
 
 - [ ] **CHAT-01**: Inbound WS `chat_message` (idempotent by client `message_id`); turns persist as `run_events` rows (`chat_message`/`chat_reply`) through the single stamping boundary — replay, reopen, and owner-scoping inherited; zero new tables
-- [ ] **CHAT-02**: Mechanical intent router delivers turns by run state — clarify answer / gate action (approve·reject·redo+instructions) / steering note / revision — with zero model calls for routable turns
+- [ ] **CHAT-02**: Mechanical intent router delivers turns by run state — clarify answer / gate action (approve·reject·redo+instructions·**update_specs** — routing to the shipped KAN-101 spec-revision loop) / steering note / revision — with zero model calls for routable turns; gates treated as event-driven (KAN-94) and fenced on terminal runs (`pipeline_not_running`, KAN-100)
 - [ ] **CHAT-03**: Steering seam — consume-once `ectx.steering_notes` rendered as a `=== USER GUIDANCE ===` block at the next agent dispatch (redo idiom); sticky (uploads) vs one-shot (directives) semantics
 - [ ] **CHAT-04**: Narrator `chat_reply` result cards for clarify/gate/pipeline/deliverable milestones, deep-linking into the run tabs
 - [ ] **CHAT-05**: Family-anchored transcript — turns persist on the active run; FE stitches across parent/child runs via `GET /api/runs/{id}/family`
@@ -214,9 +214,9 @@ Registered 2026-07-07 via `/gsd-import`. Plan of record: `.planning/CHAT-AND-UI-
 ### Uploads & Multimodal (Phase 30)
 
 - [ ] **UPLD-01**: `POST /api/runs/{id}/files` (multipart, two-layer owner check → 404) persisting bytes under the run's `RunSandbox`
-- [ ] **UPLD-02**: `run_images` provider live end-to-end (WS ingress → engine → `HumanMessage` content blocks) incl. per-turn images
+- [~] **UPLD-02**: `run_images` provider live end-to-end (WS ingress → engine → `HumanMessage` content blocks) incl. per-turn images — **run-entry path LANDED 2026-07-07 pre-milestone** (IMAGE-INPUT-PLAN waves `edw`/`frv`/`gvq`, offline-proven for `prototype`; validation caps + vision guard included); remaining: the per-turn carrier (needs the Phase 29 `chat_message` path) + live Bedrock proof (Phase 34/LIVE-02)
 - [ ] **UPLD-03**: Documents extract-to-sticky-context AND land in the sandbox for agent `read_file`; `context_provider:uploaded_files` registered; uploaded context present in every subsequent `agent_input`
-- [ ] **UPLD-04**: Launch-time attachments (incl. images, client-resized) ride `run_pipeline`
+- [~] **UPLD-04**: Launch-time attachments (incl. images, client-resized) ride `run_pipeline` — **image attachments LANDED 2026-07-07 pre-milestone** (FE picker + base64 + preview chips on 3 surfaces → `run_pipeline` `images`); remaining: client-side resize, paste/drag-drop (Phase 31 UI)
 
 ### Chat Lane UI (Phase 31)
 
