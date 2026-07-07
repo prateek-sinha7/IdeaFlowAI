@@ -1,16 +1,21 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: verifying
-last_updated: "2026-06-14T22:21:15.154Z"
-last_activity: 2026-06-14
+milestone: v2.0
+milestone_name: universal-run-chat-ui-convergence
+status: planning
+last_updated: "2026-07-07T00:00:00.000Z"
+last_activity: 2026-07-07
 progress:
-  total_phases: 22
-  completed_phases: 22
-  total_plans: 113
-  completed_plans: 113
-  percent: 100
+  total_phases: 11
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
+carry_over:
+  v1_0_status: verifying
+  v1_0_phases: 22/22
+  v1_0_plans: 113/113
+  v1_0_gate: consolidated live-Bedrock + Playwright pass, then /gsd-complete-milestone — precedes v2.0 EXECUTION
 ---
 
 # Project State
@@ -19,15 +24,16 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-06-11)
 
-**Core value:** A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001).
-**Current focus:** Phase 22 — Capability Surfacing and User Empowerment - Universal Runtime UX Completeness
+**Core value:** A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001). Milestone v2.0 extends it: every workflow gets a chat lane + orchestrator with zero per-workflow code.
+**Current focus:** Milestone v2.0 — Universal Run Chat & VelocityAI UI Convergence (phases 27–37; POR `.planning/CHAT-AND-UI-CONVERGENCE-PLAN.md`)
 
 ## Current Position
 
-Phase: 22
+Phase: 27 — Chat Contracts & Guards [A0] (first v2.0 phase; not started)
 Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-07-04 - Completed quick task 260704-uvs: FIX-037 — surface the prompt-cache token breakdown in the workflow token-usage UI (FRONTEND-ONLY, consumes the already-emitted FIX-036 fields). Threaded `total_cache_read_tokens`/`total_cache_write_tokens` through the FE: optional keys on `WorkflowRun.tokenUsage` + `cacheReadTokens`/`cacheWriteTokens` on `PipelineRunState`; `useWorkflow` parses them in BOTH `pipeline_complete` (authoritative run totals) and `agent_complete` (preserves prev) with the `|| prev.* || 0` idiom; `api.ts` `JSON.parse(token_usage)` carries the keys verbatim (type-visible only, no logic change). `TokenUsageSummary` renders a `⚡ N cached (X%)` segment after the input figure ONLY when `cacheRead > 0` (`pct = round(cacheRead / max(1, input) * 100)`, optional `· N written` when `cacheWrite > 0`); byte-identical render when 0/undefined (Spec B zero-regression). NO FE dollar/per-model math (INV-12) — cost already discounted by FIX-036; dollar-savings deferred to ISS-034. Verified: vitest TokenUsageSummary + useWorkflow 12/12 green (incl. new TokenUsageSummary.cache.test.tsx 5 specs); tsc-identity only the 2 pre-existing e2e/fixtures/mockApi.ts errors, ZERO new. +FIX-037 + ISS-034 (optional cache $-saved follow-up) logged. 2 atomic code commits (4b22ab74/b845d0f9).
+Status: Milestone v2.0 registered (imported 2026-07-07 via /gsd-import — POR + ROADMAP phases 27–37 + REQUIREMENTS families CHAT/UPLD/CHATUI/RUNUI/CONC/LIVE-02/SHELL). ⚠ CARRY-OVER GATE: milestone v1.0 remains `verifying` (22/22 phases, 113/113 plans) — its consolidated live-Bedrock + Playwright close-out pass and /gsd-complete-milestone precede v2.0 EXECUTION; planning may proceed (user decision at import). Phase numbering note: 23–26 reserved for the post-milestone standalone efforts recorded in IMPLEMENTATION-REGISTER (Redo Gate · Nav-Validation · Revision Families · Cost/Caching).
+Last activity: 2026-07-07 - Registered milestone v2.0 via /gsd-import: wrote `.planning/CHAT-AND-UI-CONVERGENCE-PLAN.md` (locked D-01..D-12 + open ND-1..ND-9), appended ROADMAP Milestone v2.0 section (phases 27–37 with goals/success criteria + progress table), added 27 REQ-IDs + traceability to REQUIREMENTS.md, updated PROJECT.md (Active block + Key Decisions rows + footer). Conflict report: 0 blockers / 2 warnings (approved) / 3 info. Evidence: six max-effort investigations + full register read (session 2026-07-07).
+Prior activity: 2026-07-04 - Completed quick task 260704-uvs: FIX-037 — surface the prompt-cache token breakdown in the workflow token-usage UI (FRONTEND-ONLY, consumes the already-emitted FIX-036 fields). Threaded `total_cache_read_tokens`/`total_cache_write_tokens` through the FE: optional keys on `WorkflowRun.tokenUsage` + `cacheReadTokens`/`cacheWriteTokens` on `PipelineRunState`; `useWorkflow` parses them in BOTH `pipeline_complete` (authoritative run totals) and `agent_complete` (preserves prev) with the `|| prev.* || 0` idiom; `api.ts` `JSON.parse(token_usage)` carries the keys verbatim (type-visible only, no logic change). `TokenUsageSummary` renders a `⚡ N cached (X%)` segment after the input figure ONLY when `cacheRead > 0` (`pct = round(cacheRead / max(1, input) * 100)`, optional `· N written` when `cacheWrite > 0`); byte-identical render when 0/undefined (Spec B zero-regression). NO FE dollar/per-model math (INV-12) — cost already discounted by FIX-036; dollar-savings deferred to ISS-034. Verified: vitest TokenUsageSummary + useWorkflow 12/12 green (incl. new TokenUsageSummary.cache.test.tsx 5 specs); tsc-identity only the 2 pre-existing e2e/fixtures/mockApi.ts errors, ZERO new. +FIX-037 + ISS-034 (optional cache $-saved follow-up) logged. 2 atomic code commits (4b22ab74/b845d0f9).
 Prior activity: 2026-07-04 - Completed quick task 260704-ttk: ISS-032 RESOLVED — cache-token surfacing through the SHARED runner/engine → both cost sites price the uncached split. Runner `_cache_token_counts` reads `usage_metadata.input_token_details` (cache_read/cache_creation, default (0,0)) into the usage event + text-only TokenUsage; engine accumulates per-agent → `results` + `agent_complete` + run totals `total_cache_read/write_tokens` on `pipeline_complete`; BOTH cost sites (engine `pipeline_complete` + persisted `workflow_runs.token_usage`) call `estimate_cost_usd(input_tokens=max(0, total − cache_read − cache_write), cache_read_tokens=…, cache_write_tokens=…, cache_ttl=BEDROCK_PROMPT_CACHE_TTL)` (INV-12; SC-001, no workflow branch). Golden-neutral: 4 new keys added to `_VOLATILE_STRIP_KEYS`, INV-3 5 goldens byte/event-identical (SNAPSHOT_UPDATE unset, NO regen). +FIX-036 + ISS-033 (direct-call agents bypass caching + uncounted cost) logged. New offline test_iss032_cache_tokens 9/9 green; model_pricing + context_providers green; lint-imports 4/0. 3 atomic code commits (34849369/2e5e0912/82f400da).
 Prior activity: 2026-07-04 - Completed quick task 260704-t2x: per-model / region-aware run-cost pricing. New kernel-pure `backend/agents/capabilities/model_pricing.py` (per-family `MODEL_PRICING` 5 families + `_canonical` + `_regional_premium` +10% eu./us./apac + cache read/write-5m/write-1h tiers + shared `estimate_cost_usd`); BOTH cost sites (engine `pipeline_complete` @2277 + persisted `workflow_runs.token_usage` @1993) route through the ONE function (INV-12; SC-001), both inline hardcoded-Haiku $0.25/$1.25/M formulas deleted; `model_id` → `BEDROCK_INFERENCE_PROFILE_ID` fallback; cache-token surfacing deferred (ISS-032). +FIX-035/ISS-032. INV-3 5 goldens byte/event-identical (SNAPSHOT_UPDATE unset, no regen); new offline suite test_model_pricing 26/26 (reconciliation pin 24.85 ±0.01); context_providers green; lint-imports 4/0. 3 atomic code commits (a4c4181c/52c9825d/b576190d).
 Prior activity: 2026-07-04 - Completed quick task 260704-p10: Bedrock prompt caching + extended-thinking config knob. New `_BedrockCachePointsMiddleware` (config-gated `BEDROCK_PROMPT_CACHE_ENABLED` default ON, `_TTL` '5m') injects `model_settings['cache_control']` on ChatBedrockConverse requests only (no-op on ChatAnthropic/scripted → no double-apply); enable-only `THINKING_BUDGET_TOKENS` (default 0) threads a clamped [1024, max_tokens-1] thinking budget into both build_model branches (+ temperature=1 when on). +FIX-034/ISS-031. INV-3 5 goldens byte/event-identical (SNAPSHOT_UPDATE unset, no regen); new unit suite 10/10; context oracle/providers 30/30; lint-imports 4/0. 3 atomic code commits (582b90c8/9ac8cf76/e4d6d6c0) + 1 docs commit.
@@ -56,7 +62,7 @@ Prior session: stopped at Completed 18-02-PLAN.md (ISS-019: CSS-only flex budget
 
 Prior session: stopped at Completed 18-01-PLAN.md (ISS-021 backend: type-driven deliverable contract — DeliverableSpec.mimetype optional declared shape hint + thin compiler pass-through [mimetype=raw.get('mimetype'), no defaulting, INV-5]; import-pure _mimetype.default_mimetype helper + per-resolver default_mimetype staticmethods [single_file infers from declared name ext: .html/.htm→text/html, .md→text/markdown, else application/octet-stream; serialized_sandbox→application/zip; streamed_text→text/markdown; ppt→text/html — derived from the DECLARED strategy/name, NOT content-sniffed, SC-001]; engine emits deliverable_mimetype + deliverable_filename UNCONDITIONALLY on every pipeline_complete from getattr(ectx.deliverable,'mimetype',None) or the per-resolver default, beside final_output [clean + degraded; no new cross-boundary import]; INV-3 guard: both keys added to _VOLATILE_STRIP_KEYS [mirrors model_id/estimated_cost_usd] so the 5 characterization goldens stay byte-identical; PROVEN 27/27 green [5 goldens byte-identical, NO SNAPSHOT_UPDATE], lint-imports 4/0, zero migrations; commits e9bfae82 [feat task1] + 2a607e57 [feat task2]); resume file: none
 
-Progress: [██████████] 100% (99 plans complete; Phase 19 3/3 — 19-01 ISS-006 + 19-02 ISS-005 + 19-03 ISS-004 all closed; Phase 19 complete, ready for verification)
+Progress: [░░░░░░░░░░] 0% (Milestone v2.0: 0/11 phases — planning registered, Phase 27 next. v1.0 history: [██████████] 100%, 113/113 plans, status verifying pending live close-out.)
 
 ## Performance Metrics
 
