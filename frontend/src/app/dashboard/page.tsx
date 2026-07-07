@@ -774,6 +774,16 @@ export default function DashboardPage() {
         break;
       }
 
+      case "pipeline_cancelled":
+      case "pipeline_failed": {
+        // KAN-100: pipeline stopped or failed — clear the review gate panel so the
+        // user is not left with live Approve/Reject/Redo buttons on a dead pipeline.
+        // reviewGateData is not cleared by useWorkflow (which only sets isRunning=false)
+        // or by onResetPipeline(), so this is the canonical place to clear it.
+        setReviewGateData(null);
+        break;
+      }
+
       case "step": {
         if (msg.data && "id" in msg.data && "status" in msg.data) {
           const stepData = msg.data as ProcessStep;

@@ -3374,6 +3374,7 @@ class ExecutionEngine:
                         agent_name=spec.name,
                         output=output,
                         redoable=True,
+                        cancel_event=cancel_event,
                     ):
                         if gate_event.get("type") == "_gate_rejected":
                             # User rejected — cancel the pipeline
@@ -4098,6 +4099,7 @@ class ExecutionEngine:
         agent_name: str,
         output: str,
         redoable: bool = False,
+        cancel_event: asyncio.Event | None = None,
     ) -> AsyncGenerator[dict, None]:
         """Pause the pipeline for human review of an agent's output.
 
@@ -4151,8 +4153,33 @@ class ExecutionEngine:
             },
         }
 
-        # Wait indefinitely for user response
-        await event.wait()
+        # Wait for user response, but stop immediately if the pipeline is
+        # cancelled (Stop button). KAN-100: without this check, cancel_event.set()
+        # is observed at the next pre-agent step (engine.py:1842) but the gate
+        # stays blocked here indefinitely, allowing a subsequent Redo to unblock
+        # the cancelled pipeline and resume agent execution.
+        if cancel_event is not None:
+            # Race: gate event set by approve_review vs cancel event set by Stop.
+            gate_task = asyncio.ensure_future(event.wait())
+            cancel_task = asyncio.ensure_future(cancel_event.wait())
+            done, pending = await asyncio.wait(
+                {gate_task, cancel_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for p in pending:
+                p.cancel()
+            if cancel_task in done and gate_task not in done:
+                # Cancel fired before the user responded — bail out.
+                logger.info(
+                    "Review gate cancelled: pipeline=%s agent=%s — cancel_event set",
+                    pipeline_run_id, agent_id,
+                )
+                yield {"type": "_gate_rejected"}
+                return
+        else:
+            # No cancel_event available — plain wait (safe for declared-gate path
+            # which does not receive cancel_event from the dispatch loop).
+            await event.wait()
 
         response = await self._store.get_review_response(gate_key)
         approved = response.get("approved", True) if response else True

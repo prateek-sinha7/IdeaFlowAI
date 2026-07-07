@@ -248,6 +248,33 @@ def _review_gate_owned_by(gate_key: str, user_id: str) -> bool:
     return row is not None
 
 
+def _review_gate_run_is_terminal(gate_key: str) -> bool:
+    """True iff the run named in ``gate_key`` is in a terminal state.
+
+    KAN-100: approve_review must be rejected for cancelled/failed runs so a
+    Redo (or Approve/Reject) on a stopped pipeline cannot unblock the gate
+    and resume agent execution. Keyed on the persisted WorkflowRun.status —
+    not the in-memory state machine — so it is accurate across WS reconnects.
+    Returns False (not terminal) when the row is absent or the status is not
+    a known terminal value, preserving the normal run path.
+    """
+    run_id = (gate_key or "").split(":", 1)[0]
+    if not run_id:
+        return False
+    db = _get_db()
+    try:
+        row = (
+            db.query(WorkflowRun.status)
+            .filter(WorkflowRun.id == run_id)
+            .first()
+        )
+    finally:
+        db.close()
+    if row is None:
+        return False
+    return row.status in ("cancelled", "failed", "degraded")
+
+
 def _extract_message_text(content: Any) -> str:
     """Pull plain text out of a chat-model response ``content`` payload.
 
@@ -1257,6 +1284,19 @@ async def websocket_chat(websocket: WebSocket):
                         "type": "error", "chunk": None, "section": None,
                         "data": {"error": "Unknown gate_key",
                                  "code": "invalid_gate_key", "recoverable": True},
+                    })
+                    continue
+                # KAN-100: reject approve/reject/redo on a terminal (cancelled/
+                # failed) run so a Redo cannot resume a stopped pipeline.
+                # Keyed on the persisted DB status — not the in-memory state
+                # machine — so it is accurate after WS reconnects. The frontend
+                # should never reach this path (reviewGateData is cleared on
+                # pipeline_cancelled/pipeline_failed); this is the backend fence.
+                if _review_gate_run_is_terminal(gate_key):
+                    await websocket.send_json({
+                        "type": "error", "chunk": None, "section": None,
+                        "data": {"error": "Pipeline is no longer running",
+                                 "code": "pipeline_not_running", "recoverable": False},
                     })
                     continue
                 store = get_artifact_store()
