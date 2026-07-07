@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: — Universal Run Chat & VelocityAI UI Convergence
-status: verifying
-last_updated: "2026-07-07T21:34:06.062Z"
-last_activity: 2026-07-07
+status: executing
+last_updated: "2026-07-07T22:08:17.149Z"
+last_activity: "2026-07-08 -- Completed 29-01-PLAN.md (CHAT-07 wire-parity harness: pure run_events->SSE projection _sse_projection.py + test_wire_parity.py binding gate [5 parity + 1 non-vacuity, 6 passed offline] + 5 *.wsframes.json goldens. LOCK-B honoured: additive test-only, no production/websocket touch; lint-imports 4/0; INV-3 5 characterization goldens byte/event-identical; CHAT-07 marked complete. Commits 8aadb3b0 [projection] + dd1c7078 [goldens] + 1ee4fc9e [gate])"
 progress:
   total_phases: 11
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
-  percent: 9
+  total_plans: 13
+  completed_plans: 4
+  percent: 31
 ---
 
 # Project State
@@ -20,14 +20,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-11)
 
 **Core value:** A brand-new custom workflow can replicate `prototype` by manifest + AGENT.md only — with zero engine edits (SC-001). Milestone v2.0 extends it: every workflow gets a chat lane + orchestrator with zero per-workflow code.
-**Current focus:** Phase 28 — chat-contracts-guards-a0
+**Current focus:** Phase 29 — transport-cutover-chat-backbone-a1
 
 ## Current Position
 
-Phase: 29
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-07-07
+Phase: 29 (transport-cutover-chat-backbone-a1) — EXECUTING
+Plan: 2 of 10
+Status: Executing Phase 29 (29-01 complete)
+Last activity: 2026-07-08 -- Completed 29-01-PLAN.md (CHAT-07 wire-parity harness: pure run_events->SSE projection _sse_projection.py + test_wire_parity.py binding gate [5 parity + 1 non-vacuity, 6 passed offline] + 5 *.wsframes.json goldens. LOCK-B honoured: additive test-only, no production/websocket touch; lint-imports 4/0; INV-3 5 characterization goldens byte/event-identical; CHAT-07 marked complete. Commits 8aadb3b0 [projection] + dd1c7078 [goldens] + 1ee4fc9e [gate])
+Prior activity: 2026-07-07 -- Phase 29 execution started
 Prior activity: 2026-07-07 - Post-merge verification pass (3 agents) after pulling origin KAN-92..101 + the same-day image-input waves: Phase 30 scope TRIMMED (image spine landed via IMAGE-INPUT-PLAN waves edw/frv/gvq — WS ingress+caps+vision guard, prototype opt-in, FE picker, 7 tests; remaining = files endpoint, uploaded_files provider, per-turn carrier, resize); D-04/D-05/D-12 gained the 4th gate action `update_specs` (KAN-101 spec-revision loop — route to it, don't rebuild); Phase 32 inline-gate must carry reject-confirm (KAN-95) + terminal fences/`pipeline_not_running` (KAN-100) + the retainAgentEdit no-echo rule (KAN-98) + generalize the FE `prototype-analyze`/`prototype-specify` literals (SC-001 leak); ND-10 (image persistence for replay) + ND-11 (unify the 3 consume-once injection seams; KAN-101 sub-pipeline base-thread replay risk) added; evidence docs 03/04/07 got dated CORRECTIONS addenda; REQUIREMENTS CHAT-02 updated + UPLD-02/UPLD-04 flipped to [~] partial. NOTE: the image-input cluster is NOT yet in IMPLEMENTATION-REGISTER — add its entry when Phase 30 opens.
 Prior activity: 2026-07-07 - Registered milestone v2.0 via /gsd-import: wrote `.planning/CHAT-AND-UI-CONVERGENCE-PLAN.md` (locked D-01..D-12 + open ND-1..ND-9), appended ROADMAP Milestone v2.0 section (phases 28–38 with goals/success criteria + progress table), added 27 REQ-IDs + traceability to REQUIREMENTS.md, updated PROJECT.md (Active block + Key Decisions rows + footer). Conflict report: 0 blockers / 2 warnings (approved) / 3 info. Evidence: six max-effort investigations + full register read (session 2026-07-07).
 Prior activity: 2026-07-04 - Completed quick task 260704-uvs: FIX-037 — surface the prompt-cache token breakdown in the workflow token-usage UI (FRONTEND-ONLY, consumes the already-emitted FIX-036 fields). Threaded `total_cache_read_tokens`/`total_cache_write_tokens` through the FE: optional keys on `WorkflowRun.tokenUsage` + `cacheReadTokens`/`cacheWriteTokens` on `PipelineRunState`; `useWorkflow` parses them in BOTH `pipeline_complete` (authoritative run totals) and `agent_complete` (preserves prev) with the `|| prev.* || 0` idiom; `api.ts` `JSON.parse(token_usage)` carries the keys verbatim (type-visible only, no logic change). `TokenUsageSummary` renders a `⚡ N cached (X%)` segment after the input figure ONLY when `cacheRead > 0` (`pct = round(cacheRead / max(1, input) * 100)`, optional `· N written` when `cacheWrite > 0`); byte-identical render when 0/undefined (Spec B zero-regression). NO FE dollar/per-model math (INV-12) — cost already discounted by FIX-036; dollar-savings deferred to ISS-034. Verified: vitest TokenUsageSummary + useWorkflow 12/12 green (incl. new TokenUsageSummary.cache.test.tsx 5 specs); tsc-identity only the 2 pre-existing e2e/fixtures/mockApi.ts errors, ZERO new. +FIX-037 + ISS-034 (optional cache $-saved follow-up) logged. 2 atomic code commits (4b22ab74/b845d0f9).
