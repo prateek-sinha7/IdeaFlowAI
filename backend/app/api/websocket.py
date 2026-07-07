@@ -46,6 +46,20 @@ _PIPELINE_TASKS: dict[str, asyncio.Task] = {}  # pipeline_run_id → background 
 # pipeline_run_id only (SC-001 — no workflow/model name).
 _CANCEL_EVENTS: dict[str, asyncio.Event] = {}
 
+# ---------------------------------------------------------------------------
+# Image-input ingress caps (IMAGE-INPUT §3 Layer 1 / §12 F3)
+# ---------------------------------------------------------------------------
+# Untrusted base64 image bytes cross the browser → WS `run_pipeline` boundary.
+# `_validate_images` is the chokepoint (T-frv-01 DoS / T-frv-02 tampering):
+# a decompression-flood / count / aggregate-size vector is rejected here BEFORE
+# the multimodal HumanMessage is checkpointed + re-sent on model-fallback retry.
+_IMAGE_ALLOWED_MIMES = frozenset(
+    {"image/png", "image/jpeg", "image/webp", "image/gif"}
+)
+_IMAGE_MAX_BYTES_PER_IMAGE = int(3.75 * 1024 * 1024)  # ~3.75 MB raw per image
+_IMAGE_MAX_COUNT = 20  # max images per run
+_IMAGE_MAX_AGGREGATE_BYTES = 8 * 1024 * 1024  # ~8 MB raw across all images
+
 
 def _get_or_create_queue(pipeline_run_id: str) -> asyncio.Queue:
     if pipeline_run_id not in _PIPELINE_QUEUES:
@@ -164,6 +178,92 @@ def _validate_model_overrides(
                 f"model_overrides for agent {agent_id!r} requests model "
                 f"{model_id!r}, which is not an allowed model"
             )
+    return None
+
+
+def _validate_images(
+    images: Any, *, effective_model_ids: set[str] | None = None
+) -> str | None:
+    """Cap- and vision-guard the UNTRUSTED per-run ``images`` ingress list.
+
+    The security chokepoint for the image-input feature (IMAGE-INPUT §3 Layer 1/5,
+    §12 F3). ``images`` is UNTRUSTED run-payload input crossing the browser → WS
+    boundary into ``ExecutionContext.run_images``. Same ``str | None`` contract as
+    ``_validate_model_overrides``: ``None`` when the set is valid (or empty — a
+    no-op, like ``_validate_model_overrides({})``); on the FIRST violation a
+    human-readable message. The caller emits ``code="invalid_image_input"`` and
+    refuses the run BEFORE any ``WorkflowRun`` is created or ``engine.execute`` is
+    called — never a silent drop.
+
+    Enforced in order (T-frv-01 DoS / T-frv-02 tampering):
+      * ``images`` must be a list;
+      * each entry a dict with a string ``mime_type`` + string ``data`` (CR-01
+        type guard — a malformed entry would otherwise crash the asyncio task);
+      * ``mime_type`` in the {png, jpeg, webp, gif} allow-list;
+      * per-image estimated raw bytes (``len(data) * 3 // 4``) ≤ 3.75 MB;
+      * ``len(images)`` ≤ 20;
+      * running aggregate raw bytes ≤ 8 MB (the checkpointed HumanMessage is
+        re-sent on model-fallback retry — §12 F3);
+      * vision guard: when ``effective_model_ids`` is provided, EVERY id must be a
+        ``ModelCatalog`` entry with ``vision=True`` (closes the raw-config /
+        non-vision-model escape hatch — T-frv-02).
+    """
+    if not images:
+        return None
+    if not isinstance(images, list):
+        return (
+            f"images must be a list of {{mime_type, data}} objects "
+            f"(got {type(images).__name__!r})"
+        )
+    if len(images) > _IMAGE_MAX_COUNT:
+        return (
+            f"too many images: {len(images)} exceeds the maximum of "
+            f"{_IMAGE_MAX_COUNT}"
+        )
+    aggregate_bytes = 0
+    for index, image in enumerate(images):
+        if not isinstance(image, dict):
+            return (
+                f"images[{index}] must be an object with string mime_type + data "
+                f"(got {type(image).__name__!r})"
+            )
+        mime_type = image.get("mime_type")
+        data = image.get("data")
+        if not isinstance(mime_type, str) or not isinstance(data, str):
+            return (
+                f"images[{index}] must carry a string mime_type + string data"
+            )
+        if mime_type not in _IMAGE_ALLOWED_MIMES:
+            return (
+                f"images[{index}] has unsupported mime_type {mime_type!r}; "
+                f"allowed: {sorted(_IMAGE_ALLOWED_MIMES)}"
+            )
+        raw_bytes = len(data) * 3 // 4
+        if raw_bytes > _IMAGE_MAX_BYTES_PER_IMAGE:
+            return (
+                f"images[{index}] is too large (~{raw_bytes} bytes); the per-image "
+                f"limit is {_IMAGE_MAX_BYTES_PER_IMAGE} bytes"
+            )
+        aggregate_bytes += raw_bytes
+        if aggregate_bytes > _IMAGE_MAX_AGGREGATE_BYTES:
+            return (
+                f"images exceed the aggregate size limit of "
+                f"{_IMAGE_MAX_AGGREGATE_BYTES} bytes (~{aggregate_bytes} bytes so far)"
+            )
+    # Vision guard: reject unless every effective run-level model is a vision-capable
+    # catalog entry. Import the kernel-pure catalog lazily (app → kernel is allowed;
+    # the catalog has no app.* reach so this stays import-clean).
+    if effective_model_ids:
+        from agents.capabilities.model_catalog import ModelCatalog
+
+        catalog = ModelCatalog()
+        for model_id in effective_model_ids:
+            entry = catalog.get(model_id)
+            if entry is None or not entry.vision:
+                return (
+                    f"image input requires a vision-capable model; "
+                    f"{model_id!r} is not a vision-capable catalog model"
+                )
     return None
 
 
