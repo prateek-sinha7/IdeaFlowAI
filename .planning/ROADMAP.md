@@ -746,7 +746,7 @@ Plans:
 ### v2.0 Phases
 
 - [ ] **Phase 28: Chat Contracts & Guards [A0]** — event vocabulary + golden guards, artifact-block derivation contracts, live-state contract, mockWs chat driver, decision records ND-1..ND-9
-- [ ] **Phase 29: Transport Cutover + Chat Backbone [A1]** — *(D-13 locked 2026-07-07)* wave 1: per-run SSE stream + REST commands replace `/ws/chat` in full (wire-parity golden, ported suites, deletion commit + ratchets, D-14 resilience); wave 2: `POST /api/runs/{id}/messages` chat backbone, mechanical intent router, steering seam, narrator cards
+- [ ] **Phase 29: Transport Cutover + Chat Backbone [A1]** — *(D-13 locked 2026-07-07)* wave 1: per-run SSE stream + REST commands built ADDITIVELY alongside `/ws/chat` (wire-parity golden, ported suites, D-14 resilience; WS-deletion DEFERRED to a supervised follow-up per LOCK-B); wave 2: `POST /api/runs/{id}/messages` chat backbone, mechanical intent router, steering seam, narrator cards
 - [ ] **Phase 30: Uploads & Multimodal [A2]** — *(trimmed 2026-07-07: image spine landed via IMAGE-INPUT-PLAN waves)* file/doc uploads (`POST /api/runs/{id}/files` → sandbox), `context_provider:uploaded_files`, per-turn image carrier, client resize, ND-10 disposition
 - [ ] **Phase 31: Chat Lane MVP [A3]** — revive in-repo kit, send/receive, result cards + deep-links, in-lane gate/clarify quick-actions, attachment UI, token widget
 - [ ] **Phase 32: Run-Screen Redesign [A4]** — token layer + primitives, chat-lane left, Preview/Steps/Files/Audit right, 3-level Steps drill-down, 3 Audit read endpoints, e2e hardening
@@ -772,7 +772,7 @@ Plans:
 **Goal:** The transport becomes SSE-down + REST-up in full (D-13, WS run-path deleted at exit), and a user message reaches a run over the new transport, persists durably, routes by run state, and shapes the next agent dispatch — with browser-native reconnect/reopen fidelity.
 **Depends on:** Phase 28
 **Success Criteria:**
-1. Wire-parity characterization green (the SSE stream replays the recorded WS frame sequences identically for the 5 golden pipelines); all inbound-handler test suites ported 1:1 to the REST endpoints; `/ws/chat` run-handlers + transport flag DELETED with grep ratchets + ledger row (CHAT-07).
+1. Wire-parity characterization green (the SSE stream replays the recorded WS frame sequences identically for the 5 golden pipelines); all inbound-handler test suites ported 1:1 to the REST endpoints; SSE+REST built ADDITIVELY alongside `/ws/chat` behind a transport flag (LOCK-B — NO deletion this unattended run; the WS-delete + ratchets + ledger row are a deferred supervised follow-up). Wire-parity characterization still built + green (CHAT-07).
 2. `POST /api/runs/{id}/messages` (idempotent by client `message_id`) persists as `run_events` rows; a full conversation survives page reload → native `Last-Event-ID` auto-reconnect → reopen; a gate answered via REST while the stream is down resumes correctly on reattach.
 3. The mechanical router delivers turns per state: clarify answer, gate action (approve/reject/redo+instructions/**update_specs** — routes to the shipped KAN-101 loop; terminal-fenced per KAN-100; event-driven per KAN-94), steering note, revision.
 4. A steering note lands in the next agent's composed context via `ectx.steering_notes` + `=== USER GUIDANCE ===` (offline fault-injection proof); consume-once semantics hold.
