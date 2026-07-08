@@ -426,6 +426,12 @@ export function DegradedRunAffordance({
 export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, runFamily, liveRunId, runInput, clarifications, deepLinkTarget, laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate, clarifyQuestions, onSubmitClarify, onSkipClarify }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>("preview");
   const [copied, setCopied] = useState(false);
+  // ─── Plan 07 — manual typed-renderer switcher override ───────────────────────
+  // null = follow the generic auto-dispatch (the PRIMARY route); a non-null value
+  // is a renderType/mimetype token (SC-001, never a workflow name) that FORCES a
+  // specific renderer for the current deliverable. Cleared back to auto on demand
+  // (the "Auto" option) and whenever the deliverable's renderType changes.
+  const [rendererOverride, setRendererOverride] = useState<string | null>(null);
   // ─── B3 (POR §5 D5) — live version chip state ───────────────────────────────
   // viewingVersion is the read-only older-version override ({ id, content }) or
   // null (live latest on screen); pulse is the one-shot tick shown when the
@@ -638,7 +644,80 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
         : null,
   };
 
+  // ─── Plan 07 — typed-renderer switcher (manual override on top of dispatch) ──
+  // A new deliverable (renderType change) drops any stale override so the generic
+  // auto-dispatch resumes as the PRIMARY route.
+  useEffect(() => { setRendererOverride(null); }, [renderType]);
+
+  // Mimetype tokens the generic renderer can be forced into. These are DECLARED
+  // mimetype/render shapes (SC-001 — never a workflow name).
+  const MIMETYPE_OVERRIDES: Record<string, string> = {
+    html: "text/html",
+    markdown: "text/markdown",
+    zip: "application/zip",
+  };
+  const FIRST_PARTY_LABELS: Record<string, string> = {
+    user_stories: "User Stories",
+    ppt: "Slides",
+    prototype: "Prototype",
+    app_builder: "Code",
+  };
+  const MIMETYPE_LABELS: Record<string, string> = {
+    html: "HTML",
+    markdown: "Markdown",
+    zip: "Bundle",
+  };
+
+  // Switcher options — the set of typed renderers available for THIS deliverable,
+  // derived from the generic renderType/mimetype set (never a workflow name).
+  // Always leads with "Auto" (the generic auto-dispatch, i.e. no override).
+  const rendererOptions = useMemo(() => {
+    const opts: { value: string; label: string }[] = [{ value: "auto", label: "Auto" }];
+    // The current first-party renderType is an explicit typed option when it has
+    // a registered renderer.
+    if (renderType in FIRST_PARTY_RENDERERS && FIRST_PARTY_LABELS[renderType]) {
+      opts.push({ value: renderType, label: FIRST_PARTY_LABELS[renderType] });
+    }
+    // A generic deliverable can be viewed through any of the mimetype renderers.
+    if (genericDeliverable?.content) {
+      for (const key of Object.keys(MIMETYPE_OVERRIDES)) {
+        opts.push({ value: key, label: MIMETYPE_LABELS[key] });
+      }
+    }
+    return opts;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renderType, genericDeliverable?.content]);
+
+  // Resolve a manual override value → a concrete renderer. First-party tokens
+  // route to their registered renderer; mimetype tokens re-run the generic
+  // renderer with the forced mimetype (preserving the P18 sandboxed-iframe
+  // contract owned by GenericDeliverablePreview). Returns null when the override
+  // cannot render the current content, so the caller falls back to the primary
+  // auto-dispatch.
+  const renderRendererOverride = (value: string): ReactNode | null => {
+    if (value in FIRST_PARTY_RENDERERS) {
+      return FIRST_PARTY_RENDERERS[value]?.() ?? null;
+    }
+    const mimetype = MIMETYPE_OVERRIDES[value];
+    if (!mimetype) return null;
+    const content = genericDeliverable?.content ?? activeContent ?? "";
+    if (!content) return null;
+    const forced: GenericDeliverable = { ...(genericDeliverable ?? {}), content, mimetype };
+    return <GenericDeliverablePreview deliverable={forced} agentOutputs={agentOutputs} />;
+  };
+
   const renderDeliverable = (): ReactNode => {
+    // 0) MANUAL OVERRIDE (plan 07) — the typed-renderer switcher. Layered ON TOP
+    //    of the generic dispatch: when the user has picked a specific renderer it
+    //    forces that one. When unset ("auto") the generic dispatch below runs
+    //    UNCHANGED as the PRIMARY route (the switcher never replaces or reorders
+    //    it). The override value is a renderType/mimetype token (SC-001).
+    if (rendererOverride && rendererOverride !== "auto") {
+      const forced = renderRendererOverride(rendererOverride);
+      if (forced) return forced;
+      // Override can't render this content → fall through to the primary route.
+    }
+
     // 1) First-party routed entry (if this renderType is registered AND its
     //    first-party content is present). A registered entry that yields null
     //    (no first-party content) deliberately falls through to the generic
@@ -729,6 +808,22 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
         />
 
         <div className="flex items-center gap-2">
+          {/* Renderer switcher — a MANUAL typed-renderer override layered on top
+              of the generic dispatch (which stays PRIMARY). Surfaced for a GENERIC
+              (mimetype-routed) deliverable, where multiple typed renderers
+              genuinely apply; a first-party deliverable's bespoke renderer is
+              authoritative so no override is offered (this also keeps the switcher
+              <select> out of the a11y tree on first-party renders, avoiding an
+              option-role collision with the LiveVersionChip listbox). Options are
+              generic renderType/mimetype tokens (SC-001). */}
+          {activeTab === "preview" && hasGenericDeliverable && rendererOptions.length > 1 && (
+            <RendererSwitcher
+              value={rendererOverride ?? "auto"}
+              options={rendererOptions}
+              onChange={setRendererOverride}
+            />
+          )}
+
           {/* PPT action buttons — shown only when PPT preview is active */}
           {activeTab === "preview" && renderType === "ppt" && (pptContent || pptxCode) && (
             <PPTTabActions
@@ -846,6 +941,40 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
         </AnimatePresence>
       </div>
     </div>
+  );
+}
+
+// ── Plan 07 — typed-renderer switcher (manual override control) ───────────────
+// A small token-styled <select> shown in the Preview tab bar. Options are the
+// generic renderType/mimetype tokens available for the current deliverable
+// (SC-001 — never a workflow name). Choosing "Auto" clears the override (→ null)
+// so the generic dispatch resumes as the PRIMARY route.
+function RendererSwitcher({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string | null) => void;
+}) {
+  return (
+    <label className="flex items-center gap-1.5 text-[11px] text-ink-500">
+      <span className="sr-only">Renderer</span>
+      <select
+        data-testid="renderer-switcher"
+        aria-label="Renderer"
+        value={value}
+        onChange={(e) => onChange(e.target.value === "auto" ? null : e.target.value)}
+        className="rounded-[var(--radius-button)] border border-line-control bg-surface-card px-2 py-1 text-[11px] font-medium text-ink-700 transition-colors hover:border-line-border"
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
