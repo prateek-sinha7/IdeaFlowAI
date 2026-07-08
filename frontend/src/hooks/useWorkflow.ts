@@ -561,6 +561,13 @@ export function handlePipelineMessage(
           isRunning: false,
           totalDuration,
           completedCount: updated.filter((a) => a.status === "done").length,
+          // ISS-035 (SC-4): stamp the terminal cancelled marker (symmetric with
+          // pipeline_failed's `failed` flag above) so a downstream selector
+          // derives the LIVE-STATE-CONTRACT §1 cancelled state ("Cancelled by
+          // you") instead of falling through to idle. No chat message is pushed
+          // from the reducer — RunChatLane renders the transcript line off this
+          // marker + the generic RunLaneState (plan 06).
+          cancelled: true,
         };
       });
       return true;

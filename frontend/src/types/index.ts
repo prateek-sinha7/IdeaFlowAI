@@ -605,6 +605,12 @@ export interface PipelineRunState {
   // Phase 16
   failed?: boolean;
   failedAgents?: string[];
+  // ISS-035 (Phase 32 / SC-4): additive terminal marker set by the
+  // pipeline_cancelled reducer case (mirrors the `failed` marker). A downstream
+  // selector (RunLaneState) derives the LIVE-STATE-CONTRACT §1 cancelled state
+  // ("Cancelled by you" ack + relaunch) from this flag instead of falling
+  // through to idle. Absent on non-cancelled runs.
+  cancelled?: boolean;
   // KAN-73 — live audit trail from hook_run WS events
   hookRuns?: HookRunEntry[];
   // Workstream C1 (POR §6.2/§6.5) — answered clarify rounds retained per run so
