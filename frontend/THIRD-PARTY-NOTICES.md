@@ -21,14 +21,14 @@ of**, the upstream source. Attribution is provided per the upstream license.
 |---|-----------|--------------------------------|------------------------|
 | 1 | `partial-json` repair (`repairJsonPrefix` / `parsePartialJson`) — tolerant repair + parse of a truncated JSON prefix | `runtime/partial-json.ts:16-93` | `frontend/src/components/chat/runtime/partial-json.ts` |
 | 2 | `extractStreamingJsonString` — single named-string-field extractor over an open JSON fragment | `AssistantMessage.tsx:2786` | `frontend/src/components/chat/runtime/streaming-json.ts` |
-| 3 | Tool-renderer registry — map a generic tool kind to its render component | `AssistantMessage.tsx` (tool renderer dispatch) | _planned (31-02) — `frontend/src/components/chat/runtime/` tool-renderer registry_ |
+| 3 | Tool-renderer registry — map a generic tool kind to its render component | `AssistantMessage.tsx` (tool renderer dispatch) | `frontend/src/components/chat/runtime/tool-renderers.tsx` |
 | 4 | `buildBlocks` events→blocks reducer — coalesce an ordered agent-event array into merged render blocks | `AssistantMessage.tsx:3148` | `frontend/src/components/chat/runtime/buildBlocks.ts` |
-| 5 | Scroll/anchor + measured virtualizer (>80 messages) | open-design transcript scroll/virtualizer | _planned (31-04) — chat lane scroll/virtualizer_ |
-| 6 | Nonce'd deep-link seam — result cards deep-link into the run tabs | open-design deep-link seam | _planned (31-04) — nonce'd deep-link seam_ |
-| 7 | `ThinkingBlock` / todo / file-ops blocks | open-design block components | _planned (31-02/31-04) — block components_ |
+| 5 | Scroll/anchor + measured virtualizer (>80 messages) | open-design transcript scroll/virtualizer | `frontend/src/components/chat/runtime/useMeasuredVirtualWindow.ts` |
+| 6 | Nonce'd deep-link seam — result cards deep-link into the run tabs | open-design deep-link seam | `frontend/src/hooks/useTabDeepLink.ts` |
+| 7 | `ThinkingBlock` / todo / file-ops blocks | open-design block components | `frontend/src/components/chat/blocks/ThinkingBlock.tsx`, `TodoCard.tsx`, `FileOpsSummary.tsx` |
 
-Items **#1, #2, #4** land in this plan (31-01); items **#3, #5, #6, #7** are
-attributed here up front and land in the downstream chat-lane plans noted above.
+All seven mechanisms have shipped: **#1, #2, #4** in plan 31-01; **#3, #5, #7**
+in plan 31-02; **#6** in plan 31-03.
 
 Every local reimplementation module carries the header comment:
 
