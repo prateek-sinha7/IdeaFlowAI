@@ -6,6 +6,15 @@ import { getToken, getChat, addMessage, logout, deleteChat, createChat, getWorkf
 import { ENV } from "@/lib/env";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useWorkflow } from "@/hooks/useWorkflow";
+// Phase 31 (CHATUI-01/02/03) — the chat-lane DATA layer + the nonce'd deep-link
+// seam + the app-level SSE connection. useRunChat folds the Phase-29 chat frames
+// into a transport-agnostic transcript; useTabDeepLink is the result-card →
+// tab seam (borrow #6); useRunConnection supplies the SSE transport when the
+// provider is mounted (inert default otherwise → the legacy WS path stays the
+// active, byte-identical transport, LOCK-B additive).
+import { useRunChat, type RunChatFrame } from "@/hooks/useRunChat";
+import { useTabDeepLink } from "@/hooks/useTabDeepLink";
+import { useRunConnection } from "@/providers/RunConnectionProvider";
 import { shouldApplyEvent, resetReplayState } from "@/lib/wsReplayState";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import type { ChatMessage, ChatSession, StreamMessage, ProcessStep, WorkflowRun, WorkflowStatus, User, WaveGroup, GenericDeliverable, ReviewGateReadyData } from "@/types/index";
@@ -113,6 +122,21 @@ export default function DashboardPage() {
   // Stable getter so DashboardLayout's reconnect effect reads the current
   // last-received seq without re-subscribing.
   const getLastSeq = useCallback(() => lastSeqRef.current, []);
+
+  // Phase 31 (CHATUI-03) — transport-agnostic chat transcript fan-out. When the
+  // SSE transport is OFF (the active path today), the legacy WS chat frames
+  // (chat_message / chat_reply / stream_attached) are routed into `useRunChat`
+  // through this local pub-sub. LOCK-B additive: those three frame types were
+  // previously UNHANDLED by handleWebSocketMessage (they fell through to a
+  // no-op), so routing them changes NO existing behavior on the legacy path —
+  // and useWorkflow.ts / useWebSocket.ts are untouched (FIX-039 / LOCK-B).
+  const chatFrameListenersRef = useRef<Set<(f: RunChatFrame) => void>>(new Set());
+  const chatWsSubscribe = useCallback((fn: (f: RunChatFrame) => void) => {
+    chatFrameListenersRef.current.add(fn);
+    return () => {
+      chatFrameListenersRef.current.delete(fn);
+    };
+  }, []);
 
   // Workflow runs state (primary)
   const [recentRuns, setRecentRuns] = useState<WorkflowRun[]>([]);
@@ -290,6 +314,31 @@ export default function DashboardPage() {
     const evSeq = evData && typeof evData.seq === "number" ? (evData.seq as number) : undefined;
     if (typeof evSeq === "number" && evSeq > lastSeqRef.current) {
       lastSeqRef.current = evSeq;
+    }
+
+    // Phase 31 (CHATUI-03) — route the ADDITIVE Phase-29 chat frames into the
+    // transcript fan-out (deduped once above by the shared seen-set; useRunChat
+    // dedups again by event_id, idempotent). These frame types were previously
+    // unhandled (no-op) on the legacy WS path, so this is purely additive
+    // (LOCK-B) and leaves every existing frame's handling byte-identical.
+    // `msg.type` is the legacy StreamMessage union which does not enumerate the
+    // additive Phase-29 chat frame names; widen to string for the membership test
+    // (the type is untouched — types/index.ts is out of scope, LOCK-B).
+    const frameType = msg.type as string;
+    if (
+      frameType === "chat_message" ||
+      frameType === "chat_reply" ||
+      frameType === "stream_attached"
+    ) {
+      const frame: RunChatFrame = { type: frameType, data: evData ?? {} };
+      chatFrameListenersRef.current.forEach((fn) => {
+        try {
+          fn(frame);
+        } catch {
+          /* a bad listener must not break the WS handler */
+        }
+      });
+      return;
     }
 
     // Phase 12 (§22) — wave/subagent lifecycle events route into the wave-tree
@@ -834,6 +883,49 @@ export default function DashboardPage() {
     handlePipelineMsgRef.current = handlePipelineMsg;
   }, [handlePipelineMsg]);
 
+  // ─── Phase 31 (CHATUI-01/02/03) — live chat transcript + deep-link seam ──────
+  // The app-level SSE connection. The provider is not mounted today, so this is
+  // the inert default (`enabled === false`) → the flag-OFF legacy WS transport
+  // below is the active one, byte-identical to before (LOCK-B additive). When a
+  // future integration mounts RunConnectionProvider with the flag ON, `subscribe`
+  // / `sendCommand` take over with ZERO change here.
+  const runConnection = useRunConnection();
+  const sseEnabled = runConnection.enabled;
+
+  // Transport-agnostic frame subscription: SSE fan-out when enabled, else the
+  // local legacy-WS chat-frame fan-out. SAME transcript either way (CONTEXT).
+  const chatSubscribe = useCallback(
+    (fn: (f: RunChatFrame) => void) => {
+      if (sseEnabled) {
+        return runConnection.subscribe((m) =>
+          fn({ type: m.type, data: (m.data as Record<string, unknown>) ?? {} }),
+        );
+      }
+      return chatWsSubscribe(fn);
+    },
+    [sseEnabled, runConnection, chatWsSubscribe],
+  );
+
+  // Flag-OFF up-channel (LOCK-B): send the legacy `user_message` WS frame.
+  const legacyChatSend = useCallback(
+    (payload: Record<string, unknown>) => {
+      send(JSON.stringify(payload));
+    },
+    [send],
+  );
+
+  const { messages: runChatMessages, sendMessage: sendRunChatMessage } = useRunChat({
+    runId: activePipelineRunId,
+    subscribe: chatSubscribe,
+    sendCommand: runConnection.sendCommand,
+    // flag-ON uses sendCommand (REST up-channel); flag-OFF uses the legacy WS send.
+    legacyWsSend: sseEnabled ? undefined : legacyChatSend,
+  });
+
+  // The nonce'd deep-link seam (borrow #6): the lane's result cards call
+  // requestOpenTab; PreviewPanel consumes the pending {tab, nonce} (all tabs).
+  const runTabDeepLink = useTabDeepLink();
+
   // Fire a staged od_prototype run as soon as the WebSocket is open.
   // Re-reads from sessionStorage on every connect so backend restarts
   // don't lose the pending run.
@@ -1331,6 +1423,14 @@ export default function DashboardPage() {
       reopenedFailedAgents={reopenedFailedAgents}
       reopenedAgentNameById={reopenedAgentNameById}
       submittedBrief={submittedBrief}
+      // Phase 31 (CHATUI-01/02/03) — the family-anchored transcript + the
+      // transport-agnostic send, plus the nonce'd deep-link seam. The lane
+      // (mounted in DashboardLayout) consumes messages/send/requestOpenTab;
+      // PreviewPanel consumes the pending deep-link target for all tabs.
+      runChatMessages={runChatMessages}
+      onRunChatSend={sendRunChatMessage}
+      onRequestOpenTab={runTabDeepLink.requestOpenTab}
+      deepLinkTarget={runTabDeepLink.pending}
       onStartPipeline={(type, message, agentIds, attachedSkills, attachedHooks, extraParams) => {
         const isRevision = type.endsWith("_revision");
         // Workstream C1 (POR §1 gap-2): capture the run's input on every launch

@@ -145,6 +145,17 @@ export interface DashboardLayoutProps {
   // StartingPointCard + Files "Run input" section render on the LIVE mount. Optional
   // and default-undefined → non-live callers/tests render unchanged.
   submittedBrief?: string;
+  // ─── Phase 31 (CHATUI-01/02/03) — run chat lane wiring ──────────────────────
+  // The family-anchored transcript + the transport-agnostic send from page.tsx's
+  // `useRunChat` (fed by the active transport — SSE flag ON or legacy WS OFF).
+  // Consumed by the RunChatLane mounted in the execution left column. Optional /
+  // default-undefined → non-live callers and existing test renders unchanged.
+  runChatMessages?: ChatMessage[];
+  onRunChatSend?: (text: string, attachments?: import("@/types/index").ChatAttachment[]) => void;
+  // The nonce'd deep-link seam (borrow #6): the lane's result cards call
+  // onRequestOpenTab; PreviewPanel consumes deepLinkTarget for all tabs.
+  onRequestOpenTab?: (tab: string) => void;
+  deepLinkTarget?: import("@/hooks/useTabDeepLink").TabDeepLinkTarget | null;
 }
 
 type MainView = "home" | "library" | "history" | "settings" | "analytics" | "input" | "execution" | "catalog" | "saved-workflows";
@@ -278,6 +289,10 @@ export function DashboardLayout({
   userEmail,
   waves = [],
   submittedBrief,
+  runChatMessages,
+  onRunChatSend,
+  onRequestOpenTab,
+  deepLinkTarget,
 }: DashboardLayoutProps) {
   const router = useRouter();
   const [mainView, setMainView] = useState<MainView>(() => {
@@ -1607,6 +1622,7 @@ export function DashboardLayout({
                       runFamily={runFamily}
                       liveRunId={contentSourceRunId ?? null}
                       runInput={submittedBrief}
+                      deepLinkTarget={deepLinkTarget}
                     />
                   )}
                 </ErrorBoundary>

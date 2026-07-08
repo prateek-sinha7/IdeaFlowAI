@@ -13,6 +13,7 @@ import { AuditTab } from "@/components/results/AuditTab";
 import { AppBuilderPreview, type ParsedFile } from "./AppBuilderPreview";
 import { LiveVersionChip, ReadOnlyVersionBanner } from "./LiveVersionChip";
 import type { WorkflowType, GenericDeliverable, RunFamily } from "@/types/index";
+import type { TabDeepLinkTarget } from "@/hooks/useTabDeepLink";
 import { getToken, getWorkflow } from "@/lib/api";
 import { ENV } from "@/lib/env";
 // ISS-024 — shared id→name resolution for the failed-agents list (no dual-impl).
@@ -295,6 +296,14 @@ interface PreviewPanelProps {
   // correct). BOTH optional/default-undefined → existing renders unchanged.
   runInput?: string;
   clarifications?: import("@/types/index").ClarifyRound[];
+  // Phase 31 (CHATUI-02) — the nonce'd deep-link target a chat result-card mints
+  // via useTabDeepLink.requestOpenTab (borrow #6). PreviewPanel is the CONSUMER:
+  // an effect keyed on the nonce switches to the target tab for ALL panel tabs
+  // (the legacy initialTab only honored preview/files). The monotonic nonce
+  // makes a repeat deep-link to an already-open tab re-fire; a non-panel target
+  // (e.g. "steps" = the left lane column) is ignored here. Optional/default-null
+  // → existing renders unchanged (tsc-identity).
+  deepLinkTarget?: TabDeepLinkTarget | null;
 }
 
 const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
@@ -303,6 +312,10 @@ const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
   { id: "thinking", label: "Thinking", icon: Brain },
   { id: "audit", label: "Audit", icon: Shield },
 ];
+
+// The generic tab ids PreviewPanel owns. A deep-link to any of these switches the
+// tab; other generic targets (e.g. "steps") belong to the left lane column.
+const PANEL_TAB_IDS: readonly PanelTab[] = ["preview", "files", "thinking", "audit"];
 
 // ─── ISS-017 (16-04) — terminal-empty degraded/failed affordance ──────────────
 // Rendered (instead of the neutral "Output will appear here") when a run is
@@ -389,7 +402,7 @@ export function DegradedRunAffordance({
   );
 }
 
-export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, runFamily, liveRunId, runInput, clarifications }: PreviewPanelProps) {
+export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, runFamily, liveRunId, runInput, clarifications, deepLinkTarget }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>("preview");
   const [copied, setCopied] = useState(false);
   // ─── B3 (POR §5 D5) — live version chip state ───────────────────────────────
@@ -401,6 +414,20 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   const prevMemberCount = useRef<number | null>(null);
 
   useEffect(() => { if (initialTab === "preview" || initialTab === "files") setActiveTab(initialTab); }, [initialTab]);
+
+  // Phase 31 (CHATUI-02) — nonce'd deep-link consumer (borrow #6). A chat
+  // result-card click mints a fresh {tab, nonce}; switch to the target tab for
+  // ALL panel tabs (preview/files/thinking/audit) — one switch per click. The
+  // effect is keyed on the monotonic nonce, so a repeat deep-link to the
+  // already-active tab still re-fires, and a stale nonce cannot re-navigate. A
+  // non-panel target (e.g. "steps", owned by the left lane column) is ignored.
+  useEffect(() => {
+    const tab = deepLinkTarget?.tab;
+    if (tab && (PANEL_TAB_IDS as readonly string[]).includes(tab)) {
+      setActiveTab(tab as PanelTab);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinkTarget?.nonce]);
 
   // ─── B3 — family/version derivation (UI-SPEC Surface 3) ──────────────────────
   // sortedMembers v1..vN by revision_index; latestId = last member (fallback
