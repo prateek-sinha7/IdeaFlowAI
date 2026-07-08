@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: — Universal Run Chat & VelocityAI UI Convergence
 status: executing
-last_updated: "2026-07-08T21:04:48.075Z"
-last_activity: 2026-07-08 -- Completed 33-01-PLAN.md (bounded-chat-history capabilities)
+last_updated: "2026-07-08T21:17:35.708Z"
+last_activity: 2026-07-08 -- Completed 33-02-PLAN.md (chat:concierge capability)
 progress:
   total_phases: 11
   completed_phases: 5
   total_plans: 40
-  completed_plans: 36
+  completed_plans: 37
   percent: 45
 ---
 
@@ -25,9 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 ## Current Position
 
 Phase: 33 (concierge-compaction-a5) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
-Last activity: 2026-07-08 -- Completed 33-01-PLAN.md (Wave 1: compaction:chat_history pure compact() + context_provider:conversation self-gating clone + registry lockstep 66->68. SUMMARY reconstructed on resume after the executor stalled on a connection drop [checkpoint 47c37e9f] with no summary written; grounded in a direct file read + green re-run [128 passed, lint-imports 4/0]. Commits 98a6e0a5 + 3a51511a + b250c87e; summary a0e192eb.)
+Last activity: 2026-07-08 -- Completed 33-02-PLAN.md (Wave 2: chat:concierge app-side capability. ONE per-run orchestrator [app/agents/chat/concierge.py] whose model call runs EXCLUSIVELY through DeepAgentRunner [INV-13, Haiku default, P26 caching inherited — create_deep_agent grep 0, DeepAgentRunner 6]; READ tools are thin owner-scoped ScopedStore wrappers [read_events/list_refs/get_ref/read_gate_events, IDOR->404, no raw ORM]; PROPOSAL-ONLY tools [propose_steering_note/propose_revision/propose_gate_action, gate actions incl. update_specs] each return a frozen ProposalIntent{channel,params} with ZERO side effect [app disposes in 33-03]; system prompt composed from DATA only [getattr(compiled,'chat',{}) + conversation block, no workflow-name branch, INV-1]. Registry lockstep 68->69 [_KNOWN + _EXPECTED_NAMES + _forward_packages 'app.agents.chat'; 3 drift-guard files]. VERIFIED [orchestrator re-run]: 134 passed [concierge+registry+banned-patterns+2 count files]; lint-imports 4/0; banned-patterns green; git diff = registry.py + new chat package + 3 count files + SUMMARY [no STATE/ROADMAP/33-01 touch]. Intent channels steering_note/revision/gate_action -> 33-03 must map to set_review_response/apply_steering/_mint_revision_row. Live Concierge Q&A + multi-turn cache = human_needed [Phase-34]. Commits e03ae06e + fe479e64 + 527fb4e8; summary a4bd7a61.)
+Prior activity: 2026-07-08 -- Completed 33-01-PLAN.md (Wave 1: compaction:chat_history + context_provider:conversation + registry lockstep 66->68; SUMMARY reconstructed on resume [checkpoint 47c37e9f], 128 passed, lint 4/0. Commits 98a6e0a5 + 3a51511a + b250c87e; summary a0e192eb.)
 Prior activity: 2026-07-08 -- Phase 33 execution started
 Prior activity: 2026-07-08 -- Completed 32-06-PLAN.md (SC-4/SC-1 RunChatLane reskin to tokens/primitives + faithful cancelled/failed/degraded terminal cards off generic pipelineState markers; INV-3 duplicate AgentProgressPanel run-lane mount removed [RunChatLane sole stop/revise]; DashboardLayout terminal runLaneState + updateSpecsEligible/artifactKind laneGate map [no workflow-name branch, SC-001]; PreviewPanel additive optional gate/clarify passthrough props for plans 07/08. See 32-06-SUMMARY.md. Commits 6a0dd2ae + 510f43fb + 166621ff + bd1912d9.)
 Prior activity: 2026-07-08 -- Completed 32-05-PLAN.md (chat-lane STATE plumbing. ISS-035/SC-4: pipeline_cancelled reducer stamps a boolean `cancelled` terminal marker on pipelineState [symmetric with the pipeline_failed `failed` marker] so RunLaneState derives the LIVE-STATE-CONTRACT §1 cancelled state instead of idle; NO chat message pushed from the reducer [plan 06 renders "Cancelled by you" off the marker]. FIX-039 NOT regressed: the ISS-035 edit is confined to the pipeline_cancelled return object; the unconditional agent_start accumulator reset block is byte-unchanged, proven by a new reducer test asserting the double-agent_start replace-not-append invariant. SC-001/SC-2: useWorkflow.ts prototype-specify literal REMOVED [grep 0, was 2] — specRevisionCount bumps off the generic wasAlreadyDone signal [isSpecRevisionRerun = wasAlreadyDone, ND-11 name-free]; page.tsx review_gate_ready defensively parses the plan-04 data.update_specs_eligible ?? false + data.artifact_kind into reviewGateData [the single FE feed for plans 06/08], ReviewGateReadyData + reviewGateData types extended additively. ISS-036/LOCK-B: useRunChat runId threaded to pipelineState.pipelineRunId ?? activePipelineRunId so the REST command path targets the live building run; PURE FE prop change — RunConnectionProvider NOT mounted, NEXT_PUBLIC_SSE_TRANSPORT untouched, useWebSocket.ts/app/layout.tsx unchanged, legacy WS stays the ACTIVE transport, SSE dormant. PROVEN OFFLINE: npx vitest run [pipelineCancelled + regenerateReset + reconnect + clarifyRetention + imagePayload + useRunChat] = 6 files / 26 green; npx tsc --noEmit | grep -v mockApi.ts | grep -c error = 0 [identity, baseline 0]; prototype-specify count 0; LOCK-B held. Deviation [Rule 3]: plan cited a non-existent __tests__ dir + monolithic useWorkflow.test.ts; new test landed at the pinned __tests__/ path, no-regression proof substituted the four existing useWorkflow.*.test.ts files. 4 atomic commits b2f3c623 [test RED] + 8b478161 [feat cancelled marker] + 1d115b38 [feat SC-001 + parse] + 03997db3 [feat runId thread].)
