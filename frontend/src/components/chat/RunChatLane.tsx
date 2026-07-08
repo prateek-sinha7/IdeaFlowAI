@@ -42,6 +42,10 @@ import {
 } from "./InlineClarifyActions";
 import { InlineGateActions } from "./InlineGateActions";
 import type { PendingAttachment } from "@/hooks/useChatAttachments";
+import { Button } from "../ui/Button";
+import { Card } from "../ui/Card";
+import { Badge } from "../ui/Badge";
+import { buildAgentNameById, resolveAgentNames } from "@/lib/parseFailedAgents";
 
 /**
  * The GENERIC live-run state that drives the composer mode (D-12,
@@ -140,7 +144,7 @@ function FreeTextComposer({
 
   return (
     <div className="space-y-2">
-      {hint && <p className="text-[10px] text-gray-400">{hint}</p>}
+      {hint && <p className="text-[10px] text-ink-400">{hint}</p>}
       <ChatAttachments
         key={attachKey}
         onChange={(a) => {
@@ -160,7 +164,7 @@ function FreeTextComposer({
           rows={2}
           placeholder={placeholder}
           aria-label="Chat message input"
-          className="flex-1 resize-none rounded-xl border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#1B2A4A]/40 leading-relaxed"
+          className="flex-1 resize-none rounded-[var(--radius-card)] border border-line-control bg-surface-white px-3 py-2 text-[13px] text-ink-900 placeholder-ink-400 focus:outline-none focus:border-brand/40 leading-relaxed"
         />
         <button
           type="button"
@@ -168,7 +172,7 @@ function FreeTextComposer({
           onClick={handleSend}
           disabled={!value.trim()}
           aria-label="Send message"
-          className="flex items-center justify-center rounded-xl bg-[#1B2A4A] px-3.5 py-2.5 text-white transition-colors hover:bg-[#2a3d5e] disabled:opacity-40 disabled:cursor-not-allowed"
+          className="flex items-center justify-center rounded-[var(--radius-button)] bg-brand px-3.5 py-2.5 text-white transition-colors hover:bg-brand-pressed disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <Send className="h-4 w-4" />
         </button>
@@ -255,8 +259,8 @@ export function RunChatLane({
             {suggestions && suggestions.length > 0 && (
               <div className="space-y-1.5">
                 <div className="flex items-center gap-1.5">
-                  <Sparkles className="h-3 w-3 text-[#1B2A4A]" />
-                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#1B2A4A]">
+                  <Sparkles className="h-3 w-3 text-brand" />
+                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-brand">
                     Suggested next steps
                   </p>
                 </div>
@@ -269,7 +273,7 @@ export function RunChatLane({
                       data-suggestion-id={s.id}
                       onClick={() => onSuggestion?.(s.id)}
                       title={s.description}
-                      className="rounded-full border border-[#1B2A4A]/20 bg-white px-3 py-1.5 text-[11px] font-medium text-[#1B2A4A] transition-all hover:border-[#1B2A4A] hover:bg-[#1B2A4A] hover:text-white"
+                      className="rounded-[var(--radius-pill)] border border-line-control bg-surface-white px-3 py-1.5 text-[11px] font-medium text-brand transition-all hover:border-brand hover:bg-brand hover:text-white"
                     >
                       {s.label}
                     </button>
@@ -324,26 +328,28 @@ export function RunChatLane({
       className="flex h-full flex-col bg-white"
     >
       {/* Header — compact token widget + Stop while running. */}
-      <div className="flex items-center justify-between gap-2 border-b border-gray-100 px-4 py-2.5 flex-shrink-0">
+      <div className="flex items-center justify-between gap-2 border-b border-line-divider px-4 py-2.5 flex-shrink-0">
         {pipelineState ? (
           <ChatTokenWidget pipelineState={pipelineState} />
         ) : (
           <span />
         )}
         {isRunning && onStop && (
-          <button
+          <Button
             type="button"
+            variant="secondary"
+            size="sm"
             data-testid="chat-stop"
             onClick={onStop}
-            className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[10px] font-medium text-gray-500 transition-all hover:border-gray-300 hover:text-gray-900"
+            className="gap-1.5 text-[10px] text-ink-500"
           >
             <Square className="h-3 w-3" /> Stop
-          </button>
+          </Button>
         )}
       </div>
 
       {/* Transcript — ChatPanel owns the aria-live/role=log region + blocks. */}
-      <div className="flex-1 min-h-0">
+      <div data-testid="chat-lane-transcript" className="flex-1 min-h-0">
         <ChatPanel
           messages={messages}
           isStreaming={isStreaming}
@@ -359,7 +365,7 @@ export function RunChatLane({
       <div
         data-testid="chat-composer"
         data-composer-mode={runState}
-        className="flex-shrink-0 border-t border-gray-100 px-4 py-3"
+        className="flex-shrink-0 border-t border-line-divider px-4 py-3"
       >
         {renderComposerBody()}
       </div>
