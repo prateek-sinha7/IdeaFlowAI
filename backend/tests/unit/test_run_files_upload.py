@@ -283,6 +283,54 @@ class TestSandboxLanding:
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# Filename-collision disambiguation (WR-01) — no silent overwrite
+# ════════════════════════════════════════════════════════════════════════════
+
+
+class TestFilenameCollision:
+    def test_within_batch_collision_is_disambiguated_not_overwritten(self, env):
+        import json
+
+        user = _seed_user(env, "u")
+        run_id = _owned_run(env, user)
+        env["state"]["user"] = user
+        # Two DISTINCT originals that sanitize to the SAME safe segment.
+        resp = _post(env, run_id, [
+            ("files", ("invoice#1.txt", b"FIRST FILE CONTENTS", "text/plain")),
+            ("files", ("invoice@1.txt", b"SECOND FILE CONTENTS", "text/plain")),
+        ])
+        assert resp.status_code == 200, resp.text
+        names = [f["name"] for f in resp.json()["files"]]
+        # Distinct stored names, reported ACTUAL — first keeps bare, second gets -2.
+        assert names == ["invoice_1.txt", "invoice_1-2.txt"]
+        assert len(set(names)) == 2
+        sb = _sandbox(env, user.id, run_id)
+        # BOTH files' bytes survive on disk (no silent clobber).
+        assert sb.path_for(".uploads/invoice_1.txt").read_bytes() == b"FIRST FILE CONTENTS"
+        assert sb.path_for(".uploads/invoice_1-2.txt").read_bytes() == b"SECOND FILE CONTENTS"
+        manifest = json.loads(sb.path_for(".uploads/manifest.json").read_text())
+        assert {e["name"] for e in manifest} == {"invoice_1.txt", "invoice_1-2.txt"}
+
+    def test_collision_with_prior_upload_is_disambiguated(self, env):
+        import json
+
+        user = _seed_user(env, "u")
+        run_id = _owned_run(env, user)
+        env["state"]["user"] = user
+        r1 = _post(env, run_id, [("files", ("report.txt", b"ORIGINAL", "text/plain"))])
+        assert r1.status_code == 200
+        # A later request re-using the same name must not clobber the first upload.
+        r2 = _post(env, run_id, [("files", ("report.txt", b"SECOND UPLOAD", "text/plain"))])
+        assert r2.status_code == 200
+        assert r2.json()["files"][0]["name"] == "report-2.txt"
+        sb = _sandbox(env, user.id, run_id)
+        assert sb.path_for(".uploads/report.txt").read_bytes() == b"ORIGINAL"
+        assert sb.path_for(".uploads/report-2.txt").read_bytes() == b"SECOND UPLOAD"
+        manifest = json.loads(sb.path_for(".uploads/manifest.json").read_text())
+        assert {e["name"] for e in manifest} == {"report.txt", "report-2.txt"}
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # Deliverable exclusion (T-30-05 / INV-3)
 # ════════════════════════════════════════════════════════════════════════════
 

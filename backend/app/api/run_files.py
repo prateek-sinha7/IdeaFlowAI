@@ -77,6 +77,28 @@ def _ext_of(filename: str) -> str:
     return filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
 
+def _dedupe_segment(safe: str, used: set[str]) -> str:
+    """Return ``safe`` — or ``safe`` with a ``-N`` suffix inserted before its extension —
+    that is not already in ``used`` (WR-01).
+
+    Two DISTINCT original filenames can sanitize to the same ``_safe_segment`` (e.g.
+    ``invoice#1.txt`` and ``invoice@1.txt`` both → ``invoice_1.txt``); without this the
+    second write silently clobbers the first's bytes + sidecar + manifest entry while the
+    response still reports both as stored. The first use keeps the bare name; each
+    subsequent collision takes the next free ``-2``, ``-3``… (``invoice_1.txt`` →
+    ``invoice_1-2.txt``), so no upload is ever silently overwritten and the caller is told
+    the ACTUAL stored name.
+    """
+    if safe not in used:
+        return safe
+    stem, dot, ext = safe.rpartition(".")
+    base, suffix = (stem, f".{ext}") if dot else (safe, "")
+    n = 2
+    while f"{base}-{n}{suffix}" in used:
+        n += 1
+    return f"{base}-{n}{suffix}"
+
+
 @router.post("/{run_id}/files")
 async def upload_files(
     run_id: str,
@@ -171,10 +193,16 @@ async def upload_files(
 
     manifest_rel = f"{_UPLOADS_PREFIX}manifest.json"
     manifest = _read_manifest(sandbox, manifest_rel)
+    # Seed with the names already stored for this run so a new upload never silently
+    # overwrites a prior one either (WR-01) — every stored file keeps a distinct name.
+    used_names: set[str] = set(manifest)
     results: list[dict] = []
 
     for name, data, ext, mime in validated:
-        safe = _safe_segment(os.path.basename(name), fallback="upload")
+        safe = _dedupe_segment(
+            _safe_segment(os.path.basename(name), fallback="upload"), used_names
+        )
+        used_names.add(safe)
         raw_rel = f"{_UPLOADS_PREFIX}{safe}"
         _write_bytes(sandbox, raw_rel, data)
 
