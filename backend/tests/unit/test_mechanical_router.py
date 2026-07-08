@@ -23,6 +23,7 @@ from app.api.chat_router import (
     ChatTurn,
     RunState,
     apply_steering,
+    apply_turn_images,
     derive_open_gate,
     route_chat_turn,
 )
@@ -136,6 +137,41 @@ class TestSteeringRouting:
             pass
 
         apply_steering(_Bare(), {"text": "x"})  # must not raise
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# per-turn image seam (30-03) — the image analogue of apply_steering
+# ════════════════════════════════════════════════════════════════════════════
+class TestTurnImageSeam:
+    def test_apply_turn_images_appends_to_pending_queue(self):
+        class _Ectx:
+            def __init__(self):
+                self.pending_turn_images = []
+
+        ectx = _Ectx()
+        apply_turn_images(ectx, [{"mime_type": "image/png", "data": "AAAA"}])
+        assert ectx.pending_turn_images == [{"mime_type": "image/png", "data": "AAAA"}]
+
+    def test_apply_turn_images_normalizes_and_drops_malformed(self):
+        class _Ectx:
+            def __init__(self):
+                self.pending_turn_images = []
+
+        ectx = _Ectx()
+        apply_turn_images(ectx, [
+            {"mimeType": "image/jpeg", "data": "BBBB"},  # alias key normalized
+            {"mime_type": "image/png"},                   # missing data → dropped
+            {"data": "CCCC"},                             # missing mime → dropped
+            "not-a-dict",                                 # non-dict → dropped
+        ])
+        assert ectx.pending_turn_images == [{"mime_type": "image/jpeg", "data": "BBBB"}]
+
+    def test_apply_turn_images_noop_without_seam(self):
+        class _Bare:
+            pass
+
+        apply_turn_images(_Bare(), [{"mime_type": "image/png", "data": "AAAA"}])  # no raise
+        apply_turn_images(None, [{"mime_type": "image/png", "data": "AAAA"}])     # no raise
 
 
 # ════════════════════════════════════════════════════════════════════════════
