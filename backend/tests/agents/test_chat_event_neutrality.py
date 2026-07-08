@@ -13,10 +13,14 @@ committed golden event streams (no engine drive, no Bedrock), so it runs in the
 offline targeted suite. A passing run against the UNCHANGED ``golden/*`` fixtures IS
 the proof — do NOT regenerate any fixture.
 
+Phase 33 extends ``_CHAT_EVENT_TYPES`` with the Concierge's ``concierge_proposal`` —
+the SAME neutrality claim must hold (it fires on none of the 5 goldens), which is why
+adding it to the documented vocabulary is parity-safe (INV-3).
+
 The two guards are pinned together on purpose:
-  * ``test_chat_events_absent_from_golden`` — the three types appear in NONE of the
-    5 golden event ``type`` sequences (parity neutrality — the reason INV-3 holds).
-  * ``test_chat_events_are_documented`` — the three types ARE in the documented
+  * ``test_chat_events_absent_from_golden`` — every chat-lane type appears in NONE of
+    the 5 golden event ``type`` sequences (parity neutrality — the reason INV-3 holds).
+  * ``test_chat_events_are_documented`` — every chat-lane type IS in the documented
     vocabulary, so a future accidental removal from ``_DOCUMENTED_EVENT_TYPES``
     fails here rather than silently un-registering a legal outbound event.
 """
@@ -30,8 +34,14 @@ import pytest
 
 from tests.agents.test_phase3_cutover_verify import _DOCUMENTED_EVENT_TYPES
 
-# The run-chat lane event types pinned by Phase 28 [A0] (POR D-01).
-_CHAT_EVENT_TYPES = frozenset({"chat_message", "chat_reply", "stream_attached"})
+# The run-chat lane event types pinned by Phase 28 [A0] (POR D-01), extended in
+# Phase 33 with the Concierge's ``concierge_proposal`` (the ONLY new event type 33-03
+# introduced — answers reuse ``chat_reply``, and no new ``pipeline_complete`` key was
+# added, so ``_VOLATILE_STRIP_KEYS`` needs no addition). Every type here must fire on
+# NONE of the 5 golden streams (concierge dormant on golden paths — INV-3).
+_CHAT_EVENT_TYPES = frozenset(
+    {"chat_message", "chat_reply", "stream_attached", "concierge_proposal"}
+)
 
 # The 5 characterization pipelines whose golden event streams must stay chat-free.
 _GOLDEN_PIPELINES = (

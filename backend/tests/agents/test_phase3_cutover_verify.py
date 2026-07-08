@@ -241,6 +241,15 @@ _DOCUMENTED_EVENT_TYPES = frozenset(
         "chat_message",
         "chat_reply",
         "stream_attached",
+        # ── Concierge proposal event (Phase 33 / D-05) ──────────────────────
+        # The run Concierge (chat:concierge) disposes a proposal-only intent behind
+        # a confirm chip; when HELD (unconfirmed) the app layer persists a durable
+        # ``concierge_proposal`` run_events row (run_commands.py). It is ADDITIVE
+        # forward vocabulary for the run-chat lane — the SCRIPTED characterization
+        # harness has no Concierge, so it fires on NONE of the 5 goldens (proven by
+        # test_chat_event_neutrality), keeping them byte/event-identical (INV-3).
+        # 33-03 introduced NO other new event type (answers reuse ``chat_reply``).
+        "concierge_proposal",
     }
 )
 
