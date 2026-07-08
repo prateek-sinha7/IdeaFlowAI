@@ -227,11 +227,11 @@ Registered 2026-07-07 via `/gsd-import`. Plan of record: `.planning/CHAT-AND-UI-
 
 ### Run-Screen Redesign (Phase 32)
 
-- [ ] **RUNUI-01**: Token layer (black/beige/one-blue `#3C2CDA`, Manrope/Heebo) + shared primitives; run screens consume tokens, no new hardcoded palette
-- [ ] **RUNUI-02**: Run screen = chat lane (left) + Preview/Steps/Files/Audit (right); typed-renderer switcher as manual override over existing dispatch
+- [x] **RUNUI-01**: Token layer (black/beige/one-blue `#3C2CDA`, Manrope/Heebo) + shared primitives; run screens consume tokens, no new hardcoded palette
+- [x] **RUNUI-02**: Run screen = chat lane (left) + Preview/Steps/Files/Audit (right); typed-renderer switcher as manual override over existing dispatch
 - [x] **RUNUI-03**: Steps 3-level drill-down from real events (overview spine → agent detail + Context-received rail → task detail, dual task-loop/fanout source); gate/clarify inline
-- [ ] **RUNUI-04**: Audit tab reads new `gate_events`/`validation_results`/`exec_runs` endpoints; counters/filters/CSV-JSON export; status palette only for governance
-- [ ] **RUNUI-05**: E2E hardened — brittle color-class assertions fixed, `data-testid`s on chat surfaces, mockWs chat driver in use
+- [x] **RUNUI-04**: Audit tab reads new `gate_events`/`validation_results`/`exec_runs` endpoints; counters/filters/CSV-JSON export; status palette only for governance
+- [x] **RUNUI-05**: E2E hardened — brittle color-class assertions fixed, `data-testid`s on chat surfaces, mockWs chat driver in use
 
 ### Concierge & Compaction (Phase 33)
 
@@ -458,11 +458,11 @@ Each v1 requirement maps to exactly one phase, **one row per requirement** (REQ-
 | CHATUI-01 | Phase 31 [A3] | Complete |
 | CHATUI-02 | Phase 31 [A3] | Complete |
 | CHATUI-03 | Phase 31 [A3] | Complete |
-| RUNUI-01 | Phase 32 [A4] | Pending |
-| RUNUI-02 | Phase 32 [A4] | Pending |
+| RUNUI-01 | Phase 32 [A4] | Complete |
+| RUNUI-02 | Phase 32 [A4] | Complete |
 | RUNUI-03 | Phase 32 [A4] | Complete |
-| RUNUI-04 | Phase 32 [A4] | Pending |
-| RUNUI-05 | Phase 32 [A4] | Pending |
+| RUNUI-04 | Phase 32 [A4] | Complete |
+| RUNUI-05 | Phase 32 [A4] | Complete |
 | CONC-01 | Phase 33 [A5] | Pending |
 | CONC-02 | Phase 33 [A5] | Pending |
 | CONC-03 | Phase 33 [A5] | Pending |
