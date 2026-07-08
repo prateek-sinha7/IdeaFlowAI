@@ -1657,6 +1657,10 @@ export function DashboardLayout({
                       onRedo={onRedoReview}
                       redoable={reviewGateData.redoable}
                       onUpdateSpecs={onUpdateSpecsReview}
+                      // SC-001 (plan 08): drive the icon/label/renderer +
+                      // Update-Specs off the declared kind/flag, not agent-id.
+                      artifactKind={reviewGateData.artifactKind}
+                      updateSpecsEligible={reviewGateData.updateSpecsEligible}
                     />
                   ) : (questionnaireLoading || questionnaireQuestions.length > 0) && (pendingPipelineRun || activePipelineRunId) ? (
                     <QuestionnairePanel

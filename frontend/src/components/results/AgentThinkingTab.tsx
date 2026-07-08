@@ -10,6 +10,8 @@ import {
 import type { AgentRunState, ContextSource, ToolCallEntry, PipelineRunState, ValidationIssue, ClarifyRound, WaveGroup } from "@/types/index";
 import { WaveTreePanel } from "@/components/workflow/WaveTreePanel";
 import { TokenUsageSummary } from "@/components/workflow/TokenUsageSummary";
+import { InlineGateActions } from "@/components/chat/InlineGateActions";
+import { InlineClarifyActions } from "@/components/chat/InlineClarifyActions";
 import { StartingPointCard } from "./StartingPointCard";
 import { ClarificationsCard } from "./ClarificationsCard";
 
@@ -695,7 +697,14 @@ function ConstructionDrilldown({
 // replacing the former bespoke TokenSummary so all pipelines use one component.
 
 // ─── Main export ──────────────────────────────────────────────────────────────
-export function AgentThinkingTab({ agents, pipelineState, waves, runInput, originalBriefRootRunId, revisionParentVersion, clarifications, clarificationsLoading }: AgentThinkingTabProps) {
+export function AgentThinkingTab({
+  agents, pipelineState, waves, runInput, originalBriefRootRunId, revisionParentVersion,
+  clarifications, clarificationsLoading,
+  // Phase 32 plan 08 — the plan-06/07 gate/clarify passthrough is now CONSUMED
+  // via the reused generic InlineGateActions/InlineClarifyActions (SC-2).
+  laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate,
+  clarifyQuestions, onSubmitClarify, onSkipClarify,
+}: AgentThinkingTabProps) {
   const runningRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -784,6 +793,40 @@ export function AgentThinkingTab({ agents, pipelineState, waves, runInput, origi
 
         {/* Workstream C2 (POR §5 D4) — the clarify exchange, AFTER the Planner */}
         <ClarificationsCard clarifications={resolvedClarifications} loading={clarificationsLoading} />
+
+        {/* Phase 32 plan 08 — INLINE gate: the paused review gate rendered in the
+            Steps trace via the REUSED generic InlineGateActions (KAN-101/95/100/98,
+            SC-001). The Update-the-Specs affordance keys on the generic
+            updateSpecsEligible flag; the KAN-100 terminal fence + retained edit +
+            reject-confirm are all inherited from the shared component. */}
+        {laneGate && onApproveGate && (
+          <InlineGateActions
+            agentId={laneGate.agentId}
+            agentName={laneGate.agentName}
+            output={laneGate.output}
+            gateKey={laneGate.gateKey}
+            redoable={laneGate.redoable}
+            updateSpecsEligible={laneGate.updateSpecsEligible}
+            isPipelineRunning={pipelineState?.isRunning ?? false}
+            approveLabel={laneGate.approveLabel}
+            onApprove={onApproveGate}
+            onReject={onRejectGate ?? (() => {})}
+            onRedo={onRedoGate}
+            onUpdateSpecs={onUpdateSpecsGate}
+          />
+        )}
+
+        {/* Phase 32 plan 08 — INLINE clarify: the clarify-waiting round rendered in
+            the Steps trace via the REUSED generic InlineClarifyActions, emitting the
+            canonical [{question_id, answer}] over the SAME submit_questionnaire
+            channel the full panel uses (one channel regardless of surface). */}
+        {clarifyQuestions && clarifyQuestions.length > 0 && onSubmitClarify && (
+          <InlineClarifyActions
+            questions={clarifyQuestions}
+            onSubmitAnswers={onSubmitClarify}
+            onSkipAll={onSkipClarify}
+          />
+        )}
 
         {/* Agent cards */}
         {visibleAgents.map((agent, idx) => {

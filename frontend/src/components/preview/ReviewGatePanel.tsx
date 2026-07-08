@@ -34,10 +34,24 @@ interface ReviewGatePanelProps {
   /** Server-set generic discriminator (REDO-GATE F1b). Default false. */
   redoable?: boolean;
   /**
-   * KAN-101: Trigger the spec revision sub-pipeline (specify → plan → analyze)
-   * with the current analysis report as context. Only rendered when isAnalysis.
+   * KAN-101: Trigger the spec revision sub-pipeline with the current analysis
+   * report as context. Rendered off the generic `updateSpecsEligible` flag below
+   * (SC-001), never a workflow/agent-name literal.
    */
   onUpdateSpecs?: (gateKey: string, analysisReport: string) => void;
+  /**
+   * SC-001 (plan 08): the DECLARED structural artifact kind for this gate's output
+   * (`spec` / `task_list` / `summary` / `html_file` / `validation_report` — from
+   * the backend `_artifact_kind_for`), used to pick the icon/label/description +
+   * preview renderer WITHOUT any prototype-* agent-id literal. Undefined → generic.
+   */
+  artifactKind?: string;
+  /**
+   * SC-001 / KAN-101: the generic server-set eligibility flag — the "Update the
+   * Specs" affordance renders IFF this is true AND onUpdateSpecs is wired (mirrors
+   * InlineGateActions; a renamed workflow cannot smuggle the affordance).
+   */
+  updateSpecsEligible?: boolean;
 }
 
 // ─── Spec renderer — parses <spec>...</spec> into readable sections ───────────
@@ -229,7 +243,8 @@ function AnalysisPreview({ content }: { content: string }) {
 
 
 export function ReviewGatePanel({
-  agentId, agentName, output, gateKey, onApprove, onReject, onRedo, redoable, onUpdateSpecs,
+  agentName, output, gateKey, onApprove, onReject, onRedo, redoable, onUpdateSpecs,
+  artifactKind, updateSpecsEligible,
 }: ReviewGatePanelProps) {
   const [mode, setMode] = useState<"preview" | "edit">("preview");
   const [editedContent, setEditedContent] = useState(output);
@@ -248,9 +263,14 @@ export function ReviewGatePanel({
   // this gate redoable (the generic F1b fence — no workflow/agent literal here).
   const canRedo = !!onRedo && !!redoable;
 
-  const isSpec = agentId === "prototype-specify";
-  const isTasks = agentId === "prototype-plan";
-  const isAnalysis = agentId === "prototype-analyze";
+  // SC-001 (plan 08): the icon/label/description + preview renderer are chosen off
+  // the DECLARED structural artifact kind and the artifact's own wrapper tag in the
+  // output — NEVER a prototype-* agent-id literal. artifactKind is authoritative;
+  // the content-tag sniff is the name-free fallback when the kind is omitted.
+  const isSpec = artifactKind === "spec" || /<spec[\s>]/i.test(output);
+  const isTasks = artifactKind === "task_list" || /<tasks[\s>]/i.test(output);
+  const isAnalysis =
+    (!isSpec && !isTasks) && (artifactKind === "summary" || /<analysis[\s>]/i.test(output));
 
   const handleEdit = useCallback((value: string) => {
     setEditedContent(value);
@@ -421,11 +441,12 @@ export function ReviewGatePanel({
             : (hasEdits ? "Approve with edits & continue" : "Approve & continue")}
         </button>
 
-        {/* KAN-101: "Update the Specs" — only shown on the analyze gate.
-            Triggers a spec revision sub-pipeline (specify → plan → analyze) with
-            the analysis report as context, re-opening this gate with the new output.
-            Keyed on the onUpdateSpecs prop being wired (generic fence, not agent id). */}
-        {isAnalysis && !!onUpdateSpecs && (
+        {/* KAN-101 / SC-001: "Update the Specs" — triggers a spec revision
+            sub-pipeline with the report as context, re-opening this gate with the
+            new output. Rendered off the GENERIC updateSpecsEligible flag + the
+            wired onUpdateSpecs handler (mirrors InlineGateActions) — never keyed on
+            a prototype-* agent-id literal. */}
+        {!!onUpdateSpecs && !!updateSpecsEligible && (
           <button
             onClick={handleUpdateSpecs}
             disabled={submitted}
