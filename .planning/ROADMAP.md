@@ -815,6 +815,13 @@ Plans:
 3. Uploaded documents are agent-readable (`read_file`) AND their extracted text is sticky context present in every subsequent `agent_input`.
 4. Launch-time attachments (incl. images) ride `run_pipeline`.
 
+**Plans:** 5 plans (planned 2026-07-08) — *(scope-trimmed: image-INGESTION spine already landed via IMAGE-INPUT-PLAN waves edw/frv/gvq; image-persistence DEFERRED per ND-10/LOCK-E)*
+- [ ] 30-01-PLAN.md — UPLD-01: `POST /api/runs/{id}/files` (owner-scoped, capped) → RunSandbox + extract-to-`.uploads` sidecar [wave 1]
+- [ ] 30-02-PLAN.md — UPLD-03: `context_provider:uploaded_files` sticky context (zero engine edits, SC-001) [wave 2]
+- [ ] 30-03-PLAN.md — UPLD-02 residue: per-turn image carrier on the Phase-29 message path + ND-10 no-persistence lock [wave 1]
+- [ ] 30-04-PLAN.md — UPLD-04: client-side image resize + ND-10 "image not retained" reopen placeholder [wave 1]
+- [ ] 30-05-PLAN.md — IMPLEMENTATION-REGISTER entry for the landed image-input cluster (edw/frv/gvq) [wave 1]
+
 ### Phase 31: Chat Lane MVP [A3]
 
 **Goal:** The chat lane ships inside the current skin — streaming bubbles, result cards deep-linking into tabs, quick actions, attachments — before any reskin.
