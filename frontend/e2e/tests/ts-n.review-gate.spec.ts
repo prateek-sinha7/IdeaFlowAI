@@ -135,8 +135,10 @@ test.describe("TS-N — mid-run review gate (ReviewGatePanel)", () => {
       dashboard.page.getByText("Changes will be used by the next agent", { exact: false }),
     ).toBeVisible();
 
-    // A mono textarea, prefilled with the agent output.
-    const textarea = dashboard.page.locator("textarea.font-mono");
+    // A prefilled editable textarea. Anchor on the ARIA textbox role (the edit
+    // pane's only textbox; the redo box only mounts when redoable) rather than
+    // the font-mono class the reskin retokenises — role survives the reskin.
+    const textarea = dashboard.page.getByRole("textbox");
     await expect(textarea).toBeVisible();
     await expect(textarea).toHaveValue(SPEC_OUTPUT);
   });
@@ -180,7 +182,8 @@ test.describe("TS-N — mid-run review gate (ReviewGatePanel)", () => {
 
     // Edit the content, then approve — the label flips to "Approve with edits".
     await dashboard.page.getByRole("button", { name: "Edit", exact: true }).click();
-    const textarea = dashboard.page.locator("textarea.font-mono");
+    // Anchor on the ARIA textbox role (reskin-durable), not the font-mono class.
+    const textarea = dashboard.page.getByRole("textbox");
     const edited = SPEC_OUTPUT + "\n## Extra\nAdded by reviewer.";
     await textarea.fill(edited);
     await expect(

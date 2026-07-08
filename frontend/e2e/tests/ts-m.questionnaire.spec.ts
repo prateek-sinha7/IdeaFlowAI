@@ -51,10 +51,13 @@ test.describe("TS-M — questionnaire / clarify gate", () => {
     await expect(dashboard.page.getByRole("button", { name: "Casual" })).toBeVisible();
 
     // q2 is the LAST question → selecting it does NOT auto-advance, so the
-    // selected option stays mounted and we can assert the navy selected state.
+    // selected option stays mounted and we can assert its selected state.
+    // Selected options render inverted (white text on the brand fill); the
+    // reskin-durable signal is `text-white` (unselected options are text-gray-700),
+    // which survives the navy-hex→brand-token migration that a hex class does not.
     const formal = dashboard.page.getByRole("button", { name: "Formal" });
     await formal.click();
-    await expect(formal).toHaveClass(/bg-\[#1B2A4A\]/);
+    await expect(formal).toHaveClass(/text-white/);
     await expect(dashboard.page.getByText("2 of 2 answered")).toBeVisible();
   });
 
@@ -73,14 +76,14 @@ test.describe("TS-M — questionnaire / clarify gate", () => {
     );
     await expect(customInput).toBeVisible();
 
-    // Pick an MCQ suggestion first → it becomes selected (navy).
+    // Pick an MCQ suggestion first → it becomes selected (inverted white text).
     const optionA = dashboard.page.getByRole("button", { name: "A", exact: true });
     await optionA.click();
-    await expect(optionA).toHaveClass(/bg-\[#1B2A4A\]/);
+    await expect(optionA).toHaveClass(/text-white/);
 
     // Typing a custom topic clears the MCQ selection for this question.
     await customInput.fill("Climate change");
-    await expect(optionA).not.toHaveClass(/bg-\[#1B2A4A\]/);
+    await expect(optionA).not.toHaveClass(/text-white/);
     // Effective answer is now the custom text → still counts as answered.
     await expect(dashboard.page.getByText("1 of 1 answered")).toBeVisible();
   });

@@ -97,14 +97,16 @@ test.describe("TS-I — extended", () => {
     const agents = AGENTS.user_stories;
     mockWs.start(agents, { pipelineType: "user_stories" });
 
-    // The progress track is the h-0.5 bar; its fill is the navy (#1B2A4A) child.
-    // The track is visible; the fill starts at width:0 (so it is present in the
-    // DOM but zero-width → not "visible" yet), and motion animates its width as
-    // agents complete. Assert presence, then growth via the header count + the
-    // inline width style once it is non-zero.
+    // The progress track is the h-0.5 bar; its fill is the track's sole inner
+    // child div (a motion.div whose width is animated). The track is visible;
+    // the fill starts at width:0 (so it is present in the DOM but zero-width →
+    // not "visible" yet), and motion animates its width as agents complete.
+    // Anchoring the fill as the track's child (not by its brand-colour class)
+    // survives the reskin; assert presence, then growth via the header count +
+    // the inline width style once it is non-zero.
     const bar = dashboard.page.locator("div.h-0\\.5.bg-gray-100");
     await expect(bar).toBeVisible();
-    const fill = bar.locator("div.bg-\\[\\#1B2A4A\\]");
+    const fill = bar.locator("div").first();
     await expect(fill).toBeAttached();
 
     // Header reflects 0 completed initially.

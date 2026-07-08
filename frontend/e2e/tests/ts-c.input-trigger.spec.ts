@@ -146,8 +146,10 @@ test.describe("TS-C — idea input & trigger", () => {
 
     const tile = page.getByRole("button", { name: /Mulesoft → Spring Boot microservices on AWS/i });
     await tile.click();
-    // Selected tile fills navy (#1B2A4A) — its container button gains bg-[#1B2A4A].
-    await expect(tile).toHaveClass(/bg-\[#1B2A4A\]/);
+    // Selected tile gains the raised selected affordance (shadow-md) — a
+    // reskin-durable signal (unselected tiles carry no shadow), and the
+    // placeholder swap + Run enablement below are the behavioral proof of it.
+    await expect(tile).toHaveClass(/shadow-md/);
 
     // Picking the sub-pipeline swaps the config copy + agent lineup
     // (mulesoft_to_springboot has 13 LIBRARY_AGENTS), so the placeholder

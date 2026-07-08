@@ -92,7 +92,9 @@ test.describe("TS-F — Skills & Hooks", () => {
       .locator("span.text-gray-800", { hasText: /^Skills$/ })
       .locator("xpath=following-sibling::span[1]");
     await expect(skillsCountPill).toHaveText("1");
-    await expect(skillsCountPill).toHaveClass(/bg-gray-900/);
+    // The count is a rounded-full badge pill — a reskin-durable shape signal
+    // (the dark fill is retokenised by the reskin; the pill shape is not).
+    await expect(skillsCountPill).toHaveClass(/rounded-full/);
   });
 
   test("TS-F-03 skill category pills filter the list", async ({ dashboard }) => {
