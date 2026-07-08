@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: — Universal Run Chat & VelocityAI UI Convergence
 status: executing
-last_updated: "2026-07-08T13:24:22.271Z"
+last_updated: "2026-07-08T13:35:46.812Z"
 last_activity: "2026-07-08 -- Completed 32-01-PLAN.md (SC-1 token-layer landing / D-15. Rewrote the run-screen TOKEN LAYER ONLY [3-file diff: globals.css + layout.tsx + new token-layer.test.ts — ZERO component / tailwind.config.ts edits, ~370 old-navy #1B2A4A sites intentionally deferred to Phase 35+]. globals.css @theme inline + :root now carry the canonical Hexaware palette sourced verbatim from evidence 11 §B2/§B3/§B4: one-chroma brand #3C2CDA/#3324C4/#ECEAFC/#DED9F7/#F4F2FB/#8E88E8; warm ink ramp #15161A..#A0A199; beige surface #F0EEE7/#F6F4EE/#FCFBF7 + near/ink-black #111114/#0C0D12; line family #E6E3DB..#C6C3B9; the NEW status ramp [running-blue #3C2CDA, done-green #1F7A4D, failed-red #A33A32, cancelled/gate-amber #9A6B1E, queued-grey #9A9B92 each with fill+border] + severity ladder [low #6E6F76/med #9A6B1E/high #B4531E/crit #A33A32]; RESOLVED radius ladder [tag5/node8/button10/list-row11/menu12/card14/hero18/pill999 — evidence-11 §C human-decisions resolved per mandate: button=10, card=14]; elevation/motion/scrim tokens. @theme inline exposes --color-* + font tokens referencing :root vars [Tailwind v4 utilities without value duplication]; legacy --theme-* aliases + semantic base [--background/--accent/etc] + markdown-content accent all repointed OFF #2563eb/#f5f5f0/#111827 to the new palette. RETIRED from the token layer: #2563eb, #f5f5f0, Inter, Fraunces, JetBrains Mono. layout.tsx: next/font/google loaders swapped Inter/Fraunces -> Manrope [--font-manrope, sans/structure] + Heebo [--font-heebo, serif/reading], wired onto <html> and consumed by globals --font-sans/--font-serif; SF Mono stays a system stack in --font-mono [no loader]. running=blue #3C2CDA per §B3 [Handoff mock's amber running treated as a bug, ignored]. token-layer.test.ts [tdd, 9 offline assertions]: canonical PRESENT [brand/status-ramp/radius/font bindings] + retired ABSENT [comment-stripped so header prose can't self-invalidate the guard]; a guard test landing AFTER the token layer so it passes on arrival [ABSENT assertions bite if a retired value is reintroduced]. PROVEN OFFLINE: npx vitest run token-layer.test.ts = 1 file / 9 green; npx tsc --noEmit | grep -v mockApi.ts | grep -c error = 0 [identity, baseline preserved]; scope diff = exactly the 3 token-layer files. Deviation: none [repointing markdown #2563eb->brand was required by Task-1 acceptance, within 'retire in the token layer' scope]. 3 atomic commits d9cdfb5e [feat token layer] + 8947327a [feat fonts] + 6e3deeba [test guard].)"
 progress:
   total_phases: 11
   completed_phases: 4
   total_plans: 35
-  completed_plans: 28
+  completed_plans: 29
   percent: 36
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 ## Current Position
 
 Phase: 32
-Plan: 3 of 25 complete (Phase 32 plan 01 done)
+Plan: 4 of 25 complete (Phase 32 plan 01 done)
 Status: Ready to execute
 Last activity: 2026-07-08 -- Completed 32-01-PLAN.md (SC-1 token-layer landing / D-15. Rewrote the run-screen TOKEN LAYER ONLY [3-file diff: globals.css + layout.tsx + new token-layer.test.ts — ZERO component / tailwind.config.ts edits, ~370 old-navy #1B2A4A sites intentionally deferred to Phase 35+]. globals.css @theme inline + :root now carry the canonical Hexaware palette sourced verbatim from evidence 11 §B2/§B3/§B4: one-chroma brand #3C2CDA/#3324C4/#ECEAFC/#DED9F7/#F4F2FB/#8E88E8; warm ink ramp #15161A..#A0A199; beige surface #F0EEE7/#F6F4EE/#FCFBF7 + near/ink-black #111114/#0C0D12; line family #E6E3DB..#C6C3B9; the NEW status ramp [running-blue #3C2CDA, done-green #1F7A4D, failed-red #A33A32, cancelled/gate-amber #9A6B1E, queued-grey #9A9B92 each with fill+border] + severity ladder [low #6E6F76/med #9A6B1E/high #B4531E/crit #A33A32]; RESOLVED radius ladder [tag5/node8/button10/list-row11/menu12/card14/hero18/pill999 — evidence-11 §C human-decisions resolved per mandate: button=10, card=14]; elevation/motion/scrim tokens. @theme inline exposes --color-* + font tokens referencing :root vars [Tailwind v4 utilities without value duplication]; legacy --theme-* aliases + semantic base [--background/--accent/etc] + markdown-content accent all repointed OFF #2563eb/#f5f5f0/#111827 to the new palette. RETIRED from the token layer: #2563eb, #f5f5f0, Inter, Fraunces, JetBrains Mono. layout.tsx: next/font/google loaders swapped Inter/Fraunces -> Manrope [--font-manrope, sans/structure] + Heebo [--font-heebo, serif/reading], wired onto <html> and consumed by globals --font-sans/--font-serif; SF Mono stays a system stack in --font-mono [no loader]. running=blue #3C2CDA per §B3 [Handoff mock's amber running treated as a bug, ignored]. token-layer.test.ts [tdd, 9 offline assertions]: canonical PRESENT [brand/status-ramp/radius/font bindings] + retired ABSENT [comment-stripped so header prose can't self-invalidate the guard]; a guard test landing AFTER the token layer so it passes on arrival [ABSENT assertions bite if a retired value is reintroduced]. PROVEN OFFLINE: npx vitest run token-layer.test.ts = 1 file / 9 green; npx tsc --noEmit | grep -v mockApi.ts | grep -c error = 0 [identity, baseline preserved]; scope diff = exactly the 3 token-layer files. Deviation: none [repointing markdown #2563eb->brand was required by Task-1 acceptance, within 'retire in the token layer' scope]. 3 atomic commits d9cdfb5e [feat token layer] + 8947327a [feat fonts] + 6e3deeba [test guard].)
 Prior activity: 2026-07-08 -- Phase 32 planning complete
@@ -243,6 +243,7 @@ Progress: [░░░░░░░░░░] 0% (Milestone v2.0: 0/11 phases — p
 | Phase 32 P01 | 6min | 3 tasks | 3 files |
 | Phase 32 P02 | ~8min | 2 tasks | 6 files |
 | Phase 32 P03 | 15min | 2 tasks | 2 files |
+| Phase 32-run-screen-redesign-a4 P04 | 22min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -394,6 +395,7 @@ Recent decisions affecting current work:
 - [Phase 31]: 31-07: chat lane mounted live in the run screen; transport-agnostic transcript (SSE when provider mounted, legacy WS byte-identical when OFF, LOCK-B); PreviewPanel deep-link consumer for all tabs; delta-verified (7 new pass, 12 baseline-green unchanged)
 - [Phase ?]: 32-02: token-consuming primitive library (Button/Card/Tabs/Badge/Pill), generic variant/status API, zero raw hex
 - [Phase ?]: 32-03: audit endpoints read child ORM directly app-side (no unused authz reader); owner gate keys on user_id not owner_id; IDOR->404
+- [Phase ?]: 32-04: SC-001 update_specs_eligible/artifact_kind stamped structurally on review_gate_ready (kinds spec/task_list/summary); goldens byte-identical via _VOLATILE_STRIP_KEYS
 
 ### Pending Todos
 
