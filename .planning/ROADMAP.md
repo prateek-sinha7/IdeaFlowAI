@@ -867,11 +867,11 @@ Plans:
 3. Audit tab reads the 3 new endpoints (`gate_events`/`validation_results`/`exec_runs`) with counters/filters + CSV/JSON export; governance keeps the status palette; one-chroma elsewhere.
 4. Failed/degraded/cancelled states faithful (P16 affordances + chat card); e2e green with brittle color assertions fixed + `data-testid`s added.
 
-**Plans:** 10 plans in 4 waves
+**Plans:** 1/10 plans executed
 Plans:
 **Wave 1**
 
-- [ ] 32-01-PLAN.md — Token layer: globals.css @theme rewrite + Manrope/Heebo fonts + token-guard test (Wave 1)
+- [x] 32-01-PLAN.md — Token layer: globals.css @theme rewrite + Manrope/Heebo fonts + token-guard test (Wave 1)
 - [ ] 32-02-PLAN.md — Primitives: Button/Card/Tabs/Badge/Pill in components/ui + tests (Wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
@@ -959,7 +959,7 @@ Plans:
 | 29. Chat Backbone [A1] | 10/10 | Complete   | 2026-07-08 |
 | 30. Uploads & Multimodal [A2] | 0/? | Not started | — |
 | 31. Chat Lane MVP [A3] | 7/7 | Complete    | 2026-07-08 |
-| 32. Run-Screen Redesign [A4] | 0/? | Not started | — |
+| 32. Run-Screen Redesign [A4] | 1/10 | In Progress|  |
 | 33. Concierge + Compaction [A5] | 0/? | Not started | — |
 | 34. Live Pass & Closure [A6] | 0/? | Not started | — |
 | 35. Shell Chrome + Reskin Pages [B1] | 0/? | Not started | — |
