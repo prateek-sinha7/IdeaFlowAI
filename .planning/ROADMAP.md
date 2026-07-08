@@ -820,7 +820,7 @@ Plans:
 - [ ] 30-02-PLAN.md — UPLD-03: `context_provider:uploaded_files` sticky context (zero engine edits, SC-001) [wave 2]
 - [x] 30-03-PLAN.md — UPLD-02 residue: per-turn image carrier on the Phase-29 message path + ND-10 no-persistence lock [wave 1] ✅ 2026-07-08
 - [x] 30-04-PLAN.md — UPLD-04: client-side image resize + ND-10 "image not retained" reopen placeholder [wave 1] ✅ 2026-07-08
-- [ ] 30-05-PLAN.md — IMPLEMENTATION-REGISTER entry for the landed image-input cluster (edw/frv/gvq) [wave 1]
+- [x] 30-05-PLAN.md — IMPLEMENTATION-REGISTER entry for the landed image-input cluster (edw/frv/gvq) + ND-10 payload-transient disposition [wave 1] ✅ 2026-07-08
 
 ### Phase 31: Chat Lane MVP [A3]
 
