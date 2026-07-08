@@ -199,3 +199,122 @@ def test_uploaded_files_is_registered_and_resolves() -> None:
 def test_known_count_is_sixty_six() -> None:
     assert len(_KNOWN) == 66
     assert ("context_provider", "uploaded_files") in _KNOWN
+
+
+# ── Task 2: end-to-end sticky proof + SC-001 zero-engine-edit + INV-3 dormancy ──
+#
+# Drives the engine's GENERIC ``_compose_context_message`` injector DIRECTLY with a
+# scripted ``ExecutionContext`` (no live model / DB / Bedrock) — the SAME path the
+# per-agent dispatch composes context through. A TEST-ONLY fixture "workflow" (a list
+# of specs each declaring ``injects:[uploaded_files]`` + a run whose ``.uploads``
+# sidecar is staged) proves the uploaded doc text is present in EVERY agent_input.
+# No real manifest ships an uploaded_files opt-in, so the goldens stay dormant (INV-3).
+
+from agents.execution_engine.context import ExecutionContext  # noqa: E402
+from agents.execution_engine.engine import ExecutionEngine  # noqa: E402
+
+_UPLOAD_TEXT = "PRODUCT BRIEF: build a dark-theme analytics dashboard for ops."
+_OPT_IN_PROVIDERS = ["uploaded_files"]
+
+
+def _spec(agent_id: str, *, injects=("uploaded_files",)):
+    """A minimal agnostic spec: only ``injects`` opts into the provider loop."""
+    return SimpleNamespace(
+        id=agent_id, name=agent_id.title(), role="tester",
+        injects=list(injects), tools=[], consumes=[],
+    )
+
+
+def _staged_ectx(providers=_OPT_IN_PROVIDERS) -> ExecutionContext:
+    """An ExecutionContext whose own-run sandbox carries a staged .uploads sidecar."""
+    sb = _stage_uploads(
+        [{"name": "brief.pdf", "mime": "application/pdf", "has_text": True}],
+        {"brief.pdf": _UPLOAD_TEXT},
+    )
+    ectx = ExecutionContext(run_id="r-sticky-1", owner_id="o-sticky-1")
+    ectx.runner = SimpleNamespace(sandbox=sb)
+    # The engine threads the run's declared context_providers onto ectx at run entry
+    # (engine.py: ectx.compiled_context_providers = list(compiled.context_providers)).
+    ectx.compiled_context_providers = list(providers)
+    return ectx
+
+
+async def _compose(engine, ectx, spec, ordered) -> str:
+    return await engine._compose_context_message(
+        spec=spec, index=ordered.index(spec), ordered_agents=ordered,
+        user_message="build me a thing", planning_context={}, ectx=ectx,
+    )
+
+
+@pytest.mark.asyncio
+async def test_uploaded_text_is_sticky_in_every_agent_input() -> None:
+    # A 3-agent opted-in workflow: the uploaded doc text must appear in the composed
+    # context for EVERY agent (sticky — the provider re-reads the durable sidecar each
+    # dispatch), not just the first.
+    engine = ExecutionEngine()
+    ectx = _staged_ectx()
+    ordered = [_spec("plan"), _spec("build"), _spec("review")]
+
+    for spec in ordered:
+        msg = await _compose(engine, ectx, spec, ordered)
+        assert _UPLOAD_TEXT in msg, f"upload text missing from {spec.id} agent_input"
+        assert "## Uploaded Files" in msg
+        assert "brief.pdf" in msg
+
+
+@pytest.mark.asyncio
+async def test_non_opted_agent_gets_no_uploaded_block() -> None:
+    # An agent that does NOT declare injects:[uploaded_files] must not see the block,
+    # even in a workflow whose manifest declares the provider (T-30-08 stale-inject).
+    engine = ExecutionEngine()
+    ectx = _staged_ectx()
+    opted = _spec("opted")
+    bare = _spec("bare", injects=())
+    ordered = [opted, bare]
+
+    opted_msg = await _compose(engine, ectx, opted, ordered)
+    bare_msg = await _compose(engine, ectx, bare, ordered)
+    assert _UPLOAD_TEXT in opted_msg
+    assert _UPLOAD_TEXT not in bare_msg
+    assert "## Uploaded Files" not in bare_msg
+
+
+@pytest.mark.asyncio
+async def test_sc001_engine_has_zero_reference_to_the_capability() -> None:
+    # SC-001: the capability is picked up PURELY via the existing generic
+    # context_provider loop — the kernel knows nothing of it by name. Prove the engine
+    # source carries ZERO textual reference to "uploaded_files" (no hardwiring): the
+    # opt-in is manifest (context_providers:[uploaded_files]) + AGENT.md
+    # (injects:[uploaded_files]) only, requiring no engine edit.
+    import inspect
+    import agents.execution_engine.engine as engine_mod
+
+    source = inspect.getsource(engine_mod)
+    assert "uploaded_files" not in source, (
+        "engine.py references 'uploaded_files' — SC-001 requires zero engine coupling"
+    )
+
+
+@pytest.mark.asyncio
+async def test_inv3_dormant_case_is_byte_identical_to_baseline() -> None:
+    # INV-3 dormancy: a run that does NOT opt in (no uploaded_files in the compiled
+    # context_providers) produces a context_message with NO uploaded-files block AND is
+    # byte-identical to the pre-capability baseline (a run with the sidecar absent).
+    engine = ExecutionEngine()
+    spec = _spec("solo")
+    ordered = [spec]
+
+    # (a) provider NOT declared on the run (compiled_context_providers=[]), sidecar staged.
+    dormant = _staged_ectx(providers=[])
+    dormant_msg = await _compose(engine, ectx=dormant, spec=spec, ordered=ordered)
+
+    # (b) pre-capability baseline: no provider, no sidecar at all.
+    baseline_ectx = ExecutionContext(run_id="r-baseline", owner_id="o-baseline")
+    baseline_ectx.runner = SimpleNamespace(sandbox=_FakeSandbox())
+    baseline_ectx.compiled_context_providers = []
+    baseline_msg = await _compose(engine, ectx=baseline_ectx, spec=spec, ordered=ordered)
+
+    assert "## Uploaded Files" not in dormant_msg
+    assert _UPLOAD_TEXT not in dormant_msg
+    # Byte-identical: the dormant capability perturbs nothing (INV-3).
+    assert dormant_msg == baseline_msg
