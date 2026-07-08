@@ -5251,18 +5251,17 @@ class ExecutionEngine:
         "prototype-validate": "validation_report",
     }
 
-    # SC-001 / KAN-101: the ARTIFACT KINDS whose LIVE human gate offers the generic
-    # "Update the Specs" affordance (the analyze/spec/plan gates). Keyed on the
+    # SC-001 / KAN-101 / MD-01: the ARTIFACT KIND whose LIVE human gate offers the
+    # generic "Update the Specs" affordance — the ANALYZE gate only. Keyed on the
     # structural artifact-kind from _artifact_kind_for — NEVER a workflow/agent-id
-    # literal (name-free path). ``summary`` is included because the analyze gate is
-    # unmapped in _AGENT_KIND_MAP and falls back to the valid ``summary`` kind (D-01);
-    # build/validation gates (html_file/validation_report) are deliberately excluded,
-    # so a custom workflow gating on a build-like agent gets NO update-specs affordance.
+    # literal (name-free path). ``summary`` is the analyze gate's kind: analyze is the
+    # sole gated agent unmapped in _AGENT_KIND_MAP, so it alone falls back to the valid
+    # ``summary`` kind (D-01). The spec/plan authoring gates (spec / task_list) and the
+    # build/validation gates (html_file / validation_report) are deliberately excluded,
+    # so a custom workflow gating on any of them gets NO update-specs affordance.
     # A declared/user gate that never passes the flag defaults update_specs_eligible
     # to False regardless (mirroring redoable) — see _run_review_gate.
-    _UPDATE_SPECS_ELIGIBLE_KINDS: frozenset[str] = frozenset(
-        {"spec", "task_list", "summary"}
-    )
+    _UPDATE_SPECS_ELIGIBLE_KINDS: frozenset[str] = frozenset({"summary"})
 
     def _artifact_kind_for(self, spec) -> str:
         """Resolve the ARTIFACT_KINDS value for ``spec``'s produced artifact (D-01).

@@ -12,8 +12,9 @@ This suite pins the backend half of the fix, mirroring the proven ``redoable`` p
     defaulting False on the declared/user path (exactly as ``redoable`` defaults False).
   * Eligibility is derived STRUCTURALLY from ``_artifact_kind_for(spec)`` — the same
     kind resolver the call site already uses — NEVER a workflow/agent-id literal (SC-001).
-    A spec-authoring gate (spec / task_list / summary kinds) is eligible; a build /
-    validation gate (html_file / validation_report) is NOT.
+    Only the analyze gate (``summary`` kind) is eligible — MD-01 narrowed this to
+    analyze-only; the spec/plan authoring (spec / task_list) and build / validation
+    (html_file / validation_report) gates are NOT.
   * Both new keys are added to ``_VOLATILE_STRIP_KEYS`` so the 5 characterization goldens
     stay BYTE-identical (INV-3) — proven empirically by the golden suites, asserted
     structurally here.
@@ -107,15 +108,14 @@ async def test_declared_path_defaults_eligible_false() -> None:
 @pytest.mark.parametrize(
     "agent_id, expected_kind",
     [
-        ("prototype-specify", "spec"),
-        ("prototype-plan", "task_list"),
         ("prototype-analyze", "summary"),  # unmapped → fallback kind (D-01)
     ],
 )
 def test_spec_authoring_gates_are_eligible(agent_id, expected_kind) -> None:
-    """The analyze/spec/plan gate agents resolve to spec-authoring kinds, and those
-    kinds are in the declared eligible-kind set — so eligibility is True WITHOUT
-    naming any agent literal (SC-001)."""
+    """The analyze gate resolves to the ``summary`` kind, the sole kind in the declared
+    eligible-kind set — so eligibility is True WITHOUT naming any agent literal
+    (SC-001). MD-01 narrowed this to analyze-only: the spec/plan authoring gates are NO
+    LONGER eligible (see test_build_and_validation_gates_are_not_eligible)."""
     engine = ExecutionEngine()
     ek = engine._artifact_kind_for(_FakeSpec(agent_id))
     assert ek == expected_kind
@@ -125,14 +125,17 @@ def test_spec_authoring_gates_are_eligible(agent_id, expected_kind) -> None:
 @pytest.mark.parametrize(
     "agent_id, expected_kind",
     [
+        ("prototype-specify", "spec"),  # MD-01: spec authoring gate → NOT eligible
+        ("prototype-plan", "task_list"),  # MD-01: plan authoring gate → NOT eligible
         ("prototype-build", "html_file"),
         ("prototype-validate", "validation_report"),
     ],
 )
 def test_build_and_validation_gates_are_not_eligible(agent_id, expected_kind) -> None:
-    """A build / validation gate resolves to a non-spec-authoring kind → NOT eligible.
-    This is the SC-001 generalization: a custom workflow gating on a build-like agent
-    gets no Update-the-Specs affordance, IFF the structural kind does not match."""
+    """A spec/plan authoring gate (MD-01) or a build / validation gate resolves to a
+    kind OUTSIDE the eligible set → NOT eligible. This is the SC-001 generalization:
+    only the analyze gate (``summary``) offers the Update-the-Specs affordance; any
+    other gate gets none, IFF the structural kind does not match."""
     engine = ExecutionEngine()
     ek = engine._artifact_kind_for(_FakeSpec(agent_id))
     assert ek == expected_kind
