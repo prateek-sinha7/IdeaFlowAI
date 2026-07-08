@@ -135,6 +135,8 @@ _KNOWN: set[tuple[str, str]] = {
     ("context_pack", "default"),           # 09-03 / REPO-03 — kernel-side targeted context subset
     ("context_provider", "repo"),          # 09-03 / REPO-03 — surfaces the ContextPack to agents
     ("context_provider", "uploaded_files"), # 30-02 / UPLD-03 — sticky uploaded-doc context
+    ("compaction", "chat_history"),        # 33 / D-08 — bound composed chat history
+    ("context_provider", "conversation"),  # 33 / D-08 — compacted chat run_events as context
     ("mcp_server", "github"),              # 09-05 / MCP-02 — read-scoped (user_allowed=True)
     ("mcp_server", "gitlab"),              # 09-05 / MCP-02 — read-scoped (user_allowed=True)
     ("mcp_server", "jira"),                # 09-05 / MCP-02 — read-scoped (user_allowed=True)
@@ -296,6 +298,11 @@ def discover() -> None:
         # 30-02 / UPLD-03 — the uploaded_files context provider (kernel-pure: reads
         # the run's own .uploads sidecar via the ctx.runner handle, never app.*).
         "agents.capabilities.context_providers.uploaded_files",
+        # 33 / D-08 — the two kernel-pure bounded-chat-history capabilities (the
+        # concierge is NOT here — it is app-side, landing in 33-02). Both reach only
+        # the ctx-scoped read surface / the registry, never app.*.
+        "agents.capabilities.compaction.chat_history",
+        "agents.capabilities.context_providers.conversation",
         # 09-05 / MCP-02 — the allow-listed mcp_server catalog (registration DATA
         # only; the live client is app-side McpClientAdapter).
         "agents.capabilities.mcp_servers.catalog",

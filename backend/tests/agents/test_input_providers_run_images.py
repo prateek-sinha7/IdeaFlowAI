@@ -6,9 +6,10 @@ Covers behavior set (a) from the plan:
   * the module-level ``_normalize_run_images`` seam canonicalizes/drops carrier
     entries;
   * the registry lockstep — ``("input_provider","run_images")`` is registered,
-    resolves to an impl whose ``.name == "run_images"``, and ``len(_KNOWN) == 66``
-    (T1.4 also reconciles the pre-existing KAN-73 ``hook:audit_logger`` drift; the
-    66th name is the 30-02 ``context_provider:uploaded_files`` capability).
+    resolves to an impl whose ``.name == "run_images"``, and the ``_KNOWN`` drift-guard
+    count matches (T1.4 also reconciled the pre-existing KAN-73 ``hook:audit_logger``
+    drift; the count was later bumped for the 30-02 ``uploaded_files`` provider and the
+    two 33 D-08 bounded-chat-history capabilities — see the assert below).
 
 DORMANT: no workflow opts in this wave; these tests exercise the capability +
 seam directly.
@@ -128,5 +129,5 @@ def test_run_images_is_registered_and_resolves() -> None:
     assert getattr(impl, "name", None) == "run_images"
 
 
-def test_known_count_is_sixty_six() -> None:
-    assert len(_KNOWN) == 66
+def test_known_count_is_sixty_eight() -> None:
+    assert len(_KNOWN) == 68

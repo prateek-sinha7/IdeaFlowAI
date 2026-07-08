@@ -102,6 +102,8 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("integration_provider", "jira"),      # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
     ("integration_provider", "slack"),     # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
     ("context_provider", "uploaded_files"), # 30-02 / UPLD-03 — sticky uploaded-doc context
+    ("compaction", "chat_history"),        # 33 / D-08 — bound composed chat history
+    ("context_provider", "conversation"),  # 33 / D-08 — compacted chat run_events as context
 ]
 
 
@@ -159,8 +161,11 @@ def test_registered_count_is_exactly_fifty() -> None:
     # input-image capability (input_provider:run_images, image-input Wave 1 — the DORMANT
     # backend spine, user_allowed=True) = 65, plus the one 30-02 uploaded-doc capability
     # (context_provider:uploaded_files, UPLD-03 — surfaces the run's .uploads sidecar text
-    # as sticky agent context) = 66.
-    assert len(_KNOWN) == 66
+    # as sticky agent context) = 66, plus the two 33 D-08 bounded-chat-history capabilities
+    # (compaction:chat_history — summarize-beyond-budget/keep-recent-verbatim +
+    # context_provider:conversation — compacted chat run_events as sticky context; the
+    # concierge lands app-side in 33-02 with its own 68→69 bump) = 68.
+    assert len(_KNOWN) == 68
     assert set(_KNOWN) == set(_EXPECTED_NAMES)
 
 

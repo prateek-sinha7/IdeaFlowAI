@@ -12,8 +12,8 @@ Covers:
     manifest, missing sidecar text;
   * own-run-only reads (the provider resolves the sandbox strictly from the
     ``ctx.runner`` handle — no cross-owner / source_run_id path exists, T-30-06);
-  * the registry lockstep — ``len(_KNOWN) == 66`` and the
-    ``(context_provider, uploaded_files)`` pair is registered.
+  * the registry lockstep — the ``_KNOWN`` drift-guard count matches (see the assert
+    below) and the ``(context_provider, uploaded_files)`` pair is registered.
 
 Task 2 adds the end-to-end sticky-context proof (present in EVERY agent_input) +
 the SC-001 zero-engine-edit + INV-3 dormancy assertions, driving the engine's
@@ -196,8 +196,8 @@ def test_uploaded_files_is_registered_and_resolves() -> None:
     assert getattr(impl, "name", None) == "uploaded_files"
 
 
-def test_known_count_is_sixty_six() -> None:
-    assert len(_KNOWN) == 66
+def test_known_count_is_sixty_eight() -> None:
+    assert len(_KNOWN) == 68
     assert ("context_provider", "uploaded_files") in _KNOWN
 
 
