@@ -16,6 +16,7 @@ LOCK-B: drives the REAL endpoint; touches NO production file beyond the allow-li
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timezone
 
@@ -224,3 +225,136 @@ class TestPersist:
         env["state"]["user"] = caller
         resp = _post(env, str(uuid.uuid4()), text="ghost", message_id="m-g")
         assert resp.status_code == 404
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Task 3 — mechanical routing: each run state → the correct command seam
+# ════════════════════════════════════════════════════════════════════════════
+def _arm_review(env, gate_key):
+    env["store"]._resume_events[f"review:{gate_key}"] = asyncio.Event()
+
+
+class TestRouting:
+    def test_clarify_waiting_routes_to_answers_seam(self, env):
+        owner = _seed_user(env, "owner")
+        run_id = _seed_run(env, owner.id, status="waiting_for_user")
+        _seed_events(env, run_id, [(1, "questionnaire_ready", {})], owner_id=owner.id)
+        env["state"]["user"] = owner
+
+        resp = _post(env, run_id, text="dark mode please", message_id="m-c")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["channel"] == "answers"
+        recorded = env["store"]._questionnaire_responses.get(run_id)
+        assert recorded == [{"question_id": "freeform", "answer": "dark mode please"}]
+
+    def test_gate_paused_routes_to_gate_seam_approve(self, env):
+        owner = _seed_user(env, "owner")
+        run_id = _seed_run(env, owner.id, status="waiting_for_user")
+        gate_key = f"{run_id}:prototype-specify"
+        _seed_events(env, run_id, [(1, "review_gate_ready", {"gate_key": gate_key})],
+                     owner_id=owner.id)
+        _arm_review(env, gate_key)
+        env["state"]["user"] = owner
+
+        resp = _post(env, run_id, message_id="m-g1")  # default action approve
+        assert resp.json()["channel"] == "gate"
+        recorded = env["store"]._questionnaire_responses.get(f"review:{gate_key}")
+        assert recorded and recorded[0]["approved"] is True
+
+    def test_gate_update_specs_routes_to_kan101(self, env):
+        owner = _seed_user(env, "owner")
+        run_id = _seed_run(env, owner.id, status="waiting_for_user")
+        gate_key = f"{run_id}:prototype-analyze"
+        _seed_events(env, run_id, [(1, "review_gate_ready", {"gate_key": gate_key})],
+                     owner_id=owner.id)
+        _arm_review(env, gate_key)
+        env["state"]["user"] = owner
+
+        resp = _post(env, run_id, action="update_specs", analysis_report="RPT",
+                     message_id="m-us")
+        assert resp.json()["channel"] == "gate"
+        recorded = env["store"]._questionnaire_responses.get(f"review:{gate_key}")
+        assert recorded[0]["action"] == "update_specs"
+        assert recorded[0]["instructions"] == "RPT"
+
+    def test_gate_redo_carries_instructions(self, env):
+        owner = _seed_user(env, "owner")
+        run_id = _seed_run(env, owner.id, status="waiting_for_user")
+        gate_key = f"{run_id}:prototype-specify"
+        _seed_events(env, run_id, [(1, "review_gate_ready", {"gate_key": gate_key})],
+                     owner_id=owner.id)
+        _arm_review(env, gate_key)
+        env["state"]["user"] = owner
+
+        resp = _post(env, run_id, action="redo", text="tighten header", message_id="m-r")
+        assert resp.json()["channel"] == "gate"
+        recorded = env["store"]._questionnaire_responses.get(f"review:{gate_key}")
+        assert recorded[0]["action"] == "redo"
+        assert recorded[0]["instructions"] == "tighten header"
+
+    def test_excluded_gate_not_pending_routes_to_steering(self, env):
+        """KAN-94: a dangling review_gate_ready with NO armed store event (an agent the
+        engine skipped via gate_agent_ids) is NOT a pause — the turn steers instead."""
+        owner = _seed_user(env, "owner")
+        run_id = _seed_run(env, owner.id, status="running")
+        gate_key = f"{run_id}:skipped-agent"
+        _seed_events(env, run_id, [(1, "review_gate_ready", {"gate_key": gate_key})],
+                     owner_id=owner.id)
+        # NOT armed — KAN-94 ground truth says no genuine pause.
+        env["state"]["user"] = owner
+
+        resp = _post(env, run_id, text="keep going", message_id="m-k")
+        assert resp.json()["channel"] == "steering"
+        # No gate resolution written (the gate was never pending).
+        assert env["store"]._questionnaire_responses.get(f"review:{gate_key}") is None
+
+    def test_running_routes_to_steering(self, env):
+        owner = _seed_user(env, "owner")
+        run_id = _seed_run(env, owner.id, status="running")
+        _seed_events(env, run_id, [(1, "agent_start", {}), (2, "agent_chunk", {})],
+                     owner_id=owner.id)
+        env["state"]["user"] = owner
+
+        resp = _post(env, run_id, text="prefer teal", message_id="m-s")
+        assert resp.status_code == 200
+        assert resp.json()["channel"] == "steering"
+        # The turn is durably recorded as a chat_message (the steering record, ND-9).
+        rows = _chat_rows(env, run_id)
+        assert len(rows) == 1 and rows[0].payload_json["text"] == "prefer teal"
+
+    def test_terminal_routes_to_revision(self, env, monkeypatch):
+        from app.api import run_commands as rc_module
+        from app.models.workflow import WorkflowRun
+
+        async def _noop_drive(**kwargs):
+            return None
+
+        monkeypatch.setattr(rc_module, "_drive_revision_to_queue", _noop_drive)
+
+        owner = _seed_user(env, "owner")
+        run_id = _seed_run(env, owner.id, status="completed")
+        env["state"]["user"] = owner
+
+        resp = _post(env, run_id, text="make the CTA bigger", message_id="m-rev")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["channel"] == "revision"
+        child_id = resp.json()["revision_run_id"]
+
+        db = env["Session"]()
+        try:
+            child = db.query(WorkflowRun).filter(WorkflowRun.id == child_id).first()
+            assert child is not None
+            assert child.parent_run_id == run_id
+            assert child.type.endswith("_revision")
+        finally:
+            db.close()
+
+    def test_gate_action_after_terminal_is_fenced(self, env):
+        owner = _seed_user(env, "owner")
+        run_id = _seed_run(env, owner.id, status="cancelled")
+        env["state"]["user"] = owner
+
+        resp = _post(env, run_id, action="approve", message_id="m-f")
+        assert resp.status_code == 409
+        assert resp.json()["detail"]["code"] == "pipeline_not_running"
+        assert resp.json()["detail"]["recoverable"] is False

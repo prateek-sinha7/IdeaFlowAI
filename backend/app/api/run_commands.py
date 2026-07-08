@@ -405,6 +405,17 @@ async def post_message(
     """
     from agents.authz import ScopedStore
 
+    from app.api.chat_router import (
+        CHANNEL_ANSWERS,
+        CHANNEL_GATE,
+        CHANNEL_REVISION,
+        CHANNEL_STEERING,
+        ChatTurn,
+        RunState,
+        derive_open_gate,
+        route_chat_turn,
+    )
+
     # Layer 1: owner-scoped ORM filter (cross-owner / missing → 404, never 403).
     db = _get_db()
     try:
@@ -419,6 +430,7 @@ async def post_message(
             )
         wr_status = wr.status
         wr_workspace = wr.workspace_id
+        wr_type = wr.type
     finally:
         db.close()
 
@@ -432,9 +444,120 @@ async def post_message(
             status_code=status.HTTP_404_NOT_FOUND, detail="Workflow run not found"
         )
 
+    # ── Persist the turn (idempotent, D-01) BEFORE routing so a delivered command is
+    #    always backed by a durable record (family-anchored, D-02). ──────────────────
     created, seq = await _persist_chat_message(store, run_id, body)
 
-    return {"ok": True, "run_id": run_id, "seq": seq, "persisted": created}
+    # ── Assemble the GENERIC run-state (name-free) + route mechanically (D-04). ──────
+    events = await store.read_events(run_id, after_seq=0)
+    gate_kind, gate_key = derive_open_gate(events)
+    art_store = get_artifact_store()
+    open_gate: str | None = None
+    resolved_gate_key: str | None = None
+    if gate_kind == "review" and gate_key:
+        # KAN-94 event-driven ground truth: only a genuinely ARMED gate pauses. A
+        # declared gate the engine skipped (gate_agent_ids exclusion) never armed one,
+        # so the run is treated as running (steering), not a fabricated pause.
+        if _gate_is_pending(art_store, gate_key):
+            open_gate, resolved_gate_key = "review", gate_key
+    elif gate_kind == "questionnaire":
+        open_gate = "questionnaire"
+
+    run_state = RunState(
+        status=wr_status, open_gate=open_gate, gate_key=resolved_gate_key
+    )
+    turn = ChatTurn(
+        text=body.text,
+        message_id=body.message_id,
+        action=body.action,
+        sticky=body.sticky,
+        responses=list(body.responses or []),
+        skip_clarification=body.skip_clarification,
+        analysis_report=body.analysis_report,
+        target_artifact_type=body.target_artifact_type,
+    )
+    dispatch = route_chat_turn(run_state, turn)
+
+    # ── Execute the dispatch through the SAME command seams (29-03/29-04/29-08). ─────
+    if dispatch.channel == CHANNEL_ANSWERS:
+        # clarify answer → the exact seam POST /answers wraps.
+        await art_store.set_questionnaire_responses(
+            run_id, dispatch.responses, skip_clarification=dispatch.skip_clarification
+        )
+    elif dispatch.channel == CHANNEL_GATE:
+        if dispatch.fenced:
+            # KAN-100 terminal fence: never resolve a gate on a stopped pipeline.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error": "Pipeline is no longer running",
+                    "code": dispatch.code or "pipeline_not_running",
+                    "recoverable": False,
+                },
+            )
+        # gate action → the exact store.set_review_response seam POST /gate wraps. The
+        # four actions ride the generic ``action`` discriminator; update_specs routes to
+        # the shipped KAN-101 loop (never rebuilt).
+        _gk = dispatch.gate_key
+        if dispatch.action == "redo":
+            await art_store.set_review_response(
+                _gk, approved=False, action="redo", instructions=dispatch.instructions
+            )
+        elif dispatch.action == "update_specs":
+            await art_store.set_review_response(
+                _gk, approved=False, action="update_specs",
+                instructions=dispatch.instructions or "",
+            )
+        elif dispatch.action == "reject":
+            await art_store.set_review_response(_gk, approved=False)
+        else:  # approve (default)
+            await art_store.set_review_response(_gk, approved=True)
+    elif dispatch.channel == CHANNEL_STEERING:
+        # 29-08 seam: the note is queued for the NEXT agent dispatch (ND-11 — base
+        # thread, next dispatch, no fork). The durable chat_message row above IS the
+        # record; the running engine re-derives pending steering from run_events (ND-9)
+        # and the injector consumes it via apply_steering into ectx.steering_notes. The
+        # live in-process ectx handle lookup (engine-side drain) is out of this plan's
+        # LOCK-B allow-list — proven at the seam by test_mechanical_router.apply_steering.
+        pass
+    elif dispatch.channel == CHANNEL_REVISION:
+        # revision → mint + drive the shipped family child run (D-02), the exact seam
+        # POST /{id}/revisions uses. A generic target derives from the run type when the
+        # client omits one (string derivation only — no workflow name-branch).
+        target_artifact_type = dispatch.target_artifact_type or f"{wr_type}_output"
+        rdb = _get_db()
+        try:
+            child_run_id, _ = _mint_revision_row(
+                rdb, user=current_user, parent_run_id=run_id,
+                target_artifact_type=target_artifact_type,
+                instruction=dispatch.instruction or "",
+            )
+        finally:
+            rdb.close()
+        cancel_event = asyncio.Event()
+        _CANCEL_EVENTS[child_run_id] = cancel_event
+        event_queue = _get_or_create_queue(child_run_id)
+        task = asyncio.create_task(
+            _drive_revision_to_queue(
+                workflow_run_id=child_run_id,
+                parent_run_id=run_id,
+                target_artifact_type=target_artifact_type,
+                instruction=dispatch.instruction or "",
+                user=current_user,
+                cancel_event=cancel_event,
+                event_queue=event_queue,
+            )
+        )
+        _PIPELINE_TASKS[child_run_id] = task
+        return {
+            "ok": True, "run_id": run_id, "seq": seq, "persisted": created,
+            "channel": dispatch.channel, "revision_run_id": child_run_id,
+        }
+
+    return {
+        "ok": True, "run_id": run_id, "seq": seq, "persisted": created,
+        "channel": dispatch.channel,
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
