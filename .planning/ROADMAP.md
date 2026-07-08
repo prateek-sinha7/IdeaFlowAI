@@ -834,7 +834,7 @@ Plans:
 3. Attachment UI: file picker + paste + drag-drop + image preview + client resize; token-usage widget shows P26 fields.
 4. Open-design borrow-list mechanisms 1–7 integrated with Apache-2.0 attribution/NOTICE.
 
-**Plans:** 5/7 plans executed
+**Plans:** 6/7 plans executed
 
 Plans:
 **Wave 1**
@@ -850,7 +850,7 @@ Plans:
 
 **Wave 3**
 
-- [ ] 31-04-PLAN.md — Revived chat lane composition root: streaming markdown + aria-live/role=log + narrator result cards + absorbed controls (CHATUI-01) [wave 3, depends 31-01/02/03/05/06]
+- [x] 31-04-PLAN.md — Revived chat lane composition root: streaming markdown + aria-live/role=log + narrator result cards + absorbed controls (CHATUI-01) [wave 3, depends 31-01/02/03/05/06]
 
 **Wave 4**
 
@@ -934,7 +934,7 @@ Plans:
 | 28. Chat Contracts & Guards [A0] | 3/3 | Complete    | 2026-07-07 |
 | 29. Chat Backbone [A1] | 10/10 | Complete   | 2026-07-08 |
 | 30. Uploads & Multimodal [A2] | 0/? | Not started | — |
-| 31. Chat Lane MVP [A3] | 5/7 | In Progress|  |
+| 31. Chat Lane MVP [A3] | 6/7 | In Progress|  |
 | 32. Run-Screen Redesign [A4] | 0/? | Not started | — |
 | 33. Concierge + Compaction [A5] | 0/? | Not started | — |
 | 34. Live Pass & Closure [A6] | 0/? | Not started | — |
