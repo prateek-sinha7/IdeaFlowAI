@@ -33,7 +33,11 @@ function renderGate(overrides: Record<string, unknown> = {}) {
     onUpdateSpecs,
     ...overrides,
   };
-  const utils = render(<InlineGateActions {...(props as never)} />);
+  const utils = render(
+    <InlineGateActions
+      {...(props as React.ComponentProps<typeof InlineGateActions>)}
+    />,
+  );
   return { onApprove, onReject, onRedo, onUpdateSpecs, ...utils };
 }
 
