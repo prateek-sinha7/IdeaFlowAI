@@ -15,6 +15,11 @@ import { SavedWorkflowsPage } from "@/components/savedworkflows/SavedWorkflowsPa
 import { IdeaInputPage } from "@/components/workflow/IdeaInputPage";
 import { AgentProgressPanel } from "@/components/workflow/AgentProgressPanel";
 import { WaveTreePanel } from "@/components/workflow/WaveTreePanel";
+// Phase 31 (CHATUI-01/02/03) — the run-screen chat lane composition root. Mounted
+// as the execution-surface left column; it ABSORBS the AgentProgressPanel
+// Stop/revise/suggestions controls (D-12 composer-per-state, SC-001 generic).
+import { RunChatLane, type RunLaneState, type GateContext, type LaneSuggestion } from "@/components/chat/RunChatLane";
+import type { ClarifyResponse } from "@/components/chat/InlineClarifyActions";
 import { PreviewPanel } from "@/components/preview/PreviewPanel";
 import { QuestionnairePanel } from "@/components/preview/QuestionnairePanel";
 import { ReviewGatePanel } from "@/components/preview/ReviewGatePanel";
@@ -1260,6 +1265,76 @@ export function DashboardLayout({
     }
   }, [workflowInput, workflowType, onStartPipeline, attachedSkills, attachedHooks]);
 
+  // ─── Phase 31 (CHATUI-01/02/03) — run chat lane derivations ──────────────────
+  // The workflowType-selected revise handler (the SAME expression the left-column
+  // AgentProgressPanel used before the lane absorbed it). Undefined when the
+  // current output type has no revise path.
+  const activeReviseHandler =
+    (workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt") ? handleRevisePpt :
+    (workflowType === "user_stories" || workflowType === "user_stories_revision") ? handleReviseUserStory :
+    (workflowType === "prototype" || workflowType === "prototype_revision" || !!prototypeContent) ? handleRevisePrototype :
+    (workflowType === "app_builder" || workflowType === "app_builder_revision") ? handleReviseAppBuilder :
+    undefined;
+
+  // Stop (absorbed) — the SAME cooperative cancel the AgentProgressPanel fired.
+  // The pipeline_cancelled WS event drives the state reset (no eager onReset).
+  const handleStopPipeline = useCallback(() => {
+    if (websocketSend) websocketSend(JSON.stringify({ type: "cancel_pipeline" }));
+  }, [websocketSend]);
+
+  // GENERIC live-run state that drives the D-12 composer mode (SC-001 — never a
+  // workflow name). Priority: gate > clarify > building > terminal-failure >
+  // complete (has deliverable) > idle.
+  const laneHasDeliverable = !!(userStoryContent || pptContent || prototypeContent || genericDeliverable?.content);
+  const laneClarifyOpen = questionnaireQuestions.length > 0 && (!!pendingPipelineRun || !!activePipelineRunId);
+  const runLaneState: RunLaneState =
+    reviewGateData && isPipelineRunning ? "gate" :
+    laneClarifyOpen ? "clarify" :
+    isPipelineRunning ? "building" :
+    pipelineState?.failed ? "terminal" :
+    laneHasDeliverable ? "complete" :
+    "idle";
+
+  // The gate the lane surfaces (mirrors the Steps ReviewGatePanel props).
+  const laneGate: GateContext | undefined = reviewGateData
+    ? {
+        agentId: reviewGateData.agentId,
+        agentName: reviewGateData.agentName,
+        output: reviewGateData.output,
+        gateKey: reviewGateData.gateKey,
+        redoable: reviewGateData.redoable,
+      }
+    : undefined;
+
+  // Clarify quick-actions → the SAME resume path the QuestionnairePanel uses.
+  // Maps the lane's ClarifyResponse[] onto the (answers, freeform) submit.
+  const handleLaneSubmitAnswers = useCallback(
+    (responses: ClarifyResponse[]) => {
+      const answers: Record<string, string[]> = {};
+      let freeform = "";
+      for (const r of responses) {
+        if (r.question_id === "freeform") {
+          freeform = r.answer;
+          continue;
+        }
+        answers[r.question_id] = r.answer ? [r.answer] : [];
+      }
+      handleQuestionnaireSubmit(answers, freeform);
+    },
+    [handleQuestionnaireSubmit],
+  );
+
+  // Suggested next steps (absorbed) — the chainable workflows as generic chips.
+  const laneSuggestions: LaneSuggestion[] = canChainFrom(workflowType)
+    ? CHAIN_OPTIONS
+        .filter((o) => baseWorkflowType(o.type) !== baseWorkflowType(workflowType))
+        .map((o) => ({ id: o.type, label: o.label }))
+    : [];
+  const handleLaneSuggestion = useCallback(
+    (id: string) => { handleChainPipeline(id as WorkflowType); },
+    [handleChainPipeline],
+  );
+
   // Map mainView to header page type
   const headerPage = mainView === "library" ? "library" :
     mainView === "catalog" ? "catalog" :
@@ -1500,63 +1575,67 @@ export function DashboardLayout({
               className="h-full flex flex-col md:flex-row"
               style={{ background: "#f5f5f0" }}
             >
-              {/* Left Panel — Agent Progress.
-                  ISS-019: the column is a height-owning flex parent. The agent
-                  panel flexes to remaining space + scrolls its own cards; the
-                  wave panel is a non-shrinking bottom region that stays above
-                  the 1440×950 fold. The column itself no longer scrolls — scroll
-                  lives inside the two child regions. */}
+              {/* Left Panel — Phase 31 (CHATUI-01/02/03): the RunChatLane is now
+                  the primary left-column surface. It ABSORBS the AgentProgressPanel
+                  Stop / revise / suggestions controls (D-12 composer-per-state,
+                  SC-001 generic) and mounts the plan-05 gate/clarify quick-actions.
+                  ISS-019: the column is a height-owning flex parent — the lane
+                  flexes to remaining space and owns its own scroll; the demoted
+                  per-agent panel + wave panel are non-shrinking capped bottom
+                  regions. AgentProgressPanel is RETAINED (not deleted — Phase 32
+                  relocates it into Steps) but stripped of its absorbed controls;
+                  per-agent detail also lives in the right-panel Thinking tab. */}
               <div className="w-full md:w-[340px] lg:w-[360px] flex-shrink-0 h-[45vh] md:h-full border-b md:border-b-0 md:border-r border-gray-200 flex flex-col overflow-hidden bg-white">
+                {/* The run chat lane — primary conversational surface. */}
+                <div data-testid="execution-chat-lane" className="flex-1 min-h-0 overflow-hidden">
+                  <ErrorBoundary fallbackLabel="RunChatLane">
+                    <RunChatLane
+                      messages={runChatMessages ?? messages}
+                      runState={runLaneState}
+                      sendMessage={onRunChatSend ?? onSendMessage}
+                      isStreaming={isStreaming}
+                      streamingContent={streamingContent}
+                      pipelineState={pipelineState}
+                      onRequestOpenTab={onRequestOpenTab}
+                      // Absorbed AgentProgressPanel controls (Stop / revise / suggestions).
+                      onStop={handleStopPipeline}
+                      onRevise={activeReviseHandler}
+                      onRelaunch={handleGoHome}
+                      suggestions={laneSuggestions}
+                      onSuggestion={handleLaneSuggestion}
+                      // Plan-05 gate quick-actions (KAN-100/101 fences owned by the component).
+                      gate={laneGate}
+                      onApprove={onApproveReview}
+                      onReject={handleRejectReview}
+                      onRedo={onRedoReview}
+                      onUpdateSpecs={onUpdateSpecsReview}
+                      // Plan-05 clarify quick-actions.
+                      clarifyQuestions={questionnaireQuestions}
+                      onSubmitAnswers={handleLaneSubmitAnswers}
+                      onSkipClarify={handleQuestionnaireSkip}
+                    />
+                  </ErrorBoundary>
+                </div>
+                {/* Demoted per-agent progress — RETAINED (Phase 32 relocates into
+                    Steps), controls absorbed by the lane above. Capped secondary. */}
                 <ErrorBoundary fallbackLabel="AgentProgress">
-                  <div className="flex-1 min-h-0 overflow-hidden">
-                  <AgentProgressPanel
-                    pipelineState={pipelineState || { isRunning: false, pipeline_type: "", agents: [], currentAgentIndex: -1, totalDuration: null, completedCount: 0 }}
-                    workflowType={workflowType}
-                    onViewResults={() => {}}
-                    onRunAnother={handleGoHome}
-                    onFollowUp={handleFollowUp}
-                    // Allow chaining from every "deliverable" workflow plus
-                    // its revision counterpart (see lib/workflowChaining).
-                    // Migration and custom are deliberately excluded — too
-                    // heavy / too generic to auto-chain.
-                    onChainPipeline={canChainFrom(workflowType) ? handleChainPipeline : undefined}
-                    completedPipelineTypes={completedPipelineTypes}
-                    onCancelPipeline={() => {
-                      if (websocketSend) {
-                        websocketSend(JSON.stringify({ type: "cancel_pipeline" }));
-                      }
-                      // Do NOT call onResetPipeline() here — the pipeline_cancelled
-                      // WebSocket event drives the state reset. Calling reset
-                      // immediately clears agents[] before the event arrives,
-                      // so the graceful agent state transition (running→idle) is skipped.
-                    }}
-                    // KAN-84: revision moved from thin right-panel input to left-panel
-                    // next-steps section. Wired to the existing handleRevise* callbacks.
-                    onRevise={
-                      (workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt") ? handleRevisePpt :
-                      (workflowType === "user_stories" || workflowType === "user_stories_revision") ? handleReviseUserStory :
-                      (workflowType === "prototype" || workflowType === "prototype_revision" || !!prototypeContent) ? handleRevisePrototype :
-                      (workflowType === "app_builder" || workflowType === "app_builder_revision") ? handleReviseAppBuilder :
-                      undefined
-                    }
-                    reviseLabel={
-                      (workflowType === "ppt" || workflowType === "ppt_revision" || workflowType === "od_ppt") ? "Revise Presentation" :
-                      (workflowType === "user_stories" || workflowType === "user_stories_revision") ? "Revise User Stories" :
-                      (workflowType === "prototype" || workflowType === "prototype_revision" || !!prototypeContent) ? "Revise Prototype" :
-                      (workflowType === "app_builder" || workflowType === "app_builder_revision") ? "Revise App Blueprint" :
-                      "Revise"
-                    }
-                  />
+                  <div className="flex-shrink-0 max-h-[34%] overflow-hidden border-t border-gray-200">
+                    <AgentProgressPanel
+                      pipelineState={pipelineState || { isRunning: false, pipeline_type: "", agents: [], currentAgentIndex: -1, totalDuration: null, completedCount: 0 }}
+                      workflowType={workflowType}
+                      onViewResults={() => {}}
+                      onRunAnother={handleGoHome}
+                      onFollowUp={handleFollowUp}
+                      completedPipelineTypes={completedPipelineTypes}
+                      // Stop / revise / suggestions absorbed by RunChatLane above.
+                    />
                   </div>
                 </ErrorBoundary>
                 {/* Phase 12 (WAVE-03) — live wave/subagent tree. Rendered
                     unconditionally so the panel slot is stable; WaveTreePanel
-                    owns the "No waves running." empty state for non-wave runs.
-                    ISS-019: non-shrinking bottom region (flex-shrink-0) capped
-                    at 40% so it never eats the agent panel; its own
-                    max-h-[260px] list scrolls within. */}
+                    owns the "No waves running." empty state for non-wave runs. */}
                 <ErrorBoundary fallbackLabel="WaveTree">
-                  <div className="flex-shrink-0 max-h-[40%] overflow-y-auto px-3 pt-3 pb-3 border-t border-gray-200">
+                  <div className="flex-shrink-0 max-h-[30%] overflow-y-auto px-3 pt-3 pb-3 border-t border-gray-200">
                     <WaveTreePanel waves={waves} />
                   </div>
                 </ErrorBoundary>
