@@ -12,6 +12,8 @@ import { AgentThinkingTab } from "@/components/results/AgentThinkingTab";
 import { AuditTab } from "@/components/results/AuditTab";
 import { AppBuilderPreview, type ParsedFile } from "./AppBuilderPreview";
 import { LiveVersionChip, ReadOnlyVersionBanner } from "./LiveVersionChip";
+// Phase 32 (plan 07) — shared run-screen underline-tab primitive (SC-1, D-15).
+import { Tabs } from "@/components/ui/Tabs";
 import type { WorkflowType, GenericDeliverable, RunFamily } from "@/types/index";
 import type { TabDeepLinkTarget } from "@/hooks/useTabDeepLink";
 import { getToken, getWorkflow } from "@/lib/api";
@@ -325,7 +327,10 @@ interface PreviewPanelProps {
 const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
   { id: "preview", label: "Preview", icon: Eye },
   { id: "files", label: "Files", icon: FolderDown },
-  { id: "thinking", label: "Thinking", icon: Brain },
+  // Phase 32 (plan 07) — the "Thinking" tab is RELABELLED to "Steps" (SC-1/SC-2).
+  // The internal id stays "thinking" so the deep-link targets + tab testids
+  // (data-testid="tab-thinking") remain stable; only the visible label changes.
+  { id: "thinking", label: "Steps", icon: Brain },
   { id: "audit", label: "Audit", icon: Shield },
 ];
 
@@ -418,7 +423,7 @@ export function DegradedRunAffordance({
   );
 }
 
-export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, runFamily, liveRunId, runInput, clarifications, deepLinkTarget }: PreviewPanelProps) {
+export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, runFamily, liveRunId, runInput, clarifications, deepLinkTarget, laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate, clarifyQuestions, onSubmitClarify, onSkipClarify }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>("preview");
   const [copied, setCopied] = useState(false);
   // ─── B3 (POR §5 D5) — live version chip state ───────────────────────────────
@@ -708,38 +713,34 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
         </div>
       )}
 
-      {/* Tab Bar — tabs on left, PPT action buttons on right when PPT is active */}
-      <div className="px-4 py-2 border-b border-gray-200 flex items-center justify-between gap-2">
-        <div className="flex gap-0.5 bg-gray-100 rounded-md p-0.5 w-fit">
-          {TAB_CONFIG.map((tab) => {
+      {/* Tab Bar — Phase 32 (plan 07): the plan-02 underline Tabs primitive
+          (active ink #15161A + 2px brand #3C2CDA underline, all token-routed —
+          no raw hex) replaces the legacy gray pill row. The tab shape is a
+          generic {id,label} list (SC-001, never a workflow name). PPT actions +
+          the renderer switcher live in the right cluster. */}
+      <div className="px-4 py-2 border-b border-line-divider flex items-center justify-between gap-2">
+        <Tabs
+          tabs={TAB_CONFIG.map((tab) => {
             const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => handleTabChange(tab.id)}
-                className={`flex items-center gap-1.5 rounded px-3 py-1 text-xs font-medium transition-all ${
-                  isActive ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
-                }`}
-              >
-                <Icon className="h-3 w-3" />
-                {tab.label}
-              </button>
-            );
+            return { id: tab.id, label: tab.label, icon: <Icon className="h-3.5 w-3.5" /> };
           })}
-        </div>
+          active={activeTab}
+          onChange={(id) => handleTabChange(id as PanelTab)}
+        />
 
-        {/* PPT action buttons — shown only when PPT preview is active */}
-        {activeTab === "preview" && renderType === "ppt" && (pptContent || pptxCode) && (
-          <PPTTabActions
-            content={pptContent}
-            pptxCode={pptxCode}
-            isOdPpt={
-              rawPipelineType === "od_ppt" || rawPipelineType === "od_ppt_revision" ||
-              detectedType === "od_ppt" || detectedType === "od_ppt_revision"
-            }
-          />
-        )}
+        <div className="flex items-center gap-2">
+          {/* PPT action buttons — shown only when PPT preview is active */}
+          {activeTab === "preview" && renderType === "ppt" && (pptContent || pptxCode) && (
+            <PPTTabActions
+              content={pptContent}
+              pptxCode={pptxCode}
+              isOdPpt={
+                rawPipelineType === "od_ppt" || rawPipelineType === "od_ppt_revision" ||
+                detectedType === "od_ppt" || detectedType === "od_ppt_revision"
+              }
+            />
+          )}
+        </div>
       </div>
 
       {/* Tab Content */}
@@ -802,7 +803,29 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               transition={{ duration: 0.15 }}
               className="absolute inset-0"
             >
-              <AgentThinkingTab agents={agents || []} pipelineState={pipelineState} runInput={runInput} clarifications={clarifications ?? pipelineState?.clarifications} revisionParentVersion={revisionParentVersion} originalBriefRootRunId={originalBriefRootRunId} />
+              <AgentThinkingTab
+                agents={agents || []}
+                pipelineState={pipelineState}
+                runInput={runInput}
+                clarifications={clarifications ?? pipelineState?.clarifications}
+                revisionParentVersion={revisionParentVersion}
+                originalBriefRootRunId={originalBriefRootRunId}
+                /* Phase 32 (plan 07 → 08) — OPTIONAL gate/clarify passthrough.
+                   These are the same GateContext / ClarifyQuestion / callback
+                   shapes DashboardLayout (plan 06) now passes to PreviewPanel.
+                   They are forwarded to the Steps body so plan 08 can render the
+                   inline gate/clarify affordances here; dormant (declared but not
+                   yet consumed by AgentThinkingTab) until then — zero behavior
+                   change, name-free (SC-001). */
+                laneGate={laneGate}
+                onApproveGate={onApproveGate}
+                onRejectGate={onRejectGate}
+                onRedoGate={onRedoGate}
+                onUpdateSpecsGate={onUpdateSpecsGate}
+                clarifyQuestions={clarifyQuestions}
+                onSubmitClarify={onSubmitClarify}
+                onSkipClarify={onSkipClarify}
+              />
             </motion.div>
           )}
           {activeTab === "audit" && (

@@ -23,6 +23,23 @@ interface AgentThinkingTabProps {
   revisionParentVersion?: number;  // "revision of v{n-1}" chip
   clarifications?: ClarifyRound[]; // reopen-fetched rounds; live falls back to pipelineState
   clarificationsLoading?: boolean; // reopen fetch in flight → aria-busy
+  // Phase 32 (plan 07 → 08) — OPTIONAL, DORMANT gate/clarify passthrough. These
+  // are the run's active gate + clarify quick-action context PreviewPanel now
+  // forwards from DashboardLayout (plan 06) so a future Steps surface (plan 08)
+  // can mount the same inline gate/clarify affordances the RunChatLane composer
+  // uses. Pinned to the existing GateContext / ClarifyQuestion / ClarifyResponse
+  // shapes (name-free, SC-001); all default-undefined and NOT yet consumed here →
+  // every existing call site renders byte-unchanged (tsc-identity).
+  laneGate?: import("@/components/chat/RunChatLane").GateContext;
+  onApproveGate?: (gateKey: string, editedContent?: string) => void;
+  onRejectGate?: (gateKey: string) => void;
+  onRedoGate?: (gateKey: string, instructions: string) => void;
+  onUpdateSpecsGate?: (gateKey: string, report: string) => void;
+  clarifyQuestions?: import("@/components/preview/QuestionnairePanel").ClarifyQuestion[];
+  onSubmitClarify?: (
+    responses: import("@/components/chat/InlineClarifyActions").ClarifyResponse[],
+  ) => void;
+  onSkipClarify?: () => void;
 }
 
 // ─── Agent accent — single on-brand color (design system navy #1B2A4A) ─────────
