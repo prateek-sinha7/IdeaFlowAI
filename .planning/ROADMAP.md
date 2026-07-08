@@ -747,7 +747,7 @@ Plans:
 
 - [x] **Phase 28: Chat Contracts & Guards [A0]** — event vocabulary + golden guards, artifact-block derivation contracts, live-state contract, mockWs chat driver, decision records ND-1..ND-9 (completed 2026-07-07)
 - [x] **Phase 29: Transport Cutover + Chat Backbone [A1]** — *(D-13 locked 2026-07-07)* wave 1: per-run SSE stream + REST commands built ADDITIVELY alongside `/ws/chat` (wire-parity golden, ported suites, D-14 resilience; WS-deletion DEFERRED to a supervised follow-up per LOCK-B); wave 2: `POST /api/runs/{id}/messages` chat backbone, mechanical intent router, steering seam, narrator cards (completed 2026-07-08)
-- [ ] **Phase 30: Uploads & Multimodal [A2]** — *(trimmed 2026-07-07: image spine landed via IMAGE-INPUT-PLAN waves)* file/doc uploads (`POST /api/runs/{id}/files` → sandbox), `context_provider:uploaded_files`, per-turn image carrier, client resize, ND-10 disposition
+- [x] **Phase 30: Uploads & Multimodal [A2]** — *(trimmed 2026-07-07: image spine landed via IMAGE-INPUT-PLAN waves)* file/doc uploads (`POST /api/runs/{id}/files` → sandbox), `context_provider:uploaded_files`, per-turn image carrier, client resize, ND-10 disposition
 - [ ] **Phase 31: Chat Lane MVP [A3]** — revive in-repo kit, send/receive, result cards + deep-links, in-lane gate/clarify quick-actions, attachment UI, token widget
 - [ ] **Phase 32: Run-Screen Redesign [A4]** — token layer + primitives, chat-lane left, Preview/Steps/Files/Audit right, 3-level Steps drill-down, 3 Audit read endpoints, e2e hardening
 - [ ] **Phase 33: Concierge + Compaction [A5]** — `chat:concierge` capability + confirm chips, `compaction:chat_history` + `context_provider:conversation`, post-run iteration chat
