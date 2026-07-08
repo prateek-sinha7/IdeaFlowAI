@@ -192,3 +192,171 @@ class TestDeepLinkNonce:
 
     def test_distinct_cards_get_distinct_nonces(self):
         assert self._card()["deep_link"]["nonce"] != self._card()["deep_link"]["nonce"]
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Task 2 — persist chat_reply as a run_events row (offline, real ScopedStore)
+# ════════════════════════════════════════════════════════════════════════════
+@pytest.fixture
+def store_env(monkeypatch):
+    """A ScopedStore bound to an in-memory SQLite log (no live Bedrock / server)."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    from app.models import database as db_module
+    from app.models.database import Base
+
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Session = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+    monkeypatch.setattr(db_module, "SessionLocal", Session)
+
+    yield {"Session": Session}
+
+    Base.metadata.drop_all(bind=engine)
+    engine.dispose()
+
+
+def _seed_run(store_env, *, owner_id, workspace_id="ws-1", status="running"):
+    from app.models.workflow import WorkflowRun
+
+    run_id = str(uuid.uuid4())
+    db = store_env["Session"]()
+    try:
+        db.add(WorkflowRun(
+            id=run_id, user_id=owner_id, owner_id=owner_id, workspace_id=workspace_id,
+            title="t", type="prototype", status=status, input="i",
+            agent_count=1, session_id=owner_id, created_at=datetime.now(timezone.utc),
+        ))
+        db.commit()
+        return run_id
+    finally:
+        db.close()
+
+
+def _seed_events(store_env, run_id, rows, *, owner_id, workspace_id="ws-1"):
+    from app.models.run_event import RunEvent
+
+    db = store_env["Session"]()
+    try:
+        for seq, etype, payload in rows:
+            db.add(RunEvent(
+                id=str(uuid.uuid4()), run_id=run_id, owner_id=owner_id,
+                workspace_id=workspace_id, seq=seq, event_id=f"e{seq}",
+                type=etype, payload_json=payload,
+            ))
+        db.commit()
+    finally:
+        db.close()
+
+
+def _reply_rows(store_env, run_id):
+    from app.models.run_event import RunEvent
+
+    db = store_env["Session"]()
+    try:
+        return (
+            db.query(RunEvent)
+            .filter(RunEvent.run_id == run_id, RunEvent.type == "chat_reply")
+            .order_by(RunEvent.seq.asc())
+            .all()
+        )
+    finally:
+        db.close()
+
+
+def _run(coro):
+    import asyncio
+
+    return asyncio.get_event_loop().run_until_complete(coro)
+
+
+class TestPersistence:
+    def _store(self, owner_id, workspace_id="ws-1"):
+        from agents.authz import ScopedStore
+
+        return ScopedStore(owner_id=owner_id, workspace_id=workspace_id)
+
+    def test_card_persists_as_one_chat_reply_row(self, store_env):
+        from app.agents.chat_narrator import persist_milestone_card
+
+        owner = "owner-1"
+        run_id = _seed_run(store_env, owner_id=owner)
+        event = {"type": "review_gate_ready", "event_id": "src-1",
+                 "data": {"pipeline_run_id": run_id, "gate_key": f"{run_id}:agent"}}
+
+        created, seq, card = _run(persist_milestone_card(self._store(owner), run_id, event))
+        assert created is True
+        rows = _reply_rows(store_env, run_id)
+        assert len(rows) == 1
+        assert rows[0].type == "chat_reply"
+        assert rows[0].payload_json["card_kind"] == "gate"
+        assert rows[0].owner_id == owner  # family-anchored + owner-scoped
+        assert rows[0].workspace_id == "ws-1"
+
+    def test_seq_is_next_after_existing_events(self, store_env):
+        from app.agents.chat_narrator import persist_milestone_card
+
+        owner = "owner-2"
+        run_id = _seed_run(store_env, owner_id=owner)
+        _seed_events(store_env, run_id, [(1, "pipeline_start", {}), (2, "agent_start", {})],
+                     owner_id=owner)
+        event = {"type": "pipeline_complete", "event_id": "src-c",
+                 "data": {"pipeline_run_id": run_id, "deliverable_filename": "p.html"}}
+
+        created, seq, card = _run(persist_milestone_card(self._store(owner), run_id, event))
+        assert seq == 3  # max(1,2)+1 — same contiguous seq the engine sink computes
+
+    def test_replayed_milestone_is_idempotent_noop(self, store_env):
+        from app.agents.chat_narrator import persist_milestone_card
+
+        owner = "owner-3"
+        run_id = _seed_run(store_env, owner_id=owner)
+        event = {"type": "pipeline_start", "event_id": "src-dup",
+                 "data": {"pipeline_run_id": run_id}}
+
+        r1 = _run(persist_milestone_card(self._store(owner), run_id, event))
+        r2 = _run(persist_milestone_card(self._store(owner), run_id, event))  # replay
+        assert r1[0] is True and r2[0] is False  # second is a no-op
+        assert r1[1] == r2[1]  # same seq
+        assert len(_reply_rows(store_env, run_id)) == 1  # exactly ONE row
+
+    def test_non_milestone_persists_nothing(self, store_env):
+        from app.agents.chat_narrator import persist_milestone_card
+
+        owner = "owner-4"
+        run_id = _seed_run(store_env, owner_id=owner)
+        event = {"type": "agent_chunk", "event_id": "src-x",
+                 "data": {"pipeline_run_id": run_id, "chunk": "hi"}}
+
+        assert _run(persist_milestone_card(self._store(owner), run_id, event)) is None
+        assert _reply_rows(store_env, run_id) == []
+
+    def test_cross_owner_store_cannot_read_or_double_write(self, store_env):
+        # The projection reads only the run's OWN events; a cross-owner store's
+        # default-deny read sees none, so its seq restarts at 1 (never leaks the
+        # owner's rows). T-29-10-1: card never crosses the owner boundary.
+        from app.agents.chat_narrator import persist_milestone_card
+
+        owner = "owner-5"
+        run_id = _seed_run(store_env, owner_id=owner)
+        _seed_events(store_env, run_id, [(1, "pipeline_start", {})], owner_id=owner)
+        event = {"type": "pipeline_failed", "event_id": "src-f",
+                 "data": {"pipeline_run_id": run_id}}
+
+        # attacker store is scoped to a DIFFERENT owner — read_events default-denies.
+        created, seq, _ = _run(
+            persist_milestone_card(self._store("attacker"), run_id, event)
+        )
+        # It can only see its own (empty) scope → seq starts at 1, and the row it writes
+        # is stamped with the attacker principal (never mutates the owner's rows).
+        attacker_rows = [
+            r for r in _reply_rows(store_env, run_id) if r.owner_id == "attacker"
+        ]
+        assert len(attacker_rows) == 1
+        assert seq == 1
