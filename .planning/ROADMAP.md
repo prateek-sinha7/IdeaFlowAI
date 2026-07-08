@@ -789,7 +789,7 @@ Plans:
 5. Narrator `chat_reply` cards emit for clarify/gate/pipeline/deliverable milestones.
 6. INV-3 goldens byte-identical; lint-imports 4/0; kernel name-free (SC-001 grep 0).
 
-**Plans:** 7/10 plans executed
+**Plans:** 8/10 plans executed
 
 Plans:
 
@@ -797,7 +797,7 @@ Plans:
 - [x] 29-02-PLAN.md — Per-run SSE stream `GET /events/stream` + Last-Event-ID resume + stream_attached handshake + gate re-arm (D-14g/h) [wave 2]
 - [x] 29-03-PLAN.md — REST commands: gate (4 actions + KAN-100 fence) / answers / cancel, suites ported 1:1 [wave 3]
 - [x] 29-04-PLAN.md — REST commands: run launch (+ image caps) / revisions / user_message POST+stream shim [wave 4]
-- [ ] 29-05-PLAN.md — Attach/replay matrix (fresh·mid·live·terminal·cross-owner·restart·gate-answer-while-down = SC-2) [wave 5]
+- [x] 29-05-PLAN.md — Attach/replay matrix (fresh·mid·live·terminal·cross-owner·restart·gate-answer-while-down = SC-2) [wave 5]
 - [x] 29-06-PLAN.md — e2e mock-SSE driver + additive chat frames (123 mocked specs stay green) [wave 1]
 - [x] 29-07-PLAN.md — FE transport adapter + app-level connection provider + server-derived reattach (D-14 a–f), flag-gated [wave 2]
 - [x] 29-08-PLAN.md — Steering seam `ectx.steering_notes` + `=== USER GUIDANCE ===` + ND-11 decision record (first design task) [wave 1]
@@ -902,7 +902,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 28. Chat Contracts & Guards [A0] | 3/3 | Complete    | 2026-07-07 |
-| 29. Chat Backbone [A1] | 7/10 | In Progress|  |
+| 29. Chat Backbone [A1] | 8/10 | In Progress|  |
 | 30. Uploads & Multimodal [A2] | 0/? | Not started | — |
 | 31. Chat Lane MVP [A3] | 0/? | Not started | — |
 | 32. Run-Screen Redesign [A4] | 0/? | Not started | — |
