@@ -104,9 +104,13 @@ export function ChatPanel({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom during streaming and when new messages arrive
+  // Auto-scroll to bottom during streaming and when new messages arrive.
+  // Guarded: jsdom (tests) has no scrollIntoView — degrade rather than throw.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const end = messagesEndRef.current;
+    if (end && typeof end.scrollIntoView === "function") {
+      end.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages, streamingContent, isStreaming]);
 
   const hasMessages = messages.length > 0 || isStreaming;
