@@ -834,14 +834,14 @@ Plans:
 3. Attachment UI: file picker + paste + drag-drop + image preview + client resize; token-usage widget shows P26 fields.
 4. Open-design borrow-list mechanisms 1–7 integrated with Apache-2.0 attribution/NOTICE.
 
-**Plans:** 2/7 plans executed
+**Plans:** 3/7 plans executed
 
 Plans:
 **Wave 1**
 
 - [x] 31-01-PLAN.md — Borrow-list pure primitives (#1 partial-json, #2 extractStreamingJsonString, #4 buildBlocks) + Apache-2.0 NOTICE (CHATUI-01) [wave 1]
 - [x] 31-02-PLAN.md — Borrow-list rendering (#3 tool-renderer registry, #5 measured virtualizer, #7 ThinkingBlock/todo/file-ops) (CHATUI-01) [wave 1]
-- [ ] 31-03-PLAN.md — Chat transcript hook (useRunChat, D-02 family-anchored) + ChatMessage type + #6 nonce'd deep-link seam (CHATUI-01) [wave 1]
+- [x] 31-03-PLAN.md — Chat transcript hook (useRunChat, D-02 family-anchored) + ChatMessage type + #6 nonce'd deep-link seam (CHATUI-01) [wave 1]
 - [ ] 31-05-PLAN.md — In-lane gate/clarify quick-actions (4 gate actions incl update_specs KAN-101, terminal fence KAN-100, retained edit KAN-98) (CHATUI-02) [wave 1]
 
 **Wave 2**
@@ -934,7 +934,7 @@ Plans:
 | 28. Chat Contracts & Guards [A0] | 3/3 | Complete    | 2026-07-07 |
 | 29. Chat Backbone [A1] | 10/10 | Complete   | 2026-07-08 |
 | 30. Uploads & Multimodal [A2] | 0/? | Not started | — |
-| 31. Chat Lane MVP [A3] | 2/7 | In Progress|  |
+| 31. Chat Lane MVP [A3] | 3/7 | In Progress|  |
 | 32. Run-Screen Redesign [A4] | 0/? | Not started | — |
 | 33. Concierge + Compaction [A5] | 0/? | Not started | — |
 | 34. Live Pass & Closure [A6] | 0/? | Not started | — |
