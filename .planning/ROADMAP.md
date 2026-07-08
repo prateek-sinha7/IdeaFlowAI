@@ -940,14 +940,14 @@ Plans:
 1. Shell chrome matches the Workspace v2 idiom on tokens (no per-page palette forks); nav = Home · Library · My Workflows (D-11).
 2. Account Settings, Template/DS pickers, Review-gates popover, Library restyled with real controls where the mock had static text.
 
-**Plans:** 7 plans (2 waves)
+**Plans:** 2/7 plans executed
 **Wave 1**
 
 - [x] 35-01-PLAN.md — Shell chrome: dark top bar + nav pill (My Workflows) + a11y profile menu + notifications panel + baseline capture (Wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 35-02-PLAN.md — Account Settings reskin (preserve wiring; no unbacked fields) (Wave 2)
+- [x] 35-02-PLAN.md — Account Settings reskin (preserve wiring; no unbacked fields) (Wave 2)
 - [ ] 35-03-PLAN.md — Template picker + detail/custom/card modals reskin (Wave 2)
 - [ ] 35-04-PLAN.md — Design-System picker (LOCK-F ~14) + DS modals + Review-gates reskin (Wave 2)
 - [ ] 35-05-PLAN.md — Library (Agents/Skills/Hooks) reskin with real controls (Wave 2)
@@ -995,7 +995,7 @@ Plans:
 | 32. Run-Screen Redesign [A4] | 10/10 | Complete   | 2026-07-08 |
 | 33. Concierge + Compaction [A5] | 5/5 | Verified⚠ (P34 live) | — |
 | 34. Live Pass & Closure [A6] | 0/? | Not started | — |
-| 35. Shell Chrome + Reskin Pages [B1] | 1/7 | In progress | — |
+| 35. Shell Chrome + Reskin Pages [B1] | 2/7 | In Progress|  |
 | 36. Home + History + My Workflows [B2] | 0/? | Not started | — |
 | 37. Configure Unification [B3] | 0/? | Not started | — |
 | 38. Analytics, Estimates & Notifications [B4] | 0/? | Not started | — |
