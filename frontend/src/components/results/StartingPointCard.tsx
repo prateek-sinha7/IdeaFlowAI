@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { FileText, ChevronDown, Pencil, File } from "lucide-react";
+import { FileText, ChevronDown, Pencil, File, ImageOff } from "lucide-react";
 import { parseRunInput } from "@/lib/runInput";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -20,6 +20,16 @@ import { parseRunInput } from "@/lib/runInput";
 //   "revision of v{n-1}" micro chip .... AgentThinkingTab.tsx:324
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** ND-10 (LOCK-E) — a payload-transient attachment ref. The backend stamps
+ *  chat-turn image attachments `{kind:"image", retained:false}` with NO bytes
+ *  (run_commands._persist_chat_message); image persistence for reopen/replay is
+ *  DEFERRED. The honest reopen surface is a "not retained" placeholder derived
+ *  SOLELY from this ref — never a fetch, never durable image storage. */
+export interface AttachmentRef {
+  kind: string;
+  retained: boolean;
+}
+
 interface StartingPointCardProps {
   /** The run's raw input string; parsed via C1 parseRunInput. */
   input?: string;
@@ -28,18 +38,30 @@ interface StartingPointCardProps {
   originalBriefRootRunId?: string;
   /** The immediately-prior version number, for the "revision of v{n-1}" chip. */
   revisionParentVersion?: number;
+  /** ND-10: payload-transient attachment refs for a reopened run. A
+   *  `{kind:"image", retained:false}` ref renders the "image not retained"
+   *  placeholder. Absent/empty → no placeholder, no layout change. */
+  attachmentRefs?: AttachmentRef[];
 }
 
-export function StartingPointCard({ input, originalBriefRootRunId, revisionParentVersion }: StartingPointCardProps) {
+export function StartingPointCard({ input, originalBriefRootRunId, revisionParentVersion, attachmentRefs }: StartingPointCardProps) {
   const parsed = parseRunInput(input ?? "");
   const isRevision = parsed.revisionInstruction !== undefined;
   const isChained = !isRevision && parsed.chainContext !== undefined;
+
+  // ND-10: not-retained image refs → the honest "image not retained" placeholder.
+  // Derived SOLELY from the retained:false ref — we render NO <img>, fetch no
+  // bytes, and build no durable storage. A run with no such ref is unchanged.
+  const notRetainedImageCount = (attachmentRefs ?? []).filter(
+    (a) => a.kind === "image" && a.retained === false,
+  ).length;
 
   const hasContent =
     !!parsed.brief ||
     parsed.revisionInstruction !== undefined ||
     parsed.attachments.length > 0 ||
-    parsed.chainContext !== undefined;
+    parsed.chainContext !== undefined ||
+    notRetainedImageCount > 0;
 
   // Card body is open by default — the run's inputs are short and high-value.
   const [expanded, setExpanded] = useState(true);
@@ -224,6 +246,19 @@ export function StartingPointCard({ input, originalBriefRootRunId, revisionParen
                     )}
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* ND-10 (LOCK-E) — "image not retained" placeholder. Derived SOLELY
+                from a retained:false image ref: no <img>, no byte fetch, no
+                durable storage (image persistence for reopen is deferred). */}
+            {notRetainedImageCount > 0 && (
+              <div className="flex items-center gap-2 rounded-lg border border-dashed border-gray-200 bg-gray-50 px-3 py-2">
+                <ImageOff aria-hidden className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                <p className="text-[10px] text-gray-500 leading-relaxed">
+                  {notRetainedImageCount === 1 ? "Image not retained" : `${notRetainedImageCount} images not retained`}
+                  {" — images are not stored after the run."}
+                </p>
               </div>
             )}
           </div>
