@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import type { ReactNode, RefObject } from "react";
 import { motion } from "motion/react";
 import { Sparkles, Lightbulb, Code, FileText, Layers } from "lucide-react";
 import type { ChatMessage, ProcessStep } from "@/types/index";
@@ -10,6 +11,12 @@ import { ProcessSteps } from "./ProcessSteps";
 import { ChatInput } from "./ChatInput";
 import { ErrorMessage } from "./ErrorMessage";
 import type { ChatMode } from "./ChatInput";
+import type { AgentEvent } from "./runtime/blocks.types";
+import {
+  useMeasuredVirtualWindow,
+  VIRTUALIZE_THRESHOLD,
+  type ScrollSurface,
+} from "./runtime/useMeasuredVirtualWindow";
 
 export interface ChatPanelProps {
   messages: ChatMessage[];
@@ -21,6 +28,36 @@ export interface ChatPanelProps {
   onEditMessage?: (messageId: string, newContent: string) => void;
   messageMode?: ChatMode;
   processSteps?: ProcessStep[];
+  /** The nonce'd deep-link seam a narrator ResultCard fires (borrow #6). */
+  onRequestOpenTab?: (tab: string) => void;
+  /** Plan-01 agent event stream per assistant turn id — renders the block strip. */
+  eventsByMessageId?: Record<string, AgentEvent[]>;
+  /** Suppress the built-in ChatInput so the run lane can supply its own unified
+   *  composer (the composition root owns the mode-switched composer). */
+  hideComposer?: boolean;
+}
+
+/** A per-row height-measuring wrapper feeding the virtual window (borrow #5).
+ *  Guarded for environments without ResizeObserver (falls back to estimates). */
+function MeasuredItem({
+  index,
+  measure,
+  children,
+}: {
+  index: number;
+  measure: (i: number, h: number) => void;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => measure(index, el.offsetHeight));
+    ro.observe(el);
+    measure(index, el.offsetHeight);
+    return () => ro.disconnect();
+  }, [index, measure]);
+  return <div ref={ref}>{children}</div>;
 }
 
 const SUGGESTION_CHIPS = [
@@ -60,6 +97,9 @@ export function ChatPanel({
   onEditMessage,
   messageMode,
   processSteps,
+  onRequestOpenTab,
+  eventsByMessageId,
+  hideComposer,
 }: ChatPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -71,11 +111,99 @@ export function ChatPanel({
 
   const hasMessages = messages.length > 0 || isStreaming;
 
+  // Borrow #5: engage the measured virtual window above VIRTUALIZE_THRESHOLD (80)
+  // messages; below it the hook disengages (full range, zero spacers) and the
+  // kit's naive auto-scroll stays. Called unconditionally (rules of hooks).
+  const virtual = useMeasuredVirtualWindow({
+    itemCount: messages.length,
+    scrollRef: scrollContainerRef as RefObject<ScrollSurface | null>,
+    estimateHeight: 220,
+  });
+  const isVirtualized = messages.length > VIRTUALIZE_THRESHOLD;
+
+  // Render one transcript row: an error banner, a narrator card, or a bubble.
+  const renderMessage = (message: ChatMessage, index: number): ReactNode => {
+    const isLastAssistant =
+      isStreaming &&
+      message.role === "assistant" &&
+      index === messages.length - 1;
+
+    const isError =
+      message.role === "assistant" &&
+      !message.cardKind &&
+      (message.content.startsWith("Error:") ||
+        (message as ChatMessage & { isError?: boolean }).isError === true);
+
+    if (isError) {
+      const errorContent = message.content.startsWith("Error: ")
+        ? message.content.slice(7)
+        : message.content;
+
+      let errorCode: string | undefined;
+      let recoverable = true;
+
+      if (errorContent.includes("[code:")) {
+        const codeMatch = errorContent.match(/\[code:(\w+)\]/);
+        const recoverableMatch = errorContent.match(/\[recoverable:(true|false)\]/);
+        if (codeMatch) errorCode = codeMatch[1];
+        if (recoverableMatch) recoverable = recoverableMatch[1] === "true";
+      }
+
+      const displayMessage = errorContent
+        .replace(/\[code:\w+\]/, "")
+        .replace(/\[recoverable:(true|false)\]/, "")
+        .trim();
+
+      return (
+        <ErrorMessage
+          key={message.id}
+          message={displayMessage}
+          code={errorCode}
+          recoverable={recoverable}
+          onRetry={
+            recoverable
+              ? () => {
+                  for (let i = index - 1; i >= 0; i--) {
+                    if (messages[i].role === "user") {
+                      onSendMessage(messages[i].content);
+                      break;
+                    }
+                  }
+                }
+              : undefined
+          }
+        />
+      );
+    }
+
+    return (
+      <MessageBubble
+        key={message.id}
+        message={message}
+        isStreaming={isLastAssistant}
+        streamingContent={isLastAssistant ? streamingContent : undefined}
+        mode={isLastAssistant ? messageMode : undefined}
+        onRegenerate={onRegenerateMessage}
+        onEdit={onEditMessage}
+        events={eventsByMessageId?.[message.id]}
+        onRequestOpenTab={onRequestOpenTab}
+      />
+    );
+  };
+
   return (
     <div className="flex h-full flex-col" style={{ backgroundColor: 'var(--theme-bg)' }}>
-      {/* Scrollable message list */}
+      {/* Scrollable message list — the streaming transcript is an ARIA log
+          region (role=log + aria-live=polite) so assistive tech announces new
+          turns as they stream in. Shipping this from day one is the documented
+          open-design a11y landmine we must NOT repeat (evidence 06 §7 / POR §7). */}
       <div
         ref={scrollContainerRef}
+        data-testid="chat-transcript"
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions text"
+        aria-label="Chat transcript"
         className="flex-1 overflow-y-auto px-4 py-8 md:px-6 relative"
       >
         {/* Subtle dot grid pattern */}
@@ -192,77 +320,28 @@ export function ChatPanel({
           </div>
         ) : (
           <div className="mx-auto max-w-4xl">
-            {messages.map((message, index) => {
-              const isLastAssistant =
-                isStreaming &&
-                message.role === "assistant" &&
-                index === messages.length - 1;
-
-              // Detect error messages
-              const isError =
-                message.role === "assistant" &&
-                (message.content.startsWith("Error:") ||
-                  (message as ChatMessage & { isError?: boolean }).isError === true);
-
-              if (isError) {
-                // Parse error details from content
-                const errorContent = message.content.startsWith("Error: ")
-                  ? message.content.slice(7)
-                  : message.content;
-
-                // Try to extract code and recoverable from structured error
-                let errorCode: string | undefined;
-                let recoverable = true;
-
-                if (errorContent.includes("[code:")) {
-                  const codeMatch = errorContent.match(/\[code:(\w+)\]/);
-                  const recoverableMatch = errorContent.match(/\[recoverable:(true|false)\]/);
-                  if (codeMatch) errorCode = codeMatch[1];
-                  if (recoverableMatch) recoverable = recoverableMatch[1] === "true";
-                }
-
-                const displayMessage = errorContent
-                  .replace(/\[code:\w+\]/, "")
-                  .replace(/\[recoverable:(true|false)\]/, "")
-                  .trim();
-
-                return (
-                  <ErrorMessage
-                    key={message.id}
-                    message={displayMessage}
-                    code={errorCode}
-                    recoverable={recoverable}
-                    onRetry={
-                      recoverable
-                        ? () => {
-                            // Find the last user message and resend
-                            for (let i = index - 1; i >= 0; i--) {
-                              if (messages[i].role === "user") {
-                                onSendMessage(messages[i].content);
-                                break;
-                              }
-                            }
-                          }
-                        : undefined
-                    }
-                  />
-                );
-              }
-
-              return (
-                <MessageBubble
-                  key={message.id}
-                  message={message}
-                  isStreaming={isLastAssistant}
-                  streamingContent={
-                    isLastAssistant ? streamingContent : undefined
-                  }
-                  mode={isLastAssistant ? messageMode : undefined}
-                  onRegenerate={onRegenerateMessage}
-                  onEdit={onEditMessage}
-                />
-              );
-            })}
+            {isVirtualized ? (
+              <>
+                <div style={{ height: virtual.topSpacer }} aria-hidden="true" />
+                {messages
+                  .slice(virtual.startIndex, virtual.endIndex)
+                  .map((message, sliceIdx) => {
+                    const index = virtual.startIndex + sliceIdx;
+                    return (
+                      <MeasuredItem
+                        key={message.id}
+                        index={index}
+                        measure={virtual.measure}
+                      >
+                        {renderMessage(message, index)}
+                      </MeasuredItem>
+                    );
+                  })}
+                <div style={{ height: virtual.bottomSpacer }} aria-hidden="true" />
+              </>
+            ) : (
+              messages.map((message, index) => renderMessage(message, index))
+            )}
 
             {/* Process steps indicator — persists after streaming completes */}
             {processSteps && processSteps.length > 0 && (
@@ -284,8 +363,11 @@ export function ChatPanel({
         )}
       </div>
 
-      {/* Input bar */}
-      <ChatInput onSendMessage={onSendMessage} onSendMessageWithMode={onSendMessageWithMode} isStreaming={isStreaming} />
+      {/* Input bar — suppressed when the run lane supplies its own unified,
+          mode-switched composer (no dual composer). */}
+      {!hideComposer && (
+        <ChatInput onSendMessage={onSendMessage} onSendMessageWithMode={onSendMessageWithMode} isStreaming={isStreaming} />
+      )}
     </div>
   );
 }

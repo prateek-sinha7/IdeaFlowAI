@@ -20,6 +20,12 @@ import { useTextToSpeech } from "@/hooks/useTextToSpeech";
 import { ProcessSteps } from "./ProcessSteps";
 import { ArtifactCard } from "./ArtifactCard";
 import type { ChatMode } from "./ChatInput";
+import type { AgentEvent } from "./runtime/blocks.types";
+import { buildBlocks } from "./runtime/buildBlocks";
+import { renderToolBlock } from "./runtime/tool-renderers";
+import { ThinkingBlock } from "./blocks/ThinkingBlock";
+import { FileOpsSummary } from "./blocks/FileOpsSummary";
+import { ResultCard } from "./ResultCard";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -28,6 +34,43 @@ interface MessageBubbleProps {
   mode?: ChatMode;
   onRegenerate?: (messageId: string) => void;
   onEdit?: (messageId: string, newContent: string) => void;
+  /**
+   * Plan-01 agent event stream for an assistant turn (Phase 31, CHATUI-01). When
+   * present, the coalesced ChatBlock strip (thinking / tools / file-ops) renders
+   * above the markdown prose so an agent turn shows reasoning + tools, not just
+   * text. Absent for plain narrator/user turns.
+   */
+  events?: AgentEvent[];
+  /** The nonce'd deep-link seam a narrator ResultCard fires (borrow #6). */
+  onRequestOpenTab?: (tab: string) => void;
+}
+
+/**
+ * Render the coalesced plan-01 ChatBlock strip for an assistant turn: thinking →
+ * ThinkingBlock, tool → the plan-02 renderToolBlock registry, file_ops →
+ * FileOpsSummary. Text/usage blocks are omitted here — the prose is the markdown
+ * body below, and usage rides the lane's token widget. Every branch keys on the
+ * generic block `kind` (SC-001).
+ */
+function AgentBlockStrip({ events }: { events: AgentEvent[] }) {
+  const blocks = buildBlocks(events);
+  if (blocks.length === 0) return null;
+  return (
+    <div className="mb-3">
+      {blocks.map((block, i) => {
+        switch (block.kind) {
+          case "thinking":
+            return <ThinkingBlock key={i} block={block} />;
+          case "tool":
+            return <div key={i}>{renderToolBlock(block)}</div>;
+          case "file_ops":
+            return <FileOpsSummary key={i} block={block} />;
+          default:
+            return null;
+        }
+      })}
+    </div>
+  );
 }
 
 const MODE_LABELS: Record<string, { emoji: string; label: string }> = {
@@ -75,6 +118,8 @@ export function MessageBubble({
   mode,
   onRegenerate,
   onEdit,
+  events,
+  onRequestOpenTab,
 }: MessageBubbleProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
@@ -141,10 +186,38 @@ export function MessageBubble({
     { hour: "2-digit", minute: "2-digit" }
   );
 
+  // --- NARRATOR RESULT CARD ---
+  // A chat_reply narrator turn (carries a GENERIC cardKind) renders a ResultCard
+  // instead of a prose bubble. Keyed on the generic kind (SC-001); falls back to
+  // a normal assistant bubble when no deep-link seam is threaded.
+  if (message.cardKind && onRequestOpenTab) {
+    return (
+      <motion.div
+        data-testid="chat-message"
+        data-role="narrator"
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, ease: "easeOut" }}
+        className="flex w-full mb-6"
+      >
+        <div className="mr-4 flex-shrink-0 pt-1">
+          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-navy/60 border border-grey/15">
+            <Sparkles className="h-3.5 w-3.5 text-white/80" />
+          </div>
+        </div>
+        <div className="flex-1 min-w-0">
+          <ResultCard message={message} onRequestOpenTab={onRequestOpenTab} />
+        </div>
+      </motion.div>
+    );
+  }
+
   // --- USER MESSAGE ---
   if (isUser) {
     return (
       <motion.div
+        data-testid="chat-message"
+        data-role="user"
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3, ease: "easeOut" }}
@@ -251,6 +324,8 @@ export function MessageBubble({
   // --- ASSISTANT MESSAGE ---
   return (
     <motion.div
+      data-testid="chat-message"
+      data-role="assistant"
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: "easeOut" }}
@@ -316,6 +391,10 @@ export function MessageBubble({
             </AnimatePresence>
           </div>
         )}
+
+        {/* Agent block strip — plan-01 ChatBlocks (thinking / tools / file-ops)
+            coalesced from the turn's event stream, above the prose. */}
+        {events && events.length > 0 && <AgentBlockStrip events={events} />}
 
         {/* Message content — NO bubble, flows naturally like a document */}
         <div className={`markdown-content ${isStreaming ? "streaming-cursor" : ""}`}>
