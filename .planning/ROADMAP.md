@@ -934,7 +934,7 @@ Plans:
 | 28. Chat Contracts & Guards [A0] | 3/3 | Complete    | 2026-07-07 |
 | 29. Chat Backbone [A1] | 10/10 | Complete   | 2026-07-08 |
 | 30. Uploads & Multimodal [A2] | 0/? | Not started | — |
-| 31. Chat Lane MVP [A3] | 7/7 | Complete   | 2026-07-08 |
+| 31. Chat Lane MVP [A3] | 7/7 | Complete    | 2026-07-08 |
 | 32. Run-Screen Redesign [A4] | 0/? | Not started | — |
 | 33. Concierge + Compaction [A5] | 0/? | Not started | — |
 | 34. Live Pass & Closure [A6] | 0/? | Not started | — |
