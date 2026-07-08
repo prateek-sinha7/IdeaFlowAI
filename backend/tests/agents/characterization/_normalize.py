@@ -138,14 +138,22 @@ _VOLATILE_STRIP_KEYS = frozenset(
         # event goldens byte-identical (INV-3).
         "deliverable_mimetype",
         "deliverable_filename",
-        # ── Additive-but-parity-neutral review_gate_ready key (REDO-GATE F1b) ────
-        # The engine now stamps a generic ``redoable`` discriminator on every
-        # ``review_gate_ready`` (True from the inline call site, False from the
-        # declared path). It is metadata-only (the FE renders the Redo button iff
-        # set) and NOT in _REQUIRED_DATA_KEYS, so it is STRIPPED here — mirroring the
-        # deliverable_mimetype/deliverable_filename precedent — keeping the 5
-        # characterization event goldens byte-identical (INV-3).
+        # ── Additive-but-parity-neutral review_gate_ready keys (REDO-GATE F1b /
+        #    SC-001 KAN-101) ───────────────────────────────────────────────────
+        # The engine now stamps generic discriminators on every ``review_gate_ready``:
+        #   * ``redoable``             — True from the inline call site, False from the
+        #     declared path (the FE renders the Redo button iff set).
+        #   * ``update_specs_eligible`` / ``artifact_kind`` — the SC-001 name-free
+        #     update-specs discriminator, True only from the inline analyze/spec call
+        #     site (derived structurally from _artifact_kind_for, never an agent-id
+        #     literal); the FE drives the "Update the Specs" affordance off the flag.
+        # All three are metadata-only and NOT in _REQUIRED_DATA_KEYS, so they are
+        # STRIPPED here — mirroring the deliverable_mimetype/deliverable_filename
+        # precedent — keeping the 5 characterization event goldens byte-identical
+        # (INV-3).
         "redoable",
+        "update_specs_eligible",
+        "artifact_kind",
         # ── Additive-but-parity-neutral prompt-cache keys (ISS-032 / FIX-036) ────
         # The runner now surfaces the Bedrock prompt-cache split
         # (input_token_details.cache_read/cache_creation) → the engine threads it

@@ -2708,12 +2708,17 @@ class ExecutionEngine:
                     results[-1] = {**results[-1], "output": output}
                 # Re-open the gate directly — skip the model call entirely.
                 if self._should_gate(spec, ectx):
+                    # SC-001: derive the update-specs eligibility STRUCTURALLY from the
+                    # artifact-kind (name-free), mirroring redoable's inline True.
+                    _ek = self._artifact_kind_for(spec)
                     async for gate_event in self._run_review_gate(
                         pipeline_run_id=pipeline_run_id,
                         agent_id=spec.id,
                         agent_name=spec.name,
                         output=output,
                         redoable=True,
+                        update_specs_eligible=_ek in self._UPDATE_SPECS_ELIGIBLE_KINDS,
+                        artifact_kind=_ek,
                         cancel_event=cancel_event,
                     ):
                         if gate_event.get("type") == "_gate_rejected":
@@ -3532,12 +3537,17 @@ class ExecutionEngine:
                 # FE offers Redo on every LIVE human gate; the _gate_redo branch below
                 # re-runs THIS agent via the enclosing while-loop (flat stack, F2).
                 if self._should_gate(spec, ectx):
+                    # SC-001: derive the update-specs eligibility STRUCTURALLY from the
+                    # artifact-kind (name-free), mirroring redoable's inline True.
+                    _ek = self._artifact_kind_for(spec)
                     async for gate_event in self._run_review_gate(
                         pipeline_run_id=pipeline_run_id,
                         agent_id=spec.id,
                         agent_name=spec.name,
                         output=output,
                         redoable=True,
+                        update_specs_eligible=_ek in self._UPDATE_SPECS_ELIGIBLE_KINDS,
+                        artifact_kind=_ek,
                         cancel_event=cancel_event,
                     ):
                         if gate_event.get("type") == "_gate_rejected":
@@ -4461,6 +4471,8 @@ class ExecutionEngine:
         agent_name: str,
         output: str,
         redoable: bool = False,
+        update_specs_eligible: bool = False,
+        artifact_kind: str = "",
         cancel_event: asyncio.Event | None = None,
     ) -> AsyncGenerator[dict, None]:
         """Pause the pipeline for human review of an agent's output.
@@ -4479,6 +4491,16 @@ class ExecutionEngine:
         step (which calls this primitive via ``run_human_gate`` with the default
         ``redoable=False``) therefore shows NO Redo button. It is added to
         ``_VOLATILE_STRIP_KEYS`` so the goldens stay byte-identical (INV-3).
+
+        ``update_specs_eligible`` / ``artifact_kind`` (SC-001 / KAN-101) mirror the
+        ``redoable`` pattern EXACTLY: a generic, name-free discriminator stamped True
+        ONLY from the inline analyze/spec call site — derived STRUCTURALLY from
+        ``_artifact_kind_for(spec)`` (spec-authoring kinds → eligible), NEVER a
+        workflow/agent-id string literal. The FE drives the "Update the Specs"
+        affordance IFF ``update_specs_eligible`` instead of matching a leaked
+        agent-id string. A declared/user gate defaults to
+        ``update_specs_eligible=False`` (as ``redoable`` defaults False). Both keys
+        are added to ``_VOLATILE_STRIP_KEYS`` so the goldens stay byte-identical.
         """
         gate_key = f"{pipeline_run_id}:{agent_id}"
 
@@ -4511,6 +4533,12 @@ class ExecutionEngine:
                 # REDO-GATE F1b: generic FE fence — True only from the inline call
                 # site (stripped by _VOLATILE_STRIP_KEYS so the goldens stay byte-id).
                 "redoable": redoable,
+                # SC-001 / KAN-101: generic name-free update-specs discriminator —
+                # True only from the inline analyze/spec call site (derived from
+                # _artifact_kind_for, never an agent-id literal). Both keys are
+                # stripped by _VOLATILE_STRIP_KEYS so the goldens stay byte-id.
+                "update_specs_eligible": update_specs_eligible,
+                "artifact_kind": artifact_kind,
                 "timestamp": _now(),
             },
         }
@@ -5222,6 +5250,19 @@ class ExecutionEngine:
         "prototype-build": "html_file",
         "prototype-validate": "validation_report",
     }
+
+    # SC-001 / KAN-101: the ARTIFACT KINDS whose LIVE human gate offers the generic
+    # "Update the Specs" affordance (the analyze/spec/plan gates). Keyed on the
+    # structural artifact-kind from _artifact_kind_for — NEVER a workflow/agent-id
+    # literal (name-free path). ``summary`` is included because the analyze gate is
+    # unmapped in _AGENT_KIND_MAP and falls back to the valid ``summary`` kind (D-01);
+    # build/validation gates (html_file/validation_report) are deliberately excluded,
+    # so a custom workflow gating on a build-like agent gets NO update-specs affordance.
+    # A declared/user gate that never passes the flag defaults update_specs_eligible
+    # to False regardless (mirroring redoable) — see _run_review_gate.
+    _UPDATE_SPECS_ELIGIBLE_KINDS: frozenset[str] = frozenset(
+        {"spec", "task_list", "summary"}
+    )
 
     def _artifact_kind_for(self, spec) -> str:
         """Resolve the ARTIFACT_KINDS value for ``spec``'s produced artifact (D-01).
