@@ -28,6 +28,7 @@ from app.api.prototype_templates import router as prototype_templates_router
 from app.api.ppt_templates import router as ppt_templates_router
 from app.api.admin import router as admin_router
 from app.api.file_extract import router as file_extract_router
+from app.api.run_files import router as run_files_router
 from app.core.config import settings
 from app.models.database import engine
 
@@ -191,6 +192,9 @@ app.include_router(prototype_templates_router)
 app.include_router(ppt_templates_router)
 app.include_router(admin_router)
 app.include_router(file_extract_router)
+# UPLD-01: owner-scoped, capped document upload → RunSandbox ``.uploads/`` prefix
+# (additive — shares the /api/runs prefix; no new table / migration).
+app.include_router(run_files_router)
 
 
 @app.get("/health")

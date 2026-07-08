@@ -29,6 +29,17 @@ logger = logging.getLogger("app.agents.sandbox")
 # pinned by ``tests/agents/test_sandbox_deliverable.py``.)
 _DELIVERABLE_EXCLUDE: frozenset[str] = frozenset({"PLANNER.md"})
 
+# Reserved sandbox prefix for owner-uploaded documents (UPLD-01). Files the
+# ``POST /api/runs/{id}/files`` endpoint lands here — the raw upload, its
+# extracted-text ``.txt`` sidecar, and ``manifest.json`` — exist ONLY so agents
+# can ``read_file`` them and 30-02's ``uploaded_files`` context provider can
+# surface their text as sticky context. They are NEVER part of the deliverable
+# the FilesTab / AppBuilderPreview parse, so the whole subtree is excluded from
+# the deliverable walk (prefix-aware, alongside the exact-name exclude below).
+# INV-3: a golden run writes nothing under ``.uploads/``, so this exclusion is
+# dormant and ``serialize_sandbox_deliverable`` stays byte-identical.
+_UPLOADS_PREFIX = ".uploads/"
+
 # Sentinel emitted when no deliverable files exist — kept byte-identical to the
 # legacy deliverable format so the engine produces the same ``WorkflowRun.output``
 # string from the on-disk sandbox.
@@ -226,6 +237,12 @@ def _collect_deliverable_relpaths(
             if not full.is_file():
                 continue
             relpath = full.relative_to(root).as_posix()
+            # Prefix-aware exclusion for the reserved uploads subtree (UPLD-01):
+            # every raw upload + ``.txt`` sidecar + ``manifest.json`` lives under
+            # ``.uploads/`` and must never surface as a deliverable file. Dormant
+            # on golden runs (no ``.uploads/`` dir → identical output, INV-3).
+            if relpath.startswith(_UPLOADS_PREFIX):
+                continue
             if relpath in exclude_set or name in exclude_set:
                 continue
             relpaths.append(relpath)
