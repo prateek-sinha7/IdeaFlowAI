@@ -265,6 +265,11 @@ class WorkflowCompiler:
             planner=manifest.planner,
             clarify=clarify,
             limits=limits,
+            # Plan 33-05 / INV-5: carry the manifest's optional chat/concierge DATA
+            # block verbatim onto the compiled plan. Pure data pass-through — NO
+            # control-flow keys off it (the run Concierge reads it via getattr). A
+            # manifest without the key ⇒ {} (parity — the 5 goldens are untouched).
+            chat=dict(getattr(manifest, "chat", {}) or {}),
         )
 
     # ── Trust-conditional Limits (FANOUT-09 / OBS-01 / 08-03/10-02 precedent) ──

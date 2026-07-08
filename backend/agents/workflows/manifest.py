@@ -81,6 +81,17 @@ class WorkflowManifest:
     icon: str | None = None
     launch_surface: str | None = None
 
+    # ── Chat / concierge (Plan 33-05) — inert DATA, INV-5 ─────────────────
+    # An OPTIONAL per-workflow chat block: free-form suggestions / concierge
+    # notes a custom workflow AUTHORS. It is pure DATA — the run Concierge
+    # (chat:concierge) reads it via ``getattr(compiled, "chat", {})`` and the FE
+    # surfaces it as suggested topics. NOTHING in the compiler/kernel branches on
+    # this block (no control-flow construct keys off it anywhere — INV-5); the
+    # compiler only CARRIES it verbatim onto ``CompiledWorkflow.chat``. Default
+    # ``{}`` keeps every existing manifest byte-identical (INV-3), so the 5
+    # characterization goldens are untouched.
+    chat: dict = field(default_factory=dict)
+
     # ── Forward / inert (D-06) ────────────────────────────────────────────
     model: dict | None = None
     limits: dict | None = None
@@ -113,6 +124,8 @@ _ALLOWED_TOP_KEYS: frozenset[str] = frozenset(
         "description",
         "icon",
         "launch_surface",
+        # ── Chat / concierge (Plan 33-05) — pure DATA, never control flow (INV-5) ──
+        "chat",
     }
 )
 
@@ -213,6 +226,11 @@ def _build_manifest(data: object, path: Path) -> WorkflowManifest:
     icon = _optional_str(data, "icon", file_str)
     launch_surface = _optional_str(data, "launch_surface", file_str)
 
+    # ── Chat / concierge block (Plan 33-05) — optional DATA (INV-5) ────────
+    # Type-checked as a mapping (names the field on error) then carried verbatim;
+    # absent/null ⇒ {} (parity). No control-flow keys off it (INV-5).
+    chat = _optional_dict(data, "chat", file_str, default_factory=dict)
+
     # ── Forward / inert fields (D-06) — type-checked, not consumed ─────────
     model = _optional_dict(data, "model", file_str, default_factory=lambda: None)
     limits = _optional_dict(data, "limits", file_str, default_factory=lambda: None)
@@ -233,6 +251,7 @@ def _build_manifest(data: object, path: Path) -> WorkflowManifest:
         description=description,
         icon=icon,
         launch_surface=launch_surface,
+        chat=chat,
         model=model,
         limits=limits,
     )
