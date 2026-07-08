@@ -749,7 +749,7 @@ Plans:
 - [x] **Phase 29: Transport Cutover + Chat Backbone [A1]** — *(D-13 locked 2026-07-07)* wave 1: per-run SSE stream + REST commands built ADDITIVELY alongside `/ws/chat` (wire-parity golden, ported suites, D-14 resilience; WS-deletion DEFERRED to a supervised follow-up per LOCK-B); wave 2: `POST /api/runs/{id}/messages` chat backbone, mechanical intent router, steering seam, narrator cards (completed 2026-07-08)
 - [x] **Phase 30: Uploads & Multimodal [A2]** — *(trimmed 2026-07-07: image spine landed via IMAGE-INPUT-PLAN waves)* file/doc uploads (`POST /api/runs/{id}/files` → sandbox), `context_provider:uploaded_files`, per-turn image carrier, client resize, ND-10 disposition
 - [x] **Phase 31: Chat Lane MVP [A3]** — revive in-repo kit, send/receive, result cards + deep-links, in-lane gate/clarify quick-actions, attachment UI, token widget (completed 2026-07-08)
-- [ ] **Phase 32: Run-Screen Redesign [A4]** — token layer + primitives, chat-lane left, Preview/Steps/Files/Audit right, 3-level Steps drill-down, 3 Audit read endpoints, e2e hardening
+- [x] **Phase 32: Run-Screen Redesign [A4]** — token layer + primitives, chat-lane left, Preview/Steps/Files/Audit right, 3-level Steps drill-down, 3 Audit read endpoints, e2e hardening (completed 2026-07-08)
 - [ ] **Phase 33: Concierge + Compaction [A5]** — `chat:concierge` capability + confirm chips, `compaction:chat_history` + `context_provider:conversation`, post-run iteration chat
 - [ ] **Phase 34: Live Pass & Closure [A6]** — live Bedrock chat/images/steering/concierge, multi-turn cache placement (P26 deferral folds in), Playwright live, register sweeps
 - [ ] **Phase 35: Shell Chrome + Reskin Pages [B1]** — dark top bar + nav pill (Home · Library · My Workflows), profile menu, notifications, Settings, pickers, Library restyle, **+ Login/Register + Admin reskin (ND-12)**; cites the canonical shared-surface spec (evidence 11 §B / D-15), not individual mocks
@@ -867,7 +867,7 @@ Plans:
 3. Audit tab reads the 3 new endpoints (`gate_events`/`validation_results`/`exec_runs`) with counters/filters + CSV/JSON export; governance keeps the status palette; one-chroma elsewhere.
 4. Failed/degraded/cancelled states faithful (P16 affordances + chat card); e2e green with brittle color assertions fixed + `data-testid`s added.
 
-**Plans:** 9/10 plans executed
+**Plans:** 10/10 plans complete
 Plans:
 **Wave 1**
 
@@ -889,7 +889,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 32-10-PLAN.md — E2E hardening: re-anchor brittle color assertions to token/data-testid, verify BY DELTA (Wave 4)
+- [x] 32-10-PLAN.md — E2E hardening: re-anchor brittle color assertions to token/data-testid, verify BY DELTA (Wave 4)
 
 ### Phase 33: Concierge + Compaction [A5]
 
@@ -959,7 +959,7 @@ Plans:
 | 29. Chat Backbone [A1] | 10/10 | Complete   | 2026-07-08 |
 | 30. Uploads & Multimodal [A2] | 0/? | Not started | — |
 | 31. Chat Lane MVP [A3] | 7/7 | Complete    | 2026-07-08 |
-| 32. Run-Screen Redesign [A4] | 9/10 | In Progress|  |
+| 32. Run-Screen Redesign [A4] | 10/10 | Complete   | 2026-07-08 |
 | 33. Concierge + Compaction [A5] | 0/? | Not started | — |
 | 34. Live Pass & Closure [A6] | 0/? | Not started | — |
 | 35. Shell Chrome + Reskin Pages [B1] | 0/? | Not started | — |
