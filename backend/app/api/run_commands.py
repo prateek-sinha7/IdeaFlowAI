@@ -863,7 +863,35 @@ async def _drive_launch_to_queue(
                     "role": update["data"].get("role"),
                     "icon": update["data"].get("icon"),
                     "output": "", "duration": None,
+                    # CR-02: the four scaffold keys the WS driver seeds so the
+                    # agent_input/thinking/tool_call/tool_result branches below have a
+                    # place to write. Missing keys made the persisted history drop
+                    # tool-call/thinking/input-prompt data for every REST-launched run.
+                    "input_prompt": None, "context_sources": [],
+                    "tool_calls": [], "thinking_text": "",
                 }
+            # CR-02: ported verbatim from websocket.py::_run_pipeline_to_queue
+            # (2079-2095) so the REST launch path persists the SAME agent_outputs
+            # history as the WS path (sanctioned-duplication behavioral parity — the
+            # live event queue already forwarded these unconditionally above; only the
+            # PERSISTED WorkflowRun.agent_outputs blob was degraded).
+            elif utype == "agent_input":
+                current_agent["input_prompt"] = update["data"].get("context_message")
+                current_agent["context_sources"] = update["data"].get("context_sources", [])
+            elif utype == "agent_thinking":
+                current_agent["thinking_text"] = (current_agent.get("thinking_text") or "") + update["data"].get("thinking", "")
+            elif utype == "tool_call":
+                current_agent.setdefault("tool_calls", []).append({
+                    "tool": update["data"].get("tool"),
+                    "args": update["data"].get("args", {}),
+                    "result": None,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                })
+            elif utype == "tool_result":
+                for tc in reversed(current_agent.get("tool_calls", [])):
+                    if tc.get("tool") == update["data"].get("tool") and tc.get("result") is None:
+                        tc["result"] = update["data"].get("result")
+                        break
             elif utype == "agent_chunk":
                 current_agent["output"] = current_agent.get("output", "") + update["data"].get("chunk", "")
             elif utype == "agent_complete":

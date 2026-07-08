@@ -301,3 +301,92 @@ async def test_driver_drives_engine_and_populates_queue(env):
     row = _latest_run(env)
     assert row.status == "completed"
     assert run_id not in env["ws"]._PIPELINE_QUEUES
+
+
+@pytest.mark.asyncio
+async def test_driver_persists_full_agent_history_like_ws(env, monkeypatch):
+    """CR-02: the REST launch driver must persist the SAME agent_outputs history as
+    the WS ``_run_pipeline_to_queue`` — including tool calls, thinking text, the input
+    prompt, and context sources.
+
+    The sanctioned WS→REST duplication had dropped the ``agent_input`` /
+    ``agent_thinking`` / ``tool_call`` / ``tool_result`` branches (and the four
+    ``current_agent`` scaffold keys), so every REST-launched run persisted a degraded
+    WorkflowRun.agent_outputs blob silently missing that data. This drives the rich
+    engine stream and asserts the persisted blob now carries it (fails pre-fix).
+    """
+    import json
+
+    from app.api import run_commands as rc
+    from app.models.workflow import WorkflowRun
+
+    class _RichEngine:
+        """Emits the full per-agent event vocabulary the WS driver records."""
+
+        async def execute(self, **kwargs):
+            yield {"type": "agent_start", "data": {
+                "agent_id": "a1", "name": "A1", "role": "r", "icon": "i"}}
+            yield {"type": "agent_input", "data": {
+                "context_message": "PROMPT-TEXT", "context_sources": ["upstream-1"]}}
+            yield {"type": "agent_thinking", "data": {"thinking": "let me "}}
+            yield {"type": "agent_thinking", "data": {"thinking": "think..."}}
+            yield {"type": "tool_call", "data": {
+                "tool": "write_file", "args": {"path": "x"}}}
+            yield {"type": "tool_result", "data": {
+                "tool": "write_file", "result": "ok"}}
+            yield {"type": "agent_chunk", "data": {"chunk": "hello"}}
+            yield {"type": "agent_complete", "data": {
+                "duration": 1.2, "input_tokens": 10, "output_tokens": 5,
+                "total_tokens": 15}}
+            yield {"type": "pipeline_complete", "data": {"final_output": "done"}}
+
+    monkeypatch.setattr(engine_mod, "get_execution_engine", lambda: _RichEngine())
+
+    user = _seed_user(env)
+    run_id = str(uuid.uuid4())
+    db = env["ws"]._get_db()
+    try:
+        db.add(WorkflowRun(
+            id=run_id, user_id=user.id, title="t", type="user_stories",
+            status="running", input="build a backlog", agent_count=1,
+            session_id=user.id,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    queue: asyncio.Queue = asyncio.Queue()
+    await rc._drive_launch_to_queue(
+        workflow_run_id=run_id,
+        pipeline_run_id=run_id,
+        agents=[object()],
+        content="build a backlog",
+        pipeline_type="user_stories",
+        cancel_event=asyncio.Event(),
+        user=user,
+        attached_skills=[],
+        attached_hooks=[],
+        od_context=None,
+        validated_images=[],
+        gate_agent_ids=None,
+        parent_run_id=None,
+        model_overrides={},
+        selections=None,
+        event_queue=queue,
+    )
+
+    row = _latest_run(env)
+    assert row.status == "completed"
+    outputs = json.loads(row.agent_outputs)
+    assert len(outputs) == 1
+    agent = outputs[0]
+    # The four previously-dropped fields are now persisted (WS-parity).
+    assert agent["input_prompt"] == "PROMPT-TEXT"
+    assert agent["context_sources"] == ["upstream-1"]
+    assert agent["thinking_text"] == "let me think..."
+    assert len(agent["tool_calls"]) == 1
+    tc = agent["tool_calls"][0]
+    assert tc["tool"] == "write_file"
+    assert tc["args"] == {"path": "x"}
+    assert tc["result"] == "ok"  # tool_result was matched back onto the open call
+    assert tc["timestamp"]  # stamped at tool_call time
