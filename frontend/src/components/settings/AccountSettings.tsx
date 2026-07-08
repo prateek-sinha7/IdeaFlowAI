@@ -10,6 +10,10 @@ import { getToken, getMe, changePassword, getPreferences, updatePreferences, get
 import type { ModelOption, CapabilityModelEntry } from "@/lib/api";
 import { TIER_PIPELINES, TIER_LABELS } from "@/lib/entitlements";
 import type { Tier } from "@/lib/entitlements";
+import { Tabs, type TabItem } from "@/components/ui/Tabs";
+import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { Badge, type BadgeStatus } from "@/components/ui/Badge";
 
 interface AccountSettingsProps {
   onBack: () => void;
@@ -20,34 +24,12 @@ type SettingsSection = "profile" | "model" | "limits" | "constitution";
 // ─── Tier definitions ─────────────────────────────────────────────────────────
 const TIER_ORDER: Tier[] = ["basic", "pro", "enterprise"];
 
-const TIER_DETAILS: Record<Tier, {
-  price: string;
-  description: string;
-  color: string;
-  bgColor: string;
-  borderColor: string;
-}> = {
-  basic: {
-    price: "Starter",
-    description: "Core pipelines for individuals getting started",
-    color: "text-gray-700",
-    bgColor: "bg-gray-50",
-    borderColor: "border-gray-200",
-  },
-  pro: {
-    price: "Professional",
-    description: "Full pipeline access for power users and teams",
-    color: "text-[#1B2A4A]",
-    bgColor: "bg-[#E8EDF5]",
-    borderColor: "border-[#1B2A4A]/20",
-  },
-  enterprise: {
-    price: "Enterprise",
-    description: "Unlimited access with all workflows and migrations",
-    color: "text-gray-900",
-    bgColor: "bg-gray-900",
-    borderColor: "border-gray-900",
-  },
+// Tier one-liners for the plan progress bar (the styling now routes through the
+// Phase-32 token layer — no per-tier palette fork).
+const TIER_DESCRIPTION: Record<Tier, string> = {
+  basic: "Core pipelines for individuals getting started",
+  pro: "Full pipeline access for power users and teams",
+  enterprise: "Unlimited access with all workflows and migrations",
 };
 
 // Pipeline display names
@@ -60,6 +42,13 @@ const PIPELINE_DISPLAY: Record<string, { label: string; description: string }> =
   migration:              { label: "Platform Workflows",       description: "Mulesoft → AWS, .NET → Azure" },
   mulesoft_to_springboot: { label: "Mulesoft Migration",       description: "Mulesoft to Spring Boot" },
   dotnet_to_azure:        { label: ".NET Migration",           description: ".NET to Azure modernisation" },
+};
+
+// Model capability tier -> canonical Badge status key (token-driven chip color).
+const MODEL_TIER_BADGE: Record<string, BadgeStatus> = {
+  fast: "done",
+  balanced: "running",
+  powerful: "cancelled",
 };
 
 // Unique base pipelines per tier (no revision variants)
@@ -162,461 +151,432 @@ export function AccountSettings({ onBack }: AccountSettingsProps) {
     }
   }, [currentPassword, newPassword, confirmPassword]);
 
-  const NAV_ITEMS: { id: SettingsSection; label: string; icon: typeof User }[] = [
-    { id: "profile", label: "Profile", icon: User },
-    { id: "model",   label: "AI Model", icon: Cpu },
-    { id: "limits",  label: "Limits",  icon: Zap },
-    { id: "constitution", label: "Constitution", icon: FileText },
+  const SECTION_TABS: TabItem[] = [
+    { id: "profile", label: "Profile", icon: <User className="h-3.5 w-3.5" /> },
+    { id: "model", label: "AI Model", icon: <Cpu className="h-3.5 w-3.5" /> },
+    { id: "limits", label: "Limits", icon: <Zap className="h-3.5 w-3.5" /> },
+    { id: "constitution", label: "Constitution", icon: <FileText className="h-3.5 w-3.5" /> },
   ];
 
+  // Token-driven feedback banner (success -> done ramp, error -> failed ramp).
+  const banner = (type: "success" | "error") =>
+    type === "success"
+      ? "text-status-done bg-[var(--status-done-fill)] border-[var(--status-done-border)]"
+      : "text-status-failed bg-[var(--status-failed-fill)] border-[var(--status-failed-border)]";
+
   return (
-    <div className="h-full flex flex-col" style={{ background: "#f5f5f0" }}>
+    <div className="h-full flex flex-col bg-surface-paper">
       {/* Header */}
-      <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100 bg-white flex-shrink-0">
-        <button onClick={onBack} className="flex items-center justify-center h-8 w-8 rounded-lg hover:bg-gray-100 transition-colors">
-          <ArrowLeft className="h-4 w-4 text-gray-500" />
+      <div className="flex items-center gap-3 px-6 py-4 border-b border-line-divider bg-surface-white flex-shrink-0">
+        <button onClick={onBack} className="flex items-center justify-center h-8 w-8 rounded-[var(--radius-button)] hover:bg-surface-warm transition-colors">
+          <ArrowLeft className="h-4 w-4 text-ink-500" />
         </button>
         <div>
-          <h1 className="text-[18px] font-normal italic text-gray-900 leading-tight font-serif">Account Settings</h1>
-          <p className="text-[11px] text-gray-400 mt-0.5">Manage your profile, security and plan limits</p>
+          <h1 className="text-[18px] font-semibold text-ink-900 leading-tight font-sans">Account Settings</h1>
+          <p className="text-[11px] text-ink-400 mt-0.5">Manage your profile, security and plan limits</p>
         </div>
       </div>
 
-      {/* Body — sidebar + content */}
-      <div className="flex-1 flex min-h-0">
+      {/* Section tabs */}
+      <div className="px-6 pt-3 bg-surface-white border-b border-line-divider flex-shrink-0">
+        <Tabs
+          tabs={SECTION_TABS}
+          active={section}
+          onChange={id => setSection(id as SettingsSection)}
+        />
+      </div>
 
-        {/* Sidebar nav */}
-        <div className="w-[180px] flex-shrink-0 border-r border-gray-100 bg-white py-4 px-3">
-          <nav className="space-y-0.5">
-            {NAV_ITEMS.map(item => {
-              const Icon = item.icon;
-              const active = section === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => setSection(item.id)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12px] font-medium transition-all text-left ${
-                    active
-                      ? "bg-[#1B2A4A] text-white"
-                      : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-                  }`}
-                >
-                  <Icon className="h-3.5 w-3.5 flex-shrink-0" />
-                  {item.label}
-                </button>
-              );
-            })}
-          </nav>
-        </div>
+      {/* Content area */}
+      <div className="flex-1 overflow-y-auto min-h-0">
+        <AnimatePresence mode="wait">
 
-        {/* Content area */}
-        <div className="flex-1 overflow-y-auto min-h-0">
-          <AnimatePresence mode="wait">
+          {/* ── PROFILE ── */}
+          {section === "profile" && (
+            <motion.div
+              key="profile"
+              initial={{ opacity: 0, x: 8 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -8 }}
+              transition={{ duration: 0.15 }}
+              className="px-8 py-7 max-w-lg"
+            >
+              <h2 className="text-[15px] font-semibold text-ink-900 mb-5 font-sans">Profile</h2>
 
-            {/* ── PROFILE ── */}
-            {section === "profile" && (
-              <motion.div
-                key="profile"
-                initial={{ opacity: 0, x: 8 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -8 }}
-                transition={{ duration: 0.15 }}
-                className="px-8 py-7 max-w-lg"
-              >
-                <h2 className="text-[15px] font-semibold text-gray-900 mb-5">Profile</h2>
-
-                {/* Email */}
-                <div className="bg-white rounded-xl border border-gray-100 p-5 mb-4 shadow-sm">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Mail className="h-3.5 w-3.5 text-gray-400" />
-                    <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Email Address</span>
-                  </div>
-                  {loading ? (
-                    <div className="h-10 rounded-lg bg-gray-100 animate-pulse" />
-                  ) : (
-                    <div className="flex items-center gap-3 rounded-lg border border-gray-100 bg-gray-50 px-4 py-2.5">
-                      <span className="text-[13px] text-gray-700">{email}</span>
-                    </div>
-                  )}
+              {/* Email */}
+              <Card className="p-5 mb-4 shadow-[var(--elevation-raised)]">
+                <div className="flex items-center gap-2 mb-3">
+                  <Mail className="h-3.5 w-3.5 text-ink-400" />
+                  <span className="text-[11px] font-semibold text-ink-500 uppercase tracking-wider">Email Address</span>
                 </div>
+                {loading ? (
+                  <div className="h-10 rounded-[var(--radius-button)] bg-surface-warm animate-pulse" />
+                ) : (
+                  <div className="flex items-center gap-3 rounded-[var(--radius-button)] border border-line-divider bg-surface-warm px-4 py-2.5">
+                    <span className="text-[13px] text-ink-700">{email}</span>
+                  </div>
+                )}
+              </Card>
 
-                {/* Change Password */}
-                <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Lock className="h-3.5 w-3.5 text-gray-400" />
-                    <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Change Password</span>
-                  </div>
-                  <div className="space-y-3.5">
-                    <div>
-                      <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5 block">Current Password</label>
-                      <div className="relative">
-                        <input type={showCurrent ? "text" : "password"} value={currentPassword}
-                          onChange={e => setCurrentPassword(e.target.value)}
-                          className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-[13px] text-gray-900 focus:outline-none focus:border-gray-400 transition-colors pr-10"
-                          placeholder="Enter current password" />
-                        <button type="button" onClick={() => setShowCurrent(!showCurrent)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700">
-                          {showCurrent ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                        </button>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5 block">New Password</label>
-                      <div className="relative">
-                        <input type={showNew ? "text" : "password"} value={newPassword}
-                          onChange={e => setNewPassword(e.target.value)}
-                          className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-[13px] text-gray-900 focus:outline-none focus:border-gray-400 transition-colors pr-10"
-                          placeholder="At least 8 characters" />
-                        <button type="button" onClick={() => setShowNew(!showNew)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700">
-                          {showNew ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                        </button>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5 block">Confirm New Password</label>
-                      <input type="password" value={confirmPassword}
-                        onChange={e => setConfirmPassword(e.target.value)}
-                        className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-[13px] text-gray-900 focus:outline-none focus:border-gray-400 transition-colors"
-                        placeholder="Re-enter new password" />
-                    </div>
-                    {message && (
-                      <div className={`flex items-center gap-2 rounded-lg px-3 py-2.5 text-[12px] ${message.type === "success" ? "bg-emerald-50 text-emerald-700 border border-emerald-100" : "bg-red-50 text-red-700 border border-red-100"}`}>
-                        {message.type === "success" ? <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" /> : <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />}
-                        {message.text}
-                      </div>
-                    )}
-                    <button onClick={handleChangePassword}
-                      disabled={changing || !currentPassword || !newPassword || !confirmPassword}
-                      className="w-full rounded-xl bg-[#1B2A4A] text-white py-2.5 text-[13px] font-semibold hover:bg-[#243860] disabled:opacity-40 disabled:cursor-not-allowed transition-colors mt-1">
-                      {changing ? "Changing..." : "Change Password"}
-                    </button>
-                  </div>
+              {/* Change Password */}
+              <Card className="p-5 shadow-[var(--elevation-raised)]">
+                <div className="flex items-center gap-2 mb-4">
+                  <Lock className="h-3.5 w-3.5 text-ink-400" />
+                  <span className="text-[11px] font-semibold text-ink-500 uppercase tracking-wider">Change Password</span>
                 </div>
-              </motion.div>
-            )}
-
-            {/* ── AI MODEL ── */}
-            {section === "model" && (
-              <motion.div
-                key="model"
-                initial={{ opacity: 0, x: 8 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -8 }}
-                transition={{ duration: 0.15 }}
-                className="px-8 py-7 max-w-lg"
-              >
-                <h2 className="text-[15px] font-semibold text-gray-900 mb-1">AI Model</h2>
-                <p className="text-[11px] text-gray-400 mb-5">
-                  Choose the Claude model used for all your pipeline runs.
-                </p>
-
-                <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Cpu className="h-3.5 w-3.5 text-gray-400" />
-                    <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Pipeline Model</span>
-                  </div>
-
-                  {loading ? (
-                    <div className="h-10 rounded-lg bg-gray-100 animate-pulse" />
-                  ) : (
-                    <div className="space-y-4">
-                      {/* Dropdown */}
-                      <div>
-                        <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5 block">
-                          Select Model
-                        </label>
-                        <select
-                          value={pendingModel ?? ""}
-                          onChange={e => {
-                            setPendingModel(e.target.value === "" ? null : e.target.value);
-                            setModelMessage(null);
-                          }}
-                          className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-[13px] text-gray-900 focus:outline-none focus:border-[#1B2A4A] transition-colors appearance-none"
-                        >
-                          <option value="">System Default (Claude Haiku 4.5)</option>
-                          {availableModels.map(m => (
-                            <option key={m.id} value={m.id}>{m.name} · {m.tier}</option>
-                          ))}
-                        </select>
-                        {/* Description + tier badge of selected model */}
-                        {pendingModel && (() => {
-                          const m = availableModels.find(x => x.id === pendingModel);
-                          if (!m) return null;
-                          const rich = richModels.find(r => r.id === pendingModel);
-                          const tierColor: Record<string, string> = {
-                            fast: "bg-green-50 text-green-700 border-green-200",
-                            balanced: "bg-blue-50 text-blue-700 border-blue-200",
-                            powerful: "bg-purple-50 text-purple-700 border-purple-200",
-                          };
-                          const ctxK = rich
-                            ? rich.context_window >= 1_000_000
-                              ? `${(rich.context_window / 1_000_000).toFixed(0)}M ctx`
-                              : `${Math.round(rich.context_window / 1000)}K ctx`
-                            : null;
-                          return (
-                            <div className="mt-2 flex items-start gap-2">
-                              <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border flex-shrink-0 uppercase tracking-wide mt-0.5 ${tierColor[m.tier] ?? "bg-gray-50 text-gray-600 border-gray-200"}`}>
-                                {m.tier}
-                              </span>
-                              {ctxK && (
-                                <span className="text-[9px] text-gray-400 flex-shrink-0 mt-0.5">{ctxK}</span>
-                              )}
-                              <p className="text-[11px] text-gray-400 leading-relaxed">{m.description}</p>
-                            </div>
-                          );
-                        })()}
-                        {!pendingModel && (
-                          <p className="mt-1.5 text-[11px] text-gray-400">Fastest and most cost-efficient. Great for high-volume tasks.</p>
-                        )}
-                      </div>
-
-                      {/* Current saved value */}
-                      {selectedModel !== pendingModel && (
-                        <p className="text-[11px] text-amber-600">
-                          Unsaved — currently using{" "}
-                          <span className="font-semibold">
-                            {selectedModel
-                              ? (availableModels.find(m => m.id === selectedModel)?.name ?? selectedModel)
-                              : "System Default"}
-                          </span>
-                        </p>
-                      )}
-
-                      {/* Feedback */}
-                      {modelMessage && (
-                        <div className={`flex items-center gap-2 rounded-lg px-3 py-2.5 text-[12px] ${
-                          modelMessage.type === "success"
-                            ? "bg-emerald-50 text-emerald-700 border border-emerald-100"
-                            : "bg-red-50 text-red-700 border border-red-100"
-                        }`}>
-                          {modelMessage.type === "success"
-                            ? <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" />
-                            : <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />}
-                          {modelMessage.text}
-                        </div>
-                      )}
-
-                      {/* Save button */}
-                      <button
-                        type="button"
-                        onClick={() => handleSaveModel(pendingModel)}
-                        disabled={savingModel || selectedModel === pendingModel}
-                        className="w-full rounded-xl bg-[#1B2A4A] text-white py-2.5 text-[13px] font-semibold hover:bg-[#243860] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                      >
-                        {savingModel ? "Saving…" : "Save"}
+                <div className="space-y-3.5">
+                  <div>
+                    <label className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide mb-1.5 block">Current Password</label>
+                    <div className="relative">
+                      <input type={showCurrent ? "text" : "password"} value={currentPassword}
+                        onChange={e => setCurrentPassword(e.target.value)}
+                        className="w-full rounded-[var(--radius-button)] border border-line-control bg-surface-white px-4 py-2.5 text-[13px] text-ink-900 focus:outline-none focus:border-brand transition-colors pr-10"
+                        placeholder="Enter current password" />
+                      <button type="button" onClick={() => setShowCurrent(!showCurrent)} className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-700">
+                        {showCurrent ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                       </button>
                     </div>
-                  )}
-                </div>
-              </motion.div>
-            )}
-
-            {/* ── LIMITS ── */}
-            {section === "limits" && (
-              <motion.div
-                key="limits"
-                initial={{ opacity: 0, x: 8 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -8 }}
-                transition={{ duration: 0.15 }}
-                className="px-8 py-7 max-w-3xl"
-              >
-                {/* Section header */}
-                <div className="flex items-start justify-between mb-1">
+                  </div>
                   <div>
-                    <div className="flex items-center gap-2.5 mb-1">
-                      <h2 className="text-[15px] font-semibold text-gray-900">Plan &amp; Limits</h2>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#1B2A4A] text-white uppercase tracking-wide">
-                        {TIER_LABELS[userTier]}
-                      </span>
+                    <label className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide mb-1.5 block">New Password</label>
+                    <div className="relative">
+                      <input type={showNew ? "text" : "password"} value={newPassword}
+                        onChange={e => setNewPassword(e.target.value)}
+                        className="w-full rounded-[var(--radius-button)] border border-line-control bg-surface-white px-4 py-2.5 text-[13px] text-ink-900 focus:outline-none focus:border-brand transition-colors pr-10"
+                        placeholder="At least 8 characters" />
+                      <button type="button" onClick={() => setShowNew(!showNew)} className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-700">
+                        {showNew ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                      </button>
                     </div>
-                    <p className="text-[11px] text-gray-400">
-                      Your plan determines which pipelines you can run and what features are available.
-                    </p>
                   </div>
-                  <button className="flex-shrink-0 text-[11px] font-semibold text-[#1B2A4A] border border-[#1B2A4A]/30 hover:bg-[#1B2A4A] hover:text-white px-3 py-1.5 rounded-lg transition-all">
-                    Upgrade plan
-                  </button>
+                  <div>
+                    <label className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide mb-1.5 block">Confirm New Password</label>
+                    <input type="password" value={confirmPassword}
+                      onChange={e => setConfirmPassword(e.target.value)}
+                      className="w-full rounded-[var(--radius-button)] border border-line-control bg-surface-white px-4 py-2.5 text-[13px] text-ink-900 focus:outline-none focus:border-brand transition-colors"
+                      placeholder="Re-enter new password" />
+                  </div>
+                  {message && (
+                    <div className={`flex items-center gap-2 rounded-[var(--radius-button)] border px-3 py-2.5 text-[12px] ${banner(message.type)}`}>
+                      {message.type === "success" ? <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" /> : <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />}
+                      {message.text}
+                    </div>
+                  )}
+                  <Button
+                    variant="primary"
+                    onClick={handleChangePassword}
+                    disabled={changing || !currentPassword || !newPassword || !confirmPassword}
+                    className="w-full py-2.5 mt-1"
+                  >
+                    {changing ? "Changing..." : "Change Password"}
+                  </Button>
+                </div>
+              </Card>
+            </motion.div>
+          )}
+
+          {/* ── AI MODEL ── */}
+          {section === "model" && (
+            <motion.div
+              key="model"
+              initial={{ opacity: 0, x: 8 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -8 }}
+              transition={{ duration: 0.15 }}
+              className="px-8 py-7 max-w-lg"
+            >
+              <h2 className="text-[15px] font-semibold text-ink-900 mb-1 font-sans">AI Model</h2>
+              <p className="text-[11px] text-ink-400 mb-5">
+                Choose the Claude model used for all your pipeline runs.
+              </p>
+
+              <Card className="p-5 shadow-[var(--elevation-raised)]">
+                <div className="flex items-center gap-2 mb-4">
+                  <Cpu className="h-3.5 w-3.5 text-ink-400" />
+                  <span className="text-[11px] font-semibold text-ink-500 uppercase tracking-wider">Pipeline Model</span>
                 </div>
 
-                {/* Tier progress bar */}
-                <div className="mt-5 mb-6">
-                  <div className="flex items-center gap-0 rounded-xl overflow-hidden border border-gray-200 bg-white">
-                    {TIER_ORDER.map((tier, idx) => {
-                      const tierIdx = TIER_ORDER.indexOf(userTier);
-                      const isPast = idx < tierIdx;
-                      const isCurrent = tier === userTier;
-                      const isFuture = idx > tierIdx;
-                      return (
-                        <div
-                          key={tier}
-                          className={`flex-1 px-4 py-3 border-r last:border-r-0 border-gray-200 transition-colors ${
-                            isCurrent ? "bg-[#1B2A4A]" : isPast ? "bg-[#E8EDF5]" : "bg-white"
-                          }`}
-                        >
-                          <p className={`text-[11px] font-bold uppercase tracking-wider ${
-                            isCurrent ? "text-white" : isPast ? "text-[#1B2A4A]" : "text-gray-400"
-                          }`}>
-                            {TIER_LABELS[tier]}
-                            {isCurrent && <span className="ml-1.5 text-[9px] font-semibold opacity-70">(current)</span>}
-                          </p>
-                          <p className={`text-[10px] mt-0.5 ${
-                            isCurrent ? "text-white/70" : isPast ? "text-[#1B2A4A]/60" : "text-gray-400"
-                          }`}>
-                            {TIER_DETAILS[tier].description}
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                {loading ? (
+                  <div className="h-10 rounded-[var(--radius-button)] bg-surface-warm animate-pulse" />
+                ) : (
+                  <div className="space-y-4">
+                    {/* Dropdown */}
+                    <div>
+                      <label className="text-[10px] font-semibold text-ink-400 uppercase tracking-wide mb-1.5 block">
+                        Select Model
+                      </label>
+                      <select
+                        value={pendingModel ?? ""}
+                        onChange={e => {
+                          setPendingModel(e.target.value === "" ? null : e.target.value);
+                          setModelMessage(null);
+                        }}
+                        className="w-full rounded-[var(--radius-button)] border border-line-control bg-surface-white px-4 py-2.5 text-[13px] text-ink-900 focus:outline-none focus:border-brand transition-colors appearance-none"
+                      >
+                        <option value="">System Default (Claude Haiku 4.5)</option>
+                        {availableModels.map(m => (
+                          <option key={m.id} value={m.id}>{m.name} · {m.tier}</option>
+                        ))}
+                      </select>
+                      {/* Description + tier badge of selected model */}
+                      {pendingModel && (() => {
+                        const m = availableModels.find(x => x.id === pendingModel);
+                        if (!m) return null;
+                        const rich = richModels.find(r => r.id === pendingModel);
+                        const ctxK = rich
+                          ? rich.context_window >= 1_000_000
+                            ? `${(rich.context_window / 1_000_000).toFixed(0)}M ctx`
+                            : `${Math.round(rich.context_window / 1000)}K ctx`
+                          : null;
+                        return (
+                          <div className="mt-2 flex items-start gap-2">
+                            <Badge status={MODEL_TIER_BADGE[m.tier] ?? "queued"} label={m.tier} className="flex-shrink-0 mt-0.5" />
+                            {ctxK && (
+                              <span className="text-[9px] text-ink-400 flex-shrink-0 mt-0.5">{ctxK}</span>
+                            )}
+                            <p className="text-[11px] text-ink-400 leading-relaxed">{m.description}</p>
+                          </div>
+                        );
+                      })()}
+                      {!pendingModel && (
+                        <p className="mt-1.5 text-[11px] text-ink-400">Fastest and most cost-efficient. Great for high-volume tasks.</p>
+                      )}
+                    </div>
 
-                {/* Tier tabs — pipeline details */}
-                <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden mb-5">
-                  {/* Tab bar */}
-                  <div className="flex items-center border-b border-gray-100 px-4 pt-3 gap-1">
-                    {TIER_ORDER.map(tier => {
-                      const isCurrent = tier === userTier;
-                      const isSelected = tier === selectedTierTab;
-                      return (
-                        <button
-                          key={tier}
-                          onClick={() => setSelectedTierTab(tier)}
-                          className={`flex items-center gap-1.5 px-3 py-2 rounded-t-lg text-[11px] font-semibold transition-all border-b-2 -mb-px ${
-                            isSelected
-                              ? "border-[#1B2A4A] text-[#1B2A4A]"
-                              : "border-transparent text-gray-400 hover:text-gray-700"
-                          }`}
-                        >
+                    {/* Current saved value */}
+                    {selectedModel !== pendingModel && (
+                      <p className="text-[11px] text-status-amber">
+                        Unsaved — currently using{" "}
+                        <span className="font-semibold">
+                          {selectedModel
+                            ? (availableModels.find(m => m.id === selectedModel)?.name ?? selectedModel)
+                            : "System Default"}
+                        </span>
+                      </p>
+                    )}
+
+                    {/* Feedback */}
+                    {modelMessage && (
+                      <div className={`flex items-center gap-2 rounded-[var(--radius-button)] border px-3 py-2.5 text-[12px] ${banner(modelMessage.type)}`}>
+                        {modelMessage.type === "success"
+                          ? <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" />
+                          : <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />}
+                        {modelMessage.text}
+                      </div>
+                    )}
+
+                    {/* Save button */}
+                    <Button
+                      variant="primary"
+                      onClick={() => handleSaveModel(pendingModel)}
+                      disabled={savingModel || selectedModel === pendingModel}
+                      className="w-full py-2.5"
+                    >
+                      {savingModel ? "Saving…" : "Save"}
+                    </Button>
+                  </div>
+                )}
+              </Card>
+            </motion.div>
+          )}
+
+          {/* ── LIMITS ── */}
+          {section === "limits" && (
+            <motion.div
+              key="limits"
+              initial={{ opacity: 0, x: 8 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -8 }}
+              transition={{ duration: 0.15 }}
+              className="px-8 py-7 max-w-3xl"
+            >
+              {/* Section header */}
+              <div className="flex items-start justify-between mb-1">
+                <div>
+                  <div className="flex items-center gap-2.5 mb-1">
+                    <h2 className="text-[15px] font-semibold text-ink-900 font-sans">Plan &amp; Limits</h2>
+                    <Badge status="running" label={TIER_LABELS[userTier]} />
+                  </div>
+                  <p className="text-[11px] text-ink-400">
+                    Your plan determines which pipelines you can run and what features are available.
+                  </p>
+                </div>
+                <Button variant="secondary" size="sm" className="flex-shrink-0">
+                  Upgrade plan
+                </Button>
+              </div>
+
+              {/* Tier progress bar */}
+              <div className="mt-5 mb-6">
+                <div className="flex items-center gap-0 rounded-[var(--radius-card)] overflow-hidden border border-line-control bg-surface-card">
+                  {TIER_ORDER.map((tier, idx) => {
+                    const tierIdx = TIER_ORDER.indexOf(userTier);
+                    const isPast = idx < tierIdx;
+                    const isCurrent = tier === userTier;
+                    return (
+                      <div
+                        key={tier}
+                        className={`flex-1 px-4 py-3 border-r last:border-r-0 border-line-control transition-colors ${
+                          isCurrent ? "bg-brand" : isPast ? "bg-brand-fill" : "bg-surface-card"
+                        }`}
+                      >
+                        <p className={`text-[11px] font-bold uppercase tracking-wider ${
+                          isCurrent ? "text-white" : isPast ? "text-brand" : "text-ink-400"
+                        }`}>
                           {TIER_LABELS[tier]}
-                          {isCurrent && (
-                            <span className="text-[8px] font-bold bg-[#1B2A4A] text-white px-1.5 py-0.5 rounded-full">
-                              current
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
+                          {isCurrent && <span className="ml-1.5 text-[9px] font-semibold opacity-70">(current)</span>}
+                        </p>
+                        <p className={`text-[10px] mt-0.5 ${
+                          isCurrent ? "text-white/70" : isPast ? "text-brand/60" : "text-ink-400"
+                        }`}>
+                          {TIER_DESCRIPTION[tier]}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
 
-                  {/* Pipeline table */}
-                  <div className="p-4">
-                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-3">
-                      Available Pipelines
-                    </p>
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b border-gray-100">
-                          <th className="text-left text-[10px] font-semibold text-gray-400 uppercase tracking-wider pb-2 pr-4">Pipeline</th>
-                          <th className="text-left text-[10px] font-semibold text-gray-400 uppercase tracking-wider pb-2 pr-4">Description</th>
-                          <th className="text-center text-[10px] font-semibold text-gray-400 uppercase tracking-wider pb-2">Access</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Object.entries(PIPELINE_DISPLAY).map(([key, info]) => {
-                          const hasAccess = TIER_PIPELINES[selectedTierTab].has(key);
-                          const isCurrentTierAccess = TIER_PIPELINES[userTier].has(key);
-                          return (
-                            <tr key={key} className="border-b border-gray-50 last:border-0">
-                              <td className="py-2.5 pr-4">
-                                <span className={`text-[12px] font-medium ${hasAccess ? "text-gray-900" : "text-gray-400"}`}>
-                                  {info.label}
-                                </span>
-                              </td>
-                              <td className="py-2.5 pr-4">
-                                <span className="text-[11px] text-gray-400">{info.description}</span>
-                              </td>
-                              <td className="py-2.5 text-center">
-                                {hasAccess ? (
-                                  <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-[#E8EDF5]">
-                                    <Check className="h-3 w-3 text-[#1B2A4A]" />
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-gray-100">
-                                    <span className="h-1.5 w-1.5 rounded-full bg-gray-300" />
-                                  </span>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+              {/* Tier tabs — pipeline details */}
+              <Card className="shadow-[var(--elevation-raised)] overflow-hidden mb-5">
+                {/* Tab bar */}
+                <div className="flex items-center border-b border-line-divider px-4 pt-3 gap-4">
+                  {TIER_ORDER.map(tier => {
+                    const isCurrent = tier === userTier;
+                    const isSelected = tier === selectedTierTab;
+                    return (
+                      <button
+                        key={tier}
+                        onClick={() => setSelectedTierTab(tier)}
+                        className={`-mb-px inline-flex items-center gap-1.5 border-b-2 pb-2 pt-1 text-[11px] font-semibold transition-colors ${
+                          isSelected
+                            ? "border-brand text-ink-900"
+                            : "border-transparent text-ink-400 hover:text-ink-700"
+                        }`}
+                      >
+                        {TIER_LABELS[tier]}
+                        {isCurrent && <Badge status="running" label="current" />}
+                      </button>
+                    );
+                  })}
                 </div>
 
-                {/* Usage limits table — like Claude's rate limits table */}
-                <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden mb-5">
-                  <div className="px-5 py-4 border-b border-gray-100">
-                    <p className="text-[13px] font-semibold text-gray-900">Usage Limits</p>
-                    <p className="text-[11px] text-gray-400 mt-0.5">
-                      Limits apply to the <span className="font-semibold text-[#1B2A4A]">{TIER_LABELS[selectedTierTab]}</span> plan
-                    </p>
-                  </div>
+                {/* Pipeline table */}
+                <div className="p-4">
+                  <p className="text-[10px] font-semibold text-ink-400 uppercase tracking-wider mb-3">
+                    Available Pipelines
+                  </p>
                   <table className="w-full">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider px-5 py-2.5">Limit</th>
-                        <th className="text-center text-[10px] font-semibold text-gray-500 uppercase tracking-wider px-4 py-2.5">Basic</th>
-                        <th className="text-center text-[10px] font-semibold text-gray-500 uppercase tracking-wider px-4 py-2.5">Pro</th>
-                        <th className="text-center text-[10px] font-semibold text-gray-500 uppercase tracking-wider px-4 py-2.5">Enterprise</th>
+                    <thead>
+                      <tr className="border-b border-line-divider">
+                        <th className="text-left text-[10px] font-semibold text-ink-400 uppercase tracking-wider pb-2 pr-4">Pipeline</th>
+                        <th className="text-left text-[10px] font-semibold text-ink-400 uppercase tracking-wider pb-2 pr-4">Description</th>
+                        <th className="text-center text-[10px] font-semibold text-ink-400 uppercase tracking-wider pb-2">Access</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {[
-                        { label: "Pipeline runs / month",    basic: "50",        pro: "500",       enterprise: "Unlimited" },
-                        { label: "Concurrent pipelines",     basic: "1",         pro: "3",         enterprise: "10" },
-                        { label: "Agents per pipeline",      basic: "Default",   pro: "Default",   enterprise: "Custom" },
-                        { label: "Custom workflows",         basic: "—",         pro: "✓",         enterprise: "✓" },
-                        { label: "Migration pipelines",      basic: "—",         pro: "—",         enterprise: "✓" },
-                        { label: "Analytics dashboard",      basic: "✓",         pro: "✓",         enterprise: "✓" },
-                        { label: "Workflow history",         basic: "30 days",   pro: "1 year",    enterprise: "Unlimited" },
-                        { label: "Priority queue",           basic: "—",         pro: "✓",         enterprise: "✓" },
-                        { label: "Support",                  basic: "Community", pro: "Email",     enterprise: "Dedicated" },
-                      ].map((row, i) => (
-                        <tr key={i} className="border-t border-gray-50">
-                          <td className="px-5 py-3 text-[12px] font-medium text-gray-700">{row.label}</td>
-                          {(["basic", "pro", "enterprise"] as Tier[]).map(tier => {
-                            const val = tier === "basic" ? row.basic : tier === "pro" ? row.pro : row.enterprise;
-                            const isCurrentCol = tier === userTier;
-                            const isSelectedCol = tier === selectedTierTab;
-                            return (
-                              <td key={tier} className={`px-4 py-3 text-center text-[12px] transition-colors ${
-                                isSelectedCol ? "bg-[#F4F7FC]" : ""
-                              } ${isCurrentCol ? "font-semibold text-[#1B2A4A]" : "text-gray-500"}`}>
-                                {val}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
+                      {Object.entries(PIPELINE_DISPLAY).map(([key, info]) => {
+                        const hasAccess = TIER_PIPELINES[selectedTierTab].has(key);
+                        return (
+                          <tr key={key} className="border-b border-line-faint-row last:border-0">
+                            <td className="py-2.5 pr-4">
+                              <span className={`text-[12px] font-medium ${hasAccess ? "text-ink-900" : "text-ink-400"}`}>
+                                {info.label}
+                              </span>
+                            </td>
+                            <td className="py-2.5 pr-4">
+                              <span className="text-[11px] text-ink-400">{info.description}</span>
+                            </td>
+                            <td className="py-2.5 text-center">
+                              {hasAccess ? (
+                                <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-brand-fill">
+                                  <Check className="h-3 w-3 text-brand" />
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-surface-warm">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-ink-300" />
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
+              </Card>
 
-                {/* Contact sales banner */}
-                <div className="flex items-center justify-between bg-white rounded-xl border border-gray-100 px-5 py-4 shadow-sm">
-                  <div className="flex items-center gap-3">
-                    <Shield className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                    <div>
-                      <p className="text-[12px] font-semibold text-gray-800">Need custom limits?</p>
-                      <p className="text-[11px] text-gray-400">Contact us to discuss custom plans for your organisation.</p>
-                    </div>
-                  </div>
-                  <button className="flex-shrink-0 text-[11px] font-semibold text-white bg-[#1B2A4A] hover:bg-[#243860] px-4 py-2 rounded-lg transition-colors">
-                    Contact sales
-                  </button>
+              {/* Usage limits table — like Claude's rate limits table */}
+              <Card className="shadow-[var(--elevation-raised)] overflow-hidden mb-5">
+                <div className="px-5 py-4 border-b border-line-divider">
+                  <p className="text-[13px] font-semibold text-ink-900">Usage Limits</p>
+                  <p className="text-[11px] text-ink-400 mt-0.5">
+                    Limits apply to the <span className="font-semibold text-brand">{TIER_LABELS[selectedTierTab]}</span> plan
+                  </p>
                 </div>
+                <table className="w-full">
+                  <thead className="bg-surface-warm">
+                    <tr>
+                      <th className="text-left text-[10px] font-semibold text-ink-500 uppercase tracking-wider px-5 py-2.5">Limit</th>
+                      <th className="text-center text-[10px] font-semibold text-ink-500 uppercase tracking-wider px-4 py-2.5">Basic</th>
+                      <th className="text-center text-[10px] font-semibold text-ink-500 uppercase tracking-wider px-4 py-2.5">Pro</th>
+                      <th className="text-center text-[10px] font-semibold text-ink-500 uppercase tracking-wider px-4 py-2.5">Enterprise</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      { label: "Pipeline runs / month",    basic: "50",        pro: "500",       enterprise: "Unlimited" },
+                      { label: "Concurrent pipelines",     basic: "1",         pro: "3",         enterprise: "10" },
+                      { label: "Agents per pipeline",      basic: "Default",   pro: "Default",   enterprise: "Custom" },
+                      { label: "Custom workflows",         basic: "—",         pro: "✓",         enterprise: "✓" },
+                      { label: "Migration pipelines",      basic: "—",         pro: "—",         enterprise: "✓" },
+                      { label: "Analytics dashboard",      basic: "✓",         pro: "✓",         enterprise: "✓" },
+                      { label: "Workflow history",         basic: "30 days",   pro: "1 year",    enterprise: "Unlimited" },
+                      { label: "Priority queue",           basic: "—",         pro: "✓",         enterprise: "✓" },
+                      { label: "Support",                  basic: "Community", pro: "Email",     enterprise: "Dedicated" },
+                    ].map((row, i) => (
+                      <tr key={i} className="border-t border-line-faint-row">
+                        <td className="px-5 py-3 text-[12px] font-medium text-ink-700">{row.label}</td>
+                        {(["basic", "pro", "enterprise"] as Tier[]).map(tier => {
+                          const val = tier === "basic" ? row.basic : tier === "pro" ? row.pro : row.enterprise;
+                          const isCurrentCol = tier === userTier;
+                          const isSelectedCol = tier === selectedTierTab;
+                          return (
+                            <td key={tier} className={`px-4 py-3 text-center text-[12px] transition-colors ${
+                              isSelectedCol ? "bg-brand-violet-tint" : ""
+                            } ${isCurrentCol ? "font-semibold text-brand" : "text-ink-500"}`}>
+                              {val}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </Card>
 
-              </motion.div>
-            )}
+              {/* Contact sales banner */}
+              <Card className="flex items-center justify-between px-5 py-4 shadow-[var(--elevation-raised)]">
+                <div className="flex items-center gap-3">
+                  <Shield className="h-4 w-4 text-ink-400 flex-shrink-0" />
+                  <div>
+                    <p className="text-[12px] font-semibold text-ink-800">Need custom limits?</p>
+                    <p className="text-[11px] text-ink-400">Contact us to discuss custom plans for your organisation.</p>
+                  </div>
+                </div>
+                <Button variant="primary" className="flex-shrink-0">
+                  Contact sales
+                </Button>
+              </Card>
 
-            {/* ── CONSTITUTION ── */}
-            {section === "constitution" && (
-              <ConstitutionSection />
-            )}
+            </motion.div>
+          )}
 
-          </AnimatePresence>
-        </div>
+          {/* ── CONSTITUTION ── */}
+          {section === "constitution" && (
+            <ConstitutionSection />
+          )}
+
+        </AnimatePresence>
       </div>
     </div>
   );
@@ -692,66 +652,68 @@ function ConstitutionSection() {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
       transition={{ duration: 0.2 }}
-      className="p-6 space-y-5"
+      className="p-6 space-y-5 max-w-3xl"
     >
       <div className="flex items-center gap-2 mb-1">
-        <FileText className="h-3.5 w-3.5 text-gray-400" />
-        <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+        <FileText className="h-3.5 w-3.5 text-ink-400" />
+        <span className="text-[11px] font-semibold text-ink-500 uppercase tracking-wider">
           My Constitution
         </span>
       </div>
-      <p className="text-[12px] text-gray-500 leading-relaxed">
+      <p className="text-[12px] text-ink-500 leading-relaxed">
         Your Constitution is injected into every agent&apos;s system prompt as a governing guardrail.
         Write your principles, constraints, and quality standards here — they apply to all pipelines.
       </p>
 
       {loading ? (
         <div className="h-40 flex items-center justify-center">
-          <div className="h-4 w-4 border-2 border-gray-200 border-t-[#1B2A4A] rounded-full animate-spin" />
+          <div className="h-4 w-4 border-2 border-line-control border-t-brand rounded-full animate-spin" />
         </div>
       ) : (
         <textarea
           value={content}
           onChange={(e) => { setContent(e.target.value); setStatus("idle"); }}
           placeholder={"# My Constitution\n\n## Principle 1 — Quality First\nEvery output must be production-ready…\n\n## Principle 2 — Security\nNever expose secrets or PII…"}
-          className="w-full h-64 text-[12px] text-gray-800 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 resize-none focus:outline-none focus:border-[#1B2A4A] transition-colors font-mono leading-relaxed"
+          className="w-full h-64 text-[12px] text-ink-800 bg-surface-warm border border-line-control rounded-[var(--radius-card)] px-4 py-3 resize-none focus:outline-none focus:border-brand transition-colors font-mono leading-relaxed"
         />
       )}
 
       {status === "saved" && (
-        <div className="flex items-center gap-1.5 text-[11px] text-emerald-600 bg-emerald-50 rounded-lg px-3 py-2">
+        <div className="flex items-center gap-1.5 text-[11px] text-status-done bg-[var(--status-done-fill)] rounded-[var(--radius-button)] px-3 py-2">
           <CheckCircle2 className="h-3.5 w-3.5" /> Constitution saved — active on all future runs.
         </div>
       )}
       {status === "deleted" && (
-        <div className="flex items-center gap-1.5 text-[11px] text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+        <div className="flex items-center gap-1.5 text-[11px] text-ink-500 bg-surface-warm rounded-[var(--radius-button)] px-3 py-2">
           <CheckCircle2 className="h-3.5 w-3.5" /> Constitution cleared.
         </div>
       )}
       {status === "error" && (
-        <div className="flex items-center gap-1.5 text-[11px] text-red-600 bg-red-50 rounded-lg px-3 py-2">
+        <div className="flex items-center gap-1.5 text-[11px] text-status-failed bg-[var(--status-failed-fill)] rounded-[var(--radius-button)] px-3 py-2">
           <AlertCircle className="h-3.5 w-3.5" /> Failed to save. Please try again.
         </div>
       )}
 
       <div className="flex items-center gap-2">
-        <button
+        <Button
+          variant="primary"
           onClick={handleSave}
           disabled={saving || loading || !content.trim()}
-          className="flex items-center gap-1.5 rounded-xl bg-[#1B2A4A] px-4 py-2 text-[12px] font-semibold text-white hover:bg-[#2a3d5e] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="py-2"
         >
           <Save className="h-3.5 w-3.5" />
           {saving ? "Saving…" : "Save Constitution"}
-        </button>
+        </Button>
         {content && (
-          <button
+          <Button
+            variant="secondary"
             onClick={handleDelete}
             disabled={deleting || loading}
-            className="flex items-center gap-1.5 rounded-xl border border-gray-200 px-4 py-2 text-[12px] font-medium text-gray-500 hover:border-red-300 hover:text-red-600 disabled:opacity-50 transition-colors"
+            className="py-2"
           >
             <Trash2 className="h-3.5 w-3.5" />
             {deleting ? "Clearing…" : "Clear"}
-          </button>
+          </Button>
         )}
       </div>
     </motion.div>
