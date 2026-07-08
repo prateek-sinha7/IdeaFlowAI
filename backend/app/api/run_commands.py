@@ -359,15 +359,12 @@ async def _persist_chat_message(
     Returns ``(created, seq)``: ``created=False`` when a row with the derived
     ``event_id`` already exists (a replayed ``message_id`` → no-op). The ``seq`` is the
     next contiguous per-run seq (max persisted + 1), exactly as the engine sink and the
-    resume marker compute it (engine.py:_stamp_resume_marker).
+    resume marker compute it (engine.py:_stamp_resume_marker) — but CR-03: allocated +
+    idempotency-checked through ``ScopedStore.append_event_next_seq``, which serializes
+    against the engine's own concurrently-scheduled event sink (and a double-submitted
+    ``message_id``) on the additive ``run_events`` uniqueness constraints, so a race can
+    never persist a duplicate ``seq`` (Last-Event-ID replay) or a duplicate row.
     """
-    event_id = _chat_event_id(body.message_id)
-    existing = await store.read_events(run_id, after_seq=0)
-    for row in existing:
-        if getattr(row, "event_id", None) == event_id:
-            return False, int(getattr(row, "seq", 0) or 0)  # replay → no-op
-
-    next_seq = (max((int(getattr(r, "seq", 0) or 0) for r in existing), default=0)) + 1
     # ND-10: attachments are payload-transient — persist a placeholder ref (kind + a
     # "not retained" marker), NEVER the bytes (no sandbox/DB retention; the image does
     # not survive replay/reopen).
@@ -375,10 +372,9 @@ async def _persist_chat_message(
         {"kind": (a.get("kind") or a.get("type") or "attachment"), "retained": False}
         for a in (body.attachments or [])
     ]
-    await store.append_event(
+    return await store.append_event_next_seq(
         run_id,
-        seq=next_seq,
-        event_id=event_id,
+        event_id=_chat_event_id(body.message_id),
         type="chat_message",
         payload_json={
             "pipeline_run_id": run_id,
@@ -387,7 +383,6 @@ async def _persist_chat_message(
             "attachments": attachment_refs,
         },
     )
-    return True, next_seq
 
 
 @router.post("/{run_id}/messages")

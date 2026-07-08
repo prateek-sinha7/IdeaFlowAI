@@ -328,6 +328,66 @@ class ScopedStore:
             if owned:
                 session.close()
 
+    async def append_event_next_seq(
+        self,
+        run_id: str,
+        *,
+        event_id: str,
+        type: str,
+        payload_json: Any,
+        _max_attempts: int = 8,
+    ) -> tuple[bool, int]:
+        """Idempotently append ONE ``run_events`` row, allocating the next contiguous
+        per-run ``seq`` under optimistic concurrency (Phase 29 CR-03).
+
+        The chat-lane writers (``chat_message`` up-channel + ``chat_reply`` narrator)
+        are a SECOND, concurrently-scheduled ``run_events`` writer for a ``run_id``
+        whose PRIMARY writer is the engine's own in-memory-counter event sink. A plain
+        read-``max(seq)+1``-then-``append_event`` races that sink (and, on a
+        double-submitted ``message_id``, itself): two writers can compute the same
+        ``seq`` before either commits. This serializes allocation OPTIMISTICALLY on the
+        additive ``uq_run_events_run_seq`` / ``uq_run_events_run_event`` constraints
+        (migration 0024), which reject a colliding insert so this method can:
+
+          * resolve a ``(run_id, event_id)`` collision as the idempotent no-op it is (a
+            concurrent duplicate ``message_id`` won the race → return its persisted
+            row), and
+          * re-derive ``seq`` past the new tail and retry on a ``(run_id, seq)``
+            collision (a racing writer took our seq), bounded so a hot run cannot spin.
+
+        Returns ``(created, seq)``: ``created=False`` when a row with ``event_id``
+        already exists (a replayed turn → no second row, D-01); ``seq`` is that row's
+        per-run seq. The engine's own sink is UNCHANGED — it keeps its fast in-memory
+        counter; on the rare seq collision the loser is arbitrated by the constraint
+        (the sink's best-effort ``persist`` degrades a dropped row to a warning; the
+        chat writer here retries) — so the DURABLE log never holds a duplicate seq.
+        """
+        from sqlalchemy.exc import IntegrityError
+
+        for _ in range(max(1, _max_attempts)):
+            existing = await self.read_events(run_id, after_seq=0)
+            for row in existing:
+                if getattr(row, "event_id", None) == event_id:
+                    return False, int(getattr(row, "seq", 0) or 0)  # idempotent no-op
+            next_seq = (
+                max((int(getattr(r, "seq", 0) or 0) for r in existing), default=0) + 1
+            )
+            try:
+                await self.append_event(run_id, next_seq, event_id, type, payload_json)
+                return True, next_seq
+            except IntegrityError:
+                # A concurrent writer committed our (run_id, seq) or (run_id, event_id)
+                # first. Roll back any injected session so the next read is clean (a
+                # fresh/owned session was already closed by append_event's finally),
+                # then re-loop: our event_id may now exist (→ idempotent no-op) or the
+                # tail advanced (→ recompute seq past it).
+                if self._session is not None:
+                    self._session.rollback()
+                continue
+        raise RuntimeError(
+            f"append_event_next_seq: exhausted seq-allocation retries for run {run_id!r}"
+        )
+
     # ------------------------------------------------------------------
     # WorkflowRun — scoped lookup
     # ------------------------------------------------------------------

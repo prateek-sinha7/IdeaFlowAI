@@ -251,21 +251,18 @@ async def persist_milestone_card(
     if card is None:
         return None
 
+    # CR-03: allocate seq + enforce idempotency through the store's serialized
+    # ``append_event_next_seq`` (collision-safe against the engine's own concurrent
+    # event sink), NOT a bare read-``max(seq)+1``-then-write. This stays stdlib-only —
+    # it is a method call on the INJECTED ``store`` (no execution-kernel import).
     reply_eid = _reply_event_id(_event_id(event), card)
-    existing = await store.read_events(run_id, after_seq=0)
-    for row in existing:
-        if getattr(row, "event_id", None) == reply_eid:
-            return False, int(getattr(row, "seq", 0) or 0), card  # replay → no-op
-
-    next_seq = max((int(getattr(r, "seq", 0) or 0) for r in existing), default=0) + 1
-    await store.append_event(
+    created, seq = await store.append_event_next_seq(
         run_id,
-        seq=next_seq,
         event_id=reply_eid,
         type=CHAT_REPLY_TYPE,
         payload_json=card,
     )
-    return True, next_seq, card
+    return created, seq, card
 
 
 __all__ = [
