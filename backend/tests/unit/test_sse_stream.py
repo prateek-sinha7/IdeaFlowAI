@@ -389,6 +389,43 @@ class TestGateRearm:
         after = db_session.query(RunEvent).count()
         assert after == before, "gate re-arm must be read-only (no artifact/graph mutation)"
 
+    def test_fresh_attach_does_not_double_emit_open_gate(self, db_session):
+        """CR-01: a fresh attach (after_seq=0) to a run paused at an open gate must yield
+        EXACTLY ONE review_gate_ready.
+
+        after_seq=0 is every first-ever page load (no Last-Event-ID) — the single most
+        common trigger for opening this endpoint. Step-1 durable replay (seq > 0) already
+        yields the open gate row, so the D-14g re-arm must NOT emit a second, identical
+        frame. Fails pre-fix (the unconditional re-arm double-emits → 2 frames); passes
+        once the re-arm is guarded by ``dangling.seq <= after_seq``.
+        """
+        _seed_run(db_session, status="waiting_for_user")
+        _seed_events(
+            db_session,
+            [
+                (1, "agent_start", {"seq": 1}),
+                (2, "agent_complete", {"seq": 2}),
+                (3, "review_gate_ready", {"seq": 3, "gate_key": "gk"}),
+            ],
+        )
+        frames = asyncio.run(
+            _collect(
+                _iter_sse_frames(
+                    run_id="run-1", store=_store(db_session), after_seq=0, live_queue=None
+                )
+            )
+        )
+        parsed = [_parse(f) for f in frames]
+        rearmed = [p for p in parsed if p["type"] == "review_gate_ready"]
+        assert len(rearmed) == 1, (
+            "fresh attach must yield exactly one review_gate_ready (durable replay only) "
+            "— the re-arm must not double-emit a gate the replay already delivered"
+        )
+        assert rearmed[0]["data"]["gate_key"] == "gk"
+        # The single frame carries the gate's own durable seq (id:) so a resume from it
+        # re-reads nothing new (no phantom cursor advance).
+        assert rearmed[0]["id"] == "3"
+
 
 # ════════════════════════════════════════════════════════════════════════════
 # wire-parity — the endpoint's frames == the recorded /ws/chat frame sequence

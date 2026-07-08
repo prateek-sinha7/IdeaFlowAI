@@ -167,9 +167,17 @@ async def _iter_sse_frames(
     #    review_gate_ready so the FE re-opens the gate. Read-only, owner-scoped; reads
     #    the FULL durable log (from 0) so the gate is found even when the client cursor
     #    is already past it. Never re-runs an agent / mutates the artifact graph.
+    #
+    #    CR-01: re-emit ONLY when the step-1 durable replay did NOT already deliver the
+    #    gate frame. Replay above yields rows with ``seq > after_seq``, so when the open
+    #    gate's ``seq`` is > after_seq it was ALREADY replayed — re-emitting here would
+    #    DOUBLE it (the common fresh-attach case: after_seq=0 on a first-ever page load,
+    #    where replay covers every row). The re-arm is needed ONLY when the client cursor
+    #    is at or past the gate (``dangling.seq <= after_seq``) — exactly the case the
+    #    ``seq > after_seq`` replay filter excluded, so no durable replay delivered it.
     full_log = await store.read_events(run_id, after_seq=0)
     dangling = _dangling_review_gate(full_log)
-    if dangling is not None:
+    if dangling is not None and dangling.seq <= after_seq:
         yield _sse_frame(dangling.seq, "review_gate_ready", dangling.payload_json)
 
     # 4. Live drain — forward new events off the shared per-run queue until the None
