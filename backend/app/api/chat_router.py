@@ -29,8 +29,11 @@ the banned-pattern gate over ``agents/execution_engine/`` stays green.
     D-02). A GATE ACTION arriving after terminal is **fenced** with
     ``pipeline_not_running`` (KAN-100), never resolving a stopped pipeline.
 
-Free-form / ambiguous turns that do not map to one of these mechanical branches are left
-for the Concierge escalation (Phase 33) — out of scope here.
+Free-form / ambiguous turns that do not map to one of these mechanical branches escalate
+to the Concierge (Phase 33, D-04): a turn explicitly marked free-form (the generic
+``ChatTurn.concierge`` marker) that carries no routable discriminator classifies to
+``CHANNEL_CONCIERGE`` — still a PURE, zero-model classification here; the model INVOCATION
+happens in the app layer (``run_commands.post_message``).
 """
 
 from __future__ import annotations
@@ -50,6 +53,7 @@ CHANNEL_ANSWERS = "answers"        # POST /answers  → store.set_questionnaire_
 CHANNEL_GATE = "gate"             # POST /gate     → store.set_review_response
 CHANNEL_STEERING = "steering"     # ectx.steering_notes append (29-08 seam)
 CHANNEL_REVISION = "revision"     # POST /revisions → family child run (D-02)
+CHANNEL_CONCIERGE = "concierge"   # free-form → the Concierge escalation (D-04, Phase 33)
 
 # The FOUR gate actions (D-04 / POR §6). Generic discriminators — no workflow name.
 GATE_ACTIONS = frozenset({"approve", "reject", "redo", "update_specs"})
@@ -133,13 +137,18 @@ class ChatTurn:
 
     ``action`` is the optional gate-action discriminator (approve/reject/redo/
     update_specs); ``sticky`` marks an uploaded-context steering note that persists
-    across dispatches (D-06). Everything else is free-form user content.
+    across dispatches (D-06). ``concierge`` is the generic free-form marker the FE sets
+    on a lane "ask the Concierge" turn (Phase 33 / D-04) — a NON-workflow discriminator
+    (SC-001/INV-1), mirroring ``sticky``/``skip_clarification``: it opts the turn into
+    the free-form→Concierge escalation without disturbing the zero-model routing of any
+    routable turn. Everything else is free-form user content.
     """
 
     text: str = ""
     message_id: str | None = None
     action: str | None = None
     sticky: bool = False
+    concierge: bool = False
     responses: list[dict] = field(default_factory=list)
     skip_clarification: bool = False
     analysis_report: str | None = None
@@ -241,6 +250,21 @@ def route_chat_turn(run_state: RunState, turn: ChatTurn) -> Dispatch:
     / ``pipeline_type`` / ``spec.id`` is ever read (SC-001/INV-1).
     """
     phase = run_state.phase
+
+    # ── Free-form → Concierge escalation (D-04, Phase 33) ────────────────────────
+    # A PURE structural predicate — no model call, no I/O. The turn is escalated to
+    # the Concierge ONLY when it is explicitly marked free-form (the generic
+    # ``turn.concierge`` marker the FE sets on a lane "ask" turn) AND carries NO
+    # routable discriminator — no gate ``action`` and no structured clarify
+    # ``responses``. Routable turns (a structured clarify answer, a gate action, a
+    # sticky steering note, an explicit revision) never set this marker, so they stay
+    # ZERO-model-call on their existing channel — the Phase-29 routing below is
+    # byte-for-byte unchanged for every non-concierge turn (INV-12). Keyed on the
+    # generic turn marker ONLY — never a workflow name / ``pipeline_type`` / ``spec.id``
+    # (SC-001/INV-1). The router only CLASSIFIES to CHANNEL_CONCIERGE here; the model
+    # INVOCATION happens in the app layer (``run_commands.post_message``).
+    if turn.concierge and turn.action not in GATE_ACTIONS and not turn.responses:
+        return Dispatch(channel=CHANNEL_CONCIERGE, instruction=turn.text)
 
     if phase == PHASE_CLARIFY_WAITING:
         # The composer is the clarify ANSWER channel. Structured responses ride
@@ -367,6 +391,7 @@ __all__ = [
     "CHANNEL_GATE",
     "CHANNEL_STEERING",
     "CHANNEL_REVISION",
+    "CHANNEL_CONCIERGE",
     "GATE_ACTIONS",
     "TERMINAL_STATUSES",
 ]
