@@ -1,120 +1,165 @@
 "use client";
 
 /**
- * AuditTab — user-friendly audit trail for workflow runs (KAN-73).
- * Shows live entries during execution and persisted entries from history.
- * Designed for non-technical users: plain English, clear icons, no raw field names.
+ * AuditTab — governance/validation/exec audit trail for a workflow run (SC-3).
+ *
+ * Reads the three owner-scoped plan-03 endpoints (gate-events /
+ * validation-results / exec-runs) — replacing the WRONG `hook_runs` source —
+ * and renders stat counters, coverage chips, severity filters, and client-side
+ * CSV/JSON export (ND-6). A cross-owner / missing run resolves to empty
+ * envelopes (the fetchers map 404 → []), so the tab never surfaces another
+ * owner's data (T-32-09-01).
+ *
+ * Token discipline (SC-1): every surface/line/ink/radius routes through the
+ * plan-01 token layer + primitives. The SOLE one-chroma exception is the
+ * governance status palette (green/amber/red) used ONLY on verdict + severity
+ * chips (the status-ramp + severity-ladder tokens).
  */
 
-import { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { useEffect, useMemo, useState } from "react";
+import { motion } from "motion/react";
 import {
-  Shield, CheckCircle, AlertTriangle, XCircle,
-  ChevronDown, Clock, Activity, Play, Flag,
-  Lock, Eye, Info,
+  Shield, ShieldCheck, FileCheck2, Terminal, Download,
+  CheckCircle, XCircle, AlertTriangle, Clock, Filter,
 } from "lucide-react";
 import type { HookRunEntry } from "@/types/index";
-import { getRunHookRuns, getToken } from "@/lib/api";
+import {
+  getToken,
+  getRunGateEvents,
+  getRunValidationResults,
+  getRunExecRuns,
+} from "@/lib/api";
+import { exportAuditCSV, exportAuditJSON } from "@/lib/exporters/auditExporter";
 
 interface AuditTabProps {
+  /**
+   * Dormant legacy prop — retained ONLY so the PreviewPanel mount signature is
+   * unchanged (guardrail: PreviewPanel mount untouched). The tab no longer
+   * derives its data from hook_runs; it reads the 3 plan-03 endpoints below.
+   */
   hookRuns?: HookRunEntry[];
   workflowRunId?: string;
 }
 
-// ─── Human-readable hook descriptions ────────────────────────────────────────
+// ─── Unified audit-row model ─────────────────────────────────────────────────
 
-/** What each hook type does, in plain English for the tooltip / detail panel. */
-const HOOK_DESCRIPTIONS: Record<string, { label: string; description: string }> = {
-  audit_logger: {
-    label: "Activity Log",
-    description: "Tracks when each agent starts and finishes running.",
-  },
-  secret_scan: {
-    label: "Security Check",
-    description: "Scans the agent's output for sensitive data like passwords or API keys before saving it.",
-  },
-  otel_tracing: {
-    label: "Performance Trace",
-    description: "Records timing and performance data for this agent step.",
-  },
-  behavioral: {
-    label: "Behavioral Guideline",
-    description: "A custom hook you added via the workflow configuration. It was injected as a behavioural instruction into each agent's system prompt for this run.",
-  },
+type AuditCategory = "gate" | "validation" | "exec";
+
+const SEVERITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
+type Severity = (typeof SEVERITIES)[number];
+
+interface AuditRow {
+  id: string;
+  category: AuditCategory;
+  step: string;
+  /** gate kind | validator name | argv summary. */
+  label: string;
+  /** pass|block|wait_human | severity | allowed|denied|killed. */
+  outcome: string;
+  /** validation rows only (uppercased); null otherwise. */
+  severity: Severity | null;
+  detail: string;
+  created_at: string | null;
+}
+
+function argvSummary(argv: unknown): string {
+  if (Array.isArray(argv)) return argv.map((a) => String(a)).join(" ");
+  if (typeof argv === "string") return argv;
+  if (argv == null) return "";
+  try { return JSON.stringify(argv); } catch { return String(argv); }
+}
+
+function issuesSummary(issues: unknown): string {
+  if (Array.isArray(issues)) {
+    return issues
+      .map((i) => (typeof i === "string" ? i : JSON.stringify(i)))
+      .join("; ");
+  }
+  if (issues == null) return "";
+  if (typeof issues === "string") return issues;
+  try { return JSON.stringify(issues); } catch { return String(issues); }
+}
+
+function detailNote(detail: Record<string, unknown> | null): string {
+  if (!detail) return "";
+  if (typeof detail.note === "string") return detail.note;
+  if (typeof detail.summary === "string") return detail.summary;
+  try { return JSON.stringify(detail); } catch { return ""; }
+}
+
+function normalizeSeverity(sev: string | null | undefined): Severity | null {
+  const s = (sev || "").toUpperCase();
+  return (SEVERITIES as readonly string[]).includes(s) ? (s as Severity) : null;
+}
+
+// ─── Governance status palette (the SOLE one-chroma exception) ───────────────
+
+type VerdictKind = "done" | "failed" | "amber" | "queued";
+
+function verdictKind(outcome: string): VerdictKind {
+  const o = (outcome || "").toLowerCase();
+  if (o === "pass" || o === "allowed" || o === "passed") return "done";
+  if (o === "block" || o === "blocked" || o === "denied") return "failed";
+  if (o === "wait_human" || o === "wait" || o === "killed") return "amber";
+  return "queued";
+}
+
+const VERDICT_CLASS: Record<VerdictKind, string> = {
+  done: "text-status-done bg-[var(--status-done-fill)] border-[var(--status-done-border)]",
+  failed: "text-status-failed bg-[var(--status-failed-fill)] border-[var(--status-failed-border)]",
+  amber: "text-status-amber bg-[var(--status-amber-fill)] border-[var(--status-amber-border)]",
+  queued: "text-status-queued bg-[var(--status-queued-fill)] border-[var(--status-queued-border)]",
 };
 
-function hookInfo(hookName: string) {
-  return HOOK_DESCRIPTIONS[hookName] ?? {
-    label: hookName,
-    description: "An automated check that ran during this step.",
-  };
+const VERDICT_ICON: Record<VerdictKind, typeof CheckCircle> = {
+  done: CheckCircle,
+  failed: XCircle,
+  amber: AlertTriangle,
+  queued: Clock,
+};
+
+function VerdictChip({ outcome }: { outcome: string }) {
+  const kind = verdictKind(outcome);
+  const Icon = VERDICT_ICON[kind];
+  return (
+    <span
+      className={[
+        "inline-flex items-center gap-1 border rounded-[var(--radius-tag)] px-1.5 py-0.5 font-sans text-[9px] font-semibold uppercase tracking-wide leading-none",
+        VERDICT_CLASS[kind],
+      ].join(" ")}
+    >
+      <Icon className="h-2.5 w-2.5" />
+      {outcome}
+    </span>
+  );
 }
 
-// For tool events, override the description shown in "What is this?"
-function entryDescription(hook: string, event: string): string {
-  if (event === "tool_call") return "Records every tool the agent invoked — e.g. reading a file, running a search, or calling an API.";
-  if (event === "tool_result") return "Records the result returned to the agent after each tool call.";
-  return hookInfo(hook).description;
+// Severity ladder tokens (governance exception, severity colors only).
+const SEVERITY_VAR: Record<Severity, string> = {
+  CRITICAL: "var(--severity-critical)",
+  HIGH: "var(--severity-high)",
+  MEDIUM: "var(--severity-medium)",
+  LOW: "var(--severity-low)",
+};
+
+function SeverityChip({ severity }: { severity: Severity }) {
+  return (
+    <span
+      className="inline-flex items-center border border-line-control rounded-[var(--radius-tag)] px-1.5 py-0.5 font-sans text-[9px] font-semibold uppercase tracking-wide leading-none bg-surface-white"
+      style={{ color: SEVERITY_VAR[severity] }}
+    >
+      {severity}
+    </span>
+  );
 }
 
-// ─── Tool name → friendly label ───────────────────────────────────────────────
-function friendlyToolName(tool: string): string {
-  const MAP: Record<string, string> = {
-    read_file: "Read file", write_file: "Write file", list_files: "List files",
-    run_command: "Run command", search_files: "Search files",
-    report_task_complete: "Mark task complete", spawn_subagents: "Spawn sub-agents",
-    web_search: "Web search", fetch_url: "Fetch URL",
-    create_file: "Create file", delete_file: "Delete file",
-    execute_code: "Execute code", git_commit: "Git commit", git_push: "Git push",
-  };
-  return MAP[tool] ?? tool.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-}
+// ─── Category metadata ───────────────────────────────────────────────────────
 
-// ─── Outcome helpers ──────────────────────────────────────────────────────────
-
-function OutcomeIcon({ outcome }: { outcome: string }) {
-  if (outcome === "block")
-    return <XCircle className="h-4 w-4 text-red-500 flex-shrink-0" />;
-  if (outcome === "warn")
-    return <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0" />;
-  return <CheckCircle className="h-4 w-4 text-emerald-500 flex-shrink-0" />;
-}
-
-function outcomeBadge(outcome: string) {
-  if (outcome === "block")
-    return <span className="text-[10px] font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded-full">Blocked</span>;
-  if (outcome === "warn")
-    return <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">Warning</span>;
-  return <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-full">Passed</span>;
-}
-
-// ─── Event icon ───────────────────────────────────────────────────────────────
-
-function EventIcon({ event }: { event: string }) {
-  if (event === "before_step")
-    return <Play className="h-2.5 w-2.5 text-blue-400" />;
-  if (event === "after_step")
-    return <Flag className="h-2.5 w-2.5 text-indigo-400" />;
-  if (event === "before_write")
-    return <Lock className="h-2.5 w-2.5 text-amber-400" />;
-  if (event === "tool_call")
-    return <Activity className="h-2.5 w-2.5 text-violet-400" />;
-  if (event === "tool_result")
-    return <CheckCircle className="h-2.5 w-2.5 text-teal-400" />;
-  return <Eye className="h-2.5 w-2.5 text-gray-400" />;
-}
-
-function eventLabel(event: string): string {
-  if (event === "before_step") return "Agent started";
-  if (event === "after_step") return "Agent completed";
-  if (event === "before_write") return "Output security scan";
-  if (event === "pre_commit") return "Pre-save check";
-  if (event === "tool_call") return "Tool used";
-  if (event === "tool_result") return "Tool result";
-  return event;
-}
-
-// ─── Time formatter ───────────────────────────────────────────────────────────
+const CATEGORY_META: Record<AuditCategory, { label: string; icon: typeof Shield }> = {
+  gate: { label: "Gate events", icon: ShieldCheck },
+  validation: { label: "Validations", icon: FileCheck2 },
+  exec: { label: "Exec runs", icon: Terminal },
+};
 
 function formatTime(iso?: string | null): string {
   if (!iso) return "";
@@ -125,373 +170,303 @@ function formatTime(iso?: string | null): string {
   } catch { return ""; }
 }
 
-// ─── Build user-friendly title + detail rows ─────────────────────────────────
+// ─── Single audit-row card ───────────────────────────────────────────────────
 
-interface DetailRow { label: string; value: string; highlight?: boolean }
-
-function buildEntryContent(entry: HookRunEntry): {
-  title: string;
-  subtitle: string;
-  rows: DetailRow[];
-} {
-  const detail = entry.detail ?? {};
-  const hook = entry.hook;
-  const event = entry.event;
-  const agentName = (detail.agent_name as string) || (detail.agent_id as string) || "Agent";
-  const { label: hookLabel } = hookInfo(hook);
-
-  // ── tool_call — check BEFORE audit_logger (same hook, different event) ──────
-  if (event === "tool_call") {
-    const tool = (detail.tool as string) || "unknown";
-    const argsSummary = (detail.args_summary as string) || "";
-    return {
-      title: `Tool used: ${friendlyToolName(tool)}`,
-      subtitle: `Tool call · ${agentName} invoked a tool`,
-      rows: [
-        { label: "Agent", value: agentName },
-        { label: "Tool", value: friendlyToolName(tool) },
-        ...(argsSummary ? [{ label: "Parameters", value: argsSummary }] : []),
-        { label: "Status", value: "Invoked successfully" },
-      ],
-    };
-  }
-
-  // ── tool_result — check BEFORE audit_logger (same hook, different event) ─
-  if (event === "tool_result") {
-    const tool = (detail.tool as string) || "unknown";
-    const preview = (detail.result_preview as string) || "";
-    return {
-      title: `Tool result received: ${friendlyToolName(tool)}`,
-      subtitle: `Tool call · ${agentName} received tool output`,
-      rows: [
-        { label: "Agent", value: agentName },
-        { label: "Tool", value: friendlyToolName(tool) },
-        ...(preview ? [{ label: "Output preview", value: preview }] : []),
-        { label: "Status", value: "Result returned" },
-      ],
-    };
-  }
-
-  // ── audit_logger (lifecycle events only: before_step / after_step) ────────
-  if (hook === "audit_logger") {
-    const isStart = event === "before_step";
-    const taskIndex = (detail.step_index as number) ?? 0;
-    // For task-loop agents (step_index > 0 on same agent), show task number
-    const taskLabel = taskIndex > 0 ? ` (Task ${taskIndex + 1})` : "";
-    const title = isStart
-      ? `${agentName} started${taskLabel}`
-      : `${agentName} finished${taskLabel}`;
-    const subtitle = isStart
-      ? "Activity log · Agent began executing"
-      : "Activity log · Agent completed successfully";
-
-    const rows: DetailRow[] = [
-      { label: "Agent", value: agentName },
-      { label: "Step", value: `Step ${taskIndex + 1}` },
-      { label: "Check type", value: "Activity logging" },
-      { label: "Result", value: "Recorded successfully" },
-    ];
-    return { title, subtitle, rows };
-  }
-
-  // ── secret_scan ───────────────────────────────────────────────────────────
-  if (hook === "secret_scan") {
-    const matched = detail.matched as boolean | undefined;
-    const isClean = !matched;
-    const title = isClean
-      ? "Security scan passed — no sensitive data found"
-      : "Security scan blocked — sensitive data detected";
-    const subtitle = isClean
-      ? "Security check · Output is safe to save"
-      : "Security check · Output was not saved";
-
-    const rows: DetailRow[] = [
-      { label: "Check type", value: "Sensitive data scan (passwords, API keys, tokens)" },
-      {
-        label: "Result",
-        value: isClean ? "Clean — nothing sensitive found" : "Blocked — sensitive content detected",
-        highlight: !isClean,
-      },
-    ];
-    if (!isClean && detail.marker) {
-      rows.push({ label: "Pattern matched", value: "Credential-like value (not shown for security)", highlight: true });
-    }
-    return { title, subtitle, rows };
-  }
-
-  // ── behavioral (attached hooks from workflow config popup) ───────────────
-  if (hook === "behavioral") {
-    const hookName = (detail.hook_name as string) || agentName;
-    const eventType = (detail.event_type as string) || "";
-    const desc = (detail.description as string) || "";
-    return {
-      title: `Behavioral guideline active: ${hookName}`,
-      subtitle: `Workflow hook · injected into all agents for this run`,
-      rows: [
-        { label: "Hook name", value: hookName },
-        { label: "Fires on", value: eventType },
-        { label: "What it does", value: desc },
-        { label: "Status", value: "Active for this run" },
-      ],
-    };
-  }
-  if (hook === "otel_tracing") {
-    return {
-      title: "Performance trace recorded",
-      subtitle: "Performance trace · Timing data captured",
-      rows: [
-        { label: "Check type", value: "Performance monitoring" },
-        { label: "Result", value: "Timing data recorded" },
-      ],
-    };
-  }
-
-  // ── Generic fallback ──────────────────────────────────────────────────────
-  const fallbackSummary = (detail.summary as string) || `${hookLabel}: ${eventLabel(event)}`;
-  return {
-    title: fallbackSummary,
-    subtitle: `${hookLabel} · ${eventLabel(event)}`,
-    rows: [
-      { label: "Check type", value: hookLabel },
-      { label: "Event", value: eventLabel(event) },
-      { label: "Result", value: entry.outcome === "block" ? "Blocked" : entry.outcome === "warn" ? "Warning" : "Passed" },
-    ],
-  };
-}
-
-// ─── Single audit entry card ──────────────────────────────────────────────────
-
-function AuditEntry({ entry, index }: { entry: HookRunEntry; index: number }) {
-  const [expanded, setExpanded] = useState(false);
-  const ts = (entry.detail?.timestamp as string | null) || entry.created_at;
-  const isToolEvent = entry.event === "tool_call" || entry.event === "tool_result";
-  const { label: hookLabel } = isToolEvent
-    ? { label: entry.event === "tool_call" ? "Tool Call" : "Tool Result" }
-    : hookInfo(entry.hook);
-  const resolvedDesc = entryDescription(entry.hook, entry.event);
-  const { title, subtitle, rows } = buildEntryContent(entry);
-
+function AuditRowCard({ row, index }: { row: AuditRow; index: number }) {
+  const { icon: Icon } = CATEGORY_META[row.category];
   return (
     <motion.div
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.18, delay: Math.min(index * 0.04, 0.5) }}
-      className="rounded-xl border border-gray-100 bg-white overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.04)]"
+      transition={{ duration: 0.16, delay: Math.min(index * 0.03, 0.4) }}
+      className="bg-surface-card border border-line-border rounded-[var(--radius-list-row)] px-3 py-2.5"
     >
-      {/* ── Collapsed row ── */}
-      <button
-        onClick={() => setExpanded(v => !v)}
-        className="w-full flex items-center gap-3 px-3.5 py-3 text-left hover:bg-gray-50/70 transition-colors"
-        aria-expanded={expanded}
-      >
-        <OutcomeIcon outcome={entry.outcome} />
-
+      <div className="flex items-start gap-2.5">
+        <Icon className="h-3.5 w-3.5 text-ink-400 flex-shrink-0 mt-0.5" />
         <div className="flex-1 min-w-0">
-          {/* Main title */}
-          <p className="text-[12px] font-semibold text-gray-800 leading-snug truncate">
-            {title}
-          </p>
-          {/* Sub-line: hook label + time */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[12px] font-semibold text-ink-800 truncate">{row.label}</span>
+            {row.severity ? <SeverityChip severity={row.severity} /> : <VerdictChip outcome={row.outcome} />}
+          </div>
           <div className="flex items-center gap-1.5 mt-0.5">
-            <EventIcon event={entry.event} />
-            <span className="text-[10px] text-gray-500">{hookLabel}</span>
-            {ts && (
+            <span className="text-[10px] text-ink-500">{CATEGORY_META[row.category].label}</span>
+            <span className="text-[10px] text-ink-300">·</span>
+            <span className="text-[10px] text-ink-500">{row.step || "—"}</span>
+            {row.created_at && (
               <>
-                <span className="text-[10px] text-gray-300">·</span>
-                <Clock className="h-2.5 w-2.5 text-gray-400" />
-                <span className="text-[10px] text-gray-400">{formatTime(ts)}</span>
+                <span className="text-[10px] text-ink-300">·</span>
+                <Clock className="h-2.5 w-2.5 text-ink-400" />
+                <span className="text-[10px] text-ink-400">{formatTime(row.created_at)}</span>
               </>
             )}
           </div>
+          {row.detail && (
+            <p className="text-[11px] text-ink-600 leading-relaxed mt-1 break-words">{row.detail}</p>
+          )}
         </div>
-
-        {outcomeBadge(entry.outcome)}
-
-        <ChevronDown
-          className={`h-3.5 w-3.5 text-gray-400 flex-shrink-0 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
-        />
-      </button>
-
-      {/* ── Expanded detail ── */}
-      <AnimatePresence>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="overflow-hidden"
-          >
-            <div className="border-t border-gray-100 bg-gray-50/60 px-3.5 py-3 space-y-3">
-
-              {/* What is this check? */}
-              <div className="flex items-start gap-2 rounded-lg bg-blue-50/60 border border-blue-100/60 px-3 py-2">
-                <Info className="h-3.5 w-3.5 text-blue-400 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-[10px] font-semibold text-blue-700 uppercase tracking-wide mb-0.5">
-                    What is this?
-                  </p>
-                  <p className="text-[11px] text-blue-700/80 leading-relaxed">
-                    {resolvedDesc}
-                  </p>
-                </div>
-              </div>
-
-              {/* Detail rows */}
-              <div className="space-y-1.5">
-                {rows.map((row) => (
-                  <div key={row.label} className="flex items-start gap-2">
-                    <span className="text-[10px] text-gray-400 min-w-[100px] flex-shrink-0 pt-px">
-                      {row.label}
-                    </span>
-                    <span className={`text-[11px] font-medium leading-snug ${
-                      row.highlight ? "text-red-600" : "text-gray-700"
-                    }`}>
-                      {row.value}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Subtitle tag */}
-              <p className="text-[9px] text-gray-400 italic">{subtitle}</p>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </div>
     </motion.div>
   );
 }
 
-// ─── Main AuditTab component ──────────────────────────────────────────────────
+// ─── Counter pill ────────────────────────────────────────────────────────────
 
-export function AuditTab({ hookRuns, workflowRunId }: AuditTabProps) {
-  const [historicRuns, setHistoricRuns] = useState<HookRunEntry[]>([]);
+function CounterPill({ label, value }: { label: string; value: number }) {
+  return (
+    <span className="inline-flex items-center gap-1 bg-surface-white text-ink-700 border border-line-control rounded-[var(--radius-pill)] px-2 py-0.5 font-sans text-[10px] leading-none">
+      <span className="font-semibold text-ink-800">{value}</span>
+      <span className="text-ink-500">{label}</span>
+    </span>
+  );
+}
+
+// ─── Main AuditTab component ─────────────────────────────────────────────────
+
+export function AuditTab({ workflowRunId }: AuditTabProps) {
+  const [rows, setRows] = useState<AuditRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [activeSeverities, setActiveSeverities] = useState<Set<Severity>>(new Set());
 
   useEffect(() => {
-    if (!workflowRunId || (hookRuns && hookRuns.length > 0)) return;
+    if (!workflowRunId) return;
     const token = getToken();
     if (!token) return;
+    let cancelled = false;
     setLoading(true);
-    getRunHookRuns(token, workflowRunId)
-      .then((res) => {
-        setHistoricRuns(res.hook_runs.map((r) => ({
-          id: r.id,
-          hook: r.hook,
-          event: r.event,
-          outcome: r.outcome,
-          detail: r.detail as HookRunEntry["detail"],
-          created_at: r.created_at,
-        })));
+    Promise.all([
+      getRunGateEvents(token, workflowRunId),
+      getRunValidationResults(token, workflowRunId),
+      getRunExecRuns(token, workflowRunId),
+    ])
+      .then(([gates, validations, execs]) => {
+        if (cancelled) return;
+        const merged: AuditRow[] = [];
+        for (const g of gates.gate_events) {
+          merged.push({
+            id: `gate:${g.id}`,
+            category: "gate",
+            step: g.step ?? "",
+            label: g.gate ?? "gate",
+            outcome: g.outcome ?? "",
+            severity: null,
+            detail: detailNote(g.detail),
+            created_at: g.created_at,
+          });
+        }
+        for (const v of validations.validation_results) {
+          merged.push({
+            id: `validation:${v.id}`,
+            category: "validation",
+            step: v.step ?? "",
+            label: v.validator ?? "validator",
+            outcome: v.severity ?? "",
+            severity: normalizeSeverity(v.severity),
+            detail: issuesSummary(v.issues),
+            created_at: v.created_at,
+          });
+        }
+        for (const e of execs.exec_runs) {
+          const parts = [
+            e.exit_code != null ? `exit ${e.exit_code}` : "",
+            e.duration_ms != null ? `${e.duration_ms}ms` : "",
+            e.output_digest ? `digest ${e.output_digest}` : "",
+          ].filter(Boolean);
+          merged.push({
+            id: `exec:${e.id}`,
+            category: "exec",
+            step: e.step ?? "",
+            label: argvSummary(e.argv_json),
+            outcome: e.outcome ?? "",
+            severity: null,
+            detail: parts.join(" · "),
+            created_at: e.created_at,
+          });
+        }
+        merged.sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? ""));
+        setRows(merged);
       })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [workflowRunId, hookRuns]);
+      .catch(() => {
+        if (!cancelled) setRows([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [workflowRunId]);
 
-  const entries = (hookRuns && hookRuns.length > 0) ? hookRuns : historicRuns;
+  // ── Filtered view (severity filter narrows the rendered rows) ──────────────
+  const visibleRows = useMemo(() => {
+    if (activeSeverities.size === 0) return rows;
+    return rows.filter((r) => r.severity != null && activeSeverities.has(r.severity));
+  }, [rows, activeSeverities]);
 
-  if (loading) {
+  // ── Counters over ALL rows (coverage), computed once ───────────────────────
+  const counts = useMemo(() => {
+    const c = {
+      gate: rows.filter((r) => r.category === "gate").length,
+      validation: rows.filter((r) => r.category === "validation").length,
+      exec: rows.filter((r) => r.category === "exec").length,
+      gatePass: rows.filter((r) => r.category === "gate" && verdictKind(r.outcome) === "done").length,
+      gateBlock: rows.filter((r) => r.category === "gate" && verdictKind(r.outcome) === "failed").length,
+      gateWait: rows.filter((r) => r.category === "gate" && verdictKind(r.outcome) === "amber").length,
+      execAllowed: rows.filter((r) => r.category === "exec" && verdictKind(r.outcome) === "done").length,
+      execDenied: rows.filter((r) => r.category === "exec" && verdictKind(r.outcome) === "failed").length,
+      execKilled: rows.filter((r) => r.category === "exec" && verdictKind(r.outcome) === "amber").length,
+      sev: Object.fromEntries(
+        SEVERITIES.map((s) => [s, rows.filter((r) => r.severity === s).length]),
+      ) as Record<Severity, number>,
+    };
+    return c;
+  }, [rows]);
+
+  function toggleSeverity(sev: Severity) {
+    setActiveSeverities((prev) => {
+      const next = new Set(prev);
+      if (next.has(sev)) next.delete(sev);
+      else next.add(sev);
+      return next;
+    });
+  }
+
+  function exportRows() {
+    return visibleRows.map((r) => ({
+      category: r.category,
+      step: r.step,
+      label: r.label,
+      outcome: r.outcome,
+      severity: r.severity ?? "",
+      detail: r.detail,
+      created_at: r.created_at ?? "",
+    }));
+  }
+
+  if (loading && rows.length === 0) {
     return (
       <div className="flex items-center justify-center h-full">
-        <p className="text-[11px] text-gray-400">Loading audit trail…</p>
+        <p className="text-[11px] text-ink-400">Loading audit trail…</p>
       </div>
     );
   }
 
-  if (entries.length === 0) {
+  if (rows.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3 px-6 text-center">
-        <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
-          <Shield className="h-5 w-5 text-gray-400" />
+        <div className="w-10 h-10 rounded-[var(--radius-menu)] bg-surface-warm flex items-center justify-center">
+          <Shield className="h-5 w-5 text-ink-400" />
         </div>
         <div>
-          <p className="text-[12px] font-medium text-gray-600">No audit records yet</p>
-          <p className="text-[11px] text-gray-400 mt-1 leading-relaxed max-w-[200px]">
-            Automatic checks will appear here as each agent runs.
+          <p className="text-[12px] font-medium text-ink-600">No audit records yet</p>
+          <p className="text-[11px] text-ink-400 mt-1 leading-relaxed max-w-[220px]">
+            Governance gates, validations, and sandboxed executions will appear here as the run progresses.
           </p>
         </div>
       </div>
     );
   }
 
-  // Count by outcome
-  const passCount = entries.filter(e => e.outcome === "continue" || e.outcome === "pass").length;
-  const warnCount = entries.filter(e => e.outcome === "warn").length;
-  const blockCount = entries.filter(e => e.outcome === "block").length;
-
-  // Count by check type for the header
-  const activityCount = entries.filter(e =>
-    e.hook === "audit_logger" && (e.event === "before_step" || e.event === "after_step")
-  ).length;
-  const toolCallCount = entries.filter(e => e.event === "tool_call" || e.event === "tool_result").length;
-  const securityCount = entries.filter(e => e.hook === "secret_scan").length;
-  const behavioralCount = entries.filter(e => e.hook === "behavioral").length;
-
   return (
     <div className="flex flex-col h-full">
-
-      {/* ── Header: what this tab is ── */}
-      <div className="flex-shrink-0 px-4 pt-3 pb-2 border-b border-gray-100 bg-white">
-        <div className="flex items-center gap-2 mb-1.5">
-          <Shield className="h-3.5 w-3.5 text-indigo-500 flex-shrink-0" />
-          <span className="text-[12px] font-semibold text-gray-700">
-            Automated Checks
-          </span>
-          <span className="ml-auto text-[10px] text-gray-400">{entries.length} records</span>
+      {/* ── Header ── */}
+      <div className="flex-shrink-0 px-4 pt-3 pb-2.5 border-b border-line-divider bg-surface-white">
+        <div className="flex items-center gap-2 mb-2">
+          <Shield className="h-3.5 w-3.5 text-brand flex-shrink-0" />
+          <span className="text-[12px] font-semibold text-ink-700">Audit trail</span>
+          <span className="ml-auto text-[10px] text-ink-400">{rows.length} records</span>
         </div>
-        <p className="text-[10px] text-gray-400 leading-relaxed mb-2">
-          Every agent run is automatically monitored. These checks run silently in the background — no action needed from you.
-        </p>
 
-        {/* Check type pills */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {activityCount > 0 && (
-            <span className="flex items-center gap-1 text-[10px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">
-              <Activity className="h-2.5 w-2.5" />
-              {activityCount} activity logs
-            </span>
-          )}
-          {toolCallCount > 0 && (
-            <span className="flex items-center gap-1 text-[10px] text-violet-600 bg-violet-50 px-2 py-0.5 rounded-full border border-violet-100">
-              <Eye className="h-2.5 w-2.5" />
-              {toolCallCount} tool calls
-            </span>
-          )}
-          {securityCount > 0 && (
-            <span className="flex items-center gap-1 text-[10px] text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-100">
-              <Lock className="h-2.5 w-2.5" />
-              {securityCount} security scans
-            </span>
-          )}
-          {behavioralCount > 0 && (
-            <span className="flex items-center gap-1 text-[10px] text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full border border-orange-100">
-              <Shield className="h-2.5 w-2.5" />
-              {behavioralCount} workflow hooks
-            </span>
-          )}
-          <span className="ml-auto flex items-center gap-1 text-[10px] text-emerald-600 font-semibold">
-            <CheckCircle className="h-3 w-3" />
-            {passCount} passed
-            {warnCount > 0 && (
-              <span className="text-amber-500 ml-1">· {warnCount} warning</span>
-            )}
-            {blockCount > 0 && (
-              <span className="text-red-500 ml-1">· {blockCount} blocked</span>
-            )}
-          </span>
+        {/* Coverage chips (per-category totals) */}
+        <div className="flex items-center gap-1.5 flex-wrap mb-2">
+          {(Object.keys(CATEGORY_META) as AuditCategory[]).map((cat) => {
+            const Icon = CATEGORY_META[cat].icon;
+            return (
+              <span
+                key={cat}
+                data-testid={`audit-coverage-${cat}`}
+                className="inline-flex items-center gap-1 bg-surface-white text-ink-600 border border-line-control rounded-[var(--radius-pill)] px-2 py-0.5 font-sans text-[10px] leading-none"
+              >
+                <Icon className="h-2.5 w-2.5 text-ink-400" />
+                {counts[cat]} {CATEGORY_META[cat].label.toLowerCase()}
+              </span>
+            );
+          })}
+        </div>
+
+        {/* Stat counters (governance verdict / severity breakdown) */}
+        <div className="flex items-center gap-1.5 flex-wrap mb-2">
+          <CounterPill label="pass" value={counts.gatePass} />
+          <CounterPill label="block" value={counts.gateBlock} />
+          <CounterPill label="wait" value={counts.gateWait} />
+          <span className="text-[10px] text-ink-300">|</span>
+          <CounterPill label="allowed" value={counts.execAllowed} />
+          <CounterPill label="denied" value={counts.execDenied} />
+          <CounterPill label="killed" value={counts.execKilled} />
+        </div>
+
+        {/* Severity filters */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <Filter className="h-3 w-3 text-ink-400" />
+          {SEVERITIES.map((sev) => {
+            const active = activeSeverities.has(sev);
+            return (
+              <button
+                key={sev}
+                type="button"
+                data-testid={`sev-filter-${sev}`}
+                aria-pressed={active}
+                onClick={() => toggleSeverity(sev)}
+                className={[
+                  "inline-flex items-center gap-1 border rounded-[var(--radius-tag)] px-1.5 py-0.5 font-sans text-[9px] font-semibold uppercase tracking-wide leading-none transition-colors",
+                  active
+                    ? "bg-brand-fill border-brand-border"
+                    : "bg-surface-white border-line-control hover:bg-surface-warm",
+                ].join(" ")}
+                style={{ color: SEVERITY_VAR[sev] }}
+              >
+                {sev} {counts.sev[sev]}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* ── Entry list ── */}
+      {/* ── Export bar ── */}
+      <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2 border-b border-line-divider bg-surface-paper">
+        <span className="text-[10px] text-ink-500">
+          {visibleRows.length} shown
+        </span>
+        <div className="ml-auto flex items-center gap-1.5">
+          <button
+            type="button"
+            data-testid="audit-export-csv"
+            onClick={() => exportAuditCSV(exportRows(), `audit-${workflowRunId ?? "run"}`)}
+            className="inline-flex items-center gap-1 bg-surface-card text-ink-900 border border-line-control rounded-[var(--radius-button)] px-2.5 py-1 font-sans font-semibold text-[11px] leading-none hover:bg-surface-warm transition-colors"
+          >
+            <Download className="h-3 w-3" />
+            Export CSV
+          </button>
+          <button
+            type="button"
+            data-testid="audit-export-json"
+            onClick={() => exportAuditJSON(exportRows(), `audit-${workflowRunId ?? "run"}`)}
+            className="inline-flex items-center gap-1 bg-surface-card text-ink-900 border border-line-control rounded-[var(--radius-button)] px-2.5 py-1 font-sans font-semibold text-[11px] leading-none hover:bg-surface-warm transition-colors"
+          >
+            <Download className="h-3 w-3" />
+            Export JSON
+          </button>
+        </div>
+      </div>
+
+      {/* ── Row list ── */}
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
-        {entries.map((entry, idx) => (
-          <AuditEntry
-            key={entry.id || `${entry.hook}-${entry.event}-${idx}`}
-            entry={entry}
-            index={idx}
-          />
-        ))}
+        {visibleRows.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
+            <p className="text-[11px] text-ink-500">No records match the active filters.</p>
+          </div>
+        ) : (
+          visibleRows.map((row, idx) => (
+            <AuditRowCard key={row.id} row={row} index={idx} />
+          ))
+        )}
       </div>
     </div>
   );
