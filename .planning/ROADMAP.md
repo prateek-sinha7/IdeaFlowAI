@@ -867,6 +867,20 @@ Plans:
 3. Audit tab reads the 3 new endpoints (`gate_events`/`validation_results`/`exec_runs`) with counters/filters + CSV/JSON export; governance keeps the status palette; one-chroma elsewhere.
 4. Failed/degraded/cancelled states faithful (P16 affordances + chat card); e2e green with brittle color assertions fixed + `data-testid`s added.
 
+**Plans:** 10 plans in 4 waves
+
+Plans:
+- [ ] 32-01-PLAN.md — Token layer: globals.css @theme rewrite + Manrope/Heebo fonts + token-guard test (Wave 1)
+- [ ] 32-02-PLAN.md — Primitives: Button/Card/Tabs/Badge/Pill in components/ui + tests (Wave 1)
+- [ ] 32-03-PLAN.md — 3 additive owner-scoped Audit read endpoints (IDOR->404) + tests (Wave 2)
+- [ ] 32-04-PLAN.md — SC-001 golden-neutral review_gate_ready flag (update_specs_eligible) + 5 goldens byte-identical (Wave 2)
+- [ ] 32-05-PLAN.md — Chat-lane state: ISS-035 cancel marker + ISS-036 runId + SC-001 L2 fix + flag parse (Wave 2)
+- [ ] 32-06-PLAN.md — RunChatLane reskin + absorb AgentProgressPanel + cancelled/failed/degraded terminal renders (Wave 3)
+- [ ] 32-07-PLAN.md — Right tab shell reskin + Thinking->Steps + Preview manual switcher (Wave 3)
+- [ ] 32-08-PLAN.md — Steps 3-level drill-down + dual-source L3 + KAN-99 cap + inline gate/clarify + SC-001 de-literalize (Wave 3)
+- [ ] 32-09-PLAN.md — Audit tab repoint to 3 endpoints + counters/filters + CSV/JSON export (Wave 3)
+- [ ] 32-10-PLAN.md — E2E hardening: re-anchor brittle color assertions to token/data-testid, verify BY DELTA (Wave 4)
+
 ### Phase 33: Concierge + Compaction [A5]
 
 **Goal:** Free-form conversation works on every run via ONE orchestrator capability, and long transcripts stay inside budget.
