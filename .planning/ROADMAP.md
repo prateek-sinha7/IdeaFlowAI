@@ -902,7 +902,7 @@ Plans:
 3. Post-run chat turns produce revision runs stitched into the family transcript.
 4. A brand-new custom workflow gets lane + router + Concierge with zero new code (SC-001 proof).
 
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans executed (verifying — verifier + code-review pending; --no-transition)
 Plans:
 **Wave 1**
 
@@ -979,7 +979,7 @@ Plans:
 | 30. Uploads & Multimodal [A2] | 0/? | Not started | — |
 | 31. Chat Lane MVP [A3] | 7/7 | Complete    | 2026-07-08 |
 | 32. Run-Screen Redesign [A4] | 10/10 | Complete   | 2026-07-08 |
-| 33. Concierge + Compaction [A5] | 4/5 | Executing  | — |
+| 33. Concierge + Compaction [A5] | 5/5 | Verifying  | — |
 | 34. Live Pass & Closure [A6] | 0/? | Not started | — |
 | 35. Shell Chrome + Reskin Pages [B1] | 0/? | Not started | — |
 | 36. Home + History + My Workflows [B2] | 0/? | Not started | — |
