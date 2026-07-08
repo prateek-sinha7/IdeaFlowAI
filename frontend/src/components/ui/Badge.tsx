@@ -59,7 +59,10 @@ export function Badge({ status, label, className = "" }: BadgeProps) {
         .filter(Boolean)
         .join(" ")}
     >
-      {label ?? status}
+      {/* LW-02: fall back to the NORMALIZED canonical key, never the raw
+          `status` — an unknown/free-string status renders the safe "queued"
+          default (not arbitrary text uppercased by the chip). */}
+      {label ?? key}
     </span>
   );
 }

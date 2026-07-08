@@ -71,6 +71,16 @@ describe("Button primitive", () => {
     expect(screen.getByRole("button", { name: "Wide" }).className).toContain("w-full");
   });
 
+  it("defaults the native type to \"button\" (LW-01 form-submit footgun guard)", () => {
+    render(<Button>Go</Button>);
+    expect(screen.getByRole("button", { name: "Go" })).toHaveAttribute("type", "button");
+  });
+
+  it("lets a caller override the button type", () => {
+    render(<Button type="submit">Save</Button>);
+    expect(screen.getByRole("button", { name: "Save" })).toHaveAttribute("type", "submit");
+  });
+
   it("contains no retired palette hex in rendered output", () => {
     const { container } = render(
       <>
@@ -204,6 +214,9 @@ describe("Badge primitive", () => {
     const { container } = render(<Badge status="???unknown" />);
     const badge = container.firstElementChild as HTMLElement;
     expect(badge.className).toContain("text-status-queued");
+    // LW-02: render the safe canonical label, never the raw free-string status.
+    expect(badge.textContent).toBe("queued");
+    expect(badge.textContent).not.toContain("???");
   });
 
   it("renders a custom label when provided, else the status text", () => {

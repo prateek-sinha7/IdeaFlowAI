@@ -38,12 +38,16 @@ export interface ButtonProps
 export function Button({
   variant = "primary",
   size = "md",
+  // Default to a non-submitting button — an unset native type is "submit",
+  // which fires a surrounding <form> (LW-01 footgun). Callers may override.
+  type = "button",
   className = "",
   children,
   ...rest
 }: ButtonProps) {
   return (
     <button
+      type={type}
       className={[
         // radius = 10 (button), Manrope 600, 12.5px — from the token ladder
         "inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-button)] font-sans font-semibold text-[12.5px] leading-none transition-colors disabled:cursor-not-allowed",
