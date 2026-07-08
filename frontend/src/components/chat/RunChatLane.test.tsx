@@ -208,6 +208,99 @@ describe("RunChatLane", () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
+  it("renders a confirm/reject chip pair for a held consequential proposal (D-05)", () => {
+    const onConfirmProposal = vi.fn();
+    const onRejectProposal = vi.fn();
+    const proposal = {
+      id: "concierge-proposal:m1:gate_action",
+      channel: "gate_action",
+      params: { action: "approve", rationale: "looks good" },
+      summary: "Approve the current gate",
+    };
+    render(
+      <RunChatLane
+        {...baseProps({
+          runState: "gate",
+          proposals: [proposal],
+          onConfirmProposal,
+          onRejectProposal,
+        })}
+      />,
+    );
+    // Confirm executes only through the confirm chip (T-33-04-01).
+    fireEvent.click(screen.getByTestId("chat-proposal-confirm"));
+    expect(onConfirmProposal).toHaveBeenCalledWith(proposal);
+    // Reject dismisses — nothing executes.
+    fireEvent.click(screen.getByTestId("chat-proposal-reject"));
+    expect(onRejectProposal).toHaveBeenCalledWith(proposal.id);
+    // Proposal summary is rendered as escaped text (no dangerouslySetInnerHTML).
+    expect(screen.getByText("Approve the current gate")).toBeInTheDocument();
+  });
+
+  it("shows no proposal chips when there are no held proposals", () => {
+    render(<RunChatLane {...baseProps({ runState: "gate" })} />);
+    expect(screen.queryByTestId("chat-proposal-confirm")).toBeNull();
+    expect(screen.queryByTestId("chat-proposals")).toBeNull();
+  });
+
+  it("surfaces the compact affordance when composed-context usage is high (D-08)", () => {
+    const onCompact = vi.fn();
+    render(
+      <RunChatLane
+        {...baseProps({
+          runState: "building",
+          onCompact,
+          pipelineState: {
+            isRunning: true,
+            pipeline_type: "generic",
+            agents: [],
+            currentAgentIndex: 0,
+            totalDuration: null,
+            completedCount: 0,
+            totalTokens: 5_000,
+            totalInputTokens: 5_000,
+            composedContextTokens: 92_000,
+            contextBudgetTokens: 100_000,
+          },
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("chat-compact"));
+    expect(onCompact).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the compact affordance when usage is low or absent", () => {
+    render(
+      <RunChatLane
+        {...baseProps({
+          runState: "building",
+          onCompact: vi.fn(),
+          pipelineState: {
+            isRunning: true,
+            pipeline_type: "generic",
+            agents: [],
+            currentAgentIndex: 0,
+            totalDuration: null,
+            completedCount: 0,
+            totalTokens: 5_000,
+            totalInputTokens: 5_000,
+          },
+        })}
+      />,
+    );
+    expect(screen.queryByTestId("chat-compact")).toBeNull();
+  });
+
+  it("compactAvailable prop surfaces the affordance even without usage telemetry", () => {
+    const onCompact = vi.fn();
+    render(
+      <RunChatLane
+        {...baseProps({ runState: "complete", compactAvailable: true, onCompact })}
+      />,
+    );
+    expect(screen.getByTestId("chat-compact")).toBeInTheDocument();
+  });
+
   it("SC-001: the source carries no workflow-name literal", () => {
     const src = readFileSync(
       join(process.cwd(), "src/components/chat/RunChatLane.tsx"),

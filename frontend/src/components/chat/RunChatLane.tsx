@@ -26,7 +26,7 @@
  */
 
 import { useCallback, useRef, useState } from "react";
-import { Send, Sparkles, Square } from "lucide-react";
+import { Send, Sparkles, Square, Minimize2 } from "lucide-react";
 
 import type {
   AgentEvent,
@@ -35,7 +35,12 @@ import type { AgentRunState, ChatAttachment, ChatMessage, PipelineRunState } fro
 import type { ClarifyQuestion } from "../preview/QuestionnairePanel";
 import { ChatPanel } from "./ChatPanel";
 import { ChatAttachments } from "./ChatAttachments";
-import { ChatTokenWidget } from "./ChatTokenWidget";
+import {
+  ChatTokenWidget,
+  composedContextUsage,
+  COMPACT_THRESHOLD_PCT,
+  type ComposedContextTelemetry,
+} from "./ChatTokenWidget";
 import {
   InlineClarifyActions,
   type ClarifyResponse,
@@ -78,6 +83,26 @@ export interface LaneSuggestion {
   description?: string;
 }
 
+/**
+ * A held CONSEQUENTIAL Concierge proposal (the 33-03 `concierge_proposal` hold)
+ * that the user must CONFIRM before the app executes it (D-05, SC-1). GENERIC —
+ * `channel` is a proposal channel ("gate_action" | "revision"), never a
+ * workflow-name literal (INV-1, mirroring LaneSuggestion's discipline). The
+ * confirm handler POSTs the confirm turn back through the existing chat send
+ * seam (`{ concierge: true, confirm_proposal: { channel, params } }`); reject
+ * simply dismisses without executing anything.
+ */
+export interface LaneProposal {
+  /** Stable proposal id (the 33-03 concierge-proposal event id). */
+  id: string;
+  /** The Phase-29 disposal channel the confirm turn replays. Generic. */
+  channel: string;
+  /** The ProposalIntent params carried verbatim to the confirm turn. */
+  params: Record<string, unknown>;
+  /** Human-readable description of the consequential action (rendered escaped). */
+  summary?: string;
+}
+
 export interface RunChatLaneProps {
   /** The family-anchored transcript (plan 03 `useRunChat.messages`). */
   messages: ChatMessage[];
@@ -87,8 +112,12 @@ export interface RunChatLaneProps {
   sendMessage: (text: string, attachments?: ChatAttachment[]) => void;
   isStreaming?: boolean;
   streamingContent?: string;
-  /** Live run telemetry — drives the compact token widget (plan 06 / P26). */
-  pipelineState?: PipelineRunState;
+  /**
+   * Live run telemetry — drives the compact token widget (plan 06 / P26) and,
+   * when the stream supplies it, the composed-context usage that surfaces the
+   * compact affordance (D-08). Accepts the optional composed-context extension.
+   */
+  pipelineState?: PipelineRunState & Partial<ComposedContextTelemetry>;
   /** Agent event stream per assistant turn id (plan 01/02 block rendering). */
   eventsByMessageId?: Record<string, AgentEvent[]>;
   /** The nonce'd deep-link seam a narrator card fires (plan 03, borrow #6). */
@@ -104,6 +133,33 @@ export interface RunChatLaneProps {
   /** Suggested next steps rendered as quick-reply chips. */
   suggestions?: LaneSuggestion[];
   onSuggestion?: (id: string) => void;
+
+  // ── Consequential Concierge proposals (confirm-chip hold, 33-03/D-05) ──────
+  /**
+   * Held consequential proposals awaiting explicit confirmation. Rendered as a
+   * confirm/reject chip pair modeled on the suggestion-chip path. Confirming is
+   * the ONLY path that executes the held intent (T-33-04-01).
+   */
+  proposals?: LaneProposal[];
+  /**
+   * Confirm a held proposal → the caller POSTs the confirm turn through the
+   * existing chat send seam so the app executes the held intent. RunChatLane is
+   * presentational; the transport lives with the caller (plan 07), the same way
+   * suggestion chips / gate actions are wired.
+   */
+  onConfirmProposal?: (proposal: LaneProposal) => void;
+  /** Reject/dismiss a held proposal — nothing executes. */
+  onRejectProposal?: (id: string) => void;
+
+  // ── Compact affordance (D-08, display/trigger only — no FE compression) ────
+  /**
+   * Signal the backend compaction is available (e.g. composed-context usage is
+   * high). When absent, the affordance is derived from the live composed-context
+   * usage on `pipelineState`.
+   */
+  compactAvailable?: boolean;
+  /** Trigger backend compaction (the FE only signals — it does NOT compress). */
+  onCompact?: () => void;
 
   // ── Plan-05 gate quick-actions ────────────────────────────────────────────
   gate?: GateContext;
@@ -223,6 +279,11 @@ export function RunChatLane({
   onRelaunch,
   suggestions,
   onSuggestion,
+  proposals,
+  onConfirmProposal,
+  onRejectProposal,
+  compactAvailable,
+  onCompact,
   gate,
   onApprove,
   onReject,
@@ -235,6 +296,16 @@ export function RunChatLane({
   // isRunning keys off the GENERIC runState only (SC-001) — no workflow branch.
   const isRunning =
     runState === "building" || runState === "clarify" || runState === "gate";
+
+  // The compact affordance surfaces when the backend signals compaction is
+  // available OR the live composed-context usage crosses the shared threshold
+  // (D-08 — FE only DISPLAYS/triggers, it never compresses). Derived from the
+  // SAME telemetry the ChatTokenWidget reads (single source of truth).
+  const ctxUsage = pipelineState ? composedContextUsage(pipelineState) : null;
+  const compactEligible =
+    Boolean(onCompact) &&
+    (compactAvailable === true ||
+      (ctxUsage !== null && ctxUsage.pct >= COMPACT_THRESHOLD_PCT));
 
   // Free-text send routes through the transport-agnostic sendMessage; in the
   // complete (revision) mode a free-text turn is a REVISION (onRevise) when the
@@ -249,6 +320,57 @@ export function RunChatLane({
     },
     [runState, onRevise, sendMessage],
   );
+
+  // Consequential Concierge proposals held behind a confirm chip (33-03/D-05).
+  // Modeled on the suggestion-chip render path but mode-independent: a held
+  // proposal (gate action / revision) can surface in any live state, and the
+  // user must CONFIRM before the app executes it (T-33-04-01). GENERIC — no
+  // workflow-name literal (INV-1). Proposal text is rendered through React's
+  // default JSX escaping (no raw-HTML injection sink) — XSS-safe (T-33-04-02).
+  const renderProposals = () => {
+    if (!proposals || proposals.length === 0) return null;
+    return (
+      <div data-testid="chat-proposals" className="space-y-2">
+        {proposals.map((p) => (
+          <Card
+            key={p.id}
+            data-proposal-id={p.id}
+            className="border border-brand/30 bg-brand/5 px-3.5 py-3 space-y-2"
+          >
+            <div className="flex items-center gap-1.5">
+              <Sparkles className="h-3 w-3 text-brand" />
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-brand">
+                Confirm to continue
+              </p>
+            </div>
+            {p.summary && (
+              <p className="text-[12px] text-ink-700">{p.summary}</p>
+            )}
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                data-testid="chat-proposal-confirm"
+                data-proposal-id={p.id}
+                onClick={() => onConfirmProposal?.(p)}
+                className="rounded-[var(--radius-pill)] bg-brand px-3 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-brand-pressed"
+              >
+                Confirm
+              </button>
+              <button
+                type="button"
+                data-testid="chat-proposal-reject"
+                data-proposal-id={p.id}
+                onClick={() => onRejectProposal?.(p.id)}
+                className="rounded-[var(--radius-pill)] border border-line-control bg-surface-white px-3 py-1.5 text-[11px] font-medium text-ink-500 transition-colors hover:border-ink-300 hover:text-ink-700"
+              >
+                Dismiss
+              </button>
+            </div>
+          </Card>
+        ))}
+      </div>
+    );
+  };
 
   const renderComposerBody = () => {
     switch (runState) {
@@ -456,18 +578,35 @@ export function RunChatLane({
         ) : (
           <span />
         )}
-        {isRunning && onStop && (
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            data-testid="chat-stop"
-            onClick={onStop}
-            className="gap-1.5 text-[10px] text-ink-500"
-          >
-            <Square className="h-3 w-3" /> Stop
-          </Button>
-        )}
+        <div className="flex items-center gap-1.5">
+          {/* Compact affordance — signals backend compaction is available when
+              composed-context usage is high. FE triggers only (D-08). */}
+          {compactEligible && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              data-testid="chat-compact"
+              onClick={() => onCompact?.()}
+              title="Context is near budget — compact the conversation history"
+              className="gap-1.5 text-[10px] text-ink-500"
+            >
+              <Minimize2 className="h-3 w-3" /> Compact
+            </Button>
+          )}
+          {isRunning && onStop && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              data-testid="chat-stop"
+              onClick={onStop}
+              className="gap-1.5 text-[10px] text-ink-500"
+            >
+              <Square className="h-3 w-3" /> Stop
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Transcript — ChatPanel owns the aria-live/role=log region + blocks. */}
@@ -487,8 +626,11 @@ export function RunChatLane({
       <div
         data-testid="chat-composer"
         data-composer-mode={runState}
-        className="flex-shrink-0 border-t border-line-divider px-4 py-3"
+        className="flex-shrink-0 border-t border-line-divider px-4 py-3 space-y-2.5"
       >
+        {/* Held consequential proposals surface above the mode body so a
+            confirm/reject decision is visible in ANY live state (D-05). */}
+        {renderProposals()}
         {renderComposerBody()}
       </div>
     </div>
