@@ -13,7 +13,10 @@ import { AccountSettings } from "@/components/settings/AccountSettings";
 import { AnalyticsPage } from "@/components/analytics/AnalyticsPage";
 import { SavedWorkflowsPage } from "@/components/savedworkflows/SavedWorkflowsPage";
 import { IdeaInputPage } from "@/components/workflow/IdeaInputPage";
-import { AgentProgressPanel } from "@/components/workflow/AgentProgressPanel";
+// INV-3 (plan 06): the AgentProgressPanel run-lane mount was removed here — its
+// Stop/revise/suggestions controls are fully absorbed by RunChatLane. The
+// component itself is retained (its own suite + the plan-08 Steps relocation);
+// DashboardLayout no longer imports or mounts it.
 import { WaveTreePanel } from "@/components/workflow/WaveTreePanel";
 // Phase 31 (CHATUI-01/02/03) — the run-screen chat lane composition root. Mounted
 // as the execution-surface left column; it ABSORBS the AgentProgressPanel
@@ -111,6 +114,11 @@ export interface DashboardLayoutProps {
     // REDO-GATE (F-fe2): generic server-set flag threaded into the panel so the
     // Redo control renders only on redoable (inline) gates.
     redoable?: boolean;
+    // SC-001 (plan 04→06, KAN-101): name-free server flags parsed in page.tsx —
+    // the lane maps updateSpecsEligible into the InlineGateActions "Update the
+    // Specs" affordance and artifactKind into the approve relabel. Additive.
+    updateSpecsEligible?: boolean;
+    artifactKind?: string;
   } | null;
   onApproveReview?: (gateKey: string, editedContent?: string) => void;
   onRejectReview?: (gateKey: string) => void;
@@ -320,6 +328,9 @@ export function DashboardLayout({
     return "user_stories";
   });
   const [workflowInput, setWorkflowInput] = useState("");
+  // Tracks completed pipeline types (fed by the WS completion handlers). The
+  // run-lane chaining suggestions derive from canChainFrom(workflowType); this
+  // state is retained for the completion bookkeeping its setters perform.
   const [completedPipelineTypes, setCompletedPipelineTypes] = useState<WorkflowType[]>([]);
   const [lastPipelineOutput, setLastPipelineOutput] = useState<string>("");
   const [questionnaireQuestions, setQuestionnaireQuestions] = useState<{
@@ -1256,15 +1267,6 @@ export function DashboardLayout({
     setMainView(page as MainView);
   }, []);
 
-  // Follow-up / steer agents
-  const handleFollowUp = useCallback((message: string) => {
-    const refinedInput = `${workflowInput}\n\n---\nRefinement: ${message}`;
-    setWorkflowInput(refinedInput);
-    if (onStartPipeline) {
-      onStartPipeline(workflowType, refinedInput, undefined, attachedSkills, attachedHooks);
-    }
-  }, [workflowInput, workflowType, onStartPipeline, attachedSkills, attachedHooks]);
-
   // ─── Phase 31 (CHATUI-01/02/03) — run chat lane derivations ──────────────────
   // The workflowType-selected revise handler (the SAME expression the left-column
   // AgentProgressPanel used before the lane absorbed it). Undefined when the
@@ -1287,15 +1289,19 @@ export function DashboardLayout({
   // complete (has deliverable) > idle.
   const laneHasDeliverable = !!(userStoryContent || pptContent || prototypeContent || genericDeliverable?.content);
   const laneClarifyOpen = questionnaireQuestions.length > 0 && (!!pendingPipelineRun || !!activePipelineRunId);
+  // Terminal keys off the GENERIC plan-05 markers (cancelled / failed /
+  // degraded) — never a workflow name (SC-001, LIVE-STATE-CONTRACT §1).
   const runLaneState: RunLaneState =
     reviewGateData && isPipelineRunning ? "gate" :
     laneClarifyOpen ? "clarify" :
     isPipelineRunning ? "building" :
-    pipelineState?.failed ? "terminal" :
+    (pipelineState?.failed || pipelineState?.cancelled || pipelineState?.degraded) ? "terminal" :
     laneHasDeliverable ? "complete" :
     "idle";
 
-  // The gate the lane surfaces (mirrors the Steps ReviewGatePanel props).
+  // The gate the lane surfaces (mirrors the Steps ReviewGatePanel props). The
+  // KAN-101 spec-loop affordance + approve relabel are mapped off the declared
+  // reviewGateData flags (SC-001) — mirrors the redoable mapping, no literal.
   const laneGate: GateContext | undefined = reviewGateData
     ? {
         agentId: reviewGateData.agentId,
@@ -1303,6 +1309,10 @@ export function DashboardLayout({
         output: reviewGateData.output,
         gateKey: reviewGateData.gateKey,
         redoable: reviewGateData.redoable,
+        updateSpecsEligible: reviewGateData.updateSpecsEligible,
+        approveLabel: reviewGateData.artifactKind
+          ? `Approve the ${reviewGateData.artifactKind.replace(/_/g, " ")}`
+          : undefined,
       }
     : undefined;
 
@@ -1575,16 +1585,17 @@ export function DashboardLayout({
               className="h-full flex flex-col md:flex-row"
               style={{ background: "#f5f5f0" }}
             >
-              {/* Left Panel — Phase 31 (CHATUI-01/02/03): the RunChatLane is now
-                  the primary left-column surface. It ABSORBS the AgentProgressPanel
+              {/* Left Panel — Phase 31/32 (CHATUI/SC-4): the RunChatLane is the
+                  primary left-column surface. It FULLY ABSORBS the AgentProgressPanel
                   Stop / revise / suggestions controls (D-12 composer-per-state,
                   SC-001 generic) and mounts the plan-05 gate/clarify quick-actions.
+                  INV-3 (plan 06): the duplicate AgentProgressPanel run-lane mount is
+                  REMOVED — the lane is now the SOLE stop/revise implementation. The
+                  AgentProgressPanel component is retained for the plan-08 Steps
+                  relocation (its per-agent detail also lives in the Thinking tab).
                   ISS-019: the column is a height-owning flex parent — the lane
-                  flexes to remaining space and owns its own scroll; the demoted
-                  per-agent panel + wave panel are non-shrinking capped bottom
-                  regions. AgentProgressPanel is RETAINED (not deleted — Phase 32
-                  relocates it into Steps) but stripped of its absorbed controls;
-                  per-agent detail also lives in the right-panel Thinking tab. */}
+                  flexes to remaining space and owns its own scroll; the wave panel
+                  is a non-shrinking capped bottom region. */}
               <div className="w-full md:w-[340px] lg:w-[360px] flex-shrink-0 h-[45vh] md:h-full border-b md:border-b-0 md:border-r border-gray-200 flex flex-col overflow-hidden bg-white">
                 {/* The run chat lane — primary conversational surface. */}
                 <div data-testid="execution-chat-lane" className="flex-1 min-h-0 overflow-hidden">
@@ -1616,21 +1627,10 @@ export function DashboardLayout({
                     />
                   </ErrorBoundary>
                 </div>
-                {/* Demoted per-agent progress — RETAINED (Phase 32 relocates into
-                    Steps), controls absorbed by the lane above. Capped secondary. */}
-                <ErrorBoundary fallbackLabel="AgentProgress">
-                  <div className="flex-shrink-0 max-h-[34%] overflow-hidden border-t border-gray-200">
-                    <AgentProgressPanel
-                      pipelineState={pipelineState || { isRunning: false, pipeline_type: "", agents: [], currentAgentIndex: -1, totalDuration: null, completedCount: 0 }}
-                      workflowType={workflowType}
-                      onViewResults={() => {}}
-                      onRunAnother={handleGoHome}
-                      onFollowUp={handleFollowUp}
-                      completedPipelineTypes={completedPipelineTypes}
-                      // Stop / revise / suggestions absorbed by RunChatLane above.
-                    />
-                  </div>
-                </ErrorBoundary>
+                {/* INV-3 (plan 06): the demoted per-agent AgentProgressPanel mount
+                    was REMOVED here — its Stop/revise/suggestions controls are fully
+                    absorbed by the RunChatLane composer above, leaving ONE stop/revise
+                    implementation. Per-agent detail relocates into Steps in plan 08. */}
                 {/* Phase 12 (WAVE-03) — live wave/subagent tree. Rendered
                     unconditionally so the panel slot is stable; WaveTreePanel
                     owns the "No waves running." empty state for non-wave runs. */}
@@ -1702,6 +1702,18 @@ export function DashboardLayout({
                       liveRunId={contentSourceRunId ?? null}
                       runInput={submittedBrief}
                       deepLinkTarget={deepLinkTarget}
+                      // Phase 32 (plan 06 → 07/08) — additive gate/clarify passthrough
+                      // so a future Steps surface can host the SAME inline gate/clarify
+                      // affordances the lane uses. Mirrors the RunChatLane wiring;
+                      // pinned to the shared GateContext/clarify shapes (SC-001).
+                      laneGate={laneGate}
+                      onApproveGate={onApproveReview}
+                      onRejectGate={handleRejectReview}
+                      onRedoGate={onRedoReview}
+                      onUpdateSpecsGate={onUpdateSpecsReview}
+                      clarifyQuestions={questionnaireQuestions}
+                      onSubmitClarify={handleLaneSubmitAnswers}
+                      onSkipClarify={handleQuestionnaireSkip}
                     />
                   )}
                 </ErrorBoundary>

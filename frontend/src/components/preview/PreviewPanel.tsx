@@ -304,6 +304,22 @@ interface PreviewPanelProps {
   // (e.g. "steps" = the left lane column) is ignored here. Optional/default-null
   // → existing renders unchanged (tsc-identity).
   deepLinkTarget?: TabDeepLinkTarget | null;
+  // Phase 32 (plan 06 → 07/08) — additive optional passthrough of the run's
+  // active gate + clarify quick-action context so a future Steps surface can
+  // mount the same inline gate/clarify affordances the RunChatLane composer
+  // uses. Pinned to the existing GateContext / ClarifyQuestion / ClarifyResponse
+  // shapes (name-free, SC-001); default undefined → zero behavior change until
+  // plan 07/08 consumes them (tsc-identity, no regression for history/test callers).
+  laneGate?: import("@/components/chat/RunChatLane").GateContext;
+  onApproveGate?: (gateKey: string, editedContent?: string) => void;
+  onRejectGate?: (gateKey: string) => void;
+  onRedoGate?: (gateKey: string, instructions: string) => void;
+  onUpdateSpecsGate?: (gateKey: string, report: string) => void;
+  clarifyQuestions?: import("@/components/preview/QuestionnairePanel").ClarifyQuestion[];
+  onSubmitClarify?: (
+    responses: import("@/components/chat/InlineClarifyActions").ClarifyResponse[],
+  ) => void;
+  onSkipClarify?: () => void;
 }
 
 const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [

@@ -155,8 +155,9 @@ describe("DashboardLayout — WaveTreePanel mount on the execution surface (12-0
   it("renders the wave tree heading and the worker leaf when waves is non-empty", () => {
     renderLayout([RUNNING_WAVE]);
 
-    // The execution surface mounted (AgentProgressPanel stub present) …
-    expect(screen.getByTestId("stub-agent-progress")).toBeInTheDocument();
+    // The execution surface mounted (the RunChatLane is now the primary column;
+    // INV-3 plan 06 removed the AgentProgressPanel run-lane mount) …
+    expect(screen.getByTestId("execution-chat-lane")).toBeInTheDocument();
     // … and WaveTreePanel received + rendered the waves prop beside it.
     expect(screen.getByText("Wave / Subagent Tree")).toBeInTheDocument();
     expect(screen.getByText("Wave 0")).toBeInTheDocument();
@@ -167,7 +168,7 @@ describe("DashboardLayout — WaveTreePanel mount on the execution surface (12-0
   it("renders the empty state when waves=[] (non-wave run unchanged)", () => {
     renderLayout([]);
 
-    expect(screen.getByTestId("stub-agent-progress")).toBeInTheDocument();
+    expect(screen.getByTestId("execution-chat-lane")).toBeInTheDocument();
     expect(screen.getByText("Wave / Subagent Tree")).toBeInTheDocument();
     expect(screen.getByText("No waves running.")).toBeInTheDocument();
   });
@@ -187,10 +188,11 @@ describe("DashboardLayout — WaveTreePanel mount on the execution surface (12-0
   it("flex-budgets the left execution column so the wave panel clears the fold", () => {
     renderLayout([RUNNING_WAVE]);
 
-    // Anchor 1: the agent-panel wrapper — the AgentProgressPanel stub's parent.
-    const agentWrapper = screen.getByTestId("stub-agent-progress").parentElement!;
-    expect(agentWrapper.className).toContain("flex-1");
-    expect(agentWrapper.className).toContain("min-h-0");
+    // Anchor 1: the run-lane wrapper — the primary column surface flexes to
+    // fill remaining space (INV-3 plan 06 removed the AgentProgressPanel mount).
+    const laneWrapper = screen.getByTestId("execution-chat-lane");
+    expect(laneWrapper.className).toContain("flex-1");
+    expect(laneWrapper.className).toContain("min-h-0");
 
     // Anchor 2: the wave-panel wrapper — the nearest ancestor of the wave
     // heading that carries the flex-shrink-0 budget class.
@@ -198,11 +200,11 @@ describe("DashboardLayout — WaveTreePanel mount on the execution surface (12-0
       .getByText("Wave / Subagent Tree")
       .closest("div.flex-shrink-0");
     expect(waveWrapper).not.toBeNull();
-    expect(waveWrapper!.className).toContain("max-h-[40%]");
+    expect(waveWrapper!.className).toContain("max-h-[30%]");
 
     // Anchor 3: the column wrapper — the common flex-col parent that owns
-    // height. Walk up from the agent wrapper (ErrorBoundary → column div).
-    const column = agentWrapper.closest("div.flex.flex-col");
+    // height. Walk up from the lane wrapper (→ column div).
+    const column = laneWrapper.closest("div.flex.flex-col");
     expect(column).not.toBeNull();
     // The column itself must NOT scroll — scroll lives inside the two regions.
     expect(column!.className).not.toContain("overflow-y-auto");
