@@ -746,7 +746,7 @@ Plans:
 ### v2.0 Phases
 
 - [x] **Phase 28: Chat Contracts & Guards [A0]** — event vocabulary + golden guards, artifact-block derivation contracts, live-state contract, mockWs chat driver, decision records ND-1..ND-9 (completed 2026-07-07)
-- [ ] **Phase 29: Transport Cutover + Chat Backbone [A1]** — *(D-13 locked 2026-07-07)* wave 1: per-run SSE stream + REST commands built ADDITIVELY alongside `/ws/chat` (wire-parity golden, ported suites, D-14 resilience; WS-deletion DEFERRED to a supervised follow-up per LOCK-B); wave 2: `POST /api/runs/{id}/messages` chat backbone, mechanical intent router, steering seam, narrator cards
+- [x] **Phase 29: Transport Cutover + Chat Backbone [A1]** — *(D-13 locked 2026-07-07)* wave 1: per-run SSE stream + REST commands built ADDITIVELY alongside `/ws/chat` (wire-parity golden, ported suites, D-14 resilience; WS-deletion DEFERRED to a supervised follow-up per LOCK-B); wave 2: `POST /api/runs/{id}/messages` chat backbone, mechanical intent router, steering seam, narrator cards (completed 2026-07-08)
 - [ ] **Phase 30: Uploads & Multimodal [A2]** — *(trimmed 2026-07-07: image spine landed via IMAGE-INPUT-PLAN waves)* file/doc uploads (`POST /api/runs/{id}/files` → sandbox), `context_provider:uploaded_files`, per-turn image carrier, client resize, ND-10 disposition
 - [ ] **Phase 31: Chat Lane MVP [A3]** — revive in-repo kit, send/receive, result cards + deep-links, in-lane gate/clarify quick-actions, attachment UI, token widget
 - [ ] **Phase 32: Run-Screen Redesign [A4]** — token layer + primitives, chat-lane left, Preview/Steps/Files/Audit right, 3-level Steps drill-down, 3 Audit read endpoints, e2e hardening
@@ -789,7 +789,7 @@ Plans:
 5. Narrator `chat_reply` cards emit for clarify/gate/pipeline/deliverable milestones.
 6. INV-3 goldens byte-identical; lint-imports 4/0; kernel name-free (SC-001 grep 0).
 
-**Plans:** 9/10 plans executed
+**Plans:** 10/10 plans complete
 
 Plans:
 
@@ -802,7 +802,7 @@ Plans:
 - [x] 29-07-PLAN.md — FE transport adapter + app-level connection provider + server-derived reattach (D-14 a–f), flag-gated [wave 2]
 - [x] 29-08-PLAN.md — Steering seam `ectx.steering_notes` + `=== USER GUIDANCE ===` + ND-11 decision record (first design task) [wave 1]
 - [x] 29-09-PLAN.md — `POST /runs/{id}/messages` (idempotent) + mechanical intent router (CHAT-01/02/05) [wave 5]
-- [ ] 29-10-PLAN.md — Narrator `chat_reply` cards (clarify/gate/pipeline/deliverable/spec_revision + deep-link nonce) [wave 6]
+- [x] 29-10-PLAN.md — Narrator `chat_reply` cards (clarify/gate/pipeline/deliverable/spec_revision + deep-link nonce) [wave 6]
 
 ### Phase 30: Uploads & Multimodal [A2]
 
@@ -902,7 +902,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 28. Chat Contracts & Guards [A0] | 3/3 | Complete    | 2026-07-07 |
-| 29. Chat Backbone [A1] | 9/10 | In Progress|  |
+| 29. Chat Backbone [A1] | 10/10 | Complete   | 2026-07-08 |
 | 30. Uploads & Multimodal [A2] | 0/? | Not started | — |
 | 31. Chat Lane MVP [A3] | 0/? | Not started | — |
 | 32. Run-Screen Redesign [A4] | 0/? | Not started | — |
