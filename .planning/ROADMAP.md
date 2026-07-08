@@ -748,7 +748,7 @@ Plans:
 - [x] **Phase 28: Chat Contracts & Guards [A0]** — event vocabulary + golden guards, artifact-block derivation contracts, live-state contract, mockWs chat driver, decision records ND-1..ND-9 (completed 2026-07-07)
 - [x] **Phase 29: Transport Cutover + Chat Backbone [A1]** — *(D-13 locked 2026-07-07)* wave 1: per-run SSE stream + REST commands built ADDITIVELY alongside `/ws/chat` (wire-parity golden, ported suites, D-14 resilience; WS-deletion DEFERRED to a supervised follow-up per LOCK-B); wave 2: `POST /api/runs/{id}/messages` chat backbone, mechanical intent router, steering seam, narrator cards (completed 2026-07-08)
 - [x] **Phase 30: Uploads & Multimodal [A2]** — *(trimmed 2026-07-07: image spine landed via IMAGE-INPUT-PLAN waves)* file/doc uploads (`POST /api/runs/{id}/files` → sandbox), `context_provider:uploaded_files`, per-turn image carrier, client resize, ND-10 disposition
-- [ ] **Phase 31: Chat Lane MVP [A3]** — revive in-repo kit, send/receive, result cards + deep-links, in-lane gate/clarify quick-actions, attachment UI, token widget
+- [x] **Phase 31: Chat Lane MVP [A3]** — revive in-repo kit, send/receive, result cards + deep-links, in-lane gate/clarify quick-actions, attachment UI, token widget (completed 2026-07-08)
 - [ ] **Phase 32: Run-Screen Redesign [A4]** — token layer + primitives, chat-lane left, Preview/Steps/Files/Audit right, 3-level Steps drill-down, 3 Audit read endpoints, e2e hardening
 - [ ] **Phase 33: Concierge + Compaction [A5]** — `chat:concierge` capability + confirm chips, `compaction:chat_history` + `context_provider:conversation`, post-run iteration chat
 - [ ] **Phase 34: Live Pass & Closure [A6]** — live Bedrock chat/images/steering/concierge, multi-turn cache placement (P26 deferral folds in), Playwright live, register sweeps
@@ -834,7 +834,7 @@ Plans:
 3. Attachment UI: file picker + paste + drag-drop + image preview + client resize; token-usage widget shows P26 fields.
 4. Open-design borrow-list mechanisms 1–7 integrated with Apache-2.0 attribution/NOTICE.
 
-**Plans:** 6/7 plans executed
+**Plans:** 7/7 plans complete
 
 Plans:
 **Wave 1**
@@ -854,7 +854,7 @@ Plans:
 
 **Wave 4**
 
-- [ ] 31-07-PLAN.md — Integrate: mount RunChatLane in execution left column + transport-agnostic wiring (LOCK-B) + PreviewPanel deep-link target + delta-verified mocked chat e2e + first data-testids (CHATUI-01/02/03) [wave 4, depends 31-04]
+- [x] 31-07-PLAN.md — Integrate: mount RunChatLane in execution left column + transport-agnostic wiring (LOCK-B) + PreviewPanel deep-link target + delta-verified mocked chat e2e + first data-testids (CHATUI-01/02/03) [wave 4, depends 31-04]
 
 ### Phase 32: Run-Screen Redesign [A4]
 
@@ -934,7 +934,7 @@ Plans:
 | 28. Chat Contracts & Guards [A0] | 3/3 | Complete    | 2026-07-07 |
 | 29. Chat Backbone [A1] | 10/10 | Complete   | 2026-07-08 |
 | 30. Uploads & Multimodal [A2] | 0/? | Not started | — |
-| 31. Chat Lane MVP [A3] | 6/7 | In Progress|  |
+| 31. Chat Lane MVP [A3] | 7/7 | Complete   | 2026-07-08 |
 | 32. Run-Screen Redesign [A4] | 0/? | Not started | — |
 | 33. Concierge + Compaction [A5] | 0/? | Not started | — |
 | 34. Live Pass & Closure [A6] | 0/? | Not started | — |
