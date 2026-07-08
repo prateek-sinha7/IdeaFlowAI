@@ -18,7 +18,7 @@
  * declares no waves feeds an empty `waves` list and the tree renders empty.
  */
 
-import { Layers, GitBranch, CheckCircle2, Loader2, XCircle, Circle } from "lucide-react";
+import { Layers, GitBranch, CheckCircle2, Loader2, XCircle, Ban, Circle } from "lucide-react";
 import type { WaveGroup } from "@/types/index";
 
 export interface WaveTreePanelProps {
@@ -31,11 +31,12 @@ export interface WaveTreePanelProps {
 }
 
 /** Normalize a free-string lifecycle status into a render bucket. */
-function statusKind(status: string): "running" | "completed" | "failed" | "pending" {
+function statusKind(status: string): "running" | "completed" | "failed" | "cancelled" | "pending" {
   const s = (status || "").toLowerCase();
-  // IN-05 — a cancelled wave/worker is TERMINAL, not pending: render it in the
-  // failed (terminal) bucket so it shows a terminal chip, not a grey pending one.
-  if (s.includes("cancel")) return "failed";
+  // LW-03 / §B3 — a cancelled wave/worker is TERMINAL but gets its OWN amber
+  // bucket (matching the Badge primitive / §B3), distinct from the red failed
+  // bucket. Checked before "fail" so a cancelled status resolves to amber.
+  if (s.includes("cancel")) return "cancelled";
   if (s.includes("fail") || s.includes("error")) return "failed";
   if (s.includes("complete") || s.includes("done") || s.includes("success")) return "completed";
   if (s.includes("run") || s.includes("spawn") || s.includes("progress") || s.includes("start")) {
@@ -44,8 +45,8 @@ function statusKind(status: string): "running" | "completed" | "failed" | "pendi
   return "pending";
 }
 
-// Reskinned to the plan-01 status tokens (IN-05: cancelled routes to the failed
-// terminal bucket in statusKind above, so it renders a terminal chip here).
+// Reskinned to the plan-01 status tokens (LW-03/§B3: cancelled is its own amber
+// terminal bucket, matching the Badge primitive — not folded into red failed).
 const STATUS_STYLE: Record<
   ReturnType<typeof statusKind>,
   { chip: string }
@@ -53,6 +54,7 @@ const STATUS_STYLE: Record<
   running: { chip: "text-status-running bg-status-running/10" },
   completed: { chip: "text-status-done bg-status-done/10" },
   failed: { chip: "text-status-failed bg-status-failed/10" },
+  cancelled: { chip: "text-status-amber bg-status-amber/10" },
   pending: { chip: "text-status-queued bg-status-queued/10" },
 };
 
@@ -61,6 +63,7 @@ function StatusIcon({ status }: { status: string }) {
   if (kind === "running") return <Loader2 className="h-3 w-3 flex-shrink-0 animate-spin" />;
   if (kind === "completed") return <CheckCircle2 className="h-3 w-3 flex-shrink-0" />;
   if (kind === "failed") return <XCircle className="h-3 w-3 flex-shrink-0" />;
+  if (kind === "cancelled") return <Ban className="h-3 w-3 flex-shrink-0" />;
   return <Circle className="h-3 w-3 flex-shrink-0" />;
 }
 
