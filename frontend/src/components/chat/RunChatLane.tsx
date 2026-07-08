@@ -31,7 +31,7 @@ import { Send, Sparkles, Square } from "lucide-react";
 import type {
   AgentEvent,
 } from "./runtime/blocks.types";
-import type { ChatAttachment, ChatMessage, PipelineRunState } from "@/types/index";
+import type { AgentRunState, ChatAttachment, ChatMessage, PipelineRunState } from "@/types/index";
 import type { ClarifyQuestion } from "../preview/QuestionnairePanel";
 import { ChatPanel } from "./ChatPanel";
 import { ChatAttachments } from "./ChatAttachments";
@@ -116,6 +116,34 @@ export interface RunChatLaneProps {
   clarifyQuestions?: ClarifyQuestion[];
   onSubmitAnswers?: (responses: ClarifyResponse[]) => void;
   onSkipClarify?: () => void;
+}
+
+/**
+ * First error string among the failed agents (server-surfaced). Falls back to
+ * any agent carrying an error so an older/partial run never renders blank.
+ */
+function firstAgentError(
+  agents: AgentRunState[] | undefined,
+  failedIds: string[],
+): string | undefined {
+  if (!agents) return undefined;
+  for (const a of agents) {
+    if (failedIds.includes(a.id) && a.error) return a.error;
+  }
+  for (const a of agents) if (a.error) return a.error;
+  return undefined;
+}
+
+/**
+ * Sanitize a server error to a single human line — the FIRST line only, capped.
+ * Never surfaces raw stack frames / internal fields (T-32-06-01, LIVE-STATE-
+ * CONTRACT §1: "sanitized error" only).
+ */
+function sanitizeError(err: string | undefined): string | undefined {
+  if (!err) return undefined;
+  const firstLine = err.split("\n")[0]?.trim();
+  if (!firstLine) return undefined;
+  return firstLine.length > 200 ? `${firstLine.slice(0, 197)}…` : firstLine;
 }
 
 /** Free-text composer: a textarea + send + the plan-06 attachment tray. */
@@ -289,17 +317,111 @@ export function RunChatLane({
           </div>
         );
 
-      case "terminal":
-        return (
-          <button
+      case "terminal": {
+        // Terminal variant keys off the GENERIC pipelineState markers (plan 05)
+        // — cancelled / failed / degraded — never a workflow name (SC-001).
+        const failedIds = pipelineState?.failedAgents ?? [];
+        const degradedIds = pipelineState?.degradedFailedAgents ?? [];
+        const nameById = buildAgentNameById(pipelineState?.agents);
+
+        const relaunch = (label: string) => (
+          <Button
             type="button"
+            variant="secondary"
             data-testid="chat-relaunch"
             onClick={() => onRelaunch?.()}
-            className="w-full flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-[11px] font-medium text-gray-600 transition-all hover:bg-gray-50"
+            className="w-full justify-center"
           >
-            Start a new run
-          </button>
+            {label}
+          </Button>
         );
+
+        // Cancelled by you ack + Run again (LIVE-STATE-CONTRACT §1).
+        if (pipelineState?.cancelled) {
+          return (
+            <div data-testid="chat-terminal-cancelled" className="space-y-2.5">
+              <Card className="px-3.5 py-3">
+                <div className="flex items-center gap-2">
+                  <Badge status="cancelled" label="Cancelled" />
+                  <p className="text-[12px] font-semibold text-ink-900">
+                    Cancelled by you
+                  </p>
+                </div>
+                <p className="mt-1 text-[11px] text-ink-500">
+                  The run was stopped. Nothing further will happen.
+                </p>
+              </Card>
+              {relaunch("Run again")}
+            </div>
+          );
+        }
+
+        // "What went wrong" card — agents_failed[] names + sanitized error (P16).
+        if (pipelineState?.failed) {
+          const names = resolveAgentNames(failedIds, nameById);
+          const sanitized = sanitizeError(
+            firstAgentError(pipelineState?.agents, failedIds),
+          );
+          return (
+            <div data-testid="chat-terminal-failed" className="space-y-2.5">
+              <Card className="px-3.5 py-3">
+                <div className="flex items-center gap-2">
+                  <Badge status="failed" label="Failed" />
+                  <p className="text-[12px] font-semibold text-ink-900">
+                    What went wrong
+                  </p>
+                </div>
+                {names.length > 0 && (
+                  <p className="mt-1.5 text-[11px] text-ink-600">
+                    Failed {names.length > 1 ? "agents" : "agent"}:{" "}
+                    <span className="font-medium text-ink-900">
+                      {names.join(", ")}
+                    </span>
+                  </p>
+                )}
+                {sanitized && (
+                  <p
+                    data-testid="chat-terminal-error"
+                    className="mt-1 text-[11px] text-status-failed"
+                  >
+                    {sanitized}
+                  </p>
+                )}
+              </Card>
+              {relaunch("Edit brief & run again")}
+            </div>
+          );
+        }
+
+        // Degraded — "completed with issues" naming the failed agents (D-12).
+        if (pipelineState?.degraded) {
+          const names = resolveAgentNames(degradedIds, nameById);
+          return (
+            <div data-testid="chat-terminal-degraded" className="space-y-2.5">
+              <Card className="px-3.5 py-3">
+                <div className="flex items-center gap-2">
+                  <Badge status="cancelled" label="Issues" />
+                  <p className="text-[12px] font-semibold text-ink-900">
+                    Completed with issues
+                  </p>
+                </div>
+                {names.length > 0 && (
+                  <p className="mt-1.5 text-[11px] text-ink-600">
+                    Skipped or failed:{" "}
+                    <span className="font-medium text-ink-900">
+                      {names.join(", ")}
+                    </span>
+                  </p>
+                )}
+              </Card>
+              {relaunch("Run again")}
+            </div>
+          );
+        }
+
+        // Plain terminal (no marker) — generic relaunch.
+        return relaunch("Start a new run");
+      }
 
       case "building":
         return (
