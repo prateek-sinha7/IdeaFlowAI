@@ -817,7 +817,7 @@ Plans:
 
 **Plans:** 5 plans (planned 2026-07-08) — *(scope-trimmed: image-INGESTION spine already landed via IMAGE-INPUT-PLAN waves edw/frv/gvq; image-persistence DEFERRED per ND-10/LOCK-E)*
 - [x] 30-01-PLAN.md — UPLD-01: `POST /api/runs/{id}/files` (owner-scoped, capped) → RunSandbox + extract-to-`.uploads` sidecar [wave 1] ✅ 2026-07-08
-- [ ] 30-02-PLAN.md — UPLD-03: `context_provider:uploaded_files` sticky context (zero engine edits, SC-001) [wave 2]
+- [x] 30-02-PLAN.md — UPLD-03: `context_provider:uploaded_files` sticky context (zero engine edits, SC-001) [wave 2] ✅ 2026-07-08
 - [x] 30-03-PLAN.md — UPLD-02 residue: per-turn image carrier on the Phase-29 message path + ND-10 no-persistence lock [wave 1] ✅ 2026-07-08
 - [x] 30-04-PLAN.md — UPLD-04: client-side image resize + ND-10 "image not retained" reopen placeholder [wave 1] ✅ 2026-07-08
 - [x] 30-05-PLAN.md — IMPLEMENTATION-REGISTER entry for the landed image-input cluster (edw/frv/gvq) + ND-10 payload-transient disposition [wave 1] ✅ 2026-07-08
