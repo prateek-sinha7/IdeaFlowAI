@@ -1354,7 +1354,7 @@ export function DashboardLayout({
     mainView === "execution" ? "execution" : "home";
 
   return (
-    <div className="flex flex-col h-screen w-full overflow-hidden" style={{ background: "var(--surface-paper)" }}>
+    <div className="flex flex-col h-screen w-full overflow-hidden bg-surface-paper">
       {/* Connection status banner */}
       <AnimatePresence>
         {connectionStatus === "reconnecting" && (
