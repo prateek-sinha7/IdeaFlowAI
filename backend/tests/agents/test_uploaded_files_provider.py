@@ -196,8 +196,9 @@ def test_uploaded_files_is_registered_and_resolves() -> None:
     assert getattr(impl, "name", None) == "uploaded_files"
 
 
-def test_known_count_is_sixty_eight() -> None:
-    assert len(_KNOWN) == 68
+def test_known_count_is_sixty_nine() -> None:
+    # 33 / D-05: the app-side chat:concierge bumps the drift-guard 68 -> 69.
+    assert len(_KNOWN) == 69
     assert ("context_provider", "uploaded_files") in _KNOWN
 
 

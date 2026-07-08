@@ -129,5 +129,6 @@ def test_run_images_is_registered_and_resolves() -> None:
     assert getattr(impl, "name", None) == "run_images"
 
 
-def test_known_count_is_sixty_eight() -> None:
-    assert len(_KNOWN) == 68
+def test_known_count_is_sixty_nine() -> None:
+    # 33 / D-05: the app-side chat:concierge bumps the drift-guard 68 -> 69.
+    assert len(_KNOWN) == 69

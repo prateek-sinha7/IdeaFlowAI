@@ -137,6 +137,7 @@ _KNOWN: set[tuple[str, str]] = {
     ("context_provider", "uploaded_files"), # 30-02 / UPLD-03 — sticky uploaded-doc context
     ("compaction", "chat_history"),        # 33 / D-08 — bound composed chat history
     ("context_provider", "conversation"),  # 33 / D-08 — compacted chat run_events as context
+    ("chat", "concierge"),                 # 33 / D-05 (new KIND — free string, no if/elif)
     ("mcp_server", "github"),              # 09-05 / MCP-02 — read-scoped (user_allowed=True)
     ("mcp_server", "gitlab"),              # 09-05 / MCP-02 — read-scoped (user_allowed=True)
     ("mcp_server", "jira"),                # 09-05 / MCP-02 — read-scoped (user_allowed=True)
@@ -330,6 +331,7 @@ def discover() -> None:
         "app.agents.validators",
         "app.agents.runtime",  # 09-01 / RUNTIME-01 — LocalSandboxRuntime self-registers
         "app.agents.repo_index",  # 09-03 / REPO-02 — tree-sitter symbol index (heavy dep isolated)
+        "app.agents.chat",  # 33 / D-05 — chat:concierge self-registers (app-side, DeepAgentRunner)
     )
     for pkg in _forward_packages:
         try:

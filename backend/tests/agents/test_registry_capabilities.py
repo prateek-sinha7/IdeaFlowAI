@@ -104,6 +104,7 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("context_provider", "uploaded_files"), # 30-02 / UPLD-03 — sticky uploaded-doc context
     ("compaction", "chat_history"),        # 33 / D-08 — bound composed chat history
     ("context_provider", "conversation"),  # 33 / D-08 — compacted chat run_events as context
+    ("chat", "concierge"),                 # 33 / D-05 — app-side per-run proposal-only Concierge
 ]
 
 
@@ -164,8 +165,9 @@ def test_registered_count_is_exactly_fifty() -> None:
     # as sticky agent context) = 66, plus the two 33 D-08 bounded-chat-history capabilities
     # (compaction:chat_history — summarize-beyond-budget/keep-recent-verbatim +
     # context_provider:conversation — compacted chat run_events as sticky context; the
-    # concierge lands app-side in 33-02 with its own 68→69 bump) = 68.
-    assert len(_KNOWN) == 68
+    # concierge lands app-side in 33-02 with its own 68→69 bump) = 68, plus the one 33
+    # D-05 orchestrator (chat:concierge, per-run proposal-only Concierge) = 69.
+    assert len(_KNOWN) == 69
     assert set(_KNOWN) == set(_EXPECTED_NAMES)
 
 
