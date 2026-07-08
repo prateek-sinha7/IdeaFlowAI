@@ -925,7 +925,12 @@ export default function DashboardPage() {
   );
 
   const { messages: runChatMessages, sendMessage: sendRunChatMessage } = useRunChat({
-    runId: activePipelineRunId,
+    // ISS-036: target the LIVE building run (pipelineRunId) so the REST command
+    // path hits the in-flight run instead of null-then-fresh-POST; fall back to
+    // the clarify-only activePipelineRunId when the build id is not yet set.
+    // Pure FE prop change — SSE stays dormant (LOCK-B: no provider mount, no
+    // NEXT_PUBLIC_SSE_TRANSPORT, legacy WS remains the active transport).
+    runId: pipelineState.pipelineRunId ?? activePipelineRunId,
     subscribe: chatSubscribe,
     sendCommand: runConnection.sendCommand,
     // flag-ON uses sendCommand (REST up-channel); flag-OFF uses the legacy WS send.
