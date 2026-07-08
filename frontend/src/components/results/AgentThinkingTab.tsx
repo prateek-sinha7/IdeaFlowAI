@@ -7,7 +7,8 @@ import {
   Layers, Activity, Eye, EyeOff, Copy, Check,
   AlertTriangle, Pencil,
 } from "lucide-react";
-import type { AgentRunState, ContextSource, ToolCallEntry, PipelineRunState, ValidationIssue, ClarifyRound } from "@/types/index";
+import type { AgentRunState, ContextSource, ToolCallEntry, PipelineRunState, ValidationIssue, ClarifyRound, WaveGroup } from "@/types/index";
+import { WaveTreePanel } from "@/components/workflow/WaveTreePanel";
 import { TokenUsageSummary } from "@/components/workflow/TokenUsageSummary";
 import { StartingPointCard } from "./StartingPointCard";
 import { ClarificationsCard } from "./ClarificationsCard";
@@ -15,6 +16,13 @@ import { ClarificationsCard } from "./ClarificationsCard";
 interface AgentThinkingTabProps {
   agents: AgentRunState[];
   pipelineState?: PipelineRunState;
+  // Phase 32 (plan 08 / SC-2, STEPS-ARTIFACT-DERIVATION-CONTRACT §2) — the L3
+  // construction fan-out: the wave/subagent groups assembled from the live
+  // wave_*/subagent_* events (deduped by the parent). Optional + default-empty
+  // so non-wave workflows render an empty tree. This mounts WaveTreePanel INSIDE
+  // the drill-down (ISS-019 below-the-fold fix), the second of the two
+  // construction sources (the first being task_progress on pipelineState).
+  waves?: WaveGroup[];
   // Workstream C2 (POR §5 D3+D4) — timeline narrative surfaces. All optional and
   // default-undefined so every existing call site renders byte-unchanged.
   runInput?: string;               // raw run input for StartingPointCard (C1 parse)
@@ -599,11 +607,95 @@ function AgentTimelineCard({ agent, isLast, isRunning, refCallback }: AgentCardP
   );
 }
 
+// ─── Construction drill-down (L3) — dual-source ───────────────────────────────
+// STEPS-ARTIFACT-DERIVATION-CONTRACT §2/§3/§4. The construction block merges the
+// TWO backend event families the contract pins:
+//   Source A — the task-loop checklist (`task_progress.completed_count`, carried
+//     on pipelineState.protoCompletedTaskCount).
+//   Source B — the fan-out waves + workers (`wave_*` / `subagent_*`), rendered by
+//     the shared WaveTreePanel mounted HERE inside the drill-down (ISS-019 —
+//     no longer below the fold).
+// KAN-99 (§3): the FINAL task_progress fires BEFORE the build agent's non-yielding
+// fix-loop, so the checklist caps at N-1 until agent_complete; completed_count ==
+// total-1 is the expected steady state, never a stall. It reaches N only when the
+// construction agent truly completes (a later agent started OR the run ended).
+function ConstructionDrilldown({
+  completedCount,
+  totalTasks,
+  isComplete,
+  waves,
+}: {
+  completedCount: number;
+  totalTasks: number;
+  isComplete: boolean;
+  waves: WaveGroup[];
+}) {
+  // KAN-99 N-1 cap — until agent_complete, never show the last task as done.
+  const displayedDone = isComplete
+    ? totalTasks
+    : Math.min(completedCount, Math.max(0, totalTasks - 1));
+
+  return (
+    <div
+      data-testid="construction-block"
+      className="rounded-xl border border-line-border bg-surface-white overflow-hidden"
+    >
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-line-divider">
+        <Layers className="h-3.5 w-3.5 text-brand" />
+        <span className="text-[11px] font-semibold text-ink-700">
+          Construction · waves &amp; subagents
+        </span>
+        {totalTasks > 0 && (
+          <span
+            data-testid="construction-progress"
+            className="ml-auto text-[10px] font-mono font-semibold text-brand bg-brand-fill px-2 py-0.5 rounded-full"
+          >
+            {displayedDone}/{totalTasks}
+          </span>
+        )}
+      </div>
+
+      {/* Source A — the task-loop checklist (KAN-99 capped). */}
+      {totalTasks > 0 && (
+        <div className="px-4 py-3 space-y-1.5 border-b border-line-divider">
+          {Array.from({ length: totalTasks }).map((_, i) => {
+            const done = i < displayedDone;
+            const active = !isComplete && i === displayedDone;
+            return (
+              <div key={i} className="flex items-center gap-2">
+                {done ? (
+                  <CheckCircle2 className="h-3.5 w-3.5 text-brand flex-shrink-0" />
+                ) : active ? (
+                  <Zap className="h-3.5 w-3.5 text-brand animate-pulse flex-shrink-0" />
+                ) : (
+                  <Clock className="h-3.5 w-3.5 text-ink-300 flex-shrink-0" />
+                )}
+                <span
+                  className={`text-[11px] ${
+                    done ? "text-ink-700 font-medium" : active ? "text-brand font-medium" : "text-ink-400"
+                  }`}
+                >
+                  Task {i + 1}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Source B — the fan-out wave/subagent tree (ISS-019: mounted here). */}
+      <div className="px-4 py-3">
+        <WaveTreePanel waves={waves} />
+      </div>
+    </div>
+  );
+}
+
 // Token usage is rendered via the shared TokenUsageSummary card (see main export),
 // replacing the former bespoke TokenSummary so all pipelines use one component.
 
 // ─── Main export ──────────────────────────────────────────────────────────────
-export function AgentThinkingTab({ agents, pipelineState, runInput, originalBriefRootRunId, revisionParentVersion, clarifications, clarificationsLoading }: AgentThinkingTabProps) {
+export function AgentThinkingTab({ agents, pipelineState, waves, runInput, originalBriefRootRunId, revisionParentVersion, clarifications, clarificationsLoading }: AgentThinkingTabProps) {
   const runningRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -650,6 +742,29 @@ export function AgentThinkingTab({ agents, pipelineState, runInput, originalBrie
     return "Pipeline";
   })();
 
+  // ── L3 construction drill-down (dual-source, STEPS-ARTIFACT-DERIVATION §2/§3) ──
+  const resolvedWaves = waves ?? [];
+  // Source A — task_progress completed_count (task-loop checklist).
+  const completedCount = pipelineState?.protoCompletedTaskCount ?? 0;
+  // Task universe = the distinct task ids the fan-out declared across its waves
+  // (Source B); fall back to the task-loop count so a wave-less construction run
+  // still shows its checklist. This is the dual-source merge (§2).
+  const waveTaskUniverse = new Set(resolvedWaves.flatMap(w => w.taskIds));
+  const totalTasks = waveTaskUniverse.size > 0 ? waveTaskUniverse.size : completedCount;
+  // The construction agent — a GENERIC structural id match (build/construct
+  // family), never a gated phase-agent name literal (SC-001).
+  const constructionIdx = agents.findIndex(a => /build|construct/i.test(a.id));
+  const constructionAgent = constructionIdx >= 0 ? agents[constructionIdx] : undefined;
+  const laterAgentStarted = constructionIdx >= 0 &&
+    agents.slice(constructionIdx + 1).some(a => a.status !== "idle");
+  // KAN-99 terminal signal: the construction checklist reaches N only when the
+  // construction agent truly completes (a later agent started OR the run ended) —
+  // NOT on the final task_progress (which precedes the fix-loop).
+  const constructionComplete = constructionAgent
+    ? constructionAgent.status === "done" && (laterAgentStarted || pipelineState?.isRunning === false)
+    : pipelineState?.isRunning === false;
+  const hasConstruction = resolvedWaves.length > 0 || pipelineState?.protoCompletedTaskCount != null;
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <PipelineHeader pipelineState={pipelineState} workflowLabel={pipelineLabel} />
@@ -683,6 +798,18 @@ export function AgentThinkingTab({ agents, pipelineState, runInput, originalBrie
             />
           );
         })}
+
+        {/* L3 construction drill-down — dual-source (task_progress plus the
+            wave and subagent events); WaveTreePanel mounted HERE (ISS-019),
+            with the KAN-99 N-1 cap. */}
+        {hasConstruction && (
+          <ConstructionDrilldown
+            completedCount={completedCount}
+            totalTasks={totalTasks}
+            isComplete={constructionComplete}
+            waves={resolvedWaves}
+          />
+        )}
 
         {/* All done state — matches prototype complete indicator */}
         {pipelineState && !pipelineState.isRunning && visibleAgents.length > 0 &&

@@ -17,7 +17,6 @@ import { IdeaInputPage } from "@/components/workflow/IdeaInputPage";
 // Stop/revise/suggestions controls are fully absorbed by RunChatLane. The
 // component itself is retained (its own suite + the plan-08 Steps relocation);
 // DashboardLayout no longer imports or mounts it.
-import { WaveTreePanel } from "@/components/workflow/WaveTreePanel";
 // Phase 31 (CHATUI-01/02/03) — the run-screen chat lane composition root. Mounted
 // as the execution-surface left column; it ABSORBS the AgentProgressPanel
 // Stop/revise/suggestions controls (D-12 composer-per-state, SC-001 generic).
@@ -1631,14 +1630,10 @@ export function DashboardLayout({
                     was REMOVED here — its Stop/revise/suggestions controls are fully
                     absorbed by the RunChatLane composer above, leaving ONE stop/revise
                     implementation. Per-agent detail relocates into Steps in plan 08. */}
-                {/* Phase 12 (WAVE-03) — live wave/subagent tree. Rendered
-                    unconditionally so the panel slot is stable; WaveTreePanel
-                    owns the "No waves running." empty state for non-wave runs. */}
-                <ErrorBoundary fallbackLabel="WaveTree">
-                  <div className="flex-shrink-0 max-h-[30%] overflow-y-auto px-3 pt-3 pb-3 border-t border-gray-200">
-                    <WaveTreePanel waves={waves} />
-                  </div>
-                </ErrorBoundary>
+                {/* Phase 32 (plan 08 / ISS-019): the WaveTreePanel below-the-fold
+                    left-column mount is RELOCATED into the Steps drill-down (it now
+                    renders inside AgentThinkingTab via the `waves` passthrough to
+                    PreviewPanel below). INV-3 — one WaveTreePanel mount. */}
               </div>
 
               {/* Right Panel — Planning overlay, Questionnaire, or Preview */}
@@ -1714,6 +1709,10 @@ export function DashboardLayout({
                       clarifyQuestions={questionnaireQuestions}
                       onSubmitClarify={handleLaneSubmitAnswers}
                       onSkipClarify={handleQuestionnaireSkip}
+                      // Phase 32 (plan 08 / ISS-019) — the live wave/subagent tree
+                      // now mounts INSIDE the Steps drill-down (relocated from the
+                      // below-the-fold left slot). Forward the assembled groups.
+                      waves={waves}
                     />
                   )}
                 </ErrorBoundary>

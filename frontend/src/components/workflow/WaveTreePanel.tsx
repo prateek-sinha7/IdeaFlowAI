@@ -44,14 +44,16 @@ function statusKind(status: string): "running" | "completed" | "failed" | "pendi
   return "pending";
 }
 
+// Reskinned to the plan-01 status tokens (IN-05: cancelled routes to the failed
+// terminal bucket in statusKind above, so it renders a terminal chip here).
 const STATUS_STYLE: Record<
   ReturnType<typeof statusKind>,
   { chip: string }
 > = {
-  running: { chip: "text-blue-700 bg-blue-100" },
-  completed: { chip: "text-emerald-700 bg-emerald-100" },
-  failed: { chip: "text-red-700 bg-red-100" },
-  pending: { chip: "text-gray-600 bg-gray-100" },
+  running: { chip: "text-status-running bg-status-running/10" },
+  completed: { chip: "text-status-done bg-status-done/10" },
+  failed: { chip: "text-status-failed bg-status-failed/10" },
+  pending: { chip: "text-status-queued bg-status-queued/10" },
 };
 
 function StatusIcon({ status }: { status: string }) {
@@ -81,7 +83,7 @@ export function WaveTreePanel({ waves }: WaveTreePanelProps) {
   return (
     <div className="flex flex-col">
       <div className="flex items-center gap-1.5 mb-2">
-        <Layers className="h-3.5 w-3.5 text-[#1B2A4A]" />
+        <Layers className="h-3.5 w-3.5 text-brand" />
         <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">
           Wave / Subagent Tree
         </p>
@@ -101,7 +103,7 @@ export function WaveTreePanel({ waves }: WaveTreePanelProps) {
             >
               <div className="flex items-center justify-between gap-2 mb-1">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <GitBranch className="h-3 w-3 flex-shrink-0 text-[#1B2A4A]" />
+                  <GitBranch className="h-3 w-3 flex-shrink-0 text-brand" />
                   <span className="text-[11px] font-semibold text-gray-800">
                     Wave {wave.waveIndex}
                   </span>

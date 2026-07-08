@@ -82,9 +82,21 @@ vi.mock("@/components/workflow/IdeaInputPage", () => ({
 vi.mock("@/components/workflow/AgentProgressPanel", () => ({
   AgentProgressPanel: () => <div data-testid="stub-agent-progress" />,
 }));
-vi.mock("@/components/preview/PreviewPanel", () => ({
-  PreviewPanel: () => <div data-testid="stub-preview" />,
-}));
+// Phase 32 (plan 08 / ISS-019): WaveTreePanel is RELOCATED from the below-the-
+// fold left-column slot into the Steps drill-down inside PreviewPanel. The stub
+// therefore renders the REAL WaveTreePanel from the `waves` prop DashboardLayout
+// now forwards, proving the relocation (and that the standalone below-fold mount
+// is gone).
+vi.mock("@/components/preview/PreviewPanel", async () => {
+  const { WaveTreePanel } = await import("@/components/workflow/WaveTreePanel");
+  return {
+    PreviewPanel: ({ waves }: { waves?: import("@/types/index").WaveGroup[] }) => (
+      <div data-testid="stub-preview">
+        <WaveTreePanel waves={waves ?? []} />
+      </div>
+    ),
+  };
+});
 vi.mock("@/components/preview/QuestionnairePanel", () => ({
   QuestionnairePanel: () => <div data-testid="stub-questionnaire" />,
 }));
@@ -106,8 +118,16 @@ function runningPipelineState(): PipelineRunState {
   return {
     isRunning: true,
     pipeline_type: "custom",
-    agents: [],
-    currentAgentIndex: -1,
+    // At least one agent so the right panel renders PreviewPanel (the new
+    // WaveTreePanel mount owner) rather than the agents-less PlanningOverlay.
+    agents: [
+      {
+        id: "worker", name: "Worker", role: "build", icon: "🤖",
+        status: "running", output: "", thinking: "", duration: null,
+        error: null, index: 0,
+      },
+    ],
+    currentAgentIndex: 0,
     totalDuration: null,
     completedCount: 0,
   };
@@ -151,18 +171,28 @@ function renderLayout(waves?: WaveGroup[]) {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe("DashboardLayout — WaveTreePanel mount on the execution surface (12-08 Gap 1)", () => {
-  it("renders the wave tree heading and the worker leaf when waves is non-empty", () => {
+describe("DashboardLayout — WaveTreePanel relocated into the Steps drill-down (plan 08 / ISS-019)", () => {
+  it("forwards non-empty waves to PreviewPanel, where WaveTreePanel renders them", () => {
     renderLayout([RUNNING_WAVE]);
 
-    // The execution surface mounted (the RunChatLane is now the primary column;
-    // INV-3 plan 06 removed the AgentProgressPanel run-lane mount) …
+    // The execution surface mounted (the RunChatLane is the primary column) …
     expect(screen.getByTestId("execution-chat-lane")).toBeInTheDocument();
-    // … and WaveTreePanel received + rendered the waves prop beside it.
+    // … and WaveTreePanel now renders INSIDE PreviewPanel (the Steps surface),
+    // fed the `waves` prop DashboardLayout forwards.
     expect(screen.getByText("Wave / Subagent Tree")).toBeInTheDocument();
     expect(screen.getByText("Wave 0")).toBeInTheDocument();
     expect(screen.getByText("wave-worker-alpha")).toBeInTheDocument();
     expect(screen.queryByText("No waves running.")).not.toBeInTheDocument();
+  });
+
+  it("ISS-019: the wave tree renders inside the Preview/Steps surface, NOT a below-the-fold left-column slot", () => {
+    renderLayout([RUNNING_WAVE]);
+
+    // The relocated mount lives inside PreviewPanel …
+    const heading = screen.getByText("Wave / Subagent Tree");
+    expect(heading.closest('[data-testid="stub-preview"]')).not.toBeNull();
+    // … and there is NO standalone below-fold wrapper carrying the old budget.
+    expect(heading.closest("div.max-h-\\[30\\%\\]")).toBeNull();
   });
 
   it("renders the empty state when waves=[] (non-wave run unchanged)", () => {
@@ -177,37 +207,5 @@ describe("DashboardLayout — WaveTreePanel mount on the execution surface (12-0
     renderLayout(undefined);
 
     expect(screen.getByText("No waves running.")).toBeInTheDocument();
-  });
-
-  // ISS-019 — structural OFFLINE proof of the left-column flex budget.
-  // jsdom has no layout engine, so we assert the className contract that
-  // PRODUCES the layout (column flex parent; agent flexes; wave non-shrinking)
-  // rather than pixel positions. The TRUE visual proof — the "Wave / Subagent
-  // Tree" heading bottom ≤ 950 at 1440×950 WITHOUT scroll — runs in the
-  // dedicated live Playwright pass after this phase (CONTEXT deferred item).
-  it("flex-budgets the left execution column so the wave panel clears the fold", () => {
-    renderLayout([RUNNING_WAVE]);
-
-    // Anchor 1: the run-lane wrapper — the primary column surface flexes to
-    // fill remaining space (INV-3 plan 06 removed the AgentProgressPanel mount).
-    const laneWrapper = screen.getByTestId("execution-chat-lane");
-    expect(laneWrapper.className).toContain("flex-1");
-    expect(laneWrapper.className).toContain("min-h-0");
-
-    // Anchor 2: the wave-panel wrapper — the nearest ancestor of the wave
-    // heading that carries the flex-shrink-0 budget class.
-    const waveWrapper = screen
-      .getByText("Wave / Subagent Tree")
-      .closest("div.flex-shrink-0");
-    expect(waveWrapper).not.toBeNull();
-    expect(waveWrapper!.className).toContain("max-h-[30%]");
-
-    // Anchor 3: the column wrapper — the common flex-col parent that owns
-    // height. Walk up from the lane wrapper (→ column div).
-    const column = laneWrapper.closest("div.flex.flex-col");
-    expect(column).not.toBeNull();
-    // The column itself must NOT scroll — scroll lives inside the two regions.
-    expect(column!.className).not.toContain("overflow-y-auto");
-    expect(column!.className).toContain("overflow-hidden");
   });
 });

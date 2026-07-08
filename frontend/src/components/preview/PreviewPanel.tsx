@@ -322,6 +322,10 @@ interface PreviewPanelProps {
     responses: import("@/components/chat/InlineClarifyActions").ClarifyResponse[],
   ) => void;
   onSkipClarify?: () => void;
+  // Phase 32 (plan 08 / ISS-019) — the live wave/subagent groups, forwarded to
+  // the Steps drill-down where WaveTreePanel now mounts (relocated from the
+  // below-the-fold left-column slot). Optional/default-empty (tsc-identity).
+  waves?: import("@/types/index").WaveGroup[];
 }
 
 const TAB_CONFIG: { id: PanelTab; label: string; icon: typeof Eye }[] = [
@@ -423,7 +427,7 @@ export function DegradedRunAffordance({
   );
 }
 
-export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, runFamily, liveRunId, runInput, clarifications, deepLinkTarget, laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate, clarifyQuestions, onSubmitClarify, onSkipClarify }: PreviewPanelProps) {
+export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, genericDeliverable, isStreaming, onCollapse, initialTab, onTabSelect, workflowType, rawPipelineType, pptxCode, onRevisePpt, onReviseUserStory, onRevisePrototype, onReviseAppBuilder, agentOutputs, agents, pipelineState, reopenedRunStatus, reopenedFailedAgents, reopenedAgentNameById, runFamily, liveRunId, runInput, clarifications, deepLinkTarget, laneGate, onApproveGate, onRejectGate, onRedoGate, onUpdateSpecsGate, clarifyQuestions, onSubmitClarify, onSkipClarify, waves }: PreviewPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>("preview");
   const [copied, setCopied] = useState(false);
   // ─── Plan 07 — manual typed-renderer switcher override ───────────────────────
@@ -901,6 +905,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
               <AgentThinkingTab
                 agents={agents || []}
                 pipelineState={pipelineState}
+                waves={waves}
                 runInput={runInput}
                 clarifications={clarifications ?? pipelineState?.clarifications}
                 revisionParentVersion={revisionParentVersion}
