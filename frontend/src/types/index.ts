@@ -24,6 +24,31 @@ export interface ChatMessageArtifact {
   summary: string;
 }
 
+// ─── Phase 31 (CHATUI-01) — chat-lane transcript contract ─────────────────────
+// A per-turn attachment ref carried on a chat turn. Payload-transient by ND-10 /
+// LOCK-E: an image/file attached to a run turn is NOT stored after the run, so
+// `retained:false` is the honest default the backend stamps on replay/reopen
+// (run_commands._persist_chat_message). `kind`/`name` are always present; the
+// mime + size are best-effort metadata the picker fills in on the live send.
+export interface ChatAttachment {
+  kind: "image" | "file";
+  name: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  retained: boolean;
+}
+
+// The consume-once deep-link descriptor a narrator result card carries so a card
+// can link to the run tab it reports (borrow #6, open-design). `tab` is a GENERIC
+// string tab id (never a workflow/agent name — SC-001); `nonce` makes the target
+// single-use and re-triggerable (see useTabDeepLink). Distinct from the live
+// navigation seam: this is the stored descriptor on the message, the seam mints
+// the navigation nonce when the card is actually clicked.
+export interface DeepLinkTarget {
+  tab: string;
+  nonce: number;
+}
+
 export interface ChatMessage {
   id: string;
   chatSessionId: string;
@@ -32,6 +57,21 @@ export interface ChatMessage {
   createdAt: string;
   steps?: ProcessStep[];
   artifact?: ChatMessageArtifact;
+  // ─── Phase 31 (CHATUI-01) additive/OPTIONAL fields — non-breaking (INV-3). ───
+  // Existing consumers (the dead-kit MessageBubble/ChatPanel) ignore these; they
+  // only appear on the family-anchored transcript the chat lane renders.
+  /** Per-turn attachment refs (payload-transient — ND-10). */
+  attachments?: ChatAttachment[];
+  /** Narrator result-card kind — a GENERIC milestone discriminator (SC-001),
+   *  never a workflow/agent literal. Present only on `chat_reply` narrator turns. */
+  cardKind?: "clarify" | "gate" | "pipeline" | "deliverable" | "spec_revision";
+  /** The deep-link a narrator card carries into a run tab (borrow #6). */
+  deepLink?: DeepLinkTarget;
+  /** Family anchoring (D-02): the run/thread this turn belongs to. A child
+   *  (revision) run's turns carry a different `runId` but stitch into the SAME
+   *  transcript array so the family transcript accumulates, never swaps. */
+  runId?: string;
+  threadId?: string;
 }
 
 export interface StreamMessage {
