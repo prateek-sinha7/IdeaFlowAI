@@ -816,6 +816,7 @@ Plans:
 4. Launch-time attachments (incl. images) ride `run_pipeline`.
 
 **Plans:** 5 plans (planned 2026-07-08) — *(scope-trimmed: image-INGESTION spine already landed via IMAGE-INPUT-PLAN waves edw/frv/gvq; image-persistence DEFERRED per ND-10/LOCK-E)*
+
 - [x] 30-01-PLAN.md — UPLD-01: `POST /api/runs/{id}/files` (owner-scoped, capped) → RunSandbox + extract-to-`.uploads` sidecar [wave 1] ✅ 2026-07-08
 - [x] 30-02-PLAN.md — UPLD-03: `context_provider:uploaded_files` sticky context (zero engine edits, SC-001) [wave 2] ✅ 2026-07-08
 - [x] 30-03-PLAN.md — UPLD-02 residue: per-turn image carrier on the Phase-29 message path + ND-10 no-persistence lock [wave 1] ✅ 2026-07-08
@@ -833,23 +834,26 @@ Plans:
 3. Attachment UI: file picker + paste + drag-drop + image preview + client resize; token-usage widget shows P26 fields.
 4. Open-design borrow-list mechanisms 1–7 integrated with Apache-2.0 attribution/NOTICE.
 
-
-**Plans:** 7 plans (4 waves) — planned 2026-07-08
+**Plans:** 1/7 plans executed
 
 Plans:
 **Wave 1**
-- [ ] 31-01-PLAN.md — Borrow-list pure primitives (#1 partial-json, #2 extractStreamingJsonString, #4 buildBlocks) + Apache-2.0 NOTICE (CHATUI-01) [wave 1]
+
+- [x] 31-01-PLAN.md — Borrow-list pure primitives (#1 partial-json, #2 extractStreamingJsonString, #4 buildBlocks) + Apache-2.0 NOTICE (CHATUI-01) [wave 1]
 - [ ] 31-02-PLAN.md — Borrow-list rendering (#3 tool-renderer registry, #5 measured virtualizer, #7 ThinkingBlock/todo/file-ops) (CHATUI-01) [wave 1]
 - [ ] 31-03-PLAN.md — Chat transcript hook (useRunChat, D-02 family-anchored) + ChatMessage type + #6 nonce'd deep-link seam (CHATUI-01) [wave 1]
 - [ ] 31-05-PLAN.md — In-lane gate/clarify quick-actions (4 gate actions incl update_specs KAN-101, terminal fence KAN-100, retained edit KAN-98) (CHATUI-02) [wave 1]
 
 **Wave 2**
+
 - [ ] 31-06-PLAN.md — Attachment UI (paste + drag-drop + resizeImage, ND-10 placeholder) + P26 token widget (CHATUI-03) [wave 2, depends 31-03]
 
 **Wave 3**
+
 - [ ] 31-04-PLAN.md — Revived chat lane composition root: streaming markdown + aria-live/role=log + narrator result cards + absorbed controls (CHATUI-01) [wave 3, depends 31-01/02/03/05/06]
 
 **Wave 4**
+
 - [ ] 31-07-PLAN.md — Integrate: mount RunChatLane in execution left column + transport-agnostic wiring (LOCK-B) + PreviewPanel deep-link target + delta-verified mocked chat e2e + first data-testids (CHATUI-01/02/03) [wave 4, depends 31-04]
 
 ### Phase 32: Run-Screen Redesign [A4]
@@ -930,7 +934,7 @@ Plans:
 | 28. Chat Contracts & Guards [A0] | 3/3 | Complete    | 2026-07-07 |
 | 29. Chat Backbone [A1] | 10/10 | Complete   | 2026-07-08 |
 | 30. Uploads & Multimodal [A2] | 0/? | Not started | — |
-| 31. Chat Lane MVP [A3] | 0/? | Not started | — |
+| 31. Chat Lane MVP [A3] | 1/7 | In Progress|  |
 | 32. Run-Screen Redesign [A4] | 0/? | Not started | — |
 | 33. Concierge + Compaction [A5] | 0/? | Not started | — |
 | 34. Live Pass & Closure [A6] | 0/? | Not started | — |

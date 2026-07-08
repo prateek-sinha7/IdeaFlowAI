@@ -221,7 +221,7 @@ Registered 2026-07-07 via `/gsd-import`. Plan of record: `.planning/CHAT-AND-UI-
 
 ### Chat Lane UI (Phase 31)
 
-- [ ] **CHATUI-01**: Revived in-repo chat kit renders the family transcript with streaming markdown, `aria-live`/`role="log"`, and the open-design borrow-list mechanisms (Apache-2.0 attribution)
+- [x] **CHATUI-01**: Revived in-repo chat kit renders the family transcript with streaming markdown, `aria-live`/`role="log"`, and the open-design borrow-list mechanisms (Apache-2.0 attribution)
 - [ ] **CHATUI-02**: Gate/clarify quick-actions available in-lane, mirroring Steps (single backend channel either way)
 - [ ] **CHATUI-03**: Attachment UI (picker/paste/drag-drop/preview/resize) + token-usage widget from P26 telemetry
 
@@ -455,7 +455,7 @@ Each v1 requirement maps to exactly one phase, **one row per requirement** (REQ-
 | UPLD-02 | Phase 30 [A2] | Carrier landed 30-03 (offline); live Bedrock proof deferred (Phase 34/LIVE-02) |
 | UPLD-03 | Phase 30 [A2] | Complete |
 | UPLD-04 | Phase 30 [A2] | Pending |
-| CHATUI-01 | Phase 31 [A3] | Pending |
+| CHATUI-01 | Phase 31 [A3] | Complete |
 | CHATUI-02 | Phase 31 [A3] | Pending |
 | CHATUI-03 | Phase 31 [A3] | Pending |
 | RUNUI-01 | Phase 32 [A4] | Pending |
