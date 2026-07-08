@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: — Universal Run Chat & VelocityAI UI Convergence
 status: executing
-last_updated: "2026-07-08T14:55:52.258Z"
+last_updated: "2026-07-08T15:10:11.047Z"
 last_activity: "2026-07-08 -- Completed 32-07-PLAN.md (SC-1/SC-2 right-panel tab-host reskin + typed-renderer switcher. Task 1: swapped the legacy gray pill tab row for the plan-02 underline Tabs primitive [active ink #15161A + 2px brand #3C2CDA underline, token-routed] fed a generic {id,label,icon} list [SC-001]; RELABELLED the third tab Thinking->Steps [internal id kept 'thinking' so data-testid=tab-thinking + deep-link targets stay stable]; forwarded the plan-06 laneGate/gate-callbacks/clarifyQuestions/clarify-callbacks props to AgentThinkingTab as OPTIONAL dormant passthroughs [added matching optional props to AgentThinkingTabProps for tsc-identity — consumed by plan 08]; AuditTab mount signature UNTOUCHED [plan 09]. Task 2 [TDD RED->GREEN]: MANUAL typed-renderer switcher layered ON TOP of the generic FIRST_PARTY_RENDERERS dispatch [stays PRIMARY] — rendererOverride state [Auto-reset on renderType change] applied BEFORE the unchanged generic route; mimetype overrides re-run GenericDeliverablePreview with a forced mimetype [sandboxed-iframe allow-scripts / NO allow-same-origin preserved]; RendererSwitcher select surfaced ONLY for generic [mimetype-routed] deliverables; options are generic renderType/mimetype tokens, NEVER a workflow name [SC-001 test + grep clean]. PROVEN OFFLINE: npx vitest run src/components/preview/ = 7 files / 43 green [was 6/38; +switcher 5]; tsc identity 0; verified BY DELTA. Residual: 2 legacy #1B2A4A sites at the PPT Download buttons in PPTTabActions [outside the tab host]. Deviations [3 auto-fixed]: Rule-3 AgentThinkingTabProps optional props; Rule-1 switcher option-role collision gated to hasGenericDeliverable; Rule-1 revisionChip test Thinking->Steps. 3 atomic commits dd386881 + 15c85869 + 44607c44.)"
 progress:
   total_phases: 11
   completed_phases: 4
   total_plans: 35
-  completed_plans: 33
+  completed_plans: 34
   percent: 36
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 ## Current Position
 
 Phase: 32
-Plan: 8 of 25 complete (Phase 32 plans 01/04/05/06/07 done)
+Plan: 9 of 25 complete (Phase 32 plans 01/04/05/06/07 done)
 Status: Ready to execute
 Last activity: 2026-07-08 -- Completed 32-07-PLAN.md (SC-1/SC-2 right-panel tab-host reskin + typed-renderer switcher. Task 1: swapped the legacy gray pill tab row for the plan-02 underline Tabs primitive [active ink #15161A + 2px brand #3C2CDA underline, token-routed] fed a generic {id,label,icon} list [SC-001]; RELABELLED the third tab Thinking->Steps [internal id kept 'thinking' so data-testid=tab-thinking + deep-link targets stay stable]; forwarded the plan-06 laneGate/gate-callbacks/clarifyQuestions/clarify-callbacks props to AgentThinkingTab as OPTIONAL dormant passthroughs [added matching optional props to AgentThinkingTabProps for tsc-identity — consumed by plan 08]; AuditTab mount signature UNTOUCHED [plan 09]. Task 2 [TDD RED->GREEN]: MANUAL typed-renderer switcher layered ON TOP of the generic FIRST_PARTY_RENDERERS dispatch [stays PRIMARY] — rendererOverride state [Auto-reset on renderType change] applied BEFORE the unchanged generic route; mimetype overrides re-run GenericDeliverablePreview with a forced mimetype [sandboxed-iframe allow-scripts / NO allow-same-origin preserved]; RendererSwitcher select surfaced ONLY for generic [mimetype-routed] deliverables; options are generic renderType/mimetype tokens, NEVER a workflow name [SC-001 test + grep clean]. PROVEN OFFLINE: npx vitest run src/components/preview/ = 7 files / 43 green [was 6/38; +switcher 5]; tsc identity 0; verified BY DELTA. Residual: 2 legacy #1B2A4A sites at the PPT Download buttons in PPTTabActions [outside the tab host]. Deviations [3 auto-fixed]: Rule-3 AgentThinkingTabProps optional props; Rule-1 switcher option-role collision gated to hasGenericDeliverable; Rule-1 revisionChip test Thinking->Steps. 3 atomic commits dd386881 + 15c85869 + 44607c44.)
 Prior activity: 2026-07-08 -- Completed 32-06-PLAN.md (SC-4/SC-1 RunChatLane reskin to tokens/primitives + faithful cancelled/failed/degraded terminal cards off generic pipelineState markers; INV-3 duplicate AgentProgressPanel run-lane mount removed [RunChatLane sole stop/revise]; DashboardLayout terminal runLaneState + updateSpecsEligible/artifactKind laneGate map [no workflow-name branch, SC-001]; PreviewPanel additive optional gate/clarify passthrough props for plans 07/08. See 32-06-SUMMARY.md. Commits 6a0dd2ae + 510f43fb + 166621ff + bd1912d9.)
@@ -250,6 +250,7 @@ Progress: [░░░░░░░░░░] 0% (Milestone v2.0: 0/11 phases — p
 | Phase 32 P05 | 9min | 3 tasks | 4 files |
 | Phase 32 P07 | ~14min | 2 tasks | 4 files |
 | Phase 32-run-screen-redesign-a4 P08 | 50min | 3 tasks | 9 files |
+| Phase 32 P09 | ~18min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -409,6 +410,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 32-07: Thinking tab relabelled to Steps with the internal id kept stable (deep-link/testid), and PreviewPanel forwards the plan-06 gate/clarify props to AgentThinkingTab as optional dormant passthroughs for plan 08; AuditTab mount signature untouched
 - [Phase ?]: 32-08: PrototypePipelineView DELETED per INV-3 (generic AgentThinkingTab drill-down supersedes the prototype-only phase view); prototype-* render-path literals removed from AgentThinkingTab + ReviewGatePanel (SC-001 grep 0)
 - [Phase ?]: 32-08: WaveTreePanel relocated into the Steps drill-down (ISS-019); L3 dual-source (task_progress + wave/subagent) with KAN-99 N-1 cap; inline gate/clarify via the reused generic InlineGateActions/InlineClarifyActions driven off updateSpecsEligible
+- [Phase ?]: 32-09: AuditTab reads the 3 plan-03 endpoints off hook_runs; fetchers map 404->empty envelope (IDOR-safe); CSV/JSON client-side export only (ND-6, no PDF/backend route) with structural + formula-injection escaping; governance status/severity palette is the sole one-chroma exception.
 
 ### Pending Todos
 
