@@ -274,7 +274,7 @@ class ExecutionContext:
     # an in-flight chat turn on the Phase-29 ``POST /api/runs/{id}/messages`` path are
     # cap-validated (the shared ``_validate_images`` ingress caps) then enqueued here
     # by ``chat_router.apply_turn_images``. The engine DRAINS this queue onto the
-    # transient ``run_images`` carrier at the NEXT dispatch (before
+    # ONE-SHOT ``turn_images_once`` carrier (below) at the NEXT dispatch (before
     # ``_compose_input_blocks``) so an ``injects:[images]`` agent's HumanMessage carries
     # the base64 image content-blocks — exactly where run-entry images already flow.
     # Each entry is a normalized ``{mime_type, data(base64)}`` dict (mirrors
@@ -284,5 +284,17 @@ class ExecutionContext:
     # (ND-9 — images do not survive replay/reopen). Additive per-run scratch (the same
     # D-03 idiom as ``steering_notes``) keyed on THIS generic queue only — no
     # workflow/agent name (SC-001/INV-1). Default-empty ⇒ DORMANT on every golden run
-    # (no image → run_images unchanged → dispatch payload byte-identical) ⇒ INV-3.
+    # (no image → nothing drained → dispatch payload byte-identical) ⇒ INV-3.
     pending_turn_images: list = field(default_factory=list)
+    # turn_images_once: the CONSUME-ONCE render carrier for per-turn images (30-03,
+    # HI-01). DISTINCT from the sticky run-entry ``run_images`` above: ``run_images`` is
+    # set once at run entry and the ``run_images`` provider re-renders it on EVERY
+    # ``injects:[images]`` dispatch (legitimately sticky for the whole run), whereas this
+    # one-shot carrier holds only the images ``_drain_turn_images`` moved off
+    # ``pending_turn_images`` for the NEXT dispatch. ``_compose_input_blocks`` renders it
+    # into exactly THAT dispatch's blocks and then clears it (read+clear co-located, the
+    # ``steering_notes`` idiom), so a per-turn image reaches ONE dispatch and never
+    # re-delivers on a later one. (Draining per-turn images onto the sticky ``run_images``
+    # instead was the pre-fix bug: every subsequent dispatch re-attached the stale image.)
+    # Default-empty ⇒ DORMANT on every golden run (nothing to render) ⇒ INV-3 byte-parity.
+    turn_images_once: list = field(default_factory=list)

@@ -566,8 +566,9 @@ async def post_message(
         #
         # 30-03: a RUNNING-turn's cap-validated per-turn images ride the SAME
         # live-delivery seam — apply_turn_images enqueues them onto
-        # ectx.pending_turn_images and the engine drains them onto run_images at the next
-        # dispatch (payload-transient, ND-10). The live in-process ectx handle is the
+        # ectx.pending_turn_images and the engine drains them onto the one-shot
+        # ectx.turn_images_once carrier at the next dispatch (payload-transient, ND-10;
+        # rendered once, then cleared). The live in-process ectx handle is the
         # DEF-29-09-1 deferred wiring (no live-ectx registry yet), so this is best-effort
         # (a no-op until the handle lands); the seam + drain are proven offline by
         # test_run_message_images. Keyed on the generic queue only (SC-001/INV-1).

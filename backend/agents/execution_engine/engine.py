@@ -429,21 +429,27 @@ def _normalize_run_images(images: "list | None") -> list[dict]:
 
 
 def _drain_turn_images(ectx) -> None:
-    """Drain per-turn images (30-03) off ``ectx.pending_turn_images`` onto ``run_images``.
+    """Drain per-turn images (30-03) off ``ectx.pending_turn_images`` onto the ONE-SHOT
+    ``ectx.turn_images_once`` carrier.
 
     The UPLD-02 residue seam: images attached to an in-flight chat turn were enqueued
     onto the generic ``pending_turn_images`` queue by ``chat_router.apply_turn_images``.
-    Called BEFORE ``_compose_input_blocks`` at each dispatch so an ``injects:[images]``
-    agent's HumanMessage carries them — exactly where run-entry ``run_images`` already
-    flow. Consume-once: the pending queue is cleared after draining, so each attached
-    image reaches exactly the NEXT dispatch's HumanMessage. DORMANT by default — an empty
-    queue leaves ``run_images`` untouched (INV-3 byte-parity). Payload-transient (ND-10):
-    never persisted. Keyed on the generic queue only (SC-001/INV-1).
+    Called BEFORE ``_compose_input_blocks`` at each dispatch. Consume-once (HI-01): the
+    pending images move onto the ONE-SHOT ``turn_images_once`` carrier — DISTINCT from the
+    sticky run-entry ``run_images`` — which ``_compose_input_blocks`` renders into exactly
+    THIS dispatch's blocks and then clears, so a per-turn image reaches exactly ONE
+    dispatch and never re-delivers on a later one. (Draining onto the sticky ``run_images``
+    was the pre-fix bug: it re-attached the image to every subsequent ``injects:[images]``
+    dispatch for the rest of the run.) APPEND (not replace) so an image enqueued across a
+    non-``injects:[images]`` dispatch — which does not consume ``turn_images_once`` — is
+    still delivered to the next images-opted agent. DORMANT by default — an empty queue
+    drains nothing (INV-3 byte-parity). Payload-transient (ND-10): never persisted. Keyed
+    on the generic queue only (SC-001/INV-1).
     """
     pending = getattr(ectx, "pending_turn_images", None)
     if not pending:
         return
-    ectx.run_images = (ectx.run_images or []) + list(pending)
+    ectx.turn_images_once = (getattr(ectx, "turn_images_once", None) or []) + list(pending)
     ectx.pending_turn_images = []
 
 
@@ -2778,14 +2784,16 @@ class ExecutionEngine:
 
             # UPLD-02 residue (30-03): drain any per-turn images queued by the chat
             # ``POST /api/runs/{id}/messages`` path (via chat_router.apply_turn_images →
-            # ectx.pending_turn_images) onto the transient ``run_images`` carrier BEFORE
-            # composing THIS dispatch's blocks — so an ``injects:[images]`` agent's
-            # HumanMessage carries them exactly where run-entry images already flow.
-            # Consume-once: the pending queue is cleared after draining. DORMANT by
-            # default — an empty queue leaves ``run_images`` unchanged ⇒ the dispatch
-            # payload + the 5 goldens stay byte-identical (INV-3). Payload-transient
-            # (ND-10): the images are never persisted (the durable chat_message row keeps
-            # retained:false refs, no bytes). Keyed on the generic queue only (SC-001).
+            # ectx.pending_turn_images) onto the ONE-SHOT ``turn_images_once`` carrier
+            # BEFORE composing THIS dispatch's blocks. Consume-once (HI-01):
+            # _compose_input_blocks renders turn_images_once into exactly THIS dispatch
+            # and clears it, so a per-turn image reaches ONE dispatch and never
+            # re-delivers — DISTINCT from the sticky run-entry ``run_images`` (which the
+            # run_images provider re-renders every dispatch). DORMANT by default — an
+            # empty queue drains nothing ⇒ the dispatch payload + the 5 goldens stay
+            # byte-identical (INV-3). Payload-transient (ND-10): the images are never
+            # persisted (the durable chat_message row keeps retained:false refs, no
+            # bytes). Keyed on the generic queue only (SC-001).
             _drain_turn_images(ectx)
 
             # image-input Wave 1: the per-agent LOCAL image content-blocks (NOT an ectx
@@ -6416,6 +6424,28 @@ class ExecutionEngine:
                 logger.warning("input provider %s.load failed (%s) — skipping", name, exc)
                 continue
             blocks.extend(loaded or [])
+        # Consume-once per-turn images (30-03, HI-01): the images drained onto the
+        # ONE-SHOT ``turn_images_once`` carrier render into exactly THIS dispatch's
+        # blocks, then clear — so a per-turn image reaches ONE dispatch and never
+        # re-delivers on a later one (DISTINCT from the sticky run-entry ``run_images``
+        # the provider loop above re-renders every dispatch). Read+clear are co-located
+        # HERE (the ``steering_notes`` read-then-clear idiom) so the clear can never be
+        # forgotten. The block shape mirrors ``RunImagesProvider.load`` — duplicated by
+        # the capability import boundary (the kernel must not import the pure provider
+        # module; cf. review IN-02), kept in lockstep by the 30-03 regression test.
+        # DORMANT by default — an empty carrier adds nothing (INV-3 byte-parity).
+        turn_once = getattr(ectx, "turn_images_once", None) or []
+        if turn_once:
+            blocks.extend(
+                {
+                    "type": "image",
+                    "source_type": "base64",
+                    "mime_type": img["mime_type"],
+                    "data": img["data"],
+                }
+                for img in turn_once
+            )
+            ectx.turn_images_once = []
         return blocks
 
     # DELETED (07-05, L12): the legacy per-pipeline context-message builder with its

@@ -187,13 +187,26 @@ def _compose_blocks_for_images(images: list) -> list:
     ectx = ExecutionContext(run_id="r", owner_id="o")
     ectx.compiled_input_providers = ["run_images"]  # the declared capability
     apply_turn_images(ectx, images)               # router seam → pending_turn_images
-    _drain_turn_images(ectx)                       # engine drain → run_images
-    assert ectx.pending_turn_images == []          # consume-once
+    _drain_turn_images(ectx)                       # engine drain → turn_images_once (one-shot)
+    assert ectx.pending_turn_images == []          # consume-once (pending cleared)
     spec = SimpleNamespace(id="prototype-specify", injects=["images"])
     engine = get_execution_engine()
     return asyncio.get_event_loop().run_until_complete(
         engine._compose_input_blocks(spec, ectx)
     ), ectx
+
+
+def _dispatch_blocks(ectx, spec) -> list:
+    """Run ONE engine dispatch's image-block seam on a live ectx: drain pending →
+    _compose_input_blocks. Mutates ``ectx``, so calling it twice models two SEQUENTIAL
+    dispatches (e.g. two gate redos) — the shape the HI-01 consume-once bug needs."""
+    from agents.execution_engine.engine import _drain_turn_images, get_execution_engine
+
+    _drain_turn_images(ectx)
+    engine = get_execution_engine()
+    return asyncio.get_event_loop().run_until_complete(
+        engine._compose_input_blocks(spec, ectx)
+    )
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -214,8 +227,11 @@ class TestPerTurnImageDelivery:
 
     def test_seam_drains_image_into_next_dispatch_content_block(self, env):
         blocks, ectx = _compose_blocks_for_images([_valid_image()])
-        # The engine drain moved the image onto the transient run_images carrier …
-        assert ectx.run_images == [{"mime_type": "image/png", "data": _IMG_B64}]
+        # HI-01: the per-turn image rides the ONE-SHOT carrier, NOT the sticky
+        # run_images. _compose_input_blocks rendered AND consumed it, so run_images
+        # stays empty and turn_images_once is cleared after this single dispatch.
+        assert not ectx.run_images
+        assert ectx.turn_images_once == []
         # … and _compose_input_blocks emitted exactly the RunImagesProvider block shape.
         assert blocks == [{
             "type": "image",
@@ -243,6 +259,90 @@ class TestPerTurnImageDelivery:
             engine._compose_input_blocks(spec, ectx)
         )
         assert blocks == []
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# (a2) HI-01 regression — per-turn images are ONE-SHOT; run-entry images are sticky
+# ════════════════════════════════════════════════════════════════════════════
+_IMG_BLOCK = {
+    "type": "image",
+    "source_type": "base64",
+    "mime_type": "image/png",
+    "data": _IMG_B64,
+}
+
+
+class TestPerTurnImageConsumeOnce:
+    """A per-turn image must reach EXACTLY the next dispatch and never re-deliver, while
+    run-entry images stay sticky across every dispatch (HI-01 — the two channels are
+    independent)."""
+
+    @staticmethod
+    def _images_spec():
+        return SimpleNamespace(id="prototype-specify", injects=["images"])
+
+    def test_per_turn_image_reaches_exactly_one_dispatch(self, env):
+        """FAIL-BEFORE / PASS-AFTER: pre-fix the image stuck on run_images re-delivered
+        on dispatch #2; the one-shot carrier makes dispatch #2 image-free."""
+        import agents.capabilities.input_providers.run_images  # noqa: F401
+        from agents.execution_engine.context import ExecutionContext
+
+        from app.api.chat_router import apply_turn_images
+
+        ectx = ExecutionContext(run_id="r", owner_id="o")
+        ectx.compiled_input_providers = ["run_images"]
+        spec = self._images_spec()
+
+        apply_turn_images(ectx, [_valid_image()])    # image attached on THIS turn
+        d1 = _dispatch_blocks(ectx, spec)            # gate redo #1
+        d2 = _dispatch_blocks(ectx, spec)            # gate redo #2 — NO new image
+
+        assert d1 == [_IMG_BLOCK]      # delivered to the NEXT dispatch …
+        assert d2 == []                # … and NEVER re-delivered (the HI-01 fix)
+        assert not ectx.run_images     # never polluted the sticky run-entry carrier
+
+    def test_run_entry_images_are_sticky_across_dispatches(self, env):
+        """Preservation guard: run-entry images (set at :1037) render on EVERY dispatch."""
+        import agents.capabilities.input_providers.run_images  # noqa: F401
+        from agents.execution_engine.context import ExecutionContext
+
+        ectx = ExecutionContext(
+            run_id="r", owner_id="o",
+            run_images=[{"mime_type": "image/png", "data": _IMG_B64}],  # set at run entry
+        )
+        ectx.compiled_input_providers = ["run_images"]
+        spec = self._images_spec()
+
+        d1 = _dispatch_blocks(ectx, spec)
+        d2 = _dispatch_blocks(ectx, spec)
+        assert d1 == [_IMG_BLOCK]
+        assert d2 == [_IMG_BLOCK]      # sticky — unchanged by the HI-01 fix
+
+    def test_per_turn_and_run_entry_images_coexist_independently(self, env):
+        """A per-turn image layered on top of a sticky run-entry image: dispatch #1
+        carries both (sticky first, then one-shot); dispatch #2 keeps only the sticky."""
+        import agents.capabilities.input_providers.run_images  # noqa: F401
+        from agents.execution_engine.context import ExecutionContext
+
+        from app.api.chat_router import apply_turn_images
+
+        entry_block = {
+            "type": "image", "source_type": "base64",
+            "mime_type": "image/png", "data": "ENTRY",
+        }
+        ectx = ExecutionContext(
+            run_id="r", owner_id="o",
+            run_images=[{"mime_type": "image/png", "data": "ENTRY"}],
+        )
+        ectx.compiled_input_providers = ["run_images"]
+        spec = self._images_spec()
+
+        apply_turn_images(ectx, [_valid_image()])
+        d1 = _dispatch_blocks(ectx, spec)
+        d2 = _dispatch_blocks(ectx, spec)
+
+        assert d1 == [entry_block, _IMG_BLOCK]   # sticky run-entry, then one-shot per-turn
+        assert d2 == [entry_block]               # only the sticky one survives
 
 
 # ════════════════════════════════════════════════════════════════════════════

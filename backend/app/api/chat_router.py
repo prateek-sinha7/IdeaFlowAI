@@ -327,10 +327,11 @@ def apply_turn_images(ectx: Any, images: list) -> None:
     turn (already cap-validated by the shared ``_validate_images`` ingress caps at the
     ``/messages`` endpoint) are normalized to ``{mime_type, data}`` (the
     ``engine._normalize_run_images`` shape) and appended to the generic per-run
-    ``pending_turn_images`` queue. The engine DRAINS that queue onto ``ectx.run_images``
-    at the NEXT dispatch (before ``_compose_input_blocks``) so an ``injects:[images]``
-    agent's HumanMessage carries the base64 image content-blocks. Keyed on the generic
-    queue only (SC-001/INV-1) — no workflow/agent name.
+    ``pending_turn_images`` queue. The engine DRAINS that queue onto the ONE-SHOT
+    ``ectx.turn_images_once`` carrier at the NEXT dispatch (rendered ONCE by
+    ``_compose_input_blocks``, then cleared) so an ``injects:[images]`` agent's
+    HumanMessage carries the base64 image content-blocks for exactly that one dispatch.
+    Keyed on the generic queue only (SC-001/INV-1) — no workflow/agent name.
 
     Best-effort: an ``ectx`` without the attribute (a fresh/foreign context, or the
     DEF-29-09-1 live in-process handle that is not yet wired) is a no-op — the durable
