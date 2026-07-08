@@ -303,6 +303,141 @@ async def cancel_run(
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# POST /api/runs/{id}/messages — the chat backbone up-channel (CHAT-01/02/05, 29-09).
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# A user chat turn reaches a run over REST, persists durably as a ``chat_message``
+# ``run_events`` row (idempotent by client ``message_id``), and is delivered per the
+# run's GENERIC live state by the mechanical intent router (``chat_router.route_chat_turn``)
+# with ZERO model calls: clarify answer / gate action (incl. update_specs→KAN-101) /
+# steering note / revision.
+#
+# LOCK-B / D-01: NO new table — the turn is a ``chat_message`` row appended through the
+# SAME ``ScopedStore.append_event`` stamping boundary (seq/event_id) every engine event
+# rides. The ``chat_message`` type + the ``message_id`` volatile-strip were seeded in
+# Phase 28 (test_phase3_cutover_verify._DOCUMENTED_EVENT_TYPES / _normalize).
+
+
+class MessageCommand(BaseModel):
+    """Body for ``POST /api/runs/{id}/messages`` — one up-channel chat turn.
+
+    ``message_id`` is the FE-generated idempotency key (a replay is a no-op).
+    ``action`` is the optional gate-action discriminator (approve/reject/redo/
+    update_specs); ``sticky`` marks an uploaded-context steering note (D-06);
+    ``responses``/``skip_clarification`` carry structured clarify answers;
+    ``target_artifact_type`` the revision target. ``attachments`` are payload-transient
+    refs (ND-10 — never persisted to sandbox/DB; a placeholder marks them on replay).
+    """
+
+    text: str = ""
+    attachments: list[dict] | None = None
+    message_id: str
+    action: str | None = None
+    sticky: bool = False
+    responses: list[dict] | None = None
+    skip_clarification: bool = False
+    analysis_report: str | None = None
+    target_artifact_type: str | None = None
+
+
+def _chat_event_id(message_id: str) -> str:
+    """Derive the durable ``event_id`` from the client ``message_id`` (D-01).
+
+    Idempotency lives at the stamping boundary: the same ``message_id`` yields the same
+    ``event_id``, so a replayed turn resolves to an already-present ``run_events`` row
+    (a no-op — no second row). Namespaced so it can never collide with an engine-emitted
+    uuid ``event_id``.
+    """
+    return f"chat:{message_id}"
+
+
+async def _persist_chat_message(
+    store, run_id: str, body: "MessageCommand"
+) -> tuple[bool, int]:
+    """Append the turn as a ``chat_message`` ``run_events`` row (idempotent).
+
+    Returns ``(created, seq)``: ``created=False`` when a row with the derived
+    ``event_id`` already exists (a replayed ``message_id`` → no-op). The ``seq`` is the
+    next contiguous per-run seq (max persisted + 1), exactly as the engine sink and the
+    resume marker compute it (engine.py:_stamp_resume_marker).
+    """
+    event_id = _chat_event_id(body.message_id)
+    existing = await store.read_events(run_id, after_seq=0)
+    for row in existing:
+        if getattr(row, "event_id", None) == event_id:
+            return False, int(getattr(row, "seq", 0) or 0)  # replay → no-op
+
+    next_seq = (max((int(getattr(r, "seq", 0) or 0) for r in existing), default=0)) + 1
+    # ND-10: attachments are payload-transient — persist a placeholder ref (kind + a
+    # "not retained" marker), NEVER the bytes (no sandbox/DB retention; the image does
+    # not survive replay/reopen).
+    attachment_refs = [
+        {"kind": (a.get("kind") or a.get("type") or "attachment"), "retained": False}
+        for a in (body.attachments or [])
+    ]
+    await store.append_event(
+        run_id,
+        seq=next_seq,
+        event_id=event_id,
+        type="chat_message",
+        payload_json={
+            "pipeline_run_id": run_id,
+            "message_id": body.message_id,
+            "text": body.text,
+            "attachments": attachment_refs,
+        },
+    )
+    return True, next_seq
+
+
+@router.post("/{run_id}/messages")
+async def post_message(
+    run_id: str,
+    body: MessageCommand,
+    current_user: User = Depends(get_current_user),
+):
+    """Persist + deliver one up-channel chat turn (CHAT-01/02/05, 29-09).
+
+    Two-layer owner check (mirrors ``run_stream.py`` / ``runs.py::get_run_events``): the
+    ``user_id`` ORM filter → 404, then the default-deny ``ScopedStore.get_run`` → 404
+    (IDOR → 404, never 403). The turn persists as an idempotent ``chat_message`` row
+    (D-01), then the mechanical router (Task 3 wiring) delivers it by run state.
+    """
+    from agents.authz import ScopedStore
+
+    # Layer 1: owner-scoped ORM filter (cross-owner / missing → 404, never 403).
+    db = _get_db()
+    try:
+        wr = (
+            db.query(WorkflowRun)
+            .filter(WorkflowRun.id == run_id, WorkflowRun.user_id == current_user.id)
+            .first()
+        )
+        if wr is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Workflow run not found"
+            )
+        wr_status = wr.status
+        wr_workspace = wr.workspace_id
+    finally:
+        db.close()
+
+    # Owner+workspace-scoped store — the SAME principal the SSE reader (run_stream.py)
+    # uses, so the persisted chat_message row is visible on the same down-channel.
+    store = ScopedStore(owner_id=current_user.id, workspace_id=wr_workspace)
+
+    # Layer 2: default-deny re-resolve so the ownership boundary lives in ONE place.
+    if await store.get_run(run_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Workflow run not found"
+        )
+
+    created, seq = await _persist_chat_message(store, run_id, body)
+
+    return {"ok": True, "run_id": run_id, "seq": seq, "persisted": created}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # POST /api/runs — run launch (D-13, replaces the WS `run_pipeline` inbound).
 # ═══════════════════════════════════════════════════════════════════════════════
 #
