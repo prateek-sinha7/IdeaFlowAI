@@ -8,12 +8,28 @@
  * ReviewGatesSection / useSpeechRecognition, SkillsHooksProvider render).
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { IdeaInputPage } from "./IdeaInputPage";
 import { SkillsHooksProvider } from "@/context/SkillsHooksContext";
+
+// UPLD-04: the attach handler now routes image Files through resizeImage, which
+// decodes via createImageBitmap. jsdom lacks it — mock a small bitmap that is
+// already within the bound so resizeImage passes the ORIGINAL base64 through
+// unchanged (no-upscale passthrough). This keeps the D3 out-of-band assertions
+// exact while proving the attach flow routes through the resize helper.
+beforeEach(() => {
+  vi.stubGlobal(
+    "createImageBitmap",
+    vi.fn(async () => ({ width: 12, height: 12, close: vi.fn() })),
+  );
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 vi.mock("@/hooks/useSpeechRecognition", () => ({
   useSpeechRecognition: () => ({

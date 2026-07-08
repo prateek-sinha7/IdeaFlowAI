@@ -15,6 +15,7 @@ import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
 import { createUserWorkflow, getToken, getWorkflowDetail, extractFileText } from "@/lib/api";
 import { ATTACH_MAX_CHARS } from "@/lib/constants";
+import { resizeImage } from "@/lib/resizeImage";
 import { AnimatePresence } from "motion/react";
 import type { WorkflowType, AgentDef, AttachedSkill, AttachedHook } from "@/types/index";
 
@@ -576,18 +577,19 @@ export function IdeaInputPage({ workflowType, onBack, onRun, initialAgentIds, in
                           ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(f.type) ||
                           /\.(png|jpe?g|webp|gif)$/i.test(f.name);
                         if (isImageFile) {
-                          const reader = new FileReader();
-                          reader.onload = (ev) => {
-                            const result = (ev.target?.result as string) ?? "";
-                            // Strip the `data:<mime>;base64,` prefix — only the raw
-                            // base64 payload rides the `images` field.
-                            const rawBase64 = result.replace(/^data:[^;]+;base64,/, "");
+                          // UPLD-04: downscale oversized images client-side BEFORE
+                          // base64. resizeImage is aspect-preserving, no-upscale, and
+                          // degrade-not-block (it resolves to the original file's
+                          // base64 on any failure — never throws). The resulting
+                          // base64 still rides OUT-OF-BAND as the `images` payload
+                          // (D3); it NEVER enters the brief. Server caps stay
+                          // authoritative (this is a client optimization only).
+                          resizeImage(f).then((resized) => {
                             setAttachedImages((p) => [
                               ...p,
-                              { name: f.name, mime_type: f.type || "image/png", data: rawBase64 },
+                              { name: f.name, mime_type: resized.mime_type, data: resized.data },
                             ]);
-                          };
-                          reader.readAsDataURL(f);
+                          });
                           return;
                         }
                         const meta = {
