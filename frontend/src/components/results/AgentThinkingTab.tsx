@@ -8,7 +8,6 @@ import {
   AlertTriangle, Pencil,
 } from "lucide-react";
 import type { AgentRunState, ContextSource, ToolCallEntry, PipelineRunState, ValidationIssue, ClarifyRound } from "@/types/index";
-import { PrototypePipelineView } from "./PrototypePipelineView";
 import { TokenUsageSummary } from "@/components/workflow/TokenUsageSummary";
 import { StartingPointCard } from "./StartingPointCard";
 import { ClarificationsCard } from "./ClarificationsCard";
@@ -42,15 +41,16 @@ interface AgentThinkingTabProps {
   onSkipClarify?: () => void;
 }
 
-// ─── Agent accent — single on-brand color (design system navy #1B2A4A) ─────────
+// ─── Agent accent — single on-brand color (plan-01 brand token) ────────────────
 // Replaces the former per-agent rainbow so the trace matches the rest of the app.
-// Status uses the same navy: in-progress and done are distinguished by icon
-// (pulse vs check) and fill, not hue. error=red, clarify=amber are kept separate.
+// Status uses the same brand accent: in-progress and done are distinguished by
+// icon (pulse vs check) and fill, not hue. error=red, clarify=amber are kept
+// separate. Routed through the plan-01 brand tokens (no raw hex, SC-001-adjacent).
 const AGENT_ACCENT = {
-  bg: "bg-[#E8EDF5]",
-  text: "text-[#1B2A4A]",
-  border: "border-[#1B2A4A]/20",
-  dot: "bg-[#1B2A4A]",
+  bg: "bg-brand-fill",
+  text: "text-brand",
+  border: "border-brand/20",
+  dot: "bg-brand",
   glow: "",
 };
 
@@ -59,8 +59,8 @@ function EmptyState() {
   return (
     <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-8">
       <div className="relative">
-        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#1B2A4A]/8 to-[#1B2A4A]/4 flex items-center justify-center">
-          <Activity className="h-7 w-7 text-[#1B2A4A]/30" />
+        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-brand/8 to-brand/4 flex items-center justify-center">
+          <Activity className="h-7 w-7 text-brand/30" />
         </div>
         <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-gray-200 flex items-center justify-center">
           <div className="w-1.5 h-1.5 rounded-full bg-gray-400" />
@@ -89,9 +89,9 @@ function PipelineHeader({ pipelineState, workflowLabel }: { pipelineState?: Pipe
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <div className={`w-2 h-2 rounded-full ${
-            isRunning ? "bg-[#1B2A4A] animate-pulse" :
+            isRunning ? "bg-brand animate-pulse" :
             hasErrors ? "bg-red-400" :
-            "bg-[#1B2A4A]"
+            "bg-brand"
           }`} />
           <span className="text-[11px] font-semibold text-gray-700 uppercase tracking-wider">
             {workflowLabel || (isRunning ? "Pipeline Running" : hasErrors ? "Completed with errors" : "Pipeline Complete")}
@@ -101,7 +101,7 @@ function PipelineHeader({ pipelineState, workflowLabel }: { pipelineState?: Pipe
           {executionGate && (
             <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
               executionGate === "PROCEED"
-                ? "bg-[#E8EDF5] text-[#1B2A4A] border border-[#1B2A4A]/20"
+                ? "bg-brand-fill text-brand border border-brand/20"
                 : "bg-amber-50 text-amber-700 border border-amber-200"
             }`}>
               {executionGate === "PROCEED" ? "✓ PROCEED" : "⚡ CLARIFY"}
@@ -119,8 +119,8 @@ function PipelineHeader({ pipelineState, workflowLabel }: { pipelineState?: Pipe
         <div className="flex items-center gap-1">
           {agents.map((a, i) => (
             <div key={i} className={`h-1.5 flex-1 rounded-full transition-all ${
-              a.status === "done" ? "bg-[#1B2A4A]" :
-              a.status === "running" || a.status === "thinking" ? "bg-[#1B2A4A] animate-pulse" :
+              a.status === "done" ? "bg-brand" :
+              a.status === "running" || a.status === "thinking" ? "bg-brand animate-pulse" :
               a.status === "error" ? "bg-red-400" :
               "bg-gray-200"
             }`} />
@@ -146,26 +146,26 @@ function PlannerCard({ pipelineState }: { pipelineState: PipelineRunState }) {
       {/* Timeline dot */}
       <div className="absolute left-0 top-3 flex flex-col items-center">
         <div className={`w-6 h-6 rounded-full flex items-center justify-center border-2 z-10 ${
-          isRunning ? "border-[#1B2A4A]/40 bg-[#E8EDF5] animate-pulse" :
-          isDone ? "border-[#1B2A4A] bg-[#1B2A4A]" :
+          isRunning ? "border-brand/40 bg-brand-fill animate-pulse" :
+          isDone ? "border-brand bg-brand" :
           "border-red-400 bg-red-50"
         }`}>
           {isDone ? <CheckCircle2 className="h-3 w-3 text-white" /> :
            isError ? <XCircle className="h-3 w-3 text-red-500" /> :
-           <Brain className="h-3 w-3 text-[#1B2A4A]" />}
+           <Brain className="h-3 w-3 text-brand" />}
         </div>
         <div className="w-px flex-1 bg-gray-200 mt-1" style={{ minHeight: 20 }} />
       </div>
 
       <div className={`rounded-xl border overflow-hidden transition-all ${
-        isRunning ? "border-[#1B2A4A]/20 shadow-sm" : "border-gray-100"
+        isRunning ? "border-brand/20 shadow-sm" : "border-gray-100"
       }`}>
         <button
           onClick={() => setExpanded(v => !v)}
           className="w-full flex items-center gap-3 px-4 py-3 bg-white hover:bg-gray-50/50 transition-colors text-left"
         >
-          <div className="w-7 h-7 rounded-lg bg-[#E8EDF5] flex items-center justify-center flex-shrink-0">
-            <Brain className="h-3.5 w-3.5 text-[#1B2A4A]" />
+          <div className="w-7 h-7 rounded-lg bg-brand-fill flex items-center justify-center flex-shrink-0">
+            <Brain className="h-3.5 w-3.5 text-brand" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
@@ -181,19 +181,19 @@ function PlannerCard({ pipelineState }: { pipelineState: PipelineRunState }) {
           <div className="flex items-center gap-2 flex-shrink-0">
             {executionGate && (
               <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
-                executionGate === "PROCEED" ? "bg-[#E8EDF5] text-[#1B2A4A]" : "bg-amber-50 text-amber-700"
+                executionGate === "PROCEED" ? "bg-brand-fill text-brand" : "bg-amber-50 text-amber-700"
               }`}>
                 {executionGate}
               </span>
             )}
-            {isRunning && <Zap className="h-3.5 w-3.5 text-[#1B2A4A] animate-pulse" />}
+            {isRunning && <Zap className="h-3.5 w-3.5 text-brand animate-pulse" />}
             <ChevronDown className={`h-3.5 w-3.5 text-gray-400 transition-transform ${expanded ? "rotate-180" : ""}`} />
           </div>
         </button>
 
         {expanded && plannerSummary && (
-          <div className="border-t border-gray-100 px-4 py-3 bg-gradient-to-b from-[#E8EDF5]/40 to-white">
-            <p className="text-[10px] font-semibold text-[#1B2A4A] uppercase tracking-wider mb-1.5">Inferred Intent</p>
+          <div className="border-t border-gray-100 px-4 py-3 bg-gradient-to-b from-brand-fill/40 to-white">
+            <p className="text-[10px] font-semibold text-brand uppercase tracking-wider mb-1.5">Inferred Intent</p>
             <p className="text-[11px] text-gray-700 leading-relaxed">{plannerSummary}</p>
           </div>
         )}
@@ -210,12 +210,12 @@ function RevisionInstructionCard({ prompt }: { prompt: string }) {
   if (!match) return null;
   const instruction = match[1].trim();
   return (
-    <div className="mb-3 rounded-xl border-2 border-[#1B2A4A]/30 bg-[#1B2A4A]/5 px-3 py-2.5">
+    <div className="mb-3 rounded-xl border-2 border-brand/30 bg-brand/5 px-3 py-2.5">
       <div className="flex items-center gap-1.5 mb-1.5">
-        <Pencil className="h-3 w-3 text-[#1B2A4A]" />
-        <span className="text-[9px] font-bold text-[#1B2A4A] uppercase tracking-widest">Revision Request</span>
+        <Pencil className="h-3 w-3 text-brand" />
+        <span className="text-[9px] font-bold text-brand uppercase tracking-widest">Revision Request</span>
       </div>
-      <p className="text-[11px] text-[#1B2A4A] font-medium leading-relaxed">{instruction}</p>
+      <p className="text-[11px] text-brand font-medium leading-relaxed">{instruction}</p>
     </div>
   );
 }
@@ -299,11 +299,11 @@ function ValidationResultCard({ passed, issues }: { passed?: boolean; issues?: V
 // ─── Context sources row ──────────────────────────────────────────────────────
 export function ContextSourcesRow({ sources }: { sources: ContextSource[] }) {
   return (
-    <div className="mb-3 rounded-xl border border-[#1B2A4A]/20 bg-[#E8EDF5]/60 px-3 py-2.5">
+    <div className="mb-3 rounded-xl border border-brand/20 bg-brand-fill/60 px-3 py-2.5">
       <div className="flex items-center gap-1.5 mb-2">
-        <Database className="h-3 w-3 text-[#1B2A4A]" />
-        <span className="text-[9px] font-bold text-[#1B2A4A] uppercase tracking-widest">Context Received</span>
-        <span className="text-[9px] bg-[#1B2A4A]/10 text-[#1B2A4A] px-1.5 py-0.5 rounded-full font-medium ml-auto">{sources.length} source{sources.length !== 1 ? "s" : ""}</span>
+        <Database className="h-3 w-3 text-brand" />
+        <span className="text-[9px] font-bold text-brand uppercase tracking-widest">Context Received</span>
+        <span className="text-[9px] bg-brand/10 text-brand px-1.5 py-0.5 rounded-full font-medium ml-auto">{sources.length} source{sources.length !== 1 ? "s" : ""}</span>
       </div>
       <div className="flex flex-wrap gap-1.5">
         {sources.map((src, i) => {
@@ -319,12 +319,12 @@ export function ContextSourcesRow({ sources }: { sources: ContextSource[] }) {
             ? Math.round((1 - src.summary_length / src.full_output_length) * 100)
             : null;
           return (
-            <div key={i} className="flex items-center gap-1.5 bg-white border border-[#1B2A4A]/20 shadow-sm rounded-lg px-2.5 py-1.5">
-              <Layers className="h-2.5 w-2.5 text-[#1B2A4A] flex-shrink-0" />
-              <span className="text-[10px] font-semibold text-[#1B2A4A] truncate max-w-[140px]">{label}</span>
-              {size && <span className="text-[9px] text-[#1B2A4A]/60 font-mono">{size}</span>}
+            <div key={i} className="flex items-center gap-1.5 bg-white border border-brand/20 shadow-sm rounded-lg px-2.5 py-1.5">
+              <Layers className="h-2.5 w-2.5 text-brand flex-shrink-0" />
+              <span className="text-[10px] font-semibold text-brand truncate max-w-[140px]">{label}</span>
+              {size && <span className="text-[9px] text-brand/60 font-mono">{size}</span>}
               {compression != null && compression > 0 && (
-                <span className="text-[9px] bg-[#1B2A4A]/10 text-[#1B2A4A] px-1 rounded font-medium">-{compression}%</span>
+                <span className="text-[9px] bg-brand/10 text-brand px-1 rounded font-medium">-{compression}%</span>
               )}
             </div>
           );
@@ -358,8 +358,8 @@ export function ToolCallsSection({ toolCalls }: { toolCalls: ToolCallEntry[] }) 
                 onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
                 className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 transition-colors text-left"
               >
-                <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${tc.result != null ? "bg-[#1B2A4A]" : "bg-amber-400 animate-pulse"}`} />
-                <span className="text-[10px] font-mono font-semibold text-[#1B2A4A] flex-1 truncate">{tc.tool}</span>
+                <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${tc.result != null ? "bg-brand" : "bg-amber-400 animate-pulse"}`} />
+                <span className="text-[10px] font-mono font-semibold text-brand flex-1 truncate">{tc.tool}</span>
                 <span className="text-[9px] text-gray-400 truncate max-w-[120px]">
                   {Object.entries(tc.args || {}).map(([k, v]) => `${k}: ${String(v).slice(0, 20)}`).join(", ") || "no args"}
                 </span>
@@ -377,7 +377,7 @@ export function ToolCallsSection({ toolCalls }: { toolCalls: ToolCallEntry[] }) 
                   )}
                   {tc.result != null && (
                     <div className="px-3 py-2">
-                      <p className="text-[9px] font-semibold text-[#1B2A4A] uppercase tracking-wider mb-1">Result</p>
+                      <p className="text-[9px] font-semibold text-brand uppercase tracking-wider mb-1">Result</p>
                       <pre className="text-[9px] text-gray-600 font-mono whitespace-pre-wrap leading-relaxed max-h-[200px] overflow-y-auto">
                         {tc.result}
                       </pre>
@@ -417,7 +417,7 @@ export function InputPromptSection({ prompt }: { prompt: string }) {
           <div className="flex items-center justify-between px-3 py-1.5 bg-gray-50 border-b border-gray-100">
             <span className="text-[9px] text-gray-400">{prompt.length.toLocaleString()} chars</span>
             <button onClick={handleCopy} className="flex items-center gap-1 text-[9px] text-gray-400 hover:text-gray-600 transition-colors">
-              {copied ? <Check className="h-3 w-3 text-[#1B2A4A]" /> : <Copy className="h-3 w-3" />}
+              {copied ? <Check className="h-3 w-3 text-brand" /> : <Copy className="h-3 w-3" />}
               {copied ? "Copied" : "Copy"}
             </button>
           </div>
@@ -503,7 +503,7 @@ function AgentTimelineCard({ agent, isLast, isRunning, refCallback }: AgentCardP
         {/* Avatar — matches prototype phase icon style */}
         <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${
           isRunning ? `${color.bg} ${color.text}` :
-          isDone ? "bg-[#E8EDF5] text-[#1B2A4A]" :
+          isDone ? "bg-brand-fill text-brand" :
           isError ? "bg-red-50 text-red-500" :
           "bg-gray-100 text-gray-400"
         }`}>
@@ -524,7 +524,7 @@ function AgentTimelineCard({ agent, isLast, isRunning, refCallback }: AgentCardP
               </span>
             )}
             {isDone && (
-              <span className="text-[9px] font-bold text-[#1B2A4A] bg-[#E8EDF5] px-1.5 py-0.5 rounded-full">DONE</span>
+              <span className="text-[9px] font-bold text-brand bg-brand-fill px-1.5 py-0.5 rounded-full">DONE</span>
             )}
             {isError && (
               <span className="text-[9px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded-full">ERROR</span>
@@ -607,7 +607,12 @@ export function AgentThinkingTab({ agents, pipelineState, runInput, originalBrie
   const runningRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    runningRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    // Defensive: scrollIntoView is unimplemented in jsdom and may be absent in
+    // some embedded webviews — guard so a running-agent auto-scroll never throws.
+    const el = runningRef.current;
+    if (el && typeof el.scrollIntoView === "function") {
+      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
   }, [agents]);
 
   // Workstream C2 — the run input / clarify rounds are also first-class timeline
@@ -620,35 +625,19 @@ export function AgentThinkingTab({ agents, pipelineState, runInput, originalBrie
 
   if (!hasAnyData) return <EmptyState />;
 
-  // ── Spec Kit prototype pipeline: use rich visualization ──────────────────
-  const isPrototypePipeline = agents.some(a =>
-    ["prototype-specify", "prototype-plan", "prototype-analyze", "prototype-build", "prototype-validate"].includes(a.id)
-  );
-  if (isPrototypePipeline) {
-    // Workstream C2 (byv FIX-1): the prototype pipeline must ALSO show the run's
-    // Starting point → Clarifications preamble ABOVE the phase view (both live-
-    // after-build-starts AND every reopen). Reuse the SAME already-authored cards
-    // and prop expressions as the main render below — no re-authoring, no new props.
-    return (
-      <div className="flex flex-col h-full overflow-hidden">
-        <div className="flex-shrink-0 px-4 py-4 space-y-3">
-          <StartingPointCard
-            input={runInput}
-            originalBriefRootRunId={originalBriefRootRunId}
-            revisionParentVersion={revisionParentVersion}
-          />
-          <ClarificationsCard clarifications={resolvedClarifications} loading={clarificationsLoading} />
-        </div>
-        <div className="flex-1 min-h-0">
-          <PrototypePipelineView agents={agents} pipelineState={pipelineState} />
-        </div>
-      </div>
-    );
-  }
+  // SC-001 (Phase 32 plan 08): the former `isPrototypePipeline` branch that keyed
+  // on the phase-agent render-path name literals and swapped in the prototype-only
+  // PrototypePipelineView is REMOVED. Per INV-3
+  // (no dual implementation), the generic Steps drill-down below supersedes the
+  // bespoke phase view and renders EVERY workflow — prototype included — off the
+  // same generic agent-timeline + dual-source construction path. No workflow name
+  // gates the render; the drill-down knows no pipeline by name.
 
   const visibleAgents = agents.filter(a => a.status !== "idle" || (a.inputPrompt || (a.toolCalls?.length ?? 0) > 0));
 
-  // Derive a friendly pipeline label from agent ids (matches PrototypePipelineView style)
+  // Derive a friendly pipeline label from a GENERIC id-substring scan (SC-001 —
+  // the "prototype-" prefix is a structural family marker, never one of the three
+  // gated phase-agent render-path name literals).
   const pipelineLabel = (() => {
     const ids = agents.map(a => a.id);
     if (ids.some(id => id.includes("user_stories") || id.includes("domain-analyst") || id.includes("epic-architect") || id.includes("backlog"))) return "User Stories Pipeline";
@@ -657,6 +646,7 @@ export function AgentThinkingTab({ agents, pipelineState, runInput, originalBrie
     if (ids.some(id => id.includes("mulesoft"))) return "Mulesoft Migration Pipeline";
     if (ids.some(id => id.includes("dotnet"))) return ".NET Migration Pipeline";
     if (ids.some(id => id === "prototype-revision-agent")) return "Prototype Revision Pipeline";
+    if (ids.some(id => id.startsWith("prototype-"))) return "Prototype Pipeline";
     return "Pipeline";
   })();
 
@@ -698,10 +688,10 @@ export function AgentThinkingTab({ agents, pipelineState, runInput, originalBrie
         {pipelineState && !pipelineState.isRunning && visibleAgents.length > 0 &&
           visibleAgents.every(a => a.status === "done" || a.status === "error") && (
           <div className="flex items-center gap-2 py-2">
-            <div className="w-6 h-6 rounded-full bg-[#1B2A4A] flex items-center justify-center flex-shrink-0">
+            <div className="w-6 h-6 rounded-full bg-brand flex items-center justify-center flex-shrink-0">
               <CheckCircle2 className="h-3.5 w-3.5 text-white" />
             </div>
-            <span className="text-[11px] font-semibold text-[#1B2A4A]">Pipeline complete</span>
+            <span className="text-[11px] font-semibold text-brand">Pipeline complete</span>
             {pipelineState.totalDuration != null && (
               <span className="text-[10px] text-gray-400">in {pipelineState.totalDuration.toFixed(1)}s</span>
             )}
