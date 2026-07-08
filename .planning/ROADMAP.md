@@ -867,7 +867,7 @@ Plans:
 3. Audit tab reads the 3 new endpoints (`gate_events`/`validation_results`/`exec_runs`) with counters/filters + CSV/JSON export; governance keeps the status palette; one-chroma elsewhere.
 4. Failed/degraded/cancelled states faithful (P16 affordances + chat card); e2e green with brittle color assertions fixed + `data-testid`s added.
 
-**Plans:** 7/10 plans executed
+**Plans:** 8/10 plans executed
 Plans:
 **Wave 1**
 
@@ -884,7 +884,7 @@ Plans:
 
 - [x] 32-06-PLAN.md — RunChatLane reskin + absorb AgentProgressPanel + cancelled/failed/degraded terminal renders (Wave 3)
 - [x] 32-07-PLAN.md — Right tab shell reskin + Thinking->Steps + Preview manual switcher (Wave 3)
-- [ ] 32-08-PLAN.md — Steps 3-level drill-down + dual-source L3 + KAN-99 cap + inline gate/clarify + SC-001 de-literalize (Wave 3)
+- [x] 32-08-PLAN.md — Steps 3-level drill-down + dual-source L3 + KAN-99 cap + inline gate/clarify + SC-001 de-literalize (Wave 3)
 - [ ] 32-09-PLAN.md — Audit tab repoint to 3 endpoints + counters/filters + CSV/JSON export (Wave 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
@@ -959,7 +959,7 @@ Plans:
 | 29. Chat Backbone [A1] | 10/10 | Complete   | 2026-07-08 |
 | 30. Uploads & Multimodal [A2] | 0/? | Not started | — |
 | 31. Chat Lane MVP [A3] | 7/7 | Complete    | 2026-07-08 |
-| 32. Run-Screen Redesign [A4] | 7/10 | In Progress|  |
+| 32. Run-Screen Redesign [A4] | 8/10 | In Progress|  |
 | 33. Concierge + Compaction [A5] | 0/? | Not started | — |
 | 34. Live Pass & Closure [A6] | 0/? | Not started | — |
 | 35. Shell Chrome + Reskin Pages [B1] | 0/? | Not started | — |
