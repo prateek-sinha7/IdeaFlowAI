@@ -943,7 +943,7 @@ Plans:
 **Plans:** 7 plans (2 waves)
 **Wave 1**
 
-- [ ] 35-01-PLAN.md — Shell chrome: dark top bar + nav pill (My Workflows) + a11y profile menu + notifications panel + baseline capture (Wave 1)
+- [x] 35-01-PLAN.md — Shell chrome: dark top bar + nav pill (My Workflows) + a11y profile menu + notifications panel + baseline capture (Wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -995,7 +995,7 @@ Plans:
 | 32. Run-Screen Redesign [A4] | 10/10 | Complete   | 2026-07-08 |
 | 33. Concierge + Compaction [A5] | 5/5 | Verified⚠ (P34 live) | — |
 | 34. Live Pass & Closure [A6] | 0/? | Not started | — |
-| 35. Shell Chrome + Reskin Pages [B1] | 0/? | Not started | — |
+| 35. Shell Chrome + Reskin Pages [B1] | 1/7 | In progress | — |
 | 36. Home + History + My Workflows [B2] | 0/? | Not started | — |
 | 37. Configure Unification [B3] | 0/? | Not started | — |
 | 38. Analytics, Estimates & Notifications [B4] | 0/? | Not started | — |
