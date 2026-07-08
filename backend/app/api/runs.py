@@ -1063,3 +1063,147 @@ async def get_hook_runs(
             for r in rows
         ],
     }
+
+
+def _owner_gate_or_404(db: Session, workflow_id: str, user_id: str) -> WorkflowRun:
+    """Layer-1 owner gate shared by the audit reads (mirrors ``get_hook_runs``).
+
+    Gates the run by ``WorkflowRun.user_id == current_user.id`` — the principal,
+    NEVER the nullable ``owner_id`` — so a cross-owner or missing run resolves to
+    404 (IDOR → 404, never 403, never a 200 with another owner's rows; P13/P25).
+    """
+    workflow_run = (
+        db.query(WorkflowRun)
+        .filter(WorkflowRun.id == workflow_id, WorkflowRun.user_id == user_id)
+        .first()
+    )
+    if not workflow_run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow run not found",
+        )
+    return workflow_run
+
+
+@router.get("/{workflow_id}/gate-events")
+async def get_gate_events(
+    workflow_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the run's ``gate_events`` rows for the Audit tab (SC-3).
+
+    Additive, read-only, owner-scoped read over the engine-populated
+    ``gate_events`` table. Two-layer owner gate (mirrors ``get_hook_runs``):
+    Layer 1 gates the run by ``user_id`` (→ 404 on cross-owner/missing); Layer 2
+    re-filters the child rows by ``owner_id`` (defense-in-depth, T-32-03-01/03).
+    Rows are ordered by ``created_at`` ascending so the Audit tab shows events in
+    execution order.
+    """
+    _owner_gate_or_404(db, workflow_id, current_user.id)
+
+    rows = (
+        db.query(GateEvent)
+        .filter(GateEvent.run_id == workflow_id, GateEvent.owner_id == current_user.id)
+        .order_by(GateEvent.created_at.asc())
+        .all()
+    )
+    return {
+        "workflow_id": workflow_id,
+        "gate_events": [
+            {
+                "id": r.id,
+                "run_id": r.run_id,
+                "step": r.step,
+                "gate": r.gate,
+                "outcome": r.outcome,
+                "detail": r.detail,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/{workflow_id}/validation-results")
+async def get_validation_results(
+    workflow_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the run's ``validation_results`` rows for the Audit tab (SC-3).
+
+    Additive, read-only, owner-scoped read over the engine-populated
+    ``validation_results`` table. Two-layer owner gate identical to
+    ``get_gate_events`` (Layer 1 ``user_id`` → 404; Layer 2 ``owner_id``
+    re-filter). Ordered by ``created_at`` ascending.
+    """
+    _owner_gate_or_404(db, workflow_id, current_user.id)
+
+    rows = (
+        db.query(ValidationResult)
+        .filter(
+            ValidationResult.run_id == workflow_id,
+            ValidationResult.owner_id == current_user.id,
+        )
+        .order_by(ValidationResult.created_at.asc())
+        .all()
+    )
+    return {
+        "workflow_id": workflow_id,
+        "validation_results": [
+            {
+                "id": r.id,
+                "run_id": r.run_id,
+                "step": r.step,
+                "validator": r.validator,
+                "severity": r.severity,
+                "attempt": r.attempt,
+                "issues": r.issues,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/{workflow_id}/exec-runs")
+async def get_exec_runs(
+    workflow_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the run's ``exec_runs`` rows for the Audit tab (SC-3).
+
+    Additive, read-only, owner-scoped read over the engine-populated ``exec_runs``
+    table. Two-layer owner gate identical to ``get_gate_events``. The projection
+    surfaces the ``output_digest`` column AS STORED (truncated by design) and
+    NEVER re-reads or expands the raw child output, which could carry a secret
+    (T-32-03-02 / ASVS V7). Ordered by ``created_at`` ascending.
+    """
+    _owner_gate_or_404(db, workflow_id, current_user.id)
+
+    rows = (
+        db.query(ExecRun)
+        .filter(ExecRun.run_id == workflow_id, ExecRun.owner_id == current_user.id)
+        .order_by(ExecRun.created_at.asc())
+        .all()
+    )
+    return {
+        "workflow_id": workflow_id,
+        "exec_runs": [
+            {
+                "id": r.id,
+                "run_id": r.run_id,
+                "step": r.step,
+                "argv_json": r.argv_json,
+                "outcome": r.outcome,
+                "exit_code": r.exit_code,
+                "duration_ms": r.duration_ms,
+                "policy_snapshot_json": r.policy_snapshot_json,
+                "output_digest": r.output_digest,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
+    }
