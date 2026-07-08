@@ -338,6 +338,17 @@ class MessageCommand(BaseModel):
     skip_clarification: bool = False
     analysis_report: str | None = None
     target_artifact_type: str | None = None
+    # concierge: the generic free-form marker (Phase 33 / D-04) the FE sets on a lane
+    # "ask the Concierge" turn. A NON-workflow discriminator (SC-001/INV-1) — it opts the
+    # turn into the free-form→Concierge escalation (route_chat_turn → CHANNEL_CONCIERGE)
+    # without disturbing the zero-model routing of any routable turn. Default False ⇒
+    # dormant (byte-identical Phase-29 routing for every non-concierge turn, INV-12).
+    concierge: bool = False
+    # confirm_proposal: the FE confirm round-trip (33-04). A concierge turn carrying a
+    # previously-HELD consequential proposal to EXECUTE: {"channel": ..., "params": {...}}
+    # reconstructed from the durable ``concierge_proposal`` row. Present ⇒ the held intent
+    # is disposed CONFIRMED through its Phase-29 seam; absent ⇒ a fresh free-form ask.
+    confirm_proposal: dict | None = None
     # images: per-turn image attachments (UPLD-02 residue, 30-03) — untrusted base64
     # {mime_type, data} entries cap-validated by the SHARED ``_validate_images`` ingress
     # caps (the exact caps the launch path uses) BEFORE queueing; a violation → 400.
@@ -416,6 +427,198 @@ async def _persist_chat_message(
     )
 
 
+# ---------------------------------------------------------------------------
+# Concierge disposal (33-03 / D-05) — the app layer DISPOSES the Concierge's
+# proposal-only intents through the SAME Phase-29 seams the mechanical router uses.
+# NO new execution path (INV-12): gate_action → set_review_response, steering_note →
+# apply_steering, revision → _mint_revision_row + _drive_revision_to_queue.
+# ---------------------------------------------------------------------------
+
+# The Concierge PROPOSES gate actions in its own vocabulary ({approve, reject,
+# request_changes, update_specs}); the Phase-29 gate seam (store.set_review_response)
+# names "changes requested, carrying instructions" `redo`. Reconcile the ONE differing
+# name here so a proposed action never reaches the seam unrecognized (never silently
+# passed through). approve/reject/update_specs are identical on both sides.
+_CONCIERGE_GATE_ACTION_MAP = {"request_changes": "redo"}
+
+# The two CONSEQUENTIAL proposal channels — held behind a confirm chip (T-33-03-01).
+# steering_note is non-consequential (best-effort nudge) and applies immediately.
+_CONSEQUENTIAL_PROPOSAL_CHANNELS = frozenset({"gate_action", "revision"})
+
+
+class _ConciergeCtx:
+    """The minimal owner-scoped ctx handed to ``ConciergeCapability.converse``.
+
+    Carries only what the Concierge reads: the ``run_id``, the owner+workspace
+    ``ScopedStore`` (its ONLY read surface), and ``model=None`` (Haiku default via the
+    sanctioned runner). ``conversation_context``/``compiled`` are absent ⇒ the Concierge
+    degrades gracefully (``getattr`` defaults). No workflow name is ever passed (INV-1).
+    """
+
+    def __init__(self, *, run_id, scoped_store, owner_id, workspace_id):
+        self.run_id = run_id
+        self.scoped_store = scoped_store
+        self.owner_id = owner_id
+        self.workspace_id = workspace_id
+        self.model = None
+
+
+def _resolve_concierge():
+    """Resolve the shared ``chat:concierge`` capability impl (static registry lookup).
+
+    A pure ``(kind, name)`` dict lookup — no workflow-name branch (SC-001/INV-1). Isolated
+    in a helper so the offline test can monkeypatch it with a scripted fake (no live
+    model call); production returns the registered ``ConciergeCapability`` (Haiku)."""
+    from agents.capabilities.registry import CapabilityRegistry, discover
+
+    discover()
+    return CapabilityRegistry().resolve("chat", "concierge")
+
+
+def _drain_concierge_proposals(concierge) -> list:
+    """Return the ProposalIntents the Concierge surfaced this invocation (else []).
+
+    Duck-typed forward seam: a concierge exposing ``drain_proposals()`` returns its
+    staged intents. The 33-02 ``converse`` returns only its answer text (proposals ride
+    the model's tool-results); LIVE surfacing of those tool-results is Phase-34
+    live-deferred (DEF), so this yields [] against the current impl — the disposal +
+    confirm-chip contract itself is proven offline via the confirm round-trip below."""
+    drain = getattr(concierge, "drain_proposals", None)
+    if callable(drain):
+        return list(drain() or [])
+    return []
+
+
+async def _dispose_concierge_proposal(
+    intent,
+    *,
+    confirmed: bool,
+    store,
+    art_store,
+    run_id: str,
+    message_id: str,
+    current_user: "User",
+    wr_status: str,
+    wr_type: str,
+    gate_key: str | None,
+    ectx,
+) -> dict:
+    """Dispose ONE Concierge ``ProposalIntent`` through its matching Phase-29 seam (D-05).
+
+    NO new execution path (INV-12) — the SAME functions the mechanical router uses:
+
+      * ``steering_note`` → :func:`chat_router.apply_steering` (29-08). Non-consequential:
+        applied immediately, best-effort (the durable ``chat_message`` row is the record,
+        re-derived on resume — ND-9).
+      * ``gate_action`` → ``store.set_review_response`` (the POST /gate seam). The proposed
+        action is reconciled via ``_CONCIERGE_GATE_ACTION_MAP`` (request_changes→redo);
+        the KAN-100 terminal fence + KAN-94 armed-gate ground truth are enforced so a
+        proposal never resolves a stopped run or an unarmed gate.
+      * ``revision`` → ``_mint_revision_row`` + ``_drive_revision_to_queue`` (D-02, SC-3) —
+        the shipped family-child seam; live stitching rides the existing per-run queue +
+        ``run_events``. Reuses ``REVISION_BASE_MAP`` (via ``_mint_revision_row``).
+
+    CONSEQUENTIAL proposals (gate_action, revision) are HELD behind a confirm chip
+    (T-33-03-01): when ``confirmed`` is False a durable ``concierge_proposal`` ``run_events``
+    row is emitted carrying the pending intent and NO seam runs — the seam executes only on
+    the subsequent confirmed turn (the FE confirm round-trip lands in 33-04). The row is
+    additive (no new table; owner_id+workspace_id stamped by ``ScopedStore``).
+    """
+    channel = getattr(intent, "channel", None)
+    params = dict(getattr(intent, "params", {}) or {})
+
+    # ── steering_note → apply_steering (best-effort; applied immediately). ───────────
+    if channel == "steering_note":
+        from app.api.chat_router import apply_steering
+
+        apply_steering(ectx, {"text": params.get("note", ""), "sticky": False})
+        return {"channel": channel, "disposed": "steering"}
+
+    # ── CONSEQUENTIAL: hold behind a confirm chip until the FE confirms (33-04). ─────
+    if channel in _CONSEQUENTIAL_PROPOSAL_CHANNELS and not confirmed:
+        await store.append_event_next_seq(
+            run_id,
+            event_id=f"concierge-proposal:{message_id}:{channel}",
+            type="concierge_proposal",
+            payload_json={
+                "pipeline_run_id": run_id,
+                "message_id": message_id,
+                "channel": channel,
+                "params": params,
+                "status": "pending",  # awaiting the FE confirm round-trip (33-04)
+            },
+        )
+        return {"channel": channel, "held": True}
+
+    # ── gate_action → store.set_review_response (KAN-94 armed + KAN-100 fenced). ─────
+    if channel == "gate_action":
+        from app.api.chat_router import TERMINAL_STATUSES
+
+        if (
+            wr_status in TERMINAL_STATUSES
+            or not gate_key
+            or not _gate_is_pending(art_store, gate_key)
+        ):
+            # A proposed gate resolution never resolves a stopped run or an unarmed gate.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error": "Pipeline is no longer running",
+                    "code": "pipeline_not_running",
+                    "recoverable": False,
+                },
+            )
+        raw_action = params.get("action", "approve")
+        action = _CONCIERGE_GATE_ACTION_MAP.get(raw_action, raw_action)
+        rationale = params.get("rationale") or None
+        if action == "redo":
+            await art_store.set_review_response(
+                gate_key, approved=False, action="redo", instructions=rationale
+            )
+        elif action == "update_specs":
+            await art_store.set_review_response(
+                gate_key, approved=False, action="update_specs",
+                instructions=rationale or "",
+            )
+        elif action == "reject":
+            await art_store.set_review_response(gate_key, approved=False)
+        else:  # approve (default)
+            await art_store.set_review_response(gate_key, approved=True)
+        return {"channel": channel, "disposed": "gate", "action": action}
+
+    # ── revision → _mint_revision_row + _drive_revision_to_queue (family child). ────
+    if channel == "revision":
+        target = params.get("target") or f"{wr_type}_output"
+        instruction = params.get("instruction", "")
+        rdb = _get_db()
+        try:
+            child_run_id, _ = _mint_revision_row(
+                rdb, user=current_user, parent_run_id=run_id,
+                target_artifact_type=target, instruction=instruction,
+            )
+        finally:
+            rdb.close()
+        cancel_event = asyncio.Event()
+        _CANCEL_EVENTS[child_run_id] = cancel_event
+        event_queue = _get_or_create_queue(child_run_id)
+        task = asyncio.create_task(
+            _drive_revision_to_queue(
+                workflow_run_id=child_run_id,
+                parent_run_id=run_id,
+                target_artifact_type=target,
+                instruction=instruction,
+                user=current_user,
+                cancel_event=cancel_event,
+                event_queue=event_queue,
+            )
+        )
+        _PIPELINE_TASKS[child_run_id] = task
+        return {"channel": channel, "disposed": "revision", "revision_run_id": child_run_id}
+
+    # Unknown channel — inert (a proposal never self-executes past the known seams).
+    return {"channel": channel, "disposed": "noop"}
+
+
 @router.post("/{run_id}/messages")
 async def post_message(
     run_id: str,
@@ -433,6 +636,7 @@ async def post_message(
 
     from app.api.chat_router import (
         CHANNEL_ANSWERS,
+        CHANNEL_CONCIERGE,
         CHANNEL_GATE,
         CHANNEL_REVISION,
         CHANNEL_STEERING,
@@ -519,6 +723,7 @@ async def post_message(
         skip_clarification=body.skip_clarification,
         analysis_report=body.analysis_report,
         target_artifact_type=body.target_artifact_type,
+        concierge=body.concierge,
     )
     dispatch = route_chat_turn(run_state, turn)
 
@@ -606,6 +811,66 @@ async def post_message(
         return {
             "ok": True, "run_id": run_id, "seq": seq, "persisted": created,
             "channel": dispatch.channel, "revision_run_id": child_run_id,
+        }
+    elif dispatch.channel == CHANNEL_CONCIERGE:
+        # ── Free-form → Concierge (D-04, Phase 33). The router CLASSIFIED this turn as
+        #    free-form; the model INVOCATION happens HERE (never in the pure router). ──
+        # Best-effort live in-process ectx handle (None today — DEF-29-09-1): a disposed
+        # steering_note rides the SAME 29-08 seam as the mechanical steering channel.
+        ectx = _live_ectx_for_run(run_id)
+
+        # A CONFIRM turn carries a previously-HELD proposal to EXECUTE (the FE confirm
+        # round-trip, 33-04): reconstruct the intent and dispose it CONFIRMED through its
+        # Phase-29 seam. No model call — the answer was already given on the ask turn.
+        if body.confirm_proposal:
+            from app.agents.chat.concierge import ProposalIntent
+
+            intent = ProposalIntent(
+                channel=body.confirm_proposal.get("channel", ""),
+                params=dict(body.confirm_proposal.get("params", {}) or {}),
+            )
+            result = await _dispose_concierge_proposal(
+                intent, confirmed=True, store=store, art_store=art_store,
+                run_id=run_id, message_id=body.message_id, current_user=current_user,
+                wr_status=wr_status, wr_type=wr_type, gate_key=resolved_gate_key,
+                ectx=ectx,
+            )
+            return {
+                "ok": True, "run_id": run_id, "seq": seq, "persisted": created,
+                "channel": dispatch.channel, "proposal": result,
+            }
+
+        # A fresh free-form turn: invoke the Concierge (owner-scoped) and project its
+        # answer to the lane as a chat_reply row (the documented answer-projection type;
+        # additive, no new table). The Concierge is proposal-only — any proposal it
+        # surfaces is HELD behind a confirm chip (T-33-03-01), never auto-executed.
+        concierge = _resolve_concierge()
+        ctx = _ConciergeCtx(
+            run_id=run_id, scoped_store=store,
+            owner_id=current_user.id, workspace_id=wr_workspace,
+        )
+        answer = await concierge.converse(ctx, body.text)
+        await store.append_event_next_seq(
+            run_id,
+            event_id=f"chat-reply:{body.message_id}",
+            type="chat_reply",
+            payload_json={
+                "pipeline_run_id": run_id,
+                "message_id": body.message_id,
+                "text": answer or "",
+            },
+        )
+        held: list = []
+        for intent in _drain_concierge_proposals(concierge):
+            held.append(await _dispose_concierge_proposal(
+                intent, confirmed=False, store=store, art_store=art_store,
+                run_id=run_id, message_id=body.message_id, current_user=current_user,
+                wr_status=wr_status, wr_type=wr_type, gate_key=resolved_gate_key,
+                ectx=ectx,
+            ))
+        return {
+            "ok": True, "run_id": run_id, "seq": seq, "persisted": created,
+            "channel": dispatch.channel, "reply": True, "proposals": held,
         }
 
     return {
