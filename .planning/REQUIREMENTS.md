@@ -214,7 +214,7 @@ Registered 2026-07-07 via `/gsd-import`. Plan of record: `.planning/CHAT-AND-UI-
 
 ### Uploads & Multimodal (Phase 30)
 
-- [ ] **UPLD-01**: `POST /api/runs/{id}/files` (multipart, two-layer owner check → 404) persisting bytes under the run's `RunSandbox`
+- [x] **UPLD-01**: `POST /api/runs/{id}/files` (multipart, two-layer owner check → 404) persisting bytes under the run's `RunSandbox` — **DONE 30-01** (owner-scoped, capped, traversal-proof; docs land under reserved `.uploads/` + extract-text sidecar + manifest; deliverable-excluded, INV-3 dormant)
 - [~] **UPLD-02**: `run_images` provider live end-to-end (WS ingress → engine → `HumanMessage` content blocks) incl. per-turn images — **run-entry path LANDED 2026-07-07 pre-milestone** (IMAGE-INPUT-PLAN waves `edw`/`frv`/`gvq`, offline-proven for `prototype`; validation caps + vision guard included); remaining: the per-turn carrier (needs the Phase 29 `chat_message` path) + live Bedrock proof (Phase 34/LIVE-02)
 - [ ] **UPLD-03**: Documents extract-to-sticky-context AND land in the sandbox for agent `read_file`; `context_provider:uploaded_files` registered; uploaded context present in every subsequent `agent_input`
 - [~] **UPLD-04**: Launch-time attachments (incl. images, client-resized) ride `run_pipeline` — **image attachments LANDED 2026-07-07 pre-milestone** (FE picker + base64 + preview chips on 3 surfaces → `run_pipeline` `images`); remaining: client-side resize, paste/drag-drop (Phase 31 UI)
@@ -451,7 +451,7 @@ Each v1 requirement maps to exactly one phase, **one row per requirement** (REQ-
 | CHAT-05 | Phase 29 [A1] | Complete |
 | CHAT-06 | Phase 28 [A0] | Complete |
 | CHAT-07 | Phase 29 [A1] | Complete |
-| UPLD-01 | Phase 30 [A2] | Pending |
+| UPLD-01 | Phase 30 [A2] | Complete (30-01) |
 | UPLD-02 | Phase 30 [A2] | Pending |
 | UPLD-03 | Phase 30 [A2] | Pending |
 | UPLD-04 | Phase 30 [A2] | Pending |
