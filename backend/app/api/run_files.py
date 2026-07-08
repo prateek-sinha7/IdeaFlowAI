@@ -37,9 +37,11 @@ Additive: no new table, no migration (the sandbox + reserved prefix cover it).
 
 from __future__ import annotations
 
+import fcntl
 import json
 import logging
 import os
+from contextlib import contextmanager
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 
@@ -192,49 +194,53 @@ async def upload_files(
     sandbox.ensure()
 
     manifest_rel = f"{_UPLOADS_PREFIX}manifest.json"
-    manifest = _read_manifest(sandbox, manifest_rel)
-    # Seed with the names already stored for this run so a new upload never silently
-    # overwrites a prior one either (WR-01) — every stored file keeps a distinct name.
-    used_names: set[str] = set(manifest)
-    results: list[dict] = []
+    # Hold the per-run manifest lock across the WHOLE dedupe→write→merge section so a
+    # concurrent upload cannot dedupe against a stale snapshot or drop entries in a
+    # last-write-wins race (WR-02).
+    with _manifest_lock(sandbox):
+        manifest = _read_manifest(sandbox, manifest_rel)
+        # Seed with the names already stored for this run so a new upload never silently
+        # overwrites a prior one either (WR-01) — every stored file keeps a distinct name.
+        used_names: set[str] = set(manifest)
+        results: list[dict] = []
 
-    for name, data, ext, mime in validated:
-        safe = _dedupe_segment(
-            _safe_segment(os.path.basename(name), fallback="upload"), used_names
+        for name, data, ext, mime in validated:
+            safe = _dedupe_segment(
+                _safe_segment(os.path.basename(name), fallback="upload"), used_names
+            )
+            used_names.add(safe)
+            raw_rel = f"{_UPLOADS_PREFIX}{safe}"
+            _write_bytes(sandbox, raw_rel, data)
+
+            extracted_chars = 0
+            truncated = False
+            has_text = False
+            if ext in _EXTRACTABLE_EXTS:
+                text = extract_upload_text(name, data)
+                if text.strip():
+                    truncated = len(text) > settings.BRIEF_MAX_CHARS
+                    capped = text[: settings.BRIEF_MAX_CHARS]
+                    _write_bytes(sandbox, f"{raw_rel}.txt", capped.encode("utf-8"))
+                    extracted_chars = len(capped)
+                    has_text = True
+
+            # manifest append-merge (keyed on the safe on-disk name — the stable
+            # contract 30-02's provider reads).
+            manifest[safe] = {"name": safe, "mime": mime, "has_text": has_text}
+            results.append(
+                {
+                    "name": safe,
+                    "bytes": len(data),
+                    "extracted_chars": extracted_chars,
+                    "truncated": truncated,
+                }
+            )
+
+        _write_bytes(
+            sandbox,
+            manifest_rel,
+            json.dumps(list(manifest.values()), ensure_ascii=False).encode("utf-8"),
         )
-        used_names.add(safe)
-        raw_rel = f"{_UPLOADS_PREFIX}{safe}"
-        _write_bytes(sandbox, raw_rel, data)
-
-        extracted_chars = 0
-        truncated = False
-        has_text = False
-        if ext in _EXTRACTABLE_EXTS:
-            text = extract_upload_text(name, data)
-            if text.strip():
-                truncated = len(text) > settings.BRIEF_MAX_CHARS
-                capped = text[: settings.BRIEF_MAX_CHARS]
-                _write_bytes(sandbox, f"{raw_rel}.txt", capped.encode("utf-8"))
-                extracted_chars = len(capped)
-                has_text = True
-
-        # manifest append-merge (keyed on the safe on-disk name — the stable
-        # contract 30-02's provider reads).
-        manifest[safe] = {"name": safe, "mime": mime, "has_text": has_text}
-        results.append(
-            {
-                "name": safe,
-                "bytes": len(data),
-                "extracted_chars": extracted_chars,
-                "truncated": truncated,
-            }
-        )
-
-    _write_bytes(
-        sandbox,
-        manifest_rel,
-        json.dumps(list(manifest.values()), ensure_ascii=False).encode("utf-8"),
-    )
 
     logger.info(
         "run upload: user=%s run=%s files=%d aggregate_bytes=%d",
@@ -266,3 +272,29 @@ def _write_bytes(sandbox: RunSandbox, relpath: str, data: bytes) -> None:
     path = sandbox.path_for(relpath)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
+
+
+@contextmanager
+def _manifest_lock(sandbox: RunSandbox):
+    """Serialize the per-run ``.uploads`` manifest read-merge-write across concurrent
+    uploads (WR-02).
+
+    The manifest is loaded, merged with the new entries in memory, and written back as a
+    non-atomic read-modify-write. Two ``POST /files`` requests for the SAME run (two
+    browser tabs, or a client retry racing the original) could otherwise both read the
+    same snapshot and last-write-wins — the loser's raw files + sidecars still land on
+    disk, but its manifest entries are lost, so ``uploaded_files`` (which drives entirely
+    off the manifest) silently never surfaces that document even though the request
+    returned 200. A POSIX advisory lock on a dedicated lock file makes the whole
+    dedupe→write→merge section mutually exclusive ACROSS processes (e.g. multiple uvicorn
+    workers), not merely within one event loop; a waiter blocks until the holder releases.
+    """
+    lock_path = sandbox.path_for(f"{_UPLOADS_PREFIX}manifest.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)

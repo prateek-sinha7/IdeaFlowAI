@@ -331,6 +331,57 @@ class TestFilenameCollision:
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# Manifest read-merge-write serialization (WR-02)
+# ════════════════════════════════════════════════════════════════════════════
+
+
+class TestManifestLockSerialization:
+    def test_manifest_lock_is_mutually_exclusive(self, env):
+        """The per-run advisory lock is genuinely exclusive: while held, a second
+        acquirer cannot take it; once released, it is free again."""
+        import fcntl
+        import os as _os
+
+        user = _seed_user(env, "u")
+        run_id = _owned_run(env, user)
+        sb = _sandbox(env, user.id, run_id)
+        sb.ensure()
+        rf = env["rf"]
+        lock_path = str(sb.path_for(".uploads/manifest.lock"))
+
+        with rf._manifest_lock(sb):
+            fd2 = _os.open(lock_path, _os.O_CREAT | _os.O_RDWR, 0o600)
+            try:
+                with pytest.raises(BlockingIOError):
+                    fcntl.flock(fd2, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            finally:
+                _os.close(fd2)
+
+        # Released → a fresh non-blocking acquire must now succeed.
+        fd3 = _os.open(lock_path, _os.O_CREAT | _os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(fd3, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(fd3, fcntl.LOCK_UN)
+        finally:
+            _os.close(fd3)
+
+    def test_upload_acquires_the_lock_and_manifest_lands(self, env):
+        """The endpoint path runs the manifest write under the lock (its lock file
+        exists) and the manifest still lands correctly."""
+        import json
+
+        user = _seed_user(env, "u")
+        run_id = _owned_run(env, user)
+        env["state"]["user"] = user
+        resp = _post(env, run_id, [("files", ("a.txt", b"hi", "text/plain"))])
+        assert resp.status_code == 200
+        sb = _sandbox(env, user.id, run_id)
+        assert sb.path_for(".uploads/manifest.lock").exists()
+        manifest = json.loads(sb.path_for(".uploads/manifest.json").read_text())
+        assert [e["name"] for e in manifest] == ["a.txt"]
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # Deliverable exclusion (T-30-05 / INV-3)
 # ════════════════════════════════════════════════════════════════════════════
 
