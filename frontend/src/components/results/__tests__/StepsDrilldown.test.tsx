@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, fireEvent } from "@testing-library/react";
 import type { AgentRunState, PipelineRunState, WaveGroup } from "@/types/index";
+import type { GateContext } from "@/components/chat/RunChatLane";
+import type { ClarifyQuestion } from "@/components/preview/QuestionnairePanel";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 32 plan 08 (SC-2, STEPS-ARTIFACT-DERIVATION-CONTRACT) — the Steps
@@ -121,5 +123,78 @@ describe("Steps drill-down — construction dual-source + KAN-99 cap (SC-2)", ()
     );
 
     expect(screen.getByTestId("construction-progress")).toHaveTextContent("3/3");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Inline gate/clarify in the Steps drill-down — the plan-06/07 dormant gate/
+// clarify passthrough is now CONSUMED via the REUSED generic InlineGateActions /
+// InlineClarifyActions (KAN-101/95/100/98). Same generic approve_review /
+// submit_questionnaire channels; the Update-the-Specs affordance is driven off
+// updateSpecsEligible, never a workflow name (SC-001).
+// ─────────────────────────────────────────────────────────────────────────────
+describe("Steps drill-down — inline gate/clarify (SC-2, KAN cluster)", () => {
+  const GATE: GateContext = {
+    agentId: "gate-agent",
+    agentName: "Spec Agent",
+    output: "<spec>\n## Overview\nA thing.\n</spec>",
+    gateKey: "run-1:gate",
+    redoable: false,
+    updateSpecsEligible: true,
+    approveLabel: "Approve the spec",
+  };
+
+  function renderGate(over: Partial<GateContext> = {}, running = true) {
+    render(
+      <AgentThinkingTab
+        agents={buildState().agents}
+        pipelineState={buildState({ isRunning: running })}
+        laneGate={{ ...GATE, ...over }}
+        onApproveGate={vi.fn()}
+        onRejectGate={vi.fn()}
+        onUpdateSpecsGate={vi.fn()}
+      />,
+    );
+  }
+
+  it("renders the inline gate card via the reused InlineGateActions", () => {
+    renderGate();
+    expect(screen.getByTestId("chat-gate-actions")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-gate-approve")).toBeInTheDocument();
+  });
+
+  it("shows Update-the-Specs ONLY when updateSpecsEligible (KAN-101, generic flag)", () => {
+    renderGate({ updateSpecsEligible: true });
+    expect(screen.getByTestId("chat-gate-update-specs")).toBeInTheDocument();
+  });
+
+  it("hides Update-the-Specs when NOT eligible", () => {
+    renderGate({ updateSpecsEligible: false });
+    expect(screen.queryByTestId("chat-gate-update-specs")).toBeNull();
+  });
+
+  it("KAN-100 terminal fence: renders NO gate actions once the pipeline is not running", () => {
+    renderGate({}, false);
+    expect(screen.queryByTestId("chat-gate-actions")).toBeNull();
+  });
+
+  it("renders the inline clarify card and emits the canonical [{question_id, answer}]", () => {
+    const onSubmitClarify = vi.fn();
+    const questions: ClarifyQuestion[] = [
+      { id: "q1", question: "Which auth?", options: ["OAuth", "SAML"] } as ClarifyQuestion,
+    ];
+    render(
+      <AgentThinkingTab
+        agents={buildState().agents}
+        pipelineState={buildState()}
+        clarifyQuestions={questions}
+        onSubmitClarify={onSubmitClarify}
+        onSkipClarify={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("chat-clarify-actions")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByTestId("chat-clarify-chip")[0]);
+    fireEvent.click(screen.getByTestId("chat-clarify-submit"));
+    expect(onSubmitClarify).toHaveBeenCalledWith([{ question_id: "q1", answer: "OAuth" }]);
   });
 });
