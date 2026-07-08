@@ -867,7 +867,7 @@ Plans:
 3. Audit tab reads the 3 new endpoints (`gate_events`/`validation_results`/`exec_runs`) with counters/filters + CSV/JSON export; governance keeps the status palette; one-chroma elsewhere.
 4. Failed/degraded/cancelled states faithful (P16 affordances + chat card); e2e green with brittle color assertions fixed + `data-testid`s added.
 
-**Plans:** 2/10 plans executed
+**Plans:** 3/10 plans executed
 Plans:
 **Wave 1**
 
@@ -876,7 +876,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 32-03-PLAN.md — 3 additive owner-scoped Audit read endpoints (IDOR->404) + tests (Wave 2)
+- [x] 32-03-PLAN.md — 3 additive owner-scoped Audit read endpoints (IDOR->404) + tests (Wave 2)
 - [ ] 32-04-PLAN.md — SC-001 golden-neutral review_gate_ready flag (update_specs_eligible) + 5 goldens byte-identical (Wave 2)
 - [ ] 32-05-PLAN.md — Chat-lane state: ISS-035 cancel marker + ISS-036 runId + SC-001 L2 fix + flag parse (Wave 2)
 
@@ -959,7 +959,7 @@ Plans:
 | 29. Chat Backbone [A1] | 10/10 | Complete   | 2026-07-08 |
 | 30. Uploads & Multimodal [A2] | 0/? | Not started | — |
 | 31. Chat Lane MVP [A3] | 7/7 | Complete    | 2026-07-08 |
-| 32. Run-Screen Redesign [A4] | 2/10 | In Progress|  |
+| 32. Run-Screen Redesign [A4] | 3/10 | In Progress|  |
 | 33. Concierge + Compaction [A5] | 0/? | Not started | — |
 | 34. Live Pass & Closure [A6] | 0/? | Not started | — |
 | 35. Shell Chrome + Reskin Pages [B1] | 0/? | Not started | — |
