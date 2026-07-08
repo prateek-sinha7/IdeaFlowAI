@@ -215,8 +215,62 @@ def project_milestone_card(event: Any) -> dict | None:
     }
 
 
+# ---------------------------------------------------------------------------
+# Persistence — append the card as a chat_reply run_events row (zero new tables).
+# ---------------------------------------------------------------------------
+def _reply_event_id(source_event_id: str | None, card: dict) -> str:
+    """Derive the durable ``event_id`` for the card row.
+
+    Idempotency lives at the stamping boundary: a card projected from the SAME source
+    milestone yields the SAME ``event_id`` (namespaced ``chat_reply:{source}``), so a
+    replayed milestone resolves to the already-present row (a no-op — no second card).
+    When the source carries no ``event_id`` (rare), fall back to the card's own nonce.
+    """
+    if source_event_id:
+        return f"{CHAT_REPLY_TYPE}:{source_event_id}"
+    return f"{CHAT_REPLY_TYPE}:{card['deep_link']['nonce']}"
+
+
+async def persist_milestone_card(
+    store: Any, run_id: str, event: Any
+) -> tuple[bool, int, dict] | None:
+    """Project ``event`` and persist the card as a ``chat_reply`` ``run_events`` row.
+
+    Returns ``(created, seq, card)`` — or ``None`` when the event is not a projectable
+    milestone (nothing persisted). ``created=False`` marks an idempotent no-op (a row for
+    the same source milestone already exists). The row is appended through the SINGLE
+    ``ScopedStore.append_event`` stamping boundary (evidence 03 §6): family-anchored on
+    ``run_id``, owner+workspace default-deny (the ``store`` carries the scope), with the
+    contiguous per-run ``seq`` (max persisted + 1) the engine sink itself computes — so the
+    card inherits seq/event_id replay + reopen for free, with **zero new tables**.
+
+    The projection reads only the run's OWN scoped events (``store.read_events``), so a
+    card can never leak or resolve a cross-owner milestone (T-29-10-1).
+    """
+    card = project_milestone_card(event)
+    if card is None:
+        return None
+
+    reply_eid = _reply_event_id(_event_id(event), card)
+    existing = await store.read_events(run_id, after_seq=0)
+    for row in existing:
+        if getattr(row, "event_id", None) == reply_eid:
+            return False, int(getattr(row, "seq", 0) or 0), card  # replay → no-op
+
+    next_seq = max((int(getattr(r, "seq", 0) or 0) for r in existing), default=0) + 1
+    await store.append_event(
+        run_id,
+        seq=next_seq,
+        event_id=reply_eid,
+        type=CHAT_REPLY_TYPE,
+        payload_json=card,
+    )
+    return True, next_seq, card
+
+
 __all__ = [
     "project_milestone_card",
+    "persist_milestone_card",
     "consume_deep_link",
     "CARD_KINDS",
     "CARD_CLARIFY",
