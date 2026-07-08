@@ -934,3 +934,136 @@ export async function getRunHookRuns(
     headers: authHeaders(token),
   });
 }
+
+// ── Audit-tab read endpoints (SC-3, phase 32 plan 03) ───────────────────────
+// The Audit tab reads three owner-scoped, read-only audit projections per run.
+// Each endpoint applies a two-layer owner gate server-side and resolves a
+// cross-owner / missing run to 404 (never a foreign row). The fetchers below
+// map that 404 to an EMPTY typed envelope so the tab renders gracefully and
+// NEVER surfaces another owner's data (T-32-09-01). Any other error rethrows.
+
+/** One governance-gate audit row (GET /api/runs/{id}/gate-events). */
+export interface GateEventRow {
+  id: string;
+  run_id: string;
+  /** e.g. the step / agent the gate fired on. */
+  step: string | null;
+  /** gate kind: human | validation | approval | security. */
+  gate: string | null;
+  /** verdict: pass | block | wait_human. */
+  outcome: string | null;
+  detail: Record<string, unknown> | null;
+  created_at: string | null;
+}
+
+export interface GateEventsResponse {
+  workflow_id: string;
+  gate_events: GateEventRow[];
+}
+
+/** One validator-run audit row (GET /api/runs/{id}/validation-results). */
+export interface ValidationResultRow {
+  id: string;
+  run_id: string;
+  step: string | null;
+  validator: string | null;
+  /** severity ladder: CRITICAL | HIGH | MEDIUM | LOW. */
+  severity: string | null;
+  attempt: number | null;
+  /** the validator's issue list (JSON, shape validator-specific). */
+  issues: unknown;
+  created_at: string | null;
+}
+
+export interface ValidationResultsResponse {
+  workflow_id: string;
+  validation_results: ValidationResultRow[];
+}
+
+/** One exec-invocation audit row (GET /api/runs/{id}/exec-runs). */
+export interface ExecRunRow {
+  id: string;
+  run_id: string;
+  step: string | null;
+  /** the invoked argv (JSON). */
+  argv_json: unknown;
+  /** disposition: allowed | denied | killed. */
+  outcome: string | null;
+  exit_code: number | null;
+  duration_ms: number | null;
+  /** the exec-policy snapshot in force for this invocation (JSON). */
+  policy_snapshot_json: unknown;
+  /** TRUNCATED output digest only — never raw child output (ASVS V7). */
+  output_digest: string | null;
+  created_at: string | null;
+}
+
+export interface ExecRunsResponse {
+  workflow_id: string;
+  exec_runs: ExecRunRow[];
+}
+
+/**
+ * Fetch the run's governance-gate audit rows for the Audit tab (SC-3).
+ * A cross-owner / missing run resolves to an empty envelope (404 → []),
+ * never a foreign row.
+ */
+export async function getRunGateEvents(
+  token: string,
+  workflowId: string,
+): Promise<GateEventsResponse> {
+  try {
+    return await request<GateEventsResponse>(
+      `/api/runs/${encodeURIComponent(workflowId)}/gate-events`,
+      { method: "GET", headers: authHeaders(token) },
+    );
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) {
+      return { workflow_id: workflowId, gate_events: [] };
+    }
+    throw err;
+  }
+}
+
+/**
+ * Fetch the run's validator-run audit rows for the Audit tab (SC-3).
+ * A cross-owner / missing run resolves to an empty envelope (404 → []).
+ */
+export async function getRunValidationResults(
+  token: string,
+  workflowId: string,
+): Promise<ValidationResultsResponse> {
+  try {
+    return await request<ValidationResultsResponse>(
+      `/api/runs/${encodeURIComponent(workflowId)}/validation-results`,
+      { method: "GET", headers: authHeaders(token) },
+    );
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) {
+      return { workflow_id: workflowId, validation_results: [] };
+    }
+    throw err;
+  }
+}
+
+/**
+ * Fetch the run's exec-invocation audit rows for the Audit tab (SC-3).
+ * A cross-owner / missing run resolves to an empty envelope (404 → []).
+ * The projection carries only the truncated output_digest (never raw output).
+ */
+export async function getRunExecRuns(
+  token: string,
+  workflowId: string,
+): Promise<ExecRunsResponse> {
+  try {
+    return await request<ExecRunsResponse>(
+      `/api/runs/${encodeURIComponent(workflowId)}/exec-runs`,
+      { method: "GET", headers: authHeaders(token) },
+    );
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) {
+      return { workflow_id: workflowId, exec_runs: [] };
+    }
+    throw err;
+  }
+}
