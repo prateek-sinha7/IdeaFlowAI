@@ -461,7 +461,7 @@ function CompactTemplateCard({ template, selected, onOpenDetail }: CompactCardPr
         {thumbnailUrl ? (
           // Pre-rendered screenshot of example.html — one cheap <img> load
           // instead of a full iframe document render. Falls back to the
-          // (script-free) iframe path below when no thumbnail was generated.
+          // sandboxed (allow-scripts) iframe path below when no thumbnail was generated.
           <>
             {!previewLoaded && (
               <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />

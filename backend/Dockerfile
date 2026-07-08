@@ -196,7 +196,7 @@ COPY --chown=flowin:flowin --from=opendesign . ./opendesign/
 # --no-sandbox and the output is re-chowned to the non-root runtime user.
 COPY --chown=flowin:flowin scripts/generate_template_thumbnails.py ./scripts/generate_template_thumbnails.py
 RUN python scripts/generate_template_thumbnails.py --dir /app/opendesign/design-templates \
-    && chown -R 10001:10001 /app/opendesign
+    && chown -R flowin:flowin /app/opendesign
 
 # Entrypoint: runs migrations, then exec's uvicorn. Mode 0755 so the non-root
 # user can execute it.

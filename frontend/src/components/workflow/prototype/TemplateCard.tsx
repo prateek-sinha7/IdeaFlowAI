@@ -30,6 +30,11 @@ export function TemplateCard({ template, selected, onSelect, onOpenDetail }: Tem
   const cardRef = useRef<HTMLButtonElement | null>(null);
   const [shouldMount, setShouldMount] = useState(false);
   const [previewLoaded, setPreviewLoaded] = useState(false);
+  // The backend `has_thumbnail` flag can be stale (thumbnail generated at build
+  // time, not committed) or the file can 404 at request time. When the <img>
+  // fails to load we flip this and fall through to the live-iframe path — the
+  // same fallback used when no thumbnail exists at all.
+  const [thumbnailError, setThumbnailError] = useState(false);
 
   useEffect(() => {
     const node = cardRef.current;
@@ -48,7 +53,9 @@ export function TemplateCard({ template, selected, onSelect, onOpenDetail }: Tem
   }, []);
 
   const previewUrl = template.has_preview ? getTemplatePreviewUrl(template.id) : null;
-  const thumbnailUrl = template.has_thumbnail ? getTemplateThumbnailUrl(template.id) : null;
+  // Only use the thumbnail while it hasn't errored (404 / load failure).
+  const thumbnailUrl =
+    template.has_thumbnail && !thumbnailError ? getTemplateThumbnailUrl(template.id) : null;
 
   return (
     <button
@@ -79,7 +86,7 @@ export function TemplateCard({ template, selected, onSelect, onOpenDetail }: Tem
       <div className="relative h-44 overflow-hidden bg-gray-50">
         {thumbnailUrl ? (
           // Pre-rendered screenshot — one cheap <img> load instead of an iframe
-          // document render. Falls back to the (script-free) iframe below.
+          // document render. Falls back to the sandboxed (allow-scripts) iframe below.
           <>
             {!previewLoaded && (
               <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />
@@ -90,6 +97,12 @@ export function TemplateCard({ template, selected, onSelect, onOpenDetail }: Tem
               alt={`${template.name} preview`}
               loading="lazy"
               onLoad={() => setPreviewLoaded(true)}
+              onError={() => {
+                // Thumbnail missing / 404 — degrade to the live iframe below.
+                setThumbnailError(true);
+                setShouldMount(true);
+                setPreviewLoaded(false);
+              }}
               className="h-full w-full object-cover object-top"
               style={{ opacity: previewLoaded ? 1 : 0, transition: "opacity 250ms ease-out" }}
             />
