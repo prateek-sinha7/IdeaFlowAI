@@ -77,7 +77,7 @@ function SpecPreview({ content }: { content: string }) {
 
   if (sections.length === 0) {
     return (
-      <pre className="text-[11px] text-gray-700 whitespace-pre-wrap leading-relaxed font-mono">
+      <pre className="text-[11px] text-ink-700 whitespace-pre-wrap leading-relaxed font-mono">
         {specContent.slice(0, 3000)}
       </pre>
     );
@@ -86,13 +86,13 @@ function SpecPreview({ content }: { content: string }) {
   return (
     <div className="space-y-3">
       {sections.map((s, i) => (
-        <div key={i} className="rounded-lg border border-gray-100 overflow-hidden">
-          <div className="px-3 py-2 bg-gray-50 border-b border-gray-100">
-            <p className="text-[11px] font-bold text-gray-700">{s.heading}</p>
+        <div key={i} className="rounded-lg border border-line-divider overflow-hidden">
+          <div className="px-3 py-2 bg-surface-warm border-b border-line-divider">
+            <p className="text-[11px] font-bold text-ink-700">{s.heading}</p>
           </div>
           <div className="px-3 py-2">
             {s.body.map((line, j) => (
-              <p key={j} className="text-[11px] text-gray-600 leading-relaxed">{line}</p>
+              <p key={j} className="text-[11px] text-ink-600 leading-relaxed">{line}</p>
             ))}
           </div>
         </div>
@@ -136,7 +136,7 @@ function TasksPreview({ content, onTasksChange }: { content: string; onTasksChan
 
   if (tasks.length === 0) {
     return (
-      <pre className="text-[11px] text-gray-700 whitespace-pre-wrap leading-relaxed font-mono">
+      <pre className="text-[11px] text-ink-700 whitespace-pre-wrap leading-relaxed font-mono">
         {tasksContent.slice(0, 3000)}
       </pre>
     );
@@ -144,22 +144,22 @@ function TasksPreview({ content, onTasksChange }: { content: string; onTasksChan
 
   return (
     <div className="space-y-2">
-      <p className="text-[10px] text-gray-400 mb-1">
+      <p className="text-[10px] text-ink-400 mb-1">
         {tasks.length} task{tasks.length !== 1 ? "s" : ""} · Click <span className="text-red-400">✕</span> to remove a task before building
       </p>
       {tasks.map((task, i) => (
-        <div key={i} className="flex items-start gap-2 group rounded-lg bg-blue-50 border border-blue-100 px-3 py-2">
-          <div className="w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-            <span className="text-[9px] font-bold text-blue-700">{i + 1}</span>
+        <div key={i} className="flex items-start gap-2 group rounded-lg bg-brand-fill border border-brand-border px-3 py-2">
+          <div className="w-5 h-5 rounded-full bg-brand-fill flex items-center justify-center flex-shrink-0 mt-0.5">
+            <span className="text-[9px] font-bold text-brand">{i + 1}</span>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-semibold text-blue-900">{task.title}</p>
-            {task.goal && <p className="text-[10px] text-blue-700 mt-0.5">{task.goal.slice(0, 100)}</p>}
+            <p className="text-[11px] font-semibold text-brand">{task.title}</p>
+            {task.goal && <p className="text-[10px] text-brand mt-0.5">{task.goal.slice(0, 100)}</p>}
           </div>
           {onTasksChange && (
             <button
               onClick={() => handleDelete(i)}
-              className="flex-shrink-0 mt-0.5 w-5 h-5 rounded flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+              className="flex-shrink-0 mt-0.5 w-5 h-5 rounded flex items-center justify-center text-ink-300 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
               title="Remove this task"
             >
               <XCircle className="h-3.5 w-3.5" />
@@ -199,7 +199,7 @@ function AnalysisPreview({ content }: { content: string }) {
 
   if (sections.length === 0) {
     return (
-      <pre className="text-[11px] text-gray-700 whitespace-pre-wrap leading-relaxed font-mono">
+      <pre className="text-[11px] text-ink-700 whitespace-pre-wrap leading-relaxed font-mono">
         {analysisContent}
       </pre>
     );
@@ -212,7 +212,7 @@ function AnalysisPreview({ content }: { content: string }) {
           isReady ? "bg-emerald-50 border-emerald-200 text-emerald-800" :
           isCaution ? "bg-amber-50 border-amber-200 text-amber-800" :
           needsRevision ? "bg-red-50 border-red-200 text-red-800" :
-          "bg-gray-50 border-gray-200 text-gray-800"
+          "bg-surface-warm border-line-border text-ink-800"
         }`}>
           {isReady ? <CheckCircle2 className="h-4 w-4 flex-shrink-0" /> :
            isCaution ? <Sparkles className="h-4 w-4 flex-shrink-0" /> :
@@ -221,17 +221,17 @@ function AnalysisPreview({ content }: { content: string }) {
         </div>
       )}
       {sections.map((s, i) => (
-        <div key={i} className="rounded-lg border border-gray-100 overflow-hidden">
-          <div className={`px-3 py-2 border-b border-gray-100 ${
-            s.heading.toLowerCase().includes("suggested") ? "bg-blue-50" :
+        <div key={i} className="rounded-lg border border-line-divider overflow-hidden">
+          <div className={`px-3 py-2 border-b border-line-divider ${
+            s.heading.toLowerCase().includes("suggested") ? "bg-brand-fill" :
             s.heading.toLowerCase().includes("risk") ? "bg-amber-50" :
             s.heading.toLowerCase().includes("issues") ? "bg-red-50" :
-            "bg-gray-50"
+            "bg-surface-warm"
           }`}>
-            <p className="text-[11px] font-bold text-gray-700">{s.heading}</p>
+            <p className="text-[11px] font-bold text-ink-700">{s.heading}</p>
           </div>
           <div className="px-3 py-2.5">
-            <pre className="text-[11px] text-gray-700 whitespace-pre-wrap leading-relaxed font-mono">
+            <pre className="text-[11px] text-ink-700 whitespace-pre-wrap leading-relaxed font-mono">
               {s.body}
             </pre>
           </div>
@@ -334,24 +334,24 @@ export function ReviewGatePanel({
   return (
     <div className="flex flex-col h-full bg-white">
       {/* Header */}
-      <div className="px-5 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
+      <div className="px-5 pt-5 pb-4 border-b border-line-divider flex-shrink-0">
         <div className="flex items-center gap-3 mb-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#1B2A4A] to-violet-600 flex items-center justify-center flex-shrink-0">
+          <div className="w-9 h-9 rounded-xl bg-brand flex items-center justify-center flex-shrink-0">
             <Icon className="h-4 w-4 text-white" />
           </div>
           <div>
-            <h2 className="text-[13px] font-bold text-gray-900">{label}</h2>
-            <p className="text-[10px] text-gray-400">{agentName} · Review before continuing</p>
+            <h2 className="text-[13px] font-bold text-ink-900">{label}</h2>
+            <p className="text-[10px] text-ink-400">{agentName} · Review before continuing</p>
           </div>
         </div>
-        <p className="text-[11px] text-gray-500 leading-relaxed">{description}</p>
+        <p className="text-[11px] text-ink-500 leading-relaxed">{description}</p>
 
         {/* Mode toggle */}
-        <div className="flex items-center gap-1 mt-3 bg-gray-100 rounded-lg p-0.5 w-fit">
+        <div className="flex items-center gap-1 mt-3 bg-surface-warm rounded-lg p-0.5 w-fit">
           <button
             onClick={() => setMode("preview")}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium transition-all ${
-              mode === "preview" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+              mode === "preview" ? "bg-white text-ink-900 shadow-sm" : "text-ink-500 hover:text-ink-700"
             }`}
           >
             <Eye className="h-3 w-3" /> Preview
@@ -359,7 +359,7 @@ export function ReviewGatePanel({
           <button
             onClick={() => setMode("edit")}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium transition-all ${
-              mode === "edit" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+              mode === "edit" ? "bg-white text-ink-900 shadow-sm" : "text-ink-500 hover:text-ink-700"
             }`}
           >
             <Edit3 className="h-3 w-3" /> Edit
@@ -383,15 +383,15 @@ export function ReviewGatePanel({
                 {isTasks && <TasksPreview content={hasEdits ? editedContent : output} onTasksChange={handleTasksChange} />}
                 {isAnalysis && <AnalysisPreview content={hasEdits ? editedContent : output} />}
                 {!isSpec && !isTasks && !isAnalysis && (
-                  <pre className="text-[11px] text-gray-700 whitespace-pre-wrap leading-relaxed font-mono">
+                  <pre className="text-[11px] text-ink-700 whitespace-pre-wrap leading-relaxed font-mono">
                     {(hasEdits ? editedContent : output).slice(0, 4000)}
                   </pre>
                 )}
               </>
             ) : (
               <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
-                <p className="text-[12px] font-medium text-gray-500">No content was produced for review.</p>
-                <p className="text-[11px] text-gray-400">
+                <p className="text-[12px] font-medium text-ink-500">No content was produced for review.</p>
+                <p className="text-[11px] text-ink-400">
                   The agent returned an empty result. Reject to cancel the pipeline, or approve to continue anyway.
                 </p>
               </div>
@@ -405,13 +405,13 @@ export function ReviewGatePanel({
             transition={{ duration: 0.15 }}
             className="h-full"
           >
-            <p className="text-[10px] text-gray-400 mb-2">
+            <p className="text-[10px] text-ink-400 mb-2">
               Edit the {isSpec ? "specification" : isTasks ? "task list" : isAnalysis ? "analysis report" : "content"} directly. Changes will be used by the next agent.
             </p>
             <textarea
               value={editedContent}
               onChange={(e) => handleEdit(e.target.value)}
-              className="w-full h-[calc(100%-2rem)] min-h-[300px] rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-[11px] text-gray-900 font-mono leading-relaxed focus:outline-none focus:border-[#1B2A4A]/40 focus:ring-1 focus:ring-[#1B2A4A]/20 resize-none"
+              className="w-full h-[calc(100%-2rem)] min-h-[300px] rounded-xl border border-line-border bg-surface-warm px-4 py-3 text-[11px] text-ink-900 font-mono leading-relaxed focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand/20 resize-none"
               spellCheck={false}
             />
           </motion.div>
@@ -419,7 +419,7 @@ export function ReviewGatePanel({
       </div>
 
       {/* Actions */}
-      <div className="px-5 py-4 border-t border-gray-100 bg-white flex-shrink-0 space-y-2">
+      <div className="px-5 py-4 border-t border-line-divider bg-white flex-shrink-0 space-y-2">
         {hasEdits && (
           <div className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
             <Sparkles className="h-3.5 w-3.5 text-amber-600 flex-shrink-0" />
@@ -433,7 +433,7 @@ export function ReviewGatePanel({
         <button
           onClick={handleApprove}
           disabled={submitted}
-          className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#1B2A4A] text-white px-4 py-3 text-[12px] font-semibold hover:bg-[#2a3d5e] transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[#1B2A4A]"
+          className="w-full flex items-center justify-center gap-2 rounded-[var(--radius-button)] bg-brand text-white px-4 py-3 text-[12px] font-semibold hover:bg-brand-pressed transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-brand"
         >
           <CheckCircle2 className="h-4 w-4" />
           {isAnalysis
@@ -450,7 +450,7 @@ export function ReviewGatePanel({
           <button
             onClick={handleUpdateSpecs}
             disabled={submitted}
-            className="w-full flex items-center justify-center gap-2 rounded-xl border border-[#1B2A4A]/30 text-[#1B2A4A] px-4 py-2.5 text-[11px] font-semibold hover:bg-[#E8EDF5] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+            className="w-full flex items-center justify-center gap-2 rounded-[var(--radius-button)] border border-brand-border text-brand px-4 py-2.5 text-[11px] font-semibold hover:bg-brand-fill transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
           >
             <RefreshCw className="h-3.5 w-3.5" />
             Update the Specs
@@ -470,7 +470,7 @@ export function ReviewGatePanel({
               onChange={(e) => setRedoInstructions(e.target.value)}
               disabled={submitted}
               placeholder="e.g. add a dark-mode variant; tighten the spacing; focus on mobile"
-              className="w-full min-h-[60px] rounded-lg border border-violet-200 bg-white px-3 py-2 text-[11px] text-gray-900 leading-relaxed focus:outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-300 resize-none disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full min-h-[60px] rounded-lg border border-violet-200 bg-white px-3 py-2 text-[11px] text-ink-900 leading-relaxed focus:outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-300 resize-none disabled:opacity-50 disabled:cursor-not-allowed"
               spellCheck={false}
               aria-label="Additional instructions for redo"
             />
@@ -509,7 +509,7 @@ export function ReviewGatePanel({
             <div className="flex gap-2">
               <button
                 onClick={() => setShowRejectConfirm(false)}
-                className="flex-1 rounded-lg border border-gray-200 bg-white text-gray-600 px-3 py-2 text-[11px] font-medium hover:bg-gray-50 transition-all"
+                className="flex-1 rounded-lg border border-line-border bg-white text-ink-600 px-3 py-2 text-[11px] font-medium hover:bg-surface-warm transition-all"
               >
                 Keep reviewing
               </button>

@@ -206,11 +206,11 @@ function GenericDeliverablePreview({
   return (
     <div className="flex h-full items-center justify-center px-6">
       <div className="flex max-w-sm flex-col items-center gap-3 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100">
-          <FolderDown className="h-6 w-6 text-gray-500" />
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-warm">
+          <FolderDown className="h-6 w-6 text-ink-500" />
         </div>
-        <p className="text-sm font-semibold text-gray-900">Deliverable ready</p>
-        <p className="text-xs text-gray-500">
+        <p className="text-sm font-semibold text-ink-900">Deliverable ready</p>
+        <p className="text-xs text-ink-500">
           This deliverable ({deliverable.mimetype || "unknown type"}) can be downloaded from the Files tab.
         </p>
         <button
@@ -225,7 +225,7 @@ function GenericDeliverablePreview({
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
           }}
-          className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
+          className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-line-border px-3 py-1.5 text-xs font-medium text-ink-700 transition-colors hover:bg-surface-warm"
         >
           <Download className="h-3.5 w-3.5" />
           Download {deliverable.filename || "deliverable"}
@@ -386,12 +386,12 @@ export function DegradedRunAffordance({
         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-50">
           <AlertTriangle className="h-6 w-6 text-amber-500" />
         </div>
-        <p className="text-sm font-semibold text-gray-900">
+        <p className="text-sm font-semibold text-ink-900">
           {cancelled
             ? "This run was cancelled"
             : "This run did not complete successfully"}
         </p>
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-ink-500">
           {cancelled
             ? "The run was stopped before producing a deliverable."
             : "No deliverable was produced. The run ended in a failed or degraded state."}
@@ -413,12 +413,12 @@ export function DegradedRunAffordance({
         {onRetry ? (
           <button
             onClick={() => onRetry("Retry this run")}
-            className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
+            className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-line-border px-3 py-1.5 text-xs font-medium text-ink-700 transition-colors hover:bg-surface-warm"
           >
             View details / retry
           </button>
         ) : (
-          <p className="mt-1 text-[11px] text-gray-400">
+          <p className="mt-1 text-[11px] text-ink-400">
             Open the Thinking tab to view details.
           </p>
         )}
@@ -749,10 +749,10 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
   };
 
   return (
-    <div className="flex h-full flex-col bg-white border-l border-gray-200">
+    <div className="flex h-full flex-col bg-white border-l border-line-border">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-        <h2 className="text-sm font-semibold text-gray-900">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-line-border">
+        <h2 className="text-sm font-semibold text-ink-900">
           {isStreaming ? "Generating..." : hasContent ? "Results" : "Preview"}
         </h2>
         <div className="flex items-center gap-1">
@@ -770,7 +770,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
           {hasContent && (
             <button
               onClick={handleCopy}
-              className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all"
+              className="p-1.5 rounded text-ink-400 hover:text-ink-600 hover:bg-surface-warm transition-all"
               title="Copy"
             >
               {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
@@ -779,7 +779,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
           {onCollapse && (
             <button
               onClick={onCollapse}
-              className="p-1.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all"
+              className="p-1.5 rounded text-ink-400 hover:text-ink-600 hover:bg-surface-warm transition-all"
               aria-label="Close preview"
             >
               <PanelRightClose className="h-4 w-4" />
@@ -791,7 +791,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
       {/* B3 (POR §5 D5) — read-only amber banner: shown as a slim strip directly
           under the header while an older version is on screen. */}
       {isViewingOlder && (
-        <div className="px-4 py-2 border-b border-gray-200">
+        <div className="px-4 py-2 border-b border-line-border">
           <ReadOnlyVersionBanner versionNumber={activeIdx + 1} onBackToLatest={handleBackToLatest} />
         </div>
       )}
@@ -863,7 +863,7 @@ export function PreviewPanel({ userStoryContent, pptContent, prototypeContent, g
                 />
               ) : !hasContent ? (
                 <div className="flex items-center justify-center h-full">
-                  <p className="text-xs text-gray-400">Output will appear here</p>
+                  <p className="text-xs text-ink-400">Output will appear here</p>
                 </div>
               ) : (
                 // ─── UXFIX-04 / D-21 (22-07) — generic-primary dispatch TABLE ──
@@ -1072,7 +1072,7 @@ function PPTTabActions({
       {isOdPpt ? (
         <button
           onClick={handleDownloadHtml}
-          className="flex items-center gap-1.5 rounded-md bg-[#1B2A4A] px-2.5 py-1 text-[11px] font-medium text-white hover:bg-[#2a3d5e] transition-colors"
+          className="flex items-center gap-1.5 rounded-[var(--radius-button)] bg-brand px-2.5 py-1 text-[11px] font-medium text-white hover:bg-brand-pressed transition-colors"
         >
           <Download className="h-3 w-3" />
           Download
@@ -1081,7 +1081,7 @@ function PPTTabActions({
         <button
           onClick={handleDownloadPptx}
           disabled={isDownloading}
-          className="flex items-center gap-1.5 rounded-md bg-[#1B2A4A] px-2.5 py-1 text-[11px] font-medium text-white hover:bg-[#2a3d5e] disabled:opacity-60 transition-colors"
+          className="flex items-center gap-1.5 rounded-[var(--radius-button)] bg-brand px-2.5 py-1 text-[11px] font-medium text-white hover:bg-brand-pressed disabled:opacity-60 transition-colors"
         >
           {isDownloading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
           {isDownloading ? "Exporting…" : "Download"}
@@ -1089,7 +1089,7 @@ function PPTTabActions({
       )}
       <button
         onClick={handleFullScreen}
-        className="flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-500 hover:border-gray-300 hover:text-gray-800 transition-colors"
+        className="flex items-center gap-1 rounded-md border border-line-border bg-white px-2.5 py-1 text-[11px] text-ink-500 hover:border-line-control hover:text-ink-800 transition-colors"
         title="Open in new tab"
       >
         <ExternalLink className="h-3 w-3" />

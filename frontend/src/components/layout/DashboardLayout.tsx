@@ -196,11 +196,11 @@ function PlanningOverlay({ plannerSummary }: { plannerSummary?: string }) {
     <div className="flex flex-col items-center justify-center h-full bg-white gap-6 px-8">
       {/* Animated brain icon */}
       <div className="relative">
-        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#1B2A4A] to-blue-600 flex items-center justify-center shadow-lg">
+        <div className="w-16 h-16 rounded-2xl bg-brand flex items-center justify-center shadow-lg">
           <Brain className="h-8 w-8 text-white" />
         </div>
         {/* Pulse rings */}
-        <div className="absolute inset-0 rounded-2xl bg-[#1B2A4A]/20 animate-ping" style={{ animationDuration: "2s" }} />
+        <div className="absolute inset-0 rounded-2xl bg-brand/20 animate-ping" style={{ animationDuration: "2s" }} />
       </div>
 
       {/* Status */}
@@ -233,7 +233,7 @@ function PlanningOverlay({ plannerSummary }: { plannerSummary?: string }) {
           "Setting up context for every step",
         ].map((item, i) => (
           <div key={i} className="flex items-center gap-2">
-            <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${i <= stepIdx ? "bg-[#1B2A4A]" : "bg-gray-300"}`} />
+            <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${i <= stepIdx ? "bg-brand" : "bg-line-faint"}`} />
             <p className={`text-[11px] ${i <= stepIdx ? "text-gray-700" : "text-gray-400"}`}>{item}</p>
           </div>
         ))}
@@ -244,7 +244,7 @@ function PlanningOverlay({ plannerSummary }: { plannerSummary?: string }) {
         {[0, 1, 2].map(i => (
           <div
             key={i}
-            className="w-1.5 h-1.5 rounded-full bg-[#1B2A4A]/40 animate-bounce"
+            className="w-1.5 h-1.5 rounded-full bg-brand/40 animate-bounce"
             style={{ animationDelay: `${i * 0.15}s` }}
           />
         ))}
@@ -1354,7 +1354,7 @@ export function DashboardLayout({
     mainView === "execution" ? "execution" : "home";
 
   return (
-    <div className="flex flex-col h-screen w-full overflow-hidden" style={{ background: "#f5f5f0" }}>
+    <div className="flex flex-col h-screen w-full overflow-hidden" style={{ background: "var(--surface-paper)" }}>
       {/* Connection status banner */}
       <AnimatePresence>
         {connectionStatus === "reconnecting" && (
@@ -1582,7 +1582,7 @@ export function DashboardLayout({
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
               className="h-full flex flex-col md:flex-row"
-              style={{ background: "#f5f5f0" }}
+              style={{ background: "var(--surface-paper)" }}
             >
               {/* Left Panel — Phase 31/32 (CHATUI/SC-4): the RunChatLane is the
                   primary left-column surface. It FULLY ABSORBS the AgentProgressPanel
