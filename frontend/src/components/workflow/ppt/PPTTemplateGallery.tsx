@@ -252,6 +252,9 @@ function CompactPPTCard({ template, selected, onOpenDetail }: {
   const cardRef = useRef<HTMLButtonElement>(null);
   const [shouldMount, setShouldMount] = useState(false);
   const [previewLoaded, setPreviewLoaded] = useState(false);
+  // See TemplateCard: `has_thumbnail` can be stale or the file can 404 at
+  // request time. On <img> error, fall through to the live-iframe fallback.
+  const [thumbnailError, setThumbnailError] = useState(false);
 
   useEffect(() => {
     const node = cardRef.current;
@@ -265,7 +268,9 @@ function CompactPPTCard({ template, selected, onOpenDetail }: {
   }, []);
 
   const previewUrl = template.has_preview ? getPPTTemplatePreviewUrl(template.id) : null;
-  const thumbnailUrl = template.has_thumbnail ? getPPTTemplateThumbnailUrl(template.id) : null;
+  // Only use the thumbnail while it hasn't errored (404 / load failure).
+  const thumbnailUrl =
+    template.has_thumbnail && !thumbnailError ? getPPTTemplateThumbnailUrl(template.id) : null;
 
   return (
     <button ref={cardRef} type="button" onClick={onOpenDetail}
@@ -283,7 +288,7 @@ function CompactPPTCard({ template, selected, onOpenDetail }: {
       <div className="relative overflow-hidden bg-gray-50" style={{ height: "80px" }}>
         {thumbnailUrl ? (
           // Pre-rendered screenshot — one cheap <img> load instead of a full
-          // iframe document render. Falls back to the (script-free) iframe below.
+          // iframe document render. Falls back to the sandboxed (allow-scripts) iframe below.
           <>
             {!previewLoaded && (
               <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />
@@ -294,6 +299,12 @@ function CompactPPTCard({ template, selected, onOpenDetail }: {
               alt={template.name}
               loading="lazy"
               onLoad={() => setPreviewLoaded(true)}
+              onError={() => {
+                // Thumbnail missing / 404 — degrade to the live iframe below.
+                setThumbnailError(true);
+                setShouldMount(true);
+                setPreviewLoaded(false);
+              }}
               className="h-full w-full object-cover object-top"
               style={{ opacity: previewLoaded ? 1 : 0, transition: "opacity 200ms ease-out" }}
             />

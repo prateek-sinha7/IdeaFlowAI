@@ -59,3 +59,8 @@ frontend/eslint_out.txt
 # (backend/scripts/generate_template_thumbnails.py, run from the backend
 # Dockerfile), never committed. Missing thumbnails fall back to live iframes.
 skills/opendesign/design-templates/*/thumbnail.jpg
+
+
+.kiro/*
+!.kiro/steering/
+!.kiro/skills/

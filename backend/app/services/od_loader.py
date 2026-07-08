@@ -291,15 +291,25 @@ def get_template_thumbnail_path(template_id: str) -> Path | None:
     """Filesystem path to the template's pre-rendered ``thumbnail.jpg``, or
     ``None`` if the template doesn't exist or hasn't been given one.
 
-    Thumbnails are generated offline (see
-    ``frontend/scripts/generate-template-thumbnails.mjs``) by screenshotting
+    Thumbnails are generated at backend image build time (see
+    ``backend/scripts/generate_template_thumbnails.py``) by screenshotting
     ``example.html`` at 1280x720. Serving a static image in the gallery card
     instead of a live ``<iframe>`` lets the grid paint N images rather than
-    render N full HTML documents — the dominant cost of the gallery."""
+    render N full HTML documents — the dominant cost of the gallery.
+
+    The on-disk check is deliberate: ``has_thumbnail`` is computed once by the
+    ``lru_cache``d ``_all_templates()`` at process start, so a thumbnail deleted
+    (or generated) after startup would leave the flag stale. Trusting it here
+    would hand ``FileResponse`` a path to a missing file and raise a 500 mid-
+    response; re-checking ``is_file()`` lets the endpoint return a clean 404 so
+    the gallery falls back to the live iframe."""
     t = get_template(template_id)
-    if t is None or not t.get("has_thumbnail"):
+    if t is None:
         return None
-    return _TEMPLATES_DIR / template_id / "thumbnail.jpg"
+    path = _TEMPLATES_DIR / template_id / "thumbnail.jpg"
+    if not path.is_file():
+        return None
+    return path
 
 
 def get_template_asset_path(template_id: str, asset_relpath: str) -> Path | None:
