@@ -833,6 +833,25 @@ Plans:
 3. Attachment UI: file picker + paste + drag-drop + image preview + client resize; token-usage widget shows P26 fields.
 4. Open-design borrow-list mechanisms 1–7 integrated with Apache-2.0 attribution/NOTICE.
 
+
+**Plans:** 7 plans (4 waves) — planned 2026-07-08
+
+Plans:
+**Wave 1**
+- [ ] 31-01-PLAN.md — Borrow-list pure primitives (#1 partial-json, #2 extractStreamingJsonString, #4 buildBlocks) + Apache-2.0 NOTICE (CHATUI-01) [wave 1]
+- [ ] 31-02-PLAN.md — Borrow-list rendering (#3 tool-renderer registry, #5 measured virtualizer, #7 ThinkingBlock/todo/file-ops) (CHATUI-01) [wave 1]
+- [ ] 31-03-PLAN.md — Chat transcript hook (useRunChat, D-02 family-anchored) + ChatMessage type + #6 nonce'd deep-link seam (CHATUI-01) [wave 1]
+- [ ] 31-05-PLAN.md — In-lane gate/clarify quick-actions (4 gate actions incl update_specs KAN-101, terminal fence KAN-100, retained edit KAN-98) (CHATUI-02) [wave 1]
+
+**Wave 2**
+- [ ] 31-06-PLAN.md — Attachment UI (paste + drag-drop + resizeImage, ND-10 placeholder) + P26 token widget (CHATUI-03) [wave 2, depends 31-03]
+
+**Wave 3**
+- [ ] 31-04-PLAN.md — Revived chat lane composition root: streaming markdown + aria-live/role=log + narrator result cards + absorbed controls (CHATUI-01) [wave 3, depends 31-01/02/03/05/06]
+
+**Wave 4**
+- [ ] 31-07-PLAN.md — Integrate: mount RunChatLane in execution left column + transport-agnostic wiring (LOCK-B) + PreviewPanel deep-link target + delta-verified mocked chat e2e + first data-testids (CHATUI-01/02/03) [wave 4, depends 31-04]
+
 ### Phase 32: Run-Screen Redesign [A4]
 
 **Goal:** The run screen converges to the Hexaware Run design: chat lane left; Preview/Steps/Files/Audit right; Steps is a 3-level drill-down.
