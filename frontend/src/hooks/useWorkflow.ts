@@ -285,12 +285,14 @@ export function handlePipelineMessage(
         // Replayed agent_start events are deduped upstream by shouldApplyEvent
         // (dashboard/page.tsx:276), so a live output is never wiped on reconnect.
         // Identity fields (id/name/role/icon/index) are preserved via the spread.
-        // KAN-101: a prototype-specify agent_start arriving while the agent is
-        // already "done" is a spec-revision re-run — the flag feeds the
-        // specRevisionCount bump below (revision-cycle badge). Its field
-        // clearing is subsumed by the FIX-039 unconditional reset.
+        // SC-001 (ND-11): an agent_start arriving while the agent is already
+        // "done" is ITSELF the generic spec-revision signal (a sub-pipeline
+        // re-run) — it feeds the specRevisionCount bump below (revision-cycle
+        // badge). Keyed on the generic already-done state, NOT an agent-id
+        // literal. Its field clearing is subsumed by the FIX-039 unconditional
+        // reset.
         const wasAlreadyDone = updated[agentIdx].status === "done";
-        const isSpecifyRerun = wasAlreadyDone && agentId === "prototype-specify";
+        const isSpecRevisionRerun = wasAlreadyDone;
         updated[agentIdx] = {
           ...updated[agentIdx],
           status: "running",
@@ -318,8 +320,9 @@ export function handlePipelineMessage(
           ...prev,
           agents: updated,
           currentAgentIndex: agentIdx,
-          // Bump the revision counter when specify re-starts
-          specRevisionCount: isSpecifyRerun
+          // Bump the revision counter when an already-done agent re-starts
+          // (generic spec-revision signal — SC-001, no agent-id literal).
+          specRevisionCount: isSpecRevisionRerun
             ? (prev.specRevisionCount ?? 0) + 1
             : prev.specRevisionCount,
         };

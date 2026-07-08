@@ -108,6 +108,11 @@ export interface ReviewGateReadyData {
   output: string;
   pipeline_run_id: string;
   redoable?: boolean;
+  // SC-001 (plan 04, KAN-101): name-free, structurally-derived flags the FE
+  // drives the "Update the Specs" affordance off — never an agent-id literal.
+  // Optional/additive; absent on gates that do not carry them.
+  update_specs_eligible?: boolean;
+  artifact_kind?: string;
 }
 
 /** One worker leaf under a wave group — an agent + its lifecycle status. */
@@ -618,8 +623,9 @@ export interface PipelineRunState {
   clarifications?: ClarifyRound[];
   // KAN-101: tracks how many spec revision cycles have been triggered by
   // "Update the Specs". 0 = first run (no revision), 1 = first revision, etc.
-  // Incremented in handlePipelineMessage when prototype-specify agent_start fires
-  // on an agent that was already done (sub-pipeline re-run).
+  // Incremented in handlePipelineMessage when an agent_start fires on an agent
+  // that was already "done" (a sub-pipeline re-run) — a generic, name-free
+  // spec-revision signal (SC-001), not keyed on any agent-id literal.
   specRevisionCount?: number;
 }
 

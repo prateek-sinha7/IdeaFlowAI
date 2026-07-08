@@ -165,6 +165,12 @@ export default function DashboardPage() {
     pipelineRunId: string;
     // REDO-GATE (F-fe3): generic server-set flag — the panel shows Redo iff true.
     redoable?: boolean;
+    // SC-001 (plan 04 → 06/08): name-free, structurally-derived server flags.
+    // The single FE parse point for KAN-101's "Update the Specs" affordance —
+    // plan 06 maps it into laneGate, plan 08 into the Steps inline gate. Parsed
+    // defensively (undefined when the backend omits them).
+    updateSpecsEligible?: boolean;
+    artifactKind?: string;
   } | null>(null);
   // Pending od_prototype params — set when questionnaire is triggered, consumed by DashboardLayout.
   // `gateAgentIds` (Phase 6, T5b) flows into DashboardLayout's `gate_agent_ids`
@@ -813,6 +819,10 @@ export default function DashboardPage() {
             pipelineRunId: data.pipeline_run_id,
             // REDO-GATE (F-fe3): capture the generic server flag (default false).
             redoable: data.redoable ?? false,
+            // SC-001 (plan 04): defensively parse the name-free eligibility flag
+            // + artifact kind (undefined/false when the backend omits them).
+            updateSpecsEligible: data.update_specs_eligible ?? false,
+            artifactKind: data.artifact_kind,
           });
         }
         break;
