@@ -338,6 +338,28 @@ class MessageCommand(BaseModel):
     skip_clarification: bool = False
     analysis_report: str | None = None
     target_artifact_type: str | None = None
+    # images: per-turn image attachments (UPLD-02 residue, 30-03) — untrusted base64
+    # {mime_type, data} entries cap-validated by the SHARED ``_validate_images`` ingress
+    # caps (the exact caps the launch path uses) BEFORE queueing; a violation → 400.
+    # PAYLOAD-TRANSIENT (ND-10/LOCK-E): threaded onto the live run's next dispatch via
+    # ``apply_turn_images``, never persisted (the chat_message row keeps retained:false
+    # refs, no bytes). Default None ⇒ dormant (no image flow → run_images unchanged).
+    images: list | None = None
+
+
+def _live_ectx_for_run(run_id: str):
+    """Best-effort resolve the LIVE in-process ``ExecutionContext`` for ``run_id``.
+
+    The per-turn image carrier (30-03) delivers cap-validated images onto the running
+    run's ``ectx.pending_turn_images`` via ``chat_router.apply_turn_images``. That
+    requires the live in-process context handle — the SAME deferred wiring the 29-08
+    steering seam needs (DEF-29-09-1: engine-side drain / run_events re-derivation).
+    No live-ectx registry exists yet, so this returns ``None`` today — ``apply_turn_images``
+    then no-ops (the durable ``chat_message`` row keeps the record; images are
+    payload-transient, ND-10). The seam + engine drain are proven offline
+    (test_run_message_images); the live handle lands with the DEF-29-09-1 follow-up.
+    """
+    return None
 
 
 def _chat_event_id(message_id: str) -> str:
@@ -372,6 +394,15 @@ async def _persist_chat_message(
         {"kind": (a.get("kind") or a.get("type") or "attachment"), "retained": False}
         for a in (body.attachments or [])
     ]
+    # ND-10/LOCK-E (30-03): per-turn images are ALSO payload-transient — stamp a
+    # retained:false ref with NO ``data``/bytes so replay/reopen shows "image not kept"
+    # (the image rides the live dispatch only, never the durable log). The bytes live
+    # solely on the transient carrier drained by the engine.
+    attachment_refs.extend(
+        {"kind": "image", "retained": False}
+        for img in (body.images or [])
+        if isinstance(img, dict)
+    )
     return await store.append_event_next_seq(
         run_id,
         event_id=_chat_event_id(body.message_id),
@@ -407,6 +438,7 @@ async def post_message(
         CHANNEL_STEERING,
         ChatTurn,
         RunState,
+        apply_turn_images,
         derive_open_gate,
         route_chat_turn,
     )
@@ -438,6 +470,23 @@ async def post_message(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Workflow run not found"
         )
+
+    # ── Per-turn image ingress gate (UPLD-02 residue, 30-03) ─────────────────────────
+    # A chat turn may carry images (payload-transient, ND-10). Validate them with the
+    # SAME caps the launch path uses — ``_validate_images`` (mime allow-list, ~3.75MB/
+    # image, ≤20, ~8MB aggregate, vision-model guard). Flag OFF / no images → ignored
+    # (dormant). A cap/vision violation DENIES with 400 BEFORE any persist or queueing
+    # (nothing queued). Endpoint is NOT rebuilt — this reuses the Phase-29 /messages path.
+    validated_turn_images: list = []
+    if settings.IMAGE_INPUT_ENABLED and body.images:
+        base_model = (
+            getattr(current_user, "preferred_model", None)
+            or settings.BEDROCK_INFERENCE_PROFILE_ID
+        )
+        _image_error = _validate_images(body.images, effective_model_ids={base_model})
+        if _image_error is not None:
+            raise _reject("invalid_image_input", _image_error)
+        validated_turn_images = list(body.images)
 
     # ── Persist the turn (idempotent, D-01) BEFORE routing so a delivered command is
     #    always backed by a durable record (family-anchored, D-02). ──────────────────
@@ -514,7 +563,16 @@ async def post_message(
         # and the injector consumes it via apply_steering into ectx.steering_notes. The
         # live in-process ectx handle lookup (engine-side drain) is out of this plan's
         # LOCK-B allow-list — proven at the seam by test_mechanical_router.apply_steering.
-        pass
+        #
+        # 30-03: a RUNNING-turn's cap-validated per-turn images ride the SAME
+        # live-delivery seam — apply_turn_images enqueues them onto
+        # ectx.pending_turn_images and the engine drains them onto run_images at the next
+        # dispatch (payload-transient, ND-10). The live in-process ectx handle is the
+        # DEF-29-09-1 deferred wiring (no live-ectx registry yet), so this is best-effort
+        # (a no-op until the handle lands); the seam + drain are proven offline by
+        # test_run_message_images. Keyed on the generic queue only (SC-001/INV-1).
+        if validated_turn_images:
+            apply_turn_images(_live_ectx_for_run(run_id), validated_turn_images)
     elif dispatch.channel == CHANNEL_REVISION:
         # revision → mint + drive the shipped family child run (D-02), the exact seam
         # POST /{id}/revisions uses. A generic target derives from the run type when the

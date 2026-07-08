@@ -269,3 +269,20 @@ class ExecutionContext:
     # DORMANT on every golden run (no block emitted, no mutation) ⇒ INV-3
     # byte-parity holds.
     steering_notes: list = field(default_factory=list)
+    # pending_turn_images: the consume-once MID-RUN per-turn image queue (UPLD-02
+    # residue, 30-03). The IMAGE analogue of ``steering_notes``: images attached to
+    # an in-flight chat turn on the Phase-29 ``POST /api/runs/{id}/messages`` path are
+    # cap-validated (the shared ``_validate_images`` ingress caps) then enqueued here
+    # by ``chat_router.apply_turn_images``. The engine DRAINS this queue onto the
+    # transient ``run_images`` carrier at the NEXT dispatch (before
+    # ``_compose_input_blocks``) so an ``injects:[images]`` agent's HumanMessage carries
+    # the base64 image content-blocks — exactly where run-entry images already flow.
+    # Each entry is a normalized ``{mime_type, data(base64)}`` dict (mirrors
+    # ``_normalize_run_images``). PAYLOAD-TRANSIENT (ND-10/LOCK-E): never persisted to
+    # sandbox/DB/run_events — the durable ``chat_message`` row keeps its attachment refs
+    # stamped ``retained:false`` (no bytes); across ``resume_run`` this queue is empty
+    # (ND-9 — images do not survive replay/reopen). Additive per-run scratch (the same
+    # D-03 idiom as ``steering_notes``) keyed on THIS generic queue only — no
+    # workflow/agent name (SC-001/INV-1). Default-empty ⇒ DORMANT on every golden run
+    # (no image → run_images unchanged → dispatch payload byte-identical) ⇒ INV-3.
+    pending_turn_images: list = field(default_factory=list)

@@ -144,6 +144,11 @@ class ChatTurn:
     skip_clarification: bool = False
     analysis_report: str | None = None
     target_artifact_type: str | None = None
+    # images: per-turn image attachments (UPLD-02 residue, 30-03) — cap-validated
+    # {mime_type, data(base64)} entries the /messages endpoint threads onto the live
+    # run's next dispatch via ``apply_turn_images``. Default-empty ⇒ dormant (no image
+    # flow → run_images unchanged → INV-3 byte-parity).
+    images: list = field(default_factory=list)
 
 
 @dataclass
@@ -311,6 +316,40 @@ def apply_steering(ectx: Any, note: dict) -> None:
     queue.append({"text": note.get("text", ""), "sticky": bool(note.get("sticky"))})
 
 
+# ---------------------------------------------------------------------------
+# Per-turn image seam (UPLD-02 residue, 30-03) — the IMAGE analogue of
+# ``apply_steering``. Append validated per-turn images to a live ExecutionContext.
+# ---------------------------------------------------------------------------
+def apply_turn_images(ectx: Any, images: list) -> None:
+    """Enqueue per-turn images onto ``ectx.pending_turn_images`` (the 30-03 carrier).
+
+    The image analogue of :func:`apply_steering`: images attached to an in-flight chat
+    turn (already cap-validated by the shared ``_validate_images`` ingress caps at the
+    ``/messages`` endpoint) are normalized to ``{mime_type, data}`` (the
+    ``engine._normalize_run_images`` shape) and appended to the generic per-run
+    ``pending_turn_images`` queue. The engine DRAINS that queue onto ``ectx.run_images``
+    at the NEXT dispatch (before ``_compose_input_blocks``) so an ``injects:[images]``
+    agent's HumanMessage carries the base64 image content-blocks. Keyed on the generic
+    queue only (SC-001/INV-1) — no workflow/agent name.
+
+    Best-effort: an ``ectx`` without the attribute (a fresh/foreign context, or the
+    DEF-29-09-1 live in-process handle that is not yet wired) is a no-op — the durable
+    ``chat_message`` row (attachment refs stamped ``retained:false``, no bytes) remains
+    the record, and images are payload-transient (ND-10 — not re-derived on resume).
+    """
+    queue = getattr(ectx, "pending_turn_images", None)
+    if queue is None:
+        return
+    for img in images or []:
+        if not isinstance(img, dict):
+            continue
+        mime = img.get("mime_type") or img.get("mimeType")
+        data = img.get("data")
+        if not mime or not data:
+            continue
+        queue.append({"mime_type": mime, "data": data})
+
+
 __all__ = [
     "RunState",
     "ChatTurn",
@@ -318,6 +357,7 @@ __all__ = [
     "route_chat_turn",
     "derive_open_gate",
     "apply_steering",
+    "apply_turn_images",
     "PHASE_CLARIFY_WAITING",
     "PHASE_GATE_PAUSED",
     "PHASE_RUNNING",

@@ -428,6 +428,25 @@ def _normalize_run_images(images: "list | None") -> list[dict]:
     return out
 
 
+def _drain_turn_images(ectx) -> None:
+    """Drain per-turn images (30-03) off ``ectx.pending_turn_images`` onto ``run_images``.
+
+    The UPLD-02 residue seam: images attached to an in-flight chat turn were enqueued
+    onto the generic ``pending_turn_images`` queue by ``chat_router.apply_turn_images``.
+    Called BEFORE ``_compose_input_blocks`` at each dispatch so an ``injects:[images]``
+    agent's HumanMessage carries them — exactly where run-entry ``run_images`` already
+    flow. Consume-once: the pending queue is cleared after draining, so each attached
+    image reaches exactly the NEXT dispatch's HumanMessage. DORMANT by default — an empty
+    queue leaves ``run_images`` untouched (INV-3 byte-parity). Payload-transient (ND-10):
+    never persisted. Keyed on the generic queue only (SC-001/INV-1).
+    """
+    pending = getattr(ectx, "pending_turn_images", None)
+    if not pending:
+        return
+    ectx.run_images = (ectx.run_images or []) + list(pending)
+    ectx.pending_turn_images = []
+
+
 def _dispatch_payload(context_message: str, input_blocks: list) -> "str | list":
     """Wrap the text context message with any multimodal input blocks (image-input).
 
@@ -2756,6 +2775,18 @@ class ExecutionEngine:
             _iter_derived = redo_derived_from   # lineage for THIS iteration's write
             redo_directive = ""
             redo_derived_from = None
+
+            # UPLD-02 residue (30-03): drain any per-turn images queued by the chat
+            # ``POST /api/runs/{id}/messages`` path (via chat_router.apply_turn_images →
+            # ectx.pending_turn_images) onto the transient ``run_images`` carrier BEFORE
+            # composing THIS dispatch's blocks — so an ``injects:[images]`` agent's
+            # HumanMessage carries them exactly where run-entry images already flow.
+            # Consume-once: the pending queue is cleared after draining. DORMANT by
+            # default — an empty queue leaves ``run_images`` unchanged ⇒ the dispatch
+            # payload + the 5 goldens stay byte-identical (INV-3). Payload-transient
+            # (ND-10): the images are never persisted (the durable chat_message row keeps
+            # retained:false refs, no bytes). Keyed on the generic queue only (SC-001).
+            _drain_turn_images(ectx)
 
             # image-input Wave 1: the per-agent LOCAL image content-blocks (NOT an ectx
             # field — a shared field would leak the F1 blocks to a later non-opted agent).
