@@ -1,0 +1,114 @@
+# =============================================================================
+# Phase 35 pre-reskin mocked-Playwright BASELINE (DEF-29-06-1 — verify by delta)
+# Captured BEFORE any Task-2/Task-3 reskin edit (test-authoring only preceded it).
+#
+# e2e baseline environment-blocked (live-deferred):
+#   Browsers ARE installed and the suite DOES run, but the mocked webServer does
+#   not serve cleanly in this offline sandbox — specs systematically time out at
+#   ~45.8s. The full 158-test run does not complete in bounded time, so the
+#   runner was stopped after capturing the partial pass/fail set below
+#   (captured tally: 8 passed / 81 failed rows before stop; EXIT_CODE=143 = SIGTERM).
+#   Per the phase environment contract: do NOT install browsers, do NOT block the
+#   plan on e2e. Later waves diff by delta against whatever rows ARE present here;
+#   a clean full-suite pass/fail is deferred to the Phase-34 live pass.
+# =============================================================================
+
+> frontend@0.1.0 e2e
+> playwright test --project=mocked
+
+
+Running 158 tests using 6 workers
+
+  ✓    6 [mocked] › e2e/tests/ts-a.auth.spec.ts:9:7 › TS-A — auth, routing & tiers › TS-A-01 unauthenticated /dashboard redirects to /login (2.9s)
+  ✓    4 [mocked] › e2e/tests/ts-a.auth.spec.ts:16:7 › TS-A — auth, routing & tiers › TS-A-02 login stores JWT and lands on the dashboard home (3.1s)
+  ✘    2 [mocked] › e2e/tests/ts-a.auth.spec.ts:26:7 › TS-A — auth, routing & tiers › TS-A-05 basic tier locks app_builder / custom / migration (12.9s)
+  ✘    1 [mocked] › e2e/tests/ts-a.auth.spec.ts:34:7 › TS-A — auth, routing & tiers › TS-A-06 enterprise tier enables every workflow (12.9s)
+  ✘    9 [mocked] › e2e/tests/ts-b.selection.spec.ts:42:7 › TS-B — workflow selection › TS-B-05 'Platform workflows' opens the migration input view with two path tiles (10.9s)
+  ✘   11 [mocked] › e2e/tests/ts-b.selection.spec.ts:63:7 › TS-B — workflow selection › TS-B-07 workflow rows are focusable, enabled buttons (hover affordance proxy) (10.7s)
+  ✘    3 [mocked] › e2e/tests/ts-b.selection.spec.ts:24:7 › TS-B — workflow selection › TS-B-02 'Pitch an idea' hard-navigates to the PPT template wizard (45.8s)
+  ✘    5 [mocked] › e2e/tests/ts-b.selection.spec.ts:18:7 › TS-B — workflow selection › TS-B-01 'Generate product requirements' opens the brief input view (45.8s)
+  ✘    7 [mocked] › e2e/tests/ts-b.selection.spec.ts:30:7 › TS-B — workflow selection › TS-B-03 'Build an interactive prototype' hard-navigates to the prototype template wizard (45.8s)
+  ✘    8 [mocked] › e2e/tests/ts-b.selection.spec.ts:36:7 › TS-B — workflow selection › TS-B-04 'Build an end-to-end application' opens the application input view (45.9s)
+  ✘   10 [mocked] › e2e/tests/ts-b.selection.spec.ts:57:7 › TS-B — workflow selection › TS-B-06 'Compose a custom workflow' opens the custom task input view (45.8s)
+  ✘   12 [mocked] › e2e/tests/ts-c.input-trigger.spec.ts:33:7 › TS-C — idea input & trigger › TS-C-01 placeholder matches TYPE_CONFIG per workflow type (45.8s)
+  ✘   14 [mocked] › e2e/tests/ts-c.input-trigger.spec.ts:49:7 › TS-C — idea input & trigger › TS-C-02 Run-button disabled states (empty idea, no agents) (45.8s)
+  ✘   13 [mocked] › e2e/tests/ts-c.input-trigger.spec.ts:65:7 › TS-C — idea input & trigger › TS-C-03 Run enables once a brief is typed (user_stories) (45.8s)
+  ✘   15 [mocked] › e2e/tests/ts-c.input-trigger.spec.ts:75:7 › TS-C — idea input & trigger › TS-C-04 Cmd/Ctrl+Enter from the textarea triggers the run (45.8s)
+  ✘   16 [mocked] › e2e/tests/ts-c.input-trigger.spec.ts:90:7 › TS-C — idea input & trigger › TS-C-06 attach file shows a chip and injects the filename into the brief (45.9s)
+  ✓   22 [mocked] › e2e/tests/ts-chat-cards.spec.ts:67:7 › TS-CHAT-CARDS — result cards, deep-link, attachments (mocked) › TS-CHAT-CARDS-03 a picked file renders a chat-attach-chip in the composer tray (736ms)
+  ✓   21 [mocked] › e2e/tests/ts-chat-cards.spec.ts:55:7 › TS-CHAT-CARDS — result cards, deep-link, attachments (mocked) › TS-CHAT-CARDS-02 a spec_revision card reads 'Revising spec — cycle N' (KAN-101 loop, distinct from a family revision) (1.5s)
+  ✓   24 [mocked] › e2e/tests/ts-chat.spec.ts:61:7 › TS-CHAT — run chat lane (mounted live, mocked) › TS-CHAT-02 the transcript region exposes role=log + aria-live and narrator content renders markdown (697ms)
+  ✓   23 [mocked] › e2e/tests/ts-chat.spec.ts:34:7 › TS-CHAT — run chat lane (mounted live, mocked) › TS-CHAT-01 a sent turn asserts the outbound command and renders ONE bubble (optimistic reconcile, no dupe) (1.5s)
+  ✓   25 [mocked] › e2e/tests/ts-chat.spec.ts:77:7 › TS-CHAT — run chat lane (mounted live, mocked) › TS-CHAT-03 a gate surfaces chat-gate-actions, Approve fires the command, terminal hides the actions (KAN-100) (782ms)
+  ✓   26 [mocked] › e2e/tests/ts-chat.spec.ts:104:7 › TS-CHAT — run chat lane (mounted live, mocked) › TS-CHAT-04 a clarify state surfaces chat-clarify-actions and the chips submit answers (785ms)
+  ✘   17 [mocked] › e2e/tests/ts-c.input-trigger.spec.ts:111:7 › TS-C — idea input & trigger › TS-C-07 Voice button presence is gated on SpeechRecognition support (45.8s)
+  ✘   18 [mocked] › e2e/tests/ts-c.input-trigger.spec.ts:137:7 › TS-C — idea input & trigger › TS-C-08 migration path tile selects (navy) and unlocks Run (45.8s)
+  ✘   19 [mocked] › e2e/tests/ts-chat-cards.spec.ts:31:7 › TS-CHAT-CARDS — result cards, deep-link, attachments (mocked) › TS-CHAT-CARDS-01 a deliverable card is labeled 'Deliverable' and its deep-link switches the Preview tab (45.1s)
+  ✘   20 [mocked] › e2e/tests/ts-c.input-trigger.spec.ts:165:7 › TS-C — idea input & trigger › TS-C-10 trigger swaps to the execution view and emits run_pipeline (45.9s)
+  ✘   27 [mocked] › e2e/tests/ts-d.composer.spec.ts:77:7 › TS-D — agent composer › TS-D-01 open via Advanced, tabs present, close via Cancel and Save changes (45.8s)
+  ✘   28 [mocked] › e2e/tests/ts-d.composer.spec.ts:99:7 › TS-D — agent composer › TS-D-02 roles & locks: Core/Required pills, optional shows a remove button (45.8s)
+  ✘   29 [mocked] › e2e/tests/ts-d.composer.spec.ts:120:7 › TS-D — agent composer › TS-D-03 remove optional agent decrements the Agents (N) tab count (45.8s)
+  ✘   30 [mocked] › e2e/tests/ts-d.composer.spec.ts:138:7 › TS-D — agent composer › TS-D-05 add cell shows the cap and opens the Agent Library (45.8s)
+  ✘   31 [mocked] › e2e/tests/ts-d.composer.spec.ts:152:7 › TS-D — agent composer › TS-D-06 Agent Library category nav, and +Add adds the agent and closes the library (45.8s)
+  ✘   32 [mocked] › e2e/tests/ts-d.composer.spec.ts:176:7 › TS-D — agent composer › TS-D-08 capabilities modal shows the three sections (45.9s)
+  ✘   33 [mocked] › e2e/tests/ts-d.composer.spec.ts:197:7 › TS-D — agent composer › TS-D-04 drag-reorder of an unlocked agent card (45.9s)
+  ✘   34 [mocked] › e2e/tests/ts-e.model-picker.spec.ts:41:7 › TS-E — per-agent model selection (AgentModelPicker) › TS-E-01 header + one Default-first <select> per agent (45.8s)
+  -   40 [mocked] › e2e/tests/ts-e.model-picker.spec.ts:244:8 › TS-E-01b — AgentModelPicker alternate states › TS-E-01b-nojwt-and-failcopy: no-jwt redirects to /login (picker never mounts); 500/abort surface the body/statusText, never the literal 'Failed to load models.' fallback
+  ✘   35 [mocked] › e2e/tests/ts-e.model-picker.spec.ts:71:7 › TS-E — per-agent model selection (AgentModelPicker) › TS-E-02 catalog reflects backend (user_allowed only) (45.8s)
+  ✘   36 [mocked] › e2e/tests/ts-e.model-picker.spec.ts:90:7 › TS-E — per-agent model selection (AgentModelPicker) › TS-E-03 picking a non-default model emits model_overrides on run_pipeline (45.8s)
+  ✘   37 [mocked] › e2e/tests/ts-e.model-picker.spec.ts:112:7 › TS-E — per-agent model selection (AgentModelPicker) › TS-E-04 re-selecting Default removes the override (key omitted) (45.8s)
+  ✘   38 [mocked] › e2e/tests/ts-e.model-picker.spec.ts:162:7 › TS-E-01b — AgentModelPicker alternate states › TS-E-01b-noagents shows the no-agents copy (custom seeds 0 agents) (45.9s)
+  ✘   39 [mocked] › e2e/tests/ts-e.model-picker.spec.ts:191:7 › TS-E-01b — AgentModelPicker alternate states › TS-E-01b-loading shows the loading copy while /api/capabilities is in flight (45.8s)
+  ✘   41 [mocked] › e2e/tests/ts-f.skills-hooks.spec.ts:55:7 › TS-F — Skills & Hooks › TS-F-01 empty states for skills and hooks (45.8s)
+  ✘   42 [mocked] › e2e/tests/ts-f.skills-hooks.spec.ts:66:7 › TS-F — Skills & Hooks › TS-F-02 attach a skill → Add becomes Added, count pill increments (45.8s)
+  ✘   43 [mocked] › e2e/tests/ts-f.skills-hooks.spec.ts:100:7 › TS-F — Skills & Hooks › TS-F-03 skill category pills filter the list (45.8s)
+  ✘   44 [mocked] › e2e/tests/ts-f.skills-hooks.spec.ts:124:7 › TS-F — Skills & Hooks › TS-F-04 hooks picker: search, the known hooks, and event filter pills (45.8s)
+  ✘   45 [mocked] › e2e/tests/ts-f.skills-hooks.spec.ts:148:7 › TS-F — Skills & Hooks › TS-F-05 attached skill + hook are persisted into the run_pipeline payload (45.9s)
+  ✘   46 [mocked] › e2e/tests/ts-f.skills-hooks.spec.ts:207:7 › TS-F — Skills & Hooks › TS-F-06 attachment survives closing and reopening the popup (45.8s)
+  ✘   47 [mocked] › e2e/tests/ts-g.review-gates.spec.ts:64:7 › TS-G — pre-run Review-gates section › TS-G-01 collapsed summary + expand reveals helper text and one row per agent (45.8s)
+  ✘   48 [mocked] › e2e/tests/ts-g.review-gates.spec.ts:91:7 › TS-G — pre-run Review-gates section › TS-G-02 default gates: user_stories has no Human_Gate defaults → no `default` pill; toggling works (45.8s)
+  ✘   49 [mocked] › e2e/tests/ts-g.review-gates.spec.ts:129:7 › TS-G — pre-run Review-gates section › TS-G-03a toggle → run_pipeline carries gate_agent_ids (because the section was touched) (45.8s)
+  -   55 [mocked] › e2e/tests/ts-h.trigger-contract.spec.ts:110:7 › TS-H — trigger contract › TS-H-05 wizard path (prototype/ppt) sends od_prototype/od_ppt + template_id
+  ✘   50 [mocked] › e2e/tests/ts-g.review-gates.spec.ts:154:7 › TS-G — pre-run Review-gates section › TS-G-03b run without touching the section → gate_agent_ids omitted (45.8s)
+  ✘   51 [mocked] › e2e/tests/ts-g.review-gates.spec.ts:173:7 › TS-G — pre-run Review-gates section › TS-G-04 hidden when no agents (custom workflow seeds zero agents) (45.9s)
+  ✘   52 [mocked] › e2e/tests/ts-h.trigger-contract.spec.ts:18:7 › TS-H — trigger contract › TS-H-01 run_pipeline payload (minimal) is the byte-identical legacy shape (45.8s)
+  ✘   53 [mocked] › e2e/tests/ts-h.trigger-contract.spec.ts:50:7 › TS-H — trigger contract › TS-H-02 clicking Run swaps to the execution view immediately (pre-event) (45.9s)
+  ✘   54 [mocked] › e2e/tests/ts-h.trigger-contract.spec.ts:79:7 › TS-H — trigger contract › TS-H-04 pipeline_start seeds exactly the sent cards; currentAgentIndex starts at 0 (45.8s)
+  ✘   56 [mocked] › e2e/tests/ts-i.agent-panels.spec.ts:14:7 › TS-I — live agent panels › TS-I-01/02/03 RUNNING → DONE, and ERROR badges (45.8s)
+  ✘   57 [mocked] › e2e/tests/ts-i.agent-panels.spec.ts:31:7 › TS-I — live agent panels › TS-I-05 header reflects progress then completion (45.8s)
+  ✘   58 [mocked] › e2e/tests/ts-i.agent-panels.spec.ts:44:7 › TS-I — live agent panels › TS-I-07 + TS-R Stop sends cancel and clears cards (45.9s)
+  ✘   59 [mocked] › e2e/tests/ts-i.agent-panels.spec.ts:68:7 › TS-I — extended › TS-I-04 expand a DONE card reveals its output in a <pre> (45.8s)
+  ✘   60 [mocked] › e2e/tests/ts-i.agent-panels.spec.ts:96:7 › TS-I — extended › TS-I-06 progress bar present + header count grows as agents complete (45.9s)
+  ✘   61 [mocked] › e2e/tests/ts-i.agent-panels.spec.ts:130:7 › TS-I — extended › TS-I-08 completion footer shows the New Pipeline button (45.8s)
+  ✘   62 [mocked] › e2e/tests/ts-i.agent-panels.spec.ts:140:7 › TS-I — extended › TS-I-09 seed-then-transition: 3 cards appear at once and transition in place (45.8s)
+  ✘   63 [mocked] › e2e/tests/ts-i.agent-panels.spec.ts:161:7 › TS-I — extended › TS-I-10 a completed agent shows a wall-clock duration (45.8s)
+  ✘   64 [mocked] › e2e/tests/ts-j.streaming.spec.ts:31:7 › TS-J — live streaming / planner / execution gate (Thinking tab) › TS-J-01 empty trace before any agent event (45.9s)
+  ✘   65 [mocked] › e2e/tests/ts-j.streaming.spec.ts:43:7 › TS-J — live streaming / planner / execution gate (Thinking tab) › TS-J-02 Reasoning (live) stream with blinking cursor (45.8s)
+  ✘   66 [mocked] › e2e/tests/ts-j.streaming.spec.ts:63:7 › TS-J — live streaming / planner / execution gate (Thinking tab) › TS-J-03 per-card LIVE / DONE / ERROR badges in the trace (45.9s)
+  ✘   67 [mocked] › e2e/tests/ts-j.streaming.spec.ts:85:7 › TS-J — live streaming / planner / execution gate (Thinking tab) › TS-J-04 pipeline status banner: Running → Complete (45.8s)
+  ✘   68 [mocked] › e2e/tests/ts-j.streaming.spec.ts:105:7 › TS-J — live streaming / planner / execution gate (Thinking tab) › TS-J-04 pipeline status banner: Completed with errors (45.8s)
+  ✘   69 [mocked] › e2e/tests/ts-j.streaming.spec.ts:122:7 › TS-J — live streaming / planner / execution gate (Thinking tab) › TS-J-05 execution gate badge: PROCEED (45.8s)
+  ✘   70 [mocked] › e2e/tests/ts-j.streaming.spec.ts:136:7 › TS-J — live streaming / planner / execution gate (Thinking tab) › TS-J-05 execution gate badge: CLARIFY (45.9s)
+  ✘   71 [mocked] › e2e/tests/ts-j.streaming.spec.ts:147:7 › TS-J — live streaming / planner / execution gate (Thinking tab) › TS-J-06 Spec-Kit live view (prototype pipeline) (45.8s)
+  ✘   72 [mocked] › e2e/tests/ts-k.wave-tree.spec.ts:17:7 › TS-K — wave / subagent tree › TS-K-02 empty state before any wave (45.9s)
+  ✘   73 [mocked] › e2e/tests/ts-k.wave-tree.spec.ts:22:7 › TS-K — wave / subagent tree › TS-K-03/04/05 wave groups + worker leaves + status transitions (45.8s)
+  ✘   74 [mocked] › e2e/tests/ts-k.wave-tree.spec.ts:38:7 › TS-K — wave / subagent tree › TS-K-01 wave heading sits above the fold at 1440×950 (45.8s)
+  ✘   75 [mocked] › e2e/tests/ts-l.token-usage.spec.ts:38:7 › TS-L — token usage summary › TS-L-01 summary card: total, input/output breakdown, cost label + value (45.8s)
+  ✘   76 [mocked] › e2e/tests/ts-l.token-usage.spec.ts:62:7 › TS-L — token usage summary › TS-L-02 number format: 1.5M total (45.9s)
+  ✘   77 [mocked] › e2e/tests/ts-l.token-usage.spec.ts:72:7 › TS-L — token usage summary › TS-L-02 number format: raw 950 total (45.8s)
+  ✘   78 [mocked] › e2e/tests/ts-l.token-usage.spec.ts:82:7 › TS-L — token usage summary › TS-L-03 cost format: zero → em dash (45.9s)
+  ✘   79 [mocked] › e2e/tests/ts-l.token-usage.spec.ts:94:7 › TS-L — token usage summary › TS-L-03 cost format: sub-cent → <$0.001 (45.8s)
+  ✘   80 [mocked] › e2e/tests/ts-l.token-usage.spec.ts:105:7 › TS-L — token usage summary › TS-L-03 cost format: 0.042 → ~$0.042 (45.8s)
+  ✘   81 [mocked] › e2e/tests/ts-l.token-usage.spec.ts:116:7 › TS-L — token usage summary › TS-L-04 per-agent token pill: DONE card shows 3.1K tokens (45.8s)
+  ✘   82 [mocked] › e2e/tests/ts-m.questionnaire.spec.ts:22:7 › TS-M — questionnaire / clarify gate › TS-M-02 renders Quick Setup with subtitle + answered counter (45.9s)
+  ✘   83 [mocked] › e2e/tests/ts-m.questionnaire.spec.ts:37:7 › TS-M — questionnaire / clarify gate › TS-M-03 selecting an option selects it, auto-advances, and bumps the counter (45.8s)
+  ✘   84 [mocked] › e2e/tests/ts-m.questionnaire.spec.ts:64:7 › TS-M — questionnaire / clarify gate › TS-M-04 hybrid question exposes a free-text input that clears the MCQ selection (45.9s)
+  ✘   85 [mocked] › e2e/tests/ts-m.questionnaire.spec.ts:91:7 › TS-M — questionnaire / clarify gate › TS-M-05a all answered → primary 'Run User Stories Pipeline' + skip control (45.8s)
+  ✘   86 [mocked] › e2e/tests/ts-m.questionnaire.spec.ts:108:7 › TS-M — questionnaire / clarify gate › TS-M-05b some answered → 'Continue with 1/2 answered' (45.8s)
+  ✘   87 [mocked] › e2e/tests/ts-m.questionnaire.spec.ts:122:7 › TS-M — questionnaire / clarify gate › TS-M-05c none answered → 'Run with defaults' (45.8s)
+  ✘   88 [mocked] › e2e/tests/ts-m.questionnaire.spec.ts:133:7 › TS-M — questionnaire / clarify gate › TS-M-06 submit sends submit_questionnaire; questionnaire_complete dismisses the panel (45.9s)
+  ✘   89 [mocked] › e2e/tests/ts-n.review-gate.spec.ts:52:7 › TS-N — mid-run review gate (ReviewGatePanel) › TS-N-01 spec gate renders title + subtitle (45.8s)
+  ✘   90 [mocked] › e2e/tests/ts-n.review-gate.spec.ts:67:7 › TS-N — mid-run review gate (ReviewGatePanel) › TS-N-01 tasks gate renders Task Plan Review title (45.9s)
+  ✘   91 [mocked] › e2e/tests/ts-n.review-gate.spec.ts:82:7 › TS-N — mid-run review gate (ReviewGatePanel) › TS-N-02 preview mode: spec sections render as cards (45.8s)
+EXIT_CODE=143
+CAPTURED_UTC=2026-07-08T23:34:15Z
