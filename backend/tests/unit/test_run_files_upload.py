@@ -382,6 +382,67 @@ class TestManifestLockSerialization:
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# Streaming per-file size cap (WR-03) — reject before buffering the whole part
+# ════════════════════════════════════════════════════════════════════════════
+
+
+class TestStreamingSizeCap:
+    def test_oversize_file_rejected_413_across_chunks_no_write(self, env, monkeypatch):
+        """An over-cap part is rejected with 413 (streamed in small chunks) and nothing
+        lands on disk."""
+        user = _seed_user(env, "u")
+        run_id = _owned_run(env, user)
+        env["state"]["user"] = user
+        monkeypatch.setattr(env["rf"], "_MAX_FILE_BYTES", 4)
+        monkeypatch.setattr(env["rf"], "_UPLOAD_CHUNK", 2)  # force the multi-chunk path
+        resp = _post(env, run_id, [("files", ("big.txt", b"way too big", "text/plain"))])
+        assert resp.status_code == 413
+        assert not (_sandbox(env, user.id, run_id).path_for(".uploads")).exists()
+
+    def test_read_capped_aborts_without_reading_the_whole_part(self, env, monkeypatch):
+        """The core WR-03 property: an over-cap part is NOT fully buffered — the read
+        aborts after crossing the limit instead of materializing the entire body."""
+        import asyncio
+        import io
+
+        rf = env["rf"]
+        monkeypatch.setattr(rf, "_UPLOAD_CHUNK", 2)
+
+        class _CountingUpload:
+            def __init__(self, data: bytes):
+                self._buf = io.BytesIO(data)
+                self.read_bytes = 0
+
+            async def read(self, size: int = -1) -> bytes:
+                chunk = self._buf.read(size)
+                self.read_bytes += len(chunk)
+                return chunk
+
+        big = _CountingUpload(b"x" * (1024 * 1024))  # 1 MB part, 4-byte cap
+        out = asyncio.get_event_loop().run_until_complete(rf._read_capped(big, 4))
+        assert out is None
+        assert big.read_bytes <= 6  # aborted after crossing the cap, NOT ~1 MB
+
+    def test_read_capped_returns_full_bytes_under_limit(self, env):
+        import asyncio
+        import io
+
+        rf = env["rf"]
+
+        class _Upload:
+            def __init__(self, data: bytes):
+                self._buf = io.BytesIO(data)
+
+            async def read(self, size: int = -1) -> bytes:
+                return self._buf.read(size)
+
+        out = asyncio.get_event_loop().run_until_complete(
+            rf._read_capped(_Upload(b"hello"), 1024)
+        )
+        assert out == b"hello"
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # Deliverable exclusion (T-30-05 / INV-3)
 # ════════════════════════════════════════════════════════════════════════════
 

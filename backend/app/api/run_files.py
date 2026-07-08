@@ -73,10 +73,37 @@ _EXTRACTABLE_EXTS: frozenset[str] = frozenset({"pdf", "docx", "pptx"})
 # The per-file cap is file_extract._MAX_FILE_BYTES (10 MB, single source).
 _MAX_DOC_COUNT = 20
 _MAX_AGGREGATE_BYTES = 40 * 1024 * 1024  # ~40 MB raw across all documents in one call
+# Bounded read chunk (WR-03): stream each multipart part in 64 KB chunks and abort as
+# soon as the running size crosses the per-file cap, so an over-cap part is never
+# buffered whole before the 413 fires.
+_UPLOAD_CHUNK = 64 * 1024
 
 
 def _ext_of(filename: str) -> str:
     return filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+
+
+async def _read_capped(upload: UploadFile, limit: int) -> "bytes | None":
+    """Read ``upload`` in bounded chunks, returning its bytes — or ``None`` once the
+    running size exceeds ``limit`` (WR-03).
+
+    The per-file cap was previously enforced only AFTER ``await upload.read()`` had
+    materialized the ENTIRE part into one in-memory ``bytes``; a caller could force the
+    server to fully buffer an arbitrarily large part (and up to 20 of them per request)
+    before the 413 fired. Streaming with early-abort bounds our own buffer at ``limit``
+    and rejects an over-cap part without reading the rest.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await upload.read(_UPLOAD_CHUNK)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > limit:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _dedupe_segment(safe: str, used: set[str]) -> str:
@@ -168,13 +195,13 @@ async def upload_files(
                 ),
             )
 
-        data = await upload.read()
-        if len(data) > _MAX_FILE_BYTES:
+        data = await _read_capped(upload, _MAX_FILE_BYTES)
+        if data is None:
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail=(
-                    f"File too large: {name!r} ({len(data) // 1024} KB). "
-                    f"Maximum per file: {_MAX_FILE_BYTES // 1024} KB"
+                    f"File too large: {name!r} "
+                    f"(exceeds the per-file limit of {_MAX_FILE_BYTES // 1024} KB)"
                 ),
             )
         aggregate += len(data)
