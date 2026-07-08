@@ -789,7 +789,7 @@ Plans:
 5. Narrator `chat_reply` cards emit for clarify/gate/pipeline/deliverable milestones.
 6. INV-3 goldens byte-identical; lint-imports 4/0; kernel name-free (SC-001 grep 0).
 
-**Plans:** 8/10 plans executed
+**Plans:** 9/10 plans executed
 
 Plans:
 
@@ -801,7 +801,7 @@ Plans:
 - [x] 29-06-PLAN.md — e2e mock-SSE driver + additive chat frames (123 mocked specs stay green) [wave 1]
 - [x] 29-07-PLAN.md — FE transport adapter + app-level connection provider + server-derived reattach (D-14 a–f), flag-gated [wave 2]
 - [x] 29-08-PLAN.md — Steering seam `ectx.steering_notes` + `=== USER GUIDANCE ===` + ND-11 decision record (first design task) [wave 1]
-- [ ] 29-09-PLAN.md — `POST /runs/{id}/messages` (idempotent) + mechanical intent router (CHAT-01/02/05) [wave 5]
+- [x] 29-09-PLAN.md — `POST /runs/{id}/messages` (idempotent) + mechanical intent router (CHAT-01/02/05) [wave 5]
 - [ ] 29-10-PLAN.md — Narrator `chat_reply` cards (clarify/gate/pipeline/deliverable/spec_revision + deep-link nonce) [wave 6]
 
 ### Phase 30: Uploads & Multimodal [A2]
@@ -902,7 +902,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 28. Chat Contracts & Guards [A0] | 3/3 | Complete    | 2026-07-07 |
-| 29. Chat Backbone [A1] | 8/10 | In Progress|  |
+| 29. Chat Backbone [A1] | 9/10 | In Progress|  |
 | 30. Uploads & Multimodal [A2] | 0/? | Not started | — |
 | 31. Chat Lane MVP [A3] | 0/? | Not started | — |
 | 32. Run-Screen Redesign [A4] | 0/? | Not started | — |
