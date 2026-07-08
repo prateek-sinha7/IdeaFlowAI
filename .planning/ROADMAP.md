@@ -902,6 +902,15 @@ Plans:
 3. Post-run chat turns produce revision runs stitched into the family transcript.
 4. A brand-new custom workflow gets lane + router + Concierge with zero new code (SC-001 proof).
 
+**Plans:** 5 plans in 4 waves
+
+Plans:
+- [ ] 33-01-PLAN.md — Wave 1: compaction:chat_history + context_provider:conversation + registry lockstep (66→68) [D-08, SC-2]
+- [ ] 33-02-PLAN.md — Wave 2: chat:concierge capability (DeepAgentRunner/Haiku, read + proposal-only tools) + registry lockstep (68→69) [D-05, INV-13, SC-1]
+- [ ] 33-03-PLAN.md — Wave 3: router free-form→Concierge escalation + proposal→channel disposal + revision-family stitching [D-04, D-05, D-02, SC-1, SC-3]
+- [ ] 33-04-PLAN.md — Wave 4: FE — confirm-chip UX + compact affordance + composed-context/token display (extend RunChatLane/ChatTokenWidget) [D-05, D-08, SC-1]
+- [ ] 33-05-PLAN.md — Wave 4: SC-001 throwaway-manifest proof + manifest chat: data key (INV-5) + INV-3 golden neutrality (5 goldens byte-identical) [SC-001, INV-3]
+
 ### Phase 34: Live Pass & Closure [A6]
 
 **Goal:** Everything proven live on Bedrock; registers updated; deferrals swept.
@@ -960,7 +969,7 @@ Plans:
 | 30. Uploads & Multimodal [A2] | 0/? | Not started | — |
 | 31. Chat Lane MVP [A3] | 7/7 | Complete    | 2026-07-08 |
 | 32. Run-Screen Redesign [A4] | 10/10 | Complete   | 2026-07-08 |
-| 33. Concierge + Compaction [A5] | 0/? | Not started | — |
+| 33. Concierge + Compaction [A5] | 0/5 | Planned | — |
 | 34. Live Pass & Closure [A6] | 0/? | Not started | — |
 | 35. Shell Chrome + Reskin Pages [B1] | 0/? | Not started | — |
 | 36. Home + History + My Workflows [B2] | 0/? | Not started | — |
