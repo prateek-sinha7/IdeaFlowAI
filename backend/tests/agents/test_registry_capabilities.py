@@ -101,6 +101,7 @@ _EXPECTED_NAMES: list[tuple[str, str]] = [
     ("integration_provider", "gitlab"),    # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
     ("integration_provider", "jira"),      # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
     ("integration_provider", "slack"),     # 09-06 / INTEG-01 — MCP-backed bridge (user_allowed=True)
+    ("context_provider", "uploaded_files"), # 30-02 / UPLD-03 — sticky uploaded-doc context
 ]
 
 
@@ -156,8 +157,10 @@ def test_registered_count_is_exactly_fifty() -> None:
     # hook:audit_logger (default lifecycle audit hook — present in _KNOWN since KAN-73
     # but never reconciled into _EXPECTED_NAMES until now) = 64, plus the one 260707-edw
     # input-image capability (input_provider:run_images, image-input Wave 1 — the DORMANT
-    # backend spine, user_allowed=True) = 65.
-    assert len(_KNOWN) == 65
+    # backend spine, user_allowed=True) = 65, plus the one 30-02 uploaded-doc capability
+    # (context_provider:uploaded_files, UPLD-03 — surfaces the run's .uploads sidecar text
+    # as sticky agent context) = 66.
+    assert len(_KNOWN) == 66
     assert set(_KNOWN) == set(_EXPECTED_NAMES)
 
 
