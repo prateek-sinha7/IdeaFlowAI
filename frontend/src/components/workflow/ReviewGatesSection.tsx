@@ -18,8 +18,8 @@
  *     field entirely, so the backend uses its static default (byte-identical to
  *     today). `onChange` must be a stable reference (wrap in `useCallback`).
  *
- * Styled to the design system / `ReviewGatePanel` palette: navy `#1B2A4A`,
- * `text-[11px]` labels, `rounded-lg`.
+ * Styled to the Phase-32 token layer (brand / ink / surface / line tokens),
+ * `text-[11px]` labels, token radii.
  *
  * Graceful: renders nothing when the agent list is empty.
  */
@@ -27,6 +27,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, ShieldCheck, Check } from "lucide-react";
 import type { AgentDef } from "@/types/index";
+import { Pill } from "@/components/ui/Pill";
 
 interface ReviewGatesSectionProps {
   /** The current pipeline's agents (e.g. LIBRARY_AGENTS filtered by type). */
@@ -100,30 +101,30 @@ export function ReviewGatesSection({ agents, onChange, initialGateIds }: ReviewG
   const gatedCount = checkedIds.size;
 
   return (
-    <div className="w-full rounded-lg border border-gray-200/80 bg-white overflow-hidden">
+    <div className="w-full rounded-[var(--radius-button)] border border-line-border bg-surface-white overflow-hidden font-sans">
       {/* Header — inline expandable */}
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-[#F1F4FB]"
+        className="w-full flex items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-brand-fill"
         aria-expanded={expanded}
       >
-        <ShieldCheck className="h-3.5 w-3.5 text-[#1B2A4A] flex-shrink-0" />
-        <span className="text-[11px] font-semibold text-[#1B2A4A]">Review gates</span>
-        <span className="text-[11px] text-gray-400">
+        <ShieldCheck className="h-3.5 w-3.5 text-brand flex-shrink-0" />
+        <span className="text-[11px] font-semibold text-brand font-sans">Review gates</span>
+        <span className="text-[11px] text-ink-400">
           {gatedCount === 0
             ? "no gates"
             : `${gatedCount} agent${gatedCount !== 1 ? "s" : ""} pause for review`}
         </span>
-        <span className="ml-auto text-gray-400">
+        <span className="ml-auto text-ink-400">
           {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
         </span>
       </button>
 
       {/* Body — one checkbox per agent */}
       {expanded && (
-        <div className="border-t border-gray-100 px-3 py-2.5 space-y-1">
-          <p className="text-[10px] text-gray-400 leading-relaxed mb-1.5">
+        <div className="border-t border-line-divider px-3 py-2.5 space-y-1">
+          <p className="text-[10px] text-ink-400 leading-relaxed mb-1.5">
             Checked agents pause the pipeline for your review after they finish. Pre-set to the
             recommended defaults — adjust as needed.
           </p>
@@ -132,13 +133,13 @@ export function ReviewGatesSection({ agents, onChange, initialGateIds }: ReviewG
             return (
               <label
                 key={agent.id}
-                className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 cursor-pointer transition-colors hover:bg-[#F1F4FB]"
+                className="flex items-center gap-2.5 rounded-[var(--radius-button)] px-2 py-1.5 cursor-pointer transition-colors hover:bg-brand-fill"
               >
                 <span
                   className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border transition-colors ${
                     checked
-                      ? "border-[#1B2A4A] bg-[#1B2A4A]"
-                      : "border-gray-300 bg-white"
+                      ? "border-brand bg-brand"
+                      : "border-line-control bg-surface-white"
                   }`}
                 >
                   {checked && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
@@ -150,17 +151,17 @@ export function ReviewGatesSection({ agents, onChange, initialGateIds }: ReviewG
                   className="sr-only"
                 />
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[11px] font-medium text-gray-900 leading-tight truncate">
+                  <span className="block text-[11px] font-medium text-ink-900 leading-tight truncate">
                     {agent.name}
                   </span>
-                  <span className="block text-[10px] text-gray-400 leading-tight truncate">
+                  <span className="block text-[10px] text-ink-400 leading-tight truncate">
                     {agent.role}
                   </span>
                 </span>
                 {isDefaultGated(agent) && (
-                  <span className="flex-shrink-0 rounded-full bg-[#1B2A4A]/10 px-1.5 py-0.5 text-[9px] font-medium text-[#1B2A4A]">
+                  <Pill className="flex-shrink-0 bg-brand-fill border-brand-border text-brand text-[9px] font-medium px-1.5 py-0.5">
                     default
-                  </span>
+                  </Pill>
                 )}
               </label>
             );
