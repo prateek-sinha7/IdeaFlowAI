@@ -189,7 +189,7 @@ export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
     <div className="flex flex-col h-full overflow-y-auto" style={{ background: "#f5f5f0" }}>
       <div className="flex-1 flex flex-col max-w-5xl mx-auto w-full px-6 py-10">
 
-        {/* ── Page header — matches WorkflowCatalog style ─────────────────── */}
+        {/* ── Page header — matches HomeLaunchGrid style ─────────────────── */}
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4 }} className="mb-8">
           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-[0.18em] mb-4">

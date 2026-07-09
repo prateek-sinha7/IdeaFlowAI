@@ -65,7 +65,7 @@ vi.mock("motion/react", () => ({
 }));
 
 // Imported AFTER the mocks so the component picks up the mocked deps.
-import { WorkflowCatalog } from "./WorkflowCatalog";
+import { HomeLaunchGrid } from "./HomeLaunchGrid";
 
 // ─────────────────────────────────────────────────────────────────
 // Fixtures — a MIXED list exercising both gates + the label fallback.
@@ -136,7 +136,7 @@ const MIXED: WorkflowSummary[] = [
   },
 ];
 
-describe("WorkflowCatalog two-gate filter + friendly label", () => {
+describe("HomeLaunchGrid two-gate filter + friendly label", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetToken.mockReturnValue("test-token");
@@ -145,7 +145,7 @@ describe("WorkflowCatalog two-gate filter + friendly label", () => {
   });
 
   it("renders entitled launchables, hides non-launchable + revision/od_* rows, shows gated rows locked, and uses friendly labels", async () => {
-    render(<WorkflowCatalog onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="basic" />);
+    render(<HomeLaunchGrid onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="basic" />);
 
     // The entitled launchable shows its FRIENDLY label.
     await waitFor(() =>
@@ -183,7 +183,7 @@ describe("WorkflowCatalog two-gate filter + friendly label", () => {
   // BE (now returning display_name=null, WR-01) never exercises, so without
   // this assertion an author-declared display_name could silently be ignored.
   it("renders an explicit display_name over the friendly getWorkflowLabel value (precedence)", async () => {
-    render(<WorkflowCatalog onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="basic" />);
+    render(<HomeLaunchGrid onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="basic" />);
 
     // The explicit manifest display_name is shown...
     await waitFor(() =>
@@ -221,7 +221,7 @@ const SAVED: UserWorkflowSummary[] = [
   },
 ];
 
-describe("WorkflowCatalog — 'Your workflows' section + kebab (Phase 21)", () => {
+describe("HomeLaunchGrid — 'Your workflows' section + kebab (Phase 21)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetToken.mockReturnValue("test-token");
@@ -231,7 +231,7 @@ describe("WorkflowCatalog — 'Your workflows' section + kebab (Phase 21)", () =
   });
 
   it("renders the saved row's own name under a 'Your workflows' heading", async () => {
-    render(<WorkflowCatalog onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="enterprise" />);
+    render(<HomeLaunchGrid onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="enterprise" />);
 
     await waitFor(() =>
       expect(screen.getByText("Your workflows")).toBeInTheDocument(),
@@ -242,7 +242,7 @@ describe("WorkflowCatalog — 'Your workflows' section + kebab (Phase 21)", () =
 
   it("launches a saved workflow via onLaunchSaved when its row is clicked", async () => {
     const onLaunchSaved = vi.fn();
-    render(<WorkflowCatalog onSelectFeature={vi.fn()} onLaunchSaved={onLaunchSaved} userTier="enterprise" />);
+    render(<HomeLaunchGrid onSelectFeature={vi.fn()} onLaunchSaved={onLaunchSaved} userTier="enterprise" />);
 
     const row = await screen.findByText("My saved workflow");
     await userEvent.click(row);
@@ -251,7 +251,7 @@ describe("WorkflowCatalog — 'Your workflows' section + kebab (Phase 21)", () =
   });
 
   it("exposes a Rename/Duplicate/Delete kebab on a saved row but not on built-in rows", async () => {
-    render(<WorkflowCatalog onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="enterprise" />);
+    render(<HomeLaunchGrid onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="enterprise" />);
 
     await screen.findByText("My saved workflow");
 
@@ -274,7 +274,7 @@ describe("WorkflowCatalog — 'Your workflows' section + kebab (Phase 21)", () =
   });
 
   it("Delete → confirm calls deleteUserWorkflow and optimistically removes the row", async () => {
-    render(<WorkflowCatalog onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="enterprise" />);
+    render(<HomeLaunchGrid onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="enterprise" />);
 
     await screen.findByText("My saved workflow");
 
@@ -302,7 +302,7 @@ describe("WorkflowCatalog — 'Your workflows' section + kebab (Phase 21)", () =
   // the next mount, masking the failure.
   it("Delete → keeps the row and surfaces an error when the server delete fails", async () => {
     mockDeleteUserWorkflow.mockRejectedValueOnce(new Error("Network down"));
-    render(<WorkflowCatalog onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="enterprise" />);
+    render(<HomeLaunchGrid onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="enterprise" />);
 
     await screen.findByText("My saved workflow");
 

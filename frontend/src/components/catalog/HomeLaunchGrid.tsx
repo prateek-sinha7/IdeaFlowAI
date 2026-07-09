@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * WorkflowCatalog — the data-driven Creation Hub (Plan 20-02, WF-DB-01 /
+ * HomeLaunchGrid — the data-driven Creation Hub (Plan 20-02, WF-DB-01 /
  * ISS-015). It is a TWO-ANALOG GRAFT:
  *
  *   - Fetch/state shell  ⟵ AgentModelPicker.tsx (:48-74,:99-114): the mount
@@ -41,7 +41,7 @@ import {
   type UserWorkflowSummary,
 } from "@/lib/api";
 
-interface WorkflowCatalogProps {
+interface HomeLaunchGridProps {
   onSelectFeature: (type: WorkflowType) => void;
   // Optional — kept for API compatibility; launch wiring lives in
   // SavedWorkflowsPage (profile dropdown) now.
@@ -49,10 +49,10 @@ interface WorkflowCatalogProps {
   userTier?: Tier;
 }
 
-export function WorkflowCatalog({
+export function HomeLaunchGrid({
   onSelectFeature,
   userTier = "basic",
-}: WorkflowCatalogProps) {
+}: HomeLaunchGridProps) {
   const router = useRouter();
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   const [loading, setLoading] = useState(true);

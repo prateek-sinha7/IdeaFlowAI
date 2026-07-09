@@ -56,13 +56,13 @@ vi.mock("@/components/layout/AppHeader", () => ({
 vi.mock("@/components/home/CreationHub", () => ({
   CreationHub: () => <div data-testid="stub-creation-hub" />,
 }));
-// 22-07 (UXFIX-03): the data-driven WorkflowCatalog is now the default home
+// 22-07 (UXFIX-03): the data-driven HomeLaunchGrid is now the default home
 // landing — it mounts (briefly, on the initial "home" render before the
 // isRunning effect flips to "execution") and its mount fetch calls getToken()
 // → localStorage, which this jsdom env does not provide. Stub it like the rest
 // of the heavy children so the wave-tree assertion target stays isolated.
-vi.mock("@/components/catalog/WorkflowCatalog", () => ({
-  WorkflowCatalog: () => <div data-testid="stub-workflow-catalog" />,
+vi.mock("@/components/catalog/HomeLaunchGrid", () => ({
+  HomeLaunchGrid: () => <div data-testid="stub-workflow-catalog" />,
 }));
 vi.mock("@/components/library/LibraryPage", () => ({
   LibraryPage: () => <div data-testid="stub-library" />,

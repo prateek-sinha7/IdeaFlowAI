@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { WifiOff, RefreshCw, Brain, Sparkles, Loader2 } from "lucide-react";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { AppHeader } from "./AppHeader";
-import { WorkflowCatalog } from "@/components/catalog/WorkflowCatalog";
+import { HomeLaunchGrid } from "@/components/catalog/HomeLaunchGrid";
 import { LibraryPage } from "@/components/library/LibraryPage";
 import { WorkflowHistory } from "@/components/history/WorkflowHistory";
 import { AccountSettings } from "@/components/settings/AccountSettings";
@@ -1410,7 +1410,7 @@ export function DashboardLayout({
       {/* Main Content */}
       <div className="flex-1 min-h-0">
         <AnimatePresence mode="wait">
-          {/* HOME — the data-driven WorkflowCatalog is the DEFAULT landing
+          {/* HOME — the data-driven HomeLaunchGrid is the DEFAULT landing
               (UXFIX-03 / D-20). The hardcoded `CreationHub.WORKFLOWS` array no
               longer drives the default home — the catalog sources its rows from
               `GET /api/workflows`, so a brand-new launchable manifest appears
@@ -1426,7 +1426,7 @@ export function DashboardLayout({
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <WorkflowCatalog onSelectFeature={handleSelectFeature} onLaunchSaved={handleLaunchSaved} userTier={userTier} />
+              <HomeLaunchGrid onSelectFeature={handleSelectFeature} onLaunchSaved={handleLaunchSaved} userTier={userTier} />
             </motion.div>
           )}
 
@@ -1564,7 +1564,7 @@ export function DashboardLayout({
                 // SURF-03 — the backend workflow id whose compiled per-step
                 // capabilities the composer surfaces. For a built-in launchable
                 // workflow opened from the catalog, `workflowType` IS the workflow id
-                // (WorkflowCatalog launches via `row.id as WorkflowType`); for a saved
+                // (HomeLaunchGrid launches via `row.id as WorkflowType`); for a saved
                 // workflow it is the persisted `base_pipeline_type` (set in
                 // handleLaunchSaved). Unknown ids (e.g. `custom`/`migration` meta) 404
                 // server-side and the strip simply does not render.
