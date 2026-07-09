@@ -985,7 +985,7 @@ Plans:
 
 **Goal:** One generic per-run setup surface for every deliverable type; the agent drawer and workflow dialog give capabilities a real home.
 **Depends on:** Phase 36; ND-1/ND-7/ND-8 decided
-**Plans:** 6 plans (3 waves)
+**Plans:** 1/6 plans executed
 **Success Criteria:**
 
 1. Configure screen: Describe + Templates + Design System + Review Gates + Workflow Settings for ANY deliverable type (declared run inputs, not prototype-only wizardry).
@@ -995,7 +995,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 37-01-PLAN.md — D-15/C: generic template/DS declared-signal run-launch seam (backend, additive, byte-identical goldens) [Wave 1]
+- [x] 37-01-PLAN.md — D-15/C: generic template/DS declared-signal run-launch seam (backend, additive, byte-identical goldens) [Wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -1030,5 +1030,5 @@ Plans:
 | 34. Live Pass & Closure [A6] | 0/? | Not started | — |
 | 35. Shell Chrome + Reskin Pages [B1] | 7/7 | Complete   | 2026-07-09 |
 | 36. Home + History + My Workflows [B2] | 4/5 | In Progress|  |
-| 37. Configure Unification [B3] | 0/6 | Planned | — |
+| 37. Configure Unification [B3] | 1/6 | In Progress|  |
 | 38. Analytics, Estimates & Notifications [B4] | 0/? | Not started | — |
