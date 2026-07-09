@@ -29,6 +29,7 @@ import type { AgentDef, WorkflowType, AttachedSkill, AttachedHook } from "@/type
 import { SKILLS, SKILL_CATEGORIES, type SkillDef } from "@/data/skills";
 import { HOOKS, HOOK_EVENTS, type HookDef } from "@/data/hooks";
 import { useSkillsHooks } from "@/context/SkillsHooksContext";
+import { Tabs } from "@/components/ui/Tabs";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -409,6 +410,12 @@ export function AgentCapabilitiesModal({
   const onAttachSkill = ctx.attachSkill;
   const onAttachHook = ctx.attachHook;
 
+  // SHELL-04 (37-06): the drawer is a 4-tab inspector. Overview is the default
+  // surface; Config carries the ND-7/LOCK-E surface-only prompt-override.
+  const [drawerTab, setDrawerTab] = useState<
+    "overview" | "skills" | "hooks" | "config"
+  >("overview");
+
   // Custom skill editor state
   const [customSkillOpen, setCustomSkillOpen] = useState(false);
   const [customSkillName, setCustomSkillName] = useState("");
@@ -481,11 +488,28 @@ export function AgentCapabilitiesModal({
               </span>
             )}
           </div>
+
+          {/* SHELL-04: 4-tab inspector (Overview/Skills/Hooks/Config) — reuses
+              the shipped per-agent sections, distributed across tabs. */}
+          <Tabs
+            className="mt-3"
+            active={drawerTab}
+            onChange={(id) => setDrawerTab(id as typeof drawerTab)}
+            tabs={[
+              { id: "overview", label: "Overview" },
+              { id: "skills", label: "Skills" },
+              { id: "hooks", label: "Hooks" },
+              { id: "config", label: "Config" },
+            ]}
+          />
         </div>
 
         {/* Scrollable body */}
         <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
 
+          {/* Overview tab — what this agent does + pipeline step */}
+          {drawerTab === "overview" && (
+          <>
           {/* 1. What this agent does */}
           <div>
             <div className="flex items-center gap-2 mb-2.5">
@@ -511,11 +535,19 @@ export function AgentCapabilitiesModal({
               <span className="text-[11px] text-gray-600 font-medium">Step {agent.order}</span>
             </div>
           </div>
+          </>
+          )}
 
-          {/* 2. System Prompt (KAN-76) */}
+          {/* Config tab — per-agent prompt-override (ND-7 SURFACE-ONLY) +
+              Advanced levers. The override field renders but its PERSISTENCE is
+              DEFERRED (LOCK-E): no durable store, no save-to-server wiring is
+              added here — the surface is inert this phase. */}
+          {drawerTab === "config" && (
+          <>
+          {/* System Prompt (KAN-76) — ND-7: surface only, persistence deferred */}
           <AgentPromptSection agent={agent} />
 
-          {/* 3. Advanced Configuration levers (Model · Validator · Gate · Retry) */}
+          {/* Advanced Configuration levers (Model · Validator · Gate · Retry) */}
           {onSelectionsChange && (
             <div>
               <div className="flex items-center gap-2 mb-2.5">
@@ -531,8 +563,13 @@ export function AgentCapabilitiesModal({
               />
             </div>
           )}
+          </>
+          )}
 
-          {/* 4. Skills — Suggested Skills */}
+          {/* Skills tab — Suggested Skills + Custom skill */}
+          {drawerTab === "skills" && (
+          <>
+          {/* Suggested Skills */}
           {suggestedSkills.length > 0 && (
             <div>
               <div className="flex items-center gap-2 mb-2.5">
@@ -567,7 +604,12 @@ export function AgentCapabilitiesModal({
               </div>
             </div>
           )}
+          </>
+          )}
 
+          {/* Hooks tab — Suggested Hooks */}
+          {drawerTab === "hooks" && (
+          <>
           {/* Suggested Hooks */}
           {suggestedHooks.length > 0 && (
             <div>
@@ -604,7 +646,12 @@ export function AgentCapabilitiesModal({
               </div>
             </div>
           )}
+          </>
+          )}
 
+          {/* Skills tab (cont.) — Custom skill authoring */}
+          {drawerTab === "skills" && (
+          <>
           {/* Custom skill */}
           {agent.has_skill && (
             <div className="rounded-xl border border-gray-200 bg-gray-50 overflow-hidden">
@@ -703,6 +750,8 @@ export function AgentCapabilitiesModal({
                 </div>
               )}
             </div>
+          )}
+          </>
           )}
 
         </div>
