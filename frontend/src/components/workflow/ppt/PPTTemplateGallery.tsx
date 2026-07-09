@@ -286,7 +286,7 @@ function CompactPPTCard({ template, selected, onOpenDetail }: {
           We render the iframe at 800×450 (16:9) and scale it down to fit
           the 130px-wide card at ~80px height. */}
       <div className="relative overflow-hidden bg-gray-50" style={{ height: "80px" }}>
-        {thumbnailUrl ? (
+        {thumbnailUrl && shouldMount ? (
           // Pre-rendered screenshot — one cheap <img> load instead of a full
           // iframe document render. Falls back to the sandboxed (allow-scripts) iframe below.
           <>
@@ -300,7 +300,7 @@ function CompactPPTCard({ template, selected, onOpenDetail }: {
               loading="lazy"
               onLoad={() => setPreviewLoaded(true)}
               onError={() => {
-                // Thumbnail missing / 404 — degrade to the live iframe below.
+                // Thumbnail missing / 404 / 429 — degrade to the live iframe below.
                 setThumbnailError(true);
                 setShouldMount(true);
                 setPreviewLoaded(false);
@@ -336,7 +336,7 @@ function CompactPPTCard({ template, selected, onOpenDetail }: {
               }}
             />
           </>
-        ) : previewUrl ? (
+        ) : previewUrl || thumbnailUrl ? (
           <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />
         ) : (
           <div className="flex h-full items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
