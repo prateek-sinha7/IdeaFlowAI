@@ -561,10 +561,13 @@ export function VersionTimeline({
           );
         })}
       </div>
-      {/* Context line — only for a revision member (non-null parent). */}
+      {/* Context line — only for a revision member (non-null parent). The quoted
+          instruction suffix renders ONLY when a preview exists, so an empty input
+          never yields dangling `— ''` quotes. */}
       {activeMember && activeMember.parent_run_id && (
         <p className="px-5 pb-2 text-[10px] text-ink-400 truncate">
-          ↳ revises v{currentIdx} — &lsquo;{instructionPreview}&rsquo;
+          ↳ revises v{currentIdx}
+          {instructionPreview ? <> — &lsquo;{instructionPreview}&rsquo;</> : null}
         </p>
       )}
     </div>

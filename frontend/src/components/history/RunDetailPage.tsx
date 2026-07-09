@@ -256,7 +256,7 @@ export function RunDetailPage({
       <VersionTimeline
         family={family}
         activeRunId={activeVersionId}
-        activeInput=""
+        activeInput={summary.input ?? ""}
         onSelectVersion={setActiveVersionId}
       />
 

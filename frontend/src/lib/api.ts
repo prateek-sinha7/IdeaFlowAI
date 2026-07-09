@@ -386,6 +386,9 @@ export interface RunSummary {
   title: string;
   type: string;
   status: string;
+  /** The owner's own top-level brief (run.input) — feeds the revision-instruction
+   *  preview in the detail version timeline. Never child-agent output/secrets. */
+  input?: string | null;
   duration: number | null;
   agent_count: number;
   token_usage: {

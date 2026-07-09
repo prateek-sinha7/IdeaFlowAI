@@ -1024,6 +1024,7 @@ class RunSummaryResponse(BaseModel):
     title: str
     type: str
     status: str
+    input: Optional[str] = None        # the owner's OWN top-level brief/prompt (run.input)
     duration: Optional[float] = None
     agent_count: int
     token_usage: dict
@@ -1140,6 +1141,11 @@ def get_run_summary(
         title=run.title,
         type=run.type,
         status=run.status,
+        # The owner's OWN top-level brief (run.input) — owner-gated already; this is
+        # the same prompt the base detail showed the owner (the revision-instruction
+        # preview reads it). NEVER child-agent output/input_prompt/secrets (V7 keeps
+        # those out of the per-agent projection above).
+        input=run.input,
         duration=run.duration,
         agent_count=run.agent_count,
         token_usage=token_usage,

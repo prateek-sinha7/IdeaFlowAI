@@ -193,6 +193,9 @@ class TestSummaryOwnerAggregation:
         assert body["id"] == "R1"
         assert body["type"] == "prototype"
         assert body["status"] == "degraded"
+        # The owner's OWN top-level brief is returned (feeds the revision-instruction
+        # preview in the detail timeline) — owner-gated, never a foreign/secret field.
+        assert body["input"] == "build me a thing"
         assert body["duration"] == 42.5
         assert body["agent_count"] == 2
         assert body["error"] == "one agent failed"
