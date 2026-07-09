@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Filebase docs — Quickstart</title>
+  <title>Anchor docs — Quickstart</title>
   <style>
     :root {
       --bg: #fafaf9; --fg: #1c1b1a; --muted: #6b6964; --border: #e6e4e0;
@@ -46,7 +46,7 @@
 </head>
 <body>
   <header class="topbar" data-od-id="topbar">
-    <span class="brand">◰ Filebase docs</span>
+    <span class="brand">◰ Anchor docs</span>
     <input placeholder="Search · ⌘K" />
   </header>
   <div class="layout">
@@ -58,10 +58,10 @@
         <a href="#">Authentication</a>
       </div>
       <div class="group">
-        <div class="group-label">Sync engine</div>
-        <a href="#">Block-level deltas</a>
-        <a href="#">Conflict resolution</a>
-        <a href="#">Resumable uploads</a>
+        <div class="group-label">Deploy engine</div>
+        <a href="#">Build pipeline</a>
+        <a href="#">Rollback strategy</a>
+        <a href="#">Zero-downtime releases</a>
       </div>
       <div class="group">
         <div class="group-label">CLI</div>
@@ -73,48 +73,48 @@
     <article data-od-id="article">
       <div class="crumbs">Docs › Getting started › Quickstart</div>
       <h1>Quickstart</h1>
-      <p class="lede">Sync your first folder in under five minutes. The CLI is the fastest path; the desktop app and the API client all wrap the same engine.</p>
+      <p class="lede">Deploy your first project in under five minutes. The CLI is the fastest path; the dashboard and the API client all wrap the same engine.</p>
       <h2 id="install">1. Install the CLI</h2>
       <p>The CLI is distributed as a single binary for macOS, Linux, and Windows.</p>
 <pre><code># macOS · Homebrew
-brew install filebase
+brew install anchor
 
 # Linux · curl
-curl -fsSL https://get.filebase.dev | sh</code></pre>
+curl -fsSL https://get.anchor.dev | sh</code></pre>
       <p>Verify the install:</p>
-<pre><code>filebase --version
-# filebase 0.6.4</code></pre>
+<pre><code>anchor --version
+# anchor 0.6.4</code></pre>
       <h2 id="auth">2. Authenticate</h2>
-      <p>Sign in with your Filebase account. The token is stored in <code>~/.config/filebase/credentials</code>.</p>
-<pre><code>filebase auth login
+      <p>Sign in with your Anchor account. The token is stored in <code>~/.config/anchor/credentials</code>.</p>
+<pre><code>anchor auth login
 # → opens your browser
 # ✓ Logged in as you@example.com</code></pre>
       <div class="callout">
         <div class="label">Note</div>
-        On servers without a browser, use <code>filebase auth login --device</code> for a device-code flow.
+        On servers without a browser, use <code>anchor auth login --device</code> for a device-code flow.
       </div>
-      <h2 id="sync">3. Sync a folder</h2>
-      <p>Pick a local directory and link it to a remote root. Filebase watches it for changes and pushes block-level diffs in the background.</p>
+      <h2 id="sync">3. Deploy a project</h2>
+      <p>Pick a local directory and link it to a remote environment. Anchor builds it and pushes zero-downtime releases in the background.</p>
 <pre><code>cd ~/projects
-filebase init my-team
-filebase sync</code></pre>
+anchor init my-team
+anchor deploy</code></pre>
       <h3>Excluding files</h3>
-      <p>Add a <code>.filebaseignore</code> at the root of the synced folder. Same syntax as <code>.gitignore</code>:</p>
+      <p>Add a <code>.anchorignore</code> at the root of the deployed project. Same syntax as <code>.gitignore</code>:</p>
 <pre><code>node_modules/
 *.log
 build/</code></pre>
       <h2 id="next">4. Where to go next</h2>
-      <p>Read <a href="#">Conflict resolution</a> to understand how Filebase merges concurrent edits, or skip to the <a href="#">CLI reference</a> for the full subcommand list.</p>
+      <p>Read <a href="#">Rollback strategy</a> to understand how Anchor reverts a bad release, or skip to the <a href="#">CLI reference</a> for the full subcommand list.</p>
       <div class="pager">
         <a href="#"><small>← Previous</small>Concepts</a>
-        <a href="#" style="text-align: right;"><small>Next →</small>Conflict resolution</a>
+        <a href="#" style="text-align: right;"><small>Next →</small>Rollback strategy</a>
       </div>
     </article>
     <aside class="toc" data-od-id="toc">
       <div class="toc-label">On this page</div>
       <a href="#install" class="active">1. Install the CLI</a>
       <a href="#auth">2. Authenticate</a>
-      <a href="#sync">3. Sync a folder</a>
+      <a href="#sync">3. Deploy a project</a>
       <a href="#next">4. Where to go next</a>
     </aside>
   </div>

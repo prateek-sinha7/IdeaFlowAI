@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Critique · magazine-web-ppt example deck</title>
+  <title>Critique · zhangzara-signal example deck</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -391,13 +391,13 @@
           <span>·</span>
           <span>OD · Critique skill</span>
         </div>
-        <h1 class="hd-title">magazine-web-ppt<br>example deck</h1>
+        <h1 class="hd-title">zhangzara-signal<br>example deck</h1>
       </div>
       <p class="hd-verdict">
         <strong>7.4 / 10 overall.</strong> Strong philosophical
-        backbone and detail — the deck looks like one designer made
+        backbone and detail — the deck reads like one hand drew
         every slide. Innovation is conservative on purpose; functionality
-        loses points only because the example ships without real images.
+        loses points only because the example ships without a live chart.
       </p>
     </header>
 
@@ -519,17 +519,17 @@
           <div class="dim-score">8<span class="denom">/10</span></div>
         </div>
         <p class="dim-evidence">
-          The 9-slide rhythm reads as a single direction (Monocle Editorial)
+          The 8-slide rhythm reads as a single direction (Signal Grid)
           from cover to close. <code>chrome</code> vocabulary stays in one
-          register: <em>"A Talk · 2026.04.22"</em>, <em>"Act II · 04 / 09"</em>,
-          <em>"Page 06 · 金句"</em>. The drift is the <code>kicker</code> on
-          slide 5 — <em>"Act II"</em> is good, but the slide title <em>"折叠"</em>
-          is a one-character display word that competes with the Act number for
+          register: <em>"Vol. 01 · Signal"</em>, <em>"Node 04 / 08"</em>,
+          <em>"Page 06 · KPI"</em>. The drift is the <code>kicker</code> on
+          slide 5 — <em>"Node 04"</em> is good, but the slide title <em>"Drift"</em>
+          is a one-word display term that competes with the node number for
           eyeballs. Worth tightening.
         </p>
         <div class="dim-tags">
-          <div class="tag-row"><span class="tag tag-keep">Keep</span><span>The chrome / kicker / foot vocabulary across all 9 slides — it's the deck's identity.</span></div>
-          <div class="tag-row"><span class="tag tag-fix">Fix</span><span>Slide 5: bump the kicker to <em>"Act II · 折叠"</em> or shrink the display title to clear the hierarchy.</span></div>
+          <div class="tag-row"><span class="tag tag-keep">Keep</span><span>The chrome / kicker / foot vocabulary across all 8 slides — it's the deck's identity.</span></div>
+          <div class="tag-row"><span class="tag tag-fix">Fix</span><span>Slide 5: bump the kicker to <em>"Node 04 · Drift"</em> or shrink the display title to clear the hierarchy.</span></div>
         </div>
       </article>
 
@@ -539,7 +539,7 @@
           <div class="dim-score">7<span class="denom">/10</span></div>
         </div>
         <p class="dim-evidence">
-          Hero pages (1, 5, 7, 9) are textbook — display serif dominates,
+          Hero pages (1, 4, 6, 8) are textbook — display mono dominates,
           <code>kicker</code> and <code>meta-row</code> recede. Body pages
           mostly hold up: stat-cards on slide 2 use <code>.stat-label</code>
           (mono small) → <code>.stat-nb</code> (serif large) → <code>.stat-note</code>
@@ -561,12 +561,12 @@
           <div class="dim-score">8<span class="denom">/10</span></div>
         </div>
         <p class="dim-evidence">
-          Magazine-grade in places — every <code>.foot</code> aligns
-          baseline-to-baseline across all 9 slides; <code>.meta-row</code>
+          Grid-grade in places — every <code>.foot</code> aligns
+          baseline-to-baseline across all 8 slides; <code>.meta-row</code>
           uses one mono spec throughout (<code>.16em</code> tracking,
-          uppercase). Pipeline on slide 4 keeps perfect grid even when
-          column count drops to 3. Two real misses: (1) Slide 3 image-slot
-          uses <code>aspect-ratio:16/10</code> but the placeholder text
+          uppercase). The KPI row on slide 4 keeps perfect grid even when
+          column count drops to 3. Two real misses: (1) Slide 3 chart-slot
+          uses <code>aspect-ratio:16/9</code> but the placeholder text
           inside is centered which makes it look hollow at viewport widths
           ≤ 1100px; (2) the dot-nav at the bottom overlaps the foot text
           on slide 5 because the hero centered grid eats vertical space.
@@ -586,18 +586,18 @@
           Keyboard / wheel / touch navigation works correctly inside the
           host iframe (verified: ←/→/PageUp/PageDown all advance). ESC
           opens the index overview, dot clicks register. Big miss is the
-          example ships <em>without real images</em> — slide 3 shows a
-          dashed <code>.img-slot</code> placeholder where a product
-          screenshot belongs, which is the right call for an example file
+          example ships <em>without a live chart</em> — slide 3 shows a
+          dashed <code>.chart-slot</code> placeholder where a KPI graph
+          belongs, which is the right call for an example file
           but means the user can't judge how the layout holds at full
           fidelity. Second miss: <code>iframe</code> sandbox is
           <code>allow-scripts</code> only in the example card, so the
-          WebGL background loads but the dot-nav inside the iframe takes
+          grid background loads but the dot-nav inside the iframe takes
           a click before keyboard nav captures focus.
         </p>
         <div class="dim-tags">
           <div class="tag-row"><span class="tag tag-keep">Keep</span><span>The 5-bug-fix nav script (real scroller detection, capture-phase listeners) — proven and stable.</span></div>
-          <div class="tag-row"><span class="tag tag-fix">Fix</span><span>Add a <code>data:</code> URI placeholder image (1×1 colored gradient) in the example so slide 3's layout reads at any width.</span></div>
+          <div class="tag-row"><span class="tag tag-fix">Fix</span><span>Add a <code>data:</code> URI placeholder chart (1×1 colored gradient) in the example so slide 3's layout reads at any width.</span></div>
         </div>
       </article>
 
@@ -607,20 +607,20 @@
           <div class="dim-score">5<span class="denom">/10</span></div>
         </div>
         <p class="dim-evidence">
-          Innovation is intentionally conservative — this is a port of
-          歸藏's guizang-ppt-skill, and the value proposition is
-          <em>predictability</em>, not novelty. The dual WebGL background
-          (Holographic Dispersion on dark, Spiral Vortex on light) is the
+          Innovation is intentionally conservative — this deck is built
+          from the zhangzara Signal theme pack, and the value proposition is
+          <em>legibility at distance</em>, not novelty. The grid-line pulse
+          animation on the KPI slide is the
           one earned moment; the cross-fade on slide-theme transitions is
           subtle and well-timed. But everything else (layout vocabulary,
-          chrome / foot pattern, theme presets) is faithfully replicated
-          from the upstream. There is no "lean-forward" surprise that
+          chrome / foot pattern, node numbering) is faithfully replicated
+          from the theme preset. There is no "lean-forward" surprise that
           makes a viewer screenshot a slide. For its declared purpose
-          (Monocle Editorial direction), this is appropriate. For an
+          (investor-facing metrics readout), this is appropriate. For an
           AI demo-day deck, it's a missed opportunity.
         </p>
         <div class="dim-tags">
-          <div class="tag-row"><span class="tag tag-keep">Keep</span><span>The dual-shader cross-fade — it's the only "magic" the deck performs and it earns its keep.</span></div>
+          <div class="tag-row"><span class="tag tag-keep">Keep</span><span>The grid-line pulse cross-fade — it's the only "magic" the deck performs and it earns its keep.</span></div>
           <div class="tag-row"><span class="tag tag-qw">Quick win</span><span>Add one <em>typographic</em> moment per deck — e.g. an oversized italic <code>em</code> kicker that breaks the grid on the closing slide.</span></div>
         </div>
       </article>
@@ -633,9 +633,9 @@
       <section class="list-card">
         <div class="list-head keep"><span>Keep</span><span class="ct">don't break it</span></div>
         <ul>
-          <li>The 9-page rhythm: <code>hero dark → light → dark → light → hero light → dark → hero dark → light → hero light</code>. It's the gold standard.</li>
-          <li>Dual WebGL backdrops + the <code>1.2s</code> cross-fade between dark and light slides.</li>
-          <li><code>chrome</code> / <code>kicker</code> / <code>foot</code> vocabulary — they carry the Monocle direction.</li>
+          <li>The 8-page rhythm: <code>hero dark → light → dark → hero light → dark → hero dark → light → hero light</code>. It's the gold standard.</li>
+          <li>Grid-line pulse backdrop + the <code>1.2s</code> cross-fade between dark and light slides.</li>
+          <li><code>chrome</code> / <code>kicker</code> / <code>foot</code> vocabulary — they carry the Signal Grid direction.</li>
           <li>3-tier <code>stat-card</code> on slide 2 (<code>label</code> → <code>nb</code> → <code>note</code>).</li>
         </ul>
       </section>
@@ -645,7 +645,7 @@
         <ul>
           <li>Slide 3 callout indent — currently competes with <code>.h-xl</code>; push 2vw right or below the lead.</li>
           <li>Slide 5 hero centered grid — cap content height at <code>78vh</code> so foot doesn't overlap the dot nav.</li>
-          <li>Slide 3 add a <code>data:</code> gradient placeholder image so the layout reads at narrow widths even without real assets.</li>
+          <li>Slide 3 add a <code>data:</code> gradient placeholder chart so the layout reads at narrow widths even without real assets.</li>
           <li>Slide 5 kicker / display: pick one to be primary — currently both fight.</li>
         </ul>
       </section>
