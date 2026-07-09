@@ -948,7 +948,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 35-02-PLAN.md — Account Settings reskin (preserve wiring; no unbacked fields) (Wave 2)
-- [ ] 35-03-PLAN.md — Template picker + detail/custom/card modals reskin (Wave 2)
+- [x] 35-03-PLAN.md — Template picker + detail/custom/card modals reskin (Wave 2)
 - [ ] 35-04-PLAN.md — Design-System picker (LOCK-F ~14) + DS modals + Review-gates reskin (Wave 2)
 - [ ] 35-05-PLAN.md — Library (Agents/Skills/Hooks) reskin with real controls (Wave 2)
 - [ ] 35-06-PLAN.md — Login reskin + dark brand panel + Register tokenize (ND-12) (Wave 2)
