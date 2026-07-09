@@ -28,8 +28,9 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Lock, AlertCircle, Plus } from "lucide-react";
+import { ArrowRight, Lock, AlertCircle, Plus, Info } from "lucide-react";
 import type { WorkflowType } from "@/types/index";
+import { WorkflowDialog } from "@/components/workflow/WorkflowDialog";
 import type { Tier } from "@/lib/entitlements";
 import { canRunPipeline, TIER_LABELS, getUpgradeTier } from "@/lib/entitlements";
 import { CHAIN_OPTIONS } from "@/lib/workflowChaining";
@@ -57,6 +58,9 @@ export function HomeLaunchGrid({
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // SURF-03: the compiled workflow the read-only WorkflowDialog is inspecting
+  // (null = closed). Set by any catalog row's inspect affordance.
+  const [inspectId, setInspectId] = useState<string | null>(null);
 
   // Fetch shell ⟵ AgentModelPicker.tsx:48-74 (cancelled guard, getToken
   // fallback, loading/error/finally). `.filter(w => w.user_launchable)` is
@@ -175,11 +179,12 @@ export function HomeLaunchGrid({
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.3, delay: 0.1 + idx * 0.06 }}
+                  className="flex items-stretch"
                 >
                   <button
                     onClick={() => handleClick(type)}
                     disabled={!allowed}
-                    className={`group w-full flex items-center justify-between gap-4 py-5 text-left rounded-lg px-3 -mx-3 transition-colors ${
+                    className={`group flex-1 flex items-center justify-between gap-4 py-5 text-left rounded-lg px-3 -mx-3 transition-colors ${
                       allowed ? "hover:bg-surface-card cursor-pointer" : "cursor-not-allowed opacity-60"
                     }`}
                   >
@@ -211,6 +216,19 @@ export function HomeLaunchGrid({
                       )}
                     </div>
                   </button>
+                  {/* SURF-03 — inspect this compiled workflow's declared
+                      capabilities / context / compaction. A SIBLING of the launch
+                      button (never nested) so both stay valid focusable controls;
+                      opens the read-only WorkflowDialog without launching. Stays
+                      enabled even on a tier-locked row (looking ≠ launching). */}
+                  <button
+                    type="button"
+                    onClick={() => setInspectId(row.id)}
+                    aria-label={`Inspect ${label} details`}
+                    className="flex w-9 flex-shrink-0 items-center justify-center self-center rounded-lg text-ink-300 transition-colors hover:bg-surface-card hover:text-ink-700"
+                  >
+                    <Info className="h-3.5 w-3.5" />
+                  </button>
                 </motion.div>
               );
             })}
@@ -218,6 +236,12 @@ export function HomeLaunchGrid({
         )}
 
       </div>
+
+      {/* SURF-03 detail viewer — mounted here so the inspect affordance on any
+          catalog row is reachable. Read-only; surfaces declared data only (INV-5). */}
+      {inspectId && (
+        <WorkflowDialog workflowId={inspectId} onClose={() => setInspectId(null)} />
+      )}
     </div>
   );
 }
