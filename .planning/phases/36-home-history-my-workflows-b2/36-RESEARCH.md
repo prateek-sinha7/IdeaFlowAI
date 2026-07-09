@@ -367,20 +367,25 @@ const handleSelectRun = useCallback(async (run: WorkflowRun) => {
 
 **If this table is empty:** it is not — five assumptions above need planner/user awareness. A3 and A4 are the load-bearing ones (they change scope).
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+All three were resolved during planning and the recommendations were carried into the plans (traceability for review).
 
 1. **Fused-home layout shape** — how much of `IdeaInputPage` (the launcher) folds onto the home landing vs. stays as the `input` view for the saved-workflow preload path?
    - What we know: `input` view must survive for `handleLaunchSaved` preload (`DashboardLayout.tsx:866-879`); the recents strip has data via `recentRuns` prop.
    - What's unclear: whether the fused launcher fully replaces the `input` navigation for the generic path or just adds a prompt box to home that still routes to `input`.
    - Recommendation: Add the prompt launcher + recents to `home` while KEEPING `input` reachable for preload — minimal, non-regressing. Let the planner pick the exact composition within D-15.
+   - RESOLVED: adopted in 36-01 Task 3 (fuse launcher + recents onto `home`, keep `input` reachable for preload).
 
 2. **Run-detail tab surface scope** — the mock (evidence 01) models a rich Steps/Preview/Files/Audit run screen, but Phase 32 already built much of that (RunChatLane, PreviewPanel tabs, Audit tab).
    - What we know: the WorkflowHistory in-panel detail already renders per-agent breakdown, token usage, VersionTimeline, failure affordance, and Preview/Files/Thinking/Audit tabs (`WorkflowHistory.tsx:454-872`).
    - What's unclear: whether SHELL-03 wants a NET-NEW page or a restructure of the existing detail view fed by the new summary endpoint.
    - Recommendation: Build the run-detail as a restructured/promoted version of the existing detail view, fed by `GET /{id}/summary`, reusing `VersionTimeline`/`DegradedRunAffordance`. Avoid duplicating Phase-32 surfaces.
+   - RESOLVED: adopted in 36-04 Task 2 (RunDetailPage restructures the in-panel detail, reuses VersionTimeline/DegradedRunAffordance; 36-05 retires the hand-rolled JSX — no dual impl).
 
 3. **Retired-palette gate breadth** (see A4) — hard-6-list-to-0 vs. full stock-palette purge.
    - Recommendation: Treat the 6-token list as the mechanical CI-style gate (matches the orchestrator's Nyquist key); migrate stock palette to tokens opportunistically per touched file, and flag any remaining `gray-`/raw-hex that is semantically load-bearing (e.g. agent-icon color arrays) for the planner.
+   - RESOLVED: adopted uniformly — the 6-token `grep … == 0` is the mechanical gate in every reskin task (36-01/03/04/05); stock-palette→token migration is per-touched-file.
 
 ## Environment Availability
 

@@ -1,8 +1,8 @@
 ---
 phase: 36
 slug: home-history-my-workflows-b2
-status: draft
-nyquist_compliant: false
+status: approved
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-07-09
 ---
@@ -83,11 +83,11 @@ AND positive proof of Phase-32 token / `components/ui/` primitive usage with no 
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags (vitest `run`, not watch)
-- [ ] Feedback latency < 35s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies (verified: 12/12 tasks across 5 plans carry an `<automated>` block)
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify (every task has one)
+- [x] Wave 0 covers all MISSING references (backend `test_runs_api_summary.py` in 36-02; FE `SavedWorkflowsPage.test.tsx` in 36-03; component tests in 36-01/36-04/36-05)
+- [x] No watch-mode flags (vitest `run`, not watch — grep-confirmed 0)
+- [x] Feedback latency < 35s (targeted BE ~35s; FE changed-file ~seconds)
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved 2026-07-09 (plan-phase plan-checker verification; strategy compliant. `wave_0_complete` stays false — Wave-0 test stubs are written during execute-phase, then the executor/nyquist-auditor flips it.)
