@@ -96,37 +96,37 @@ export function DesignSystemDetailModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--scrim)] backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label={`${system.name} design system`}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
-        className={`flex flex-col bg-[#111318] shadow-2xl ${
+        className={`flex flex-col bg-surface-near-black shadow-[var(--elevation-modal)] font-sans ${
           fullscreen
             ? "fixed inset-0 rounded-none"
-            : "relative h-[90vh] w-[95vw] max-w-[1300px] rounded-2xl overflow-hidden"
+            : "relative h-[90vh] w-[95vw] max-w-[1300px] rounded-[var(--radius-card)] overflow-hidden"
         }`}
       >
         {/* ── Header ─────────────────────────────────────────────────── */}
-        <header className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-white/[0.08] bg-[#0d0f14] px-5 py-3">
+        <header className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-white/10 bg-surface-ink-black px-5 py-3">
           <div className="flex min-w-0 flex-col">
             <div className="flex items-center gap-2">
               <span className="truncate text-[14px] font-semibold text-white">
                 {system.name}
               </span>
-              <span className="rounded-full border border-white/[0.12] bg-white/[0.06] px-2 py-0.5 text-[10px] font-medium text-gray-400 flex-shrink-0">
+              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-white/60 flex-shrink-0">
                 {system.category}
               </span>
               {system.has_preview && (
-                <span className="rounded-full bg-emerald-500/15 border border-emerald-500/25 px-2 py-0.5 text-[9px] font-semibold text-emerald-400 flex-shrink-0">
+                <span className="rounded-full bg-status-done/15 border border-status-done/25 px-2 py-0.5 text-[9px] font-semibold text-status-done flex-shrink-0">
                   components
                 </span>
               )}
             </div>
             {system.description && (
-              <span className="text-[11px] text-gray-500 mt-0.5 truncate max-w-[500px]">
+              <span className="text-[11px] text-white/40 mt-0.5 truncate max-w-[500px]">
                 {system.description}
               </span>
             )}
@@ -137,10 +137,10 @@ export function DesignSystemDetailModal({
             <button
               type="button"
               onClick={() => { onSelect(system.id); onClose(); }}
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-all ${
+              className={`flex items-center gap-1.5 rounded-[var(--radius-button)] px-3 py-1.5 text-[12px] font-semibold transition-all ${
                 isSelected
-                  ? "bg-emerald-600/20 text-emerald-400 border border-emerald-500/30"
-                  : "bg-[#1B2A4A] text-white hover:bg-[#243660]"
+                  ? "bg-status-done/20 text-status-done border border-status-done/40"
+                  : "bg-brand text-white hover:bg-brand-pressed"
               }`}
             >
               {isSelected && <Check className="h-3 w-3" strokeWidth={3} />}
@@ -153,7 +153,7 @@ export function DesignSystemDetailModal({
                 type="button"
                 onClick={openInNewTab}
                 title="Open preview in new tab"
-                className="flex items-center justify-center rounded-lg border border-white/[0.1] bg-white/[0.05] p-1.5 text-gray-400 transition-colors hover:text-gray-200"
+                className="flex items-center justify-center rounded-[var(--radius-button)] border border-white/10 bg-white/5 p-1.5 text-white/60 transition-colors hover:text-white"
               >
                 <ExternalLink className="h-3.5 w-3.5" />
               </button>
@@ -164,7 +164,7 @@ export function DesignSystemDetailModal({
               type="button"
               onClick={() => setFullscreen((v) => !v)}
               title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-              className="flex items-center justify-center rounded-lg border border-white/[0.1] bg-white/[0.05] p-1.5 text-gray-400 transition-colors hover:text-gray-200"
+              className="flex items-center justify-center rounded-[var(--radius-button)] border border-white/10 bg-white/5 p-1.5 text-white/60 transition-colors hover:text-white"
             >
               {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
             </button>
@@ -173,7 +173,7 @@ export function DesignSystemDetailModal({
             <button
               type="button"
               onClick={onClose}
-              className="flex items-center justify-center rounded-lg border border-white/[0.1] bg-white/[0.05] p-1.5 text-gray-400 transition-colors hover:text-white"
+              className="flex items-center justify-center rounded-[var(--radius-button)] border border-white/10 bg-white/5 p-1.5 text-white/60 transition-colors hover:text-white"
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -184,21 +184,21 @@ export function DesignSystemDetailModal({
         <div className="flex flex-1 min-h-0 overflow-hidden">
 
           {/* ── Left: preview iframe ──────────────────────────────────── */}
-          <div className="relative flex-1 min-w-0 bg-white">
+          <div className="relative flex-1 min-w-0 bg-surface-white">
             {/* Loading spinner — shown until iframe loads or body arrives */}
             {(!previewSrc || !iframeLoaded) && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-white z-10">
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-surface-white z-10">
                 {detail === undefined ? (
                   <>
-                    <div className="h-7 w-7 animate-spin rounded-full border-2 border-gray-200 border-t-gray-500" />
-                    <span className="text-[11px] text-gray-400">Loading preview…</span>
+                    <div className="h-7 w-7 animate-spin rounded-full border-2 border-line-control border-t-ink-500" />
+                    <span className="text-[11px] text-ink-400">Loading preview…</span>
                   </>
                 ) : detail === null ? (
-                  <span className="text-[12px] text-gray-400">Preview unavailable</span>
+                  <span className="text-[12px] text-ink-400">Preview unavailable</span>
                 ) : !previewSrc ? (
                   <>
-                    <div className="h-7 w-7 animate-spin rounded-full border-2 border-gray-200 border-t-gray-500" />
-                    <span className="text-[11px] text-gray-400">Generating preview…</span>
+                    <div className="h-7 w-7 animate-spin rounded-full border-2 border-line-control border-t-ink-500" />
+                    <span className="text-[11px] text-ink-400">Generating preview…</span>
                   </>
                 ) : null}
               </div>
@@ -221,23 +221,23 @@ export function DesignSystemDetailModal({
           </div>
 
           {/* ── Right: DESIGN.md spec view ────────────────────────────── */}
-          <aside className="flex w-[380px] flex-shrink-0 flex-col border-l border-white/[0.08] bg-[#0d0f14]">
+          <aside className="flex w-[380px] flex-shrink-0 flex-col border-l border-white/10 bg-surface-ink-black">
             {/* Panel header */}
-            <div className="flex flex-shrink-0 items-center justify-between border-b border-white/[0.08] px-4 py-2.5">
-              <span className="text-[11px] font-semibold text-gray-300">DESIGN.md</span>
-              <span className="text-[10px] text-gray-600">{system.id}</span>
+            <div className="flex flex-shrink-0 items-center justify-between border-b border-white/10 px-4 py-2.5">
+              <span className="text-[11px] font-semibold text-white/70">DESIGN.md</span>
+              <span className="text-[10px] text-white/40">{system.id}</span>
             </div>
 
             {/* Spec content */}
             <div className="flex-1 min-h-0 overflow-hidden">
               {detail === undefined ? (
                 <div className="flex h-full items-center justify-center gap-3">
-                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-700 border-t-gray-400" />
-                  <span className="text-[11px] text-gray-500">Loading DESIGN.md…</span>
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-white/50" />
+                  <span className="text-[11px] text-white/50">Loading DESIGN.md…</span>
                 </div>
               ) : detail === null ? (
                 <div className="flex h-full items-center justify-center px-6 text-center">
-                  <p className="text-[12px] text-gray-500">Couldn't load DESIGN.md.</p>
+                  <p className="text-[12px] text-white/50">Couldn't load DESIGN.md.</p>
                 </div>
               ) : (
                 <DesignSpecView source={detail.body} />
