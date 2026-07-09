@@ -259,4 +259,37 @@ describe("AgentsPopup reskin — Save wires to createUserWorkflow", () => {
       agent_ids: ["requirements-analyst"],
     });
   });
+
+  it("WR-03: does NOT persist a stale model_overrides seed (model lives in selections)", async () => {
+    mockCreateUserWorkflow.mockResolvedValue({
+      id: "wf-2",
+      name: "No stale overrides",
+      base_pipeline_type: "prototype",
+      agent_ids: ["requirements-analyst"],
+    });
+
+    render(
+      <SkillsHooksProvider>
+        <AgentsPopup
+          isOpen
+          onClose={vi.fn()}
+          agents={SAVE_AGENTS}
+          pipelineType="prototype"
+          // A stale seed the OLD Save composer emitted verbatim → divergent model
+          // on reload. Per WR-03 the seed is dead: per-agent model is the inline
+          // Model lever's `selections[id].model` (the single source of truth).
+          initialModelOverrides={{ "requirements-analyst": "stale-model" }}
+        />
+      </SkillsHooksProvider>,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /save workflow/i }));
+    const nameInput = await screen.findByPlaceholderText(/competitive research/i);
+    await userEvent.type(nameInput, "No stale overrides");
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => expect(mockCreateUserWorkflow).toHaveBeenCalledTimes(1));
+    const [, body] = mockCreateUserWorkflow.mock.calls[0];
+    expect(body).not.toHaveProperty("model_overrides");
+  });
 });

@@ -49,10 +49,12 @@ interface AgentsPopupProps {
   onAttachHook?: (hook: AttachedHook) => void;
   onDetachHook?: (hookId: string) => void;
   /**
-   * ISS-014 (MODEL-03): per-agent model overrides selected in the relocated
-   * AgentModelPicker (agentId -> modelId). Reported upward so IdeaInputPage can
-   * thread it into the run_pipeline payload as `model_overrides`. Additive —
-   * omit to ignore per-agent model selection (payload stays byte-identical).
+   * LEGACY (ISS-014 / MODEL-03) — per-agent model-overrides callback, retained
+   * for caller compatibility (the IdeaInputPage composer flow threads its own
+   * `model_overrides` for saved-workflow reload). AgentsPopup NO LONGER emits
+   * overrides here: per-agent model selection is the inline Model lever, reported
+   * via `onSelectionsChange` as `selections[id].model` — the single source of
+   * truth (the standalone AgentModelPicker that once drove this is gone).
    */
   onModelOverridesChange?: (modelOverrides: Record<string, string>) => void;
   /**
@@ -64,10 +66,11 @@ interface AgentsPopupProps {
    */
   onSelectionsChange?: (selections: SelectionsMap) => void;
   /**
-   * WR-01 (LAUNCH-EXISTING-PATH §4.6) — seed the AgentModelPicker's internal
-   * overrides map when launching a saved workflow, so editing one agent's model
-   * MERGES into (not replaces) the persisted overrides for the others. Absent ⇒
-   * the picker starts empty (the normal compose-from-scratch default).
+   * LEGACY (WR-01 / LAUNCH-EXISTING-PATH §4.6) — a saved-workflow model-override
+   * seed, retained for caller compatibility. AgentsPopup no longer reads it: the
+   * inline Model lever seeds per-agent model from `initialSelections`
+   * (`selections[id].model`); the IdeaInputPage composer flow still owns the
+   * separate model_overrides reload path.
    */
   initialModelOverrides?: Record<string, string>;
   /**
@@ -1744,7 +1747,6 @@ const COLS = 3;
 export function AgentsPopup({
   isOpen, onClose, agents, pipelineType,
   onAddAgent, onRemoveAgent, onReorder, canAddMore = true,
-  onModelOverridesChange, initialModelOverrides,
   onSelectionsChange, initialSelections,
   declaredCapabilities,
 }: AgentsPopupProps) {
@@ -1791,11 +1793,11 @@ export function AgentsPopup({
           ...(description ? { description } : {}),
           base_pipeline_type: pipelineType,
           agent_ids: agents.map((a) => a.id),
-          // Additive — omit empty maps so the payload stays byte-identical (INV-3).
-          ...(initialModelOverrides &&
-          Object.keys(initialModelOverrides).length > 0
-            ? { model_overrides: initialModelOverrides }
-            : {}),
+          // WR-03: per-agent model lives in `selections[id].model` (the inline
+          // Model lever) — the single source of truth the backend re-applies via
+          // `_apply_selections`. No separate `model_overrides` key: emitting the
+          // static seed alongside the live selections persisted a divergent
+          // model on reload. Omit the empty map → payload byte-identical (INV-3).
           ...(Object.keys(liveSelections).length > 0
             ? { selections: liveSelections }
             : {}),
@@ -1808,7 +1810,7 @@ export function AgentsPopup({
         setSaving(false);
       }
     },
-    [agents, pipelineType, initialModelOverrides, liveSelections, onClose],
+    [agents, pipelineType, liveSelections, onClose],
   );
 
   const handleRemove = useCallback((agentId: string) => {
@@ -2056,12 +2058,6 @@ export function AgentsPopup({
                     ))}
                   </div>
                 </div>
-
-                {/* ISS-014 (MODEL-03): per-agent model picker, relocated here
-                    from the deleted WorkflowComposer. Populated from the live
-                    /api/capabilities model catalog (user_allowed only). A
-                    selection threads up via onModelOverridesChange →
-                    IdeaInputPage extraParams → run_pipeline model_overrides. */}
 
                 {/* End of shared scroll container (KAN-68 fix) */}
                 </div>
