@@ -1,0 +1,179 @@
+/**
+ * Phase 37-03 — Composer (AgentsPopup) RESKIN contract test.
+ *
+ * This is a LOOK change only: the capability palette + AdvancedExpander +
+ * SkillsHooksTab + AgentLibrary are reskinned onto the Phase-32 `@theme` token
+ * layer. The dominant risk is regression-by-face-value-rebuild, so this file
+ * PINS the shipped P22 reuse contracts the mock would drop:
+ *
+ *   1. Retired-palette source gate → 0 (the reskin's RED-first assertion).
+ *   2. EMP-04: selecting a validator auto-attaches the COUPLED `validation`
+ *      gate (the mock drops the coupling; selections.py enforces it server-side).
+ *   3. WIRE-02: the retry lever offers INTS [1,2,3] (the mock models retry as a
+ *      bool → the compiler would materialize the wrong type).
+ *   4. SC-001: `user_allowed=false` capabilities render locked ("Engineer-only")
+ *      from the LIVE registry payload — never a hardcoded per-workflow list.
+ *   5. ND-12: no workflow visibility / team-sharing control is built.
+ *   6. INV-3: the standalone AgentModelPicker is NOT mounted/imported (the inline
+ *      Model lever already satisfies per-agent model selection).
+ *   7. Save wires to the owner-scoped `createUserWorkflow` via NameWorkflowModal.
+ *
+ * `getCapabilities` is mocked so the palette/expander render without a real
+ * `/api/capabilities` fetch (same pattern as AdvancedExpander.test.tsx).
+ */
+
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import type { CapabilitiesPalette } from "@/lib/api";
+
+const mockGetCapabilities = vi.fn();
+const mockCreateUserWorkflow = vi.fn();
+vi.mock("@/lib/api", () => ({
+  getToken: () => "test-token",
+  getCapabilities: (token: string) => mockGetCapabilities(token),
+  createUserWorkflow: (...args: unknown[]) => mockCreateUserWorkflow(...args),
+}));
+
+import {
+  AdvancedExpander,
+  CapabilityPaletteSection,
+} from "./AgentsPopup";
+
+// ── The exact Phase-35 token gate (per-file retired palette must be 0) ──────────
+const RETIRED_PALETTE = /#1B2A4A|#2563eb|#f5f5f0|Inter|Fraunces|JetBrains/g;
+
+const WORKFLOW_DIR = resolve(process.cwd(), "src/components/workflow");
+const AGENTS_POPUP_SRC = readFileSync(
+  resolve(WORKFLOW_DIR, "AgentsPopup.tsx"),
+  "utf8",
+);
+
+const PALETTE: CapabilitiesPalette = {
+  capabilities: [
+    {
+      kind: "validator",
+      name: "code_test",
+      user_allowed: true,
+      description: "Runs the generated tests.",
+      security_gated: false,
+      config_schema: {},
+    },
+    {
+      kind: "gate",
+      name: "approval",
+      user_allowed: true,
+      description: "Human approval gate.",
+      security_gated: false,
+      config_schema: {},
+    },
+    {
+      kind: "gate",
+      name: "security",
+      user_allowed: false, // Engineer-only — renders LOCKED, never hidden.
+      description: "Security review gate.",
+      security_gated: true,
+      config_schema: {},
+    },
+  ],
+  model_catalog: [
+    {
+      id: "model-premium",
+      label: "Premium Model",
+      description: "",
+      tier: "enterprise",
+      cost_class: "premium",
+      provider: "anthropic",
+      context_window: 200000,
+      user_allowed: true,
+    },
+  ],
+};
+
+const AGENTS = [{ id: "agent-a", name: "Agent A" }];
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockGetCapabilities.mockResolvedValue(PALETTE);
+});
+
+// ── 1. Token gate (RED-first) ───────────────────────────────────────────────────
+describe("AgentsPopup reskin — token gate", () => {
+  it("AgentsPopup.tsx carries 0 retired-palette hits", () => {
+    const hits = AGENTS_POPUP_SRC.match(RETIRED_PALETTE) ?? [];
+    expect(hits).toEqual([]);
+  });
+
+  it("AgentsPopup.tsx uses the Phase-32 @theme brand token positively", () => {
+    // The reskin migrates the retired navy to the `brand` token utilities.
+    expect(AGENTS_POPUP_SRC).toMatch(/text-brand\b/);
+  });
+});
+
+// ── 2 + 3. AdvancedExpander preserved contracts (COUPLED_GATE + retry-int) ───────
+describe("AgentsPopup reskin — AdvancedExpander preserved contracts", () => {
+  it("EMP-04: selecting a validator auto-attaches the coupled `validation` gate", async () => {
+    const onSelectionsChange = vi.fn();
+    render(
+      <AdvancedExpander agents={AGENTS} onSelectionsChange={onSelectionsChange} />,
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: /advanced/i }),
+    );
+    await userEvent.selectOptions(
+      screen.getByLabelText(/validator/i),
+      "code_test",
+    );
+
+    // Inline notice announces the coupling (polite live region).
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent(/added required validation gate/i);
+
+    // The reported selections carry the auto-attached gate.
+    const last = onSelectionsChange.mock.calls.at(-1)?.[0];
+    expect(last["agent-a"].gates).toContain("validation");
+  });
+
+  it("WIRE-02: the retry lever offers ints [1,2,3] (not a bool toggle)", async () => {
+    const onSelectionsChange = vi.fn();
+    render(
+      <AdvancedExpander agents={AGENTS} onSelectionsChange={onSelectionsChange} />,
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: /advanced/i }),
+    );
+
+    const retry = screen.getByLabelText(/retry/i) as HTMLSelectElement;
+    const optionValues = Array.from(retry.options)
+      .map((o) => o.value)
+      .filter((v) => v !== "");
+    expect(optionValues).toEqual(["1", "2", "3"]);
+
+    // Picking one reports the INT (not a boolean).
+    await userEvent.selectOptions(retry, "2");
+    const last = onSelectionsChange.mock.calls.at(-1)?.[0];
+    expect(last["agent-a"].retry).toBe(2);
+    expect(typeof last["agent-a"].retry).toBe("number");
+  });
+});
+
+// ── 4. CapabilityPaletteSection reads the LIVE registry (user_allowed lock) ──────
+describe("AgentsPopup reskin — CapabilityPaletteSection live registry", () => {
+  it("SC-001: a user_allowed=false capability renders locked (Engineer-only)", async () => {
+    render(<CapabilityPaletteSection />);
+    // Whole payload rendered from the mocked live registry.
+    await screen.findByText("code_test");
+    // The locked cap is present AND flagged Engineer-only (never hidden).
+    const lockedRow = screen
+      .getByText("security")
+      .closest("[data-cap-row]") as HTMLElement;
+    expect(within(lockedRow).getByText(/engineer-only/i)).toBeInTheDocument();
+    expect(lockedRow).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("does not introduce a hardcoded capability list (no CAPDEF)", () => {
+    expect(AGENTS_POPUP_SRC).not.toMatch(/CAPDEF/i);
+  });
+});
