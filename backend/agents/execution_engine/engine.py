@@ -5172,11 +5172,11 @@ class ExecutionEngine:
             ds_id = od.get("ds_id") or ""
             template_body = od.get("template_body") or ""
             ds_body = od.get("ds_body") or ""
-            if template_id and template_body:
+            if template_id:  # show chip even if template_body empty (slug is enough)
                 sources.append({
                     "type": "context_block",
                     "label": f"Template: {template_id}",
-                    "size_chars": len(template_body),
+                    "size_chars": len(template_body) if template_body else 0,
                 })
             if ds_id and ds_body:
                 sources.append({
@@ -5184,6 +5184,66 @@ class ExecutionEngine:
                     "label": f"Design system: {ds_id}",
                     "size_chars": len(ds_body),
                 })
+
+            # KAN-103: for revision runs ectx.od_context is None, but design.md was
+            # seeded into the sandbox by the previous_run provider (from the parent
+            # build's sandbox). Parse the "# ACTIVE DESIGN SYSTEM (slug)" and
+            # "# ACTIVE TEMPLATE (slug)" headers that _write_reference_files wrote to
+            # emit template/DS chips even when od_context is absent.
+            # INV-1: keyed on sandbox file content (generic), not pipeline_type/agent name.
+            # INV-3: context_sources is in _VOLATILE_STRIP_KEYS → goldens unaffected.
+            if not (template_id and ds_id):
+                try:
+                    import re as _re
+                    _sandbox = getattr(ectx, "_sandbox", None)
+                    if _sandbox is None:
+                        from app.agents.sandbox import RunSandbox as _RS
+                        _run_id = getattr(ectx, "run_id", None)
+                        _disk_p = getattr(ectx, "disk_principal", None)
+                        if _run_id and _disk_p:
+                            _sandbox = _RS(_disk_p, _run_id)
+                    if _sandbox is not None:
+                        _design_md = _sandbox.read("design.md") or ""
+                        if _design_md:
+                            # Parse "# ACTIVE TEMPLATE (slug)" header
+                            _tmpl_m = _re.search(
+                                r"^#\s+ACTIVE TEMPLATE\s*(?:\(([^)]+)\))?",
+                                _design_md, _re.MULTILINE
+                            )
+                            _tmpl_slug = (_tmpl_m.group(1) or "").strip() if _tmpl_m else ""
+                            # Parse "# ACTIVE DESIGN SYSTEM (slug)" header
+                            _ds_m = _re.search(
+                                r"^#\s+ACTIVE DESIGN SYSTEM\s*(?:\(([^)]+)\))?",
+                                _design_md, _re.MULTILINE
+                            )
+                            _ds_slug = (_ds_m.group(1) or "").strip() if _ds_m else ""
+                            if _tmpl_slug and not template_id:
+                                sources.append({
+                                    "type": "context_block",
+                                    "label": f"Template: {_tmpl_slug}",
+                                    "size_chars": len(_design_md),
+                                })
+                            if _ds_slug and not ds_id:
+                                sources.append({
+                                    "type": "context_block",
+                                    "label": f"Design system: {_ds_slug}",
+                                    "size_chars": len(_design_md),
+                                })
+                        # Also check if template.html exists in sandbox (seeded by task_loop)
+                        # even if design.md has no template header — file presence means
+                        # a template was used.
+                        if not template_id and _sandbox.path_for("template.html").is_file():
+                            _tmpl_html = _sandbox.read("template.html") or ""
+                            if _tmpl_html and not any(
+                                s.get("label", "").startswith("Template:") for s in sources
+                            ):
+                                sources.append({
+                                    "type": "context_block",
+                                    "label": "Template: (reference)",
+                                    "size_chars": len(_tmpl_html),
+                                })
+                except Exception:  # noqa: BLE001 — observability, never abort agent dispatch
+                    pass
 
         # ── Prior-agent outputs (inter-agent handoff sources) ─────────────────────
         consumed = self._filter_consumed_outputs(spec, ordered_agents, ectx)

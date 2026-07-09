@@ -491,6 +491,25 @@ class TaskLoopStrategy:
                 design_sections.append(f"{hdr}\n\n{ds_body}")
             if design_sections:
                 runner.sandbox.write(design_name, "\n\n".join(design_sections))
+            # KAN-103: seed the template's reference HTML as a separate workspace file
+            # so the revision agent can read_file("template.html") directly — clean
+            # tool call, no bloat in design.md. This is the authoritative CSS class/
+            # component reference the agent should use when making visual edits.
+            # Best-effort: silently skipped when no example.html exists for the template.
+            _tid = od.get("template_id", "") or ""
+            if _tid:
+                try:
+                    from agents.execution_engine.od_context import get_example_html
+                    _example = get_example_html(_tid)
+                    if _example:
+                        runner.sandbox.write("template.html", _example)
+                        logger.info(
+                            "task_loop: seeded template.html for revision reference "
+                            "(%d chars, template=%s)",
+                            len(_example), _tid,
+                        )
+                except Exception as _te:  # noqa: BLE001
+                    logger.debug("task_loop: could not seed template.html (%s): %s", _tid, _te)
 
             logger.info(
                 "task_loop: wrote reference files (%s=%s, %s=%s, %s=%s)",
