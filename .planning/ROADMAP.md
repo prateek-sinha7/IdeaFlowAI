@@ -985,7 +985,7 @@ Plans:
 
 **Goal:** One generic per-run setup surface for every deliverable type; the agent drawer and workflow dialog give capabilities a real home.
 **Depends on:** Phase 36; ND-1/ND-7/ND-8 decided
-**Plans:** 3/6 plans executed
+**Plans:** 4/6 plans executed
 **Success Criteria:**
 
 1. Configure screen: Describe + Templates + Design System + Review Gates + Workflow Settings for ANY deliverable type (declared run inputs, not prototype-only wizardry).
@@ -1001,7 +1001,7 @@ Plans:
 
 - [x] 37-02-PLAN.md — Configure screen (generic per-run setup accordions) + client-side draft (ND-1) [Wave 2]
 - [x] 37-03-PLAN.md — Composer reskin (live /api/capabilities palette + AdvancedExpander + Save to user-workflows) [Wave 2]
-- [ ] 37-04-PLAN.md — Wizard NEW-BUILD unified Template->DS->Discovery stepper + Web/Deck toggle + template-page reskin [Wave 2]
+- [x] 37-04-PLAN.md — Wizard NEW-BUILD unified Template->DS->Discovery stepper + Web/Deck toggle + template-page reskin [Wave 2]
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -1030,5 +1030,5 @@ Plans:
 | 34. Live Pass & Closure [A6] | 0/? | Not started | — |
 | 35. Shell Chrome + Reskin Pages [B1] | 7/7 | Complete   | 2026-07-09 |
 | 36. Home + History + My Workflows [B2] | 4/5 | In Progress|  |
-| 37. Configure Unification [B3] | 3/6 | In Progress|  |
+| 37. Configure Unification [B3] | 4/6 | In Progress|  |
 | 38. Analytics, Estimates & Notifications [B4] | 0/? | Not started | — |
