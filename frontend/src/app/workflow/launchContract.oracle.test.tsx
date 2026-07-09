@@ -114,8 +114,10 @@ vi.mock("@/components/workflow/AgentsPopup", () => ({
     onSelectionsChange?: (s: Record<string, Record<string, unknown>>) => void;
   }) => {
     const isProto = pipelineType === "prototype";
-    const overrides = isProto ? { "prototype-build": "claude-sonnet" } : { "od-ppt-composer": "claude-x" };
-    const selections = isProto
+    const overrides: Record<string, string> = isProto
+      ? { "prototype-build": "claude-sonnet" }
+      : { "od-ppt-composer": "claude-x" };
+    const selections: Record<string, Record<string, unknown>> = isProto
       ? { "prototype-build": { retryLimit: 2 } }
       : { "od-ppt-composer": { retryLimit: 3 } };
     return (
