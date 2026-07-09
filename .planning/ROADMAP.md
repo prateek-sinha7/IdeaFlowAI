@@ -993,10 +993,18 @@ Plans:
 3. Draft-run persistence per ND-1 disposition.
 
 Plans:
+**Wave 1**
+
 - [ ] 37-01-PLAN.md — D-15/C: generic template/DS declared-signal run-launch seam (backend, additive, byte-identical goldens) [Wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 37-02-PLAN.md — Configure screen (generic per-run setup accordions) + client-side draft (ND-1) [Wave 2]
 - [ ] 37-03-PLAN.md — Composer reskin (live /api/capabilities palette + AdvancedExpander + Save to user-workflows) [Wave 2]
 - [ ] 37-04-PLAN.md — Wizard NEW-BUILD unified Template->DS->Discovery stepper + Web/Deck toggle + template-page reskin [Wave 2]
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 37-05-PLAN.md — DS band-card restructure (real ~14) + wire orphaned DiscoveryForm as stepper step 3 [Wave 3]
 - [ ] 37-06-PLAN.md — Agent drawer 4-tab (Config surface-only, ND-7) + Workflow dialog (user_allowed gating) [Wave 3]
 
