@@ -21,6 +21,9 @@ vi.mock("@/lib/api", () => ({
   // undefined-mock-export throw that would otherwise crash render.
   getRunFamily: () => Promise.resolve({ root_id: "", members: [] }),
   getRunArtifacts: () => Promise.resolve({ workflow_id: "x", artifacts: [] }),
+  // Detail summary column (RunDetailPage) is mounted but not asserted here — a
+  // benign rejection lands RunDetailPage in its graceful error state.
+  getRunSummary: () => Promise.reject(new Error("no summary in this suite")),
 }));
 
 // Bespoke previews stubbed so we assert WorkflowHistory's OWN dispatch. The

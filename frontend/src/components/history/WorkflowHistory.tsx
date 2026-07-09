@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   FileText, Presentation, Layout,
-  Loader2, ArrowLeft, Trash2, ChevronRight,
+  Loader2, ArrowLeft, Trash2,
   Search, Sparkles, ArrowRight,
   Download, ExternalLink, RefreshCw, X, Send,
 } from "lucide-react";
@@ -15,27 +15,19 @@ import { UserStoryPreview } from "@/components/preview/UserStoryPreview";
 import { PrototypePreview } from "@/components/preview/PrototypePreview";
 import { MarkdownPreview } from "@/components/preview/MarkdownPreview";
 import { AppBuilderPreview, type ParsedFile } from "@/components/preview/AppBuilderPreview";
-// ISS-017 (gap-fix) — the SAME terminal-failure affordance the live PreviewPanel
-// path renders, reused here so the history-reopen detail view shows it too
-// (instead of the neutral "No preview available") for a terminal-empty
-// failed/cancelled/degraded run. ONE component → live + history cannot drift.
-import { DegradedRunAffordance } from "@/components/preview/PreviewPanel";
 import { FilesTab } from "@/components/results/FilesTab";
 import { AgentThinkingTab } from "@/components/results/AgentThinkingTab";
 import { AuditTab } from "@/components/results/AuditTab";
 import type { WorkflowRun, WorkflowType, AgentRunState, RunFamily, ClarifyRound } from "@/types/index";
 import { resolveReopenMimetype } from "@/types/index";
 import { availableChainTargets } from "@/lib/workflowChaining";
-// ISS-017 (gap-fix) — SHARED failed-agent-id parser (no dual-impl). The IDENTICAL
-// parser app/dashboard/page.tsx uses for the live-reopen path; lists the real
-// failed agents from the persisted run `error`.
-// ISS-024 (16 review IN-02) — id→name resolution for the failed-agents list,
-// SHARED with the live PreviewPanel path (no dual-impl). The history-reopen
-// source for names is the persisted run detail's agentOutputs ({agent_id,name}).
-import { parseFailedAgentIds, buildAgentNameById } from "@/lib/parseFailedAgents";
 // Revision Families (B2 / D3): client-side grouping by rootRunId + the family
 // root card (REUSE-FIRST — WORKSTREAM-B-UI-SPEC.md Surface 1).
-import { groupRunsByFamily, FamilyGroupCard, VersionTimeline, baseWorkflowType, bucketAndSortFamilies, type HistorySortKey } from "./RevisionFamilyView";
+import { groupRunsByFamily, FamilyGroupCard, baseWorkflowType, bucketAndSortFamilies, type HistorySortKey } from "./RevisionFamilyView";
+// SHELL-03: the terminal-run detail's summary surfaces (KPI / per-agent breakdown /
+// version timeline / failure banner) render via the single-source RunDetailPage
+// (fed by getRunSummary) — no dual implementation with the deliverable wrapper.
+import { RunDetailPage } from "./RunDetailPage";
 
 interface WorkflowHistoryProps {
   onBack: () => void;
@@ -108,25 +100,10 @@ const TYPE_META: Record<string, { icon: typeof FileText; label: string }> = {
   custom: { icon: FileText, label: "Custom" },
 };
 
-function formatDate(dateStr: string): string {
-  const d = new Date(dateStr);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  const mins = Math.floor(diff / 60000);
-  const hours = Math.floor(diff / 3600000);
-  const days = Math.floor(diff / 86400000);
-  if (mins < 1) return "Just now";
-  if (mins < 60) return `${mins}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  if (days < 7) return `${days}d ago`;
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function formatDuration(seconds?: number): string {
-  if (!seconds) return "";
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
-}
+// Note: the run-detail KPI/duration/date formatting now lives in the single-source
+// RunDetailPage (fed by `@/lib/runStats` formatDuration/formatTokenCount). The list
+// rows format their own dates via RevisionFamilyView — so no local formatter here
+// (INV-12: no dual implementation).
 
 export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, onRevisePpt, onRevisePrototype, onReviseAppBuilder, activeRunId, onViewRunningPipeline }: WorkflowHistoryProps) {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
@@ -238,24 +215,6 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
       .finally(() => { if (!cancelled) setClarifyLoading(false); });
     return () => { cancelled = true; };
   }, [selectedRun?.id]);
-
-  // Revision Families (B2 / D4): load a chosen version into the SAME detail
-  // surface (mirrors the fetch half of handleSelectRun, but keyed by id and
-  // tab-preserving so a version switch feels like one workflow, not navigation).
-  const handleSelectVersion = useCallback(async (memberId: string) => {
-    const token = getToken();
-    if (!token) return;
-    setLoadingDetail(true);
-    try {
-      const full = await getWorkflow(token, memberId);
-      setSelectedRun(full);
-      setSelectedOutput(full.output || null);
-    } catch (err) {
-      // Dev-observability only: log the swallowed failure; behavior unchanged.
-      console.warn("[revision-family] version fetch failed", err);
-    }
-    finally { setLoadingDetail(false); }
-  }, []);
 
   const handleDeleteClick = useCallback((runId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -383,15 +342,12 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
 
   // ─── DETAIL VIEW ───────────────────────────────────────────────────────────
   if (selectedRun) {
-    const meta = TYPE_META[selectedRun.type] || TYPE_META.custom;
-    const Icon = meta.icon;
     const workflowType = selectedRun.type as WorkflowType;
     // ─── C-FLAG-1 (260703-174) — reopen StartingPointCard revision chip wiring ──
     // revisionParentVersion = 1-based family index of selectedRun's PARENT, derived
     // from the fetched `family` state (getRunFamily). family.members uses the same
-    // revision_index-ASC ordering the VersionTimeline derives from
-    // (RevisionFamilyView.tsx), so the chip's v-number matches the version timeline.
-    // originalBriefRootRunId is already threaded on the mount below.
+    // revision_index-ASC ordering the RunDetailPage timeline derives, so the
+    // chip's v-number matches the version timeline. Feeds the Thinking tab.
     const reopenSortedMembers = family ? [...family.members].sort((a, b) => a.revision_index - b.revision_index) : [];
     const reopenParentIdx = selectedRun.parentRunId ? reopenSortedMembers.findIndex((m) => m.id === selectedRun.parentRunId) : -1;
     const revisionParentVersion = reopenParentIdx >= 0 ? reopenParentIdx + 1 : undefined;
@@ -424,148 +380,35 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     const genericBundleFiles = isGenericBundle && selectedOutput ? parseFilesForIDE(selectedOutput) : [];
     const agentOutputs = detailAgentOutputs;
 
-    // ─── ISS-017 (gap-fix) — history-reopen terminal-failure affordance ───────
-    // A reopened run that ended failed/cancelled/degraded WITH no usable content
-    // must show the SAME DegradedRunAffordance the live PreviewPanel path renders,
-    // not the neutral "No preview available". This is the history-reopen half of
-    // SC3 (CONTEXT A2: affordance on BOTH live and history-reopen) — the surface
-    // users actually reach (WorkflowHistory at mainView="history").
-    //
-    // STRICTLY server-status-gated: keyed on the PERSISTED `selectedRun.status`,
-    // never a client `empty==failed` guess (the REJECTED hack — it re-creates the
-    // IN-03 FE-vs-DB disagreement and would mislabel a legitimately-empty
-    // completed run). It fires only inside the existing `!selectedOutput` neutral
-    // branch, so a terminal run WITH content always renders the content.
+    // ─── SHELL-03 — summary surfaces via RunDetailPage (single source) ─────────
+    // The KPI strip, per-agent breakdown, version/revision timeline AND the
+    // terminal-failure banner render in the RunDetailPage summary column (fed by
+    // getRunSummary) — no dual implementation. Here we only gate the deliverable
+    // preview's neutral empty-state: a terminal-failure run is already explained by
+    // the summary column, so we suppress the neutral "No preview available" for it.
+    // STRICTLY server-status-gated on the PERSISTED status (never a client
+    // empty==failed guess), SC-001 (generic status, no workflow-name branch).
     const reopenTerminalFailure =
       selectedRun.status === "failed" ||
       selectedRun.status === "cancelled" ||
       selectedRun.status === "degraded";
-    // IN-03 (16 review): a deliberate user cancel reads "cancelled", not "failed".
-    const reopenCancelled = selectedRun.status === "cancelled";
-    // IN-01 (16 review): list the real failed-agent ids parsed from the persisted
-    // run error (shared parser); omitted when the marker is absent.
-    const reopenFailedAgents = parseFailedAgentIds(selectedRun.error);
-    // ISS-024 (16 review IN-02): resolve those ids → human names. The history
-    // surface's name source is the persisted agentOutputs ({agent_id,name}); map
-    // it into the {id,name} shape the SHARED resolver expects. Unknown ids fall
-    // back to the raw id inside DegradedRunAffordance, so older runs whose error
-    // names an agent absent from agentOutputs still render the id (never blank).
-    const reopenAgentNameById = buildAgentNameById(
-      detailAgentOutputs.map((a) => ({ id: a.agent_id, name: a.name })),
-    );
 
     return (
-      <div className="h-full flex" style={{ background: "#f5f5f0" }}>
-        {/* Left sidebar — white panel */}
-        <div className="w-[260px] flex-shrink-0 h-full border-r border-gray-200 flex flex-col bg-white min-h-0">
-          {/* Back + run info */}
-          <div className="px-5 pt-5 pb-4 border-b border-gray-100">
-            <button
-              onClick={() => { setSelectedRun(null); setSelectedOutput(null); }}
-              className="flex items-center gap-1.5 text-[11px] text-gray-400 hover:text-gray-700 transition-colors mb-4"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" /> Back to history
-            </button>
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center flex-shrink-0">
-                <Icon className="h-4 w-4 text-gray-500" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-widest">{meta.label}</p>
-              </div>
-              {selectedRun.status === "completed" && (
-                <span className="text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-full flex-shrink-0">Done</span>
-              )}
-            </div>
-            <h2 className="text-[13px] font-semibold text-gray-900 leading-snug mb-1.5">{selectedRun.title}</h2>
-            <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
-              <span>{formatDate(selectedRun.createdAt)}</span>
-              {selectedRun.duration && <><span>·</span><span>{formatDuration(selectedRun.duration)}</span></>}
-            </div>
-          </div>
-
-          {/* Token usage — single compact line */}
-          {selectedRun.tokenUsage && selectedRun.tokenUsage.total_tokens > 0 && (
-            <div className="px-5 py-2 border-b border-gray-100 flex items-center gap-1.5 flex-wrap">
-              {(() => {
-                const t = selectedRun.tokenUsage!;
-                const input = t.total_input_tokens;
-                const output = t.total_output_tokens;
-                const total = t.total_tokens;
-                const fmt = (n: number) => n >= 1_000_000 ? `${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `${(n/1_000).toFixed(1)}K` : String(n);
-                return (
-                  <>
-                    <span className="text-[9px]">⚡</span>
-                    <span className="text-[10px] font-bold text-gray-900">{fmt(total)} total</span>
-                    <span className="text-[10px] text-gray-400">·</span>
-                    <span className="text-[10px] text-gray-500">{fmt(input)} input</span>
-                    <span className="text-[10px] text-gray-400">·</span>
-                    <span className="text-[10px] text-gray-500">{fmt(output)} output</span>
-                  </>
-                );
-              })()}
-            </div>
-          )}
-
-          {/* Agents list */}
-          <div className="flex-1 overflow-y-auto min-h-0 px-3 py-3 space-y-2">
-            <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-widest px-2 mb-2">
-              {agentOutputs.length} Agents
-            </p>
-            {agentOutputs.length > 0 ? agentOutputs.map((agent, idx) => {
-              const iconStyles = [
-                { bg: "#E8EDF5", text: "#1B2A4A" },
-                { bg: "#F0EDE8", text: "#5C4A2A" },
-                { bg: "#EAF0EA", text: "#2A5C2A" },
-                { bg: "#F0E8EE", text: "#5C2A4A" },
-                { bg: "#E8EEF0", text: "#2A4A5C" },
-                { bg: "#F0EEE8", text: "#5C5A2A" },
-              ];
-              const iconStyle = iconStyles[idx % iconStyles.length];
-              const initials = (agent.name || "Agent").split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
-              return (
-                <details key={idx} className="group rounded-xl border border-gray-100 bg-white overflow-hidden">
-                  <summary className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors list-none">
-                    {/* Icon */}
-                    <div
-                      className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-[11px] font-bold"
-                      style={{ background: iconStyle.bg, color: iconStyle.text }}
-                    >
-                      {initials}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-[12px] font-semibold text-gray-900 leading-tight">{agent.name}</p>
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                          {agent.duration != null && (
-                            <span className="text-[9px] text-gray-400">{agent.duration.toFixed(0)}s</span>
-                          )}
-                          {(agent as Record<string, unknown>).total_tokens ? (
-                            <span className="text-[9px] text-gray-400">
-                              {(((agent as Record<string, unknown>).total_tokens as number) / 1000).toFixed(1)}k tok
-                            </span>
-                          ) : null}
-                          <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
-                            DONE
-                          </span>
-                        </div>
-                      </div>
-                      <p className="text-[10px] text-gray-400 mt-0.5">{agent.role}</p>
-                    </div>
-                    <ChevronRight className="h-3 w-3 text-gray-300 group-open:rotate-90 transition-transform flex-shrink-0" />
-                  </summary>
-                  <div className="border-t border-gray-100 overflow-hidden" style={{ background: "#f7f6f3" }}>
-                    <pre className="text-[9px] text-gray-500 whitespace-pre-wrap leading-relaxed p-3 max-h-[300px] overflow-y-auto font-mono">
-                      {agent.output || "No output"}
-                    </pre>
-                  </div>
-                </details>
-              );
-            }) : (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <p className="text-[11px] text-gray-400">No agent data</p>
-              </div>
-            )}
+      <div className="h-full flex bg-surface-paper">
+        {/* ── Left column — summary via the single-source RunDetailPage ──────────
+            KAN-96: a terminal run opens the detail page here (a running run took the
+            live-execution branch in handleSelectRun). RunDetailPage owns the KPI
+            strip, per-agent breakdown, version/revision timeline + failure banner
+            (fed by getRunSummary) — no dual implementation. Back returns to the
+            list. The deliverable the summary does not cover renders on the right. */}
+        <div className="w-[340px] flex-shrink-0 h-full border-r border-line-border flex flex-col bg-surface-white min-h-0">
+          <div className="flex-1 min-h-0">
+            <RunDetailPage
+              runId={selectedRun.id}
+              onBack={() => { setSelectedRun(null); setSelectedOutput(null); }}
+              activeRunId={activeRunId}
+              onViewRunningPipeline={onViewRunningPipeline ? () => onViewRunningPipeline() : undefined}
+            />
           </div>
 
           {/* Suggested next steps — always-visible footer for completed runs.
@@ -672,19 +515,16 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
            })()}
         </div>
 
-        {/* Main content — white panel */}
+        {/* Main content — the deliverable the RunDetailPage summary does not cover
+            (preview / files / thinking / audit). Version switching lives in the
+            RunDetailPage timeline on the left (single source). */}
         <div className="flex-1 min-w-0 h-full flex flex-col bg-white border-l border-gray-200">
-          {/* Revision Families (B2 / D4): version timeline — renders only when the
-              family has >=2 members. Clicking a chip loads that version here. */}
-          <VersionTimeline
-            family={family}
-            activeRunId={selectedRun.id}
-            activeInput={selectedRun.input}
-            onSelectVersion={handleSelectVersion}
-          />
-          {/* Tabs + PPT action buttons */}
+          {/* Title + tabs + PPT action buttons */}
           <div className="flex items-center justify-between gap-2 px-5 py-3 border-b border-gray-100 bg-white flex-shrink-0">
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2 min-w-0">
+              {/* KAN-92: render the real async-generated run title (never a placeholder). */}
+              <h2 className="min-w-0 max-w-[200px] truncate text-[13px] font-semibold text-gray-900">{selectedRun.title}</h2>
+              <div className="flex items-center gap-1">
               {(["preview", "files", "thinking", "audit"] as const).map((tab) => (
                 <button
                   key={tab}
@@ -698,6 +538,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                   {tab === "files" ? "Files" : tab === "thinking" ? "Thinking" : tab === "audit" ? "Audit" : "Preview"}
                 </button>
               ))}
+              </div>
             </div>
 
             {/* Download + Full Screen for PPT/prototype previews */}
@@ -756,16 +597,11 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                 >
                   {detailTab === "preview" ? (
               !selectedOutput && !isAppBuilder ? (
-                // ISS-017 (gap-fix): a reopened terminal-FAILED/cancelled/degraded
-                // run with no content shows the SAME affordance the live path uses
-                // (server-status-gated), not the neutral "No preview available".
-                reopenTerminalFailure ? (
-                  <DegradedRunAffordance
-                    failedAgents={reopenFailedAgents}
-                    agentNameById={reopenAgentNameById}
-                    cancelled={reopenCancelled}
-                  />
-                ) : (
+                // No deliverable to preview. A terminal-FAILED/cancelled/degraded run
+                // is explained by the summary column (RunDetailPage renders the
+                // failure banner + failed agents); the neutral empty state shows only
+                // for a non-failure empty (server-status-gated, SC-001).
+                reopenTerminalFailure ? null : (
                   <div className="flex flex-col items-center justify-center h-full gap-2">
                     <FileText className="h-8 w-8 text-gray-200" />
                     <p className="text-[12px] text-gray-400">No preview available</p>
@@ -784,11 +620,10 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                       ? <AppBuilderPreview files={ideFiles} projectName={ideProjectName} onRevise={undefined} />
                       : selectedOutput
                         ? <MarkdownPreview content={selectedOutput} />
-                        // ISS-017 (gap-fix): a terminal-failed app_builder reopen
-                        // with no files and no output shows the affordance too
-                        // (server-status-gated), mirroring the live path.
+                        // A terminal-failed app_builder reopen with no files/output:
+                        // the summary column explains the failure; suppress neutral.
                         : reopenTerminalFailure
-                          ? <DegradedRunAffordance failedAgents={reopenFailedAgents} agentNameById={reopenAgentNameById} cancelled={reopenCancelled} />
+                          ? null
                           : <div className="flex flex-col items-center justify-center h-full gap-2"><FileText className="h-8 w-8 text-gray-200" /><p className="text-[12px] text-gray-400">No preview available</p></div>
                   )}
                   {/* ISS-021 (18-03) — generic reopen fallback: HTML → the SAME

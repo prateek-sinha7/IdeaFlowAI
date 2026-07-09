@@ -28,6 +28,9 @@ vi.mock("@/lib/api", () => ({
   deleteWorkflow: (token: string, id: string) => mockDeleteWorkflow(token, id),
   getRunFamily: (token: string, id: string) => mockGetRunFamily(token, id),
   getRunArtifacts: (token: string, id: string, opts?: { kind?: string; includeContent?: boolean }) => mockGetRunArtifacts(token, id, opts),
+  // Detail summary column (RunDetailPage) is mounted but not asserted here — a
+  // benign rejection lands RunDetailPage in its graceful error state.
+  getRunSummary: () => Promise.reject(new Error("no summary in this suite")),
 }));
 
 vi.mock("@/components/preview/PPTPreview", () => ({ PPTPreview: () => <div /> }));
