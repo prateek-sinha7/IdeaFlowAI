@@ -1012,6 +1012,6 @@ Plans:
 | 33. Concierge + Compaction [A5] | 5/5 | Verified⚠ (P34 live) | — |
 | 34. Live Pass & Closure [A6] | 0/? | Not started | — |
 | 35. Shell Chrome + Reskin Pages [B1] | 7/7 | Complete   | 2026-07-09 |
-| 36. Home + History + My Workflows [B2] | 3/5 | In Progress|  |
+| 36. Home + History + My Workflows [B2] | 4/5 | In Progress|  |
 | 37. Configure Unification [B3] | 0/? | Not started | — |
 | 38. Analytics, Estimates & Notifications [B4] | 0/? | Not started | — |
