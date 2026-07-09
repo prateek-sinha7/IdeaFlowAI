@@ -2,11 +2,11 @@
  * Launch-contract GOLDEN fixtures (plan 37-07) — the frozen snapshot of the
  * retired route-split launch flow's sessionStorage hand-off, per deliverable
  * mode. These strings are the ORACLE: they were captured from the real old
- * `prototype/templates` + `ppt/templates` pages (see launchContract.oracle
- * test, which renders those pages and asserts their output equals these
- * strings) and now guard the unified LaunchWizard forever (see
- * launchDraft.parity test, which asserts `buildLaunchDraft` reproduces them
- * byte-for-byte).
+ * `prototype/templates` + `ppt/templates` pages by a transitional render-oracle
+ * test (retired with those pages; preserved in git history) that rendered them
+ * and asserted their output equalled these strings. They now guard the unified
+ * LaunchWizard forever via the launchDraft.parity test, which asserts
+ * `buildLaunchDraft` reproduces them byte-for-byte.
  *
  * DO NOT hand-edit a golden to make a test pass — a divergence here is a
  * launch-contract regression the dashboard would silently mis-read.

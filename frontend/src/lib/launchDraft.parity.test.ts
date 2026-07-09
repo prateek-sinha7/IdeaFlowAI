@@ -1,10 +1,11 @@
 /**
  * ⭐ THE BINDING LAUNCH-CONTRACT PARITY GATE (plan 37-07).
  *
- * The retired route-split flow (prototype/templates + ppt/templates pages) is
+ * The retired route-split flow (prototype/templates + ppt/templates pages) was
  * the ORACLE. Its exact sessionStorage hand-off is frozen in the golden
- * fixtures (launchContract.ts), captured from the real pages by the transitional
- * launchContract.oracle test. This suite proves the unified LaunchWizard's
+ * fixtures (launchContract.ts), captured from the real pages by a transitional
+ * render-oracle test that was retired together with those pages (preserved in
+ * git history). This suite proves the unified LaunchWizard's
  * serialization — `buildLaunchDraft` / `buildDiscoveryValue` — reproduces those
  * goldens BYTE-FOR-BYTE, per mode. If this is green, the unified page writes the
  * identical draft/pending/discovery contract the dashboard already consumes.
