@@ -502,7 +502,7 @@ export interface AgentRunState {
 /** A source of context for an agent — either a summarized prior-agent output
  *  or a typed Artifact from the Artifact_Store. */
 export interface ContextSource {
-  type: "summary" | "artifact";
+  type: "summary" | "artifact" | "run_input" | "context_block";
   // For type="summary":
   agent_id?: string;
   agent_name?: string;
@@ -511,6 +511,9 @@ export interface ContextSource {
   // For type="artifact":
   artifact_type?: string;
   artifact_size_chars?: number;
+  // For type="run_input" | "context_block" (KAN-102):
+  label?: string;
+  size_chars?: number;
 }
 
 /** A single tool invocation recorded in the Thinking tab. */

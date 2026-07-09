@@ -1617,3 +1617,49 @@ Trace: user clicks "Update the Specs" (absent) → FE sends `approve_review{acti
 - Stop button during a revision cycle is cancel-aware: `_run_spec_revision_sub_pipeline` checks `cancel_event.is_set()` before each agent and yields `_gate_rejected` if set
 - The `gate_agent_ids` deselection at the run level means that if the user runs the prototype pipeline with specify/plan gates deselected, the sub-pipeline will also skip those gates — correct behavior
 - The Thinking tab (PrototypePipelineView) will show the revision cycle's agent events updating the existing specify/plan/analyze cards in-place (Option B from the analysis). Full versioned history is a follow-on enhancement
+
+| FIX-049 | 2026-07-09 | KAN-102: Context Received section always empty for first agent — user brief, template, design system, and images not shown | `_build_context_sources` only iterated `_filter_consumed_outputs` (prior agent outputs); for index=0 consumed={} always so context_sources=[] always; OD template/DS blocks, user brief, and images were never modelled as ContextSource entries | `backend/agents/execution_engine/engine.py`, `frontend/src/types/index.ts`, `frontend/src/components/results/AgentThinkingTab.tsx` | Phase 3 (FR-015) / KAN-102 | INV-1/3/12/SC-001 ✅ | Done |
+
+---
+
+### FIX-049 — KAN-102: Context Received section always empty for first agent
+
+**Date:** 2026-07-09
+**Triggered by:** `/velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-102`
+
+#### Root Cause
+`_build_context_sources` in `engine.py:5116` only iterated `_filter_consumed_outputs` which returns prior-agent outputs. For the first agent (`index=0`), `consumed={}` always → `context_sources=[]` always → the "Context Received" section was hidden entirely. The user brief, OD template body, design system body, and attached images are all present in `context_message` / `input_blocks` / `ectx.od_context` but were never surfaced as `ContextSource` entries.
+
+Trace:
+`_run_agent` (engine.py:2768) → `_build_context_sources(spec, ordered_agents, ectx)` → `_filter_consumed_outputs` returns `{}` for index=0 → `context_sources=[]` → `agent_input` event emitted with empty `context_sources` → `useWorkflow.ts agent_input handler` stores `contextSources=[]` → `AgentThinkingTab.tsx:560` `agent.contextSources.length > 0` is false → `ContextSourcesRow` never rendered.
+
+#### Phase Context
+- **Phase(s) involved:** Phase 3 (T043 — `agent_input` event, FR-015 context sources)
+- **Relevant register section:** Phase 3 `_register-parts/03-token-trim-measured-change-0c.md`
+- **Deleted code verified (not resurrected):** No deleted code involved
+- **Locked decisions respected:** INV-1 positional check (`agent_index == 0`) not a pipeline_type or spec.id branch; Locked Decision #3 (split transport) preserved — context_message stays text str, images ride input_blocks only; goldens safe via `context_sources` already in `_VOLATILE_STRIP_KEYS`
+
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `backend/agents/execution_engine/engine.py` | Extended `_build_context_sources` signature with `agent_index`, `user_message`, `input_blocks` (all defaulted for backward compat). Added run-originating source entries for `is_first_agent` (index==0): `type="run_input"` for user brief, `type="context_block"` for template and DS from `ectx.od_context`, `type="image"` for attached images. Updated call site at line 2768 to pass `agent_index=index, user_message=user_message, input_blocks=input_blocks`. | First agent context sources were always empty — the original consumed-outputs loop only covered inter-agent handoffs |
+| `frontend/src/types/index.ts` | Extended `ContextSource` interface with `type: "run_input" \| "context_block" \| "image"` variants, plus `label`, `size_chars`, `count` optional fields | New source types need FE type coverage |
+| `frontend/src/components/results/AgentThinkingTab.tsx` | Updated `ContextSourcesRow` to render new source types with icons (📄 for run_input, 🎨 for context_block, 🖼 for image) and size labels | Display the new source chips |
+
+#### Invariants Verified
+- **INV-1** (no pipeline_type branches): `is_first_agent = (agent_index == 0)` is the identical positional predicate used in `_compose_context_message`. Zero pipeline_type or spec.id literals.
+- **INV-3** (golden parity): `context_sources` is in `_VOLATILE_STRIP_KEYS` in `_normalize.py` (line ~119). All 5 characterization goldens strip it entirely — adding new entries has zero impact on goldens. No regen needed.
+- **INV-12** (no duplication): `ectx.od_context` is already the single source for template/DS metadata. Read via `getattr(ectx, "od_context", None) or {}`, same pattern as the TEMPLATE COMPLIANCE block in `_compose_context_message`.
+- **SC-001** (zero engine edits for new workflows): observability enrichment only — no control-flow changes, no new agent dispatch paths.
+
+#### Verification
+- Backend started clean with no import errors
+- Frontend TypeScript diagnostics: 0 errors on all 3 changed files
+- Trace with fix: `_build_context_sources(spec, ordered_agents, ectx, agent_index=0, user_message=..., input_blocks=[...])` → `is_first_agent=True` → appends run_input + context_block(s) + image entries → `context_sources=[{...}, ...]` → FE `contextSources.length > 0` → `ContextSourcesRow` renders chips
+
+#### Notes
+- For user_stories / app_builder / custom pipelines (no od_context): only the "📄 User brief" chip appears — correct.
+- For od_prototype: "📄 User brief" + "🎨 Template: web-prototype" + "🎨 Design system: github" chips appear.
+- For prototype with image attachment: "📄 User brief" + "🖼 1 image" chips appear (plus template/DS if od_prototype).
+- Downstream agents (index > 1) continue to show prior-agent handoff chips unchanged — no regression.
+- KAN-103 (prototype revision missing od_context) is a companion issue that this fix exposes more clearly — when prototype revision runs, the revision agent at index=0 will now show "📄 User brief" but NOT template/DS chips (because od_context=None in _handle_revision). KAN-103 remains open.

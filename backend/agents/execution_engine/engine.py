@@ -2765,7 +2765,11 @@ class ExecutionEngine:
 
             # Emit agent_input event (Phase 3 / T040) — shows full input prompt
             # and context sources in the Thinking tab (FR-015).
-            context_sources = self._build_context_sources(spec, ordered_agents, ectx)
+            context_sources = self._build_context_sources(
+                spec, ordered_agents, ectx,
+                agent_index=index,
+                user_message=user_message,
+            )
             # context_message stays a TEXT str ALWAYS in the agent_input event (split-
             # transport, Locked Decision #3): only the model dispatch wraps the blocks.
             _agent_input_data = {
@@ -5118,6 +5122,8 @@ class ExecutionEngine:
         spec,
         ordered_agents: list,
         ectx: ExecutionContext,
+        agent_index: int = -1,
+        user_message: str = "",
     ) -> list[dict]:
         """Build the context_sources list for the agent_input event (FR-015).
 
@@ -5125,11 +5131,61 @@ class ExecutionEngine:
         - type: "summary" (text output) or "artifact" (typed artifact)
         - agent_id, agent_name, summary_length, full_output_length
 
+        KAN-102: additionally records run-originating sources for the FIRST agent
+        (agent_index == 0) so "Context Received" is never empty:
+        - type: "run_input" — the user brief (always present for first agent)
+        - type: "context_block" — template and/or design system (when od_context is set)
+
+        Positional check: agent_index == 0 is the GENERIC "first agent" predicate
+        (same INV-1-compliant pattern used in _compose_context_message). No
+        pipeline_type or spec.id branch.
+
+        context_sources is in _VOLATILE_STRIP_KEYS in _normalize.py so the
+        characterization goldens are byte-identical regardless of new entries (INV-3).
+
         Reads consumed content typed-only (ectx.artifacts) via
         _filter_consumed_outputs (ART-03 read-migration; the mirror fallback was
         deleted in 05-07).
         """
         sources: list[dict] = []
+
+        # ── KAN-102: run-originating sources for the first agent ─────────────────
+        # agent_index == 0 is the generic "first dispatched agent" predicate (INV-1).
+        # Dormant for downstream agents (they have prior-agent sources instead).
+        # context_sources is already in _VOLATILE_STRIP_KEYS so the goldens stay
+        # byte-identical (INV-3) regardless of what we add here.
+        is_first_agent = (agent_index == 0)
+        if is_first_agent:
+            # User brief — always present for the first agent
+            if user_message:
+                sources.append({
+                    "type": "run_input",
+                    "label": "User brief",
+                    "size_chars": len(user_message),
+                })
+
+            # OD template and design system — present when od_context is loaded
+            # (od_prototype / od_ppt runs). Read from ectx.od_context (same pattern
+            # as the TEMPLATE COMPLIANCE block in _compose_context_message, INV-1).
+            od = getattr(ectx, "od_context", None) or {}
+            template_id = od.get("template_id") or ""
+            ds_id = od.get("ds_id") or ""
+            template_body = od.get("template_body") or ""
+            ds_body = od.get("ds_body") or ""
+            if template_id and template_body:
+                sources.append({
+                    "type": "context_block",
+                    "label": f"Template: {template_id}",
+                    "size_chars": len(template_body),
+                })
+            if ds_id and ds_body:
+                sources.append({
+                    "type": "context_block",
+                    "label": f"Design system: {ds_id}",
+                    "size_chars": len(ds_body),
+                })
+
+        # ── Prior-agent outputs (inter-agent handoff sources) ─────────────────────
         consumed = self._filter_consumed_outputs(spec, ordered_agents, ectx)
         for aid, output in consumed.items():
             prev = next((s for s in ordered_agents if s.id == aid), None)

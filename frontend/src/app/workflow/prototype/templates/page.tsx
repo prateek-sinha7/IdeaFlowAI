@@ -336,7 +336,7 @@ export default function PrototypeTemplatesPage() {
     }));
     sessionStorage.setItem("od_prototype.pending", "true");
     router.push("/dashboard");
-  }, [canContinue, isChaining, selectedTemplateId, selectedDsId, brief, customDsBody, customTemplateBody, router]);
+  }, [canContinue, isChaining, selectedTemplateId, selectedDsId, brief, customDsBody, customTemplateBody, router, attachedFileContents, attachedImages]);
 
   if (!authChecked) {
     return (

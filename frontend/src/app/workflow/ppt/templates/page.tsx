@@ -309,7 +309,7 @@ export default function PPTTemplatesPage() {
     }));
     sessionStorage.setItem("od_ppt.pending", "true");
     router.push("/dashboard");
-  }, [canContinue, isChaining, selectedTemplateId, selectedDsId, dsRequired, brief, customDsBody, customTemplateBody, router]);
+  }, [canContinue, isChaining, selectedTemplateId, selectedDsId, dsRequired, brief, customDsBody, customTemplateBody, router, attachedImages]);
 
   if (!authChecked) {
     return (
