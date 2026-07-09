@@ -966,11 +966,11 @@ Plans:
 3. "My Workflows" rename + working kebab actions; `WorkflowCatalog`→`HomeLaunchGrid` rename (D-11) — "Catalogue" reserved for the future marketplace.
 4. Run detail/reopen page live off a run-summary endpoint aggregating existing data (agents, KPIs, failure banner, version timeline).
 
-**Plans:** 1/5 plans executed
+**Plans:** 2/5 plans executed
 **Wave 1**
 
 - [x] 36-01-PLAN.md — `WorkflowCatalog`→`HomeLaunchGrid` rename (D-11) + Fused Home (launcher + grid + recents) + HomeLaunchGrid reskin (Wave 1)
-- [ ] 36-02-PLAN.md — Backend `GET /api/runs/{id}/summary` owner-scoped read endpoint aggregating existing data + tests (Wave 1)
+- [x] 36-02-PLAN.md — Backend `GET /api/runs/{id}/summary` owner-scoped read endpoint aggregating existing data + tests (Wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -1012,6 +1012,6 @@ Plans:
 | 33. Concierge + Compaction [A5] | 5/5 | Verified⚠ (P34 live) | — |
 | 34. Live Pass & Closure [A6] | 0/? | Not started | — |
 | 35. Shell Chrome + Reskin Pages [B1] | 7/7 | Complete   | 2026-07-09 |
-| 36. Home + History + My Workflows [B2] | 1/5 | In Progress|  |
+| 36. Home + History + My Workflows [B2] | 2/5 | In Progress|  |
 | 37. Configure Unification [B3] | 0/? | Not started | — |
 | 38. Analytics, Estimates & Notifications [B4] | 0/? | Not started | — |
