@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Graphify Dark Graph</title>
+<title>Contexa Dark Graph</title>
 <style>/* html-ppt :: shared webfonts */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700;800;900&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@200;300;400;500;600;700;900&display=swap');
@@ -269,9 +269,9 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
     <div class="gd-snum">01 / 08</div>
     <div style="margin-top:auto">
       <p class="gd-eyebrow">Tech Sharing · 纯干货</p>
-      <h1 class="gd-h1" style="font-size:88px"><span class="gd-rainbow">手把手用 Graphify<br>搭建个人知识图谱</span></h1>
-      <p class="gd-lede" style="margin-top:20px">一行命令 · 全多模态 · 诚实审计 —— <span class="gd-accent">把任何文件夹变成可导航的知识网络。</span></p>
-      <p class="gd-eyebrow" style="margin-top:26px">↑ 背景就是 Graphify 真实跑出来的知识图谱</p>
+      <h1 class="gd-h1" style="font-size:88px"><span class="gd-rainbow">手把手用 Contexa<br>搭建团队上下文图谱</span></h1>
+      <p class="gd-lede" style="margin-top:20px">一行命令 · 全多模态 · 诚实审计 —— <span class="gd-accent">把任何代码仓库变成可导航的上下文网络。</span></p>
+      <p class="gd-eyebrow" style="margin-top:26px">↑ 背景就是 Contexa 真实跑出来的上下文图谱</p>
     </div>
   </section>
 
@@ -281,8 +281,8 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
     <div class="gd-snum">02 / 08</div>
     <div style="margin:auto 0">
       <div class="gd-eyebrow">Part 01</div>
-      <h1 class="gd-h1" style="font-size:120px">Why <span class="gd-grad">Graph</span>?</h1>
-      <p class="gd-lede">folder → tree → graph，人类认知的下一步</p>
+      <h1 class="gd-h1" style="font-size:120px">Why <span class="gd-grad">Context</span>?</h1>
+      <p class="gd-lede">repo → grep → graph，团队协作的下一步</p>
     </div>
   </section>
 
@@ -293,12 +293,12 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
     <p class="gd-eyebrow">Feature Map</p>
     <h2 class="gd-h2">一个工具，<span class="gd-grad">四件事</span></h2>
     <div class="gd-grid-4">
-      <div class="gd-glass gd-glass-warm"><div style="font-size:30px">📂</div><h4 style="margin:10px 0 6px">Folder Ingest</h4><p class="gd-dim" style="font-size:13px;line-height:1.55">递归扫描任意路径，支持 md / pdf / 代码 / 图片</p></div>
-      <div class="gd-glass gd-glass-blue"><div style="font-size:30px">🧠</div><h4 style="margin:10px 0 6px">Entity Extract</h4><p class="gd-dim" style="font-size:13px;line-height:1.55">用 LLM 抽概念、人物、事件、关系</p></div>
+      <div class="gd-glass gd-glass-warm"><div style="font-size:30px">�</div><h4 style="margin:10px 0 6px">Repo Ingest</h4><p class="gd-dim" style="font-size:13px;line-height:1.55">递归扫描整个仓库，支持 md / issue / 代码 / PR</p></div>
+      <div class="gd-glass gd-glass-blue"><div style="font-size:30px">🧠</div><h4 style="margin:10px 0 6px">Symbol Extract</h4><p class="gd-dim" style="font-size:13px;line-height:1.55">用 LLM 抽模块、函数、依赖、变更关系</p></div>
       <div class="gd-glass gd-glass-green"><div style="font-size:30px">🕸️</div><h4 style="margin:10px 0 6px">Force Graph</h4><p class="gd-dim" style="font-size:13px;line-height:1.55">D3 力导向，点击即跳转原文</p></div>
       <div class="gd-glass"><div style="font-size:30px">🔍</div><h4 style="margin:10px 0 6px">Audit Trail</h4><p class="gd-dim" style="font-size:13px;line-height:1.55">每条边都能追溯到 source span</p></div>
     </div>
-    <div class="gd-glass gd-glass-warm" style="margin-top:24px"><p style="font-size:18px;line-height:1.6">它不是「又一个 RAG」—— 它是 <span class="gd-accent">把检索结果画出来，让你一眼就知道信息长什么样</span>。</p></div>
+    <div class="gd-glass gd-glass-warm" style="margin-top:24px"><p style="font-size:18px;line-height:1.6">它不是「又一个 code search」—— 它是 <span class="gd-accent">把依赖关系画出来，让你一眼就知道改动会影响什么</span>。</p></div>
   </section>
 
   <!-- 4. CODE -->
@@ -307,15 +307,15 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
     <div class="gd-snum">04 / 08</div>
     <p class="gd-eyebrow">One command</p>
     <h2 class="gd-h2">从 0 到图谱，<span class="gd-grad">大概 90 秒</span></h2>
-    <p class="gd-cmd" style="margin:16px 0 22px">$ graphify ~/notes --out ./graph</p>
-    <pre class="gd-codebox"><span class="cm"># graphify.config.yaml</span>
+    <p class="gd-cmd" style="margin:16px 0 22px">$ contexa ./repo --out ./graph</p>
+    <pre class="gd-codebox"><span class="cm"># contexa.config.yaml</span>
 <span class="kw">ingest</span>:
-  paths: [<span class="st">~/notes</span>, <span class="st">~/code/docs</span>]
-  include: [<span class="st">"*.md"</span>, <span class="st">"*.pdf"</span>, <span class="st">"*.py"</span>]
+  paths: [<span class="st">./src</span>, <span class="st">./docs</span>]
+  include: [<span class="st">"*.md"</span>, <span class="st">"*.ts"</span>, <span class="st">"*.py"</span>]
 
 <span class="kw">extract</span>:
   model: <span class="st">claude-opus-4-6</span>
-  schema: [<span class="st">concept</span>, <span class="st">person</span>, <span class="st">event</span>, <span class="st">relation</span>]
+  schema: [<span class="st">module</span>, <span class="st">function</span>, <span class="st">dependency</span>, <span class="st">change</span>]
 
 <span class="kw">render</span>:
   engine: <span class="st">d3-force</span>
@@ -327,17 +327,17 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
     <div class="gd-ambient"><div class="gd-orb gd-orb-3"></div></div>
     <div class="gd-snum">05 / 08</div>
     <p class="gd-eyebrow">Efficiency Race</p>
-    <h2 class="gd-h2">没有知识库 vs 有知识库</h2>
+    <h2 class="gd-h2">没有上下文图 vs 有上下文图</h2>
     <div style="max-width:900px;margin-top:30px">
       <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
-        <div style="width:110px;text-align:right;font-weight:700;color:var(--gd-danger)">没有<br>知识库</div>
+        <div style="width:110px;text-align:right;font-weight:700;color:var(--gd-danger)">没有<br>上下文图</div>
         <div style="flex:1;position:relative;height:70px;background:rgba(224,112,112,.06);border:1px solid rgba(224,112,112,.2);border-radius:16px">
           <div style="position:absolute;left:16px;top:50%;transform:translateY(-50%);font-size:32px">🛵</div>
-          <div style="position:absolute;left:72px;top:50%;transform:translateY(-50%);color:var(--gd-danger);font-size:14px">反复喂信息…整理…又忘了…</div>
+          <div style="position:absolute;left:72px;top:50%;transform:translateY(-50%);color:var(--gd-danger);font-size:14px">反复搜代码…追依赖…又漏改了…</div>
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:16px">
-        <div style="width:110px;text-align:right;font-weight:700;color:var(--gd-green)">有<br>知识库</div>
+        <div style="width:110px;text-align:right;font-weight:700;color:var(--gd-green)">有<br>上下文图</div>
         <div style="flex:1;position:relative;height:70px;background:rgba(126,211,164,.06);border:1px solid rgba(126,211,164,.25);border-radius:16px">
           <div style="position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:32px">🏎️</div>
           <div style="position:absolute;right:72px;top:50%;transform:translateY(-50%);color:var(--gd-green);font-size:14px">AI 自己找 → 确认 → 干活!</div>
@@ -346,8 +346,8 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
     </div>
     <div class="gd-grid-3" style="margin-top:36px">
       <div class="gd-glass gd-glass-warm"><div class="gd-big gd-grad">5×</div><p class="gd-dim" style="margin-top:6px">速度提升</p></div>
-      <div class="gd-glass gd-glass-green"><div class="gd-big gd-grad">-80%</div><p class="gd-dim" style="margin-top:6px">重复喂信息</p></div>
-      <div class="gd-glass gd-glass-blue"><div class="gd-big gd-grad">∞</div><p class="gd-dim" style="margin-top:6px">记忆持久化</p></div>
+      <div class="gd-glass gd-glass-green"><div class="gd-big gd-grad">-80%</div><p class="gd-dim" style="margin-top:6px">重复搜索时间</p></div>
+      <div class="gd-glass gd-glass-blue"><div class="gd-big gd-grad">∞</div><p class="gd-dim" style="margin-top:6px">上下文持久化</p></div>
     </div>
   </section>
 
@@ -358,9 +358,9 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
     <p class="gd-eyebrow">Pipeline</p>
     <h2 class="gd-h2">端到端 <span class="gd-grad">4 步走</span></h2>
     <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:36px">
-      <div class="gd-glass" style="flex:1;text-align:center"><div style="font-size:34px">📂</div><div style="font-weight:600;margin-top:8px">Scan</div><div class="gd-dim" style="font-size:13px">递归读文件</div></div>
+      <div class="gd-glass" style="flex:1;text-align:center"><div style="font-size:34px">�</div><div style="font-weight:600;margin-top:8px">Scan</div><div class="gd-dim" style="font-size:13px">递归读仓库</div></div>
       <div style="color:var(--gd-text3);font-size:24px">→</div>
-      <div class="gd-glass gd-glass-blue" style="flex:1;text-align:center"><div style="font-size:34px">🔬</div><div style="font-weight:600;margin-top:8px">Extract</div><div class="gd-dim" style="font-size:13px">LLM 抽实体</div></div>
+      <div class="gd-glass gd-glass-blue" style="flex:1;text-align:center"><div style="font-size:34px">🔬</div><div style="font-weight:600;margin-top:8px">Extract</div><div class="gd-dim" style="font-size:13px">LLM 抽符号</div></div>
       <div style="color:var(--gd-text3);font-size:24px">→</div>
       <div class="gd-glass gd-glass-green" style="flex:1;text-align:center"><div style="font-size:34px">🕸️</div><div style="font-weight:600;margin-top:8px">Build</div><div class="gd-dim" style="font-size:13px">构图 + 去重</div></div>
       <div style="color:var(--gd-text3);font-size:24px">→</div>
@@ -374,14 +374,14 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
     <div class="gd-ambient"><div class="gd-orb gd-orb-1"></div><div class="gd-orb gd-orb-3"></div></div>
     <div class="gd-snum">07 / 08</div>
     <p class="gd-eyebrow">Try it tonight</p>
-    <h2 class="gd-h1" style="font-size:80px">Graphify <span class="gd-grad">your folders</span></h2>
-    <p class="gd-cmd" style="margin-top:22px">$ npm i -g @lewis/graphify</p>
-    <p class="gd-cmd" style="margin-top:10px;color:var(--gd-warm);text-shadow:0 0 30px rgba(232,168,124,.45)">$ graphify ~/obsidian-vault</p>
+    <h2 class="gd-h1" style="font-size:80px">Contexa <span class="gd-grad">your repos</span></h2>
+    <p class="gd-cmd" style="margin-top:22px">$ npm i -g @lewis/contexa</p>
+    <p class="gd-cmd" style="margin-top:10px;color:var(--gd-warm);text-shadow:0 0 30px rgba(232,168,124,.45)">$ contexa ./my-monorepo</p>
     <div style="margin-top:32px">
-      <span class="gd-tag">#knowledge-graph</span>
+      <span class="gd-tag">#context-graph</span>
       <span class="gd-tag">#open-source</span>
       <span class="gd-tag">#claude-agent</span>
-      <span class="gd-tag">#obsidian</span>
+      <span class="gd-tag">#codebase-map</span>
       <span class="gd-tag">#d3-force</span>
     </div>
   </section>
@@ -392,7 +392,7 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
     <div class="gd-snum">08 / 08</div>
     <div style="margin:auto 0;text-align:center">
       <div class="gd-big gd-rainbow" style="font-size:180px">Thanks.</div>
-      <p class="gd-lede" style="margin:28px auto 0">github.com/lewis/graphify · 欢迎 star / issue / PR</p>
+      <p class="gd-lede" style="margin:28px auto 0">github.com/lewis/contexa · 欢迎 star / issue / PR</p>
     </div>
   </section>
 
