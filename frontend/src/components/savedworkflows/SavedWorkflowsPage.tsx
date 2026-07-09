@@ -86,6 +86,73 @@ interface SavedWorkflowsPageProps {
   onLaunchSaved?: (saved: UserWorkflowSummary) => void;
 }
 
+// ── Kebab dropdown (module-level for a STABLE element identity) ──────────────
+// Defined outside the page so a parent state change re-renders (never remounts)
+// the trigger button — keeping aria-expanded live in place and the Escape-focus
+// ref stable. a11y: trigger exposes aria-haspopup/expanded; the panel is
+// role=menu with role=menuitem rows; Escape closes + refocuses the trigger.
+function KebabMenu({
+  row, isOpen, onToggle, onClose, onRename, onDuplicate, onDelete,
+}: {
+  row: UserWorkflowSummary;
+  isOpen: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  onRename: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+}) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape" && isOpen) {
+      e.stopPropagation();
+      onClose();
+      triggerRef.current?.focus();
+    }
+  };
+  return (
+    <div className="relative" onClick={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
+      <button
+        ref={triggerRef}
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        aria-label="Workflow actions"
+        onClick={onToggle}
+        className="h-7 w-7 flex items-center justify-center rounded-lg text-ink-300 hover:text-ink-600 hover:bg-surface-warm transition-colors"
+      >
+        <MoreHorizontal className="h-4 w-4" />
+      </button>
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            role="menu"
+            initial={{ opacity: 0, scale: 0.95, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: -4 }}
+            transition={{ duration: 0.1 }}
+            className="absolute right-0 top-8 z-20 bg-surface-white border border-line-border rounded-[var(--radius-menu)] shadow-[var(--elevation-menu)] py-1 min-w-[130px]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button role="menuitem" onClick={onRename}
+              className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-ink-700 hover:bg-surface-warm transition-colors">
+              <Pencil className="h-3.5 w-3.5" /> Rename
+            </button>
+            <button role="menuitem" onClick={onDuplicate}
+              className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-ink-700 hover:bg-surface-warm transition-colors">
+              <Copy className="h-3.5 w-3.5" /> Duplicate
+            </button>
+            <div className="border-t border-line-divider my-0.5" />
+            <button role="menuitem" onClick={onDelete}
+              className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-status-failed hover:bg-[var(--status-failed-fill)] transition-colors">
+              <Trash2 className="h-3.5 w-3.5" /> Delete
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
   const [userWorkflows, setUserWorkflows] = useState<UserWorkflowSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -145,62 +212,6 @@ export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
       await deleteUserWorkflow(jwt, id);
       setUserWorkflows((prev) => prev.filter((w) => w.id !== id));
     } catch (e) { setSavedError((e as Error)?.message ?? "Delete failed."); }
-  };
-
-  // ── Kebab dropdown (shared between list + grid) ───────────────────────────
-  // a11y: trigger exposes aria-haspopup/expanded; the panel is role=menu with
-  // role=menuitem rows; Escape closes the menu and refocuses the trigger.
-  const KebabMenu = ({ row }: { row: UserWorkflowSummary }) => {
-    const triggerRef = useRef<HTMLButtonElement>(null);
-    const isOpen = openMenuId === row.id;
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-      if (e.key === "Escape" && isOpen) {
-        e.stopPropagation();
-        setOpenMenuId(null);
-        triggerRef.current?.focus();
-      }
-    };
-    return (
-      <div className="relative" onClick={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
-        <button
-          ref={triggerRef}
-          aria-haspopup="menu"
-          aria-expanded={isOpen}
-          aria-label="Workflow actions"
-          onClick={() => setOpenMenuId(isOpen ? null : row.id)}
-          className="h-7 w-7 flex items-center justify-center rounded-lg text-ink-300 hover:text-ink-600 hover:bg-surface-warm transition-colors"
-        >
-          <MoreHorizontal className="h-4 w-4" />
-        </button>
-        <AnimatePresence>
-          {isOpen && (
-            <motion.div
-              role="menu"
-              initial={{ opacity: 0, scale: 0.95, y: -4 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: -4 }}
-              transition={{ duration: 0.1 }}
-              className="absolute right-0 top-8 z-20 bg-surface-white border border-line-border rounded-[var(--radius-menu)] shadow-[var(--elevation-menu)] py-1 min-w-[130px]"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <button role="menuitem" onClick={() => { setOpenMenuId(null); setRenameRow(row); }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-ink-700 hover:bg-surface-warm transition-colors">
-                <Pencil className="h-3.5 w-3.5" /> Rename
-              </button>
-              <button role="menuitem" onClick={() => handleDuplicate(row)}
-                className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-ink-700 hover:bg-surface-warm transition-colors">
-                <Copy className="h-3.5 w-3.5" /> Duplicate
-              </button>
-              <div className="border-t border-line-divider my-0.5" />
-              <button role="menuitem" onClick={() => { setOpenMenuId(null); setDeleteConfirmId(row.id); }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-status-failed hover:bg-[var(--status-failed-fill)] transition-colors">
-                <Trash2 className="h-3.5 w-3.5" /> Delete
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    );
   };
 
   return (
@@ -306,7 +317,15 @@ export function SavedWorkflowsPage({ onLaunchSaved }: SavedWorkflowsPageProps) {
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-[11px] font-bold group-hover:scale-105 transition-transform ${iconStyle}`}>
                       {getInitials(row.name)}
                     </div>
-                    <KebabMenu row={row} />
+                    <KebabMenu
+                      row={row}
+                      isOpen={openMenuId === row.id}
+                      onToggle={() => setOpenMenuId(openMenuId === row.id ? null : row.id)}
+                      onClose={() => setOpenMenuId(null)}
+                      onRename={() => { setOpenMenuId(null); setRenameRow(row); }}
+                      onDuplicate={() => handleDuplicate(row)}
+                      onDelete={() => { setOpenMenuId(null); setDeleteConfirmId(row.id); }}
+                    />
                   </div>
                   {/* Type badge */}
                   <span className="self-start text-[10px] font-semibold px-2 py-0.5 rounded-full bg-surface-warm text-ink-600 border border-line-border mb-1.5">
