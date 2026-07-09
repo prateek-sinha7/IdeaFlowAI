@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Auth Service · Runbook</title>
+<title>Payments Service · Runbook</title>
 <style>
   :root {
     --bg: #0c0e14;
@@ -98,9 +98,9 @@
 <div class="page">
   <header class="head">
     <div class="head-left">
-      <div class="crumb">Northwind / Identity / Auth</div>
-      <h1>auth-service</h1>
-      <div class="head-meta">Owned by <span>@identity-platform</span> · v4.7.2 · Last reviewed 14 Oct 2025</div>
+      <div class="crumb">Solstice / Billing / Payments</div>
+      <h1>payments-service</h1>
+      <div class="head-meta">Owned by <span>@payments-platform</span> · v3.9.1 · Last reviewed 09 Nov 2025</div>
     </div>
     <span class="pill tier"><span class="dot"></span>Tier 0 · production-critical</span>
   </header>
@@ -109,17 +109,17 @@
     <h2><span class="index">01</span>Service summary</h2>
     <div class="summary">
       <div class="panel">
-        <p><strong>auth-service</strong> issues, validates, and revokes session tokens for every Northwind product surface — web, mobile, and the public API. It owns the password store, the TOTP/WebAuthn enrollments, and the audit-log writer for all auth events.</p>
-        <p>If <code>auth-service</code> is down, customers cannot log in or refresh sessions. Existing valid sessions continue to work for their TTL (15 minutes) but no new auth happens.</p>
+        <p><strong>payments-service</strong> authorizes, captures, and refunds card charges for every Solstice product surface — web, mobile, and the public API. It owns the idempotency store, the ledger writer, and the dispute-evidence uploader for all charge events.</p>
+        <p>If <code>payments-service</code> is down, customers cannot complete checkout or issue refunds. Already-captured charges settle normally, but no new authorizations happen.</p>
       </div>
       <div class="panel deps">
         <h3>Dependencies</h3>
         <ul>
-          <li><span>Postgres · auth-db</span><span class="ok">healthy</span></li>
-          <li><span>Redis · session-cache</span><span class="ok">healthy</span></li>
-          <li><span>KMS · auth-keyring</span><span class="ok">healthy</span></li>
-          <li><span>SES · transactional</span><span class="warn">degraded</span></li>
-          <li><span>Pager · oncall.northwind</span><span class="ok">healthy</span></li>
+          <li><span>Postgres · payments-db</span><span class="ok">healthy</span></li>
+          <li><span>Redis · idempotency-cache</span><span class="ok">healthy</span></li>
+          <li><span>KMS · payments-keyring</span><span class="ok">healthy</span></li>
+          <li><span>Stripe · gateway</span><span class="warn">degraded</span></li>
+          <li><span>Pager · oncall.solstice</span><span class="ok">healthy</span></li>
         </ul>
       </div>
     </div>
@@ -131,33 +131,33 @@
       <thead><tr><th>Alert</th><th>Severity</th><th>What it means</th><th>First response</th></tr></thead>
       <tbody>
         <tr>
-          <td class="code">auth.login_5xx_rate &gt; 1%</td>
+          <td class="code">payments.charge_5xx_rate &gt; 1%</td>
           <td><span class="sev sev-1">SEV-1</span></td>
-          <td>Login endpoint returning errors. Customers are locked out.</td>
-          <td>Check Postgres + Redis dashboards. Roll back last deploy if &lt; 30 min old.</td>
+          <td>Charge endpoint returning errors. Customers can't check out.</td>
+          <td>Check Postgres + Stripe dashboards. Roll back last deploy if &lt; 30 min old.</td>
         </tr>
         <tr>
-          <td class="code">auth.token_refresh_lag_p95 &gt; 800ms</td>
+          <td class="code">payments.capture_lag_p95 &gt; 800ms</td>
           <td><span class="sev sev-2">SEV-2</span></td>
-          <td>Refresh path is slow. Web app starts to feel sluggish.</td>
+          <td>Capture path is slow. Checkout starts to feel sluggish.</td>
           <td>Inspect Redis CPU + connection count. Scale read replicas if needed.</td>
         </tr>
         <tr>
-          <td class="code">auth.signup_failure &gt; 10/min</td>
+          <td class="code">payments.refund_failure &gt; 10/min</td>
           <td><span class="sev sev-2">SEV-2</span></td>
-          <td>New signups are failing. Often SES bounces or SMTP auth.</td>
-          <td>Check SES bounce rate. Failover transactional queue to backup region.</td>
+          <td>Refunds are failing. Often Stripe timeouts or bad idempotency keys.</td>
+          <td>Check Stripe status page. Failover refund queue to backup region.</td>
         </tr>
         <tr>
-          <td class="code">auth.kms_signing_errors &gt; 0</td>
+          <td class="code">payments.kms_signing_errors &gt; 0</td>
           <td><span class="sev sev-1">SEV-1</span></td>
-          <td>KMS can't sign session tokens. New logins fail; existing sessions OK.</td>
+          <td>KMS can't sign charge requests. New charges fail; captured ones OK.</td>
           <td>Page the security team. Do not roll keys without a security engineer.</td>
         </tr>
         <tr>
-          <td class="code">auth.audit_writer_backlog &gt; 5k</td>
+          <td class="code">payments.ledger_writer_backlog &gt; 5k</td>
           <td><span class="sev sev-3">SEV-3</span></td>
-          <td>Audit log writer is falling behind. Compliance impact.</td>
+          <td>Ledger writer is falling behind. Reconciliation impact.</td>
           <td>Drain manually. Open a ticket; not a wake-up.</td>
         </tr>
       </tbody>
@@ -170,34 +170,34 @@
       <div class="proc">
         <div class="proc-head"><h3>Deploy a new version</h3><span class="when">Use during business hours</span></div>
         <p>Deploys are blue/green. The script waits for two consecutive healthchecks before promoting traffic.</p>
-<pre><span class="cmt"># Deploy auth-service v4.7.3 to production</span>
-$ nw deploy auth-service --tag <span class="var">v4.7.3</span> --env production
+<pre><span class="cmt"># Deploy payments-service v3.9.2 to production</span>
+$ sl deploy payments-service --tag <span class="var">v3.9.2</span> --env production
 
 <span class="cmt"># Wait for two consecutive healthchecks (~90 s), then promote.</span>
-$ nw deploy promote auth-service --env production
+$ sl deploy promote payments-service --env production
 <span class="ok">→ traffic shifted: 10% / 50% / 100%</span></pre>
       </div>
       <div class="proc">
         <div class="proc-head"><h3>Roll back to last known good</h3><span class="when">Use when error rate &gt; 1% post-deploy</span></div>
 <pre><span class="cmt"># Rolls back to the previously promoted version, no rebuild.</span>
-$ nw deploy rollback auth-service --env production
-<span class="ok">→ rolled back to v4.7.2 in 38 s</span></pre>
+$ sl deploy rollback payments-service --env production
+<span class="ok">→ rolled back to v3.9.1 in 41 s</span></pre>
       </div>
       <div class="proc">
         <div class="proc-head"><h3>Rotate signing keys</h3><span class="when">Schedule with security; never solo</span></div>
 <pre><span class="cmt"># 1. Generate the new signing key in KMS</span>
-$ nw kms create-key --alias auth-signing-<span class="var">$(date +%Y%m%d)</span>
+$ sl kms create-key --alias payments-signing-<span class="var">$(date +%Y%m%d)</span>
 
 <span class="cmt"># 2. Mark the new key as the primary; old key remains valid for 24h</span>
-$ nw kms set-primary auth-signing --key <span class="var">&lt;arn&gt;</span>
+$ sl kms set-primary payments-signing --key <span class="var">&lt;arn&gt;</span>
 
 <span class="cmt"># 3. After 24h, schedule deletion of the previous key</span>
-$ nw kms schedule-deletion auth-signing --key <span class="var">&lt;old-arn&gt;</span> --days 30</pre>
+$ sl kms schedule-deletion payments-signing --key <span class="var">&lt;old-arn&gt;</span> --days 30</pre>
       </div>
       <div class="proc">
-        <div class="proc-head"><h3>Drain audit-log backlog</h3><span class="when">Use when audit_writer_backlog alert fires</span></div>
-<pre>$ nw exec auth-service -- bin/audit-drain --batch <span class="var">5000</span>
-<span class="ok">→ drained 4,812 entries in 12 s; backlog now 0</span></pre>
+        <div class="proc-head"><h3>Drain ledger backlog</h3><span class="when">Use when ledger_writer_backlog alert fires</span></div>
+<pre>$ sl exec payments-service -- bin/ledger-drain --batch <span class="var">5000</span>
+<span class="ok">→ drained 4,317 entries in 12 s; backlog now 0</span></pre>
       </div>
     </div>
   </section>
@@ -207,10 +207,10 @@ $ nw kms schedule-deletion auth-signing --key <span class="var">&lt;old-arn&gt;<
     <table class="rota">
       <thead><tr><th>Week</th><th>Primary</th><th>Secondary</th><th>Backup (escalation)</th></tr></thead>
       <tbody>
-        <tr><td>Oct 27 – Nov 02</td><td>Devon Park</td><td>Priya Banerjee</td><td>Sasha Lin</td></tr>
-        <tr><td>Nov 03 – Nov 09</td><td>Caleb Renner</td><td>Devon Park</td><td>Sasha Lin</td></tr>
-        <tr><td>Nov 10 – Nov 16</td><td>Priya Banerjee</td><td>Caleb Renner</td><td>Mira Reddy</td></tr>
-        <tr><td>Nov 17 – Nov 23</td><td>Sasha Lin</td><td>Priya Banerjee</td><td>Mira Reddy</td></tr>
+        <tr><td>Nov 10 – Nov 16</td><td>Jordan Weiss</td><td>Nadia Okafor</td><td>Theo Brandt</td></tr>
+        <tr><td>Nov 17 – Nov 23</td><td>Renata Cruz</td><td>Jordan Weiss</td><td>Theo Brandt</td></tr>
+        <tr><td>Nov 24 – Nov 30</td><td>Nadia Okafor</td><td>Renata Cruz</td><td>Owen Pham</td></tr>
+        <tr><td>Dec 01 – Dec 07</td><td>Theo Brandt</td><td>Nadia Okafor</td><td>Owen Pham</td></tr>
       </tbody>
     </table>
   </section>
@@ -220,11 +220,11 @@ $ nw kms schedule-deletion auth-signing --key <span class="var">&lt;old-arn&gt;<
     <div class="checklist">
       <div class="step">
         <div class="step-num">1</div>
-        <div><h4>Acknowledge the page within 5 min.</h4><p>Type <code>/ack</code> in <code>#incidents-auth</code>. The bot stops re-paging and tags the on-call.</p></div>
+        <div><h4>Acknowledge the page within 5 min.</h4><p>Type <code>/ack</code> in <code>#incidents-payments</code>. The bot stops re-paging and tags the on-call.</p></div>
       </div>
       <div class="step">
         <div class="step-num">2</div>
-        <div><h4>Open the incident channel.</h4><p>Run <code>/incident open auth-service "&lt;short title&gt;"</code>. Slack bot creates a dedicated channel and pages the secondary.</p></div>
+        <div><h4>Open the incident channel.</h4><p>Run <code>/incident open payments-service "&lt;short title&gt;"</code>. Slack bot creates a dedicated channel and pages the secondary.</p></div>
       </div>
       <div class="step">
         <div class="step-num">3</div>
@@ -232,7 +232,7 @@ $ nw kms schedule-deletion auth-signing --key <span class="var">&lt;old-arn&gt;<
       </div>
       <div class="step">
         <div class="step-num">4</div>
-        <div><h4>Mitigate before you diagnose.</h4><p>If a recent deploy is suspect, roll back. If KMS is degraded, fail open is <em>never</em> the answer for auth — escalate to security.</p></div>
+        <div><h4>Mitigate before you diagnose.</h4><p>If a recent deploy is suspect, roll back. If KMS is degraded, fail open is <em>never</em> the answer for payments — escalate to security.</p></div>
       </div>
       <div class="step">
         <div class="step-num">5</div>
@@ -242,8 +242,8 @@ $ nw kms schedule-deletion auth-signing --key <span class="var">&lt;old-arn&gt;<
   </section>
 
   <footer>
-    <span>Northwind Identity Platform · runbook v3.2</span>
-    <span>Source: ops-docs/auth-service.md</span>
+    <span>Solstice Payments Platform · runbook v2.6</span>
+    <span>Source: ops-docs/payments-service.md</span>
   </footer>
 </div>
 </body>

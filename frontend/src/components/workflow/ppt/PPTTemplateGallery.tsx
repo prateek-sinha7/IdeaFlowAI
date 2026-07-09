@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, Check, Upload, X, ExternalLink, Presentation } from "lucide-react";
-import { getPPTTemplatePreviewUrl, type PPTTemplate } from "@/lib/ppt-api";
+import { getPPTTemplatePreviewUrl, getPPTTemplateThumbnailUrl, type PPTTemplate } from "@/lib/ppt-api";
 import {
   CustomTemplateModal,
   loadCustomTemplates,
@@ -252,6 +252,9 @@ function CompactPPTCard({ template, selected, onOpenDetail }: {
   const cardRef = useRef<HTMLButtonElement>(null);
   const [shouldMount, setShouldMount] = useState(false);
   const [previewLoaded, setPreviewLoaded] = useState(false);
+  // See TemplateCard: `has_thumbnail` can be stale or the file can 404 at
+  // request time. On <img> error, fall through to the live-iframe fallback.
+  const [thumbnailError, setThumbnailError] = useState(false);
 
   useEffect(() => {
     const node = cardRef.current;
@@ -265,6 +268,9 @@ function CompactPPTCard({ template, selected, onOpenDetail }: {
   }, []);
 
   const previewUrl = template.has_preview ? getPPTTemplatePreviewUrl(template.id) : null;
+  // Only use the thumbnail while it hasn't errored (404 / load failure).
+  const thumbnailUrl =
+    template.has_thumbnail && !thumbnailError ? getPPTTemplateThumbnailUrl(template.id) : null;
 
   return (
     <button ref={cardRef} type="button" onClick={onOpenDetail}
@@ -280,11 +286,38 @@ function CompactPPTCard({ template, selected, onOpenDetail }: {
           We render the iframe at 800×450 (16:9) and scale it down to fit
           the 130px-wide card at ~80px height. */}
       <div className="relative overflow-hidden bg-gray-50" style={{ height: "80px" }}>
-        {previewUrl && shouldMount ? (
+        {thumbnailUrl ? (
+          // Pre-rendered screenshot — one cheap <img> load instead of a full
+          // iframe document render. Falls back to the sandboxed (allow-scripts) iframe below.
           <>
             {!previewLoaded && (
               <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />
             )}
+            {/* eslint-disable-next-line @next/next/no-img-element -- static same-origin thumbnail; next/image optimization + remotePatterns are unwanted overhead here */}
+            <img
+              src={thumbnailUrl}
+              alt={template.name}
+              loading="lazy"
+              onLoad={() => setPreviewLoaded(true)}
+              onError={() => {
+                // Thumbnail missing / 404 — degrade to the live iframe below.
+                setThumbnailError(true);
+                setShouldMount(true);
+                setPreviewLoaded(false);
+              }}
+              className="h-full w-full object-cover object-top"
+              style={{ opacity: previewLoaded ? 1 : 0, transition: "opacity 200ms ease-out" }}
+            />
+          </>
+        ) : previewUrl && shouldMount ? (
+          <>
+            {!previewLoaded && (
+              <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />
+            )}
+            {/* Fallback when no pre-rendered thumbnail exists yet: render the
+                template's example.html live (HTML + JS) in a sandboxed iframe,
+                scaled down. Heavier than the <img>, but only hit until the
+                build-time thumbnail is generated. */}
             <iframe
               src={previewUrl}
               title={template.name}

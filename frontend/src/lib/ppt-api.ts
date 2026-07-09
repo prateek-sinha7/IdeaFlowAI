@@ -16,6 +16,7 @@ export interface PPTTemplate {
   craft_required: string[];
   example_prompt: string | null;
   has_preview: boolean;
+  has_thumbnail: boolean;
   /** design_system.requires == true means this template needs a DESIGN.md */
   design_system: { requires?: boolean; [key: string]: unknown };
 }
@@ -48,4 +49,13 @@ export async function getPPTTemplate(token: string, id: string): Promise<PPTTemp
 /** URL for the template's example.html preview iframe. Unauthenticated. */
 export function getPPTTemplatePreviewUrl(id: string): string {
   return `${ENV.API_URL}/api/ppt/templates/${id}/preview`;
+}
+
+/**
+ * URL for the template's pre-rendered thumbnail image (screenshot of
+ * example.html). Unauthenticated + static — safe for <img src>. Present only
+ * when `has_thumbnail` is true; the gallery falls back to the preview iframe.
+ */
+export function getPPTTemplateThumbnailUrl(id: string): string {
+  return `${ENV.API_URL}/api/ppt/templates/${id}/thumbnail`;
 }
