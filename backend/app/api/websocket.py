@@ -1697,60 +1697,47 @@ async def _handle_workflow_execution(
     import uuid as _uuid
 
     from agents.execution_engine.engine import get_execution_engine
-    from agents.execution_engine.od_context import (
-        load_prototype_od_context,
-        load_ppt_od_context,
-    )
     from agents.loader import SUPPORTED_PIPELINE_TYPES, load_agent_spec
     from agents.registry import get_pipeline_agents
+
+    from app.api.launch_context import resolve_launch_od_context
 
     logger.info(
         "Workflow execution: type=%s user=%s custom_agents=%s",
         pipeline_type, user.id, len(agent_ids) if agent_ids else "default",
     )
 
-    # ── Resolve od_prototype/od_ppt to their base pipeline + load od_context ──
+    # ── Resolve base pipeline + load od_context via the declared-signal seam ──
+    # D-15/C: od_context eligibility flows through the shared
+    # ``resolve_launch_od_context`` seam (context_providers:[opendesign]) — the old
+    # od_prototype/od_ppt workflow-name eligibility branch is deleted (SC-001).
     od_context: dict | None = None
     base_pipeline_type = pipeline_type
-    if pipeline_type == "od_prototype":
-        base_pipeline_type = "prototype"
-        try:
-            od_context = load_prototype_od_context(
-                template_id or "", design_system_id or "",
-                custom_ds_body=custom_ds_body, custom_template_body=custom_template_body,
-            )
-        except LookupError as exc:
-            await websocket.send_json({
-                "type": "error", "chunk": None, "section": None,
-                "data": {"error": str(exc), "code": "template_not_found", "recoverable": False},
-            })
-            return
-    elif pipeline_type == "od_ppt":
-        base_pipeline_type = "od_ppt"
-        try:
-            od_context = load_ppt_od_context(
-                template_id or "", design_system_id,
-                custom_ds_body=custom_ds_body, custom_template_body=custom_template_body,
-            )
-        except LookupError as exc:
-            await websocket.send_json({
-                "type": "error", "chunk": None, "section": None,
-                "data": {"error": str(exc), "code": "template_not_found", "recoverable": False},
-            })
-            return
-    elif pipeline_type == "od_ppt_revision":
-        # Revision of an od_ppt run — load od_context so template/DS context
-        # is available to the revision agent (T056 / FR-014).
+    if pipeline_type == "od_ppt_revision":
+        # Revision of an od_ppt run — load od_context NON-FATALLY (fatal=False) so
+        # template/DS context is available to the revision agent when the template
+        # resolves, but a failed lookup proceeds without it (T056 / FR-014,
+        # preserving the old non-fatal arm at websocket.py:1741-1753).
         base_pipeline_type = "od_ppt_revision"
         if template_id:
-            try:
-                od_context = load_ppt_od_context(
-                    template_id, design_system_id,
-                    custom_ds_body=custom_ds_body, custom_template_body=custom_template_body,
-                )
-            except LookupError:
-                # Non-fatal for revisions — proceed without od_context
-                pass
+            _, od_context = resolve_launch_od_context(
+                pipeline_type, template_id, design_system_id,
+                custom_ds_body=custom_ds_body, custom_template_body=custom_template_body,
+                fatal=False,
+            )
+    else:
+        try:
+            base_pipeline_type, od_context = resolve_launch_od_context(
+                pipeline_type, template_id, design_system_id,
+                custom_ds_body=custom_ds_body, custom_template_body=custom_template_body,
+                fatal=True,
+            )
+        except LookupError as exc:
+            await websocket.send_json({
+                "type": "error", "chunk": None, "section": None,
+                "data": {"error": str(exc), "code": "template_not_found", "recoverable": False},
+            })
+            return
 
     # ── Validate pipeline type ────────────────────────────────────────────
     if base_pipeline_type not in SUPPORTED_PIPELINE_TYPES:

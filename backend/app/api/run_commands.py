@@ -935,36 +935,36 @@ def _resolve_launch_agents(body: "LaunchCommand"):
     """Resolve + validate a launch payload's pipeline + od_context, returning
     ``(base_pipeline_type, od_context)`` or raising the matching HTTPException.
 
-    Ported from ``_handle_workflow_execution`` (websocket.py:1712-1762): the od_*
-    alias resolution + od_context load and the SUPPORTED_PIPELINE_TYPES gate. The
-    agent allow-list + the remaining ingress guards live in ``launch_run``.
+    D-15/C: od_context eligibility now flows through the shared declared-signal
+    seam ``resolve_launch_od_context`` (context_providers:[opendesign]) — the old
+    od_prototype/od_ppt workflow-name eligibility branch is deleted (SC-001).
+    The SUPPORTED_PIPELINE_TYPES gate is preserved.
+
+    Per-boundary parity: the REST launch twin never loaded od_context for the
+    ``od_ppt_revision`` arm (websocket.py loads it NON-FATALLY; the REST path fell
+    through to ``None``). That exact behavior is preserved here — REST keeps
+    ``od_ppt_revision`` od_context ``None`` — while prototype/od_ppt load fatally
+    through the seam so a bad template rejects pre-mint (V5).
     """
-    from agents.execution_engine.od_context import (
-        load_ppt_od_context,
-        load_prototype_od_context,
-    )
     from agents.loader import SUPPORTED_PIPELINE_TYPES
 
+    from app.api.launch_context import resolve_launch_od_context
+
     pipeline_type = body.pipeline_type
-    od_context: dict | None = None
-    base_pipeline_type = pipeline_type
-    if pipeline_type == "od_prototype":
-        base_pipeline_type = "prototype"
+    if pipeline_type == "od_ppt_revision":
+        # REST parity: revisions seed from previous_run, not a launch-time template;
+        # the REST twin never resolved od_context for this arm (WS owns the
+        # non-fatal template load). Preserve od_context=None per boundary.
+        base_pipeline_type, od_context = "od_ppt_revision", None
+    else:
         try:
-            od_context = load_prototype_od_context(
-                body.template_id or "", body.design_system_id or "",
+            base_pipeline_type, od_context = resolve_launch_od_context(
+                pipeline_type,
+                body.template_id,
+                body.design_system_id,
                 custom_ds_body=body.custom_ds_body,
                 custom_template_body=body.custom_template_body,
-            )
-        except LookupError as exc:
-            raise _reject("template_not_found", str(exc))
-    elif pipeline_type == "od_ppt":
-        base_pipeline_type = "od_ppt"
-        try:
-            od_context = load_ppt_od_context(
-                body.template_id or "", body.design_system_id,
-                custom_ds_body=body.custom_ds_body,
-                custom_template_body=body.custom_template_body,
+                fatal=True,
             )
         except LookupError as exc:
             raise _reject("template_not_found", str(exc))
