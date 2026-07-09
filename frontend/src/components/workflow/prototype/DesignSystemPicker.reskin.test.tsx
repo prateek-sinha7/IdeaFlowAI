@@ -16,6 +16,20 @@ import type { DesignSystemListItem } from "@/lib/prototype-api";
 //   4. No retired / stray-stock palette leaks into the rendered class strings.
 // ─────────────────────────────────────────────────────────────────
 
+// The detail modal reads the auth token via `getToken()` (localStorage) on
+// mount. jsdom in this suite has no functional localStorage — stub a minimal
+// in-memory one so the real modal path (open → "Use this system" → onSelect)
+// runs without throwing. Not a behaviour change; only an environment shim.
+const memStore: Record<string, string> = {};
+vi.stubGlobal("localStorage", {
+  getItem: (k: string) => (k in memStore ? memStore[k] : null),
+  setItem: (k: string, v: string) => { memStore[k] = String(v); },
+  removeItem: (k: string) => { delete memStore[k]; },
+  clear: () => { for (const k of Object.keys(memStore)) delete memStore[k]; },
+  key: () => null,
+  length: 0,
+} as unknown as Storage);
+
 import { DesignSystemPicker } from "./DesignSystemPicker";
 
 function makeDS(partial: Partial<DesignSystemListItem> & { id: string; name: string }): DesignSystemListItem {
