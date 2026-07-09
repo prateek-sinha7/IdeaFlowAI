@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, Check, X, Plus, Pencil, Trash2, Upload } from "lucide-react";
-import type { DesignSystemListItem } from "@/lib/prototype-api";
+import { getDesignSystem, type DesignSystemListItem } from "@/lib/prototype-api";
+import { getToken } from "@/lib/api";
+import { extractPalette } from "@/lib/design-system-colors";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { DesignSystemDetailModal } from "./DesignSystemDetailModal";
@@ -158,7 +160,7 @@ export function DesignSystemPicker({
           <div>
             <h2 className="text-[15px] font-semibold text-ink-900 font-sans">Choose a design system</h2>
             <p className="mt-0.5 text-[12px] text-ink-500">
-              Sets the brand tokens — colors, typography, density. Click any chip to preview the full spec.
+              Sets the brand tokens — colors, typography, density. Click any card to preview the full spec.
             </p>
           </div>
 
@@ -398,27 +400,129 @@ function DesignSystemGroup({ category, showHeader, items, selectedId, onSelect, 
           <span className="text-[10px] text-ink-300">{items.length}</span>
         </div>
       )}
-      <div className="flex flex-wrap gap-1.5">
-        {items.map((ds) => {
-          const isSelected = ds.id === selectedId;
-          return (
-            <button
-              key={ds.id}
-              type="button"
-              onClick={() => onOpenDetail(ds)}
-              title={ds.description || ds.name}
-              className={`inline-flex items-center gap-1.5 rounded-[var(--radius-pill)] border px-2.5 py-1 text-[12px] font-medium transition-all hover:shadow-sm ${
-                isSelected
-                  ? "border-brand bg-brand text-white shadow-sm"
-                  : "border-line-control bg-surface-white text-ink-700 hover:border-line-faint hover:bg-surface-warm"
-              }`}
-            >
-              {isSelected && <Check className="h-2.5 w-2.5 flex-shrink-0" strokeWidth={3} />}
-              {ds.name}
-            </button>
-          );
-        })}
+      {/* Swatch band-card grid (RESTRUCTURE from the rounded-pill chip list). */}
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+        {items.map((ds) => (
+          <DesignSystemBandCard
+            key={ds.id}
+            ds={ds}
+            isSelected={ds.id === selectedId}
+            onSelect={onSelect}
+            onOpenDetail={onOpenDetail}
+          />
+        ))}
       </div>
+    </div>
+  );
+}
+
+// ── Band-card ─────────────────────────────────────────────────────────────
+//
+// One card per live registry entry (LOCK-F/ND-8 — the real ~14, never a
+// hardcoded count). The colour swatches are sourced the SAME way
+// DesignSystemDetailModal sources its preview: fetch the DESIGN.md body
+// (getDesignSystem) and run extractPalette over it. No token → no fetch →
+// neutral placeholder band (keeps the picker usable pre-auth / in tests).
+//
+// Clicking the card body opens the live detail-modal preview; the corner
+// toggle drives onSelect(id) / clears to onSelect(null) — exactly the chip
+// list's selection contract.
+
+function DesignSystemBandCard({
+  ds,
+  isSelected,
+  onSelect,
+  onOpenDetail,
+}: {
+  ds: DesignSystemListItem;
+  isSelected: boolean;
+  onSelect: (id: string) => void;
+  onOpenDetail: (system: DesignSystemListItem) => void;
+}) {
+  const [palette, setPalette] = useState<string[]>([]);
+
+  useEffect(() => {
+    const token = getToken();
+    if (!token) return;
+    let cancelled = false;
+    getDesignSystem(token, ds.id)
+      .then((detail) => {
+        if (!cancelled) setPalette(extractPalette(detail.body, 5));
+      })
+      .catch(() => {
+        if (!cancelled) setPalette([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ds.id]);
+
+  return (
+    <div
+      data-testid="ds-band-card"
+      className={`group relative flex flex-col overflow-hidden rounded-[var(--radius-card)] border transition-all hover:shadow-[var(--elevation-raised)] ${
+        isSelected
+          ? "border-brand ring-1 ring-brand"
+          : "border-line-control hover:border-line-faint"
+      }`}
+    >
+      {/* ── Card body — opens the live detail-modal preview ─────────────── */}
+      <button
+        type="button"
+        onClick={() => onOpenDetail(ds)}
+        title={ds.description || ds.name}
+        className="flex flex-1 flex-col text-left"
+      >
+        {/* Swatch band */}
+        <div data-testid="ds-swatch-band" className="flex h-11 w-full">
+          {palette.length > 0 ? (
+            palette.map((hex, i) => (
+              <div key={i} className="h-full flex-1" style={{ backgroundColor: hex }} />
+            ))
+          ) : (
+            // Neutral placeholder band on Phase-32 tokens (no live body yet).
+            <>
+              <div className="h-full flex-1 bg-surface-paper" />
+              <div className="h-full flex-1 bg-surface-warm" />
+              <div className="h-full flex-1 bg-line-divider" />
+              <div className="h-full flex-1 bg-line-control" />
+            </>
+          )}
+        </div>
+
+        {/* Meta */}
+        <div className="flex flex-col gap-0.5 border-t border-line-divider bg-surface-white px-3 py-2">
+          <span
+            className={`truncate text-[12.5px] font-semibold ${isSelected ? "text-brand" : "text-ink-800"}`}
+          >
+            {ds.name}
+          </span>
+          <span className="flex items-center gap-1.5 truncate text-[10.5px] text-ink-400">
+            {ds.category}
+            {ds.has_preview && (
+              <span className="rounded-full bg-brand-fill px-1.5 py-px text-[8.5px] font-semibold text-brand">
+                components
+              </span>
+            )}
+          </span>
+        </div>
+      </button>
+
+      {/* ── Corner select toggle — onSelect(id) / clears to onSelect(null) ── */}
+      <button
+        type="button"
+        data-testid="ds-band-select"
+        onClick={() => onSelect(ds.id)}
+        aria-pressed={isSelected}
+        aria-label={isSelected ? `Deselect ${ds.name}` : `Select ${ds.name}`}
+        className={`absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full border transition-all ${
+          isSelected
+            ? "border-brand bg-brand text-white"
+            : "border-line-control bg-surface-white text-ink-400 opacity-0 group-hover:opacity-100 hover:border-brand hover:text-brand"
+        }`}
+      >
+        {isSelected ? <Check className="h-2.5 w-2.5" strokeWidth={3} /> : <Plus className="h-3 w-3" />}
+      </button>
     </div>
   );
 }
