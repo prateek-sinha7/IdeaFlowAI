@@ -313,16 +313,16 @@ export default function PPTTemplatesPage() {
 
   if (!authChecked) {
     return (
-      <div className="flex h-screen items-center justify-center" style={{ background: "#f5f5f0" }}>
-        <div className="text-sm text-gray-500">Loading…</div>
+      <div className="flex h-screen items-center justify-center bg-surface-paper">
+        <div className="text-sm text-ink-500">Loading…</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen" style={{ background: "#f5f5f0" }}>
+    <div className="min-h-screen bg-surface-paper">
       {/* Header */}
-      <header className="sticky top-0 z-20 border-b border-gray-200/70 bg-[#f5f5f0]/95 backdrop-blur">
+      <header className="sticky top-0 z-20 border-b border-line-border bg-surface-paper/95 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center gap-3 px-6 py-3.5">
           <button type="button" onClick={() => router.push("/dashboard")}
             className="flex items-center justify-center rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-white hover:text-gray-900">
@@ -332,8 +332,7 @@ export default function PPTTemplatesPage() {
             <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-400">
               {isChaining ? "Chained presentation" : "New presentation"} · {isChaining ? "Step 1 of 1" : "Step 1 of 2"}
             </p>
-            <h1 className="text-[15px] font-normal italic text-gray-900"
-              style={{ fontFamily: "var(--font-fraunces)" }}>
+            <h1 className="font-serif text-[15px] font-normal italic text-ink-900">
               {isChaining ? "Pick a template" : "Configure your presentation"}
             </h1>
           </div>
@@ -534,7 +533,7 @@ export default function PPTTemplatesPage() {
               {selectedTemplate?.example_prompt && (
                 <div className="border-t border-gray-100 px-5 py-2.5">
                   <button type="button" onClick={() => setBrief(selectedTemplate.example_prompt ?? "")}
-                    className="inline-flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-[#1B2A4A]">
+                    className="inline-flex items-center gap-1.5 text-[11px] text-ink-500 hover:text-brand">
                     <Sparkles className="h-3 w-3" />
                     Use template example
                     <span className="italic text-gray-400">"{selectedTemplate.example_prompt}"</span>
@@ -653,7 +652,7 @@ export default function PPTTemplatesPage() {
             </button>
 
             <button type="button" onClick={handleContinue} disabled={!canContinue}
-              className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-[#1B2A4A] px-6 py-4 text-[14px] font-semibold text-white shadow-sm transition-all hover:bg-[#0F1B33] disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none">
+              className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-brand px-6 py-4 text-[14px] font-semibold text-white shadow-sm transition-all hover:bg-brand-pressed disabled:cursor-not-allowed disabled:bg-line-divider disabled:text-ink-400 disabled:shadow-none">
               Continue
               <ArrowRight className="h-4 w-4" />
             </button>
@@ -695,7 +694,7 @@ export default function PPTTemplatesPage() {
 function SectionLabel({ number, title, subtitle }: { number: number; title: string; subtitle?: string }) {
   return (
     <div className="flex items-start gap-3">
-      <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-[#1B2A4A]/10 text-[11px] font-bold text-[#1B2A4A]">
+      <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-brand-fill text-[11px] font-bold text-brand">
         {number}
       </div>
       <div>
