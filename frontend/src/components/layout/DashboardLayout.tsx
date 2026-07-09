@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { WifiOff, RefreshCw, Brain, Sparkles, Loader2 } from "lucide-react";
+import { WifiOff, RefreshCw, Brain, Sparkles, Loader2, ArrowRight } from "lucide-react";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { AppHeader } from "./AppHeader";
 import { HomeLaunchGrid } from "@/components/catalog/HomeLaunchGrid";
@@ -803,6 +803,11 @@ export function DashboardLayout({
     gateAgentIds?: string[];
   } | null>(null);
 
+  // Fused Home (SHELL-02 SC-1) — the launcher-brief captured on the home landing,
+  // and the pending brief handed to the input view for the generic launch path.
+  const [homeBrief, setHomeBrief] = useState("");
+  const [pendingHomeBrief, setPendingHomeBrief] = useState<string | undefined>(undefined);
+
   // Navigate from Home to Input page
   const handleSelectFeature = useCallback((type: WorkflowType) => {
     setSavedComposition(null);
@@ -810,12 +815,24 @@ export function DashboardLayout({
     setMainView("input");
   }, []);
 
+  // Fused Home launcher: carry the typed brief into the input view, then reuse the
+  // existing home→input seam. Wizard-routed types (prototype/ppt/requiresWizard) are
+  // intercepted INSIDE HomeLaunchGrid before this runs, so they keep their own brief
+  // entry. SC-001: keyed on the generic WorkflowType, never a workflow-name branch.
+  const handleHomeSelectFeature = useCallback((type: WorkflowType) => {
+    setPendingHomeBrief(homeBrief.trim() || undefined);
+    handleSelectFeature(type);
+  }, [homeBrief, handleSelectFeature]);
+
   // Launch a saved workflow — mirrors handleSelectFeature but carries the saved
   // composition into state so IdeaInputPage mounts PRE-LOADED. Run then flows
   // UNCHANGED through handleRunPipeline → useWorkflow.startPipeline (which already
   // sends agent_ids + merges model_overrides) → re-validated server-side at launch
   // (SC-001: pure-data replay, no engine/run-path edit, no `if saved` fork).
   const handleLaunchSaved = useCallback((saved: UserWorkflowSummary) => {
+    // Fused Home: a saved-workflow launch owns its own preload (initialInput via
+    // savedComposition.brief); clear any stale home-launcher brief so it can't leak.
+    setPendingHomeBrief(undefined);
     // WR-01: carry the persisted Advanced-lever selections so the launched saved
     // workflow re-loads AND re-sends them (previously selections never reached launch).
 
@@ -1426,7 +1443,65 @@ export function DashboardLayout({
               transition={{ duration: 0.2 }}
               className="h-full"
             >
-              <HomeLaunchGrid onSelectFeature={handleSelectFeature} onLaunchSaved={handleLaunchSaved} userTier={userTier} />
+              {/* FUSED HOME (SHELL-02 SC-1) — one landing = prompt launcher +
+                  deliverable grid + recents strip. The launcher captures a brief;
+                  HomeLaunchGrid is the SC-001 data-driven deliverable picker;
+                  selecting a generic deliverable carries the typed brief into the
+                  input view (initialInput). Wizard-routed types (prototype/ppt/
+                  requiresWizard) still router.push to their template wizard inside
+                  HomeLaunchGrid — the fork is preserved. The `input` view is
+                  UNCHANGED and still reachable for the saved-workflow preload path
+                  (handleLaunchSaved). Recents read the already-threaded `recentRuns`
+                  prop — NO new fetch. Page-keys stay generic (SC-001/INV-1). */}
+              <div className="flex h-full flex-col bg-surface-paper">
+                {/* Prompt launcher — folded from the input-view idiom */}
+                <div className="shrink-0 border-b border-line-divider px-6 pt-8 pb-5">
+                  <div className="max-w-2xl mx-auto w-full">
+                    <label htmlFor="home-launch-prompt" className="block text-[11px] font-semibold text-ink-500 mb-2">
+                      Start with a prompt
+                    </label>
+                    <textarea
+                      id="home-launch-prompt"
+                      value={homeBrief}
+                      onChange={(e) => setHomeBrief(e.target.value)}
+                      rows={2}
+                      placeholder="Describe what you want to build, then choose a deliverable below…"
+                      className="w-full resize-none rounded-[var(--radius-button)] border border-line-control bg-surface-white px-3.5 py-2.5 text-[13px] text-ink-900 placeholder:text-ink-400 focus:outline-none focus:border-brand focus:shadow-[var(--focus-ring)] transition-all"
+                    />
+                  </div>
+                </div>
+
+                {/* Deliverable grid — SC-001 data-driven launcher. onSelectFeature is
+                    wrapped so the typed brief rides into the input view. */}
+                <div className="flex-1 min-h-0">
+                  <HomeLaunchGrid onSelectFeature={handleHomeSelectFeature} onLaunchSaved={handleLaunchSaved} userTier={userTier} />
+                </div>
+
+                {/* Recents strip — reads the threaded recentRuns prop (no fetch) */}
+                {recentRuns && recentRuns.length > 0 && (
+                  <div className="shrink-0 border-t border-line-divider px-6 py-4">
+                    <div className="max-w-2xl mx-auto w-full">
+                      <p className="text-[10px] font-semibold text-ink-400 uppercase tracking-[0.14em] mb-2.5">
+                        Recent runs
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {recentRuns.slice(0, 4).map((run) => (
+                          <button
+                            key={run.id}
+                            onClick={() => onSelectWorkflowRun?.(run)}
+                            className="group inline-flex items-center gap-2 rounded-[var(--radius-button)] border border-line-border bg-surface-card px-3 py-1.5 text-left transition-colors hover:border-brand-border hover:bg-surface-warm"
+                          >
+                            <span className="max-w-[220px] truncate text-[12px] font-medium text-ink-800 group-hover:text-brand">
+                              {run.title}
+                            </span>
+                            <ArrowRight className="h-3 w-3 shrink-0 text-ink-300 group-hover:text-brand" />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </motion.div>
           )}
 
@@ -1559,7 +1634,7 @@ export function DashboardLayout({
                 initialAgentIds={savedComposition?.agentIds}
                 initialModelOverrides={savedComposition?.modelOverrides}
                 initialSelections={savedComposition?.selections}
-                initialInput={savedComposition?.brief}
+                initialInput={savedComposition?.brief ?? pendingHomeBrief}
                 initialGateIds={savedComposition?.gateAgentIds}
                 // SURF-03 — the backend workflow id whose compiled per-step
                 // capabilities the composer surfaces. For a built-in launchable
