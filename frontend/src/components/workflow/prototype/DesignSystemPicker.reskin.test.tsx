@@ -111,4 +111,45 @@ describe("DesignSystemPicker reskin — LOCK-F real count + real search/select p
     expect(html).not.toMatch(/\bbg-gray-/);
     expect(html).not.toMatch(/\bborder-gray-/);
   });
+
+  // ── RESTRUCTURE (plan 37-05): chip-list -> swatch band-card grid ──────────
+  // LOCK-F/ND-8: exactly one band-card per live registry entry (no hardcoded
+  // 5, no catalogue inflation) and each card surfaces a swatch band.
+  it("renders exactly one swatch band-card per live registry entry (14, LOCK-F)", () => {
+    render(
+      <DesignSystemPicker systems={SYSTEMS} selectedId={null} onSelect={vi.fn()} onSelectCustom={vi.fn()} />,
+    );
+    // One card per registry entry — count follows the prop length, not a hardcode.
+    expect(screen.getAllByTestId("ds-band-card")).toHaveLength(SYSTEMS.length);
+    // Every card exposes a swatch band (the genuine RESTRUCTURE — not a pill).
+    expect(screen.getAllByTestId("ds-swatch-band")).toHaveLength(SYSTEMS.length);
+  });
+
+  // Scope to the band-card carrying `name` (avoids the header selected-badge,
+  // which also renders the name when a system is selected).
+  function cardFor(name: string): HTMLElement {
+    const card = screen
+      .getAllByTestId("ds-band-card")
+      .find((el) => within(el).queryByText(name));
+    if (!card) throw new Error(`no band-card for ${name}`);
+    return card;
+  }
+
+  it("a band-card's select toggle fires onSelect(id) exactly as the chip list did", () => {
+    const onSelect = vi.fn();
+    render(
+      <DesignSystemPicker systems={SYSTEMS} selectedId={null} onSelect={onSelect} onSelectCustom={vi.fn()} />,
+    );
+    fireEvent.click(within(cardFor("Stripe")).getByTestId("ds-band-select"));
+    expect(onSelect).toHaveBeenCalledWith("stripe");
+  });
+
+  it("re-clicking the selected card's toggle clears the selection (onSelect(null))", () => {
+    const onSelect = vi.fn();
+    render(
+      <DesignSystemPicker systems={SYSTEMS} selectedId="stripe" onSelect={onSelect} onSelectCustom={vi.fn()} />,
+    );
+    fireEvent.click(within(cardFor("Stripe")).getByTestId("ds-band-select"));
+    expect(onSelect).toHaveBeenCalledWith(null);
+  });
 });
