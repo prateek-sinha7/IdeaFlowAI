@@ -19,10 +19,12 @@ import {
   getAgentPrompt,
   saveAgentPromptOverride,
   deleteAgentPromptOverride,
+  createUserWorkflow,
   type CapabilityEntry,
   type CapabilityModelEntry,
   type AgentPromptData,
 } from "@/lib/api";
+import { NameWorkflowModal } from "@/components/catalog/NameWorkflowModal";
 import type { AgentDef, WorkflowType, AttachedSkill, AttachedHook } from "@/types/index";
 import { SKILLS, SKILL_CATEGORIES, type SkillDef } from "@/data/skills";
 import { HOOKS, HOOK_EVENTS, type HookDef } from "@/data/hooks";
@@ -1683,6 +1685,62 @@ export function AgentsPopup({
   const [capAgent, setCapAgent] = useState<{ agent: AgentDef; index: number } | null>(null);
   const [activeTab, setActiveTab] = useState<"agents" | "skills-hooks">("agents");
 
+  // ── Save-to-catalogue (Phase 21 / ND-12) ──────────────────────────────────
+  // The footer "Save workflow" persists the composed workflow to the OWNER-scoped
+  // /api/user-workflows via the existing NameWorkflowModal (REUSE — no new
+  // persistence; owner-only CRUD is the whole surface, ND-12 controls DECLARED
+  // OUT). The live per-step selections edited in AgentCapabilitiesModal are
+  // mirrored here so the save payload carries the composed `selections` map
+  // (agentId -> {validators?, gates?, model?, retry?}), the EXACT 22-04 shape.
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [liveSelections, setLiveSelections] = useState<SelectionsMap>(
+    initialSelections ?? {},
+  );
+  const handleSelectionsChange = useCallback(
+    (next: SelectionsMap) => {
+      setLiveSelections(next);
+      onSelectionsChange?.(next);
+    },
+    [onSelectionsChange],
+  );
+
+  const handleSaveWorkflow = useCallback(
+    async (name: string, description: string) => {
+      const token = getToken();
+      if (!token) {
+        setSaveError("Not authenticated.");
+        return;
+      }
+      setSaving(true);
+      setSaveError(null);
+      try {
+        await createUserWorkflow(token, {
+          name,
+          ...(description ? { description } : {}),
+          base_pipeline_type: pipelineType,
+          agent_ids: agents.map((a) => a.id),
+          // Additive — omit empty maps so the payload stays byte-identical (INV-3).
+          ...(initialModelOverrides &&
+          Object.keys(initialModelOverrides).length > 0
+            ? { model_overrides: initialModelOverrides }
+            : {}),
+          ...(Object.keys(liveSelections).length > 0
+            ? { selections: liveSelections }
+            : {}),
+        });
+        setSaveModalOpen(false);
+        onClose();
+      } catch (e) {
+        setSaveError((e as Error)?.message ?? "Failed to save workflow.");
+      } finally {
+        setSaving(false);
+      }
+    },
+    [agents, pipelineType, initialModelOverrides, liveSelections, onClose],
+  );
+
   const handleRemove = useCallback((agentId: string) => {
     if (getRole(agentId, pipelineType) !== "optional") return;
     onRemoveAgent?.(agentId);
@@ -1953,14 +2011,34 @@ export function AgentsPopup({
 
             {/* Footer */}
             <div className="px-8 pb-6 flex-shrink-0 flex items-center justify-end gap-3 border-t border-gray-100 pt-4">
-              <button onClick={onClose} className="px-5 py-2.5 rounded-xl border border-gray-200 text-[12px] font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+              {saveError && (
+                <span role="alert" className="text-[11px] text-status-failed mr-auto">
+                  {saveError}
+                </span>
+              )}
+              <button onClick={onClose} className="px-5 py-2.5 rounded-xl border border-line-border text-[12px] font-medium text-ink-600 hover:bg-surface-warm transition-colors">
                 Cancel
               </button>
-              <button onClick={onClose} className="px-5 py-2.5 rounded-xl bg-gray-900 text-[12px] font-semibold text-white hover:bg-gray-800 transition-colors">
-                Save changes
+              <button
+                onClick={() => { setSaveError(null); setSaveModalOpen(true); }}
+                className="px-5 py-2.5 rounded-xl bg-ink-900 text-[12px] font-semibold text-surface-white hover:bg-ink-800 transition-colors"
+              >
+                Save workflow
               </button>
             </div>
           </motion.div>
+
+          {/* Save-to-catalogue modal (REUSE — owner-scoped createUserWorkflow;
+              ND-12 controls DECLARED OUT — owner-only CRUD is the whole surface). */}
+          <AnimatePresence>
+            {saveModalOpen && (
+              <NameWorkflowModal
+                title="Save workflow"
+                onSave={handleSaveWorkflow}
+                onCancel={() => { if (!saving) setSaveModalOpen(false); }}
+              />
+            )}
+          </AnimatePresence>
 
           <AgentLibrary
             isOpen={libraryOpen}
@@ -1977,7 +2055,7 @@ export function AgentsPopup({
                 agent={capAgent.agent}
                 agentIndex={capAgent.index}
                 onClose={() => setCapAgent(null)}
-                onSelectionsChange={onSelectionsChange}
+                onSelectionsChange={handleSelectionsChange}
                 initialSelections={initialSelections}
               />
             )}

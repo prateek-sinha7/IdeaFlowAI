@@ -99,7 +99,7 @@ export function AgentLibrary({
             exit={{ opacity: 0, scale: 0.97, y: 12 }}
             transition={{ duration: 0.18 }}
             className="relative w-full max-w-[820px] rounded-2xl shadow-2xl overflow-hidden flex"
-            style={{ height: "640px", background: "#f5f5f0" }}          >
+            style={{ height: "640px", background: "var(--surface-warm)" }}          >
             {/* Left sidebar — categories */}
             <div className="w-[180px] flex-shrink-0 border-r border-gray-100 flex flex-col bg-white">
               <div className="px-5 pt-6 pb-4 border-b border-gray-100">
@@ -149,7 +149,7 @@ export function AgentLibrary({
               </div>
 
               {/* Agent grid */}
-              <div className="flex-1 overflow-y-auto p-4" style={{ background: "#f5f5f0" }}>
+              <div className="flex-1 overflow-y-auto p-4" style={{ background: "var(--surface-warm)" }}>
                 {filteredAgents.length === 0 ? (
                   <div className="flex items-center justify-center h-full">
                     <p className="text-[13px] text-gray-400">No agents found</p>
