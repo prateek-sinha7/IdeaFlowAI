@@ -930,6 +930,109 @@ class RunFamilyResponse(BaseModel):
     members: list[FamilyMemberResponse]
 
 
+def _owned_family_members(
+    db: Session, user_id: str, root_id: str
+) -> list[FamilyMemberResponse]:
+    """BFS DOWN from ``root_id`` over OWNED children only → the ordered family
+    member list (1-based ``revision_index``, root's out-of-family parent nulled).
+
+    Extracted from ``get_run_family`` so ``get_run_summary`` reuses the SAME owned
+    walk instead of duplicating it (INV-12 / no dual impl). Every query is
+    owner-scoped (``user_id == user_id``) so no foreign run metadata enters the
+    list; a visited-id set guards a cyclic parent chain (threat T-A-04). Members
+    are ordered ``(created_at ASC, id ASC)`` — the id tiebreak makes same-timestamp
+    ordering deterministic on SQLite — and every non-root member's parent is
+    in-family by BFS construction, so the ``in members`` nulling never leaks a
+    foreign id.
+    """
+    members: dict[str, WorkflowRun] = {}
+    root_row = (
+        db.query(WorkflowRun)
+        .filter(WorkflowRun.id == root_id, WorkflowRun.user_id == user_id)
+        .first()
+    )
+    if root_row is not None:
+        members[root_row.id] = root_row
+    frontier = {root_id}
+    visited = {root_id}
+    while frontier:
+        children = (
+            db.query(WorkflowRun)
+            .filter(
+                WorkflowRun.parent_run_id.in_(frontier),
+                WorkflowRun.user_id == user_id,
+            )
+            .all()
+        )
+        frontier = set()
+        for child in children:
+            if child.id in visited:
+                continue  # cycle guard — never re-enqueue an already-seen run
+            visited.add(child.id)
+            members[child.id] = child
+            frontier.add(child.id)
+
+    ordered = sorted(members.values(), key=lambda r: (r.created_at, r.id))
+    return [
+        FamilyMemberResponse(
+            id=r.id,
+            type=r.type,
+            title=r.title,
+            status=r.status,
+            revision_index=idx,
+            parent_run_id=(r.parent_run_id if r.parent_run_id in members else None),
+            created_at=r.created_at,
+            completed_at=r.completed_at,
+        )
+        for idx, r in enumerate(ordered, start=1)
+    ]
+
+
+# Per-agent fields that are summary-SAFE to surface (identity + KPI telemetry
+# only). Deliberately EXCLUDES the raw content fields — output / input_prompt /
+# thinking_text / tool_calls / context_sources — which could carry a secret, so
+# the summary never echoes untrusted agent bytes (threat T-36-02-Leak / V7).
+_SUMMARY_SAFE_AGENT_KEYS = (
+    "agent_id",
+    "name",
+    "role",
+    "icon",
+    "duration",
+    "error",
+    "input_tokens",
+    "output_tokens",
+    "total_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+)
+
+
+class RunSummaryResponse(BaseModel):
+    """Aggregated, read-only summary of an owned run — the data spine for the
+    Wave-2 Run-detail page (SHELL-03).
+
+    Every field maps to an EXISTING ``WorkflowRun`` column or the owned family
+    walk (ZERO invented fields, ZERO new tables/migrations). The endpoint only
+    READS, so the 5 backend goldens are untouched by construction (INV-3):
+      * KPI stats  → ``duration`` + ``agent_count`` + ``token_usage`` columns
+      * failure banner → ``status`` + ``error`` columns
+      * per-agent breakdown → ``agent_outputs`` (safe-projected, no raw bytes)
+      * version/revision timeline → the ``parent_run_id`` family walk (reused).
+    """
+
+    id: str
+    title: str
+    type: str
+    status: str
+    duration: Optional[float] = None
+    agent_count: int
+    token_usage: dict
+    error: Optional[str] = None
+    agents: list                       # per-agent breakdown (summary-safe fields only)
+    root_id: str
+    members: list[FamilyMemberResponse]
+
+
 @router.get("/{workflow_id}/family", response_model=RunFamilyResponse)
 def get_run_family(
     workflow_id: str,
@@ -966,56 +1069,85 @@ def get_run_family(
     # foreign/missing link, so root is always an OWNED run id).
     root_id = _compute_root_ids(db, current_user.id, [workflow_run])[workflow_run.id]
 
-    # (c) Collect members by BFS DOWN from the root over OWNED children only.
-    # BFS-over-owned-children is exactly "all owned runs whose chain-root ==
-    # root" because the owned walk terminates at any foreign link. A visited-id
-    # set guards against a cyclic parent chain (threat T-A-04).
-    members: dict[str, WorkflowRun] = {}
-    root_row = (
-        db.query(WorkflowRun)
-        .filter(WorkflowRun.id == root_id, WorkflowRun.user_id == current_user.id)
-        .first()
-    )
-    if root_row is not None:
-        members[root_row.id] = root_row
-    frontier = {root_id}
-    visited = {root_id}
-    while frontier:
-        children = (
-            db.query(WorkflowRun)
-            .filter(
-                WorkflowRun.parent_run_id.in_(frontier),
-                WorkflowRun.user_id == current_user.id,
-            )
-            .all()
-        )
-        frontier = set()
-        for child in children:
-            if child.id in visited:
-                continue  # cycle guard — never re-enqueue an already-seen run
-            visited.add(child.id)
-            members[child.id] = child
-            frontier.add(child.id)
-
-    # (d) Deterministic chronological order; (e) 1-based revision_index. The
-    # root's parent is out-of-family (foreign/missing/null) so it is nulled here
-    # — every non-root member's parent is in-family by BFS construction, so no
-    # foreign id ever leaks into the response.
-    ordered = sorted(members.values(), key=lambda r: (r.created_at, r.id))
-    member_responses = [
-        FamilyMemberResponse(
-            id=r.id,
-            type=r.type,
-            title=r.title,
-            status=r.status,
-            revision_index=idx,
-            parent_run_id=(r.parent_run_id if r.parent_run_id in members else None),
-            created_at=r.created_at,
-            completed_at=r.completed_at,
-        )
-        for idx, r in enumerate(ordered, start=1)
-    ]
+    # (c)–(e) Collect + order the owned family via the shared BFS-down helper
+    # (deterministic chronological order, 1-based revision_index, root parent
+    # nulled). Extracted so /summary reuses the SAME owned walk (no dual impl).
+    member_responses = _owned_family_members(db, current_user.id, root_id)
     return RunFamilyResponse(root_id=root_id, members=member_responses)
+
+
+@router.get("/{workflow_id}/summary", response_model=RunSummaryResponse)
+def get_run_summary(
+    workflow_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Aggregate an owned run into the Wave-2 Run-detail summary (SHELL-03).
+
+    Additive + READ-ONLY: reads ONLY existing ``WorkflowRun`` columns plus the
+    owned revision-family walk — inventing zero fields and adding zero tables /
+    migrations, so the 5 backend goldens are untouched by construction (INV-3)
+    and no engine/transport is touched (LOCK-B).
+
+    Owner-scoped via ``_owner_gate_or_404`` on ``WorkflowRun.user_id`` — the
+    principal, NEVER the nullable ``owner_id`` — so a cross-owner or missing run
+    resolves to 404 (IDOR → 404, never 403, never a 200 with another owner's
+    data; P13/P25). The owned family walk terminates at any foreign ancestor, so
+    no foreign run metadata leaks into the timeline (threat T-36-02-IDOR).
+    """
+    # (1) Owner gate — user_id keyed; missing / cross-owner → 404.
+    run = _owner_gate_or_404(db, workflow_id, current_user.id)
+
+    # (2) Tolerant parse of the two stored JSON blobs. Stored text is never
+    # trusted to be well-formed → parse each inside try/except with a []/{}
+    # fallback so a malformed blob degrades to an empty aggregate, never a 500
+    # (DoS guard; mirrors the runs.py agent_outputs idiom above, threat
+    # T-36-02-DoS).
+    raw_agents: list = []
+    if run.agent_outputs:
+        try:
+            parsed = json.loads(run.agent_outputs)
+            if isinstance(parsed, list):
+                raw_agents = parsed
+        except Exception:
+            pass
+
+    token_usage: dict = {}
+    if run.token_usage:
+        try:
+            parsed_tu = json.loads(run.token_usage)
+            if isinstance(parsed_tu, dict):
+                token_usage = parsed_tu
+        except Exception:
+            pass
+
+    # (3) Per-agent breakdown — project ONLY the summary-safe identity + KPI
+    # fields; NEVER echo the raw output / input_prompt / thinking_text /
+    # tool_calls that could carry a secret (threat T-36-02-Leak / V7).
+    agents = [
+        {k: a.get(k) for k in _SUMMARY_SAFE_AGENT_KEYS if k in a}
+        for a in raw_agents
+        if isinstance(a, dict)
+    ]
+
+    # (4) Version/revision timeline — REUSE the owned ancestor walk for the root
+    # and the SAME owned BFS-down member list get_run_family builds (no dual impl).
+    root_id = _compute_root_ids(db, current_user.id, [run])[run.id]
+    members = _owned_family_members(db, current_user.id, root_id)
+
+    return RunSummaryResponse(
+        id=run.id,
+        title=run.title,
+        type=run.type,
+        status=run.status,
+        duration=run.duration,
+        agent_count=run.agent_count,
+        token_usage=token_usage,
+        error=run.error,
+        agents=agents,
+        root_id=root_id,
+        members=members,
+    )
 
 
 @router.get("/{workflow_id}/hook-runs")
