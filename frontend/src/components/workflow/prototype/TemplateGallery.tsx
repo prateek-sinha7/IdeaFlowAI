@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, Check, FileText, TrendingUp, Upload, X } from "lucide-react";
-import { getTemplatePreviewUrl, type PrototypeTemplate } from "@/lib/prototype-api";
+import { getTemplatePreviewUrl, getTemplateThumbnailUrl, type PrototypeTemplate } from "@/lib/prototype-api";
 import { TemplateDetailModal } from "./TemplateDetailModal";
 import {
   CustomTemplateModal,
@@ -418,6 +418,9 @@ function CompactTemplateCard({ template, selected, onOpenDetail }: CompactCardPr
   const cardRef = useRef<HTMLButtonElement>(null);
   const [shouldMount, setShouldMount] = useState(false);
   const [previewLoaded, setPreviewLoaded] = useState(false);
+  // The backend `has_thumbnail` flag can be stale or the file can 404/429 at
+  // request time. On <img> error, fall through to the live-iframe fallback.
+  const [thumbnailError, setThumbnailError] = useState(false);
 
   useEffect(() => {
     const node = cardRef.current;
@@ -436,6 +439,9 @@ function CompactTemplateCard({ template, selected, onOpenDetail }: CompactCardPr
   }, []);
 
   const previewUrl = template.has_preview ? getTemplatePreviewUrl(template.id) : null;
+  // Only use the thumbnail while it hasn't errored (404 / 429 / load failure).
+  const thumbnailUrl =
+    template.has_thumbnail && !thumbnailError ? getTemplateThumbnailUrl(template.id) : null;
 
   return (
     <button
@@ -457,11 +463,39 @@ function CompactTemplateCard({ template, selected, onOpenDetail }: CompactCardPr
 
       {/* Preview thumbnail */}
       <div className="relative overflow-hidden bg-gray-50" style={{ height: "80px" }}>
-        {previewUrl && shouldMount ? (
+        {thumbnailUrl && shouldMount ? (
+          // Pre-rendered screenshot of example.html — one cheap <img> load
+          // instead of a full iframe document render. Falls back to the
+          // sandboxed (allow-scripts) iframe path below on 404/429/error.
           <>
             {!previewLoaded && (
               <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />
             )}
+            {/* eslint-disable-next-line @next/next/no-img-element -- static same-origin thumbnail; next/image optimization + remotePatterns are unwanted overhead here */}
+            <img
+              src={thumbnailUrl}
+              alt={template.name}
+              loading="lazy"
+              onLoad={() => setPreviewLoaded(true)}
+              onError={() => {
+                // Thumbnail missing / 429 / network error — degrade to iframe below.
+                setThumbnailError(true);
+                setShouldMount(true);
+                setPreviewLoaded(false);
+              }}
+              className="h-full w-full object-cover object-top"
+              style={{ opacity: previewLoaded ? 1 : 0, transition: "opacity 200ms ease-out" }}
+            />
+          </>
+        ) : previewUrl && shouldMount ? (
+          <>
+            {!previewLoaded && (
+              <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />
+            )}
+            {/* Fallback when no pre-rendered thumbnail exists yet: render the
+                template's example.html live (HTML + JS) in a sandboxed iframe,
+                scaled down. Heavier than the <img>, but only hit until the
+                build-time thumbnail is generated. */}
             <iframe
               src={previewUrl}
               title={template.name}
@@ -480,8 +514,8 @@ function CompactTemplateCard({ template, selected, onOpenDetail }: CompactCardPr
               }}
             />
           </>
-        ) : previewUrl ? (
-          // Has preview URL but not mounted yet — shimmer
+        ) : previewUrl || thumbnailUrl ? (
+          // Not visible yet (IntersectionObserver hasn't fired) — shimmer
           <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-gray-100 to-gray-200" />
         ) : (
           // No example.html — show what the template produces

@@ -57,6 +57,10 @@
 | FIX-039 | 2026-07-06 | KAN-92: Workflow history incorrect titles — 3 root causes in websocket.py: wizard-chain reuses source title, run_revision never calls title gen, legacy revision placeholder shows raw HTML marker | (1) `_generate_workflow_title` wizard-chain path wrote source pipeline's Title verbatim with no pipeline_type suffix; (2) `_handle_revision_execution` set `title=f"Revision: {instruction[:50]}"` and never scheduled `_generate_workflow_title`; (3) `_handle_workflow_execution` WorkflowRun placeholder fell through to `or content` for revision messages starting with `=== EXISTING … ===`, showing raw HTML marker for 2-5s | `backend/app/api/websocket.py` | Phase 14/16/22 | INV-1/3/12/SC-001 ✅ | Done |
 | FIX-034 | 2026-07-04 | Bedrock prompt caching silently OFF + enable-only extended-thinking knob | deepagents' built-in AnthropicPromptCachingMiddleware caches ONLY ChatAnthropic, but prod runs ChatBedrockConverse → every build re-sent a ~45-68k fixed prefix uncached across ~300 turns (5-21M input tok). Fix: a provider-agnostic `_BedrockCachePointsMiddleware` sets model_settings cache_control on ChatBedrockConverse requests (config-gated BEDROCK_PROMPT_CACHE_ENABLED default ON, BEDROCK_PROMPT_CACHE_TTL '5m') so langchain_aws._apply_cache_points appends cachePoints ≈ 55-80% cheaper billed input; plus a THINKING_BUDGET_TOKENS knob (enable-only, default 0) threading a clamped thinking budget into both provider branches of build_model. | `backend/app/core/config.py`, `backend/app/agents/model_factory.py`, `backend/app/agents/deep_agent_runner.py`, `backend/tests/agents/test_bedrock_cache_and_thinking.py` | quick-260704-p10 | INV-1/3/12/13 · SC-001 ✅ | Done |
 | FIX-039 | 2026-07-07 | Regenerate appended (not replaced) an agent's streamed output — hitting "regenerate" at the plan gate re-ran the agent but the new stream concatenated onto the previous run's, so `PrototypePipelineView.parseTasks(planAgent.output)` read the STALE first `<tasks>` block: a regenerated 9-task plan still showed "1 Build Task". | Root cause: `useWorkflow.ts` `case "agent_start"` flipped the matched agent to `status:"running"` but never reset its per-run accumulators, while `case "agent_chunk"` does `output = output + chunk` (append) — so a 2nd agent_start left run-1's `output` in place and run-2's chunks appended onto stale v1. Fix (FE-only): in the `agent_start` case, reset THAT agent's run-scoped fields to their fresh-agent values BEFORE `status:"running"` — `output/thinking/thinkingText=""`, `toolCalls/validationIssues=[]`, `error=null`, `validationPassed=undefined`, plus overwrite-only `duration/token/inputPrompt/contextSources` cleared — preserving identity (`id/name/role/icon/index`) and never touching pipeline-level or other agents' state. Regenerate now REPLACES. Replay-safe: a replayed agent_start (same event_id) is deduped upstream by `shouldApplyEvent` (dashboard/page.tsx:276) so a live output is never wiped on WS reconnect. REJECTED alternative: the parser "read the LAST `<tasks>` block" band-aid — masks the concatenation and leaves agent output polluted. | `frontend/src/hooks/useWorkflow.ts`, `frontend/src/hooks/useWorkflow.regenerateReset.test.ts` | quick-260707-1p8 | INV-3 (FE-only, no golden impact) · SC-001 ✅ | Done |
+| FIX-039 | 2026-07-07 | OD template + PPT gallery previews slow — cards render a static thumbnail `<img>`, falling back to live HTML+JS iframe rendering when absent | Each gallery card mounted a sandboxed `<iframe sandbox="allow-scripts">` that fully renders `example.html` at 1280x720 (parse+style+layout+paint+JS-exec+asset fetches) just for a ~130px thumbnail. Rendering N full HTML documents is the gallery's dominant cost. | `frontend/src/components/workflow/prototype/TemplateGallery.tsx`, `frontend/src/components/workflow/prototype/TemplateCard.tsx`, `frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx`, `frontend/src/lib/prototype-api.ts`, `frontend/src/lib/ppt-api.ts` | Phase 4 (OD catalog UI) | INV-3 golden-neutral (FE-only; catalog thumbnails, not the deliverable renderer) ✅ | Done |
+| FIX-042 | 2026-07-08 | `GET /api/{prototype,ppt}/templates/{id}/thumbnail` returns 500 (not 404) when a thumbnail file is missing at request time | `get_template_thumbnail_path` trusted the `has_thumbnail` flag, which is computed once by the `lru_cache(maxsize=1)` `_all_templates()` at process start. A thumbnail deleted (or generated) after startup left the flag stale → the function returned a path to a missing file → `FileResponse` `os.stat`'d it mid-response → `FileNotFoundError` → `RuntimeError: File ... does not exist` → 500. Fix (backend-only): re-check `path.is_file()` on disk at serve time; return `None` (→ existing 404 branch) when the file is gone, so the gallery falls back to the FIX-041 live iframe. | `backend/app/services/od_loader.py` | Phase 4 (OD catalog UI) · builds on FIX-039/040/041 | INV-1/3/12/SC-001 ✅ | Done |
+| FIX-041 | 2026-07-08 | OD/PPT gallery card shows a broken/blank image when a thumbnail 404s — no fallback to the live iframe unless `has_thumbnail` is already false | The thumbnail `<img>` in `TemplateCard` and `CompactPPTCard` had an `onLoad` but NO `onError` handler; the thumbnail-vs-iframe choice keyed solely off the backend `has_thumbnail` flag. When that flag is stale (thumbnail generated at build time, not committed — FIX-040) or the file 404s at request time, the `<img>` fails silently and the card sticks on the pulse placeholder / broken image instead of degrading to the FIX-039 live iframe. Fix (FE-only): add a `thumbnailError` state; on `<img>` `onError`, set it (and force-mount the iframe), which nulls `thumbnailUrl` so the existing iframe fallback path renders. | `frontend/src/components/workflow/prototype/TemplateCard.tsx`, `frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx` | Phase 4 (OD catalog UI) · builds on FIX-039/040 | INV-3 golden-neutral (FE-only; catalog thumbnails, not the deliverable renderer) ✅ | Done |
+| FIX-040 | 2026-07-07 | OD gallery thumbnails generated at BUILD time (backend Docker image) + served via backend endpoint; missing ⇒ live iframe fallback | The `<img>` fast-path needs a pre-rendered screenshot. Generated at backend image build (Playwright/Chromium already installed for render_check; OpenDesign tree baked at /app/opendesign), NOT committed — so absent thumbnails degrade to the FIX-039 live iframe. | `backend/app/services/od_loader.py`, `backend/app/api/prototype_templates.py`, `backend/app/api/ppt_templates.py`, `backend/scripts/generate_template_thumbnails.py` (NEW), `backend/Dockerfile`, `.gitignore` | Phase 4 (OD catalog UI) | INV-3 golden-neutral; lint-imports 4/0; no committed binaries ✅ | Done |
 
 ---
 
@@ -1704,3 +1708,201 @@ Trace:
 - This fix is complementary to KAN-103 (template_id persistence). Even after KAN-103 is implemented to make design.md reliably available, this prompt change ensures the agent actually uses it.
 - The `write_todos` tool creates an in-context todo list visible to the model. It is NOT persisted to the sandbox as a file — the agent's todo tracking is model-context-only.
 - The `spec.md` read guidance changed from "may read to ground your change" to a clear "read this to understand original intent when needed" — but it remains non-mandatory since many revision requests don't require spec context.
+
+---
+
+### FIX-039 — OD Gallery Previews: static thumbnail `<img>` with live HTML+JS iframe fallback
+
+**Date:** 2026-07-07
+**Triggered by:** user report — "why is it taking lots of time while rendering design template and design on web", plus the follow-up requirement: generate thumbnails at build time and, when a thumbnail is absent, render the iframe (HTML+JS) way.
+
+#### Root Cause
+The template gallery (`TemplateGallery.tsx` `CompactTemplateCard`, the larger `TemplateCard.tsx`) and the PPT gallery (`PPTTemplateGallery.tsx` `CompactPPTCard`) rendered each catalog card's preview as a **sandboxed `<iframe sandbox="allow-scripts">`** loading the template's real `example.html`, laid out at a full 1280x720 viewport and CSS-scaled to a ~130px thumbnail. The scale is cheap; the cost is that the browser **parses, styles, lays out, paints, and runs the JS of a complete standalone HTML document per card**, and each iframe re-fetches the preview's fonts/CSS/images. A gallery of N cards renders N full web pages just for thumbnails. (The design-system picker uses text chips, not iframes, so only its one-at-a-time detail modal is heavy.)
+
+#### Fix
+Each gallery card now renders a **static `<img loading="lazy" class="object-cover object-top">`** when a pre-rendered thumbnail exists (`has_thumbnail`), turning "render N HTML documents" into "load N cached images". When a thumbnail is absent, the card **falls back to the live `example.html` iframe with `sandbox="allow-scripts"`** (full HTML+JS rendering) — the original behavior — so nothing is lost before/without generation. The `<img>` carries an intentional `eslint-disable-next-line @next/next/no-img-element` (a tiny static same-origin thumbnail; `next/image` optimization + `remotePatterns` would be the very overhead we are removing). Detail modals keep `allow-scripts` for the interactive preview. (An interim iteration made the fallback iframe `sandbox=""` for a further speedup; reverted per the explicit "use iframe html+js" fallback requirement.)
+
+#### Files Changed
+`frontend/src/components/workflow/prototype/TemplateGallery.tsx`, `frontend/src/components/workflow/prototype/TemplateCard.tsx`, `frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx`, `frontend/src/lib/prototype-api.ts` (`has_thumbnail` + `getTemplateThumbnailUrl`), `frontend/src/lib/ppt-api.ts` (`has_thumbnail` + `getPPTTemplateThumbnailUrl`).
+
+#### Invariants Verified
+- **INV-3** (golden parity): not affected — FE-only; catalog thumbnails, not the deliverable renderer on the golden path.
+- **INV-1 / INV-12 / SC-001**: no engine/kernel edits, no pipeline_type branch, no duplication.
+
+---
+
+### FIX-040 — OD gallery thumbnails generated at BUILD time
+
+**Date:** 2026-07-07
+
+#### Root Cause / Fix
+The `<img>` fast-path needs a pre-rendered screenshot. Generated at backend image build (Playwright/Chromium already installed for render_check; OpenDesign tree baked at /app/opendesign), NOT committed — so absent thumbnails degrade to the FIX-039 live iframe.
+
+#### Files Changed
+`backend/app/services/od_loader.py`, `backend/app/api/prototype_templates.py`, `backend/app/api/ppt_templates.py`, `backend/scripts/generate_template_thumbnails.py` (NEW), `backend/Dockerfile`, `.gitignore`.
+
+---
+
+### FIX-041 — OD/PPT gallery card fallback to live iframe on thumbnail 404
+
+**Date:** 2026-07-08
+
+#### Root Cause / Fix
+The thumbnail `<img>` in `TemplateCard` and `CompactPPTCard` had an `onLoad` but NO `onError` handler. Fix: add a `thumbnailError` state; on `<img>` `onError`, set it (and force-mount the iframe).
+
+#### Files Changed
+`frontend/src/components/workflow/prototype/TemplateCard.tsx`, `frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx`.
+
+---
+
+### FIX-042 — thumbnail endpoint returns 500 instead of 404 when file missing
+
+**Date:** 2026-07-08
+
+#### Root Cause
+`get_template_thumbnail_path` trusted the `has_thumbnail` flag (cached at startup). A thumbnail deleted after startup left the flag stale → `FileResponse` `os.stat`'d a missing file → 500.
+
+#### Fix (backend-only)
+`get_template_thumbnail_path()` re-checks `path.is_file()` on disk at serve time; returns `None` when absent → existing 404 branch fires → card falls back to live iframe (FIX-041).
+
+#### Files Changed
+`backend/app/services/od_loader.py`.
+
+---
+
+### FIX-043 — Template gallery thumbnail 429 flood + CompactTemplateCard missing onError
+
+**Date:** 2026-07-09
+
+#### Root Cause
+Two bugs: (1) `CompactTemplateCard` keyed the thumbnail `<img>` on `thumbnailUrl` alone — the `shouldMount` IntersectionObserver gate only controlled the iframe fallback, so all ~43 thumbnails fired simultaneously on gallery mount → 429. (2) Same component had no `thumbnailError` + `onError` handler — a 429/404 left the card stuck on pulse shimmer with no recovery.
+
+#### Fix
+Gate `thumbnailUrl` rendering behind `shouldMount` in both compact cards; add `thumbnailError` + `onError` to `CompactTemplateCard`.
+
+#### Files Changed
+`frontend/src/components/workflow/prototype/TemplateGallery.tsx`, `frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx`.
+
+**Date:** 2026-07-07
+**Triggered by:** user report — "why is it taking lots of time while rendering design template and design on web", plus the follow-up requirement: generate thumbnails at build time and, when a thumbnail is absent, render the iframe (HTML+JS) way.
+
+#### Root Cause
+The template gallery (`TemplateGallery.tsx` `CompactTemplateCard`, the larger `TemplateCard.tsx`) and the PPT gallery (`PPTTemplateGallery.tsx` `CompactPPTCard`) rendered each catalog card's preview as a **sandboxed `<iframe sandbox="allow-scripts">`** loading the template's real `example.html`, laid out at a full 1280x720 viewport and CSS-scaled to a ~130px thumbnail. The scale is cheap; the cost is that the browser **parses, styles, lays out, paints, and runs the JS of a complete standalone HTML document per card**, and each iframe re-fetches the preview's fonts/CSS/images. A gallery of N cards renders N full web pages just for thumbnails. (The design-system picker uses text chips, not iframes, so only its one-at-a-time detail modal is heavy.)
+
+#### Fix
+Each gallery card now renders a **static `<img loading="lazy" class="object-cover object-top">`** when a pre-rendered thumbnail exists (`has_thumbnail`), turning "render N HTML documents" into "load N cached images". When a thumbnail is absent, the card **falls back to the live `example.html` iframe with `sandbox="allow-scripts"`** (full HTML+JS rendering) — the original behavior — so nothing is lost before/without generation. The `<img>` carries an intentional `eslint-disable-next-line @next/next/no-img-element` (a tiny static same-origin thumbnail; `next/image` optimization + `remotePatterns` would be the very overhead we are removing). Detail modals keep `allow-scripts` for the interactive preview. (An interim iteration made the fallback iframe `sandbox=""` for a further speedup; reverted per the explicit "use iframe html+js" fallback requirement.)
+
+#### Files Changed
+`frontend/src/components/workflow/prototype/TemplateGallery.tsx`, `frontend/src/components/workflow/prototype/TemplateCard.tsx`, `frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx`, `frontend/src/lib/prototype-api.ts` (`has_thumbnail` + `getTemplateThumbnailUrl`), `frontend/src/lib/ppt-api.ts` (`has_thumbnail` + `getPPTTemplateThumbnailUrl`).
+
+#### Invariants Verified
+- **INV-3** (golden parity): not affected — FE-only; catalog thumbnails, not the deliverable renderer on the golden path.
+- **INV-1 / INV-12 / SC-001**: no engine/kernel edits, no pipeline_type branch, no duplication.
+
+#### Verification
+`npx tsc --noEmit` exit 0; `eslint` 0 errors (only pre-existing warnings — the img warning is intentionally suppressed); `npm run build` (Next 16) compiled + TypeScript + 15/15 static pages generated; `vitest --run src/components/workflow` = 5 pre-existing failures / 50 passed, identical with the change stashed (the failures — `ReviewGatesSection.test.tsx` et al. — are unrelated). Registers checked first via `Select-String` (grep_search unreliable here): the gallery-thumbnail area is untracked, and the locked T-18-05 sandbox decision governs the deliverable renderer, not these catalog thumbnails.
+
+#### Notes
+- Tradeoff: a JS-drawn template (canvas / client-rendered) shows a sparser thumbnail only if no screenshot was generated; the fallback iframe renders it fully, and the detail modal is always live.
+
+#### Follow-up — code-review cleanup (2026-07-08)
+- **Misleading comment corrected:** the fast-path comment in all three gallery cards described the fallback as a "(script-free) iframe", but the fallback iframe uses `sandbox="allow-scripts"` (the `sandbox=""` interim was reverted, see above). Reworded to "sandboxed (allow-scripts) iframe" in `TemplateCard.tsx`, `TemplateGallery.tsx`, `PPTTemplateGallery.tsx` so the comment matches the code. Comment-only; no behavior change.
+- **`onError` fallback:** the `<img>` → live-iframe degrade-on-404 the reviewer flagged as missing had already landed as **FIX-041** (`thumbnailError` state + `onError` handler); no further change needed here.
+
+---
+
+### FIX-040 — OD Gallery Thumbnails Generated at BUILD Time (backend Docker + Playwright)
+
+**Date:** 2026-07-07
+**Triggered by:** same report; the follow-up requirement pinned generation to **build time** (not committed), with the live-iframe fallback (FIX-039).
+
+#### Root Cause
+The `<img>` fast-path (FIX-039) needs a pre-rendered screenshot to exist. Those screenshots must be produced somewhere; committing ~106 binaries is undesirable, and the frontend build context (`./frontend`) can neither see `skills/opendesign/` nor ship a browser.
+
+#### Fix
+Generate the thumbnails during the **backend image build** — the natural home: the backend runtime stage already runs `playwright install --with-deps chromium` (for `render_check.py`) and bakes the OpenDesign tree at `/app/opendesign`, and the backend already **serves** the thumbnails.
+- **Serving** (`od_loader.py`, `prototype_templates.py`, `ppt_templates.py`): `has_thumbnail` on each template dict + `get_template_thumbnail_path()`; `GET /api/{prototype,ppt}/templates/{id}/thumbnail` serves the JPEG (unauthenticated + `Cache-Control: public, max-age=3600`, same containment as `/preview`). `has_thumbnail` is read from disk at loader init, so a baked image reports `true` while a bare local checkout reports `false` → live-iframe fallback.
+- **Generator** (`backend/scripts/generate_template_thumbnails.py`, NEW): `playwright.sync_api` serves `design-templates/` via a `ThreadingTCPServer` and screenshots each `example.html` at 1280x720 → `thumbnail.jpg` (JPEG q80). Launches Chromium with `--no-sandbox --disable-dev-shm-usage` (runs as root in the build) with a system Chrome/Edge channel fallback; per-template fresh context, resumable (skips existing), and **always exits 0** so a flaky template can never fail the image build.
+- **Dockerfile** (`backend/Dockerfile`): after the OpenDesign COPY + Chromium install and before the USER switch, `COPY` the script and `RUN` it over `/app/opendesign/design-templates`, then `chown -R 10001:10001 /app/opendesign`.
+- **Not committed** (`.gitignore`): `skills/opendesign/design-templates/*/thumbnail.jpg` ignored; the earlier committed batch was removed. The redundant frontend Node generator (`generate-template-thumbnails.mjs`) + its `npm run thumbnails` script were deleted — the Python generator is the single source (build-time and local: `cd backend && python scripts/generate_template_thumbnails.py`).
+
+Design systems are out of scope — their picker is text chips, not an iframe grid.
+
+#### Files Changed
+`backend/app/services/od_loader.py`, `backend/app/api/prototype_templates.py`, `backend/app/api/ppt_templates.py`, `backend/scripts/generate_template_thumbnails.py` (NEW), `backend/Dockerfile`, `.gitignore`; removed `frontend/scripts/generate-template-thumbnails.mjs` + the `thumbnails` npm script.
+
+#### Invariants Verified
+- **INV-3**: additive loader field + build step; not on the deliverable/golden path.
+- **Ports & Adapters / lint-imports**: 4 kept / 0 broken (backend changes stay in `app.services`/`app.api`).
+- **Persistence**: no migrations; thumbnails are files co-located with the template, generated into the baked tree like `example.html`/`assets/`.
+- **INV-1 / INV-12 / SC-001**: no engine/kernel edits; single generator (no dual implementation); no committed binaries.
+
+#### Verification
+`python -m py_compile scripts/generate_template_thumbnails.py` exit 0; ran locally `--only audio-jingle` → produced the thumbnail with bundled Chromium and the loader flipped `has_thumbnail=true` with a resolving path (artifact then removed — thumbnails are build outputs). `pytest tests/unit/test_template_assets.py` 18 passed; `lint-imports` 4/0. Frontend build green (see FIX-039). A full backend `docker build` was NOT run here (base-image pulls / apt are network-restricted in this environment); the Dockerfile step is ordered after the existing Chromium install + OpenDesign COPY and is best-effort (always exits 0), so it cannot break the build.
+
+#### Notes
+- Build-time cost: ~106 headless screenshots add a few minutes to the backend image build; acceptable for a one-time, cache-friendly step (only re-runs when the layer is invalidated).
+- Absent thumbnails (e.g. local dev without running the generator) degrade gracefully to the FIX-039 live HTML+JS iframe.
+
+#### Follow-up — code-review cleanup (2026-07-08)
+- **Stale docstring corrected:** `od_loader.get_template_thumbnail_path`'s docstring still pointed at the deleted frontend generator `frontend/scripts/generate-template-thumbnails.mjs`; repointed to the real single source `backend/scripts/generate_template_thumbnails.py`. Doc-only.
+- **Dockerfile chown consistency:** the thumbnail-generation `RUN` re-chowned `/app/opendesign` with numeric `chown -R 10001:10001` while the surrounding `COPY`s use the named `--chown=flowin:flowin` form (the `flowin` user is uid/gid 10001, created earlier). Aligned to `chown -R flowin:flowin /app/opendesign` for readability; functionally identical.
+- **Test coverage added** (`backend/tests/integration/test_template_thumbnails.py`, NEW): exercises the previously-untested thumbnail serving path — loader `has_thumbnail` true/false vs disk, `get_template_thumbnail_path` present/absent/unknown, and the `GET /api/{prototype,ppt}/templates/{id}/thumbnail` route handlers returning `image/jpeg` when present and **404** for unknown ids and for a thumbnail deleted after load (the FIX-042 stale-flag on-disk re-check → clean 404, never a 500). 8 tests, all pass.
+- **Verification:** `pytest tests/integration/test_template_thumbnails.py` 8 passed; `lint-imports` 4/0. INV-3 golden-neutral (doc/comment/test + a build-step chown label only; deliverable renderer untouched).
+---
+
+### FIX-041 — OD/PPT gallery card: fall back to the live iframe when a thumbnail 404s
+
+**Date:** 2026-07-08
+**Triggered by:** user requirement — "if thumbnail is not there than load template html in iframe … only if thumbnail is not there or 404 like."
+
+#### Root Cause
+FIX-039 renders each gallery card as a cheap static thumbnail `<img>` and only mounts the heavier live `example.html` iframe when no thumbnail exists; FIX-040 generates those thumbnails at backend-image build time (they are NOT committed). The thumbnail-vs-iframe decision in `TemplateCard` (prototype) and `CompactPPTCard` (PPT) keyed **solely** off the backend `has_thumbnail` flag, and the `<img>` had an `onLoad` handler but **no `onError` handler**. So whenever the flag was stale (local dev / an image built without the generator) or the file 404'd at request time, the `<img>` failed silently and the card was stuck on the pulse placeholder / broken image — it never degraded to the live iframe. The "no thumbnail at all" case already fell through to the iframe correctly; the missing case was the *runtime* load failure.
+
+#### Fix (frontend-only)
+In both cards:
+- Added a `thumbnailError` state (default `false`).
+- Gated the thumbnail URL on it: `thumbnailUrl = has_thumbnail && !thumbnailError ? getThumbnailUrl(id) : null`.
+- Added `onError` to the `<img>`: on load failure it sets `thumbnailError = true`, force-sets `shouldMount = true` (so the lazy iframe mounts even if the IntersectionObserver hadn't yet), and resets `previewLoaded = false`. Nulling `thumbnailUrl` makes the component fall through to the pre-existing `previewUrl && shouldMount` iframe branch — the exact FIX-039 fallback, now reached on 404 as well as on absence.
+
+No backend change; the `/thumbnail` endpoint still 404s as before — the fix just makes the client honour that 404.
+
+#### Files Changed
+`frontend/src/components/workflow/prototype/TemplateCard.tsx`, `frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx`.
+
+#### Invariants Verified
+- **INV-3**: FE-only; catalog thumbnails, not the deliverable renderer — golden-neutral, no regen.
+- **INV-1 / INV-12 / INV-13 / SC-001**: no engine/kernel/agent edits; no dual implementation (reuses the existing iframe fallback branch).
+
+#### Verification
+`npx tsc --noEmit` exit 0. `npx eslint` on both files: 0 errors (2 pre-existing warnings unrelated to this change — a `setState`-in-effect in the custom-template loader and an unused `onSelect` prop). The prototype `TemplateGallery.tsx` renders no thumbnails itself (delegates to `TemplateCard`), so no third card needed the patch.
+
+#### Notes
+- Behaviour now: thumbnail present and loads → cheap `<img>`; thumbnail absent (`has_thumbnail=false`) OR present-flag-but-404 → live `example.html` iframe; neither available → existing "No preview available" placeholder.
+---
+
+### FIX-042 — Thumbnail endpoint returns 404 (not 500) when the file is missing at request time
+
+**Date:** 2026-07-08
+**Triggered by:** user test — deleted `design-templates/blog-post/thumbnail.jpg` and hit the endpoint; got a 500 (`RuntimeError: File at path … does not exist`) instead of a 404, so the fallback was only working by accident (the `<img>` errors on any failed load).
+
+#### Root Cause
+`od_loader.get_template_thumbnail_path()` decided whether to serve by reading `t.get("has_thumbnail")`. That flag is produced by `_all_templates()`, which is `@lru_cache(maxsize=1)` — evaluated **once at process start** and never invalidated. When a thumbnail is deleted (or generated) after the server boots, the cached flag stays `True`, the function returns `_TEMPLATES_DIR/<id>/thumbnail.jpg`, and the endpoint hands that path to `FileResponse`. Starlette then `os.stat`s the file lazily while sending the response, raises `FileNotFoundError` → `RuntimeError`, which surfaces as a 500. Both the prototype and PPT thumbnail endpoints route through this one function, so both were affected.
+
+#### Fix (backend-only)
+`get_template_thumbnail_path()` no longer trusts the cached flag for serving: it builds the path and re-checks `path.is_file()` on disk, returning `None` when the file is absent. The endpoints' existing `if path is None: raise HTTPException(404)` branch then produces a clean 404. Existence is still gated on `get_template(template_id)` first (unknown id → `None`). The `has_thumbnail` field in the catalog *listing* is left as-is (still cached) — the frontend can optimistically request the `<img>`, and on a 404 the FIX-041 `onError` handler falls the card back to the live `example.html` iframe.
+
+#### Files Changed
+`backend/app/services/od_loader.py`.
+
+#### Invariants Verified
+- **INV-1 / INV-12 / INV-13 / SC-001**: no engine/kernel/agent edits; single path resolver, no dual implementation.
+- **INV-3**: not on the deliverable/golden path (catalog asset serving); golden-neutral.
+- **Ports & Adapters**: change confined to `app.services.od_loader`.
+
+#### Verification
+`.venv` import check: after deleting `blog-post/thumbnail.jpg`, `get_template_thumbnail_path("blog-post")` → `None` (→ 404); `get_template_thumbnail_path("does-not-exist")` → `None`; 105 templates still flagged `has_thumbnail`, and sampled ids (`audio-jingle`, `clinical-case-report`, `contact-widget`) still resolve to a real on-disk path (happy path intact).
+
+#### Notes
+- End-to-end behaviour now: thumbnail on disk → 200 `<img>`; thumbnail missing/deleted → 404 → card renders the live `example.html` iframe (FIX-041); no more 500s from a stale cache.
+| FIX-043 | 2026-07-09 | Template gallery thumbnail 429 flood — compact cards loaded ALL thumbnails eagerly (no IntersectionObserver gate on `<img>` path) + `CompactTemplateCard` had no `onError` fallback | Two bugs: (1) `CompactTemplateCard` (TemplateGallery.tsx) keyed the thumbnail `<img>` on `thumbnailUrl` alone — the `shouldMount` IntersectionObserver gate only controlled the iframe fallback path, so all ~43 thumbnails fired simultaneously on gallery mount → 429 Too Many Requests from the server. (2) Same component had no `thumbnailError` state or `onError` handler (unlike `TemplateCard.tsx` and `CompactPPTCard` which both had it), so a 429/404 left the card stuck on the pulse shimmer with no recovery. `CompactPPTCard` (PPTTemplateGallery.tsx) had `onError` but the same missing `shouldMount` gate on the img path. Fix: gate `thumbnailUrl` rendering behind `shouldMount` in both compact cards (only visible cards fire requests); add `thumbnailError` + `onError` to `CompactTemplateCard` (on error, flip to iframe fallback — matching existing pattern in `TemplateCard.tsx`). | `frontend/src/components/workflow/prototype/TemplateGallery.tsx`, `frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx` | Phase 4 (OD catalog UI) · builds on FIX-039/041 | INV-3 golden-neutral (FE-only; catalog thumbnails) ✅ | Done |
