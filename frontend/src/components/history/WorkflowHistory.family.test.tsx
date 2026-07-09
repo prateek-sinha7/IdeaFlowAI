@@ -240,13 +240,21 @@ describe("Revision Families (B2) — detail version timeline (D4)", () => {
     expect(screen.getByText(/↳ revises v/)).toBeInTheDocument();
   });
 
-  it("clicking a sibling chip switches the shown version via the summary read + the active chip follows", async () => {
+  it("clicking a sibling chip re-syncs BOTH columns to that version (getWorkflow reloads the deliverable; getRunSummary refetches the summary) + the active chip follows", async () => {
+    // The switch is caller-owned (WorkflowHistory.handleSelectVersion): it loads
+    // the version's full run (right column) AND re-keys RunDetailPage → summary
+    // refetch. Key getWorkflow by id so setSelectedRun lands the clicked member.
+    const byId: Record<string, WorkflowRun> = Object.fromEntries(familyRuns().map((r) => [r.id, r]));
+    mockGetWorkflow.mockImplementation((_t, id) => Promise.resolve(byId[id]));
+
     await openLatestDetail();
 
-    // Click the v1 sibling chip (first radio) — the RunDetailPage timeline refetches
-    // that version's summary (the single-source read), not getWorkflow.
+    // Click the v1 sibling chip (first radio).
     fireEvent.click(screen.getAllByRole("radio")[0]);
 
+    // Right column reloads the version's deliverable via getWorkflow …
+    await waitFor(() => expect(mockGetWorkflow).toHaveBeenCalledWith("test-token", "root"));
+    // … and the RunDetailPage summary column refetches for the same version.
     await waitFor(() => expect(mockGetRunSummary).toHaveBeenCalledWith("test-token", "root"));
     // The active chip follows the loaded version → v1 checked, v3 unchecked.
     await waitFor(() => {

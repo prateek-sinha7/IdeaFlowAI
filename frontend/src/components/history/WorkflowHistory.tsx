@@ -177,6 +177,24 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
     finally { setLoadingDetail(false); }
   }, [activeRunId, onViewRunningPipeline]);
 
+  // Revision Families (B2 / D4): load a chosen version into the SAME detail surface
+  // so BOTH the RunDetailPage summary column AND the deliverable/files/thinking/audit
+  // right column re-sync to the picked version. Setting selectedRun re-keys the
+  // RunDetailPage mount (runId=selectedRun.id) → it refetches that version's summary.
+  const handleSelectVersion = useCallback(async (memberId: string) => {
+    const token = getToken();
+    if (!token) return;
+    setLoadingDetail(true);
+    try {
+      const full = await getWorkflow(token, memberId);
+      setSelectedRun(full);
+      setSelectedOutput(full.output || null);
+    } catch (err) {
+      console.warn("[revision-family] version fetch failed", err);
+    }
+    finally { setLoadingDetail(false); }
+  }, []);
+
   // Revision Families (B2 / D4): fetch the open run's family. Keyed on the STABLE
   // rootRunId (same for every member) so switching versions does NOT refetch;
   // cancellable so a fast back-and-forth cannot land a stale family.
@@ -408,6 +426,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
               onBack={() => { setSelectedRun(null); setSelectedOutput(null); }}
               activeRunId={activeRunId}
               onViewRunningPipeline={onViewRunningPipeline ? () => onViewRunningPipeline() : undefined}
+              onSelectVersion={handleSelectVersion}
             />
           </div>
 

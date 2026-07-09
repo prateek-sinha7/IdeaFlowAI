@@ -26,6 +26,11 @@ export interface RunDetailPageProps {
   activeRunId?: string | null;
   /** Jump to the live pipeline view for a still-running run. */
   onViewRunningPipeline?: (runId: string) => void;
+  /** Optional: let the CALLER own version switching so both the summary column AND
+   *  the caller's own surfaces (e.g. the History deliverable panel) re-sync to the
+   *  chosen version. When omitted, the timeline switches this page's summary only
+   *  (standalone use). Generic run id — never a workflow-name branch (SC-001). */
+  onSelectVersion?: (runId: string) => void;
 }
 
 // Neutral avatar tints — Phase-32 @theme tokens only (no raw hex / retired
@@ -65,6 +70,7 @@ export function RunDetailPage({
   onBack,
   activeRunId,
   onViewRunningPipeline,
+  onSelectVersion,
 }: RunDetailPageProps) {
   const [summary, setSummary] = useState<RunSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -257,7 +263,13 @@ export function RunDetailPage({
         family={family}
         activeRunId={activeVersionId}
         activeInput={summary.input ?? ""}
-        onSelectVersion={setActiveVersionId}
+        onSelectVersion={(id) => {
+          // Caller-owned switch (History): re-sync BOTH columns via the caller,
+          // which changes runId → this page re-derives activeVersionId + refetches.
+          // Standalone: switch this page's summary only.
+          if (onSelectVersion) onSelectVersion(id);
+          else setActiveVersionId(id);
+        }}
       />
 
       {/* Accessible tab controls (reused Tabs primitive) */}
