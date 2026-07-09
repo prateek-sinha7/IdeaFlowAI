@@ -186,4 +186,22 @@ describe("ConfigureScreen — declared-signal accordion gating (SC-001)", () => 
     // Draft cleared once at launch (ND-1 read-and-clear).
     expect(readDraft()).toBeNull();
   });
+
+  it("IN-01: threads the discovery answers into the launch command (not dropped)", async () => {
+    mockGetWorkflowDetail.mockResolvedValue(detail(["opendesign"]));
+    const onLaunch = vi.fn();
+    const user = userEvent.setup();
+
+    render(<ConfigureScreen workflowId="any-deliverable" onLaunch={onLaunch} />);
+
+    await screen.findByTestId("configure-brief");
+    await user.click(screen.getByTestId("configure-launch"));
+
+    expect(onLaunch).toHaveBeenCalledTimes(1);
+    const cmd = onLaunch.mock.calls[0][0];
+    // The captured discovery answers ride along instead of being silently
+    // dropped (they were only ever persisted to the draft before IN-01).
+    expect(cmd).toHaveProperty("discovery");
+    expect(cmd.discovery).toBeTruthy();
+  });
 });

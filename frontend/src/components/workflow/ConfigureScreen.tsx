@@ -65,6 +65,10 @@ export interface ComposedLaunchCommand {
   brief: string;
   agent_ids: string[];
   selections: SelectionsMap;
+  /** Discovery answers captured on the Describe accordion (IN-01) — threaded into
+   *  the launch hand-off instead of being silently dropped (they were only ever
+   *  persisted to the draft before). Defaults to EMPTY_ANSWERS when untouched. */
+  discovery: DiscoveryAnswers;
   gate_agent_ids?: string[];
 }
 
@@ -239,11 +243,12 @@ export function ConfigureScreen({ workflowId, onLaunch }: ConfigureScreenProps) 
       brief,
       agent_ids: agentDefs.map((a) => a.id),
       selections: selectionsRef.current,
+      discovery,
       ...(gatesTouched ? { gate_agent_ids: gateAgentIds } : {}),
     };
     onLaunch?.(command);
     clearDraft();
-  }, [templateId, designSystemId, customTemplateBody, customDsBody, brief, agentDefs, onLaunch]);
+  }, [templateId, designSystemId, customTemplateBody, customDsBody, brief, discovery, agentDefs, onLaunch]);
 
   return (
     <div className="mx-auto max-w-3xl space-y-4 px-6 py-8">
