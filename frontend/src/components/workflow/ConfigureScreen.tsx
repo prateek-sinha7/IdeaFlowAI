@@ -44,6 +44,16 @@ import type { AgentDef } from "@/types/index";
  *  accordions — the SAME signal the backend run-launch seam keys on (SC-001). */
 const OPENDESIGN_PROVIDER = "opendesign";
 
+/** Base pipeline types whose OpenDesign flavor is requested via a dedicated
+ *  `od_` alias (`prototype` → `od_prototype`). Such a base DECLARES `opendesign`
+ *  but is NOT self-OD-eligible: a bare-base launch returns `od_context=None` and
+ *  the backend 13-06 `missing_template_context` guard rejects it. This mirrors
+ *  the run-launch seam's `pipeline_type in _OD_ALIAS_BASE.values()` exclusion
+ *  (backend/app/api/launch_context.py:91) so the Configure gate never offers
+ *  template/DS for a deliverable the seam would reject. Single source of truth =
+ *  the backend `agents.registry._OD_ALIAS_BASE`; keep this FE mirror in sync. */
+const OD_ALIAS_BASE_PIPELINES = new Set<string>(["prototype"]);
+
 /** The generic run-launch command the Configure screen composes at launch — the
  *  SAME declared fields the backend launch seam accepts for ANY deliverable
  *  (D-15/C), never a prototype-specific shape. */
@@ -107,10 +117,17 @@ export function ConfigureScreen({ workflowId, onLaunch }: ConfigureScreenProps) 
     };
   }, [workflowId]);
 
-  // The declared signal — never a prototype-name branch (SC-001 / INV-1).
+  // Gate on the DECLARED opendesign signal (SC-001), minus the ONE legacy
+  // carve-out the run-launch seam also excludes: a bare base whose OD flavor is a
+  // dedicated `od_` alias (bare `prototype`) declares opendesign but is rejected
+  // downstream (od_context=None → 13-06 guard). Mirroring launch_context.py:91
+  // keeps the gate aligned with backend eligibility exactly — the primary key is
+  // still the declared provider, the exclusion is the seam's documented alias shim.
   const acceptsTemplateDs = useMemo(
-    () => (detail?.context_providers ?? []).includes(OPENDESIGN_PROVIDER),
-    [detail],
+    () =>
+      (detail?.context_providers ?? []).includes(OPENDESIGN_PROVIDER) &&
+      !OD_ALIAS_BASE_PIPELINES.has(workflowId),
+    [detail, workflowId],
   );
 
   // Load the live template/DS registries only when this deliverable declares the

@@ -115,6 +115,20 @@ describe("ConfigureScreen — declared-signal accordion gating (SC-001)", () => 
     expect(screen.queryByTestId("accordion-designsystem")).not.toBeInTheDocument();
   });
 
+  it("WR-04: HIDES template/DS for bare `prototype` despite it declaring opendesign (seam alignment)", async () => {
+    // The bare `prototype` base declares opendesign but defers its OD flavor to
+    // the `od_prototype` alias — a bare-prototype launch returns od_context=None
+    // and the backend 13-06 guard rejects it (launch_context.py:92). The gate must
+    // exclude it exactly as the seam does, or the user picks a template the run drops.
+    mockGetWorkflowDetail.mockResolvedValue(detail(["opendesign"]));
+    render(<ConfigureScreen workflowId="prototype" />);
+
+    expect(await screen.findByTestId("accordion-describe")).toBeInTheDocument();
+    expect(screen.getByTestId("accordion-gates")).toBeInTheDocument();
+    expect(screen.queryByTestId("accordion-templates")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("accordion-designsystem")).not.toBeInTheDocument();
+  });
+
   it("hydrates the brief from a saved draft on mount (ND-1)", async () => {
     mockGetWorkflowDetail.mockResolvedValue(detail(["opendesign"]));
     saveDraft({ brief: "restored brief" });
