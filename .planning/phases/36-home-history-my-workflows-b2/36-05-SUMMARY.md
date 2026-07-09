@@ -130,6 +130,23 @@ None. The terminal-failure neutral-state suppression is intentional (the failure
 - 36-05 completes Phase 36's plan set (5/5). History is grouped/sortable, the run detail is the single-source RunDetailPage, and the largest reskin surface is on Phase-32 tokens.
 - Live verification (real summary round-trip, running→live SSE, pixel visual) deferred to the Phase-34 / end-of-milestone live pass.
 
+## Post-review fixes (peer code review)
+
+A peer review of the detail promotion flagged 4 confirmed issues; all fixed atomically on feat/ui-2 (main tree, hooks, no `--no-verify`):
+
+- **H-01 (regression — version-switch desync)** `66e86d0d` — clicking a version chip only re-highlighted the timeline; the right deliverable/files/thinking/audit column stayed on the original version. RunDetailPage gained an optional `onSelectVersion(runId)` prop; WorkflowHistory re-added `handleSelectVersion` (getWorkflow → setSelectedRun) and passes it, so a chip click now re-syncs BOTH columns (re-keying `runId` also refetches that version's summary). Standalone RunDetailPage keeps its internal switch. Generic-keyed (SC-001); KAN-96/KAN-92 untouched.
+- **H-02 (regression — empty instruction preview)** `36a3e567` — RunDetailPage hardcoded `activeInput=""`, so the timeline rendered `↳ revises v{n} — ''`. Added an additive `input` field to `RunSummaryResponse` (the owner's OWN `run.input`, owner-gated, never child-agent output/secrets — V7 projection unchanged; read-only, no migration/engine/transport) + a backend test asserting it; `RunSummary.input` in api.ts; RunDetailPage passes `activeInput={summary.input ?? ""}`; and VersionTimeline now renders the quoted suffix ONLY when a preview exists (no dangling empty quotes ever).
+- **M-02 (INV-12 dual impl)** `6df1437a` — deleted RevisionFamilyView's local `formatDuration`, importing it from `@/lib/runStats` (exactly one implementation).
+- **M-01 (coverage restored)** `f68c45c7` — added a RunDetailPage.test FAILED case whose `error` names an agent id absent from `agents[]`, asserting the raw id renders (never blank) — restores the ISS-024 raw-id-fallback coverage the promotion dropped.
+
+**Post-review verification (literal):**
+- `pytest tests/unit/test_runs_api_summary.py tests/unit/test_runs_api_family.py -q` → 16 passed (input asserted)
+- `lint-imports` → 4 kept, 0 broken
+- `vitest run src/components/history/` → 7 files / 36 tests passed
+- `tsc --noEmit` → 0 errors
+- retired-palette grep on RunDetailPage.tsx + RevisionFamilyView.tsx → 0
+- diff since plan commit touches only runs.py (+test), api.ts, RunDetailPage.tsx (+test), RevisionFamilyView.tsx, WorkflowHistory.tsx (+family test) — no migration/model/engine/transport (LOCK-B/INV-3 held)
+
 ## Self-Check: PASSED
 - FOUND: 36-05-SUMMARY.md
 - FOUND: WorkflowHistory.grouping.test.tsx
