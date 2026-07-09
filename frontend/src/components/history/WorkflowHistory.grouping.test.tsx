@@ -103,9 +103,9 @@ describe("History grouping helpers (SHELL-02) — pure", () => {
     const now = new Date("2026-07-09T20:00:00Z");
     const today = (h: number) => new Date(`2026-07-09T${String(h).padStart(2, "0")}:00:00Z`).toISOString();
     const runs = [
-      makeRun({ id: "alpha", title: "Alpha", rootRunId: "alpha", createdAt: today(11), duration: 900, tokenUsage: { total_tokens: 100, total_input_tokens: 60, total_output_tokens: 40 } }),
-      makeRun({ id: "beta", title: "Beta", rootRunId: "beta", createdAt: today(9), duration: 100, tokenUsage: { total_tokens: 900, total_input_tokens: 500, total_output_tokens: 400 } }),
-      makeRun({ id: "gamma", title: "Gamma", rootRunId: "gamma", createdAt: today(12), duration: 10, tokenUsage: { total_tokens: 500, total_input_tokens: 300, total_output_tokens: 200 } }),
+      makeRun({ id: "alpha", title: "Alpha", rootRunId: "alpha", createdAt: today(11), duration: 900, tokenUsage: { total_tokens: 100, total_input_tokens: 60, total_output_tokens: 40, estimated_cost_usd: 0 } }),
+      makeRun({ id: "beta", title: "Beta", rootRunId: "beta", createdAt: today(9), duration: 100, tokenUsage: { total_tokens: 900, total_input_tokens: 500, total_output_tokens: 400, estimated_cost_usd: 0 } }),
+      makeRun({ id: "gamma", title: "Gamma", rootRunId: "gamma", createdAt: today(12), duration: 10, tokenUsage: { total_tokens: 500, total_input_tokens: 300, total_output_tokens: 200, estimated_cost_usd: 0 } }),
     ];
     const groups = groupRunsByFamily(runs);
 
@@ -166,9 +166,9 @@ describe("History grouping — rendered (SHELL-02)", () => {
 
   it("the tokens/duration sort control reorders the list deterministically within a bucket", async () => {
     const runs = [
-      makeRun({ id: "alpha", title: "Alpha", rootRunId: "alpha", createdAt: today(11), duration: 900, tokenUsage: { total_tokens: 100, total_input_tokens: 60, total_output_tokens: 40 } }),
-      makeRun({ id: "beta", title: "Beta", rootRunId: "beta", createdAt: today(9), duration: 100, tokenUsage: { total_tokens: 900, total_input_tokens: 500, total_output_tokens: 400 } }),
-      makeRun({ id: "gamma", title: "Gamma", rootRunId: "gamma", createdAt: today(12), duration: 10, tokenUsage: { total_tokens: 500, total_input_tokens: 300, total_output_tokens: 200 } }),
+      makeRun({ id: "alpha", title: "Alpha", rootRunId: "alpha", createdAt: today(11), duration: 900, tokenUsage: { total_tokens: 100, total_input_tokens: 60, total_output_tokens: 40, estimated_cost_usd: 0 } }),
+      makeRun({ id: "beta", title: "Beta", rootRunId: "beta", createdAt: today(9), duration: 100, tokenUsage: { total_tokens: 900, total_input_tokens: 500, total_output_tokens: 400, estimated_cost_usd: 0 } }),
+      makeRun({ id: "gamma", title: "Gamma", rootRunId: "gamma", createdAt: today(12), duration: 10, tokenUsage: { total_tokens: 500, total_input_tokens: 300, total_output_tokens: 200, estimated_cost_usd: 0 } }),
     ];
     mockGetWorkflows.mockResolvedValue(runs);
 

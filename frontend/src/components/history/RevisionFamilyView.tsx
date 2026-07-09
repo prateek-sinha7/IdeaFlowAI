@@ -138,6 +138,77 @@ export function groupRunsByFamily(runs: WorkflowRun[]): FamilyGroup[] {
   );
 }
 
+// ─── Today / Earlier / Older date buckets + tokens/duration sort (SHELL-02).
+// A grouping/sort layer that sits OVER groupRunsByFamily, derived ENTIRELY from
+// fields already on each list row — `root.created_at` for the bucket key,
+// `latest.duration` / `latest.tokenUsage.total_tokens` for the sort key. No new
+// fetch, no backend change (36-RESEARCH A2). Extended HERE (next to the family
+// grouping) rather than inline in WorkflowHistory.
+export type HistorySortKey = "recent" | "tokens" | "duration";
+export type DateBucketLabel = "Today" | "Earlier" | "Older";
+
+const BUCKET_ORDER: DateBucketLabel[] = ["Today", "Earlier", "Older"];
+
+// Today = same local calendar day; Earlier = within the last 7 days; Older = beyond.
+export function dateBucketOf(dateStr: string, now: Date = new Date()): DateBucketLabel {
+  const t = new Date(dateStr).getTime();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (t >= startOfToday) return "Today";
+  if (t >= startOfToday - 7 * 86_400_000) return "Earlier";
+  return "Older";
+}
+
+// Representative metric for a family — the displayed/latest member (the card row
+// renders the latest member's status/date), so the sort matches what is shown.
+function groupTokens(g: FamilyGroup): number {
+  return g.latest.tokenUsage?.total_tokens ?? 0;
+}
+function groupDuration(g: FamilyGroup): number {
+  return g.latest.duration ?? 0;
+}
+
+export interface HistorySection {
+  bucket: DateBucketLabel;
+  groups: FamilyGroup[];
+}
+
+// Partition family groups into Today/Earlier/Older (keyed on root.created_at) and
+// sort within each bucket by the chosen key. `recent` (default) = newest latest-
+// member first — preserves today's newest-first order. Only non-empty buckets are
+// returned, in Today → Earlier → Older order.
+export function bucketAndSortFamilies(
+  groups: FamilyGroup[],
+  sortKey: HistorySortKey = "recent",
+  now: Date = new Date(),
+): HistorySection[] {
+  const byBucket = new Map<DateBucketLabel, FamilyGroup[]>();
+  for (const g of groups) {
+    const bucket = dateBucketOf(g.root.createdAt, now);
+    const arr = byBucket.get(bucket);
+    if (arr) arr.push(g);
+    else byBucket.set(bucket, [g]);
+  }
+  const cmp = (a: FamilyGroup, b: FamilyGroup): number => {
+    if (sortKey === "tokens") {
+      const d = groupTokens(b) - groupTokens(a);
+      if (d !== 0) return d;
+    } else if (sortKey === "duration") {
+      const d = groupDuration(b) - groupDuration(a);
+      if (d !== 0) return d;
+    }
+    // recent + deterministic tie-break: newest latest-member first, then rootRunId.
+    const dt = new Date(b.latest.createdAt).getTime() - new Date(a.latest.createdAt).getTime();
+    if (dt !== 0) return dt;
+    return b.rootRunId.localeCompare(a.rootRunId);
+  };
+  const sections: HistorySection[] = [];
+  for (const bucket of BUCKET_ORDER) {
+    const arr = byBucket.get(bucket);
+    if (arr && arr.length > 0) sections.push({ bucket, groups: [...arr].sort(cmp) });
+  }
+  return sections;
+}
+
 // ─── StatusBadge — the pill from WorkflowHistory.tsx:902-918, extracted so both
 // the single-member row and the multi-member root row render the SAME badge for
 // their target member (the family's latest for a multi-member card).

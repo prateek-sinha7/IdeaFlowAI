@@ -35,7 +35,7 @@ import { availableChainTargets } from "@/lib/workflowChaining";
 import { parseFailedAgentIds, buildAgentNameById } from "@/lib/parseFailedAgents";
 // Revision Families (B2 / D3): client-side grouping by rootRunId + the family
 // root card (REUSE-FIRST — WORKSTREAM-B-UI-SPEC.md Surface 1).
-import { groupRunsByFamily, FamilyGroupCard, VersionTimeline, baseWorkflowType } from "./RevisionFamilyView";
+import { groupRunsByFamily, FamilyGroupCard, VersionTimeline, baseWorkflowType, bucketAndSortFamilies, type HistorySortKey } from "./RevisionFamilyView";
 
 interface WorkflowHistoryProps {
   onBack: () => void;
@@ -145,6 +145,9 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   const [clarifyLoading, setClarifyLoading] = useState(false);
   const [filterType, setFilterType] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  // SHELL-02: sort the (family-grouped, date-bucketed) list by recency / tokens /
+  // duration — all derived from fields already on each row (no fetch).
+  const [sortKey, setSortKey] = useState<HistorySortKey>("recent");
   const [detailTab, setDetailTab] = useState<"preview" | "files" | "thinking" | "audit">("preview");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -884,6 +887,9 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   // per family root; the type-filter counts each family ONCE under its base type.
   const families = groupRunsByFamily(runs);
   const visibleFamilies = families.filter((g) => g.members.some(matchesFilter));
+  // SHELL-02: layer the Today/Earlier/Older buckets + the chosen sort OVER the
+  // family grouping (fields already on each row — no fetch, no backend change).
+  const sections = bucketAndSortFamilies(visibleFamilies, sortKey);
   const typeGroups = ["all", "user_stories", "ppt", "prototype", "app_builder", "custom"];
   const typeCounts: Record<string, number> = { all: families.length };
   families.forEach((g) => {
@@ -945,6 +951,39 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
             );
           })}
         </div>
+
+        {/* SHELL-02: sort control — recency / tokens / duration, all off fields
+            already on each row. Segmented buttons; the active option is pressed. */}
+        <div
+          role="group"
+          aria-label="Sort runs"
+          className="flex items-center gap-1 mt-3"
+        >
+          <span className="text-[10px] font-medium text-ink-400 mr-1">Sort</span>
+          {([
+            { key: "recent", label: "Recent" },
+            { key: "tokens", label: "Tokens" },
+            { key: "duration", label: "Duration" },
+          ] as const).map((opt) => {
+            const active = sortKey === opt.key;
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => setSortKey(opt.key)}
+                aria-pressed={active}
+                aria-label={`Sort by ${opt.label.toLowerCase()}`}
+                className={`px-2.5 py-1 rounded-[var(--radius-button)] text-[11px] font-medium transition-colors ${
+                  active
+                    ? "bg-brand text-white"
+                    : "text-ink-500 hover:bg-surface-warm hover:text-ink-700"
+                }`}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* List */}
@@ -998,19 +1037,29 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
             <p className="text-[12px] text-gray-400">No workflows found</p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-100">
-            {visibleFamilies.map((group, idx) => (
-              <FamilyGroupCard
-                key={group.rootRunId}
-                group={group}
-                index={idx}
-                expanded={expandedFamilies.has(group.rootRunId)}
-                onToggle={() => toggleFamily(group.rootRunId)}
-                onSelectRun={handleSelectRun}
-                openMenuId={openMenuId}
-                onToggleMenu={(id, e) => { e?.stopPropagation(); setOpenMenuId(openMenuId === id ? null : id); }}
-                onDeleteClick={handleDeleteClick}
-              />
+          <div>
+            {sections.map((section) => (
+              <section key={section.bucket} aria-label={section.bucket}>
+                {/* Today / Earlier / Older group header */}
+                <h2 className="px-6 pt-4 pb-2 text-[10px] font-semibold uppercase tracking-widest text-ink-400">
+                  {section.bucket}
+                </h2>
+                <div className="divide-y divide-line-divider">
+                  {section.groups.map((group, idx) => (
+                    <FamilyGroupCard
+                      key={group.rootRunId}
+                      group={group}
+                      index={idx}
+                      expanded={expandedFamilies.has(group.rootRunId)}
+                      onToggle={() => toggleFamily(group.rootRunId)}
+                      onSelectRun={handleSelectRun}
+                      openMenuId={openMenuId}
+                      onToggleMenu={(id, e) => { e?.stopPropagation(); setOpenMenuId(openMenuId === id ? null : id); }}
+                      onDeleteClick={handleDeleteClick}
+                    />
+                  ))}
+                </div>
+              </section>
             ))}
           </div>
         )}
