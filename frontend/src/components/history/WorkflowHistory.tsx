@@ -431,10 +431,10 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
              const chainOptions = onChainPipeline ? availableChainTargets(selectedRun.type as WorkflowType) : [];
              if (!reviseCallback && chainOptions.length === 0) return null;
              return (
-               <div className="border-t border-gray-100 px-3 py-3 bg-gradient-to-br from-[#FAFBFF] to-[#F1F4FB] flex-shrink-0">
+               <div className="border-t border-line-divider px-3 py-3 bg-surface-warm flex-shrink-0">
                  <div className="flex items-center gap-1.5 mb-2 px-1">
-                   <Sparkles className="h-3 w-3 text-[#1B2A4A]" />
-                   <p className="text-[9px] font-bold text-[#1B2A4A] uppercase tracking-[0.12em]">
+                   <Sparkles className="h-3 w-3 text-brand" />
+                   <p className="text-[9px] font-bold text-brand uppercase tracking-[0.12em]">
                      Suggested next steps
                    </p>
                  </div>
@@ -445,14 +445,14 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                        <motion.div
                          initial={{ opacity: 0, y: -4 }}
                          animate={{ opacity: 1, y: 0 }}
-                         className="rounded-xl border border-[#1B2A4A]/20 bg-white overflow-hidden"
+                         className="rounded-xl border border-brand/20 bg-surface-white overflow-hidden"
                        >
                          <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5">
                            <div className="flex items-center gap-1.5">
-                             <RefreshCw className="h-3 w-3 text-[#1B2A4A]" />
-                             <p className="text-[11px] font-semibold text-[#1B2A4A]">{reviseLabel}</p>
+                             <RefreshCw className="h-3 w-3 text-brand" />
+                             <p className="text-[11px] font-semibold text-brand">{reviseLabel}</p>
                            </div>
-                           <button onClick={() => { setReviseOpen(false); setRevisionText(""); }} className="p-0.5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
+                           <button onClick={() => { setReviseOpen(false); setRevisionText(""); }} className="p-0.5 rounded text-ink-400 hover:text-ink-700 hover:bg-surface-warm transition-colors">
                              <X className="h-3.5 w-3.5" />
                            </button>
                          </div>
@@ -469,14 +469,14 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                              }}
                              placeholder="Describe what you'd like to change..."
                              rows={3}
-                             className="w-full text-[11px] text-gray-700 placeholder-gray-400 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#1B2A4A]/40 transition-colors resize-y leading-relaxed min-h-[60px]"
+                             className="w-full text-[11px] text-ink-700 placeholder:text-ink-400 bg-surface-warm border border-line-border rounded-lg px-3 py-2 focus:outline-none focus:border-brand/40 transition-colors resize-y leading-relaxed min-h-[60px]"
                            />
                            <div className="flex items-center justify-between mt-2">
-                             <span className="text-[9px] text-gray-400">⌘↵ to send</span>
+                             <span className="text-[9px] text-ink-400">⌘↵ to send</span>
                              <button
                                onClick={() => { if (revisionText.trim()) { reviseCallback(revisionText.trim()); setRevisionText(""); setReviseOpen(false); } }}
                                disabled={!revisionText.trim()}
-                               className="flex items-center gap-1.5 text-[11px] font-medium text-white bg-[#1B2A4A] hover:bg-[#2a3d5e] disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors"
+                               className="flex items-center gap-1.5 text-[11px] font-medium text-white bg-brand hover:bg-brand-pressed disabled:opacity-40 rounded-lg px-3 py-1.5 transition-colors"
                              >
                                <Send className="h-3 w-3" /> Send
                              </button>
@@ -486,13 +486,13 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                      ) : (
                        <button
                          onClick={() => setReviseOpen(true)}
-                         className="group w-full flex items-center justify-between rounded-xl border border-[#1B2A4A]/20 bg-white hover:border-[#1B2A4A] hover:bg-[#1B2A4A] hover:shadow-md px-3 py-2 text-left transition-all"
+                         className="group w-full flex items-center justify-between rounded-xl border border-brand/20 bg-surface-white hover:border-brand hover:bg-brand hover:shadow-md px-3 py-2 text-left transition-all"
                        >
                          <div className="min-w-0">
-                           <p className="text-[11px] font-semibold text-gray-900 group-hover:text-white transition-colors">{reviseLabel}</p>
-                           <p className="text-[9px] text-gray-500 group-hover:text-white/80 transition-colors leading-snug">Request changes to the output</p>
+                           <p className="text-[11px] font-semibold text-ink-900 group-hover:text-white transition-colors">{reviseLabel}</p>
+                           <p className="text-[9px] text-ink-500 group-hover:text-white/80 transition-colors leading-snug">Request changes to the output</p>
                          </div>
-                         <RefreshCw className="h-3 w-3 text-[#1B2A4A] group-hover:text-white group-hover:rotate-180 transition-all flex-shrink-0 ml-2" />
+                         <RefreshCw className="h-3 w-3 text-brand group-hover:text-white group-hover:rotate-180 transition-all flex-shrink-0 ml-2" />
                        </button>
                      )
                    )}
@@ -500,13 +500,13 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                      <button
                        key={opt.type}
                        onClick={() => onChainPipeline(selectedRun, opt.type)}
-                       className="group w-full flex items-center justify-between rounded-xl border border-[#1B2A4A]/20 bg-white hover:border-[#1B2A4A] hover:bg-[#1B2A4A] hover:shadow-md px-3 py-2 text-left transition-all"
+                       className="group w-full flex items-center justify-between rounded-xl border border-brand/20 bg-surface-white hover:border-brand hover:bg-brand hover:shadow-md px-3 py-2 text-left transition-all"
                      >
                        <div className="min-w-0">
-                         <p className="text-[11px] font-semibold text-gray-900 group-hover:text-white transition-colors">{opt.label}</p>
-                         <p className="text-[9px] text-gray-500 group-hover:text-white/80 transition-colors leading-snug">{opt.description}</p>
+                         <p className="text-[11px] font-semibold text-ink-900 group-hover:text-white transition-colors">{opt.label}</p>
+                         <p className="text-[9px] text-ink-500 group-hover:text-white/80 transition-colors leading-snug">{opt.description}</p>
                        </div>
-                       <ArrowRight className="h-3 w-3 text-[#1B2A4A] group-hover:text-white group-hover:translate-x-0.5 transition-all flex-shrink-0 ml-2" />
+                       <ArrowRight className="h-3 w-3 text-brand group-hover:text-white group-hover:translate-x-0.5 transition-all flex-shrink-0 ml-2" />
                      </button>
                    ))}
                  </div>
@@ -518,12 +518,12 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
         {/* Main content — the deliverable the RunDetailPage summary does not cover
             (preview / files / thinking / audit). Version switching lives in the
             RunDetailPage timeline on the left (single source). */}
-        <div className="flex-1 min-w-0 h-full flex flex-col bg-white border-l border-gray-200">
+        <div className="flex-1 min-w-0 h-full flex flex-col bg-surface-white border-l border-line-border">
           {/* Title + tabs + PPT action buttons */}
-          <div className="flex items-center justify-between gap-2 px-5 py-3 border-b border-gray-100 bg-white flex-shrink-0">
+          <div className="flex items-center justify-between gap-2 px-5 py-3 border-b border-line-divider bg-surface-white flex-shrink-0">
             <div className="flex items-center gap-2 min-w-0">
               {/* KAN-92: render the real async-generated run title (never a placeholder). */}
-              <h2 className="min-w-0 max-w-[200px] truncate text-[13px] font-semibold text-gray-900">{selectedRun.title}</h2>
+              <h2 className="min-w-0 max-w-[200px] truncate text-[13px] font-semibold text-ink-900">{selectedRun.title}</h2>
               <div className="flex items-center gap-1">
               {(["preview", "files", "thinking", "audit"] as const).map((tab) => (
                 <button
@@ -531,8 +531,8 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                   onClick={() => setDetailTab(tab)}
                   className={`px-3 py-1.5 rounded-md text-[11px] font-medium transition-all capitalize ${
                     detailTab === tab
-                      ? "bg-gray-100 text-gray-900"
-                      : "text-gray-400 hover:text-gray-700"
+                      ? "bg-surface-warm text-ink-900"
+                      : "text-ink-400 hover:text-ink-700"
                   }`}
                 >
                   {tab === "files" ? "Files" : tab === "thinking" ? "Thinking" : tab === "audit" ? "Audit" : "Preview"}
@@ -555,7 +555,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                     document.body.appendChild(a); a.click();
                     document.body.removeChild(a); URL.revokeObjectURL(url);
                   }}
-                  className="flex items-center gap-1.5 rounded-md bg-[#1B2A4A] px-2.5 py-1 text-[11px] font-medium text-white hover:bg-[#2a3d5e] transition-colors"
+                  className="flex items-center gap-1.5 rounded-md bg-brand px-2.5 py-1 text-[11px] font-medium text-white hover:bg-brand-pressed transition-colors"
                 >
                   <Download className="h-3 w-3" /> Download
                 </button>
@@ -568,7 +568,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                     window.open(url, "_blank");
                     setTimeout(() => URL.revokeObjectURL(url), 5000);
                   }}
-                  className="flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-500 hover:border-gray-300 hover:text-gray-800 transition-colors"
+                  className="flex items-center gap-1 rounded-md border border-line-border bg-surface-white px-2.5 py-1 text-[11px] text-ink-500 hover:border-line-control hover:text-ink-800 transition-colors"
                 >
                   <ExternalLink className="h-3 w-3" /> Full Screen
                 </button>
@@ -580,7 +580,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
           <div className="flex-1 min-h-0 overflow-hidden">
             {loadingDetail ? (
               <div className="flex items-center justify-center h-full">
-                <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
+                <Loader2 className="h-5 w-5 animate-spin text-ink-300" />
               </div>
             ) : (
               /* Version-switch cross-fade (PreviewPanel.tsx:586-594 idiom): all
@@ -603,8 +603,8 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                 // for a non-failure empty (server-status-gated, SC-001).
                 reopenTerminalFailure ? null : (
                   <div className="flex flex-col items-center justify-center h-full gap-2">
-                    <FileText className="h-8 w-8 text-gray-200" />
-                    <p className="text-[12px] text-gray-400">No preview available</p>
+                    <FileText className="h-8 w-8 text-ink-200" />
+                    <p className="text-[12px] text-ink-400">No preview available</p>
                   </div>
                 )
               ) : (
@@ -624,7 +624,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                         // the summary column explains the failure; suppress neutral.
                         : reopenTerminalFailure
                           ? null
-                          : <div className="flex flex-col items-center justify-center h-full gap-2"><FileText className="h-8 w-8 text-gray-200" /><p className="text-[12px] text-gray-400">No preview available</p></div>
+                          : <div className="flex flex-col items-center justify-center h-full gap-2"><FileText className="h-8 w-8 text-ink-200" /><p className="text-[12px] text-ink-400">No preview available</p></div>
                   )}
                   {/* ISS-021 (18-03) — generic reopen fallback: HTML → the SAME
                       sandboxed iframe as the live path (T-18-05: allow-scripts,
@@ -734,31 +734,31 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   });
 
   return (
-    <div className="h-full flex flex-col bg-white" style={{ background: "#f5f5f0" }}>
+    <div className="h-full flex flex-col bg-surface-paper">
       {/* Header */}
-      <div className="px-6 pt-5 pb-4 border-b border-gray-100">
+      <div className="px-6 pt-5 pb-4 border-b border-line-divider">
         <div className="flex items-center gap-3 mb-4">
           <button
             onClick={onBack}
-            className="flex items-center justify-center h-8 w-8 rounded-lg hover:bg-gray-100 transition-colors"
+            className="flex items-center justify-center h-8 w-8 rounded-lg hover:bg-surface-warm transition-colors"
           >
-            <ArrowLeft className="h-4 w-4 text-gray-500" />
+            <ArrowLeft className="h-4 w-4 text-ink-500" />
           </button>
           <div>
-            <h1 className="text-[18px] font-normal italic text-gray-900 leading-tight font-serif">Workflow History</h1>
-            <p className="text-[11px] text-gray-400 mt-0.5">{runs.length} runs</p>
+            <h1 className="text-[18px] font-normal italic text-ink-900 leading-tight font-serif">Workflow History</h1>
+            <p className="text-[11px] text-ink-400 mt-0.5">{runs.length} runs</p>
           </div>
         </div>
 
         {/* Search */}
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink-400" />
           <input
             type="text"
             placeholder="Search workflows..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 text-[12px] bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400 transition-colors placeholder-gray-400"
+            className="w-full pl-9 pr-4 py-2 text-[12px] bg-surface-warm border border-line-border rounded-lg focus:outline-none focus:border-line-control transition-colors placeholder:text-ink-400"
           />
         </div>
 
@@ -774,12 +774,12 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
                 onClick={() => setFilterType(type)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium whitespace-nowrap transition-all flex-shrink-0 ${
                   filterType === type
-                    ? "bg-[#1B2A4A] text-white"
-                    : "text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                    ? "bg-brand text-white"
+                    : "text-ink-500 hover:bg-surface-warm hover:text-ink-700"
                 }`}
               >
                 {label}
-                <span className={`text-[9px] font-semibold px-1 rounded ${filterType === type ? "bg-white/20 text-white" : "bg-gray-200 text-gray-500"}`}>
+                <span className={`text-[9px] font-semibold px-1 rounded ${filterType === type ? "bg-white/20 text-white" : "bg-surface-warm text-ink-500"}`}>
                   {count}
                 </span>
               </button>
@@ -829,11 +829,11 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
             {/* Loading header */}
             <div className="flex items-center gap-3 mb-5 pt-2">
               <div className="relative">
-                <div className="h-8 w-8 rounded-full border-2 border-gray-200 border-t-[#1B2A4A] animate-spin" />
+                <div className="h-8 w-8 rounded-full border-2 border-line-border border-t-brand animate-spin" />
               </div>
               <div>
-                <p className="text-[13px] font-semibold text-gray-700">Loading workflows</p>
-                <p className="text-[11px] text-gray-400">Fetching your pipeline history...</p>
+                <p className="text-[13px] font-semibold text-ink-700">Loading workflows</p>
+                <p className="text-[11px] text-ink-400">Fetching your pipeline history...</p>
               </div>
             </div>
 
@@ -841,35 +841,35 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
             {Array.from({ length: 7 }).map((_, i) => (
               <div
                 key={i}
-                className="flex items-center gap-4 px-0 py-3.5 border-b border-gray-100"
+                className="flex items-center gap-4 px-0 py-3.5 border-b border-line-divider"
                 style={{ opacity: 1 - i * 0.1 }}
               >
                 {/* Icon skeleton */}
-                <div className="w-9 h-9 rounded-xl bg-gray-100 flex-shrink-0 animate-pulse" />
+                <div className="w-9 h-9 rounded-xl bg-surface-warm flex-shrink-0 animate-pulse" />
 
                 {/* Text skeleton */}
                 <div className="flex-1 min-w-0 space-y-2">
                   <div
-                    className="h-3 rounded-full bg-gray-100 animate-pulse"
+                    className="h-3 rounded-full bg-surface-warm animate-pulse"
                     style={{ width: `${60 + (i % 4) * 10}%` }}
                   />
                   <div className="flex items-center gap-2">
-                    <div className="h-2.5 w-20 rounded-full bg-gray-100 animate-pulse" />
-                    <div className="h-2.5 w-2.5 rounded-full bg-gray-100 animate-pulse" />
-                    <div className="h-2.5 w-14 rounded-full bg-gray-100 animate-pulse" />
+                    <div className="h-2.5 w-20 rounded-full bg-surface-warm animate-pulse" />
+                    <div className="h-2.5 w-2.5 rounded-full bg-surface-warm animate-pulse" />
+                    <div className="h-2.5 w-14 rounded-full bg-surface-warm animate-pulse" />
                   </div>
                 </div>
 
                 {/* Badge skeleton */}
-                <div className="h-5 w-14 rounded-full bg-gray-100 animate-pulse flex-shrink-0" />
-                <div className="h-4 w-4 rounded bg-gray-100 animate-pulse flex-shrink-0" />
+                <div className="h-5 w-14 rounded-full bg-surface-warm animate-pulse flex-shrink-0" />
+                <div className="h-4 w-4 rounded bg-surface-warm animate-pulse flex-shrink-0" />
               </div>
             ))}
           </div>
         ) : visibleFamilies.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-40 gap-2">
-            <FileText className="h-8 w-8 text-gray-200" />
-            <p className="text-[12px] text-gray-400">No workflows found</p>
+            <FileText className="h-8 w-8 text-ink-200" />
+            <p className="text-[12px] text-ink-400">No workflows found</p>
           </div>
         ) : (
           <div>
@@ -914,47 +914,59 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
 }
 
 function DeleteModal({ onConfirm, onCancel, error }: { onConfirm: () => void; onCancel: () => void; error?: string | null }) {
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  // a11y: focus the primary action on open + Escape closes the dialog.
+  useEffect(() => {
+    confirmRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--scrim)] backdrop-blur-sm"
       onClick={onCancel}
     >
       <motion.div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="history-delete-title"
         initial={{ opacity: 0, scale: 0.96, y: 8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 8 }}
         transition={{ duration: 0.15 }}
         onClick={(e) => e.stopPropagation()}
-        className="bg-white rounded-2xl border border-gray-200 shadow-2xl p-6 max-w-[340px] w-full mx-4"
+        className="bg-surface-white rounded-2xl border border-line-border shadow-[var(--elevation-modal)] p-6 max-w-[340px] w-full mx-4"
       >
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
-            <Trash2 className="h-5 w-5 text-gray-600" />
+          <div className="w-10 h-10 rounded-xl bg-surface-warm flex items-center justify-center">
+            <Trash2 className="h-5 w-5 text-ink-600" />
           </div>
           <div>
-            <h3 className="text-[13px] font-semibold text-gray-900">Delete workflow</h3>
-            <p className="text-[11px] text-gray-400">This cannot be undone</p>
+            <h3 id="history-delete-title" className="text-[13px] font-semibold text-ink-900">Delete workflow</h3>
+            <p className="text-[11px] text-ink-400">This cannot be undone</p>
           </div>
         </div>
-        <p className="text-[12px] text-gray-500 leading-relaxed mb-5">
+        <p className="text-[12px] text-ink-500 leading-relaxed mb-5">
           The workflow run and all its output will be permanently deleted.
         </p>
         {error && (
-          <p className="text-[11px] text-red-500 mb-3 px-1">{error}</p>
+          <p className="text-[11px] text-status-failed mb-3 px-1">{error}</p>
         )}
         <div className="flex gap-2">
           <button
             onClick={onCancel}
-            className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-[12px] font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+            className="flex-1 rounded-xl border border-line-border px-4 py-2.5 text-[12px] font-medium text-ink-600 hover:bg-surface-warm transition-colors"
           >
             Cancel
           </button>
           <button
+            ref={confirmRef}
             onClick={onConfirm}
-            className="flex-1 rounded-xl bg-gray-900 px-4 py-2.5 text-[12px] font-medium text-white hover:bg-gray-800 transition-colors"
+            className="flex-1 rounded-xl bg-ink-900 px-4 py-2.5 text-[12px] font-medium text-white hover:bg-ink-800 transition-colors"
           >
             Delete
           </button>
