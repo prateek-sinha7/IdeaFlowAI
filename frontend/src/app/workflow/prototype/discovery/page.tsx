@@ -153,7 +153,7 @@ export default function PrototypeDiscoveryPage() {
           </button>
           <div className="flex flex-col">
             <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-400">
-              Step 3 of 3
+              Step 1 of 1
             </span>
             <h1 className="text-[15px] font-normal italic text-ink-900 font-serif">
               A few details before we generate

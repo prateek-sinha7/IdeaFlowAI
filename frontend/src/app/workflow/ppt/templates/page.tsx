@@ -330,7 +330,7 @@ export default function PPTTemplatesPage() {
           </button>
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-400">
-              {isChaining ? "Chained presentation" : "New presentation"} · {isChaining ? "Step 1 of 1" : "Step 1 of 2"}
+              {isChaining ? "Chained presentation" : "New presentation"} · Step 1 of 1
             </p>
             <h1 className="font-serif text-[15px] font-normal italic text-ink-900">
               {isChaining ? "Pick a template" : "Configure your presentation"}
