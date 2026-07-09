@@ -130,6 +130,13 @@ None - no external service configuration required.
 - The `GET /api/runs/{id}/summary` contract (fields + owner-scope + fallback shapes) is stable and test-pinned; 36-04 can build `RunDetailPage` + the `getRunSummary` client against it.
 - SHELL-03 remains Pending until 36-04 lands the FE half.
 
+## Self-Check: PASSED
+
+- FOUND: `get_run_summary` in `backend/app/api/runs.py`
+- FOUND: `backend/tests/unit/test_runs_api_summary.py`
+- FOUND: `36-02-SUMMARY.md`
+- FOUND commits: `3be49bfa` (feat), `c7706f45` (test), `bf0814dc` (docs)
+
 ---
 *Phase: 36-home-history-my-workflows-b2*
 *Completed: 2026-07-09*
