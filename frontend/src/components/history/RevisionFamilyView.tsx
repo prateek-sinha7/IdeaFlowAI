@@ -20,6 +20,8 @@ import {
 } from "lucide-react";
 import type { WorkflowRun, WorkflowStatus, RunFamily } from "@/types/index";
 import { parseRunInput } from "@/lib/runInput";
+// INV-12: the run-stat formatters live once in @/lib/runStats — no local copy.
+import { formatDuration } from "@/lib/runStats";
 
 // ─── Display helpers (mirrors WorkflowHistory.tsx:87-120 — small presentational
 // utilities copied so the family card renders the SAME row shape without a
@@ -52,12 +54,6 @@ function formatDate(dateStr: string): string {
   if (hours < 24) return `${hours}h ago`;
   if (days < 7) return `${days}d ago`;
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function formatDuration(seconds?: number): string {
-  if (!seconds) return "";
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
 }
 
 // Normalize a run type to its base (od_prototype→prototype, od_ppt→ppt, strip
