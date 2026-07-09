@@ -1423,68 +1423,49 @@ Design systems are out of scope — their picker is text chips, not an iframe gr
 `python -m py_compile scripts/generate_template_thumbnails.py` exit 0; ran locally `--only audio-jingle` → produced the thumbnail with bundled Chromium and the loader flipped `has_thumbnail=true` with a resolving path (artifact then removed — thumbnails are build outputs). `pytest tests/unit/test_template_assets.py` 18 passed; `lint-imports` 4/0. Frontend build green (see FIX-039). A full backend `docker build` was NOT run here (base-image pulls / apt are network-restricted in this environment); the Dockerfile step is ordered after the existing Chromium install + OpenDesign COPY and is best-effort (always exits 0), so it cannot break the build.
 
 #### Notes
-- Build-time cost: ~106 headless screenshots add a few minutes to the backend image build; acceptable for a one-time, cache-friendly step (only re-runs when the layer is invalidated).
-- Absent thumbnails (e.g. local dev without running the generator) degrade gracefully to the FIX-039 live HTML+JS iframe.
+- For user_stories / app_builder / custom pipelines (no od_context): only the "📄 User brief" chip appears — correct.
+- For od_prototype: "📄 User brief" + "🎨 Template: web-prototype" + "🎨 Design system: github" chips appear.
+- For prototype with image attachment: "📄 User brief" + "🖼 1 image" chips appear (plus template/DS if od_prototype).
+- Downstream agents (index > 1) continue to show prior-agent handoff chips unchanged — no regression.
+- KAN-103 (prototype revision missing od_context) is a companion issue that this fix exposes more clearly — when prototype revision runs, the revision agent at index=0 will now show "📄 User brief" but NOT template/DS chips (because od_context=None in _handle_revision). KAN-103 remains open.
 
-#### Follow-up — code-review cleanup (2026-07-08)
-- **Stale docstring corrected:** `od_loader.get_template_thumbnail_path`'s docstring still pointed at the deleted frontend generator `frontend/scripts/generate-template-thumbnails.mjs`; repointed to the real single source `backend/scripts/generate_template_thumbnails.py`. Doc-only.
-- **Dockerfile chown consistency:** the thumbnail-generation `RUN` re-chowned `/app/opendesign` with numeric `chown -R 10001:10001` while the surrounding `COPY`s use the named `--chown=flowin:flowin` form (the `flowin` user is uid/gid 10001, created earlier). Aligned to `chown -R flowin:flowin /app/opendesign` for readability; functionally identical.
-- **Test coverage added** (`backend/tests/integration/test_template_thumbnails.py`, NEW): exercises the previously-untested thumbnail serving path — loader `has_thumbnail` true/false vs disk, `get_template_thumbnail_path` present/absent/unknown, and the `GET /api/{prototype,ppt}/templates/{id}/thumbnail` route handlers returning `image/jpeg` when present and **404** for unknown ids and for a thumbnail deleted after load (the FIX-042 stale-flag on-disk re-check → clean 404, never a 500). 8 tests, all pass.
-- **Verification:** `pytest tests/integration/test_template_thumbnails.py` 8 passed; `lint-imports` 4/0. INV-3 golden-neutral (doc/comment/test + a build-step chown label only; deliverable renderer untouched).
+| FIX-050 | 2026-07-09 | KAN-104: Prototype revision agent AGENT.md restructured for task planning, mandatory design.md read, and incremental execution | AGENT.md "How to work" jumped directly from read_file to edit_file with no analysis, no write_todos planning, no dependency ordering, and optional design.md read — agent processed all changes in a single undifferentiated pass | `backend/agents/prompts/prototype-revision-agent/AGENT.md` | Phase 14 (revision) / KAN-104 | INV-1/3/12/SC-001 ✅ | Done |
+
 ---
 
-### FIX-041 — OD/PPT gallery card: fall back to the live iframe when a thumbnail 404s
+### FIX-050 — KAN-104: Prototype Revision Agent task planning and mandatory DS awareness
 
-**Date:** 2026-07-08
-**Triggered by:** user requirement — "if thumbnail is not there than load template html in iframe … only if thumbnail is not there or 404 like."
-
-#### Root Cause
-FIX-039 renders each gallery card as a cheap static thumbnail `<img>` and only mounts the heavier live `example.html` iframe when no thumbnail exists; FIX-040 generates those thumbnails at backend-image build time (they are NOT committed). The thumbnail-vs-iframe decision in `TemplateCard` (prototype) and `CompactPPTCard` (PPT) keyed **solely** off the backend `has_thumbnail` flag, and the `<img>` had an `onLoad` handler but **no `onError` handler**. So whenever the flag was stale (local dev / an image built without the generator) or the file 404'd at request time, the `<img>` failed silently and the card was stuck on the pulse placeholder / broken image — it never degraded to the live iframe. The "no thumbnail at all" case already fell through to the iframe correctly; the missing case was the *runtime* load failure.
-
-#### Fix (frontend-only)
-In both cards:
-- Added a `thumbnailError` state (default `false`).
-- Gated the thumbnail URL on it: `thumbnailUrl = has_thumbnail && !thumbnailError ? getThumbnailUrl(id) : null`.
-- Added `onError` to the `<img>`: on load failure it sets `thumbnailError = true`, force-sets `shouldMount = true` (so the lazy iframe mounts even if the IntersectionObserver hadn't yet), and resets `previewLoaded = false`. Nulling `thumbnailUrl` makes the component fall through to the pre-existing `previewUrl && shouldMount` iframe branch — the exact FIX-039 fallback, now reached on 404 as well as on absence.
-
-No backend change; the `/thumbnail` endpoint still 404s as before — the fix just makes the client honour that 404.
-
-#### Files Changed
-`frontend/src/components/workflow/prototype/TemplateCard.tsx`, `frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx`.
-
-#### Invariants Verified
-- **INV-3**: FE-only; catalog thumbnails, not the deliverable renderer — golden-neutral, no regen.
-- **INV-1 / INV-12 / INV-13 / SC-001**: no engine/kernel/agent edits; no dual implementation (reuses the existing iframe fallback branch).
-
-#### Verification
-`npx tsc --noEmit` exit 0. `npx eslint` on both files: 0 errors (2 pre-existing warnings unrelated to this change — a `setState`-in-effect in the custom-template loader and an unused `onSelect` prop). The prototype `TemplateGallery.tsx` renders no thumbnails itself (delegates to `TemplateCard`), so no third card needed the patch.
-
-#### Notes
-- Behaviour now: thumbnail present and loads → cheap `<img>`; thumbnail absent (`has_thumbnail=false`) OR present-flag-but-404 → live `example.html` iframe; neither available → existing "No preview available" placeholder.
----
-
-### FIX-042 — Thumbnail endpoint returns 404 (not 500) when the file is missing at request time
-
-**Date:** 2026-07-08
-**Triggered by:** user test — deleted `design-templates/blog-post/thumbnail.jpg` and hit the endpoint; got a 500 (`RuntimeError: File at path … does not exist`) instead of a 404, so the fallback was only working by accident (the `<img>` errors on any failed load).
+**Date:** 2026-07-09
+**Triggered by:** `/velocity-ai-fix https://velocityai-hex.atlassian.net/browse/KAN-104`
 
 #### Root Cause
-`od_loader.get_template_thumbnail_path()` decided whether to serve by reading `t.get("has_thumbnail")`. That flag is produced by `_all_templates()`, which is `@lru_cache(maxsize=1)` — evaluated **once at process start** and never invalidated. When a thumbnail is deleted (or generated) after the server boots, the cached flag stays `True`, the function returns `_TEMPLATES_DIR/<id>/thumbnail.jpg`, and the endpoint hands that path to `FileResponse`. Starlette then `os.stat`s the file lazily while sending the response, raises `FileNotFoundError` → `RuntimeError`, which surfaces as a 500. Both the prototype and PPT thumbnail endpoints route through this one function, so both were affected.
+`backend/agents/prompts/prototype-revision-agent/AGENT.md` "How to work" section instructed the agent to jump directly from `read_file` to `edit_file` with no prior analysis or planning step. The `write_todos` native tool was technically available (workspace tool set returns `exclude_builtin=False` from `WorkspaceToolProvider.provide()` at `providers.py:74`) but was never referenced in the prompt. Additionally, the `design.md` read was marked "may" (optional), causing the agent to frequently skip template/DS context and invent CSS classes or color values inconsistent with the original design.
 
-#### Fix (backend-only)
-`get_template_thumbnail_path()` no longer trusts the cached flag for serving: it builds the path and re-checks `path.is_file()` on disk, returning `None` when the file is absent. The endpoints' existing `if path is None: raise HTTPException(404)` branch then produces a clean 404. Existence is still gated on `get_template(template_id)` first (unknown id → `None`). The `has_thumbnail` field in the catalog *listing* is left as-is (still cached) — the frontend can optimistically request the `<img>`, and on a 404 the FIX-041 `onError` handler falls the card back to the live `example.html` iframe.
+#### Phase Context
+- **Phase(s) involved:** Phase 14 — run_revision real revision loop
+- **Relevant register section:** Phase 14 §5 locked decision: `od_context=None` for revision dispatch; no `template`/`design_system` injects on revision agents (pinned by `test_run_revision_revision_agents_declare_no_template_injects`)
+- **Deleted code verified (not resurrected):** No deleted code involved — AGENT.md prompt-only change
+- **Locked decisions respected:** YAML frontmatter `injects:` stays empty — NO `template` or `design_system` added. The design context is accessed via `read_file("design.md")` from the sandbox (seeded by `previous_run` provider), which is the correct mechanism and does not require `od_context` injection. The test constraint is fully satisfied.
 
-#### Files Changed
-`backend/app/services/od_loader.py`.
+#### Fix Applied
+| File | Change | Why |
+|------|--------|-----|
+| `backend/agents/prompts/prototype-revision-agent/AGENT.md` | Restructured "Your workspace" section: added `write_todos` to tool list; changed `design.md` from optional "may" to MANDATORY with explicit constraint to use only defined CSS classes/tokens; added `spec.md` usage guidance. Replaced 4-step "How to work" with a 4-phase structured process: Step 1 (mandatory context read including ls + design.md + prototype.html), Step 2 (analyze + write_todos), Step 3 (execute one task at a time with per-task verification), Step 4 (final read + summary). | The agent was skipping design context, conflating all changes into a single pass, and producing inconsistent styles. The new structure forces planning before execution and uses write_todos for dependency-ordered task tracking. |
 
 #### Invariants Verified
-- **INV-1 / INV-12 / INV-13 / SC-001**: no engine/kernel/agent edits; single path resolver, no dual implementation.
-- **INV-3**: not on the deliverable/golden path (catalog asset serving); golden-neutral.
-- **Ports & Adapters**: change confined to `app.services.od_loader`.
+- **INV-1** (no pipeline_type branches): Not affected — AGENT.md only
+- **INV-3** (golden parity): Not affected — `prototype_revision` is not in any of the 5 characterization goldens
+- **INV-12** (no duplication): Not affected — no code changes
+- **SC-001** (zero engine edits): Not affected — AGENT.md prompt change only
+- **Test constraint**: `test_run_revision_revision_agents_declare_no_template_injects` stays green — `injects:` frontmatter is unchanged (empty list), no `template` or `design_system` inject added
 
 #### Verification
-`.venv` import check: after deleting `blog-post/thumbnail.jpg`, `get_template_thumbnail_path("blog-post")` → `None` (→ 404); `get_template_thumbnail_path("does-not-exist")` → `None`; 105 templates still flagged `has_thumbnail`, and sampled ids (`audio-jingle`, `clinical-case-report`, `contact-widget`) still resolve to a real on-disk path (happy path intact).
+- AGENT.md reads cleanly; YAML frontmatter is byte-identical to HEAD except for the prompt body
+- `write_todos` is available to the agent via `workspace` tool set (`exclude_builtin=False`) without any backend changes
+- `design.md` is read via `read_file()` from the workspace sandbox (seeded by `previous_run` provider when the parent sandbox is alive within 48h) — no injection mechanism needed
+- No backend restart needed — AGENT.md is read at agent dispatch time
 
 #### Notes
-- End-to-end behaviour now: thumbnail on disk → 200 `<img>`; thumbnail missing/deleted → 404 → card renders the live `example.html` iframe (FIX-041); no more 500s from a stale cache.
-| FIX-043 | 2026-07-09 | Template gallery thumbnail 429 flood — compact cards loaded ALL thumbnails eagerly (no IntersectionObserver gate on `<img>` path) + `CompactTemplateCard` had no `onError` fallback | Two bugs: (1) `CompactTemplateCard` (TemplateGallery.tsx) keyed the thumbnail `<img>` on `thumbnailUrl` alone — the `shouldMount` IntersectionObserver gate only controlled the iframe fallback path, so all ~43 thumbnails fired simultaneously on gallery mount → 429 Too Many Requests from the server. (2) Same component had no `thumbnailError` state or `onError` handler (unlike `TemplateCard.tsx` and `CompactPPTCard` which both had it), so a 429/404 left the card stuck on the pulse shimmer with no recovery. `CompactPPTCard` (PPTTemplateGallery.tsx) had `onError` but the same missing `shouldMount` gate on the img path. Fix: gate `thumbnailUrl` rendering behind `shouldMount` in both compact cards (only visible cards fire requests); add `thumbnailError` + `onError` to `CompactTemplateCard` (on error, flip to iframe fallback — matching existing pattern in `TemplateCard.tsx`). | `frontend/src/components/workflow/prototype/TemplateGallery.tsx`, `frontend/src/components/workflow/ppt/PPTTemplateGallery.tsx` | Phase 4 (OD catalog UI) · builds on FIX-039/041 | INV-3 golden-neutral (FE-only; catalog thumbnails) ✅ | Done |
+- This fix is complementary to KAN-103 (template_id persistence). Even after KAN-103 is implemented to make design.md reliably available, this prompt change ensures the agent actually uses it.
+- The `write_todos` tool creates an in-context todo list visible to the model. It is NOT persisted to the sandbox as a file — the agent's todo tracking is model-context-only.
+- The `spec.md` read guidance changed from "may read to ground your change" to a clear "read this to understand original intent when needed" — but it remains non-mandatory since many revision requests don't require spec context.
