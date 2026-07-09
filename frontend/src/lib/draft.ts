@@ -4,7 +4,7 @@
  * The Configure screen's Save-draft persists the in-progress run setup as ONE
  * keyed JSON blob in `sessionStorage`, read on mount and cleared once at launch.
  * This is deliberately a peer of `prototype.draft` (the wizard→dashboard hand-off
- * idiom, `app/workflow/prototype/templates/page.tsx`) — NOT of the `chain.*`
+ * idiom, `components/workflow/LaunchWizard.tsx`) — NOT of the `chain.*`
  * run-chaining keys — and it has **no** server surface: no DB, no draft rows, no
  * migration, no fetch/`/api` call. A per-tab client store only (STRIDE
  * T-37-02-01: accepted — never leaves the browser).

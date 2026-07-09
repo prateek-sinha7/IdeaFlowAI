@@ -213,8 +213,8 @@ test.describe("TS-Z (LIVE) — workflow catalog (real backend, real /api/workflo
       .getByRole("button", { name: new RegExp(FRIENDLY.prototype, "i") })
       .first()
       .click();
-    await page.waitForURL(/\/workflow\/prototype\/templates/, { timeout: 20000 });
-    expect(page.url()).toContain("/workflow/prototype/templates");
+    await page.waitForURL(/\/workflow\/create\?mode=prototype/, { timeout: 20000 });
+    expect(page.url()).toContain("/workflow/create?mode=prototype");
 
     // (c) WIZARD — ppt: back to the dashboard catalog, click ppt → its wizard.
     await page.goto("/dashboard");
@@ -226,7 +226,7 @@ test.describe("TS-Z (LIVE) — workflow catalog (real backend, real /api/workflo
       .getByRole("button", { name: new RegExp(FRIENDLY.ppt, "i") })
       .first()
       .click();
-    await page.waitForURL(/\/workflow\/ppt\/templates/, { timeout: 20000 });
-    expect(page.url()).toContain("/workflow/ppt/templates");
+    await page.waitForURL(/\/workflow\/create\?mode=ppt/, { timeout: 20000 });
+    expect(page.url()).toContain("/workflow/create?mode=ppt");
   });
 });

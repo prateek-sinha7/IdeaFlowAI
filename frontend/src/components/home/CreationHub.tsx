@@ -27,11 +27,11 @@ export function CreationHub({ onSelectFeature, userTier = "basic" }: CreationHub
   const handleClick = (type: WorkflowType) => {
     if (!canRunPipeline(userTier, type)) return;
     if (type === "prototype") {
-      router.push("/workflow/prototype/templates");
+      router.push("/workflow/create?mode=prototype");
       return;
     }
     if (type === "ppt") {
-      router.push("/workflow/ppt/templates");
+      router.push("/workflow/create?mode=ppt");
       return;
     }
     onSelectFeature(type);

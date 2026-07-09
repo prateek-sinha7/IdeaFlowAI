@@ -22,15 +22,15 @@ test.describe("TS-B — workflow selection", () => {
   });
 
   test("TS-B-02 'Pitch an idea' hard-navigates to the PPT template wizard", async ({ dashboard, page }) => {
-    // ppt routes via router.push("/workflow/ppt/templates") — NOT an input view.
+    // ppt routes via router.push("/workflow/create?mode=ppt") — NOT an input view.
     await dashboard.selectWorkflow("Pitch an idea");
-    await page.waitForURL(/\/workflow\/ppt\/templates/);
+    await page.waitForURL(/\/workflow\/create\?mode=ppt/);
   });
 
   test("TS-B-03 'Build an interactive prototype' hard-navigates to the prototype template wizard", async ({ dashboard, page }) => {
-    // prototype routes via router.push("/workflow/prototype/templates") — NOT an input view.
+    // prototype routes via router.push("/workflow/create?mode=prototype") — NOT an input view.
     await dashboard.selectWorkflow("Build an interactive prototype");
-    await page.waitForURL(/\/workflow\/prototype\/templates/);
+    await page.waitForURL(/\/workflow\/create\?mode=prototype/);
   });
 
   test("TS-B-04 'Build an end-to-end application' opens the application input view", async ({ dashboard, page }) => {

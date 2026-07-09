@@ -18,7 +18,7 @@ import {
  * home: the stepper supplies the step ordering, this route hosts the form.
  *
  * Pulls the previously-saved draft from sessionStorage (templateId / dsId /
- * brief — left by /workflow/prototype/templates), fetches the template
+ * brief — left by /workflow/create?mode=prototype), fetches the template
  * detail so we know its `od.inputs`, and renders the discovery form.
  *
  * Skipping is fully supported — every field on this page is optional. The
@@ -62,12 +62,12 @@ export default function PrototypeDiscoveryPage() {
       if (!rawDraft) {
         // No template was picked — bounce back to the gallery rather than
         // letting the user fill a form that goes nowhere.
-        router.replace("/workflow/prototype/templates");
+        router.replace("/workflow/create?mode=prototype");
         return;
       }
       const parsed = JSON.parse(rawDraft) as Draft;
       if (!parsed.templateId) {
-        router.replace("/workflow/prototype/templates");
+        router.replace("/workflow/create?mode=prototype");
         return;
       }
       setDraft(parsed);
@@ -81,7 +81,7 @@ export default function PrototypeDiscoveryPage() {
         }
       }
     } catch {
-      router.replace("/workflow/prototype/templates");
+      router.replace("/workflow/create?mode=prototype");
     }
   }, [authChecked, router]);
 
@@ -145,7 +145,7 @@ export default function PrototypeDiscoveryPage() {
         <div className="mx-auto flex max-w-3xl items-center gap-3 px-6 py-3.5">
           <button
             type="button"
-            onClick={() => router.push("/workflow/prototype/templates")}
+            onClick={() => router.push("/workflow/create?mode=prototype")}
             className="flex items-center justify-center rounded-[var(--radius-button)] p-1.5 text-ink-500 transition-colors hover:bg-surface-white hover:text-ink-900"
             aria-label="Back to template gallery"
           >

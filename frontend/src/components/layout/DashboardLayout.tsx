@@ -855,7 +855,7 @@ export function DashboardLayout({
         agentIds: saved.agent_ids,
       };
       sessionStorage.setItem("ppt.draft", JSON.stringify(draft));
-      router.push("/workflow/ppt/templates");
+      router.push("/workflow/create?mode=ppt");
       return;
     }
 
@@ -876,7 +876,7 @@ export function DashboardLayout({
         agentIds: saved.agent_ids,
       };
       sessionStorage.setItem("prototype.draft", JSON.stringify(draft));
-      router.push("/workflow/prototype/templates");
+      router.push("/workflow/create?mode=prototype");
       return;
     }
 

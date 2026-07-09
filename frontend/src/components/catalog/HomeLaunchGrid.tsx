@@ -103,11 +103,11 @@ export function HomeLaunchGrid({
       return;
     }
     if (type === "prototype") {
-      router.push("/workflow/prototype/templates");
+      router.push("/workflow/create?mode=prototype");
       return;
     }
     if (type === "ppt") {
-      router.push("/workflow/ppt/templates");
+      router.push("/workflow/create?mode=ppt");
       return;
     }
     onSelectFeature(type);
