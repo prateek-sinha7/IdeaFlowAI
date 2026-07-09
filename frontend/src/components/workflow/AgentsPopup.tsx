@@ -170,7 +170,7 @@ const PIPELINE_LABEL: Record<string, string> = {
 };
 
 const ICON_STYLES = [
-  { bg: "#E8EDF5", text: "#1B2A4A" }, { bg: "#F0EDE8", text: "#5C4A2A" },
+  { bg: "var(--brand-fill)", text: "var(--brand)" }, { bg: "#F0EDE8", text: "#5C4A2A" },
   { bg: "#EAF0EA", text: "#2A5C2A" }, { bg: "#F0E8EE", text: "#5C2A4A" },
   { bg: "#E8EEF0", text: "#2A4A5C" }, { bg: "#F0EEE8", text: "#5C5A2A" },
 ];
@@ -280,7 +280,7 @@ function AgentPromptSection({ agent }: { agent: AgentDef }) {
         </div>
         <div className="flex items-center gap-2">
           {promptData?.has_override && (
-            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-[#E8EDF5] text-[#1B2A4A]">overridden</span>
+            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-brand-fill text-brand">overridden</span>
           )}
           <ChevronDown className={`h-3.5 w-3.5 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
         </div>
@@ -308,7 +308,7 @@ function AgentPromptSection({ agent }: { agent: AgentDef }) {
                   <div className="flex items-center justify-between px-4 pt-3 pb-2 gap-2">
                     <span className={`text-[9px] font-semibold px-2 py-0.5 rounded-full border ${
                       promptData.has_override
-                        ? "bg-[#E8EDF5] text-[#1B2A4A] border-[#c8d4e8]"
+                        ? "bg-brand-fill text-brand border-brand-border"
                         : "bg-gray-100 text-gray-500 border-gray-200"
                     }`}>
                       {promptData.has_override ? "Your override" : "Default AGENT.md"}
@@ -1090,7 +1090,7 @@ export function CapabilityPaletteSection({
   return (
     <div className="flex flex-col">
       <div className="flex items-center gap-1.5 mb-2">
-        <Sliders className="h-3.5 w-3.5 text-[#1B2A4A]" />
+        <Sliders className="h-3.5 w-3.5 text-brand" />
         <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">
           Capabilities
         </p>
@@ -1099,8 +1099,8 @@ export function CapabilityPaletteSection({
       {/* SURF-03: declared per-step capabilities of the opened workflow (compiled
           projection) — read-only, shown before composing. */}
       {declaredCapabilities && declaredCapabilities.length > 0 && (
-        <div className="mb-2 rounded-lg bg-[#1B2A4A]/5 border border-[#1B2A4A]/15 px-2.5 py-1.5">
-          <p className="text-[9px] font-semibold text-[#1B2A4A] uppercase tracking-widest mb-1">
+        <div className="mb-2 rounded-lg bg-brand/5 border border-brand/15 px-2.5 py-1.5">
+          <p className="text-[9px] font-semibold text-brand uppercase tracking-widest mb-1">
             Declared by this workflow
           </p>
           <div className="space-y-0.5">
@@ -1213,7 +1213,7 @@ export function CapabilityPaletteSection({
                             onClick={() => toggle(rowKey)}
                             aria-expanded={isOpen}
                             aria-label={`Configuration for ${cap.name}`}
-                            className="flex items-center justify-center h-5 w-5 rounded text-gray-400 hover:text-[#1B2A4A] flex-shrink-0"
+                            className="flex items-center justify-center h-5 w-5 rounded text-gray-400 hover:text-brand flex-shrink-0"
                           >
                             <Settings2 className="h-3 w-3" />
                             {isOpen ? (
@@ -1478,14 +1478,14 @@ export function AdvancedExpander({
               onClick={() => toggle(agent.id)}
               aria-expanded={isOpen}
               aria-controls={region}
-              className="flex items-center gap-1.5 text-left text-[11px] font-semibold text-gray-700 hover:text-[#1B2A4A] py-1"
+              className="flex items-center gap-1.5 text-left text-[11px] font-semibold text-gray-700 hover:text-brand py-1"
             >
               {isOpen ? (
                 <ChevronDown className="h-3 w-3 flex-shrink-0" />
               ) : (
                 <ChevronRight className="h-3 w-3 flex-shrink-0" />
               )}
-              <Settings2 className="h-3 w-3 flex-shrink-0 text-[#1B2A4A]" />
+              <Settings2 className="h-3 w-3 flex-shrink-0 text-brand" />
               <span className="truncate flex-1 min-w-0">
                 Advanced — {agent.name}
               </span>
@@ -1513,7 +1513,7 @@ export function AdvancedExpander({
                         validators: e.target.value ? [e.target.value] : [],
                       })
                     }
-                    className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-[#1B2A4A] max-w-[140px]"
+                    className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-brand max-w-[140px]"
                   >
                     <option value="">Default</option>
                     {validatorOptions.map((name) => (
@@ -1549,7 +1549,7 @@ export function AdvancedExpander({
                         : keepCoupled;
                       updateLever(agent.id, { gates });
                     }}
-                    className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-[#1B2A4A] max-w-[140px]"
+                    className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-brand max-w-[140px]"
                   >
                     <option value="">Default</option>
                     {gateOptions.map((name) => (
@@ -1576,7 +1576,7 @@ export function AdvancedExpander({
                       onChange={(e) =>
                         updateLever(agent.id, { model: e.target.value })
                       }
-                      className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-[#1B2A4A] min-w-[160px] max-w-[200px]"
+                      className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-brand min-w-[160px] max-w-[200px]"
                     >
                       <option value="">Default</option>
                       {modelOptions.map((m) => (
@@ -1633,7 +1633,7 @@ export function AdvancedExpander({
                           : undefined,
                       })
                     }
-                    className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-[#1B2A4A] max-w-[140px]"
+                    className="text-[10px] text-gray-700 bg-white border border-gray-200 rounded-md px-1.5 py-1 focus:outline-none focus:border-brand max-w-[140px]"
                   >
                     <option value="">Default</option>
                     {RETRY_OPTIONS.map((n) => (
@@ -1649,7 +1649,7 @@ export function AdvancedExpander({
                 {autoAttached && (
                   <div
                     role="status"
-                    className="flex items-center gap-1.5 text-[10px] text-[#1B2A4A] bg-[#1B2A4A]/5 border border-[#1B2A4A]/15 rounded-md px-2 py-1"
+                    className="flex items-center gap-1.5 text-[10px] text-brand bg-brand/5 border border-brand/15 rounded-md px-2 py-1"
                   >
                     <Info className="h-3 w-3 flex-shrink-0" />
                     Added required {COUPLED_GATE_LABEL} gate — this capability
@@ -1807,7 +1807,7 @@ export function AgentsPopup({
                     <span className="flex items-center gap-1 text-gray-300"><Lock className="h-2.5 w-2.5" /> Core = locked</span>
                     <span className="text-gray-300">· Drag to reorder · × to remove</span>
                   </div>
-                  <button onClick={() => setLibraryOpen(true)} className="text-[10px] font-semibold text-gray-400 hover:text-[#1B2A4A] uppercase tracking-widest transition-colors flex-shrink-0 ml-4">
+                  <button onClick={() => setLibraryOpen(true)} className="text-[10px] font-semibold text-gray-400 hover:text-brand uppercase tracking-widest transition-colors flex-shrink-0 ml-4">
                     Browse agent library →
                   </button>
                 </div>
@@ -1879,7 +1879,7 @@ export function AgentsPopup({
                                 onDrop={() => handleDrop(globalIdx)}
                                 onDragEnd={handleDragEnd}
                                 className={`group relative bg-white rounded-lg border px-3 py-2.5 shadow-sm transition-all ${
-                                  isDragOver ? "border-[#1B2A4A] shadow-md" :
+                                  isDragOver ? "border-brand shadow-md" :
                                   locked ? "border-gray-200 opacity-80" :
                                   "border-gray-200 hover:border-gray-300 hover:shadow-md"
                                 } ${!locked ? "cursor-grab active:cursor-grabbing" : ""}`}
