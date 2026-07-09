@@ -13,7 +13,9 @@ import {
 } from "@/components/workflow/prototype/DiscoveryForm";
 
 /**
- * Step 2 of the OpenDesign-style prototype flow.
+ * Discovery — step 3 of the unified Template -> Design System -> Discovery
+ * wizard (WizardStepper, plan 37-04). This is the DiscoveryForm's navigation
+ * home: the stepper supplies the step ordering, this route hosts the form.
  *
  * Pulls the previously-saved draft from sessionStorage (templateId / dsId /
  * brief — left by /workflow/prototype/templates), fetches the template
@@ -130,33 +132,30 @@ export default function PrototypeDiscoveryPage() {
 
   if (!authChecked || !draft) {
     return (
-      <div className="flex h-screen items-center justify-center" style={{ background: "#f5f5f0" }}>
-        <div className="text-sm text-gray-500">Loading…</div>
+      <div className="flex h-screen items-center justify-center bg-surface-paper">
+        <div className="text-sm text-ink-500">Loading…</div>
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen flex-col" style={{ background: "#f5f5f0" }}>
+    <div className="flex min-h-screen flex-col bg-surface-paper">
       {/* Header */}
-      <header className="sticky top-0 z-20 border-b border-gray-200/70 bg-[#f5f5f0]/95 backdrop-blur">
+      <header className="sticky top-0 z-20 border-b border-line-divider bg-surface-paper/95 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center gap-3 px-6 py-3.5">
           <button
             type="button"
             onClick={() => router.push("/workflow/prototype/templates")}
-            className="flex items-center justify-center rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-white hover:text-gray-900"
+            className="flex items-center justify-center rounded-[var(--radius-button)] p-1.5 text-ink-500 transition-colors hover:bg-surface-white hover:text-ink-900"
             aria-label="Back to template gallery"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
           <div className="flex flex-col">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-400">
-              Step 2 of 3
+            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-400">
+              Step 3 of 3
             </span>
-            <h1
-              className="text-[15px] font-normal italic text-gray-900"
-              style={{ fontFamily: "var(--font-fraunces)" }}
-            >
+            <h1 className="text-[15px] font-normal italic text-ink-900 font-serif">
               A few details before we generate
             </h1>
           </div>
@@ -166,22 +165,22 @@ export default function PrototypeDiscoveryPage() {
       {/* Main */}
       <main className="mx-auto w-full max-w-3xl flex-1 px-6 pb-36 pt-8">
         {/* Brief recap */}
-        <section className="mb-6 rounded-2xl border border-gray-200/70 bg-white px-5 py-4">
+        <section className="mb-6 rounded-[var(--radius-card)] border border-line-divider bg-surface-white px-5 py-4">
           <div className="flex flex-col gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-400">
               Your brief
             </span>
-            <p className="text-[13px] italic text-gray-700">
-              {draft.brief || <em className="not-italic text-gray-400">(no brief)</em>}
+            <p className="text-[13px] italic text-ink-700">
+              {draft.brief || <em className="not-italic text-ink-400">(no brief)</em>}
             </p>
             <div className="mt-2 flex flex-wrap gap-1.5">
               {template?.name && (
-                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-700">
+                <span className="rounded-full bg-surface-warm px-2 py-0.5 text-[10px] font-medium text-ink-700">
                   {template.name}
                 </span>
               )}
               {draft.designSystemId && (
-                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-700">
+                <span className="rounded-full bg-surface-warm px-2 py-0.5 text-[10px] font-medium text-ink-700">
                   {draft.designSystemId}
                 </span>
               )}
@@ -190,7 +189,7 @@ export default function PrototypeDiscoveryPage() {
         </section>
 
         {loadError ? (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700">
+          <div className="rounded-[var(--radius-list-row)] border border-[var(--status-failed-border)] bg-[var(--status-failed-fill)] px-4 py-3 text-[13px] text-status-failed">
             Couldn’t load template detail: {loadError}
           </div>
         ) : !template ? (
@@ -205,12 +204,12 @@ export default function PrototypeDiscoveryPage() {
       </main>
 
       {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 z-30 border-t border-gray-200/70 bg-white/90 backdrop-blur">
+      <footer className="fixed bottom-0 left-0 right-0 z-30 border-t border-line-divider bg-surface-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-6 py-4">
           <button
             type="button"
             onClick={() => goToRun(null)}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12px] font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-900"
+            className="flex items-center gap-1.5 rounded-[var(--radius-button)] px-3 py-2 text-[12px] font-medium text-ink-500 hover:bg-surface-warm hover:text-ink-900"
           >
             <SkipForward className="h-3.5 w-3.5" />
             Skip — brief is enough
@@ -219,7 +218,7 @@ export default function PrototypeDiscoveryPage() {
           <button
             type="button"
             onClick={() => goToRun(answers)}
-            className="flex h-[44px] items-center gap-2 rounded-lg bg-[#1B2A4A] px-5 text-[13px] font-semibold text-white shadow-sm transition-all hover:bg-[#0F1B33]"
+            className="flex h-[44px] items-center gap-2 rounded-[var(--radius-button)] bg-brand px-5 text-[13px] font-semibold text-white shadow-sm transition-all hover:bg-brand-pressed"
           >
             Generate prototype
             <ArrowRight className="h-4 w-4" />
@@ -234,12 +233,12 @@ function DiscoverySkeleton() {
   return (
     <div className="flex flex-col gap-8">
       {Array.from({ length: 2 }).map((_, i) => (
-        <div key={i} className="rounded-2xl border border-gray-200/70 bg-white p-6">
-          <div className="h-3 w-32 animate-pulse rounded bg-gray-100" />
-          <div className="mt-2 h-2.5 w-3/4 animate-pulse rounded bg-gray-100" />
+        <div key={i} className="rounded-[var(--radius-card)] border border-line-divider bg-surface-white p-6">
+          <div className="h-3 w-32 animate-pulse rounded bg-surface-warm" />
+          <div className="mt-2 h-2.5 w-3/4 animate-pulse rounded bg-surface-warm" />
           <div className="mt-5 space-y-3">
             {Array.from({ length: 3 }).map((__, j) => (
-              <div key={j} className="h-9 w-full animate-pulse rounded-lg bg-gray-100" />
+              <div key={j} className="h-9 w-full animate-pulse rounded-[var(--radius-button)] bg-surface-warm" />
             ))}
           </div>
         </div>
