@@ -98,6 +98,16 @@ const FAILED: RunSummary = {
 
 const CANCELLED: RunSummary = { ...FAILED, id: "run-c", title: "Stopped run", status: "cancelled", error: null };
 
+// ISS-024 raw-id fallback: the `error` names a failed agent id that is NOT present
+// in `agents[]` (no name source) → the affordance must render the RAW id, never blank.
+const FAILED_UNKNOWN_AGENT: RunSummary = {
+  ...FAILED,
+  id: "run-u",
+  title: "Failed unknown-agent run",
+  error: "Pipeline failed — agent(s) failed: ghost-agent",
+  agents: [],
+};
+
 // Retired-palette guard: no hexes / fonts from the pre-Phase-32 palette may
 // appear in the class strings RunDetailPage itself renders (token authority).
 const RETIRED = /#1B2A4A|#2563eb|#f5f5f0|\bInter\b|\bFraunces\b|\bJetBrains\b/;
@@ -144,6 +154,15 @@ describe("RunDetailPage", () => {
     // Retired-palette guard on the rendered frame (single-member → no timeline
     // subtree, so this is RunDetailPage's own chrome + DegradedRunAffordance).
     expect(RETIRED.test(container.innerHTML)).toBe(false);
+  });
+
+  it("failed run whose error names an agent id absent from agents[] falls back to the RAW id (ISS-024, never blank)", async () => {
+    mockGetRunSummary.mockResolvedValue(FAILED_UNKNOWN_AGENT);
+    render(<RunDetailPage runId="run-u" onBack={() => {}} />);
+
+    expect(await screen.findByText(/did not complete successfully/i)).toBeInTheDocument();
+    // No name source for "ghost-agent" → the raw id renders (not blank).
+    expect(screen.getByText("ghost-agent")).toBeInTheDocument();
   });
 
   it("cancelled run → DegradedRunAffordance shows the cancelled copy", async () => {
