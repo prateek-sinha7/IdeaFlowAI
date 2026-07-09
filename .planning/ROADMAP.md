@@ -752,7 +752,7 @@ Plans:
 - [x] **Phase 32: Run-Screen Redesign [A4]** — token layer + primitives, chat-lane left, Preview/Steps/Files/Audit right, 3-level Steps drill-down, 3 Audit read endpoints, e2e hardening (completed 2026-07-08)
 - [x] **Phase 33: Concierge + Compaction [A5]** — `chat:concierge` capability + confirm chips, `compaction:chat_history` + `context_provider:conversation`, post-run iteration chat *(offline-complete 2026-07-09; SC-001 proof GREEN; Concierge live-wiring + verification → Phase 34)*
 - [ ] **Phase 34: Live Pass & Closure [A6]** — live Bedrock chat/images/steering/concierge, multi-turn cache placement (P26 deferral folds in), Playwright live, register sweeps
-- [ ] **Phase 35: Shell Chrome + Reskin Pages [B1]** — dark top bar + nav pill (Home · Library · My Workflows), profile menu, notifications, Settings, pickers, Library restyle, **+ Login/Register + Admin reskin (ND-12)**; cites the canonical shared-surface spec (evidence 11 §B / D-15), not individual mocks
+- [x] **Phase 35: Shell Chrome + Reskin Pages [B1]** — dark top bar + nav pill (Home · Library · My Workflows), profile menu, notifications, Settings, pickers, Library restyle, **+ Login/Register + Admin reskin (ND-12)**; cites the canonical shared-surface spec (evidence 11 §B / D-15), not individual mocks (completed 2026-07-09)
 - [ ] **Phase 36: Home + History + My Workflows [B2]** — fused Home, History grouping/sort + real delete, My Workflows rename + kebab actions, Run detail page + run-summary endpoint, `WorkflowCatalog`→`HomeLaunchGrid`
 - [ ] **Phase 37: Configure Unification + Composer/Wizard [B3]** — generic per-run setup (templates/DS/gates/settings for EVERY deliverable — the D-15/C architectural change), **full composer + wizard rebuild (evidence 08: ~13 reskins of P22 code, reuse the live registry/AdvancedExpander/AgentModelPicker/user-workflows CRUD; NEW unified stepper)**, Agent drawer, Workflow dialog, draft-run persistence; deferred backend noted (visibility/sharing, pre-run cost/duration, discovery-pages) (ND-1/ND-7/ND-8/ND-12 gates)
 - [ ] **Phase 38: Analytics, Estimates & Notifications [B4]** — date-scoped aggregations, chart components, per-deliverable estimates, notifications feed
@@ -940,7 +940,7 @@ Plans:
 1. Shell chrome matches the Workspace v2 idiom on tokens (no per-page palette forks); nav = Home · Library · My Workflows (D-11).
 2. Account Settings, Template/DS pickers, Review-gates popover, Library restyled with real controls where the mock had static text.
 
-**Plans:** 6/7 plans executed
+**Plans:** 7/7 plans complete
 **Wave 1**
 
 - [x] 35-01-PLAN.md — Shell chrome: dark top bar + nav pill (My Workflows) + a11y profile menu + notifications panel + baseline capture (Wave 1)
@@ -952,7 +952,7 @@ Plans:
 - [x] 35-04-PLAN.md — Design-System picker (LOCK-F ~14) + DS modals + Review-gates reskin (Wave 2)
 - [x] 35-05-PLAN.md — Library (Agents/Skills/Hooks) reskin with real controls (Wave 2)
 - [x] 35-06-PLAN.md — Login reskin + dark brand panel + Register tokenize (ND-12) (Wave 2)
-- [ ] 35-07-PLAN.md — Admin reskin (keep Runs/Role/Joined + pw-create; defer Status/Last-active) (Wave 2)
+- [x] 35-07-PLAN.md — Admin reskin (keep Runs/Role/Joined + pw-create; defer Status/Last-active) (Wave 2)
 
 ### Phase 36: Home + History + My Workflows [B2]
 
@@ -995,7 +995,7 @@ Plans:
 | 32. Run-Screen Redesign [A4] | 10/10 | Complete   | 2026-07-08 |
 | 33. Concierge + Compaction [A5] | 5/5 | Verified⚠ (P34 live) | — |
 | 34. Live Pass & Closure [A6] | 0/? | Not started | — |
-| 35. Shell Chrome + Reskin Pages [B1] | 6/7 | In Progress|  |
+| 35. Shell Chrome + Reskin Pages [B1] | 7/7 | Complete   | 2026-07-09 |
 | 36. Home + History + My Workflows [B2] | 0/? | Not started | — |
 | 37. Configure Unification [B3] | 0/? | Not started | — |
 | 38. Analytics, Estimates & Notifications [B4] | 0/? | Not started | — |
