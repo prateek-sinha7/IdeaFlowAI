@@ -7,6 +7,7 @@ import type {
   AuthResponse,
   ChatMessage,
   ChatSession,
+  FamilyMember,
   RunFamily,
   User,
   WorkflowRun,
@@ -348,6 +349,64 @@ export async function getRunFamily(
   runId: string
 ): Promise<RunFamily> {
   return request<RunFamily>(`/api/runs/${runId}/family`, {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+}
+
+/** One agent's summary-safe telemetry from GET /api/runs/{id}/summary.
+ *  Mirrors the backend `_SUMMARY_SAFE_AGENT_KEYS` projection field-for-field
+ *  (runs.py) — identity + KPI ONLY; the raw output / input_prompt /
+ *  thinking_text / tool_calls are NEVER echoed (V7 leak guard). Every field is
+ *  optional because the server projects only the keys present on each stored
+ *  agent record. */
+export interface RunSummaryAgent {
+  agent_id?: string;
+  name?: string;
+  role?: string;
+  icon?: string;
+  duration?: number | null;
+  error?: string | null;
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+}
+
+/** The aggregated, read-only summary of an owned run — the data spine for the
+ *  Run-detail page (SHELL-03). Mirrors the backend `RunSummaryResponse`
+ *  field-for-field (runs.py): every key maps 1:1 to an existing `WorkflowRun`
+ *  column or the owned family walk (no invented fields). Raw wire shape
+ *  (snake_case), unnormalized, like getRunFamily/getChainContext. `members`
+ *  reuses the family-member type so `{ root_id, members }` slots straight into
+ *  the shared `VersionTimeline` as a `RunFamily`. */
+export interface RunSummary {
+  id: string;
+  title: string;
+  type: string;
+  status: string;
+  duration: number | null;
+  agent_count: number;
+  token_usage: {
+    total_input_tokens?: number;
+    total_output_tokens?: number;
+    total_tokens?: number;
+  };
+  error: string | null;
+  agents: RunSummaryAgent[];
+  root_id: string;
+  members: FamilyMember[];
+}
+
+/** Fetch the aggregated run summary (KPI stats + per-agent breakdown + failure
+ *  banner data + revision-family timeline) for an owned run. Owner-gated (JWT).
+ *  Returns the raw wire shape (unnormalized snake_case) like getRunFamily. */
+export async function getRunSummary(
+  token: string,
+  runId: string
+): Promise<RunSummary> {
+  return request<RunSummary>(`/api/runs/${runId}/summary`, {
     method: "GET",
     headers: authHeaders(token),
   });
