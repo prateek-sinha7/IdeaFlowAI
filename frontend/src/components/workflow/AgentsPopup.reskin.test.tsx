@@ -40,7 +40,10 @@ vi.mock("@/lib/api", () => ({
 import {
   AdvancedExpander,
   CapabilityPaletteSection,
+  AgentsPopup,
 } from "./AgentsPopup";
+import { SkillsHooksProvider } from "@/context/SkillsHooksContext";
+import type { AgentDef } from "@/types/index";
 
 // ── The exact Phase-35 token gate (per-file retired palette must be 0) ──────────
 const RETIRED_PALETTE = /#1B2A4A|#2563eb|#f5f5f0|Inter|Fraunces|JetBrains/g;
@@ -48,6 +51,10 @@ const RETIRED_PALETTE = /#1B2A4A|#2563eb|#f5f5f0|Inter|Fraunces|JetBrains/g;
 const WORKFLOW_DIR = resolve(process.cwd(), "src/components/workflow");
 const AGENTS_POPUP_SRC = readFileSync(
   resolve(WORKFLOW_DIR, "AgentsPopup.tsx"),
+  "utf8",
+);
+const AGENT_LIBRARY_SRC = readFileSync(
+  resolve(WORKFLOW_DIR, "AgentLibrary.tsx"),
   "utf8",
 );
 
@@ -175,5 +182,81 @@ describe("AgentsPopup reskin — CapabilityPaletteSection live registry", () => 
 
   it("does not introduce a hardcoded capability list (no CAPDEF)", () => {
     expect(AGENTS_POPUP_SRC).not.toMatch(/CAPDEF/i);
+  });
+});
+
+// ── 5. AgentLibrary token gate (RED-first for Task 2) ───────────────────────────
+describe("AgentsPopup reskin — AgentLibrary token gate", () => {
+  it("AgentLibrary.tsx carries 0 retired-palette hits", () => {
+    const hits = AGENT_LIBRARY_SRC.match(RETIRED_PALETTE) ?? [];
+    expect(hits).toEqual([]);
+  });
+});
+
+// ── 6. ND-12 + INV-3 source invariants ──────────────────────────────────────────
+describe("AgentsPopup reskin — deferred-out + no dual-impl", () => {
+  it("ND-12: no workflow visibility / team-sharing control is built", () => {
+    expect(AGENTS_POPUP_SRC).not.toMatch(/visibility|just me|team-shar|shared with/i);
+  });
+
+  it("INV-3: the standalone AgentModelPicker is neither imported nor mounted", () => {
+    // The corrected gate: no JSX mount and no import of the superseded component.
+    // (Explanatory comments referencing the pattern are allowed.)
+    expect(AGENTS_POPUP_SRC).not.toMatch(/<AgentModelPicker|import.*AgentModelPicker/);
+  });
+
+  it("Save is wired to the owner-scoped createUserWorkflow", () => {
+    expect(AGENTS_POPUP_SRC).toMatch(/createUserWorkflow/);
+  });
+});
+
+// ── 7. Save → createUserWorkflow via NameWorkflowModal (behavioral) ─────────────
+describe("AgentsPopup reskin — Save wires to createUserWorkflow", () => {
+  const SAVE_AGENTS: AgentDef[] = [
+    {
+      id: "requirements-analyst",
+      name: "Requirements Analyst",
+      description: "Analyzes requirements.",
+      role: "analyst",
+      pipeline_type: "prototype",
+    } as AgentDef,
+  ];
+
+  it("opens NameWorkflowModal and calls createUserWorkflow with the composed payload", async () => {
+    mockCreateUserWorkflow.mockResolvedValue({
+      id: "wf-1",
+      name: "My workflow",
+      base_pipeline_type: "prototype",
+      agent_ids: ["requirements-analyst"],
+    });
+
+    render(
+      <SkillsHooksProvider>
+        <AgentsPopup
+          isOpen
+          onClose={vi.fn()}
+          agents={SAVE_AGENTS}
+          pipelineType="prototype"
+        />
+      </SkillsHooksProvider>,
+    );
+
+    // Open the Save modal from the footer.
+    await userEvent.click(
+      screen.getByRole("button", { name: /save workflow/i }),
+    );
+
+    // Name it, then confirm.
+    const nameInput = await screen.findByPlaceholderText(/competitive research/i);
+    await userEvent.type(nameInput, "My workflow");
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => expect(mockCreateUserWorkflow).toHaveBeenCalledTimes(1));
+    const [, body] = mockCreateUserWorkflow.mock.calls[0];
+    expect(body).toMatchObject({
+      name: "My workflow",
+      base_pipeline_type: "prototype",
+      agent_ids: ["requirements-analyst"],
+    });
   });
 });
