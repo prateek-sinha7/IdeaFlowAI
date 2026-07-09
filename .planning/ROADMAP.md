@@ -985,7 +985,7 @@ Plans:
 
 **Goal:** One generic per-run setup surface for every deliverable type; the agent drawer and workflow dialog give capabilities a real home.
 **Depends on:** Phase 36; ND-1/ND-7/ND-8 decided
-**Plans:** 4/6 plans executed
+**Plans:** 5/6 plans executed
 **Success Criteria:**
 
 1. Configure screen: Describe + Templates + Design System + Review Gates + Workflow Settings for ANY deliverable type (declared run inputs, not prototype-only wizardry).
@@ -1005,7 +1005,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 37-05-PLAN.md — DS band-card restructure (real ~14) + wire orphaned DiscoveryForm as stepper step 3 [Wave 3]
+- [x] 37-05-PLAN.md — DS band-card restructure (real ~14) + wire orphaned DiscoveryForm as stepper step 3 [Wave 3]
 - [ ] 37-06-PLAN.md — Agent drawer 4-tab (Config surface-only, ND-7) + Workflow dialog (user_allowed gating) [Wave 3]
 
 ### Phase 38: Analytics, Estimates & Notifications [B4]
@@ -1030,5 +1030,5 @@ Plans:
 | 34. Live Pass & Closure [A6] | 0/? | Not started | — |
 | 35. Shell Chrome + Reskin Pages [B1] | 7/7 | Complete   | 2026-07-09 |
 | 36. Home + History + My Workflows [B2] | 4/5 | In Progress|  |
-| 37. Configure Unification [B3] | 4/6 | In Progress|  |
+| 37. Configure Unification [B3] | 5/6 | In Progress|  |
 | 38. Analytics, Estimates & Notifications [B4] | 0/? | Not started | — |
