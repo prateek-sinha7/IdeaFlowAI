@@ -958,12 +958,28 @@ Plans:
 
 **Goal:** The three restructured list surfaces + the new Run detail page.
 **Depends on:** Phase 35
+**Requirements:** SHELL-02, SHELL-03
 **Success Criteria:**
 
 1. Fused Home: prompt launcher + deliverable grid + recents (merges `input`/`home` views).
 2. History: Today/Earlier/Older grouping, token/duration sort, real delete, revision families intact.
 3. "My Workflows" rename + working kebab actions; `WorkflowCatalog`→`HomeLaunchGrid` rename (D-11) — "Catalogue" reserved for the future marketplace.
 4. Run detail/reopen page live off a run-summary endpoint aggregating existing data (agents, KPIs, failure banner, version timeline).
+
+**Plans:** 5 plans (3 waves)
+**Wave 1**
+
+- [ ] 36-01-PLAN.md — `WorkflowCatalog`→`HomeLaunchGrid` rename (D-11) + Fused Home (launcher + grid + recents) + HomeLaunchGrid reskin (Wave 1)
+- [ ] 36-02-PLAN.md — Backend `GET /api/runs/{id}/summary` owner-scoped read endpoint aggregating existing data + tests (Wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 36-03-PLAN.md — "My Workflows" label reskin (drop "Catalogue") + kebab CRUD verify test (Wave 2)
+- [ ] 36-04-PLAN.md — Run detail page (`RunDetailPage`) + `getRunSummary` client, reusing shared surfaces (Wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 36-05-PLAN.md — History Today/Earlier/Older grouping + tokens/duration sort + delete + KAN-96/KAN-92 preserve + RunDetailPage promotion + reskin (Wave 3)
 
 ### Phase 37: Configure Unification [B3]
 
