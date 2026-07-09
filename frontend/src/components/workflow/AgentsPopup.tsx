@@ -194,10 +194,23 @@ function getCapabilities(agent: AgentDef): string[] {
 
 // ─── AgentPromptSection (KAN-76) ─────────────────────────────────────────────
 // Collapsible section shown inside AgentCapabilitiesModal.
-// Displays the base AGENT.md prompt body; allows viewing and optionally editing
-// a per-user prompt override (stored server-side; AGENT.md is never mutated).
+// Displays the base AGENT.md prompt body (read-only view) and — unless
+// `surfaceOnly` is set — allows editing a per-user prompt override.
+//
+// ND-7 / LOCK-E (37-06): the Agent-drawer Config tab mounts this with
+// `surfaceOnly` so the override PERSISTENCE is DEFERRED — the write affordances
+// (Edit / Save override / Revert-to-default, which call PUT/DELETE
+// /api/agents/{id}/prompt) are OMITTED. The prompt body + override state stay
+// VIEW-only; no durable write path is reachable from the drawer.
 
-function AgentPromptSection({ agent }: { agent: AgentDef }) {
+function AgentPromptSection({
+  agent,
+  surfaceOnly = false,
+}: {
+  agent: AgentDef;
+  /** ND-7: when set, omit all write affordances — read-only prompt view only. */
+  surfaceOnly?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [promptData, setPromptData] = useState<AgentPromptData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -316,6 +329,10 @@ function AgentPromptSection({ agent }: { agent: AgentDef }) {
                     }`}>
                       {promptData.has_override ? "Your override" : "Default AGENT.md"}
                     </span>
+                    {/* ND-7 / LOCK-E: the drawer Config tab passes `surfaceOnly`,
+                        which OMITS every write affordance (Revert / Edit → Save)
+                        so no durable override PUT/DELETE is reachable. */}
+                    {!surfaceOnly && (
                     <div className="flex items-center gap-1.5">
                       {promptData.has_override && !editMode && (
                         <button
@@ -335,10 +352,12 @@ function AgentPromptSection({ agent }: { agent: AgentDef }) {
                         </button>
                       )}
                     </div>
+                    )}
                   </div>
 
-                  {/* Prompt content */}
-                  {editMode ? (
+                  {/* Prompt content — surfaceOnly forces the read-only view (the
+                      edit textarea + Save override control are never reachable). */}
+                  {editMode && !surfaceOnly ? (
                     <div className="px-4 pb-3 space-y-2">
                       <textarea
                         value={draftContent}
@@ -544,8 +563,10 @@ export function AgentCapabilitiesModal({
               added here — the surface is inert this phase. */}
           {drawerTab === "config" && (
           <>
-          {/* System Prompt (KAN-76) — ND-7: surface only, persistence deferred */}
-          <AgentPromptSection agent={agent} />
+          {/* System Prompt (KAN-76) — ND-7/LOCK-E: surface only. `surfaceOnly`
+              omits the write affordances so the override persistence path
+              (PUT/DELETE /api/agents/{id}/prompt) is unreachable from here. */}
+          <AgentPromptSection agent={agent} surfaceOnly />
 
           {/* Advanced Configuration levers (Model · Validator · Gate · Retry) */}
           {onSelectionsChange && (

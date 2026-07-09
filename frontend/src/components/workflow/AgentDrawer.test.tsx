@@ -8,11 +8,13 @@
  *   - Hooks   → the per-agent Suggested Hooks surface
  *   - Overview→ the existing "What this agent does" + Pipeline surface
  *
- * ND-7 / LOCK-E (the load-bearing gate): the Config tab SURFACES the override
- * field but its PERSISTENCE is DEFERRED — editing the override MUST NOT fire a
- * durable save. This file pins that behaviorally: it spies on the api client
- * (saveAgentPromptOverride / deleteAgentPromptOverride) and asserts NEITHER is
- * called while the user edits the override.
+ * ND-7 / LOCK-E (the load-bearing gate): the Config tab SURFACES the prompt
+ * body (view) but its override PERSISTENCE is DEFERRED — the drawer mounts
+ * AgentPromptSection with `surfaceOnly`, which OMITS every write affordance
+ * (Edit / Save override / Revert-to-default). This file pins that the durable
+ * PUT/DELETE path is UNREACHABLE: the write controls are absent, and the api
+ * mutators (saveAgentPromptOverride / deleteAgentPromptOverride) are never
+ * called through any interaction the tab surfaces.
  *
  * `@/lib/api` is mocked so the drawer renders without a real fetch, mirroring
  * AgentsPopup.reskin.test.tsx.
@@ -98,7 +100,7 @@ describe("Agent drawer — 4-tab inspector", () => {
 });
 
 describe("Agent drawer — ND-7 (LOCK-E): Config tab is SURFACE-ONLY", () => {
-  it("editing the override fires NO durable persistence call", async () => {
+  it("surfaces the prompt body READ-ONLY: no Edit / Save override / Revert controls", async () => {
     renderDrawer();
 
     // Go to the Config tab and open the System Prompt override surface.
@@ -107,17 +109,64 @@ describe("Agent drawer — ND-7 (LOCK-E): Config tab is SURFACE-ONLY", () => {
       screen.getByRole("button", { name: /system prompt/i }),
     );
 
-    // The base prompt loads (getAgentPrompt), then enter edit mode.
-    const editBtn = await screen.findByRole("button", { name: /edit/i });
-    await userEvent.click(editBtn);
+    // The base prompt loads and renders (SURFACE preserved — the view works).
+    expect(
+      await screen.findByText(/you are the requirements analyst\./i),
+    ).toBeInTheDocument();
 
-    // Edit the override text.
-    const textarea = await screen.findByPlaceholderText(
-      /custom prompt instructions/i,
+    // ND-7: the durable-write affordances are OMITTED — the persistence path
+    // (PUT/DELETE /api/agents/{id}/prompt) is UNREACHABLE from the drawer.
+    expect(
+      screen.queryByRole("button", { name: /^edit$/i }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /save override/i }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /revert to default/i }),
+    ).toBeNull();
+    // No editable field is exposed either.
+    expect(
+      screen.queryByPlaceholderText(/custom prompt instructions/i),
+    ).toBeNull();
+  });
+
+  it("hides the Revert control even when an override already exists", async () => {
+    mockGetAgentPrompt.mockResolvedValue({
+      agent_id: "requirements-analyst",
+      prompt_body: "Base body.",
+      override: "A previously-saved override body.",
+      has_override: true,
+    });
+    renderDrawer();
+
+    await userEvent.click(screen.getByRole("tab", { name: /config/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /system prompt/i }),
     );
-    await userEvent.type(textarea, "A per-agent override the user is typing");
 
-    // ND-7 / LOCK-E: no durable override write occurs on edit — persistence is
+    // The existing override renders READ-ONLY…
+    expect(
+      await screen.findByText(/a previously-saved override body\./i),
+    ).toBeInTheDocument();
+    // …but neither Revert nor Edit is offered (no durable DELETE/PUT path).
+    expect(
+      screen.queryByRole("button", { name: /revert to default/i }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /^edit$/i })).toBeNull();
+  });
+
+  it("fires NO durable persistence call through any surfaced interaction", async () => {
+    renderDrawer();
+
+    await userEvent.click(screen.getByRole("tab", { name: /config/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /system prompt/i }),
+    );
+    // Let the prompt load; interact with everything the tab surfaces.
+    await screen.findByText(/you are the requirements analyst\./i);
+
+    // ND-7 / LOCK-E: no override write reaches the server — persistence is
     // deferred (no save-to-server, no override store). The surface is inert.
     expect(mockSaveOverride).not.toHaveBeenCalled();
     expect(mockDeleteOverride).not.toHaveBeenCalled();
