@@ -290,6 +290,22 @@ export function ContextSourcesRow({ sources }: { sources: ContextSource[] }) {
       </div>
       <div className="flex flex-wrap gap-1.5">
         {sources.map((src, i) => {
+          // KAN-102: run-originating source types (run_input, context_block)
+          if (src.type === "run_input" || src.type === "context_block") {
+            const label = src.label || src.type;
+            const size = src.size_chars != null
+              ? `${(src.size_chars / 1000).toFixed(1)}k`
+              : null;
+            const iconChar = src.type === "context_block" ? "🎨" : "📄";
+            return (
+              <div key={i} className="flex items-center gap-1.5 bg-white border border-[#1B2A4A]/20 shadow-sm rounded-lg px-2.5 py-1.5">
+                <span className="text-[10px] flex-shrink-0">{iconChar}</span>
+                <span className="text-[10px] font-semibold text-[#1B2A4A] truncate max-w-[160px]">{label}</span>
+                {size && <span className="text-[9px] text-[#1B2A4A]/60 font-mono">{size}</span>}
+              </div>
+            );
+          }
+          // Prior-agent handoff sources (summary / artifact) — original rendering
           const label = src.type === "summary"
             ? (src.agent_name || src.agent_id || "Agent")
             : (src.artifact_type || "artifact");

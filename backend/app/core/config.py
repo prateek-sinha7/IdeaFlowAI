@@ -116,6 +116,14 @@ class Settings(BaseSettings):
     # both provider branches of build_model when > 0.
     THINKING_BUDGET_TOKENS: int = 0
 
+    # ---- Image-input ingress (default ON) ----
+    # Feature flag for the image-input ingress (IMAGE-INPUT §3 Layer 1/5, Wave 2).
+    # When True, a `run_pipeline` payload may carry a transient `images` list that
+    # `_validate_images` caps + vision-guards before it reaches `engine.execute`.
+    # When False the WS ingress IGNORES any `images` on the payload (clean
+    # off-switch — the run still proceeds as text-only, byte-identical to today).
+    IMAGE_INPUT_ENABLED: bool = True
+
     # ---- Input-brief character cap (single source of truth) ----
     # The maximum number of characters of the user brief that reaches the
     # SmartPlanner analyze prompt + its stored planning_context.user_request,

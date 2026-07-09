@@ -502,7 +502,7 @@ export interface AgentRunState {
 /** A source of context for an agent — either a summarized prior-agent output
  *  or a typed Artifact from the Artifact_Store. */
 export interface ContextSource {
-  type: "summary" | "artifact";
+  type: "summary" | "artifact" | "run_input" | "context_block";
   // For type="summary":
   agent_id?: string;
   agent_name?: string;
@@ -511,6 +511,9 @@ export interface ContextSource {
   // For type="artifact":
   artifact_type?: string;
   artifact_size_chars?: number;
+  // For type="run_input" | "context_block" (KAN-102):
+  label?: string;
+  size_chars?: number;
 }
 
 /** A single tool invocation recorded in the Thinking tab. */
@@ -570,6 +573,11 @@ export interface PipelineRunState {
   // Workstream C1 (POR §6.2/§6.5) — answered clarify rounds retained per run so
   // they survive the questionnaire panel unmount (consumed by C2's ClarificationsCard).
   clarifications?: ClarifyRound[];
+  // KAN-101: tracks how many spec revision cycles have been triggered by
+  // "Update the Specs". 0 = first run (no revision), 1 = first revision, etc.
+  // Incremented in handlePipelineMessage when prototype-specify agent_start fires
+  // on an agent that was already done (sub-pipeline re-run).
+  specRevisionCount?: number;
 }
 
 /** One audit entry from a hook_run WS event or persisted hook_runs DB row (KAN-73). */

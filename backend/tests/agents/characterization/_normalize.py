@@ -160,6 +160,12 @@ _VOLATILE_STRIP_KEYS = frozenset(
         "cache_write_tokens",
         "total_cache_read_tokens",
         "total_cache_write_tokens",
+        # ── Additive-but-parity-neutral image_count key (image-input Wave 1 / edw) ──
+        # The engine stamps ``image_count`` on ``agent_input`` ONLY when image blocks
+        # ride the dispatch (>0). No workflow opts in this wave, so it is NEVER emitted
+        # — this strip is belt-and-suspenders (metadata-only, NOT in _REQUIRED_DATA_KEYS)
+        # so the 5 characterization event goldens stay byte-identical (INV-3).
+        "image_count",
     }
 )
 

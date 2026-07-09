@@ -407,6 +407,9 @@ class CompiledWorkflow:
     # ── Phase-4-consumed (defaulted) ──────────────────────────────────────
     steps: list[Step] = field(default_factory=list)          # topo-validated DAG (may be [])
     context_providers: list[str] = field(default_factory=list)  # Q28 — capability names
+    # input_providers: the workflow's declared input_provider capability names
+    # (image-input Wave 1). Dormant — every existing manifest omits the key ⇒ []. Pure data.
+    input_providers: list[str] = field(default_factory=list)
     seed_files: dict = field(default_factory=dict)           # Q29
     deliverable: DeliverableSpec = field(default_factory=DeliverableSpec)  # Q26
     planner: str = "run"                                     # "skip" | "run" (Q30)

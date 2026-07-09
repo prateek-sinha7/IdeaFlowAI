@@ -13,6 +13,9 @@ export interface UseWorkflowReturn {
   // Workstream C1 (POR §6.5) — append an answered clarify round to the run-scoped
   // state so the Q&A survives the questionnaire panel unmount. Reset per run.
   retainClarifyRound: (round: ClarifyRound) => void;
+  // KAN-98 — overwrite an agent's retained output with the user's gate-approved
+  // edit so a later Redo forwards the edited content, not the stale original.
+  retainAgentEdit: (agentId: string, editedContent: string) => void;
 }
 
 const INITIAL_STATE: PipelineRunState = {
@@ -148,6 +151,21 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
     }));
   }, []);
 
+  // KAN-98: apply a human-edited agent output to the live agent state so the
+  // Thinking tab displays the edited content (e.g. the reduced task list) rather
+  // than the original pre-edit output from agent_complete. Called when
+  // review_gate_approved arrives with edited:true, using the editedContent that
+  // was sent in the approve_review WS message.
+  const retainAgentEdit = useCallback((agentId: string, editedContent: string) => {
+    setPipelineState((prev) => {
+      const agentIdx = prev.agents.findIndex((a) => a.id === agentId);
+      if (agentIdx === -1) return prev;
+      const updated = [...prev.agents];
+      updated[agentIdx] = { ...updated[agentIdx], output: editedContent };
+      return { ...prev, agents: updated };
+    });
+  }, []);
+
   const isRunning = pipelineState.isRunning;
 
   return {
@@ -158,6 +176,7 @@ export function useWorkflow(websocketSend: (msg: string) => boolean | void): Use
     handleMessage,
     submitQuestionnaire,
     retainClarifyRound,
+    retainAgentEdit,
   };
 }
 
@@ -231,9 +250,52 @@ export function handlePipelineMessage(
         if (agentIdx === -1) return prev;
 
         const updated = [...prev.agents];
-        updated[agentIdx] = { ...updated[agentIdx], status: "running" };
+        // FIX-039: on (re)start, reset THIS agent's run-scoped accumulators to
+        // their fresh-agent values BEFORE the next run's chunks accumulate.
+        // Without this, a regenerate (2nd agent_start) leaves the prior run's
+        // `output` in place and agent_chunk APPENDS onto it (:275), so
+        // PrototypePipelineView.parseTasks reads the stale first <tasks> block.
+        // Replayed agent_start events are deduped upstream by shouldApplyEvent
+        // (dashboard/page.tsx:276), so a live output is never wiped on reconnect.
+        // Identity fields (id/name/role/icon/index) are preserved via the spread.
+        // KAN-101: a prototype-specify agent_start arriving while the agent is
+        // already "done" is a spec-revision re-run — the flag feeds the
+        // specRevisionCount bump below (revision-cycle badge). Its field
+        // clearing is subsumed by the FIX-039 unconditional reset.
+        const wasAlreadyDone = updated[agentIdx].status === "done";
+        const isSpecifyRerun = wasAlreadyDone && agentId === "prototype-specify";
+        updated[agentIdx] = {
+          ...updated[agentIdx],
+          status: "running",
+          // Accumulator fields rebuilt per run (agent_chunk/agent_thinking/
+          // tool_call/validator_result/agent_error/gate_*):
+          output: "",
+          thinking: "",
+          thinkingText: "",
+          toolCalls: [],
+          validationIssues: [],
+          error: null,
+          validationPassed: undefined,
+          // Overwrite-only fields — reset too so a re-run that errors before
+          // agent_complete/agent_input never shows the prior run's numbers:
+          duration: null,
+          inputTokens: undefined,
+          outputTokens: undefined,
+          totalTokens: undefined,
+          estimatedCostUsd: undefined,
+          inputPrompt: undefined,
+          contextSources: undefined,
+        };
 
-        return { ...prev, agents: updated, currentAgentIndex: agentIdx };
+        return {
+          ...prev,
+          agents: updated,
+          currentAgentIndex: agentIdx,
+          // Bump the revision counter when specify re-starts
+          specRevisionCount: isSpecifyRerun
+            ? (prev.specRevisionCount ?? 0) + 1
+            : prev.specRevisionCount,
+        };
       });
       return true;
     }

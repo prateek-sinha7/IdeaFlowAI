@@ -404,7 +404,7 @@ class DeepAgentRunner:
     # -----------------------------------------------------------------------
 
     async def astream_events(
-        self, user_message: str
+        self, user_message: "str | list"
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Drive the graph and re-emit the engine's event vocabulary.
 
@@ -727,7 +727,7 @@ class DeepAgentRunner:
         }
 
     async def astream_with_usage(
-        self, user_message: str
+        self, user_message: "str | list"
     ) -> AsyncGenerator[Any, None]:
         """Stream text chunks then yield exactly one final ``TokenUsage``.
 
@@ -791,7 +791,7 @@ class DeepAgentRunner:
             cache_write_tokens=sum_cache_write,
         )
 
-    async def astream(self, user_message: str) -> AsyncGenerator[str, None]:
+    async def astream(self, user_message: "str | list") -> AsyncGenerator[str, None]:
         """Stream only text chunks (mirrors the legacy text-only interface).
 
         Delegates to :meth:`astream_events` and yields ``event["chunk"]`` for
@@ -804,7 +804,7 @@ class DeepAgentRunner:
             if event["type"] == "chunk":
                 yield event["chunk"]
 
-    async def run(self, user_message: str) -> str:
+    async def run(self, user_message: "str | list") -> str:
         """Run to completion and return the full concatenated text output.
 
         Mirrors the legacy ``DeepAgent.run``: accumulate every ``chunk`` event's

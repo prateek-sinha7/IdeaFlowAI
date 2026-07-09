@@ -111,6 +111,10 @@ class ExecutionContext:
     # od_context: loaded template / design-system / craft content; flows engine →
     # AgentContext per agent for od_prototype / od_ppt `injects`.
     od_context: dict | None = None
+    # run_images: transient per-run image carrier holding normalized
+    # {mime_type, data(base64)} entries, consumed by the ``run_images`` input_provider
+    # capability (image-input Wave 1). Default None ⇒ dormant (no image flow).
+    run_images: list | None = None
     # completed_tasks: cumulative prototype task-completion list. RUN-LEVEL (the build
     # loop calls _run_agent once per task; a per-call local would make completed_count
     # non-monotonic — a visible UI regression). Appended in _run_agent.

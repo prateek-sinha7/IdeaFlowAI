@@ -89,6 +89,7 @@ export default function DashboardPage() {
     templateId: string; designSystemId: string; brief: string; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
     modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+    images?: { name: string; mime_type: string; data: string }[];
     agentIds?: string[];
   } | null>(null);
 
@@ -97,6 +98,7 @@ export default function DashboardPage() {
     templateId: string; designSystemId: string | null; brief: string; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
     modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+    images?: { name: string; mime_type: string; data: string }[];
     agentIds?: string[];
   } | null>(null);
 
@@ -147,6 +149,7 @@ export default function DashboardPage() {
     brief: string; templateId: string; designSystemId: string; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
     modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+    images?: { name: string; mime_type: string; data: string }[];
     agentIds?: string[];
   } | null>(null);
   // Pending od_ppt params
@@ -154,6 +157,7 @@ export default function DashboardPage() {
     brief: string; templateId: string; designSystemId: string | null; discovery: unknown;
     customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
     modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+    images?: { name: string; mime_type: string; data: string }[];
     agentIds?: string[];
   } | null>(null);
 
@@ -185,6 +189,7 @@ export default function DashboardPage() {
       const draft = JSON.parse(sessionStorage.getItem("prototype.draft") ?? "{}") as {
         templateId?: string; designSystemId?: string; brief?: string; customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
         modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+        images?: { name: string; mime_type: string; data: string }[];
         agentIds?: string[];
       };
       const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
@@ -202,6 +207,7 @@ export default function DashboardPage() {
         gateAgentIds: draft.gateAgentIds,
         modelOverrides: draft.modelOverrides,
         selections: draft.selections,
+        images: draft.images,
         agentIds: draft.agentIds,
       };
     } catch { /* ignore malformed session data */ }
@@ -220,6 +226,7 @@ export default function DashboardPage() {
         templateId?: string; designSystemId?: string | null; brief?: string;
         customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
         modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+        images?: { name: string; mime_type: string; data: string }[];
         agentIds?: string[];
       };
       if (!draft.templateId || !draft.brief) return;
@@ -235,6 +242,7 @@ export default function DashboardPage() {
         gateAgentIds: draft.gateAgentIds,
         modelOverrides: draft.modelOverrides,
         selections: draft.selections,
+        images: draft.images,
         agentIds: draft.agentIds,
       };
     } catch { /* ignore malformed session data */ }
@@ -763,6 +771,23 @@ export default function DashboardPage() {
 
       case "review_gate_approved": {
         // User approved — clear the review gate UI and continue.
+        // KAN-98: if the user approved with edits, apply the editedContent to the
+        // agent's output in pipelineState so the Thinking tab shows the edited version.
+        if (pendingGateEditRef.current) {
+          const { agentId, editedContent } = pendingGateEditRef.current;
+          pendingGateEditRef.current = null;
+          retainAgentEdit(agentId, editedContent);
+        }
+        setReviewGateData(null);
+        break;
+      }
+
+      case "pipeline_cancelled":
+      case "pipeline_failed": {
+        // KAN-100: pipeline stopped or failed — clear the review gate panel so the
+        // user is not left with live Approve/Reject/Redo buttons on a dead pipeline.
+        // reviewGateData is not cleared by useWorkflow (which only sets isRunning=false)
+        // or by onResetPipeline(), so this is the canonical place to clear it.
         setReviewGateData(null);
         break;
       }
@@ -796,7 +821,10 @@ export default function DashboardPage() {
   });
 
   // Workflow pipeline state
-  const { pipelineState, startPipeline, resetPipeline, isRunning: isPipelineRunning, handleMessage: handlePipelineMsg, submitQuestionnaire, retainClarifyRound } = useWorkflow(send);
+  const { pipelineState, startPipeline, resetPipeline, isRunning: isPipelineRunning, handleMessage: handlePipelineMsg, submitQuestionnaire, retainClarifyRound, retainAgentEdit } = useWorkflow(send);
+  // KAN-98: store pending gate edits so review_gate_approved can apply them to
+  // the live agent state (planAgent.output etc.) for the Thinking tab display.
+  const pendingGateEditRef = useRef<{ agentId: string; editedContent: string } | null>(null);
   // Workstream C1 (POR §1 gap-2): retain the launched brief on the LIVE path
   // (previously dropped). Reopen/history use fullRun.input / selectedRun.input.
   const [submittedBrief, setSubmittedBrief] = useState<string>("");
@@ -821,6 +849,7 @@ export default function DashboardPage() {
           templateId?: string; designSystemId?: string; brief?: string;
           customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
           modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+          images?: { name: string; mime_type: string; data: string }[];
           agentIds?: string[];
         };
         const discovery = JSON.parse(sessionStorage.getItem("prototype.discovery") ?? "null");
@@ -837,6 +866,7 @@ export default function DashboardPage() {
           gateAgentIds: draft.gateAgentIds,
           modelOverrides: draft.modelOverrides,
           selections: draft.selections,
+          images: draft.images,
           agentIds: draft.agentIds,
         };
       } catch { return; }
@@ -892,6 +922,7 @@ export default function DashboardPage() {
           templateId?: string; designSystemId?: string | null; brief?: string;
           customDsBody?: string; customTemplateBody?: string; sourceRunId?: string; gateAgentIds?: string[];
           modelOverrides?: Record<string, string>; selections?: Record<string, Record<string, unknown>>;
+          images?: { name: string; mime_type: string; data: string }[];
           agentIds?: string[];
         };
         if (!draft.templateId || !draft.brief) return;
@@ -906,6 +937,7 @@ export default function DashboardPage() {
           gateAgentIds: draft.gateAgentIds,
           modelOverrides: draft.modelOverrides,
           selections: draft.selections,
+          images: draft.images,
           agentIds: draft.agentIds,
         };
       } catch { return; }
@@ -1336,6 +1368,13 @@ export default function DashboardPage() {
       onRetainClarifyRound={retainClarifyRound}
       reviewGateData={reviewGateData}
       onApproveReview={(gateKey, editedContent) => {
+        // KAN-98: if the user approved with edits, stash the (agentId, editedContent)
+        // so review_gate_approved can update pipelineState.agents[agentId].output
+        // for the Thinking tab — the backend writes the edit to the artifact graph
+        // but never echoes it back, so the FE state stays stale without this.
+        if (editedContent && reviewGateData) {
+          pendingGateEditRef.current = { agentId: reviewGateData.agentId, editedContent };
+        }
         send(JSON.stringify({ type: "approve_review", gate_key: gateKey, approved: true, edited_content: editedContent ?? null }));
       }}
       onRejectReview={(gateKey) => {
@@ -1349,6 +1388,22 @@ export default function DashboardPage() {
         send(JSON.stringify({ type: "approve_review", gate_key: gateKey, action: "redo", instructions }));
         // Clear the panel; the re-run re-emits a fresh review_gate_ready (same
         // gate_key, redoable=true) that re-opens it with the new output.
+        setReviewGateData(null);
+      }}
+      onUpdateSpecsReview={(gateKey, analysisReport) => {
+        // KAN-101: trigger the spec revision sub-pipeline (specify → plan → analyze)
+        // with the analysis report as context. Rides the SAME approve_review
+        // owner-gated handler — action="update_specs", analysis_report carries
+        // the text. The panel stays open; the backend will re-emit review_gate_ready
+        // when the sub-pipeline completes and the analyze gate re-opens.
+        send(JSON.stringify({
+          type: "approve_review",
+          gate_key: gateKey,
+          action: "update_specs",
+          analysis_report: analysisReport,
+        }));
+        // Clear the panel immediately; it will re-open when the backend
+        // emits review_gate_ready with the new analysis output.
         setReviewGateData(null);
       }}
       pendingOdProtoParams={pendingOdProtoParams}

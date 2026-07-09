@@ -47,6 +47,11 @@ interface WorkflowHistoryProps {
   onRevisePpt?: (instruction: string, content: string, sourceRunId: string) => void;
   onRevisePrototype?: (instruction: string, content: string, sourceRunId: string) => void;
   onReviseAppBuilder?: (instruction: string, content: string, sourceRunId: string) => void;
+  // KAN-96: clicking a running run navigates to the live execution view instead
+  // of opening the history detail. activeRunId is the current pipeline's run id;
+  // onViewRunningPipeline switches the main view to "execution".
+  activeRunId?: string | null;
+  onViewRunningPipeline?: () => void;
 }
 
 // ─── Parse all filename: blocks from agent outputs for the IDE preview ────────
@@ -123,7 +128,7 @@ function formatDuration(seconds?: number): string {
   return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
 }
 
-export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, onRevisePpt, onRevisePrototype, onReviseAppBuilder }: WorkflowHistoryProps) {
+export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, onRevisePpt, onRevisePrototype, onReviseAppBuilder, activeRunId, onViewRunningPipeline }: WorkflowHistoryProps) {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
@@ -168,6 +173,12 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
   }, []);
 
   const handleSelectRun = useCallback(async (run: WorkflowRun) => {
+    // KAN-96: if this run is the currently-active pipeline, navigate to the
+    // live execution view rather than opening the static history detail.
+    if (activeRunId && run.id === activeRunId && onViewRunningPipeline) {
+      onViewRunningPipeline();
+      return;
+    }
     setSelectedRun(run);
     setSelectedOutput(null);
     setDetailTab("preview");
@@ -184,7 +195,7 @@ export function WorkflowHistory({ onBack, onChainPipeline, onReviseUserStory, on
       setSelectedOutput(full.output || null);
     } catch {}
     finally { setLoadingDetail(false); }
-  }, []);
+  }, [activeRunId, onViewRunningPipeline]);
 
   // Revision Families (B2 / D4): fetch the open run's family. Keyed on the STABLE
   // rootRunId (same for every member) so switching versions does NOT refetch;

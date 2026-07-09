@@ -18,7 +18,7 @@ import {
   FileText, ListChecks, Hammer, CheckCircle2, XCircle,
   ChevronDown, ChevronRight, Zap, Clock, Cpu,
   Map, Layout, ArrowRight,
-  Loader2, Circle, Brain,
+  Loader2, Circle, Brain, RefreshCw,
 } from "lucide-react";
 import type { AgentRunState } from "@/types/index";
 import {
@@ -137,7 +137,7 @@ function parseTasks(output: string): ParsedTasks | null {
 // ─── Phase cards ──────────────────────────────────────────────────────────────
 
 function PhaseCard({
-  number, icon: Icon, label, color, status, children, defaultOpen = false,
+  number, icon: Icon, label, color, status, children, defaultOpen = false, versionChip,
 }: {
   number: number;
   icon: React.ElementType;
@@ -146,6 +146,8 @@ function PhaseCard({
   status: "idle" | "running" | "done" | "error";
   children?: React.ReactNode;
   defaultOpen?: boolean;
+  /** KAN-101: optional version badge shown when spec revision cycles are active */
+  versionChip?: string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
 
@@ -181,6 +183,11 @@ function PhaseCard({
             {status === "running" && (
               <span className={`flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full ${color.bg} ${color.text}`}>
                 <Zap className="h-2.5 w-2.5" />LIVE
+              </span>
+            )}
+            {versionChip && (
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">
+                {versionChip}
               </span>
             )}
           </div>
@@ -385,6 +392,13 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
   const buildAgent = agents.find(a => a.id === "prototype-build");
   const validateAgent = agents.find(a => a.id === "prototype-validate");
 
+  // KAN-101: spec revision cycle tracking
+  const revisionCount = pipelineState?.specRevisionCount ?? 0;
+  // Version displayed on Phase 1/2/3 cards: v1 on first run, v2 on first revision, etc.
+  // Only shown when at least one revision has happened (revisionCount > 0).
+  const currentVersion = revisionCount + 1;
+  const versionLabel = revisionCount > 0 ? `v${currentVersion}` : undefined;
+
   // Parse spec from spec agent output
   const spec = specAgent?.output ? parseSpec(specAgent.output) : null;
 
@@ -425,12 +439,15 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
 
   // Real-time: use the actual completed count from tool calls.
   // Truly done → all tasks complete. Running OR the transient between-task "done"
-  // window → show the real completed count (NEVER -1, so already-done tasks stay
-  // checked). Idle → -1.
+  // window → show the real completed count, but CAPPED at totalTasks-1 so the
+  // last task stays in "active" (spinner) state until buildTrulyDone — otherwise
+  // the last task_progress event (fired BEFORE the build agent's fix-loop and
+  // agent_complete) would mark all tasks checked while the agent is still running
+  // (KAN-99). Idle → -1.
   const currentTaskIndex = buildTrulyDone
     ? totalTasks
     : buildIsRunning || (buildStatus === "done" && !buildTrulyDone)
-    ? realtimeCompletedCount
+    ? Math.min(realtimeCompletedCount, Math.max(0, totalTasks - 1))
     : -1;
 
   // Token totals
@@ -482,6 +499,24 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
       {/* Phase cards */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
 
+        {/* KAN-101: Spec revision banner — shown when a revision cycle is active */}
+        {revisionCount > 0 && (
+          <div className="flex items-center gap-2.5 rounded-xl border border-violet-200 bg-violet-50 px-4 py-2.5">
+            <RefreshCw className="h-3.5 w-3.5 text-violet-600 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-semibold text-violet-800">
+                Spec Revision Cycle {revisionCount}
+              </p>
+              <p className="text-[10px] text-violet-600">
+                Spec &amp; plan are being revised based on the analysis report
+              </p>
+            </div>
+            <span className="flex-shrink-0 text-[10px] font-bold text-violet-700 bg-violet-100 border border-violet-200 px-2 py-0.5 rounded-full">
+              v{currentVersion}
+            </span>
+          </div>
+        )}
+
         {/* Phase 1: Spec Writer */}
         <PhaseCard
           number={1}
@@ -490,6 +525,7 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
           color={{ bg: "bg-[#E8EDF5]", text: "text-[#1B2A4A]", border: "border-[#1B2A4A]/20" }}
           status={specStatus}
           defaultOpen={specStatus === "done" && !!spec}
+          versionChip={versionLabel}
         >
           {specStatus === "running" && (
             <div className="px-4 py-3 bg-[#E8EDF5]/50 flex items-center gap-2">
@@ -520,6 +556,7 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
           color={{ bg: "bg-[#E8EDF5]", text: "text-[#1B2A4A]", border: "border-[#1B2A4A]/20" }}
           status={planStatus}
           defaultOpen={planStatus === "done"}
+          versionChip={versionLabel}
         >
           {planStatus === "running" && (
             <div className="px-4 py-3 bg-[#E8EDF5]/50 flex items-center gap-2">
@@ -561,6 +598,7 @@ export function PrototypePipelineView({ agents, pipelineState }: PrototypePipeli
           color={{ bg: "bg-[#E8EDF5]", text: "text-[#1B2A4A]", border: "border-[#1B2A4A]/20" }}
           status={analyzeStatus}
           defaultOpen={analyzeStatus === "done" && !!analyzeAgent?.output}
+          versionChip={versionLabel}
         >
           {analyzeStatus === "running" && (
             <div className="px-4 py-3 bg-[#E8EDF5]/50 flex items-center gap-2">
