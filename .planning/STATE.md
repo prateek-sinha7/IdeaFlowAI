@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: — Universal Run Chat & VelocityAI UI Convergence
 status: executing
-last_updated: "2026-07-10T02:03:40.229Z"
+last_updated: "2026-07-10T02:13:53.477Z"
 last_activity: 2026-07-09 -- Phase 37 execution started
 progress:
   total_phases: 11
-  completed_phases: 9
+  completed_phases: 10
   total_plans: 63
-  completed_plans: 63
-  percent: 82
+  completed_plans: 64
+  percent: 91
 ---
 
 # Project State
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 ## Current Position
 
 Phase: 37 (Configure Unification + Composer/Wizard [B3]) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Ready to execute
 Prior status: 36-04 OFFLINE-COMPLETE. SHELL-03 FE half (RunDetailPage + getRunSummary) — SHELL-03 now COMPLETE (backend 36-02 + FE 36-04). Task 1 [feat: getRunSummary(token,runId)->request<RunSummary>('/api/runs/{id}/summary') + RunSummary/RunSummaryAgent types in api.ts mirroring backend RunSummaryResponse field-for-field (id/title/type/status/duration/agent_count/token_usage/error/agents/root_id/members) + RunSummaryAgent=_SUMMARY_SAFE_AGENT_KEYS all-optional; members reuse FamilyMember so {root_id,members} feeds VersionTimeline as RunFamily; getRunFamily authHeaders idiom]. Task 2 [feat tdd: RunDetailPage.tsx cancellable mount-fetch (activeVersionId-keyed → version-chip refetch) composing KPI strip + per-agent cards + REUSED VersionTimeline + REUSED DegradedRunAffordance; generic-keyed SC-001/INV-1 (failure banner on status∈{failed,cancelled,degraded}, NO summary.type branch grep=0); imports (not rebuilds) VersionTimeline/DegradedRunAffordance/parseFailedAgentIds/buildAgentNameById + extracted formatDuration/formatTokenCount->NEW src/lib/runStats.ts single-source (WorkflowHistory local copies retire in 36-05); Phase-32 @theme tokens + ui/ Badge+Tabs, retired-palette grep 0, no stray stock/hex; a11y section frame + reused Tabs role=tablist + back aria + role=tabpanel]. In-task refinement [not scoped deviation]: replaced runId-sync useEffect with React render-phase state-on-prop-change (prevRunId tracker) to drop the set-state-in-effect warning; remaining 1 warning is the mount-fetch idiom (matches accepted SavedWorkflowsPage pattern), 0 eslint errors. RunDetailPage.test.tsx 5 tests (mock getRunSummary + motion proxy, REAL shared surfaces prove reuse): completed→KPI(2.0K/1.2K/800/2m5s)+agents+VersionTimeline radiogroup; failed→DegradedRunAffordance+failed-agent name; cancelled→cancelled copy; fetch error→graceful; back aria; retired-palette absent in rendered class strings. VERIFIED offline: getRunSummary grep 1; shared-surface imports 3; summary.type=== grep 0; retired-palette grep 0; vitest 5/5; tsc --noEmit 0 (identity, baseline 0). Mocked Playwright e2e LIVE-DEFERRED (offline; live summary round-trip→Phase 34). Per-plan commits 9dcaab0f(feat client+type)+fb0b5e9c(feat page+test+runStats); summary 36-04-SUMMARY.md; requirements SHELL-03 marked Complete; ROADMAP 36 In Progress 4/5. Remaining 36 plan: 36-05 History grouping/sort/delete + retire the in-panel WorkflowHistory duplicate (repoint onto RunDetailPage + runStats.ts).
 Prior status: 36-03 OFFLINE-COMPLETE. SHELL-02 SC-3 My Workflows relabel + token reskin. In-page <h1> 'Workflow Catalogue'->'My Workflows' (D-11 — Catalogue reserved for the future marketplace); delete copy 'removed from your catalogue'->'saved workflows'; dead style var(--font-fraunces)->font-serif. SavedWorkflowsPage reskinned onto Phase-32 @theme tokens: bg-surface-paper/card/white/warm, text-ink-*, border-line-*, text-brand/bg-brand/hover:bg-brand-pressed, status-failed error+delete affordances, radius-menu/elevation-menu/elevation-modal/scrim vars, ICON_STYLES avatar tints rebuilt from tokens (no raw hex). Retired-palette grep 0, stray-stock grep 0. D-15 reuse-don't-rebuild: cancellable mount-fetch + kebab Rename/Duplicate/Delete->rename/create/deleteUserWorkflow with optimistic setUserWorkflows + delete-confirm modal + launch wiring all preserved byte-behavior-identical (grep 5). a11y: kebab trigger aria-haspopup=menu/aria-expanded/aria-label, role=menu + 3 role=menuitem, Escape close+refocus; delete modal role=dialog/aria-modal/aria-labelledby + Escape-close. Rule-1 a11y deviation: KebabMenu was defined inside the render body (remounted on every openMenuId change -> detached trigger node broke in-place aria-expanded + reset the Escape-focus ref) -> hoisted to module scope with explicit props (row/isOpen/onToggle/onClose/onRename/onDuplicate/onDelete), CRUD wiring unchanged. NEW SavedWorkflowsPage.test.tsx (Wave-0 gap, 5 tests, co-located HomeLaunchGrid.test api-mock+motion-proxy idiom): D-11 label present/'Workflow Catalogue' absent; Rename fires renameUserWorkflow(+optimistic); Duplicate fires createUserWorkflow(+copy prepended); Delete->confirm fires deleteUserWorkflow(+row removed); kebab aria + Escape a11y. VERIFIED offline: grep 'Workflow Catalogue' 0; retired-palette grep 0; kebab-CRUD grep 5; vitest 5/5 green; tsc --noEmit 0 (identity, baseline 0). Mocked Playwright e2e LIVE-DEFERRED (offline). Per-plan commits 3eaea5f5(feat relabel+reskin)+e7b29891(fix a11y hoist)+91039712(test); summary 36-03-SUMMARY.md; requirements SHELL-02 marked; ROADMAP 36 In Progress 3/5. Remaining 36 plans: 36-04 RunDetailPage+getRunSummary (SHELL-03 FE half), 36-05 History grouping/sort/delete.

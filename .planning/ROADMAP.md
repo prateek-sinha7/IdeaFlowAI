@@ -755,7 +755,7 @@ Plans:
 - [x] **Phase 35: Shell Chrome + Reskin Pages [B1]** — dark top bar + nav pill (Home · Library · My Workflows), profile menu, notifications, Settings, pickers, Library restyle, **+ Login/Register + Admin reskin (ND-12)**; cites the canonical shared-surface spec (evidence 11 §B / D-15), not individual mocks (completed 2026-07-09)
 - [x] **Phase 36: Home + History + My Workflows [B2]** — fused Home, History grouping/sort + real delete, My Workflows rename + kebab actions, Run detail page + run-summary endpoint, `WorkflowCatalog`→`HomeLaunchGrid` *(completed 2026-07-09; verifier PASSED 4/4; 2 HIGH review regressions fixed)*
 - [x] **Phase 37: Configure Unification + Composer/Wizard [B3]** — generic per-run setup (templates/DS/gates/settings for EVERY deliverable — the D-15/C architectural change), **full composer + wizard rebuild (evidence 08: ~13 reskins of P22 code, reuse the live registry/AdvancedExpander/AgentModelPicker/user-workflows CRUD; NEW unified stepper)**, Agent drawer, Workflow dialog, draft-run persistence; deferred backend noted (visibility/sharing, pre-run cost/duration, discovery-pages) (ND-1/ND-7/ND-8/ND-12 gates) *(completed 2026-07-10; verifier PASSED 3/3; D-15/C goldens byte-identical; WR-01 flagship rebuild contract-parity byte-identical; 2 code-review rounds fully fixed; live launch → Phase 34)*
-- [ ] **Phase 38: Analytics, Estimates & Notifications [B4]** — date-scoped aggregations, chart components, per-deliverable estimates, notifications feed
+- [x] **Phase 38: Analytics, Estimates & Notifications [B4]** — date-scoped aggregations, chart components, per-deliverable estimates, notifications feed (completed 2026-07-10)
 
 ### v2.0 Phase Details
 
@@ -1017,7 +1017,7 @@ Plans:
 1. Date-scoped analytics aggregations power the dashboard (filters actually recompute).
 2. Home deliverable cards show real time/agent estimates; notifications feed live (gate/running/done/failed).
 
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans complete
 Plans:
 **Wave 1**
 
@@ -1031,7 +1031,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 38-05-PLAN.md — Home deliverable-card real estimates (~N agents · ~Xm) (Wave 3)
+- [x] 38-05-PLAN.md — Home deliverable-card real estimates (~N agents · ~Xm) (Wave 3)
 
 ### v2.0 Progress
 
@@ -1047,4 +1047,4 @@ Plans:
 | 35. Shell Chrome + Reskin Pages [B1] | 7/7 | Complete   | 2026-07-09 |
 | 36. Home + History + My Workflows [B2] | 4/5 | In Progress|  |
 | 37. Configure Unification [B3] | 5/6 | In Progress|  |
-| 38. Analytics, Estimates & Notifications [B4] | 4/5 | In Progress|  |
+| 38. Analytics, Estimates & Notifications [B4] | 5/5 | Complete   | 2026-07-10 |
