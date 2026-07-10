@@ -249,7 +249,7 @@ Registered 2026-07-07 via `/gsd-import`. Plan of record: `.planning/CHAT-AND-UI-
 - [x] **SHELL-02**: Fused Home (launcher+grid+recents); History grouping/sort/delete; **My Workflows** rename + kebab actions; `WorkflowCatalog`→`HomeLaunchGrid`; "Catalogue" reserved for future marketplace (D-11)
 - [x] **SHELL-03**: Run detail/reopen page off a run-summary endpoint aggregating existing data (agents, KPIs, failure banner, version timeline)
 - [ ] **SHELL-04**: Generic Configure surface (Describe/Templates/DS/Gates/Settings for every deliverable) + Agent drawer + Workflow dialog with `user_allowed` gating (ND-1/ND-7/ND-8 gated)
-- [ ] **SHELL-05**: Date-scoped analytics aggregations + chart components + per-deliverable estimates + notifications feed
+- [x] **SHELL-05**: Date-scoped analytics aggregations + chart components + per-deliverable estimates + notifications feed
 
 ## v2 Requirements
 
@@ -471,7 +471,7 @@ Each v1 requirement maps to exactly one phase, **one row per requirement** (REQ-
 | SHELL-02 | Phase 36 [B2] | Complete |
 | SHELL-03 | Phase 36 [B2] | Complete |
 | SHELL-04 | Phase 37 [B3] | Pending |
-| SHELL-05 | Phase 38 [B4] | Pending |
+| SHELL-05 | Phase 38 [B4] | Complete |
 
 **v2.0 counts:** P28=1 · P29=6 · P30=4 · P31=3 · P32=5 · P33=3 · P34=1 · P35=1 · P36=2 · P37=1 · P38=1 (= 28)
 
