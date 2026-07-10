@@ -193,15 +193,23 @@ def test_owner_isolation(env):
     assert body["token_totals"]["output"] == 150
 
     # Unauthenticated call → 401 (inherited Depends(get_current_user)). Mount a
-    # fresh app WITHOUT the auth override so the real dependency runs and denies.
+    # fresh app WITHOUT the auth override so the REAL dependency runs and denies.
+    # A present-but-invalid bearer token exercises get_current_user's own 401
+    # path (a totally-missing header trips HTTPBearer's 403 guard first); either
+    # way the endpoint denies an unauthenticated caller.
     unauth = FastAPI()
     from app.api.analytics import router as analytics_router
 
     unauth.include_router(analytics_router)
     unauth.dependency_overrides[get_db] = env["get_db_override"]
     unauth_client = TestClient(unauth)
-    r401 = unauth_client.get("/api/analytics/summary")
-    assert r401.status_code == 401
+    r_bad_token = unauth_client.get(
+        "/api/analytics/summary", headers={"Authorization": "Bearer not-a-real-jwt"}
+    )
+    assert r_bad_token.status_code == 401
+    # A missing header is also denied (HTTPBearer 403) — never a 200.
+    r_no_header = unauth_client.get("/api/analytics/summary")
+    assert r_no_header.status_code in (401, 403)
 
 
 # ────────────────────────────────────────────────────────────────────────────

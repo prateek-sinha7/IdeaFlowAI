@@ -15,6 +15,7 @@ from app.api.agents import router as agents_router
 from app.api.workflows import router as workflows_router
 from app.api.capabilities import router as capabilities_router
 from app.api.runs import router as runs_router
+from app.api.analytics import router as analytics_router
 from app.api.run_commands import router as run_commands_router
 from app.api.run_stream import router as run_stream_router
 from app.api.user_workflows import router as user_workflows_router
@@ -173,6 +174,10 @@ app.include_router(agents_router)
 app.include_router(workflows_router)
 app.include_router(capabilities_router)
 app.include_router(runs_router)
+# SC-1 / SHELL-05 (38-01): additive, owner-scoped, READ-ONLY analytics
+# aggregation over existing WorkflowRun columns (its own /api/analytics prefix;
+# no new table / migration). Registered beside runs_router.
+app.include_router(analytics_router)
 # CHAT-07 / D-13: additive per-run SSE down-channel, mounted ALONGSIDE the
 # WebSocket transport (LOCK-B — websocket_router below is untouched). Shares the
 # /api/runs prefix with runs_router (FastAPI allows multiple routers per prefix).
