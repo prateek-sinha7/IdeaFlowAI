@@ -244,7 +244,7 @@ export function AppHeader({
                     className="w-full flex items-center gap-2.5 px-3.5 py-2 text-[12px] text-ink-700 hover:bg-surface-warm transition-colors text-left"
                   >
                     <History className="h-3.5 w-3.5 text-ink-400 flex-shrink-0" />
-                    Workflow History
+                    Run History
                   </button>
                 </div>
 
