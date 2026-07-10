@@ -87,10 +87,10 @@ export const CUSTOM_AGENTS: AgentDef[] = [
 export const ALL_LIBRARY_AGENTS: AgentDef[] = [...LIBRARY_AGENTS, ...CUSTOM_AGENTS];
 
 export const PIPELINE_CATEGORIES = [
-  { key: "all", label: "All", count: 54 },
+  { key: "all", label: "All", count: 55 },
   { key: "user_stories", label: "User Stories", count: 6 },
   { key: "ppt", label: "PPT", count: 3 },
-  { key: "prototype", label: "Prototype", count: 4 },
+  { key: "prototype", label: "Prototype", count: 5 },
   { key: "app_builder", label: "App Builder", count: 15 },
   { key: "mulesoft_to_springboot", label: "Mulesoft → Spring Boot", count: 13 },
   { key: "dotnet_to_azure", label: ".NET → Azure", count: 13 },
