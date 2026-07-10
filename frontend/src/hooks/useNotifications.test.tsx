@@ -41,6 +41,41 @@ describe("useNotifications transitions", () => {
     expect(n.completedAt).toBeUndefined();
   });
 
+  it("markGateResumed(id) returns a paused (gate) run to running (gate resolved)", () => {
+    const { result } = renderHook(() => useNotifications());
+    addRunning(result);
+    act(() => {
+      result.current.markGatePaused(RUN_ID);
+    });
+    expect(
+      result.current.notifications.find((x) => x.id === RUN_ID)!.status,
+    ).toBe("gate");
+    // The review gate RESOLVED and the run resumes — the notification must
+    // return to "running" (MD-1: the gate notification used to never revert).
+    act(() => {
+      result.current.markGateResumed(RUN_ID);
+    });
+    const n = result.current.notifications.find((x) => x.id === RUN_ID)!;
+    expect(n.status).toBe("running");
+    expect(n.completedAt).toBeUndefined();
+  });
+
+  it("markGateResumed(id) is a no-op on a terminal run (never clobbers completed)", () => {
+    const { result } = renderHook(() => useNotifications());
+    addRunning(result);
+    act(() => {
+      result.current.markCompleted(RUN_ID);
+    });
+    // A resolved-gate signal arriving after completion must NOT resurrect the
+    // run to "running" — markGateResumed only acts on a paused (gate) item.
+    act(() => {
+      result.current.markGateResumed(RUN_ID);
+    });
+    expect(
+      result.current.notifications.find((x) => x.id === RUN_ID)!.status,
+    ).toBe("completed");
+  });
+
   it("markFailed(id) moves the run to failed and stamps completedAt", () => {
     const { result } = renderHook(() => useNotifications());
     addRunning(result);

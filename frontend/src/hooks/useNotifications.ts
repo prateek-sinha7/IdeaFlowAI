@@ -105,6 +105,19 @@ export function useNotifications() {
     );
   }, []);
 
+  // The review gate RESOLVED (approved/edited/rejected) and the run RESUMED —
+  // return a PAUSED notification to "running". Inverse of markGatePaused; guarded
+  // on status==="gate" so it never clobbers a terminal (completed/failed/
+  // cancelled) mark or a fresh running run. Generic — no workflow-name branch.
+  const markGateResumed = useCallback((id: string) => {
+    setNotifications(prev =>
+      prev.map(n => n.id === id && n.status === "gate"
+        ? { ...n, status: "running" as const }
+        : n
+      )
+    );
+  }, []);
+
   // Called when pipeline_start arrives with the real agent count
   const updateAgentsTotal = useCallback((id: string, agentsTotal: number, title?: string) => {
     setNotifications(prev =>
@@ -138,6 +151,7 @@ export function useNotifications() {
     markFailed,
     markCancelled,
     markGatePaused,
+    markGateResumed,
     markAllRead,
     clearAll,
     unreadCount,

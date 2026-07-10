@@ -365,6 +365,7 @@ export function DashboardLayout({
     markFailed,
     markCancelled,
     markGatePaused,
+    markGateResumed,
     markAllRead,
     clearAll,
   } = useNotifications();
@@ -483,12 +484,17 @@ export function DashboardLayout({
     }
   }, [pipelineState, workflowType, pptContent, userStoryContent, prototypeContent]);
 
-  // Gate paused — a review gate opened mid-run. Fire the gate notification off
-  // the GENERIC markers (reviewGateData + running), the SAME condition that
-  // drives runLaneState==="gate" (:1311) — never a workflow name (SC-001/INV-1).
+  // Gate pause/resume — a review gate OPENING pauses the notification and its
+  // RESOLVING resumes it, both off the GENERIC markers (reviewGateData +
+  // running), the SAME condition that drives runLaneState==="gate" (:1311) —
+  // never a workflow name (SC-001/INV-1). markGateResumed no-ops unless the
+  // notification is actually paused, so it never clobbers a terminal mark.
   useEffect(() => {
-    if (reviewGateData && pipelineState?.isRunning && currentPipelineNotifId.current) {
+    if (!currentPipelineNotifId.current || !pipelineState?.isRunning) return;
+    if (reviewGateData) {
       markGatePaused(currentPipelineNotifId.current);
+    } else {
+      markGateResumed(currentPipelineNotifId.current);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reviewGateData, pipelineState?.isRunning]);
