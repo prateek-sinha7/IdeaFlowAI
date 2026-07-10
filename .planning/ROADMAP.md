@@ -1018,12 +1018,19 @@ Plans:
 2. Home deliverable cards show real time/agent estimates; notifications feed live (gate/running/done/failed).
 
 **Plans:** 5 plans in 3 waves
-
 Plans:
+**Wave 1**
+
 - [ ] 38-01-PLAN.md — Owner-scoped `/api/analytics/summary` aggregation endpoint (Wave 1)
 - [ ] 38-02-PLAN.md — Extracted token-styled SVG DonutChart + BarChart, a11y-labelled (Wave 1)
 - [ ] 38-03-PLAN.md — Notifications feed: gate kind + wire failed/cancelled/gate transitions (Wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 38-04-PLAN.md — AnalyticsPage rewire to endpoint + full Phase-32 reskin + chart swap (Wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 38-05-PLAN.md — Home deliverable-card real estimates (~N agents · ~Xm) (Wave 3)
 
 ### v2.0 Progress
