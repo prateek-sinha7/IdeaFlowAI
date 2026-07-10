@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AnimatePresence } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import {
   Search, Clock, Puzzle, Webhook, X, Copy, Check,
   Tag, Zap, BookOpen, ChevronRight,
@@ -84,8 +84,9 @@ function SkillDetailModal({ skill, onClose }: { skill: SkillDef; onClose: () => 
   if (current.heading || current.lines.length > 0) sections.push(current);
 
   return (
-    <div
-      className="fixed inset-0 z-[80] flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm"
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[80] flex items-center justify-center p-6 bg-[var(--scrim)] backdrop-blur-sm"
       onClick={onClose}
     >
       <div
@@ -204,7 +205,7 @@ function SkillDetailModal({ skill, onClose }: { skill: SkillDef; onClose: () => 
           </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -231,8 +232,9 @@ function HookDetailModal({ hook, onClose }: { hook: HookDef; onClose: () => void
   };
 
   return (
-    <div
-      className="fixed inset-0 z-[80] flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm"
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[80] flex items-center justify-center p-6 bg-[var(--scrim)] backdrop-blur-sm"
       onClick={onClose}
     >
       <div
@@ -333,7 +335,7 @@ function HookDetailModal({ hook, onClose }: { hook: HookDef; onClose: () => void
 
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
