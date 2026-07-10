@@ -1008,6 +1008,7 @@ export default function DashboardPage() {
       ...(pending.modelOverrides && Object.keys(pending.modelOverrides).length > 0 ? { modelOverrides: pending.modelOverrides } : {}),
       ...(pending.selections && Object.keys(pending.selections).length > 0 ? { selections: pending.selections } : {}),
       ...(pending.agentIds && pending.agentIds.length > 0 ? { agentIds: pending.agentIds } : {}),
+      ...(pending.images && pending.images.length > 0 ? { images: pending.images } : {}),
     });
   // send and connectionStatus drive the re-run.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1080,6 +1081,7 @@ export default function DashboardPage() {
       ...(pending.modelOverrides && Object.keys(pending.modelOverrides).length > 0 ? { modelOverrides: pending.modelOverrides } : {}),
       ...(pending.selections && Object.keys(pending.selections).length > 0 ? { selections: pending.selections } : {}),
       ...(pending.agentIds && pending.agentIds.length > 0 ? { agentIds: pending.agentIds } : {}),
+      ...(pending.images && pending.images.length > 0 ? { images: pending.images } : {}),
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionStatus]);
