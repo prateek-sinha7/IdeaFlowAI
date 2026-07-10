@@ -2,10 +2,10 @@
  * Phase 35 plan-01 (B1-01) — NotificationPanel bell a11y contract (RED-first).
  *
  * Encodes the notifications-bell a11y invariant the reskin must satisfy: the
- * bell advertises aria-haspopup=menu + a toggling aria-expanded, the open
- * dropdown carries role=menu, Escape closes it and refocuses the bell, and the
- * existing aria-label="Notifications" is preserved. Authored BEFORE the chrome
- * reskin (Task 3), so the new aria/role/Escape assertions FAIL now (RED) and
+ * bell advertises aria-haspopup=dialog + a toggling aria-expanded, the open
+ * dropdown carries role=dialog (a notification popup is a dialog, not a menu —
+ * its rows are notifications, not menuitem commands), Escape closes it and
+ * refocuses the bell, and the existing aria-label="Notifications" is preserved.
  * the reskin turns them GREEN. CHROME ONLY — no feed/data assertions
  * (live feed is Phase 38).
  *
@@ -44,21 +44,21 @@ describe("NotificationPanel — bell a11y", () => {
     ).toBeInTheDocument();
   });
 
-  it("bell advertises aria-haspopup=menu and toggles aria-expanded on open", async () => {
+  it("bell advertises aria-haspopup=dialog and toggles aria-expanded on open", async () => {
     const user = userEvent.setup();
     setup();
     const bell = screen.getByRole("button", { name: /notifications/i });
-    expect(bell).toHaveAttribute("aria-haspopup", "menu");
+    expect(bell).toHaveAttribute("aria-haspopup", "dialog");
     expect(bell).toHaveAttribute("aria-expanded", "false");
     await user.click(bell);
     expect(bell).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("open dropdown carries role=menu", async () => {
+  it("open dropdown carries role=dialog", async () => {
     const user = userEvent.setup();
     setup();
     await user.click(screen.getByRole("button", { name: /notifications/i }));
-    expect(screen.getByRole("menu")).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
   it("Escape closes the dropdown and returns focus to the bell", async () => {
@@ -66,10 +66,10 @@ describe("NotificationPanel — bell a11y", () => {
     setup();
     const bell = screen.getByRole("button", { name: /notifications/i });
     await user.click(bell);
-    expect(screen.getByRole("menu")).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
     await user.keyboard("{Escape}");
     await waitFor(() =>
-      expect(screen.queryByRole("menu")).not.toBeInTheDocument(),
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
     );
     expect(bell).toHaveFocus();
   });

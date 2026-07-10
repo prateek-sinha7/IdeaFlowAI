@@ -31,7 +31,7 @@ function StatusIcon({ status }: { status: PipelineNotification["status"] }) {
   if (status === "running") return <Loader2 className="h-3.5 w-3.5 text-status-running animate-spin flex-shrink-0" />;
   if (status === "completed") return <CheckCircle2 className="h-3.5 w-3.5 text-status-done flex-shrink-0" />;
   if (status === "failed") return <XCircle className="h-3.5 w-3.5 text-status-failed flex-shrink-0" />;
-  if (status === "cancelled") return <XCircle className="h-3.5 w-3.5 text-status-queued flex-shrink-0" />;
+  if (status === "cancelled") return <XCircle className="h-3.5 w-3.5 text-status-amber flex-shrink-0" />;
   // gate: the run is paused awaiting a review gate — amber via the Phase-32
   // --status-amber ramp (token gate, never raw hex).
   if (status === "gate") return <PauseCircle className="h-3.5 w-3.5 text-status-amber flex-shrink-0" />;
@@ -88,7 +88,7 @@ export function NotificationPanel({
         onClick={handleOpen}
         className="relative flex items-center justify-center h-8 w-8 rounded-[var(--radius-button)] text-ink-300 hover:text-white hover:bg-white/10 transition-all"
         aria-label="Notifications"
-        aria-haspopup="menu"
+        aria-haspopup="dialog"
         aria-expanded={open}
       >
         <Bell className="h-4 w-4" />
@@ -103,7 +103,8 @@ export function NotificationPanel({
       <AnimatePresence>
         {open && (
           <motion.div
-            role="menu"
+            role="dialog"
+            aria-label="Notifications"
             initial={{ opacity: 0, y: 8, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.96 }}
