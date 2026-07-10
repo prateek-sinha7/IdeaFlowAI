@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
-import type { WorkflowSummary, UserWorkflowSummary } from "@/lib/api";
+import type { WorkflowSummary, UserWorkflowSummary, AnalyticsSummary } from "@/lib/api";
 
 // ─────────────────────────────────────────────────────────────────
 // Mocks. Hoisted by vitest before module imports.
@@ -25,11 +25,20 @@ const mockGetUserWorkflows =
 const mockCreateUserWorkflow = vi.fn();
 const mockRenameUserWorkflow = vi.fn();
 const mockDeleteUserWorkflow = vi.fn();
+// 38-05: the owner-scoped history-average source for the per-card estimate.
+// Default → empty map so the OTHER suites (which don't set it) render the
+// estimate as agents-only and never reject on mount (tolerant .catch parity).
+const mockGetAnalyticsSummary = vi.fn(
+  async (_token?: string, _range?: string): Promise<AnalyticsSummary> =>
+    ({ type_avg_duration_sec: {} } as AnalyticsSummary),
+);
 
 vi.mock("@/lib/api", () => ({
   getToken: () => mockGetToken(),
   getWorkflowDefinitions: (token: string) => mockGetWorkflowDefinitions(token),
   getUserWorkflows: (token: string) => mockGetUserWorkflows(token),
+  getAnalyticsSummary: (token: string, range: string) =>
+    mockGetAnalyticsSummary(token, range),
   createUserWorkflow: (...args: unknown[]) => mockCreateUserWorkflow(...args),
   renameUserWorkflow: (...args: unknown[]) => mockRenameUserWorkflow(...args),
   deleteUserWorkflow: (...args: unknown[]) => mockDeleteUserWorkflow(...args),
@@ -199,6 +208,59 @@ describe("HomeLaunchGrid two-gate filter + friendly label", () => {
     // Conversely, the no-display_name row (`custom`) DOES fall back to the
     // friendly map ("Custom Workflow"), confirming both branches are live.
     expect(screen.getByText("Custom Workflow")).toBeInTheDocument();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// 38-05 (SC-2) — the REAL per-deliverable estimate line.
+//   agents  = row.step_count (already on the WorkflowSummary wire) — ALWAYS.
+//   minutes = round(type_avg_duration_sec[row.id] / 60) from the owner-scoped
+//             /api/analytics/summary — rendered ONLY when a history entry for
+//             that generic row id exists; otherwise the time clause is OMITTED
+//             (tolerant fallback, no fabricated/hardcoded time).
+//   Keyed on the generic row.id — never a workflow-name branch (SC-001).
+// ─────────────────────────────────────────────────────────────────
+
+describe("HomeLaunchGrid — real per-deliverable estimate line (SC-2, 38-05)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetToken.mockReturnValue("test-token");
+    mockGetWorkflowDefinitions.mockResolvedValue(MIXED);
+    mockGetUserWorkflows.mockResolvedValue([]);
+    // History average covers ONE launchable row: user_stories → 300s → ~5m.
+    // app_builder has NO entry → its time clause must be omitted.
+    mockGetAnalyticsSummary.mockResolvedValue({
+      type_avg_duration_sec: { user_stories: 300 },
+    } as AnalyticsSummary);
+  });
+
+  it("shows '~N agents · ~Xm' when history exists and '~N agents' (no time) when it doesn't", async () => {
+    render(
+      <HomeLaunchGrid onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="enterprise" />,
+    );
+
+    // WITH history — user_stories: step_count=3 → "~3 agents"; 300s/60 → "~5m".
+    await waitFor(() =>
+      expect(screen.getByText("~3 agents · ~5m")).toBeInTheDocument(),
+    );
+
+    // WITHOUT history — app_builder: step_count=5 → "~5 agents", NO time clause.
+    expect(screen.getByText("~5 agents")).toBeInTheDocument();
+    // ...and that agents-only row carries no minutes clause at all.
+    expect(screen.queryByText(/~5 agents .*~\d+m/)).toBeNull();
+  });
+
+  it("keys the average on the generic row id from the owner-scoped 'all'-range summary", async () => {
+    render(
+      <HomeLaunchGrid onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="enterprise" />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText("~3 agents · ~5m")).toBeInTheDocument(),
+    );
+    // Owner-scoped fetch: the endpoint enforces WHERE user_id server-side; the
+    // grid asks for the full history window ("all").
+    expect(mockGetAnalyticsSummary).toHaveBeenCalledWith("test-token", "all");
   });
 });
 
