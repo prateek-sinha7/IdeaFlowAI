@@ -14,6 +14,7 @@ export type BadgeStatus =
   | "done"
   | "failed"
   | "cancelled"
+  | "gate"
   | "queued";
 
 // Status key -> status-ramp token classes. Fill/border ramp vars live in :root
@@ -26,6 +27,9 @@ const STATUS_CLASS: Record<BadgeStatus, string> = {
     "text-status-failed bg-[var(--status-failed-fill)] border-[var(--status-failed-border)]",
   cancelled:
     "text-status-amber bg-[var(--status-amber-fill)] border-[var(--status-amber-border)]",
+  // gate/review-paused shares the amber ramp (globals.css:103 "cancelled + gate/review").
+  gate:
+    "text-status-amber bg-[var(--status-amber-fill)] border-[var(--status-amber-border)]",
   queued:
     "text-status-queued bg-[var(--status-queued-fill)] border-[var(--status-queued-border)]",
 };
@@ -37,6 +41,7 @@ function normalizeStatus(status: string): BadgeStatus {
   if (s === "running") return "running";
   if (s === "failed" || s === "error") return "failed";
   if (s === "cancelled" || s === "canceled") return "cancelled";
+  if (s === "gate" || s === "review" || s === "paused") return "gate";
   if (s === "queued" || s === "pending") return "queued";
   return "queued"; // unknown -> neutral-grey (never throws)
 }

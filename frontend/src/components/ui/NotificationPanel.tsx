@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Bell, CheckCircle2, XCircle, Loader2, ArrowRight, Trash2 } from "lucide-react";
+import { Bell, CheckCircle2, XCircle, Loader2, ArrowRight, Trash2, PauseCircle } from "lucide-react";
 import type { PipelineNotification } from "@/hooks/useNotifications";
 import { getWorkflowLabel } from "@/hooks/useNotifications";
 import { Badge } from "@/components/ui/Badge";
@@ -32,6 +32,9 @@ function StatusIcon({ status }: { status: PipelineNotification["status"] }) {
   if (status === "completed") return <CheckCircle2 className="h-3.5 w-3.5 text-status-done flex-shrink-0" />;
   if (status === "failed") return <XCircle className="h-3.5 w-3.5 text-status-failed flex-shrink-0" />;
   if (status === "cancelled") return <XCircle className="h-3.5 w-3.5 text-status-queued flex-shrink-0" />;
+  // gate: the run is paused awaiting a review gate — amber via the Phase-32
+  // --status-amber ramp (token gate, never raw hex).
+  if (status === "gate") return <PauseCircle className="h-3.5 w-3.5 text-status-amber flex-shrink-0" />;
   return null;
 }
 

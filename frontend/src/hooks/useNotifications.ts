@@ -8,7 +8,7 @@ export interface PipelineNotification {
   workflowRunId?: string;
   workflowType: WorkflowType;
   title: string;
-  status: "running" | "completed" | "failed" | "cancelled";
+  status: "running" | "completed" | "failed" | "cancelled" | "gate";
   agentsCompleted?: number;
   agentsTotal?: number;
   createdAt: Date;
@@ -93,6 +93,18 @@ export function useNotifications() {
     );
   }, []);
 
+  // A review gate opened — the run is PAUSED awaiting the owner, not terminal.
+  // Mirrors markFailed but sets status:"gate" and does NOT stamp completedAt
+  // (there is no terminal timestamp for a paused run). read:false surfaces it.
+  const markGatePaused = useCallback((id: string) => {
+    setNotifications(prev =>
+      prev.map(n => n.id === id
+        ? { ...n, status: "gate" as const, read: false }
+        : n
+      )
+    );
+  }, []);
+
   // Called when pipeline_start arrives with the real agent count
   const updateAgentsTotal = useCallback((id: string, agentsTotal: number, title?: string) => {
     setNotifications(prev =>
@@ -125,6 +137,7 @@ export function useNotifications() {
     markCompleted,
     markFailed,
     markCancelled,
+    markGatePaused,
     markAllRead,
     clearAll,
     unreadCount,
