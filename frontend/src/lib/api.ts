@@ -331,6 +331,77 @@ export async function getWorkflows(
   return raw.map(normalizeWorkflowRun);
 }
 
+// --- Analytics API (SC-1) ---
+//
+// Structural mirror of the backend `AnalyticsSummary` Pydantic model
+// (backend/app/api/analytics.py) — field-for-field, generic type/model keys
+// (SC-001/INV-1: no workflow-name branch). Numbers only.
+
+export interface AnalyticsKpis {
+  total: number;
+  completed: number;
+  failed: number;
+  success_rate: number;
+}
+
+export interface AnalyticsTokenTotals {
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+  total: number;
+}
+
+export interface AnalyticsDailyBucket {
+  date: string;
+  total: number;
+  completed: number;
+  failed: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+}
+
+export interface AnalyticsPipelineRollup {
+  type: string;
+  count: number;
+  total_tokens: number;
+  cost: number;
+  avg_duration: number;
+}
+
+export interface AnalyticsModelRollup {
+  model_id: string;
+  count: number;
+  total_tokens: number;
+  cost: number;
+}
+
+export interface AnalyticsSummary {
+  kpis: AnalyticsKpis;
+  daily: AnalyticsDailyBucket[];
+  pipelines: AnalyticsPipelineRollup[];
+  models: AnalyticsModelRollup[];
+  spend: number;
+  token_totals: AnalyticsTokenTotals;
+  type_avg_duration_sec: Record<string, number>;
+}
+
+/**
+ * Fetch the owner-scoped, date-scoped analytics summary (38-01). Changing
+ * `range` re-queries the server (SC-1 recompute) — no client-side rollup of
+ * raw runs. `range` is a UI enum: today|3d|7d|30d|90d|all.
+ */
+export async function getAnalyticsSummary(
+  token: string,
+  range: string
+): Promise<AnalyticsSummary> {
+  return request<AnalyticsSummary>(
+    `/api/analytics/summary?range=${encodeURIComponent(range)}`,
+    { method: "GET", headers: authHeaders(token) }
+  );
+}
+
 export async function getWorkflow(
   token: string,
   workflowId: string
