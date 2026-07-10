@@ -37,6 +37,7 @@ import { CHAIN_OPTIONS } from "@/lib/workflowChaining";
 import { getWorkflowLabel } from "@/hooks/useNotifications";
 import {
   getWorkflowDefinitions,
+  getAnalyticsSummary,
   getToken,
   type WorkflowSummary,
   type UserWorkflowSummary,
@@ -58,6 +59,11 @@ export function HomeLaunchGrid({
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // SC-2: owner-scoped per-type history-average duration (seconds), keyed by
+  // the generic workflow id, from GET /api/analytics/summary (38-01). Feeds the
+  // "~Xm" half of each card's real estimate. Empty until fetched / on failure —
+  // the estimate then degrades to agents-only (no fabricated time).
+  const [avgDurationSec, setAvgDurationSec] = useState<Record<string, number>>({});
   // SURF-03: the compiled workflow the read-only WorkflowDialog is inspecting
   // (null = closed). Set by any catalog row's inspect affordance.
   const [inspectId, setInspectId] = useState<string | null>(null);
@@ -87,6 +93,20 @@ export function HomeLaunchGrid({
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+
+    // SC-2: owner-scoped per-type history average for the "~Xm" estimate half.
+    // The endpoint enforces WHERE user_id server-side (no cross-owner leak); we
+    // ask for the full window ("all"). Tolerant .catch → empty map so the grid
+    // still renders (agents-only) if analytics is unavailable — never crashes.
+    getAnalyticsSummary(jwt, "all")
+      .then((summary) => {
+        if (cancelled) return;
+        setAvgDurationSec(summary.type_avg_duration_sec ?? {});
+      })
+      .catch(() => {
+        if (!cancelled) setAvgDurationSec({});
+      });
+
     return () => {
       cancelled = true;
     };
@@ -171,6 +191,22 @@ export function HomeLaunchGrid({
               // Friendly label, NEVER the raw API `name` (UI-SPEC §4).
               const label = row.display_name ?? getWorkflowLabel(row.id);
               const subtitle = row.description;
+              // SC-2 real estimate — generic, keyed on the row id (NEVER a
+              // workflow-name branch; SC-001/INV-1). Agents come from the
+              // step_count already on the wire (agent_count tolerated as a
+              // fallback if a future manifest exposes it). Minutes come from
+              // the owner-scoped history average, rendered ONLY when an entry
+              // for this row exists — otherwise the time clause is omitted (no
+              // fabricated/hardcoded time).
+              const agents =
+                row.step_count ??
+                (row as WorkflowSummary & { agent_count?: number }).agent_count;
+              const avgSec = avgDurationSec[row.id];
+              const minutes =
+                avgSec != null ? Math.round(avgSec / 60) : null;
+              const estimate = `~${agents} agents${
+                minutes != null ? ` · ~${minutes}m` : ""
+              }`;
               const allowed = canRunPipeline(userTier, type); // gate 2
               const upgradeTo = getUpgradeTier(userTier, type);
               return (
@@ -199,6 +235,11 @@ export function HomeLaunchGrid({
                       </div>
                       <p className={`text-[12px] italic leading-snug ${allowed ? "text-ink-500" : "text-ink-400"}`}>
                         {subtitle}
+                      </p>
+                      {/* SC-2 — real per-deliverable estimate: agents always,
+                          time only when the owner-scoped history has an entry. */}
+                      <p className="text-[11px] not-italic text-ink-400 mt-1">
+                        {estimate}
                       </p>
                       {!allowed && upgradeTo && (
                         <p className="text-[10px] font-semibold text-brand mt-1">

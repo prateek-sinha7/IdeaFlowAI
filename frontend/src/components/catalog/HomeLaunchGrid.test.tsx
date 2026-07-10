@@ -30,7 +30,7 @@ const mockDeleteUserWorkflow = vi.fn();
 // estimate as agents-only and never reject on mount (tolerant .catch parity).
 const mockGetAnalyticsSummary = vi.fn(
   async (_token?: string, _range?: string): Promise<AnalyticsSummary> =>
-    ({ type_avg_duration_sec: {} } as AnalyticsSummary),
+    ({ type_avg_duration_sec: {} } as unknown as AnalyticsSummary),
 );
 
 vi.mock("@/lib/api", () => ({
@@ -231,7 +231,7 @@ describe("HomeLaunchGrid — real per-deliverable estimate line (SC-2, 38-05)", 
     // app_builder has NO entry → its time clause must be omitted.
     mockGetAnalyticsSummary.mockResolvedValue({
       type_avg_duration_sec: { user_stories: 300 },
-    } as AnalyticsSummary);
+    } as unknown as AnalyticsSummary);
   });
 
   it("shows '~N agents · ~Xm' when history exists and '~N agents' (no time) when it doesn't", async () => {

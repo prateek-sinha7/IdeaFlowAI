@@ -32,6 +32,10 @@ vi.mock("@/lib/api", () => ({
   getToken: () => "test-token",
   getWorkflowDefinitions: (t: string) => mockGetWorkflowDefinitions(t),
   getUserWorkflows: () => mockGetUserWorkflows(),
+  // 38-05: the grid's mount effect now also fetches the owner-scoped history
+  // average for the per-card estimate. Stub it here so the inspect-affordance
+  // tests still render (agents-only estimate; no history-time assertions here).
+  getAnalyticsSummary: async () => ({ type_avg_duration_sec: {} }),
   getWorkflowDetail: (t: string, id: string) => mockGetWorkflowDetail(t, id),
   getCapabilities: (t: string) => mockGetCapabilities(t),
 }));
