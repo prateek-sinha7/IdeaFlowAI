@@ -180,7 +180,10 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
   const failedCount = kpis?.failed ?? 0;
   const totalCount = kpis?.total ?? 0;
   const successRate = kpis ? Math.round(kpis.success_rate * 100) : 0;
-  const avgTokens = completedCount > 0 ? Math.round(totalTokens / completedCount) : 0;
+  // Avg tokens PER RUN: token_totals.total is summed over ALL runs (backend
+  // _aggregate), so the denominator must be all runs (totalCount) too — not
+  // completedCount — for a consistent population that matches the label (MD-2).
+  const avgTokens = totalCount > 0 ? Math.round(totalTokens / totalCount) : 0;
 
   const availableModelIds = (summary?.models ?? [])
     .map((m) => m.model_id)
@@ -312,7 +315,7 @@ export function AnalyticsPage({ onBack }: AnalyticsPageProps) {
               sub={`across ${completedCount} completed runs`} />
             <StatCard icon={Activity}   label="Avg / Run"     value={formatTokens(avgTokens)}
               rawValue={avgTokens} format={formatTokens}
-              sub="tokens per pipeline" />
+              sub="tokens per run" />
             <StatCard icon={Layers}     label="Total Runs"    value={String(totalCount)}
               rawValue={totalCount} format={n => String(n)}
               sub={`${completedCount} completed · ${failedCount} failed`} />

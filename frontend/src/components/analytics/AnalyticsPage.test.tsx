@@ -16,7 +16,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 import type { AnalyticsSummary } from "@/lib/api";
@@ -129,5 +129,49 @@ describe("AnalyticsPage — server recompute (SC-1)", () => {
       expect(mockGetAnalyticsSummary).toHaveBeenCalledWith("test-token", "30d"),
     );
     await waitFor(() => expect(screen.getAllByRole("img").length).toBeGreaterThan(0));
+  });
+});
+
+describe("AnalyticsPage — Avg / Run KPI math (MD-2)", () => {
+  it("divides all-run tokens by ALL runs (totalCount), not completed runs", async () => {
+    // Settle the KPI count-up animation in a single frame: jsdom's rAF never
+    // advances performance.now() to completion, freezing the value mid-flight.
+    // A huge timestamp makes AnimatedNumber's t reach 1 on the first tick.
+    let rafTime = 1e9;
+    const rafSpy = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((cb: FrameRequestCallback) => {
+        rafTime += 1_000;
+        cb(rafTime);
+        return 0;
+      });
+    try {
+      mockGetAnalyticsSummary.mockReset();
+      mockGetAnalyticsSummary.mockResolvedValue(
+        summary({
+          // 900 tokens are summed over ALL 10 runs (backend _aggregate); only 4
+          // completed. Fixed avg = 900/10 = 90; the pre-fix bug divided by the
+          // completed count → 900/4 = 225.
+          kpis: { total: 10, completed: 4, failed: 1, success_rate: 0.4 },
+          token_totals: { input: 600, output: 300, cache_read: 0, cache_write: 0, total: 900 },
+        }),
+      );
+      render(<AnalyticsPage onBack={() => {}} />);
+      await waitFor(() =>
+        expect(mockGetAnalyticsSummary).toHaveBeenCalledWith("test-token", "30d"),
+      );
+
+      // Scope to the Avg / Run card so no other animated counter can collide.
+      const card = (await screen.findByText("Avg / Run")).closest(
+        "div.bg-surface-card",
+      ) as HTMLElement;
+      expect(card).not.toBeNull();
+      await waitFor(() =>
+        expect(within(card).getByText("90")).toBeInTheDocument(),
+      );
+      expect(within(card).queryByText("225")).not.toBeInTheDocument();
+    } finally {
+      rafSpy.mockRestore();
+    }
   });
 });
