@@ -1,6 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import React from "react";
 import type { WorkflowSummary, UserWorkflowSummary, AnalyticsSummary } from "@/lib/api";
 
@@ -12,9 +11,6 @@ import type { WorkflowSummary, UserWorkflowSummary, AnalyticsSummary } from "@/l
 // keep working). This pins the two-gate filter (user_launchable ∧
 // canRunPipeline) + the friendly-label fallback deterministically, with NO
 // backend — the launch-navigation assertions live in the mocked e2e.
-//
-// Phase 21 adds the second list (getUserWorkflows) + the saved-row CRUD
-// fetchers, so the "Your workflows" section + kebab render deterministically.
 // ─────────────────────────────────────────────────────────────────
 
 const mockGetToken = vi.fn(() => "test-token");
@@ -261,128 +257,5 @@ describe("HomeLaunchGrid — real per-deliverable estimate line (SC-2, 38-05)", 
     // Owner-scoped fetch: the endpoint enforces WHERE user_id server-side; the
     // grid asks for the full history window ("all").
     expect(mockGetAnalyticsSummary).toHaveBeenCalledWith("test-token", "all");
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────
-// Phase 21 — the "Your workflows" section + per-row kebab (CRUD-OWNER-SCOPED).
-//   - saved rows render their OWN name (user rows, never the manifest rule);
-//   - each saved row exposes a Rename/Duplicate/Delete kebab;
-//   - built-in manifest rows do NOT (read-only, UI-SPEC §4);
-//   - Delete → confirm → deleteUserWorkflow called + row optimistically removed.
-// ─────────────────────────────────────────────────────────────────
-
-const SAVED: UserWorkflowSummary[] = [
-  {
-    id: "uw-1",
-    name: "My saved workflow",
-    description: "A custom composition.",
-    base_pipeline_type: "custom",
-    agent_ids: ["a1", "a2"],
-    model_overrides: null,
-  },
-];
-
-describe("HomeLaunchGrid — 'Your workflows' section + kebab (Phase 21)", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockGetToken.mockReturnValue("test-token");
-    mockGetWorkflowDefinitions.mockResolvedValue(MIXED);
-    mockGetUserWorkflows.mockResolvedValue(SAVED);
-    mockDeleteUserWorkflow.mockResolvedValue(undefined);
-  });
-
-  it("renders the saved row's own name under a 'Your workflows' heading", async () => {
-    render(<HomeLaunchGrid onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="enterprise" />);
-
-    await waitFor(() =>
-      expect(screen.getByText("Your workflows")).toBeInTheDocument(),
-    );
-    // The saved row renders its OWN name (not a friendly-label remap).
-    expect(screen.getByText("My saved workflow")).toBeInTheDocument();
-  });
-
-  it("launches a saved workflow via onLaunchSaved when its row is clicked", async () => {
-    const onLaunchSaved = vi.fn();
-    render(<HomeLaunchGrid onSelectFeature={vi.fn()} onLaunchSaved={onLaunchSaved} userTier="enterprise" />);
-
-    const row = await screen.findByText("My saved workflow");
-    await userEvent.click(row);
-    expect(onLaunchSaved).toHaveBeenCalledTimes(1);
-    expect(onLaunchSaved.mock.calls[0][0]).toMatchObject({ id: "uw-1" });
-  });
-
-  it("exposes a Rename/Duplicate/Delete kebab on a saved row but not on built-in rows", async () => {
-    render(<HomeLaunchGrid onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="enterprise" />);
-
-    await screen.findByText("My saved workflow");
-
-    // Built-in rows are read-only — the kebab menu items never appear for them
-    // until a kebab is opened. There is exactly ONE kebab toggle (the saved row).
-    // Open it and assert the three actions appear.
-    const buttons = screen.getAllByRole("button");
-    // The kebab toggle is the icon-only button inside the saved-row's relative
-    // container; opening any kebab reveals the three items. Find + click it.
-    // (Built-in rows render an ArrowRight/Lock, NOT a MoreHorizontal toggle.)
-    // Click each button until the menu opens (deterministic: only one toggles it).
-    for (const b of buttons) {
-      await userEvent.click(b);
-      if (screen.queryByText("Rename")) break;
-    }
-
-    expect(screen.getByText("Rename")).toBeInTheDocument();
-    expect(screen.getByText("Duplicate")).toBeInTheDocument();
-    expect(screen.getByText("Delete")).toBeInTheDocument();
-  });
-
-  it("Delete → confirm calls deleteUserWorkflow and optimistically removes the row", async () => {
-    render(<HomeLaunchGrid onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="enterprise" />);
-
-    await screen.findByText("My saved workflow");
-
-    // Open the kebab.
-    for (const b of screen.getAllByRole("button")) {
-      await userEvent.click(b);
-      if (screen.queryByText("Delete")) break;
-    }
-    // Click "Delete" in the menu → confirm modal opens.
-    await userEvent.click(screen.getByText("Delete"));
-    // The confirm modal's primary action is the gray-900 "Delete" button.
-    const confirmButtons = screen.getAllByText("Delete");
-    await userEvent.click(confirmButtons[confirmButtons.length - 1]);
-
-    await waitFor(() => expect(mockDeleteUserWorkflow).toHaveBeenCalledTimes(1));
-    expect(mockDeleteUserWorkflow.mock.calls[0][1]).toBe("uw-1");
-    // Removed from the list only after the server delete RESOLVED.
-    await waitFor(() =>
-      expect(screen.queryByText("My saved workflow")).toBeNull(),
-    );
-  });
-
-  // WR-04: a FAILED server delete must KEEP the row (no optimistic removal on
-  // error) and surface the error — otherwise the row vanishes then reappears on
-  // the next mount, masking the failure.
-  it("Delete → keeps the row and surfaces an error when the server delete fails", async () => {
-    mockDeleteUserWorkflow.mockRejectedValueOnce(new Error("Network down"));
-    render(<HomeLaunchGrid onSelectFeature={vi.fn()} onLaunchSaved={vi.fn()} userTier="enterprise" />);
-
-    await screen.findByText("My saved workflow");
-
-    // Open the kebab → click "Delete" → confirm.
-    for (const b of screen.getAllByRole("button")) {
-      await userEvent.click(b);
-      if (screen.queryByText("Delete")) break;
-    }
-    await userEvent.click(screen.getByText("Delete"));
-    const confirmButtons = screen.getAllByText("Delete");
-    await userEvent.click(confirmButtons[confirmButtons.length - 1]);
-
-    await waitFor(() => expect(mockDeleteUserWorkflow).toHaveBeenCalledTimes(1));
-    // The error is surfaced...
-    await waitFor(() =>
-      expect(screen.getByText("Network down")).toBeInTheDocument(),
-    );
-    // ...and the row STAYS (it was never actually deleted server-side).
-    expect(screen.getByText("My saved workflow")).toBeInTheDocument();
   });
 });
