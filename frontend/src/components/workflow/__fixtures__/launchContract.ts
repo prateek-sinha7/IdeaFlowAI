@@ -195,6 +195,29 @@ export const DRAFT_SCENARIOS: DraftScenario[] = [
         '{"templateId":"pitch","designSystemId":"cds1","brief":"Rich deck","customDsBody":"/* custom ds */","sourceRunId":"run-9","gateAgentIds":[],"modelOverrides":{"od-ppt-composer":"claude-x"},"selections":{"od-ppt-composer":{"retryLimit":3}},"agentIds":["od-ppt-brief-analyst","od-ppt-composer","od-ppt-validator"]}',
     },
   },
+  {
+    // The ONE ppt branch that forces `customTemplateBody` present AND
+    // `designSystemId:null` together: a deck CUSTOM template has no registry
+    // entry, so the component's `selectedDeckTemplate` is undefined → dsRequired
+    // is false → designSystemId resolves to null. Byte-derived from
+    // `buildLaunchDraft` (the single source), which the 37-07 re-review confirmed
+    // reproduces the retired ppt/templates flow for this case. Closes WR-06.
+    name: "ppt · custom template (customTemplateBody + designSystemId null)",
+    mode: "ppt",
+    oracle: false,
+    inputs: {
+      templateId: "ct1",
+      designSystemId: null,
+      brief: "Custom deck",
+      customTemplateBody: "<html>custom</html>",
+      agentIds: PPT_AGENTS,
+    },
+    expected: {
+      ...PPT_KEYS,
+      draftJson:
+        '{"templateId":"ct1","designSystemId":null,"brief":"Custom deck","customTemplateBody":"<html>custom</html>","agentIds":["od-ppt-brief-analyst","od-ppt-composer","od-ppt-validator"]}',
+    },
+  },
 ];
 
 export interface DiscoveryScenario {

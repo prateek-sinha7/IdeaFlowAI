@@ -54,6 +54,7 @@ vi.mock("@/components/workflow/WizardStepper", () => ({
     onWebSelect: (id: string | null) => void;
     onWebSelectCustomTemplate?: (ct: { id: string; name: string; body: string } | null) => void;
     onDeckSelect: (id: string) => void;
+    onDeckSelectCustomTemplate?: (ct: { id: string; name: string; body: string } | null) => void;
     dsSlot?: React.ReactNode;
     discoverySlot?: React.ReactNode;
   }) => (
@@ -68,6 +69,10 @@ vi.mock("@/components/workflow/WizardStepper", () => ({
       >webcustom</button>
       <button data-testid="pick-deck" onClick={() => props.onDeckSelect("pitch")}>deckpick</button>
       <button data-testid="pick-deck-onepager" onClick={() => props.onDeckSelect("onepager")}>deckone</button>
+      <button
+        data-testid="pick-deck-custom"
+        onClick={() => props.onDeckSelectCustomTemplate?.({ id: "ct1", name: "c", body: "<html>custom</html>" })}
+      >deckcustom</button>
       <div data-testid="ds-slot">{props.dsSlot}</div>
       <div data-testid="discovery-slot">{props.discoverySlot}</div>
     </div>
@@ -162,6 +167,20 @@ describe("LaunchWizard — real-component launch parity (byte-identical per mode
     expect(sessionStorage.getItem("ppt.draft")).toBe(
       golden("ppt · ds not required (designSystemId null)").draftJson,
     );
+  });
+
+  it("WR-06: ppt custom template launches customTemplateBody with designSystemId:null (no DS required)", async () => {
+    const user = userEvent.setup();
+    render(<LaunchWizard initialMode="ppt" />);
+    await user.type(await screen.findByLabelText("Brief"), "Custom deck");
+    // A deck custom template has no registry entry → dsRequired=false → the
+    // launch must succeed WITHOUT a design-system pick and emit designSystemId:null.
+    await user.click(screen.getByTestId("pick-deck-custom"));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    const g = golden("ppt · custom template (customTemplateBody + designSystemId null)");
+    expect(sessionStorage.getItem("ppt.draft")).toBe(g.draftJson);
+    expect(sessionStorage.getItem("od_ppt.pending")).toBe("true");
   });
 });
 
