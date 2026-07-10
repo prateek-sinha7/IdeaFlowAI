@@ -1017,6 +1017,15 @@ Plans:
 1. Date-scoped analytics aggregations power the dashboard (filters actually recompute).
 2. Home deliverable cards show real time/agent estimates; notifications feed live (gate/running/done/failed).
 
+**Plans:** 5 plans in 3 waves
+
+Plans:
+- [ ] 38-01-PLAN.md — Owner-scoped `/api/analytics/summary` aggregation endpoint (Wave 1)
+- [ ] 38-02-PLAN.md — Extracted token-styled SVG DonutChart + BarChart, a11y-labelled (Wave 1)
+- [ ] 38-03-PLAN.md — Notifications feed: gate kind + wire failed/cancelled/gate transitions (Wave 1)
+- [ ] 38-04-PLAN.md — AnalyticsPage rewire to endpoint + full Phase-32 reskin + chart swap (Wave 2)
+- [ ] 38-05-PLAN.md — Home deliverable-card real estimates (~N agents · ~Xm) (Wave 3)
+
 ### v2.0 Progress
 
 | Phase | Plans Complete | Status | Completed |
@@ -1031,4 +1040,4 @@ Plans:
 | 35. Shell Chrome + Reskin Pages [B1] | 7/7 | Complete   | 2026-07-09 |
 | 36. Home + History + My Workflows [B2] | 4/5 | In Progress|  |
 | 37. Configure Unification [B3] | 5/6 | In Progress|  |
-| 38. Analytics, Estimates & Notifications [B4] | 0/? | Not started | — |
+| 38. Analytics, Estimates & Notifications [B4] | 0/5 | Planned | — |
