@@ -300,6 +300,31 @@ describe("LaunchWizard — ported behaviors", () => {
     expect(sessionStorage.getItem("prototype.draft")).toBeNull();
   });
 
+  it("IN-04: a restored workflow's legacy modelOverrides is NOT re-emitted on launch (selections is the single source)", async () => {
+    const user = userEvent.setup();
+    sessionStorage.setItem(
+      "prototype.draft",
+      JSON.stringify({
+        templateId: "kanban",
+        designSystemId: "midnight",
+        brief: "restored",
+        modelOverrides: { "prototype-build": "legacy-model" },
+        selections: { "prototype-build": { model: "live-model" } },
+        agentIds: [],
+      }),
+    );
+    render(<LaunchWizard initialMode="prototype" />);
+    const briefField = (await screen.findByLabelText("Brief")) as HTMLTextAreaElement;
+    await waitFor(() => expect(briefField.value).toBe("restored"));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    const draft = JSON.parse(sessionStorage.getItem("prototype.draft")!);
+    // The stale restored model_overrides must NOT round-trip into the launch draft.
+    expect(draft.modelOverrides).toBeUndefined();
+    // Model lives only in selections[id].model — the single source of truth.
+    expect(draft.selections).toEqual({ "prototype-build": { model: "live-model" } });
+  });
+
   it("chaining: pre-fills the brief and hides the brief editor (topic from prior run)", async () => {
     sessionStorage.setItem("chain.from", "user_stories");
     sessionStorage.setItem("chain.brief", "chained topic");

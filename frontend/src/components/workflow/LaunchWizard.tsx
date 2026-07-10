@@ -165,7 +165,6 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
 
   const [pipelineAgents, setPipelineAgents] = useState<AgentDef[]>(() => defaultAgentsFor(initialMode));
 
-  const modelOverridesRef = useRef<Record<string, string>>({});
   const selectionsRef = useRef<Record<string, Record<string, unknown>>>({});
   const gateSelectionRef = useRef<{ ids: string[]; touched: boolean }>({ ids: [], touched: false });
 
@@ -209,7 +208,6 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         templateId?: string; designSystemId?: string | null; brief?: string;
         customDsBody?: string; customTemplateBody?: string;
         agentIds?: string[]; gateAgentIds?: string[];
-        modelOverrides?: Record<string, string>;
         selections?: Record<string, Record<string, unknown>>;
       };
       if (d.templateId) setSelectedTemplateId(d.templateId);
@@ -223,7 +221,6 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
           .filter(Boolean) as AgentDef[];
         if (restored.length > 0) setPipelineAgents(restored);
       }
-      if (d.modelOverrides) modelOverridesRef.current = d.modelOverrides;
       if (d.selections) selectionsRef.current = d.selections;
       if (d.gateAgentIds !== undefined) gateSelectionRef.current = { ids: d.gateAgentIds, touched: true };
       sessionStorage.removeItem(draftKey);
@@ -295,7 +292,6 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     setSelectedTemplateId(null);
     setCustomTemplateBody(null);
     setPipelineAgents(defaultAgentsFor(nextMode));
-    modelOverridesRef.current = {};
     selectionsRef.current = {};
     gateSelectionRef.current = { ids: [], touched: false };
   }, []);
@@ -319,9 +315,6 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     setPipelineAgents(reordered);
   }, []);
 
-  const handleModelOverridesChange = useCallback((o: Record<string, string>) => {
-    modelOverridesRef.current = o;
-  }, []);
   const handleSelectionsChange = useCallback((s: Record<string, Record<string, unknown>>) => {
     selectionsRef.current = s;
   }, []);
@@ -415,7 +408,6 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
     setSaveError(null);
     const jwt = getToken();
     if (!jwt) { setSaveError("Not authenticated."); return; }
-    const overrides = modelOverridesRef.current;
     const sel = selectionsRef.current;
     const { ids: gateAgentIds, touched: gatesTouched } = gateSelectionRef.current;
     const wizardConfig: Record<string, unknown> = {
@@ -432,7 +424,6 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         description: description || undefined,
         base_pipeline_type: MODE_CONFIG[mode].savePipeline,
         agent_ids: pipelineAgents.map((a) => a.id),
-        model_overrides: Object.keys(overrides).length > 0 ? overrides : undefined,
         selections: { ...sel, _wizard: wizardConfig },
       });
       setSavedConfirm(true);
@@ -470,7 +461,6 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
       sourceRunId,
       gateAgentIds,
       gatesTouched,
-      modelOverrides: modelOverridesRef.current,
       selections: selectionsRef.current,
       images: attachedImages,
       agentIds: pipelineAgents.map((a) => a.id),
@@ -787,7 +777,6 @@ export function LaunchWizard({ initialMode }: LaunchWizardProps) {
         onRemoveAgent={handleRemoveAgent}
         onReorder={handleReorderAgents}
         canAddMore={canAddMore}
-        onModelOverridesChange={handleModelOverridesChange}
         onSelectionsChange={handleSelectionsChange}
       />
 
