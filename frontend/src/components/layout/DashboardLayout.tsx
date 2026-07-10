@@ -364,6 +364,7 @@ export function DashboardLayout({
     markCompleted,
     markFailed,
     markCancelled,
+    markGatePaused,
     markAllRead,
     clearAll,
   } = useNotifications();
@@ -462,8 +463,35 @@ export function DashboardLayout({
           }]);
         }
       }
+
+      // Terminal failure / cancellation — fire the matching notification off the
+      // GENERIC plan-05 pipelineState markers (failed / cancelled), NEVER a
+      // workflow name (SC-001/INV-1). The completed branch above already reset
+      // currentPipelineNotifId on success, so this only fires for a non-completed
+      // terminal run that still owns a notification id.
+      if (currentPipelineNotifId.current) {
+        if (pipelineState.failed) {
+          const notifId = currentPipelineNotifId.current;
+          currentPipelineNotifId.current = null;
+          markFailed(notifId);
+        } else if (pipelineState.cancelled) {
+          const notifId = currentPipelineNotifId.current;
+          currentPipelineNotifId.current = null;
+          markCancelled(notifId);
+        }
+      }
     }
   }, [pipelineState, workflowType, pptContent, userStoryContent, prototypeContent]);
+
+  // Gate paused — a review gate opened mid-run. Fire the gate notification off
+  // the GENERIC markers (reviewGateData + running), the SAME condition that
+  // drives runLaneState==="gate" (:1311) — never a workflow name (SC-001/INV-1).
+  useEffect(() => {
+    if (reviewGateData && pipelineState?.isRunning && currentPipelineNotifId.current) {
+      markGatePaused(currentPipelineNotifId.current);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviewGateData, pipelineState?.isRunning]);
 
   // Update notification progress as agents complete
   useEffect(() => {
