@@ -1522,7 +1522,7 @@ export function DashboardLayout({
                         {recentRuns.slice(0, 4).map((run) => (
                           <button
                             key={run.id}
-                            onClick={() => onSelectWorkflowRun?.(run)}
+                            onClick={() => { onSelectWorkflowRun?.(run); setMainView("execution"); }}
                             className="group inline-flex items-center gap-2 rounded-[var(--radius-button)] border border-line-border bg-surface-card px-3 py-1.5 text-left transition-colors hover:border-brand-border hover:bg-surface-warm"
                           >
                             <span className="max-w-[220px] truncate text-[12px] font-medium text-ink-800 group-hover:text-brand">
