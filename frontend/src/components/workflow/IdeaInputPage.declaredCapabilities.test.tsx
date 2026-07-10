@@ -111,6 +111,10 @@ describe("IdeaInputPage — SURF-03 declared-capabilities live wiring", () => {
     // Open the composer (AgentsPopup) via the Advanced control.
     await user.click(screen.getByRole("button", { name: /advanced/i }));
 
+    // The capabilities strip lives on the AgentsPopup "Workflow" tab (Skills /
+    // Hooks / Capabilities), not the default "Agents" tab — switch to it.
+    await user.click(screen.getByRole("button", { name: /^workflow/i }));
+
     // The SURF-03 strip renders, sourced from the fetched projection — the step
     // name + its per-step declared capabilities (validators) appear.
     await waitFor(() =>
@@ -131,6 +135,9 @@ describe("IdeaInputPage — SURF-03 declared-capabilities live wiring", () => {
     renderPage(undefined);
 
     await user.click(screen.getByRole("button", { name: /advanced/i }));
+    // Navigate to the same "Workflow" tab the strip would render on, so the
+    // absence assertion is meaningful (not merely "wrong tab").
+    await user.click(screen.getByRole("button", { name: /^workflow/i }));
 
     // No id ⇒ no projection fetch and the strip never renders.
     expect(mockGetWorkflowDetail).not.toHaveBeenCalled();

@@ -130,9 +130,12 @@ describe("AgentProgressPanel — Suggested next steps", () => {
       />,
     );
     expect(screen.getByText(/suggested next steps/i)).toBeInTheDocument();
-    expect(screen.queryByText("Presentation")).not.toBeInTheDocument();
-    expect(screen.getByText("User Stories")).toBeInTheDocument();
-    expect(screen.getByText("Prototype")).toBeInTheDocument();
+    // Query the chain TILES by button role: "Presentation" also appears as the
+    // panel's own header label (the current run's display name), so a plain
+    // getByText would false-positive on the header — mirror the sibling test.
+    expect(screen.queryByRole("button", { name: /^presentation/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /user stories/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /prototype/i })).toBeInTheDocument();
   });
 
   it("respects completedPipelineTypes (multi-chain history)", () => {
